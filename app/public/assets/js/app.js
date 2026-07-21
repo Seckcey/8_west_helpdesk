@@ -36,6 +36,27 @@
   paintThemeSwitch();
 
   /* ------------------------------------------------------------------ */
+  /* User menu (lower-left identity + preferences)                       */
+  /* ------------------------------------------------------------------ */
+  (() => {
+    const btn = $("#usermenu-btn");
+    const menu = $("#usermenu");
+    if (!btn || !menu) return;
+    const open = () => { menu.hidden = false; btn.setAttribute("aria-expanded", "true"); };
+    const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.hidden ? open() : close();
+    });
+    document.addEventListener("click", (e) => {
+      if (!menu.hidden && !e.target.closest(".usermenu-wrap")) close();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !menu.hidden) { e.stopPropagation(); close(); btn.focus(); }
+    }, true);
+  })();
+
+  /* ------------------------------------------------------------------ */
   /* Toasts                                                              */
   /* ------------------------------------------------------------------ */
   function toast(text) {

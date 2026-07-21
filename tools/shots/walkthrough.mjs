@@ -43,10 +43,12 @@ await page.keyboard.press("j");
 await page.keyboard.press("p");
 await shot("03-queue-keyboard");
 
-// 3b. light theme
+// 3b. light theme (theme switch lives in the user menu)
+await page.click("#usermenu-btn");
 await page.click('[data-theme-opt="light"]');
 await shot("03b-queue-light");
 await page.click('[data-theme-opt="dark"]');
+await page.keyboard.press("Escape");
 await page.waitForTimeout(200);
 
 // 4. open ticket via Enter
@@ -88,6 +90,13 @@ await page.keyboard.press("Escape");
 await page.goto(`${BASE}/users.php`);
 await shot("11-team");
 
+// 9b. user menu + profile
+await page.click("#usermenu-btn");
+await shot("11b-usermenu");
+await page.click("#usermenu-btn");
+await page.goto(`${BASE}/profile.php`);
+await shot("11c-profile");
+
 // 10. new client form
 await page.goto(`${BASE}/client_new.php`);
 await shot("12-client-new");
@@ -97,9 +106,11 @@ await page.goto(`${BASE}/ticket_new.php`);
 await shot("13-ticket-new");
 
 // 12. light-theme ticket (proof theming holds on detail pages)
+await page.click("#usermenu-btn");
 await page.click('[data-theme-opt="light"]');
 await page.goto(`${BASE}/ticket.php?id=102`);
 await shot("14-ticket-light");
+await page.click("#usermenu-btn");
 await page.click('[data-theme-opt="system"]');
 
 await browser.close();

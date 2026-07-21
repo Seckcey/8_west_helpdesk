@@ -123,24 +123,41 @@ function page_top(array $user, string $title, string $active): void
       </div>
       <?php endforeach; ?>
     </div>
-    <div class="theme-switch" role="group" aria-label="Theme">
-      <button type="button" class="theme-btn" data-theme-opt="dark" title="Dark theme" aria-label="Dark theme">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" stroke-linejoin="round"/></svg>
+    <div class="usermenu-wrap">
+      <div class="usermenu" id="usermenu" role="menu" hidden>
+        <div class="um-head">
+          <?= avatar($user, 34) ?>
+          <span class="um-head-text">
+            <span class="um-name"><?= h($user['full_name']) ?></span>
+            <span class="um-email"><?= h($user['email']) ?></span>
+          </span>
+          <span class="role-badge role-<?= h($user['role']) ?>"><?= h($user['role']) ?></span>
+        </div>
+        <div class="um-label">Theme</div>
+        <div class="theme-switch um-theme" role="group" aria-label="Theme">
+          <button type="button" class="theme-btn" data-theme-opt="dark" title="Dark theme" aria-label="Dark theme">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="theme-btn" data-theme-opt="light" title="Light theme" aria-label="Light theme">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" stroke-linecap="round"/></svg>
+          </button>
+          <button type="button" class="theme-btn" data-theme-opt="system" title="Match system theme" aria-label="Match system theme">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 13.5h4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="um-sep"></div>
+        <a class="um-item" href="/profile.php" role="menuitem">My profile</a>
+        <a class="um-item" href="/users.php" role="menuitem">Team</a>
+        <a class="um-item um-danger" href="/logout.php" role="menuitem">Sign out</a>
+      </div>
+      <button type="button" class="sidebar-foot usermenu-btn" id="usermenu-btn" aria-haspopup="true" aria-expanded="false">
+        <?= avatar($user, 30) ?>
+        <span class="foot-text">
+          <span class="foot-name"><?= h($user['full_name']) ?></span>
+          <span class="foot-tenant">8 West IT, LLC</span>
+        </span>
+        <svg class="foot-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m4 10 4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button type="button" class="theme-btn" data-theme-opt="light" title="Light theme" aria-label="Light theme">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" stroke-linecap="round"/></svg>
-      </button>
-      <button type="button" class="theme-btn" data-theme-opt="system" title="Match system theme" aria-label="Match system theme">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 13.5h4" stroke-linecap="round"/></svg>
-      </button>
-    </div>
-    <div class="sidebar-foot">
-      <?= avatar($user, 30) ?>
-      <span class="foot-text">
-        <span class="foot-name"><?= h($user['full_name']) ?></span>
-        <span class="foot-tenant">8 West IT, LLC</span>
-      </span>
-      <a class="foot-out" href="/logout.php" title="Sign out">Sign out</a>
     </div>
   </aside>
   <div class="main">
@@ -152,7 +169,6 @@ function page_top(array $user, string $title, string $active): void
       </button>
       <span class="topbar-flex"></span>
       <a href="/time.php" id="timer-widget" class="timer-widget timer-idle" title="Time tracking">No timer running</a>
-      <?= avatar($user, 30) ?>
     </header>
     <main class="content">
     <?php

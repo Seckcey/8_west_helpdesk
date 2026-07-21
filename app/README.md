@@ -43,9 +43,14 @@ public/                    Apache docroot (page-per-file, like Milepost)
 - API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
 - Keyboard model (client-side): `j/k` move · `↵` open · `s` status · `p` priority ·
   `a` assign · `e` timer · `r` reply · `g q/t/c` navigate · `⌘K` palette.
-- Themes: dark / light / system — switcher in the sidebar (and on login),
+- Themes: dark / light / system — inside the user menu (and on login),
   persisted in localStorage; CSS semantic tokens per theme, dark mode lifted
   one notch brighter than the original abyss-navy.
+- User menu: ONE home for identity + preferences — the lower-left sidebar
+  card (opens upward: theme, My profile, Team, sign out). No duplicate
+  topbar avatar. profile.php: own name + password change. The 8 West ID
+  SSO swap later touches lib/auth.php only — the menu stays as-is and gains
+  suite account switching.
 - CSRF: every POST form carries `csrf_field()`, every API checks the
   `X-CSRF` header (helpers in lib/auth.php).
 
