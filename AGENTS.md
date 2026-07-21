@@ -63,8 +63,14 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
 5. **Verify visually.** After UI work, run `tools/shots/walkthrough.mjs`
    against production and read the PNGs.
 6. **Shared-box discipline:** additive only on the EC2 host (own app dir,
-   docroot, vhost pair, MySQL db/user); Apache `reload` never `restart`;
-   `config/config.php` and the `.pem` never enter git.
+   docroot, vhost pair, MySQL db/user, own `/etc/cron.d/safeharbor`); Apache
+   `reload` never `restart`; `config/config.php` and the `.pem` never enter
+   git.
+7. **Mail pipeline:** outbound = `lib/mailer.php` + `mail_queue` +
+   `cron/mail_dispatch.php`; inbound = `cron/imap_poll.php` (needs
+   `php8.3-imap`, installed). Config mirrors Milepost's `mail.smtp/imap`
+   shape; credentials live ONLY in server `config/config.php` and are
+   synced from Milepost's config server-side (never chat/git).
 
 ## Toolchain notes (Windows dev machine)
 

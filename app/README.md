@@ -14,8 +14,14 @@ db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (as needed)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
-lib/auth.php               session auth (bcrypt; 8 West ID SSO seam)
+lib/auth.php               session auth (bcrypt + CSRF; 8 West ID SSO seam)
 lib/render.php             chrome layout + UI partials + palette data island
+lib/mailer.php             outbound mail (mail_queue table + hand-rolled SMTP,
+                           Milepost's pattern; PHP mail() fallback)
+cron/mail_dispatch.php     1-min outbound sender (backoff retries)
+cron/imap_poll.php         1-min email-to-ticket intake (UNSEEN mail →
+                           tickets/replies; [#123] threads; auto-contacts;
+                           moves processed mail, never deletes)
 public/                    Apache docroot (page-per-file, like Milepost)
   index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
   ticket.php               Ticket detail (thread, reply PRG, rail actions)

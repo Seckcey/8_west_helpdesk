@@ -5,6 +5,7 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/mailer.php';
 enforce_https();
 $user = require_login();
 
@@ -36,6 +37,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
             ->execute([$id, $user['full_name'], 'tech', $body]);
         if ($ticket['status'] === 'open') {
             db()->prepare("UPDATE tickets SET status = 'in_progress' WHERE id = ?")->execute([$id]);
+        }
+        // notify the client contact by email (queued; cron delivers)
+        if (!empty($ticket['contact_id'])) {
+            $kq = db()->prepare('SELECT email FROM contacts WHERE id = ?');
+            $kq->execute([(int)$ticket['contact_id']]);
+            $contactEmail = (string)($kq->fetch()['email'] ?? '');
+            if ($contactEmail !== '') {
+                mail_notify_reply($ticket, $contactEmail, $user['full_name'], $body);
+            }
         }
     }
     header('Location: /ticket.php?id=' . $id . '#reply');

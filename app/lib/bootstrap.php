@@ -45,10 +45,16 @@ function db(): PDO
     return $pdo;
 }
 
+/** Config read with dot paths: cfg('mail.smtp.host'). */
 function cfg(string $key, $default = null)
 {
     global $CONFIG;
-    return $CONFIG[$key] ?? $default;
+    $node = $CONFIG;
+    foreach (explode('.', $key) as $part) {
+        if (!is_array($node) || !array_key_exists($part, $node)) return $default;
+        $node = $node[$part];
+    }
+    return $node;
 }
 
 /** HTML-escape. Every echoed string passes through this. */

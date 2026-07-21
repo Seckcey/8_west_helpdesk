@@ -26,4 +26,31 @@ return [
         'issuer'  => 'https://id.8westit.com',
         'product' => 'safeharbor',
     ],
+
+    // Mail — same shape as Milepost's. Outbound: lib/mailer.php + the
+    // mail_queue table + cron/mail_dispatch.php (1-min). Leave smtp.host
+    // empty to fall back to PHP mail().
+    'mail' => [
+        'from'      => 'safeharbor@8westit.com',
+        'from_name' => 'Safeharbor — 8 West IT',
+        'smtp' => [
+            'host'   => '',        // e.g. 'mail.8westit.com'
+            'port'   => 587,
+            'secure' => 'tls',     // 'tls' | 'ssl' | ''
+            'user'   => '',
+            'pass'   => '',
+        ],
+        // Inbound email-to-ticket (cron/imap_poll.php, 1-min). Leave host
+        // empty to keep intake disabled. Clients email this mailbox; new
+        // mail becomes tickets, [#123] replies append to threads, processed
+        // mail moves to the folder below (never deleted).
+        'imap' => [
+            'host'             => '',   // e.g. 'mail.8westit.com' (IMAP 993/SSL)
+            'port'             => 993,
+            'user'             => '',   // e.g. 'support@8westit.com'
+            'pass'             => '',
+            'mailbox'          => 'INBOX',
+            'processed_folder' => 'Safeharbor/Processed',
+        ],
+    ],
 ];

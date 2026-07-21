@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Deploy the Safeharbor PHP app to safeharbor.8westit.com (EC2, Apache).
 # No build step (plain PHP, like Milepost) — sync brand assets, stream a
-# tarball, untar into the app dir. config/config.php on the server is NEVER
-# overwritten (it holds that host's DB credentials).
+# tarball, untar into the app dir, stamp asset versions for cache-busting.
+# config/config.php on the server is NEVER overwritten.
 #
 # Usage (from the repo root, Git Bash):
 #   KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
@@ -30,12 +30,13 @@ find "$ROOT/app" -name "*.php" -print0 | xargs -0 -n1 php -l > /dev/null
 echo "==> Uploading to $SERVER:$DEST"
 tar -czf - -C "$ROOT" \
   --exclude='app/config/config.php' \
-  --exclude='app/db/*.sqlite*' \
   app | ssh "${SSH_OPTS[@]}" "$SERVER" \
   "mkdir -p '$DEST' && tar -xzf - -C '$DEST' --strip-components=1 --no-same-owner \
    && sudo chown -R ubuntu:www-data '$DEST' \
    && sudo find '$DEST' -type d -exec chmod 2750 {} + \
    && sudo find '$DEST' -type f -exec chmod 640 {} + \
-   && echo 'server: deployed' \$(find '$DEST' -name '*.php' | wc -l) 'PHP files'"
+   && V=\$(date +%Y%m%d%H%M%S) \
+   && sudo sed -i \"s/?v=[0-9A-Za-z]\\+/?v=\$V/g\" '$DEST/lib/render.php' '$DEST/public/login.php' \
+   && echo \"server: deployed (assets v=\$V)\""
 
 echo "==> Live: https://safeharbor.8westit.com"
