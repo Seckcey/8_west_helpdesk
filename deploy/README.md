@@ -1,63 +1,81 @@
 # Deploying Safeharbor to safeharbor.8westit.com
 
-Production host: **safeharbor.8westit.com** (AWS EC2, Ubuntu 24.04, Apache
-2.4 + Let's Encrypt via certbot). The app is a static SPA served by Apache.
+Production host: **safeharbor.8westit.com** (AWS EC2, Ubuntu 24.04).
+Stack: **Apache 2.4 + mod_php (PHP 8.3) + MySQL 8** — identical to Milepost,
+which lives on the same box (`support.8westit.com`).
 
-> ⚠️ **Shared box.** Milepost (`support.8westit.com`) and three other sites
-> live on this instance. All Safeharbor deploys are **additive only**:
-> our own docroot (`/var/www/safeharbor`) and our own vhost
-> (`safeharbor-8westit.conf`). Never edit other vhosts, never `restart`
-> Apache — `reload` only. Access: `ssh -i ~/.ssh/milepost.pem ubuntu@safeharbor.8westit.com`
+> ⚠️ **Shared box.** Milepost and three other sites live here. All Safeharbor
+> work is **additive only**: own app dir (`/srv/8west/apps/safeharbor/`), own
+> docroot, own vhost pair, own MySQL database + user. Never edit other vhosts,
+> never `restart` Apache — `reload` only.
+> SSH: `ssh -i ~/.ssh/milepost.pem ubuntu@safeharbor.8westit.com`
 > (the `.pem` is the Milepost key — never commit it).
 
-## 1. Provision the vhost (once)
+## Layout on the server (mirrors Milepost)
 
-```bash
-# from the repo root on your machine
-scp -i ~/.ssh/milepost.pem deploy/apache-safeharbor.conf deploy/setup-server.sh \
-    ubuntu@safeharbor.8westit.com:/tmp/
-ssh -i ~/.ssh/milepost.pem ubuntu@safeharbor.8westit.com \
-    "sudo bash /tmp/setup-server.sh"
+```
+/srv/8west/apps/safeharbor/current/   the app (deploy target)
+  config/config.php                   DB credentials (server-only, ubuntu:www-data 640)
+  db/ lib/ public/                    code (deployed from this repo)
+/etc/apache2/sites-available/
+  safeharbor-8westit.conf             port 80 (HTTPS redirect)
+  safeharbor-8westit-le-ssl.conf      port 443 (Let's Encrypt)
 ```
 
-Creates the docroot, installs + enables the vhost, config-tests, and
-gracefully reloads Apache.
+## One-time setup (already done 2026-07-21; kept for rebuilds)
 
-## 2. Deploy the app (every release)
+```bash
+# 1. MySQL database + user (password goes into config.php below)
+sudo mysql -e "CREATE DATABASE safeharbor CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; \
+  CREATE USER 'safeharbor'@'localhost' IDENTIFIED BY '<password>'; \
+  GRANT ALL PRIVILEGES ON safeharbor.* TO 'safeharbor'@'localhost'; FLUSH PRIVILEGES;"
+
+# 2. App dir + server config (copy config.sample.php, fill in the password)
+sudo mkdir -p /srv/8west/apps/safeharbor/current/config
+# → write config.php, then:
+sudo chown -R ubuntu:www-data /srv/8west/apps/safeharbor
+sudo chmod 640 /srv/8west/apps/safeharbor/current/config/config.php
+
+# 3. Deploy the code (from your machine), then schema + seed
+KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+sudo mysql safeharbor < /srv/8west/apps/safeharbor/current/db/schema.sql
+cd /srv/8west/apps/safeharbor/current && php db/seed.php
+
+# 4. Vhosts (files in this directory) + reload
+scp -i ~/.ssh/milepost.pem deploy/apache-safeharbor*.conf ubuntu@safeharbor.8westit.com:/tmp/
+ssh -i ~/.ssh/milepost.pem ubuntu@safeharbor.8westit.com \
+  "sudo cp /tmp/apache-safeharbor.conf /etc/apache2/sites-available/safeharbor-8westit.conf && \
+   sudo cp /tmp/apache-safeharbor-le-ssl.conf /etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf && \
+   sudo apache2ctl configtest && sudo systemctl reload apache2"
+```
+
+TLS note: the cert was issued with the box's existing certbot (snap). It lives
+at `/etc/letsencrypt/live/safeharbor.8westit.com/` and renews automatically.
+
+## Every release
 
 ```bash
 KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 ```
 
-Builds `app/dist` and streams it to `/var/www/safeharbor` (Git Bash friendly
-— tar over ssh, no rsync required). Old files are removed first, limited to
-our own docroot.
+No build step — the script lints the PHP, syncs brand assets, and streams
+`app/` to the server (never overwriting `config/config.php`), then fixes
+ownership (`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets
+are cache-busted Milepost-style with `?v=` in `lib/render.php`.
 
-## 3. TLS (once, after the first deploy)
-
-```bash
-ssh -i ~/.ssh/milepost.pem ubuntu@safeharbor.8westit.com \
-    "sudo certbot --apache -d safeharbor.8westit.com --redirect"
-```
-
-Certbot generates `safeharbor-8westit-le-ssl.conf` and the 80→443 redirect,
-matching the box's existing pattern. Renewal is handled by the existing
-certbot timer (`sudo certbot renew --dry-run` to verify).
-
-## 4. Smoke test
+## Smoke test
 
 ```bash
-curl -sI https://safeharbor.8westit.com | head -5                    # 200 + security headers
-curl -s  https://safeharbor.8westit.com | grep -o '<title>[^<]*'     # Safeharbor
-curl -sI https://safeharbor.8westit.com/tickets/1042 | head -1       # 200 (SPA fallback)
-curl -sI https://safeharbor.8westit.com/brand/favicon.svg | head -1  # 200
+curl -s  https://safeharbor.8westit.com/login.php | grep -o '<title>[^<]*'   # Sign in · Safeharbor
+curl -sI https://safeharbor.8westit.com/ | head -1                           # 302 → login
+cd tools/shots && node walkthrough.mjs                                       # full visual walkthrough
 ```
 
-## Notes
+## Rollback
 
-- **No backend yet** (Phase 0). When the API lands: add a
-  `ProxyPass /api/ http://127.0.0.1:8787/` block to this vhost only.
-- **Rollback**: redeploy from an older git commit (`git checkout <sha> -- app`,
-  rebuild, re-run `deploy.sh`).
-- DNS: A record `safeharbor.8westit.com` → the instance (already set).
-- Security group: 22/80/443 inbound (already set).
+```bash
+git checkout <older-sha> && KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+```
+
+DB is forward-only (schema.sql is idempotent via IF NOT EXISTS); reseeding
+(`php db/seed.php`) resets demo data.

@@ -1,47 +1,53 @@
-# Safeharbor App (Phase 0 prototype)
+# Safeharbor App
 
-The clickable prototype for Safeharbor — the help desk app in the 8 West IT
-Total Business Suite. Dark-mode-first, keyboard-driven, built on the brand
-tokens in `../brand/tokens.json`.
+The Safeharbor help desk — **plain PHP 8.3 + MySQL + Apache (mod_php)**, built
+with the exact conventions of Milepost (same layout, same vhost shape, same
+bootstrap style). No framework, no bundler, no build step.
 
-**Stack:** Vite · React 18 · TypeScript · Tailwind CSS v4 · React Router
+**Live:** https://safeharbor.8westit.com · **Demo sign-in:** `frankie@8westit.com` / `harbor`
 
-## Run
+## Layout (mirrors Milepost)
 
-```bash
-cd app
-npm install
-npm run dev        # http://localhost:5178
+```
+config/config.sample.php   host config template (config.php is server-only, gitignored)
+db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
+db/seed.php                CLI demo seed — php db/seed.php
+db/migrations/             numbered SQL migrations (as needed)
+lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
+lib/auth.php               session auth (bcrypt; 8 West ID SSO seam)
+lib/render.php             chrome layout + UI partials + palette data island
+public/                    Apache docroot (page-per-file, like Milepost)
+  index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
+  ticket.php               Ticket detail (thread, reply PRG, rail actions)
+  clients.php, client.php  Clients + "answer the phone smart" screen
+  time.php                 Timer + suggested entries + today's entries
+  login.php, logout.php    Session auth
+  api/ticket_action.php    Optimistic field updates (strict whitelists)
+  api/timer.php            Time-entry logging
+  assets/css/app.css       Hand-written design system (brand tokens, no Tailwind)
+  assets/js/app.js         Keyboard model, ⌘K palette, timer, toasts (vanilla)
+  assets/brand/            Logos (synced from ../../brand by deploy.sh)
 ```
 
-Any email signs in (prototype auth stub — the real flow is the 8 West ID SSO
-contract in `../docs/suite-sso-contract.md`).
+## Conventions
 
-## Verify
+- Every page: `require_once ../lib/render.php; enforce_https(); $user = require_login();`
+  → queries → `page_top($user, $title, $active)` → HTML → `page_bottom(palette_data())`
+- Every string echoed through `h()`. Every query prepared. UTC everywhere.
+- Every entity carries `tenant_id` (Phase 0 = single seeded tenant; SSO claim later).
+- API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
+- Keyboard model (client-side): `j/k` move · `↵` open · `s` status · `p` priority ·
+  `a` assign · `e` timer · `r` reply · `g q/t/c` navigate · `⌘K` palette.
+
+## Develop
+
+There is no local build. Edit, lint, deploy, verify on the server:
 
 ```bash
-npm run build                          # typecheck + production build
-npm run preview -- --port 4173         # serve the build…
-node scripts/screenshots.mjs           # …then capture the visual walkthrough
+find app -name "*.php" -print0 | xargs -0 -n1 php -l     # lint
+KEY=~/.ssh/milepost.pem bash deploy/deploy.sh            # deploy (fast)
+cd tools/shots && node walkthrough.mjs                   # visual verification
 ```
 
-## What's in Phase 0
-
-- **App shell** — sidebar (brand + suite placeholders), top bar (search
-  trigger, timer widget, user), toast stack
-- **The five key screens** — Queue, Ticket, Client(s), Time, ⌘K palette
-- **Keyboard model** — `j/k` move · `Enter` open · `s` status · `p` priority ·
-  `a` assign · `e` timer · `r` reply · `⌘K` everything
-- **Multi-tenant data model** (`src/lib/types.ts`) + seeded 8 West IT tenant
-- **Design system** — tokens generated from `../brand/tokens.json` into
-  `src/styles/tokens.css` (never hand-edit; run
-  `../.venv/Scripts/python.exe ../tools/sync_tokens.py` — from repo root:
-  `./.venv/Scripts/python.exe tools/sync_tokens.py`)
-- **Brand assets wired in** — favicon.svg/ico, app tiles + manifest, sidebar
-  mark, login lockup (from `../brand/`, copied to `public/brand/`)
-
-## Not in Phase 0 (by design)
-
-Backend, real email intake, SLAs engine, automation, AI, mobile. State is
-in-memory (optimistic by design) with the timer persisted to localStorage.
-See the rollout plan in `../docs/`.
+The demo data can always be reset on the server:
+`cd /srv/8west/apps/safeharbor/current && php db/seed.php`

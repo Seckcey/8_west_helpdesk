@@ -18,7 +18,10 @@ secrets.*
 tools/resvg/
 tools/resvg-win64.zip
 
-# Node / app build
+# App config (server-specific, contains DB credentials)
+app/config/config.php
+
+# Node / tooling
 node_modules/
-app/dist/
+app/public/assets/brand/
 *.local

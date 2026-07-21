@@ -1,0 +1,10 @@
+{
+  "name": "safeharbor-shots",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Visual verification walkthrough for Safeharbor (dev tooling only — not part of the app stack).",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.53.0"
+  }
+}
