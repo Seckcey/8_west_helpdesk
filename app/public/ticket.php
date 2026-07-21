@@ -29,6 +29,7 @@ if (!$ticket) {
 
 // ---- reply (POST → redirect → GET) ----
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
+    csrf_check();
     $body = trim((string)$_POST['reply']);
     if ($body !== '') {
         db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
@@ -89,6 +90,7 @@ page_top($user, '#' . $id, 'queue');
 
       <div class="card reply" id="reply">
         <form method="post" action="/ticket.php?id=<?= (int)$ticket['id'] ?>" id="reply-form">
+          <?= csrf_field() ?>
           <textarea name="reply" id="reply-box" rows="3" placeholder="Reply to client…  (⌘Enter to send)"></textarea>
           <div class="reply-foot">
             <span class="reply-hint">Replying moves Open → In Progress automatically</span>

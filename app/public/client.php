@@ -17,6 +17,26 @@ if (!$client) {
     exit;
 }
 
+// ---- contact add / remove ----
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_check();
+    $action = $_POST['action'] ?? '';
+    if ($action === 'add_contact') {
+        $name = trim((string)($_POST['name'] ?? ''));
+        $email = mb_strtolower(trim((string)($_POST['email'] ?? '')));
+        if ($name !== '') {
+            db()->prepare('INSERT INTO contacts (client_id, name, email) VALUES (?,?,?)')
+                ->execute([$id, $name, $email]);
+        }
+    }
+    if ($action === 'remove_contact' && isset($_POST['contact_id'])) {
+        db()->prepare('DELETE FROM contacts WHERE id = ? AND client_id = ?')
+            ->execute([(int)$_POST['contact_id'], $id]);
+    }
+    header('Location: /client.php?id=' . $id);
+    exit;
+}
+
 $tq = db()->prepare(
     'SELECT t.*, c.name AS client_name,
             u.full_name AS assignee_name, u.initials AS assignee_initials, u.color AS assignee_color
@@ -42,6 +62,7 @@ page_top($user, $client['name'], 'clients');
     <h1 class="page-title"><?= h($client['name']) ?></h1>
     <span class="tier <?= $client['sla_tier'] === 'premium' ? 'tier-premium' : '' ?>"><?= h($client['sla_tier']) ?> SLA</span>
     <span class="ticket-sub"><?= h($client['domain']) ?></span>
+    <a href="/client_edit.php?id=<?= (int)$id ?>" class="btn-chip" style="margin-left:auto">Edit</a>
   </div>
 
   <div class="stats">
@@ -65,11 +86,26 @@ page_top($user, $client['name'], 'clients');
       <div class="rail-label">Contacts</div>
       <div class="card rail-list">
         <?php foreach ($contacts as $c): ?>
-        <div class="rail-list-item">
-          <div class="rail-list-name"><?= h($c['name']) ?></div>
-          <div class="rail-list-sub"><?= h($c['email']) ?></div>
+        <div class="rail-list-item" style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div class="rail-list-name"><?= h($c['name']) ?></div>
+            <div class="rail-list-sub"><?= h($c['email']) ?></div>
+          </div>
+          <form method="post" action="/client.php?id=<?= (int)$id ?>" onsubmit="return confirm('Remove <?= h($c['name']) ?>?');">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="remove_contact">
+            <input type="hidden" name="contact_id" value="<?= (int)$c['id'] ?>">
+            <button type="submit" class="btn-link" title="Remove contact">✕</button>
+          </form>
         </div>
         <?php endforeach; ?>
+        <form method="post" action="/client.php?id=<?= (int)$id ?>" class="rail-list-item" style="display:flex;gap:8px;align-items:center">
+          <?= csrf_field() ?>
+          <input type="hidden" name="action" value="add_contact">
+          <input type="text" name="name" required placeholder="Name" style="flex:1;min-width:0;padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:var(--input-bg);color:var(--text);font:inherit;font-size:12.5px">
+          <input type="email" name="email" placeholder="Email" style="flex:1.2;min-width:0;padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:var(--input-bg);color:var(--text);font:inherit;font-size:12.5px">
+          <button type="submit" class="btn-chip">Add</button>
+        </form>
       </div>
       <div class="rail-label">Suite</div>
       <div class="card rail-card rail-suite">

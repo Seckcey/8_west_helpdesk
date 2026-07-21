@@ -10,6 +10,32 @@
   const page = document.body.dataset.active || "";
 
   /* ------------------------------------------------------------------ */
+  /* Theme (dark / light / system)                                       */
+  /* ------------------------------------------------------------------ */
+  const THEME_KEY = "safeharbor.theme";
+  const currentTheme = () => localStorage.getItem(THEME_KEY) || "system";
+
+  function paintThemeSwitch() {
+    $$(".theme-btn").forEach((b) =>
+      b.classList.toggle("theme-on", b.dataset.themeOpt === currentTheme()));
+  }
+
+  function setTheme(t) {
+    localStorage.setItem(THEME_KEY, t);
+    document.documentElement.dataset.theme = t;
+    paintThemeSwitch();
+  }
+
+  $$(".theme-btn").forEach((b) =>
+    b.addEventListener("click", () => setTheme(b.dataset.themeOpt)));
+
+  window
+    .matchMedia("(prefers-color-scheme: light)")
+    .addEventListener("change", () => { if (currentTheme() === "system") paintThemeSwitch(); });
+
+  paintThemeSwitch();
+
+  /* ------------------------------------------------------------------ */
   /* Toasts                                                              */
   /* ------------------------------------------------------------------ */
   function toast(text) {
@@ -28,7 +54,10 @@
   async function api(url, body) {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF": document.body.dataset.csrf || "",
+      },
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error("API " + res.status);
@@ -202,9 +231,11 @@
   function buildPaletteItems(query) {
     const data = paletteData();
     const actions = [
+      { group: "Actions", title: "New ticket", hint: "file one", run: () => nav("/ticket_new.php") },
       { group: "Actions", title: "Go to Queue", hint: "g q", run: () => nav("/") },
       { group: "Actions", title: "Go to Time", hint: "g t", run: () => nav("/time.php") },
       { group: "Actions", title: "Go to Clients", hint: "g c", run: () => nav("/clients.php") },
+      { group: "Actions", title: "Go to Team", run: () => nav("/users.php") },
       { group: "Actions", title: "Sign out", run: () => nav("/logout.php") },
     ];
     const tickets = data.tickets.map((t) => ({
@@ -255,7 +286,7 @@
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "palette-item" + (i === palIndex ? " sel" : "");
-      const dotColor = item.group === "Actions" ? "var(--cyan-300)" : item.group === "Clients" ? "var(--gold-400)" : "var(--blue-500)";
+      const dotColor = item.group === "Actions" ? "var(--cyan)" : item.group === "Clients" ? "var(--gold)" : "var(--accent)";
       btn.innerHTML = `<span class="palette-dot" style="background:${dotColor}"></span>
         <span class="palette-item-main">${escapeHtml(item.title)}</span>
         ${item.hint ? `<span class="palette-item-hint">${escapeHtml(item.hint)}</span>` : ""}`;
@@ -487,6 +518,26 @@
     });
     if (dismiss) dismiss.addEventListener("click", () => rowEl.remove());
   });
+
+  /* new-ticket: filter contacts to the chosen client */
+  (() => {
+    const clientSel = $("#f-client");
+    const contactSel = $("#f-contact");
+    if (!clientSel || !contactSel) return;
+    const options = $$("option[data-client]", contactSel);
+    const sync = () => {
+      const cid = clientSel.value;
+      let first = null;
+      options.forEach((o) => {
+        const show = o.dataset.client === cid;
+        o.hidden = !show;
+        if (show && !first) first = o;
+      });
+      if (contactSel.selectedOptions[0]?.hidden) contactSel.value = first ? first.value : "";
+    };
+    clientSel.addEventListener("change", sync);
+    sync();
+  })();
 
   /* boot */
   paintTimer();

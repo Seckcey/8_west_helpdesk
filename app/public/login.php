@@ -14,6 +14,7 @@ $next = $_GET['next'] ?? '/';
 if (!str_starts_with((string)$next, '/')) $next = '/';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_check();
     $email = trim((string)($_POST['email'] ?? ''));
     $next  = (string)($_POST['next'] ?? '/');
     if (!str_starts_with($next, '/')) $next = '/';
@@ -33,7 +34,8 @@ header('Content-Type: text/html; charset=utf-8');
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
-<link rel="stylesheet" href="/assets/css/app.css?v=1">
+<script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
+<link rel="stylesheet" href="/assets/css/app.css?v=2">
 </head>
 <body class="login-body">
 <div class="login-wrap">
@@ -45,6 +47,7 @@ header('Content-Type: text/html; charset=utf-8');
   <div class="card login-card">
     <?php if ($error): ?><p class="login-error"><?= h($error) ?></p><?php endif; ?>
     <form method="post" action="/login.php" class="login-form">
+      <?= csrf_field() ?>
       <input type="hidden" name="next" value="<?= h($next) ?>">
       <label>Work email
         <input type="email" name="email" value="<?= h($email) ?>" autofocus required>
@@ -64,6 +67,12 @@ header('Content-Type: text/html; charset=utf-8');
     Demo: any seeded email — password <code>harbor</code><br>
     by 8 West IT, LLC · Part of the 8 West IT Total Business Suite
   </p>
+  <div class="theme-switch login-theme" role="group" aria-label="Theme">
+    <button type="button" class="theme-btn" data-theme-opt="dark" title="Dark" aria-label="Dark theme"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" stroke-linejoin="round"/></svg></button>
+    <button type="button" class="theme-btn" data-theme-opt="light" title="Light" aria-label="Light theme"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" stroke-linecap="round"/></svg></button>
+    <button type="button" class="theme-btn" data-theme-opt="system" title="System" aria-label="Match system theme"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 13.5h4" stroke-linecap="round"/></svg></button>
+  </div>
+<script src="/assets/js/app.js?v=2" defer></script>
 </div>
 </body>
 </html>

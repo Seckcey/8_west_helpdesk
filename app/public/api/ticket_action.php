@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../lib/render.php';
 
 $user = require_login();
 $in = json_decode((string)file_get_contents('php://input'), true) ?? $_POST;
+csrf_check();
 
 $id    = (int)($in['id'] ?? 0);
 $field = (string)($in['field'] ?? '');

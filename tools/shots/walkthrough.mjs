@@ -43,6 +43,12 @@ await page.keyboard.press("j");
 await page.keyboard.press("p");
 await shot("03-queue-keyboard");
 
+// 3b. light theme
+await page.click('[data-theme-opt="light"]');
+await shot("03b-queue-light");
+await page.click('[data-theme-opt="dark"]');
+await page.waitForTimeout(200);
+
 // 4. open ticket via Enter
 await page.keyboard.press("Enter");
 await page.waitForURL(/ticket\.php\?id=\d+/);
@@ -76,6 +82,25 @@ await shot("09-time");
 await page.keyboard.press("Control+k");
 await page.keyboard.type("print");
 await shot("10-palette");
+await page.keyboard.press("Escape");
+
+// 9. team page (users CRUD)
+await page.goto(`${BASE}/users.php`);
+await shot("11-team");
+
+// 10. new client form
+await page.goto(`${BASE}/client_new.php`);
+await shot("12-client-new");
+
+// 11. new ticket form
+await page.goto(`${BASE}/ticket_new.php`);
+await shot("13-ticket-new");
+
+// 12. light-theme ticket (proof theming holds on detail pages)
+await page.click('[data-theme-opt="light"]');
+await page.goto(`${BASE}/ticket.php?id=102`);
+await shot("14-ticket-light");
+await page.click('[data-theme-opt="system"]');
 
 await browser.close();
 console.log("done");

@@ -51,6 +51,29 @@ function attempt_login(string $email, string $password): bool
     return true;
 }
 
+/** Per-session CSRF token. */
+function csrf_token(): string
+{
+    if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    return $_SESSION['csrf'];
+}
+
+/** Hidden form input. */
+function csrf_field(): string
+{
+    return '<input type="hidden" name="csrf" value="' . csrf_token() . '">';
+}
+
+/** Verify a POSTed token (form field or X-CSRF header); 419 + exit on miss. */
+function csrf_check(): void
+{
+    $sent = $_POST['csrf'] ?? ($_SERVER['HTTP_X_CSRF'] ?? '');
+    if (!hash_equals($_SESSION['csrf'] ?? '', (string)$sent)) {
+        http_response_code(419);
+        exit('Session expired — go back and try again.');
+    }
+}
+
 function logout(): void
 {
     $_SESSION = [];

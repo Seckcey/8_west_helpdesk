@@ -19,13 +19,18 @@ lib/render.php             chrome layout + UI partials + palette data island
 public/                    Apache docroot (page-per-file, like Milepost)
   index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
   ticket.php               Ticket detail (thread, reply PRG, rail actions)
+  ticket_new.php           New ticket (SLA auto-set from client tier)
   clients.php, client.php  Clients + "answer the phone smart" screen
+  client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
+  users.php                Team — user management (owner/admin add, deactivate)
   time.php                 Timer + suggested entries + today's entries
-  login.php, logout.php    Session auth
+  login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
   api/ticket_action.php    Optimistic field updates (strict whitelists)
   api/timer.php            Time-entry logging
-  assets/css/app.css       Hand-written design system (brand tokens, no Tailwind)
-  assets/js/app.js         Keyboard model, ⌘K palette, timer, toasts (vanilla)
+  assets/css/app.css       Hand-written design system, semantic tokens
+                           (dark / light / system themes)
+  assets/js/app.js         Keyboard model, ⌘K palette, timer, theme switch,
+                           toasts (vanilla)
   assets/brand/            Logos (synced from ../../brand by deploy.sh)
 ```
 
@@ -38,6 +43,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
 - API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
 - Keyboard model (client-side): `j/k` move · `↵` open · `s` status · `p` priority ·
   `a` assign · `e` timer · `r` reply · `g q/t/c` navigate · `⌘K` palette.
+- Themes: dark / light / system — switcher in the sidebar (and on login),
+  persisted in localStorage; CSS semantic tokens per theme, dark mode lifted
+  one notch brighter than the original abyss-navy.
+- CSRF: every POST form carries `csrf_field()`, every API checks the
+  `X-CSRF` header (helpers in lib/auth.php).
 
 ## Develop
 

@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../lib/render.php';
 
 $user = require_login();
 $in = json_decode((string)file_get_contents('php://input'), true) ?? $_POST;
+csrf_check();
 
 $ticketId = (int)($in['ticket_id'] ?? 0);
 $minutes  = max(1, min(24 * 60, (int)($in['minutes'] ?? 0)));

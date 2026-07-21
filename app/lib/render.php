@@ -79,6 +79,7 @@ function page_top(array $user, string $title, string $active): void
         ['/',          'Queue',   'queue',   'G Q', '<path d="M2 4h12M2 8h12M2 12h7" stroke-linecap="round"/>'],
         ['/time.php',  'Time',    'time',    'G T', '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 2" stroke-linecap="round"/>'],
         ['/clients.php', 'Clients', 'clients', 'G C', '<circle cx="5.5" cy="6" r="2.5"/><circle cx="11" cy="7" r="2"/><path d="M1.5 13.5c.6-2.3 2.2-3.5 4-3.5s3.4 1.2 4 3.5M9.5 12.6c.7-1.4 1.9-2.1 3-2.1 1.3 0 2.4.9 2.9 2.6" stroke-linecap="round"/>'],
+        ['/users.php', 'Team',    'team',    '', '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.8-2.6 2.8-4 5-4s4.2 1.4 5 4M11.5 5.8a2 2 0 1 1 .01 0M11.6 9.6c1.6.4 2.8 1.6 3.3 3.4" stroke-linecap="round"/>'],
     ];
     header('Content-Type: text/html; charset=utf-8');
     ?>
@@ -92,9 +93,10 @@ function page_top(array $user, string $title, string $active): void
 <link rel="icon" type="image/x-icon" href="/assets/brand/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png">
 <meta name="theme-color" content="#061936">
-<link rel="stylesheet" href="/assets/css/app.css?v=1">
+<script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
+<link rel="stylesheet" href="/assets/css/app.css?v=2">
 </head>
-<body data-active="<?= h($active) ?>">
+<body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>">
 <div class="shell">
   <aside class="sidebar">
     <a class="brand" href="/">
@@ -120,6 +122,17 @@ function page_top(array $user, string $title, string $active): void
         <span class="suite-box"></span><span class="suite-name"><?= $name ?></span><span class="suite-tag">P2</span>
       </div>
       <?php endforeach; ?>
+    </div>
+    <div class="theme-switch" role="group" aria-label="Theme">
+      <button type="button" class="theme-btn" data-theme-opt="dark" title="Dark theme" aria-label="Dark theme">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" stroke-linejoin="round"/></svg>
+      </button>
+      <button type="button" class="theme-btn" data-theme-opt="light" title="Light theme" aria-label="Light theme">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" stroke-linecap="round"/></svg>
+      </button>
+      <button type="button" class="theme-btn" data-theme-opt="system" title="Match system theme" aria-label="Match system theme">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 13.5h4" stroke-linecap="round"/></svg>
+      </button>
     </div>
     <div class="sidebar-foot">
       <?= avatar($user, 30) ?>
@@ -155,7 +168,7 @@ function page_bottom(array $paletteData = []): void
 <div id="palette-root"></div>
 <div id="toasts" class="toasts"></div>
 <script id="palette-data" type="application/json"><?= json_encode($paletteData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
-<script src="/assets/js/app.js?v=1" defer></script>
+<script src="/assets/js/app.js?v=2" defer></script>
 </body>
 </html>
     <?php
