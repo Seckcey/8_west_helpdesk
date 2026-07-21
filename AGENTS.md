@@ -8,6 +8,9 @@ Full product plan: `docs/8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`
 (regenerate via `tools/build_doc.py`). Current state: **Phase 0 complete**
 (foundation + design system + clickable prototype).
 
+Production host: **https://safeharbor.8westit.com** (AWS EC2, nginx, static
+SPA for now). Deployment kit + runbook: `deploy/`.
+
 ## Layout
 
 | Path | What |
@@ -15,6 +18,7 @@ Full product plan: `docs/8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`
 | `brand/` | Logo system (SVG masters in `svg/`, rasters in `png/`), `tokens.json` — the single source of brand truth |
 | `app/` | Vite + React 18 + TS + Tailwind v4 prototype (Phase 0) |
 | `docs/` | Planning docx, `suite-sso-contract.md` |
+| `deploy/` | nginx conf, provision + deploy scripts, runbook for safeharbor.8westit.com |
 | `tools/` | Python generators (see below); `.venv/` is the project venv |
 
 ## Commands (from repo root)
