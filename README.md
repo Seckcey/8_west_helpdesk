@@ -1,28 +1,33 @@
-# 8 West Helpdesk
+# Safeharbor
 
-The help desk application for the **8 West IT Total Business Suite** for MSPs —
-alongside **Milepost** (RMM / client operations) and **Coastmark** (accounting).
+**Every client issue, safely ashore.**
 
-> Status: **Planning phase.** No application code yet.
+Safeharbor is the help desk app in the **8 West IT Total Business Suite** for
+MSPs — alongside **Milepost** (RMM / client operations) and **Coastmark**
+(accounting). by 8 West IT, LLC.
 
-## Documents
+> Status: **Phase 0 complete** — brand system + clickable prototype.
+> Next: Phase 1 (core ticketing MVP).
 
-| Document | Description |
+## What's here
+
+| Path | What |
 |---|---|
-| `docs/8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx` | Product concept, 20 name/tagline candidates, competitive research, feature blueprint, and phased rollout plan |
+| `brand/` | The Safeharbor brand package — logo masters (horizontal, square, app tile, favicon, mark), rasters, usage guide, canonical `tokens.json` |
+| `app/` | The Phase 0 prototype — Vite + React + TypeScript + Tailwind. Queue, Ticket, Clients, Time, ⌘K palette. See `app/README.md` |
+| `docs/` | Product plan (`8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`) + suite SSO contract |
+| `tools/` | Generators: brand builder, rasterizer, token sync, doc builder |
+
+## Quick start
+
+```bash
+# run the prototype
+cd app && npm install && npm run dev        # http://localhost:5178 (any email signs in)
+```
 
 ## Brand
 
-This product follows the 8 West IT brand system (see [8westit.com](https://8westit.com)):
-
-- Deep-navy night palette: `#031022` / `#061936` / `#0b2448` / `#12345f`
-- Electric blue `#2d8cff` → cyan `#7ddcff` gradients, gold `#f6c95b` highlights
-- Inter typeface, glassmorphic cards, generous radii, plain-spoken voice
-- Wayfinding naming family: **Milepost**, **Coastmark**, and this app
-
-## Repo layout
-
-```
-docs/      Product planning documents
-tools/     Local tooling (e.g., Word document generator)
-```
+Deep-navy night palette, electric blue → cyan signal, gold harbor lamp —
+see `brand/README.md` and `brand/tokens.json`. Product family: wayfinding
+markers — **Milepost** marks where you are, **Coastmark** marks where the
+business stands, **Safeharbor** brings every issue safely in.

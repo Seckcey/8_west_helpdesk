@@ -1,0 +1,28 @@
+/*
+ * GENERATED FILE — do not edit by hand.
+ * Source: brand/tokens.json  (sync: tools/sync_tokens.py)
+ * Safeharbor / 8 West IT brand tokens, mapped into Tailwind v4 theme keys.
+ */
+@theme {
+  --color-navy-950: #031022;
+  --color-navy-900: #061936;
+  --color-navy-800: #0B2448;
+  --color-navy-700: #12345F;
+  --color-blue-500: #2D8CFF;
+  --color-blue-400: #54A8FF;
+  --color-cyan-300: #7DDCFF;
+  --color-gold-400: #F6C95B;
+  --color-mint-300: #62F6B0;
+  --color-ink: #EAF3FF;
+  --color-muted: #AEBED4;
+  --color-muted-strong: #D5E2F5;
+  --color-card: rgba(255,255,255,0.075);
+  --color-card-strong: rgba(255,255,255,0.12);
+  --color-line: rgba(255,255,255,0.16);
+  --color-rose-400: #FF7A85;
+  --radius-sm: 14px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  --shadow-card: 0 24px 70px rgba(0,0,0,0.32);
+}
