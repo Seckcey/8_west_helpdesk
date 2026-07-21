@@ -1,0 +1,15 @@
+# Python tooling (local document generation)
+.venv/
+__pycache__/
+*.pyc
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+*.tmp
+~$*.docx
+
+# Secrets
+.env
+*.key
+secrets.*
