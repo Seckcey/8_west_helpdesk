@@ -8,8 +8,16 @@ Full product plan: `docs/8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`
 (regenerate via `tools/build_doc.py`). Current state: **Phase 0 complete**
 (foundation + design system + clickable prototype).
 
-Production host: **https://safeharbor.8westit.com** (AWS EC2, nginx, static
-SPA for now). Deployment kit + runbook: `deploy/`.
+Production host: **https://safeharbor.8westit.com** (AWS EC2, Ubuntu 24.04,
+**Apache** 2.4 + certbot, static SPA for now). Deployment kit + runbook:
+`deploy/`.
+
+⚠️ **Shared box:** Milepost (`support.8westit.com`, PHP app at
+`/srv/8west/apps/milepost`) and 3 other sites live on this instance. All work
+there must be additive (own docroot `/var/www/safeharbor`, own vhost
+`safeharbor-8westit.conf`); never edit other vhosts; Apache `reload` only,
+never `restart`. SSH: `ssh -i ~/.ssh/milepost.pem ubuntu@safeharbor.8westit.com`
+(key never leaves the local machine, never committed).
 
 ## Layout
 
