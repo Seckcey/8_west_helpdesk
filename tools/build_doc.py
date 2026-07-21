@@ -265,9 +265,9 @@ def build_cover(doc):
     no_table_borders(meta)
     rows = [
         ("Prepared for", "8 West IT, LLC — internal planning"),
-        ("Working name", "“Waymark” (top candidate of 20 — see Section 3)"),
+        ("Chosen name", "Safeharbor — “Every client issue, safely ashore.” (Section 3)"),
         ("Date", "July 21, 2026"),
-        ("Status", "Draft v1.0 — planning phase, no code yet"),
+        ("Status", "v1.1 — name selected; Phase 0 underway"),
     ]
     for i, (k, v) in enumerate(rows):
         c0, c1 = meta.rows[i].cells
@@ -429,8 +429,9 @@ def build_naming(doc):
          "Porthole double meaning: a light, and a window onto the client."),
         ("Lantern", "Carry less. See more.",
          "A hand-held light — a simple tool for dark work; modest and useful."),
-        ("Safeharbor", "Every client issue, safely ashore.",
-         "The destination all support aims for; strongest “resolution” connotation."),
+        ("Safeharbor  ★", "Every client issue, safely ashore.",
+         "The destination all support aims for; strongest “resolution” connotation. "
+         "★ SELECTED — July 21, 2026."),
         ("Watchpost", "Nothing slips past your desk.",
          "Vigilance; pairs naturally with Milepost monitoring alerts."),
         ("Landmark", "Support your clients can actually find.",
@@ -455,21 +456,23 @@ def build_naming(doc):
           widths=[0.35, 1.25, 2.25, 2.15], size=9)
     spacer(doc)
 
-    h2(doc, "3.2  Recommendation — top three")
-    bullets(doc, [
-        ("1. Waymark (recommended). ", "The most disciplined family member: same -mark "
-         "suffix as Coastmark, same “marker” concept as Milepost, and the metaphor is "
-         "perfect — a waymark keeps travelers on course, which is exactly what a help desk "
-         "does for issues. Short, spellable, pronounceable, and the .com is likely "
-         "acquirable (verify)."),
-        ("2. Lightkeeper. ", "The best story: the keeper keeps the lights burning so no "
-         "ship is lost — literally the MSP’s promise to clients. Slightly longer; works "
-         "beautifully in copy (“your clients’ lightkeeper”)."),
-        ("3. Lamplight. ", "The most ownable visually: the brand’s gold accent is a "
-         "lamplight on navy. Warmest and friendliest; least nautical-literal."),
-    ])
+    h2(doc, "3.2  Decision")
     para(doc,
-         "Working name used elsewhere in this document: Waymark.", italic=True, color=MUTED)
+         "Selected July 21, 2026: ", bold=True, color=NAVY_700, space_after=2)
+    rich(doc, [("Safeharbor — “Every client issue, safely ashore.”  ",
+                {"bold": True, "size": 12, "color": NAVY_800})])
+    para(doc,
+         "Safeharbor carries the strongest resolution metaphor in the family: the harbor "
+         "is where every voyage ends safely — which is precisely the job of a help desk. "
+         "It pairs naturally with Coastmark (both coastal), gives the product an "
+         "instantly understood promise, and inspired the brand mark already produced: a "
+         "gold harbor light radiating over the sheltering harbor bowl (see the brand/ "
+         "directory in this repository). Shortlist honored: Waymark (most disciplined "
+         "family fit), Lightkeeper (best story), Lamplight (most visual).")
+    para(doc,
+         "The name Safeharbor is used throughout this document and the product. "
+         "Trademark/domain validation (3.3) applies to Safeharbor as the final candidate.",
+         italic=True, color=MUTED)
 
     h2(doc, "3.3  Validation checklist (before any name is final)")
     bullets(doc, [
@@ -581,7 +584,7 @@ def build_concept(doc):
 
     h2(doc, "5.1  Positioning statement")
     para(doc,
-         "For MSPs of 1–25 technicians who live in the ticket queue all day, Waymark is "
+         "For MSPs of 1–25 technicians who live in the ticket queue all day, Safeharbor is "
          "the help desk in the 8 West IT suite that turns every client signal — email, "
          "portal, chat, or Milepost alert — into a resolved, invoiced outcome with the "
          "fewest clicks in the industry. Unlike ConnectWise and Autotask, it is fast, "
@@ -634,15 +637,15 @@ def build_concept(doc):
 
     h2(doc, "5.4  Suite integration — the killer flows")
     bullets(doc, [
-        ("Milepost → Waymark. ", "A server alert becomes a ticket with the device, client, "
+        ("Milepost → Safeharbor. ", "A server alert becomes a ticket with the device, client, "
          "site, open alerts, and recent patches already attached. One click opens a remote "
          "session from the ticket. Closing the ticket can auto-resolve the alert."),
-        ("Waymark → Coastmark. ", "Approved time on a ticket flows to the client’s "
+        ("Safeharbor → Coastmark. ", "Approved time on a ticket flows to the client’s "
          "agreement; month-end invoicing is a review screen, not a reconciliation project. "
          "No exports, no sync jobs, no “why is QuickBooks different again.”"),
         ("One sign-in, one client record. ", "Suite SSO and a shared client graph: a client "
          "created once exists everywhere — devices in Milepost, invoices in Coastmark, "
-         "tickets in Waymark."),
+         "tickets in Safeharbor."),
     ])
 
 
@@ -763,7 +766,7 @@ def build_pricing(doc):
               ("Monthly terms", "Month-to-month standard; annual optional with discount. No lock-in, ever."),
               ("AI included", "Triage, summaries, drafts in base price. Competitors charge $29–$50/agent extra and are resented for it."),
               ("Unlimited clients", "Per-tech pricing only; adding a 200-endpoint client never changes the bill (mirrors Syncro/Atera’s most-loved trait)."),
-              ("Suite gravity", "Milepost + Coastmark + Waymark bundle: meaningful discount for the full route — priced so the suite is the obvious choice, never a penalty for buying one app."),
+              ("Suite gravity", "Milepost + Coastmark + Safeharbor bundle: meaningful discount for the full route — priced so the suite is the obvious choice, never a penalty for buying one app."),
               ("Founding-member program", "Phase 2 design partners: lifetime discount + direct line to the team in exchange for honest abuse."),
           ],
           widths=[1.7, 4.3], size=9.5)
@@ -806,7 +809,7 @@ def build_risks(doc):
               ("Migration friction keeps MSPs on incumbents",
                "Importers are a launch feature (P3), not an afterthought; white-glove migration free during beta."),
               ("Suite dependency: Milepost/Coastmark timelines slip",
-               "Waymark must stand alone — integration flows degrade gracefully to email/CSV; no phase gates on another product’s code."),
+               "Safeharbor must stand alone — integration flows degrade gracefully to email/CSV; no phase gates on another product’s code."),
               ("AI costs erode margins",
                "Small models for triage/summaries, cached embeddings, per-workspace budgets; measure cost per resolved ticket from day one."),
               ("Small team, big surface area",
@@ -848,7 +851,7 @@ def build_appendix(doc):
     spacer(doc, 10)
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run(p, "— 8 West IT, LLC · Waymark planning draft v1.0 · July 2026 —",
+    run(p, "— 8 West IT, LLC · Safeharbor planning draft v1.1 · July 2026 —",
         size=9, italic=True, color=MUTED)
 
 

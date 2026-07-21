@@ -13,3 +13,7 @@ Thumbs.db
 .env
 *.key
 secrets.*
+
+# Local tools (download per machine, see brand/README.md)
+tools/resvg/
+tools/resvg-win64.zip
