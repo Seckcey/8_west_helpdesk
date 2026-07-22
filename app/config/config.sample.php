@@ -21,10 +21,14 @@ return [
     'app_env' => 'production',
 
     // Suite identity (8 West ID contract: docs/suite-sso-contract.md).
-    // The session seam is lib/auth.php; real OIDC lands in a later phase.
+    // Phase 1 live: lib/auth.php suite_sso_attempt() trusts the signed
+    // suite cookie from id.8westit.com; sso_secret must match the 8 West
+    // ID config on the server (server-only, never committed).
     'suite' => [
-        'issuer'  => 'https://id.8westit.com',
-        'product' => 'safeharbor',
+        'issuer'      => 'https://id.8westit.com',
+        'product'     => 'safeharbor',
+        'sso_secret'  => 'CHANGE_ME',
+        'cookie_name' => 'ewid_token',
     ],
 
     // Mail — same shape as Milepost's. Transport order: Graph → SMTP →

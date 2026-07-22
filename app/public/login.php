@@ -3,7 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/auth.php';
 enforce_https();
 
-if (current_user()) {
+if (current_user() || suite_sso_attempt()) {
     header('Location: /');
     exit;
 }
@@ -58,10 +58,10 @@ header('Content-Type: text/html; charset=utf-8');
       <button type="submit" class="btn-primary">Sign in</button>
     </form>
     <div class="login-divider"><span></span>or<span></span></div>
-    <button class="btn-ghost" type="button" title="8 West ID SSO arrives with the suite contract" disabled>
+    <a class="btn-ghost" href="https://id.8westit.com" style="text-decoration:none; display:flex; align-items:center; justify-content:center; gap:8px;">
       <img src="/assets/brand/safeharbor-mark.svg" alt="" class="sso-mark">
       Continue with 8 West ID
-    </button>
+    </a>
   </div>
   <p class="login-foot">
     Demo: any seeded email — password <code>harbor</code><br>
