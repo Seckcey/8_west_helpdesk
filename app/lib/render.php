@@ -52,6 +52,11 @@ function avatar(?array $user, int $size = 26): string
     if (!$user) {
         return '<span class="avatar avatar-none" style="width:' . $size . 'px;height:' . $size . 'px" title="Unassigned">—</span>';
     }
+    // 8 West ID avatar: the central profile picture follows the user across suite apps.
+    if (!empty($_SESSION['suite_avatar'])
+        && mb_strtolower((string)($user['email'] ?? '')) === ($_SESSION['suite_avatar_email'] ?? '')) {
+        return '<img class="avatar avatar-img" style="width:' . $size . 'px;height:' . $size . 'px" src="' . h($_SESSION['suite_avatar']) . '" alt="" title="' . h($user['full_name']) . '">';
+    }
     return '<span class="avatar" style="width:' . $size . 'px;height:' . $size . 'px;background:' . h($user['color']) . '" title="' . h($user['full_name']) . '">'
          . h($user['initials']) . '</span>';
 }
@@ -93,7 +98,12 @@ function page_top(array $user, string $title, string $active): void
 <link rel="icon" type="image/x-icon" href="/assets/brand/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png">
 <meta name="theme-color" content="#061936">
-<script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
+<script>
+document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";
+<?php if (!empty($_SESSION['suite_theme'])): ?>
+(function(){var t=<?= json_encode($_SESSION['suite_theme']) ?>;localStorage.setItem("safeharbor.theme",t);document.documentElement.dataset.theme=t;})();
+<?php endif; ?>
+</script>
 <link rel="stylesheet" href="/assets/css/app.css?v=2">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>">

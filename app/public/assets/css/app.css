@@ -458,6 +458,7 @@ img { display: block; }
   flex: none;
 }
 .avatar-none { border: 1px dashed var(--line); color: var(--muted); background: transparent; }
+.avatar-img { object-fit: cover; border: 1px solid var(--line); }
 
 /* ==========================================================================
    Ticket detail

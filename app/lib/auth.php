@@ -27,7 +27,38 @@ function current_user(): ?array
     if (empty($_SESSION['user_id'])) return null;
     $stmt = db()->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1');
     $stmt->execute([(int)$_SESSION['user_id']]);
-    return $stmt->fetch() ?: null;
+    $user = $stmt->fetch() ?: null;
+    if ($user) suite_sso_refresh_claims();
+    return $user;
+}
+
+/**
+ * Verify the 8 West ID suite cookie and return its claims (or null).
+ * Shared by suite_sso_attempt() and suite_sso_refresh_claims().
+ */
+function suite_sso_claims(): ?array
+{
+    $token = (string)($_COOKIE[cfg('suite.cookie_name', 'ewid_token')] ?? '');
+    if ($token === '') return null;
+    return jwt_verify($token, (string)cfg('suite.sso_secret', ''), (string)cfg('suite.issuer', 'https://id.8westit.com'));
+}
+
+/**
+ * Suite-wide settings sync: when the 8 West ID token changes (theme/avatar
+ * updated at id.8westit.com), refresh the session copies. Render uses them
+ * to apply the theme and show the central avatar. Cheap: one HMAC per request.
+ */
+function suite_sso_refresh_claims(): void
+{
+    $claims = suite_sso_claims();
+    if ($claims === null) return;
+    $etag = $claims['sub'] . '|' . ($claims['8west:theme'] ?? '') . '|' . ($claims['8west:avatar'] ?? '') . '|' . ($claims['exp'] ?? '');
+    if (($_SESSION['suite_claims_etag'] ?? '') === $etag) return;
+    $_SESSION['suite_claims_etag'] = $etag;
+    $_SESSION['suite_theme'] = in_array($claims['8west:theme'] ?? '', ['dark', 'light', 'system'], true)
+        ? $claims['8west:theme'] : 'system';
+    $_SESSION['suite_avatar'] = is_string($claims['8west:avatar'] ?? null) ? $claims['8west:avatar'] : null;
+    $_SESSION['suite_avatar_email'] = mb_strtolower((string)($claims['email'] ?? ''));
 }
 
 /** The signed-in user, or redirect to /login.php. */
@@ -53,10 +84,7 @@ function require_login(): array
  */
 function suite_sso_attempt(): bool
 {
-    $token = (string)($_COOKIE[cfg('suite.cookie_name', 'ewid_token')] ?? '');
-    if ($token === '') return false;
-
-    $claims = jwt_verify($token, (string)cfg('suite.sso_secret', ''), (string)cfg('suite.issuer', 'https://id.8westit.com'));
+    $claims = suite_sso_claims();
     if ($claims === null) return false;
     if (!in_array('safeharbor', (array)($claims['8west:products'] ?? []), true)) return false;
 
