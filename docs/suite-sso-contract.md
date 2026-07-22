@@ -52,3 +52,27 @@ password grant, ever.
 stub-persists the resolved user. The data model is already tenant-scoped
 (`tenantId` on every entity), so swapping the stub for the real OIDC client
 is a one-module change.
+
+## Phase 1 status (2026-07-22) — JWT cookie implementation LIVE
+
+Phase 1 ships a lighter transport than full OIDC: 8 West ID
+(**https://id.8westit.com**, repo `8_west_id`) issues a signed **HS256 JWT**
+in an HttpOnly cookie scoped to `.8westit.com` after password sign-in.
+Claims mirror this contract (`sub`, `email`, `name`, `8west:tenant`,
+`8west:products`, `8west:role`) plus **`8west:theme`** and
+**`8west:avatar`** for suite-wide user settings. Each app verifies the
+cookie with the shared secret (server configs only) and starts its normal
+local session; unknown users are auto-provisioned (8 West ID is the master
+user list).
+
+| App | SSO login | Settings sync | User mapping |
+|---|---|---|---|
+| Safeharbor | live (`lib/auth.php suite_sso_attempt`) | live (theme + avatar) | email |
+| Milepost | live (`portal/lib/auth.php`, `suite_sso.enabled` kill-switch) | live (theme + avatar) | username == email local-part |
+| Coastmark | pending (Laravel guard; Microsoft auth stays fallback) | comes free with the guard | email |
+
+Phase 1 deliberately defers to full OIDC: authorization-code + PKCE,
+rotating refresh tokens, suite-wide front-channel logout (rule 4 — apps'
+local sessions currently persist until their own logout/expiry), and the
+`8west:tenant` multi-MSP picker (single tenant `8west` today). The claim
+shape is stable, so the upgrade is issuer-side, not app-side.

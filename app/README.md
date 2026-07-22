@@ -14,7 +14,8 @@ db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (as needed)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
-lib/auth.php               session auth (bcrypt + CSRF; 8 West ID SSO seam)
+lib/auth.php               session auth (bcrypt + CSRF fallback; 8 West ID SSO live:
+                           suite cookie login + auto-provision + settings sync)
 lib/render.php             chrome layout + UI partials + palette data island
 lib/mailer.php             outbound mail (mail_queue + transports:
                            Graph sendMail → SMTP → PHP mail(); Milepost parity)
@@ -56,8 +57,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
 - User menu: ONE home for identity + preferences — the lower-left sidebar
   card (opens upward: theme, My profile, Team, sign out). No duplicate
   topbar avatar. profile.php: own name + password change. The 8 West ID
-  SSO swap later touches lib/auth.php only — the menu stays as-is and gains
-  suite account switching.
+  8 West ID SSO is live in lib/auth.php (Phase 1 JWT, see
+  docs/suite-sso-contract.md); the menu shows the central 8 West ID avatar.
 - CSRF: every POST form carries `csrf_field()`, every API checks the
   `X-CSRF` header (helpers in lib/auth.php).
 
