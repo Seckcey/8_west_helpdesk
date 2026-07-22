@@ -27,27 +27,37 @@ return [
         'product' => 'safeharbor',
     ],
 
-    // Mail — same shape as Milepost's. Outbound: lib/mailer.php + the
-    // mail_queue table + cron/mail_dispatch.php (1-min). Leave smtp.host
-    // empty to fall back to PHP mail().
+    // Mail — same shape as Milepost's. Transport order: Graph → SMTP →
+    // PHP mail(). Outbound = lib/mailer.php + mail_queue +
+    // cron/mail_dispatch.php; inbound = cron/graph_poll.php (O365) or
+    // cron/imap_poll.php (fallback), both 1-min.
+    //
+    // Microsoft Entra (current): one app registration serves the suite —
+    // APPLICATION permissions Mail.Send (outbound) + Mail.Read (intake),
+    // admin-consented. No mailbox password anywhere; works with Entra
+    // security defaults ON. Synced server-side from Milepost's config.
     'mail' => [
-        'from'      => 'safeharbor@8westit.com',
+        'from'      => 'missioncontrol@8westit.com',
         'from_name' => 'Safeharbor — 8 West IT',
+        'graph' => [
+            'tenant_id'     => '',
+            'client_id'     => '',
+            'client_secret' => '',
+            'sender'        => 'missioncontrol@8westit.com',
+        ],
+        // Provider-agnostic SMTP fallback (used only when graph is unset).
         'smtp' => [
-            'host'   => '',        // e.g. 'mail.8westit.com'
+            'host'   => '',
             'port'   => 587,
-            'secure' => 'tls',     // 'tls' | 'ssl' | ''
+            'secure' => 'tls',
             'user'   => '',
             'pass'   => '',
         ],
-        // Inbound email-to-ticket (cron/imap_poll.php, 1-min). Leave host
-        // empty to keep intake disabled. Clients email this mailbox; new
-        // mail becomes tickets, [#123] replies append to threads, processed
-        // mail moves to the folder below (never deleted).
+        // IMAP fallback intake (used only when graph is unset / non-M365).
         'imap' => [
-            'host'             => '',   // e.g. 'mail.8westit.com' (IMAP 993/SSL)
+            'host'             => '',
             'port'             => 993,
-            'user'             => '',   // e.g. 'support@8westit.com'
+            'user'             => '',
             'pass'             => '',
             'mailbox'          => 'INBOX',
             'processed_folder' => 'Safeharbor/Processed',

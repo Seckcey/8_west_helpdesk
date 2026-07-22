@@ -16,12 +16,13 @@ db/migrations/             numbered SQL migrations (as needed)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
 lib/auth.php               session auth (bcrypt + CSRF; 8 West ID SSO seam)
 lib/render.php             chrome layout + UI partials + palette data island
-lib/mailer.php             outbound mail (mail_queue table + hand-rolled SMTP,
-                           Milepost's pattern; PHP mail() fallback)
+lib/mailer.php             outbound mail (mail_queue + transports:
+                           Graph sendMail → SMTP → PHP mail(); Milepost parity)
+lib/intake.php             shared inbound logic (threading, contacts, confirms)
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
-cron/imap_poll.php         1-min email-to-ticket intake (UNSEEN mail →
-                           tickets/replies; [#123] threads; auto-contacts;
-                           moves processed mail, never deletes)
+cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
+                           (Entra app, Mail.Read; marks read, never deletes)
+cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
 public/                    Apache docroot (page-per-file, like Milepost)
   index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
   ticket.php               Ticket detail (thread, reply PRG, rail actions)

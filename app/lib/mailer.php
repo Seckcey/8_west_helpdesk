@@ -16,9 +16,125 @@ function mail_queue(string $to, string $subject, string $bodyText, ?int $ticketI
     return (int)db()->lastInsertId();
 }
 
+/* ------------------------------------------------------------------ */
+/* Transport 1: Microsoft Graph sendMail (Entra app, client            */
+/* credentials — same pattern as Milepost; works with Entra security   */
+/* defaults ON and survives Microsoft's basic-auth retirement).        */
+/* ------------------------------------------------------------------ */
+
+/** The configured mail.graph block, or null unless ALL fields are set. */
+function mailer_graph_config(): ?array
+{
+    $g = cfg('mail.graph');
+    if (!is_array($g)) return null;
+    $out = [];
+    foreach (['tenant_id', 'client_id', 'client_secret', 'sender'] as $k) {
+        $v = trim((string)($g[$k] ?? ''));
+        if ($v === '') return null;
+        $out[$k] = $v;
+    }
+    return $out;
+}
+
+function graph_http_post(string $url, array $headers, string $payload, int $timeout = 20): array
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => $timeout,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_POSTFIELDS     => $payload,
+    ]);
+    $resp  = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $cerr  = curl_error($ch);
+    $http  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($errno !== 0) return ['error' => "could not reach Microsoft ({$cerr})"];
+    return ['http' => $http, 'body' => (string)$resp];
+}
+
+function graph_http_get(string $url, string $token, int $timeout = 20): array
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => $timeout,
+        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $token],
+    ]);
+    $resp = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $cerr = curl_error($ch);
+    $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($errno !== 0) return ['error' => "could not reach Microsoft ({$cerr})"];
+    return ['http' => $http, 'body' => (string)$resp];
+}
+
+/** App-only token, cached in-process (cron sends batches per run). */
+function graph_token(array $g, ?string &$err = null): ?string
+{
+    static $cache = null; // [client_id, expires_at, token]
+    $now = time();
+    if (is_array($cache) && $cache[0] === $g['client_id'] && $cache[1] > $now + 60) {
+        return $cache[2];
+    }
+    $r = graph_http_post(
+        'https://login.microsoftonline.com/' . rawurlencode($g['tenant_id']) . '/oauth2/v2.0/token',
+        ['Content-Type: application/x-www-form-urlencoded'],
+        http_build_query([
+            'grant_type'    => 'client_credentials',
+            'client_id'     => $g['client_id'],
+            'client_secret' => $g['client_secret'],
+            'scope'         => 'https://graph.microsoft.com/.default',
+        ])
+    );
+    if (isset($r['error'])) { $err = 'Graph token request failed: ' . $r['error']; return null; }
+    $j = json_decode($r['body'], true);
+    if ($r['http'] !== 200 || !is_array($j) || trim((string)($j['access_token'] ?? '')) === '') {
+        $detail = is_array($j) ? (string)($j['error_description'] ?? ($j['error'] ?? '')) : (string)$r['body'];
+        $err = 'Graph token rejected (HTTP ' . $r['http'] . '): '
+             . substr(trim(preg_replace('/\s+/', ' ', $detail)), 0, 300);
+        return null;
+    }
+    $cache = [$g['client_id'], $now + max(60, (int)($j['expires_in'] ?? 3600)), (string)$j['access_token']];
+    return $cache[2];
+}
+
+function mailer_send_graph(array $g, string $to, string $subject, string $body, ?string &$err = null): bool
+{
+    $token = graph_token($g, $err);
+    if ($token === null) return false;
+    $msg = [
+        'message' => [
+            'subject' => $subject,
+            'body'    => ['contentType' => 'Text', 'content' => $body],
+            'toRecipients' => [['emailAddress' => ['address' => $to]]],
+        ],
+        'saveToSentItems' => false,
+    ];
+    $r = graph_http_post(
+        'https://graph.microsoft.com/v1.0/users/' . rawurlencode($g['sender']) . '/sendMail',
+        ['Authorization: Bearer ' . $token, 'Content-Type: application/json'],
+        json_encode($msg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+    );
+    if (isset($r['error'])) { $err = 'Graph sendMail failed: ' . $r['error']; return false; }
+    if ($r['http'] !== 202) {
+        $err = 'Graph sendMail rejected (HTTP ' . $r['http'] . '): '
+             . substr(trim(preg_replace('/\s+/', ' ', (string)$r['body'])), 0, 300);
+        return false;
+    }
+    return true;
+}
+
 /** Send one email NOW (used by the dispatch cron). Returns true on success. */
 function mail_send(string $to, string $subject, string $bodyText, ?string &$error = null): bool
 {
+    // Transport order (Milepost parity): Graph → SMTP → PHP mail()
+    $g = mailer_graph_config();
+    if ($g !== null) return mailer_send_graph($g, $to, $subject, $bodyText, $error);
+
     $smtp = cfg('mail.smtp') ?? [];
     $host = trim((string)($smtp['host'] ?? ''));
     if ($host === '') {
