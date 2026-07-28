@@ -31,6 +31,18 @@ return [
         'cookie_name' => 'ewid_token',
     ],
 
+    // Service-to-service intake (Phase 8.1, Path B — signed alert events
+    // from Milepost land as channel='alert' tickets via api/svc/alerts.php;
+    // design: docs/sprint-8.1-svc-alert-intake.md). Ships DARK: enabled
+    // stays false until the Milepost emitter side (Sprint 8.1.2) is ready.
+    // Secrets are server-only, never committed; one per calling service.
+    'svc' => [
+        'enabled' => false,
+        'secrets' => [
+            'milepost' => 'EXAMPLE_SVC_HMAC_SECRET',
+        ],
+    ],
+
     // Mail — same shape as Milepost's. Transport order: Graph → SMTP →
     // PHP mail(). Outbound = lib/mailer.php + mail_queue +
     // cron/mail_dispatch.php; inbound = cron/graph_poll.php (O365) or
