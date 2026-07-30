@@ -162,12 +162,39 @@ check('refire_refreshes_subject', ($t['subject'] ?? '') === '[warning] disk_free
 check('refire_appends_system_line', $t !== null && message_count((int)$t['id']) === 2
     && str_contains(last_message((int)$t['id']), 're-fired'));
 
-// --- resolve -------------------------------------------------------------
+// --- resolve: auto-close untouched tickets --------------------------------
 $r = svc_alert_handle(valid_payload(['event' => 'resolved']));
 check('resolve_known_key_updates', $r['ok'] === true && $r['action'] === 'updated');
 $t = ticket_by_key('alert:9001');
-check('resolve_never_closes_ticket', ($t['status'] ?? '') === 'open');
-check('resolve_appends_system_line', $t !== null && str_contains(last_message((int)$t['id']), 'Resolved at source'));
+check('resolve_autocloses_untouched_ticket', ($t['status'] ?? '') === 'resolved');
+$resAtOk = $t && !empty($t['resolved_at']) && abs(strtotime($t['resolved_at'] . ' UTC') - time()) < 300;
+check('resolve_stamps_resolved_at', $resAtOk);
+check('resolve_line_marks_auto_close', $t !== null && str_contains(last_message((int)$t['id']), 'Resolved at source')
+    && str_contains(last_message((int)$t['id']), 'auto-closed'));
+
+// --- resolve: replays and late re-fires never resurrect -------------------
+$before = message_count((int)$t['id']);
+$r = svc_alert_handle(valid_payload(['event' => 'resolved']));
+check('resolve_replay_is_ignored', $r['ok'] === true && $r['action'] === 'ignored');
+check('resolve_replay_adds_no_line', message_count((int)$t['id']) === $before);
+$r = svc_alert_handle(valid_payload(['alert' => ['severity' => 'critical', 'message' => 'C: free space 2.0%']]));
+check('refire_on_closed_ticket_updates', $r['ok'] === true && $r['action'] === 'updated');
+$t2 = ticket_by_key('alert:9001');
+check('refire_never_reopens_closed_ticket', ($t2['status'] ?? '') === 'resolved');
+check('refire_on_closed_keeps_subject', ($t2['subject'] ?? '') === '[warning] disk_free on ACME-DC01');
+check('refire_on_closed_appends_line', $t2 !== null && str_contains(last_message((int)$t2['id']), 'after close'));
+
+// --- resolve: human-owned tickets stay with the human ----------------------
+svc_alert_handle(valid_payload(['external_key' => 'alert:9006']));
+db()->prepare("UPDATE tickets SET status = 'in_progress' WHERE external_key = 'alert:9006'")->execute();
+$r = svc_alert_handle(valid_payload(['event' => 'resolved', 'external_key' => 'alert:9006']));
+check('resolve_human_owned_updates', $r['ok'] === true && $r['action'] === 'updated');
+$t3 = ticket_by_key('alert:9006');
+check('resolve_human_owned_stays_open', ($t3['status'] ?? '') === 'in_progress');
+check('resolve_human_owned_line_no_autoclose', $t3 !== null && str_contains(last_message((int)$t3['id']), 'Resolved at source')
+    && !str_contains(last_message((int)$t3['id']), 'auto-closed'));
+
+// --- resolve: unknown keys stay harmless -----------------------------------
 $r = svc_alert_handle(valid_payload(['event' => 'resolved', 'external_key' => 'alert:9002']));
 check('resolve_unknown_key_ignored', $r['ok'] === true && $r['action'] === 'ignored');
 check('resolve_unknown_creates_nothing', ticket_by_key('alert:9002') === null);
