@@ -6,6 +6,10 @@
  * back to Milepost, never remediated, never written to the Milepost DB.
  * Idempotent on (tenant_id, external_key): re-fires update the existing
  * ticket and append a system line; they never create duplicates.
+ * Auto-close (founder rule, 2026-07-30): a source resolve closes a ticket
+ * no human has touched (status still 'open'). Once a tech moves the ticket
+ * (in_progress / waiting), ownership is human — the resolve lands as a
+ * system line and the human still closes it. Replays never re-open.
  * Mirrors lib/intake.php conventions (catch-all client, SLA by tier,
  * kind='system' provenance lines) without touching the email pipeline.
  */
@@ -50,7 +54,19 @@ function svc_alert_handle(array $p): array
         if (!$ticket) {
             return ['ok' => true, 'action' => 'ignored', 'ticket' => null];
         }
-        // Humans close tickets. The system line records the source truth.
+        // A replayed resolve on an already-closed ticket adds nothing.
+        if ($ticket['status'] === 'resolved') {
+            return ['ok' => true, 'action' => 'ignored', 'ticket' => (int)$ticket['id']];
+        }
+        // Auto-close a ticket no human has touched. Once a tech moves it
+        // (in_progress / waiting), ownership is human: the source truth
+        // lands as a system line and the human still closes it.
+        if ($ticket['status'] === 'open') {
+            svc_system_line((int)$ticket['id'], 'Resolved at source at ' . $occurredAt . ' UTC. Ticket auto-closed.');
+            db()->prepare('UPDATE tickets SET status = "resolved", resolved_at = ? WHERE id = ?')
+                ->execute([$occurredAt, (int)$ticket['id']]);
+            return ['ok' => true, 'action' => 'updated', 'ticket' => (int)$ticket['id']];
+        }
         svc_system_line((int)$ticket['id'], 'Resolved at source at ' . $occurredAt . ' UTC.');
         return ['ok' => true, 'action' => 'updated', 'ticket' => (int)$ticket['id']];
     }
@@ -79,6 +95,12 @@ function svc_alert_handle(array $p): array
     }
 
     // Re-fire: refresh severity/subject, append provenance, never duplicate.
+    // A re-fire landing after an auto-close is out-of-order noise (a true
+    // new open arrives under a new external_key) — record it, stay closed.
+    if ($ticket['status'] === 'resolved') {
+        svc_system_line((int)$ticket['id'], svc_alert_detail($p, $occurredAt, 'Alert re-fired at source after close'));
+        return ['ok' => true, 'action' => 'updated', 'ticket' => (int)$ticket['id']];
+    }
     db()->prepare('UPDATE tickets SET priority = ?, subject = ? WHERE id = ?')
         ->execute([$priority, $subject, (int)$ticket['id']]);
     svc_system_line((int)$ticket['id'], svc_alert_detail($p, $occurredAt, 'Alert re-fired at source'));
