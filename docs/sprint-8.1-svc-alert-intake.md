@@ -81,9 +81,20 @@ Timestamp must be within ±300 s of server time (replay window). Compare with
   client's tier (premium 2 h / standard 8 h — existing convention).
 - `opened`, known `external_key` → update in place: refresh severity/message,
   append a `system` line "Alert re-fired at {occurred_at}". Never duplicates.
-- `resolved`, known key → append `system` line "Resolved at source at …".
-  **Ticket status is not changed** — a human closes tickets (see kill
-  switch `svc_alert_autoresolve`, default off, out of scope for v1).
+- `resolved`, known key → behavior follows ticket state (**founder rule
+  2026-07-30**, shipped in PR #3, supersedes the v1 "status unchanged"
+  default and the unbuilt `svc_alert_autoresolve` switch):
+  - ticket still `open` (no human has touched it) → append `system` line
+    "Resolved at source at … Ticket auto-closed." **and close it**
+    (`status='resolved'`, `resolved_at` stamped). Machine alerts that clear
+    themselves must not leave open tickets forever; the full paper trail
+    stays inside the ticket.
+  - ticket `in_progress` / `waiting` (a tech owns it) → append the `system`
+    line only; the human still closes it.
+  - ticket already `resolved` → `200 {"action":"ignored"}`, no duplicate
+    line (replay-safe). A late `opened` re-fire on a closed ticket appends
+    provenance ("…after close") but never re-opens — a true new open
+    arrives under a new `external_key`.
 - `resolved`, unknown key → `200 {"action":"ignored"}` (resolve raced ahead
   of open; not an error).
 
