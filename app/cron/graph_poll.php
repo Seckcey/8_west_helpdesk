@@ -51,6 +51,7 @@ $messages = is_array($j['value'] ?? null) ? $j['value'] : [];
 
 $made = 0;
 $appended = 0;
+$dropped = 0;
 foreach ($messages as $msg) {
     $fromEmail = (string)($msg['from']['emailAddress']['address'] ?? '');
     $fromName  = (string)($msg['from']['emailAddress']['name'] ?? '');
@@ -69,11 +70,13 @@ foreach ($messages as $msg) {
     }
 
     $result = intake_message($fromEmail, $fromName, $subject, $body);
-    str_starts_with($result, 'created:') ? $made++ : $appended++;
+    if (str_starts_with($result, 'created:'))      $made++;
+    elseif (str_starts_with($result, 'dropped:'))  $dropped++;
+    else                                           $appended++;
     mark_read($g, $token, (string)$msg['id']);
 }
 
-if ($messages) echo "[" . gmdate('c') . " graph_poll: {$made} tickets created, {$appended} replies appended of " . count($messages) . " mails]\n";
+if ($messages) echo "[" . gmdate('c') . " graph_poll: {$made} tickets created, {$appended} replies appended, {$dropped} auto-mails dropped of " . count($messages) . " mails]\n";
 
 function mark_read(array $g, string $token, string $id): void
 {

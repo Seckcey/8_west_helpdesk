@@ -11,11 +11,7 @@ $user = require_login();
 $error = '';
 $ok = '';
 
-function initials_of(string $name): string
-{
-    $parts = preg_split('/\s+/', trim($name));
-    return mb_substr(mb_strtoupper(mb_substr($parts[0] ?? '?', 0, 1) . mb_substr(end($parts) ?: '', 0, 1)), 0, 2);
-}
+// initials_of() lives in lib/bootstrap.php (shared with Team + SSO provisioning)
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();

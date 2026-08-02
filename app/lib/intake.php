@@ -16,10 +16,24 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/mailer.php';
 
+/**
+ * Bounce / auto-mail detection — the mail-loop killer. A confirmation sent
+ * to a mailer-daemon bounces, the bounce creates a ticket, its confirmation
+ * bounces again, forever (field-found on production 2026-08-01: a 9-day-old
+ * "Undeliverable" loop). Never send ANY outbound to these senders.
+ */
+function intake_is_auto_mail(string $fromEmail, string $subjectText): bool
+{
+    if (preg_match('/^(mailer-daemon|postmaster|no-?reply|donotreply|bounce[s]?|autoreply)@/i', $fromEmail)) return true;
+    if (preg_match('/^(undeliverable|undelivered|delivery (status|has failed)|mail delivery|returned mail|failure notice|auto(matic|-?)\s*(reply|response)|out of office)/i', trim($subjectText))) return true;
+    return false;
+}
+
 function intake_message(string $fromEmail, string $fromName, string $subjectText, string $bodyText): string
 {
     $fromEmail = mb_strtolower(trim($fromEmail));
     if ($fromName === '') $fromName = ucfirst(strtok($fromEmail, '@'));
+    $isAuto = intake_is_auto_mail($fromEmail, $subjectText);
     $bodyText = trim(mb_substr(strip_quoted_reply($bodyText), 0, 8000));
     if ($bodyText === '') $bodyText = '(no text body)';
 
@@ -51,6 +65,11 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
         }
         // unknown ticket id → fall through to a fresh ticket
     }
+
+    // Bounces/auto-replies that don't belong to an existing ticket are pure
+    // noise — drop them (the poll still marks them read). Creating tickets
+    // for them is what let the 2026-08 mail loop fill the database.
+    if ($isAuto) return 'dropped:auto-mail';
 
     // Match sender to a contact, else a client by domain, else catch-all
     $kq = db()->prepare(
@@ -84,16 +103,19 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
     db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
         ->execute([$tid, $fromName, 'client', $bodyText]);
     db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
-        ->execute([$tid, 'Safeharbor', 'system', 'Ticket created from email · SLA response due in ' . $hours . ' hours']);
+        ->execute([$tid, 'Safeharbor', 'system', 'Ticket created from email · SLA response due in ' . $hours . ' hours'
+            . ($isAuto ? ' · auto-mail sender, no confirmation sent' : '')]);
 
-    mail_queue(
-        $fromEmail,
-        '[#' . $tid . '] ' . $subjectClean,
-        "Hi {$fromName},\n\nWe've got it — ticket #{$tid} is open and a tech will reply within your SLA window.\n\n"
-          . "Reply to this email any time to add to the thread (keep [#{$tid}] in the subject).\n"
-          . "— Safeharbor by 8 West IT",
-        $tid
-    );
+    if (!$isAuto) {
+        mail_queue(
+            $fromEmail,
+            '[#' . $tid . '] ' . $subjectClean,
+            "Hi {$fromName},\n\nWe've got it — ticket #{$tid} is open and a tech will reply within your SLA window.\n\n"
+              . "Reply to this email any time to add to the thread (keep [#{$tid}] in the subject).\n"
+              . "— Safeharbor by 8 West IT",
+            $tid
+        );
+    }
     return "created:#{$tid}";
 }
 

@@ -52,9 +52,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
     exit;
 }
 
-$mq = db()->prepare('SELECT * FROM messages WHERE ticket_id = ? ORDER BY created_at ASC, id ASC');
+// Thread, capped: a runaway thread (e.g. a mail loop) must never OOM the
+// page. Show the newest 300 messages in chronological order + an honest note.
+$cq = db()->prepare('SELECT COUNT(*) FROM messages WHERE ticket_id = ?');
+$cq->execute([$id]);
+$threadTotal = (int)$cq->fetchColumn();
+$mq = db()->prepare(
+    'SELECT * FROM (
+        SELECT * FROM messages WHERE ticket_id = ? ORDER BY created_at DESC, id DESC LIMIT 300
+     ) latest ORDER BY created_at ASC, id ASC'
+);
 $mq->execute([$id]);
 $thread = $mq->fetchAll();
+$threadHidden = max(0, $threadTotal - count($thread));
 
 $team = db()->prepare('SELECT full_name, initials, color FROM users WHERE tenant_id = ? AND is_active = 1 ORDER BY id');
 $team->execute([tenant_id()]);
@@ -78,6 +88,9 @@ page_top($user, '#' . $id, 'queue');
     <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>">
       <?php if (!$thread): ?>
         <div class="card empty"><p>No replies yet. <span class="accent">Press R</span> to answer first.</p></div>
+      <?php endif; ?>
+      <?php if ($threadHidden > 0): ?>
+        <div class="msg-system">Showing the latest <?= count($thread) ?> of <?= $threadHidden + count($thread) ?> messages</div>
       <?php endif; ?>
       <?php foreach ($thread as $msg): ?>
         <?php if ($msg['kind'] === 'system'): ?>

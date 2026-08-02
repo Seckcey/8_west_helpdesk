@@ -231,6 +231,8 @@ function mail_subject(string $subject): string
 /** Convenience: standard reply notification to a ticket's contact. */
 function mail_notify_reply(array $ticket, string $contactEmail, string $authorName, string $replyBody): void
 {
+    // Never email machine senders (loop protection — see intake_is_auto_mail)
+    if (preg_match('/^(mailer-daemon|postmaster|no-?reply|donotreply|bounce[s]?|autoreply)@/i', $contactEmail)) return;
     $subject = '[#' . (int)$ticket['id'] . '] ' . $ticket['subject'];
     $body = "Hi — {$authorName} replied to your ticket:\n\n"
           . wordwrap($replyBody, 78) . "\n\n"
