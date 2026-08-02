@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   channel     ENUM('email','portal','alert','phone') NOT NULL DEFAULT 'email',
   sla_due_at  DATETIME NOT NULL,
   resurface_at DATETIME NULL,   -- waiting auto-resurface (housekeeping reopens)
+  merged_into_id INT UNSIGNED NULL,   -- merged tickets keep a stub to the survivor
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   resolved_at DATETIME NULL,
@@ -93,6 +94,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   KEY ix_tickets_tenant_status (tenant_id, status),
   KEY ix_tickets_client (client_id),
   KEY ix_tickets_assignee (assignee_id),
+  FULLTEXT ft_tickets_subject (subject),
   CONSTRAINT fk_tickets_tenant   FOREIGN KEY (tenant_id)   REFERENCES tenants (id),
   CONSTRAINT fk_tickets_client   FOREIGN KEY (client_id)   REFERENCES clients (id),
   CONSTRAINT fk_tickets_contact  FOREIGN KEY (contact_id)  REFERENCES contacts (id),
@@ -111,7 +113,21 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY ix_messages_ticket (ticket_id),
+  FULLTEXT ft_messages_body (body),
   CONSTRAINT fk_messages_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+-- Ticket presence (collision detection heartbeats; stale after ~40s)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ticket_presence (
+  ticket_id INT UNSIGNED NOT NULL,
+  user_id   INT UNSIGNED NOT NULL,
+  mode      ENUM('viewing','typing') NOT NULL DEFAULT 'viewing',
+  last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (ticket_id, user_id),
+  CONSTRAINT fk_presence_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE CASCADE,
+  CONSTRAINT fk_presence_user   FOREIGN KEY (user_id)   REFERENCES users (id)   ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------

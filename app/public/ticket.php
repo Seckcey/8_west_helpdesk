@@ -30,12 +30,26 @@ if (!$ticket) {
 }
 
 // ---- composer (POST → redirect → GET): reply to client OR internal note ----
+$staleDraft = null;
+$staleMode  = 'reply';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
     csrf_check();
     $body   = utf8_clean(trim((string)$_POST['reply']));
     $isNote = (($_POST['mode'] ?? 'reply') === 'note');
     $hasFiles = !empty($_FILES['files']['name'][0] ?? '');
     if ($body === '' && $hasFiles) $body = '(attached files)';
+
+    // Collision guard: if the thread grew since this form was rendered,
+    // BLOCK the send and show the new messages above the preserved draft
+    // (Help Scout's stale-send protection).
+    $lastSeen = (int)($_POST['last_message_id'] ?? 0);
+    $maxQ = db()->prepare('SELECT COALESCE(MAX(id), 0) FROM messages WHERE ticket_id = ?');
+    $maxQ->execute([$id]);
+    if ($body !== '' && $lastSeen > 0 && (int)$maxQ->fetchColumn() > $lastSeen) {
+        $staleDraft = $body;
+        $staleMode  = $isNote ? 'note' : 'reply';
+        $body = '';   // fall through to render — nothing was saved
+    }
     if ($body !== '') {
         db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
             ->execute([$id, $user['full_name'], $isNote ? 'note' : 'tech', $body]);
@@ -57,15 +71,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
     }
     // Time-at-reply: the running timer's minutes ride the Send click, so
     // time capture is a side effect of answering (never a Friday chore).
-    $logMin = max(0, min(24 * 60, (int)($_POST['timer_minutes'] ?? 0)));
-    if ($logMin > 0) {
-        db()->prepare('INSERT INTO time_entries (ticket_id, user_id, minutes, note, billable) VALUES (?,?,?,?,?)')
-            ->execute([$id, (int)$user['id'], $logMin,
-                       ($isNote ? 'Noted on #' : 'Replied on #') . $id,
-                       !empty($_POST['billable']) ? 1 : 0]);
+    if ($staleDraft === null) {
+        $logMin = max(0, min(24 * 60, (int)($_POST['timer_minutes'] ?? 0)));
+        if ($logMin > 0) {
+            db()->prepare('INSERT INTO time_entries (ticket_id, user_id, minutes, note, billable) VALUES (?,?,?,?,?)')
+                ->execute([$id, (int)$user['id'], $logMin,
+                           ($isNote ? 'Noted on #' : 'Replied on #') . $id,
+                           !empty($_POST['billable']) ? 1 : 0]);
+        }
+        header('Location: /ticket.php?id=' . $id . '#reply');
+        exit;
     }
-    header('Location: /ticket.php?id=' . $id . '#reply');
-    exit;
+}
+
+// Merged stub? Point at the survivor.
+$mergedInto = (int)($ticket['merged_into_id'] ?? 0);
+
+// Possible duplicate: another open ticket from the same contact within 48h
+$dupe = null;
+if (!$mergedInto && !empty($ticket['contact_id']) && $ticket['status'] !== 'resolved') {
+    $dq = db()->prepare(
+        "SELECT id, subject FROM tickets
+          WHERE tenant_id = ? AND contact_id = ? AND id != ? AND status != 'resolved'
+            AND merged_into_id IS NULL
+            AND ABS(TIMESTAMPDIFF(HOUR, created_at, ?)) <= 48
+          ORDER BY id DESC LIMIT 1"
+    );
+    $dq->execute([tenant_id(), (int)$ticket['contact_id'], $id, $ticket['created_at']]);
+    $dupe = $dq->fetch() ?: null;
 }
 
 // Thread, capped: a runaway thread (e.g. a mail loop) must never OOM the
@@ -112,11 +145,27 @@ page_top($user, '#' . $id, 'queue');
 ?>
 <div class="page page-ticket">
   <a href="/" class="backlink">← Queue</a>
+  <?php if ($mergedInto): ?>
+    <div class="banner banner-info">This ticket was merged into
+      <a class="link" href="/ticket.php?id=<?= $mergedInto ?>">#<?= $mergedInto ?></a> — the conversation continues there.</div>
+  <?php endif; ?>
+  <?php if ($dupe): ?>
+    <div class="banner banner-warn">Possible duplicate: same contact opened
+      <a class="link" href="/ticket.php?id=<?= (int)$dupe['id'] ?>">#<?= (int)$dupe['id'] ?> <?= h(mb_substr($dupe['subject'], 0, 60)) ?></a>
+      within 48h.
+      <button type="button" class="btn-chip" id="merge-dupe-btn" data-src="<?= (int)$ticket['id'] ?>" data-dst="<?= (int)$dupe['id'] ?>">Merge this into #<?= (int)$dupe['id'] ?></button>
+    </div>
+  <?php endif; ?>
+  <?php if ($staleDraft !== null): ?>
+    <div class="banner banner-warn">⚠ The conversation changed while you were typing — <strong>nothing was sent</strong>.
+      Review the new messages below; your draft is preserved in the composer.</div>
+  <?php endif; ?>
   <div class="ticket-head">
     <span class="ticket-num">#<?= (int)$ticket['id'] ?></span>
     <h1 class="ticket-subject"><?= h($ticket['subject']) ?></h1>
     <span data-chip><?= status_chip($ticket['status']) ?></span>
     <span data-pri><?= priority_glyph($ticket['priority'], true) ?></span>
+    <span class="presence-row" id="presence"></span>
   </div>
   <p class="ticket-sub">
     <a class="link" href="/client.php?id=<?= (int)$ticket['client_id'] ?>"><?= h($ticket['client_name']) ?></a>
@@ -157,13 +206,14 @@ page_top($user, '#' . $id, 'queue');
           <?= csrf_field() ?>
           <input type="hidden" name="mode" id="composer-mode" value="reply">
           <input type="hidden" name="timer_minutes" id="f-timer-minutes" value="0">
+          <input type="hidden" name="last_message_id" value="<?= (int)($thread ? max(array_column($thread, 'id')) : 0) ?>">
           <div class="composer-tabs" role="tablist">
             <button type="button" class="composer-tab tab-on" data-mode="reply" role="tab">Reply <kbd class="kbd">R</kbd></button>
             <button type="button" class="composer-tab" data-mode="note" role="tab">Internal note <kbd class="kbd">N</kbd></button>
             <span class="composer-slash-hint"><kbd class="kbd">/</kbd> saved replies</span>
           </div>
           <div class="canned-pop" id="canned-pop" hidden></div>
-          <textarea name="reply" id="reply-box" rows="3" placeholder="Reply to client…  (⌘Enter to send · / for saved replies)"></textarea>
+          <textarea name="reply" id="reply-box" rows="3" placeholder="Reply to client…  (⌘Enter to send · / for saved replies)" data-stale-mode="<?= h($staleMode) ?>"><?= $staleDraft !== null ? h($staleDraft) : '' ?></textarea>
           <div class="reply-foot">
             <label class="att-pick" title="Attach files (up to 5, 15 MB each)">
               <input type="file" name="files[]" id="f-files" multiple hidden>
@@ -203,6 +253,11 @@ page_top($user, '#' . $id, 'queue');
 
       <div class="rail-label">Time</div>
       <button class="rail-btn timer-btn" id="timer-btn" data-id="<?= (int)$ticket['id'] ?>">▶ Start timer&nbsp;&nbsp;(E)</button>
+
+      <?php if (!$mergedInto): ?>
+      <div class="rail-label">Merge</div>
+      <button class="rail-btn" id="merge-btn" data-id="<?= (int)$ticket['id'] ?>">⇄ Merge into another ticket…</button>
+      <?php endif; ?>
 
       <div class="rail-label">Suite</div>
       <div class="card rail-card rail-suite">

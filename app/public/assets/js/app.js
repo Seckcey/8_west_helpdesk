@@ -249,6 +249,25 @@
     return score + (t.startsWith(q) ? -10 : 0);
   }
 
+  let serverResults = [];
+  let serverTimer = null;
+  function scheduleServerSearch(q) {
+    if (serverTimer) clearTimeout(serverTimer);
+    q = q.trim();
+    if (q.length < 3) { serverResults = []; return; }
+    serverTimer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/search.php?q=" + encodeURIComponent(q), { credentials: "same-origin" });
+        const j = await res.json();
+        if (j.ok) {
+          serverResults = j.results;
+          const input = document.querySelector(".palette-input");
+          if (paletteOpen && input && input.value.trim() === q) renderPaletteList(input.value);
+        }
+      } catch { /* search degrades to local */ }
+    }, 250);
+  }
+
   function buildPaletteItems(query) {
     const data = paletteData();
     const actions = [
@@ -274,11 +293,22 @@
     }));
     const all = [...actions, ...tickets, ...clients];
     if (!query.trim()) return all;
-    return all
+    const filtered = all
       .map((item) => ({ item, score: fuzzy(query, `${item.title} ${item.hint || ""}`) }))
       .filter((x) => x.score >= 0)
       .sort((a, b) => a.score - b.score)
       .map((x) => x.item);
+    // Server results (bodies + resolved) ride below — already matched server-side
+    const localIds = new Set(data.tickets.map((t) => t.id));
+    const deep = serverResults
+      .filter((r) => !localIds.has(r.id))
+      .map((r) => ({
+        group: "All tickets (deep search)",
+        title: `#${r.id} ${r.subject}`,
+        hint: `${r.client} · ${r.status.replace("_", " ")}`,
+        run: () => nav(`/ticket.php?id=${r.id}`),
+      }));
+    return [...filtered, ...deep];
   }
 
   function nav(url) {
@@ -347,7 +377,7 @@
     const overlay = $(".palette-overlay", root);
     const input = $(".palette-input", root);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) closePalette(); });
-    input.addEventListener("input", () => { palIndex = 0; renderPaletteList(input.value); });
+    input.addEventListener("input", () => { palIndex = 0; scheduleServerSearch(input.value); renderPaletteList(input.value); });
     input.focus();
     renderPaletteList("");
   }
@@ -381,6 +411,8 @@
       else if (key === "enter") { e.preventDefault(); if (palItems[palIndex]) palItems[palIndex].run(); }
       return;
     }
+
+    if (helpOpen && key === "escape") { e.preventDefault(); toggleHelp(); return; }
 
     if (mod && key === "k") { e.preventDefault(); paletteOpen ? closePalette() : openPalette(); return; }
 
@@ -469,6 +501,11 @@
         if (page !== "queue") break;
         const pill = $$(".filter-pill")[Number(key) - 1];
         if (pill) { e.preventDefault(); nav(pill.getAttribute("href")); }
+        break;
+      }
+      case "?": {
+        e.preventDefault();
+        toggleHelp();
         break;
       }
     }
@@ -672,8 +709,87 @@
       });
     }
 
+    /* stale-send recovery: restore the note tab + focus the preserved draft */
+    if (box.dataset.staleMode === "note") setMode("note");
+    if (box.value.trim()) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+
+    /* collision detection: heartbeat every 20s, paint who else is here */
+    let lastTyped = 0;
+    box.addEventListener("input", () => { lastTyped = Date.now(); });
+    box.addEventListener("focus", () => { lastTyped = Date.now(); });
+    const presenceEl = $("#presence");
+    async function heartbeat() {
+      if (!ticketId || !presenceEl) return;
+      try {
+        const mode = Date.now() - lastTyped < 12000 ? "typing" : "viewing";
+        const r = await api("/api/presence.php", { ticket_id: Number(ticketId), mode });
+        if (!r.ok) return;
+        presenceEl.innerHTML = r.others.map((o) =>
+          `<span class="presence-chip${o.mode === "typing" ? " presence-typing" : ""}" title="${escapeHtml(o.name)} is ${o.mode}">` +
+          `<span class="avatar" style="width:18px;height:18px;background:${escapeHtml(o.color)};font-size:9px">${escapeHtml(o.initials)}</span>` +
+          `${escapeHtml(o.name)} ${o.mode === "typing" ? "typing…" : "viewing"}</span>`
+        ).join("");
+      } catch { /* presence is decoration — never noisy */ }
+    }
+    heartbeat();
+    setInterval(heartbeat, 20000);
+
     return { setMode, focus: (mode) => { setMode(mode); box.focus(); } };
   })();
+
+  /* ------------------------------------------------------------------ */
+  /* Merge tickets                                                       */
+  /* ------------------------------------------------------------------ */
+  async function mergeTickets(src, dst) {
+    try {
+      const r = await api("/api/ticket_merge.php", { source_id: src, target_id: dst });
+      if (r.ok) { toast(r.toast); setTimeout(() => nav("/ticket.php?id=" + r.target_id), 600); }
+      else toast(r.error || "Merge failed.");
+    } catch { toast("Merge failed — check the ticket number."); }
+  }
+  const mergeBtn = $("#merge-btn");
+  if (mergeBtn) mergeBtn.addEventListener("click", () => {
+    const raw = prompt("Merge #" + mergeBtn.dataset.id + " into which ticket? (number)");
+    const dst = parseInt((raw || "").replace(/[^0-9]/g, ""), 10);
+    if (dst) mergeTickets(Number(mergeBtn.dataset.id), dst);
+  });
+  const mergeDupeBtn = $("#merge-dupe-btn");
+  if (mergeDupeBtn) mergeDupeBtn.addEventListener("click", () => {
+    if (confirm("Merge this ticket into #" + mergeDupeBtn.dataset.dst + "?")) {
+      mergeTickets(Number(mergeDupeBtn.dataset.src), Number(mergeDupeBtn.dataset.dst));
+    }
+  });
+
+  /* ------------------------------------------------------------------ */
+  /* "?" shortcut overlay — the UI teaches itself                        */
+  /* ------------------------------------------------------------------ */
+  let helpOpen = false;
+  function toggleHelp() {
+    const existing = $("#help-overlay");
+    if (existing) { existing.remove(); helpOpen = false; return; }
+    helpOpen = true;
+    const div = document.createElement("div");
+    div.id = "help-overlay";
+    div.className = "palette-overlay";
+    div.innerHTML = `<div class="palette help-panel" role="dialog" aria-label="Keyboard shortcuts">
+      <div class="help-head"><b>Keyboard shortcuts</b><span class="help-close"><kbd class="kbd">esc</kbd></span></div>
+      <div class="help-grid">
+        <div><h4>Queue</h4>
+          <p><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move · <kbd class="kbd">↵</kbd> open</p>
+          <p><kbd class="kbd">1</kbd>–<kbd class="kbd">5</kbd> filters</p></div>
+        <div><h4>Any ticket</h4>
+          <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">a</kbd> assign me</p>
+          <p><kbd class="kbd">e</kbd> timer · <kbd class="kbd">r</kbd> reply · <kbd class="kbd">n</kbd> note</p></div>
+        <div><h4>Composer</h4>
+          <p><kbd class="kbd">/</kbd> saved replies · <kbd class="kbd">⌘↵</kbd> send</p>
+          <p>timer minutes log themselves on Send</p></div>
+        <div><h4>Everywhere</h4>
+          <p><kbd class="kbd">⌘K</kbd> palette (search reaches every message)</p>
+          <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd>/<kbd class="kbd">t</kbd>/<kbd class="kbd">c</kbd> navigate · <kbd class="kbd">?</kbd> this card</p></div>
+      </div></div>`;
+    div.addEventListener("click", (e) => { if (e.target === div) toggleHelp(); });
+    document.body.appendChild(div);
+  }
 
   /* new-ticket: filter contacts to the chosen client */
   (() => {
