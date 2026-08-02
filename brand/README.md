@@ -1,7 +1,8 @@
 # Safeharbor Brand Package
 
 **Safeharbor** — the help desk app in the 8 West IT Total Business Suite
-(alongside **Milepost** · RMM and **Coastmark** · accounting).
+(alongside **Mission Control** · the customer-facing 365 surface,
+**Milepost** · RMM and **Coastmark** · accounting).
 
 > **Every client issue, safely ashore.**
 > by 8 West IT, LLC

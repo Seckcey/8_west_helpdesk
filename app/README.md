@@ -14,8 +14,12 @@ db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (as needed)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
-lib/auth.php               session auth (bcrypt + CSRF fallback; 8 West ID SSO live:
-                           suite cookie login + auto-provision + settings sync)
+lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
+                           suite_sso_attempt() verifies the ewid_token cookie,
+                           keys the user by the immutable `sub` claim, provisions
+                           the tenant and user on first arrival, syncs theme/avatar,
+                           and audits every deny via suite_sso_refuse()
+lib/jwt.php                HS256 codec + jwt_verify_reason() (deny reason codes)
 lib/render.php             chrome layout + UI partials + palette data island
 lib/ai.php                 server-side AI layer (Anthropic/OpenAI via raw cURL;
                            keys server-only; gated dev stub — Milepost port)
@@ -24,6 +28,10 @@ lib/westy.php              Westy, the suite assistant: Safeharbor-grounded
 lib/mailer.php             outbound mail (mail_queue + transports:
                            Graph sendMail → SMTP → PHP mail(); Milepost parity)
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
+lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
+lib/svc_intake.php         Milepost alert events → tickets (idempotent upsert)
+tests/                     CLI-only hermetic tests against a scratch database —
+                           suite_sso_test.php, svc_intake_test.php
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
 cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
@@ -49,6 +57,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   api/presence.php         Collision-detection heartbeat (viewing/typing chips)
   api/search.php           Deep search (subjects + FULLTEXT bodies, resolved incl.)
   api/ticket_merge.php     Merge a ticket into a survivor (stub left behind)
+  api/svc/alerts.php       Signed Milepost alert intake — 404s while svc.enabled
+                           is false (ships dark)
   assets/css/app.css       Hand-written design system, semantic tokens
                            (dark / light / system themes)
   assets/js/app.js         Keyboard model, ⌘K palette, timer, theme switch,
@@ -64,7 +74,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   → queries → `page_top($user, $title, $active)` → HTML → `page_bottom(palette_data())`
 - Every string echoed through `h()`. Every query prepared. UTC everywhere.
 - Every entity carries `tenant_id` (8 West ID sign-ins resolve it from the
-  `8west:tenant` claim; local sign-ins + cron use the seeded tenant 1).
+  `8west:tenant` claim and create the tenant row if the slug is new; local
+  sign-ins + cron use the seeded tenant 1).
 - API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
 - Keyboard model (client-side): `j/k` move · `↵` open · `1–5` filters ·
   `s` status · `p` priority · `a` assign · `e` timer · `r` reply ·
@@ -97,9 +108,10 @@ public/                    Apache docroot (page-per-file, like Milepost)
   one notch brighter than the original abyss-navy.
 - User menu: ONE home for identity + preferences — the lower-left sidebar
   card (opens upward: theme, My profile, Team, sign out). No duplicate
-  topbar avatar. profile.php: own name + password change. The 8 West ID
-  8 West ID SSO is live in lib/auth.php (Phase 1 JWT, see
-  docs/suite-sso-contract.md); the menu shows the central 8 West ID avatar.
+  topbar avatar. profile.php: own name + password change. 8 West ID SSO is
+  implemented in lib/auth.php (HS256 cookie, NOT OIDC — see
+  docs/suite-sso-contract.md); the menu shows the central 8 West ID avatar
+  and theme, both refreshed from the token on every request.
 - CSRF: every POST form carries `csrf_field()`, every API checks the
   `X-CSRF` header (helpers in lib/auth.php).
 

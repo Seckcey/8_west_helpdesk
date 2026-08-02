@@ -77,15 +77,25 @@ ssh -i ~/.ssh/milepost.pem ubuntu@<origin-ip> "sudo mysql safeharbor" \
   < app/db/migrations/NNN_whatever.sql
 ```
 
-Applied to production so far: 001 (mail_queue) · 002 (westy/onboarding) ·
+Recorded as applied to production: 001 (mail_queue) · 002 (westy/onboarding) ·
 003 (canned_responses) · 004 (attachments, email_threads, processed_mail,
 resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat).
+
+Two migration files in the tree are **not** on that list, and the numbering
+does not order them: `002_svc_intake.sql` collides on 002 with
+`002_westy_onboarding.sql`, and `007_suite_subject.sql` came later. Check the
+live schema (`tickets.external_key` + `svc_identities` for the first,
+`users.suite_subject` for the second) rather than trusting the list. 007 is a
+hard prerequisite for 8 West ID sign-in — PDO runs `ERRMODE_EXCEPTION`, so
+`suite_sso_attempt()` throws instead of degrading if the column is absent.
 
 ## Server-side state the deploy does NOT manage
 
 - `config/config.php` — includes the `ai` block (Westy's provider/key,
-  synced from Milepost's config server-side), `suite_sso`/`suite` (SSO
-  secret), `svc` (Milepost alert intake HMAC, dark until 8.1.2), and
+  synced from Milepost's config server-side), `suite` (8 West ID issuer,
+  `sso_secret`, cookie name — there is no `suite_sso` block and no SSO kill
+  switch in this app; an unset secret simply fails every signature), `svc`
+  (Milepost alert intake HMAC, dark until 8.1.2), and
   `storage.attachments_dir`.
 - `/srv/8west/apps/safeharbor/shared/attachments` — attachment bytes,
   `www-data:www-data 770`, created once:
