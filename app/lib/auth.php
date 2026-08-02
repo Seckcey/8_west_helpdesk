@@ -82,40 +82,110 @@ function require_login(): array
  * and auto-provision a local user on first entry (email match). Starts the
  * same session shape as attempt_login().
  */
+/**
+ * Why a suite sign-in was refused (CLAIMS_CONTRACT_V1 4.2: fail closed, audit
+ * every deny). Every path returns false and drops the visitor on the password
+ * form, which is indistinguishable from a mistyped URL unless we record what
+ * happened.
+ *
+ * The visitor is told nothing specific; the log gets the reason code and, when
+ * the signature verified, the subject. Never claim payloads - an audit line
+ * should not become a place where tenant slugs, roles and addresses
+ * accumulate in plaintext.
+ */
+function suite_sso_refuse(string $reason, ?string $subject = null): bool
+{
+    error_log('suite sso deny: ' . $reason . ($subject !== null ? ' sub=' . $subject : ''));
+
+    return false;
+}
+
 function suite_sso_attempt(): bool
 {
-    $claims = suite_sso_claims();
-    if ($claims === null) return false;
-    if (!in_array('safeharbor', (array)($claims['8west:products'] ?? []), true)) return false;
+    $token = (string)($_COOKIE[cfg('suite.cookie_name', 'ewid_token')] ?? '');
+    if ($token === '') return suite_sso_refuse('no_cookie');
 
-    // Tenant resolution is claim-driven (contract rule 1).
-    $slug = (string)($claims['8west:tenant'] ?? '');
+    [$claims, $reason] = jwt_verify_reason(
+        $token,
+        (string)cfg('suite.sso_secret', ''),
+        (string)cfg('suite.issuer', 'https://id.8westit.com')
+    );
+    if ($claims === null) return suite_sso_refuse($reason ?? 'token_rejected');
+
+    $subject = trim((string)($claims['sub'] ?? ''));
+
+    if (!in_array('safeharbor', (array)($claims['8west:products'] ?? []), true)) {
+        return suite_sso_refuse('product_not_entitled', $subject);
+    }
+
+    // Tenant resolution is claim-driven (contract rule 1). The tenant is
+    // provisioned on first arrival rather than having to exist here already:
+    // granting the tile in 8 West ID should be the only step needed to give
+    // somebody access, with no per-app setup.
+    $slug = mb_strtolower(trim((string)($claims['8west:tenant'] ?? '')));
+    if ($slug === '' || in_array($slug, ['8west', 'internal'], true)) {
+        return suite_sso_refuse('tenant_slug_invalid', $subject);
+    }
+
     $stmt = db()->prepare('SELECT id FROM tenants WHERE slug = ?');
     $stmt->execute([$slug]);
     $tenantId = (int)($stmt->fetchColumn() ?: 0);
-    if ($tenantId === 0) return false;
+
+    if ($tenantId === 0) {
+        $stmt = db()->prepare('INSERT INTO tenants (name, slug) VALUES (?, ?)');
+        $stmt->execute([$slug, $slug]);
+        $tenantId = (int)db()->lastInsertId();
+    }
 
     $email = mb_strtolower(trim((string)$claims['email']));
-    $stmt = db()->prepare('SELECT * FROM users WHERE email = ? AND tenant_id = ?');
-    $stmt->execute([$email, $tenantId]);
+
+    // Map by the immutable subject, never by email (CLAIMS_CONTRACT_V1 rev 2).
+    $stmt = db()->prepare('SELECT * FROM users WHERE suite_subject = ?');
+    $stmt->execute([$subject]);
     $user = $stmt->fetch();
 
     if (!$user) {
+        // One-time claim for accounts that predate suite entry: matched by
+        // email only while no subject is attached, then backfilled so every
+        // later sign-in goes through the subject above.
+        $stmt = db()->prepare('SELECT * FROM users WHERE email = ? AND tenant_id = ? AND suite_subject IS NULL');
+        $stmt->execute([$email, $tenantId]);
+        $user = $stmt->fetch();
+
+        if ($user) {
+            $claim = db()->prepare('UPDATE users SET suite_subject = ? WHERE id = ?');
+            $claim->execute([$subject, (int)$user['id']]);
+        }
+    }
+
+    if ($user) {
+        // Existing account: keep the address in step with 8 West ID, which
+        // is the master user list. Matching happens on the subject, so a
+        // changed email updates the record rather than splitting it in two.
+        if (mb_strtolower((string)$user['email']) !== $email) {
+            $sync = db()->prepare('UPDATE users SET email = ? WHERE id = ?');
+            $sync->execute([$email, (int)$user['id']]);
+        }
+    } else {
         // Auto-provision from the master user list at id.8westit.com.
         $name = trim((string)($claims['name'] ?? $email));
         $parts = preg_split('/\s+/', $name) ?: [];
         $initials = mb_strtoupper(mb_substr($parts[0] ?? 'U', 0, 1) . mb_substr(end($parts) ?: '', 0, 1));
         $role = in_array($claims['8west:role'] ?? '', ['owner', 'admin', 'tech'], true) ? $claims['8west:role'] : 'tech';
-        $stmt = db()->prepare('INSERT INTO users (tenant_id, email, password_hash, full_name, initials, role)
-                               VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$tenantId, $email, password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT), $name, $initials, $role]);
+        // The subject is written here, not left for the next sign-in to
+        // backfill: if the address changed in between, an email-only match
+        // would miss and mint a second account - the very split this change
+        // exists to prevent.
+        $stmt = db()->prepare('INSERT INTO users (tenant_id, email, suite_subject, password_hash, full_name, initials, role)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$tenantId, $email, $subject, password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT), $name, $initials, $role]);
         $user = [
             'id' => (int)db()->lastInsertId(),
             'is_active' => 1,
         ];
     }
 
-    if (!(int)$user['is_active']) return false;
+    if (!(int)$user['is_active']) return suite_sso_refuse('user_inactive', $subject);
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];

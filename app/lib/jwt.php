@@ -43,3 +43,32 @@ function jwt_verify(string $token, string $secret, string $issuer): ?array
 
     return $payload;
 }
+
+/**
+ * Same verification as jwt_verify(), but says WHY it refused.
+ *
+ * CLAIMS_CONTRACT_V1 4.2 requires every deny to be audited, and a bare null
+ * cannot be audited usefully - "sign-in failed" reads identically whether the
+ * cookie was absent, forged, or simply stale. Returns [payload, null] on
+ * success or [null, reason] on failure. Reasons are fixed strings, safe to
+ * log: they name the check, never the claim values.
+ *
+ * @return array{0: array<string, mixed>|null, 1: string|null}
+ */
+function jwt_verify_reason(string $token, string $secret, string $issuer): array
+{
+    $parts = explode('.', $token);
+    if (count($parts) !== 3) return [null, 'malformed_token'];
+    [$header, $body, $sig] = $parts;
+
+    $expected = b64url_encode(hash_hmac('sha256', "$header.$body", $secret, true));
+    if (!hash_equals($expected, $sig)) return [null, 'bad_signature'];
+
+    $payload = json_decode(b64url_decode($body), true);
+    if (!is_array($payload)) return [null, 'bad_payload'];
+    if (($payload['iss'] ?? '') !== $issuer) return [null, 'wrong_issuer'];
+    if (($payload['exp'] ?? 0) < time()) return [null, 'expired_token'];
+    if (empty($payload['sub']) || empty($payload['email'])) return [null, 'missing_claims'];
+
+    return [$payload, null];
+}

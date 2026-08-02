@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
   id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   tenant_id     INT UNSIGNED NOT NULL,
   email         VARCHAR(190) NOT NULL,
+  -- 8 West ID's immutable subject. The suite identifies a person by this,
+  -- never by email: an address changes, `sub` does not. NULL until the
+  -- account first arrives through 8 West ID.
+  suite_subject VARCHAR(64) NULL DEFAULT NULL,
   password_hash VARCHAR(255) NOT NULL,
   full_name     VARCHAR(128) NOT NULL,
   initials      VARCHAR(4)   NOT NULL DEFAULT '',
@@ -35,6 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at DATETIME NULL,
   onboarded_at  DATETIME NULL,   -- NULL = Westy still owes them the welcome tour
   PRIMARY KEY (id),
+  UNIQUE KEY uq_users_suite_subject (suite_subject),
   UNIQUE KEY uq_users_tenant_email (tenant_id, email),
   KEY ix_users_tenant (tenant_id),
   CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id)
