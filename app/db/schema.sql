@@ -114,6 +114,22 @@ CREATE TABLE IF NOT EXISTS messages (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
+-- Canned responses (saved replies; merge fields resolve at insert)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS canned_responses (
+  id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id  INT UNSIGNED NOT NULL,
+  title      VARCHAR(80)  NOT NULL,
+  body       TEXT NOT NULL,
+  created_by INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_canned_tenant (tenant_id),
+  CONSTRAINT fk_canned_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_canned_user   FOREIGN KEY (created_by) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
 -- Westy usage/audit (lengths + outcomes only, never message content;
 -- drives the per-user rate limit in api/westy_chat.php)
 -- --------------------------------------------------------

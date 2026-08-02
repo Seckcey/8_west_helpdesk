@@ -31,7 +31,10 @@ function intake_is_auto_mail(string $fromEmail, string $subjectText): bool
 
 function intake_message(string $fromEmail, string $fromName, string $subjectText, string $bodyText): string
 {
-    $fromEmail = mb_strtolower(trim($fromEmail));
+    $fromEmail = mb_strtolower(trim(utf8_clean($fromEmail)));
+    $fromName = utf8_clean($fromName);
+    $subjectText = utf8_clean($subjectText);
+    $bodyText = utf8_clean($bodyText);
     if ($fromName === '') $fromName = ucfirst(strtok($fromEmail, '@'));
     $isAuto = intake_is_auto_mail($fromEmail, $subjectText);
     $bodyText = trim(mb_substr(strip_quoted_reply($bodyText), 0, 8000));

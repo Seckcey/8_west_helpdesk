@@ -28,18 +28,19 @@ if (!$ticket) {
     exit;
 }
 
-// ---- reply (POST → redirect → GET) ----
+// ---- composer (POST → redirect → GET): reply to client OR internal note ----
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
     csrf_check();
-    $body = trim((string)$_POST['reply']);
+    $body   = utf8_clean(trim((string)$_POST['reply']));
+    $isNote = (($_POST['mode'] ?? 'reply') === 'note');
     if ($body !== '') {
         db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
-            ->execute([$id, $user['full_name'], 'tech', $body]);
-        if ($ticket['status'] === 'open') {
+            ->execute([$id, $user['full_name'], $isNote ? 'note' : 'tech', $body]);
+        if (!$isNote && $ticket['status'] === 'open') {
             db()->prepare("UPDATE tickets SET status = 'in_progress' WHERE id = ?")->execute([$id]);
         }
-        // notify the client contact by email (queued; cron delivers)
-        if (!empty($ticket['contact_id'])) {
+        // notify the client contact by email — replies only, never notes
+        if (!$isNote && !empty($ticket['contact_id'])) {
             $kq = db()->prepare('SELECT email FROM contacts WHERE id = ?');
             $kq->execute([(int)$ticket['contact_id']]);
             $contactEmail = (string)($kq->fetch()['email'] ?? '');
@@ -47,6 +48,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
                 mail_notify_reply($ticket, $contactEmail, $user['full_name'], $body);
             }
         }
+    }
+    // Time-at-reply: the running timer's minutes ride the Send click, so
+    // time capture is a side effect of answering (never a Friday chore).
+    $logMin = max(0, min(24 * 60, (int)($_POST['timer_minutes'] ?? 0)));
+    if ($logMin > 0) {
+        db()->prepare('INSERT INTO time_entries (ticket_id, user_id, minutes, note, billable) VALUES (?,?,?,?,?)')
+            ->execute([$id, (int)$user['id'], $logMin,
+                       ($isNote ? 'Noted on #' : 'Replied on #') . $id,
+                       !empty($_POST['billable']) ? 1 : 0]);
     }
     header('Location: /ticket.php?id=' . $id . '#reply');
     exit;
@@ -68,6 +78,28 @@ $threadHidden = max(0, $threadTotal - count($thread));
 
 $team = db()->prepare('SELECT full_name, initials, color FROM users WHERE tenant_id = ? AND is_active = 1 ORDER BY id');
 $team->execute([tenant_id()]);
+
+// Saved replies + the merge values "/" resolves at insert time
+$cq2 = db()->prepare('SELECT id, title, body FROM canned_responses WHERE tenant_id = ? ORDER BY title');
+$cq2->execute([tenant_id()]);
+$cannedRows = $cq2->fetchAll();
+$contactName = '';
+if (!empty($ticket['contact_id'])) {
+    $kq = db()->prepare('SELECT name FROM contacts WHERE id = ?');
+    $kq->execute([(int)$ticket['contact_id']]);
+    $contactName = (string)($kq->fetch()['name'] ?? '');
+}
+$cannedData = [
+    'snippets' => array_map(static fn($r) => [
+        'id' => (int)$r['id'], 'title' => $r['title'], 'body' => $r['body'],
+    ], $cannedRows),
+    'merge' => [
+        'ticket.id'          => (string)$ticket['id'],
+        'client.name'        => (string)$ticket['client_name'],
+        'contact.first_name' => $contactName !== '' ? explode(' ', trim($contactName))[0] : 'there',
+        'tech.first_name'    => explode(' ', trim((string)$user['full_name']))[0],
+    ],
+];
 
 page_top($user, '#' . $id, 'queue');
 ?>
@@ -114,13 +146,26 @@ page_top($user, '#' . $id, 'queue');
       <div class="card reply" id="reply">
         <form method="post" action="/ticket.php?id=<?= (int)$ticket['id'] ?>" id="reply-form">
           <?= csrf_field() ?>
-          <textarea name="reply" id="reply-box" rows="3" placeholder="Reply to client…  (⌘Enter to send)"></textarea>
+          <input type="hidden" name="mode" id="composer-mode" value="reply">
+          <input type="hidden" name="timer_minutes" id="f-timer-minutes" value="0">
+          <div class="composer-tabs" role="tablist">
+            <button type="button" class="composer-tab tab-on" data-mode="reply" role="tab">Reply <kbd class="kbd">R</kbd></button>
+            <button type="button" class="composer-tab" data-mode="note" role="tab">Internal note <kbd class="kbd">N</kbd></button>
+            <span class="composer-slash-hint"><kbd class="kbd">/</kbd> saved replies</span>
+          </div>
+          <div class="canned-pop" id="canned-pop" hidden></div>
+          <textarea name="reply" id="reply-box" rows="3" placeholder="Reply to client…  (⌘Enter to send · / for saved replies)"></textarea>
           <div class="reply-foot">
-            <span class="reply-hint">Replying moves Open → In Progress automatically</span>
-            <button type="submit" class="btn-primary btn-sm">Send</button>
+            <span class="reply-hint" id="composer-hint">Replying emails the client and moves Open → In Progress</span>
+            <label class="timer-log-chip" id="timer-log-chip" hidden>
+              <input type="checkbox" id="f-billable" name="billable" value="1" checked>
+              <span id="timer-log-text">log time</span>
+            </label>
+            <button type="submit" class="btn-primary btn-sm" id="composer-send">Send</button>
           </div>
         </form>
       </div>
+      <script id="canned-data" type="application/json"><?= json_encode($cannedData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
     </div>
 
     <div class="rail">

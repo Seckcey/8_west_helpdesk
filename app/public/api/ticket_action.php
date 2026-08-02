@@ -39,10 +39,32 @@ switch ($field) {
         break;
 
     case 'assignee':
-        // value: "me" toggles current user / unassign
-        $target = ($value === 'me' && (int)$ticket['assignee_id'] !== (int)$user['id']) ? (int)$user['id'] : null;
+        // value: "me" toggles current user / unassign; a numeric id assigns
+        // a teammate (and emails them — accountability without watching).
+        if ($value === 'me') {
+            $target = ((int)$ticket['assignee_id'] !== (int)$user['id']) ? (int)$user['id'] : null;
+        } else {
+            $tq2 = db()->prepare('SELECT id FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1');
+            $tq2->execute([(int)$value, tenant_id()]);
+            $target = $tq2->fetch() ? (int)$value : null;
+        }
         db()->prepare('UPDATE tickets SET assignee_id = ? WHERE id = ?')->execute([$target, $id]);
-        $toast = $target ? 'Assigned to ' . explode(' ', $user['full_name'])[0] : 'Unassigned';
+        if ($target !== null && $target !== (int)$user['id']) {
+            require_once __DIR__ . '/../../lib/mailer.php';
+            $eq = db()->prepare('SELECT email, full_name FROM users WHERE id = ?');
+            $eq->execute([$target]);
+            if ($assignee = $eq->fetch()) {
+                mail_queue(
+                    (string)$assignee['email'],
+                    '[#' . $id . '] Assigned to you: ' . $ticket['subject'],
+                    explode(' ', $user['full_name'])[0] . " assigned you ticket #{$id}:\n\n"
+                      . $ticket['subject'] . "\n\n"
+                      . 'Open: https://safeharbor.8westit.com/ticket.php?id=' . $id,
+                    $id
+                );
+            }
+        }
+        $toast = $target ? 'Assigned' . ($target === (int)$user['id'] ? ' to ' . explode(' ', $user['full_name'])[0] : '') : 'Unassigned';
         break;
 
     default:

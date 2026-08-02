@@ -127,6 +127,15 @@ function tenant_id(): int
     return 1;
 }
 
+/**
+ * Force valid UTF-8, dropping invalid byte sequences. Wild emails (and
+ * mis-encoded clients) send them; a raw insert would 500 on utf8mb4.
+ */
+function utf8_clean(string $s): string
+{
+    return mb_convert_encoding($s, 'UTF-8', 'UTF-8');
+}
+
 /** "FG" from "Frank Gonzalez" — avatar initials (shared by Team page + SSO provisioning). */
 function initials_of(string $name): string
 {

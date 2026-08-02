@@ -855,3 +855,38 @@ img { display: block; }
   background: var(--input-bg); color: var(--text); font-size: 13px; font-family: var(--font);
 }
 #westy-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* ==========================================================================
+   Composer — reply/note tabs, saved-reply "/" pop, time-at-reply chip
+   ========================================================================== */
+.composer-tabs { display: flex; align-items: center; gap: 6px; padding: 8px 10px 0; }
+.composer-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; font-size: 12px; color: var(--muted);
+  border: 1px solid transparent; border-radius: 999px;
+}
+.composer-tab:hover { color: var(--text); background: var(--hover); }
+.composer-tab.tab-on { color: var(--text); background: var(--chip-bg); border-color: var(--line); }
+.composer-slash-hint { margin-left: auto; font-size: 11px; color: var(--dim); display: inline-flex; gap: 4px; align-items: center; }
+.composer-note #reply-box { background: var(--note-bg); }
+.composer-note .composer-tab.tab-on { border-color: var(--gold-soft-border); background: var(--gold-soft-bg); }
+
+.canned-pop {
+  margin: 6px 10px 0; max-height: 220px; overflow-y: auto;
+  background: var(--bg-solid); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-card);
+}
+.canned-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 12px; }
+.canned-item.sel { background: var(--sel); }
+.canned-title { font-size: 13px; color: var(--text); font-weight: 600; }
+.canned-preview { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.canned-empty { padding: 12px; font-size: 12px; color: var(--muted); }
+
+.timer-log-chip {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 4px 10px; font-size: 12px; color: var(--mint);
+  background: var(--mint-soft-bg); border: 1px solid var(--line);
+  border-radius: 999px; margin-right: 8px;
+}
+.timer-log-chip input { accent-color: var(--mint); }
+.snippet-body { font-size: 12px; color: var(--muted); margin: 2px 0; }

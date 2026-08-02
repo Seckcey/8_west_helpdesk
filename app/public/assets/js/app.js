@@ -257,6 +257,7 @@
       { group: "Actions", title: "Go to Time", hint: "g t", run: () => nav("/time.php") },
       { group: "Actions", title: "Go to Clients", hint: "g c", run: () => nav("/clients.php") },
       { group: "Actions", title: "Go to Team", run: () => nav("/users.php") },
+      { group: "Actions", title: "Saved replies", hint: "manage / snippets", run: () => nav("/snippets.php") },
       { group: "Actions", title: "Sign out", run: () => nav("/logout.php") },
     ];
     const tickets = data.tickets.map((t) => ({
@@ -457,8 +458,11 @@
         break;
       }
       case "r": {
-        const box = $("#reply-box");
-        if (box) { e.preventDefault(); box.focus(); }
+        if (composer) { e.preventDefault(); composer.focus("reply"); }
+        break;
+      }
+      case "n": {
+        if (composer) { e.preventDefault(); composer.focus("note"); }
         break;
       }
       case "1": case "2": case "3": case "4": case "5": {
@@ -539,6 +543,127 @@
     });
     if (dismiss) dismiss.addEventListener("click", () => rowEl.remove());
   });
+
+  /* ------------------------------------------------------------------ */
+  /* Composer (ticket page): reply/note tabs, / saved replies, time chip  */
+  /* ------------------------------------------------------------------ */
+  const composer = (() => {
+    const form = $("#reply-form");
+    const box = $("#reply-box");
+    const modeInput = $("#composer-mode");
+    if (!form || !box || !modeInput) return null;
+
+    const hint = $("#composer-hint");
+    const send = $("#composer-send");
+    const tabs = $$(".composer-tab");
+    const HINTS = {
+      reply: "Replying emails the client and moves Open → In Progress",
+      note: "Internal note — the client never sees this",
+    };
+    const PLACEHOLDERS = {
+      reply: "Reply to client…  (⌘Enter to send · / for saved replies)",
+      note: "Internal note…  (⌘Enter to save · / for saved replies)",
+    };
+
+    function setMode(mode) {
+      modeInput.value = mode;
+      tabs.forEach((t) => t.classList.toggle("tab-on", t.dataset.mode === mode));
+      form.classList.toggle("composer-note", mode === "note");
+      box.placeholder = PLACEHOLDERS[mode];
+      if (hint) hint.textContent = HINTS[mode];
+      if (send) send.textContent = mode === "note" ? "Save note" : "Send";
+    }
+    tabs.forEach((t) => t.addEventListener("click", () => { setMode(t.dataset.mode); box.focus(); }));
+
+    /* saved replies: type "/" at the start of the box */
+    const pop = $("#canned-pop");
+    const dataEl = $("#canned-data");
+    let canned = { snippets: [], merge: {} };
+    try { canned = JSON.parse(dataEl ? dataEl.textContent : "{}"); } catch { /* island optional */ }
+    let popIndex = 0;
+    let popItems = [];
+
+    const mergeResolve = (text) =>
+      text.replace(/\{([a-z_.]+)\}/g, (m, key) => (canned.merge && canned.merge[key] !== undefined ? canned.merge[key] : m));
+
+    function popRender(query) {
+      if (!pop) return;
+      const q = query.toLowerCase();
+      popItems = canned.snippets.filter((s) => !q || s.title.toLowerCase().includes(q) || s.body.toLowerCase().includes(q));
+      popIndex = Math.min(popIndex, Math.max(0, popItems.length - 1));
+      pop.innerHTML = "";
+      if (!canned.snippets.length) {
+        pop.innerHTML = '<div class="canned-empty">No saved replies yet — <a class="link" href="/snippets.php">create your first</a></div>';
+        pop.hidden = false;
+        return;
+      }
+      if (!popItems.length) {
+        pop.innerHTML = '<div class="canned-empty">Nothing matches. <a class="link" href="/snippets.php">Manage saved replies</a></div>';
+        pop.hidden = false;
+        return;
+      }
+      popItems.forEach((s, i) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "canned-item" + (i === popIndex ? " sel" : "");
+        b.innerHTML = `<span class="canned-title">${escapeHtml(s.title)}</span><span class="canned-preview">${escapeHtml(s.body.slice(0, 60))}</span>`;
+        b.addEventListener("click", () => popInsert(s));
+        b.addEventListener("mousemove", () => { popIndex = i; popPaint(); });
+        pop.appendChild(b);
+      });
+      pop.hidden = false;
+    }
+    function popPaint() {
+      $$(".canned-item", pop).forEach((el, i) => el.classList.toggle("sel", i === popIndex));
+    }
+    function popClose() { if (pop) { pop.hidden = true; pop.innerHTML = ""; } }
+    function popOpen() { return pop && !pop.hidden; }
+    function popInsert(s) {
+      box.value = mergeResolve(s.body);
+      popClose();
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    }
+
+    box.addEventListener("input", () => {
+      if (box.value.startsWith("/")) { popRender(box.value.slice(1)); }
+      else popClose();
+    });
+    box.addEventListener("keydown", (e) => {
+      if (!popOpen()) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); popIndex = Math.min(popIndex + 1, popItems.length - 1); popPaint(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); popIndex = Math.max(popIndex - 1, 0); popPaint(); }
+      else if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); if (popItems[popIndex]) popInsert(popItems[popIndex]); }
+      else if (e.key === "Escape") { e.stopPropagation(); popClose(); }
+    });
+    box.addEventListener("blur", () => setTimeout(popClose, 200));
+
+    /* time-at-reply: the running timer rides the Send click */
+    const chip = $("#timer-log-chip");
+    const chipText = $("#timer-log-text");
+    const minutesInput = $("#f-timer-minutes");
+    const ticketId = $("#thread") ? $("#thread").dataset.ticketId : null;
+
+    function paintChip() {
+      if (!chip || !ticketId) return;
+      const t = readTimer();
+      const on = t && String(t.ticketId) === String(ticketId);
+      chip.hidden = !on;
+      if (on && chipText) chipText.textContent = "log " + Math.max(1, Math.round(timerElapsed(t) / 60)) + "m";
+    }
+    setInterval(paintChip, 1000);
+    paintChip();
+
+    form.addEventListener("submit", () => {
+      const t = readTimer();
+      if (t && String(t.ticketId) === String(ticketId) && minutesInput) {
+        minutesInput.value = String(Math.max(1, Math.round(timerElapsed(t) / 60)));
+        writeTimer(null); // sending logs it — timer's job is done
+      }
+    });
+
+    return { setMode, focus: (mode) => { setMode(mode); box.focus(); } };
+  })();
 
   /* new-ticket: filter contacts to the chosen client */
   (() => {
