@@ -1,3 +1,37 @@
+> ## ⚠️ Historical spec — superseded in part. Read this first.
+>
+> This is the **2026-07-28 design record** for Phase 8.1, kept for its
+> reasoning and its wire contract. It is not a statement of current state.
+> Corrected 2026-08-02 against the code in this repo:
+>
+> - **"implementation not started" is false.** Sprint 8.1.1 shipped and is
+>   deployed dark. The code is `app/public/api/svc/alerts.php`,
+>   `app/lib/svc_auth.php`, `app/lib/svc_intake.php`,
+>   `app/db/migrations/002_svc_intake.sql`, tests in
+>   `app/tests/svc_intake_test.php`. Those files, not this document, are the
+>   current source of truth for behaviour.
+> - **§7 "Explicitly out of scope (v1)" is wrong about auto-resolve.**
+>   Auto-closing an untouched ticket when its alert clears at source is
+>   **shipped**, not deferred, and there is no `svc_alert_autoresolve` flag —
+>   the founder rule of 2026-07-30 replaced it. §2 of this document already
+>   records the rule correctly; §7 was never updated and now contradicts it.
+>   The shipped behaviour is in `svc_intake.php`: a ticket still `open` is
+>   closed with a `system` line; `in_progress` / `waiting` gets the line only.
+> - **Migration numbering hazard.** `002_svc_intake.sql` collides on the
+>   number 002 with `002_westy_onboarding.sql`, and the applied-so-far lists
+>   in `AGENTS.md` and `deploy/README.md` name only the westy one. Check the
+>   live schema for `tickets.external_key` and `svc_identities` before
+>   assuming this migration ran.
+> - **Still true:** the wire contract in §2, `svc.enabled` defaulting to
+>   `false` in `config.sample.php`, and the endpoint answering `404` while
+>   the flag is off. Sprint 8.1.2 (the Milepost emitter) had not shipped as
+>   of 2026-08-02 per `AGENTS.md`; that is an assertion about another repo
+>   and is not verifiable from here.
+> - **Suite context has moved on.** Mission Control is now a live, flagship
+>   product (§7's last bullet still reads as though it were future work), and
+>   the suite identity contract this document borrows HMAC conventions from
+>   has been corrected — see `docs/suite-sso-contract.md`.
+
 # Phase 8.1 — Milepost → Safeharbor Alert Intake (Path B)
 
 **Status:** spec for review (Frankie + Mary) · implementation not started

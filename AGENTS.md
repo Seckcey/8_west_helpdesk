@@ -1,7 +1,13 @@
 # Safeharbor — repo guide for agents
 
-**Safeharbor** is the help desk app in the **8 West IT Total Business Suite**
-for MSPs, alongside **Milepost** (RMM) and **Coastmark** (accounting).
+**Safeharbor** is the help desk app in the **8 West IT Total Business Suite**,
+alongside **Mission Control** (the customer-facing 365 surface — AI email
+triage, per-user mailboxes, reply drafting and sending), **Milepost** (RMM) and
+**Coastmark** (accounting). Four product keys, and they are the exact strings
+in the `8west:products` claim: `missioncontrol` · `safeharbor` · `milepost` ·
+`coastmark`. Coastmark was split on 2026-08-02 into `Seckcey/coastmark` (the
+8 West IT 365 edition) and `Seckcey/coastmark_standalone` (its own marketing,
+pricing and Stripe); only the 365 edition is inside the suite contract.
 Tagline: *Every client issue, safely ashore.* Vendor: 8 West IT, LLC.
 
 Full product plan: `docs/8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`
@@ -27,7 +33,7 @@ reference (`/srv/8west/apps/milepost/current` on the box): page-per-file in
 |---|---|
 | `brand/` | Logo system (SVG masters in `svg/`, rasters in `png/`), `tokens.json` — single source of brand truth |
 | `app/` | The PHP app (see `app/README.md`): `config/ db/ lib/ public/` |
-| `docs/` | Planning docx, `suite-sso-contract.md` |
+| `docs/` | Planning docx · `suite-sso-contract.md` (suite-wide identity reference) · `sprint-8.1-svc-alert-intake.md` (historical spec) · `open-decision-entitlement-and-subscription.md` · `competitor-research-2026-08.md` |
 | `deploy/` | Apache vhost pair, `deploy.sh`, runbook for safeharbor.8westit.com |
 | `tools/` | Python generators (brand/doc/tokens); `tools/shots/` = Playwright walkthrough (dev-only) |
 
@@ -69,21 +75,37 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    docroot, vhost pair, MySQL db/user, own `/etc/cron.d/safeharbor`); Apache
    `reload` never `restart`; `config/config.php` and the `.pem` never enter
    git.
-7. **Westy + SSO (Sprint 1):** Westy is the suite assistant (same mascot
-   as Milepost) — `lib/westy.php` + `lib/ai.php` + `api/westy_chat.php` +
+7. **Westy:** the suite assistant (same mascot as Milepost) —
+   `lib/westy.php` + `lib/ai.php` + `api/westy_chat.php` +
    `assets/js/westy.js`. He ADVISES, never acts; his prompt names only REAL
    UI (update it when the UI changes); AI keys live ONLY in server
    `config/config.php` (`ai` block) and the bubble fails closed without
-   them. 8 West ID SSO is the shared `ewid_token` suite cookie
-   (`suite_sso` block, kill-switch default-off, secret synced server-side
-   from Milepost — never chat/git); see `docs/suite-sso-contract.md`.
-8. **Mail pipeline:** transport order Graph → SMTP → PHP mail().
+   them.
+8. **8 West ID SSO:** an HS256-signed `ewid_token` cookie scoped to
+   `.8westit.com` — **not** OIDC; the `/oauth2/*` and JWKS endpoints in the
+   old contract draft return 404 and were never built. Config lives in the
+   **`suite`** block (`issuer`, `sso_secret`, `cookie_name`) of server-only
+   `config/config.php`, secret synced server-side from Milepost — never
+   chat/git. **There is no `suite_sso` block and no kill switch in this
+   app** (that switch is Milepost's); an unset `sso_secret` just fails every
+   signature. Users are keyed by the immutable `sub` claim
+   (`users.suite_subject`, migration 007) with a one-time email backfill —
+   never by email. Unknown tenant slugs are auto-provisioned; `8west` and
+   `internal` are reserved. Every refusal is audited: `suite_sso_refuse()`
+   logs a reason code from `jwt_verify_reason()` (`lib/jwt.php`), never the
+   claim payload. Full contract: `docs/suite-sso-contract.md`.
+9. **Mail pipeline:** transport order Graph → SMTP → PHP mail().
    Outbound = `lib/mailer.php` + `mail_queue` + `cron/mail_dispatch.php`;
    inbound = `cron/graph_poll.php` (O365, Entra app) with
-   `cron/imap_poll.php` as non-M365 fallback. The suite shares ONE Entra
-   app registration (Mail.Send ✓ · Mail.Read for intake) — credentials
-   live ONLY in server `config/config.php`, synced server-side from
-   Milepost's config (never chat/git).
+   `cron/imap_poll.php` as non-M365 fallback. Safeharbor and Milepost share
+   ONE Entra app registration with APPLICATION permissions (Mail.Send ·
+   Mail.Read for intake) — credentials live ONLY in server
+   `config/config.php`, synced server-side from Milepost's config (never
+   chat/git). Mission Control's Microsoft connector is a **separate and much
+   larger** surface (unparked 2026-07-31, now its flagship: seven scopes
+   including Mail.ReadWrite and Mail.Send, per-user mailboxes, nine broker
+   operations of which two write) — do not assume Safeharbor's registration
+   covers it, or the reverse.
 
 ## Ops lessons written in blood (2026-08-01/02)
 
@@ -97,10 +119,18 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   (Frank has the IP + key; the pem never enters git or chat).
 - **Migrations are manual**: after deploying code that ships a new
   `db/migrations/NNN_*.sql`, stream it to `sudo mysql safeharbor` on the
-  box. Applied so far: 001 mail_queue · 002 westy/onboarding ·
+  box. Recorded as applied: 001 mail_queue · 002 westy/onboarding ·
   003 canned_responses · 004 attachments/threading/resurface ·
   005 presence/merge/fulltext · 006 csat. `db/schema.sql` stays the
   canonical fresh-install copy — keep both in lockstep.
+  **Two files in the tree are not on that list:**
+  `002_svc_intake.sql` (which collides on the number 002 with
+  `002_westy_onboarding.sql` — the numbering is not a reliable ordering,
+  read the filenames) and `007_suite_subject.sql`. 007 is a hard
+  prerequisite for suite sign-in: PDO runs `ERRMODE_EXCEPTION`, so
+  `suite_sso_attempt()` throws rather than degrades on a host missing
+  `users.suite_subject`. Confirm both against the live schema before the
+  next deploy rather than trusting this list.
 - **Attachment bytes live OUTSIDE the deploy tree** at
   `/srv/8west/apps/safeharbor/shared/attachments` (www-data 770) because
   deploy.sh re-chmods `current/` every release. Never store uploads
