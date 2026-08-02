@@ -131,7 +131,18 @@ check(
     'a refused readonly identity is never provisioned',
     (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn() === $before
 );
-check('a reserved tenant slug is refused', arrive(['8west:tenant' => '8west']) === false);
+check('a blank tenant slug is refused', arrive(['8west:tenant' => '']) === false);
+
+// 8 West's own staff live in the `8west` tenant — it is the only tenant this
+// install has. Reserving that slug, as Mission Control does on its customer
+// branch where staff never reach the check, would refuse every owner and tech
+// who runs the helpdesk. Deploying that refusal would have been a live
+// regression: users 1, 2 and 4 hold the safeharbor grant under this slug.
+check('the 8west staff tenant is admitted', arrive([
+    'sub' => 't9u4',
+    'email' => 'staff@8westit.com',
+    '8west:tenant' => '8west',
+]) === true);
 check('an expired token is refused', arrive(['exp' => time() - 60]) === false);
 check('a wrong-issuer token is refused', arrive(['iss' => 'https://evil.test']) === false);
 
