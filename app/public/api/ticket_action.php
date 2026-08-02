@@ -31,6 +31,7 @@ switch ($field) {
         // Waiting parks the ticket with a 72h leash; housekeeping resurfaces it.
         $resurface = $value === 'waiting' ? 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR)' : 'NULL';
         db()->prepare("UPDATE tickets SET status = ?, resolved_at = $resolved, resurface_at = $resurface WHERE id = ?")->execute([$value, $id]);
+        if ($value === 'resolved') csat_send($ticket);
         $toast = 'Status → ' . STATUS_META[$value][0] . ($value === 'waiting' ? ' (auto-resurfaces in 3 days)' : '');
         break;
 
@@ -71,6 +72,42 @@ switch ($field) {
 
     default:
         json_out(['ok' => false, 'error' => 'unknown field'], 422);
+}
+
+/**
+ * One-click CSAT on resolve: first resolve of a ticket with a real human
+ * contact queues the 3-face survey email. Idempotent (unique per ticket);
+ * machine addresses never get one.
+ */
+function csat_send(array $ticket): void
+{
+    if (empty($ticket['contact_id'])) return;
+    try {
+        $kq = db()->prepare('SELECT email, name FROM contacts WHERE id = ?');
+        $kq->execute([(int)$ticket['contact_id']]);
+        $contact = $kq->fetch();
+        $email = mb_strtolower(trim((string)($contact['email'] ?? '')));
+        if ($email === '' || preg_match('/^(mailer-daemon|postmaster|no-?reply|donotreply|bounce[s]?|autoreply)@/i', $email)) return;
+
+        $token = bin2hex(random_bytes(20));
+        $ins = db()->prepare('INSERT IGNORE INTO csat (ticket_id, token) VALUES (?,?)');
+        $ins->execute([(int)$ticket['id'], $token]);
+        if ($ins->rowCount() === 0) return;   // already surveyed — resolve toggling never re-asks
+
+        require_once __DIR__ . '/../../lib/mailer.php';
+        $first = explode(' ', trim((string)($contact['name'] ?? '')))[0] ?: 'there';
+        $base = 'https://safeharbor.8westit.com/csat.php?t=' . $token;
+        mail_queue(
+            $email,
+            '[#' . (int)$ticket['id'] . '] Resolved: ' . $ticket['subject'],
+            "Hi {$first},\n\nYour ticket is resolved. How did we do? One tap answers:\n\n"
+              . "  Great:  {$base}&s=3\n  Okay:   {$base}&s=2\n  Rough:  {$base}&s=1\n\n"
+              . "Reply to this email any time to reopen the ticket.\n— Safeharbor by 8 West IT",
+            (int)$ticket['id']
+        );
+    } catch (Throwable $e) {
+        // surveys must never block resolving (e.g. pre-migration)
+    }
 }
 
 // Fresh row for repaint fragments

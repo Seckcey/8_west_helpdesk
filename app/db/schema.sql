@@ -203,6 +203,23 @@ CREATE TABLE IF NOT EXISTS assistant_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
+-- CSAT (one-click resolution surveys; token is the whole auth)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS csat (
+  id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ticket_id    INT UNSIGNED NOT NULL,
+  token        CHAR(40) NOT NULL,
+  score        TINYINT UNSIGNED NULL,          -- 1 rough · 2 okay · 3 great
+  comment      VARCHAR(500) NOT NULL DEFAULT '',
+  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  responded_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_csat_ticket (ticket_id),
+  UNIQUE KEY uq_csat_token (token),
+  CONSTRAINT fk_csat_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
 -- Time entries (billable work; approved entries flow to Coastmark in Phase 2)
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS time_entries (

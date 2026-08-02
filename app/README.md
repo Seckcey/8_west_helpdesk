@@ -36,11 +36,19 @@ public/                    Apache docroot (page-per-file, like Milepost)
   client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
   users.php                Team — user management (owner/admin add, deactivate)
   time.php                 Timer + suggested entries + today's entries
+  reports.php              Real numbers: first response, SLA, aging, time,
+                           billable by client (+ reports_export.php CSV)
+  snippets.php             Saved replies ("/" in the composer; merge fields)
+  csat.php                 One-tap resolution survey (token-authed, public)
+  attachment.php           Forced-download attachment serving
   login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
   api/ticket_action.php    Optimistic field updates (strict whitelists)
   api/timer.php            Time-entry logging
   api/westy_chat.php       Westy chat (advise-only; rate-limited via assistant_log)
   api/westy_onboard.php    Marks the first-run welcome as done (users.onboarded_at)
+  api/presence.php         Collision-detection heartbeat (viewing/typing chips)
+  api/search.php           Deep search (subjects + FULLTEXT bodies, resolved incl.)
+  api/ticket_merge.php     Merge a ticket into a survivor (stub left behind)
   assets/css/app.css       Hand-written design system, semantic tokens
                            (dark / light / system themes)
   assets/js/app.js         Keyboard model, ⌘K palette, timer, theme switch,

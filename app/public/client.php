@@ -53,6 +53,20 @@ $kq = db()->prepare('SELECT * FROM contacts WHERE client_id = ? ORDER BY name');
 $kq->execute([$id]);
 $contacts = $kq->fetchAll();
 
+// Real avg first response for THIS client (creation → first tech reply)
+$frq = db()->prepare(
+    "SELECT AVG(TIMESTAMPDIFF(MINUTE, t.created_at, x.first_tech)) AS avg_min
+       FROM tickets t
+       JOIN (SELECT ticket_id, MIN(created_at) AS first_tech FROM messages WHERE kind = 'tech' GROUP BY ticket_id) x
+         ON x.ticket_id = t.id
+      WHERE t.client_id = ? AND t.tenant_id = ?"
+);
+$frq->execute([$id, tenant_id()]);
+$avgMin = $frq->fetchColumn();
+$avgFirstResponse = $avgMin !== null
+    ? ((int)$avgMin < 60 ? (int)$avgMin . 'm' : intdiv((int)$avgMin, 60) . 'h ' . ((int)$avgMin % 60) . 'm')
+    : '—';
+
 page_top($user, $client['name'], 'clients');
 ?>
 <div class="page">
@@ -67,7 +81,7 @@ page_top($user, $client['name'], 'clients');
 
   <div class="stats">
     <div class="card stat"><div class="stat-k">Open tickets</div><div class="stat-v <?= count($open) > 2 ? 'stat-warn' : '' ?>"><?= count($open) ?></div></div>
-    <div class="card stat"><div class="stat-k">Avg first response</div><div class="stat-v stat-good">22m</div></div>
+    <div class="card stat"><div class="stat-k">Avg first response</div><div class="stat-v <?= $avgFirstResponse !== '—' ? 'stat-good' : 'stat-dim' ?>"><?= h($avgFirstResponse) ?></div></div>
     <div class="card stat"><div class="stat-k">Devices</div><div class="stat-v stat-dim">Phase 2</div><div class="stat-hint">via Milepost</div></div>
     <div class="card stat"><div class="stat-k">Balance</div><div class="stat-v stat-dim">Phase 2</div><div class="stat-hint">via Coastmark</div></div>
   </div>

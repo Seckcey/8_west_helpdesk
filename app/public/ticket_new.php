@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $body      = trim((string)($_POST['body'] ?? ''));
 
     $cq = db()->prepare('SELECT * FROM clients WHERE id = ? AND tenant_id = ?');
-    $cq->execute([$clientId]);
+    $cq->execute([$clientId, tenant_id()]);
     $client = $cq->fetch();
 
     if (!$client) {
