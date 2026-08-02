@@ -118,6 +118,19 @@ check(
 
 // --- Refusals.
 check('a token without the safeharbor entitlement is refused', arrive(['8west:products' => ['milepost']]) === false);
+
+// readonly is a STAFF role, so this is an app-capability refusal rather than
+// the 4.3 customer/staff crossing: Safeharbor has no viewer role, and the
+// mapping used to fall through to 'tech' - which can write. Founder decision
+// 2026-08-02: refuse rather than silently upgrade.
+check('a readonly role is refused rather than upgraded to tech', arrive(['8west:role' => 'readonly']) === false);
+check('an unknown role string is refused', arrive(['8west:role' => 'wizard']) === false);
+$before = (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn();
+arrive(['8west:role' => 'readonly', 'sub' => 't9u99', 'email' => 'readonly@scratch.test']);
+check(
+    'a refused readonly identity is never provisioned',
+    (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn() === $before
+);
 check('a reserved tenant slug is refused', arrive(['8west:tenant' => '8west']) === false);
 check('an expired token is refused', arrive(['exp' => time() - 60]) === false);
 check('a wrong-issuer token is refused', arrive(['iss' => 'https://evil.test']) === false);

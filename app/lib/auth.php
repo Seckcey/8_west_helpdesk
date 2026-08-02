@@ -118,6 +118,17 @@ function suite_sso_attempt(): bool
         return suite_sso_refuse('product_not_entitled', $subject);
     }
 
+    // Admit exactly the roles Safeharbor can honour. `readonly` is a STAFF
+    // role, so this is not the CLAIMS_CONTRACT_V1 4.3 customer/staff crossing
+    // - it is an app-capability statement: Safeharbor has no viewer role, so
+    // admitting a read-only identity would mean silently granting it 'tech',
+    // which can write. A named deny is honest where an unhonourable grant is
+    // not. Founder decision, 2026-08-02; mirrors Milepost.
+    $suiteRole = (string)($claims['8west:role'] ?? '');
+    if (!in_array($suiteRole, ['owner', 'admin', 'tech'], true)) {
+        return suite_sso_refuse('role_not_admitted', $subject);
+    }
+
     // Tenant resolution is claim-driven (contract rule 1). The tenant is
     // provisioned on first arrival rather than having to exist here already:
     // granting the tile in 8 West ID should be the only step needed to give
@@ -171,7 +182,9 @@ function suite_sso_attempt(): bool
         $name = trim((string)($claims['name'] ?? $email));
         $parts = preg_split('/\s+/', $name) ?: [];
         $initials = mb_strtoupper(mb_substr($parts[0] ?? 'U', 0, 1) . mb_substr(end($parts) ?: '', 0, 1));
-        $role = in_array($claims['8west:role'] ?? '', ['owner', 'admin', 'tech'], true) ? $claims['8west:role'] : 'tech';
+        // Validated above; no fallback, because a fallback is how a role we
+        // cannot honour becomes one we can.
+        $role = $suiteRole;
         // The subject is written here, not left for the next sign-in to
         // backfill: if the address changed in between, an email-only match
         // would miss and mint a second account - the very split this change
