@@ -128,12 +128,63 @@ function tenant_id(): int
 }
 
 /**
- * Force valid UTF-8, dropping invalid byte sequences. Wild emails (and
- * mis-encoded clients) send them; a raw insert would 500 on utf8mb4.
+ * Force valid UTF-8. Wild emails (and mis-encoded clients) send invalid byte
+ * sequences; a raw insert would 500 on utf8mb4 with "Incorrect string value".
+ *
+ * This used to be mb_convert_encoding($s, 'UTF-8', 'UTF-8'). That does yield
+ * valid UTF-8, but by replacing every bad byte with '?' — so a pasted em dash
+ * was silently saved as a question mark. That failure is worse than the 500
+ * it prevents, because nothing reports it: the text is just quietly wrong.
+ *
+ * Invalid bytes arriving at a UTF-8 form are almost always Windows-1252 out
+ * of Word or Outlook — \x97 em dash, \x92 curly apostrophe, \x93/\x94 smart
+ * quotes. Decoding as that keeps the character the person actually typed.
+ * Windows-1252 defines nearly every byte, so the result is valid UTF-8 even
+ * when the input was something else entirely.
  */
 function utf8_clean(string $s): string
 {
-    return mb_convert_encoding($s, 'UTF-8', 'UTF-8');
+    if ($s === '' || mb_check_encoding($s, 'UTF-8')) {
+        return $s;
+    }
+
+    return mb_convert_encoding($s, 'UTF-8', 'Windows-1252');
+}
+
+/**
+ * The same coercion applied to a whole input bag, once, at the edge.
+ *
+ * Cleaning at each call site is how the original bug happened: four of the
+ * fifteen free-text fields called utf8_clean() and eleven did not, so a smart
+ * quote in a saved reply was fine while the same quote in a ticket subject
+ * was a fatal 500. Doing it here means a new form cannot forget.
+ *
+ * Passwords are passed through untouched. A password is a byte string rather
+ * than prose, and rewriting bytes inside one would change the secret.
+ *
+ * @param  array<array-key, mixed>  $input
+ * @return array<array-key, mixed>
+ */
+function utf8_clean_input(array $input): array
+{
+    $clean = [];
+
+    foreach ($input as $key => $value) {
+        if (is_string($key) && str_contains(strtolower($key), 'password')) {
+            $clean[$key] = $value;
+            continue;
+        }
+
+        $cleanKey = is_string($key) ? utf8_clean($key) : $key;
+
+        $clean[$cleanKey] = match (true) {
+            is_array($value) => utf8_clean_input($value),
+            is_string($value) => utf8_clean($value),
+            default => $value,
+        };
+    }
+
+    return $clean;
 }
 
 /** "FG" from "Frank Gonzalez" — avatar initials (shared by Team page + SSO provisioning). */
@@ -142,4 +193,13 @@ function initials_of(string $name): string
     $parts = preg_split('/\s+/', trim($name));
     $ini = mb_strtoupper(mb_substr($parts[0] ?? '?', 0, 1) . mb_substr(end($parts) ?: '', 0, 1));
     return mb_substr($ini, 0, 2);
+}
+
+// Coerce this request's text to valid UTF-8 before any handler reads it.
+// Every page reaches the database through this file, so this is the one
+// place that cannot be forgotten. CLI callers (the test suites, cron) get
+// empty bags and are unaffected.
+if (PHP_SAPI !== 'cli') {
+    $_POST = utf8_clean_input($_POST);
+    $_GET = utf8_clean_input($_GET);
 }
