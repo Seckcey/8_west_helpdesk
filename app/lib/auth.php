@@ -133,8 +133,21 @@ function suite_sso_attempt(): bool
     // provisioned on first arrival rather than having to exist here already:
     // granting the tile in 8 West ID should be the only step needed to give
     // somebody access, with no per-app setup.
+    //
+    // A blank slug is refused: it would otherwise create a tenant with an
+    // empty name and quietly collect unrelated people into it.
+    //
+    // `8west` is deliberately NOT reserved here, though Mission Control does
+    // reserve it. Mission Control applies that check only on its customer
+    // branch, where staff never reach it — its staff are global operators
+    // with no tenant at all. Safeharbor is tenant scoped for everyone, and 8
+    // West's own staff genuinely live in the `8west` tenant, which is the
+    // only tenant this install has. Reserving that slug here locks the owners
+    // out of their own helpdesk. It also guards nothing: the customer/staff
+    // crossing the reservation exists to stop is already refused by the role
+    // gate above, which admits owner/admin/tech and nothing else.
     $slug = mb_strtolower(trim((string)($claims['8west:tenant'] ?? '')));
-    if ($slug === '' || in_array($slug, ['8west', 'internal'], true)) {
+    if ($slug === '') {
         return suite_sso_refuse('tenant_slug_invalid', $subject);
     }
 
