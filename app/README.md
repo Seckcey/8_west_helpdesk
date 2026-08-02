@@ -63,10 +63,35 @@ public/                    Apache docroot (page-per-file, like Milepost)
 - Every page: `require_once ../lib/render.php; enforce_https(); $user = require_login();`
   → queries → `page_top($user, $title, $active)` → HTML → `page_bottom(palette_data())`
 - Every string echoed through `h()`. Every query prepared. UTC everywhere.
-- Every entity carries `tenant_id` (Phase 0 = single seeded tenant; SSO claim later).
+- Every entity carries `tenant_id` (8 West ID sign-ins resolve it from the
+  `8west:tenant` claim; local sign-ins + cron use the seeded tenant 1).
 - API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
-- Keyboard model (client-side): `j/k` move · `↵` open · `s` status · `p` priority ·
-  `a` assign · `e` timer · `r` reply · `g q/t/c` navigate · `⌘K` palette.
+- Keyboard model (client-side): `j/k` move · `↵` open · `1–5` filters ·
+  `s` status · `p` priority · `a` assign · `e` timer · `r` reply ·
+  `n` internal note · `/` saved replies · `g q/t/c` navigate ·
+  `⌘K` palette (3+ chars = deep search over message bodies, resolved
+  included) · `?` shortcut card.
+- Composer: Reply/Internal note tabs on one box (notes never email, never
+  change status); `/` inserts saved replies with merge fields resolved
+  ({contact.first_name} {client.name} {ticket.id} {tech.first_name});
+  paperclip attaches ≤5 files ≤15MB; a running timer's minutes log
+  themselves on Send (billable toggle); a stale thread BLOCKS the send and
+  preserves the draft.
+- Collision detection: 20s presence heartbeats paint "viewing/typing…"
+  chips in the ticket header (api/presence.php).
+- Merge: rail button or the duplicate banner (same contact, 48h) —
+  messages/files/time move to the survivor, the source becomes a linked
+  resolved stub (merged_into_id).
+- Waiting = parked with a 72h leash (resurface_at); housekeeping
+  (piggybacked on mail_dispatch) reopens it; any client reply clears it.
+- Resolving a ticket with a human contact emails a one-tap CSAT survey
+  (csat.php, token-authed). Machine addresses never get mail — the
+  bounce-loop guards in intake/mailer are law.
+- Every wild string is `utf8_clean()`ed before insert (mis-encoded email
+  bytes 500 a utf8mb4 write otherwise).
+- Westy: advise-only, fails closed without server AI config; his prompt
+  in lib/westy.php names only REAL UI — update it in the same change as
+  any UI you ship.
 - Themes: dark / light / system — inside the user menu (and on login),
   persisted in localStorage; CSS semantic tokens per theme, dark mode lifted
   one notch brighter than the original abyss-navy.

@@ -6,11 +6,20 @@ Safeharbor is the help desk app in the **8 West IT Total Business Suite** for
 MSPs — alongside **Milepost** (RMM / client operations) and **Coastmark**
 (accounting). by 8 West IT, LLC.
 
-> Status: **Phase 1 in flight (Sprint 1)** — brand system + working core, **live at
+> Status: **v1.0 feature-complete (Sprints 1–5 shipped, 2026-08-02)** — **live at
 > [safeharbor.8westit.com](https://safeharbor.8westit.com)**
-> (demo sign-in `frankie@8westit.com` / `harbor`). Sprint 1 adds **Westy**
-> (the 8 West IT 365 suite assistant — onboarding tour + how-to helper) and
-> **8 West ID suite SSO** (shared suite cookie, kill-switch gated).
+> (demo sign-in `frankie@8westit.com` / `harbor`). What remains before the
+> v1.0 stamp is the Phase 1 exit gate: 4 consecutive weeks running 8 West's
+> real desk, zero data loss, p95 interaction < 300ms.
+>
+> Shipped: **Westy** (suite assistant — first-run onboarding tour + advise-only
+> how-to helper) · **8 West ID SSO** (suite cookie, live) · **Milepost alert
+> intake** (signed svc API, dark until the emitter ships) · composer with
+> internal notes + `/` saved replies + time-at-reply · attachments both ways ·
+> conversation threading + inbound dedupe + bounce-loop protection · waiting
+> auto-resurface · collision detection with stale-send blocking · merge
+> tickets · deep search (message bodies, resolved included) · `?` shortcut
+> card · Reports with real numbers + billable CSV · one-click CSAT.
 
 ## What's here
 

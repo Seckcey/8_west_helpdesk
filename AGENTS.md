@@ -5,9 +5,12 @@ for MSPs, alongside **Milepost** (RMM) and **Coastmark** (accounting).
 Tagline: *Every client issue, safely ashore.* Vendor: 8 West IT, LLC.
 
 Full product plan: `docs/8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`
-(regenerate via `tools/build_doc.py`). Current state: **Phase 0 complete** —
-brand system + clickable prototype, **live at
+(regenerate via `tools/build_doc.py`). Current state: **v1.0
+feature-complete — Sprints 1–5 shipped 2026-08-02**, **live at
 https://safeharbor.8westit.com** (demo: `frankie@8westit.com` / `harbor`).
+Remaining before the v1.0 stamp: the Phase 1 dogfood gate (4 weeks on
+8 West's real desk, zero data loss, p95 < 300ms) and flipping
+`svc.enabled` when Milepost's alert emitter (their Sprint 8.1.2) ships.
 
 ## Stack — same as Milepost, on purpose
 
@@ -81,6 +84,35 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    app registration (Mail.Send ✓ · Mail.Read for intake) — credentials
    live ONLY in server `config/config.php`, synced server-side from
    Milepost's config (never chat/git).
+
+## Ops lessons written in blood (2026-08-01/02)
+
+- **Pull before you sprint; deploy only from committed main.** Two
+  checkouts deployed to the box the same night and silently overwrote
+  each other's shared files. `git pull --ff-only` before work, commit,
+  then deploy.
+- **SSH uses the origin IP, not the domain.** safeharbor.8westit.com is
+  Cloudflare-proxied — port 22 times out on the hostname. Deploy with
+  `SERVER=ubuntu@<origin-ip> KEY=<milepost.pem> bash deploy/deploy.sh`
+  (Frank has the IP + key; the pem never enters git or chat).
+- **Migrations are manual**: after deploying code that ships a new
+  `db/migrations/NNN_*.sql`, stream it to `sudo mysql safeharbor` on the
+  box. Applied so far: 001 mail_queue · 002 westy/onboarding ·
+  003 canned_responses · 004 attachments/threading/resurface ·
+  005 presence/merge/fulltext · 006 csat. `db/schema.sql` stays the
+  canonical fresh-install copy — keep both in lockstep.
+- **Attachment bytes live OUTSIDE the deploy tree** at
+  `/srv/8west/apps/safeharbor/shared/attachments` (www-data 770) because
+  deploy.sh re-chmods `current/` every release. Never store uploads
+  under `current/`.
+- **Every string that reaches the DB from the wild goes through
+  `utf8_clean()`** — mis-encoded email bytes 500 a utf8mb4 insert.
+- **Westy's prompt names only REAL UI.** Ship a feature → update
+  `westy_chat_system_prompt()` in the same PR, or he starts lying.
+- **Mail-loop protection is law**: nothing outbound to
+  mailer-daemon/postmaster/no-reply-ish senders (intake_is_auto_mail,
+  mail_notify_reply, csat_send all guard it). The 2026-08 loop wrote
+  335k junk messages before the guard existed.
 
 ## Toolchain notes (Windows dev machine)
 

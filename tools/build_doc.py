@@ -266,8 +266,9 @@ def build_cover(doc):
     rows = [
         ("Prepared for", "8 West IT, LLC — internal planning"),
         ("Chosen name", "Safeharbor — “Every client issue, safely ashore.” (Section 3)"),
-        ("Date", "July 21, 2026"),
-        ("Status", "v1.1 — name selected; Phase 0 underway"),
+        ("Date", "August 2, 2026 (v1.2 revision)"),
+        ("Status", "v1.2 — Sprints 1–5 shipped; Phase 1 feature-complete. "
+                   "Remaining: the dogfood exit gate (4 weeks live desk, p95 < 300ms)."),
     ]
     for i, (k, v) in enumerate(rows):
         c0, c1 = meta.rows[i].cells
@@ -714,10 +715,16 @@ def build_phases(doc):
          ["In: email-to-ticket with custom domain, ticket core (queues, statuses, "
           "priorities, assignment, notes, attachments), clients & contacts, notifications, "
           "basic search",
-          "In (Sprint 1): 8 West ID suite SSO — the shared suite cookie Milepost ships, "
-          "kill-switch gated — and Westy, the suite assistant, as first-run onboarding "
-          "guide + advise-only how-to helper (advises, never acts; AI keys server-only)",
-          "Out: SLAs, portal, automation, AI drafting, reporting beyond a list view"],
+          "In (Sprint 1, SHIPPED 2026-08-01): 8 West ID suite SSO (shared suite cookie) "
+          "and Westy, the suite assistant, as first-run onboarding guide + advise-only "
+          "how-to helper (advises, never acts; AI keys server-only)",
+          "In (Sprints 2–5, SHIPPED 2026-08-02): composer with internal notes + '/' "
+          "saved replies (merge fields) + time-at-reply; attachments both directions; "
+          "conversation threading + inbound dedupe + bounce-loop protection; waiting "
+          "auto-resurface; collision detection with stale-send blocking; merge tickets "
+          "+ duplicate suggestions; deep search (bodies + resolved) in the palette; "
+          "'?' shortcut card; Reports with live numbers + billable CSV; one-click CSAT",
+          "Out: portal, automation builder, AI drafting, Coastmark handoff (P2/P3)"],
          "8 West IT handles all real client support in-app for 4 consecutive weeks; "
          "zero data-loss incidents; p95 ticket-open interaction under 300ms; a new "
          "user reaches their first answered ticket with no human walkthrough (Westy "
