@@ -43,6 +43,12 @@ return [
         ],
     ],
 
+    // File storage OUTSIDE the deploy tree (deploy.sh re-chmods current/ on
+    // every release; shared/ survives untouched). The web user needs write.
+    'storage' => [
+        'attachments_dir' => '/srv/8west/apps/safeharbor/shared/attachments',
+    ],
+
     // Westy — the suite AI helper (advise-only chat bubble + onboarding).
     // Milepost's ai-layer pattern: keys live ONLY here on the server, never
     // in git or the browser. Unconfigured = Westy renders nothing (fails

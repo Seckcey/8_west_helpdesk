@@ -890,3 +890,19 @@ img { display: block; }
 }
 .timer-log-chip input { accent-color: var(--mint); }
 .snippet-body { font-size: 12px; color: var(--muted); margin: 2px 0; }
+
+/* attachments */
+.att-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.att-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; font-size: 12px; color: var(--text);
+  background: var(--chip-bg); border: 1px solid var(--line); border-radius: 999px;
+}
+.att-chip:hover { border-color: var(--sel-ring); color: var(--accent-2); }
+.att-size { color: var(--dim); font-size: 11px; }
+.att-pick {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  padding: 4px 8px; color: var(--muted); border: 1px solid transparent; border-radius: 999px;
+  font-size: 12px;
+}
+.att-pick:hover { color: var(--text); background: var(--hover); border-color: var(--line); }

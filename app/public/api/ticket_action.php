@@ -27,9 +27,11 @@ $toast = '';
 switch ($field) {
     case 'status':
         if (!in_array($value, $STATUS, true)) json_out(['ok' => false, 'error' => 'bad status'], 422);
-        $resolved = $value === 'resolved' ? 'NOW()' : 'NULL';
-        db()->prepare("UPDATE tickets SET status = ?, resolved_at = $resolved WHERE id = ?")->execute([$value, $id]);
-        $toast = 'Status → ' . STATUS_META[$value][0];
+        $resolved  = $value === 'resolved' ? 'NOW()' : 'NULL';
+        // Waiting parks the ticket with a 72h leash; housekeeping resurfaces it.
+        $resurface = $value === 'waiting' ? 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR)' : 'NULL';
+        db()->prepare("UPDATE tickets SET status = ?, resolved_at = $resolved, resurface_at = $resurface WHERE id = ?")->execute([$value, $id]);
+        $toast = 'Status → ' . STATUS_META[$value][0] . ($value === 'waiting' ? ' (auto-resurfaces in 3 days)' : '');
         break;
 
     case 'priority':

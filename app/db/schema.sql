@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   assignee_id INT UNSIGNED NULL,
   channel     ENUM('email','portal','alert','phone') NOT NULL DEFAULT 'email',
   sla_due_at  DATETIME NOT NULL,
+  resurface_at DATETIME NULL,   -- waiting auto-resurface (housekeeping reopens)
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   resolved_at DATETIME NULL,
@@ -111,6 +112,47 @@ CREATE TABLE IF NOT EXISTS messages (
   PRIMARY KEY (id),
   KEY ix_messages_ticket (ticket_id),
   CONSTRAINT fk_messages_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+-- Attachments (uploads + inbound email files; bytes outside the deploy tree)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS attachments (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ticket_id   INT UNSIGNED NOT NULL,
+  message_id  INT UNSIGNED NULL,
+  filename    VARCHAR(190) NOT NULL,
+  mime        VARCHAR(100) NOT NULL DEFAULT 'application/octet-stream',
+  size_bytes  INT UNSIGNED NOT NULL DEFAULT 0,
+  stored_name CHAR(40) NOT NULL,
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_att_ticket (ticket_id),
+  KEY ix_att_message (message_id),
+  CONSTRAINT fk_att_ticket  FOREIGN KEY (ticket_id)  REFERENCES tickets (id),
+  CONSTRAINT fk_att_message FOREIGN KEY (message_id) REFERENCES messages (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+-- Email conversation threading (Graph conversationId → ticket) + dedupe
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS email_threads (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ticket_id       INT UNSIGNED NOT NULL,
+  conversation_id VARCHAR(190) NOT NULL,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_thread_conv (conversation_id),
+  KEY ix_thread_ticket (ticket_id),
+  CONSTRAINT fk_thread_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS processed_mail (
+  id                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  internet_message_id VARCHAR(255) NOT NULL,
+  created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_pm_id (internet_message_id(190))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------

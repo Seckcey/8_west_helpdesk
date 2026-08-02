@@ -15,6 +15,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/mailer.php';
+require_once __DIR__ . '/attachments.php';
 
 /**
  * Bounce / auto-mail detection — the mail-loop killer. A confirmation sent
@@ -29,7 +30,8 @@ function intake_is_auto_mail(string $fromEmail, string $subjectText): bool
     return false;
 }
 
-function intake_message(string $fromEmail, string $fromName, string $subjectText, string $bodyText): string
+function intake_message(string $fromEmail, string $fromName, string $subjectText, string $bodyText,
+                        array $attachments = [], ?string $conversationId = null): string
 {
     $fromEmail = mb_strtolower(trim(utf8_clean($fromEmail)));
     $fromName = utf8_clean($fromName);
@@ -40,16 +42,28 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
     $bodyText = trim(mb_substr(strip_quoted_reply($bodyText), 0, 8000));
     if ($bodyText === '') $bodyText = '(no text body)';
 
-    // Threading: [#123] → reply on that ticket
-    if (preg_match('/\[#(\d+)\]/', $subjectText, $m)) {
+    // Threading, strongest first: the mail conversation itself (Graph
+    // conversationId survives subject edits), then the [#123] subject token.
+    $tid = 0;
+    if ($conversationId !== null && $conversationId !== '') {
+        $cq = db()->prepare('SELECT ticket_id FROM email_threads WHERE conversation_id = ?');
+        $cq->execute([mb_substr($conversationId, 0, 190)]);
+        $tid = (int)($cq->fetchColumn() ?: 0);
+    }
+    if ($tid === 0 && preg_match('/\[#(\d+)\]/', $subjectText, $m)) {
         $tid = (int)$m[1];
+    }
+    if ($tid > 0) {
         $tq = db()->prepare('SELECT t.*, c.sla_tier FROM tickets t JOIN clients c ON c.id = t.client_id WHERE t.id = ? AND t.tenant_id = ?');
         $tq->execute([$tid, tenant_id()]);
         if ($ticket = $tq->fetch()) {
             db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
                 ->execute([$tid, $fromName, 'client', $bodyText]);
+            $mid = (int)db()->lastInsertId();
+            intake_store_attachments($tid, $mid, $attachments);
+            intake_learn_conversation($tid, $conversationId);
             if (in_array($ticket['status'], ['waiting', 'resolved'], true)) {
-                db()->prepare("UPDATE tickets SET status = 'open' WHERE id = ?")->execute([$tid]);
+                db()->prepare("UPDATE tickets SET status = 'open', resurface_at = NULL WHERE id = ?")->execute([$tid]);
             }
             if (!empty($ticket['assignee_id'])) {
                 $aq = db()->prepare('SELECT email FROM users WHERE id = ?');
@@ -66,7 +80,7 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
             }
             return "appended:#{$tid}";
         }
-        // unknown ticket id → fall through to a fresh ticket
+        // unknown ticket id / stale conversation → fall through to a fresh ticket
     }
 
     // Bounces/auto-replies that don't belong to an existing ticket are pure
@@ -105,6 +119,9 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
     $tid = (int)db()->lastInsertId();
     db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
         ->execute([$tid, $fromName, 'client', $bodyText]);
+    $mid = (int)db()->lastInsertId();
+    intake_store_attachments($tid, $mid, $attachments);
+    intake_learn_conversation($tid, $conversationId);
     db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
         ->execute([$tid, 'Safeharbor', 'system', 'Ticket created from email · SLA response due in ' . $hours . ' hours'
             . ($isAuto ? ' · auto-mail sender, no confirmation sent' : '')]);
@@ -120,6 +137,30 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
         );
     }
     return "created:#{$tid}";
+}
+
+/** Remember which mail conversation a ticket lives in (idempotent). */
+function intake_learn_conversation(int $ticketId, ?string $conversationId): void
+{
+    if ($conversationId === null || $conversationId === '') return;
+    try {
+        db()->prepare('INSERT IGNORE INTO email_threads (ticket_id, conversation_id) VALUES (?,?)')
+            ->execute([$ticketId, mb_substr($conversationId, 0, 190)]);
+    } catch (Throwable $e) {
+        // threading is an optimization — never let it break intake
+    }
+}
+
+/** Store inbound attachments [[name, mime, bytes]…] against a message. */
+function intake_store_attachments(int $ticketId, int $messageId, array $attachments): void
+{
+    foreach (array_slice($attachments, 0, ATT_MAX_FILES) as $a) {
+        try {
+            att_store($ticketId, $messageId, (string)($a['name'] ?? 'file'), (string)($a['mime'] ?? ''), (string)($a['bytes'] ?? ''));
+        } catch (Throwable $e) {
+            // a bad attachment must never kill the mail
+        }
+    }
 }
 
 /** Strip quoted history from a reply (Outlook/Gmail/plaintext patterns). */

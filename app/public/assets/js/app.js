@@ -662,6 +662,16 @@
       }
     });
 
+    /* attachment picker count */
+    const filesInput = $("#f-files");
+    const attCount = $("#att-count");
+    if (filesInput && attCount) {
+      filesInput.addEventListener("change", () => {
+        const n = filesInput.files.length;
+        attCount.textContent = n ? (n + (n === 1 ? " file" : " files")) : "";
+      });
+    }
+
     return { setMode, focus: (mode) => { setMode(mode); box.focus(); } };
   })();
 

@@ -34,3 +34,8 @@ foreach ($due as $mail) {
 }
 
 if ($due) echo "[" . gmdate('c') . " mail_dispatch: {$sent} sent, {$failed} deferred of " . count($due) . "]\n";
+
+// Piggybacked housekeeping (waiting-ticket resurface) — no extra cron needed.
+require_once __DIR__ . '/../lib/housekeeping.php';
+$hk = housekeeping_run();
+if ($hk > 0) echo "[" . gmdate('c') . " housekeeping: {$hk} waiting tickets resurfaced]\n";

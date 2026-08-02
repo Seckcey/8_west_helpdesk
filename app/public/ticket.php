@@ -6,6 +6,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/mailer.php';
+require_once __DIR__ . '/../lib/attachments.php';
 enforce_https();
 $user = require_login();
 
@@ -33,9 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
     csrf_check();
     $body   = utf8_clean(trim((string)$_POST['reply']));
     $isNote = (($_POST['mode'] ?? 'reply') === 'note');
+    $hasFiles = !empty($_FILES['files']['name'][0] ?? '');
+    if ($body === '' && $hasFiles) $body = '(attached files)';
     if ($body !== '') {
         db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
             ->execute([$id, $user['full_name'], $isNote ? 'note' : 'tech', $body]);
+        if ($hasFiles) {
+            att_store_uploads($id, (int)db()->lastInsertId(), $_FILES['files']);
+        }
         if (!$isNote && $ticket['status'] === 'open') {
             db()->prepare("UPDATE tickets SET status = 'in_progress' WHERE id = ?")->execute([$id]);
         }
@@ -75,6 +81,7 @@ $mq = db()->prepare(
 $mq->execute([$id]);
 $thread = $mq->fetchAll();
 $threadHidden = max(0, $threadTotal - count($thread));
+$ticketAtts = att_for_ticket($id);
 
 $team = db()->prepare('SELECT full_name, initials, color FROM users WHERE tenant_id = ? AND is_active = 1 ORDER BY id');
 $team->execute([tenant_id()]);
@@ -131,6 +138,7 @@ page_top($user, '#' . $id, 'queue');
           <div class="msg-note">
             <div class="msg-meta"><span class="msg-author-note"><?= h($msg['author_name']) ?></span><span class="msg-when">internal note · <?= rel_time($msg['created_at']) ?></span></div>
             <p class="msg-body"><?= h($msg['body']) ?></p>
+            <?= att_chips($ticketAtts[(string)$msg['id']] ?? []) ?>
           </div>
         <?php else: $isTech = $msg['kind'] === 'tech'; ?>
           <div class="card msg <?= $isTech ? 'msg-tech' : '' ?>">
@@ -139,12 +147,13 @@ page_top($user, '#' . $id, 'queue');
               <span class="msg-when"><?= $isTech ? 'tech' : 'client' ?> · <?= rel_time($msg['created_at']) ?></span>
             </div>
             <p class="msg-body"><?= h($msg['body']) ?></p>
+            <?= att_chips($ticketAtts[(string)$msg['id']] ?? []) ?>
           </div>
         <?php endif; ?>
       <?php endforeach; ?>
 
       <div class="card reply" id="reply">
-        <form method="post" action="/ticket.php?id=<?= (int)$ticket['id'] ?>" id="reply-form">
+        <form method="post" action="/ticket.php?id=<?= (int)$ticket['id'] ?>" id="reply-form" enctype="multipart/form-data">
           <?= csrf_field() ?>
           <input type="hidden" name="mode" id="composer-mode" value="reply">
           <input type="hidden" name="timer_minutes" id="f-timer-minutes" value="0">
@@ -156,6 +165,11 @@ page_top($user, '#' . $id, 'queue');
           <div class="canned-pop" id="canned-pop" hidden></div>
           <textarea name="reply" id="reply-box" rows="3" placeholder="Reply to client…  (⌘Enter to send · / for saved replies)"></textarea>
           <div class="reply-foot">
+            <label class="att-pick" title="Attach files (up to 5, 15 MB each)">
+              <input type="file" name="files[]" id="f-files" multiple hidden>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 7.5 8.6 12a3.1 3.1 0 0 1-4.5-4.4l5-5a2.1 2.1 0 0 1 3 3l-5 5a1.1 1.1 0 0 1-1.6-1.5l4.5-4.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span id="att-count"></span>
+            </label>
             <span class="reply-hint" id="composer-hint">Replying emails the client and moves Open → In Progress</span>
             <label class="timer-log-chip" id="timer-log-chip" hidden>
               <input type="checkbox" id="f-billable" name="billable" value="1" checked>
