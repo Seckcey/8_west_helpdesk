@@ -4,6 +4,25 @@
 # tarball, untar into the app dir, stamp asset versions for cache-busting.
 # config/config.php on the server is NEVER overwritten.
 #
+# NEVER edit the deployed tree by hand. This script untars straight over
+# /srv/8west/apps/safeharbor/current, so a host-side edit is destroyed without
+# comment on the next run — and until then production is running code that no
+# commit describes and nobody can review or roll back. On 2026-08-02 Milepost
+# was found carrying drill-era hot patches in lib/isolation.php and
+# lib/tools.php that were not byte-identical to the merged fixes; the live tree
+# and main had quietly diverged. Milepost now refuses a full deploy when its
+# state file disagrees with the tree. This script has no such guard.
+#
+# If it runs in production, it is merged. Host-side experiments belong in a
+# disposable copy (/tmp), never in the deploy directory.
+#
+# The untar is also not atomic: a request arriving mid-extraction can read a
+# half-written file, which is what produced the one-off
+# "SQLSTATE[HY093] Invalid parameter number" in the error log at 02:57:19 on
+# 2026-08-02 — not a bind bug; every statement in that file balances. Fixing
+# it properly means the release-symlink pattern plus an Apache change, since
+# the <Directory> blocks match the resolved path.
+#
 # Usage (from the repo root, Git Bash):
 #   KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 #
