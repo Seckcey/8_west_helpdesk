@@ -68,6 +68,12 @@ function require_login(): array
     if (!$user && suite_sso_attempt()) {
         $user = current_user();
     }
+    if ($user) {
+        // Disabled at 8 West ID means disabled here, now — not whenever this
+        // app's own session happens to end. Cached, so this is a file read.
+        require_once __DIR__ . '/revocation.php';
+        enforce_revocation($user);
+    }
     if (!$user) {
         $next = $_SERVER['REQUEST_URI'] ?? '/';
         header('Location: /login.php?next=' . urlencode($next));
