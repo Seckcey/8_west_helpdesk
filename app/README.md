@@ -17,6 +17,10 @@ lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out
 lib/auth.php               session auth (bcrypt + CSRF fallback; 8 West ID SSO live:
                            suite cookie login + auto-provision + settings sync)
 lib/render.php             chrome layout + UI partials + palette data island
+lib/ai.php                 server-side AI layer (Anthropic/OpenAI via raw cURL;
+                           keys server-only; gated dev stub — Milepost port)
+lib/westy.php              Westy, the suite assistant: Safeharbor-grounded
+                           prompt, onboarding grounding, bubble renderer
 lib/mailer.php             outbound mail (mail_queue + transports:
                            Graph sendMail → SMTP → PHP mail(); Milepost parity)
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
@@ -35,10 +39,14 @@ public/                    Apache docroot (page-per-file, like Milepost)
   login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
   api/ticket_action.php    Optimistic field updates (strict whitelists)
   api/timer.php            Time-entry logging
+  api/westy_chat.php       Westy chat (advise-only; rate-limited via assistant_log)
+  api/westy_onboard.php    Marks the first-run welcome as done (users.onboarded_at)
   assets/css/app.css       Hand-written design system, semantic tokens
                            (dark / light / system themes)
   assets/js/app.js         Keyboard model, ⌘K palette, timer, theme switch,
                            toasts (vanilla)
+  assets/js/westy.js       Westy bubble: chat + first-run onboarding tour
+  assets/img/              Westy avatar (shared suite mascot)
   assets/brand/            Logos (synced from ../../brand by deploy.sh)
 ```
 

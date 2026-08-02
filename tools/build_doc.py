@@ -623,8 +623,10 @@ def build_concept(doc):
               ("Client portal", "White-label submit/status/KB; invoices visible via Coastmark", "P2"),
               ("Knowledge base", "Internal + client-facing articles, suggested answers", "P2–P3"),
               ("Milepost bridge", "Alert→ticket with asset context; device panel on ticket; remote session launch", "P2"),
+              ("Westy — suite assistant", "The 8 West IT 365 chatbot (shared with Milepost): onboarding tour on first sign-in + advise-only how-to helper on every page; drafting joins P3", "P1"),
+              ("Suite SSO", "8 West ID sign-in via the shared suite cookie (Milepost parity); full OIDC flow later", "P1"),
               ("Automation", "Visual rule builder: routing, escalation, status, notifications, templates, recurring tickets", "P3"),
-              ("AI assist", "Triage/classify, thread summary, draft reply, KB suggestions — included", "P3"),
+              ("AI assist", "Triage/classify, thread summary, draft reply, KB suggestions — included (Westy grows these)", "P3"),
               ("Reporting", "SLA attainment, first-response, aging, utilization, client health dashboards", "P3"),
               ("CSAT & surveys", "One-tap resolution surveys, trend reporting", "P3"),
               ("Platform", "Public API, webhooks, importers (CW/Autotask/Syncro/Halo)", "P3"),
@@ -712,9 +714,14 @@ def build_phases(doc):
          ["In: email-to-ticket with custom domain, ticket core (queues, statuses, "
           "priorities, assignment, notes, attachments), clients & contacts, notifications, "
           "basic search",
-          "Out: SLAs, portal, automation, AI, reporting beyond a list view"],
+          "In (Sprint 1): 8 West ID suite SSO — the shared suite cookie Milepost ships, "
+          "kill-switch gated — and Westy, the suite assistant, as first-run onboarding "
+          "guide + advise-only how-to helper (advises, never acts; AI keys server-only)",
+          "Out: SLAs, portal, automation, AI drafting, reporting beyond a list view"],
          "8 West IT handles all real client support in-app for 4 consecutive weeks; "
-         "zero data-loss incidents; p95 ticket-open interaction under 300ms."),
+         "zero data-loss incidents; p95 ticket-open interaction under 300ms; a new "
+         "user reaches their first answered ticket with no human walkthrough (Westy "
+         "carries the onboarding)."),
         ("Phase 2 — MSP Essentials + Suite Integration", "Months 5–8",
          "Become a real MSP tool and wire in Milepost & Coastmark. Private beta with "
          "10–20 design-partner MSPs.",

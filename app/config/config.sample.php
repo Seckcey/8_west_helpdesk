@@ -43,6 +43,23 @@ return [
         ],
     ],
 
+    // Westy — the suite AI helper (advise-only chat bubble + onboarding).
+    // Milepost's ai-layer pattern: keys live ONLY here on the server, never
+    // in git or the browser. Unconfigured = Westy renders nothing (fails
+    // closed). provider: 'anthropic' or 'openai' (the suite currently runs
+    // OpenAI — sync provider/model/key from Milepost's config). 'stub' is
+    // DEV-ONLY and inert unless allow_stub is set.
+    'ai' => [
+        'provider'        => 'anthropic',
+        'api_key'         => '',
+        'model'           => 'claude-opus-5',
+        'max_tokens'      => 8000,   // hard cap on thinking + reply together
+        'timeout'         => 60,
+        'rate_limit'      => 20,   // Westy chats per user per window (<=0 disables)
+        'rate_window_min' => 60,
+        'allow_stub'      => false,
+    ],
+
     // Mail — same shape as Milepost's. Transport order: Graph → SMTP →
     // PHP mail(). Outbound = lib/mailer.php + mail_queue +
     // cron/mail_dispatch.php; inbound = cron/graph_poll.php (O365) or

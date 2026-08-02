@@ -36,7 +36,7 @@ tar -czf - -C "$ROOT" \
    && sudo find '$DEST' -type d -exec chmod 2750 {} + \
    && sudo find '$DEST' -type f -exec chmod 640 {} + \
    && V=\$(date +%Y%m%d%H%M%S) \
-   && sudo sed -i \"s/?v=[0-9A-Za-z]\\+/?v=\$V/g\" '$DEST/lib/render.php' '$DEST/public/login.php' \
+   && sudo sed -i \"s/?v=[0-9A-Za-z]\\+/?v=\$V/g\" '$DEST/lib/render.php' '$DEST/lib/westy.php' '$DEST/public/login.php' \
    && echo \"server: deployed (assets v=\$V)\""
 
 echo "==> Live: https://safeharbor.8westit.com"

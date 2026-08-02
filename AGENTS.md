@@ -66,7 +66,15 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    docroot, vhost pair, MySQL db/user, own `/etc/cron.d/safeharbor`); Apache
    `reload` never `restart`; `config/config.php` and the `.pem` never enter
    git.
-7. **Mail pipeline:** transport order Graph → SMTP → PHP mail().
+7. **Westy + SSO (Sprint 1):** Westy is the suite assistant (same mascot
+   as Milepost) — `lib/westy.php` + `lib/ai.php` + `api/westy_chat.php` +
+   `assets/js/westy.js`. He ADVISES, never acts; his prompt names only REAL
+   UI (update it when the UI changes); AI keys live ONLY in server
+   `config/config.php` (`ai` block) and the bubble fails closed without
+   them. 8 West ID SSO is the shared `ewid_token` suite cookie
+   (`suite_sso` block, kill-switch default-off, secret synced server-side
+   from Milepost — never chat/git); see `docs/suite-sso-contract.md`.
+8. **Mail pipeline:** transport order Graph → SMTP → PHP mail().
    Outbound = `lib/mailer.php` + `mail_queue` + `cron/mail_dispatch.php`;
    inbound = `cron/graph_poll.php` (O365, Entra app) with
    `cron/imap_poll.php` as non-M365 fallback. The suite shares ONE Entra

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS users (
   is_active     TINYINT(1)   NOT NULL DEFAULT 1,
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_login_at DATETIME NULL,
+  onboarded_at  DATETIME NULL,   -- NULL = Westy still owes them the welcome tour
   PRIMARY KEY (id),
   UNIQUE KEY uq_users_tenant_email (tenant_id, email),
   KEY ix_users_tenant (tenant_id),
@@ -110,6 +111,21 @@ CREATE TABLE IF NOT EXISTS messages (
   PRIMARY KEY (id),
   KEY ix_messages_ticket (ticket_id),
   CONSTRAINT fk_messages_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+-- Westy usage/audit (lengths + outcomes only, never message content;
+-- drives the per-user rate limit in api/westy_chat.php)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS assistant_log (
+  id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id    INT UNSIGNED NOT NULL,
+  action     VARCHAR(32)  NOT NULL,
+  meta       VARCHAR(255) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_assistant_user_action_created (user_id, action, created_at),
+  CONSTRAINT fk_assistant_user FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------

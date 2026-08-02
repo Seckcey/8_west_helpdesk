@@ -5,6 +5,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/westy.php';
 
 const STATUS_META = [
     'open'        => ['Open',        'blue'],
@@ -193,6 +194,7 @@ function page_bottom(array $paletteData = []): void
 </div>
 <div id="palette-root"></div>
 <div id="toasts" class="toasts"></div>
+<?php westy_bubble_render(); ?>
 <script id="palette-data" type="application/json"><?= json_encode($paletteData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
 <script src="/assets/js/app.js?v=2" defer></script>
 </body>

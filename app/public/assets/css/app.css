@@ -795,7 +795,7 @@ img { display: block; }
 .palette-empty { padding: 32px 16px; text-align: center; font-size: 13px; color: var(--muted); }
 
 .toasts {
-  position: fixed; bottom: 16px; right: 16px; z-index: 50;
+  position: fixed; bottom: 88px; right: 16px; z-index: 50;   /* clears Westy's bubble */
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
   pointer-events: none;
 }
@@ -805,3 +805,53 @@ img { display: block; }
   border-radius: var(--radius-md); box-shadow: var(--shadow-card);
   animation: row-in 160ms ease-out;
 }
+
+/* ==========================================================================
+   Westy — the suite assistant's chat bubble (advise-only helper + onboarding
+   guide), floating bottom-right on every authed page. Milepost parity,
+   Safeharbor tokens.
+   ========================================================================== */
+#westy-root { position: fixed; right: 20px; bottom: 20px; z-index: 35; }   /* under the ⌘K overlay (40) and toasts (50) */
+#westy-bubble {
+  width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer;
+  background: transparent; padding: 0; transition: transform 150ms ease;
+}
+#westy-bubble img { width: 100%; height: 100%; display: block; border-radius: 50%;
+  filter: drop-shadow(0 4px 10px rgba(3, 16, 34, 0.45)); }
+#westy-bubble:hover { transform: scale(1.06); }
+#westy-panel {
+  position: absolute; right: 0; bottom: 68px; width: 340px; max-width: calc(100vw - 40px);
+  height: 440px; max-height: calc(100vh - 120px); display: flex; flex-direction: column;
+  background: var(--bg-solid); border: 1px solid var(--line); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card); overflow: hidden;
+}
+.westy-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-bottom: 1px solid var(--line); background: var(--card);
+}
+.westy-head-avatar { width: 28px; height: 28px; display: block; border-radius: 50%; }
+.westy-head b { font-size: 14px; color: var(--text-strong); }
+.westy-sub { color: var(--muted); font-size: 11px; flex: 1; }
+#westy-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px; }
+#westy-close:hover { color: var(--text); }
+.westy-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.westy-msg {
+  max-width: 88%; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px;
+  line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+}
+.westy-westy { align-self: flex-start; background: var(--card-strong); color: var(--text); }
+.westy-me { align-self: flex-end; background: var(--accent); color: #fff; }
+.westy-thinking { color: var(--muted); font-style: italic; }
+.westy-chips { display: flex; flex-wrap: wrap; gap: 6px; align-self: flex-start; max-width: 95%; }
+.westy-chip {
+  padding: 6px 12px; font-size: 12px; color: var(--text); cursor: pointer;
+  background: var(--chip-bg); border: 1px solid var(--line); border-radius: 999px;
+}
+.westy-chip:hover { background: var(--hover); border-color: var(--sel-ring); }
+.westy-chip-dismiss { color: var(--muted); }
+#westy-form { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+#westy-input {
+  flex: 1; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--input-bg); color: var(--text); font-size: 13px; font-family: var(--font);
+}
+#westy-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }

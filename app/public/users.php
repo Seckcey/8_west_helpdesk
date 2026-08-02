@@ -13,13 +13,6 @@ $COLORS = ['#2D8CFF', '#7DDCFF', '#F6C95B', '#62F6B0'];
 $error = '';
 $ok = '';
 
-function initials_of(string $name): string
-{
-    $parts = preg_split('/\s+/', trim($name));
-    $ini = mb_strtoupper(mb_substr($parts[0] ?? '?', 0, 1) . mb_substr(end($parts) ?: '', 0, 1));
-    return mb_substr($ini, 0, 2);
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
     csrf_check();
     $action = $_POST['action'] ?? '';

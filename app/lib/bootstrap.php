@@ -114,8 +114,23 @@ function json_out(array $data, int $code = 200): void
     exit;
 }
 
-/** The signed-in tenant id. Phase 0: single seeded tenant; SSO later. */
+/**
+ * The signed-in tenant id. An 8 West ID sign-in stamps the claim-resolved
+ * tenant into the session; local sign-ins (and cron, which has no session)
+ * use the seeded tenant 1.
+ */
 function tenant_id(): int
 {
+    if (session_status() === PHP_SESSION_ACTIVE && !empty($_SESSION['tenant_id'])) {
+        return (int)$_SESSION['tenant_id'];
+    }
     return 1;
+}
+
+/** "FG" from "Frank Gonzalez" — avatar initials (shared by Team page + SSO provisioning). */
+function initials_of(string $name): string
+{
+    $parts = preg_split('/\s+/', trim($name));
+    $ini = mb_strtoupper(mb_substr($parts[0] ?? '?', 0, 1) . mb_substr(end($parts) ?: '', 0, 1));
+    return mb_substr($ini, 0, 2);
 }

@@ -6,9 +6,11 @@ Safeharbor is the help desk app in the **8 West IT Total Business Suite** for
 MSPs — alongside **Milepost** (RMM / client operations) and **Coastmark**
 (accounting). by 8 West IT, LLC.
 
-> Status: **Phase 0 complete** — brand system + working prototype, **live at
+> Status: **Phase 1 in flight (Sprint 1)** — brand system + working core, **live at
 > [safeharbor.8westit.com](https://safeharbor.8westit.com)**
-> (demo sign-in `frankie@8westit.com` / `harbor`). Next: Phase 1 (core ticketing MVP).
+> (demo sign-in `frankie@8westit.com` / `harbor`). Sprint 1 adds **Westy**
+> (the 8 West IT 365 suite assistant — onboarding tour + how-to helper) and
+> **8 West ID suite SSO** (shared suite cookie, kill-switch gated).
 
 ## What's here
 
