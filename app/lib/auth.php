@@ -288,3 +288,30 @@ function logout(): void
     }
     session_destroy();
 }
+
+/**
+ * Central 8 West ID sign-out endpoint for browser logout handoff.
+ *
+ * The issuer is server configuration, never request input. Still, refuse
+ * malformed or non-HTTPS values so a bad config cannot turn logout into an
+ * open redirect. The production default matches the token issuer.
+ */
+function suite_logout_url(): string
+{
+    $default = 'https://id.8westit.com';
+    $issuer = trim((string)cfg('suite.issuer', $default));
+    $parts = parse_url($issuer);
+
+    if (filter_var($issuer, FILTER_VALIDATE_URL) === false
+        || !is_array($parts)
+        || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+        || empty($parts['host'])
+        || isset($parts['user'])
+        || isset($parts['pass'])
+        || isset($parts['query'])
+        || isset($parts['fragment'])) {
+        $issuer = $default;
+    }
+
+    return rtrim($issuer, '/') . '/logout.php';
+}
