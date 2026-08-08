@@ -1,9 +1,15 @@
 /* Westy — the 8 West suite assistant, Safeharbor post. Advise-only chat
  * bubble + first-run onboarding tour. The ONLY network calls this file makes
  * are POST /api/westy_chat.php (advice) and POST /api/westy_onboard.php (the
- * user's own "got it" on the welcome). No secrets, no storage beyond this
- * page's in-memory history (sent back bounded). Vanilla, no dependencies —
- * the 8 West Standard. */
+ * user's own "got it" on the welcome). No secrets; the only thing stored is
+ * this tab's own bounded transcript, in sessionStorage, which the page already
+ * held and already sends back as context.
+ *
+ * Moving and resizing are NOT here. They come from the shared suite package
+ * (westy.8westit.com/v1/westy-layout.js, tagged in Seckcey/8_west_westy) so a
+ * fix reaches every 8 West IT 365 app at once. Do not reimplement them here.
+ *
+ * Vanilla, no dependencies — the 8 West Standard. */
 (function () {
   'use strict';
   var root = document.getElementById('westy-root');
@@ -15,7 +21,13 @@
   var form = document.getElementById('westy-form');
   var input = document.getElementById('westy-input');
   var sendBtn = document.getElementById('westy-send');
-  var history = [];   // [{q,a}] — session-only, capped at 6
+  var history = [];   // [{q,a}] — capped at 6; mirrored to sessionStorage so it survives navigation
+  /* Per-tab, per-user. sessionStorage and NOT localStorage: the transcript dies
+   * with the tab rather than outliving a shift on a shared technician
+   * workstation. data-uid is not an authorization input — every endpoint still
+   * authorizes from the session; it only stops a second sign-in in the same tab
+   * inheriting the previous tech's conversation. */
+  var STORE = 'sh.westy.' + (root.getAttribute('data-uid') || '0');
   var busy = false;
   var isNew = root.getAttribute('data-onboarded') === '0';
   var firstName = root.getAttribute('data-name') || 'there';
@@ -32,7 +44,6 @@
   function setOpen(open) {
     panel.hidden = !open;
     bubble.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (open) placePanel();
     if (open && !log.children.length) {
       if (isNew) {
         addMsg('westy', 'Welcome aboard, ' + firstName + "! I'm Westy — I know every corner of Safeharbor. " +
@@ -42,152 +53,46 @@
         addMsg('westy', "Hi! I'm Westy. Ask me how to use Safeharbor — the queue, tickets, email, the timer, anything.");
       }
     }
-    if (open) input.focus();
+    /* preventScroll: restoring an open panel on page load must never move the
+     * page. The panel is position:fixed, but a focus() without this hint can
+     * still yank the document on some browsers. */
+    if (open) { try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); } }
+    save();
   }
 
-  /* ── drag: put Westy wherever he is out of the way ────────────────────────
-   * Grab the bubble (or the panel's header) and move the whole widget. The
-   * spot is remembered per browser. Pointer events + setPointerCapture, the
-   * same idiom as Milepost's sidebar resize handle, so mouse, pen, and touch
-   * all work from one code path. */
+  /* ── the conversation survives clicking a link ────────────────────────────
+   * The bubble re-renders on every page, so without this, following any link
+   * wiped the chat mid-troubleshoot and the tech had to re-establish context.
+   * Only the bounded {q,a} pairs the page already holds — and already sends
+   * back as context — are stored, so nothing new is retained. */
 
-  var POS_KEY = 'safeharbor.westy-pos';
-  var EDGE = 8;        // never let Westy touch the viewport edge
-  var SLOP = 4;        // movement under this is a click, not a drag
-  var head = panel.querySelector('.westy-head');
-  var pos = null;      // {x,y} of the root's top-left; null = default corner
-  var drag = null;
-  var swallowClick = false;
-
-  function applyPos() {
-    if (!pos) {
-      root.style.left = root.style.top = root.style.right = root.style.bottom = '';
-      return;
-    }
-    root.style.left = pos.x + 'px';
-    root.style.top = pos.y + 'px';
-    root.style.right = 'auto';
-    root.style.bottom = 'auto';
-  }
-
-  /* Keep the whole bubble on screen — a Westy dragged off the edge (or onto a
-   * screen smaller than the one he was parked on) would be as stuck as the
-   * bug this replaces. */
-  function setPos(x, y) {
-    var w = root.offsetWidth || 56, h = root.offsetHeight || 56;
-    pos = {
-      x: Math.max(EDGE, Math.min(x, window.innerWidth - w - EDGE)),
-      y: Math.max(EDGE, Math.min(y, window.innerHeight - h - EDGE))
-    };
-    applyPos();
-    if (!panel.hidden) placePanel();
-  }
-
-  /* The panel hangs off the bubble, so once the bubble moves it has to open
-   * toward whatever space is actually left — upward by default, downward near
-   * the top; right-anchored by default, left-anchored near the left edge. */
-  function placePanel() {
-    var r = root.getBoundingClientRect();
-    var pw = panel.offsetWidth, ph = panel.offsetHeight;
-    if (!pw || !ph) return;
-    root.setAttribute('data-westy-flip', (r.top - 12 - ph >= EDGE) ? 'up' : 'down');
-    root.setAttribute('data-westy-side', (r.right - pw >= EDGE) ? 'right' : 'left');
-  }
-
-  function savePos() {
+  function save() {
     try {
-      if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos));
-      else localStorage.removeItem(POS_KEY);
-    } catch (e) { /* private mode / full quota — Westy just forgets his spot */ }
+      sessionStorage.setItem(STORE, JSON.stringify({ open: !panel.hidden, h: history.slice(-6) }));
+    } catch (e) { /* private mode or full quota — the chat simply will not persist */ }
   }
 
-  function resetPos() { pos = null; applyPos(); savePos(); if (!panel.hidden) placePanel(); }
-
-  (function restorePos() {
+  function restore() {
     var raw = null;
-    try { raw = localStorage.getItem(POS_KEY); } catch (e) { return; }
+    try { raw = sessionStorage.getItem(STORE); } catch (e) { return; }
     if (!raw) return;
     var st = null;
     try { st = JSON.parse(raw); } catch (e) { return; }
-    if (!st || typeof st.x !== 'number' || typeof st.y !== 'number') return;
-    setPos(st.x, st.y);   // re-clamped, so a spot saved on a wider screen still lands here
-  })();
-
-  function dragStart(ev) {
-    if (ev.button) return;                          // left button (or touch/pen) only
-    if (ev.target.closest('#westy-close')) return;  // the X is a button, not a handle
-    var r = root.getBoundingClientRect();
-    drag = {
-      id: ev.pointerId, el: ev.currentTarget, moved: false,
-      dx: ev.clientX - r.left, dy: ev.clientY - r.top,
-      x0: ev.clientX, y0: ev.clientY
-    };
-    if (drag.el.setPointerCapture) { try { drag.el.setPointerCapture(ev.pointerId); } catch (e) {} }
-  }
-
-  function dragMove(ev) {
-    if (!drag || ev.pointerId !== drag.id) return;
-    if (!drag.moved) {
-      if (Math.abs(ev.clientX - drag.x0) < SLOP && Math.abs(ev.clientY - drag.y0) < SLOP) return;
-      drag.moved = true;
-      root.classList.add('westy-dragging');
+    if (!st || !Array.isArray(st.h)) return;
+    history = st.h.filter(function (p) {
+      return p && typeof p.q === 'string' && typeof p.a === 'string';
+    }).slice(-6);
+    for (var i = 0; i < history.length; i++) {
+      addMsg('me', history[i].q);
+      addMsg('westy', history[i].a);
     }
-    ev.preventDefault();
-    setPos(ev.clientX - drag.dx, ev.clientY - drag.dy);
+    /* The onboarding chips are deliberately NOT restored. They are Safeharbor's
+     * equivalent of Milepost's un-restored draft cards: a "Show me around" chip
+     * reappearing after the welcome was dismissed is stale UI inviting a stale
+     * action. Restoring the transcript is enough. */
+    if (st.open) setOpen(true);
   }
 
-  function dragEnd(ev) {
-    if (!drag || (ev.pointerId != null && ev.pointerId !== drag.id)) return;
-    var moved = drag.moved, el = drag.el, id = drag.id;
-    drag = null;
-    if (el.releasePointerCapture) { try { el.releasePointerCapture(id); } catch (e) {} }
-    root.classList.remove('westy-dragging');
-    if (!moved) return;
-    savePos();
-    // The click that follows this pointerup would toggle the chat — a drag is
-    // not a click. Cleared on the next tick so a later real click still lands.
-    swallowClick = true;
-    setTimeout(function () { swallowClick = false; }, 0);
-  }
-
-  // Keyboard equivalent: nudge Westy with the arrows, Home puts him back.
-  function dragKey(ev) {
-    var step = ev.shiftKey ? 48 : 16, r;
-    if (ev.key === 'Home') { ev.preventDefault(); resetPos(); return; }
-    if (ev.key.indexOf('Arrow') !== 0) return;
-    ev.preventDefault();
-    r = root.getBoundingClientRect();
-    setPos(r.left + (ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0),
-           r.top + (ev.key === 'ArrowUp' ? -step : ev.key === 'ArrowDown' ? step : 0));
-    savePos();
-  }
-
-  [bubble, head].forEach(function (el) {
-    if (!el) return;
-    el.addEventListener('pointerdown', dragStart);
-    el.addEventListener('pointermove', dragMove);
-    el.addEventListener('pointerup', dragEnd);
-    el.addEventListener('pointercancel', dragEnd);
-    el.addEventListener('keydown', dragKey);
-    el.addEventListener('dblclick', function (ev) { ev.preventDefault(); resetPos(); });
-  });
-  if (head) {
-    head.tabIndex = 0;
-    head.setAttribute('aria-label', 'Move Westy — drag, or use the arrow keys; Home returns him to the corner');
-  }
-  bubble.title = 'Ask Westy — Safeharbor helper (drag to move · double-click to reset)';
-
-  root.addEventListener('click', function (ev) {
-    if (!swallowClick) return;
-    swallowClick = false;
-    ev.stopPropagation();
-    ev.preventDefault();
-  }, true);
-
-  window.addEventListener('resize', function () {
-    if (pos) setPos(pos.x, pos.y);
-    if (!panel.hidden) placePanel();
-  });
 
   /* ── first-run onboarding ─────────────────────────────────────────────── */
 
@@ -241,6 +146,20 @@
     setOpen(false);
   });
 
+  /* Rebuild any conversation from this tab BEFORE the first-run auto-open, so
+   * a restored chat never gets a second "Hi! I'm Westy" stacked on top of it. */
+  restore();
+
+  /* Signing out must not leave a transcript for the next person at this
+   * machine. Capture phase, so it still runs when the click lands on a child
+   * of the link and before the navigation. */
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (t && t.closest && t.closest('a[href*="logout"]')) {
+      try { sessionStorage.removeItem(STORE); } catch (e) {}
+    }
+  }, true);
+
   // First sign-in: open the bubble once, gently, after the page settles.
   if (isNew) {
     setTimeout(function () { if (panel.hidden) setOpen(true); }, 1200);
@@ -287,6 +206,7 @@
           addMsg('westy', res.j.reply);
           history.push({ q: msg, a: res.j.reply });
           if (history.length > 6) history = history.slice(-6);
+          save();
           finish();
           return;
         }

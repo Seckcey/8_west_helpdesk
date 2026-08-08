@@ -832,16 +832,6 @@ img { display: block; }
   background: var(--bg-solid); border: 1px solid var(--line); border-radius: var(--radius-md);
   box-shadow: var(--shadow-card); overflow: hidden;
 }
-/* Westy is draggable, so the panel opens toward whatever space is left rather
-   than always up-and-left; westy.js sets these as he moves. */
-#westy-root[data-westy-flip="down"] #westy-panel { top: 68px; bottom: auto; }
-#westy-root[data-westy-side="left"] #westy-panel { left: 0; right: auto; }
-/* touch-action: the browser must not claim the gesture for scrolling. */
-#westy-bubble, .westy-head { touch-action: none; cursor: grab; }
-.westy-dragging #westy-bubble, .westy-dragging .westy-head { cursor: grabbing; }
-.westy-dragging #westy-bubble:hover { transform: none; }   /* no wobble mid-drag */
-.westy-dragging { user-select: none; }
-#westy-close { cursor: pointer; }                          /* the X is a button, not a handle */
 .westy-head {
   display: flex; align-items: center; gap: 8px; padding: 10px 14px;
   border-bottom: 1px solid var(--line); background: var(--card);
