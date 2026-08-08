@@ -10,15 +10,18 @@ client operations) and **Coastmark** (accounting). Four products, four
 `coastmark`. by 8 West IT, LLC.
 
 > Status: **v1.0 feature-complete (Sprints 1–5 shipped, 2026-08-02)** — **live at
-> [safeharbor.8westit.com](https://safeharbor.8westit.com)**
-> (demo sign-in `frankie@8westit.com` / `harbor`). What remains before the
+> [safeharbor.8westit.com](https://safeharbor.8westit.com)**. Production
+> credentials are not published; use an authorized 8 West ID or local account.
+> What remains before the
 > v1.0 stamp is the Phase 1 exit gate: 4 consecutive weeks running 8 West's
 > real desk, zero data loss, p95 interaction < 300ms.
 >
 > Shipped: **Westy** (suite assistant — first-run onboarding tour + advise-only
-> how-to helper) · **8 West ID SSO** (HS256 `ewid_token` suite cookie — not
-> OIDC; users keyed by the immutable `sub` claim, every deny audited; needs
-> migration 007 applied and `suite.sso_secret` set on the host — see
+> how-to helper; shared move/resize layout comes from the centrally owned
+> `Seckcey/8_west_westy` release at `https://westy.8westit.com/v1/`) · **8 West
+> ID SSO** (HS256 `ewid_token` suite cookie — not OIDC; users keyed by the
+> immutable `sub` claim, every deny audited; migration 007 was applied to
+> production on 2026-08-02 and `suite.sso_secret` is server-only — see
 > [docs/suite-sso-contract.md](docs/suite-sso-contract.md)) · **Milepost alert
 > intake** (signed svc API, dark until the emitter ships) · composer with
 > internal notes + `/` saved replies + time-at-reply · attachments both ways ·
@@ -42,7 +45,7 @@ The app runs on the server (no local build). Develop = edit, lint, deploy:
 
 ```bash
 find app -name "*.php" -print0 | xargs -0 -n1 php -l   # lint
-KEY=~/.ssh/milepost.pem bash deploy/deploy.sh          # deploy to production
+SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 cd tools/shots && node walkthrough.mjs                 # visual verification
 ```
 

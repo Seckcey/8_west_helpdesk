@@ -5,9 +5,10 @@ One identity for the whole suite: **Mission Control**, **Safeharbor**,
 in any product with the same tenant context. This document is the contract each
 app implements against.
 
-> **Currency.** Corrected 2026-08-02 against `app/lib/auth.php`,
+> **Currency.** Corrected 2026-08-08 against `app/lib/auth.php`,
 > `app/lib/jwt.php`, `app/config/config.sample.php` and
-> `app/tests/suite_sso_test.php` in this repo. Revisions of this file before
+> `app/tests/suite_sso_test.php` in this repo, plus current Milepost `main`.
+> Revisions of this file before
 > that date specified an **OpenID Connect flow that was never built** and a
 > status table that no longer matched any app. Read *The OIDC design was never
 > built* below before writing a client against anything here.
@@ -83,7 +84,9 @@ expiry.
    with?" after sign-in — `8west:tenant` decides. In Safeharbor the tenant row
    is **provisioned on first arrival** if the slug is unknown, so granting the
    tile in 8 West ID is the only step needed to give somebody access; there is
-   no per-app setup. The slugs `8west` and `internal` are reserved and refused.
+   no per-app setup. A blank slug is refused. Safeharbor deliberately admits
+   the `8west` staff tenant; its role gate already refuses customer and
+   unknown roles before tenant provisioning.
 2. **Product gating is entitlement-driven.** `8west:products` controls which
    apps accept the token. Safeharbor requires the literal key `safeharbor`
    (hard-coded in `suite_sso_attempt()`, *not* read from `suite.product` in
@@ -95,8 +98,11 @@ expiry.
    `/logout.php`; the issuer clears the shared suite cookie and lands on the
    hosted 8 West ID login page. This prevents the current product from
    immediately signing the user back in with the still-valid suite cookie.
-   It does **not** terminate already-established local sessions in other
-   products; those persist until their own logout, expiry, or revocation.
+   It does **not** directly terminate already-established local sessions in
+   other products. Safeharbor separately checks 8 West ID's signed revocation
+   list on every authenticated request through a 60-second cache, deactivates
+   a revoked local user and destroys that session. Other consumers need their
+   own equivalent enforcement.
 5. **Deep links carry context, not credentials.** Cross-product links
    (`Milepost device → Safeharbor ticket`) pass ids only; the receiving app
    re-authorizes from its own cookie.
@@ -139,7 +145,7 @@ Reason codes, in the order they can occur:
 | `expired_token` | `jwt_verify_reason()` | `exp` in the past |
 | `missing_claims` | `jwt_verify_reason()` | `sub` or `email` absent |
 | `product_not_entitled` | `suite_sso_attempt()` | `8west:products` lacks this app's key — the most common cause, fixed in the 8 West ID control panel, not in app code |
-| `tenant_slug_invalid` | `suite_sso_attempt()` | `8west:tenant` empty, or the reserved `8west` / `internal` |
+| `tenant_slug_invalid` | `suite_sso_attempt()` | `8west:tenant` is empty |
 | `user_inactive` | `suite_sso_attempt()` | the local account exists but `is_active = 0` |
 
 `jwt_verify()` (the reasonless twin) is still used by
@@ -154,9 +160,9 @@ Safeharbor no longer bails on an unknown slug — it creates the tenant (rule 1)
 | App | Product key | Suite SSO | Maps the user by |
 |---|---|---|---|
 | Mission Control (`mission_control`) | `missioncontrol` | **live in production** — customers sign in via `GET /auth/suite` | `sub` |
-| Safeharbor (this repo) | `safeharbor` | **live in production**; checked inline, with PR #15's local-session-first central logout deployed | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
+| Safeharbor (this repo) | `safeharbor` | **live in production**; checked inline, with local-session-first central logout and signed revocation-list enforcement | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
 | Coastmark 365 (`coastmark`) | `coastmark` | **live in production** at `e3b74da`; local-session-first central logout deployed | `sub` |
-| Milepost (`8westit_webapp`) | `milepost` | live, behind the `suite_sso.enabled` kill switch in `portal/lib/auth.php` | username == email local-part — **violates rule 6** |
+| Milepost (`8westit_webapp`) | `milepost` | live, behind the `suite_sso.enabled` kill switch in `portal/lib/auth.php` | **`sub`** (`users.suite_subject`); one-time claim prefers canonical email, then the legacy email-local-part username, and backfills the subject |
 
 Coastmark was split on 2026-08-02: `Seckcey/coastmark` is the 8 West IT 365
 edition (mode hard-coded `platform`) and is the row above;
@@ -164,11 +170,12 @@ edition (mode hard-coded `platform`) and is the row above;
 `standalone`, its own marketing, pricing and Stripe) and is **outside** this
 contract. Neither can become the other by configuration.
 
-Milepost is the one remaining app not on `sub`. That claim is carried from the
-2026-08-02 suite fact set, not verified from this repo — confirm in
-`8westit_webapp` before relying on it. Bringing it onto `sub` is the same
-change Safeharbor and Mission Control already shipped: add a `suite_subject`
-column, match on it first, fall back to email once, backfill.
+Milepost's current mapping was rechecked against `8westit_webapp` `main` at
+`43f20abb89f82dad0aca3d75d6262669419df8f3` on 2026-08-08. It matches by
+subject first; a pre-suite row may be claimed once by canonical `users.email`,
+then by the historical username-equals-email-local-part fallback, only while
+the subject is null. It backfills `suite_subject` and subsequently syncs an
+email change onto the subject-matched row instead of creating another user.
 
 ### Safeharbor operational preconditions
 
@@ -181,12 +188,13 @@ exists in Milepost only.
    that was never configured fails every signature and denies with
    `bad_signature` — effectively off, but off by accident rather than by
    design.
-2. **Migration `app/db/migrations/007_suite_subject.sql` must be applied.**
+2. **Migration `app/db/migrations/007_suite_subject.sql` is applied in
+   production.** It was applied migration-first on 2026-08-02 before the code
+   deployment; see `docs/suite-sso-deploy-acceptance.md`. It must still be
+   applied before or with the code on any rebuilt host.
    Subject mapping reads `users.suite_subject`; PDO runs in
    `ERRMODE_EXCEPTION`, so on a host without the column the first suite
-   sign-in throws rather than falling back. As of 2026-08-02 the applied-so-far
-   lists in `AGENTS.md` and `deploy/README.md` stop at 006 — apply 007 before
-   or with the release that carries this code.
+   sign-in throws rather than falling back.
 
 ## Deferred, and why it matters more each time
 
@@ -202,10 +210,13 @@ Still not built, in rough priority order:
   consumer added.
 - **Authorization-code flow + PKCE, rotating refresh tokens**, and a hosted
   central login page (rule 7 disappears when this lands).
-- **Sign out everywhere / consumer-session revocation.** The rule 4 issuer
-  handoff clears the shared cookie, but cannot reach into already-established
-  local sessions in other products. Coordinated back-channel revocation (or a
-  full OIDC logout design) remains separate work.
+- **Suite-wide sign out / complete consumer-session revocation.** The rule 4
+  issuer handoff clears the shared cookie. Safeharbor now enforces the issuer's
+  HMAC-signed revocation list for established suite sessions (60-second cache,
+  15-minute maximum snapshot age, logged fail-open on issuer/signature/stale
+  failures), but every other consumer must implement equivalent enforcement
+  before “sign out everywhere” is a suite-wide guarantee. A full OIDC logout
+  design remains separate work.
 - **Multi-account picker** for a user belonging to more than one customer
   account.
 - **Entitlement revocation.** Nothing takes a product grant back today, and
@@ -229,3 +240,8 @@ than a change to app-side session handling.
   user settings.
 - **2026-08-02.** Subject mapping, tenant auto-provisioning and audited denies
   landed in Safeharbor; Coastmark was split; this contract was corrected.
+- **2026-08-02.** Migration 007 was applied before the Safeharbor SSO code,
+  and Safeharbor's signed revocation-list enforcement was later merged.
+- **2026-08-08.** Corrected Safeharbor's staff-tenant, migration and
+  revocation status; rechecked Milepost's now-sub-based mapping against its
+  current `main`.

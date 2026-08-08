@@ -13,7 +13,8 @@ Tagline: *Every client issue, safely ashore.* Vendor: 8 West IT, LLC.
 Full product plan: `docs/8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`
 (regenerate via `tools/build_doc.py`). Current state: **v1.0
 feature-complete — Sprints 1–5 shipped 2026-08-02**, **live at
-https://safeharbor.8westit.com** (demo: `frankie@8westit.com` / `harbor`).
+https://safeharbor.8westit.com**. Production credentials are not published;
+use an authorized 8 West ID or local account.
 Remaining before the v1.0 stamp: the Phase 1 dogfood gate (4 weeks on
 8 West's real desk, zero data loss, p95 < 300ms) and flipping
 `svc.enabled` when Milepost's alert emitter (their Sprint 8.1.2) ships.
@@ -48,7 +49,7 @@ reference (`/srv/8west/apps/milepost/current` on the box): page-per-file in
 
 # app — no build; lint, deploy, verify
 find app -name "*.php" -print0 | xargs -0 -n1 php -l
-KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/shots
 ```
 
@@ -75,12 +76,20 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    docroot, vhost pair, MySQL db/user, own `/etc/cron.d/safeharbor`); Apache
    `reload` never `restart`; `config/config.php` and the `.pem` never enter
    git.
-7. **Westy:** the suite assistant (same mascot as Milepost) —
-   `lib/westy.php` + `lib/ai.php` + `api/westy_chat.php` +
-   `assets/js/westy.js`. He ADVISES, never acts; his prompt names only REAL
-   UI (update it when the UI changes); AI keys live ONLY in server
-   `config/config.php` (`ai` block) and the bubble fails closed without
-   them.
+7. **Westy:** the suite assistant (same mascot as Milepost) — app-specific
+   knowledge remains in `lib/westy.php` + `lib/ai.php` +
+   `api/westy_chat.php` + `assets/js/westy.js`. He ADVISES, never acts; his
+   prompt names only REAL UI (update it when the UI changes); AI keys live
+   ONLY in server `config/config.php` (`ai` block) and the bubble fails closed
+   without them. Shared drag/resize layout is centrally owned in
+   `Seckcey/8_west_westy` and consumed from
+   `https://westy.8westit.com/v1/westy-layout.js`. A commit to that repo does
+   **not** publish: only a reviewed tag published as a GitHub Release may move
+   `/v1/`. Keep `#westy-root`, `#westy-bubble`, `#westy-panel`, `.westy-head`,
+   and the panel-inside-root positioning contract. Verify
+   `data-westy-version`; treat each shared release as suite-wide blast radius.
+   Roll back centrally by repointing `/v1/` to a retained frozen version, or
+   pin this consumer temporarily to that frozen version.
 8. **8 West ID SSO:** an HS256-signed `ewid_token` cookie scoped to
    `.8westit.com` — **not** OIDC; the `/oauth2/*` and JWKS endpoints in the
    old contract draft return 404 and were never built. Config lives in the
@@ -90,10 +99,15 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    app** (that switch is Milepost's); an unset `sso_secret` just fails every
    signature. Users are keyed by the immutable `sub` claim
    (`users.suite_subject`, migration 007) with a one-time email backfill —
-   never by email. Unknown tenant slugs are auto-provisioned; `8west` and
-   `internal` are reserved. Every refusal is audited: `suite_sso_refuse()`
-   logs a reason code from `jwt_verify_reason()` (`lib/jwt.php`), never the
-   claim payload. Full contract: `docs/suite-sso-contract.md`.
+   never by email. Unknown nonblank tenant slugs are auto-provisioned;
+   Safeharbor deliberately admits its own `8west` staff tenant (the role gate
+   already refuses customer/unknown roles). Every refusal is audited:
+   `suite_sso_refuse()` logs a reason code from `jwt_verify_reason()`
+   (`lib/jwt.php`), never the claim payload. Established suite sessions are
+   checked against 8 West ID's signed revocation list on every authenticated
+   request through a 60-second cache; an issuer/signature/staleness failure is
+   logged and deliberately fails open. Full contract:
+   `docs/suite-sso-contract.md`.
 9. **Mail pipeline:** transport order Graph → SMTP → PHP mail().
    Outbound = `lib/mailer.php` + `mail_queue` + `cron/mail_dispatch.php`;
    inbound = `cron/graph_poll.php` (O365, Entra app) with
@@ -121,16 +135,15 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   `db/migrations/NNN_*.sql`, stream it to `sudo mysql safeharbor` on the
   box. Recorded as applied: 001 mail_queue · 002 westy/onboarding ·
   003 canned_responses · 004 attachments/threading/resurface ·
-  005 presence/merge/fulltext · 006 csat. `db/schema.sql` stays the
+  005 presence/merge/fulltext · 006 csat · **007 suite_subject (2026-08-02,
+  migration-first)**. `db/schema.sql` stays the
   canonical fresh-install copy — keep both in lockstep.
-  **Two files in the tree are not on that list:**
-  `002_svc_intake.sql` (which collides on the number 002 with
-  `002_westy_onboarding.sql` — the numbering is not a reliable ordering,
-  read the filenames) and `007_suite_subject.sql`. 007 is a hard
-  prerequisite for suite sign-in: PDO runs `ERRMODE_EXCEPTION`, so
-  `suite_sso_attempt()` throws rather than degrades on a host missing
-  `users.suite_subject`. Confirm both against the live schema before the
-  next deploy rather than trusting this list.
+  `002_svc_intake.sql` collides on the number 002 with
+  `002_westy_onboarding.sql`, so numbering is not a reliable ordering and its
+  live state must be checked by schema (`tickets.external_key` and
+  `svc_identities`). 007 remains a hard prerequisite for suite sign-in on a
+  rebuild: PDO runs `ERRMODE_EXCEPTION`, so `suite_sso_attempt()` throws on a
+  host missing `users.suite_subject`.
 - **Attachment bytes live OUTSIDE the deploy tree** at
   `/srv/8west/apps/safeharbor/shared/attachments` (www-data 770) because
   deploy.sh re-chmods `current/` every release. Never store uploads
