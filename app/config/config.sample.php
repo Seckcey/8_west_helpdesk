@@ -29,6 +29,9 @@ return [
         'product'     => 'safeharbor',
         'sso_secret'  => 'CHANGE_ME',
         'cookie_name' => 'ewid_token',
+        // off | report | enforce. Keep report until the suite-wide rollout gate.
+        'mfa_policy_mode' => 'report',
+        'mfa_max_age' => 2592000,
     ],
 
     // Service-to-service intake (Phase 8.1, Path B — signed alert events

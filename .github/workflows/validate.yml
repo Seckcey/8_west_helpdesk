@@ -1,0 +1,21 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint PHP
+        run: find app -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Test suite authentication policy
+        run: php app/tests/suite_auth_policy_test.php
+      - name: Reject committed runtime config
+        run: test ! -f app/config/config.php

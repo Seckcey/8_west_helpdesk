@@ -60,9 +60,22 @@ intended destination; see *Deferred, and why it matters more each time* below.
 | `8west:role` | string | `owner` · `admin` · `tech` · `readonly` |
 | `8west:theme` | string | Suite-wide UI theme: `dark` · `light` · `system` |
 | `8west:avatar` | string | Suite-wide avatar URL |
+| `8west:auth_policy` | string | Authentication-event contract; currently `suite-mfa-v1` |
+| `auth_time` | int | Unix time of the password authentication |
+| `amr` | string[] | Authentication methods: `pwd` plus `otp`, `recovery`, or `mfa_trusted_device` |
+| `8west:mfa_authenticated` | bool | Accepted MFA evidence exists for this authentication event |
+| `8west:mfa_time` | int/null | Unix time the second factor was originally proved |
+| `8west:mfa` | bool | Enrollment only; not current authentication proof |
 
 `sub` and `email` are both mandatory — a token missing either is refused
 (`missing_claims`).
+
+Safeharbor evaluates authentication-event evidence through
+`suite.mfa_policy_mode`. New releases use `report`, which admits the existing
+identity while logging a fixed reason such as `contract_missing`. `enforce`
+refuses noncompliant evidence before tenant or user provisioning. The maximum
+age defaults to 2,592,000 seconds (30 days), matching 8 West ID trusted-browser
+expiry.
 
 ## Rules
 
