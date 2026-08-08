@@ -155,7 +155,7 @@ Safeharbor no longer bails on an unknown slug — it creates the tenant (rule 1)
 |---|---|---|---|
 | Mission Control (`mission_control`) | `missioncontrol` | **live in production** — customers sign in via `GET /auth/suite` | `sub` |
 | Safeharbor (this repo) | `safeharbor` | **live in production**; checked inline, with PR #15's local-session-first central logout deployed | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
-| Coastmark 365 (`coastmark`) | `coastmark` | merged, **default-off, not yet deployed** | `sub` |
+| Coastmark 365 (`coastmark`) | `coastmark` | **live in production** at `e3b74da`; local-session-first central logout deployed | `sub` |
 | Milepost (`8westit_webapp`) | `milepost` | live, behind the `suite_sso.enabled` kill switch in `portal/lib/auth.php` | username == email local-part — **violates rule 6** |
 
 Coastmark was split on 2026-08-02: `Seckcey/coastmark` is the 8 West IT 365
