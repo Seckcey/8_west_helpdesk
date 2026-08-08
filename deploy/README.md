@@ -1,6 +1,6 @@
 # Deploying Safeharbor to safeharbor.8westit.com
 
-Production host: **safeharbor.8westit.com** (AWS EC2, Ubuntu 24.04).
+Public production hostname: **safeharbor.8westit.com** (AWS EC2, Ubuntu 24.04).
 Stack: **Apache 2.4 + mod_php (PHP 8.3) + MySQL 8** — identical to Milepost,
 which lives on the same box (`support.8westit.com`).
 
@@ -28,6 +28,12 @@ which lives on the same box (`support.8westit.com`).
 
 ## One-time setup (already done 2026-07-21; kept for rebuilds)
 
+> **Do not run `deploy/setup-server.sh` as currently written.** It still
+> creates the retired `/var/www/safeharbor` path while the authoritative app
+> root is `/srv/8west/apps/safeharbor/current`. The script is an outstanding
+> rebuild blocker and was deliberately left untouched in this documentation
+> closeout. Until it is repaired and reviewed, follow the commands below.
+
 ```bash
 # 1. MySQL database + user (password goes into config.php below)
 sudo mysql -e "CREATE DATABASE safeharbor CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; \
@@ -46,8 +52,8 @@ sudo mysql safeharbor < /srv/8west/apps/safeharbor/current/db/schema.sql
 cd /srv/8west/apps/safeharbor/current && php db/seed.php
 
 # 4. Vhosts (files in this directory) + reload
-scp -i ~/.ssh/milepost.pem deploy/apache-safeharbor*.conf ubuntu@safeharbor.8westit.com:/tmp/
-ssh -i ~/.ssh/milepost.pem ubuntu@safeharbor.8westit.com \
+scp -i ~/.ssh/milepost.pem deploy/apache-safeharbor*.conf ubuntu@<origin-ip>:/tmp/
+ssh -i ~/.ssh/milepost.pem ubuntu@<origin-ip> \
   "sudo cp /tmp/apache-safeharbor.conf /etc/apache2/sites-available/safeharbor-8westit.conf && \
    sudo cp /tmp/apache-safeharbor-le-ssl.conf /etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf && \
    sudo apache2ctl configtest && sudo systemctl reload apache2"
@@ -79,15 +85,40 @@ ssh -i ~/.ssh/milepost.pem ubuntu@<origin-ip> "sudo mysql safeharbor" \
 
 Recorded as applied to production: 001 (mail_queue) · 002 (westy/onboarding) ·
 003 (canned_responses) · 004 (attachments, email_threads, processed_mail,
-resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat).
+resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) ·
+**007 (suite_subject, migration-first on 2026-08-02; acceptance record in
+`docs/suite-sso-deploy-acceptance.md`)**.
 
-Two migration files in the tree are **not** on that list, and the numbering
-does not order them: `002_svc_intake.sql` collides on 002 with
-`002_westy_onboarding.sql`, and `007_suite_subject.sql` came later. Check the
-live schema (`tickets.external_key` + `svc_identities` for the first,
-`users.suite_subject` for the second) rather than trusting the list. 007 is a
-hard prerequisite for 8 West ID sign-in — PDO runs `ERRMODE_EXCEPTION`, so
-`suite_sso_attempt()` throws instead of degrading if the column is absent.
+`002_svc_intake.sql` collides on 002 with `002_westy_onboarding.sql`, so the
+numbering does not order it and its live state is not established by the list
+above. Check `tickets.external_key` + `svc_identities` in the live schema.
+On a rebuild, 007 remains a hard prerequisite for 8 West ID sign-in — PDO
+runs `ERRMODE_EXCEPTION`, so `suite_sso_attempt()` throws if
+`users.suite_subject` is absent.
+
+## Shared Westy release boundary
+
+Safeharbor deploys its own prompt, onboarding, chat endpoint and widget code
+from this repository. Drag/resize layout is a separate suite-wide asset owned
+by `Seckcey/8_west_westy` and loaded from:
+
+```text
+https://westy.8westit.com/v1/westy-layout.js
+```
+
+Only a reviewed tag published as a GitHub Release in that repository may move
+`/v1/`; a commit or branch push alone does not publish. The host pull timer
+verifies and installs the release, then atomically repoints `/v1/`. The live
+endpoint reported version `1.1.2` with a five-minute cache on 2026-08-08, and
+the script stamps `data-westy-version` on `#westy-root` for consumer checks.
+
+This boundary has suite-wide blast radius: every app tracking `/v1/` receives
+an approved release inside the cache window. Rollback is central and does not
+require a Safeharbor deploy: atomically repoint `/v1/` to a retained frozen
+version directory. If Safeharbor alone must be isolated, pin its script URL to
+the corresponding immutable path (for example `/1.1.2/westy-layout.js`) in a
+separately reviewed app release. Never hand-edit the shared docroot or vendor a
+private copy here.
 
 ## Server-side state the deploy does NOT manage
 
@@ -115,7 +146,7 @@ cd tools/shots && node walkthrough.mjs                                       # f
 ## Rollback
 
 ```bash
-git checkout <older-sha> && KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+git checkout <older-sha> && SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 ```
 
 DB is forward-only (schema.sql is idempotent via IF NOT EXISTS); reseeding

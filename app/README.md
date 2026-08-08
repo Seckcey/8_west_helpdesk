@@ -4,7 +4,8 @@ The Safeharbor help desk — **plain PHP 8.3 + MySQL + Apache (mod_php)**, built
 with the exact conventions of Milepost (same layout, same vhost shape, same
 bootstrap style). No framework, no bundler, no build step.
 
-**Live:** https://safeharbor.8westit.com · **Demo sign-in:** `frankie@8westit.com` / `harbor`
+**Live:** https://safeharbor.8westit.com. Production credentials are not
+published; use an authorized 8 West ID or local account.
 
 ## Layout (mirrors Milepost)
 
@@ -12,19 +13,24 @@ bootstrap style). No framework, no bundler, no build step.
 config/config.sample.php   host config template (config.php is server-only, gitignored)
 db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
-db/migrations/             numbered SQL migrations (as needed)
+db/migrations/             numbered SQL migrations (as needed; 007 suite
+                           subject applied to production 2026-08-02)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
                            the tenant and user on first arrival, syncs theme/avatar,
                            and audits every deny via suite_sso_refuse()
+lib/revocation.php         signed 8 West ID revocation-list enforcement for
+                           established suite sessions (60s cache; logged,
+                           bounded fail-open when the issuer is unavailable)
 lib/jwt.php                HS256 codec + jwt_verify_reason() (deny reason codes)
 lib/render.php             chrome layout + UI partials + palette data island
 lib/ai.php                 server-side AI layer (Anthropic/OpenAI via raw cURL;
                            keys server-only; gated dev stub — Milepost port)
 lib/westy.php              Westy, the suite assistant: Safeharbor-grounded
-                           prompt, onboarding grounding, bubble renderer
+                           prompt/onboarding + bubble renderer; shared layout
+                           loads from westy.8westit.com/v1
 lib/mailer.php             outbound mail (mail_queue + transports:
                            Graph sendMail → SMTP → PHP mail(); Milepost parity)
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
@@ -100,9 +106,16 @@ public/                    Apache docroot (page-per-file, like Milepost)
   bounce-loop guards in intake/mailer are law.
 - Every wild string is `utf8_clean()`ed before insert (mis-encoded email
   bytes 500 a utf8mb4 write otherwise).
-- Westy: advise-only, fails closed without server AI config; his prompt
-  in lib/westy.php names only REAL UI — update it in the same change as
-  any UI you ship.
+- Westy: advise-only, fails closed without server AI config; his prompt in
+  `lib/westy.php` names only REAL UI — update it in the same change as any UI
+  you ship. Shared drag/resize layout is owned by `Seckcey/8_west_westy`, not
+  this repo, and loads from `https://westy.8westit.com/v1/westy-layout.js`.
+  Only a reviewed tag published as a GitHub Release may move `/v1/`; a commit
+  alone must not propagate. Keep the consumer DOM contract intact:
+  `#westy-root`, `#westy-bubble`, `#westy-panel`, `.westy-head`, with the panel
+  positioned inside the root. The script stamps `data-westy-version` for
+  verification; a bad shared release affects every `/v1/` consumer and is
+  rolled back centrally to a frozen version.
 - Themes: dark / light / system — inside the user menu (and on login),
   persisted in localStorage; CSS semantic tokens per theme, dark mode lifted
   one notch brighter than the original abyss-navy.
@@ -111,7 +124,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   topbar avatar. profile.php: own name + password change. 8 West ID SSO is
   implemented in lib/auth.php (HS256 cookie, NOT OIDC — see
   docs/suite-sso-contract.md); the menu shows the central 8 West ID avatar
-  and theme, both refreshed from the token on every request.
+  and theme, both refreshed from the token on every request. Established suite
+  sessions are checked against 8 West ID's signed revocation list on every
+  authenticated request through a 60-second cache.
 - CSRF: every POST form carries `csrf_field()`, every API checks the
   `X-CSRF` header (helpers in lib/auth.php).
 
@@ -121,7 +136,7 @@ There is no local build. Edit, lint, deploy, verify on the server:
 
 ```bash
 find app -name "*.php" -print0 | xargs -0 -n1 php -l     # lint
-KEY=~/.ssh/milepost.pem bash deploy/deploy.sh            # deploy (fast)
+SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 cd tools/shots && node walkthrough.mjs                   # visual verification
 ```
 
