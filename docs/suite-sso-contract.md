@@ -90,9 +90,13 @@ expiry.
    config) and refuses a token without it.
 3. **Every deny is audited with a reason code.** Fail closed, and say why —
    see the next section.
-4. **Sign-out is app-local.** Signing out of one product does **not** sign you
-   out of the others; each app's session persists until its own logout or
-   expiry. Suite-wide front-channel logout is deferred with the rest of OIDC.
+4. **Sign-out tears down locally, then hands off to 8 West ID.** Each product
+   destroys its own session before redirecting to the configured issuer's
+   `/logout.php`; the issuer clears the shared suite cookie and lands on the
+   hosted 8 West ID login page. This prevents the current product from
+   immediately signing the user back in with the still-valid suite cookie.
+   It does **not** terminate already-established local sessions in other
+   products; those persist until their own logout, expiry, or revocation.
 5. **Deep links carry context, not credentials.** Cross-product links
    (`Milepost device → Safeharbor ticket`) pass ids only; the receiving app
    re-authorizes from its own cookie.
@@ -150,7 +154,7 @@ Safeharbor no longer bails on an unknown slug — it creates the tenant (rule 1)
 | App | Product key | Suite SSO | Maps the user by |
 |---|---|---|---|
 | Mission Control (`mission_control`) | `missioncontrol` | **live in production** — customers sign in via `GET /auth/suite` | `sub` |
-| Safeharbor (this repo) | `safeharbor` | implemented in `app/lib/auth.php`; checked inline, no dedicated route | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
+| Safeharbor (this repo) | `safeharbor` | **live in production**; checked inline, with PR #15's local-session-first central logout deployed | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
 | Coastmark 365 (`coastmark`) | `coastmark` | merged, **default-off, not yet deployed** | `sub` |
 | Milepost (`8westit_webapp`) | `milepost` | live, behind the `suite_sso.enabled` kill switch in `portal/lib/auth.php` | username == email local-part — **violates rule 6** |
 
@@ -198,7 +202,10 @@ Still not built, in rough priority order:
   consumer added.
 - **Authorization-code flow + PKCE, rotating refresh tokens**, and a hosted
   central login page (rule 7 disappears when this lands).
-- **Suite-wide front-channel logout** (rule 4).
+- **Sign out everywhere / consumer-session revocation.** The rule 4 issuer
+  handoff clears the shared cookie, but cannot reach into already-established
+  local sessions in other products. Coordinated back-channel revocation (or a
+  full OIDC logout design) remains separate work.
 - **Multi-account picker** for a user belonging to more than one customer
   account.
 - **Entitlement revocation.** Nothing takes a product grant back today, and
