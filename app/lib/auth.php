@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/jwt.php';
+require_once __DIR__ . '/suite_auth_policy.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_set_cookie_params([
@@ -120,6 +121,21 @@ function suite_sso_attempt(): bool
 
     $subject = trim((string)($claims['sub'] ?? ''));
 
+    $policyMode = suite_mfa_policy_mode(cfg('suite.mfa_policy_mode', 'report'));
+    $policy = $policyMode === 'off'
+        ? ['compliant' => true, 'reason' => 'off']
+        : suite_mfa_policy_evaluate(
+            $claims,
+            time(),
+            (int)cfg('suite.mfa_max_age', SUITE_MFA_POLICY_MAX_AGE),
+        );
+    if ($policyMode === 'enforce' && ! $policy['compliant']) {
+        return suite_sso_refuse('mfa_policy_' . $policy['reason'], $subject);
+    }
+    if ($policyMode === 'report' && ! $policy['compliant']) {
+        error_log('suite sso mfa report: ' . $policy['reason'] . ' sub=' . $subject);
+    }
+
     if (!in_array('safeharbor', (array)($claims['8west:products'] ?? []), true)) {
         return suite_sso_refuse('product_not_entitled', $subject);
     }
@@ -221,6 +237,7 @@ function suite_sso_attempt(): bool
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];
+    $_SESSION['suite_mfa_policy'] = $policy['compliant'] ? 'compliant' : $policy['reason'];
     db()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([(int)$user['id']]);
     return true;
 }
