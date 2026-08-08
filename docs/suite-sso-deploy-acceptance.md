@@ -1,5 +1,45 @@
 # Suite SSO deployment acceptance — Safeharbor
 
+## 2026-08-08 — Central logout release (`PR #15`)
+
+**Authorization:** Frankie authorized safe merge and production deployment for
+the suite logout repair.
+
+PR [#15](https://github.com/Seckcey/8_west_helpdesk/pull/15) merged as
+`c3c606a289c4069b599dd74006423e31e79c30e4`. Exact-merge Validate run
+[`31276123019`](https://github.com/Seckcey/8_west_helpdesk/actions/runs/31276123019)
+passed. This was a code-only release: no migration, schema change, or production
+configuration edit.
+
+The release was installed from an isolated checkout of the exact merge. The
+fresh verified backup is
+`/home/ubuntu/backups/safeharbor-20260808T201613Z`, and
+`/home/ubuntu/backups/LATEST_SAFEHARBOR` points to it. The production config
+remained byte-identical at SHA-256
+`d54805158c69c2ca60f36badc0b0c8324025e99349bbbf290a63e400615a9f05`.
+Tracked release-file hashes matched, both changed PHP files passed server lint,
+and ownership and permissions remained correct. Rollback was not needed.
+
+Post-release acceptance:
+
+- the app root redirects to login and `login.php` returns HTTP 200;
+- `logout.php` redirects through the trusted 8 West ID logout endpoint and
+  finishes at `https://id.8westit.com/login.php` with HTTP 200;
+- the release-window logs contained 12 requests, zero HTTP 5xx responses, zero
+  PHP fatals, and no unexpected application errors; and
+- expected cookieless suite-SSO denials remained fail-closed and were the only
+  deny events observed.
+
+The repository test and live anonymous request prove the redirect contract.
+One signed-in browser click remains the final UI acceptance: confirm the local
+Safeharbor session cannot be reused after logout and that the visible browser
+ends at the hosted 8 West ID login. No real account credential was used during
+automated validation.
+
+---
+
+## 2026-08-02 — Initial Suite SSO deployment
+
 **Deployed:** 2026-08-02 18:48, to `safeharbor.8westit.com`
 (EC2 `13.52.91.237`, `/srv/8west/apps/safeharbor/current`).
 **Commit:** `e85d5a5` (PR #8), which carries PR #5 and PR #7 with it.

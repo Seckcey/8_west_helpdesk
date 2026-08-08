@@ -154,7 +154,7 @@ Safeharbor no longer bails on an unknown slug — it creates the tenant (rule 1)
 | App | Product key | Suite SSO | Maps the user by |
 |---|---|---|---|
 | Mission Control (`mission_control`) | `missioncontrol` | **live in production** — customers sign in via `GET /auth/suite` | `sub` |
-| Safeharbor (this repo) | `safeharbor` | implemented in `app/lib/auth.php`; checked inline, no dedicated route | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
+| Safeharbor (this repo) | `safeharbor` | **live in production**; checked inline, with PR #15's local-session-first central logout deployed | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
 | Coastmark 365 (`coastmark`) | `coastmark` | merged, **default-off, not yet deployed** | `sub` |
 | Milepost (`8westit_webapp`) | `milepost` | live, behind the `suite_sso.enabled` kill switch in `portal/lib/auth.php` | username == email local-part — **violates rule 6** |
 
