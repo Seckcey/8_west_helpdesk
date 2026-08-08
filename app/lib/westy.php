@@ -148,5 +148,13 @@ function westy_bubble_render(): void
   </section>
 </div>
 <script src="/assets/js/westy.js?v=1" defer></script>
+<?php /* Shared suite layout: drag + resize, served live from the Westy package
+         so a fix reaches every 8 West IT 365 app without a deploy here. It
+         loads its own stylesheet, so this is one tag and not two.
+         The version is in the PATH and there is deliberately no ?v= — this is
+         one of the three files deploy.sh rewrites with
+         `sed s/?v=[0-9A-Za-z]\+/?v=$V/g`, which would clobber a query string
+         on every release. */ ?>
+<script src="https://westy.8westit.com/v1/westy-layout.js" defer></script>
 <?php
 }
