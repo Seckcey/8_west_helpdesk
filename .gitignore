@@ -25,3 +25,6 @@ app/config/config.php
 node_modules/
 app/public/assets/brand/
 *.local
+
+# Claude Code local settings (per-machine)
+.claude/settings.local.json
