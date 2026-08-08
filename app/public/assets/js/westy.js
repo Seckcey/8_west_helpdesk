@@ -15,7 +15,13 @@
   var form = document.getElementById('westy-form');
   var input = document.getElementById('westy-input');
   var sendBtn = document.getElementById('westy-send');
-  var history = [];   // [{q,a}] — session-only, capped at 6
+  var history = [];   // [{q,a}] — capped at 6; mirrored to sessionStorage so it survives navigation
+  /* Per-tab, per-user. sessionStorage and NOT localStorage: the transcript dies
+   * with the tab rather than outliving a shift on a shared technician
+   * workstation. data-uid is not an authorization input — every endpoint still
+   * authorizes from the session; it only stops a second sign-in in the same tab
+   * inheriting the previous tech's conversation. */
+  var STORE = 'sh.westy.' + (root.getAttribute('data-uid') || '0');
   var busy = false;
   var isNew = root.getAttribute('data-onboarded') === '0';
   var firstName = root.getAttribute('data-name') || 'there';
@@ -42,7 +48,44 @@
         addMsg('westy', "Hi! I'm Westy. Ask me how to use Safeharbor — the queue, tickets, email, the timer, anything.");
       }
     }
-    if (open) input.focus();
+    /* preventScroll: restoring an open panel on page load must never move the
+     * page. The panel is position:fixed, but a focus() without this hint can
+     * still yank the document on some browsers. */
+    if (open) { try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); } }
+    save();
+  }
+
+  /* ── the conversation survives clicking a link ────────────────────────────
+   * The bubble re-renders on every page, so without this, following any link
+   * wiped the chat mid-troubleshoot and the tech had to re-establish context.
+   * Only the bounded {q,a} pairs the page already holds — and already sends
+   * back as context — are stored, so nothing new is retained. */
+
+  function save() {
+    try {
+      sessionStorage.setItem(STORE, JSON.stringify({ open: !panel.hidden, h: history.slice(-6) }));
+    } catch (e) { /* private mode or full quota — the chat simply will not persist */ }
+  }
+
+  function restore() {
+    var raw = null;
+    try { raw = sessionStorage.getItem(STORE); } catch (e) { return; }
+    if (!raw) return;
+    var st = null;
+    try { st = JSON.parse(raw); } catch (e) { return; }
+    if (!st || !Array.isArray(st.h)) return;
+    history = st.h.filter(function (p) {
+      return p && typeof p.q === 'string' && typeof p.a === 'string';
+    }).slice(-6);
+    for (var i = 0; i < history.length; i++) {
+      addMsg('me', history[i].q);
+      addMsg('westy', history[i].a);
+    }
+    /* The onboarding chips are deliberately NOT restored. They are Safeharbor's
+     * equivalent of Milepost's un-restored draft cards: a "Show me around" chip
+     * reappearing after the welcome was dismissed is stale UI inviting a stale
+     * action. Restoring the transcript is enough. */
+    if (st.open) setOpen(true);
   }
 
   /* ── drag: put Westy wherever he is out of the way ────────────────────────
@@ -241,6 +284,20 @@
     setOpen(false);
   });
 
+  /* Rebuild any conversation from this tab BEFORE the first-run auto-open, so
+   * a restored chat never gets a second "Hi! I'm Westy" stacked on top of it. */
+  restore();
+
+  /* Signing out must not leave a transcript for the next person at this
+   * machine. Capture phase, so it still runs when the click lands on a child
+   * of the link and before the navigation. */
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (t && t.closest && t.closest('a[href*="logout"]')) {
+      try { sessionStorage.removeItem(STORE); } catch (e) {}
+    }
+  }, true);
+
   // First sign-in: open the bubble once, gently, after the page settles.
   if (isNew) {
     setTimeout(function () { if (panel.hidden) setOpen(true); }, 1200);
@@ -287,6 +344,7 @@
           addMsg('westy', res.j.reply);
           history.push({ q: msg, a: res.j.reply });
           if (history.length > 6) history = history.slice(-6);
+          save();
           finish();
           return;
         }

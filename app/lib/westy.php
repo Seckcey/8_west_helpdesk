@@ -130,7 +130,7 @@ function westy_bubble_render(): void
     $onboarded = !empty($user['onboarded_at']) ? '1' : '0';
     $firstName = h(explode(' ', trim((string)($user['full_name'] ?? '')))[0] ?: 'there');
     ?>
-<div id="westy-root" data-csrf="<?= csrf_token() ?>" data-onboarded="<?= $onboarded ?>" data-name="<?= $firstName ?>">
+<div id="westy-root" data-csrf="<?= csrf_token() ?>" data-onboarded="<?= $onboarded ?>" data-name="<?= $firstName ?>" data-uid="<?= (int)($user['id'] ?? 0) ?>">
   <button type="button" id="westy-bubble" aria-expanded="false" aria-controls="westy-panel"
           aria-label="Ask Westy — Safeharbor helper"
           title="Ask Westy — Safeharbor helper"><img src="/assets/img/westy-avatar.png?v=1" alt="Westy" width="56" height="56"></button>
