@@ -43,20 +43,46 @@ return [
     // emitter shipped and alert tickets have been arriving since. This sample
     // stays false so a fresh install starts closed.
     //
-    // milepost           — alert lifecycle → api/svc/alerts.php
-    // milepost-westy     — Westy failures  → api/svc/westy.php
-    // controlpanel-westy — Westy failures  → api/svc/westy.php
+    // milepost           — alert lifecycle  → api/svc/alerts.php
+    // milepost-westy     — Westy failures   → api/svc/westy.php
+    // controlpanel-westy — Westy failures   → api/svc/westy.php
+    // coastmark-support  — human help asks  → api/svc/support.php
     //
     // The Westy identities are DELIBERATELY separate from 'milepost': one
     // rate-limit budget per identity, so a Westy failure storm can never
     // starve real alert intake. Add them only when those emitters ship.
+    //
+    // 'support_enabled' is a SECOND switch on top of 'enabled', because
+    // 'enabled' is already true in production: without it, deploying
+    // api/svc/support.php would open the door the moment the code landed.
+    // Both must be true for support intake to answer.
     'svc' => [
-        'enabled' => false,
+        'enabled'         => false,
+        'support_enabled' => false,
         'secrets' => [
             'milepost'           => 'EXAMPLE_SVC_HMAC_SECRET',
             'milepost-westy'     => 'EXAMPLE_SVC_HMAC_SECRET',
             'controlpanel-westy' => 'EXAMPLE_SVC_HMAC_SECRET',
+            'coastmark-support'  => 'EXAMPLE_SVC_HMAC_SECRET',
         ],
+    ],
+
+    // Partner support intake (docs/coastmark-support-intake-contract.md).
+    // Requests raised inside Coastmark open tickets in 8 WEST IT'S OWN tenant,
+    // resolved explicitly by slug — same rule as westy_report below.
+    //
+    // The per-tenant caps are ours to enforce: svc_auth's 120/min is per
+    // service IDENTITY, and one identity carries every Coastmark tenant, so
+    // without these one noisy MSP could spend the whole budget. Set either to
+    // 0 to disable that window.
+    'support_intake' => [
+        'tenant_slug'        => '8west',
+        'per_tenant_per_min' => 20,
+        'per_tenant_per_day' => 100,
+        // The "we've got it, ticket #N" mail. It is also what carries the
+        // [#N] token that lets the requester's reply thread back onto the
+        // ticket — turning it off costs threading, not just politeness.
+        'ack_email'          => true,
     ],
 
     // Westy defect reporting (docs/westy-failure-reporting-contract.md).
