@@ -124,7 +124,7 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 Seven suites in `app/tests/`, all CLI-only and all needing MySQL. **They do not
 run on the Windows dev machine** — there is no database and no
-`config/config.php` there, so `php -l` is the only local check.
+`config/config.php` there, so `php -l` is the only local check *of the PHP*.
 
 Run them on the EC2 box, in a disposable copy, with the database pinned to the
 scratch schema — `fresh_schema()` drops every table in whatever database it
@@ -136,6 +136,27 @@ reaches, so the pin is not optional:
    config and then sets `$c['db']['name'] = 'safeharbor_test'`.
 3. `cd /tmp/<dir> && php tests/<suite>.php`.
 4. **Delete the directory afterwards** — that wrapper pulls in real credentials.
+
+### The browser half has no suite — drive it by hand
+
+Nothing in `app/tests/` touches `assets/js/`, so a green run says **nothing**
+about the chat bubble. That half *is* checkable on the Windows machine, and it
+is worth doing whenever `westy.js` changes:
+
+1. Copy `app.css` and `westy.js` into a scratch directory and add a page with
+   the same scaffold `lib/westy.php` renders (`#westy-root` and its children,
+   `data-onboarded="1"` so the tour stays out of the way).
+2. Replace `window.fetch` **before** the `westy.js` tag, returning canned JSON
+   and recording every call. The real code path then runs unmodified.
+3. Serve it — `php -S 127.0.0.1:8899 -t <dir>` — and drive it in a browser.
+   `file://` will not do; the tooling blocks that protocol.
+
+The thumbs work (PR #28) shipped two bugs' worth of proof that this is not
+ceremony. Both were invisible to PHP tests and to reading the diff: an author
+`display` on the button beat the user agent's `[hidden] { display: none }`, so
+neither thumb could hide; and a new `row` parameter turned out to be the same
+variable as a `var row` further down the same function, so Cancel reset the
+wrong element.
 
 Last full run, 2026-08-09, all seven back to back on one scratch database,
 all green:
