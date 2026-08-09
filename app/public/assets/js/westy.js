@@ -41,28 +41,94 @@
     return div;
   }
 
-  /* ── "this wasn't helpful" ────────────────────────────────────────────────
+  /* ── thumbs up / thumbs down ──────────────────────────────────────────────
    * On EVERY real answer, not only after visible trouble: an answer that is
    * confidently wrong shows no trouble signal at all, and that is the one
    * worth catching. Onboarding chatter and error text are not answers, so
-   * they never get the control.
+   * they never get the controls.
    *
-   * The server keeps no transcript — it lives in this tab's sessionStorage —
-   * so the question and answer travel up from here. The tech sees the exact
-   * text, can edit it or cancel, and nothing leaves unreviewed. */
+   * The two thumbs are deliberately NOT symmetrical:
+   *
+   *   down — one click opens the review box. The tech sees the exact question
+   *          and answer, edits or cancels, and nothing leaves unreviewed. The
+   *          server keeps no transcript (it lives in this tab's
+   *          sessionStorage), so the text travels up from here.
+   *
+   *   up   — one click and it is over. No box, no confirmation, and no ticket
+   *          at the far end: tickets are for problems, and good news must not
+   *          make anybody work. The request is fire-and-forget, exactly like
+   *          the onboarding "got it" — a compliment that fails to send is not
+   *          worth interrupting a technician over.
+   *
+   * Pressing either hides the other, and the choice stays put for as long as
+   * this page is open. */
+
+  var THUMB =
+    '<rect x="1.5" y="7" width="3.5" height="7.5" rx="1"/>' +
+    '<path d="M6 14.5V7.2L8.6 1.8a1.7 1.7 0 0 1 1.7 1.7V6h2.9a1.4 1.4 0 0 1 1.38 1.63' +
+    'l-.85 5.1A1.4 1.4 0 0 1 12.35 14.5Z"/>';
+
+  /* One drawing, flipped for the down thumb, so the pair can never drift
+     apart. Outline by default; CSS fills it in once it has been pressed. */
+  function thumbSvg(down) {
+    return '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">' +
+      (down ? '<g transform="translate(0,16) scale(1,-1)">' + THUMB + '</g>' : THUMB) +
+      '</svg>';
+  }
+
+  function thumbBtn(down, label) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'westy-thumb' + (down ? ' westy-thumb-down' : '');
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.setAttribute('aria-pressed', 'false');
+    b.innerHTML = thumbSvg(down);   // a fixed literal — no data of any kind in it
+    return b;
+  }
 
   function addFeedback(msgEl, q, a) {
     var bar = document.createElement('div');
     bar.className = 'westy-fb';
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'westy-fb-btn';
-    btn.textContent = "This wasn't helpful";
-    btn.title = 'Send this answer to the 8 West team so Westy can be fixed';
-    btn.addEventListener('click', function () { openReview(bar, btn, q, a); });
-    bar.appendChild(btn);
+    var thumbRow = document.createElement('div');
+    thumbRow.className = 'westy-fb-row';
+
+    var up = thumbBtn(false, 'That answer helped');
+    var down = thumbBtn(true, "That answer wasn't helpful");
+    up.addEventListener('click', function () { thumbUp(thumbRow, up, down, q, a); });
+    down.addEventListener('click', function () { openReview(bar, thumbRow, up, down, q, a); });
+
+    thumbRow.appendChild(up);
+    thumbRow.appendChild(down);
+    bar.appendChild(thumbRow);
     if (msgEl.parentNode) msgEl.parentNode.insertBefore(bar, msgEl.nextSibling);
     return bar;
+  }
+
+  function thumbUp(thumbRow, up, down, q, a) {
+    if (thumbRow.getAttribute('data-choice')) return;
+    thumbRow.setAttribute('data-choice', 'up');
+    down.hidden = true;
+    up.setAttribute('aria-pressed', 'true');
+
+    var thanks = document.createElement('span');
+    thanks.className = 'westy-fb-thanks';
+    thanks.setAttribute('role', 'status');
+    thanks.textContent = 'Thanks!';
+    thumbRow.appendChild(thanks);
+    log.scrollTop = log.scrollHeight;
+
+    var body = new URLSearchParams();
+    body.set('csrf', root.getAttribute('data-csrf') || '');
+    body.set('question', q);
+    body.set('answer', a);
+    fetch('/api/westy_thumbs_up.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      credentials: 'same-origin'
+    }).catch(function () { /* best effort — a lost compliment costs nobody anything */ });
   }
 
   function field(parent, labelText, value, rows) {
@@ -78,9 +144,14 @@
     return ta;
   }
 
-  function openReview(bar, btn, q, a) {
+  /* `thumbRow`, not `row`: the review box builds its own `row` below, and a
+     `var` of the same name would quietly become the same variable. */
+  function openReview(bar, thumbRow, up, down, q, a) {
     if (bar.querySelector('.westy-review')) return;
-    btn.hidden = true;
+    if (thumbRow.getAttribute('data-choice')) return;
+    thumbRow.setAttribute('data-choice', 'down');
+    up.hidden = true;
+    down.setAttribute('aria-pressed', 'true');
 
     var box = document.createElement('div');
     box.className = 'westy-review';
@@ -114,10 +185,14 @@
     status.setAttribute('role', 'status');
     box.appendChild(status);
 
+    /* Cancel is a real change of mind, not a decision: both thumbs come back
+       and neither is left looking chosen. */
     function close() {
       box.remove();
-      btn.hidden = false;
-      btn.focus();
+      thumbRow.removeAttribute('data-choice');
+      up.hidden = false;
+      down.setAttribute('aria-pressed', 'false');
+      down.focus();
     }
     cancel.addEventListener('click', close);
     box.addEventListener('keydown', function (ev) {

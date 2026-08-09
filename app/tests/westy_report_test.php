@@ -1,6 +1,7 @@
 <?php
 /**
- * Hermetic tests for Westy failure + flagged-answer reporting.
+ * Hermetic tests for Westy failure + flagged-answer reporting, and for the
+ * thumbs-up signal that must never become a ticket.
  *
  * CLI only. Runs against a dedicated scratch database — NEVER the live one:
  *   CREATE DATABASE safeharbor_test;
@@ -328,6 +329,71 @@ check('same_error_different_app_is_separate', (int)$mp['ticket'] !== (int)$cp['t
 /* surface is part of the fingerprint */
 $s1 = westy_report_record(fail_payload(['app' => 'milepost', 'surface' => 'westy_drafts']));
 check('different_surface_is_separate_problem', $s1['action'] === 'created' && (int)$s1['ticket'] !== (int)$mp['ticket']);
+
+/* ── thumbs UP: a signal, and deliberately never a ticket ─────────────────
+   The check that matters most here is the one proving nothing was filed.
+   Tickets are for problems; if praise could open one, the button would be a
+   way for a kind technician to make somebody work. */
+fresh_schema(true);
+db()->exec("INSERT INTO users (id, tenant_id, email, password_hash, full_name)
+            VALUES (7, 1, 'tech@8westit.com', 'x', 'Ana Tech')");
+
+$goodQ = 'How do I merge two tickets?';
+$goodA = 'Open the ticket and press m.';
+check('thumbs_up_records', westy_thumbs_up_record(7, $goodQ, $goodA) === true);
+check('thumbs_up_creates_no_ticket', ticket_count() === 0);
+check('thumbs_up_creates_no_report_row', (int)db()->query('SELECT COUNT(*) FROM westy_reports')->fetchColumn() === 0);
+check('thumbs_up_creates_no_client', (int)db()->query('SELECT COUNT(*) FROM clients')->fetchColumn() === 0);
+check('thumbs_up_creates_no_message', (int)db()->query('SELECT COUNT(*) FROM messages')->fetchColumn() === 0);
+
+$rows = db()->query("SELECT * FROM assistant_log WHERE action = 'westy_thumbs_up' ORDER BY id")->fetchAll();
+check('thumbs_up_writes_one_log_row', count($rows) === 1);
+check('thumbs_up_log_names_the_user', (int)($rows[0]['user_id'] ?? 0) === 7);
+check('thumbs_up_meta_within_column', mb_strlen((string)($rows[0]['meta'] ?? '')) <= 255);
+check('thumbs_up_stores_no_question_text', !str_contains((string)$rows[0]['meta'], 'merge two tickets'));
+check('thumbs_up_stores_no_answer_text', !str_contains((string)$rows[0]['meta'], 'press m'));
+
+/* Praise and complaint about the same question must fingerprint identically,
+   or the two signals could never be read against each other. */
+$fp = westy_fingerprint(['event' => 'flagged', 'app' => 'safeharbor', 'flagged' => ['question' => $goodQ]]);
+check('thumbs_up_carries_the_flag_fingerprint', str_contains((string)$rows[0]['meta'], 'fp=' . $fp));
+
+/* And wording differences collapse exactly the way the flag path collapses
+   them — the same ask, typed twice, is the same signal. */
+westy_thumbs_up_record(7, 'how do i MERGE two tickets???', 'A different good answer.');
+$rows = db()->query("SELECT * FROM assistant_log WHERE action = 'westy_thumbs_up' ORDER BY id")->fetchAll();
+check('thumbs_up_same_question_same_fingerprint', str_contains((string)($rows[1]['meta'] ?? ''), 'fp=' . $fp));
+check('thumbs_up_still_no_ticket_after_two', ticket_count() === 0);
+
+/* A thumbs-DOWN on that same question still opens its ticket as before — the
+   new button must not have disarmed the old one. */
+$d = westy_report_record(flag_payload(['flagged' => ['question' => $goodQ, 'answer' => $goodA, 'note' => '']]));
+check('thumbs_down_still_opens_ticket', $d['action'] === 'created' && ticket_count() === 1);
+check('thumbs_down_ticket_shares_the_fingerprint', str_contains((string)(ticket((int)$d['ticket'])['external_key'] ?? ''), $fp));
+
+/* The longest pair the endpoint will pass through still fits the column. */
+westy_thumbs_up_record(7, str_repeat('q', 2000), str_repeat('a', 4000));
+$long = (string)db()->query("SELECT meta FROM assistant_log WHERE action = 'westy_thumbs_up' ORDER BY id DESC LIMIT 1")->fetchColumn();
+check('thumbs_up_long_pair_stays_bounded', mb_strlen($long) <= 255);
+
+/* Nothing to record: no row, no fuss. */
+$before = (int)db()->query('SELECT COUNT(*) FROM assistant_log')->fetchColumn();
+check('thumbs_up_needs_a_question', westy_thumbs_up_record(7, '', $goodA) === false);
+check('thumbs_up_needs_an_answer', westy_thumbs_up_record(7, $goodQ, '') === false);
+check('thumbs_up_rejects_unknown_app', westy_thumbs_up_record(7, $goodQ, $goodA, 'evilcorp') === false);
+check('thumbs_up_rejected_writes_nothing', (int)db()->query('SELECT COUNT(*) FROM assistant_log')->fetchColumn() === $before);
+
+/* A database that refuses the row (here: no such user) must degrade to a
+   swallowed false, never raise into a technician's chat. */
+$threw = false;
+$refused = null;
+try {
+    $refused = westy_thumbs_up_record(999, 'Will this explode?', 'No.');
+} catch (Throwable $e) {
+    $threw = true;
+}
+check('thumbs_up_never_throws_on_db_error', $threw === false);
+check('thumbs_up_reports_the_refusal', $refused === false);
 
 echo "\n{$checkCount} checks, {$failCount} failures\n";
 exit($failCount === 0 ? 0 : 1);
