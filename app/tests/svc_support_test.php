@@ -98,8 +98,10 @@ function fresh_schema(bool $withTenant = true): void
     }
     // A customer tenant that must NEVER receive a partner's support request.
     $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (9, 'Acme Dental', 'acme')");
+    // Deliberately NOT waypoint-support: §"Waypoint is a SECOND producer"
+    // registers it itself, so that section proves registration works rather
+    // than inheriting it from the fixture. Adding it here is a duplicate key.
     $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'coastmark-support', 'Coastmark Support')");
-    $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'waypoint-support', 'Waypoint Support')");
     $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'milepost', 'Milepost RMM')");
 }
 
