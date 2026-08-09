@@ -81,6 +81,15 @@ function fresh_schema(bool $withTenant = true): void
     }
     if ($withTenant) {
         $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (1, '8 West IT, LLC', '8west')");
+    } else {
+        // Tenant 1 exists but is SOMEBODY ELSE. Two reasons this row is here:
+        // svc_identities has a foreign key to tenants, so the identities below
+        // cannot be inserted without it — and more importantly this is the
+        // dangerous shape the slug lookup exists to defeat. tenant_id() falls
+        // back to 1 when there is no session, so a handler resolving by that
+        // fallback would drop a partner's support request straight into this
+        // customer's queue. Resolving by slug must find nothing instead.
+        $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (1, 'Someone Else Ltd', 'someone-else')");
     }
     // A customer tenant that must NEVER receive a partner's support request.
     $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (9, 'Acme Dental', 'acme')");
@@ -335,6 +344,67 @@ db()->prepare('INSERT INTO svc_support_rate (source, tenant_slug, window_kind, b
     ->execute(['coastmark', 'acme-msp', 'minute', (int)floor(time() / 60), 20]);
 $replay = support_record(req(['external_key' => 'cmk:acme-msp:0001']), 'coastmark-support');
 check('retry_ignored_even_when_over_rate', $replay['ok'] === true && $replay['action'] === 'ignored');
+
+/* ── Waypoint: a SECOND producer, not a variant of the first ───────────────
+ * Waypoint is a standalone product outside 8 West IT 365 with its own
+ * customers. It must be accepted on its own identity, routed to its own
+ * client rows, and must not be able to act as Coastmark (or vice versa).
+ * These are the checks that would have caught it 401-ing on day one. */
+fresh_schema(true);
+$CONFIG['svc']['secrets']['waypoint-support'] = 'TEST_WAYPOINT_SECRET';
+db()->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'waypoint-support', 'Waypoint Support')");
+
+check('waypoint_is_a_known_source', support_source_for('waypoint-support') !== null);
+check('waypoint_auth_valid_signature', auth_for(req(), 'waypoint-support', null, 'TEST_WAYPOINT_SECRET')['ok'] === true);
+
+$w = support_record(req([
+    'external_key' => 'wyp:9f2c4e11',
+    'tenant'       => ['slug' => 'harbor-co', 'display_name' => 'Harbor Co'],
+    'requester'    => ['name' => 'Ines Vega', 'email' => 'ines@harborco.example'],
+    'subject'      => 'Cannot export the run sheet',
+    'body'         => 'Export button spins forever on the run sheet page.',
+]), 'waypoint-support');
+check('waypoint_request_creates_ticket', $w['ok'] === true && $w['action'] === 'created' && !empty($w['ticket']));
+$wt = ticket((int)$w['ticket']);
+check('waypoint_ticket_lands_in_8west_tenant', (int)($wt['tenant_id'] ?? 0) === 1);
+check('waypoint_ticket_keeps_its_external_key', ($wt['external_key'] ?? '') === 'wyp:9f2c4e11');
+$wc = client_row((int)$wt['client_id']);
+check('waypoint_client_keyed_on_waypoint_source', ($wc['source_key'] ?? '') === 'waypoint:harbor-co');
+check('waypoint_client_labelled_waypoint', ($wc['name'] ?? '') === 'Harbor Co (Waypoint)');
+check('waypoint_provenance_names_waypoint', str_contains(messages((int)$w['ticket'])[1]['body'], 'through Waypoint'));
+
+/* The same customer slug in both products must NOT share a client row —
+ * otherwise one product's tickets would silently file under the other. */
+$c2 = support_record(req([
+    'external_key' => 'cmk:harbor-co:0001',
+    'tenant'       => ['slug' => 'harbor-co', 'display_name' => 'Harbor Co'],
+]), 'coastmark-support');
+check('same_slug_other_product_is_a_separate_client',
+    (int)ticket((int)$c2['ticket'])['client_id'] !== (int)$wt['client_id']);
+check('coastmark_client_keyed_on_coastmark_source',
+    (client_row((int)ticket((int)$c2['ticket'])['client_id'])['source_key'] ?? '') === 'coastmark:harbor-co');
+
+/* Neither product may sign for the other, and the allow-list still refuses
+ * everyone else. A shared key would have made these indistinguishable. */
+check('waypoint_secret_cannot_sign_as_coastmark',
+    auth_for(req(), 'coastmark-support', null, 'TEST_WAYPOINT_SECRET')['code'] === 401);
+check('coastmark_secret_cannot_sign_as_waypoint',
+    auth_for(req(), 'waypoint-support', null, 'TEST_SUPPORT_SECRET')['code'] === 401);
+check('alert_identity_still_refused_for_support', support_source_for('milepost') === null);
+check('unknown_identity_still_refused', support_source_for('nosuchsvc-support') === null);
+$bad = support_record(req(['external_key' => 'wyp:deadbeef']), 'nosuchsvc-support');
+check('unknown_identity_files_nothing', $bad['ok'] === false && ($bad['code'] ?? 0) === 401);
+
+/* Per-tenant rate budget is per PRODUCT, so a noisy Coastmark tenant cannot
+ * throttle the same customer's Waypoint requests. */
+db()->prepare('DELETE FROM svc_support_rate')->execute();
+db()->prepare('INSERT INTO svc_support_rate (source, tenant_slug, window_kind, bucket, hits) VALUES (?,?,?,?,?)')
+    ->execute(['coastmark', 'harbor-co', 'minute', (int)floor(time() / 60), 20]);
+$stillOk = support_record(req([
+    'external_key' => 'wyp:aa11bb22',
+    'tenant'       => ['slug' => 'harbor-co', 'display_name' => 'Harbor Co'],
+]), 'waypoint-support');
+check('waypoint_budget_separate_from_coastmark', $stillOk['ok'] === true && $stillOk['action'] === 'created');
 
 echo "---\n{$checkCount} checks, {$failCount} failures\n";
 exit($failCount > 0 ? 1 : 0);
