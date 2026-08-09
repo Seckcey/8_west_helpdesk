@@ -10,9 +10,9 @@
  * unchanged): hex HMAC-SHA256 over "{timestamp}\n{raw_body}", ±300s,
  * 120 req/min per identity, plus a per-tenant cap of our own.
  *
- * Only identities listed in SUPPORT_SOURCES may post here. A valid signature
- * from the Milepost alert identity is still a 401 on this door: signing keys
- * prove who you are, not what you are allowed to file.
+ * Only identities in support_sources() (server config) may post here. A valid
+ * signature from the Milepost alert identity is still a 401 on this door:
+ * signing keys prove who you are, not what you are allowed to file.
  *
  * Kill switch is svc.support_enabled AND svc.enabled. The shared flag is
  * already true in production, so this endpoint keeps its own — turning

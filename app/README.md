@@ -41,7 +41,9 @@ lib/westy_report.php       Westy defects → 8 West IT's OWN queue (one ticket p
 lib/svc_support.php        Coastmark + Waypoint support requests → 8 West IT's
                            own queue (one ticket per submission; text stored
                            VERBATIM — deliberately none of westy_report's
-                           collapsing). Producers listed in SUPPORT_SOURCES
+                           collapsing). Callers come from server config,
+                           `support_intake.sources` — adding the next product
+                           is not a code change
 tests/                     CLI-only hermetic tests against a scratch database —
                            suite_sso_test.php, svc_intake_test.php,
                            westy_report_test.php, svc_support_test.php

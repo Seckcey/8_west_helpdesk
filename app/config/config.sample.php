@@ -78,6 +78,19 @@ return [
     // Requests raised inside Coastmark or Waypoint open tickets in 8 WEST IT'S
     // OWN tenant, resolved explicitly by slug — same rule as westy_report below.
     //
+    // ADDING THE NEXT PRODUCT is three things and no code change:
+    //   1. a row in svc_identities for its identity (e.g. 'ledger-support')
+    //   2. its secret in svc.secrets above
+    //   3. a line in 'sources' below
+    // 'source' is the routing prefix for that product's client rows
+    // (clients.source_key = '{source}:{their tenant slug}', 64 chars total, so
+    // keep 'source' short); 'label' is what techs see in the ticket. Remove a
+    // product from this list and its requests stop being accepted — the
+    // identity and the secret can stay.
+    //
+    // Leave 'sources' OUT entirely and the built-in defaults apply, which is
+    // how production runs today. An empty list means nobody, not "defaults".
+    //
     // The per-tenant caps are ours to enforce: svc_auth's 120/min is per
     // service IDENTITY, and one identity carries every tenant of that product,
     // so without these one noisy customer could spend the whole budget. The
@@ -86,6 +99,10 @@ return [
     // disable that window.
     'support_intake' => [
         'tenant_slug'        => '8west',
+        'sources' => [
+            'coastmark-support' => ['source' => 'coastmark', 'label' => 'Coastmark'],
+            'waypoint-support'  => ['source' => 'waypoint',  'label' => 'Waypoint'],
+        ],
         'per_tenant_per_min' => 20,
         'per_tenant_per_day' => 100,
         // The "we've got it, ticket #N" mail. It is also what carries the

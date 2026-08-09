@@ -29,11 +29,16 @@ $CONFIG['svc'] = [
     'support_enabled' => true,
     'secrets'         => [
         'coastmark-support' => 'TEST_SUPPORT_SECRET',
+        'waypoint-support'  => 'TEST_WAYPOINT_SECRET',
         'milepost'          => 'TEST_SVC_HMAC_SECRET',
     ],
 ];
 $CONFIG['support_intake'] = [
     'tenant_slug'        => '8west',
+    'sources' => [
+        'coastmark-support' => ['source' => 'coastmark', 'label' => 'Coastmark'],
+        'waypoint-support'  => ['source' => 'waypoint',  'label' => 'Waypoint'],
+    ],
     'per_tenant_per_min' => 20,
     'per_tenant_per_day' => 100,
     'ack_email'          => true,
@@ -93,6 +98,9 @@ function fresh_schema(bool $withTenant = true): void
     }
     // A customer tenant that must NEVER receive a partner's support request.
     $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (9, 'Acme Dental', 'acme')");
+    // Deliberately NOT waypoint-support: §"Waypoint is a SECOND producer"
+    // registers it itself, so that section proves registration works rather
+    // than inheriting it from the fixture. Adding it here is a duplicate key.
     $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'coastmark-support', 'Coastmark Support')");
     $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'milepost', 'Milepost RMM')");
 }
@@ -320,7 +328,89 @@ $noWhen = req(['external_key' => 'cmk:acme-msp:0042']);
 unset($noWhen['occurred_at']);
 check('missing_occurred_at_defaults_to_now', support_record($noWhen, 'coastmark-support')['action'] === 'created');
 
-/* ── 10. per-tenant rate cap ─────────────────────────────────────────────── */
+/* ── 10. more than one app ───────────────────────────────────────────────
+   Every 8 West app is meant to raise support through Safeharbor, so the
+   caller list is config, not code, and two apps must not tread on each
+   other even when their tenants share a slug. */
+
+// Coastmark dropped the slug out of the key (2026-08-09): the slug travels in
+// tenant.slug and the reference is just a prefix and a uuid. Both shapes work.
+$uuidKey = support_record(req(['external_key' => 'cmk:7f3a9c1d4b0e2a68']), 'coastmark-support');
+check('prefix_and_uuid_key_accepted', $uuidKey['ok'] === true && $uuidKey['action'] === 'created');
+
+$wp = support_record(req([
+    'external_key' => 'wyp:1c4e8b2f9d0a3e57',
+    'tenant'       => ['slug' => 'acme-msp', 'display_name' => 'Acme MSP'],
+]), 'waypoint-support');
+check('waypoint_may_file', $wp['ok'] === true && $wp['action'] === 'created');
+$wpClient = client_row((int)ticket((int)$wp['ticket'])['client_id']);
+check('waypoint_client_keyed_separately', ($wpClient['source_key'] ?? '') === 'waypoint:acme-msp');
+check('waypoint_client_labelled_waypoint', ($wpClient['name'] ?? '') === 'Acme MSP (Waypoint)');
+check('same_slug_two_apps_two_client_rows', (int)$wpClient['id'] !== $clientId);
+check('waypoint_provenance_names_waypoint',
+    str_contains(messages((int)$wp['ticket'])[1]['body'], 'through Waypoint'));
+
+// The list is config-driven: an app named only there is let in, and one
+// removed from it is refused even though its secret still exists.
+$CONFIG['support_intake']['sources']['ledger-support'] = ['source' => 'ledger', 'label' => 'Ledger'];
+check('config_can_add_an_app', support_source_for('ledger-support') !== null);
+unset($CONFIG['support_intake']['sources']['ledger-support']);
+check('config_can_remove_an_app', support_source_for('ledger-support') === null);
+$CONFIG['support_intake']['sources']['broken-support'] = ['source' => 'NOT A SOURCE', 'label' => 'Broken'];
+check('malformed_config_entry_skipped', support_source_for('broken-support') === null);
+check('malformed_entry_leaves_others_working', support_source_for('coastmark-support') !== null);
+unset($CONFIG['support_intake']['sources']['broken-support']);
+
+// A slug so long that '{prefix}:{slug}' would not fit the routing column is
+// refused outright — truncating it would merge two firms onto one client row.
+// Today's prefixes are short enough that no legal slug can trip this, so the
+// guard is exercised with a deliberately long one: it exists for the app we
+// have not registered yet, which is the only way it could ever bite.
+$CONFIG['support_intake']['sources']['longprefix-support'] =
+    ['source' => str_repeat('a', 24), 'label' => 'Long Prefix'];
+$tooLong = support_record(req([
+    'external_key' => 'lng:aaaa1111bbbb2222',
+    'tenant'       => ['slug' => str_repeat('x', 48), 'display_name' => 'Long Slug Ltd'],
+]), 'longprefix-support');
+check('overlong_routing_key_refused', $tooLong['ok'] === false && !isset($tooLong['code']));
+check('overlong_routing_key_created_nothing', support_ticket_by_key(1, 'lng:aaaa1111bbbb2222') === null);
+
+// The same app with a slug that DOES fit is fine — the guard is about length,
+// not about the app.
+$fits = support_record(req([
+    'external_key' => 'lng:bbbb2222cccc3333',
+    'tenant'       => ['slug' => str_repeat('x', 39), 'display_name' => 'Just Fits Ltd'],
+]), 'longprefix-support');
+check('routing_key_at_the_limit_accepted', $fits['ok'] === true && $fits['action'] === 'created');
+unset($CONFIG['support_intake']['sources']['longprefix-support']);
+
+// ── what the config falls back to ────────────────────────────────────────
+// This is not academic: PRODUCTION HAS NO 'support_intake' BLOCK AT ALL. It
+// runs on the built-in defaults, so if an absent key stopped meaning
+// "defaults", deploying this would take Coastmark and Waypoint off the air.
+$savedSources = $CONFIG['support_intake']['sources'];
+unset($CONFIG['support_intake']['sources']);
+check('absent_config_falls_back_to_defaults', support_source_for('coastmark-support') !== null);
+check('absent_config_keeps_waypoint_too', support_source_for('waypoint-support') !== null);
+check('absent_config_still_refuses_the_alert_identity', support_source_for('milepost') === null);
+
+$savedBlock = $CONFIG['support_intake'];
+unset($CONFIG['support_intake']);
+check('no_support_intake_block_at_all_still_works', support_source_for('coastmark-support') !== null);
+$CONFIG['support_intake'] = $savedBlock;
+
+// An EMPTY list is obeyed rather than treated as absent. "I listed nobody"
+// has to mean nobody, or the setting would be lying to whoever set it.
+$CONFIG['support_intake']['sources'] = [];
+check('empty_list_means_nobody_not_defaults', support_source_for('coastmark-support') === null);
+$refusedByEmptyList = support_record(req(['external_key' => 'cmk:acme-msp:9001']), 'coastmark-support');
+check('empty_list_refuses_a_real_request', $refusedByEmptyList['ok'] === false);
+check('empty_list_files_nothing', support_ticket_by_key(1, 'cmk:acme-msp:9001') === null);
+
+$CONFIG['support_intake']['sources'] = $savedSources;
+check('restoring_the_list_lets_them_back_in', support_source_for('coastmark-support') !== null);
+
+/* ── 11. per-tenant rate cap ─────────────────────────────────────────────── */
 db()->prepare('DELETE FROM svc_support_rate')->execute();
 db()->prepare('INSERT INTO svc_support_rate (source, tenant_slug, window_kind, bucket, hits) VALUES (?,?,?,?,?)')
     ->execute(['coastmark', 'acme-msp', 'minute', (int)floor(time() / 60), 19]);
@@ -337,6 +427,13 @@ $other = support_record(req([
     'tenant'       => ['slug' => 'beta-it', 'display_name' => 'Beta IT'],
 ]), 'coastmark-support');
 check('other_tenant_unaffected_by_the_cap', $other['ok'] === true && $other['action'] === 'created');
+
+// Nor may one app's flood block another's, even for the same firm.
+$wpDuring = support_record(req([
+    'external_key' => 'wyp:5a6b7c8d9e0f1234',
+    'tenant'       => ['slug' => 'acme-msp', 'display_name' => 'Acme MSP'],
+]), 'waypoint-support');
+check('other_app_unaffected_by_the_cap', $wpDuring['ok'] === true && $wpDuring['action'] === 'created');
 
 // A retry of a stored submission must not spend the budget it already spent.
 db()->prepare('DELETE FROM svc_support_rate')->execute();

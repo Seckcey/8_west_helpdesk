@@ -120,11 +120,15 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    `alerts.php` (machine alerts, keyed on the occurrence, auto-closes),
    `westy.php` (Westy defects, one ticket per PROBLEM, stored text re-scrubbed),
    `support.php` (a person asking 8 West IT for help from inside **Coastmark or
-   Waypoint**, one ticket per SUBMISSION, text stored **verbatim**,
-   `channel='portal'`, contract in
-   `docs/coastmark-support-intake-contract.md`). Producers are listed in
-   `SUPPORT_SOURCES`; **Waypoint is a standalone product outside 8 West IT 365**,
-   so do not assume a support caller is a suite app. Westy's scrubbing
+   Waypoint** — more products to come — one ticket per SUBMISSION, text stored
+   **verbatim**, `channel='portal'`, contract in
+   `docs/coastmark-support-intake-contract.md`). The caller list is server
+   config `support_intake.sources` (`support_sources()`, defaults in
+   `SUPPORT_SOURCES_DEFAULT`), so **product number three costs a config line, an
+   identity row and a secret — never a code change**; production has no
+   `support_intake` block at all today and runs on those defaults.
+   **Waypoint is a standalone product outside 8 West IT 365**, so do not assume
+   a support caller is a suite app. Westy's scrubbing
    and fingerprinting would destroy a support request, and support's
    store-everything rule would flood the queue with alert repeats — the split
    is the design, not duplication. One identity per producer, one job each:
@@ -132,11 +136,9 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    the caller is allowed to file *its* kind of thing. Support intake has its
    own kill switch (`svc.support_enabled`) because `svc.enabled` is already
    true in production — **both are now `true`; support intake is live, not
-   dark.** Known gap: `SUPPORT_SOURCES` is a constant, so adding the next
-   product needs a code change and a deploy, which conflicts with the standing
-   direction that every 8 West product will eventually file support here. A
-   config-driven version exists on branch `feat/partner-support-sources`
-   (PR #26, closed as a duplicate) — salvage it rather than rewriting it.
+   dark.** The old gap here — a hardcoded caller list — was closed on
+   2026-08-09 by salvaging branch `feat/partner-support-sources` (PR #26,
+   closed as a duplicate) into PR #30.
 9. **8 West ID SSO:** an HS256-signed `ewid_token` cookie scoped to
    `.8westit.com` — **not** OIDC; the `/oauth2/*` and JWKS endpoints in the
    old contract draft return 404 and were never built. Config lives in the
