@@ -863,6 +863,33 @@ img { display: block; }
 }
 #westy-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
+/* "This wasn't helpful" — on every answer, quiet until wanted. Progressive
+   disclosure: a small muted control that opens the review box in place. */
+.westy-fb { align-self: flex-start; max-width: 95%; margin-top: -4px; }
+.westy-fb-done { color: var(--mint); font-size: 11px; padding: 2px 2px 4px; }   /* mint = resolved */
+.westy-fb-btn {
+  padding: 2px 4px; font-size: 11px; color: var(--muted); cursor: pointer;
+  background: none; border: none; text-decoration: underline; text-underline-offset: 2px;
+}
+.westy-fb-btn:hover { color: var(--text); }
+.westy-fb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+.westy-review {
+  margin-top: 6px; padding: 10px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--card-strong); border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.westy-review-intro { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
+.westy-review-label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); }
+.westy-review-text {
+  width: 100%; padding: 6px 8px; font-size: 12px; font-family: var(--font); line-height: 1.4;
+  color: var(--text); background: var(--input-bg); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); resize: vertical;
+}
+.westy-review-text:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.westy-review-row { display: flex; gap: 6px; }
+.westy-review-send { border-color: var(--accent); color: var(--text-strong); }
+.westy-review-send:disabled { opacity: .55; cursor: default; }
+.westy-review-status { font-size: 11px; color: var(--muted); min-height: 14px; }
+
 /* ==========================================================================
    Composer — reply/note tabs, saved-reply "/" pop, time-at-reply chip
    ========================================================================== */

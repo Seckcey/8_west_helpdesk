@@ -41,6 +41,134 @@
     return div;
   }
 
+  /* ── "this wasn't helpful" ────────────────────────────────────────────────
+   * On EVERY real answer, not only after visible trouble: an answer that is
+   * confidently wrong shows no trouble signal at all, and that is the one
+   * worth catching. Onboarding chatter and error text are not answers, so
+   * they never get the control.
+   *
+   * The server keeps no transcript — it lives in this tab's sessionStorage —
+   * so the question and answer travel up from here. The tech sees the exact
+   * text, can edit it or cancel, and nothing leaves unreviewed. */
+
+  function addFeedback(msgEl, q, a) {
+    var bar = document.createElement('div');
+    bar.className = 'westy-fb';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'westy-fb-btn';
+    btn.textContent = "This wasn't helpful";
+    btn.title = 'Send this answer to the 8 West team so Westy can be fixed';
+    btn.addEventListener('click', function () { openReview(bar, btn, q, a); });
+    bar.appendChild(btn);
+    if (msgEl.parentNode) msgEl.parentNode.insertBefore(bar, msgEl.nextSibling);
+    return bar;
+  }
+
+  function field(parent, labelText, value, rows) {
+    var lab = document.createElement('label');
+    lab.className = 'westy-review-label';
+    lab.textContent = labelText;
+    var ta = document.createElement('textarea');
+    ta.className = 'westy-review-text';
+    ta.rows = rows;
+    ta.value = value || '';
+    lab.appendChild(ta);
+    parent.appendChild(lab);
+    return ta;
+  }
+
+  function openReview(bar, btn, q, a) {
+    if (bar.querySelector('.westy-review')) return;
+    btn.hidden = true;
+
+    var box = document.createElement('div');
+    box.className = 'westy-review';
+
+    var intro = document.createElement('p');
+    intro.className = 'westy-review-intro';
+    intro.textContent = 'This goes to the 8 West team so they can fix Westy. Edit anything before sending.';
+    box.appendChild(intro);
+
+    var qBox = field(box, 'Question', q, 2);
+    var aBox = field(box, 'Answer', a, 4);
+    var nBox = field(box, 'What went wrong (optional)', '', 2);
+    nBox.maxLength = 500;
+
+    var row = document.createElement('div');
+    row.className = 'westy-review-row';
+    var send = document.createElement('button');
+    send.type = 'button';
+    send.className = 'westy-chip westy-review-send';
+    send.textContent = 'Send report';
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'westy-chip westy-chip-dismiss';
+    cancel.textContent = 'Cancel';
+    row.appendChild(send);
+    row.appendChild(cancel);
+    box.appendChild(row);
+
+    var status = document.createElement('div');
+    status.className = 'westy-review-status';
+    status.setAttribute('role', 'status');
+    box.appendChild(status);
+
+    function close() {
+      box.remove();
+      btn.hidden = false;
+      btn.focus();
+    }
+    cancel.addEventListener('click', close);
+    box.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') { ev.stopPropagation(); close(); }
+    });
+
+    send.addEventListener('click', function () {
+      if (!qBox.value.trim() || !aBox.value.trim()) {
+        status.textContent = 'The question and answer both need to say something.';
+        return;
+      }
+      send.disabled = true;
+      cancel.disabled = true;
+      status.textContent = 'Sending…';
+
+      var body = new URLSearchParams();
+      body.set('csrf', root.getAttribute('data-csrf') || '');
+      body.set('question', qBox.value);
+      body.set('answer', aBox.value);
+      body.set('note', nBox.value);
+
+      fetch('/api/westy_feedback.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        credentials: 'same-origin'
+      }).then(function (r) {
+        return r.json().then(function (j) { return j; }, function () { return null; });
+      }).then(function (j) {
+        if (j && j.ok) {
+          bar.textContent = 'Thanks — sent to the 8 West team.';
+          bar.className = 'westy-fb westy-fb-done';
+          log.scrollTop = log.scrollHeight;
+          return;
+        }
+        /* Keep the box open and the text intact so a retry costs nothing. */
+        status.textContent = (j && j.error) ? j.error : 'Could not send that — try again in a minute.';
+        send.disabled = false;
+        cancel.disabled = false;
+      }).catch(function () {
+        status.textContent = 'Could not reach Safeharbor — check your connection and try again.';
+        send.disabled = false;
+        cancel.disabled = false;
+      });
+    });
+
+    bar.appendChild(box);
+    log.scrollTop = log.scrollHeight;
+    try { nBox.focus({ preventScroll: true }); } catch (e) { nBox.focus(); }
+  }
+
   function setOpen(open) {
     panel.hidden = !open;
     bubble.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -84,7 +212,9 @@
     }).slice(-6);
     for (var i = 0; i < history.length; i++) {
       addMsg('me', history[i].q);
-      addMsg('westy', history[i].a);
+      /* A restored answer is still an answer — an unhelpful one is just as
+       * worth reporting after following a link as it was before. */
+      addFeedback(addMsg('westy', history[i].a), history[i].q, history[i].a);
     }
     /* The onboarding chips are deliberately NOT restored. They are Safeharbor's
      * equivalent of Milepost's un-restored draft cards: a "Show me around" chip
@@ -203,7 +333,7 @@
       }).then(function (res) {
         if (res.http === 200 && res.j && res.j.ok && res.j.reply) {
           thinking.remove();
-          addMsg('westy', res.j.reply);
+          addFeedback(addMsg('westy', res.j.reply), msg, res.j.reply);
           history.push({ q: msg, a: res.j.reply });
           if (history.length > 6) history = history.slice(-6);
           save();

@@ -16,8 +16,10 @@ feature-complete — Sprints 1–5 shipped 2026-08-02**, **live at
 https://safeharbor.8westit.com**. Production credentials are not published;
 use an authorized 8 West ID or local account.
 Remaining before the v1.0 stamp: the Phase 1 dogfood gate (4 weeks on
-8 West's real desk, zero data loss, p95 < 300ms) and flipping
-`svc.enabled` when Milepost's alert emitter (their Sprint 8.1.2) ships.
+8 West's real desk, zero data loss, p95 < 300ms).
+**`svc.enabled` is already `true` in production** (verified 2026-08-08):
+Milepost's alert emitter shipped, and alert tickets have been arriving since
+2026-07-29. Anything that assumes the svc path is dark is out of date.
 
 ## Stack — same as Milepost, on purpose
 
@@ -90,6 +92,14 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    `data-westy-version`; treat each shared release as suite-wide blast radius.
    Roll back centrally by repointing `/v1/` to a retained frozen version, or
    pin this consumer temporarily to that frozen version.
+   **Westy defects open tickets in 8 West IT's OWN queue**, never a customer's
+   — `lib/westy_report.php`, contract in
+   `docs/westy-failure-reporting-contract.md`. Real failures report themselves;
+   a "This wasn't helpful" control under every answer lets a tech flag a bad
+   one after reviewing exactly what will be sent. Failures carry technical
+   detail only — no chat text, and the receiver enforces that rather than
+   trusting the caller. One ticket per PROBLEM: the key fingerprints a
+   normalised error class, never a timestamp or an occurrence id.
 8. **8 West ID SSO:** an HS256-signed `ewid_token` cookie scoped to
    `.8westit.com` — **not** OIDC; the `/oauth2/*` and JWKS endpoints in the
    old contract draft return 404 and were never built. Config lives in the
@@ -136,12 +146,14 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   box. Recorded as applied: 001 mail_queue · 002 westy/onboarding ·
   003 canned_responses · 004 attachments/threading/resurface ·
   005 presence/merge/fulltext · 006 csat · **007 suite_subject (2026-08-02,
-  migration-first)**. `db/schema.sql` stays the
+  migration-first)** · 008 westy_reports. `db/schema.sql` stays the
   canonical fresh-install copy — keep both in lockstep.
   `002_svc_intake.sql` collides on the number 002 with
-  `002_westy_onboarding.sql`, so numbering is not a reliable ordering and its
-  live state must be checked by schema (`tickets.external_key` and
-  `svc_identities`). 007 remains a hard prerequisite for suite sign-in on a
+  `002_westy_onboarding.sql`, so numbering is not a reliable ordering. **It IS
+  applied in production** — verified 2026-08-08 by schema, not by this list:
+  `tickets.external_key`, the unique key `(tenant_id, external_key)`,
+  `svc_identities` and `svc_rate_buckets` all exist. Note that `schema.sql`
+  does NOT carry 002's objects, so a fresh install needs the migration too. 007 remains a hard prerequisite for suite sign-in on a
   rebuild: PDO runs `ERRMODE_EXCEPTION`, so `suite_sso_attempt()` throws on a
   host missing `users.suite_subject`.
 - **Attachment bytes live OUTSIDE the deploy tree** at

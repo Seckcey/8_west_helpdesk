@@ -217,7 +217,11 @@ ticket is resolved, start the next generation; otherwise update in place.
 | Field | Failure | Thumbs-down |
 |---|---|---|
 | `channel` | `alert` | `alert` |
-| `priority` | `normal` (→ `high` at 25 occurrences) | `low` |
+| `priority` | `normal` | `low` |
+
+Both kinds are raised to `high` at 25 occurrences per §5.2 — 25 techs flagging
+the same answer is as much a problem as 25 provider failures.
+
 | `client_id` | "Westy — {App}" catch-all, created on demand | same |
 | `contact_id` | `NULL` | `NULL` |
 | `subject` | `Westy failure — {error_class, 90 chars} ({app})` | `Westy answer flagged — {question, 60 chars} ({app})` |

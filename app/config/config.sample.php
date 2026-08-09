@@ -39,11 +39,32 @@ return [
     // design: docs/sprint-8.1-svc-alert-intake.md). Ships DARK: enabled
     // stays false until the Milepost emitter side (Sprint 8.1.2) is ready.
     // Secrets are server-only, never committed; one per calling service.
+    // NOTE: 'enabled' is TRUE in production as of 2026-07-29 — Milepost's
+    // emitter shipped and alert tickets have been arriving since. This sample
+    // stays false so a fresh install starts closed.
+    //
+    // milepost           — alert lifecycle → api/svc/alerts.php
+    // milepost-westy     — Westy failures  → api/svc/westy.php
+    // controlpanel-westy — Westy failures  → api/svc/westy.php
+    //
+    // The Westy identities are DELIBERATELY separate from 'milepost': one
+    // rate-limit budget per identity, so a Westy failure storm can never
+    // starve real alert intake. Add them only when those emitters ship.
     'svc' => [
         'enabled' => false,
         'secrets' => [
-            'milepost' => 'EXAMPLE_SVC_HMAC_SECRET',
+            'milepost'           => 'EXAMPLE_SVC_HMAC_SECRET',
+            'milepost-westy'     => 'EXAMPLE_SVC_HMAC_SECRET',
+            'controlpanel-westy' => 'EXAMPLE_SVC_HMAC_SECRET',
         ],
+    ],
+
+    // Westy defect reporting (docs/westy-failure-reporting-contract.md).
+    // Tickets open in 8 WEST IT'S OWN tenant, resolved explicitly by slug —
+    // never via tenant_id()'s no-session fallback to 1, which would misroute
+    // internal tickets into a customer's queue the day a second tenant exists.
+    'westy_report' => [
+        'tenant_slug' => '8west',
     ],
 
     // File storage OUTSIDE the deploy tree (deploy.sh re-chmods current/ on

@@ -13,7 +13,11 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../lib/auth.php';
 require_once __DIR__ . '/../../lib/ai.php';
 require_once __DIR__ . '/../../lib/westy.php';
+require_once __DIR__ . '/../../lib/westy_report.php';
 enforce_https();
+
+/** Shown when a failure has been filed for our own staff to fix. */
+const WESTY_LOGGED_SUFFIX = ' I\'ve logged this for the 8 West team.';
 
 $user = current_user();
 if (!$user) json_out(['ok' => false, 'error' => 'Unauthorized'], 401);
@@ -78,12 +82,19 @@ if (empty($user['onboarded_at'])) {
 $r = ai_provider_complete($sys, $userTurn, westy_chat_schema());
 if (empty($r['ok'])) {
     westy_log((int)$user['id'], 'westy_chat', 'error: ' . mb_substr((string)$r['error'], 0, 200));
-    json_out(['ok' => false, 'error' => 'Westy is unavailable right now — try again in a minute.'], 502);
+    // Until now this is where a Westy failure died: one 255-char log row and an
+    // apology, and nobody was ever told. Now it opens a ticket in 8 West IT's
+    // own queue. A refusal is skipped inside the helper — that is the safety
+    // layer working, not Westy breaking.
+    westy_report_failure($r, 'westy_chat', (int)$user['id']);
+    $tail = empty($r['refusal']) ? WESTY_LOGGED_SUFFIX : '';
+    json_out(['ok' => false, 'error' => 'Westy is unavailable right now — try again in a minute.' . $tail], 502);
 }
 $reply = trim((string)($r['data']['reply'] ?? ''));
 if ($reply === '') {
     westy_log((int)$user['id'], 'westy_chat', 'error: empty reply');
-    json_out(['ok' => false, 'error' => 'Westy came back speechless — try rephrasing the question.'], 502);
+    westy_report_failure(['ok' => false, 'error' => 'empty reply'], 'westy_chat', (int)$user['id'], 'empty reply');
+    json_out(['ok' => false, 'error' => 'Westy came back speechless — try rephrasing the question.' . WESTY_LOGGED_SUFFIX], 502);
 }
 
 westy_log((int)$user['id'], 'westy_chat', 'msg_len=' . mb_strlen($msg) . ' reply_len=' . mb_strlen($reply));
