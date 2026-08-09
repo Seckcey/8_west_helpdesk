@@ -36,8 +36,14 @@ lib/mailer.php             outbound mail (mail_queue + transports:
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
 lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
 lib/svc_intake.php         Milepost alert events → tickets (idempotent upsert)
+lib/westy_report.php       Westy defects → 8 West IT's OWN queue (one ticket per
+                           problem; stored text re-scrubbed on arrival)
+lib/svc_support.php        Coastmark support requests → 8 West IT's own queue
+                           (one ticket per submission; text stored VERBATIM —
+                           deliberately none of westy_report's collapsing)
 tests/                     CLI-only hermetic tests against a scratch database —
-                           suite_sso_test.php, svc_intake_test.php
+                           suite_sso_test.php, svc_intake_test.php,
+                           westy_report_test.php, svc_support_test.php
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
 cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
@@ -65,6 +71,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
   api/ticket_merge.php     Merge a ticket into a survivor (stub left behind)
   api/svc/alerts.php       Signed Milepost alert intake — 404s while svc.enabled
                            is false (ships dark)
+  api/svc/westy.php        Signed Westy failure / flagged-answer reports from
+                           Milepost + the Control Panel (one ticket per problem)
+  api/svc/support.php      Signed human support requests from Coastmark — one
+                           ticket each, text verbatim, 404s while
+                           svc.support_enabled is false (ships dark)
   assets/css/app.css       Hand-written design system, semantic tokens
                            (dark / light / system themes)
   assets/js/app.js         Keyboard model, ⌘K palette, timer, theme switch,

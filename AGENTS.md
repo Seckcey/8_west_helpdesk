@@ -100,7 +100,20 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    detail only — no chat text, and the receiver enforces that rather than
    trusting the caller. One ticket per PROBLEM: the key fingerprints a
    normalised error class, never a timestamp or an occurrence id.
-8. **8 West ID SSO:** an HS256-signed `ewid_token` cookie scoped to
+8. **Three `api/svc/*` producers, three different jobs — never merge them.**
+   `alerts.php` (machine alerts, keyed on the occurrence, auto-closes),
+   `westy.php` (Westy defects, one ticket per PROBLEM, stored text re-scrubbed),
+   `support.php` (a person asking 8 West IT for help from inside Coastmark, one
+   ticket per SUBMISSION, text stored **verbatim**, `channel='portal'`,
+   contract in `docs/coastmark-support-intake-contract.md`). Westy's scrubbing
+   and fingerprinting would destroy a support request, and support's
+   store-everything rule would flood the queue with alert repeats — the split
+   is the design, not duplication. One identity per producer, one job each:
+   `svc_auth.php` only proves *who* is calling, so each endpoint checks that
+   the caller is allowed to file *its* kind of thing. Support intake has its
+   own kill switch (`svc.support_enabled`) because `svc.enabled` is already
+   true in production.
+9. **8 West ID SSO:** an HS256-signed `ewid_token` cookie scoped to
    `.8westit.com` — **not** OIDC; the `/oauth2/*` and JWKS endpoints in the
    old contract draft return 404 and were never built. Config lives in the
    **`suite`** block (`issuer`, `sso_secret`, `cookie_name`) of server-only
@@ -118,7 +131,7 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    request through a 60-second cache; an issuer/signature/staleness failure is
    logged and deliberately fails open. Full contract:
    `docs/suite-sso-contract.md`.
-9. **Mail pipeline:** transport order Graph → SMTP → PHP mail().
+10. **Mail pipeline:** transport order Graph → SMTP → PHP mail().
    Outbound = `lib/mailer.php` + `mail_queue` + `cron/mail_dispatch.php`;
    inbound = `cron/graph_poll.php` (O365, Entra app) with
    `cron/imap_poll.php` as non-M365 fallback. Safeharbor and Milepost share
@@ -152,8 +165,11 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   `002_westy_onboarding.sql`, so numbering is not a reliable ordering. **It IS
   applied in production** — verified 2026-08-08 by schema, not by this list:
   `tickets.external_key`, the unique key `(tenant_id, external_key)`,
-  `svc_identities` and `svc_rate_buckets` all exist. Note that `schema.sql`
-  does NOT carry 002's objects, so a fresh install needs the migration too. 007 remains a hard prerequisite for suite sign-in on a
+  `svc_identities` and `svc_rate_buckets` all exist. **009 support_intake
+  (`clients.source_key` + `svc_support_rate`) is written but NOT yet applied —
+  check the live schema before assuming it ran.** The rule for every svc_*
+  object is the same: `schema.sql` does NOT carry them, so a fresh install
+  needs schema.sql + 002 + 009. 007 remains a hard prerequisite for suite sign-in on a
   rebuild: PDO runs `ERRMODE_EXCEPTION`, so `suite_sso_attempt()` throws on a
   host missing `users.suite_subject`.
 - **Attachment bytes live OUTSIDE the deploy tree** at
