@@ -1,7 +1,9 @@
 <?php
 /**
  * POST /api/svc/support.php — human support requests raised inside another
- * suite app (contract: docs/coastmark-support-intake-contract.md).
+ * 8 West product (contract: docs/coastmark-support-intake-contract.md).
+ * NOT suite-only: Waypoint is a standalone product outside 8 West IT 365.
+ * LIVE since 2026-08-09 — Coastmark and Waypoint both emitting.
  *
  * HMAC-authenticated service traffic only — no session, no CSRF token. Same
  * verifier as api/svc/alerts.php and api/svc/westy.php (lib/svc_auth.php,

@@ -6,6 +6,30 @@ is not Coastmark-only. See §2.)*
 **Frozen 2026-08-09.** Receiver shipped in Safeharbor. **Coastmark and Waypoint
 both implement the emitter side against this document.**
 
+> ## Status: LIVE for real customers since 2026-08-09
+>
+> Both producers passed canaries on disposable slugs — Coastmark ticket #205,
+> Waypoint #206 — and both have since enabled their own emitters. The canary
+> tickets and client rows were deleted the same day. `svc.support_enabled` is
+> `true` in production; this endpoint no longer answers `404`.
+>
+> Proven end to end by those canaries: signature, routing to the right client
+> row, `source_key`, verbatim text, and the reply path — acknowledgement emails
+> carrying `[#205]` / `[#206]` arrived, so a tech's reply reaches the requester
+> and their answer threads back onto the ticket.
+>
+> **Settled, do not relitigate:** we append `" ({Product})"` to the
+> `tenant.display_name` you send. Both teams checked their production tenant
+> data and send the bare company name, so rows read "Acme MSP (Coastmark)". The
+> one doubled name ever seen ("Canary (Coastmark) (Coastmark)") came from a
+> canary whose display name already contained the product name. No guard is
+> wanted.
+>
+> **The trap that cost the most time:** `env_file` in Docker Compose is read at
+> container *creation*. `docker restart` will not pick up a newly installed
+> secret — only `docker compose up -d` or a real deploy will. A correct secret
+> still returns `401` after a mere restart.
+
 > **Waypoint added 2026-08-09.** Waypoint is a **standalone product outside
 > 8 West IT 365** with its own customers — a second producer, not a variant of
 > Coastmark. It gets its own service identity, its own secret and its own

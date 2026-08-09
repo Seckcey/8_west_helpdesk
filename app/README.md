@@ -38,9 +38,10 @@ lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
 lib/svc_intake.php         Milepost alert events → tickets (idempotent upsert)
 lib/westy_report.php       Westy defects → 8 West IT's OWN queue (one ticket per
                            problem; stored text re-scrubbed on arrival)
-lib/svc_support.php        Coastmark support requests → 8 West IT's own queue
-                           (one ticket per submission; text stored VERBATIM —
-                           deliberately none of westy_report's collapsing)
+lib/svc_support.php        Coastmark + Waypoint support requests → 8 West IT's
+                           own queue (one ticket per submission; text stored
+                           VERBATIM — deliberately none of westy_report's
+                           collapsing). Producers listed in SUPPORT_SOURCES
 tests/                     CLI-only hermetic tests against a scratch database —
                            suite_sso_test.php, svc_intake_test.php,
                            westy_report_test.php, svc_support_test.php
@@ -73,9 +74,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
                            is false (ships dark)
   api/svc/westy.php        Signed Westy failure / flagged-answer reports from
                            Milepost + the Control Panel (one ticket per problem)
-  api/svc/support.php      Signed human support requests from Coastmark — one
-                           ticket each, text verbatim, 404s while
-                           svc.support_enabled is false (ships dark)
+  api/svc/support.php      Signed human support requests from Coastmark and
+                           Waypoint — one ticket each, text verbatim. LIVE
+                           since 2026-08-09 (svc.support_enabled is true)
   assets/css/app.css       Hand-written design system, semantic tokens
                            (dark / light / system themes)
   assets/js/app.js         Keyboard model, ⌘K palette, timer, theme switch,

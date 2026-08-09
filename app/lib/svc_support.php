@@ -30,10 +30,17 @@
  *
  * The reply path is our existing email. The ticket carries a contact row, so
  * a tech's reply is emailed out with a [#id] subject tag and the requester's
- * answer threads back onto the same ticket through lib/intake.php. Coastmark
- * builds no second inbox and we never call back into Coastmark.
+ * answer threads back onto the same ticket through lib/intake.php. The calling
+ * product builds no second inbox and we never call back into it.
+ *
+ * The client row name appends " ({label})" to the display name the caller
+ * sends. Both emitter teams confirmed against their real tenant data that they
+ * send the BARE company name, so rows read "Acme MSP (Coastmark)". Do not add
+ * a de-duplication guard: the only doubled name ever seen came from a canary
+ * whose own display name contained the product name (2026-08-09).
  *
  * Contract: docs/coastmark-support-intake-contract.md
+ * Current status of this and every other moving part: docs/where-things-stand.md
  */
 declare(strict_types=1);
 
