@@ -20,6 +20,7 @@ If you change what is live, change this page in the same PR.
 | Safeharbor itself | **Live** at https://safeharbor.8westit.com, v1.0 feature-complete |
 | Alert intake (`api/svc/alerts.php`) | **Live** since 2026-07-29, Milepost emitting |
 | Westy defect intake (`api/svc/westy.php`) | **Live** — receiver shipped; emitters are the other repos' side |
+| Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | Migrations 001–009 | **All applied** to production |
 | Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
@@ -71,6 +72,36 @@ Verify the schema this depends on:
 ssh milepost-ec2 'sudo mysql safeharbor -e "SELECT id, name, source_key FROM clients WHERE source_key IS NOT NULL"'
 ```
 
+## Westy thumbs up / thumbs down
+
+Shipped 2026-08-09. Two icon buttons under every real Westy answer, replacing
+the old underlined "This wasn't helpful" link. **No migration** — this deploys
+as plain code.
+
+The two are deliberately not symmetrical, and that asymmetry is the feature:
+
+- **Thumbs-down** is unchanged from the link it replaced. It opens the review
+  box, the technician sees the exact question and answer, edits or cancels, and
+  only then does `api/westy_feedback.php` open a ticket.
+- **Thumbs-up** is one click and over. No box, no confirmation, and **no
+  ticket** — `api/westy_thumbs_up.php` writes a single `assistant_log` row and
+  stops. Tickets are for problems; praise that made somebody work would stop
+  being praise. The browser fires it and forgets it, so a failure never
+  interrupts a technician.
+
+It stores no chat text, only lengths and the question fingerprint — one click
+with no review box means nobody read those words and agreed to send them. The
+fingerprint is the same one the flag path uses, so the two signals about a
+question can be read against each other:
+
+```bash
+ssh milepost-ec2 'sudo mysql safeharbor -e "SELECT meta, created_at FROM assistant_log WHERE action = \"westy_thumbs_up\" ORDER BY id DESC LIMIT 10"'
+```
+
+`westy_report_test.php` covers this, and the check worth knowing about is
+`thumbs_up_creates_no_ticket`. If that ever goes red, the button has grown
+teeth.
+
 ## Database
 
 Applied in production: **001 through 009**, including both files numbered 002.
@@ -106,12 +137,13 @@ reaches, so the pin is not optional:
 3. `cd /tmp/<dir> && php tests/<suite>.php`.
 4. **Delete the directory afterwards** — that wrapper pulls in real credentials.
 
-Last full run, 2026-08-09, all green:
+Last full run, 2026-08-09, all seven back to back on one scratch database,
+all green:
 
 | Suite | Checks |
 |---|---|
 | `svc_support_test` | 87 |
-| `westy_report_test` | 82 |
+| `westy_report_test` | 104 |
 | `svc_intake_test` | 47 |
 | `utf8_input_test` | 25 |
 | `suite_sso_test` | 19 |
@@ -131,12 +163,9 @@ Nothing here blocks anyone; all are recorded so they are not rediscovered.
    8 West product eventually files support here, so this wants inverting. A
    finished config-driven version sits on branch `feat/partner-support-sources`
    (PR #26, closed as a duplicate of #25) — **salvage it, do not rewrite it.**
-2. **Thumbs up / thumbs down buttons under Westy answers** — design approved
-   verbatim, not built. Thumbs-up records a positive signal and opens **no**
-   ticket; thumbs-down keeps today's review-box behaviour.
-3. **`milepost-westy` / `controlpanel-westy` are unregistered.** The Westy
+2. **`milepost-westy` / `controlpanel-westy` are unregistered.** The Westy
    contract describes them; production has no rows for them.
-4. **The `002` numbering collision** (`002_svc_intake` vs
+3. **The `002` numbering collision** (`002_svc_intake` vs
    `002_westy_onboarding`) means migration numbers are not a reliable order.
 
 ## Traps that have already cost time

@@ -104,11 +104,18 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    **Westy defects open tickets in 8 West IT's OWN queue**, never a customer's
    — `lib/westy_report.php`, contract in
    `docs/westy-failure-reporting-contract.md`. Real failures report themselves;
-   a "This wasn't helpful" control under every answer lets a tech flag a bad
-   one after reviewing exactly what will be sent. Failures carry technical
-   detail only — no chat text, and the receiver enforces that rather than
-   trusting the caller. One ticket per PROBLEM: the key fingerprints a
-   normalised error class, never a timestamp or an occurrence id.
+   a thumbs-DOWN under every answer lets a tech flag a bad one after reviewing
+   exactly what will be sent. Failures carry technical detail only — no chat
+   text, and the receiver enforces that rather than trusting the caller. One
+   ticket per PROBLEM: the key fingerprints a normalised error class, never a
+   timestamp or an occurrence id.
+   **Thumbs-UP opens no ticket and never will** (`api/westy_thumbs_up.php` →
+   `westy_thumbs_up_record()`): tickets are for problems, and a queue full of
+   good news is a queue nobody reads. It writes one `assistant_log` row holding
+   lengths and the question fingerprint — no chat text, because one click with
+   no review box means nobody agreed to send those words anywhere. The
+   fingerprint is the SAME one the flag path uses, so praise and complaints
+   about a question line up against each other.
 8. **Three `api/svc/*` producers, three different jobs — never merge them.**
    `alerts.php` (machine alerts, keyed on the occurrence, auto-closes),
    `westy.php` (Westy defects, one ticket per PROBLEM, stored text re-scrubbed),

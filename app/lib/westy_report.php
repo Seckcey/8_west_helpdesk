@@ -5,10 +5,14 @@
  * When Westy breaks, or a technician marks an answer unhelpful, a ticket opens
  * in 8 WEST IT'S OWN queue so our staff can fix Westy — never in a customer's.
  *
- * Three doors call in here and this is the only place that writes:
- *   - api/westy_feedback.php  session + CSRF, Safeharbor's own technicians
- *   - westy_chat.php          in-process, Safeharbor's own failures
- *   - api/svc/westy.php       HMAC, Milepost + the Control Panel (their PRs)
+ * Four doors call in here and this is the only place that writes:
+ *   - api/westy_feedback.php   session + CSRF, a technician's thumbs-DOWN
+ *   - api/westy_thumbs_up.php  session + CSRF, a technician's thumbs-UP
+ *   - westy_chat.php           in-process, Safeharbor's own failures
+ *   - api/svc/westy.php        HMAC, Milepost + the Control Panel (their PRs)
+ *
+ * Only three of them can open a ticket. Thumbs-up writes one bounded usage row
+ * and stops there — see westy_thumbs_up_record().
  *
  * Flood control is the whole game. The alert intake keys tickets on the
  * OCCURRENCE id (alert:231, alert:232, …), so one nagging memory warning
@@ -474,6 +478,44 @@ function westy_report_line(int $ticketId, string $body): int
     db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
         ->execute([$ticketId, 'Westy', 'system', $body]);
     return (int)db()->lastInsertId();
+}
+
+/* ── thumbs up ───────────────────────────────────────────────────────────── */
+
+/**
+ * Record that a technician liked an answer. Opens NO ticket, and deliberately
+ * so: tickets are for problems, and good news must never make somebody work.
+ * The whole signal is one bounded `assistant_log` row.
+ *
+ * It also stores no question or answer text. A thumbs-down shows the tech the
+ * exact words and waits for Send; a thumbs-up is one click with no review box,
+ * so there is no moment at which anyone agreed to send those words anywhere.
+ * What is kept instead is the SAME fingerprint the flag path uses, so "this
+ * question class gets praised" and "this question class gets flagged" line up
+ * against each other without a syllable of chat text being stored.
+ *
+ * Returns true if the row landed. Never throws: a lost compliment is not worth
+ * a single broken chat.
+ */
+function westy_thumbs_up_record(int $userId, string $question, string $answer, string $app = 'safeharbor'): bool
+{
+    try {
+        $app = mb_strtolower(trim($app));
+        if (!isset(WESTY_REPORT_APPS[$app])) return false;
+        $question = trim(utf8_clean($question));
+        $answer   = trim(utf8_clean($answer));
+        if ($question === '' || $answer === '') return false;
+
+        $fp = westy_fingerprint(['event' => 'flagged', 'app' => $app, 'flagged' => ['question' => $question]]);
+        $meta = 'fp=' . $fp . ' q_len=' . mb_strlen($question) . ' a_len=' . mb_strlen($answer);
+
+        db()->prepare('INSERT INTO assistant_log (user_id, action, meta) VALUES (?,?,?)')
+            ->execute([$userId, 'westy_thumbs_up', mb_substr($meta, 0, 255)]);
+        return true;
+    } catch (Throwable $e) {
+        error_log('westy_thumbs_up_record: ' . $e->getMessage());
+        return false;
+    }
 }
 
 /* ── in-process helpers (Safeharbor's own Westy) ─────────────────────────── */

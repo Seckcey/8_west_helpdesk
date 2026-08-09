@@ -863,16 +863,35 @@ img { display: block; }
 }
 #westy-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
-/* "This wasn't helpful" — on every answer, quiet until wanted. Progressive
-   disclosure: a small muted control that opens the review box in place. */
+/* Thumbs up / down — on every answer, quiet until wanted. Outline thumbs that
+   fill in once pressed. Up ends there; down opens the review box in place
+   (progressive disclosure), so the heavy control stays out of sight until a
+   technician actually has a complaint. */
 .westy-fb { align-self: flex-start; max-width: 95%; margin-top: -4px; }
 .westy-fb-done { color: var(--mint); font-size: 11px; padding: 2px 2px 4px; }   /* mint = resolved */
-.westy-fb-btn {
-  padding: 2px 4px; font-size: 11px; color: var(--muted); cursor: pointer;
-  background: none; border: none; text-decoration: underline; text-underline-offset: 2px;
+.westy-fb-row { display: flex; align-items: center; gap: 2px; }
+.westy-thumb {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border: none; border-radius: 50%;
+  background: none; color: var(--muted); cursor: pointer;
+  transition: color .12s ease, background-color .12s ease;
 }
-.westy-fb-btn:hover { color: var(--text); }
-.westy-fb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+/* An author `display` beats the user agent's `[hidden] { display: none }`, so
+   without this the JS could never hide the thumb that was not chosen. */
+.westy-thumb[hidden] { display: none; }
+.westy-thumb:hover { color: var(--text); background: var(--hover); }
+.westy-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The flipped thumb hangs from the top of its box; nudge it back onto the
+   baseline so the pair sits level. */
+.westy-thumb-down svg { margin-top: 3px; }
+/* Pressed, and it stays pressed: the outline fills in. Mint for the thumbs-up
+   (this app's "all is well" colour); plain text colour for the thumbs-down,
+   which is a report being written, not an alarm. */
+.westy-thumb[aria-pressed="true"] { cursor: default; background: none; }
+.westy-thumb[aria-pressed="true"] svg { fill: currentColor; }
+.westy-thumb[aria-pressed="true"]:not(.westy-thumb-down) { color: var(--mint); }
+.westy-thumb-down[aria-pressed="true"] { color: var(--text); }
+.westy-fb-thanks { margin-left: 4px; font-size: 11px; color: var(--mint); }
 .westy-review {
   margin-top: 6px; padding: 10px; display: flex; flex-direction: column; gap: 8px;
   background: var(--card-strong); border: 1px solid var(--line); border-radius: var(--radius-sm);
