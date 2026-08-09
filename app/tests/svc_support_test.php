@@ -79,11 +79,12 @@ function fresh_schema(bool $withTenant = true): void
             }
         }
     }
-    if ($withTenant) {
-        $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (1, '8 West IT, LLC', '8west')");
-    }
     // A customer tenant that must NEVER receive a partner's support request.
     $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (9, 'Acme Dental', 'acme')");
+    if (!$withTenant) {
+        return;   // no 8 West row, and no identities to hang off it
+    }
+    $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (1, '8 West IT, LLC', '8west')");
     $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'coastmark-support', 'Coastmark Support')");
     $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'milepost', 'Milepost RMM')");
 }
