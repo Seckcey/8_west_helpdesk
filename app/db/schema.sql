@@ -241,3 +241,28 @@ CREATE TABLE IF NOT EXISTS time_entries (
   CONSTRAINT fk_time_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id),
   CONSTRAINT fk_time_user   FOREIGN KEY (user_id)   REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+-- Westy reports (failure + flagged-answer intake; migration 008)
+-- One row per PROBLEM, not per occurrence — see db/migrations/008_westy_reports.sql
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS westy_reports (
+  id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id         INT UNSIGNED NOT NULL,
+  fingerprint       VARCHAR(48)  NOT NULL,
+  external_key      VARCHAR(64)  NOT NULL,
+  app               VARCHAR(32)  NOT NULL,
+  kind              ENUM('fail','flag') NOT NULL,
+  generation        SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  ticket_id         INT UNSIGNED NULL,
+  system_message_id INT UNSIGNED NULL,
+  occurrences       INT UNSIGNED NOT NULL DEFAULT 1,
+  first_seen_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  detail_json       TEXT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_westy_reports_key (tenant_id, external_key),
+  KEY idx_westy_reports_fp (tenant_id, fingerprint, generation),
+  KEY idx_westy_reports_ticket (ticket_id),
+  CONSTRAINT fk_westy_reports_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
