@@ -20,6 +20,15 @@ Remaining before the v1.0 stamp: the Phase 1 dogfood gate (4 weeks on
 **`svc.enabled` is already `true` in production** (verified 2026-08-08):
 Milepost's alert emitter shipped, and alert tickets have been arriving since
 2026-07-29. Anything that assumes the svc path is dark is out of date.
+**`svc.support_enabled` is `true` too** (2026-08-09): Coastmark and Waypoint
+both passed their canaries and both have turned their own emitters on, so
+partner support tickets are arriving for real customers. **Nothing under
+`api/svc/*` is dark any more.**
+
+**Before starting work here, read `docs/where-things-stand.md`** — one page
+saying what is live, what is not, and how to verify each claim yourself rather
+than trusting the page. It exists because two sessions built the same Waypoint
+feature on the same day; one of them was thrown away.
 
 ## Stack — same as Milepost, on purpose
 
@@ -36,7 +45,7 @@ reference (`/srv/8west/apps/milepost/current` on the box): page-per-file in
 |---|---|
 | `brand/` | Logo system (SVG masters in `svg/`, rasters in `png/`), `tokens.json` — single source of brand truth |
 | `app/` | The PHP app (see `app/README.md`): `config/ db/ lib/ public/` |
-| `docs/` | Planning docx · `suite-sso-contract.md` (suite-wide identity reference) · `sprint-8.1-svc-alert-intake.md` (historical spec) · `open-decision-entitlement-and-subscription.md` · `competitor-research-2026-08.md` |
+| `docs/` | **`where-things-stand.md` (read first — live/not-live status, verifiable)** · Planning docx · `suite-sso-contract.md` (suite-wide identity reference) · `coastmark-support-intake-contract.md` (partner support intake, both producers) · `westy-failure-reporting-contract.md` · `sprint-8.1-svc-alert-intake.md` (historical spec) · `open-decision-entitlement-and-subscription.md` · `competitor-research-2026-08.md` |
 | `deploy/` | Apache vhost pair, `deploy.sh`, runbook for safeharbor.8westit.com |
 | `tools/` | Python generators (brand/doc/tokens); `tools/shots/` = Playwright walkthrough (dev-only) |
 
@@ -115,7 +124,12 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    `svc_auth.php` only proves *who* is calling, so each endpoint checks that
    the caller is allowed to file *its* kind of thing. Support intake has its
    own kill switch (`svc.support_enabled`) because `svc.enabled` is already
-   true in production.
+   true in production — **both are now `true`; support intake is live, not
+   dark.** Known gap: `SUPPORT_SOURCES` is a constant, so adding the next
+   product needs a code change and a deploy, which conflicts with the standing
+   direction that every 8 West product will eventually file support here. A
+   config-driven version exists on branch `feat/partner-support-sources`
+   (PR #26, closed as a duplicate) — salvage it rather than rewriting it.
 9. **8 West ID SSO:** an HS256-signed `ewid_token` cookie scoped to
    `.8westit.com` — **not** OIDC; the `/oauth2/*` and JWKS endpoints in the
    old contract draft return 404 and were never built. Config lives in the
@@ -169,8 +183,9 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   applied in production** — verified 2026-08-08 by schema, not by this list:
   `tickets.external_key`, the unique key `(tenant_id, external_key)`,
   `svc_identities` and `svc_rate_buckets` all exist. **009 support_intake
-  (`clients.source_key` + `svc_support_rate`) is written but NOT yet applied —
-  check the live schema before assuming it ran.** The rule for every svc_*
+  (`clients.source_key` + `svc_support_rate`) IS applied** — run 2026-08-09,
+  verified by schema the same day: both objects exist and the ticket/client
+  counts were unchanged by it. The rule for every svc_*
   object is the same: `schema.sql` does NOT carry them, so a fresh install
   needs schema.sql + 002 + 009. 007 remains a hard prerequisite for suite sign-in on a
   rebuild: PDO runs `ERRMODE_EXCEPTION`, so `suite_sso_attempt()` throws on a
