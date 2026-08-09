@@ -47,6 +47,7 @@ return [
     // milepost-westy     — Westy failures   → api/svc/westy.php
     // controlpanel-westy — Westy failures   → api/svc/westy.php
     // coastmark-support  — human help asks  → api/svc/support.php
+    // waypoint-support   — human help asks  → api/svc/support.php
     //
     // The Westy identities are DELIBERATELY separate from 'milepost': one
     // rate-limit budget per identity, so a Westy failure storm can never
@@ -64,19 +65,34 @@ return [
             'milepost-westy'     => 'EXAMPLE_SVC_HMAC_SECRET',
             'controlpanel-westy' => 'EXAMPLE_SVC_HMAC_SECRET',
             'coastmark-support'  => 'EXAMPLE_SVC_HMAC_SECRET',
+            'waypoint-support'   => 'EXAMPLE_SVC_HMAC_SECRET',
         ],
     ],
 
-    // Partner support intake (docs/coastmark-support-intake-contract.md).
-    // Requests raised inside Coastmark open tickets in 8 WEST IT'S OWN tenant,
-    // resolved explicitly by slug — same rule as westy_report below.
+    // Partner support intake (docs/partner-support-intake-contract.md).
+    // Requests raised inside another 8 West app open tickets in 8 WEST IT'S OWN
+    // tenant, resolved explicitly by slug — same rule as westy_report below.
+    //
+    // ADDING THE NEXT APP is three things and no code change:
+    //   1. a row in svc_identities for its identity (e.g. 'ledger-support')
+    //   2. its secret in svc.secrets above
+    //   3. a line in 'sources' below
+    // 'source' is the routing prefix for that app's client rows
+    // (clients.source_key = '{source}:{their tenant slug}', 64 chars total, so
+    // keep 'source' short); 'label' is what techs see in the ticket. Remove an
+    // app from this list and its requests stop being accepted — the identity
+    // and secret can stay.
     //
     // The per-tenant caps are ours to enforce: svc_auth's 120/min is per
-    // service IDENTITY, and one identity carries every Coastmark tenant, so
-    // without these one noisy MSP could spend the whole budget. Set either to
-    // 0 to disable that window.
+    // service IDENTITY, and one identity carries every tenant of that app, so
+    // without these one noisy firm could spend the whole budget. The caps count
+    // per app AND per tenant. Set either to 0 to disable that window.
     'support_intake' => [
         'tenant_slug'        => '8west',
+        'sources' => [
+            'coastmark-support' => ['source' => 'coastmark', 'label' => 'Coastmark'],
+            'waypoint-support'  => ['source' => 'waypoint',  'label' => 'Waypoint'],
+        ],
         'per_tenant_per_min' => 20,
         'per_tenant_per_day' => 100,
         // The "we've got it, ticket #N" mail. It is also what carries the

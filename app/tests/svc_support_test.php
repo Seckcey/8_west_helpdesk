@@ -29,11 +29,16 @@ $CONFIG['svc'] = [
     'support_enabled' => true,
     'secrets'         => [
         'coastmark-support' => 'TEST_SUPPORT_SECRET',
+        'waypoint-support'  => 'TEST_WAYPOINT_SECRET',
         'milepost'          => 'TEST_SVC_HMAC_SECRET',
     ],
 ];
 $CONFIG['support_intake'] = [
     'tenant_slug'        => '8west',
+    'sources' => [
+        'coastmark-support' => ['source' => 'coastmark', 'label' => 'Coastmark'],
+        'waypoint-support'  => ['source' => 'waypoint',  'label' => 'Waypoint'],
+    ],
     'per_tenant_per_min' => 20,
     'per_tenant_per_day' => 100,
     'ack_email'          => true,
@@ -86,6 +91,7 @@ function fresh_schema(bool $withTenant = true): void
     }
     $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (1, '8 West IT, LLC', '8west')");
     $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'coastmark-support', 'Coastmark Support')");
+    $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'waypoint-support', 'Waypoint Support')");
     $pdo->exec("INSERT INTO svc_identities (tenant_id, service, display_name) VALUES (1, 'milepost', 'Milepost RMM')");
 }
 
@@ -312,7 +318,63 @@ $noWhen = req(['external_key' => 'cmk:acme-msp:0042']);
 unset($noWhen['occurred_at']);
 check('missing_occurred_at_defaults_to_now', support_record($noWhen, 'coastmark-support')['action'] === 'created');
 
-/* ── 10. per-tenant rate cap ─────────────────────────────────────────────── */
+/* ── 10. more than one app ───────────────────────────────────────────────
+   Every 8 West app is meant to raise support through Safeharbor, so the
+   caller list is config, not code, and two apps must not tread on each
+   other even when their tenants share a slug. */
+
+// Coastmark dropped the slug out of the key (2026-08-09): the slug travels in
+// tenant.slug and the reference is just a prefix and a uuid. Both shapes work.
+$uuidKey = support_record(req(['external_key' => 'cmk:7f3a9c1d4b0e2a68']), 'coastmark-support');
+check('prefix_and_uuid_key_accepted', $uuidKey['ok'] === true && $uuidKey['action'] === 'created');
+
+$wp = support_record(req([
+    'external_key' => 'wyp:1c4e8b2f9d0a3e57',
+    'tenant'       => ['slug' => 'acme-msp', 'display_name' => 'Acme MSP'],
+]), 'waypoint-support');
+check('waypoint_may_file', $wp['ok'] === true && $wp['action'] === 'created');
+$wpClient = client_row((int)ticket((int)$wp['ticket'])['client_id']);
+check('waypoint_client_keyed_separately', ($wpClient['source_key'] ?? '') === 'waypoint:acme-msp');
+check('waypoint_client_labelled_waypoint', ($wpClient['name'] ?? '') === 'Acme MSP (Waypoint)');
+check('same_slug_two_apps_two_client_rows', (int)$wpClient['id'] !== $clientId);
+check('waypoint_provenance_names_waypoint',
+    str_contains(messages((int)$wp['ticket'])[1]['body'], 'through Waypoint'));
+
+// The list is config-driven: an app named only there is let in, and one
+// removed from it is refused even though its secret still exists.
+$CONFIG['support_intake']['sources']['ledger-support'] = ['source' => 'ledger', 'label' => 'Ledger'];
+check('config_can_add_an_app', support_source_for('ledger-support') !== null);
+unset($CONFIG['support_intake']['sources']['ledger-support']);
+check('config_can_remove_an_app', support_source_for('ledger-support') === null);
+$CONFIG['support_intake']['sources']['broken-support'] = ['source' => 'NOT A SOURCE', 'label' => 'Broken'];
+check('malformed_config_entry_skipped', support_source_for('broken-support') === null);
+check('malformed_entry_leaves_others_working', support_source_for('coastmark-support') !== null);
+unset($CONFIG['support_intake']['sources']['broken-support']);
+
+// A slug so long that '{prefix}:{slug}' would not fit the routing column is
+// refused outright — truncating it would merge two firms onto one client row.
+// Today's prefixes are short enough that no legal slug can trip this, so the
+// guard is exercised with a deliberately long one: it exists for the app we
+// have not registered yet, which is the only way it could ever bite.
+$CONFIG['support_intake']['sources']['longprefix-support'] =
+    ['source' => str_repeat('a', 24), 'label' => 'Long Prefix'];
+$tooLong = support_record(req([
+    'external_key' => 'lng:aaaa1111bbbb2222',
+    'tenant'       => ['slug' => str_repeat('x', 48), 'display_name' => 'Long Slug Ltd'],
+]), 'longprefix-support');
+check('overlong_routing_key_refused', $tooLong['ok'] === false && !isset($tooLong['code']));
+check('overlong_routing_key_created_nothing', support_ticket_by_key(1, 'lng:aaaa1111bbbb2222') === null);
+
+// The same app with a slug that DOES fit is fine — the guard is about length,
+// not about the app.
+$fits = support_record(req([
+    'external_key' => 'lng:bbbb2222cccc3333',
+    'tenant'       => ['slug' => str_repeat('x', 39), 'display_name' => 'Just Fits Ltd'],
+]), 'longprefix-support');
+check('routing_key_at_the_limit_accepted', $fits['ok'] === true && $fits['action'] === 'created');
+unset($CONFIG['support_intake']['sources']['longprefix-support']);
+
+/* ── 11. per-tenant rate cap ─────────────────────────────────────────────── */
 db()->prepare('DELETE FROM svc_support_rate')->execute();
 db()->prepare('INSERT INTO svc_support_rate (source, tenant_slug, window_kind, bucket, hits) VALUES (?,?,?,?,?)')
     ->execute(['coastmark', 'acme-msp', 'minute', (int)floor(time() / 60), 19]);
@@ -329,6 +391,13 @@ $other = support_record(req([
     'tenant'       => ['slug' => 'beta-it', 'display_name' => 'Beta IT'],
 ]), 'coastmark-support');
 check('other_tenant_unaffected_by_the_cap', $other['ok'] === true && $other['action'] === 'created');
+
+// Nor may one app's flood block another's, even for the same firm.
+$wpDuring = support_record(req([
+    'external_key' => 'wyp:5a6b7c8d9e0f1234',
+    'tenant'       => ['slug' => 'acme-msp', 'display_name' => 'Acme MSP'],
+]), 'waypoint-support');
+check('other_app_unaffected_by_the_cap', $wpDuring['ok'] === true && $wpDuring['action'] === 'created');
 
 // A retry of a stored submission must not spend the budget it already spent.
 db()->prepare('DELETE FROM svc_support_rate')->execute();

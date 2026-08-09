@@ -1,11 +1,14 @@
 <?php
 /**
- * Human support intake from other suite apps (2026-08-09).
+ * Human support intake from the other 8 West apps (2026-08-09).
  *
- * A tenant admin inside Coastmark clicks "Get help", types a question, and it
- * arrives here as a signed service request. One click = one ticket in 8 West
- * IT's own queue, filed under a client row for their organisation, with their
- * words stored exactly as they typed them.
+ * A tenant admin inside Coastmark or Waypoint clicks "Get help", types a
+ * question, and it arrives here as a signed service request. One click = one
+ * ticket in 8 West IT's own queue, filed under a client row for their
+ * organisation, with their words stored exactly as they typed them.
+ *
+ * Every 8 West app is meant to raise its support through Safeharbor, so the
+ * list of callers lives in config (`support_intake.sources`), not in code.
  *
  * This is deliberately NOT api/svc/alerts.php and NOT api/svc/westy.php:
  *
@@ -24,10 +27,10 @@
  *
  * The reply path is our existing email. The ticket carries a contact row, so
  * a tech's reply is emailed out with a [#id] subject tag and the requester's
- * answer threads back onto the same ticket through lib/intake.php. Coastmark
- * builds no second inbox and we never call back into Coastmark.
+ * answer threads back onto the same ticket through lib/intake.php. The calling
+ * app builds no second inbox and we never call back into it.
  *
- * Contract: docs/coastmark-support-intake-contract.md
+ * Contract: docs/partner-support-intake-contract.md
  */
 declare(strict_types=1);
 
@@ -35,15 +38,25 @@ require_once __DIR__ . '/svc_intake.php';   // svc_client_sla_hours() + bootstra
 require_once __DIR__ . '/intake.php';       // intake_is_auto_mail() + mail_queue()
 
 /**
- * Producers allowed to post a support request, keyed by service identity.
+ * Apps allowed to post a support request, keyed by service identity.
  *
  * The membership check matters: svc_authenticate() accepts ANY registered
  * identity with a valid signature, so without this the Milepost alert emitter
  * could open support tickets. An identity gets one job.
+ *
+ * These are only the DEFAULTS. The live list comes from
+ * `support_intake.sources` in the server config, because every 8 West app is
+ * eventually meant to raise its support through Safeharbor — app number three
+ * should cost a config line, an identity row and a secret, not a code change
+ * and a deploy.
  */
-const SUPPORT_SOURCES = [
+const SUPPORT_SOURCES_DEFAULT = [
     'coastmark-support' => ['source' => 'coastmark', 'label' => 'Coastmark'],
+    'waypoint-support'  => ['source' => 'waypoint',  'label' => 'Waypoint'],
 ];
+
+/** The longest `{source}:{slug}` we can key a client row on (column width). */
+const SUPPORT_SOURCE_KEY_MAX = 64;
 
 /** Subject cap 160 of the column's 190 — headroom for merge/reply markers. */
 const SUPPORT_SUBJECT_MAX = 160;
@@ -64,10 +77,39 @@ function support_enabled(): bool
     return svc_enabled() && (bool)cfg('svc.support_enabled', false);
 }
 
-/** The producer behind a service identity, or null if it may not post here. */
+/**
+ * The apps allowed to post here, validated.
+ *
+ * A malformed config entry is skipped rather than trusted: `source` becomes
+ * part of a client row's routing key and of the rate-limit key, so it has to
+ * stay inside the shapes those columns expect. A bad line means that one app
+ * cannot file — never a broken key or a crash for the others.
+ */
+function support_sources(): array
+{
+    $configured = cfg('support_intake.sources', null);
+    $raw = (is_array($configured) && $configured !== []) ? $configured : SUPPORT_SOURCES_DEFAULT;
+
+    $out = [];
+    foreach ($raw as $identity => $entry) {
+        if (!is_string($identity) || !is_array($entry)) continue;
+        $identity = mb_strtolower(trim($identity));
+        $source   = mb_strtolower(trim((string)($entry['source'] ?? '')));
+        // Identity fits svc_identities.service (32); source fits
+        // svc_support_rate.source (32) and leaves room for a slug in the key.
+        if (!preg_match('/^[a-z][a-z0-9-]{0,31}$/', $identity)) continue;
+        if (!preg_match('/^[a-z][a-z0-9-]{0,23}$/', $source)) continue;
+        $label = mb_substr(support_one_line((string)($entry['label'] ?? '')), 0, 48);
+        if ($label === '') $label = ucfirst($source);
+        $out[$identity] = ['source' => $source, 'label' => $label];
+    }
+    return $out;
+}
+
+/** The app behind a service identity, or null if it may not post here. */
 function support_source_for(string $service): ?array
 {
-    return SUPPORT_SOURCES[$service] ?? null;
+    return support_sources()[mb_strtolower(trim($service))] ?? null;
 }
 
 /**
@@ -107,7 +149,9 @@ function support_tenant_id(): ?int
  */
 function support_client_id(int $tenantId, array $src, string $slug, string $display): int
 {
-    $sourceKey = mb_substr($src['source'] . ':' . $slug, 0, 64);
+    // Never truncated here: a cut key could collide two firms onto one client
+    // row. support_record() refuses an over-long one up front instead.
+    $sourceKey = support_source_key($src, $slug);
     $found = support_client_by_key($tenantId, $sourceKey);
     if ($found !== null) return $found;
 
@@ -131,6 +175,12 @@ function support_client_id(int $tenantId, array $src, string $slug, string $disp
         return $found;
     }
     return (int)db()->lastInsertId();
+}
+
+/** The routing key for one firm inside one app: 'coastmark:acme-msp'. */
+function support_source_key(array $src, string $slug): string
+{
+    return $src['source'] . ':' . $slug;
 }
 
 function support_client_by_key(int $tenantId, string $sourceKey): ?int
@@ -306,6 +356,11 @@ function support_record(array $raw, string $service): array
     $p = support_normalize($raw);
     if (isset($p['error'])) {
         return ['ok' => false, 'error' => $p['error']];
+    }
+    // Refuse rather than truncate: two firms sharing a cut routing key would
+    // share a client row, and their tickets would silently mix.
+    if (mb_strlen(support_source_key($src, $p['tenant_slug'])) > SUPPORT_SOURCE_KEY_MAX) {
+        return ['ok' => false, 'error' => 'tenant.slug too long for this app'];
     }
 
     $tenantId = support_tenant_id();

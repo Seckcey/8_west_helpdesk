@@ -103,9 +103,12 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
 8. **Three `api/svc/*` producers, three different jobs — never merge them.**
    `alerts.php` (machine alerts, keyed on the occurrence, auto-closes),
    `westy.php` (Westy defects, one ticket per PROBLEM, stored text re-scrubbed),
-   `support.php` (a person asking 8 West IT for help from inside Coastmark, one
-   ticket per SUBMISSION, text stored **verbatim**, `channel='portal'`,
-   contract in `docs/coastmark-support-intake-contract.md`). Westy's scrubbing
+   `support.php` (a person asking 8 West IT for help from inside another
+   8 West app — Coastmark and Waypoint today, **more to come** — one ticket per
+   SUBMISSION, text stored **verbatim**, `channel='portal'`, contract in
+   `docs/partner-support-intake-contract.md`; the caller list is server config
+   `support_intake.sources`, so a new app costs a config line, an identity row
+   and a secret, never a code change). Westy's scrubbing
    and fingerprinting would destroy a support request, and support's
    store-everything rule would flood the queue with alert repeats — the split
    is the design, not duplication. One identity per producer, one job each:
