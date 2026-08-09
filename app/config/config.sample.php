@@ -47,10 +47,16 @@ return [
     // milepost-westy     — Westy failures   → api/svc/westy.php
     // controlpanel-westy — Westy failures   → api/svc/westy.php
     // coastmark-support  — human help asks  → api/svc/support.php
+    // waypoint-support   — human help asks  → api/svc/support.php
     //
     // The Westy identities are DELIBERATELY separate from 'milepost': one
     // rate-limit budget per identity, so a Westy failure storm can never
     // starve real alert intake. Add them only when those emitters ship.
+    //
+    // Coastmark and Waypoint likewise get one identity and one secret EACH,
+    // never a shared key. Waypoint is a standalone product outside the suite
+    // with its own customers; a common secret would make either app a way to
+    // post as the other, and revoking one would revoke both.
     //
     // 'support_enabled' is a SECOND switch on top of 'enabled', because
     // 'enabled' is already true in production: without it, deploying
@@ -64,17 +70,20 @@ return [
             'milepost-westy'     => 'EXAMPLE_SVC_HMAC_SECRET',
             'controlpanel-westy' => 'EXAMPLE_SVC_HMAC_SECRET',
             'coastmark-support'  => 'EXAMPLE_SVC_HMAC_SECRET',
+            'waypoint-support'   => 'EXAMPLE_SVC_HMAC_SECRET',
         ],
     ],
 
     // Partner support intake (docs/coastmark-support-intake-contract.md).
-    // Requests raised inside Coastmark open tickets in 8 WEST IT'S OWN tenant,
-    // resolved explicitly by slug — same rule as westy_report below.
+    // Requests raised inside Coastmark or Waypoint open tickets in 8 WEST IT'S
+    // OWN tenant, resolved explicitly by slug — same rule as westy_report below.
     //
     // The per-tenant caps are ours to enforce: svc_auth's 120/min is per
-    // service IDENTITY, and one identity carries every Coastmark tenant, so
-    // without these one noisy MSP could spend the whole budget. Set either to
-    // 0 to disable that window.
+    // service IDENTITY, and one identity carries every tenant of that product,
+    // so without these one noisy customer could spend the whole budget. The
+    // budget is per product AND per tenant, so a busy Coastmark customer cannot
+    // throttle the same company's Waypoint requests. Set either to 0 to
+    // disable that window.
     'support_intake' => [
         'tenant_slug'        => '8west',
         'per_tenant_per_min' => 20,

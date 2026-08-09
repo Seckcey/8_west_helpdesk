@@ -1,7 +1,17 @@
-# Coastmark support intake — wire contract
+# Product support intake — wire contract
 
-**Frozen 2026-08-09.** Receiver shipped in Safeharbor (dark); Coastmark
-implements the emitter side against this document.
+*(File keeps its `coastmark-` name so existing links keep working; the contract
+is not Coastmark-only. See §2.)*
+
+**Frozen 2026-08-09.** Receiver shipped in Safeharbor. **Coastmark and Waypoint
+both implement the emitter side against this document.**
+
+> **Waypoint added 2026-08-09.** Waypoint is a **standalone product outside
+> 8 West IT 365** with its own customers — a second producer, not a variant of
+> Coastmark. It gets its own service identity, its own secret and its own
+> `clients.source_key` prefix. Nothing here is suite-specific: a producer needs
+> a registered service identity and nothing else. Do not reach for the suite
+> SSO contract to reason about one.
 
 A tenant admin inside Coastmark clicks "Get help", types a question, and a
 ticket opens in **8 West IT's own Safeharbor queue** — filed under a client row
@@ -31,7 +41,7 @@ Authentication is the existing service scheme (`lib/svc_auth.php`),
 
 | Header | Value |
 |---|---|
-| `X-8W-Service` | `coastmark-support` |
+| `X-8W-Service` | your own identity — `coastmark-support` or `waypoint-support` (§2) |
 | `X-8W-Timestamp` | unix seconds, within ±300 s of ours |
 | `X-8W-Signature` | lowercase hex `HMAC-SHA256("{timestamp}\n{raw_body}", secret)` |
 
@@ -45,14 +55,24 @@ file support requests"* are deliberately indistinguishable.
 
 ## 2. Service identity
 
-| App | Identity | Notes |
-|---|---|---|
-| Coastmark (365 edition) | `coastmark-support` | new; one job only |
+| App | Identity | `clients.source_key` prefix | Notes |
+|---|---|---|---|
+| Coastmark (365 edition) | `coastmark-support` | `coastmark:{slug}` | one job only |
+| Waypoint (standalone) | `waypoint-support` | `waypoint:{slug}` | one job only; **not** a suite app |
+
+**One identity and one secret per PRODUCT, never a shared key.** A single secret
+common to both would make either app a way to post as the other, and revoking
+one would revoke both. It also keeps the two products' client rows apart: a
+company using Coastmark *and* Waypoint gets one client row per product, so
+neither product's tickets silently file under the other.
 
 Its own identity, like `milepost-westy` before it, so a burst of support
 requests can never starve alert intake and vice versa. A valid signature from
 the `milepost` identity is still a `401` on this door: signing keys prove who
-you are, not what you are allowed to file.
+you are, not what you are allowed to file. The allow-list is `SUPPORT_SOURCES`
+in `lib/svc_support.php`; **an identity that is not in it gets a `401` even with
+a perfect signature**, so a new producer needs that one-line addition shipped
+before it can canary.
 
 **Registration and the secret.** 8 West creates the `svc_identities` row and
 installs the secret in Safeharbor's server `config.php` under
@@ -100,7 +120,17 @@ nothing to restart.
 | `external_key` | **Required.** Unique per submission, across all your tenants. `[A-Za-z0-9:._-]`, ≤ 64 chars — `cmk:{slug}:{uuid-hex}` fits. Drives idempotency (§6). |
 | `occurred_at` | Any `strtotime`-parseable stamp, within **24 hours**. Omit to mean now. |
 | `tenant.slug` | **Required.** `[a-z0-9][a-z0-9-]*`, ≤ 48. Chooses the client row (§4). |
-| `tenant.display_name` | ≤ 110. Used to *name* the client row on first sight only. Defaults to the slug. |
+| `tenant.display_name` | ≤ 110. Used to *name* the client row on first sight only. Defaults to the slug. **The field is `display_name`, not `name`** — see the warning below. |
+
+> ⚠️ **`tenant.display_name` fails silently if you get the name wrong.** Sending
+> it as `tenant.name` is not an error: the field arrives empty, we fall back to
+> the slug, and the client row is created as `"acme-msp (Coastmark)"` instead of
+> `"Acme MSP (Coastmark)"`. Because the row is named **once on first sight and
+> never rewritten from the wire** (§4 — so our staff can rename clients without
+> you overwriting them), the wrong name is permanent for that customer and does
+> not self-heal on the next request. Nothing 4xx's and a canary looks green.
+> Both emitter teams hit this in review on 2026-08-09. Check the field name
+> before your first real request.
 | `requester.email` | **Required**, must parse as an address, ≤ 190. This is the reply path — without it nobody can be answered. |
 | `requester.name` | ≤ 128, one line. Defaults to the part of the address before the `@`. |
 | `subject` | **Required**, non-empty. Stored verbatim, cut to **160** characters. Newlines and control characters are flattened to spaces (it becomes an email Subject header). |
@@ -131,9 +161,10 @@ time, never at storage time.
 - **Tenant:** 8 West IT's own `8west` tenancy, resolved explicitly by slug —
   never a customer's queue, and never via a fallback guess. If that tenant row
   is missing we record **nothing** and answer `200 {"action":"ignored"}`.
-- **Client row:** one per Coastmark tenant, keyed on `clients.source_key` =
-  `coastmark:{slug}`, created on first sight and named
-  `"{display_name} (Coastmark)"`. So "Acme MSP has 3 open requests" is a real
+- **Client row:** one per tenant **per product**, keyed on `clients.source_key`
+  = `{product}:{slug}` (`coastmark:acme-msp`, `waypoint:acme-msp` — separate
+  rows), created on first sight and named `"{display_name} ({Product})"`.
+  So "Acme MSP has 3 open requests" is a real
   view in our queue. **Routing follows the key, not the name** — our staff can
   rename that client row freely and your next request still lands on it.
 - **Ticket:** `channel = 'portal'` (a person typed this — it is not an alert),
@@ -183,9 +214,13 @@ Two windows, both fixed:
 
 | Window | Limit | Scope | Enforced by |
 |---|---|---|---|
-| per minute | 120 | the `coastmark-support` identity — all your tenants together | existing `svc_rate_buckets` |
-| per minute | 20 | one Coastmark tenant | `svc_support_rate` (new) |
-| per day | 100 | one Coastmark tenant | `svc_support_rate` (new) |
+| per minute | 120 | your identity — all your tenants together | existing `svc_rate_buckets` |
+| per minute | 20 | one tenant, **within one product** | `svc_support_rate` |
+| per day | 100 | one tenant, **within one product** | `svc_support_rate` |
+
+The per-tenant windows are keyed on `(product, slug)`, so a busy Coastmark
+customer cannot throttle the same company's Waypoint requests, and the two
+products never share a budget.
 
 The per-tenant caps are ours to enforce, deliberately: the shared 120/min would
 otherwise let one noisy MSP lock out everybody else's ability to reach us. Both

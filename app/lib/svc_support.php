@@ -1,11 +1,17 @@
 <?php
 /**
- * Human support intake from other suite apps (2026-08-09).
+ * Human support intake from our other products (2026-08-09).
  *
  * A tenant admin inside Coastmark clicks "Get help", types a question, and it
  * arrives here as a signed service request. One click = one ticket in 8 West
  * IT's own queue, filed under a client row for their organisation, with their
  * words stored exactly as they typed them.
+ *
+ * NOT suite-only: Waypoint (added 2026-08-09) is a standalone product outside
+ * 8 West IT 365 with its own customers. Producers are listed in
+ * SUPPORT_SOURCES below and need no relationship to the suite beyond a
+ * registered service identity — do not assume a caller here is a suite app,
+ * and do not reach for the suite SSO contract to reason about one.
  *
  * This is deliberately NOT api/svc/alerts.php and NOT api/svc/westy.php:
  *
@@ -40,9 +46,17 @@ require_once __DIR__ . '/intake.php';       // intake_is_auto_mail() + mail_queu
  * The membership check matters: svc_authenticate() accepts ANY registered
  * identity with a valid signature, so without this the Milepost alert emitter
  * could open support tickets. An identity gets one job.
+ *
+ * One entry per PRODUCT, never one shared entry for several. Waypoint is a
+ * standalone product with its own customers, not a flavour of Coastmark, so it
+ * signs with its own identity and its own secret: a single key common to both
+ * would make either app a way to post as the other, and would mean revoking
+ * one revokes both. `source` is what lands in clients.source_key, so it also
+ * keeps the two products' client rows apart for a customer using both.
  */
 const SUPPORT_SOURCES = [
     'coastmark-support' => ['source' => 'coastmark', 'label' => 'Coastmark'],
+    'waypoint-support'  => ['source' => 'waypoint',  'label' => 'Waypoint'],
 ];
 
 /** Subject cap 160 of the column's 190 — headroom for merge/reply markers. */
