@@ -64,7 +64,17 @@ links work; it covers both producers).
   de-duplication guard.** The canary's doubled name was the canary's own fault.
 - **Routing is by `clients.source_key`** (`coastmark:{slug}` /
   `waypoint:{slug}`), never by name, so staff can rename a client row freely.
-  One firm using both products correctly gets two rows.
+  One firm using both products correctly gets two rows. That key must fit **64
+  characters**; since 2026-08-09 an over-long one is refused with a `422`
+  rather than truncated, because a cut key would merge two of a product's
+  customers onto one client row.
+- **The caller list is config, not code** (since 2026-08-09,
+  `support_intake.sources`). Adding product number three is a config line, an
+  identity row and a secret — no code change, no PR, no deploy of this repo.
+  Leave the key out and the built-in defaults apply, which is exactly what
+  production does today; an empty list means nobody at all. A malformed entry
+  is skipped and named in the error log, so a typo shows up as a log line
+  rather than as an unexplained `401` at the emitter.
 
 Verify the schema this depends on:
 
@@ -179,15 +189,14 @@ assume it has never run.
 
 Nothing here blocks anyone; all are recorded so they are not rediscovered.
 
-1. **`SUPPORT_SOURCES` is a constant, not config.** Adding the next product
-   needs a code change, a PR and a deploy. The standing direction is that every
-   8 West product eventually files support here, so this wants inverting. A
-   finished config-driven version sits on branch `feat/partner-support-sources`
-   (PR #26, closed as a duplicate of #25) — **salvage it, do not rewrite it.**
-2. **`milepost-westy` / `controlpanel-westy` are unregistered.** The Westy
+1. **`milepost-westy` / `controlpanel-westy` are unregistered.** The Westy
    contract describes them; production has no rows for them.
-3. **The `002` numbering collision** (`002_svc_intake` vs
+2. **The `002` numbering collision** (`002_svc_intake` vs
    `002_westy_onboarding`) means migration numbers are not a reliable order.
+3. **Production has no `support_intake` block in its config at all.** Support
+   intake runs entirely on code defaults — which is fine and deliberate, but it
+   means the first person to add product number three will be *creating* that
+   block, not editing it. Copy the shape from `config/config.sample.php`.
 
 ## Traps that have already cost time
 

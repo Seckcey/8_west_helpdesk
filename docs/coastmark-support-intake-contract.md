@@ -36,12 +36,12 @@ both implement the emitter side against this document.**
 > `clients.source_key` prefix. Nothing here is suite-specific: a producer needs
 > a registered service identity and nothing else. Do not reach for the suite
 > SSO contract to reason about one.
-
-A tenant admin inside Coastmark clicks "Get help", types a question, and a
-ticket opens in **8 West IT's own Safeharbor queue** — filed under a client row
-for their organisation, in their own words. One click, one ticket. Our staff
-reply on the ticket; the requester gets that reply as an email and can just hit
-reply. Coastmark builds no second inbox, and we never call back into Coastmark.
+A tenant admin inside Coastmark or Waypoint clicks "Get help", types a
+question, and a ticket opens in **8 West IT's own Safeharbor queue** — filed
+under a client row for their organisation, in their own words. One click, one
+ticket. Our staff reply on the ticket; the requester gets that reply as an
+email and can just hit reply. The calling app builds no second inbox, and we
+never call back into it.
 
 This is a **third** producer under `api/svc/*`, deliberately not either of the
 existing two:
@@ -77,7 +77,7 @@ Every auth failure is the same generic `401` — unknown service, inactive
 identity, stale timestamp, bad signature, and *"that identity is not allowed to
 file support requests"* are deliberately indistinguishable.
 
-## 2. Service identity
+## 2. Service identities
 
 | App | Identity | `clients.source_key` prefix | Notes |
 |---|---|---|---|
@@ -93,17 +93,23 @@ neither product's tickets silently file under the other.
 Its own identity, like `milepost-westy` before it, so a burst of support
 requests can never starve alert intake and vice versa. A valid signature from
 the `milepost` identity is still a `401` on this door: signing keys prove who
-you are, not what you are allowed to file. The allow-list is `SUPPORT_SOURCES`
-in `lib/svc_support.php`; **an identity that is not in it gets a `401` even with
-a perfect signature**, so a new producer needs that one-line addition shipped
-before it can canary.
+you are, not what you are allowed to file. The allow-list lives in Safeharbor's
+server config as `support_intake.sources`; **an identity that is not in it gets
+a `401` even with a perfect signature.**
+
+**Adding the next product costs no code change and no deploy here** (changed
+2026-08-09 — it used to need both): a row in `svc_identities`, its secret in
+`svc.secrets`, and a line in `support_intake.sources` naming its identity, its
+routing prefix and the label techs see. Keep the prefix short — see §6. With
+`sources` left out altogether, the built-in defaults apply, which is how
+production runs today; an empty list means nobody at all.
 
 **Registration and the secret.** 8 West creates the `svc_identities` row and
 installs the secret in Safeharbor's server `config.php` under
-`svc.secrets.coastmark-support` — server-side only, never git, never chat. We
-generate 32 random bytes, hex, and hand them over by one-time secret link. You
-store it the same way on your side. Rotation is a new value in both configs,
-nothing to restart.
+`svc.secrets.{identity}` — server-side only, never git, never chat. We generate
+32 random bytes, hex, and hand them over by one-time secret link. You store it
+the same way on your side. Rotation is a new value in both configs, nothing to
+restart.
 
 > **Registration detail for whoever runs it:** `svc_auth.php` looks the
 > identity up under `tenant_id()`, which is `1` with no session. The row must
@@ -116,7 +122,7 @@ nothing to restart.
 ```json
 {
   "event":        "support_request",
-  "external_key": "cmk:acme-msp:9f2c1d7a4b0e",
+  "external_key": "cmk:9f2c1d7a4b0e3f81",
   "occurred_at":  "2026-08-09T14:02:11Z",
 
   "tenant": {
@@ -141,7 +147,7 @@ nothing to restart.
 | Field | Rules |
 |---|---|
 | `event` | `support_request`. Anything else → `422`. |
-| `external_key` | **Required.** Unique per submission, across all your tenants. `[A-Za-z0-9:._-]`, ≤ 64 chars — `cmk:{slug}:{uuid-hex}` fits. Drives idempotency (§6). |
+| `external_key` | **Required.** Unique per submission, across all your tenants *and* across apps. `[A-Za-z0-9:._-]`, ≤ 64 chars. `{prefix}:{uuid}` — `cmk:9f2c…` / `wyp:1c4e…` — is the agreed shape: the app prefix keeps two apps apart, the uuid does the rest. **Do not put the tenant slug in it**; the slug travels in `tenant.slug`, which is what routing reads. Drives idempotency (§6). |
 | `occurred_at` | Any `strtotime`-parseable stamp, within **24 hours**. Omit to mean now. |
 | `tenant.slug` | **Required.** `[a-z0-9][a-z0-9-]*`, ≤ 48. Chooses the client row (§4). |
 | `tenant.display_name` | ≤ 110. Used to *name* the client row on first sight only. Defaults to the slug. **The field is `display_name`, not `name`** — see the warning below. |
@@ -191,11 +197,15 @@ time, never at storage time.
   So "Acme MSP has 3 open requests" is a real
   view in our queue. **Routing follows the key, not the name** — our staff can
   rename that client row freely and your next request still lands on it.
+  The whole key must fit **64 characters** (changed 2026-08-09): a
+  `tenant.slug` too long for your prefix is now refused with a `422` rather
+  than truncated, because a cut key would quietly merge two of your customers
+  onto one client row and mix their tickets together.
 - **Ticket:** `channel = 'portal'` (a person typed this — it is not an alert),
   `priority = 'normal'`, `status = 'open'`, standard-tier SLA of 8 hours,
   `external_key` = yours.
 - **Thread:** first message is the request body, `kind = 'client'`, authored by
-  the requester's name. Second is a `system` provenance line naming Coastmark,
+  the requester's name. Second is a `system` provenance line naming the app,
   the organisation, the reply-to address, the page, the app version and your
   reference.
 
@@ -247,8 +257,10 @@ customer cannot throttle the same company's Waypoint requests, and the two
 products never share a budget.
 
 The per-tenant caps are ours to enforce, deliberately: the shared 120/min would
-otherwise let one noisy MSP lock out everybody else's ability to reach us. Both
-per-tenant limits are config values we can raise for a specific need.
+otherwise let one noisy MSP lock out everybody else's ability to reach us. They
+count per app as well as per tenant, so Coastmark hitting a wall never stops
+the same firm reaching us through Waypoint. Both per-tenant limits are config
+values we can raise for a specific need.
 
 Throttling in your own UI is still welcome, but it is a different job — it stops
 one admin double-clicking Send. It is not a substitute for either cap, and a
@@ -266,9 +278,9 @@ Ours, by email, exactly as you asked:
    fallback) hands it to `lib/intake.php`, which threads it back onto ticket
    123 by the `[#123]` token and re-opens it if it had been closed.
 
-Nothing flows back to Coastmark over the wire, and Coastmark surfaces no
-replies. If you ever want the requester to see status inside Coastmark, that is
-a separate read-side conversation, not this pipe.
+Nothing flows back to your app over the wire, and your app surfaces no replies.
+If you ever want the requester to see status inside your app, that is a
+separate read-side conversation, not this pipe.
 
 The acknowledgement is suppressed for machine-looking addresses
 (`no-reply@`, `postmaster@`, and friends) — mail-loop protection is a house
@@ -281,7 +293,7 @@ A `svc_outbox` row written in the request path, a dispatch cron draining it with
 backoff (1/5/15 minutes, dead-letter after 10 attempts into an operator-visible
 log line), and a "Get help" form that never fails because we are slow. Reporting
 is best-effort by design; a broken reporter must degrade to "we could not send
-that just now", never to a 500 in Coastmark.
+that just now", never to a 500 in your app.
 
 ## 10. Receiver-side files (this repo)
 
@@ -289,9 +301,9 @@ that just now", never to a 500 in Coastmark.
 |---|---|
 | `app/public/api/svc/support.php` | endpoint: flags, method, size, auth, job check, JSON |
 | `app/lib/svc_support.php` | validation, routing, ticket creation, per-tenant rate, ack |
-| `app/db/migrations/009_support_intake.sql` | `clients.source_key` + `svc_support_rate` |
-| `app/tests/svc_support_test.php` | hermetic tests, including "text survives verbatim" and "no dedupe" |
-| `app/config/config.sample.php` | `svc.support_enabled`, the new secret, `support_intake` block |
+| `app/db/migrations/009_support_intake.sql` | `clients.source_key` + `svc_support_rate` — **applied to production 2026-08-09** |
+| `app/tests/svc_support_test.php` | hermetic tests, including "text survives verbatim", "no dedupe" and "two apps stay apart" |
+| `app/config/config.sample.php` | `svc.support_enabled`, the secrets, the `support_intake` block including `sources` |
 
 Ships **dark**: `svc.support_enabled` defaults to `false` and the endpoint
 answers `404` until it is turned on, independently of the alert and Westy

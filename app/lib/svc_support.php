@@ -2,16 +2,20 @@
 /**
  * Human support intake from our other products (2026-08-09).
  *
- * A tenant admin inside Coastmark clicks "Get help", types a question, and it
- * arrives here as a signed service request. One click = one ticket in 8 West
- * IT's own queue, filed under a client row for their organisation, with their
- * words stored exactly as they typed them.
+ * A tenant admin inside Coastmark or Waypoint clicks "Get help", types a
+ * question, and it arrives here as a signed service request. One click = one
+ * ticket in 8 West IT's own queue, filed under a client row for their
+ * organisation, with their words stored exactly as they typed them.
+ *
+ * Every 8 West app is meant to raise its support through Safeharbor, so the
+ * list of callers lives in config (`support_intake.sources`), not in code.
  *
  * NOT suite-only: Waypoint (added 2026-08-09) is a standalone product outside
- * 8 West IT 365 with its own customers. Producers are listed in
- * SUPPORT_SOURCES below and need no relationship to the suite beyond a
- * registered service identity — do not assume a caller here is a suite app,
- * and do not reach for the suite SSO contract to reason about one.
+ * 8 West IT 365 with its own customers. Products are listed in server config
+ * (`support_intake.sources`, see support_sources()) and need no relationship
+ * to the suite beyond a registered service identity — do not assume a caller
+ * here is a suite app, and do not reach for the suite SSO contract to reason
+ * about one.
  *
  * This is deliberately NOT api/svc/alerts.php and NOT api/svc/westy.php:
  *
@@ -48,7 +52,7 @@ require_once __DIR__ . '/svc_intake.php';   // svc_client_sla_hours() + bootstra
 require_once __DIR__ . '/intake.php';       // intake_is_auto_mail() + mail_queue()
 
 /**
- * Producers allowed to post a support request, keyed by service identity.
+ * Products allowed to post a support request, keyed by service identity.
  *
  * The membership check matters: svc_authenticate() accepts ANY registered
  * identity with a valid signature, so without this the Milepost alert emitter
@@ -60,11 +64,21 @@ require_once __DIR__ . '/intake.php';       // intake_is_auto_mail() + mail_queu
  * would make either app a way to post as the other, and would mean revoking
  * one revokes both. `source` is what lands in clients.source_key, so it also
  * keeps the two products' client rows apart for a customer using both.
+ *
+ * These are only the DEFAULTS, and they exist so a fresh install works before
+ * anyone edits config. The LIVE list comes from `support_intake.sources` in
+ * the server config: every 8 West product is meant to raise its support here
+ * eventually, and product number three should cost a config line, an identity
+ * row and a secret — not a code change, a PR and a deploy. See
+ * support_sources().
  */
-const SUPPORT_SOURCES = [
+const SUPPORT_SOURCES_DEFAULT = [
     'coastmark-support' => ['source' => 'coastmark', 'label' => 'Coastmark'],
     'waypoint-support'  => ['source' => 'waypoint',  'label' => 'Waypoint'],
 ];
+
+/** The longest `{source}:{slug}` we can key a client row on (column width). */
+const SUPPORT_SOURCE_KEY_MAX = 64;
 
 /** Subject cap 160 of the column's 190 — headroom for merge/reply markers. */
 const SUPPORT_SUBJECT_MAX = 160;
@@ -85,10 +99,69 @@ function support_enabled(): bool
     return svc_enabled() && (bool)cfg('svc.support_enabled', false);
 }
 
-/** The producer behind a service identity, or null if it may not post here. */
+/**
+ * The products allowed to post here, validated.
+ *
+ * A malformed config entry is skipped rather than trusted: `source` becomes
+ * part of a client row's routing key AND of the rate-limit key, so it has to
+ * stay inside the shapes those columns expect. A bad line means that one
+ * product cannot file — never a broken key, and never a crash for the others.
+ *
+ * Absent config falls back to the defaults, which is how production runs
+ * today: it has the secrets and the kill switch but no `support_intake` block
+ * at all. An explicitly EMPTY list is obeyed, not overridden — "I listed
+ * nobody" has to mean nobody, or the setting would be a liar.
+ *
+ * Deliberately NOT memoised. The list is cheap to rebuild, and a static cache
+ * would make it impossible to change the allow-list within one process, which
+ * is exactly what the tests do.
+ */
+function support_sources(): array
+{
+    $configured = cfg('support_intake.sources', null);
+    $raw = is_array($configured) ? $configured : SUPPORT_SOURCES_DEFAULT;
+
+    $out = [];
+    $skipped = [];
+    foreach ($raw as $identity => $entry) {
+        if (!is_string($identity) || !is_array($entry)) {
+            $skipped[] = is_string($identity) ? $identity : '(non-string key)';
+            continue;
+        }
+        $identity = mb_strtolower(trim($identity));
+        $source   = mb_strtolower(trim((string)($entry['source'] ?? '')));
+        // Identity fits svc_identities.service (32); source fits
+        // svc_support_rate.source (32) and leaves room for a slug in the key.
+        if (!preg_match('/^[a-z][a-z0-9-]{0,31}$/', $identity)
+            || !preg_match('/^[a-z][a-z0-9-]{0,23}$/', $source)) {
+            $skipped[] = $identity;
+            continue;
+        }
+        $label = mb_substr(support_one_line((string)($entry['label'] ?? '')), 0, 48);
+        if ($label === '') $label = ucfirst($source);
+        $out[$identity] = ['source' => $source, 'label' => $label];
+    }
+
+    // Say so, once per process. A typo here surfaces at the emitter as a bare
+    // 401, and an unexplained 401 has already cost this project an evening —
+    // so leave a line that names the actual cause and can be grepped for.
+    static $warned = false;
+    if (!$warned && ($skipped || !$out)) {
+        $warned = true;
+        if ($skipped) {
+            error_log('support_intake: ignoring malformed source entries: ' . implode(', ', $skipped));
+        }
+        if (!$out) {
+            error_log('support_intake: no usable sources configured — every support request will be refused');
+        }
+    }
+    return $out;
+}
+
+/** The product behind a service identity, or null if it may not post here. */
 function support_source_for(string $service): ?array
 {
-    return SUPPORT_SOURCES[$service] ?? null;
+    return support_sources()[mb_strtolower(trim($service))] ?? null;
 }
 
 /**
@@ -128,7 +201,9 @@ function support_tenant_id(): ?int
  */
 function support_client_id(int $tenantId, array $src, string $slug, string $display): int
 {
-    $sourceKey = mb_substr($src['source'] . ':' . $slug, 0, 64);
+    // Never truncated here: a cut key could collide two firms onto one client
+    // row. support_record() refuses an over-long one up front instead.
+    $sourceKey = support_source_key($src, $slug);
     $found = support_client_by_key($tenantId, $sourceKey);
     if ($found !== null) return $found;
 
@@ -152,6 +227,12 @@ function support_client_id(int $tenantId, array $src, string $slug, string $disp
         return $found;
     }
     return (int)db()->lastInsertId();
+}
+
+/** The routing key for one firm inside one app: 'coastmark:acme-msp'. */
+function support_source_key(array $src, string $slug): string
+{
+    return $src['source'] . ':' . $slug;
 }
 
 function support_client_by_key(int $tenantId, string $sourceKey): ?int
@@ -327,6 +408,11 @@ function support_record(array $raw, string $service): array
     $p = support_normalize($raw);
     if (isset($p['error'])) {
         return ['ok' => false, 'error' => $p['error']];
+    }
+    // Refuse rather than truncate: two firms sharing a cut routing key would
+    // share a client row, and their tickets would silently mix.
+    if (mb_strlen(support_source_key($src, $p['tenant_slug'])) > SUPPORT_SOURCE_KEY_MAX) {
+        return ['ok' => false, 'error' => 'tenant.slug too long for this app'];
     }
 
     $tenantId = support_tenant_id();
