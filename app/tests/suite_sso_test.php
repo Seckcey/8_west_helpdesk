@@ -83,8 +83,34 @@ function arrive(array $overrides = []): bool
 }
 
 // Fresh scratch state.
-db()->exec('DELETE FROM users');
-db()->exec('DELETE FROM tenants');
+//
+// This used to be two bare DELETEs, which meant the suite only passed when it
+// ran FIRST: it assumed the tables already existed AND that nothing else had
+// left a row pointing at a tenant. Run it after any other suite and it died on
+// a foreign key ("Cannot delete or update a parent row") instead of reporting a
+// real result. Build the schema if it is missing, and clear in a way that does
+// not depend on what ran before.
+// Build only when the scratch database is actually empty: 002 carries an
+// ALTER TABLE, which is not safe to replay over an existing schema.
+$hasSchema = (int)db()->query(
+    "SELECT COUNT(*) FROM information_schema.tables
+      WHERE table_schema = DATABASE() AND table_name = 'tickets'"
+)->fetchColumn() > 0;
+if (!$hasSchema) {
+    foreach (['schema.sql', 'migrations/002_svc_intake.sql', 'migrations/008_westy_reports.sql'] as $f) {
+        $sql = (string)file_get_contents(__DIR__ . '/../db/' . $f);
+        foreach (explode(";\n", $sql) as $stmt) {
+            if (trim($stmt) !== '') {
+                db()->exec($stmt);
+            }
+        }
+    }
+}
+db()->exec('SET FOREIGN_KEY_CHECKS=0');
+foreach (['westy_reports', 'messages', 'tickets', 'contacts', 'clients', 'users', 'tenants'] as $t) {
+    db()->exec('DELETE FROM `' . $t . '`');
+}
+db()->exec('SET FOREIGN_KEY_CHECKS=1');
 
 // --- The tenant is provisioned on arrival, so granting the tile is the only
 //     step needed to give somebody access.
