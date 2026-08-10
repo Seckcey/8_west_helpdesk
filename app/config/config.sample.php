@@ -20,6 +20,23 @@ return [
     // 'production' hides PHP errors; 'dev' shows them.
     'app_env' => 'production',
 
+    // Is this host a public sandbox carrying seeded, fictional data?
+    //
+    // Two things hang off this, and both fail closed when it is absent:
+    //
+    //  1. The login page advertises the demo password. That is correct for a
+    //     sandbox and indefensible for a desk holding real client tickets — and
+    //     the difference between those two is a decision somebody makes months
+    //     after the page was written, with nothing to remind them.
+    //
+    //  2. db/seed.php refuses to run. It TRUNCATEs tenants, users, clients,
+    //     contacts, tickets, messages and time_entries; its only previous guard
+    //     was "CLI only", and it ships to production with every deploy. One
+    //     mistyped command on the wrong host destroys the desk.
+    //
+    // Leave this false on any host that holds, or will ever hold, real work.
+    'demo_mode' => false,
+
     // Suite identity (8 West ID contract: docs/suite-sso-contract.md).
     // Phase 1 live: lib/auth.php suite_sso_attempt() trusts the signed
     // suite cookie from id.8westit.com; sso_secret must match the 8 West

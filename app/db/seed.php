@@ -9,7 +9,21 @@ if (PHP_SAPI !== 'cli') exit('CLI only.');
 
 require_once __DIR__ . '/../lib/bootstrap.php';
 
-$demoPassword = 'harbor'; // demo credential — documented on the login page
+// This script TRUNCATEs tenants, users, clients, contacts, tickets, messages and
+// time_entries. It ships to production with every release, and until now "CLI
+// only" was the entire guard — so one mistyped command on the wrong host wiped
+// the desk, silently and completely.
+//
+// demo_mode is absent from every config that already exists, so this fails
+// closed everywhere until a host deliberately opts in.
+if (! cfg('demo_mode', false)) {
+    fwrite(STDERR, "Refusing to seed: demo_mode is not enabled on this host.\n"
+        . "Seeding wipes every tenant, user, client, ticket and message in the database.\n"
+        . "If this really is a sandbox, set 'demo_mode' => true in config/config.php.\n");
+    exit(1);
+}
+
+$demoPassword = 'harbor'; // demo credential — shown on the login page in demo_mode
 
 $pdo = db();
 $pdo->exec('SET FOREIGN_KEY_CHECKS=0');

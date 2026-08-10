@@ -64,7 +64,10 @@ header('Content-Type: text/html; charset=utf-8');
     </a>
   </div>
   <p class="login-foot">
-    Demo: any seeded email — password <code>harbor</code><br>
+    <?php if (cfg('demo_mode', false)): ?>
+      <strong>Sandbox.</strong> Seeded, fictional data — sign in with any seeded
+      email, password <code>harbor</code>.<br>
+    <?php endif; ?>
     by 8 West IT, LLC · Part of the 8 West IT Total Business Suite
   </p>
   <div class="theme-switch login-theme" role="group" aria-label="Theme">
