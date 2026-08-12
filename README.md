@@ -3,11 +3,10 @@
 **Every client issue, safely ashore.**
 
 Safeharbor is the help desk app in the **8 West IT Total Business Suite** —
-alongside **Mission Control** (the customer-facing 365 surface: AI email
-triage, per-user mailboxes, reply drafting and sending), **Milepost** (RMM /
-client operations) and **Coastmark** (accounting). Four products, four
-`8west:products` keys: `missioncontrol` · `safeharbor` · `milepost` ·
-`coastmark`. by 8 West IT, LLC.
+alongside **Milepost** (RMM / client operations), **Coastmark** (accounting),
+and the **8 West IT 365 Control Panel**. Four products, four
+`8west:products` keys: `safeharbor` · `milepost` · `coastmark` ·
+`coastline_control_panel`. by 8 West IT, LLC.
 
 > Status: **v1.0 feature-complete (Sprints 1–5 shipped, 2026-08-02)** — **live at
 > [safeharbor.8westit.com](https://safeharbor.8westit.com)**. Production

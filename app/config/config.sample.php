@@ -169,13 +169,13 @@ return [
     // admin-consented. No mailbox password anywhere; works with Entra
     // security defaults ON. Synced server-side from Milepost's config.
     'mail' => [
-        'from'      => 'missioncontrol@8westit.com',
+        'from'      => '',
         'from_name' => 'Safeharbor — 8 West IT',
         'graph' => [
             'tenant_id'     => '',
             'client_id'     => '',
             'client_secret' => '',
-            'sender'        => 'missioncontrol@8westit.com',
+            'sender'        => '',
         ],
         // Provider-agnostic SMTP fallback (used only when graph is unset).
         'smtp' => [

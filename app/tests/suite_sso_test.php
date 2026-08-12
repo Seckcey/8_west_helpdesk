@@ -59,7 +59,7 @@ function scratch_token(array $overrides = []): string
         'sub' => 't9u1',
         'email' => 'owner@scratch.test',
         'name' => 'Scratch Owner',
-        '8west:role' => 'owner',
+        '8west:role' => 'msp_owner',
         '8west:tenant' => 'scratch-co',
         '8west:products' => ['safeharbor'],
     ], $overrides);
@@ -118,6 +118,7 @@ check('first arrival signs in', arrive() === true);
 $tenant = db()->query("SELECT COUNT(*) FROM tenants WHERE slug = 'scratch-co'")->fetchColumn();
 check('tenant was provisioned on first arrival', (int) $tenant === 1);
 check('exactly one user exists', (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn() === 1);
+check('msp owner maps to local owner', db()->query('SELECT role FROM users LIMIT 1')->fetchColumn() === 'owner');
 
 $subject = db()->query('SELECT suite_subject FROM users LIMIT 1')->fetchColumn();
 check('the user carries its subject immediately', $subject === 't9u1');
@@ -127,6 +128,12 @@ check('same subject, new email, signs in', arrive(['email' => 'renamed@scratch.t
 check('still exactly one user', (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn() === 1);
 $email = db()->query('SELECT email FROM users LIMIT 1')->fetchColumn();
 check('the address was updated in place', $email === 'renamed@scratch.test');
+check('msp admin signs in', arrive(['8west:role' => 'msp_admin']) === true);
+check('msp admin maps to local admin', db()->query('SELECT role FROM users LIMIT 1')->fetchColumn() === 'admin');
+check('msp tech signs in', arrive(['8west:role' => 'msp_tech']) === true);
+check('msp tech maps to local tech', db()->query('SELECT role FROM users LIMIT 1')->fetchColumn() === 'tech');
+check('msp owner signs in after a role change', arrive(['8west:role' => 'msp_owner']) === true);
+check('central role changes reconcile locally', db()->query('SELECT role FROM users LIMIT 1')->fetchColumn() === 'owner');
 
 // --- An account created before suite entry is claimed once by email.
 db()->exec('DELETE FROM users');
@@ -145,30 +152,32 @@ check(
 // --- Refusals.
 check('a token without the safeharbor entitlement is refused', arrive(['8west:products' => ['milepost']]) === false);
 
-// readonly is a STAFF role, so this is an app-capability refusal rather than
-// the 4.3 customer/staff crossing: Safeharbor has no viewer role, and the
-// mapping used to fall through to 'tech' - which can write. Founder decision
-// 2026-08-02: refuse rather than silently upgrade.
-check('a readonly role is refused rather than upgraded to tech', arrive(['8west:role' => 'readonly']) === false);
+// Safeharbor has no viewer role. Refuse rather than silently grant a writer.
+check('an msp viewer is refused rather than upgraded to tech', arrive(['8west:role' => 'msp_viewer']) === false);
+check('a downstream client contact is refused', arrive(['8west:role' => 'client_owner']) === false);
 check('an unknown role string is refused', arrive(['8west:role' => 'wizard']) === false);
 $before = (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn();
-arrive(['8west:role' => 'readonly', 'sub' => 't9u99', 'email' => 'readonly@scratch.test']);
+arrive(['8west:role' => 'msp_viewer', 'sub' => 't9u99', 'email' => 'viewer@scratch.test']);
 check(
-    'a refused readonly identity is never provisioned',
+    'a refused viewer identity is never provisioned',
     (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn() === $before
 );
 check('a blank tenant slug is refused', arrive(['8west:tenant' => '']) === false);
 
-// 8 West's own staff live in the `8west` tenant — it is the only tenant this
-// install has. Reserving that slug, as Mission Control does on its customer
-// branch where staff never reach the check, would refuse every owner and tech
-// who runs the helpdesk. Deploying that refusal would have been a live
-// regression: users 1, 2 and 4 hold the safeharbor grant under this slug.
+// 8 West's own staff live in the `8west` tenant. Their legacy staff roles are
+// admitted only in that tenant.
 check('the 8west staff tenant is admitted', arrive([
     'sub' => 't9u4',
     'email' => 'staff@8westit.com',
     '8west:tenant' => '8west',
+    '8west:role' => 'owner',
 ]) === true);
+check('an msp role cannot take the staff tenant', arrive([
+    'sub' => 't9u5',
+    'email' => 'msp@8westit.com',
+    '8west:tenant' => '8west',
+    '8west:role' => 'msp_owner',
+]) === false);
 check('an expired token is refused', arrive(['exp' => time() - 60]) === false);
 check('a wrong-issuer token is refused', arrive(['iss' => 'https://evil.test']) === false);
 

@@ -1,11 +1,10 @@
 # Safeharbor — repo guide for agents
 
 **Safeharbor** is the help desk app in the **8 West IT Total Business Suite**,
-alongside **Mission Control** (the customer-facing 365 surface — AI email
-triage, per-user mailboxes, reply drafting and sending), **Milepost** (RMM) and
-**Coastmark** (accounting). Four product keys, and they are the exact strings
-in the `8west:products` claim: `missioncontrol` · `safeharbor` · `milepost` ·
-`coastmark`. Coastmark was split on 2026-08-02 into `Seckcey/coastmark` (the
+alongside **Milepost** (RMM), **Coastmark** (accounting), and the **8 West IT
+365 Control Panel**. The product keys are the exact strings in the
+`8west:products` claim: `safeharbor` · `milepost` · `coastmark` ·
+`coastline_control_panel`. Coastmark was split on 2026-08-02 into `Seckcey/coastmark` (the
 8 West IT 365 edition) and `Seckcey/coastmark_standalone` (its own marketing,
 pricing and Stripe); only the 365 edition is inside the suite contract.
 Tagline: *Every client issue, safely ashore.* Vendor: 8 West IT, LLC.
@@ -164,11 +163,8 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    ONE Entra app registration with APPLICATION permissions (Mail.Send ·
    Mail.Read for intake) — credentials live ONLY in server
    `config/config.php`, synced server-side from Milepost's config (never
-   chat/git). Mission Control's Microsoft connector is a **separate and much
-   larger** surface (unparked 2026-07-31, now its flagship: seven scopes
-   including Mail.ReadWrite and Mail.Send, per-user mailboxes, nine broker
-   operations of which two write) — do not assume Safeharbor's registration
-   covers it, or the reverse.
+   chat/git). Do not reuse those credentials for an unrelated application or
+   assume another registration covers this mail pipeline.
 
 ## Ops lessons written in blood (2026-08-01/02)
 

@@ -13,6 +13,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/jwt.php';
 require_once __DIR__ . '/suite_auth_policy.php';
+require_once __DIR__ . '/suite_roles.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_set_cookie_params([
@@ -140,17 +141,6 @@ function suite_sso_attempt(): bool
         return suite_sso_refuse('product_not_entitled', $subject);
     }
 
-    // Admit exactly the roles Safeharbor can honour. `readonly` is a STAFF
-    // role, so this is not the CLAIMS_CONTRACT_V1 4.3 customer/staff crossing
-    // - it is an app-capability statement: Safeharbor has no viewer role, so
-    // admitting a read-only identity would mean silently granting it 'tech',
-    // which can write. A named deny is honest where an unhonourable grant is
-    // not. Founder decision, 2026-08-02; mirrors Milepost.
-    $suiteRole = (string)($claims['8west:role'] ?? '');
-    if (!in_array($suiteRole, ['owner', 'admin', 'tech'], true)) {
-        return suite_sso_refuse('role_not_admitted', $subject);
-    }
-
     // Tenant resolution is claim-driven (contract rule 1). The tenant is
     // provisioned on first arrival rather than having to exist here already:
     // granting the tile in 8 West ID should be the only step needed to give
@@ -159,18 +149,22 @@ function suite_sso_attempt(): bool
     // A blank slug is refused: it would otherwise create a tenant with an
     // empty name and quietly collect unrelated people into it.
     //
-    // `8west` is deliberately NOT reserved here, though Mission Control does
-    // reserve it. Mission Control applies that check only on its customer
-    // branch, where staff never reach it — its staff are global operators
-    // with no tenant at all. Safeharbor is tenant scoped for everyone, and 8
-    // West's own staff genuinely live in the `8west` tenant, which is the
-    // only tenant this install has. Reserving that slug here locks the owners
-    // out of their own helpdesk. It also guards nothing: the customer/staff
-    // crossing the reservation exists to stop is already refused by the role
-    // gate above, which admits owner/admin/tech and nothing else.
+    // Safeharbor is tenant scoped for everyone, and 8 West's own staff
+    // genuinely live in the `8west` tenant. The audience-aware role map keeps
+    // customer operators and downstream contacts out of that staff tenant.
     $slug = mb_strtolower(trim((string)($claims['8west:tenant'] ?? '')));
     if ($slug === '') {
         return suite_sso_refuse('tenant_slug_invalid', $subject);
+    }
+
+    // The paying MSP uses canonical msp_* roles. The legacy staff vocabulary
+    // is admitted only for 8 West's own tenant. Client contacts and viewers
+    // are refused: this is the MSP's complete helpdesk and it has no read-only
+    // local role, so either admission would grant more than the token says.
+    $suiteRole = (string)($claims['8west:role'] ?? '');
+    $localRole = safeharbor_suite_local_role($suiteRole, $slug);
+    if ($localRole === null) {
+        return suite_sso_refuse('role_not_admitted', $subject);
     }
 
     $stmt = db()->prepare('SELECT id FROM tenants WHERE slug = ?');
@@ -205,28 +199,25 @@ function suite_sso_attempt(): bool
     }
 
     if ($user) {
-        // Existing account: keep the address in step with 8 West ID, which
-        // is the master user list. Matching happens on the subject, so a
-        // changed email updates the record rather than splitting it in two.
-        if (mb_strtolower((string)$user['email']) !== $email) {
-            $sync = db()->prepare('UPDATE users SET email = ? WHERE id = ?');
-            $sync->execute([$email, (int)$user['id']]);
+        // Existing account: keep identity and authorization in step with 8
+        // West ID. This prevents a central demotion leaving a stale elevated
+        // Safeharbor role behind.
+        if (mb_strtolower((string)$user['email']) !== $email || (string)$user['role'] !== $localRole) {
+            $sync = db()->prepare('UPDATE users SET email = ?, role = ? WHERE id = ?');
+            $sync->execute([$email, $localRole, (int)$user['id']]);
         }
     } else {
         // Auto-provision from the master user list at id.8westit.com.
         $name = trim((string)($claims['name'] ?? $email));
         $parts = preg_split('/\s+/', $name) ?: [];
         $initials = mb_strtoupper(mb_substr($parts[0] ?? 'U', 0, 1) . mb_substr(end($parts) ?: '', 0, 1));
-        // Validated above; no fallback, because a fallback is how a role we
-        // cannot honour becomes one we can.
-        $role = $suiteRole;
         // The subject is written here, not left for the next sign-in to
         // backfill: if the address changed in between, an email-only match
         // would miss and mint a second account - the very split this change
         // exists to prevent.
         $stmt = db()->prepare('INSERT INTO users (tenant_id, email, suite_subject, password_hash, full_name, initials, role)
                                VALUES (?, ?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$tenantId, $email, $subject, password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT), $name, $initials, $role]);
+        $stmt->execute([$tenantId, $email, $subject, password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT), $name, $initials, $localRole]);
         $user = [
             'id' => (int)db()->lastInsertId(),
             'is_active' => 1,
