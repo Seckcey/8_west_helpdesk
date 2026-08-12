@@ -1,7 +1,7 @@
 # 8 West ID — Suite SSO Contract
 
-One identity for the whole suite: **Mission Control**, **Safeharbor**,
-**Milepost**, **Coastmark**. A user signs in once with **8 West ID** and lands
+One identity for the whole suite: **Safeharbor**, **Milepost**, **Coastmark**,
+and the **8 West IT 365 Control Panel**. A user signs in once with **8 West ID** and lands
 in any product with the same tenant context. This document is the contract each
 app implements against.
 
@@ -57,8 +57,8 @@ intended destination; see *Deferred, and why it matters more each time* below.
 | `name` | string | Display name |
 | `exp` | int | Expiry (unix seconds); a token past `exp` is refused |
 | `8west:tenant` | string | **Tenant slug** — the customer account; binds every record in every product |
-| `8west:products` | string[] | Licensed product keys, from `["missioncontrol","safeharbor","milepost","coastmark"]` |
-| `8west:role` | string | `owner` · `admin` · `tech` · `readonly` |
+| `8west:products` | string[] | Licensed product keys, from `["safeharbor","milepost","coastmark","coastline_control_panel"]` |
+| `8west:role` | string | Staff roles (`owner`, `admin`, `tech`, `readonly`) or tenant-aware `msp_*` / `client_*` roles |
 | `8west:theme` | string | Suite-wide UI theme: `dark` · `light` · `system` |
 | `8west:avatar` | string | Suite-wide avatar URL |
 | `8west:auth_policy` | string | Authentication-event contract; currently `suite-mfa-v1` |
@@ -84,9 +84,9 @@ expiry.
    with?" after sign-in — `8west:tenant` decides. In Safeharbor the tenant row
    is **provisioned on first arrival** if the slug is unknown, so granting the
    tile in 8 West ID is the only step needed to give somebody access; there is
-   no per-app setup. A blank slug is refused. Safeharbor deliberately admits
-   the `8west` staff tenant; its role gate already refuses customer and
-   unknown roles before tenant provisioning.
+   no per-app setup. A blank slug is refused. Safeharbor admits legacy staff
+   roles only in the `8west`/`internal` staff tenants, maps canonical `msp_*`
+   operators in customer tenants, and refuses client contacts and unknown roles.
 2. **Product gating is entitlement-driven.** `8west:products` controls which
    apps accept the token. Safeharbor requires the literal key `safeharbor`
    (hard-coded in `suite_sso_attempt()`, *not* read from `suite.product` in
@@ -115,9 +115,8 @@ expiry.
 7. **There is no single sign-in page, by design.** Each app renders its own
    login form and starts its own session; the suite cookie is checked as the
    user arrives. Different-looking sign-in screens are the current
-   architecture, not a misconfiguration. Probing for `/auth/suite` proves
-   nothing outside Mission Control — the PHP apps check the cookie inline, so
-   that path correctly 404s there while SSO works fine.
+   architecture, not a misconfiguration. PHP apps may check the cookie inline,
+   so probing for a separate callback path does not establish whether SSO works.
 
 ## Deny paths are audited, never silent
 
@@ -146,6 +145,7 @@ Reason codes, in the order they can occur:
 | `missing_claims` | `jwt_verify_reason()` | `sub` or `email` absent |
 | `product_not_entitled` | `suite_sso_attempt()` | `8west:products` lacks this app's key — the most common cause, fixed in the 8 West ID control panel, not in app code |
 | `tenant_slug_invalid` | `suite_sso_attempt()` | `8west:tenant` is empty |
+| `role_not_admitted` | `suite_sso_attempt()` | role is outside the tenant-aware Safeharbor map, including viewers and downstream client contacts |
 | `user_inactive` | `suite_sso_attempt()` | the local account exists but `is_active = 0` |
 
 `jwt_verify()` (the reasonless twin) is still used by
@@ -159,7 +159,6 @@ Safeharbor no longer bails on an unknown slug — it creates the tenant (rule 1)
 
 | App | Product key | Suite SSO | Maps the user by |
 |---|---|---|---|
-| Mission Control (`mission_control`) | `missioncontrol` | **live in production** — customers sign in via `GET /auth/suite` | `sub` |
 | Safeharbor (this repo) | `safeharbor` | **live in production**; checked inline, with local-session-first central logout and signed revocation-list enforcement | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
 | Coastmark 365 (`coastmark`) | `coastmark` | **live in production** at `e3b74da`; local-session-first central logout deployed | `sub` |
 | Milepost (`8westit_webapp`) | `milepost` | live, behind the `suite_sso.enabled` kill switch in `portal/lib/auth.php` | **`sub`** (`users.suite_subject`); one-time claim prefers canonical email, then the legacy email-local-part username, and backfills the subject |
@@ -219,10 +218,10 @@ Still not built, in rough priority order:
   design remains separate work.
 - **Multi-account picker** for a user belonging to more than one customer
   account.
-- **Entitlement revocation.** Nothing takes a product grant back today, and
-  Mission Control — where the revocation trigger was supposed to live — has no
-  subscription state at all. See
-  `docs/open-decision-entitlement-and-subscription.md`.
+- **Entitlement revocation.** 8 West ID now derives effective products from
+  tenant subscription state. Safeharbor continues to enforce the signed
+  product claim and revocation list locally. See
+  `docs/open-decision-entitlement-and-subscription.md` for the resolved boundary.
 
 The claim shape above is stable, so each of these is issuer-side work rather
 than a change to app-side session handling.
