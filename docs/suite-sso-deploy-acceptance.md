@@ -1,5 +1,23 @@
 # Suite SSO deployment acceptance — Safeharbor
 
+## 2026-08-12 — Canonical MSP-role repair (`PR #31`)
+
+Safeharbor PR [#31](https://github.com/Seckcey/8_west_helpdesk/pull/31)
+merged as `7d607ecb78a1edee800105725302926ff4503045` with exact-main Validate
+green. The release maps the 8 West ID first-tenant roles `msp_owner`,
+`msp_admin`, and `msp_tech` into the local database enum, continues to refuse
+viewers and downstream client contacts, and reconciles an existing linked
+user's local role on sign-in.
+
+The production release used verified rollback backup
+`/srv/8west/backups/safeharbor/20260812T080037Z`. The deployed role-module hash
+matches the merge, `suite_roles_test.php` passes on the host, login returns
+HTTP 200, and no release-window PHP fatal or parse error was found. A real
+signed-in tile click remains owner-operated because the available automated
+browser sessions were logged out.
+
+---
+
 ## 2026-08-08 — Central logout release (`PR #15`)
 
 **Authorization:** Frankie authorized safe merge and production deployment for

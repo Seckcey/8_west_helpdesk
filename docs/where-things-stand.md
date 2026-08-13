@@ -1,6 +1,8 @@
 # Where things stand
 
-**Last verified: 2026-08-09** against production, not from memory.
+**Last verified overall: 2026-08-09** against production, not from memory.
+The suite SSO repair section below was separately verified on 2026-08-13; the
+rest of this page was not re-audited during that focused closeout.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -22,8 +24,35 @@ If you change what is live, change this page in the same PR.
 | Westy defect intake (`api/svc/westy.php`) | **Live** — receiver shipped; emitters are the other repos' side |
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
+| 8 West ID suite SSO | **Live**; canonical first-tenant MSP roles deployed in PR #31 |
 | Migrations 001–009 | **All applied** to production |
 | Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
+
+## First-tenant suite SSO repair
+
+Safeharbor PR [#31](https://github.com/Seckcey/8_west_helpdesk/pull/31)
+merged as `7d607ecb78a1edee800105725302926ff4503045` and is deployed. It
+maps the issuer's canonical `msp_owner`, `msp_admin`, and `msp_tech` roles to
+Safeharbor's `owner`, `admin`, and `tech` database enum values. `msp_viewer`
+and all downstream `client_*` roles remain refused. Existing suite-linked
+users have their local role reconciled on sign-in instead of retaining a stale
+privilege.
+
+This repair was required because self-serve 8 West ID onboarding issues
+`msp_owner`, while the older consumer admitted only `owner`, `admin`, and
+`tech`. Production logs recorded `role_not_admitted`; the cookie signature,
+product entitlement, and tile URL were not the failure.
+
+The deployed `app/lib/suite_roles.php` SHA-256 is
+`5278b8ef09e56fba032a169aa446c756a326bf0f06f793dc1ff609dd39b6fcd3`,
+matching the merged source. `suite_roles_test.php`, PHP lint, public login, and
+release-window fatal checks passed. Rollback is the verified application and
+database backup `/srv/8west/backups/safeharbor/20260812T080037Z`.
+
+The remaining owner-operated check is to open the Safeharbor tile from an
+already signed-in 8 West ID session and confirm it lands in Safeharbor without
+showing a second login form. Automated acceptance stopped at the signed-out
+8 West ID page rather than requesting a production password.
 
 ## Who is allowed to call us, and are they?
 
