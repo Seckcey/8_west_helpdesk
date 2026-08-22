@@ -55,7 +55,8 @@ function avatar(?array $user, int $size = 26): string
     }
     // 8 West ID avatar: the central profile picture follows the user across suite apps.
     if (!empty($_SESSION['suite_avatar'])
-        && mb_strtolower((string)($user['email'] ?? '')) === ($_SESSION['suite_avatar_email'] ?? '')) {
+        && (string)($user['suite_subject'] ?? '') !== ''
+        && hash_equals((string)($user['suite_subject'] ?? ''), (string)($_SESSION['suite_avatar_subject'] ?? ''))) {
         return '<img class="avatar avatar-img" style="width:' . $size . 'px;height:' . $size . 'px" src="' . h($_SESSION['suite_avatar']) . '" alt="" title="' . h($user['full_name']) . '">';
     }
     return '<span class="avatar" style="width:' . $size . 'px;height:' . $size . 'px;background:' . h($user['color']) . '" title="' . h($user['full_name']) . '">'
@@ -90,8 +91,22 @@ function page_top(array $user, string $title, string $active): void
     ];
     header('Content-Type: text/html; charset=utf-8');
     ?>
+<?php $suitePreferences = is_array($_SESSION['suite_preferences'] ?? null)
+    ? $_SESSION['suite_preferences'] : suite_preferences_defaults(); ?>
 <!doctype html>
-<html lang="en">
+<html lang="<?= h((string)$suitePreferences['locale']) ?>"
+      data-preferences-source="8west-id"
+      data-density="<?= h((string)$suitePreferences['density']) ?>"
+      data-contrast="<?= h((string)$suitePreferences['contrast']) ?>"
+      data-motion="<?= h((string)$suitePreferences['motion']) ?>"
+      data-time-zone="<?= h((string)$suitePreferences['time_zone']) ?>"
+      data-date-format="<?= h((string)$suitePreferences['date_format']) ?>"
+      data-time-format="<?= h((string)$suitePreferences['time_format']) ?>"
+      data-default-product="<?= h((string)($suitePreferences['default_product'] ?? '')) ?>"
+      data-westy-detail="<?= h((string)$suitePreferences['westy_detail']) ?>"
+      data-notifications-enabled="<?= $suitePreferences['notifications_enabled'] ? 'true' : 'false' ?>"
+      data-quiet-hours-start="<?= h((string)($suitePreferences['quiet_hours_start'] ?? '')) ?>"
+      data-quiet-hours-end="<?= h((string)($suitePreferences['quiet_hours_end'] ?? '')) ?>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -145,18 +160,8 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
           </span>
           <span class="role-badge role-<?= h($user['role']) ?>"><?= h($user['role']) ?></span>
         </div>
-        <div class="um-label">Theme</div>
-        <div class="theme-switch um-theme" role="group" aria-label="Theme">
-          <button type="button" class="theme-btn" data-theme-opt="dark" title="Dark theme" aria-label="Dark theme">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" stroke-linejoin="round"/></svg>
-          </button>
-          <button type="button" class="theme-btn" data-theme-opt="light" title="Light theme" aria-label="Light theme">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" stroke-linecap="round"/></svg>
-          </button>
-          <button type="button" class="theme-btn" data-theme-opt="system" title="Match system theme" aria-label="Match system theme">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 13.5h4" stroke-linecap="round"/></svg>
-          </button>
-        </div>
+        <div class="um-label">Suite preferences</div>
+        <a class="um-item" href="https://id.8westit.com/settings.php" role="menuitem">Manage global settings</a>
         <div class="um-sep"></div>
         <a class="um-item" href="/profile.php" role="menuitem">My profile</a>
         <a class="um-item" href="/users.php" role="menuitem">Team</a>
