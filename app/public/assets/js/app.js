@@ -13,7 +13,10 @@
   /* Theme (dark / light / system)                                       */
   /* ------------------------------------------------------------------ */
   const THEME_KEY = "safeharbor.theme";
-  const currentTheme = () => localStorage.getItem(THEME_KEY) || "system";
+  const centralPreferences = document.documentElement.dataset.preferencesSource === "8west-id";
+  const currentTheme = () => centralPreferences
+    ? (document.documentElement.dataset.theme || "system")
+    : (localStorage.getItem(THEME_KEY) || "system");
 
   function paintThemeSwitch() {
     $$(".theme-btn").forEach((b) =>
@@ -21,6 +24,10 @@
   }
 
   function setTheme(t) {
+    if (centralPreferences) {
+      window.location.href = "https://id.8westit.com/settings.php";
+      return;
+    }
     localStorage.setItem(THEME_KEY, t);
     document.documentElement.dataset.theme = t;
     paintThemeSwitch();

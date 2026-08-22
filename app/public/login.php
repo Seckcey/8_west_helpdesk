@@ -70,11 +70,7 @@ header('Content-Type: text/html; charset=utf-8');
     <?php endif; ?>
     by 8 West IT, LLC · Part of the 8 West IT Total Business Suite
   </p>
-  <div class="theme-switch login-theme" role="group" aria-label="Theme">
-    <button type="button" class="theme-btn" data-theme-opt="dark" title="Dark" aria-label="Dark theme"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" stroke-linejoin="round"/></svg></button>
-    <button type="button" class="theme-btn" data-theme-opt="light" title="Light" aria-label="Light theme"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" stroke-linecap="round"/></svg></button>
-    <button type="button" class="theme-btn" data-theme-opt="system" title="System" aria-label="Match system theme"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 13.5h4" stroke-linecap="round"/></svg></button>
-  </div>
+  <p class="login-foot">Your appearance follows your global 8 West ID settings after sign-in.</p>
 <script src="/assets/js/app.js?v=2" defer></script>
 </div>
 </body>

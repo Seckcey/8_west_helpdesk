@@ -1001,3 +1001,12 @@ img { display: block; }
 .help-grid h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 10px 0 6px; }
 .help-grid p { font-size: 12.5px; color: var(--muted); margin: 4px 0; }
 @media (max-width: 640px) { .help-grid { grid-template-columns: 1fr; } }
+
+/* 8 West ID global presentation preferences. */
+html[data-density="compact"] body{font-size:13px}
+html[data-density="compact"] .main{padding:14px}
+html[data-density="compact"] .card{padding:12px}
+html[data-contrast="high"]{--line:#8292a8;--muted:#d7e3f2;--muted-strong:#eef5ff}
+html[data-theme="light"][data-contrast="high"]{--line:#52647b;--muted:#26384f;--muted-strong:#10233d}
+html[data-motion="reduce"] *,html[data-motion="reduce"] *::before,html[data-motion="reduce"] *::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+@media (prefers-reduced-motion:reduce){html[data-motion="system"] *,html[data-motion="system"] *::before,html[data-motion="system"] *::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}

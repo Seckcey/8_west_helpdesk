@@ -14,6 +14,7 @@ require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/jwt.php';
 require_once __DIR__ . '/suite_auth_policy.php';
 require_once __DIR__ . '/suite_roles.php';
+require_once __DIR__ . '/suite_preferences.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_set_cookie_params([
@@ -54,13 +55,16 @@ function suite_sso_refresh_claims(): void
 {
     $claims = suite_sso_claims();
     if ($claims === null) return;
-    $etag = $claims['sub'] . '|' . ($claims['8west:theme'] ?? '') . '|' . ($claims['8west:avatar'] ?? '') . '|' . ($claims['exp'] ?? '');
+    $preferencesSig = json_encode($claims['8west:preferences'] ?? null);
+    $etag = $claims['sub'] . '|' . ($claims['8west:theme'] ?? '') . '|'
+        . ($claims['8west:avatar'] ?? '') . '|' . (string)$preferencesSig . '|' . ($claims['exp'] ?? '');
     if (($_SESSION['suite_claims_etag'] ?? '') === $etag) return;
     $_SESSION['suite_claims_etag'] = $etag;
-    $_SESSION['suite_theme'] = in_array($claims['8west:theme'] ?? '', ['dark', 'light', 'system'], true)
-        ? $claims['8west:theme'] : 'system';
+    $_SESSION['suite_preferences'] = suite_preferences_from_claim($claims);
+    $_SESSION['suite_theme'] = $_SESSION['suite_preferences']['theme'];
     $_SESSION['suite_avatar'] = is_string($claims['8west:avatar'] ?? null) ? $claims['8west:avatar'] : null;
-    $_SESSION['suite_avatar_email'] = mb_strtolower((string)($claims['email'] ?? ''));
+    $_SESSION['suite_avatar_subject'] = (string)($claims['sub'] ?? '');
+    unset($_SESSION['suite_avatar_email']);
 }
 
 /** The signed-in user, or redirect to /login.php. */

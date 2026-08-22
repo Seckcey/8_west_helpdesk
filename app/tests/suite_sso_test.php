@@ -122,6 +122,10 @@ check('msp owner maps to local owner', db()->query('SELECT role FROM users LIMIT
 
 $subject = db()->query('SELECT suite_subject FROM users LIMIT 1')->fetchColumn();
 check('the user carries its subject immediately', $subject === 't9u1');
+check('avatar refresh signs in', arrive(['8west:avatar' => 'https://id.8westit.com/uploads/avatar.png']) === true);
+check('avatar is bound to the immutable subject',
+    ($_SESSION['suite_avatar_subject'] ?? null) === 't9u1'
+    && ! isset($_SESSION['suite_avatar_email']));
 
 // --- The whole point: a changed address must not mint a second account.
 check('same subject, new email, signs in', arrive(['email' => 'renamed@scratch.test']) === true);
