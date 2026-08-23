@@ -2,7 +2,8 @@
 /**
  * Session auth. Real bcrypt passwords + PHP sessions now; the 8 West ID
  * OIDC flow (docs/suite-sso-contract.md) replaces attempt_login() later —
- * the session shape it produces is the same.
+ * the session shape it produces is the same. Local passwords remain available
+ * only to accounts that have never been linked to an 8 West ID subject.
  *
  * 8 West ID Phase 1: suite_sso_attempt() trusts the signed suite cookie
  * issued by id.8westit.com and starts the same local session. Bcrypt
@@ -43,7 +44,8 @@ function suite_sso_claims(): ?array
 {
     $token = (string)($_COOKIE[cfg('suite.cookie_name', 'ewid_token')] ?? '');
     if ($token === '') return null;
-    return jwt_verify($token, (string)cfg('suite.sso_secret', ''), (string)cfg('suite.issuer', 'https://id.8westit.com'));
+    [$claims] = jwt_verify_suite_reason($token, (array) cfg('suite', []));
+    return $claims;
 }
 
 /**
@@ -117,11 +119,7 @@ function suite_sso_attempt(): bool
     $token = (string)($_COOKIE[cfg('suite.cookie_name', 'ewid_token')] ?? '');
     if ($token === '') return suite_sso_refuse('no_cookie');
 
-    [$claims, $reason] = jwt_verify_reason(
-        $token,
-        (string)cfg('suite.sso_secret', ''),
-        (string)cfg('suite.issuer', 'https://id.8westit.com')
-    );
+    [$claims, $reason] = jwt_verify_suite_reason($token, (array) cfg('suite', []));
     if ($claims === null) return suite_sso_refuse($reason ?? 'token_rejected');
 
     $subject = trim((string)($claims['sub'] ?? ''));
@@ -242,7 +240,7 @@ function attempt_login(string $email, string $password): bool
     $stmt = db()->prepare('SELECT * FROM users WHERE email = ? AND tenant_id = ? AND is_active = 1');
     $stmt->execute([mb_strtolower(trim($email)), tenant_id()]);
     $user = $stmt->fetch();
-    if (!$user || !password_verify($password, $user['password_hash'])) {
+    if (! $user || ! suite_local_password_allowed($user) || ! password_verify($password, $user['password_hash'])) {
         return false;
     }
     session_regenerate_id(true);

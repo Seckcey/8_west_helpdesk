@@ -24,5 +24,7 @@ $future = array_replace($valid, ['8west:mfa_time' => $now + 121]);
 policy_check(suite_mfa_policy_evaluate($future, $now, 2592000)['reason'] === 'mfa_time_invalid', 'future MFA time accepted');
 policy_check(suite_mfa_policy_evaluate($valid, $now, 2592001)['reason'] === 'mfa_max_age_invalid', 'overlong policy age accepted');
 policy_check(suite_mfa_policy_mode(null) === 'report', 'missing mode did not default to report');
+policy_check(suite_local_password_allowed(['suite_subject' => null]), 'unlinked break-glass account was blocked');
+policy_check(! suite_local_password_allowed(['suite_subject' => 't9u1']), 'suite-linked account could bypass ID with a local password');
 
 echo "suite_auth_policy_test: ok\n";

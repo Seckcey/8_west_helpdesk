@@ -46,6 +46,11 @@ return [
         'product'     => 'safeharbor',
         'sso_secret'  => 'CHANGE_ME',
         'cookie_name' => 'ewid_token',
+        // Migration: deploy with both, switch ID to RS256, then leave only
+        // RS256 and remove sso_secret after the eight-hour token drain.
+        'token_algorithms' => ['HS256'],
+        'jwks_url' => 'https://id.8westit.com/.well-known/jwks.json',
+        'jwks_cache_path' => '/tmp/safeharbor-ewid-jwks.json',
         // off | report | enforce. Keep report until the suite-wide rollout gate.
         'mfa_policy_mode' => 'report',
         'mfa_max_age' => 2592000,
