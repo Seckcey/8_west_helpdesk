@@ -18,7 +18,8 @@ and the **8 West IT 365 Control Panel**. Four products, four
 > Shipped: **Westy** (suite assistant — first-run onboarding tour + advise-only
 > how-to helper; shared move/resize layout comes from the centrally owned
 > `Seckcey/8_west_westy` release at `https://westy.8westit.com/v1/`) · **8 West
-> ID SSO** (HS256 `ewid_token` suite cookie — not OIDC; users keyed by the
+> ID SSO** (RS256 `ewid_token` suite cookie, temporarily accepting legacy
+> HS256 cookies during the documented drain; users keyed by the
 > immutable `sub` claim, every deny audited; migration 007 was applied to
 > production on 2026-08-02 and `suite.sso_secret` is server-only — see
 > [docs/suite-sso-contract.md](docs/suite-sso-contract.md)) · **Milepost alert
