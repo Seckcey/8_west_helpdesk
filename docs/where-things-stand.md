@@ -1,7 +1,7 @@
 # Where things stand
 
 **Last verified overall: 2026-08-09** against production, not from memory.
-The suite SSO repair section below was separately verified on 2026-08-13; the
+The suite SSO sections below were separately verified on 2026-08-23; the
 rest of this page was not re-audited during that focused closeout.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
@@ -24,7 +24,7 @@ If you change what is live, change this page in the same PR.
 | Westy defect intake (`api/svc/westy.php`) | **Live** — receiver shipped; emitters are the other repos' side |
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
-| 8 West ID suite SSO | **Live**; canonical first-tenant MSP roles deployed in PR #31 |
+| 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
 | Migrations 001–009 | **All applied** to production |
 | Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
 
@@ -49,10 +49,24 @@ matching the merged source. `suite_roles_test.php`, PHP lint, public login, and
 release-window fatal checks passed. Rollback is the verified application and
 database backup `/srv/8west/backups/safeharbor/20260812T080037Z`.
 
-The remaining owner-operated check is to open the Safeharbor tile from an
-already signed-in 8 West ID session and confirm it lands in Safeharbor without
-showing a second login form. Automated acceptance stopped at the signed-out
-8 West ID page rather than requesting a production password.
+The owner-operated tile check was completed during the 2026-08-23 RS256 issuer
+cutover: a fresh signed-in 8 West ID session landed in Safeharbor without a
+second login form.
+
+## RS256 suite-token verification
+
+Safeharbor PR [#34](https://github.com/Seckcey/8_west_helpdesk/pull/34)
+merged as `2f64cdf67aa0e9d1999ddcca5476d48b9fcb9003`; exact-main CI run
+`32623126269` passed and that commit is deployed. Production explicitly accepts
+`HS256,RS256`, loads the issuer's same-origin JWKS, and verified a fresh RS256
+cookie by exact published `kid` after 8 West ID changed issuance at
+`2026-08-23T07:04:43Z`.
+
+Rollback is the verified backup
+`/srv/8west/backups/safeharbor/20260823T063315Z-pre-2f64cdf67aa0e9d1999ddcca5476d48b9fcb9003`.
+Keep overlap through at least `2026-08-23T16:04:43Z`; then require a clean
+observation window and repeat signed-in acceptance before removing HS256.
+Retain the shared secret for the separately signed revocation feed.
 
 ## Who is allowed to call us, and are they?
 

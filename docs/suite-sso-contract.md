@@ -5,7 +5,7 @@ and the **8 West IT 365 Control Panel**. A user signs in once with **8 West ID**
 in any product with the same tenant context. This document is the contract each
 app implements against.
 
-> **Currency.** Corrected 2026-08-08 against `app/lib/auth.php`,
+> **Currency.** Corrected 2026-08-23 against `app/lib/auth.php`,
 > `app/lib/jwt.php`, `app/config/config.sample.php` and
 > `app/tests/suite_sso_test.php` in this repo, plus current Milepost `main`.
 > Revisions of this file before
@@ -16,19 +16,22 @@ app implements against.
 ## Protocol — as built
 
 8 West ID (**https://id.8westit.com**, repo `8_west_id`) issues a signed
-**HS256 JWT** in an HttpOnly cookie scoped to `.8westit.com` after password
-sign-in. There is no redirect handshake and no token endpoint. Each app reads
-the cookie as the visitor arrives, verifies the HMAC with a **shared secret**
-held in its server-only config, and starts its own ordinary local session.
+**RS256 JWT** in an HttpOnly cookie scoped to `.8westit.com` after sign-in.
+This legacy suite-cookie profile has no redirect handshake or token exchange.
+Each shared-cookie app reads the cookie as the visitor arrives, verifies the
+signature with the issuer's public JWKS, and starts its own ordinary local
+session. During the 2026-08-23 migration drain, consumers also accept unexpired
+HS256 cookies with their server-only shared secret.
 
 | Setting | Value |
 |---|---|
 | Issuer (`iss`) | `https://id.8westit.com` |
 | Transport | cookie `ewid_token` · HttpOnly · domain `.8westit.com` |
-| Signature | **HS256** — symmetric, shared secret |
-| Verification | app-side; `jwt_verify_reason()` in `app/lib/jwt.php` |
+| Signature | **RS256** — asymmetric; issuer private key stays on the ID host |
+| Temporary overlap | Consumers accept `HS256,RS256` through at least `2026-08-23T16:04:43Z` |
+| Verification | app-side; `jwt_verify_suite_reason()` in `app/lib/jwt.php`, exact `kid` from issuer JWKS |
 | Safeharbor entry point | `suite_sso_attempt()` in `app/lib/auth.php`, called from `require_login()` and `public/login.php` |
-| Safeharbor config | the `suite` block (`issuer`, `sso_secret`, `cookie_name`) in server-only `config/config.php` |
+| Safeharbor config | the `suite` block (`issuer`, `sso_secret`, `cookie_name`, `token_algorithms`, `jwks_url`, `jwks_cache_path`) in server-only `config/config.php` |
 
 **8 West ID is not Keycloak** and does not front one. It is a first-party PHP
 issuer in `Seckcey/8_west_id`.
@@ -40,7 +43,11 @@ protocol section — authorization code + PKCE, `GET /oauth2/authorize`,
 `POST /oauth2/token`, `GET /oauth2/userinfo`, `GET /.well-known/jwks.json`,
 scopes `openid profile email tenant`.
 
-**All of those paths return 404 on id.8westit.com. Verified 2026-08-02.**
+**Those exact `/oauth2/*` prototype paths were absent when verified on
+2026-08-02.** The current issuer later added an additive OIDC profile under its
+documented `/oauth/*` routes plus `/.well-known/openid-configuration`, and its
+public JWKS now also supports the RS256 suite cookie. Safeharbor still uses the
+legacy cookie profile; do not infer that it is an OIDC client.
 
 They were a design, never an implementation. Nothing in any suite app has ever
 called them. They are named here only so the next person who finds that table
@@ -159,9 +166,10 @@ Safeharbor no longer bails on an unknown slug — it creates the tenant (rule 1)
 
 | App | Product key | Suite SSO | Maps the user by |
 |---|---|---|---|
-| Safeharbor (this repo) | `safeharbor` | **live in production**; checked inline, with local-session-first central logout and signed revocation-list enforcement | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
-| Coastmark 365 (`coastmark`) | `coastmark` | **live in production** at `e3b74da`; local-session-first central logout deployed | `sub` |
-| Milepost (`8westit_webapp`) | `milepost` | live, behind the `suite_sso.enabled` kill switch in `portal/lib/auth.php` | **`sub`** (`users.suite_subject`); one-time claim prefers canonical email, then the legacy email-local-part username, and backfills the subject |
+| Safeharbor (this repo) | `safeharbor` | **live in production** at `2f64cdf`; RS256 accepted with temporary HS256 overlap, local-session-first central logout and signed revocation-list enforcement | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
+| Coastmark 365 (`coastmark`) | `coastmark` | **live in production** at `8b7b337`; RS256 accepted with temporary HS256 overlap | `sub` |
+| Milepost (`8westit_webapp`) | `milepost` | **live in production** at `e99f4ea`; RS256 accepted with temporary HS256 overlap behind the `suite_sso.enabled` kill switch | **`sub`** (`users.suite_subject`); one-time claim prefers canonical email, then the legacy email-local-part username, and backfills the subject |
+| Cloudline (`missioncontrol`) | `missioncontrol` | **live in production** at `00bbb9d`; RS256 accepted with temporary HS256 overlap and privilege-sensitive revalidation | `sub` |
 
 Coastmark was split on 2026-08-02: `Seckcey/coastmark` is the 8 West IT 365
 edition (mode hard-coded `platform`) and is the row above;
@@ -182,11 +190,11 @@ Two things gate suite sign-in on a Safeharbor host, and neither is a feature
 flag — **Safeharbor has no `suite_sso.enabled` kill switch**; that switch
 exists in Milepost only.
 
-1. **`suite.sso_secret` must be set** in server-only `config/config.php` and
-   must match 8 West ID's. `config.sample.php` ships `CHANGE_ME`, so a host
-   that was never configured fails every signature and denies with
-   `bad_signature` — effectively off, but off by accident rather than by
-   design.
+1. **Usable verification config must be set** in server-only
+   `config/config.php`. Overlap requires `suite.sso_secret`; RS256 requires
+   `suite.jwks_url` and a writable cache path. A host that was never
+   configured fails every signature — effectively off, but off by accident
+   rather than by design.
 2. **Migration `app/db/migrations/007_suite_subject.sql` is applied in
    production.** It was applied migration-first on 2026-08-02 before the code
    deployment; see `docs/suite-sso-deploy-acceptance.md`. It must still be
@@ -195,20 +203,18 @@ exists in Milepost only.
    `ERRMODE_EXCEPTION`, so on a host without the column the first suite
    sign-in throws rather than falling back.
 
-## Deferred, and why it matters more each time
+## Deferred after the RS256 cutover
 
-Still not built, in rough priority order:
+Still open, in rough priority order:
 
-- **Asymmetric signing.** HS256 with a shared secret is symmetric: every app
-  holding the key can *mint* suite identities, not merely verify them —
-  including arbitrary tenant and role claims. Compromise of the least-defended
-  app forges a valid identity for all of them. This is precisely what the
-  original OIDC-with-JWKS design avoided (issuer signs with a private key that
-  never leaves it; apps verify with a public key and can mint nothing). The
-  work is issuer-side, in `8_west_id`, and gets more expensive with every
-  consumer added.
-- **Authorization-code flow + PKCE, rotating refresh tokens**, and a hosted
-  central login page (rule 7 disappears when this lands).
+- **Contract to RS256-only after the overlap drain.** Do not remove HS256 before
+  `2026-08-23T16:04:43Z`; require a clean observation window and signed-in
+  acceptance first. Retain Safeharbor's shared secret for the separately
+  HMAC-signed revocation feed until that mechanism has its own reviewed
+  migration.
+- **Migrate Safeharbor to the issuer's authorization-code profile.** The issuer
+  now has a new-app OIDC client kit, but this application still uses the legacy
+  cookie transport. Treat that as a separate reviewed destination-app change.
 - **Suite-wide sign out / complete consumer-session revocation.** The rule 4
   issuer handoff clears the shared cookie. Safeharbor now enforces the issuer's
   HMAC-signed revocation list for established suite sessions (60-second cache,

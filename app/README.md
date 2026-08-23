@@ -24,7 +24,7 @@ lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
 lib/revocation.php         signed 8 West ID revocation-list enforcement for
                            established suite sessions (60s cache; logged,
                            bounded fail-open when the issuer is unavailable)
-lib/jwt.php                HS256 codec + jwt_verify_reason() (deny reason codes)
+lib/jwt.php                HS256/RS256 verification + exact-kid JWKS loading
 lib/render.php             chrome layout + UI partials + palette data island
 lib/ai.php                 server-side AI layer (Anthropic/OpenAI via raw cURL;
                            keys server-only; gated dev stub — Milepost port)
@@ -136,7 +136,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
 - User menu: ONE home for identity + preferences — the lower-left sidebar
   card (opens upward: theme, My profile, Team, sign out). No duplicate
   topbar avatar. profile.php: own name + password change. 8 West ID SSO is
-  implemented in lib/auth.php (HS256 cookie, NOT OIDC — see
+  implemented in lib/auth.php (legacy suite cookie, now RS256 with bounded
+  HS256 overlap; separate from OIDC — see
   docs/suite-sso-contract.md); the menu shows the central 8 West ID avatar
   and theme, both refreshed from the token on every request. Established suite
   sessions are checked against 8 West ID's signed revocation list on every

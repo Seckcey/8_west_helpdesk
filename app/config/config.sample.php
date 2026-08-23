@@ -47,7 +47,8 @@ return [
         'sso_secret'  => 'CHANGE_ME',
         'cookie_name' => 'ewid_token',
         // Migration: deploy with both, switch ID to RS256, then leave only
-        // RS256 and remove sso_secret after the eight-hour token drain.
+        // RS256 after the drain. Retain sso_secret for the independently
+        // HMAC-signed revocation feed until that mechanism is migrated.
         'token_algorithms' => ['HS256'],
         'jwks_url' => 'https://id.8westit.com/.well-known/jwks.json',
         'jwks_cache_path' => '/tmp/safeharbor-ewid-jwks.json',
