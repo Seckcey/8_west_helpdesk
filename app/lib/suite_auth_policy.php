@@ -12,6 +12,12 @@ function suite_mfa_policy_mode(mixed $value): string
     return in_array($mode, ['off', 'report', 'enforce'], true) ? $mode : 'report';
 }
 
+/** Suite-linked identities must return through 8 West ID so MFA cannot be bypassed locally. */
+function suite_local_password_allowed(array $user): bool
+{
+    return trim((string) ($user['suite_subject'] ?? '')) === '';
+}
+
 /** @return array{compliant: bool, reason: string} */
 function suite_mfa_policy_evaluate(array $claims, int $now, int $maxAge, int $clockSkew = 120): array
 {
