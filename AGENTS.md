@@ -140,8 +140,8 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    closed as a duplicate) into PR #30.
 9. **8 West ID SSO:** the legacy `ewid_token` cookie is scoped to
    `.8westit.com` and is separate from the issuer's newer OIDC profile.
-   Production issuance is RS256; Safeharbor currently accepts `HS256,RS256`
-   during the bounded legacy-token drain and selects RSA keys by exact `kid`
+   Production issuance is RS256; Safeharbor accepts `RS256` only and selects
+   RSA keys by exact `kid`
    from the issuer JWKS. Config lives in the **`suite`** block
    (`issuer`, `sso_secret`, `cookie_name`, `token_algorithms`, `jwks_url`,
    `jwks_cache_path`) of server-only `config/config.php`; never put secrets or
@@ -153,8 +153,7 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    Safeharbor deliberately admits its own `8west` staff tenant (the role gate
    already refuses customer/unknown roles). Every refusal is audited:
    `suite_sso_refuse()` logs a reason code from `jwt_verify_suite_reason()`
-   (`lib/jwt.php`), never the claim payload. Do not remove HS256 acceptance
-   before the suite-wide overlap gate closes. After contraction, retain the
+   (`lib/jwt.php`), never the claim payload. After contraction, retain the
    shared secret for Safeharbor's separate revocation-feed HMAC until that
    mechanism has its own reviewed migration. Established suite sessions are
    checked against 8 West ID's signed revocation list on every authenticated

@@ -5,7 +5,7 @@ and the **8 West IT 365 Control Panel**. A user signs in once with **8 West ID**
 in any product with the same tenant context. This document is the contract each
 app implements against.
 
-> **Currency.** Corrected 2026-08-23 against `app/lib/auth.php`,
+> **Currency.** Corrected 2026-08-24 against `app/lib/auth.php`,
 > `app/lib/jwt.php`, `app/config/config.sample.php` and
 > `app/tests/suite_sso_test.php` in this repo, plus current Milepost `main`.
 > Revisions of this file before
@@ -20,15 +20,15 @@ app implements against.
 This legacy suite-cookie profile has no redirect handshake or token exchange.
 Each shared-cookie app reads the cookie as the visitor arrives, verifies the
 signature with the issuer's public JWKS, and starts its own ordinary local
-session. During the 2026-08-23 migration drain, consumers also accept unexpired
-HS256 cookies with their server-only shared secret.
+session. The bounded legacy-token drain ended at `2026-08-24T04:17:47Z`; all
+four shared-cookie consumers now accept RS256 only.
 
 | Setting | Value |
 |---|---|
 | Issuer (`iss`) | `https://id.8westit.com` |
 | Transport | cookie `ewid_token` · HttpOnly · domain `.8westit.com` |
 | Signature | **RS256** — asymmetric; issuer private key stays on the ID host |
-| Temporary overlap | Consumers accept `HS256,RS256` through at least `2026-08-23T16:04:43Z` |
+| Accepted algorithms | `RS256` only since `2026-08-24T04:17:47Z` |
 | Verification | app-side; `jwt_verify_suite_reason()` in `app/lib/jwt.php`, exact `kid` from issuer JWKS |
 | Safeharbor entry point | `suite_sso_attempt()` in `app/lib/auth.php`, called from `require_login()` and `public/login.php` |
 | Safeharbor config | the `suite` block (`issuer`, `sso_secret`, `cookie_name`, `token_algorithms`, `jwks_url`, `jwks_cache_path`) in server-only `config/config.php` |
@@ -166,10 +166,10 @@ Safeharbor no longer bails on an unknown slug — it creates the tenant (rule 1)
 
 | App | Product key | Suite SSO | Maps the user by |
 |---|---|---|---|
-| Safeharbor (this repo) | `safeharbor` | **live in production** at `2f64cdf`; RS256 accepted with temporary HS256 overlap, local-session-first central logout and signed revocation-list enforcement | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
-| Coastmark 365 (`coastmark`) | `coastmark` | **live in production** at `8b7b337`; RS256 accepted with temporary HS256 overlap | `sub` |
-| Milepost (`8westit_webapp`) | `milepost` | **live in production** at `e99f4ea`; RS256 accepted with temporary HS256 overlap behind the `suite_sso.enabled` kill switch | **`sub`** (`users.suite_subject`); one-time claim prefers canonical email, then the legacy email-local-part username, and backfills the subject |
-| Cloudline (`missioncontrol`) | `missioncontrol` | **live in production** at `00bbb9d`; RS256 accepted with temporary HS256 overlap and privilege-sensitive revalidation | `sub` |
+| Safeharbor (this repo) | `safeharbor` | **live in production** at `2f64cdf`; RS256-only identity verification, local-session-first central logout and signed revocation-list enforcement | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
+| Coastmark 365 (`coastmark`) | `coastmark` | **live in production** at `8b7b337`; RS256-only identity verification | `sub` |
+| Milepost (`8westit_webapp`) | `milepost` | **live in production** at `e99f4ea`; RS256-only identity verification behind the `suite_sso.enabled` kill switch; identity-only shared secret removed | **`sub`** (`users.suite_subject`); one-time claim prefers canonical email, then the legacy email-local-part username, and backfills the subject |
+| Cloudline (`missioncontrol`) | `missioncontrol` | **live in production** at `00bbb9d`; RS256-only identity verification and privilege-sensitive revalidation | `sub` |
 
 Coastmark was split on 2026-08-02: `Seckcey/coastmark` is the 8 West IT 365
 edition (mode hard-coded `platform`) and is the row above;
@@ -191,8 +191,9 @@ flag — **Safeharbor has no `suite_sso.enabled` kill switch**; that switch
 exists in Milepost only.
 
 1. **Usable verification config must be set** in server-only
-   `config/config.php`. Overlap requires `suite.sso_secret`; RS256 requires
-   `suite.jwks_url` and a writable cache path. A host that was never
+   `config/config.php`. RS256 requires `suite.jwks_url` and a writable cache
+   path. Safeharbor still requires `suite.sso_secret` for the independently
+   authenticated revocation snapshot. A host that was never
    configured fails every signature — effectively off, but off by accident
    rather than by design.
 2. **Migration `app/db/migrations/007_suite_subject.sql` is applied in
@@ -207,11 +208,6 @@ exists in Milepost only.
 
 Still open, in rough priority order:
 
-- **Contract to RS256-only after the overlap drain.** Do not remove HS256 before
-  `2026-08-23T16:04:43Z`; require a clean observation window and signed-in
-  acceptance first. Retain Safeharbor's shared secret for the separately
-  HMAC-signed revocation feed until that mechanism has its own reviewed
-  migration.
 - **Migrate Safeharbor to the issuer's authorization-code profile.** The issuer
   now has a new-app OIDC client kit, but this application still uses the legacy
   cookie transport. Treat that as a separate reviewed destination-app change.

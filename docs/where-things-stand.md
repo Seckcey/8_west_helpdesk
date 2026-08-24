@@ -1,7 +1,7 @@
 # Where things stand
 
 **Last verified overall: 2026-08-09** against production, not from memory.
-The suite SSO sections below were separately verified on 2026-08-23; the
+The suite SSO sections below were separately verified on 2026-08-24; the
 rest of this page was not re-audited during that focused closeout.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
@@ -57,16 +57,20 @@ second login form.
 
 Safeharbor PR [#34](https://github.com/Seckcey/8_west_helpdesk/pull/34)
 merged as `2f64cdf67aa0e9d1999ddcca5476d48b9fcb9003`; exact-main CI run
-`32623126269` passed and that commit is deployed. Production explicitly accepts
-`HS256,RS256`, loads the issuer's same-origin JWKS, and verified a fresh RS256
-cookie by exact published `kid` after 8 West ID changed issuance at
+`32623126269` passed and that commit is deployed. Production accepts `RS256`
+only, loads the issuer's same-origin JWKS, and verified a fresh RS256 cookie by
+exact published `kid` after 8 West ID changed issuance at
 `2026-08-23T07:04:43Z`.
 
-Rollback is the verified backup
+The suite-wide contraction completed at `2026-08-24T04:17:47Z`, after more
+than 21 hours of clean observation. Safeharbor refused a generated legacy
+HS256 token with `unexpected_algorithm` and returned the ordinary login page;
+public login remained HTTP 200. The configuration backup for that change is
+`/srv/8west/backups/safeharbor/20260824T041747Z-pre-rs256-only-config.php`.
+Safeharbor retains the shared secret only for the separately HMAC-signed
+revocation feed. A fresh post-contraction ID session entered the Safeharbor
+queue without another login. The application-release rollback remains
 `/srv/8west/backups/safeharbor/20260823T063315Z-pre-2f64cdf67aa0e9d1999ddcca5476d48b9fcb9003`.
-Keep overlap through at least `2026-08-23T16:04:43Z`; then require a clean
-observation window and repeat signed-in acceptance before removing HS256.
-Retain the shared secret for the separately signed revocation feed.
 
 ## Who is allowed to call us, and are they?
 
