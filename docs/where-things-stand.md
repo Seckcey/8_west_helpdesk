@@ -28,6 +28,26 @@ If you change what is live, change this page in the same PR.
 | Migrations 001–009 | **All applied** to production |
 | Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
 
+## Customer Service Tools Phase 1 candidate
+
+Development branch `codex/customer-service-tools-phase1` corrects the existing
+first-response semantics without a migration. `tickets.sla_due_at` remains an
+elapsed-time **response** deadline: the queue and ticket view now compare the
+first `kind='tech'` message to that deadline, a resolved ticket with no
+technician response is never called met, and Reports measures decided response
+outcomes rather than resolution time. `service_goals_test.php` pins the lamp
+states, tenant/period isolation, notes-not-responses rule, and report
+denominator in hermetic SQLite. Merged sources and their survivors are shown
+as neutral `Merged history` and excluded from attainment because the current
+merge operation moves messages without retaining original response
+provenance. This candidate is **not live** until its branch
+is reviewed, merged, and separately authorized for deployment. Business hours,
+holidays, pause rules, resolution goals, and policy versioning remain the next
+service-goal phase. The scratch SSO fixture also now follows the real
+`suite_sso_attempt()` → `current_user()` request path: untouched `origin/main`
+reproduced its stale avatar-session failure at 30 checks / 1 failure, while the
+candidate passed 30 / 0 before the remaining database suites ran.
+
 ## First-tenant suite SSO repair
 
 Safeharbor PR [#31](https://github.com/Seckcey/8_west_helpdesk/pull/31)
@@ -179,9 +199,12 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Seven suites in `app/tests/`, all CLI-only and all needing MySQL. **They do not
-run on the Windows dev machine** — there is no database and no
-`config/config.php` there, so `php -l` is the only local check *of the PHP*.
+Eleven CLI suites live in `app/tests/`. Six database-free contract suites now
+run in CI, including the hermetic service-goal query test. Four integration
+suites (`suite_sso`, `svc_intake`, `svc_support`, and `westy_report`) still need
+MySQL plus a scratch-only `config/config.php`; `utf8_input` needs the scratch
+config but does not touch the database. PHP lint and the database-free suites
+run on the Windows dev machine.
 
 Run them on the EC2 box, in a disposable copy, with the database pinned to the
 scratch schema — `fresh_schema()` drops every table in whatever database it
@@ -215,8 +238,8 @@ neither thumb could hide; and a new `row` parameter turned out to be the same
 variable as a `var row` further down the same function, so Cancel reset the
 wrong element.
 
-Last full run, 2026-08-09, all seven back to back on one scratch database,
-all green:
+Last full integration run, 2026-08-09, the then-current seven suites ran back
+to back on one scratch database, all green:
 
 | Suite | Checks |
 |---|---|

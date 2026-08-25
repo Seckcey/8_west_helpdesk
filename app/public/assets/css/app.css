@@ -457,6 +457,7 @@ img { display: block; }
 .sla-at_risk { color: var(--gold); }
 .sla-breached { color: var(--rose); }
 .sla-met { color: var(--mint); opacity: .7; }
+.sla-excluded { color: var(--muted); }
 
 /* avatar */
 .avatar {

@@ -1,7 +1,7 @@
 <?php
 /**
  * Reports — the owner's honest weekly view. Every number is computed from
- * real rows (nothing hardcoded, ever): first response, SLA attainment,
+ * real rows (nothing hardcoded, ever): first response, response-target attainment,
  * aging, time by tech, billable hours by client, CSAT.
  */
 declare(strict_types=1);
@@ -33,15 +33,10 @@ $fr->execute([$tid]);
 $frRow = $fr->fetch();
 $avgFirst = $frRow && $frRow['avg_min'] !== null ? (int)round((float)$frRow['avg_min']) : null;
 
-// SLA attainment, 30d (resolved before the lamp turned red)
-$sla = db()->prepare(
-    "SELECT COUNT(*) AS n, SUM(resolved_at <= sla_due_at) AS met
-       FROM tickets
-      WHERE tenant_id = ? AND resolved_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)"
-);
-$sla->execute([$tid]);
-$slaRow = $sla->fetch();
-$slaPct = ($slaRow && (int)$slaRow['n'] > 0) ? (int)round(100 * (int)$slaRow['met'] / (int)$slaRow['n']) : null;
+// First-response target attainment, 30d. Future open targets are undecided;
+// resolution time is deliberately irrelevant to a response deadline.
+$responseAttainment = service_goal_response_attainment(db(), $tid, 30);
+$slaPct = $responseAttainment['pct'];
 
 // Aging buckets (open tickets)
 $aging = db()->prepare(
@@ -118,7 +113,7 @@ page_top($user, 'Reports', 'reports');
     <div class="card stat"><div class="stat-k">New this week</div><div class="stat-v"><?= (int)$c['created_7d'] ?></div></div>
     <div class="card stat"><div class="stat-k">Resolved this week</div><div class="stat-v stat-good"><?= (int)$c['resolved_7d'] ?></div></div>
     <div class="card stat"><div class="stat-k">Avg first response (30d)</div><div class="stat-v <?= $avgFirst !== null && $avgFirst <= 60 ? 'stat-good' : '' ?>"><?= $fmtMin($avgFirst) ?></div><div class="stat-hint"><?= (int)($frRow['n'] ?? 0) ?> tickets</div></div>
-    <div class="card stat"><div class="stat-k">SLA attainment (30d)</div><div class="stat-v <?= $slaPct !== null && $slaPct >= 90 ? 'stat-good' : ($slaPct !== null && $slaPct < 70 ? 'stat-warn' : '') ?>"><?= $slaPct === null ? '—' : $slaPct . '%' ?></div><div class="stat-hint"><?= (int)($slaRow['n'] ?? 0) ?> resolved</div></div>
+    <div class="card stat"><div class="stat-k">Response target attainment (30d)</div><div class="stat-v <?= $slaPct !== null && $slaPct >= 90 ? 'stat-good' : ($slaPct !== null && $slaPct < 70 ? 'stat-warn' : '') ?>"><?= $slaPct === null ? '—' : $slaPct . '%' ?></div><div class="stat-hint"><?= $responseAttainment['n'] ?> decided tickets</div></div>
     <div class="card stat"><div class="stat-k">CSAT (30d)</div><div class="stat-v <?= $cs['avg'] !== null && $cs['avg'] >= 2.5 ? 'stat-good' : '' ?>"><?= $cs['avg'] === null ? '—' : $cs['avg'] . ' / 3' ?></div><div class="stat-hint"><?= $cs['n'] ?> of <?= $cs['sent'] ?> answered</div></div>
   </div>
 

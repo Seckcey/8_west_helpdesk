@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   priority    ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
   assignee_id INT UNSIGNED NULL,
   channel     ENUM('email','portal','alert','phone') NOT NULL DEFAULT 'email',
-  sla_due_at  DATETIME NOT NULL,
+  sla_due_at  DATETIME NOT NULL,  -- elapsed-time first-response deadline (not resolution)
   resurface_at DATETIME NULL,   -- waiting auto-resurface (housekeeping reopens)
   merged_into_id INT UNSIGNED NULL,   -- merged tickets keep a stub to the survivor
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

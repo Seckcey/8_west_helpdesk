@@ -16,6 +16,7 @@ db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (as needed; 007 suite
                            subject applied to production 2026-08-02)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
+lib/service_goals.php      deterministic first-response target lamps + attainment
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
@@ -54,12 +55,12 @@ cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
 public/                    Apache docroot (page-per-file, like Milepost)
   index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
   ticket.php               Ticket detail (thread, reply PRG, rail actions)
-  ticket_new.php           New ticket (SLA auto-set from client tier)
+  ticket_new.php           New ticket (elapsed-time response target from client tier)
   clients.php, client.php  Clients + "answer the phone smart" screen
   client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
   users.php                Team — user management (owner/admin add, deactivate)
   time.php                 Timer + suggested entries + today's entries
-  reports.php              Real numbers: first response, SLA, aging, time,
+  reports.php              Real numbers: first response, response-target attainment, aging, time,
                            billable by client (+ reports_export.php CSV)
   snippets.php             Saved replies ("/" in the composer; merge fields)
   csat.php                 One-tap resolution survey (token-authed, public)

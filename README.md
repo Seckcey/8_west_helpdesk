@@ -18,12 +18,12 @@ and the **8 West IT 365 Control Panel**. Four products, four
 > Shipped: **Westy** (suite assistant — first-run onboarding tour + advise-only
 > how-to helper; shared move/resize layout comes from the centrally owned
 > `Seckcey/8_west_westy` release at `https://westy.8westit.com/v1/`) · **8 West
-> ID SSO** (RS256 `ewid_token` suite cookie, temporarily accepting legacy
-> HS256 cookies during the documented drain; users keyed by the
+> ID SSO** (RS256-only `ewid_token` suite cookie selected by exact JWKS `kid`;
+> users keyed by the
 > immutable `sub` claim, every deny audited; migration 007 was applied to
 > production on 2026-08-02 and `suite.sso_secret` is server-only — see
 > [docs/suite-sso-contract.md](docs/suite-sso-contract.md)) · **Milepost alert
-> intake** (signed svc API, dark until the emitter ships) · composer with
+> intake** (live signed svc API with replay dedupe and guarded auto-close) · composer with
 > internal notes + `/` saved replies + time-at-reply · attachments both ways ·
 > conversation threading + inbound dedupe + bounce-loop protection · waiting
 > auto-resurface · collision detection with stale-send blocking · merge

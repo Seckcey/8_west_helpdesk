@@ -79,7 +79,15 @@ function arrive(array $overrides = []): bool
     $_COOKIE['ewid_token'] = scratch_token($overrides);
     $_SESSION = [];
 
-    return suite_sso_attempt();
+    if (! suite_sso_attempt()) {
+        return false;
+    }
+
+    // A real authenticated request immediately resolves current_user() after
+    // suite_sso_attempt(). That second step refreshes the signed preferences
+    // and subject-bound avatar into the session. Stopping after the raw login
+    // helper made the avatar assertion test a path the application never uses.
+    return current_user() !== null;
 }
 
 // Fresh scratch state.

@@ -46,10 +46,10 @@ return [
         'product'     => 'safeharbor',
         'sso_secret'  => 'CHANGE_ME',
         'cookie_name' => 'ewid_token',
-        // Migration: deploy with both, switch ID to RS256, then leave only
-        // RS256 after the drain. Retain sso_secret for the independently
-        // HMAC-signed revocation feed until that mechanism is migrated.
-        'token_algorithms' => ['HS256'],
+        // Production is RS256-only. Retain sso_secret for the independently
+        // HMAC-signed revocation feed until that mechanism is migrated; it is
+        // not an accepted suite-cookie algorithm.
+        'token_algorithms' => ['RS256'],
         'jwks_url' => 'https://id.8westit.com/.well-known/jwks.json',
         'jwks_cache_path' => '/tmp/safeharbor-ewid-jwks.json',
         // off | report | enforce. Keep report until the suite-wide rollout gate.

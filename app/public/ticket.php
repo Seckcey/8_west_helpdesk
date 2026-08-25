@@ -12,7 +12,10 @@ $user = require_login();
 
 $id = (int)($_GET['id'] ?? 0);
 $stmt = db()->prepare(
-    'SELECT t.*, c.name AS client_name, c.sla_tier,
+    'SELECT t.*,
+            (SELECT MIN(m.created_at) FROM messages m WHERE m.ticket_id = t.id AND m.kind = "tech") AS first_response_at,
+            EXISTS (SELECT 1 FROM tickets merged_source WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id) AS has_merged_sources,
+            c.name AS client_name, c.sla_tier,
             u.full_name AS assignee_name, u.initials AS assignee_initials, u.color AS assignee_color
        FROM tickets t
        JOIN clients c ON c.id = t.client_id
@@ -248,8 +251,8 @@ page_top($user, '#' . $id, 'queue');
         </button>
       </div>
 
-      <div class="rail-label">SLA</div>
-      <div class="card rail-card"><?= sla_lamp($ticket) ?><span class="rail-note"><?= h($ticket['sla_tier']) ?> plan · business hours 8a–6p</span></div>
+      <div class="rail-label">Response target</div>
+      <div class="card rail-card"><span data-sla><?= sla_lamp($ticket) ?></span><span class="rail-note"><?= h($ticket['sla_tier']) ?> plan · elapsed time</span></div>
 
       <div class="rail-label">Time</div>
       <button class="rail-btn timer-btn" id="timer-btn" data-id="<?= (int)$ticket['id'] ?>">▶ Start timer&nbsp;&nbsp;(E)</button>

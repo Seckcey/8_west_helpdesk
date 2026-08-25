@@ -18,6 +18,8 @@ if (!is_file($configPath)) {
 }
 $CONFIG = require $configPath;
 
+require_once __DIR__ . '/service_goals.php';
+
 if (($CONFIG['app_env'] ?? 'production') === 'dev') {
     error_reporting(E_ALL);
     ini_set('display_errors', '1');
@@ -84,25 +86,6 @@ function rel_time(string $utc): string
     $hours = intdiv($mins, 60);
     if ($hours < 24) return $hours . 'h';
     return intdiv($hours, 24) . 'd';
-}
-
-/**
- * SLA state for a ticket row: healthy (>2h), at_risk (<2h), breached (past
- * due), met (resolved in time). Labels are short, for the SLA lamp.
- */
-function sla_info(array $ticket): array
-{
-    if ($ticket['status'] === 'resolved') {
-        return ['state' => 'met', 'label' => 'SLA met'];
-    }
-    $diff = strtotime($ticket['sla_due_at'] . ' UTC') - time();
-    $absMin = (int)round(abs($diff) / 60);
-    $label = $absMin >= 60
-        ? intdiv($absMin, 60) . 'h ' . str_pad((string)($absMin % 60), 2, '0', STR_PAD_LEFT) . 'm'
-        : $absMin . 'm';
-    if ($diff < 0)            return ['state' => 'breached', 'label' => $label . ' over'];
-    if ($diff < 2 * 3600)     return ['state' => 'at_risk',  'label' => $label . ' left'];
-    return                           ['state' => 'healthy',  'label' => $label . ' left'];
 }
 
 /** JSON response + exit (API endpoints). */
