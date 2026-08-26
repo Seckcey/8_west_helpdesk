@@ -1,9 +1,10 @@
 <?php
 /**
  * POST /api/ticket_merge.php — merge one ticket into another.
- * Body: {source_id, target_id}. Moves messages, attachments, time entries,
- * and email-conversation mappings to the target; the source becomes a
- * resolved stub pointing at the survivor (merged_into_id).
+ * Body: {source_id, target_id}. Moves messages, attachments, and
+ * email-conversation mappings to the target; the source becomes a resolved
+ * stub pointing at the survivor (merged_into_id). Time remains on the source
+ * stub so a later approval migration can preserve original provenance.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../../lib/render.php';
@@ -29,7 +30,6 @@ $pdo->beginTransaction();
 try {
     $pdo->prepare('UPDATE messages     SET ticket_id = ? WHERE ticket_id = ?')->execute([$dst, $src]);
     $pdo->prepare('UPDATE attachments  SET ticket_id = ? WHERE ticket_id = ?')->execute([$dst, $src]);
-    $pdo->prepare('UPDATE time_entries SET ticket_id = ? WHERE ticket_id = ?')->execute([$dst, $src]);
     // conversation mappings follow the survivor (IGNORE: target may already map one)
     $pdo->prepare('UPDATE IGNORE email_threads SET ticket_id = ? WHERE ticket_id = ?')->execute([$dst, $src]);
     $pdo->prepare('DELETE FROM email_threads WHERE ticket_id = ?')->execute([$src]);

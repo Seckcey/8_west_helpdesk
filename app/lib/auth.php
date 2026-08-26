@@ -32,7 +32,12 @@ function current_user(): ?array
     $stmt = db()->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1');
     $stmt->execute([(int)$_SESSION['user_id']]);
     $user = $stmt->fetch() ?: null;
-    if ($user) suite_sso_refresh_claims();
+    if ($user) {
+        // Repair old sessions and keep every tenant-scoped helper bound to
+        // the authenticated database row instead of tenant 1 fallback.
+        $_SESSION['tenant_id'] = (int)$user['tenant_id'];
+        suite_sso_refresh_claims();
+    }
     return $user;
 }
 
@@ -230,6 +235,7 @@ function suite_sso_attempt(): bool
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];
+    $_SESSION['tenant_id'] = $tenantId;
     $_SESSION['suite_mfa_policy'] = $policy['compliant'] ? 'compliant' : $policy['reason'];
     db()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([(int)$user['id']]);
     return true;
@@ -245,6 +251,7 @@ function attempt_login(string $email, string $password): bool
     }
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];
+    $_SESSION['tenant_id'] = (int)$user['tenant_id'];
     db()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([(int)$user['id']]);
     return true;
 }

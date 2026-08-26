@@ -1,8 +1,10 @@
 # Where things stand
 
 **Last verified overall: 2026-08-09** against production, not from memory.
-The suite SSO sections below were separately verified on 2026-08-24; the
-rest of this page was not re-audited during that focused closeout.
+The suite SSO sections below were separately verified on 2026-08-24. The
+Customer Service Tools and database sections were verified again on
+2026-08-26; the rest of this page was not re-audited during those focused
+closeouts.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -25,14 +27,16 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–009 | **All applied** to production |
-| Migration 010 (versioned service goals) | **Development candidate only; not applied** |
+| Migrations 001–010 | **All applied** to production |
+| Versioned service goals | **Live** through Safeharbor PR #37 / merge `1796f57` |
+| Approval-grade technician time / migration 011 | **Not applied or deployed** |
+| Time-provenance bridge | **This release; deploy before migration 011** |
 | Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
 
 ## Customer Service Tools development
 
-Phase 1 was reviewed and committed locally as `1c1b654` on development branch
-`codex/customer-service-tools-phase1`. It corrects the existing
+Phase 1 shipped through Safeharbor PR #37 / merge
+`1796f57d0dede4eff298a6a710098999ba7e9670`. It corrects the existing
 first-response semantics without a migration. `tickets.sla_due_at` remains an
 elapsed-time **response** deadline: the queue and ticket view now compare the
 first `kind='tech'` message to that deadline, a resolved ticket with no
@@ -42,9 +46,9 @@ states, tenant/period isolation, notes-not-responses rule, and report
 denominator in hermetic SQLite. Merged sources and their survivors are shown
 as neutral `Merged history` and excluded from attainment because the current
 merge operation moves messages without retaining original response
-provenance. The commit has not been pushed, merged, or deployed.
+provenance.
 
-The Phase 2A working candidate adds append-only policy versions and
+Phase 2A shipped in the same merge. It adds append-only policy versions and
 per-priority targets through migration `010_service_goal_policies.sql`. Every
 new ticket path captures one exact target ID, open time, and deadline; client
 tier, priority, waiting, retry, refire, and reply changes do not rebase that
@@ -54,15 +58,23 @@ and Premium v1 (120 elapsed minutes); tenants created later receive the same
 defaults lazily on first ticket creation. Unsupported business clocks and
 waiting-pause modes fail visibly. Business calendars, holidays, pause
 execution, resolution clocks, policy-management UI, and explicit rebase
-history remain later work.
+history remain later work. Migration 010 is applied in production: four
+policy versions and sixteen targets cover both current tenants, all 275
+historical tickets truthfully retain a NULL target, and all four database
+immutability guards are present. The deployed `service_goals.php` and
+`ticket.php` hashes match merged source. A production-runtime transaction
+canary resolved a v1 target and exact deadline, then rolled back without
+leaving a ticket.
 
-Neither Phase 1 nor Phase 2A is live. Migration 010 has not been run anywhere
-outside disposable scratch testing, and merge or deployment still requires
-separate authorization. The scratch SSO fixture
-also now follows the real
+The time-provenance bridge in this release removes the legacy merge rewrite
+of `time_entries.ticket_id` and refreshes the authenticated tenant into every
+session. It changes no schema and is the required rollback-compatible release
+to deploy before migration 011.
+
+The scratch SSO fixture also now follows the real
 `suite_sso_attempt()` → `current_user()` request path: untouched `origin/main`
 reproduced its stale avatar-session failure at 30 checks / 1 failure, while the
-candidate passed 30 / 0 before the remaining database suites ran.
+merged release passed 30 / 0 before the remaining database suites ran.
 
 ## First-tenant suite SSO repair
 
@@ -197,11 +209,12 @@ teeth.
 
 ## Database
 
-Applied in production: **001 through 009**, including both files numbered 002.
+Applied in production: **001 through 010**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
-2026-08-09. Migration `010_service_goal_policies.sql` is an unapplied
-development candidate. It is additive, leaves historical ticket pointers
-NULL, and must be run before any code that writes `service_goal_target_id`.
+2026-08-09. Migration `010_service_goal_policies.sql` was applied before the
+matching code on 2026-08-26. It is additive and leaves historical ticket
+pointers NULL. Migration 011 is not applied; deploy the time-provenance bridge
+before any future migration-first approval-time release.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
