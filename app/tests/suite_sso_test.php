@@ -152,6 +152,9 @@ db()->exec('SET FOREIGN_KEY_CHECKS=1');
 check('first arrival signs in', arrive() === true);
 $tenant = db()->query("SELECT COUNT(*) FROM tenants WHERE slug = 'scratch-co'")->fetchColumn();
 check('tenant was provisioned on first arrival', (int) $tenant === 1);
+$signedInTenant = db()->query("SELECT id FROM tenants WHERE slug = 'scratch-co'")->fetchColumn();
+check('the authenticated tenant is stamped into the session',
+    (int)($_SESSION['tenant_id'] ?? 0) === (int)$signedInTenant);
 check('exactly one user exists', (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn() === 1);
 check('msp owner maps to local owner', db()->query('SELECT role FROM users LIMIT 1')->fetchColumn() === 'owner');
 

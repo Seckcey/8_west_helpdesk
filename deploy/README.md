@@ -86,8 +86,14 @@ ssh -i ~/.ssh/milepost.pem ubuntu@<origin-ip> "sudo mysql safeharbor" \
 Recorded as applied to production: 001 (mail_queue) · 002 (westy/onboarding) ·
 003 (canned_responses) · 004 (attachments, email_threads, processed_mail,
 resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) ·
-**007 (suite_subject, migration-first on 2026-08-02; acceptance record in
-`docs/suite-sso-deploy-acceptance.md`)**.
+007 (suite_subject) · 008 (Westy reports) · 009 (support intake) ·
+**010 (versioned service goals, migration-first on 2026-08-26)**.
+
+Before applying the future approval-grade time migration 011, deploy the
+merged time-provenance bridge first. The bridge keeps historical time on the
+source ticket during a merge and gives 011 a schema-compatible rollback point.
+Do not apply 011 while production still runs code that rewrites
+`time_entries.ticket_id`.
 
 `002_svc_intake.sql` collides on 002 with `002_westy_onboarding.sql`, so the
 numbering does not order it and its live state is not established by the list

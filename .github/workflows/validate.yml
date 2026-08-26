@@ -27,5 +27,7 @@ jobs:
         run: php app/tests/suite_preferences_test.php
       - name: Test service goals
         run: php app/tests/service_goals_test.php
+      - name: Test time provenance bridge
+        run: php app/tests/time_provenance_bridge_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php
