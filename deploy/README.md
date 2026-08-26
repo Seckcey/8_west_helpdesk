@@ -115,6 +115,26 @@ Production applied 011 through Safeharbor PR #40 / merge `b0a6760` on
 preceding full application/database/grant backup is
 `/srv/8west/backups/safeharbor/20260826T223441Z-pre-phase3-hardening`.
 
+Migration 012 (`customer_portal`) is **not applied** and its source is not a
+deployment instruction. It requires the production 011/composite ownership
+keys already in place. Before any later authorized portal release, run
+`portal_mysql_test.php` against disposable MySQL 8, take protected application
+and database backups, apply 012 with the trigger-capable operator, and verify
+the two tables, composite provider tenant/client FK, globally unique identity
+slug/client indexes, zero mappings, and seven lifecycle/audit triggers. Deploy
+with `portal.enabled=false`; `/portal/` must remain 404. Keep the switch false
+and run no portal CLI transition concurrently with the migration or a replay.
+
+Only after a separately reviewed 8 West ID confidential client exists may the
+server-only portal issuer/client/callback/cache configuration be populated.
+The revocation cache belongs under the private persistent `shared/` tree and
+must be writable by the web identity without exposing it through Apache. One
+explicit canary mapping then follows prepare-disabled → inspect → explicit
+enable while the global switch is still false. Enabling the host and any live
+canary require their own authorization. The exact canary, active-session,
+revocation, tenant-isolation, and rollback sequence is in
+`docs/customer-portal-contract.md`.
+
 The web/cron runtime identity must remain DML-only. It needs `SELECT`,
 `INSERT`, `UPDATE`, and `DELETE` on `safeharbor.*`; it must not hold `ALTER`,
 `CREATE`, `DROP`, `INDEX`, `REFERENCES`, `TRIGGER`, or `GRANT OPTION` because

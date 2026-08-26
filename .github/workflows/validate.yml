@@ -11,6 +11,19 @@ permissions:
 jobs:
   php:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: safeharbor-test-root
+          MYSQL_DATABASE: safeharbor_portal_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - uses: actions/checkout@v4
       - name: Lint PHP
@@ -33,5 +46,17 @@ jobs:
         run: php app/tests/time_entries_test.php
       - name: Test Coastmark approved-time export contract
         run: php app/tests/coastmark_time_export_test.php
+      - name: Test customer portal authentication and revocation
+        run: php app/tests/portal_auth_test.php
+      - name: Test customer portal read-only boundary and rendering
+        run: php app/tests/portal_data_test.php
+      - name: Test customer portal migration and tenant isolation
+        env:
+          SAFEHARBOR_PORTAL_TEST_DB: safeharbor_portal_test
+          SAFEHARBOR_PORTAL_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_PORTAL_TEST_PORT: 3306
+          SAFEHARBOR_PORTAL_TEST_USER: root
+          SAFEHARBOR_PORTAL_TEST_PASS: safeharbor-test-root
+        run: php app/tests/portal_mysql_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php
