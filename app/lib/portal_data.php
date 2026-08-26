@@ -264,19 +264,20 @@ function portal_prepare_binding(
         }
 
         $insert = $pdo->prepare(
-            "INSERT INTO customer_portal_bindings
-                (identity_tenant_slug, tenant_id, client_id, status,
-                 prepared_by_user_id, last_changed_by_user_id, status_reason)
-             VALUES (:identity_tenant_slug, :tenant_id, :client_id, 'disabled',
-                     :actor_user_id, :actor_user_id, :status_reason)"
-        );
-        $insert->execute([
-            'identity_tenant_slug' => $slug,
-            'tenant_id' => $tenantId,
-            'client_id' => $clientId,
-            'actor_user_id' => $actorUserId,
-            'status_reason' => $reason,
-        ]);
+             "INSERT INTO customer_portal_bindings
+                 (identity_tenant_slug, tenant_id, client_id, status,
+                  prepared_by_user_id, last_changed_by_user_id, status_reason)
+              VALUES (:identity_tenant_slug, :tenant_id, :client_id, 'disabled',
+                      :prepared_by_user_id, :last_changed_by_user_id, :status_reason)"
+         );
+         $insert->execute([
+             'identity_tenant_slug' => $slug,
+             'tenant_id' => $tenantId,
+             'client_id' => $clientId,
+             'prepared_by_user_id' => $actorUserId,
+             'last_changed_by_user_id' => $actorUserId,
+             'status_reason' => $reason,
+         ]);
         $bindingId = (int) $pdo->lastInsertId();
         $row = portal_inspect_binding($pdo, $bindingId, $slug, $tenantId, $clientId);
         $pdo->commit();

@@ -101,6 +101,16 @@ portal_data_check('active binding is rechecked against exact slug, tenant, clien
     && str_contains($recheckSource, 'b.client_id = :client_id')
     && str_contains($recheckSource, "b.status = 'active'"));
 
+$prepareStart = is_string($dataSource) ? strpos($dataSource, 'function portal_prepare_binding') : false;
+$prepareEnd = $prepareStart === false ? false : strpos($dataSource, 'function portal_transition_binding', $prepareStart);
+$prepareSource = ($prepareStart === false || $prepareEnd === false)
+    ? ''
+    : substr($dataSource, $prepareStart, $prepareEnd - $prepareStart);
+portal_data_check('native PDO prepare uses distinct actor placeholders',
+    str_contains($prepareSource, ':prepared_by_user_id')
+    && str_contains($prepareSource, ':last_changed_by_user_id')
+    && !str_contains($prepareSource, ':actor_user_id, :actor_user_id'));
+
 $publicSources = '';
 foreach (glob(__DIR__ . '/../public/portal/*.php') ?: [] as $file) {
     $source = file_get_contents($file);
