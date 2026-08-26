@@ -30,8 +30,9 @@ If you change what is live, change this page in the same PR.
 | Migrations 001–011 | **All applied** to production |
 | Versioned service goals | **Live** through Safeharbor PR #37 / merge `1796f57` |
 | Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760` |
+| Approved time → Coastmark draft lines | **Candidate only; both global gates remain off and no mapping/canary is authorized by source** |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
+| Anything "shipping dark" | Phase 4's candidate is default-off and not yet deployed; existing service-intake gates remain live |
 
 ## Customer Service Tools development
 
@@ -119,6 +120,25 @@ No authenticated production browser session was available during this release;
 the deploy did not reset or bypass identity to manufacture one, so a fresh
 signed-in visual acceptance remains an operator follow-up rather than a release
 rollback condition.
+
+Phase 4's first candidate is deliberately manual and draft-only. Safeharbor's
+operator CLI selects one row by exact tenant slug + entry id + immutable entry
+key, requires approved billable reviewer-backed facts and exact protected
+tenant/client allowlists, then sends a versioned HMAC payload to Coastmark. Its
+stable keys are `tenants.slug`, `safeharbor-client:<captured client_id>`, the
+stored `entry_key`, and Safeharbor-local numeric user keys. Raw notes, subjects,
+messages, people data, rates, tax, cents, invoice numbers, and posting commands
+do not cross the seam. There is no scheduler, batch, or automatic retry.
+
+Coastmark's separately reviewed receiver owns the explicit mapping, agreement
+rate, tax, integer cents, immutable import evidence, and one source-managed line
+on a dedicated draft. Exact replay is a no-op; changed facts conflict. Neither
+side can approve, post, send, create Checkout, record payment, or touch the
+ledger through this integration. Both repositories ship default-off and still
+require merge, PostgreSQL CI, Coastmark's additive migration, deploy, one
+disabled-then-enabled mapping, and a controlled 201/200 canary before Phase 4
+may be called live. The exact contract and rollback gates are in
+[`coastmark-approved-time-export-contract.md`](coastmark-approved-time-export-contract.md).
 
 ## First-tenant suite SSO repair
 
@@ -259,11 +279,11 @@ Applied in production: **001 through 010**, including both files numbered 002.
 matching code on 2026-08-26. It is additive and leaves historical ticket
 pointers NULL.
 
-Migration `011_time_entry_approvals.sql` is not yet applied. Before deploying
-its matching code, run `time_entries_mysql_test.php` with a trigger-capable
-operator against an exact disposable database, back up production, apply the
-migration first, and verify legacy rows remain pending plus all permanent
-guards remain installed.
+Migration `011_time_entry_approvals.sql` was applied operator-first on
+2026-08-26 before the matching Phase 3 code. Production has the complete
+approval schema, seven permanent immutability/audit triggers, and the original
+legacy row remains pending. The migration replay and real-runtime rollback
+canary evidence are recorded in the Phase 3 section above.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
@@ -279,7 +299,7 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Fifteen CLI suites live in `app/tests/`. Eight server-free contract suites run
+Sixteen CLI suites live in `app/tests/`. Nine server-free contract suites run
 in CI, including the hermetic SQLite service-goal and approval-time tests plus
 the time-provenance bridge gate. Six integration suites (`suite_sso`,
 `svc_intake`, `svc_support`, `westy_report`, `intake_service_goal`, and

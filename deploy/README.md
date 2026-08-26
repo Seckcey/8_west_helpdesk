@@ -132,6 +132,23 @@ Run migrations only through the reviewed `sudo mysql safeharbor` operator
 path. Verify the runtime grant afterward and prove it cannot `TRUNCATE
 time_entries` or drop an audit trigger; never print or copy the account secret.
 
+## Coastmark approved-time sender
+
+Safeharbor's half of the draft-line seam is an operator-only CLI and has no
+database migration, scheduler, batch, or automatic retry. Its contract and
+canary procedure are in
+[`docs/coastmark-approved-time-export-contract.md`](../docs/coastmark-approved-time-export-contract.md).
+Deploy it with `coastmark_time_export.enabled=false`, empty tenant/client
+allowlists, and no secret. Do not enable it until Coastmark's separately
+reviewed receiver migration, forced-RLS/immutability tests, global gate, and one
+explicit mapping are ready.
+
+Before any send, run the exact entry as `--dry-run`; the output must contain no
+raw note or secret. A canary must prove a 201 create followed by a 200 exact
+replay, one immutable Coastmark import/line, and a draft that remains unposted,
+unsent, and unrelated to Checkout, payment, or ledger records. Rollback is gate
+and mapping disablement, never deletion of accepted financial-side evidence.
+
 `002_svc_intake.sql` collides on 002 with `002_westy_onboarding.sql`, so the
 numbering does not order it and its live state is not established by the list
 above. Check `tickets.external_key` + `svc_identities` in the live schema.

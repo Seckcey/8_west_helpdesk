@@ -31,5 +31,7 @@ jobs:
         run: php app/tests/time_provenance_bridge_test.php
       - name: Test approval-grade technician time
         run: php app/tests/time_entries_test.php
+      - name: Test Coastmark approved-time export contract
+        run: php app/tests/coastmark_time_export_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php

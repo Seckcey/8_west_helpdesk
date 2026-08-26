@@ -142,6 +142,23 @@ return [
         'tenant_slug' => '8west',
     ],
 
+    // Approved Safeharbor time -> Coastmark draft invoice lines only.
+    // This is an operator-run, one-entry-at-a-time sender. It has no scheduler
+    // and stays inert until the global gate, exact tenant/client allowlists,
+    // HTTPS endpoint, service identity, and server-only secret are all set.
+    // Coastmark owns rates, taxes, cents, invoice numbers, approval, posting,
+    // sending, Checkout, payments, and ledger behavior. Never put those facts
+    // in this config or sender payload.
+    'coastmark_time_export' => [
+        'enabled' => false,
+        'endpoint' => 'https://coastmark.8westit.com/api/integrations/safeharbor/time-entries',
+        'service' => 'safeharbor-time',
+        'secret' => '',
+        'tenant_slugs' => [],
+        'client_keys' => [],
+        'timeout_seconds' => 15,
+    ],
+
     // File storage OUTSIDE the deploy tree (deploy.sh re-chmods current/ on
     // every release; shared/ survives untouched). The web user needs write.
     'storage' => [

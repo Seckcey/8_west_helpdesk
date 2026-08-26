@@ -20,6 +20,9 @@ lib/service_goals.php      versioned target resolver/snapshot + deterministic
                            first-response lamps and attainment
 lib/time_entries.php       single writer for idempotent pending time + guarded
                            owner/admin approval decisions
+lib/coastmark_time_export.php
+                           default-off, operator-controlled export of one
+                           approved billable time fact to Coastmark drafts
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
@@ -43,6 +46,9 @@ lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
 lib/svc_intake.php         Milepost alert events → tickets (idempotent upsert)
 lib/westy_report.php       Westy defects → 8 West IT's OWN queue (one ticket per
                            problem; stored text re-scrubbed on arrival)
+db/export_approved_time.php
+                           dry-run/send CLI requiring exact tenant + id + key;
+                           never supplies financial facts or posts an invoice
 lib/svc_support.php        Coastmark + Waypoint support requests → 8 West IT's
                            own queue (one ticket per submission; text stored
                            VERBATIM — deliberately none of westy_report's
