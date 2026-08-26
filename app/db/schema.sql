@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS users (
   PRIMARY KEY (id),
   UNIQUE KEY uq_users_suite_subject (suite_subject),
   UNIQUE KEY uq_users_tenant_email (tenant_id, email),
+  UNIQUE KEY uq_users_tenant_id (tenant_id, id),
   KEY ix_users_tenant (tenant_id),
   CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS clients (
   notes       TEXT NULL,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
+  UNIQUE KEY uq_clients_tenant_id (tenant_id, id),
   KEY ix_clients_tenant (tenant_id),
   CONSTRAINT fk_clients_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -133,6 +135,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   resolved_at DATETIME NULL,
   PRIMARY KEY (id),
+  UNIQUE KEY uq_tickets_tenant_id (tenant_id, id),
   KEY ix_tickets_tenant_status (tenant_id, status),
   KEY ix_tickets_client (client_id),
   KEY ix_tickets_assignee (assignee_id),
@@ -305,22 +308,284 @@ CREATE TABLE IF NOT EXISTS csat (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
--- Time entries (billable work; approved entries flow to Coastmark in Phase 2)
+-- Approval-grade technician time. Facts are immutable after logging; a
+-- separate review transition decides whether a billable row may leave
+-- Safeharbor for a downstream draft-invoice seam.
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS time_entries (
-  id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  ticket_id  INT UNSIGNED NOT NULL,
-  user_id    INT UNSIGNED NOT NULL,
-  minutes    INT UNSIGNED NOT NULL,
-  note       VARCHAR(255) NOT NULL DEFAULT '',
-  billable   TINYINT(1) NOT NULL DEFAULT 1,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id           INT UNSIGNED NOT NULL,
+  client_id           INT UNSIGNED NOT NULL,
+  entry_key           VARCHAR(64) NOT NULL,
+  ticket_id           INT UNSIGNED NOT NULL,
+  user_id             INT UNSIGNED NOT NULL,
+  minutes             INT UNSIGNED NOT NULL,
+  note                VARCHAR(255) NOT NULL DEFAULT '',
+  billable            TINYINT(1) NOT NULL DEFAULT 1,
+  source              ENUM('timer','reply','suggestion','legacy') NOT NULL DEFAULT 'legacy',
+  worked_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at          DATETIME NULL,
+  ended_at            DATETIME NULL,
+  approval_status     ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  reviewed_by_user_id INT UNSIGNED NULL,
+  reviewed_at         DATETIME NULL,
+  review_note         VARCHAR(500) NOT NULL DEFAULT '',
+  created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
+  UNIQUE KEY uq_time_entries_tenant_key (tenant_id, entry_key),
+  UNIQUE KEY uq_time_entries_tenant_id (tenant_id, id),
   KEY ix_time_ticket (ticket_id),
   KEY ix_time_user_created (user_id, created_at),
+  KEY ix_time_entries_ticket (tenant_id, ticket_id),
+  KEY ix_time_entries_user_worked (tenant_id, user_id, worked_at),
+  KEY ix_time_entries_client_status (tenant_id, client_id, approval_status, worked_at),
+  KEY ix_time_entries_approval_queue (tenant_id, approval_status, worked_at, id),
+  KEY ix_time_entries_reviewer (tenant_id, reviewed_by_user_id, reviewed_at),
+  CONSTRAINT ck_time_entries_minutes CHECK (minutes BETWEEN 1 AND 1440),
+  CONSTRAINT ck_time_entries_billable CHECK (billable IN (0, 1)),
   CONSTRAINT fk_time_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id),
-  CONSTRAINT fk_time_user   FOREIGN KEY (user_id)   REFERENCES users (id)
+  CONSTRAINT fk_time_user   FOREIGN KEY (user_id)   REFERENCES users (id),
+  CONSTRAINT fk_time_entries_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_time_entries_ticket_tenant FOREIGN KEY (tenant_id, ticket_id)
+    REFERENCES tickets (tenant_id, id),
+  CONSTRAINT fk_time_entries_client_tenant FOREIGN KEY (tenant_id, client_id)
+    REFERENCES clients (tenant_id, id),
+  CONSTRAINT fk_time_entries_user_tenant FOREIGN KEY (tenant_id, user_id)
+    REFERENCES users (tenant_id, id),
+  CONSTRAINT fk_time_entries_reviewer_tenant FOREIGN KEY (tenant_id, reviewed_by_user_id)
+    REFERENCES users (tenant_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS time_entry_events (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id     INT UNSIGNED NOT NULL,
+  time_entry_id INT UNSIGNED NOT NULL,
+  actor_user_id INT UNSIGNED NOT NULL,
+  event_kind    ENUM('logged','approved','rejected') NOT NULL,
+  from_status   ENUM('pending','approved','rejected') NULL,
+  to_status     ENUM('pending','approved','rejected') NOT NULL,
+  reason        VARCHAR(500) NOT NULL DEFAULT '',
+  snapshot_json JSON NOT NULL,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_time_entry_events_entry_kind (tenant_id, time_entry_id, event_kind),
+  KEY ix_time_entry_events_entry (tenant_id, time_entry_id, id),
+  KEY ix_time_entry_events_actor_created (tenant_id, actor_user_id, created_at),
+  CONSTRAINT fk_time_entry_events_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_time_entry_events_entry FOREIGN KEY (tenant_id, time_entry_id)
+    REFERENCES time_entries (tenant_id, id),
+  CONSTRAINT fk_time_entry_events_actor FOREIGN KEY (tenant_id, actor_user_id)
+    REFERENCES users (tenant_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Prove TRIGGER privilege before replacing any audit guard. The migration
+-- uses the same preflight before installing these canonical fresh-schema
+-- definitions.
+DROP TRIGGER IF EXISTS trg_time_entry_privilege_preflight;
+CREATE TRIGGER trg_time_entry_privilege_preflight
+BEFORE INSERT ON time_entries
+FOR EACH ROW
+SET @time_entry_trigger_privilege_preflight = 1;
+DROP TRIGGER trg_time_entry_privilege_preflight;
+
+DELIMITER $$
+CREATE TRIGGER trg_time_entries_before_insert
+BEFORE INSERT ON time_entries
+FOR EACH ROW
+BEGIN
+  DECLARE ticket_tenant_id INT UNSIGNED;
+  DECLARE ticket_client_id INT UNSIGNED;
+
+  SELECT tenant_id, client_id
+    INTO ticket_tenant_id, ticket_client_id
+    FROM tickets
+   WHERE id = NEW.ticket_id;
+
+  IF ticket_tenant_id IS NULL OR ticket_client_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry ticket does not exist';
+  END IF;
+  IF NEW.tenant_id IS NOT NULL AND NEW.tenant_id <> ticket_tenant_id THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry tenant must match ticket';
+  END IF;
+  IF NEW.client_id IS NOT NULL AND NEW.client_id <> ticket_client_id THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry client must match ticket';
+  END IF;
+
+  SET NEW.tenant_id = ticket_tenant_id;
+  SET NEW.client_id = ticket_client_id;
+  SET NEW.entry_key = COALESCE(NULLIF(TRIM(NEW.entry_key), ''), CONCAT('legacy:', UUID()));
+  SET NEW.source = COALESCE(NEW.source, 'legacy');
+  SET NEW.worked_at = COALESCE(NEW.worked_at, UTC_TIMESTAMP());
+  SET NEW.approval_status = COALESCE(NEW.approval_status, 'pending');
+  SET NEW.review_note = COALESCE(NEW.review_note, '');
+
+  IF NEW.approval_status <> 'pending' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'New time entries must be pending';
+  END IF;
+  IF NEW.reviewed_by_user_id IS NOT NULL OR NEW.reviewed_at IS NOT NULL
+     OR NEW.review_note <> '' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'New time entries cannot be pre-reviewed';
+  END IF;
+  IF (NEW.started_at IS NULL) <> (NEW.ended_at IS NULL)
+     OR (NEW.started_at IS NOT NULL AND NEW.ended_at < NEW.started_at) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry interval is invalid';
+  END IF;
+  IF NEW.source = 'timer' AND NEW.started_at IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Timer time requires start and end evidence';
+  END IF;
+  IF NEW.source = 'suggestion' AND NEW.started_at IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Suggested time cannot claim timer evidence';
+  END IF;
+  IF NEW.started_at IS NOT NULL THEN
+    IF TIMESTAMPDIFF(SECOND, NEW.started_at, NEW.ended_at) > 86400 THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry interval cannot exceed 24 hours';
+    END IF;
+    IF NEW.worked_at < NEW.started_at OR NEW.worked_at > NEW.ended_at THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Worked time must fall inside measured interval';
+    END IF;
+    IF ABS(
+         NEW.minutes
+         - ROUND(TIMESTAMPDIFF(SECOND, NEW.started_at, NEW.ended_at) / 60.0)
+       ) > 1 THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Minutes must match measured interval';
+    END IF;
+  END IF;
+END$$
+
+CREATE TRIGGER trg_time_entries_after_insert
+AFTER INSERT ON time_entries
+FOR EACH ROW
+BEGIN
+  INSERT INTO time_entry_events
+    (tenant_id, time_entry_id, actor_user_id, event_kind, from_status,
+     to_status, reason, snapshot_json, created_at)
+  VALUES
+    (NEW.tenant_id, NEW.id, NEW.user_id, 'logged', NULL, 'pending', '',
+     JSON_OBJECT(
+       'id', NEW.id,
+       'tenant_id', NEW.tenant_id,
+       'client_id', NEW.client_id,
+       'entry_key', NEW.entry_key,
+       'ticket_id', NEW.ticket_id,
+       'user_id', NEW.user_id,
+       'minutes', NEW.minutes,
+       'note', NEW.note,
+       'billable', NEW.billable,
+       'source', NEW.source,
+       'worked_at', NEW.worked_at,
+       'started_at', NEW.started_at,
+       'ended_at', NEW.ended_at,
+       'approval_status', NEW.approval_status,
+       'reviewed_by_user_id', NEW.reviewed_by_user_id,
+       'reviewed_at', NEW.reviewed_at,
+       'review_note', NEW.review_note,
+       'created_at', NEW.created_at
+     ), UTC_TIMESTAMP());
+END$$
+
+CREATE TRIGGER trg_time_entries_before_update
+BEFORE UPDATE ON time_entries
+FOR EACH ROW
+BEGIN
+  DECLARE reviewer_is_authorized INT DEFAULT 0;
+
+  IF NOT (
+       NEW.tenant_id <=> OLD.tenant_id
+   AND NEW.client_id <=> OLD.client_id
+   AND NEW.entry_key <=> OLD.entry_key
+   AND NEW.ticket_id <=> OLD.ticket_id
+   AND NEW.user_id <=> OLD.user_id
+   AND NEW.minutes <=> OLD.minutes
+   AND NEW.note <=> OLD.note
+   AND NEW.billable <=> OLD.billable
+   AND NEW.source <=> OLD.source
+   AND NEW.worked_at <=> OLD.worked_at
+   AND NEW.started_at <=> OLD.started_at
+   AND NEW.ended_at <=> OLD.ended_at
+   AND NEW.created_at <=> OLD.created_at
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry facts are immutable';
+  END IF;
+
+  IF OLD.approval_status <> 'pending'
+     OR NEW.approval_status NOT IN ('approved', 'rejected') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Only pending time entries may be reviewed';
+  END IF;
+  IF NEW.reviewed_by_user_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry review requires a reviewer';
+  END IF;
+
+  SELECT COUNT(*)
+    INTO reviewer_is_authorized
+    FROM users
+   WHERE tenant_id = NEW.tenant_id
+     AND id = NEW.reviewed_by_user_id
+     AND is_active = 1
+     AND role IN ('owner', 'admin');
+  IF reviewer_is_authorized <> 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry reviewer must be an active owner or admin';
+  END IF;
+
+  SET NEW.reviewed_at = UTC_TIMESTAMP();
+  SET NEW.review_note = TRIM(COALESCE(NEW.review_note, ''));
+  IF NEW.approval_status = 'rejected' AND NEW.review_note = '' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Rejected time requires a reason';
+  END IF;
+END$$
+
+CREATE TRIGGER trg_time_entries_after_update
+AFTER UPDATE ON time_entries
+FOR EACH ROW
+BEGIN
+  INSERT INTO time_entry_events
+    (tenant_id, time_entry_id, actor_user_id, event_kind, from_status,
+     to_status, reason, snapshot_json, created_at)
+  VALUES
+    (NEW.tenant_id, NEW.id, NEW.reviewed_by_user_id, NEW.approval_status,
+     OLD.approval_status, NEW.approval_status, NEW.review_note,
+     JSON_OBJECT(
+       'id', NEW.id,
+       'tenant_id', NEW.tenant_id,
+       'client_id', NEW.client_id,
+       'entry_key', NEW.entry_key,
+       'ticket_id', NEW.ticket_id,
+       'user_id', NEW.user_id,
+       'minutes', NEW.minutes,
+       'note', NEW.note,
+       'billable', NEW.billable,
+       'source', NEW.source,
+       'worked_at', NEW.worked_at,
+       'started_at', NEW.started_at,
+       'ended_at', NEW.ended_at,
+       'approval_status', NEW.approval_status,
+       'reviewed_by_user_id', NEW.reviewed_by_user_id,
+       'reviewed_at', NEW.reviewed_at,
+       'review_note', NEW.review_note,
+       'created_at', NEW.created_at
+     ), NEW.reviewed_at);
+END$$
+
+CREATE TRIGGER trg_time_entries_no_delete
+BEFORE DELETE ON time_entries
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entries cannot be deleted';
+END$$
+
+CREATE TRIGGER trg_time_entry_events_no_update
+BEFORE UPDATE ON time_entry_events
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry events are immutable';
+END$$
+
+CREATE TRIGGER trg_time_entry_events_no_delete
+BEFORE DELETE ON time_entry_events
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry events are immutable';
+END$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 -- Westy reports (failure + flagged-answer intake; migration 008)

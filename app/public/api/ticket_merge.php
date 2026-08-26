@@ -3,8 +3,8 @@
  * POST /api/ticket_merge.php — merge one ticket into another.
  * Body: {source_id, target_id}. Moves messages, attachments, and
  * email-conversation mappings to the target; the source becomes a resolved
- * stub pointing at the survivor (merged_into_id). Time remains on the source
- * stub so a later approval migration can preserve original provenance.
+ * stub pointing at the survivor (merged_into_id). Approval-grade time stays
+ * on that source stub so its captured ticket/client provenance never changes.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../../lib/render.php';

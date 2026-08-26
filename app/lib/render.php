@@ -123,7 +123,8 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
 </script>
 <link rel="stylesheet" href="/assets/css/app.css?v=3">
 </head>
-<body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>">
+<body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
+      data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
 <div class="shell">
   <aside class="sidebar">
     <a class="brand" href="/">

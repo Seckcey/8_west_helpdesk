@@ -38,7 +38,8 @@ which lives on the same box (`support.8westit.com`).
 # 1. MySQL database + user (password goes into config.php below)
 sudo mysql -e "CREATE DATABASE safeharbor CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; \
   CREATE USER 'safeharbor'@'localhost' IDENTIFIED BY '<password>'; \
-  GRANT ALL PRIVILEGES ON safeharbor.* TO 'safeharbor'@'localhost'; FLUSH PRIVILEGES;"
+  GRANT SELECT, INSERT, UPDATE, DELETE ON safeharbor.* TO 'safeharbor'@'localhost'; \
+  FLUSH PRIVILEGES;"
 
 # 2. App dir + server config (copy config.sample.php, fill in the password)
 sudo mkdir -p /srv/8west/apps/safeharbor/current/config
@@ -46,10 +47,10 @@ sudo mkdir -p /srv/8west/apps/safeharbor/current/config
 sudo chown -R ubuntu:www-data /srv/8west/apps/safeharbor
 sudo chmod 640 /srv/8west/apps/safeharbor/current/config/config.php
 
-# 3. Deploy the code (from your machine), then schema + seed
+# 3. Deploy the code (from your machine), then load schema as an operator.
+# Never seed production; db/seed.php is a destructive sandbox-only reset.
 KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 sudo mysql safeharbor < /srv/8west/apps/safeharbor/current/db/schema.sql
-cd /srv/8west/apps/safeharbor/current && php db/seed.php
 
 # 4. Vhosts (files in this directory) + reload
 scp -i ~/.ssh/milepost.pem deploy/apache-safeharbor*.conf ubuntu@<origin-ip>:/tmp/
@@ -89,11 +90,40 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 007 (suite_subject) · 008 (Westy reports) · 009 (support intake) ·
 **010 (versioned service goals, migration-first on 2026-08-26)**.
 
-Before applying the future approval-grade time migration 011, deploy the
-merged time-provenance bridge first. The bridge keeps historical time on the
-source ticket during a merge and gives 011 a schema-compatible rollback point.
-Do not apply 011 while production still runs code that rewrites
-`time_entries.ticket_id`.
+The merged time-provenance bridge must be live before migration 011. It keeps
+historical time on the source ticket during a merge and gives 011 a
+schema-compatible rollback point. Do not apply 011 while production runs code
+that rewrites `time_entries.ticket_id`.
+
+Migration 011 (approval-grade technician time) is also migration-first. Take
+an exact database/application backup, run its scratch-MySQL replay and
+forbidden-mutation probes, then apply it with the trigger-capable operator
+identity before deploying code that reads approval columns. Its compatibility
+trigger keeps the previous five-column time writer valid during that narrow
+rollout window while separate staging guards fail closed on old merge-style
+updates and deletes. Confirm `demo_mode` is false and do not run the demo seed,
+manual time-entry DDL, or a second migration concurrently. The postflight must
+show all exact columns, seven named
+indexes, five tenant-scoped foreign keys, the minute and billable checks, the
+immutable event table, and seven permanent triggers; every historical entry
+remains `pending`.
+
+The web/cron runtime identity must remain DML-only. It needs `SELECT`,
+`INSERT`, `UPDATE`, and `DELETE` on `safeharbor.*`; it must not hold `ALTER`,
+`CREATE`, `DROP`, `INDEX`, `REFERENCES`, `TRIGGER`, or `GRANT OPTION` because
+those privileges can bypass or remove approval audit guards (`TRUNCATE`
+requires `DROP`). Before calling migration 011 complete, preserve the current
+grant statement in the protected backup record, then converge the existing
+runtime account with the privileged operator:
+
+```sql
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'safeharbor'@'localhost';
+GRANT SELECT, INSERT, UPDATE, DELETE ON safeharbor.* TO 'safeharbor'@'localhost';
+```
+
+Run migrations only through the reviewed `sudo mysql safeharbor` operator
+path. Verify the runtime grant afterward and prove it cannot `TRUNCATE
+time_entries` or drop an audit trigger; never print or copy the account secret.
 
 `002_svc_intake.sql` collides on 002 with `002_westy_onboarding.sql`, so the
 numbering does not order it and its live state is not established by the list
