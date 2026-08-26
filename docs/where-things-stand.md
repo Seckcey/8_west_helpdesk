@@ -91,6 +91,14 @@ the database-resolved tenant on every request, and each touched time/report
 consumer binds directly to the authenticated user's tenant; regression gates
 cover the prior tenant-1 fallback failure.
 
+Exact candidate evidence: 71 PHP files lint, all eight server-free CI commands
+pass, service goals are 55/55, the provenance bridge is 2/2, approval time is
+81/81, suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is
+96/96 on disposable MySQL 8. Desktop and mobile Playwright probes cover both
+"request never arrived" and "commit succeeded but response was lost" timer
+boundaries. Production migration, deploy, and transaction-canary evidence are
+still required before this section may call Phase 3 live.
+
 ## First-tenant suite SSO repair
 
 Safeharbor PR [#31](https://github.com/Seckcey/8_west_helpdesk/pull/31)
