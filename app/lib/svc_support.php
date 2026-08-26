@@ -48,7 +48,6 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/svc_intake.php';   // svc_client_sla_hours() + bootstrap
 require_once __DIR__ . '/intake.php';       // intake_is_auto_mail() + mail_queue()
 
 /**
@@ -457,12 +456,30 @@ function support_open(array $p, int $tenantId, array $src): array
 {
     $clientId  = support_client_id($tenantId, $src, $p['tenant_slug'], $p['tenant_name']);
     $contactId = support_contact_id($clientId, $p['requester_email'], $p['requester_name']);
-    $hours     = svc_client_sla_hours($clientId);
+    $goal = service_goal_snapshot_for_new_ticket(
+        db(),
+        $tenantId,
+        $clientId,
+        'normal',
+    );
+    $window = service_goal_window_label($goal['first_response_minutes']);
 
     db()->prepare(
-        'INSERT INTO tickets (tenant_id, client_id, contact_id, subject, priority, channel, external_key, sla_due_at)
-         VALUES (?,?,?,?,"normal","portal",?,DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR))'
-    )->execute([$tenantId, $clientId, $contactId, $p['subject'], $p['external_key'], $hours]);
+        'INSERT INTO tickets
+            (tenant_id, client_id, contact_id, subject, priority, channel, external_key,
+             sla_due_at, service_goal_target_id, created_at, updated_at)
+         VALUES (?,?,?,?,"normal","portal",?,?,?,?,?)'
+    )->execute([
+        $tenantId,
+        $clientId,
+        $contactId,
+        $p['subject'],
+        $p['external_key'],
+        $goal['due_at'],
+        $goal['target_id'],
+        $goal['opened_at'],
+        $goal['opened_at'],
+    ]);
     $ticketId = (int)db()->lastInsertId();
 
     // kind='client' — this is the requester talking, not a machine event, and
@@ -471,15 +488,15 @@ function support_open(array $p, int $tenantId, array $src): array
         ->execute([$ticketId, $p['requester_name'], $p['body']]);
 
     db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,"system",?)')
-        ->execute([$ticketId, $src['label'], support_provenance($p, $src, $hours)]);
+        ->execute([$ticketId, $src['label'], support_provenance($p, $src, $window)]);
 
-    support_ack($ticketId, $p, $hours);
+    support_ack($ticketId, $p, $window);
 
     return ['ok' => true, 'action' => 'created', 'ticket' => $ticketId];
 }
 
 /** Where this came from, in words a tech can act on without asking anyone. */
-function support_provenance(array $p, array $src, int $hours): string
+function support_provenance(array $p, array $src, string $responseWindow): string
 {
     $lines = [
         'Support request from ' . $p['tenant_name'] . ', sent through ' . $src['label'] . '.',
@@ -493,7 +510,7 @@ function support_provenance(array $p, array $src, int $hours): string
     $lines[] = 'reference: ' . $p['external_key'];
     $lines[] = '';
     $lines[] = 'Reply on this ticket and it is emailed to them; their answer comes back to this'
-             . ' thread. SLA response due in ' . $hours . ' hours.';
+             . ' thread. Response target due in ' . $responseWindow . '.';
 
     return mb_substr(implode("\n", $lines), 0, 8000);
 }
@@ -506,7 +523,7 @@ function support_provenance(array $p, array $src, int $hours): string
  * otherwise 500, the caller would retry, and the retry would only be ignored
  * as a duplicate anyway.
  */
-function support_ack(int $ticketId, array $p, int $hours): void
+function support_ack(int $ticketId, array $p, string $responseWindow): void
 {
     try {
         if (!cfg('support_intake.ack_email', true)) return;
@@ -517,7 +534,7 @@ function support_ack(int $ticketId, array $p, int $hours): void
             '[#' . $ticketId . '] ' . $p['subject'],
             "Hi {$p['requester_name']},\n\n"
             . "We've got it — ticket #{$ticketId} is open with 8 West IT and a tech will reply"
-            . " within {$hours} hours.\n\n"
+            . " within {$responseWindow}.\n\n"
             . "Reply to this email any time to add to the thread (keep [#{$ticketId}] in the subject).\n"
             . "— Safeharbor by 8 West IT",
             $ticketId

@@ -10,7 +10,7 @@
  * no human has touched (status still 'open'). Once a tech moves the ticket
  * (in_progress / waiting), ownership is human — the resolve lands as a
  * system line and the human still closes it. Replays never re-open.
- * Mirrors lib/intake.php conventions (catch-all client, SLA by tier,
+ * Mirrors lib/intake.php conventions (catch-all client, captured service goal,
  * kind='system' provenance lines) without touching the email pipeline.
  */
 declare(strict_types=1);
@@ -84,11 +84,28 @@ function svc_alert_handle(array $p): array
 
     if (!$ticket) {
         $clientId = svc_resolve_client_id($clientName);
-        $hours    = svc_client_sla_hours($clientId);
+        $goal = service_goal_snapshot_for_new_ticket(
+            db(),
+            tenant_id(),
+            $clientId,
+            $priority,
+        );
         db()->prepare(
-            'INSERT INTO tickets (tenant_id, client_id, contact_id, subject, priority, channel, external_key, sla_due_at)
-             VALUES (?,?,NULL,?,?,"alert",?,DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR))'
-        )->execute([tenant_id(), $clientId, $subject, $priority, $extKey, $hours]);
+            'INSERT INTO tickets
+                (tenant_id, client_id, contact_id, subject, priority, channel, external_key,
+                 sla_due_at, service_goal_target_id, created_at, updated_at)
+             VALUES (?,?,NULL,?,?,"alert",?,?,?,?,?)'
+        )->execute([
+            tenant_id(),
+            $clientId,
+            $subject,
+            $priority,
+            $extKey,
+            $goal['due_at'],
+            $goal['target_id'],
+            $goal['opened_at'],
+            $goal['opened_at'],
+        ]);
         $tid = (int)db()->lastInsertId();
         svc_system_line($tid, svc_alert_detail($p, $occurredAt, 'Alert opened at source'));
         return ['ok' => true, 'action' => 'created', 'ticket' => $tid];
@@ -106,7 +123,6 @@ function svc_alert_handle(array $p): array
     svc_system_line((int)$ticket['id'], svc_alert_detail($p, $occurredAt, 'Alert re-fired at source'));
     return ['ok' => true, 'action' => 'updated', 'ticket' => (int)$ticket['id']];
 }
-
 /** Multi-line provenance body stored as the ticket's system message. */
 function svc_alert_detail(array $p, string $occurredAt, string $headline): string
 {
@@ -164,12 +180,4 @@ function svc_intake_client_id(): int
             'Catch-all for Milepost alerts whose client name did not match a Safeharbor client. Reassign the ticket to the right client once the names line up.',
         ]);
     return (int)db()->lastInsertId();
-}
-
-/** SLA response hours by the matched client's tier (existing convention). */
-function svc_client_sla_hours(int $clientId): int
-{
-    $q = db()->prepare('SELECT sla_tier FROM clients WHERE id = ?');
-    $q->execute([$clientId]);
-    return (($q->fetch()['sla_tier'] ?? 'standard') === 'premium') ? 2 : 8;
 }

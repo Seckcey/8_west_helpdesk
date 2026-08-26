@@ -13,9 +13,11 @@ published; use an authorized 8 West ID or local account.
 config/config.sample.php   host config template (config.php is server-only, gitignored)
 db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
-db/migrations/             numbered SQL migrations (as needed; 007 suite
-                           subject applied to production 2026-08-02)
+db/migrations/             numbered SQL migrations (as needed; 010 versioned
+                           service goals is a development candidate, not live)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
+lib/service_goals.php      versioned target resolver/snapshot + deterministic
+                           first-response lamps and attainment
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
@@ -44,9 +46,10 @@ lib/svc_support.php        Coastmark + Waypoint support requests → 8 West IT's
                            collapsing). Callers come from server config,
                            `support_intake.sources` — adding the next product
                            is not a code change
-tests/                     CLI-only hermetic tests against a scratch database —
+tests/                     CLI contract + scratch-MySQL integration tests —
                            suite_sso_test.php, svc_intake_test.php,
-                           westy_report_test.php, svc_support_test.php
+                           westy_report_test.php, svc_support_test.php,
+                           intake_service_goal_test.php
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
 cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
@@ -54,12 +57,12 @@ cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
 public/                    Apache docroot (page-per-file, like Milepost)
   index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
   ticket.php               Ticket detail (thread, reply PRG, rail actions)
-  ticket_new.php           New ticket (SLA auto-set from client tier)
+  ticket_new.php           New ticket (captures exact effective policy version/target)
   clients.php, client.php  Clients + "answer the phone smart" screen
   client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
   users.php                Team — user management (owner/admin add, deactivate)
   time.php                 Timer + suggested entries + today's entries
-  reports.php              Real numbers: first response, SLA, aging, time,
+  reports.php              Real numbers: first response, response-target attainment, aging, time,
                            billable by client (+ reports_export.php CSV)
   snippets.php             Saved replies ("/" in the composer; merge fields)
   csat.php                 One-tap resolution survey (token-authed, public)
@@ -72,8 +75,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   api/presence.php         Collision-detection heartbeat (viewing/typing chips)
   api/search.php           Deep search (subjects + FULLTEXT bodies, resolved incl.)
   api/ticket_merge.php     Merge a ticket into a survivor (stub left behind)
-  api/svc/alerts.php       Signed Milepost alert intake — 404s while svc.enabled
-                           is false (ships dark)
+  api/svc/alerts.php       Signed Milepost alert intake — live; 404s only while
+                           the svc.enabled kill switch is false
   api/svc/westy.php        Signed Westy failure / flagged-answer reports from
                            Milepost + the Control Panel (one ticket per problem)
   api/svc/support.php      Signed human support requests from Coastmark and

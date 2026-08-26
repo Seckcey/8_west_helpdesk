@@ -50,6 +50,7 @@ function fresh_schema(bool $withTenant = true): void
     foreach (['schema.sql', 'migrations/002_svc_intake.sql', 'migrations/008_westy_reports.sql'] as $f) {
         $sql = (string)file_get_contents(__DIR__ . '/../db/' . $f);
         foreach (explode(";\n", $sql) as $stmt) {
+            if (preg_match('/\b(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
             if (trim($stmt) !== '') {
                 $pdo->exec($stmt);
             }
@@ -110,6 +111,24 @@ function ticket(int $id): ?array
     return $q->fetch() ?: null;
 }
 
+function goal_for_ticket(int $ticketId): ?array
+{
+    $q = db()->prepare(
+        'SELECT policy.policy_key, policy.version_no, target.priority,
+                target.first_response_minutes
+           FROM tickets ticket
+           JOIN service_goal_policy_targets target
+             ON target.tenant_id = ticket.tenant_id
+            AND target.id = ticket.service_goal_target_id
+           JOIN service_goal_policy_versions policy
+             ON policy.tenant_id = ticket.tenant_id
+            AND policy.id = target.policy_version_id
+          WHERE ticket.id = ?'
+    );
+    $q->execute([$ticketId]);
+    return $q->fetch() ?: null;
+}
+
 function messages(int $ticketId): array
 {
     $q = db()->prepare('SELECT * FROM messages WHERE ticket_id = ? ORDER BY id');
@@ -167,6 +186,15 @@ check('failure_priority_normal', ($t['priority'] ?? '') === 'normal');
 check('failure_subject_names_westy', str_starts_with((string)($t['subject'] ?? ''), 'Westy failure — '));
 check('failure_external_key_is_fingerprint', str_starts_with((string)($t['external_key'] ?? ''), 'westy:safeharbor:fail:'));
 check('failure_key_within_column', mb_strlen((string)($t['external_key'] ?? '')) <= 64);
+$firstTargetId = (int) ($t['service_goal_target_id'] ?? 0);
+$firstDueAt = (string) ($t['sla_due_at'] ?? '');
+$firstGoal = goal_for_ticket((int) $r['ticket']);
+check('failure_captures_standard_v1_normal_target',
+    $firstTargetId > 0
+    && ($firstGoal['policy_key'] ?? '') === 'standard'
+    && (int) ($firstGoal['version_no'] ?? 0) === 1
+    && ($firstGoal['priority'] ?? '') === 'normal'
+    && (int) ($firstGoal['first_response_minutes'] ?? 0) === 480);
 $m = messages((int)$r['ticket']);
 check('failure_has_one_system_line', count($m) === 1 && $m[0]['kind'] === 'system');
 check('failure_line_authored_by_westy', ($m[0]['author_name'] ?? '') === 'Westy');
@@ -185,6 +213,10 @@ check('repeat_line_shows_count_two', str_contains($m[0]['body'], 'occurrences: 2
 $row = report_row('westy:safeharbor:fail:%');
 check('repeat_row_counts_two', (int)($row['occurrences'] ?? 0) === 2);
 check('repeat_row_keeps_generation_one', (int)($row['generation'] ?? 0) === 1);
+$repeatedTicket = ticket($firstTicket);
+check('repeat_preserves_the_original_service_goal',
+    (int) ($repeatedTicket['service_goal_target_id'] ?? 0) === $firstTargetId
+    && ($repeatedTicket['sla_due_at'] ?? '') === $firstDueAt);
 
 /* A genuinely different error is a different problem. */
 $r3 = westy_report_record(fail_payload(['failure' => ['error_detail' => 'Could not reach the AI provider (connection timed out).']]));
@@ -206,12 +238,30 @@ for ($i = 6; $i <= 25; $i++) {
 $m = messages($firstTicket);
 check('threshold_twentyfive_appends_second_line', count($m) === 3);
 check('threshold_twentyfive_bumps_priority', (ticket($firstTicket)['priority'] ?? '') === 'high');
+check('priority_bump_does_not_rebase_service_goal',
+    (int) (ticket($firstTicket)['service_goal_target_id'] ?? 0) === $firstTargetId
+    && (ticket($firstTicket)['sla_due_at'] ?? '') === $firstDueAt);
 check('threshold_line_count_stays_bounded', count($m) === 3 && str_contains($m[0]['body'], 'occurrences: 25'));
 
 westy_report_record(fail_payload());
 check('non_threshold_adds_no_line', count(messages($firstTicket)) === 3);
 
 /* ── 4. a resolved problem coming back opens generation 2, linked ─────────── */
+$effective = gmdate('Y-m-d H:i:s', time() - 1);
+db()->prepare(
+    'INSERT INTO service_goal_policy_versions
+        (tenant_id, policy_key, version_no, display_name, effective_from, clock_mode, time_zone, pause_mode)
+     VALUES (1,"standard",2,"Standard",?,"elapsed","UTC","none")'
+)->execute([$effective]);
+$standardV2 = (int) db()->lastInsertId();
+$targetInsert = db()->prepare(
+    'INSERT INTO service_goal_policy_targets
+        (tenant_id, policy_version_id, priority, first_response_minutes, resolution_minutes)
+     VALUES (1,?,?,300,NULL)'
+);
+foreach (SERVICE_GOAL_PRIORITIES as $priority) {
+    $targetInsert->execute([$standardV2, $priority]);
+}
 db()->prepare('UPDATE tickets SET status = "resolved", resolved_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$firstTicket]);
 $r4 = westy_report_record(fail_payload());
 check('return_after_resolve_opens_new_ticket', $r4['action'] === 'created' && (int)$r4['ticket'] !== $firstTicket);
@@ -219,6 +269,11 @@ check('return_never_reopens_closed_ticket', (ticket($firstTicket)['status'] ?? '
 $gen2 = ticket((int)$r4['ticket']);
 check('return_key_has_generation_suffix', str_ends_with((string)($gen2['external_key'] ?? ''), ':g2'));
 check('return_key_within_column', mb_strlen((string)($gen2['external_key'] ?? '')) <= 64);
+$gen2Goal = goal_for_ticket((int) $r4['ticket']);
+check('new_generation_captures_the_new_effective_version',
+    ($gen2Goal['policy_key'] ?? '') === 'standard'
+    && (int) ($gen2Goal['version_no'] ?? 0) === 2
+    && (int) ($gen2Goal['first_response_minutes'] ?? 0) === 300);
 $m = messages((int)$r4['ticket']);
 check('return_links_back_to_previous', str_contains($m[0]['body'], '#' . $firstTicket));
 check('return_counter_restarts', str_contains($m[1]['body'], 'occurrences: 1'));
@@ -280,10 +335,20 @@ check('flag_counts_three', str_contains($body, 'occurrences: 3'));
  * exactly as a concurrent process would. */
 $racedQuestion = 'Why did the SLA lamp turn red?';
 $racedFp = westy_fingerprint(['event' => 'flagged', 'app' => 'safeharbor', 'flagged' => ['question' => $racedQuestion]]);
+$racedClient = westy_report_client_id(1, 'safeharbor');
+$racedGoal = service_goal_snapshot_for_new_ticket(db(), 1, $racedClient, 'low');
 db()->prepare(
-    'INSERT INTO tickets (tenant_id, client_id, subject, priority, channel, external_key, sla_due_at)
-     VALUES (1, ?, "raced", "low", "alert", ?, UTC_TIMESTAMP())'
-)->execute([westy_report_client_id(1, 'safeharbor'), $racedFp]);
+    'INSERT INTO tickets
+        (tenant_id, client_id, subject, priority, channel, external_key,
+         sla_due_at, service_goal_target_id, created_at)
+     VALUES (1, ?, "raced", "low", "alert", ?, ?, ?, ?)'
+)->execute([
+    $racedClient,
+    $racedFp,
+    $racedGoal['due_at'],
+    $racedGoal['target_id'],
+    $racedGoal['opened_at'],
+]);
 $racedTicket = (int)db()->lastInsertId();
 db()->prepare(
     'INSERT INTO westy_reports (tenant_id, fingerprint, external_key, app, kind, generation, ticket_id, occurrences)

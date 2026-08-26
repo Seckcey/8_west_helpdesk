@@ -38,7 +38,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $tq = db()->prepare(
-    'SELECT t.*, c.name AS client_name,
+    'SELECT t.*,
+            (SELECT MIN(m.created_at) FROM messages m WHERE m.ticket_id = t.id AND m.kind = "tech") AS first_response_at,
+            EXISTS (SELECT 1 FROM tickets merged_source WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id) AS has_merged_sources,
+            c.name AS client_name,
             u.full_name AS assignee_name, u.initials AS assignee_initials, u.color AS assignee_color
        FROM tickets t JOIN clients c ON c.id = t.client_id
        LEFT JOIN users u ON u.id = t.assignee_id

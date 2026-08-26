@@ -9,8 +9,8 @@ if (PHP_SAPI !== 'cli') exit('CLI only.');
 
 require_once __DIR__ . '/../lib/bootstrap.php';
 
-// This script TRUNCATEs tenants, users, clients, contacts, tickets, messages and
-// time_entries. It ships to production with every release, and until now "CLI
+// This script TRUNCATEs tenants, policies, users, clients, contacts, tickets,
+// messages and time_entries. It ships to production with every release, and until now "CLI
 // only" was the entire guard — so one mistyped command on the wrong host wiped
 // the desk, silently and completely.
 //
@@ -27,13 +27,24 @@ $demoPassword = 'harbor'; // demo credential — shown on the login page in demo
 
 $pdo = db();
 $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
-foreach (['time_entries','messages','tickets','contacts','clients','users','tenants'] as $t) {
+foreach ([
+    'time_entries',
+    'messages',
+    'tickets',
+    'contacts',
+    'clients',
+    'users',
+    'service_goal_policy_targets',
+    'service_goal_policy_versions',
+    'tenants',
+] as $t) {
     $pdo->exec("TRUNCATE TABLE $t");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
 
 // Tenant ----------------------------------------------------------------
 $pdo->exec("INSERT INTO tenants (id, name, slug, plan) VALUES (1, '8 West IT, LLC', '8west', 'suite')");
+service_goal_ensure_default_policies($pdo, 1);
 
 // Users -----------------------------------------------------------------
 $hash = password_hash($demoPassword, PASSWORD_DEFAULT);
@@ -70,9 +81,13 @@ $contacts = [
 foreach ($contacts as $row) $k->execute($row);
 
 // Tickets ---------------------------------------------------------------
-// (client, contact, subject, status, priority, assignee, channel, created, sla)
-$t = $pdo->prepare('INSERT INTO tickets (id, tenant_id, client_id, contact_id, subject, status, priority, assignee_id, channel, sla_due_at, created_at, updated_at, resolved_at)
-                    VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?)');
+// Handcrafted demo history is normalized to the captured policy window.
+$t = $pdo->prepare(
+    'INSERT INTO tickets
+        (id, tenant_id, client_id, contact_id, subject, status, priority, assignee_id, channel,
+         sla_due_at, service_goal_target_id, created_at, updated_at, resolved_at)
+     VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?)'
+);
 $now = time();
 $h = static fn(float $hrs): string => gmdate('Y-m-d H:i:s', (int)($now + $hrs * 3600));
 $tickets = [
@@ -91,13 +106,36 @@ $tickets = [
     [113, 4, 5, 'Server backup alert: repository 87% full',           'open',        'urgent', 1,    'alert',  $h(+0.9),  $h(-1.5), $h(-1.5),  null],
     [114, 5, 6, 'Seasonal staff accounts — disable until April',      'resolved',    'low',    3,    'email',  $h(-40),   $h(-90),  $h(-40),   $h(-40)],
 ];
-foreach ($tickets as $row) $t->execute($row);
+foreach ($tickets as $row) {
+    $goal = service_goal_snapshot_for_new_ticket(
+        $pdo,
+        1,
+        (int) $row[1],
+        (string) $row[5],
+        (string) $row[9],
+    );
+    $t->execute([
+        $row[0],
+        $row[1],
+        $row[2],
+        $row[3],
+        $row[4],
+        $row[5],
+        $row[6],
+        $row[7],
+        $goal['due_at'],
+        $goal['target_id'],
+        $row[9],
+        $row[10],
+        $row[11],
+    ]);
+}
 
 // Messages ---------------------------------------------------------------
 $m = $pdo->prepare('INSERT INTO messages (ticket_id, author_name, kind, body, created_at) VALUES (?,?,?,?,?)');
 $messages = [
     [101, 'Sam Whitfield', 'client', "Hi — since this morning's Windows update the front desk PC refuses to print claim forms. Regular documents print fine. Patients are checking out in 20 minutes, help!", $h(-1.2)],
-    [101, 'Safeharbor', 'system', 'Ticket created from email · SLA: Premium response due in 2 hours', $h(-1.18)],
+    [101, 'Safeharbor', 'system', 'Ticket created from email · Response target: Premium v1 · due in 2 hours', $h(-1.18)],
     [102, 'Dana Cole', 'client', 'Listings@ is syncing on my desktop but not on the two new agent laptops. Both are on M365 Business Standard.', $h(-5)],
     [102, 'Ana Ruiz', 'tech', "Reproduced — automapping didn't apply. Adding both users explicitly and re-initializing Outlook profiles. I'll confirm within the hour.", $h(-2.5)],
     [102, 'Ana Ruiz', 'note', 'Internal: if this recurs, script it — third time this quarter for Bluefin.', $h(-1)],

@@ -107,6 +107,7 @@
       $$("[data-chip]", scope).forEach((el) => { el.innerHTML = r.chip; });
       $$("[data-pri]", scope).forEach((el) => { el.innerHTML = r.pri; });
       $$("[data-assignee]", scope).forEach((el) => { el.innerHTML = r.assignee_html; });
+      $$("[data-sla]", scope).forEach((el) => { el.innerHTML = r.sla; });
       // Queue rows: repaint chip/glyph/avatar/sla per row
       const row = document.querySelector(`.trow[data-ticket-id="${id}"]`);
       if (row) {

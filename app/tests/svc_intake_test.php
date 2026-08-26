@@ -61,6 +61,9 @@ function fresh_schema(): void
     foreach (['schema.sql', 'migrations/002_svc_intake.sql'] as $f) {
         $sql = (string)file_get_contents(__DIR__ . '/../db/' . $f);
         foreach (explode(";\n", $sql) as $stmt) {
+            // Production migrations run as an operator. The scratch app user
+            // cannot create triggers while binary logging is enforced.
+            if (preg_match('/\b(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
             if (trim($stmt) !== '') {
                 $pdo->exec($stmt);
             }
@@ -102,6 +105,24 @@ function ticket_by_key(string $key): ?array
 {
     $q = db()->prepare('SELECT * FROM tickets WHERE tenant_id = 1 AND external_key = ?');
     $q->execute([$key]);
+    return $q->fetch() ?: null;
+}
+
+function goal_for_ticket(int $ticketId): ?array
+{
+    $q = db()->prepare(
+        'SELECT policy.policy_key, policy.version_no, target.priority,
+                target.first_response_minutes
+           FROM tickets ticket
+           JOIN service_goal_policy_targets target
+             ON target.tenant_id = ticket.tenant_id
+            AND target.id = ticket.service_goal_target_id
+           JOIN service_goal_policy_versions policy
+             ON policy.tenant_id = ticket.tenant_id
+            AND policy.id = target.policy_version_id
+          WHERE ticket.id = ?'
+    );
+    $q->execute([$ticketId]);
     return $q->fetch() ?: null;
 }
 
@@ -147,6 +168,15 @@ check('ticket_routed_to_named_client', (int)($t['client_id'] ?? 0) === 1);
 check('ticket_status_open', ($t['status'] ?? '') === 'open');
 $slaOk = $t && abs(strtotime($t['sla_due_at'] . ' UTC') - time() - 7200) < 300;
 check('ticket_sla_premium_two_hours', $slaOk);
+$initialTargetId = (int) ($t['service_goal_target_id'] ?? 0);
+$initialDueAt = (string) ($t['sla_due_at'] ?? '');
+$goal = $t ? goal_for_ticket((int) $t['id']) : null;
+check('ticket_captures_premium_v1_urgent_target',
+    $initialTargetId > 0
+    && ($goal['policy_key'] ?? '') === 'premium'
+    && (int) ($goal['version_no'] ?? 0) === 1
+    && ($goal['priority'] ?? '') === 'urgent'
+    && (int) ($goal['first_response_minutes'] ?? 0) === 120);
 check('ticket_has_provenance_message', $t !== null && message_count((int)$t['id']) === 1
     && str_contains(last_message((int)$t['id']), 'Alert opened at source'));
 
@@ -159,6 +189,9 @@ check('refire_still_one_ticket', (int)$q->fetchColumn() === 1);
 $t = ticket_by_key('alert:9001');
 check('refire_refreshes_priority', ($t['priority'] ?? '') === 'normal');
 check('refire_refreshes_subject', ($t['subject'] ?? '') === '[warning] disk_free on ACME-DC01');
+check('refire_does_not_rebase_service_goal',
+    (int) ($t['service_goal_target_id'] ?? 0) === $initialTargetId
+    && ($t['sla_due_at'] ?? '') === $initialDueAt);
 check('refire_appends_system_line', $t !== null && message_count((int)$t['id']) === 2
     && str_contains(last_message((int)$t['id']), 're-fired'));
 
@@ -206,6 +239,11 @@ $t = ticket_by_key('alert:9003');
 $q = db()->query("SELECT id FROM clients WHERE tenant_id = 1 AND name = 'Milepost Intake'");
 $catchAll = (int)$q->fetchColumn();
 check('unknown_client_uses_catch_all', $catchAll > 0 && (int)($t['client_id'] ?? 0) === $catchAll);
+$catchAllGoal = $t ? goal_for_ticket((int) $t['id']) : null;
+check('catch_all_ticket_captures_standard_v1',
+    ($catchAllGoal['policy_key'] ?? '') === 'standard'
+    && (int) ($catchAllGoal['version_no'] ?? 0) === 1
+    && (int) ($catchAllGoal['first_response_minutes'] ?? 0) === 480);
 svc_alert_handle(valid_payload(['external_key' => 'alert:9004', 'client' => ['name' => 'Another Mystery Inc']]));
 $q = db()->query("SELECT COUNT(*) FROM clients WHERE tenant_id = 1 AND name = 'Milepost Intake'");
 check('catch_all_created_exactly_once', (int)$q->fetchColumn() === 1);

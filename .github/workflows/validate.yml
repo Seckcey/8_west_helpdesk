@@ -21,5 +21,11 @@ jobs:
         run: php app/tests/suite_logout_test.php
       - name: Test suite token algorithms
         run: php app/tests/suite_rs256_test.php
+      - name: Test suite roles
+        run: php app/tests/suite_roles_test.php
+      - name: Test suite preferences
+        run: php app/tests/suite_preferences_test.php
+      - name: Test service goals
+        run: php app/tests/service_goals_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php

@@ -79,7 +79,15 @@ function arrive(array $overrides = []): bool
     $_COOKIE['ewid_token'] = scratch_token($overrides);
     $_SESSION = [];
 
-    return suite_sso_attempt();
+    if (! suite_sso_attempt()) {
+        return false;
+    }
+
+    // A real authenticated request immediately resolves current_user() after
+    // suite_sso_attempt(). That second step refreshes the signed preferences
+    // and subject-bound avatar into the session. Stopping after the raw login
+    // helper made the avatar assertion test a path the application never uses.
+    return current_user() !== null;
 }
 
 // Fresh scratch state.
@@ -100,6 +108,23 @@ if (!$hasSchema) {
     foreach (['schema.sql', 'migrations/002_svc_intake.sql', 'migrations/008_westy_reports.sql'] as $f) {
         $sql = (string)file_get_contents(__DIR__ . '/../db/' . $f);
         foreach (explode(";\n", $sql) as $stmt) {
+            if (preg_match('/\b(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
+            if (trim($stmt) !== '') {
+                db()->exec($stmt);
+            }
+        }
+    }
+} else {
+    $hasGoalTarget = (int) db()->query(
+        "SELECT COUNT(*) FROM information_schema.columns
+          WHERE table_schema = DATABASE()
+            AND table_name = 'tickets'
+            AND column_name = 'service_goal_target_id'"
+    )->fetchColumn() > 0;
+    if (! $hasGoalTarget) {
+        $sql = (string) file_get_contents(__DIR__ . '/../db/migrations/010_service_goal_policies.sql');
+        foreach (explode(";\n", $sql) as $stmt) {
+            if (preg_match('/\b(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
             if (trim($stmt) !== '') {
                 db()->exec($stmt);
             }
@@ -107,7 +132,17 @@ if (!$hasSchema) {
     }
 }
 db()->exec('SET FOREIGN_KEY_CHECKS=0');
-foreach (['westy_reports', 'messages', 'tickets', 'contacts', 'clients', 'users', 'tenants'] as $t) {
+db()->exec('TRUNCATE TABLE service_goal_policy_targets');
+db()->exec('TRUNCATE TABLE service_goal_policy_versions');
+foreach ([
+    'westy_reports',
+    'messages',
+    'tickets',
+    'contacts',
+    'clients',
+    'users',
+    'tenants',
+] as $t) {
     db()->exec('DELETE FROM `' . $t . '`');
 }
 db()->exec('SET FOREIGN_KEY_CHECKS=1');

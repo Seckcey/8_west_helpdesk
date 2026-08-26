@@ -18,7 +18,13 @@ $value = (string)($in['value'] ?? '');
 $STATUS = ['open', 'in_progress', 'waiting', 'resolved'];
 $PRIORITY = ['low', 'normal', 'high', 'urgent'];
 
-$tq = db()->prepare('SELECT * FROM tickets WHERE id = ? AND tenant_id = ?');
+$tq = db()->prepare(
+    'SELECT t.*,
+            (SELECT MIN(m.created_at) FROM messages m WHERE m.ticket_id = t.id AND m.kind = "tech") AS first_response_at,
+            EXISTS (SELECT 1 FROM tickets merged_source WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id) AS has_merged_sources
+       FROM tickets t
+      WHERE t.id = ? AND t.tenant_id = ?'
+);
 $tq->execute([$id, tenant_id()]);
 $ticket = $tq->fetch();
 if (!$ticket) json_out(['ok' => false, 'error' => 'not found'], 404);
