@@ -27,9 +27,9 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–010 | **All applied** to production |
+| Migrations 001–011 | **All applied** to production |
 | Versioned service goals | **Live** through Safeharbor PR #37 / merge `1796f57` |
-| Migration 011 / approval-grade time | **Release candidate; not applied or deployed yet** |
+| Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760` |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
 
@@ -76,7 +76,9 @@ The scratch SSO fixture also now follows the real
 reproduced its stale avatar-session failure at 30 checks / 1 failure, while the
 merged release passed 30 / 0 before the remaining database suites ran.
 
-The Phase 3 release candidate centralizes every timer, reply, suggestion, and
+Phase 3 is live through PR #40 / merge
+`b0a67608af42dcd980c72f269f42fb4df04c024e`. It centralizes every timer,
+reply, suggestion, and
 seed write behind one idempotent time-entry service. Migration 011 snapshots
 tenant/client ownership, keeps all legacy work pending, allows only one
 pending-to-approved/rejected review, records immutable database events, and
@@ -84,20 +86,39 @@ prevents merges from rewriting time provenance. Owners/admins review pending
 work; techs cannot. Reports and the restricted CSV use only approved billable
 rows, and neither surface posts or invoices anything. The browser keeps a
 stopped timer locally until the server acknowledges that exact entry key, so
-offline retry and a stale reply do not lose time. This paragraph describes the
-reviewed candidate only; production remains on the pre-011 time model until
-the migration-first release gates below complete. Authentication now stamps
-the database-resolved tenant on every request, and each touched time/report
+offline retry and a stale reply do not lose time. Authentication stamps the
+database-resolved tenant on every request, and each touched time/report
 consumer binds directly to the authenticated user's tenant; regression gates
 cover the prior tenant-1 fallback failure.
 
-Exact candidate evidence: 71 PHP files lint, all eight server-free CI commands
-pass, service goals are 55/55, the provenance bridge is 2/2, approval time is
-81/81, suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is
-96/96 on disposable MySQL 8. Desktop and mobile Playwright probes cover both
-"request never arrived" and "commit succeeded but response was lost" timer
-boundaries. Production migration, deploy, and transaction-canary evidence are
-still required before this section may call Phase 3 live.
+Release evidence: GitHub validation passed on exact head `4673bc6`; migration
+011 was applied operator-first and independently verified at eleven columns,
+seven named indexes, five tenant-scoped foreign keys, two checks, one immutable
+event table, seven permanent triggers, and zero staging triggers. The one
+legacy time row remains pending and gained one migration audit event without
+inferred approval. The deployed critical-file hashes match the merge, all 72
+production PHP files lint, Apache syntax is valid, login is 200, root is 302,
+and no release-window web fatal was recorded. The server-only config remains
+mode `640` with `demo_mode=false`. The runtime database account now has only
+`SELECT`, `INSERT`, `UPDATE`, and `DELETE`; disposable probes proved DML and
+denied `TRUNCATE`, `CREATE`, `ALTER`, and `TRIGGER`, then removed every probe
+object. A real-runtime transaction canary created pending time, refused a tech
+review, approved as owner/admin, appeared in the approved-billable report,
+replayed without duplication, refused fact mutation, recorded both audit
+events, and rolled back to the original one entry / one event. Protected
+rollback records are
+`/srv/8west/backups/safeharbor/20260826T223441Z-pre-phase3-hardening` and
+`/srv/8west/backups/safeharbor/20260826T223914Z-pre-phase3-migration`.
+
+Candidate evidence remains green: all eight server-free CI commands pass,
+service goals are 55/55, the provenance bridge is 2/2, approval time is 81/81,
+suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is 96/96 on
+disposable MySQL 8. Desktop and mobile Playwright probes cover both "request
+never arrived" and "commit succeeded but response was lost" timer boundaries.
+No authenticated production browser session was available during this release;
+the deploy did not reset or bypass identity to manufacture one, so a fresh
+signed-in visual acceptance remains an operator follow-up rather than a release
+rollback condition.
 
 ## First-tenant suite SSO repair
 
