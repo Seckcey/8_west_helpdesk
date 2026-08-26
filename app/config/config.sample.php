@@ -57,6 +57,39 @@ return [
         'mfa_max_age' => 2592000,
     ],
 
+    // Read-only Safeharbor customer portal (docs/customer-portal-contract.md).
+    // This is a separate OIDC/session surface from the technician suite cookie.
+    // It ships DARK: code, a registered confidential OIDC client, and even an
+    // active CLI-reviewed tenant/client binding remain unavailable until this
+    // exact switch is deliberately enabled on the host.
+    //
+    // Do not invent or commit client values. Register an exact HTTPS callback
+    // with 8 West ID, then place the issued values only in server config.
+    'portal' => [
+        'enabled'       => false,
+        'issuer'        => 'https://id.8westit.com',
+        'client_id'     => '',
+        'client_secret' => '',
+        'redirect_uri'  => '', // e.g. https://safeharbor.example/portal/callback.php
+        'required_product' => 'safeharbor',
+        // Maintained oidc_v1 rollout default. Authentication never depends on
+        // theme/avatar/preferences, and the portal itself remains dark-themed.
+        'mfa_policy_mode' => 'report',
+        'mfa_max_age_seconds' => 2592000,
+        // App-owned absolute session lifetime; code refuses values over 8h.
+        'session_lifetime_seconds' => 28800,
+        // Must stay true in production. False exists only for disposable local
+        // rendered fixtures whose app_env is dev and which carry no live data.
+        'cookie_secure' => true,
+        // Private persistent state outside the deploy tree, shared by workers.
+        // oidc_v1 reuses a fresh feed for 60s, permits at most 5m stale during
+        // an outage, then fails closed with no ticket data.
+        'revocation_cache_dir' => '/srv/8west/apps/safeharbor/shared/portal-revocations',
+        // The fixed reserved set is 8west + internal. This additive list is
+        // only for future centrally established reservations.
+        'reserved_identity_tenant_slugs' => [],
+    ],
+
     // Service-to-service intake (Phase 8.1, Path B — signed alert events
     // from Milepost land as channel='alert' tickets via api/svc/alerts.php;
     // design: docs/sprint-8.1-svc-alert-intake.md). Ships DARK: enabled

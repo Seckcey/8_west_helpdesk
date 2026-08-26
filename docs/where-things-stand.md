@@ -33,6 +33,7 @@ If you change what is live, change this page in the same PR.
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's sender/receiver only; both are deployed default-off while existing service-intake gates remain live |
+| Customer ticket-summary portal (Phase 5A) | **Source candidate only** on `codex/safeharbor-customer-portal`; not merged, registered, mapped, migrated, enabled, or deployed |
 
 ## Customer Service Tools development
 
@@ -170,6 +171,35 @@ disabled-then-enabled mapping and a controlled 201/200 canary. The exact
 contract and rollback gates are in
 [`coastmark-approved-time-export-contract.md`](coastmark-approved-time-export-contract.md).
 
+Phase 5A is now a dark/default-off source candidate based on current
+`origin/main` `419d2ad`. It adds a separate `/portal` OIDC session and the
+maintained 8 West ID `oidc_v1` PHP kit, accepts only exact `client_owner`,
+`client_admin`, `client_staff`, and `client_viewer` roles with the exact
+`safeharbor` product, stores the signed subject/session-version pair for at
+most eight hours, and fails closed when revocation state is more than five
+minutes stale. 8 West ID's additive Safeharbor OIDC surface policy is merged
+there as `f0ec49b`; no production client registration or value is invented in
+this repository.
+
+Migration 012 creates an immutable explicit binding lifecycle but no binding.
+The CLI is prepare-disabled → inspect exact identity slug/provider
+tenant/client → explicit enable or disable. Identity slug is globally unique;
+the exact provider tenant/client is composite-FK-bound; blank, malformed,
+duplicate, cross-provider, `8west`, and `internal` mappings fail closed. Each
+authenticated request rechecks revocation plus the active binding, and ticket
+summary queries bind both provider tenant and client. The surface shows only
+ticket number, subject, status, priority, and timestamps/counts. It has no
+messages, attachments, replies, AI, billing, technician-time, endpoint, or
+ticket-detail access.
+
+This is not a live claim. No real OIDC client, mapping, migration, global
+enable, merge, or deploy was performed. A later controlled canary requires a
+chosen business and production callback/client registration, protected
+backup, migration/operator proof, server-only config, exact CLI inspection,
+fresh signed-in client-role acceptance, tenant isolation, revocation and
+disable-on-next-request proof, and desktop/mobile verification. See
+`docs/customer-portal-contract.md`.
+
 ## First-tenant suite SSO repair
 
 Safeharbor PR [#31](https://github.com/Seckcey/8_west_helpdesk/pull/31)
@@ -303,7 +333,7 @@ teeth.
 
 ## Database
 
-Applied in production: **001 through 010**, including both files numbered 002.
+Applied in production: **001 through 011**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
 2026-08-09. Migration `010_service_goal_policies.sql` was applied before the
 matching code on 2026-08-26. It is additive and leaves historical ticket
@@ -314,6 +344,9 @@ Migration `011_time_entry_approvals.sql` was applied operator-first on
 approval schema, seven permanent immutability/audit triggers, and the original
 legacy row remains pending. The migration replay and real-runtime rollback
 canary evidence are recorded in the Phase 3 section above.
+Migration `012_customer_portal.sql` is a source candidate only: it is not
+applied, and production has no customer-portal tables or mappings claimed by
+this page. It must create zero mappings on a later authorized run.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
@@ -329,13 +362,17 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Sixteen CLI suites live in `app/tests/`. Nine server-free contract suites run
-in CI, including the hermetic SQLite service-goal and approval-time tests plus
-the time-provenance bridge gate. Six integration suites (`suite_sso`,
+Nineteen CLI suites live in `app/tests/`. Eleven server-free contract suites
+run in CI, including the hermetic service-goal, approval-time, approved-time
+export, portal auth/revocation, and portal read-only/rendering gates. CI also
+runs the portal migration/isolation suite on disposable MySQL 8. Existing
+integration suites (`suite_sso`,
 `svc_intake`, `svc_support`, `westy_report`, `intake_service_goal`, and
 `time_entries_mysql`) need MySQL plus a scratch-only `config/config.php`;
-`utf8_input` needs the scratch config but does not touch the database. PHP
-lint and the database-free suites run on the Windows dev machine.
+`utf8_input` needs the scratch config but does not touch the database.
+`portal_mysql_test.php` is standalone, refuses any database name not beginning
+`safeharbor_portal_test`, and receives only disposable CI MySQL credentials.
+PHP lint and the database-free suites run on the Windows dev machine.
 
 The scratch application identity skips migration 010's four trigger
 statements because binary-logged MySQL requires an operator privilege to

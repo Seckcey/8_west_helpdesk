@@ -14,7 +14,10 @@ config/config.sample.php   host config template (config.php is server-only, giti
 db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (010 versioned service
-                           goals and 011 approval-grade time are live)
+                           goals and 011 approval-grade time are live; 012
+                           customer portal is a dark source candidate only)
+db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
+                           identity tenant slug → provider tenant/client binding
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
 lib/service_goals.php      versioned target resolver/snapshot + deterministic
                            first-response lamps and attainment
@@ -23,6 +26,12 @@ lib/time_entries.php       single writer for idempotent pending time + guarded
 lib/coastmark_time_export.php
                            default-off, operator-controlled export of one
                            approved billable time fact to Coastmark drafts
+lib/eightwestid/           exact maintained 8 West ID oidc_v1 PHP client
+lib/portal_auth.php        separate <=8h OIDC session, exact client roles,
+                           bounded fail-closed revocation, active binding recheck
+lib/portal_data.php        explicit binding lifecycle + tenant/client-bound,
+                           read-only ticket-summary queries
+lib/portal_render.php      independent dark customer chrome (no staff session)
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
@@ -59,7 +68,9 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            suite_sso_test.php, svc_intake_test.php,
                            westy_report_test.php, svc_support_test.php,
                            intake_service_goal_test.php, time_entries_test.php,
-                           time_entries_mysql_test.php
+                           time_entries_mysql_test.php,
+                           coastmark_time_export_test.php, portal_auth_test.php,
+                           portal_data_test.php, portal_mysql_test.php
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
 cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
@@ -79,6 +90,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   csat.php                 One-tap resolution survey (token-authed, public)
   attachment.php           Forced-download attachment serving
   login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
+  portal/                  Default-off customer OIDC surface: read-only ticket
+                           summaries + POST/CSRF logout; no detail or mutation API
   api/ticket_action.php    Optimistic field updates (strict whitelists)
   api/timer.php            Idempotent pending timer/suggestion submission
   api/time_entry_review.php Owner/admin approve/reject transition
@@ -161,6 +174,12 @@ public/                    Apache docroot (page-per-file, like Milepost)
   authenticated request through a 60-second cache.
 - CSRF: every POST form carries `csrf_field()`, every API checks the
   `X-CSRF` header (helpers in lib/auth.php).
+- Customer portal: independent from staff auth and dark unless the host sets
+  `portal.enabled=true`. It admits only exact `client_*` roles carrying the
+  `safeharbor` entitlement, resolves a normalized identity tenant slug only
+  through an explicit active CLI binding, and binds every ticket read to both
+  provider tenant and client. See `docs/customer-portal-contract.md`; never
+  infer a mapping from email/domain/name or enable a live business as a test.
 
 ## Develop
 
@@ -168,6 +187,9 @@ There is no local build. Edit, lint, deploy, verify on the server:
 
 ```bash
 find app -name "*.php" -print0 | xargs -0 -n1 php -l     # lint
+php app/tests/portal_auth_test.php
+php app/tests/portal_data_test.php
+# destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php
 SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 cd tools/shots && node walkthrough.mjs                   # visual verification
 ```
@@ -176,3 +198,5 @@ Demo data may be reset only on a disposable sandbox whose server-only config
 explicitly sets `demo_mode` to `true`:
 `cd /srv/8west/apps/safeharbor/current && php db/seed.php`.
 Production must keep `demo_mode` false; the seed refuses to run there.
+The seed does not own portal-binding history: never bind a disposable seeded
+client that will later be reset, and never bypass the portal foreign keys.
