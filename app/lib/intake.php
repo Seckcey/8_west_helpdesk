@@ -109,13 +109,31 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
         $contactId = (int)db()->lastInsertId();
     }
 
-    $tq = db()->prepare('SELECT sla_tier FROM clients WHERE id = ?');
-    $tq->execute([$clientId]);
-    $hours = ($tq->fetch()['sla_tier'] ?? 'standard') === 'premium' ? 2 : 8;
     $subjectClean = trim(preg_replace('/\s*(re|fwd?):\s*/i', '', $subjectText)) ?: '(no subject)';
+    $goal = service_goal_snapshot_for_new_ticket(
+        db(),
+        tenant_id(),
+        $clientId,
+        'normal',
+    );
+    $window = service_goal_window_label($goal['first_response_minutes']);
 
-    db()->prepare('INSERT INTO tickets (tenant_id, client_id, contact_id, subject, priority, channel, sla_due_at) VALUES (?,?,?,?,?,"email",DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR))')
-        ->execute([tenant_id(), $clientId, $contactId, mb_substr($subjectClean, 0, 190), 'normal', $hours]);
+    db()->prepare(
+        'INSERT INTO tickets
+            (tenant_id, client_id, contact_id, subject, priority, channel,
+             sla_due_at, service_goal_target_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,"email",?,?,?,?)'
+    )->execute([
+        tenant_id(),
+        $clientId,
+        $contactId,
+        mb_substr($subjectClean, 0, 190),
+        'normal',
+        $goal['due_at'],
+        $goal['target_id'],
+        $goal['opened_at'],
+        $goal['opened_at'],
+    ]);
     $tid = (int)db()->lastInsertId();
     db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
         ->execute([$tid, $fromName, 'client', $bodyText]);
@@ -123,7 +141,8 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
     intake_store_attachments($tid, $mid, $attachments);
     intake_learn_conversation($tid, $conversationId);
     db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
-        ->execute([$tid, 'Safeharbor', 'system', 'Ticket created from email · SLA response due in ' . $hours . ' hours'
+        ->execute([$tid, 'Safeharbor', 'system', 'Ticket created from email · Response target: '
+            . $goal['display_name'] . ' v' . $goal['version_no'] . ' · due in ' . $window
             . ($isAuto ? ' · auto-mail sender, no confirmation sent' : '')]);
 
     if (!$isAuto) {

@@ -1,8 +1,7 @@
 <?php
 /**
- * New ticket — pick a client, write the issue, done. SLA target derives
- * from the client's tier: premium +2h, standard +8h (business rules land
- * in Phase 2; this keeps every ticket answerable from minute one).
+ * New ticket — pick a client, write the issue, done. The exact effective
+ * service-goal target is captured once when the ticket opens.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
@@ -46,12 +45,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $kq->execute([$contactId, $clientId]);
             if (!$kq->fetch()) $contactId = null;
         }
-        $hours = $client['sla_tier'] === 'premium' ? 2 : 8;
         $pdo = db();
         $pdo->beginTransaction();
         try {
-            $pdo->prepare('INSERT INTO tickets (tenant_id, client_id, contact_id, subject, priority, assignee_id, channel, sla_due_at) VALUES (?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR))')
-                ->execute([tenant_id(), $clientId, $contactId, $subject, $priority, (int)$user['id'], $channel, $hours]);
+            $goal = service_goal_snapshot_for_new_ticket(
+                $pdo,
+                tenant_id(),
+                $clientId,
+                $priority,
+            );
+            $pdo->prepare(
+                'INSERT INTO tickets
+                    (tenant_id, client_id, contact_id, subject, priority, assignee_id, channel,
+                     sla_due_at, service_goal_target_id, created_at, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+            )->execute([
+                tenant_id(),
+                $clientId,
+                $contactId,
+                $subject,
+                $priority,
+                (int)$user['id'],
+                $channel,
+                $goal['due_at'],
+                $goal['target_id'],
+                $goal['opened_at'],
+                $goal['opened_at'],
+            ]);
             $tid = (int)$pdo->lastInsertId();
             if ($body !== '') {
                 $author = $user['full_name'];
@@ -116,12 +136,12 @@ page_top($user, 'New ticket', 'queue');
           <option value="alert">alert</option>
         </select>
       </label>
-      <label class="field span-2">First note (optional)
-        <textarea name="body" placeholder="What you know so far — error text, who called, what changed…"></textarea>
+      <label class="field span-2">Initial technician response (optional)
+        <textarea name="body" placeholder="Counts as the first response — what you told the client, what changed, next steps…"></textarea>
       </label>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary">File ticket</button>
-        <span class="reply-hint">Assigned to you · SLA set from the client's tier · timer one key away (E)</span>
+        <span class="reply-hint">Assigned to you · service-goal version captured at open · timer one key away (E)</span>
       </div>
     </form>
   </div>

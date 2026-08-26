@@ -16,9 +16,20 @@ $stmt = db()->prepare(
             (SELECT MIN(m.created_at) FROM messages m WHERE m.ticket_id = t.id AND m.kind = "tech") AS first_response_at,
             EXISTS (SELECT 1 FROM tickets merged_source WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id) AS has_merged_sources,
             c.name AS client_name, c.sla_tier,
+            goal_policy.display_name AS service_goal_policy_name,
+            goal_policy.version_no AS service_goal_version_no,
+            goal_policy.clock_mode AS service_goal_clock_mode,
+            goal_target.priority AS service_goal_priority,
+            goal_target.first_response_minutes AS service_goal_response_minutes,
             u.full_name AS assignee_name, u.initials AS assignee_initials, u.color AS assignee_color
        FROM tickets t
        JOIN clients c ON c.id = t.client_id
+       LEFT JOIN service_goal_policy_targets goal_target
+         ON goal_target.tenant_id = t.tenant_id
+        AND goal_target.id = t.service_goal_target_id
+       LEFT JOIN service_goal_policy_versions goal_policy
+         ON goal_policy.tenant_id = t.tenant_id
+        AND goal_policy.id = goal_target.policy_version_id
        LEFT JOIN users u ON u.id = t.assignee_id
       WHERE t.id = ? AND t.tenant_id = ?'
 );
@@ -252,7 +263,7 @@ page_top($user, '#' . $id, 'queue');
       </div>
 
       <div class="rail-label">Response target</div>
-      <div class="card rail-card"><span data-sla><?= sla_lamp($ticket) ?></span><span class="rail-note"><?= h($ticket['sla_tier']) ?> plan · elapsed time</span></div>
+      <div class="card rail-card"><span data-sla><?= sla_lamp($ticket) ?></span><span class="rail-note"><?= h(service_goal_ticket_policy_label($ticket)) ?></span></div>
 
       <div class="rail-label">Time</div>
       <button class="rail-btn timer-btn" id="timer-btn" data-id="<?= (int)$ticket['id'] ?>">▶ Start timer&nbsp;&nbsp;(E)</button>

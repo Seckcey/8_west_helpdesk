@@ -26,11 +26,13 @@ If you change what is live, change this page in the same PR.
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
 | Migrations 001–009 | **All applied** to production |
+| Migration 010 (versioned service goals) | **Development candidate only; not applied** |
 | Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
 
-## Customer Service Tools Phase 1 candidate
+## Customer Service Tools development
 
-Development branch `codex/customer-service-tools-phase1` corrects the existing
+Phase 1 was reviewed and committed locally as `1c1b654` on development branch
+`codex/customer-service-tools-phase1`. It corrects the existing
 first-response semantics without a migration. `tickets.sla_due_at` remains an
 elapsed-time **response** deadline: the queue and ticket view now compare the
 first `kind='tech'` message to that deadline, a resolved ticket with no
@@ -40,10 +42,24 @@ states, tenant/period isolation, notes-not-responses rule, and report
 denominator in hermetic SQLite. Merged sources and their survivors are shown
 as neutral `Merged history` and excluded from attainment because the current
 merge operation moves messages without retaining original response
-provenance. This candidate is **not live** until its branch
-is reviewed, merged, and separately authorized for deployment. Business hours,
-holidays, pause rules, resolution goals, and policy versioning remain the next
-service-goal phase. The scratch SSO fixture also now follows the real
+provenance. The commit has not been pushed, merged, or deployed.
+
+The Phase 2A working candidate adds append-only policy versions and
+per-priority targets through migration `010_service_goal_policies.sql`. Every
+new ticket path captures one exact target ID, open time, and deadline; client
+tier, priority, waiting, retry, refire, and reply changes do not rebase that
+snapshot. Historical tickets stay unversioned because their creation-time tier
+cannot be proven. Existing tenants receive Standard v1 (480 elapsed minutes)
+and Premium v1 (120 elapsed minutes); tenants created later receive the same
+defaults lazily on first ticket creation. Unsupported business clocks and
+waiting-pause modes fail visibly. Business calendars, holidays, pause
+execution, resolution clocks, policy-management UI, and explicit rebase
+history remain later work.
+
+Neither Phase 1 nor Phase 2A is live. Migration 010 has not been run anywhere
+outside disposable scratch testing, and merge or deployment still requires
+separate authorization. The scratch SSO fixture
+also now follows the real
 `suite_sso_attempt()` → `current_user()` request path: untouched `origin/main`
 reproduced its stale avatar-session failure at 30 checks / 1 failure, while the
 candidate passed 30 / 0 before the remaining database suites ran.
@@ -183,7 +199,9 @@ teeth.
 
 Applied in production: **001 through 009**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
-2026-08-09.
+2026-08-09. Migration `010_service_goal_policies.sql` is an unapplied
+development candidate. It is additive, leaves historical ticket pointers
+NULL, and must be run before any code that writes `service_goal_target_id`.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
@@ -199,12 +217,19 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Eleven CLI suites live in `app/tests/`. Six database-free contract suites now
-run in CI, including the hermetic service-goal query test. Four integration
-suites (`suite_sso`, `svc_intake`, `svc_support`, and `westy_report`) still need
-MySQL plus a scratch-only `config/config.php`; `utf8_input` needs the scratch
-config but does not touch the database. PHP lint and the database-free suites
-run on the Windows dev machine.
+Twelve CLI suites live in `app/tests/`. Six server-free contract suites run in
+CI, including the hermetic SQLite service-goal policy/query test. Five integration
+suites (`suite_sso`, `svc_intake`, `svc_support`, `westy_report`, and
+`intake_service_goal`) need MySQL plus a scratch-only `config/config.php`;
+`utf8_input` needs the scratch config but does not touch the database. PHP
+lint and the database-free suites run on the Windows dev machine.
+
+The scratch application identity skips migration 010's four trigger
+statements because binary-logged MySQL requires an operator privilege to
+create them. Before committing or deploying that migration, run it through
+the same privileged operator path used in production and prove all four
+policy/target UPDATE and DELETE attempts fail with SQLSTATE `45000`; the final
+postflight row must be `1 / 1 / 1 / 1`.
 
 Run them on the EC2 box, in a disposable copy, with the database pinned to the
 scratch schema — `fresh_schema()` drops every table in whatever database it

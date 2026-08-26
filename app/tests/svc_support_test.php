@@ -79,6 +79,7 @@ function fresh_schema(bool $withTenant = true): void
     ] as $f) {
         $sql = (string)file_get_contents(__DIR__ . '/../db/' . $f);
         foreach (explode(";\n", $sql) as $stmt) {
+            if (preg_match('/\b(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
             if (trim($stmt) !== '') {
                 $pdo->exec($stmt);
             }
@@ -131,6 +132,24 @@ function ticket(int $id): ?array
 {
     $q = db()->prepare('SELECT * FROM tickets WHERE id = ?');
     $q->execute([$id]);
+    return $q->fetch() ?: null;
+}
+
+function goal_for_ticket(int $ticketId): ?array
+{
+    $q = db()->prepare(
+        'SELECT policy.policy_key, policy.version_no, target.priority,
+                target.first_response_minutes
+           FROM tickets ticket
+           JOIN service_goal_policy_targets target
+             ON target.tenant_id = ticket.tenant_id
+            AND target.id = ticket.service_goal_target_id
+           JOIN service_goal_policy_versions policy
+             ON policy.tenant_id = ticket.tenant_id
+            AND policy.id = target.policy_version_id
+          WHERE ticket.id = ?'
+    );
+    $q->execute([$ticketId]);
     return $q->fetch() ?: null;
 }
 
@@ -204,6 +223,15 @@ check('ticket_external_key_stored', ($t['external_key'] ?? '') === 'cmk:acme-msp
 check('ticket_subject_verbatim', ($t['subject'] ?? '') === 'Invoice sync stopped overnight');
 $slaOk = $t && abs(strtotime($t['sla_due_at'] . ' UTC') - time() - 8 * 3600) < 300;
 check('ticket_sla_standard_eight_hours', $slaOk);
+$initialTargetId = (int) ($t['service_goal_target_id'] ?? 0);
+$initialDueAt = (string) ($t['sla_due_at'] ?? '');
+$goal = goal_for_ticket($tid);
+check('ticket_captures_standard_v1_normal_target',
+    $initialTargetId > 0
+    && ($goal['policy_key'] ?? '') === 'standard'
+    && (int) ($goal['version_no'] ?? 0) === 1
+    && ($goal['priority'] ?? '') === 'normal'
+    && (int) ($goal['first_response_minutes'] ?? 0) === 480);
 
 /* ── 5. the client row, keyed on the slug ────────────────────────────────── */
 $clientId = (int)$t['client_id'];
@@ -266,6 +294,10 @@ $again = support_record(req(['external_key' => 'cmk:acme-msp:0021'] + $sameWords
 check('retry_of_same_key_is_ignored', $again['ok'] === true && $again['action'] === 'ignored');
 check('retry_returns_the_original_ticket', !empty($again['ticket']));
 check('retry_creates_no_second_ticket', ticket_count() === $before + 2);
+$retriedOriginal = ticket($tid);
+check('retry_preserves_the_original_service_goal',
+    (int) ($retriedOriginal['service_goal_target_id'] ?? 0) === $initialTargetId
+    && ($retriedOriginal['sla_due_at'] ?? '') === $initialDueAt);
 
 /* ── 8. the reply path ───────────────────────────────────────────────────── */
 $contactId = (int)(ticket($tid)['contact_id'] ?? 0);
@@ -465,6 +497,10 @@ check('waypoint_request_creates_ticket', $w['ok'] === true && $w['action'] === '
 $wt = ticket((int)$w['ticket']);
 check('waypoint_ticket_lands_in_8west_tenant', (int)($wt['tenant_id'] ?? 0) === 1);
 check('waypoint_ticket_keeps_its_external_key', ($wt['external_key'] ?? '') === 'wyp:9f2c4e11');
+$waypointGoal = goal_for_ticket((int) $w['ticket']);
+check('waypoint_ticket_captures_standard_v1',
+    ($waypointGoal['policy_key'] ?? '') === 'standard'
+    && (int) ($waypointGoal['version_no'] ?? 0) === 1);
 $wc = client_row((int)$wt['client_id']);
 check('waypoint_client_keyed_on_waypoint_source', ($wc['source_key'] ?? '') === 'waypoint:harbor-co');
 check('waypoint_client_labelled_waypoint', ($wc['name'] ?? '') === 'Harbor Co (Waypoint)');

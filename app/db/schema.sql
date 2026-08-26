@@ -63,6 +63,42 @@ CREATE TABLE IF NOT EXISTS clients (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
+-- Versioned service-goal policies and immutable per-priority targets
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS service_goal_policy_versions (
+  id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id      INT UNSIGNED NOT NULL,
+  policy_key     VARCHAR(32) NOT NULL,
+  version_no     SMALLINT UNSIGNED NOT NULL,
+  display_name   VARCHAR(80) NOT NULL,
+  effective_from DATETIME NOT NULL,
+  clock_mode     ENUM('elapsed','business_hours') NOT NULL DEFAULT 'elapsed',
+  time_zone      VARCHAR(64) NOT NULL DEFAULT 'UTC',
+  pause_mode     ENUM('none','waiting') NOT NULL DEFAULT 'none',
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_goal_policy_version (tenant_id, policy_key, version_no),
+  UNIQUE KEY uq_goal_policy_tenant_id (tenant_id, id),
+  KEY ix_goal_policy_effective (tenant_id, policy_key, effective_from, version_no),
+  CONSTRAINT fk_goal_policy_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS service_goal_policy_targets (
+  id                     INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id              INT UNSIGNED NOT NULL,
+  policy_version_id      INT UNSIGNED NOT NULL,
+  priority               ENUM('low','normal','high','urgent') NOT NULL,
+  first_response_minutes INT UNSIGNED NOT NULL,
+  resolution_minutes     INT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_goal_target_priority (tenant_id, policy_version_id, priority),
+  UNIQUE KEY uq_goal_target_tenant_id (tenant_id, id),
+  KEY ix_goal_target_policy (tenant_id, policy_version_id),
+  CONSTRAINT fk_goal_target_policy FOREIGN KEY (tenant_id, policy_version_id)
+    REFERENCES service_goal_policy_versions (tenant_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
 -- Contacts (people at a client who open tickets)
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS contacts (
@@ -90,6 +126,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   assignee_id INT UNSIGNED NULL,
   channel     ENUM('email','portal','alert','phone') NOT NULL DEFAULT 'email',
   sla_due_at  DATETIME NOT NULL,  -- elapsed-time first-response deadline (not resolution)
+  service_goal_target_id INT UNSIGNED NULL, -- exact policy target captured when opened
   resurface_at DATETIME NULL,   -- waiting auto-resurface (housekeeping reopens)
   merged_into_id INT UNSIGNED NULL,   -- merged tickets keep a stub to the survivor
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -99,12 +136,55 @@ CREATE TABLE IF NOT EXISTS tickets (
   KEY ix_tickets_tenant_status (tenant_id, status),
   KEY ix_tickets_client (client_id),
   KEY ix_tickets_assignee (assignee_id),
+  KEY ix_tickets_service_goal_target (tenant_id, service_goal_target_id),
   FULLTEXT ft_tickets_subject (subject),
   CONSTRAINT fk_tickets_tenant   FOREIGN KEY (tenant_id)   REFERENCES tenants (id),
   CONSTRAINT fk_tickets_client   FOREIGN KEY (client_id)   REFERENCES clients (id),
   CONSTRAINT fk_tickets_contact  FOREIGN KEY (contact_id)  REFERENCES contacts (id),
-  CONSTRAINT fk_tickets_assignee FOREIGN KEY (assignee_id) REFERENCES users (id)
+  CONSTRAINT fk_tickets_assignee FOREIGN KEY (assignee_id) REFERENCES users (id),
+  CONSTRAINT fk_tickets_service_goal_target
+    FOREIGN KEY (tenant_id, service_goal_target_id)
+    REFERENCES service_goal_policy_targets (tenant_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Ticket snapshots remain truthful only while their referenced policy rows
+-- are insert-only. Publish a new version; never rewrite or remove history.
+-- Prove this connection can create triggers before replacing any existing
+-- guard; an under-privileged replay must fail without weakening history.
+DROP TRIGGER IF EXISTS trg_goal_policy_privilege_preflight;
+CREATE TRIGGER trg_goal_policy_privilege_preflight
+BEFORE INSERT ON service_goal_policy_versions
+FOR EACH ROW
+SET @goal_trigger_privilege_preflight = 1;
+DROP TRIGGER trg_goal_policy_privilege_preflight;
+
+DROP TRIGGER IF EXISTS trg_goal_policy_versions_no_update;
+CREATE TRIGGER trg_goal_policy_versions_no_update
+BEFORE UPDATE ON service_goal_policy_versions
+FOR EACH ROW
+SIGNAL SQLSTATE '45000'
+  SET MESSAGE_TEXT = 'Service-goal policy versions are immutable';
+
+DROP TRIGGER IF EXISTS trg_goal_policy_versions_no_delete;
+CREATE TRIGGER trg_goal_policy_versions_no_delete
+BEFORE DELETE ON service_goal_policy_versions
+FOR EACH ROW
+SIGNAL SQLSTATE '45000'
+  SET MESSAGE_TEXT = 'Service-goal policy versions are immutable';
+
+DROP TRIGGER IF EXISTS trg_goal_policy_targets_no_update;
+CREATE TRIGGER trg_goal_policy_targets_no_update
+BEFORE UPDATE ON service_goal_policy_targets
+FOR EACH ROW
+SIGNAL SQLSTATE '45000'
+  SET MESSAGE_TEXT = 'Service-goal policy targets are immutable';
+
+DROP TRIGGER IF EXISTS trg_goal_policy_targets_no_delete;
+CREATE TRIGGER trg_goal_policy_targets_no_delete
+BEFORE DELETE ON service_goal_policy_targets
+FOR EACH ROW
+SIGNAL SQLSTATE '45000'
+  SET MESSAGE_TEXT = 'Service-goal policy targets are immutable';
 
 -- --------------------------------------------------------
 -- Messages (conversation thread + internal notes + system lines)

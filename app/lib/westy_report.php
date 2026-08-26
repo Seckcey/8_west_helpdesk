@@ -26,7 +26,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/svc_intake.php';   // svc_client_sla_hours() + bootstrap
+require_once __DIR__ . '/bootstrap.php';
 
 /** Occurrence counts that earn a fresh line in the thread (and, at 25, a bump). */
 const WESTY_REPORT_THRESHOLDS = [5, 25, 100];
@@ -311,13 +311,30 @@ function westy_report_open(array $p, int $tenantId, string $fp, string $kind, in
 {
     $externalKey = $generation > 1 ? $fp . ':g' . $generation : $fp;
     $clientId    = westy_report_client_id($tenantId, $p['app']);
-    $hours       = svc_client_sla_hours($clientId);
     $priority    = $kind === 'fail' ? 'normal' : 'low';
+    $goal = service_goal_snapshot_for_new_ticket(
+        db(),
+        $tenantId,
+        $clientId,
+        $priority,
+    );
 
     db()->prepare(
-        'INSERT INTO tickets (tenant_id, client_id, contact_id, subject, priority, channel, external_key, sla_due_at)
-         VALUES (?,?,NULL,?,?,"alert",?,DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR))'
-    )->execute([$tenantId, $clientId, westy_report_subject($p), $priority, $externalKey, $hours]);
+        'INSERT INTO tickets
+            (tenant_id, client_id, contact_id, subject, priority, channel, external_key,
+             sla_due_at, service_goal_target_id, created_at, updated_at)
+         VALUES (?,?,NULL,?,?,"alert",?,?,?,?,?)'
+    )->execute([
+        $tenantId,
+        $clientId,
+        westy_report_subject($p),
+        $priority,
+        $externalKey,
+        $goal['due_at'],
+        $goal['target_id'],
+        $goal['opened_at'],
+        $goal['opened_at'],
+    ]);
     $ticketId = (int)db()->lastInsertId();
 
     if ($previous !== null) {
