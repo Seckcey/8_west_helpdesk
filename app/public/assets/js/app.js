@@ -88,8 +88,16 @@
       },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error("API " + res.status);
-    return res.json();
+    let payload = null;
+    try { payload = await res.json(); } catch { /* keep the HTTP fallback */ }
+    if (!res.ok) {
+      const error = new Error(payload && typeof payload.error === "string" ? payload.error : "API " + res.status);
+      error.status = res.status;
+      error.code = payload && typeof payload.code === "string" ? payload.code : "";
+      throw error;
+    }
+    if (!payload || typeof payload !== "object") throw new Error("Invalid server response");
+    return payload;
   }
 
   const STATUS_ORDER = ["open", "in_progress", "waiting", "resolved"];
@@ -128,16 +136,81 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Timer (persisted like the design: localStorage, synced widget)      */
+  /* Timer (local until the server acknowledges this exact entry key)    */
   /* ------------------------------------------------------------------ */
-  const TIMER_KEY = "safeharbor.timer.v1";
-  const readTimer = () => {
-    try { return JSON.parse(localStorage.getItem(TIMER_KEY)); } catch { return null; }
-  };
-  const writeTimer = (t) =>
-    t ? localStorage.setItem(TIMER_KEY, JSON.stringify(t)) : localStorage.removeItem(TIMER_KEY);
+  const timerTenantId = String(document.body.dataset.tenantId || "");
+  const timerUserId = String(document.body.dataset.userId || "");
+  const timerScope = /^\d+$/.test(timerTenantId) && /^\d+$/.test(timerUserId)
+    ? timerTenantId + ":" + timerUserId
+    : "";
+  const TIMER_KEY = timerScope ? "safeharbor.timer.v2." + timerScope : null;
+  const LEGACY_TIMER_KEY = "safeharbor.timer.v1";
+  let timerSubmissionInFlight = false;
 
-  function timerElapsed(t) { return Math.max(0, Math.floor((Date.now() - t.startedAt) / 1000)); }
+  function newEntryKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return "timer:" + window.crypto.randomUUID();
+    }
+    return "timer:" + Date.now().toString(36) + ":" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+
+  const readTimer = () => {
+    try {
+      if (!TIMER_KEY) return null;
+      const t = JSON.parse(localStorage.getItem(TIMER_KEY));
+      if (!t || !Number.isFinite(Number(t.ticketId)) || !Number.isFinite(Number(t.startedAt))) return null;
+      if (String(t.tenantId) !== timerTenantId || String(t.userId) !== timerUserId) return null;
+      let upgraded = false;
+      if (!t.entryKey) { t.entryKey = newEntryKey(); upgraded = true; }
+      if (!t.state) { t.state = t.endedAt ? "stopped" : "active"; upgraded = true; }
+      if (t.state !== "active" && t.state !== "stopped") return null;
+      if (t.state === "stopped"
+          && (!t.submission || !["timer", "reply"].includes(t.submission.source))) {
+        t.submission = { source: "timer", note: "Work on #" + t.ticketId, billable: 1 };
+        upgraded = true;
+      }
+      if (upgraded) localStorage.setItem(TIMER_KEY, JSON.stringify(t));
+      return t;
+    } catch { return null; }
+  };
+  const writeTimer = (t) => {
+    if (!TIMER_KEY) return;
+    if (t) localStorage.setItem(TIMER_KEY, JSON.stringify(t));
+    else localStorage.removeItem(TIMER_KEY);
+  };
+
+  const readLegacyTimer = () => {
+    try {
+      const t = JSON.parse(localStorage.getItem(LEGACY_TIMER_KEY));
+      return t && Number.isFinite(Number(t.ticketId)) && Number.isFinite(Number(t.startedAt)) ? t : null;
+    } catch { return null; }
+  };
+
+  function timerElapsed(t) {
+    const end = t.endedAt || Date.now();
+    return Math.max(0, Math.floor((end - t.startedAt) / 1000));
+  }
+  const timerMinutes = (t) => Math.max(1, Math.round(timerElapsed(t) / 60));
+  const timerIso = (ms) => new Date(Number(ms)).toISOString();
+  const responseEntryKey = (r) => String(r?.entry?.entry_key || r?.entry_key || "");
+
+  function timerSubmission(t) {
+    const custom = t.submission && ["timer", "reply"].includes(t.submission.source)
+      ? t.submission
+      : null;
+    return {
+      source: custom ? custom.source : "timer",
+      note: custom ? String(custom.note || "") : "Work on #" + t.ticketId,
+      billable: custom ? (custom.billable ? 1 : 0) : 1,
+    };
+  }
+
+  function clearMatchingTimer(entryKey) {
+    const current = readTimer();
+    if (!current || current.entryKey !== entryKey) return false;
+    writeTimer(null);
+    return true;
+  }
   function fmt(total) {
     const m = Math.floor(total / 60), s = total % 60, h = Math.floor(m / 60);
     return h > 0
@@ -150,32 +223,53 @@
     const widget = $("#timer-widget");
     if (widget) {
       if (t) {
-        widget.classList.add("timer-on");
+        widget.classList.toggle("timer-on", t.state === "active");
+        widget.classList.toggle("timer-stopped", t.state === "stopped");
         widget.classList.remove("timer-idle");
-        widget.innerHTML = `<span class="tw-dot pulse"></span><span>${fmt(timerElapsed(t))}</span><span style="opacity:.7">#${t.ticketId}</span>`;
+        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span>${fmt(timerElapsed(t))}</span><span style="opacity:.7">#${t.ticketId}${t.state === "stopped" ? " · retry" : ""}</span>`;
       } else {
         widget.classList.remove("timer-on");
+        widget.classList.remove("timer-stopped");
+        widget.classList.add("timer-idle");
         widget.textContent = "No timer running";
       }
     }
     // Time page card
     const card = $("#timer-card");
     if (card) {
-      const on = !!t;
-      card.dataset.state = on ? "on" : "idle";
-      if (on) {
-        $("#timer-title").innerHTML = `Timing <a class="link" href="/ticket.php?id=${t.ticketId}">#${t.ticketId} ${t.subject ? escapeHtml(t.subject) : ""}</a>`;
-        $("#timer-sub").textContent = "Started from the ticket view — one click, as promised";
+      card.dataset.state = t ? t.state : "idle";
+      const stop = $("#timer-stop");
+      const discard = $("#timer-discard");
+      if (t) {
+        $("#timer-title").innerHTML = `${t.state === "active" ? "Timing" : "Stopped locally"} <a class="link" href="/ticket.php?id=${t.ticketId}">#${t.ticketId} ${t.subject ? escapeHtml(t.subject) : ""}</a>`;
+        $("#timer-sub").textContent = t.state === "active"
+          ? "Running locally — it is not logged until the server confirms."
+          : "Not logged yet — retry safely when your connection is ready.";
         $("#timer-clock").textContent = fmt(timerElapsed(t));
-        $("#timer-stop").hidden = false;
+        if (stop) {
+          stop.hidden = false;
+          stop.disabled = timerSubmissionInFlight;
+          stop.textContent = t.state === "active" ? "Stop & log" : (timerSubmissionInFlight ? "Logging…" : "Retry logging");
+        }
+        if (discard) {
+          discard.hidden = false;
+          discard.disabled = timerSubmissionInFlight;
+        }
+      } else {
+        $("#timer-title").textContent = "No timer running";
+        $("#timer-sub").innerHTML = "Press <kbd class=\"kbd\">E</kbd> on any ticket in the queue to start one — or open a ticket and hit Start timer.";
+        $("#timer-clock").textContent = "";
+        if (stop) stop.hidden = true;
+        if (discard) discard.hidden = true;
       }
     }
     // Ticket page button
     const btn = $("#timer-btn");
     if (btn) {
-      const on = t && String(t.ticketId) === btn.dataset.id;
-      btn.classList.toggle("timer-on", !!on);
-      btn.textContent = on ? "■ Stop & log time  (E)" : "▶ Start timer  (E)";
+      const same = t && String(t.ticketId) === btn.dataset.id;
+      btn.classList.toggle("timer-on", !!same);
+      if (!same) btn.textContent = t ? `Timer already on #${t.ticketId}` : "▶ Start timer  (E)";
+      else btn.textContent = t.state === "active" ? "■ Stop & log time  (E)" : "↻ Retry logging time  (E)";
     }
   }
 
@@ -186,29 +280,167 @@
   }
 
   function startTimer(ticketId, subject) {
-    writeTimer({ ticketId: Number(ticketId), subject: subject || "", startedAt: Date.now() });
+    const current = readTimer();
+    if (current) {
+      toast(current.state === "active"
+        ? `Timer already running on #${current.ticketId}. Stop it before starting another.`
+        : `Time for #${current.ticketId} is saved locally. Retry or discard it first.`);
+      return;
+    }
+    writeTimer({
+      ticketId: Number(ticketId),
+      subject: subject || "",
+      tenantId: timerTenantId,
+      userId: timerUserId,
+      entryKey: newEntryKey(),
+      state: "active",
+      startedAt: Date.now(),
+      endedAt: null,
+    });
     toast(`Timer started · #${ticketId}`);
     paintTimer();
   }
 
-  async function stopTimer() {
-    const t = readTimer();
-    if (!t) return;
-    const minutes = Math.max(1, Math.round(timerElapsed(t) / 60));
-    writeTimer(null);
+  async function submitStoppedTimer(t) {
+    if (timerSubmissionInFlight) return;
+    if (!t.submission) {
+      t = { ...t, submission: timerSubmission(t) };
+      writeTimer(t);
+    }
+    timerSubmissionInFlight = true;
     paintTimer();
     try {
-      const r = await api("/api/timer.php", { ticket_id: t.ticketId, minutes });
-      toast(r.toast || `Time logged · ${minutes}m`);
-      if (page === "time") location.reload(); // refresh entry list
-    } catch {
-      toast("Timer stopped — entry will sync when you're back online.");
+      let r = null;
+      let standaloneFallback = false;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const submission = timerSubmission(t);
+        try {
+          r = await api("/api/timer.php", {
+            ticket_id: t.ticketId,
+            entry_key: t.entryKey,
+            source: submission.source,
+            minutes: timerMinutes(t),
+            note: submission.note,
+            billable: submission.billable,
+            started_at: timerIso(t.startedAt),
+            ended_at: timerIso(t.endedAt),
+            worked_at: timerIso(t.endedAt),
+          });
+          break;
+        } catch (error) {
+          // A 403 for reply provenance means the server proved this actor has
+          // neither the reply grant nor an existing row. Preserve the measured
+          // work under the same key as a truthful standalone timer instead of
+          // losing it or inventing a message association.
+          if (attempt === 0 && submission.source === "reply"
+              && error?.status === 403 && error?.code === "reply_retry_unconfirmed") {
+            const current = readTimer();
+            if (!current || current.entryKey !== t.entryKey) throw error;
+            t = {
+              ...current,
+              submission: {
+                source: "timer",
+                note: "Work on #" + current.ticketId,
+                billable: submission.billable,
+              },
+            };
+            writeTimer(t);
+            standaloneFallback = true;
+            continue;
+          }
+          throw error;
+        }
+      }
+      if (!r) throw new Error("Time submission did not complete");
+      if (responseEntryKey(r) !== t.entryKey || !clearMatchingTimer(t.entryKey)) {
+        throw new Error("timer acknowledgement mismatch");
+      }
+      toast(standaloneFallback
+        ? "Message was not confirmed; measured time was submitted as a standalone timer."
+        : (r.toast || `Time logged · ${timerMinutes(t)}m`));
+      paintTimer();
+      if (page === "time") setTimeout(() => location.reload(), 500);
+    } catch (error) {
+      const detail = error instanceof Error && error.message && !error.message.startsWith("API ")
+        ? " " + error.message + " Retry or discard it."
+        : " Retry logging when you're online, or discard it.";
+      toast("Time is stopped and saved locally —" + detail);
+    } finally {
+      timerSubmissionInFlight = false;
+      paintTimer();
     }
+  }
+
+  async function stopTimer() {
+    let t = readTimer();
+    if (!t) return;
+    if (t.state === "active") {
+      t = { ...t, state: "stopped", endedAt: Date.now() };
+      writeTimer(t);
+      paintTimer();
+    }
+    await submitStoppedTimer(t);
+  }
+
+  function discardTimer() {
+    const t = readTimer();
+    if (!t) return;
+    if (!confirm(`Discard the local timer for #${t.ticketId}? This time has not been logged.`)) return;
+    writeTimer(null);
+    paintTimer();
+    toast("Local timer discarded.");
+  }
+
+  function paintLegacyTimer() {
+    const panel = $("#legacy-timer-quarantine");
+    if (!panel) return;
+    const legacy = readLegacyTimer();
+    panel.hidden = !legacy;
+    if (!legacy) return;
+    const message = $("#legacy-timer-message");
+    if (message) {
+      message.textContent = `Older unassigned timer: #${Number(legacy.ticketId)} · ${fmt(timerElapsed(legacy))}. Claim it only if you started it.`;
+    }
+    const claim = $("#legacy-timer-claim");
+    if (claim) claim.disabled = !!readTimer();
+  }
+
+  function claimLegacyTimer() {
+    const legacy = readLegacyTimer();
+    if (!legacy) { paintLegacyTimer(); return; }
+    if (readTimer()) {
+      toast("Finish or discard your current timer before claiming the older one.");
+      return;
+    }
+    if (!confirm(`Claim the older timer for #${Number(legacy.ticketId)} as your own technician time?`)) return;
+    writeTimer({
+      ticketId: Number(legacy.ticketId),
+      subject: String(legacy.subject || ""),
+      tenantId: timerTenantId,
+      userId: timerUserId,
+      entryKey: newEntryKey(),
+      state: legacy.endedAt ? "stopped" : "active",
+      startedAt: Number(legacy.startedAt),
+      endedAt: legacy.endedAt ? Number(legacy.endedAt) : null,
+    });
+    localStorage.removeItem(LEGACY_TIMER_KEY);
+    paintLegacyTimer();
+    paintTimer();
+    toast("Older timer claimed for this signed-in technician.");
+  }
+
+  function discardLegacyTimer() {
+    const legacy = readLegacyTimer();
+    if (!legacy) { paintLegacyTimer(); return; }
+    if (!confirm(`Discard the older unassigned timer for #${Number(legacy.ticketId)}?`)) return;
+    localStorage.removeItem(LEGACY_TIMER_KEY);
+    paintLegacyTimer();
+    toast("Older unassigned timer discarded.");
   }
 
   setInterval(() => {
     const t = readTimer();
-    if (!t) return;
+    if (!t || t.state !== "active") return;
     const clock = $("#timer-clock");
     if (clock) clock.textContent = fmt(timerElapsed(t));
     const widget = $("#timer-widget");
@@ -217,6 +449,11 @@
       if (span) span.textContent = fmt(timerElapsed(t));
     }
   }, 1000);
+
+  window.addEventListener("storage", (event) => {
+    if (event.key === TIMER_KEY) paintTimer();
+    if (event.key === LEGACY_TIMER_KEY) paintLegacyTimer();
+  });
 
   /* ------------------------------------------------------------------ */
   /* Row selection (queue + clients)                                     */
@@ -569,24 +806,80 @@
   const stopBtn = $("#timer-stop");
   if (stopBtn) stopBtn.addEventListener("click", stopTimer);
 
+  const discardBtn = $("#timer-discard");
+  if (discardBtn) discardBtn.addEventListener("click", discardTimer);
+
+  const legacyClaimBtn = $("#legacy-timer-claim");
+  if (legacyClaimBtn) legacyClaimBtn.addEventListener("click", claimLegacyTimer);
+  const legacyDiscardBtn = $("#legacy-timer-discard");
+  if (legacyDiscardBtn) legacyDiscardBtn.addEventListener("click", discardLegacyTimer);
+
+  const serverTimerAck = $("#time-entry-ack");
+  if (serverTimerAck && clearMatchingTimer(serverTimerAck.dataset.entryKey || "")) {
+    toast("Message saved and matching time entry logged.");
+  }
+
   /* suggestion accept/dismiss (time page) */
   $$(".sugg-row").forEach((rowEl) => {
     const accept = $(".sugg-accept", rowEl);
     const dismiss = $(".sugg-dismiss", rowEl);
     if (accept) accept.addEventListener("click", async () => {
+      accept.disabled = true;
       try {
         const r = await api("/api/timer.php", {
           ticket_id: Number(rowEl.dataset.ticketId),
+          entry_key: rowEl.dataset.entryKey,
+          source: "suggestion",
           minutes: Number(rowEl.dataset.minutes),
           note: "Suggested entry · #" + rowEl.dataset.ticketId,
           billable: 1,
+          worked_at: rowEl.dataset.workedAt,
         });
+        if (responseEntryKey(r) !== rowEl.dataset.entryKey) throw new Error("suggestion acknowledgement mismatch");
         toast(r.toast || "Logged");
         rowEl.remove();
         setTimeout(() => location.reload(), 700);
-      } catch { toast("Couldn't log that — try again."); }
+      } catch {
+        accept.disabled = false;
+        toast("Couldn't log that — the suggestion is still here to retry.");
+      }
     });
     if (dismiss) dismiss.addEventListener("click", () => rowEl.remove());
+  });
+
+  /* owner/admin review queue (time page) */
+  $$(".time-review").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest(".review-row");
+      if (!row) return;
+      const decision = button.dataset.decision;
+      let note = "";
+      if (decision === "rejected") {
+        const answer = prompt("Why is this time entry being rejected? The technician will see this note.");
+        if (answer === null) return;
+        note = answer.trim();
+        if (!note) { toast("A rejection note is required."); return; }
+      }
+      const controls = $$(".time-review", row);
+      controls.forEach((control) => { control.disabled = true; });
+      try {
+        const r = await api("/api/time_entry_review.php", {
+          entry_id: Number(row.dataset.timeEntryId),
+          decision,
+          note,
+        });
+        if (!r.ok) throw new Error("review rejected");
+        toast(r.toast || (decision === "approved" ? "Time approved." : "Time rejected."));
+        row.remove();
+        const queue = $("#time-review-queue");
+        if (queue && !$(".review-row", queue)) {
+          queue.innerHTML = '<div class="empty"><p>No technician time is waiting for review.</p></div>';
+        }
+      } catch {
+        toast("Review was not saved — refresh and try again.");
+        controls.forEach((control) => { control.disabled = false; });
+      }
+    });
   });
 
   /* ------------------------------------------------------------------ */
@@ -687,6 +980,10 @@
     const chip = $("#timer-log-chip");
     const chipText = $("#timer-log-text");
     const minutesInput = $("#f-timer-minutes");
+    const entryKeyInput = $("#f-timer-entry-key");
+    const startedAtInput = $("#f-timer-started-at");
+    const endedAtInput = $("#f-timer-ended-at");
+    const workedAtInput = $("#f-timer-worked-at");
     const ticketId = $("#thread") ? $("#thread").dataset.ticketId : null;
 
     function paintChip() {
@@ -694,17 +991,40 @@
       const t = readTimer();
       const on = t && String(t.ticketId) === String(ticketId);
       chip.hidden = !on;
-      if (on && chipText) chipText.textContent = "log " + Math.max(1, Math.round(timerElapsed(t) / 60)) + "m";
+      if (on && chipText) chipText.textContent = (t.state === "stopped" ? "log saved " : "log ") + timerMinutes(t) + "m";
     }
     setInterval(paintChip, 1000);
     paintChip();
 
-    form.addEventListener("submit", () => {
-      const t = readTimer();
-      if (t && String(t.ticketId) === String(ticketId) && minutesInput) {
-        minutesInput.value = String(Math.max(1, Math.round(timerElapsed(t) / 60)));
-        writeTimer(null); // sending logs it — timer's job is done
+    form.addEventListener("submit", (event) => {
+      const upload = $("#f-files");
+      if (!box.value.trim() && !(upload && upload.files && upload.files.length)) return;
+      let t = readTimer();
+      if (!t || String(t.ticketId) !== String(ticketId) || !minutesInput || !entryKeyInput || !startedAtInput || !endedAtInput || !workedAtInput) return;
+      if (t.state === "stopped" && t.submission) {
+        event.preventDefault();
+        toast("Retry or discard the saved time before sending another message.");
+        return;
       }
+      if (t.state === "active") {
+        t = { ...t, state: "stopped", endedAt: Date.now() };
+      }
+      const replyIsNote = modeInput && modeInput.value === "note";
+      const billableInput = $("#f-billable");
+      t = {
+        ...t,
+        submission: {
+          source: "reply",
+          note: (replyIsNote ? "Noted on #" : "Replied on #") + ticketId,
+          billable: billableInput && billableInput.checked ? 1 : 0,
+        },
+      };
+      writeTimer(t);
+      minutesInput.value = String(timerMinutes(t));
+      entryKeyInput.value = t.entryKey;
+      startedAtInput.value = timerIso(t.startedAt);
+      endedAtInput.value = timerIso(t.endedAt);
+      workedAtInput.value = timerIso(t.endedAt);
     });
 
     /* attachment picker count */
@@ -790,7 +1110,7 @@
           <p><kbd class="kbd">e</kbd> timer · <kbd class="kbd">r</kbd> reply · <kbd class="kbd">n</kbd> note</p></div>
         <div><h4>Composer</h4>
           <p><kbd class="kbd">/</kbd> saved replies · <kbd class="kbd">⌘↵</kbd> send</p>
-          <p>timer minutes log themselves on Send</p></div>
+          <p>matching timer logs only after server-confirmed Send</p></div>
         <div><h4>Everywhere</h4>
           <p><kbd class="kbd">⌘K</kbd> palette (search reaches every message)</p>
           <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd>/<kbd class="kbd">t</kbd>/<kbd class="kbd">c</kbd> navigate · <kbd class="kbd">?</kbd> this card</p></div>
@@ -821,4 +1141,5 @@
 
   /* boot */
   paintTimer();
+  paintLegacyTimer();
 })();

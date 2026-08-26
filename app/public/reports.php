@@ -8,8 +8,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 enforce_https();
 $user = require_login();
+$canExportTime = in_array((string)$user['role'], ['owner', 'admin'], true);
 
-$tid = tenant_id();
+$tid = (int)$user['tenant_id'];
 
 // This week / right now
 $counts = db()->prepare(
@@ -50,26 +51,27 @@ $aging = db()->prepare(
 $aging->execute([$tid]);
 $ag = $aging->fetch();
 
-// Time this week by tech
+// Approved time this week by tech. Tenant and client facts come from the
+// entry snapshot, never from a ticket that may later be merged or reassigned.
 $tt = db()->prepare(
     "SELECT u.full_name, u.initials, u.color,
-            SUM(e.minutes) AS min_total, SUM(e.minutes * e.billable) AS min_billable
+            SUM(e.minutes) AS min_total
        FROM time_entries e
-       JOIN users u   ON u.id = e.user_id
-       JOIN tickets t ON t.id = e.ticket_id
-      WHERE t.tenant_id = ? AND e.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
+       JOIN users u   ON u.id = e.user_id AND u.tenant_id = e.tenant_id
+      WHERE e.tenant_id = ? AND e.approval_status = 'approved' AND e.billable = 1
+        AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
       GROUP BY u.id ORDER BY min_total DESC"
 );
 $tt->execute([$tid]);
 $timeByTech = $tt->fetchAll();
 
-// Billable hours by client, 30d
+// Approved billable hours by captured client, 30d.
 $bc = db()->prepare(
     "SELECT c.id, c.name, ROUND(SUM(e.minutes) / 60, 1) AS hours
        FROM time_entries e
-       JOIN tickets t ON t.id = e.ticket_id
-       JOIN clients c ON c.id = t.client_id
-      WHERE t.tenant_id = ? AND e.billable = 1 AND e.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)
+       JOIN clients c ON c.id = e.client_id AND c.tenant_id = e.tenant_id
+      WHERE e.tenant_id = ? AND e.approval_status = 'approved' AND e.billable = 1
+        AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)
       GROUP BY c.id ORDER BY SUM(e.minutes) DESC"
 );
 $bc->execute([$tid]);
@@ -103,9 +105,11 @@ page_top($user, 'Reports', 'reports');
       <h1 class="page-title">Reports</h1>
       <p class="page-sub">Real numbers, computed live — nothing here is decorative</p>
     </div>
-    <div class="filters">
-      <a class="btn-chip" href="/reports_export.php?days=30">⭳ Billable CSV (30d)</a>
-    </div>
+    <?php if ($canExportTime): ?>
+      <div class="filters">
+        <a class="btn-chip" href="/reports_export.php?days=30">⭳ Approved billable CSV (30d)</a>
+      </div>
+    <?php endif; ?>
   </div>
 
   <div class="stats">
@@ -130,14 +134,14 @@ page_top($user, 'Reports', 'reports');
         <?php endforeach; ?>
       </div>
 
-      <div class="rail-label">Time this week</div>
+      <div class="rail-label">Approved billable time this week</div>
       <div class="card rail-list">
-        <?php if (!$timeByTech): ?><div class="empty"><p>No time logged this week yet.</p></div><?php endif; ?>
+        <?php if (!$timeByTech): ?><div class="empty"><p>No billable time approved this week yet.</p></div><?php endif; ?>
         <?php foreach ($timeByTech as $t): ?>
         <div class="entry-row">
           <?= avatar($t, 24) ?>
           <div class="entry-main"><div class="entry-note"><?= h($t['full_name']) ?></div></div>
-          <span class="entry-badge badge-billable"><?= $fmtMin((int)$t['min_billable']) ?> billable</span>
+          <span class="entry-badge badge-billable">approved billable</span>
           <span class="entry-min"><?= $fmtMin((int)$t['min_total']) ?></span>
         </div>
         <?php endforeach; ?>
@@ -145,9 +149,9 @@ page_top($user, 'Reports', 'reports');
     </div>
 
     <div>
-      <div class="rail-label">Billable hours by client (30d)</div>
+      <div class="rail-label">Approved billable hours by client (30d)</div>
       <div class="card rail-list">
-        <?php if (!$billByClient): ?><div class="empty"><p>No billable time in the last 30 days.</p></div><?php endif; ?>
+        <?php if (!$billByClient): ?><div class="empty"><p>No approved billable time in the last 30 days.</p></div><?php endif; ?>
         <?php foreach ($billByClient as $b): ?>
         <div class="entry-row">
           <div class="entry-main"><div class="entry-note"><a class="link" href="/client.php?id=<?= (int)$b['id'] ?>"><?= h($b['name']) ?></a></div></div>
@@ -155,7 +159,7 @@ page_top($user, 'Reports', 'reports');
         </div>
         <?php endforeach; ?>
       </div>
-      <p class="page-note">The CSV above is invoice-ready — Coastmark handoff replaces it in Phase 2.</p>
+      <p class="page-note">Approved time is operational evidence only. Export does not post or invoice anything.</p>
     </div>
   </div>
 </div>

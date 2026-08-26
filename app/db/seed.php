@@ -10,7 +10,7 @@ if (PHP_SAPI !== 'cli') exit('CLI only.');
 require_once __DIR__ . '/../lib/bootstrap.php';
 
 // This script TRUNCATEs tenants, policies, users, clients, contacts, tickets,
-// messages and time_entries. It ships to production with every release, and until now "CLI
+// messages, time_entries and their events. It ships to production with every release, and until now "CLI
 // only" was the entire guard — so one mistyped command on the wrong host wiped
 // the desk, silently and completely.
 //
@@ -28,6 +28,7 @@ $demoPassword = 'harbor'; // demo credential — shown on the login page in demo
 $pdo = db();
 $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
 foreach ([
+    'time_entry_events',
     'time_entries',
     'messages',
     'tickets',
@@ -145,13 +146,29 @@ $messages = [
 foreach ($messages as $row) $m->execute($row);
 
 // Time entries ------------------------------------------------------------
-$e = $pdo->prepare('INSERT INTO time_entries (ticket_id, user_id, minutes, note, billable, created_at) VALUES (?,?,?,?,1,?)');
+// Use the same approval-grade service as production. Two explicit approvals
+// keep Reports useful in the demo while the first row stays pending so the
+// owner review queue has a real fixture.
 $entries = [
     [102, 2, 35, 'Mailbox automapping fix + profile rebuild', $h(-2)],
     [106, 1, 20, 'Hygienist account provisioning',            $h(-1)],
     [109, 3, 45, 'SharePoint permission audit',               $h(-11)],
 ];
-foreach ($entries as $row) $e->execute($row);
+$seedTime = [];
+foreach ($entries as $index => $row) {
+    $workedAt = gmdate('Y-m-d\TH:i:s\Z', strtotime($row[4] . ' UTC'));
+    $seedTime[] = time_entry_create($pdo, 1, (int)$row[1], [
+        'ticket_id' => (int)$row[0],
+        'entry_key' => 'seed:time:entry:' . (int)$row[0] . ':' . (int)$row[1],
+        'source' => 'suggestion',
+        'worked_at' => $workedAt,
+        'minutes' => (int)$row[2],
+        'note' => (string)$row[3],
+        'billable' => true,
+    ]);
+}
+time_entry_review($pdo, 1, 1, 'owner', (int)$seedTime[1]['id'], 'approved', 'Approved demo fixture.');
+time_entry_review($pdo, 1, 1, 'owner', (int)$seedTime[2]['id'], 'approved', 'Approved demo fixture.');
 
 echo "Seeded: 1 tenant, " . count($users) . " users, " . count($clients) . " clients, "
    . count($tickets) . " tickets, " . count($messages) . " messages, "

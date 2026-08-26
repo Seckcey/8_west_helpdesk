@@ -29,8 +29,8 @@ If you change what is live, change this page in the same PR.
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
 | Migrations 001–010 | **All applied** to production |
 | Versioned service goals | **Live** through Safeharbor PR #37 / merge `1796f57` |
-| Approval-grade technician time / migration 011 | **Not applied or deployed** |
-| Time-provenance bridge | **This release; deploy before migration 011** |
+| Migration 011 / approval-grade time | **Release candidate; not applied or deployed yet** |
+| Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | **Nothing.** Both `svc.enabled` and `svc.support_enabled` are `true` |
 
 ## Customer Service Tools development
@@ -66,15 +66,30 @@ immutability guards are present. The deployed `service_goals.php` and
 canary resolved a v1 target and exact deadline, then rolled back without
 leaving a ticket.
 
-The time-provenance bridge in this release removes the legacy merge rewrite
-of `time_entries.ticket_id` and refreshes the authenticated tenant into every
-session. It changes no schema and is the required rollback-compatible release
-to deploy before migration 011.
+The time-provenance bridge shipped through PR #38 / merge `ceba5a4`. It
+removes the legacy merge rewrite of `time_entries.ticket_id`, refreshes the
+authenticated tenant into every session, and changes no schema. Production
+received it before migration 011, preserving a rollback-compatible boundary.
 
 The scratch SSO fixture also now follows the real
 `suite_sso_attempt()` → `current_user()` request path: untouched `origin/main`
 reproduced its stale avatar-session failure at 30 checks / 1 failure, while the
 merged release passed 30 / 0 before the remaining database suites ran.
+
+The Phase 3 release candidate centralizes every timer, reply, suggestion, and
+seed write behind one idempotent time-entry service. Migration 011 snapshots
+tenant/client ownership, keeps all legacy work pending, allows only one
+pending-to-approved/rejected review, records immutable database events, and
+prevents merges from rewriting time provenance. Owners/admins review pending
+work; techs cannot. Reports and the restricted CSV use only approved billable
+rows, and neither surface posts or invoices anything. The browser keeps a
+stopped timer locally until the server acknowledges that exact entry key, so
+offline retry and a stale reply do not lose time. This paragraph describes the
+reviewed candidate only; production remains on the pre-011 time model until
+the migration-first release gates below complete. Authentication now stamps
+the database-resolved tenant on every request, and each touched time/report
+consumer binds directly to the authenticated user's tenant; regression gates
+cover the prior tenant-1 fallback failure.
 
 ## First-tenant suite SSO repair
 
@@ -213,8 +228,13 @@ Applied in production: **001 through 010**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
 2026-08-09. Migration `010_service_goal_policies.sql` was applied before the
 matching code on 2026-08-26. It is additive and leaves historical ticket
-pointers NULL. Migration 011 is not applied; deploy the time-provenance bridge
-before any future migration-first approval-time release.
+pointers NULL.
+
+Migration `011_time_entry_approvals.sql` is not yet applied. Before deploying
+its matching code, run `time_entries_mysql_test.php` with a trigger-capable
+operator against an exact disposable database, back up production, apply the
+migration first, and verify legacy rows remain pending plus all permanent
+guards remain installed.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
@@ -230,10 +250,11 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Twelve CLI suites live in `app/tests/`. Six server-free contract suites run in
-CI, including the hermetic SQLite service-goal policy/query test. Five integration
-suites (`suite_sso`, `svc_intake`, `svc_support`, `westy_report`, and
-`intake_service_goal`) need MySQL plus a scratch-only `config/config.php`;
+Fifteen CLI suites live in `app/tests/`. Eight server-free contract suites run
+in CI, including the hermetic SQLite service-goal and approval-time tests plus
+the time-provenance bridge gate. Six integration suites (`suite_sso`,
+`svc_intake`, `svc_support`, `westy_report`, `intake_service_goal`, and
+`time_entries_mysql`) need MySQL plus a scratch-only `config/config.php`;
 `utf8_input` needs the scratch config but does not touch the database. PHP
 lint and the database-free suites run on the Windows dev machine.
 
@@ -255,11 +276,12 @@ reaches, so the pin is not optional:
 3. `cd /tmp/<dir> && php tests/<suite>.php`.
 4. **Delete the directory afterwards** — that wrapper pulls in real credentials.
 
-### The browser half has no suite — drive it by hand
+### The browser behavior still needs a rendered test
 
-Nothing in `app/tests/` touches `assets/js/`, so a green run says **nothing**
-about the chat bubble. That half *is* checkable on the Windows machine, and it
-is worth doing whenever `westy.js` changes:
+`time_entries_test.php` now inspects safety-critical `app.js` source patterns,
+but no CLI test executes the rendered JavaScript. A green run therefore is not
+behavioral browser proof. That half *is* checkable on the Windows machine, and
+it is worth doing whenever `app.js` or `westy.js` changes:
 
 1. Copy `app.css` and `westy.js` into a scratch directory and add a page with
    the same scaffold `lib/westy.php` renders (`#westy-root` and its children,

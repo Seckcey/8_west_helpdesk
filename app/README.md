@@ -13,15 +13,18 @@ published; use an authorized 8 West ID or local account.
 config/config.sample.php   host config template (config.php is server-only, gitignored)
 db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
-db/migrations/             numbered SQL migrations (as needed; 010 versioned
-                           service goals is a development candidate, not live)
+db/migrations/             numbered SQL migrations (010 versioned service
+                           goals is live; 011 approval-grade time is a release candidate)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
 lib/service_goals.php      versioned target resolver/snapshot + deterministic
                            first-response lamps and attainment
+lib/time_entries.php       single writer for idempotent pending time + guarded
+                           owner/admin approval decisions
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
-                           the tenant and user on first arrival, syncs theme/avatar,
+                           the tenant and user on first arrival, refreshes the
+                           database-resolved tenant session, syncs theme/avatar,
                            and audits every deny via suite_sso_refuse()
 lib/revocation.php         signed 8 West ID revocation-list enforcement for
                            established suite sessions (60s cache; logged,
@@ -49,7 +52,8 @@ lib/svc_support.php        Coastmark + Waypoint support requests → 8 West IT's
 tests/                     CLI contract + scratch-MySQL integration tests —
                            suite_sso_test.php, svc_intake_test.php,
                            westy_report_test.php, svc_support_test.php,
-                           intake_service_goal_test.php
+                           intake_service_goal_test.php, time_entries_test.php,
+                           time_entries_mysql_test.php
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
 cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
@@ -61,15 +65,17 @@ public/                    Apache docroot (page-per-file, like Milepost)
   clients.php, client.php  Clients + "answer the phone smart" screen
   client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
   users.php                Team — user management (owner/admin add, deactivate)
-  time.php                 Timer + suggested entries + today's entries
-  reports.php              Real numbers: first response, response-target attainment, aging, time,
-                           billable by client (+ reports_export.php CSV)
+  time.php                 Reliable timer + suggestions + own entries +
+                           owner/admin pending review queue
+  reports.php              Real numbers: first response, response-target attainment, aging,
+                           approved billable time (+ owner/admin CSV)
   snippets.php             Saved replies ("/" in the composer; merge fields)
   csat.php                 One-tap resolution survey (token-authed, public)
   attachment.php           Forced-download attachment serving
   login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
   api/ticket_action.php    Optimistic field updates (strict whitelists)
-  api/timer.php            Time-entry logging
+  api/timer.php            Idempotent pending timer/suggestion submission
+  api/time_entry_review.php Owner/admin approve/reject transition
   api/westy_chat.php       Westy chat (advise-only; rate-limited via assistant_log)
   api/westy_onboard.php    Marks the first-run welcome as done (users.onboarded_at)
   api/presence.php         Collision-detection heartbeat (viewing/typing chips)
@@ -108,14 +114,16 @@ public/                    Apache docroot (page-per-file, like Milepost)
 - Composer: Reply/Internal note tabs on one box (notes never email, never
   change status); `/` inserts saved replies with merge fields resolved
   ({contact.first_name} {client.name} {ticket.id} {tech.first_name});
-  paperclip attaches ≤5 files ≤15MB; a running timer's minutes log
-  themselves on Send (billable toggle); a stale thread BLOCKS the send and
-  preserves the draft.
+  paperclip attaches ≤5 files ≤15MB; a running timer freezes on Send and
+  clears locally only after the server acknowledges that exact idempotency key
+  (billable toggle); a stale thread BLOCKS the send and preserves both draft
+  and timer.
 - Collision detection: 20s presence heartbeats paint "viewing/typing…"
   chips in the ticket header (api/presence.php).
 - Merge: rail button or the duplicate banner (same contact, 48h) —
-  messages/files/time move to the survivor, the source becomes a linked
-  resolved stub (merged_into_id).
+  messages/files move to the survivor and the source becomes a linked resolved
+  stub (`merged_into_id`). Time remains on that source so its captured
+  ticket/client provenance cannot change.
 - Waiting = parked with a 72h leash (resurface_at); housekeeping
   (piggybacked on mail_dispatch) reopens it; any client reply clears it.
 - Resolving a ticket with a human contact emails a one-tap CSAT survey
@@ -158,5 +166,7 @@ SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 cd tools/shots && node walkthrough.mjs                   # visual verification
 ```
 
-The demo data can always be reset on the server:
-`cd /srv/8west/apps/safeharbor/current && php db/seed.php`
+Demo data may be reset only on a disposable sandbox whose server-only config
+explicitly sets `demo_mode` to `true`:
+`cd /srv/8west/apps/safeharbor/current && php db/seed.php`.
+Production must keep `demo_mode` false; the seed refuses to run there.

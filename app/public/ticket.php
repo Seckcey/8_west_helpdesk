@@ -10,6 +10,20 @@ require_once __DIR__ . '/../lib/attachments.php';
 enforce_https();
 $user = require_login();
 
+// A reply can carry the local timer through a full-page submit. The server
+// acknowledges the exact idempotency key once after PRG; app.js clears local
+// state only when that key matches the timer still stored in this browser.
+$timeEntryAck = null;
+$timeEntryNotice = null;
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_SESSION['time_entry_ack'])) {
+    $timeEntryAck = (string)$_SESSION['time_entry_ack'];
+    unset($_SESSION['time_entry_ack']);
+}
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_SESSION['time_entry_notice'])) {
+    $timeEntryNotice = (string)$_SESSION['time_entry_notice'];
+    unset($_SESSION['time_entry_notice']);
+}
+
 $id = (int)($_GET['id'] ?? 0);
 $stmt = db()->prepare(
     'SELECT t.*,
@@ -51,6 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
     $body   = utf8_clean(trim((string)$_POST['reply']));
     $isNote = (($_POST['mode'] ?? 'reply') === 'note');
     $hasFiles = !empty($_FILES['files']['name'][0] ?? '');
+    $messageSaved = false;
     if ($body === '' && $hasFiles) $body = '(attached files)';
 
     // Collision guard: if the thread grew since this form was rendered,
@@ -67,6 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
     if ($body !== '') {
         db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
             ->execute([$id, $user['full_name'], $isNote ? 'note' : 'tech', $body]);
+        $messageSaved = true;
         if ($hasFiles) {
             att_store_uploads($id, (int)db()->lastInsertId(), $_FILES['files']);
         }
@@ -83,15 +99,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
             }
         }
     }
-    // Time-at-reply: the running timer's minutes ride the Send click, so
-    // time capture is a side effect of answering (never a Friday chore).
+    // Time-at-reply: the running timer's immutable key and timestamps ride
+    // the Send click. A stale send never reaches this block, so it neither
+    // logs nor acknowledges the retained local timer.
     if ($staleDraft === null) {
         $logMin = max(0, min(24 * 60, (int)($_POST['timer_minutes'] ?? 0)));
-        if ($logMin > 0) {
-            db()->prepare('INSERT INTO time_entries (ticket_id, user_id, minutes, note, billable) VALUES (?,?,?,?,?)')
-                ->execute([$id, (int)$user['id'], $logMin,
-                           ($isNote ? 'Noted on #' : 'Replied on #') . $id,
-                           !empty($_POST['billable']) ? 1 : 0]);
+        $entryKey = trim((string)($_POST['entry_key'] ?? ''));
+        if ($messageSaved && $logMin > 0 && $entryKey !== '') {
+            $timeInput = [
+                'ticket_id' => $id,
+                'entry_key' => $entryKey,
+                'source' => 'reply',
+                'minutes' => $logMin,
+                'note' => ($isNote ? 'Noted on #' : 'Replied on #') . $id,
+                'billable' => !empty($_POST['billable']) ? 1 : 0,
+                'started_at' => (string)($_POST['started_at'] ?? ''),
+                'ended_at' => (string)($_POST['ended_at'] ?? ''),
+                'worked_at' => (string)($_POST['worked_at'] ?? ''),
+            ];
+            // The message can commit before timer validation. Store an exact,
+            // actor-bound request digest first so a transient clock-window
+            // refusal does not strand an otherwise recoverable local timer.
+            $_SESSION['time_entry_retry'] = [
+                'tenant_id' => (int)$user['tenant_id'],
+                'user_id' => (int)$user['id'],
+                'entry_key' => $entryKey,
+                'request_fingerprint' => time_entry_retry_request_fingerprint($timeInput),
+            ];
+            try {
+                $normalizedTime = time_entry_validate_create_input($timeInput);
+                // Retain the canonical digest too. The raw and normalized
+                // digests authorize only the same facts, never a replacement.
+                $_SESSION['time_entry_retry']['fingerprint'] =
+                    time_entry_retry_fingerprint($normalizedTime);
+                $entry = time_entry_create(db(), (int)$user['tenant_id'], (int)$user['id'], $timeInput);
+                $ackKey = (string)($entry['entry_key'] ?? '');
+                if ($ackKey !== '' && hash_equals($entryKey, $ackKey)) {
+                    $_SESSION['time_entry_ack'] = $ackKey;
+                    unset($_SESSION['time_entry_retry']);
+                }
+            } catch (Throwable $error) {
+                // The reply is already saved. Do not turn that success into a
+                // 500 or acknowledge the browser timer; it remains locally
+                // retryable with the same idempotency key.
+                error_log('Safeharbor reply-time capture refused: ' . $error::class);
+                $_SESSION['time_entry_notice'] = ($isNote ? 'Note saved' : 'Reply sent')
+                    . ', but its time entry stayed local. Use Retry logging; do not send it again.';
+            }
         }
         header('Location: /ticket.php?id=' . $id . '#reply');
         exit;
@@ -158,6 +212,9 @@ $cannedData = [
 page_top($user, '#' . $id, 'queue');
 ?>
 <div class="page page-ticket">
+  <?php if ($timeEntryAck !== null): ?>
+    <span id="time-entry-ack" data-entry-key="<?= h($timeEntryAck) ?>" hidden></span>
+  <?php endif; ?>
   <a href="/" class="backlink">← Queue</a>
   <?php if ($mergedInto): ?>
     <div class="banner banner-info">This ticket was merged into
@@ -173,6 +230,9 @@ page_top($user, '#' . $id, 'queue');
   <?php if ($staleDraft !== null): ?>
     <div class="banner banner-warn">⚠ The conversation changed while you were typing — <strong>nothing was sent</strong>.
       Review the new messages below; your draft is preserved in the composer.</div>
+  <?php endif; ?>
+  <?php if ($timeEntryNotice !== null): ?>
+    <div class="banner banner-warn"><?= h($timeEntryNotice) ?></div>
   <?php endif; ?>
   <div class="ticket-head">
     <span class="ticket-num">#<?= (int)$ticket['id'] ?></span>
@@ -220,6 +280,10 @@ page_top($user, '#' . $id, 'queue');
           <?= csrf_field() ?>
           <input type="hidden" name="mode" id="composer-mode" value="reply">
           <input type="hidden" name="timer_minutes" id="f-timer-minutes" value="0">
+          <input type="hidden" name="entry_key" id="f-timer-entry-key" value="">
+          <input type="hidden" name="started_at" id="f-timer-started-at" value="">
+          <input type="hidden" name="ended_at" id="f-timer-ended-at" value="">
+          <input type="hidden" name="worked_at" id="f-timer-worked-at" value="">
           <input type="hidden" name="last_message_id" value="<?= (int)($thread ? max(array_column($thread, 'id')) : 0) ?>">
           <div class="composer-tabs" role="tablist">
             <button type="button" class="composer-tab tab-on" data-mode="reply" role="tab">Reply <kbd class="kbd">R</kbd></button>
@@ -276,7 +340,7 @@ page_top($user, '#' . $id, 'queue');
       <div class="rail-label">Suite</div>
       <div class="card rail-card rail-suite">
         <p><span class="suite-dot"></span>Milepost device context — arrives in Phase 2</p>
-        <p><span class="suite-dot"></span>Coastmark invoice handoff — arrives in Phase 2</p>
+        <p><span class="suite-dot"></span>Coastmark draft-line handoff — not enabled</p>
       </div>
 
       <div class="rail-label">Team</div>
