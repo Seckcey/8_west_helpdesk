@@ -326,6 +326,31 @@ export_throws(
     'did not match',
 );
 export_throws(
+    'acknowledgement cannot add invoice numbers or other unreviewed fields',
+    CoastmarkTimeExportTransportException::class,
+    fn() => coastmark_time_export_send(
+        $payload,
+        export_config(),
+        fn(string $endpoint, array $headers, string $body, int $timeout) => [
+            'status' => 201,
+            'body' => json_encode([
+                'ok' => true,
+                'action' => 'created',
+                'source' => ['tenant_key' => $payload['tenant_key'], 'entry_key' => $payload['entry_key']],
+                'coastmark' => [
+                    'import_id' => 1,
+                    'invoice_id' => 2,
+                    'invoice_line_id' => 3,
+                    'invoice_number' => 'SH-UNREVIEWED',
+                ],
+                'payload_sha256' => hash('sha256', $body),
+            ], JSON_THROW_ON_ERROR),
+        ],
+        $timestamp,
+    ),
+    'did not match',
+);
+export_throws(
     'oversized acknowledgement is refused',
     CoastmarkTimeExportTransportException::class,
     fn() => coastmark_time_export_send(

@@ -234,6 +234,17 @@ function coastmark_time_export_send(
     }
     $expectedAction = $status === 201 ? 'created' : 'ignored';
     if (!is_array($decoded)
+        || !coastmark_time_export_exact_keys(
+            $decoded,
+            ['ok', 'action', 'source', 'coastmark', 'payload_sha256'],
+        )
+        || !is_array($decoded['source'] ?? null)
+        || !coastmark_time_export_exact_keys($decoded['source'], ['tenant_key', 'entry_key'])
+        || !is_array($decoded['coastmark'] ?? null)
+        || !coastmark_time_export_exact_keys(
+            $decoded['coastmark'],
+            ['import_id', 'invoice_id', 'invoice_line_id'],
+        )
         || ($decoded['ok'] ?? null) !== true
         || ($decoded['action'] ?? null) !== $expectedAction
         || ($decoded['source']['tenant_key'] ?? null) !== $payload['tenant_key']
@@ -388,6 +399,15 @@ function coastmark_time_export_key_value(mixed $value, int $maximum, string $lab
         throw new CoastmarkTimeExportValidationException("{$label} is invalid.");
     }
     return coastmark_time_export_key($value, $maximum, $label);
+}
+
+/** @param list<string> $expected */
+function coastmark_time_export_exact_keys(array $value, array $expected): bool
+{
+    $actual = array_keys($value);
+    sort($actual);
+    sort($expected);
+    return $actual === $expected;
 }
 
 function coastmark_time_export_timestamp(string $value, string $label): string
