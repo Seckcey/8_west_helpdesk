@@ -1,7 +1,7 @@
 # Safeharbor approved time to Coastmark draft lines
 
-**Status:** implementation candidate; default off; no production mapping or
-canary is implied by this document.
+**Status:** merged and deployed dark on 2026-08-26; both global gates are off;
+no production mapping, import, draft-line canary, or financial action occurred.
 
 This is the only planned financial seam between Safeharbor and Coastmark.
 Safeharbor supplies one immutable operational fact: a specific technician time
