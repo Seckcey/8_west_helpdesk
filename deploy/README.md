@@ -88,7 +88,8 @@ Recorded as applied to production: 001 (mail_queue) · 002 (westy/onboarding) ·
 003 (canned_responses) · 004 (attachments, email_threads, processed_mail,
 resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) ·
 007 (suite_subject) · 008 (Westy reports) · 009 (support intake) ·
-**010 (versioned service goals, migration-first on 2026-08-26)**.
+**010 (versioned service goals, migration-first on 2026-08-26)** ·
+**011 (approval-grade technician time, migration-first on 2026-08-26)**.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -107,6 +108,12 @@ show all exact columns, seven named
 indexes, five tenant-scoped foreign keys, the minute and billable checks, the
 immutable event table, and seven permanent triggers; every historical entry
 remains `pending`.
+
+Production applied 011 through Safeharbor PR #40 / merge `b0a6760` on
+2026-08-26. The protected pre-migration database backup is
+`/srv/8west/backups/safeharbor/20260826T223914Z-pre-phase3-migration`; the
+preceding full application/database/grant backup is
+`/srv/8west/backups/safeharbor/20260826T223441Z-pre-phase3-hardening`.
 
 The web/cron runtime identity must remain DML-only. It needs `SELECT`,
 `INSERT`, `UPDATE`, and `DELETE` on `safeharbor.*`; it must not hold `ALTER`,

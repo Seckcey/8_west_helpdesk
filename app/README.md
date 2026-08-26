@@ -14,7 +14,7 @@ config/config.sample.php   host config template (config.php is server-only, giti
 db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (010 versioned service
-                           goals is live; 011 approval-grade time is a release candidate)
+                           goals and 011 approval-grade time are live)
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
 lib/service_goals.php      versioned target resolver/snapshot + deterministic
                            first-response lamps and attainment

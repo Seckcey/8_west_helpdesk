@@ -1538,6 +1538,26 @@ SET @time_columns_exact = (
        'reviewed_at', 'review_note'
      )
 );
+-- Refresh the constraint facts after the additive DDL above. The working
+-- variables used to decide whether an ADD was needed describe the pre-DDL
+-- state on a first run; operator-visible postflight must describe the schema
+-- that now exists.
+SET @time_check_exact = (
+  SELECT COUNT(*) = 1
+    FROM information_schema.check_constraints
+   WHERE constraint_schema = DATABASE()
+     AND constraint_name = 'ck_time_entries_minutes'
+     AND REPLACE(REPLACE(REPLACE(REPLACE(LOWER(check_clause), '`', ''), ' ', ''), '(', ''), ')', '')
+         = 'minutesbetween1and1440'
+);
+SET @time_billable_check_exact = (
+  SELECT COUNT(*) = 1
+    FROM information_schema.check_constraints
+   WHERE constraint_schema = DATABASE()
+     AND constraint_name = 'ck_time_entries_billable'
+     AND REPLACE(REPLACE(REPLACE(REPLACE(LOWER(check_clause), '`', ''), ' ', ''), '(', ''), ')', '')
+         = 'billablein0,1'
+);
 SET @time_indexes_exact = (
   SELECT COUNT(*) = 7
     FROM (
