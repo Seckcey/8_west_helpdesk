@@ -6,8 +6,8 @@ Customer Service Tools and database sections were verified again through the
 2026-08-27 report-contact release, controlled 8 West IT customer/report
 canaries, Milepost tenant-wide customer-sync activation, and exact Safeharbor
 schedule-key release `8322266`, followed by the exact Westy receiver release
-`da9560a`; the rest of this page was not re-audited during those focused
-closeouts.
+`da9560a` and GET-only service-goal history release `b02a7a6`; the rest of this
+page was not re-audited during those focused closeouts.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -32,7 +32,7 @@ If you change what is live, change this page in the same PR.
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
 | Migrations 001–018 | **All applied** to production |
-| Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published. This source tree also contains a GET-only staff history view, but that view is not live until a separate code release. |
+| Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published. The GET-only staff history view is deployed through PR #65 / release `b02a7a6`; signed-out routing passed, while fresh signed-in production human acceptance remains open. |
 | Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
@@ -144,9 +144,28 @@ Lazy v1 is explicitly labelled as legacy attribution because no historical
 approver or reason exists. The page has no request-selected tenant, form, POST,
 API, editor, publish action, lazy initializer, migration, or configuration. Its
 source and hermetic isolation/role/boundary behavior are covered by the
-39-check publication suite. This is source status, not production acceptance;
-a separate code release and fresh signed-in 8 West IT read-only canary remain
-required.
+39-check publication suite. The code is deployed through Safeharbor PR #65 /
+exact release `b02a7a63d71a4d1532f81aa727b0ede85c2649f3`, and exact-main
+Validate run `33088142569` passed. This proves the release, not the rendered
+signed-in experience: a fresh signed-in production 8 West IT human acceptance
+check is still required and has not been claimed.
+
+The code-only release used the root-only backup and receipt at
+`/srv/8west/backups/safeharbor/20260827T154017Z-pre-service-goal-history-b02a7a6`.
+Its scratch restore proved 35 base tables and 60 triggers. Production matched
+137 ordinary tracked application files plus three normalized stamp files, and
+all 116 live PHP files linted. The correct Safeharbor maintenance lock returned
+`403`. Postflight returned login `200`, root `302`, signed-out
+`/service_goals.php` `302`, unauthenticated timer `401`, unauthenticated Westy
+intake `401`, portal `404`, and the separate support and ID host roots `302`.
+
+Protected configuration, grants, and database facts were unchanged. The portal,
+Coastmark approved-time export, 8 West ID report fetch, report generation, and
+report delivery gates remained off. The release window added no `fatal`,
+`Uncaught`, or `SQLSTATE` log hits. For transparency, the initial runner
+installed the exact files and restored the locks but stopped on an unrecorded
+final assertion. An immediate finalization rechecked every postflight assertion
+and passed; the protected receipt records both runs.
 
 Release evidence: Safeharbor PR #50 merged as
 `12abd36de83cda276e6d96a79e873e2706bb3ff0`; exact-head Validate run
