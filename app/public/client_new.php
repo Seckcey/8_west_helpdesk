@@ -2,8 +2,10 @@
 /** New client — name, domain, SLA tier, optional first contact. */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/service_goal_policy_admin.php';
 enforce_https();
 $user = require_login();
+$canManageServiceTier = service_goal_policy_can_manage_client_tier($user);
 
 $error = '';
 
@@ -11,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $name   = trim((string)($_POST['name'] ?? ''));
     $domain = mb_strtolower(trim((string)($_POST['domain'] ?? '')));
-    $tier   = in_array($_POST['sla_tier'] ?? '', ['standard', 'premium'], true) ? $_POST['sla_tier'] : 'standard';
+    $tier   = service_goal_policy_client_tier($user, $_POST['sla_tier'] ?? null);
     $cName  = trim((string)($_POST['contact_name'] ?? ''));
     $cEmail = mb_strtolower(trim((string)($_POST['contact_email'] ?? '')));
 
@@ -55,12 +57,18 @@ page_top($user, 'New client', 'clients');
       <label class="field">Domain
         <input type="text" name="domain" placeholder="lakesidepeds.com">
       </label>
-      <label class="field">SLA tier
-        <select name="sla_tier">
-          <option value="standard">standard</option>
-          <option value="premium">premium</option>
-        </select>
-      </label>
+      <?php if ($canManageServiceTier): ?>
+        <label class="field">Service-goal tier
+          <select name="sla_tier">
+            <option value="standard">standard</option>
+            <option value="premium">premium</option>
+          </select>
+        </label>
+      <?php else: ?>
+        <div class="field"><span>Service-goal tier</span><strong>standard</strong>
+          <span class="rail-note">Only owners and admins can choose a tier.</span>
+        </div>
+      <?php endif; ?>
       <div class="rail-label span-2" style="padding:0">First contact (optional)</div>
       <label class="field">Name
         <input type="text" name="contact_name" placeholder="Office manager">

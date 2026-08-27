@@ -27,8 +27,8 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–013 | **All applied** to production |
-| Versioned service goals | **Live** through Safeharbor PR #37 / merge `1796f57` |
+| Migrations 001–013 | **All applied** to production; migration 014 is a release candidate and is not yet applied |
+| Versioned service goals | **v1 baseline live** through Safeharbor PR #37 / merge `1796f57`; guarded later-version publication is release-candidate only, with no v2 published |
 | Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760` |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
@@ -68,6 +68,25 @@ immutability guards are present. The deployed `service_goals.php` and
 `ticket.php` hashes match merged source. A production-runtime transaction
 canary resolved a v1 target and exact deadline, then rolled back without
 leaving a ticket.
+
+Phase 2B is a release candidate, not a published business policy. It adds an
+operator-only `inspect` / no-write `plan` / digest-bound `publish` CLI for one
+exact tenant and Standard or Premium policy. Publication locks and rechecks the
+tenant, active owner/admin actor, and latest immutable version, requires an
+exact future UTC effective time plus four bounded first-response targets, and
+commits one attributed version with exactly four targets or rolls everything
+back. Owners/admins may choose a client's tier; technician edits omit the tier
+column entirely so a stale form cannot undo a concurrent authorized change.
+
+Migration 014 adds nullable attribution for truthful legacy compatibility, an
+exact non-cascading actor foreign key/index, four enforced checks, and two
+INSERT guards while retaining the four migration-010 immutability guards. Its
+fresh/upgrade/replay suite probes weakened and `NOT ENFORCED` checks,
+cascading foreign keys, no-op triggers, overlapping publishers, both actor
+demotion lock orders, rollback, and DML-only migration refusal. Deployment must
+be migration-first and create zero policy versions. Production still has only
+the four v1 rows and sixteen targets; the real four target values and effective
+time for any v2 remain an explicit business decision and must not be invented.
 
 The time-provenance bridge shipped through PR #38 / merge `ceba5a4`. It
 removes the legacy merge rewrite of `time_entries.ticket_id`, refreshes the
