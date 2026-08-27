@@ -563,6 +563,33 @@ and its release window had zero 5xx, fatal, or database errors. This is not
 accepted as a successful Safeharbor HTTP lock; future releases must pass the
 three-fact vhost preflight above before installation starts.
 
+The Westy receiver hardening then shipped code-only through PR #62 / exact
+release `da9560aabf972a9be1f0027445381ddea378688d` on 2026-08-27. Its
+root-only rollback record and scratch-restore proof are at
+`/srv/8west/backups/safeharbor/20260827150954Z-pre-westy-receiver-da9560a`;
+the restore proved 35 base tables and 60 triggers. The deployed tree matched
+136 ordinary tracked application files plus three normalized cache-stamp
+files, and all 115 live PHP files linted. The exact live hashes are
+`097f8c543ef7b831d0ac74f6a2df6223231881b1ef86f67e053d0193373dc703`
+for `app/lib/westy_report.php` and
+`4f3787744d49a215f80eb51123ae0df949928543b8dd6ef1b362b05cd379c4a4`
+for `app/public/api/svc/westy.php`.
+
+This release passed the correct Safeharbor maintenance lock at `403` and
+restored the Safeharbor SSL vhost to SHA-256
+`8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43`.
+Postflight returned login `200`, root `302`, unauthenticated timer `401`, and
+unauthenticated Westy intake `401`; the separate support and ID host roots
+returned `302`. The database and protected config were unchanged, with zero
+new fatal or SQL errors.
+
+The first verification attempt stopped before maintenance mode or code
+installation because its checker used the wrong business-report table name;
+it changed no live state. The corrected release completed afterward. The
+receiver remains dark with zero `milepost-westy` identities. Report
+generation/delivery, ID report-contact fetch, Coastmark time export, and the
+customer portal remain off, and no report cron or timer was installed.
+
 Migration 018 (`018_ticket_auto_close_eligibility.sql`) was applied
 migration-first on 2026-08-27 through PR #59 / release
 `e7ee5218017c88de18cf6f6476f34a1512593852`. The exact applied Git blob is
