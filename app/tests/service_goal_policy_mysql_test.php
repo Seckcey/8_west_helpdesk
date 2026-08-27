@@ -483,19 +483,36 @@ $pdo->exec(
     'ALTER TABLE service_goal_policy_targets ALTER CHECK ck_goal_target_resolution_null ENFORCED',
 );
 
+$pdo->exec(
+    'ALTER TABLE service_goal_policy_versions DROP CHECK ck_goal_policy_attribution_pair',
+);
 $pdo->exec('ALTER TABLE service_goal_policy_versions DROP FOREIGN KEY fk_goal_policy_actor');
 $pdo->exec(
     'ALTER TABLE service_goal_policy_versions ADD CONSTRAINT fk_goal_policy_actor '
     . 'FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES users (tenant_id, id) '
     . 'ON UPDATE CASCADE ON DELETE CASCADE',
 );
-goal_mysql_throws('migration refuses a same-name cascading actor foreign key', PDOException::class,
-    fn() => goal_mysql_execute_file($pdo, $migration014));
+try {
+    goal_mysql_execute_file($pdo, $migration014);
+    goal_mysql_check('migration refuses a same-name cascading actor foreign key at the FK sentinel', false);
+} catch (Throwable $error) {
+    goal_mysql_check(
+        'migration refuses a same-name cascading actor foreign key at the FK sentinel',
+        $error instanceof PDOException
+            && str_contains($error->getMessage(), 'migration_014_bad_actor_fk'),
+    );
+}
 $pdo->exec('ALTER TABLE service_goal_policy_versions DROP FOREIGN KEY fk_goal_policy_actor');
 $pdo->exec(
     'ALTER TABLE service_goal_policy_versions ADD CONSTRAINT fk_goal_policy_actor '
     . 'FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES users (tenant_id, id) '
     . 'ON UPDATE NO ACTION ON DELETE NO ACTION',
+);
+$pdo->exec(
+    'ALTER TABLE service_goal_policy_versions ADD CONSTRAINT ck_goal_policy_attribution_pair '
+    . 'CHECK ((created_by_user_id IS NULL AND reason IS NULL) '
+    . 'OR (created_by_user_id IS NOT NULL AND reason IS NOT NULL '
+    . 'AND CHAR_LENGTH(TRIM(reason)) BETWEEN 1 AND 500)) ENFORCED',
 );
 
 $pdo->exec('DROP TRIGGER trg_goal_policy_targets_no_update');
