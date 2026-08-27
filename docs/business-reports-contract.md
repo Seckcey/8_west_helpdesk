@@ -6,17 +6,23 @@ release `cef39dd190e6488c4aabf7a673eb810b4465a3eb`, with migration 017
 applied. One controlled 8 West IT canary has stable tenant key `ewid-t1`,
 contact version 1, immutable definition 1, and logical schedule 1. Its schedule
 key `8west-it-weekly-canary-v1` is latest version 2 and active for Wednesday
-09:00 `America/Los_Angeles`. Exact canary allowlists are installed, but
-generation and delivery are both false. Archives, deliveries, and attempts are
-zero; there is no server scheduler, no provider submission, and no recipient-
-receipt claim. Both dedicated report-contact gates are off after the redacted
-onboarding probe.
+09:00 `America/Los_Angeles`. PR #61 / merge
+`8322266dbcf3eb6956eb9f1ca79a51948002aaec` added an independent exact
+schedule-key allowlist to the existing tenant, client, and recipient gates.
+That exact release is live at `safeharbor.8westit.com`; all four allowlists
+contain only the controlled canary, but generation and delivery are both
+false. Archives, deliveries, and attempts are zero; there is no server
+scheduler, no provider submission, and no recipient-receipt claim. Both
+dedicated report-contact gates are off after the redacted onboarding probe.
 
 The first no-write dry run correctly waits for the first complete weekly
 window. A one-time Codex heartbeat is planned for Wednesday, 2026-09-02, to
 resume the controlled canary. Root-only production evidence is retained at
 `/srv/8west/backups/report-contact/20260827T115552Z-8west-it-canary` and
-`/srv/8west/backups/business-report/20260827T120122Z-8west-it-dry-run`.
+`/srv/8west/backups/business-report/20260827T120122Z-8west-it-dry-run`. The
+schedule-key release backup, verified scratch restore, hashes, and truthful
+release receipt are at
+`/srv/8west/backups/safeharbor/20260827T143419Z-pre-report-schedule-key-gate`.
 
 ## Ownership and boundary
 
@@ -282,14 +288,39 @@ address, published immutable definition 1, prepared logical schedule 1, and
 appended active version 2 for Wednesday 09:00 Pacific time. The protected
 allowlists contain only that canary's schedule, tenant, client, and recipient.
 
-The first dry run made no writes and correctly reported that the first complete
-Monday-through-Monday window is not due yet. Therefore there are still zero
-archives, deliveries, and attempts. Generation and delivery remain off, both
-contact gates are back off, and there is no server scheduler. The planned
-2026-09-02 one-time Codex heartbeat should resume at the dry-run gate, create
-and inspect at most one archive only after it is due, and leave delivery for a
-separate pinned approval. Do not describe a future Graph 202 as recipient
-delivery; inbox confirmation remains a separate fact.
+PR #61 CI run `33081410186` passed the report suites, and unchanged exact-main
+CI run `33081562197` passed on attempt 2 after rerunning one unrelated flaky
+service-goal concurrency assertion. Production is intentionally pinned to the
+reviewed `8322266` application bytes even though later documentation/Westy
+work advanced repository `main`. The release matched 142 ordinary tracked
+files plus three normalized cache-stamp files, linted all 115 live PHP files
+(114 release files plus protected `config.php`), preserved the protected
+config, and exposed cache marker `20260827144708` from the real Safeharbor
+vhost.
+
+The canonical dry run made no writes and exited `2` with the sole refusal
+`Report period must be a complete past window.` That is the CLI's validation-
+refusal exit, not a schedule-key or configuration failure. Before and after,
+the report-state digest stayed
+`616da802d46157bc4ff3b0d48c204286a21d1caeacae9da1c7912d3c79bde882`;
+there were still zero archives, deliveries, and attempts, and the mail queue
+remained two sent and zero unsent. Generation and delivery remain off, both
+contact gates are back off, and there is no cron or systemd report scheduler.
+
+One release-process defect is recorded rather than hidden: the attempted HTTP
+maintenance lock targeted the separate `support.8westit.com` Milepost vhost,
+not Safeharbor's vhost. The Safeharbor database account was locked with zero
+connections during installation, both vhosts finished byte-identical to their
+preflight values, and Safeharbor logged zero 5xx, fatal, or database errors in
+the release window. Future releases must resolve `apache2ctl -S` and require
+`safeharbor.8westit.com` ->
+`/etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf` ->
+`/srv/8west/apps/safeharbor/current/public` before editing a lock file.
+
+The planned 2026-09-02 one-time Codex heartbeat should resume at the dry-run
+gate, create and inspect at most one archive only after it is due, and leave
+delivery for a separate pinned approval. Do not describe a future Graph 202 as
+recipient delivery; inbox confirmation remains a separate fact.
 
 ## Rollback and retention
 
@@ -313,3 +344,11 @@ disaster-recovery extraction requires an exact code allowlist that excludes
 `config/config.php` and every
 `config.php.bak*`. Database restoration is disaster recovery only because later
 Safeharbor writes must not be discarded casually.
+
+For the schedule-key release, use the newer verified rollback record at
+`/srv/8west/backups/safeharbor/20260827T143419Z-pre-report-schedule-key-gate`.
+Its application archive excludes the protected config, its trigger-inclusive
+database dump passed a scratch restore, and its root-only receipt records the
+exact config/code/vhost hashes. Roll code and protected config back together
+only while generation and delivery remain false; do not restore its database
+over later help-desk writes except for disaster recovery.
