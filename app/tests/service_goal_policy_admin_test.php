@@ -109,6 +109,40 @@ goal_admin_check('inspect shows the exact lazy v1 baseline without writing',
     && $baseline['versions'][0]['created_by_user_id'] === null
     && $baseline['versions'][0]['reason'] === null);
 
+service_goal_ensure_default_policies($pdo, 2);
+$historyRowsBefore = [
+    (int) $pdo->query('SELECT COUNT(*) FROM service_goal_policy_versions')->fetchColumn(),
+    (int) $pdo->query('SELECT COUNT(*) FROM service_goal_policy_targets')->fetchColumn(),
+];
+$history = service_goal_policy_history($pdo, 1, '2026-08-27 12:00:00');
+$otherHistory = service_goal_policy_history($pdo, 2, '2026-08-27 12:00:00');
+goal_admin_check('history reads only the signed-in tenant and both fixed policy keys',
+    $history['tenant']['id'] === 1
+    && $history['tenant']['slug'] === 'one'
+    && array_column($history['policies'], 'policy_key') === ['standard', 'premium']
+    && count($history['policies'][0]['versions']) === 1
+    && count($history['policies'][1]['versions']) === 1
+    && count($history['policies'][0]['versions'][0]['targets']) === 4
+    && count($history['policies'][1]['versions'][0]['targets']) === 4
+    && array_reduce(
+        [...$history['policies'][0]['versions'][0]['targets'], ...$history['policies'][1]['versions'][0]['targets']],
+        static fn(bool $exact, array $target): bool => $exact && (int) $target['tenant_id'] === 1,
+        true,
+    )
+    && $otherHistory['tenant']['id'] === 2
+    && array_reduce(
+        [...$otherHistory['policies'][0]['versions'][0]['targets'], ...$otherHistory['policies'][1]['versions'][0]['targets']],
+        static fn(bool $exact, array $target): bool => $exact && (int) $target['tenant_id'] === 2,
+        true,
+    ));
+goal_admin_check('history view performs no lazy policy or target write',
+    $historyRowsBefore === [
+        (int) $pdo->query('SELECT COUNT(*) FROM service_goal_policy_versions')->fetchColumn(),
+        (int) $pdo->query('SELECT COUNT(*) FROM service_goal_policy_targets')->fetchColumn(),
+    ]);
+goal_admin_throws('history refuses a tenant id that does not exist', ServiceGoalPolicyGateException::class,
+    fn() => service_goal_policy_history($pdo, 999, '2026-08-27 12:00:00'));
+
 $targets = ['low' => 180, 'normal' => 120, 'high' => 60, 'urgent' => 30];
 $beforePlanVersions = (int) $pdo->query(
     "SELECT COUNT(*) FROM service_goal_policy_versions WHERE tenant_id=1 AND policy_key='premium'",
@@ -201,6 +235,23 @@ goal_admin_check('owner publishes one attributed version with exact four targets
     && (int) $published['policy']['created_by_user_id'] === 101
     && $published['policy']['reason'] === 'Reviewed premium response targets'
     && count($published['policy']['targets']) === 4);
+$beforeEffectiveHistory = service_goal_policy_history($pdo, 1, '2098-12-31 23:59:59');
+$beforePremium = $beforeEffectiveHistory['policies'][1];
+goal_admin_check('history distinguishes current v1 from a scheduled attributed v2',
+    $beforePremium['current_version'] === 1
+    && $beforePremium['latest_version'] === 2
+    && $beforePremium['versions'][0]['state'] === 'current'
+    && $beforePremium['versions'][0]['created_by_user_id'] === null
+    && $beforePremium['versions'][0]['reason'] === null
+    && $beforePremium['versions'][1]['state'] === 'scheduled'
+    && $beforePremium['versions'][1]['created_by_name'] === 'Owner One'
+    && $beforePremium['versions'][1]['reason'] === 'Reviewed premium response targets');
+$atEffectiveHistory = service_goal_policy_history($pdo, 1, '2099-01-01 00:00:00');
+$atPremium = $atEffectiveHistory['policies'][1];
+goal_admin_check('history changes labels exactly at the effective UTC boundary',
+    $atPremium['current_version'] === 2
+    && $atPremium['versions'][0]['state'] === 'superseded'
+    && $atPremium['versions'][1]['state'] === 'current');
 goal_admin_throws('the reviewed plan becomes stale after one winner', ServiceGoalPolicyConflictException::class,
     fn() => service_goal_policy_publish(
         $pdo, 'one', 'premium', 1, '2099-01-01T00:00:00Z',
@@ -271,6 +322,13 @@ goal_admin_check('the exact response ceiling produces a valid bounded ticket due
 $owner = ['role' => 'owner', 'is_active' => 1];
 $admin = ['role' => 'admin', 'is_active' => 1];
 $tech = ['role' => 'tech', 'is_active' => 1];
+goal_admin_check('active Safeharbor staff may view history and all other roles fail closed',
+    service_goal_policy_can_view_history($owner)
+    && service_goal_policy_can_view_history($admin)
+    && service_goal_policy_can_view_history($tech)
+    && ! service_goal_policy_can_view_history(['role' => 'tech', 'is_active' => 0])
+    && ! service_goal_policy_can_view_history(['role' => 'client_viewer', 'is_active' => 1])
+    && ! service_goal_policy_can_view_history(['role' => 'unknown', 'is_active' => 1]));
 goal_admin_check('owners and admins may choose a supported client tier',
     service_goal_policy_client_tier($owner, 'premium') === 'premium'
     && service_goal_policy_client_tier($admin, 'standard', 'premium') === 'standard');
@@ -284,6 +342,10 @@ goal_admin_check('an inactive admin cannot change a client tier',
 $newClientSource = (string) file_get_contents(__DIR__ . '/../public/client_new.php');
 $editClientSource = (string) file_get_contents(__DIR__ . '/../public/client_edit.php');
 $cliSource = (string) file_get_contents(__DIR__ . '/../db/manage_service_goals.php');
+$historyPageSource = (string) file_get_contents(__DIR__ . '/../public/service_goals.php');
+$renderSource = (string) file_get_contents(__DIR__ . '/../lib/render.php');
+$westySource = (string) file_get_contents(__DIR__ . '/../lib/westy.php');
+$appJsSource = (string) file_get_contents(__DIR__ . '/../public/assets/js/app.js');
 goal_admin_check('client pages retain login and CSRF while using the tier boundary',
     str_contains($newClientSource, 'require_login()')
     && str_contains($newClientSource, 'csrf_check()')
@@ -311,6 +373,30 @@ goal_admin_check('the operator CLI is explicit and never uses session tenant fal
     && str_contains($cliSource, 'tenant-slug')
     && str_contains($cliSource, 'plan-sha256')
     && ! str_contains($cliSource, 'tenant_id()'));
+goal_admin_check('history page derives its only tenant from the signed-in database user',
+    str_contains($historyPageSource, '$user = require_login();')
+    && str_contains($historyPageSource, 'service_goal_policy_can_view_history($user)')
+    && str_contains($historyPageSource, "service_goal_policy_history(db(), (int) \$user['tenant_id'])")
+    && ! str_contains($historyPageSource, '$_GET'));
+goal_admin_check('history page contains no write, form, API, or publication surface',
+    ! str_contains($historyPageSource, '$_POST')
+    && ! str_contains($historyPageSource, 'REQUEST_METHOD')
+    && ! str_contains($historyPageSource, '<form')
+    && ! str_contains($historyPageSource, 'service_goal_policy_publish')
+    && ! str_contains($historyPageSource, 'service_goal_ensure_default_policies'));
+goal_admin_check('history page tells the exact supported semantics and legacy attribution truth',
+    str_contains($historyPageSource, 'First response')
+    && str_contains($historyPageSource, 'Elapsed')
+    && str_contains($historyPageSource, 'No pause')
+    && str_contains($historyPageSource, 'No business calendar or resolution goal')
+    && str_contains($historyPageSource, 'Legacy v1 attribution')
+    && str_contains($historyPageSource, 'none is invented'));
+goal_admin_check('service-goal history is reachable through real nav, keyboard, palette, and Westy help',
+    str_contains($renderSource, "['/service_goals.php', 'Service goals', 'service-goals', 'G S'")
+    && str_contains($appJsSource, 'title: "Go to Service goals", hint: "g s"')
+    && str_contains($appJsSource, 'key === "s"')
+    && str_contains($westySource, 'Service goals, Reports, and Team')
+    && str_contains($westySource, 'signed-in, read-only history'));
 
 fwrite(STDOUT, "service_goal_policy_admin_test: {$checks} checks, {$failures} failures\n");
 exit($failures === 0 ? 0 : 1);

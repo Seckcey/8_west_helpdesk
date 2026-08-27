@@ -28,7 +28,8 @@ rows remain NULL-attributed rather than inventing a historical approver.
 
 ## Operator surface
 
-There is no web editor or API. The supported writer is the server-side CLI:
+There is no web editor or write API. The only supported writer is the
+server-side CLI:
 
 ```text
 php db/manage_service_goals.php inspect --tenant-slug=slug --policy-key=premium
@@ -54,6 +55,29 @@ back. The CLI never calls the session-based `tenant_id()` fallback.
 The effective time and response minutes are business decisions. Migration and
 code deployment deliberately create no v2 policy and do not supply placeholder
 values.
+
+## Signed-in history surface
+
+`/service_goals.php` is a GET-only staff view, not another writer. It derives
+the tenant only from the active database user returned by `require_login()`;
+there is no tenant request parameter. Active Safeharbor owners, admins, and
+technicians may read their own tenant's history. Unknown, inactive, and
+customer roles fail closed.
+
+The page shows Standard and Premium separately. Each immutable version shows
+its exact effective UTC time, current/scheduled/superseded state, all four
+first-response targets, and its actor/reason when those facts exist. The state
+uses the database UTC clock, so a newly published future version is labelled
+scheduled rather than being mistaken for current. Lazy v1 rows are labelled
+`Legacy v1 attribution`: no historical approver or reason was recorded, and
+the page does not invent one.
+
+The page accepts no GET choice, form, POST, API call, editor, or publish
+action. In particular, it never calls the lazy v1 initializer; a tenant with no
+policy rows sees an empty history and a read causes no write. It states the
+currently supported behavior exactly: elapsed UTC first-response time, no
+waiting pause, no resolution goal, and no business-calendar claim. Ticket
+snapshots remain unchanged.
 
 ## Database invariants
 
@@ -116,6 +140,12 @@ Before deployment:
 4. Deploy code without publishing a policy. A later publication requires the
    real approved response minutes, exact future effective time, actor, reason,
    reviewed plan digest, and a controlled boundary canary.
+5. For a history-view code release, use a fresh signed-in 8 West IT staff
+   session. Compare both rendered v1 policies and all eight target rows with a
+   tenant-scoped read-only database query, prove another tenant cannot be
+   selected, and prove version/target counts plus captured ticket target/deadline
+   facts did not change. Signed-out access must return to sign-in. No migration
+   or protected configuration change belongs to this release.
 
 No step in this contract authorizes merge, deployment, policy publication, or
 production mutation by itself.
