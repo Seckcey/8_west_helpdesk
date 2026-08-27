@@ -149,8 +149,8 @@ rollback records are
 `/srv/8west/backups/safeharbor/20260826T223914Z-pre-phase3-migration`.
 
 Candidate evidence remains green: all eight server-free CI commands pass,
-service goals are 55/55, the provenance bridge is 2/2, approval time is 81/81,
-suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is 96/96 on
+service goals are 55/55, the provenance bridge is 2/2, approval time is 83/83,
+suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is 97/97 on
 disposable MySQL 8. Desktop and mobile Playwright probes cover both "request
 never arrived" and "commit succeeded but response was lost" timer boundaries.
 No authenticated production browser session was available during this release;
@@ -508,10 +508,14 @@ run in CI, including the hermetic service-goal, approval-time, approved-time
 export, portal auth/revocation, portal read-only/rendering, and archived-report
 gates plus the Milepost customer-sync contract. CI also runs the portal,
 service-goal-policy, business-report, and customer-sync migration/isolation
-suites on disposable MySQL 8. Existing
-integration suites (`suite_sso`,
-`svc_intake`, `svc_support`, `westy_report`, `intake_service_goal`, and
-`time_entries_mysql`) need MySQL plus a scratch-only `config/config.php`;
+suites on disposable MySQL 8. The 97-check `time_entries_mysql` suite is now
+standalone too: it requires an explicit disposable-server acknowledgement,
+accepts only a `safeharbor_time_test*` database base, creates and proves one
+random per-run database, removes it in `finally`, exits nonzero when the fixture
+or cleanup is unavailable, and runs in Validate with dedicated MySQL credentials.
+Existing integration suites (`suite_sso`,
+`svc_intake`, `svc_support`, `westy_report`, and `intake_service_goal`) need
+MySQL plus a scratch-only `config/config.php`;
 `utf8_input` needs the scratch config but does not touch the database.
 `portal_mysql_test.php` is standalone, refuses any database name not beginning
 `safeharbor_portal_test`, and receives only disposable CI MySQL credentials.

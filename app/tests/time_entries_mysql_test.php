@@ -2,14 +2,19 @@
 /**
  * MySQL integration coverage for migration 011 and approval-grade time.
  *
- * Run only against a disposable database whose name begins
- * `safeharbor_time_test`:
+ * Run only against a disposable MySQL server. The supplied database value is
+ * a safe base; this test appends a random run id, creates that exact new
+ * database, proves the active connection selected it, and drops it in finally:
  *
- *   SAFEHARBOR_TIME_TEST_DB=safeharbor_time_test php tests/time_entries_mysql_test.php
+ *   SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER=1 \
+ *   SAFEHARBOR_TIME_TEST_DB=safeharbor_time_test \
+ *   SAFEHARBOR_TIME_TEST_HOST=127.0.0.1 \
+ *   SAFEHARBOR_TIME_TEST_USER=root \
+ *   SAFEHARBOR_TIME_TEST_PASS=... php tests/time_entries_mysql_test.php
  *
- * The configured identity needs operator DDL + TRIGGER privileges. The suite
- * drops every table in that disposable database and, when CREATE USER is
- * available, also proves an app-like identity cannot weaken existing guards.
+ * The configured identity must be able to create/drop databases, create/drop
+ * users, grant schema privileges, and create triggers. All 97 checks, including
+ * the underprivileged migration and least-privilege runtime proofs, are required.
  */
 declare(strict_types=1);
 
@@ -17,14 +22,71 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 
-require_once __DIR__ . '/../lib/bootstrap.php';
-
-$testDatabase = getenv('SAFEHARBOR_TIME_TEST_DB') ?: 'safeharbor_time_test';
-if (!preg_match('/\Asafeharbor_time_test(?:_[a-z0-9_]+)?\z/', $testDatabase)) {
-    fwrite(STDERR, "Refusing destructive test database: {$testDatabase}\n");
+$disposableServer = getenv('SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER');
+if ($disposableServer !== '1') {
+    fwrite(STDERR, "Refusing MySQL test without explicit disposable-server acknowledgement.\n");
     exit(2);
 }
-$CONFIG['db']['name'] = $testDatabase;
+
+$databaseBase = getenv('SAFEHARBOR_TIME_TEST_DB');
+if (!is_string($databaseBase)
+    || preg_match('/\Asafeharbor_time_test(?:_[a-z0-9_]+)?\z/', $databaseBase) !== 1
+    || strlen($databaseBase) > 48
+) {
+    fwrite(STDERR, "Refusing destructive test database base.\n");
+    exit(2);
+}
+$TIME_MYSQL_RUN_ID = bin2hex(random_bytes(6));
+$testDatabase = $databaseBase . '_' . $TIME_MYSQL_RUN_ID;
+$host = getenv('SAFEHARBOR_TIME_TEST_HOST') ?: '127.0.0.1';
+$portText = getenv('SAFEHARBOR_TIME_TEST_PORT') ?: '3306';
+$user = getenv('SAFEHARBOR_TIME_TEST_USER') ?: 'root';
+$pass = getenv('SAFEHARBOR_TIME_TEST_PASS') ?: '';
+if (!is_string($host) || trim($host) === ''
+    || !is_string($portText) || !ctype_digit($portText)
+    || (int) $portText < 1 || (int) $portText > 65535
+    || !is_string($user) || $user === ''
+) {
+    fwrite(STDERR, "Refusing invalid MySQL fixture connection settings.\n");
+    exit(2);
+}
+
+$serverDsn = "mysql:host={$host};port={$portText};charset=utf8mb4";
+$pdoOptions = [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_EMULATE_PREPARES => false,
+];
+$quotedDatabase = '`' . str_replace('`', '``', $testDatabase) . '`';
+$server = null;
+$pdo = null;
+$databaseCreated = false;
+try {
+    $server = new PDO($serverDsn, $user, $pass, $pdoOptions);
+    $server->exec(
+        "CREATE DATABASE {$quotedDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    );
+    $databaseCreated = true;
+    $pdo = new PDO($serverDsn . ";dbname={$testDatabase}", $user, $pass, $pdoOptions);
+    $pdo->exec("SET time_zone = '+00:00'");
+} catch (Throwable $error) {
+    if ($databaseCreated && $server instanceof PDO) {
+        try {
+            $server->exec("DROP DATABASE IF EXISTS {$quotedDatabase}");
+        } catch (Throwable) {
+            // The nonzero fixture refusal below remains authoritative.
+        }
+    }
+    fwrite(STDERR, 'Time-entry MySQL fixture unavailable: ' . $error::class . PHP_EOL);
+    exit(2);
+}
+
+$TIME_MYSQL_CONNECTION = [
+    'dsn' => $serverDsn . ";dbname={$testDatabase}",
+    'user' => $user,
+    'pass' => $pass,
+    'options' => $pdoOptions,
+];
 
 $checks = 0;
 $failures = 0;
@@ -99,16 +161,13 @@ function execute_sql_file(PDO $pdo, string $path, ?callable $beforeStatement = n
 
 function parallel_connection(): PDO
 {
-    global $CONFIG;
-    $database = $CONFIG['db'];
-    $port = !empty($database['port']) ? ';port=' . $database['port'] : '';
-    $dsn = 'mysql:host=' . $database['host'] . $port
-        . ';dbname=' . $database['name'] . ';charset=' . $database['charset'];
-    $connection = new PDO($dsn, $database['user'], $database['pass'], [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ]);
+    global $TIME_MYSQL_CONNECTION;
+    $connection = new PDO(
+        $TIME_MYSQL_CONNECTION['dsn'],
+        $TIME_MYSQL_CONNECTION['user'],
+        $TIME_MYSQL_CONNECTION['pass'],
+        $TIME_MYSQL_CONNECTION['options'],
+    );
     $connection->exec("SET time_zone = '+00:00'");
     return $connection;
 }
@@ -494,7 +553,21 @@ function verify_exact_structure(PDO $pdo, string $label): void
     check("{$label}: no staging trigger remains", $staging === 0);
 }
 
-$pdo = db();
+$preflightUser = null;
+$runtimeUser = null;
+$underprivileged = null;
+$runtime = null;
+$fatalError = null;
+$cleanupError = false;
+
+try {
+$selectedDatabase = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
+check('fixture connection selected the exact random database',
+    hash_equals($testDatabase, $selectedDatabase));
+if (!hash_equals($testDatabase, $selectedDatabase)) {
+    throw new RuntimeException('Fixture connection selected an unexpected database.');
+}
+
 $pdo->setAttribute(PDO::ATTR_CASE, PDO::CASE_LOWER);
 $pdo->exec("SET SESSION sql_mode='STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
 $migrationPath = __DIR__ . '/../db/migrations/011_time_entry_approvals.sql';
@@ -844,20 +917,21 @@ check('malformed staging replays leave all permanent guards installed',
 // Practical underprivileged replay proof. This runs when the operator can
 // create a temporary database user (the production migration operator can).
 $currentUser = (string) $pdo->query('SELECT CURRENT_USER()')->fetchColumn();
-$preflightUser = 'sh_time_pf_' . substr((string) getmypid(), -8);
+$preflightUser = 'sh_time_pf_' . $TIME_MYSQL_RUN_ID;
+$preflightPass = bin2hex(random_bytes(24));
 $underprivilegedProven = false;
 $underprivilegedError = '';
 try {
-    $pdo->exec("DROP USER IF EXISTS '{$preflightUser}'@'localhost'");
-    $pdo->exec("CREATE USER '{$preflightUser}'@'localhost' IDENTIFIED BY ''");
-    $pdo->exec("GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,REFERENCES
-        ON `{$testDatabase}`.* TO '{$preflightUser}'@'localhost'");
+    $server->exec("DROP USER IF EXISTS '{$preflightUser}'@'%'");
+    $server->exec("CREATE USER '{$preflightUser}'@'%' IDENTIFIED BY '{$preflightPass}'");
+    $server->exec("GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,REFERENCES
+        ON `{$testDatabase}`.* TO '{$preflightUser}'@'%'");
 
     $underprivileged = new PDO(
-        'mysql:host=localhost;dbname=' . $testDatabase . ';charset=utf8mb4',
+        $serverDsn . ';dbname=' . $testDatabase,
         $preflightUser,
-        '',
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+        $preflightPass,
+        $pdoOptions,
     );
     try {
         execute_sql_file($underprivileged, $migrationPath);
@@ -871,7 +945,7 @@ try {
     echo "# underprivileged preflight setup unavailable for {$currentUser}: {$error->getCode()}\n";
 } finally {
     try {
-        $pdo->exec("DROP USER IF EXISTS '{$preflightUser}'@'localhost'");
+        $server->exec("DROP USER IF EXISTS '{$preflightUser}'@'%'");
     } catch (PDOException) {
         // The explicit check below records whether this practical proof ran.
     }
@@ -885,19 +959,20 @@ check('underprivileged replay leaves all seven guards installed', trigger_count(
 // Model the actual runtime database identity: ordinary DML only, with no DDL
 // or TRIGGER privilege. Trigger-defined audit writes still execute, approved
 // review DML works, and immutable/delete guards remain authoritative.
-$runtimeUser = 'sh_time_rt_' . substr((string) getmypid(), -8);
+$runtimeUser = 'sh_time_rt_' . $TIME_MYSQL_RUN_ID;
+$runtimePass = bin2hex(random_bytes(24));
 $runtimeProven = false;
 try {
-    $pdo->exec("DROP USER IF EXISTS '{$runtimeUser}'@'localhost'");
-    $pdo->exec("CREATE USER '{$runtimeUser}'@'localhost' IDENTIFIED BY ''");
-    $pdo->exec("GRANT SELECT,INSERT,UPDATE,DELETE
-        ON `{$testDatabase}`.* TO '{$runtimeUser}'@'localhost'");
+    $server->exec("DROP USER IF EXISTS '{$runtimeUser}'@'%'");
+    $server->exec("CREATE USER '{$runtimeUser}'@'%' IDENTIFIED BY '{$runtimePass}'");
+    $server->exec("GRANT SELECT,INSERT,UPDATE,DELETE
+        ON `{$testDatabase}`.* TO '{$runtimeUser}'@'%'");
 
     $runtime = new PDO(
-        'mysql:host=localhost;dbname=' . $testDatabase . ';charset=utf8mb4',
+        $serverDsn . ';dbname=' . $testDatabase,
         $runtimeUser,
-        '',
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+        $runtimePass,
+        $pdoOptions,
     );
     $runtime->exec("SET time_zone = '+00:00'");
     $runtime->exec("INSERT INTO time_entries
@@ -933,13 +1008,48 @@ try {
 } finally {
     try {
         $runtime = null;
-        $pdo->exec("DROP USER IF EXISTS '{$runtimeUser}'@'localhost'");
+        $server->exec("DROP USER IF EXISTS '{$runtimeUser}'@'%'");
     } catch (PDOException) {
         // The explicit check below records whether this practical proof ran.
     }
 }
 check('least-privilege runtime proof executed with all guards retained',
     $runtimeProven && trigger_count($pdo) === 7);
+
+} catch (Throwable $error) {
+    $fatalError = $error;
+} finally {
+    $underprivileged = null;
+    $runtime = null;
+    $pdo = null;
+
+    if ($server instanceof PDO) {
+        foreach ([$preflightUser, $runtimeUser] as $temporaryUser) {
+            if (!is_string($temporaryUser) || $temporaryUser === '') continue;
+            try {
+                $server->exec("DROP USER IF EXISTS '{$temporaryUser}'@'%'");
+            } catch (Throwable) {
+                $cleanupError = true;
+            }
+        }
+        if ($databaseCreated) {
+            try {
+                $server->exec("DROP DATABASE IF EXISTS {$quotedDatabase}");
+            } catch (Throwable) {
+                $cleanupError = true;
+            }
+        }
+    }
+}
+
+if ($fatalError instanceof Throwable) {
+    fwrite(STDERR, 'Time-entry MySQL test execution failed: ' . $fatalError::class . PHP_EOL);
+    exit(1);
+}
+if ($cleanupError) {
+    fwrite(STDERR, "Time-entry MySQL fixture cleanup failed.\n");
+    exit(1);
+}
 
 echo "---\n{$checks} checks, {$failures} failures\n";
 exit($failures > 0 ? 1 : 0);
