@@ -262,6 +262,35 @@ function goal_mysql_wait_transactions(
     return false;
 }
 
+function goal_mysql_wait_data_lock_edge(
+    PDO $pdo,
+    int $requestingThreadId,
+    int $blockingThreadId,
+    float $timeoutSeconds = 10.0,
+): bool {
+    $query = $pdo->prepare(
+        "SELECT EXISTS(
+           SELECT 1
+           FROM performance_schema.data_lock_waits lock_wait
+           JOIN performance_schema.threads requesting_thread
+             ON requesting_thread.thread_id = lock_wait.requesting_thread_id
+           JOIN performance_schema.threads blocking_thread
+             ON blocking_thread.thread_id = lock_wait.blocking_thread_id
+          WHERE requesting_thread.processlist_id = ?
+            AND blocking_thread.processlist_id = ?
+        )",
+    );
+    $deadline = microtime(true) + $timeoutSeconds;
+    do {
+        $query->execute([$requestingThreadId, $blockingThreadId]);
+        $waiting = (int) $query->fetchColumn() === 1;
+        $query->closeCursor();
+        if ($waiting) return true;
+        usleep(10000);
+    } while (microtime(true) < $deadline);
+    return false;
+}
+
 function goal_mysql_wait_process_state(
     PDO $pdo,
     int $threadId,
@@ -483,36 +512,49 @@ $pdo->exec(
     'ALTER TABLE service_goal_policy_targets ALTER CHECK ck_goal_target_resolution_null ENFORCED',
 );
 
-$pdo->exec(
-    'ALTER TABLE service_goal_policy_versions DROP CHECK ck_goal_policy_attribution_pair',
-);
 $pdo->exec('ALTER TABLE service_goal_policy_versions DROP FOREIGN KEY fk_goal_policy_actor');
 $pdo->exec(
     'ALTER TABLE service_goal_policy_versions ADD CONSTRAINT fk_goal_policy_actor '
     . 'FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES users (tenant_id, id) '
-    . 'ON UPDATE CASCADE ON DELETE CASCADE',
+    . 'ON UPDATE RESTRICT ON DELETE RESTRICT',
 );
+goal_mysql_check('adversarial actor foreign key keeps its same name and noncanonical actions',
+    $pdo->query(
+        "SELECT CONCAT(update_rule, ':', delete_rule)
+           FROM information_schema.referential_constraints
+          WHERE constraint_schema=DATABASE()
+            AND table_name='service_goal_policy_versions'
+            AND constraint_name='fk_goal_policy_actor'",
+    )->fetchColumn() === 'RESTRICT:RESTRICT');
 try {
     goal_mysql_execute_file($pdo, $migration014);
-    goal_mysql_check('migration refuses a same-name cascading actor foreign key at the FK sentinel', false);
+    goal_mysql_check('migration refuses same-name noncanonical actor-FK actions at the FK sentinel', false);
 } catch (Throwable $error) {
     goal_mysql_check(
-        'migration refuses a same-name cascading actor foreign key at the FK sentinel',
+        'migration refuses same-name noncanonical actor-FK actions at the FK sentinel',
         $error instanceof PDOException
-            && str_contains($error->getMessage(), 'migration_014_bad_actor_fk'),
+            && (int) $pdo->query('SELECT @goal_fk_exact')->fetchColumn() === 0,
     );
 }
+goal_mysql_check('FK refusal leaves the noncanonical fixture and enforced attribution check unchanged',
+    $pdo->query(
+        "SELECT CONCAT(update_rule, ':', delete_rule)
+           FROM information_schema.referential_constraints
+          WHERE constraint_schema=DATABASE()
+            AND table_name='service_goal_policy_versions'
+            AND constraint_name='fk_goal_policy_actor'",
+    )->fetchColumn() === 'RESTRICT:RESTRICT'
+    && $pdo->query(
+        "SELECT enforced FROM information_schema.table_constraints
+          WHERE constraint_schema=DATABASE()
+            AND table_name='service_goal_policy_versions'
+            AND constraint_name='ck_goal_policy_attribution_pair'",
+    )->fetchColumn() === 'YES');
 $pdo->exec('ALTER TABLE service_goal_policy_versions DROP FOREIGN KEY fk_goal_policy_actor');
 $pdo->exec(
     'ALTER TABLE service_goal_policy_versions ADD CONSTRAINT fk_goal_policy_actor '
     . 'FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES users (tenant_id, id) '
     . 'ON UPDATE NO ACTION ON DELETE NO ACTION',
-);
-$pdo->exec(
-    'ALTER TABLE service_goal_policy_versions ADD CONSTRAINT ck_goal_policy_attribution_pair '
-    . 'CHECK ((created_by_user_id IS NULL AND reason IS NULL) '
-    . 'OR (created_by_user_id IS NOT NULL AND reason IS NOT NULL '
-    . 'AND CHAR_LENGTH(TRIM(reason)) BETWEEN 1 AND 500)) ENFORCED',
 );
 
 $pdo->exec('DROP TRIGGER trg_goal_policy_targets_no_update');
@@ -797,6 +839,7 @@ $demotionPlan = service_goal_policy_plan(
 );
 $demoter = new PDO($serverDsn . ";dbname={$database}", $user, $pass, $pdoOptions);
 $demoter->exec("SET time_zone = '+00:00'");
+$demoterThread = (int) $demoter->query('SELECT CONNECTION_ID()')->fetchColumn();
 $demoter->beginTransaction();
 $demoter->exec('UPDATE users SET is_active=0 WHERE tenant_id=1 AND id=102');
 $demotionWorker = goal_mysql_spawn_worker([
@@ -813,7 +856,7 @@ $demotionWorker = goal_mysql_spawn_worker([
 try {
     $demotionThread = goal_mysql_wait_worker_ready($demotionWorker);
     goal_mysql_check('publisher overlaps and waits behind an uncommitted actor demotion',
-        goal_mysql_wait_transactions($pdo, [$demotionThread], 1, 'LOCK WAIT'));
+        goal_mysql_wait_data_lock_edge($pdo, $demotionThread, $demoterThread));
 } finally {
     if ($demoter->inTransaction()) $demoter->commit();
 }
