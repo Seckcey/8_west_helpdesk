@@ -5,8 +5,9 @@ The suite SSO sections below were separately verified on 2026-08-24. The
 Customer Service Tools and database sections were verified again through the
 2026-08-27 report-contact release, controlled 8 West IT customer/report
 canaries, Milepost tenant-wide customer-sync activation, and exact Safeharbor
-schedule-key release `8322266`; the rest of this page was not re-audited
-during those focused closeouts.
+schedule-key release `8322266`, followed by the exact Westy receiver release
+`da9560a`; the rest of this page was not re-audited during those focused
+closeouts.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -26,7 +27,7 @@ If you change what is live, change this page in the same PR.
 | Safeharbor itself | **Live** at https://safeharbor.8westit.com, v1.0 feature-complete |
 | Alert intake (`api/svc/alerts.php`) | **Live** since 2026-07-29, Milepost emitting |
 | Telemetry automatic-close ownership | **Live through PR #59 / merge `e7ee521` and migration 018**: only an untouched exact signed Milepost alert may close on source recovery; any human/customer work permanently removes that one-use ability |
-| Westy defect intake (`api/svc/westy.php`) | Safeharbor's in-process failure and human-reviewed feedback paths are **live**. The external receiver exists but no Westy service identity is registered in production; its first release-ready authority is exact `milepost-westy` + `app=milepost` + `event=failure` only. |
+| Westy defect intake (`api/svc/westy.php`) | Safeharbor's in-process failure and human-reviewed feedback paths are **live**. External receiver hardening is deployed through PR #62 / release `da9560a`, but delivery remains **dark** because no Westy service identity is registered; its authority is exact `milepost-westy` + `app=milepost` + `event=failure` only. |
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
@@ -37,7 +38,7 @@ If you change what is live, change this page in the same PR.
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's sender/receiver and Phase 5A's portal remain default-off. Phase 6 has one active canary schedule but generation/delivery remain off. Milepost customer sync is live only for exact tenant `8west`; Logbook activation remains separate. Existing service-intake gates remain live. |
 | Customer ticket-summary portal (Phase 5A) | **Deployed dark** through base PR #44 / merge `3bb87fa` plus disabled-logout hardening PR #48 / merge `748f16c`; migration 012 is applied, `portal.enabled=false`, client fields are empty, the private cache is empty, 8 West ID has zero Safeharbor OIDC clients, and Safeharbor has zero bindings/events |
-| Scheduled archived business reports (Phase 6) | **Controlled 8 West IT canary prepared, not generated or delivered**: exact release `8322266` is live with definition 1 and logical schedule 1; schedule key `8west-it-weekly-canary-v1` is active at version 2 for Wednesday 09:00 America/Los_Angeles. Its schedule/tenant/client/recipient allowlists each contain one exact value, but generation and delivery are both off; archives/deliveries/attempts remain zero and there is no server scheduler. |
+| Scheduled archived business reports (Phase 6) | **Controlled 8 West IT canary prepared, not generated or delivered**: report gate release `8322266` remains in the current `da9560a` application release with definition 1 and logical schedule 1; schedule key `8west-it-weekly-canary-v1` is active at version 2 for Wednesday 09:00 America/Los_Angeles. Its schedule/tenant/client/recipient allowlists each contain one exact value, but generation and delivery are both off; archives/deliveries/attempts remain zero and there is no server scheduler. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Milepost managed-customer receiver | **Live only for exact tenant `8west`**: Safeharbor client 13 is bound to Milepost customer `4ebaeefa-b101-47f8-ac76-e49ab309d272`; ordered v1/v2/v3 receipts finish at the real `8 West IT` name. Milepost has one root-owned one-minute dispatcher. Logbook activation remains separate. |
 
@@ -55,6 +56,36 @@ Open ticket in one database transaction; all other recovery events append a
 line and leave the ticket for a human. Westy remains advise-only and has no
 ticket-status action. Exact migration, canary, and rollback gates are in
 `docs/ticket-auto-close-ownership-contract.md`.
+
+The external Westy receiver hardening is deployed through Safeharbor PR #62 /
+exact application release
+`da9560aabf972a9be1f0027445381ddea378688d`. It admits only the exact
+`milepost-westy` service reporting exact `app=milepost` and
+`event=failure`, ignores an identical transport replay, counts a later real
+occurrence, and creates tickets with `auto_close_eligible=0`. The receiver has
+no status writer, so every Westy ticket stays open until a human resolves it.
+The production route remains dark because there are zero `milepost-westy`
+identity rows; no Control Panel authority was activated.
+
+This was a code-only release with no migration or configuration change. The
+root-only rollback record and verified scratch restore are at
+`/srv/8west/backups/safeharbor/20260827150954Z-pre-westy-receiver-da9560a`;
+the restore proved 35 base tables and 60 triggers. Production matched 136
+ordinary tracked app files plus three normalized cache-stamp files, and all
+115 live PHP files linted. The exact deployed hashes are
+`097f8c543ef7b831d0ac74f6a2df6223231881b1ef86f67e053d0193373dc703`
+for `app/lib/westy_report.php` and
+`4f3787744d49a215f80eb51123ae0df949928543b8dd6ef1b362b05cd379c4a4`
+for `app/public/api/svc/westy.php`.
+
+The correct Safeharbor maintenance lock returned `403`, and the restored
+Safeharbor SSL vhost finished at SHA-256
+`8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43`.
+Postflight returned login `200`, root `302`, unauthenticated timer `401`, and
+unauthenticated Westy intake `401`; the separate support and ID host roots
+returned `302`. The database, protected config, report state, and other dark
+integration gates did not change, and the release window produced zero new
+fatal or SQL errors.
 
 Phase 1 shipped through Safeharbor PR #37 / merge
 `1796f57d0dede4eff298a6a710098999ba7e9670`. It corrects the existing
@@ -376,7 +407,8 @@ The canary schedule key `8west-it-weekly-canary-v1` is now latest version 2,
 active for Wednesday 09:00 in `America/Los_Angeles`, with exact 8 West IT
 schedule/tenant/client/recipient canary allowlists. PR #61 / merge
 `8322266dbcf3eb6956eb9f1ca79a51948002aaec` made the schedule key its own
-mandatory gate and is the exact application release now served by
+mandatory gate. Its report bytes and protected configuration remain unchanged
+inside the later exact application release `da9560a` now served by
 `safeharbor.8westit.com`. PR CI run `33081410186` passed; exact-main run
 `33081562197` passed on attempt 2 after one unrelated flaky service-goal
 concurrency assertion was rerun unchanged.
@@ -484,7 +516,8 @@ queue without another login. The application-release rollback remains
 | `waypoint-support` | `support.php` | Waypoint — **standalone, not a suite app** | yes | 2026-08-09 |
 
 `milepost-westy` and `controlpanel-westy` are **not registered in production
-yet**. The release-ready receiver authority admits only the first identity and
+yet**, even though receiver release `da9560a` is deployed. The receiver
+authority admits only the first identity and
 only for exact `app=milepost` + `event=failure`; the Control Panel identity is
 reserved but not authorized. Registration, a protected dedicated secret, and a
 Milepost sender canary remain separate production gates.
@@ -742,10 +775,11 @@ These do not block the deployed dark code. They do block activation where
 called out, and none may be satisfied by inventing customer or financial facts.
 
 1. **Westy external delivery is not activated.** Production has no
-   `milepost-westy` or `controlpanel-westy` identity row. The receiver code
-   grants only failure-only Milepost authority; a dedicated secret, Milepost
-   durable sender, exact `8west` canary, and separate production activation are
-   still required. Control Panel remains outside this slice.
+   `milepost-westy` or `controlpanel-westy` identity row. Release `da9560a` is
+   deployed and grants only failure-only Milepost authority; a dedicated
+   secret, Milepost durable sender, exact `8west` canary, and separate
+   production activation are still required. Control Panel remains outside
+   this slice.
 2. **The `002` numbering collision** (`002_svc_intake` vs
    `002_westy_onboarding`) means migration numbers are not a reliable order.
 3. **Production has no `support_intake` block in its config at all.** Support

@@ -3,7 +3,9 @@
 **Wire body frozen 2026-08-08; receiver authority/retry rules hardened
 2026-08-27.** Safeharbor owns the receiver. The first external release admits
 only Milepost failure events; the Control Panel identity remains reserved for a
-separate review and activation.
+separate review and activation. PR #62 / exact release
+`da9560aabf972a9be1f0027445381ddea378688d` is deployed in production, but
+external delivery remains dark because no Westy service identity is registered.
 
 Full design and reasoning: `docs/superpowers/specs/2026-08-08-westy-failure-tickets-design.md`.
 
@@ -185,3 +187,40 @@ receive the database default `auto_close_eligible=0`, and this receiver has no
 ticket-status writer. They stay open until a human resolves them. A resolved
 problem that later returns opens a linked new generation instead of being
 silently reopened.
+
+## 7. Production release receipt
+
+The receiver hardening was deployed code-only on 2026-08-27 from exact release
+`da9560aabf972a9be1f0027445381ddea378688d`; no migration or protected
+configuration change was needed. The root-only rollback record at
+`/srv/8west/backups/safeharbor/20260827150954Z-pre-westy-receiver-da9560a`
+passed a scratch restore with 35 base tables and 60 triggers. Production
+matched 136 ordinary tracked app files plus three normalized cache-stamp files,
+and all 115 live PHP files linted.
+
+The two receiver-critical live hashes are:
+
+| File | SHA-256 |
+|---|---|
+| `app/lib/westy_report.php` | `097f8c543ef7b831d0ac74f6a2df6223231881b1ef86f67e053d0193373dc703` |
+| `app/public/api/svc/westy.php` | `4f3787744d49a215f80eb51123ae0df949928543b8dd6ef1b362b05cd379c4a4` |
+
+The correct Safeharbor maintenance lock returned `403`. After restoration, the
+Safeharbor SSL vhost matched SHA-256
+`8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43`.
+Public postflight returned login `200`, root `302`, unauthenticated timer
+`401`, and unauthenticated Westy intake `401`; the separate support and ID host
+roots returned `302`. The database and protected config were unchanged, and no
+new fatal or SQL error appeared in the release window.
+
+The first verification attempt is preserved as a stopped preflight, not a
+release attempt: its checker used the wrong business-report table name and
+stopped before maintenance mode or any code installation. It changed no live
+state. The corrected verification and release then completed with the evidence
+above.
+
+Production still has zero `milepost-westy` identities. Report generation and
+delivery, ID report-contact fetch, Coastmark time export, and the customer
+portal remain off, and no report cron or timer exists. This deployment makes
+the receiver ready; it does not claim that a Milepost event has crossed the
+wire.

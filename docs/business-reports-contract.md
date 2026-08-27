@@ -9,11 +9,12 @@ key `8west-it-weekly-canary-v1` is latest version 2 and active for Wednesday
 09:00 `America/Los_Angeles`. PR #61 / merge
 `8322266dbcf3eb6956eb9f1ca79a51948002aaec` added an independent exact
 schedule-key allowlist to the existing tenant, client, and recipient gates.
-That exact release is live at `safeharbor.8westit.com`; all four allowlists
-contain only the controlled canary, but generation and delivery are both
-false. Archives, deliveries, and attempts are zero; there is no server
-scheduler, no provider submission, and no recipient-receipt claim. Both
-dedicated report-contact gates are off after the redacted onboarding probe.
+Those report bytes remain live at `safeharbor.8westit.com` inside the later
+exact application release `da9560a`; all four allowlists contain only the
+controlled canary, but generation and delivery are both false. Archives,
+deliveries, and attempts are zero; there is no server scheduler, no provider
+submission, and no recipient-receipt claim. Both dedicated report-contact
+gates are off after the redacted onboarding probe.
 
 The first no-write dry run correctly waits for the first complete weekly
 window. A one-time Codex heartbeat is planned for Wednesday, 2026-09-02, to
@@ -290,10 +291,12 @@ allowlists contain only that canary's schedule, tenant, client, and recipient.
 
 PR #61 CI run `33081410186` passed the report suites, and unchanged exact-main
 CI run `33081562197` passed on attempt 2 after rerunning one unrelated flaky
-service-goal concurrency assertion. Production is intentionally pinned to the
-reviewed `8322266` application bytes even though later documentation/Westy
-work advanced repository `main`. The release matched 142 ordinary tracked
-files plus three normalized cache-stamp files, linted all 115 live PHP files
+service-goal concurrency assertion. The report implementation remains the
+reviewed `8322266` bytes inside the later deployed application release
+`da9560a`; that later release changed only Westy receiver behavior and
+preserved report state and configuration. The schedule-key release matched
+142 ordinary tracked files plus three normalized cache-stamp files, linted all
+115 live PHP files
 (114 release files plus protected `config.php`), preserved the protected
 config, and exposed cache marker `20260827144708` from the real Safeharbor
 vhost.
