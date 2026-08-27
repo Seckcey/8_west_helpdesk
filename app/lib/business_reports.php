@@ -70,6 +70,7 @@ function business_report_config(?array $source = null): array
         'generation_enabled' => ($source['generation_enabled'] ?? false) === true,
         'delivery_enabled' => ($source['delivery_enabled'] ?? false) === true,
         'canary_only' => ($source['canary_only'] ?? true) !== false,
+        'schedule_keys' => business_report_schedule_allowlist($source['schedule_keys'] ?? []),
         'tenant_slugs' => business_report_tenant_allowlist($source['tenant_slugs'] ?? []),
         'client_keys' => business_report_client_allowlist($source['client_keys'] ?? []),
         'recipient_emails' => business_report_email_allowlist($source['recipient_emails'] ?? []),
@@ -134,6 +135,14 @@ function business_report_client_allowlist(mixed $values): array
             throw new BusinessReportValidationException('Business report client key allowlist is invalid.');
         }
     }
+    return $keys;
+}
+
+/** @return list<string> */
+function business_report_schedule_allowlist(mixed $values): array
+{
+    $keys = business_report_allowlist($values, 64, 'schedule key');
+    foreach ($keys as $key) business_report_schedule_key($key);
     return $keys;
 }
 
@@ -930,14 +939,18 @@ function business_report_assert_schedule_gate(array $schedule, array $config, st
     if ($config['canary_only'] === true && (int)$schedule['canary'] !== 1) {
         throw new BusinessReportGateException('Business reports are restricted to canary schedules.');
     }
+    $scheduleKey = business_report_schedule_key((string)($schedule['schedule_key'] ?? ''));
     $tenantSlug = (string)$schedule['tenant_slug'];
     $clientKey = 'safeharbor-client:' . (int)$schedule['client_id'];
     $recipient = (string)$schedule['recipient_email'];
-    if (!in_array($tenantSlug, $config['tenant_slugs'], true)
+    if (!in_array($scheduleKey, $config['schedule_keys'], true)
+        || !in_array($tenantSlug, $config['tenant_slugs'], true)
         || !in_array($clientKey, $config['client_keys'], true)
         || !in_array($recipient, $config['recipient_emails'], true)
     ) {
-        throw new BusinessReportGateException('Report tenant, client, and recipient must be exactly allowlisted.');
+        throw new BusinessReportGateException(
+            'Report schedule, tenant, client, and recipient must be exactly allowlisted.',
+        );
     }
 }
 

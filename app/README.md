@@ -230,11 +230,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
   has no billing, ticket detail, mutation, or customer endpoint control.
 - Business reports: independent versioned definitions and schedules produce
   exact weekly aggregate archives. Both generation and delivery default off;
-  exact tenant/client/recipient allowlists and `canary_only` apply. A Graph 202
-  means provider-submitted, not recipient-delivered, and ambiguous delivery is
-  terminal without automatic retry. Production has migration 013, one prepared
-  8 West IT definition/schedule canary, both execution gates off, zero archives,
-  deliveries, or attempts, and no server scheduler.
+  exact schedule/tenant/client/recipient allowlists and `canary_only` apply.
+  A Graph 202 means provider-submitted, not recipient-delivered, and ambiguous
+  delivery is terminal without automatic retry. Production has migration 013,
+  one prepared 8 West IT definition/schedule canary, both execution gates off,
+  zero archives, deliveries, or attempts, and no server scheduler.
   See `docs/business-reports-contract.md`.
 - ID-backed report onboarding: `prepare-from-id` is the only network call site
   and uses a dedicated default-off HMAC config. Migration 017 is live and stores
