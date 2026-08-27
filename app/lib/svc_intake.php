@@ -119,32 +119,45 @@ function svc_alert_handle(array $p): array
     $subject    = mb_substr($sevTag . $ruleKey . ' on ' . ($hostname !== '' ? $hostname : 'endpoint'), 0, 190);
 
     if (!$ticket) {
-        $clientId = svc_resolve_client_id($clientName);
-        $goal = service_goal_snapshot_for_new_ticket(
-            db(),
-            tenant_id(),
-            $clientId,
-            $priority,
-        );
-        db()->prepare(
-            'INSERT INTO tickets
-                (tenant_id, client_id, contact_id, subject, priority, channel, external_key,
-                 auto_close_eligible, sla_due_at, service_goal_target_id, created_at, updated_at)
-             VALUES (?,?,NULL,?,?,"alert",?,1,?,?,?,?)'
-        )->execute([
-            tenant_id(),
-            $clientId,
-            $subject,
-            $priority,
-            $extKey,
-            $goal['due_at'],
-            $goal['target_id'],
-            $goal['opened_at'],
-            $goal['opened_at'],
-        ]);
-        $tid = (int)db()->lastInsertId();
-        svc_system_line($tid, svc_alert_detail($p, $occurredAt, 'Alert opened at source'));
-        return ['ok' => true, 'action' => 'created', 'ticket' => $tid];
+        $pdo = db();
+        if ($pdo->inTransaction()) {
+            throw new RuntimeException('Alert ticket creation requires transaction ownership.');
+        }
+        $pdo->beginTransaction();
+        try {
+            $clientId = svc_resolve_client_id($clientName);
+            $goal = service_goal_snapshot_for_new_ticket(
+                $pdo,
+                tenant_id(),
+                $clientId,
+                $priority,
+            );
+            $pdo->prepare(
+                'INSERT INTO tickets
+                    (tenant_id, client_id, contact_id, subject, priority, channel, external_key,
+                     auto_close_eligible, sla_due_at, service_goal_target_id, created_at, updated_at)
+                 VALUES (?,?,NULL,?,?,"alert",?,1,?,?,?,?)'
+            )->execute([
+                tenant_id(),
+                $clientId,
+                $subject,
+                $priority,
+                $extKey,
+                $goal['due_at'],
+                $goal['target_id'],
+                $goal['opened_at'],
+                $goal['opened_at'],
+            ]);
+            $tid = (int)$pdo->lastInsertId();
+            svc_system_line($tid, svc_alert_detail($p, $occurredAt, 'Alert opened at source'));
+            $pdo->commit();
+            return ['ok' => true, 'action' => 'created', 'ticket' => $tid];
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
     }
 
     // Re-fire: append provenance, never duplicate and never rewrite ticket

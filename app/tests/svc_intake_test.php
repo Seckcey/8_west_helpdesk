@@ -280,6 +280,34 @@ check('alert_authority_rejects_failed_auth', !svc_alert_service_authorized([
 ]));
 
 // --- open → create -------------------------------------------------------
+// The ticket row carries automatic-close authority, so it must never commit
+// without the opening evidence line. Force only that line to fail and prove
+// the handler removes the entire partial creation before surfacing the error.
+db()->exec(
+    "ALTER TABLE messages
+       ADD CONSTRAINT ck_svc_test_force_open_line_failure
+       CHECK (LOCATE('force-open-line-failure', body) = 0)"
+);
+$forcedLineFailureSurfaced = false;
+$forcedLineFailureLeftTransaction = false;
+try {
+    svc_alert_handle(valid_payload([
+        'external_key' => 'alert:9010',
+        'alert' => ['message' => 'force-open-line-failure'],
+    ]));
+} catch (Throwable) {
+    $forcedLineFailureSurfaced = true;
+    $forcedLineFailureLeftTransaction = db()->inTransaction();
+} finally {
+    if (db()->inTransaction()) {
+        db()->rollBack();
+    }
+    db()->exec('ALTER TABLE messages DROP CHECK ck_svc_test_force_open_line_failure');
+}
+check('open_line_failure_surfaces', $forcedLineFailureSurfaced);
+check('open_line_failure_closes_transaction', !$forcedLineFailureLeftTransaction);
+check('open_line_failure_rolls_back_eligible_ticket', ticket_by_key('alert:9010') === null);
+
 $r = svc_alert_handle(valid_payload());
 check('open_creates_ticket', $r['ok'] === true && $r['action'] === 'created' && !empty($r['ticket']));
 $t = ticket_by_key('alert:9001');

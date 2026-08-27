@@ -538,7 +538,7 @@ teeth.
 
 ## Database
 
-Applied in production: **001 through 016**, including both files numbered 002.
+Applied in production: **001 through 017**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
 2026-08-09. Migration `010_service_goal_policies.sql` was applied before the
 matching code on 2026-08-26. It is additive and leaves historical ticket
