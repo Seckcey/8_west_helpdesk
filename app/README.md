@@ -15,7 +15,12 @@ db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (010 versioned service
                            goals, 011 approval-grade time, 012 customer portal,
-                           and 013 business reports are applied)
+                           and 013 business reports are applied; 014 guarded
+                           policy publication is a migration-first candidate)
+db/manage_service_goals.php
+                           operator-only inspect/plan/publish for one exact
+                           tenant + Standard/Premium policy; reviewed digest
+                           required and no batch or web writer
 db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
                            identity tenant slug → provider tenant/client binding
 db/manage_business_reports.php
@@ -26,6 +31,9 @@ db/run_business_report.php exact dry-run/generate/deliver for one pinned schedul
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
 lib/service_goals.php      versioned target resolver/snapshot + deterministic
                            first-response lamps and attainment
+lib/service_goal_policy_admin.php
+                           immutable policy publication plan, actor/version
+                           locks, exact-four target write, and client-tier RBAC
 lib/time_entries.php       single writer for idempotent pending time + guarded
                            owner/admin approval decisions
 lib/coastmark_time_export.php
@@ -76,6 +84,8 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            westy_report_test.php, svc_support_test.php,
                            intake_service_goal_test.php, time_entries_test.php,
                            time_entries_mysql_test.php,
+                           service_goal_policy_admin_test.php,
+                           service_goal_policy_mysql_test.php,
                            coastmark_time_export_test.php, portal_auth_test.php,
                            portal_data_test.php, portal_mysql_test.php,
                            business_reports_test.php,
@@ -213,6 +223,8 @@ There is no local build. Edit, lint, deploy, verify on the server:
 
 ```bash
 find app -name "*.php" -print0 | xargs -0 -n1 php -l     # lint
+php app/tests/service_goal_policy_admin_test.php
+# destructive only in safeharbor_service_goal_test*: php app/tests/service_goal_policy_mysql_test.php
 php app/tests/portal_auth_test.php
 php app/tests/portal_data_test.php
 # destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php

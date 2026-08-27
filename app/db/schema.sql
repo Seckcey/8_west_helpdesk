@@ -723,12 +723,23 @@ CREATE TABLE IF NOT EXISTS service_goal_policy_versions (
   clock_mode     ENUM('elapsed','business_hours') NOT NULL DEFAULT 'elapsed',
   time_zone      VARCHAR(64) NOT NULL DEFAULT 'UTC',
   pause_mode     ENUM('none','waiting') NOT NULL DEFAULT 'none',
+  created_by_user_id INT UNSIGNED NULL,
+  reason         VARCHAR(500) NULL,
   created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_goal_policy_version (tenant_id, policy_key, version_no),
   UNIQUE KEY uq_goal_policy_tenant_id (tenant_id, id),
   KEY ix_goal_policy_effective (tenant_id, policy_key, effective_from, version_no),
-  CONSTRAINT fk_goal_policy_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id)
+  KEY ix_goal_policy_actor (tenant_id, created_by_user_id),
+  CONSTRAINT fk_goal_policy_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_goal_policy_actor FOREIGN KEY (tenant_id, created_by_user_id)
+    REFERENCES users (tenant_id, id) ON UPDATE NO ACTION ON DELETE NO ACTION,
+  CONSTRAINT ck_goal_policy_version_positive CHECK (version_no >= 1) ENFORCED,
+  CONSTRAINT ck_goal_policy_attribution_pair CHECK (
+    (created_by_user_id IS NULL AND reason IS NULL)
+    OR (created_by_user_id IS NOT NULL AND reason IS NOT NULL
+        AND CHAR_LENGTH(TRIM(reason)) BETWEEN 1 AND 500)
+  ) ENFORCED
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS service_goal_policy_targets (
@@ -743,7 +754,10 @@ CREATE TABLE IF NOT EXISTS service_goal_policy_targets (
   UNIQUE KEY uq_goal_target_tenant_id (tenant_id, id),
   KEY ix_goal_target_policy (tenant_id, policy_version_id),
   CONSTRAINT fk_goal_target_policy FOREIGN KEY (tenant_id, policy_version_id)
-    REFERENCES service_goal_policy_versions (tenant_id, id)
+    REFERENCES service_goal_policy_versions (tenant_id, id),
+  CONSTRAINT ck_goal_target_response_range
+    CHECK (first_response_minutes BETWEEN 1 AND 525600) ENFORCED,
+  CONSTRAINT ck_goal_target_resolution_null CHECK (resolution_minutes IS NULL) ENFORCED
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
@@ -806,6 +820,112 @@ BEFORE INSERT ON service_goal_policy_versions
 FOR EACH ROW
 SET @goal_trigger_privilege_preflight = 1;
 DROP TRIGGER trg_goal_policy_privilege_preflight;
+
+DROP TRIGGER IF EXISTS trg_goal_policy_versions_before_insert;
+DROP TRIGGER IF EXISTS trg_goal_policy_targets_before_insert;
+
+DELIMITER $$
+CREATE TRIGGER trg_goal_policy_versions_before_insert
+BEFORE INSERT ON service_goal_policy_versions
+FOR EACH ROW
+BEGIN
+  DECLARE latest_version_no INT DEFAULT 0;
+  DECLARE latest_effective_from DATETIME DEFAULT NULL;
+  DECLARE actor_is_authorized INT DEFAULT 0;
+
+  IF NOT (
+       (BINARY NEW.policy_key = BINARY 'standard' AND BINARY NEW.display_name = BINARY 'Standard')
+    OR (BINARY NEW.policy_key = BINARY 'premium' AND BINARY NEW.display_name = BINARY 'Premium')
+  )
+     OR NEW.clock_mode <> 'elapsed'
+     OR BINARY NEW.time_zone <> BINARY 'UTC'
+     OR NEW.pause_mode <> 'none' THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Service-goal policy shape is unsupported';
+  END IF;
+
+  SELECT version_no, effective_from
+    INTO latest_version_no, latest_effective_from
+    FROM service_goal_policy_versions
+   WHERE tenant_id = NEW.tenant_id
+     AND policy_key = NEW.policy_key
+   ORDER BY version_no DESC
+   LIMIT 1;
+
+  IF NEW.version_no = 1 THEN
+    IF latest_version_no <> 0
+       OR NEW.effective_from <> '1970-01-01 00:00:00'
+       OR NEW.created_by_user_id IS NOT NULL
+       OR NEW.reason IS NOT NULL THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Service-goal v1 is reserved for the exact lazy baseline';
+    END IF;
+  ELSE
+    SET NEW.reason = TRIM(NEW.reason);
+    IF NEW.version_no <> latest_version_no + 1 OR latest_version_no < 1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Service-goal policy versions must be sequential';
+    END IF;
+    IF NEW.effective_from <= UTC_TIMESTAMP()
+       OR NEW.effective_from <= latest_effective_from THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Service-goal policy effective time must move forward in the future';
+    END IF;
+    IF NEW.created_by_user_id IS NULL OR NEW.reason IS NULL OR NEW.reason = '' THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Service-goal publication requires actor and reason';
+    END IF;
+    SELECT COUNT(*) INTO actor_is_authorized
+      FROM users
+     WHERE tenant_id = NEW.tenant_id
+       AND id = NEW.created_by_user_id
+       AND is_active = 1
+       AND role IN ('owner','admin');
+    IF actor_is_authorized <> 1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Service-goal actor must be an active owner or admin';
+    END IF;
+  END IF;
+
+  SET NEW.created_at = UTC_TIMESTAMP();
+END$$
+
+CREATE TRIGGER trg_goal_policy_targets_before_insert
+BEFORE INSERT ON service_goal_policy_targets
+FOR EACH ROW
+BEGIN
+  DECLARE parent_count INT DEFAULT 0;
+  DECLARE parent_policy_key VARCHAR(32) DEFAULT NULL;
+  DECLARE parent_version_no INT DEFAULT 0;
+  DECLARE parent_effective_from DATETIME DEFAULT NULL;
+
+  SELECT COUNT(*), MAX(policy_key), MAX(version_no), MAX(effective_from)
+    INTO parent_count, parent_policy_key, parent_version_no, parent_effective_from
+    FROM service_goal_policy_versions
+   WHERE tenant_id = NEW.tenant_id
+     AND id = NEW.policy_version_id;
+  IF parent_count <> 1 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Service-goal target parent must belong to the exact tenant';
+  END IF;
+  IF NEW.first_response_minutes < 1
+     OR NEW.first_response_minutes > 525600
+     OR NEW.resolution_minutes IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Service-goal targets require a positive response and no resolution goal';
+  END IF;
+  IF parent_version_no = 1
+     AND NEW.first_response_minutes <> CASE parent_policy_key
+          WHEN 'standard' THEN 480 WHEN 'premium' THEN 120 ELSE 0 END THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Service-goal v1 target must match the exact lazy baseline';
+  END IF;
+  IF parent_version_no > 1 AND parent_effective_from <= UTC_TIMESTAMP() THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Service-goal targets must be completed before the version becomes effective';
+  END IF;
+END$$
+DELIMITER ;
 
 DROP TRIGGER IF EXISTS trg_goal_policy_versions_no_update;
 CREATE TRIGGER trg_goal_policy_versions_no_update

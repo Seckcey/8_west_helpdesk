@@ -40,6 +40,8 @@ jobs:
         run: php app/tests/suite_preferences_test.php
       - name: Test service goals
         run: php app/tests/service_goals_test.php
+      - name: Test service-goal policy publication
+        run: php app/tests/service_goal_policy_admin_test.php
       - name: Test time provenance bridge
         run: php app/tests/time_provenance_bridge_test.php
       - name: Test approval-grade technician time
@@ -60,6 +62,14 @@ jobs:
           SAFEHARBOR_PORTAL_TEST_USER: root
           SAFEHARBOR_PORTAL_TEST_PASS: safeharbor-test-root
         run: php app/tests/portal_mysql_test.php
+      - name: Test service-goal policy migration and publication guards
+        env:
+          SAFEHARBOR_SERVICE_GOAL_TEST_DB: safeharbor_service_goal_test
+          SAFEHARBOR_SERVICE_GOAL_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_SERVICE_GOAL_TEST_PORT: 3306
+          SAFEHARBOR_SERVICE_GOAL_TEST_USER: root
+          SAFEHARBOR_SERVICE_GOAL_TEST_PASS: safeharbor-test-root
+        run: php app/tests/service_goal_policy_mysql_test.php
       - name: Test business report migration and delivery state machine
         env:
           SAFEHARBOR_REPORT_TEST_DB: safeharbor_report_test

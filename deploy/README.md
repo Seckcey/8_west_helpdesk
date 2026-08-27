@@ -67,6 +67,8 @@ at `/etc/letsencrypt/live/safeharbor.8westit.com/` and renews automatically.
 
 ```bash
 git pull --ff-only                                   # ALWAYS — parallel agents work this repo
+# Run the reviewed tests, backup, and any migration-specific ordering first.
+# Deploy only after every required migration postflight passes.
 SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 ```
 
@@ -76,8 +78,10 @@ ownership (`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets
 are cache-busted Milepost-style with `?v=` in `lib/render.php`,
 `lib/westy.php`, and `public/login.php`.
 
-**If the release ships a new `db/migrations/NNN_*.sql`, apply it** (deploys
-never touch the DB):
+**If the release ships a new `db/migrations/NNN_*.sql`, follow that
+migration's reviewed ordering** (deploys never touch the DB). Migrations 011
+through 014 are explicitly migration-first; do not infer deploy-first from the
+generic release command:
 
 ```bash
 ssh -i ~/.ssh/milepost.pem ubuntu@<origin-ip> "sudo mysql safeharbor" \
@@ -210,6 +214,35 @@ merged artifact byte-for-byte. Roll code back by deploying a prior exact
 merged release through the normal config-excluding path. Never unpack this
 application archive wholesale over `current`; any disaster-recovery extraction
 must exclude `config/config.php` and every `config.php.bak*`.
+
+Migration 014 (`014_service_goal_policy_publication.sql`) is migration-first,
+additive, and trigger-capable-operator-only. It adds nullable actor/reason
+attribution to the existing policy-version table, an exact non-cascading actor
+foreign key/index, four enforced checks, and two INSERT guards while retaining
+migration 010's four immutable UPDATE/DELETE guards. It publishes no policy,
+changes no ticket, and remains compatible with the previous application during
+the migration-first window.
+
+Before applying 014, require exact-head MySQL 8 CI green, a clean release
+artifact, and a verified root-only application/config/database/grant backup.
+Record and preserve the current policy and ticket-snapshot digests; production
+must still have four v1 policy versions, sixteen targets, zero later versions,
+two captured-ticket snapshots, and 275 truthful historical NULL snapshots.
+Apply the exact merged migration through `sudo mysql safeharbor` and require all
+five emitted postflight values to equal `1`: attribution columns, actor index,
+actor foreign key, publication checks, and publication triggers. Recheck the
+unchanged counts/digests and DML-only runtime grants before deploying code.
+MySQL DDL auto-commits, so any nonzero migration exit is a stop: keep the old
+application live, inspect the exact partial shape, and repair/replay. Do not
+automatically restore a database dump over later help-desk writes.
+
+Deploy only an exact merged, clean worktree after that postflight. Do not run
+`manage_service_goals.php plan` or `publish` during release. A v2 requires the
+real approved four response targets, exact future UTC effective time, active
+owner/admin actor, reason, and separately reviewed plan digest. Rollback is
+code-first while leaving the additive 014 shape in place; database restoration
+is disaster recovery only. The full policy and canary contract is in
+`docs/service-goal-policy-contract.md`.
 
 Deploy code only after the migration and grant postflight. Keep the protected
 `business_reports` block absent or fully default-off with empty allowlists.
