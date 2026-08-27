@@ -36,6 +36,35 @@ function check(string $name, bool $cond): void
     }
 }
 
+/** @return list<string> */
+function westy_test_sql_statements(string $sql): array
+{
+    $delimiter = ';';
+    $buffer = '';
+    $statements = [];
+    foreach (preg_split('/\R/', $sql) ?: [] as $line) {
+        if (preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $match) === 1) {
+            $pending = array_filter(
+                preg_split('/\R/', $buffer) ?: [],
+                static fn(string $item): bool => trim($item) !== ''
+                    && !str_starts_with(ltrim($item), '--'),
+            );
+            if ($pending !== []) throw new RuntimeException('DELIMITER changed with pending SQL.');
+            $buffer = '';
+            $delimiter = $match[1];
+            continue;
+        }
+        $buffer .= $line . "\n";
+        $trimmed = rtrim($buffer);
+        if (!str_ends_with($trimmed, $delimiter)) continue;
+        $statement = trim(substr($trimmed, 0, -strlen($delimiter)));
+        if ($statement !== '') $statements[] = $statement;
+        $buffer = '';
+    }
+    if (trim($buffer) !== '') throw new RuntimeException('Unterminated SQL statement.');
+    return $statements;
+}
+
 function fresh_schema(bool $withTenant = true): void
 {
     $pdo = db();
@@ -48,19 +77,35 @@ function fresh_schema(bool $withTenant = true): void
     }
     $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
     foreach (['schema.sql', 'migrations/002_svc_intake.sql', 'migrations/008_westy_reports.sql'] as $f) {
-        $sql = (string)file_get_contents(__DIR__ . '/../db/' . $f);
-        foreach (explode(";\n", $sql) as $stmt) {
-            if (preg_match('/\b(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
+        $sql = str_replace(
+            ["\r\n", "\r"],
+            "\n",
+            (string)file_get_contents(__DIR__ . '/../db/' . $f),
+        );
+        foreach (westy_test_sql_statements($sql) as $stmt) {
+            if (preg_match('/(?:^|\R)\s*(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
             if (trim($stmt) !== '') {
                 $pdo->exec($stmt);
             }
         }
     }
+    // Migration 018 is exercised in its dedicated parser/trigger suite. This
+    // integration fixture needs only its production column contract so every
+    // non-alert creator can prove it receives the fail-closed default zero.
+    $pdo->exec(
+        'ALTER TABLE tickets ADD COLUMN auto_close_eligible TINYINT(1) NOT NULL DEFAULT 0 AFTER external_key'
+    );
     if ($withTenant) {
         $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (1, '8 West IT, LLC', '8west')");
     }
     // A customer tenant that must NEVER receive a Westy ticket.
     $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (9, 'Acme Dental', 'acme')");
+}
+
+function report_test_occurred_at(): string
+{
+    static $sequence = 0;
+    return gmdate('c', time() - 3600 + $sequence++);
 }
 
 function fail_payload(array $over = []): array
@@ -69,7 +114,7 @@ function fail_payload(array $over = []): array
         'event'       => 'failure',
         'app'         => 'safeharbor',
         'surface'     => 'westy_chat',
-        'occurred_at' => gmdate('c'),
+        'occurred_at' => report_test_occurred_at(),
         'user_ref'    => '3',
         'failure'     => [
             'provider'     => 'anthropic',
@@ -87,7 +132,7 @@ function flag_payload(array $over = []): array
         'event'       => 'flagged',
         'app'         => 'safeharbor',
         'surface'     => 'westy_chat',
-        'occurred_at' => gmdate('c'),
+        'occurred_at' => report_test_occurred_at(),
         'user_ref'    => '2',
         'flagged'     => [
             'question' => 'How do I merge two tickets?',
@@ -148,6 +193,42 @@ function ticket_count(): int
     return (int)db()->query('SELECT COUNT(*) FROM tickets')->fetchColumn();
 }
 
+/* ── signed service authority: identity, app and event are one job ─────── */
+$milepostFailure = fail_payload(['app' => 'milepost']);
+$milepostWestyAuth = ['ok' => true, 'service' => 'milepost-westy'];
+check(
+    'authority_accepts_exact_milepost_failure_job',
+    westy_report_service_authorized($milepostWestyAuth, $milepostFailure),
+);
+check(
+    'authority_rejects_failed_auth',
+    !westy_report_service_authorized(['ok' => false, 'service' => 'milepost-westy'], $milepostFailure),
+);
+check(
+    'authority_rejects_alert_identity',
+    !westy_report_service_authorized(['ok' => true, 'service' => 'milepost'], $milepostFailure),
+);
+check(
+    'authority_rejects_customer_sync_identity',
+    !westy_report_service_authorized(['ok' => true, 'service' => 'milepost-customers'], $milepostFailure),
+);
+check(
+    'authority_rejects_support_identity',
+    !westy_report_service_authorized(['ok' => true, 'service' => 'coastmark-support'], $milepostFailure),
+);
+check(
+    'authority_rejects_future_control_panel_identity',
+    !westy_report_service_authorized(['ok' => true, 'service' => 'controlpanel-westy'], $milepostFailure),
+);
+check(
+    'authority_rejects_milepost_identity_claiming_another_app',
+    !westy_report_service_authorized($milepostWestyAuth, fail_payload(['app' => 'controlpanel'])),
+);
+check(
+    'authority_rejects_remote_flagged_answer',
+    !westy_report_service_authorized($milepostWestyAuth, flag_payload(['app' => 'milepost'])),
+);
+
 /* ── 10. missing destination tenant: record nothing, never throw ──────────
    Runs FIRST, while no '8west' tenant exists, so the fail-closed path is
    exercised for real rather than simulated. */
@@ -175,13 +256,16 @@ check('scrub_keeps_short_quotes', str_contains(westy_scrub('field "id" missing')
 check('scrub_is_bounded', mb_strlen(westy_scrub(str_repeat('y', 900))) <= 500);
 
 /* ── 1. first failure creates one ticket, right tenant, right client ─────── */
-$r = westy_report_record(fail_payload());
+$firstFailurePayload = fail_payload();
+$r = westy_report_record($firstFailurePayload);
 check('failure_creates_ticket', $r['ok'] === true && $r['action'] === 'created' && !empty($r['ticket']));
 $t = ticket((int)$r['ticket']);
 check('failure_lands_in_8west_tenant', (int)($t['tenant_id'] ?? 0) === 1);
 check('failure_never_lands_in_customer_tenant', (int)($t['tenant_id'] ?? 0) !== 9);
 check('failure_client_is_westy_safeharbor', client_name((int)$t['client_id']) === 'Westy — Safeharbor');
 check('failure_channel_is_alert', ($t['channel'] ?? '') === 'alert');
+check('failure_stays_open_for_a_human', ($t['status'] ?? '') === 'open' && ($t['resolved_at'] ?? null) === null);
+check('failure_cannot_receive_machine_close_authority', (int)($t['auto_close_eligible'] ?? 1) === 0);
 check('failure_priority_normal', ($t['priority'] ?? '') === 'normal');
 check('failure_subject_names_westy', str_starts_with((string)($t['subject'] ?? ''), 'Westy failure — '));
 check('failure_external_key_is_fingerprint', str_starts_with((string)($t['external_key'] ?? ''), 'westy:safeharbor:fail:'));
@@ -203,6 +287,37 @@ check('failure_line_says_no_chat_text', str_contains($m[0]['body'], 'No chat tex
 check('failure_detail_is_scrubbed_of_request_id', !str_contains($m[0]['body'], 'error class: ai provider error: overloaded (request req_10231)'));
 $firstTicket = (int)$r['ticket'];
 
+/* A lost HTTP acknowledgement retries the same frozen bytes. It must not
+ * manufacture an occurrence, message, priority change, or ticket touch. */
+$beforeReplayReport = report_row('westy:safeharbor:fail:%');
+$beforeReplayTicket = ticket($firstTicket);
+$beforeReplayMessages = messages($firstTicket);
+$retry = westy_report_record($firstFailurePayload);
+$afterReplayReport = report_row('westy:safeharbor:fail:%');
+$afterReplayTicket = ticket($firstTicket);
+$afterReplayMessages = messages($firstTicket);
+check(
+    'exact_failure_retry_is_ignored_with_same_ticket',
+    $retry['ok'] === true && $retry['action'] === 'ignored' && (int)$retry['ticket'] === $firstTicket,
+);
+check(
+    'exact_failure_retry_does_not_increment_or_move_last_seen',
+    (int)($afterReplayReport['occurrences'] ?? 0) === 1
+        && ($afterReplayReport['last_seen_at'] ?? null) === ($beforeReplayReport['last_seen_at'] ?? null),
+);
+check(
+    'exact_failure_retry_does_not_rewrite_report_detail',
+    ($afterReplayReport['detail_json'] ?? null) === ($beforeReplayReport['detail_json'] ?? null),
+);
+check(
+    'exact_failure_retry_does_not_touch_ticket',
+    ($afterReplayTicket['priority'] ?? null) === ($beforeReplayTicket['priority'] ?? null)
+        && ($afterReplayTicket['updated_at'] ?? null) === ($beforeReplayTicket['updated_at'] ?? null)
+        && ($afterReplayTicket['status'] ?? null) === 'open'
+        && (int)($afterReplayTicket['auto_close_eligible'] ?? 1) === 0,
+);
+check('exact_failure_retry_adds_no_message', $afterReplayMessages === $beforeReplayMessages);
+
 /* ── 2. same problem, different id and time: updates, never duplicates ───── */
 $r2 = westy_report_record(fail_payload(['failure' => ['error_detail' => 'AI provider error: overloaded (request req_99999)']]));
 check('repeat_updates_same_ticket', $r2['ok'] === true && $r2['action'] === 'updated' && (int)$r2['ticket'] === $firstTicket);
@@ -212,6 +327,10 @@ check('repeat_rewrites_line_not_appends', count($m) === 1);
 check('repeat_line_shows_count_two', str_contains($m[0]['body'], 'occurrences: 2'));
 $row = report_row('westy:safeharbor:fail:%');
 check('repeat_row_counts_two', (int)($row['occurrences'] ?? 0) === 2);
+check(
+    'later_occurrence_moves_last_seen',
+    ($row['last_seen_at'] ?? null) !== ($beforeReplayReport['last_seen_at'] ?? null),
+);
 check('repeat_row_keeps_generation_one', (int)($row['generation'] ?? 0) === 1);
 $repeatedTicket = ticket($firstTicket);
 check('repeat_preserves_the_original_service_goal',
@@ -267,6 +386,10 @@ $r4 = westy_report_record(fail_payload());
 check('return_after_resolve_opens_new_ticket', $r4['action'] === 'created' && (int)$r4['ticket'] !== $firstTicket);
 check('return_never_reopens_closed_ticket', (ticket($firstTicket)['status'] ?? '') === 'resolved');
 $gen2 = ticket((int)$r4['ticket']);
+check(
+    'return_generation_is_open_and_human_owned',
+    ($gen2['status'] ?? '') === 'open' && (int)($gen2['auto_close_eligible'] ?? 1) === 0,
+);
 check('return_key_has_generation_suffix', str_ends_with((string)($gen2['external_key'] ?? ''), ':g2'));
 check('return_key_within_column', mb_strlen((string)($gen2['external_key'] ?? '')) <= 64);
 $gen2Goal = goal_for_ticket((int) $r4['ticket']);

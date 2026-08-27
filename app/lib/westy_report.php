@@ -9,7 +9,7 @@
  *   - api/westy_feedback.php   session + CSRF, a technician's thumbs-DOWN
  *   - api/westy_thumbs_up.php  session + CSRF, a technician's thumbs-UP
  *   - westy_chat.php           in-process, Safeharbor's own failures
- *   - api/svc/westy.php        HMAC, Milepost + the Control Panel (their PRs)
+ *   - api/svc/westy.php        HMAC, Milepost failures only in the first slice
  *
  * Only three of them can open a ticket. Thumbs-up writes one bounded usage row
  * and stops there — see westy_thumbs_up_record().
@@ -38,6 +38,24 @@ const WESTY_REPORT_APPS = [
     'milepost'     => 'Milepost',
     'controlpanel' => 'Control Panel',
 ];
+
+/** The first external Westy job has one identity and one exact authority. */
+const WESTY_REPORT_MILEPOST_SERVICE = 'milepost-westy';
+
+/**
+ * Authentication proves who signed the bytes; this check proves that caller
+ * is allowed to file this exact kind of report. The first external slice is
+ * deliberately smaller than the storage model: only Milepost failures cross
+ * the service boundary. Human-reviewed flags remain session-owned, and the
+ * Control Panel needs its own later authority release.
+ */
+function westy_report_service_authorized(array $auth, array $payload): bool
+{
+    return ($auth['ok'] ?? null) === true
+        && ($auth['service'] ?? null) === WESTY_REPORT_MILEPOST_SERVICE
+        && ($payload['app'] ?? null) === 'milepost'
+        && ($payload['event'] ?? null) === 'failure';
+}
 
 /* ── the destination ─────────────────────────────────────────────────────── */
 
@@ -241,7 +259,8 @@ function westy_report_normalize(array $p): array
  *   ['ok'=>true, 'action'=>'created|updated|ignored', 'ticket'=>?int]
  *   ['ok'=>false, 'error'=>reason]      — caller answers 422
  *
- * 'ignored' means the destination tenant is missing: fail closed, never guess.
+ * 'ignored' means either the destination tenant is missing (fail closed,
+ * never guess) or these are exact bytes already handled on an earlier attempt.
  */
 function westy_report_record(array $raw): array
 {
@@ -273,6 +292,10 @@ function westy_report_record(array $raw): array
         $ticket = $tq->fetch() ?: null;
     }
 
+    if ($report && $ticket && $ticket['status'] !== 'resolved'
+        && westy_report_exact_failure_replay($p, $report)) {
+        return ['ok' => true, 'action' => 'ignored', 'ticket' => (int)$ticket['id']];
+    }
     if ($report && $ticket && $ticket['status'] !== 'resolved') {
         return westy_report_bump($p, $report, $ticket);
     }
@@ -302,8 +325,33 @@ function westy_report_record(array $raw): array
         if (!$wTicket) {
             throw $e;
         }
+        if ($wTicket['status'] !== 'resolved'
+            && westy_report_exact_failure_replay($p, $winner)) {
+            return ['ok' => true, 'action' => 'ignored', 'ticket' => (int)$wTicket['id']];
+        }
         return westy_report_bump($p, $winner, $wTicket);
     }
+}
+
+/**
+ * A sender retries the same frozen body after an ambiguous network outcome.
+ * Count a genuine later occurrence, but do not turn one occurrence into two
+ * merely because its acknowledgement was lost. The live Milepost slice emits
+ * failures only; flagged-answer examples intentionally keep their original
+ * human-reviewed semantics.
+ */
+function westy_report_exact_failure_replay(array $p, array $report): bool
+{
+    if (($p['event'] ?? null) !== 'failure') return false;
+    $occurredAt = (string)($p['occurred_at'] ?? '');
+    $lastSeenAt = (string)($report['last_seen_at'] ?? '');
+    if ($occurredAt === '' || $lastSeenAt === '' || !hash_equals($lastSeenAt, $occurredAt)) {
+        return false;
+    }
+    return hash_equals(
+        (string)($report['detail_json'] ?? ''),
+        westy_report_detail_json($p),
+    );
 }
 
 /** First sighting of a problem (or its return after a close): a new ticket. */
