@@ -439,6 +439,129 @@ function business_report_latest_schedule(PDO $pdo, int $tenantId, string $schedu
     return is_array($row) ? $row : null;
 }
 
+/** @return array<string,mixed>|null */
+function business_report_id_contact_for_schedule(
+    PDO $pdo,
+    int $tenantId,
+    int $scheduleVersionId,
+    bool $forUpdate = false,
+): ?array {
+    $sql = 'SELECT * FROM business_report_id_contact_snapshots
+             WHERE tenant_id = ? AND schedule_version_id = ? LIMIT 1';
+    if ($forUpdate && $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+        $sql .= ' FOR UPDATE';
+    }
+    $query = $pdo->prepare($sql);
+    $query->execute([$tenantId, $scheduleVersionId]);
+    $row = $query->fetch(PDO::FETCH_ASSOC);
+    return is_array($row) ? $row : null;
+}
+
+/** @return array<string,mixed>|null */
+function business_report_latest_id_contact_for_key(
+    PDO $pdo,
+    int $tenantId,
+    string $scheduleKey,
+): ?array {
+    $query = $pdo->prepare(
+        'SELECT evidence.*
+           FROM business_report_id_contact_snapshots evidence
+           JOIN business_report_schedule_versions schedule
+             ON schedule.tenant_id = evidence.tenant_id
+            AND schedule.id = evidence.schedule_version_id
+          WHERE evidence.tenant_id = ? AND schedule.schedule_key = ?
+          ORDER BY schedule.version_no DESC LIMIT 1'
+    );
+    $query->execute([$tenantId, $scheduleKey]);
+    $row = $query->fetch(PDO::FETCH_ASSOC);
+    return is_array($row) ? $row : null;
+}
+
+/**
+ * Validate the authenticated, redaction-safe snapshot returned by the
+ * operator-only 8 West ID client before it reaches a transaction.
+ *
+ * @return array{
+ *   tenant_key:string,tenant_slug:string,contact_version:int,
+ *   recipient_email:string,generated_at:string,generated_at_db:string,
+ *   request_nonce_sha256:string,response_sha256:string
+ * }
+ */
+function business_report_id_contact_validate(array $snapshot, string $tenantSlug): array
+{
+    business_report_slug($tenantSlug);
+    $keys = array_keys($snapshot);
+    sort($keys, SORT_STRING);
+    $expected = [
+        'contact_version', 'generated_at', 'generated_at_db', 'recipient_email',
+        'request_nonce_sha256', 'response_sha256', 'tenant_key', 'tenant_slug',
+    ];
+    if ($keys !== $expected
+        || !is_string($snapshot['tenant_key'] ?? null)
+        || preg_match('/\Aewid-t[1-9][0-9]{0,9}\z/D', $snapshot['tenant_key']) !== 1
+        || filter_var(substr($snapshot['tenant_key'], 6), FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1, 'max_range' => 4_294_967_295],
+        ]) === false
+        || ($snapshot['tenant_slug'] ?? null) !== $tenantSlug
+        || !is_int($snapshot['contact_version'] ?? null)
+        || $snapshot['contact_version'] < 1
+        || !is_string($snapshot['recipient_email'] ?? null)
+        || !is_string($snapshot['generated_at'] ?? null)
+        || !is_string($snapshot['generated_at_db'] ?? null)
+        || !is_string($snapshot['request_nonce_sha256'] ?? null)
+        || preg_match('/\A[0-9a-f]{64}\z/D', $snapshot['request_nonce_sha256']) !== 1
+        || !is_string($snapshot['response_sha256'] ?? null)
+        || preg_match('/\A[0-9a-f]{64}\z/D', $snapshot['response_sha256']) !== 1
+    ) {
+        throw new BusinessReportValidationException('8 West ID report-contact evidence is invalid.');
+    }
+    $recipient = business_report_email($snapshot['recipient_email']);
+    if (preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\z/D', $snapshot['generated_at']) !== 1) {
+        throw new BusinessReportValidationException('8 West ID report-contact evidence time is invalid.');
+    }
+    $generated = DateTimeImmutable::createFromFormat(
+        '!Y-m-d\TH:i:s\Z',
+        $snapshot['generated_at'],
+        new DateTimeZone('UTC'),
+    );
+    if (!$generated
+        || $generated->format('Y-m-d\TH:i:s\Z') !== $snapshot['generated_at']
+        || $generated->format('Y-m-d H:i:s') !== $snapshot['generated_at_db']
+    ) {
+        throw new BusinessReportValidationException('8 West ID report-contact evidence time is invalid.');
+    }
+    return [
+        'tenant_key' => $snapshot['tenant_key'],
+        'tenant_slug' => $tenantSlug,
+        'contact_version' => $snapshot['contact_version'],
+        'recipient_email' => $recipient,
+        'generated_at' => $snapshot['generated_at'],
+        'generated_at_db' => $snapshot['generated_at_db'],
+        'request_nonce_sha256' => $snapshot['request_nonce_sha256'],
+        'response_sha256' => $snapshot['response_sha256'],
+    ];
+}
+
+function business_report_same_prepared_schedule(
+    array $schedule,
+    int $clientId,
+    int $definitionId,
+    string $recipientEmail,
+    string $timezone,
+    int $deliveryWeekday,
+    string $deliveryLocalTime,
+    bool $canary,
+): bool {
+    return (string)$schedule['status'] === 'disabled'
+        && (int)$schedule['client_id'] === $clientId
+        && (int)$schedule['definition_version_id'] === $definitionId
+        && (string)$schedule['recipient_email'] === $recipientEmail
+        && (string)$schedule['schedule_timezone'] === $timezone
+        && (int)$schedule['delivery_weekday'] === $deliveryWeekday
+        && (string)$schedule['delivery_local_time'] === $deliveryLocalTime
+        && (int)$schedule['canary'] === ($canary ? 1 : 0);
+}
+
 /** @return array{action:string,schedule:array<string,mixed>} */
 function business_report_prepare_schedule(
     PDO $pdo,
@@ -453,6 +576,7 @@ function business_report_prepare_schedule(
     bool $canary,
     int $actorUserId,
     string $reason,
+    ?array $idContact = null,
 ): array {
     $scheduleKey = business_report_schedule_key($scheduleKey);
     $recipientEmail = business_report_email($recipientEmail);
@@ -462,10 +586,79 @@ function business_report_prepare_schedule(
         throw new BusinessReportValidationException('Report delivery weekday is invalid.');
     }
     $reason = business_report_key($reason, 500, 'Schedule reason');
+    if ($idContact !== null) {
+        $idContact = business_report_id_contact_validate($idContact, $tenantSlug);
+        if (!hash_equals($recipientEmail, $idContact['recipient_email'])) {
+            throw new BusinessReportValidationException(
+                'The report recipient does not match the authenticated 8 West ID snapshot.',
+            );
+        }
+    }
     $target = business_report_schedule_target($pdo, $tenantSlug, $clientId, $definitionId, $actorUserId);
     $tenantId = (int)$target['tenant_id'];
+    $id = 0;
+    $action = 'prepared';
+    $evidence = null;
     $pdo->beginTransaction();
     try {
+        if ($idContact !== null) {
+            // Serialize first binding, version monotonicity, and schedule
+            // preparation for this local tenant without changing migration
+            // 013's schedule trigger contract.
+            $bindingQuery = $pdo->prepare(
+                'SELECT * FROM business_report_id_tenant_bindings WHERE tenant_id = ?'
+                . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE')
+            );
+            $bindingQuery->execute([$tenantId]);
+            $binding = $bindingQuery->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($binding)) {
+                $bindingInsert = $pdo->prepare(
+                    'INSERT INTO business_report_id_tenant_bindings
+                        (tenant_id, id_tenant_key, id_tenant_slug,
+                         created_by_user_id, reason)
+                     VALUES (?, ?, ?, ?, ?)'
+                );
+                $bindingInsert->execute([
+                    $tenantId,
+                    $idContact['tenant_key'],
+                    $idContact['tenant_slug'],
+                    $actorUserId,
+                    $reason,
+                ]);
+            } elseif (!hash_equals((string)$binding['id_tenant_key'], $idContact['tenant_key'])
+                || !hash_equals((string)$binding['id_tenant_slug'], $idContact['tenant_slug'])
+            ) {
+                throw new BusinessReportConflictException(
+                    'The Safeharbor tenant is already bound to a different 8 West ID tenant.',
+                );
+            }
+
+            $contactHistoryQuery = $pdo->prepare(
+                'SELECT contact_version, recipient_email
+                   FROM business_report_id_contact_snapshots
+                  WHERE tenant_id = ? AND id_tenant_key = ?
+                  ORDER BY contact_version DESC, id DESC LIMIT 1'
+                . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE')
+            );
+            $contactHistoryQuery->execute([$tenantId, $idContact['tenant_key']]);
+            $contactHistory = $contactHistoryQuery->fetch(PDO::FETCH_ASSOC);
+            if (is_array($contactHistory)
+                && (int)$idContact['contact_version'] < (int)$contactHistory['contact_version']
+            ) {
+                throw new BusinessReportConflictException(
+                    'The 8 West ID report-contact version moved backward.',
+                );
+            }
+            if (is_array($contactHistory)
+                && (int)$idContact['contact_version'] === (int)$contactHistory['contact_version']
+                && !hash_equals((string)$contactHistory['recipient_email'], $idContact['recipient_email'])
+            ) {
+                throw new BusinessReportConflictException(
+                    'The same 8 West ID report-contact version named a different recipient.',
+                );
+            }
+        }
+
         $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey, true);
         if (is_array($latest) && (string)$latest['status'] === 'active') {
             throw new BusinessReportConflictException('Disable the active report schedule before reconfiguring it.');
@@ -478,6 +671,37 @@ function business_report_prepare_schedule(
             throw new BusinessReportConflictException(
                 'A report schedule key cannot change client, definition, or timezone.',
             );
+        }
+        if ($idContact !== null
+            && is_array($latest)
+            && business_report_same_prepared_schedule(
+                $latest,
+                $clientId,
+                $definitionId,
+                $recipientEmail,
+                $timezone,
+                $deliveryWeekday,
+                $deliveryLocalTime,
+                $canary,
+            )
+        ) {
+            $latestEvidence = business_report_id_contact_for_schedule(
+                $pdo,
+                $tenantId,
+                (int)$latest['id'],
+                true,
+            );
+            if (is_array($latestEvidence)
+                && hash_equals((string)$latestEvidence['id_tenant_key'], $idContact['tenant_key'])
+                && (int)$latestEvidence['contact_version'] === (int)$idContact['contact_version']
+                && hash_equals((string)$latestEvidence['recipient_email'], $idContact['recipient_email'])
+            ) {
+                $id = (int)$latest['id'];
+                $action = 'ignored';
+                $evidence = $latestEvidence;
+                $pdo->commit();
+                return ['action' => $action, 'schedule' => $latest, 'id_contact' => $evidence];
+            }
         }
         $version = is_array($latest) ? (int)$latest['version_no'] + 1 : 1;
         $insert = $pdo->prepare(
@@ -493,6 +717,40 @@ function business_report_prepare_schedule(
             $canary ? 1 : 0, $actorUserId, $reason,
         ]);
         $id = (int)$pdo->lastInsertId();
+        if ($idContact !== null) {
+            $evidenceInsert = $pdo->prepare(
+                'INSERT INTO business_report_id_contact_snapshots
+                    (tenant_id, schedule_version_id, id_tenant_key,
+                     contact_version, recipient_email, response_generated_at,
+                     request_nonce_sha256, response_sha256,
+                     created_by_user_id, reason)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $evidenceInsert->execute([
+                $tenantId,
+                $id,
+                $idContact['tenant_key'],
+                $idContact['contact_version'],
+                $idContact['recipient_email'],
+                $idContact['generated_at_db'],
+                $idContact['request_nonce_sha256'],
+                $idContact['response_sha256'],
+                $actorUserId,
+                $reason,
+            ]);
+            $evidenceId = (int)$pdo->lastInsertId();
+            $evidenceQuery = $pdo->prepare(
+                'SELECT * FROM business_report_id_contact_snapshots
+                  WHERE tenant_id = ? AND id = ?'
+            );
+            $evidenceQuery->execute([$tenantId, $evidenceId]);
+            $evidence = $evidenceQuery->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($evidence)) {
+                throw new BusinessReportGateException(
+                    'The immutable 8 West ID report-contact evidence was not created.',
+                );
+            }
+        }
         $pdo->commit();
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -500,7 +758,48 @@ function business_report_prepare_schedule(
     }
     $query = $pdo->prepare('SELECT * FROM business_report_schedule_versions WHERE tenant_id = ? AND id = ?');
     $query->execute([$tenantId, $id]);
-    return ['action' => 'prepared', 'schedule' => $query->fetch(PDO::FETCH_ASSOC) ?: []];
+    $result = ['action' => $action, 'schedule' => $query->fetch(PDO::FETCH_ASSOC) ?: []];
+    if ($idContact !== null) {
+        $result['id_contact'] = $evidence;
+    }
+    return $result;
+}
+
+/** @return array{action:string,schedule:array<string,mixed>,id_contact:array<string,mixed>} */
+function business_report_prepare_schedule_from_id(
+    PDO $pdo,
+    string $tenantSlug,
+    string $scheduleKey,
+    int $clientId,
+    int $definitionId,
+    array $idContact,
+    string $timezone,
+    int $deliveryWeekday,
+    string $deliveryLocalTime,
+    bool $canary,
+    int $actorUserId,
+    string $reason,
+): array {
+    $validated = business_report_id_contact_validate($idContact, $tenantSlug);
+    $result = business_report_prepare_schedule(
+        $pdo,
+        $tenantSlug,
+        $scheduleKey,
+        $clientId,
+        $definitionId,
+        $validated['recipient_email'],
+        $timezone,
+        $deliveryWeekday,
+        $deliveryLocalTime,
+        $canary,
+        $actorUserId,
+        $reason,
+        $validated,
+    );
+    if (!is_array($result['id_contact'] ?? null)) {
+        throw new BusinessReportGateException('8 West ID report-contact evidence is missing.');
+    }
+    return $result;
 }
 
 /** @return array{action:string,schedule:array<string,mixed>} */

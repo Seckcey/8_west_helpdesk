@@ -216,6 +216,9 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   014 guarded policy publication · 015 customer sync ·
   016 time corrections/overlap guards. `db/schema.sql` stays the canonical
   fresh-install copy—keep it and every migration in lockstep.
+  Migration 017 (8 West ID report-contact binding/evidence) is currently a
+  default-off implementation candidate and is **not** recorded as applied;
+  verify `docs/where-things-stand.md` before changing that claim.
   `002_svc_intake.sql` collides on the number 002 with
   `002_westy_onboarding.sql`, so numbering is not a reliable ordering. **It IS
   applied in production** — verified 2026-08-08 by schema, not by this list:

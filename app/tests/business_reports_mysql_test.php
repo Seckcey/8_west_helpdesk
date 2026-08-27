@@ -127,11 +127,11 @@ function report_mysql_config(): array
 
 report_mysql_reset($pdo);
 report_mysql_execute_file($pdo, __DIR__ . '/../db/schema.sql');
-report_mysql_check('fresh schema creates five report tables',
+report_mysql_check('fresh schema creates seven report tables including ID contact evidence',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.tables
           WHERE table_schema=DATABASE() AND table_name LIKE 'business_report_%'"
-    )->fetchColumn() === 5);
+    )->fetchColumn() === 7);
 report_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/013_business_reports.sql');
 report_mysql_check('migration 013 replays over exact fresh-schema objects', true);
 report_mysql_check('report tables retain exact per-table column counts',
@@ -145,19 +145,21 @@ report_mysql_check('report tables retain exact per-table column counts',
         'business_report_definition_versions:10',
         'business_report_deliveries:12',
         'business_report_delivery_attempts:10',
+        'business_report_id_contact_snapshots:12',
+        'business_report_id_tenant_bindings:6',
         'business_report_schedule_versions:15',
     ]);
-report_mysql_check('all fifteen report triggers are installed',
+report_mysql_check('all twenty-one report triggers are installed',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_business_report_%'"
-    )->fetchColumn() === 15);
+    )->fetchColumn() === 21);
 report_mysql_check('all report relationships are tenant-scoped',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.table_constraints
           WHERE constraint_schema=DATABASE() AND constraint_type='FOREIGN KEY'
             AND table_name LIKE 'business_report_%'"
-    )->fetchColumn() === 15);
+    )->fetchColumn() === 21);
 report_mysql_check('exact JSON bytes use LONGTEXT rather than native JSON normalization',
     $pdo->query(
         "SELECT CONCAT(table_name,':',column_type) FROM information_schema.columns

@@ -149,6 +149,19 @@ $schema = [
         canary INTEGER NOT NULL, status TEXT NOT NULL, created_by_user_id INTEGER NOT NULL,
         reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(tenant_id,schedule_key,version_no), UNIQUE(tenant_id,id))',
+    'CREATE TABLE business_report_id_tenant_bindings (
+        tenant_id INTEGER PRIMARY KEY, id_tenant_key TEXT NOT NULL UNIQUE,
+        id_tenant_slug TEXT NOT NULL, created_by_user_id INTEGER NOT NULL,
+        reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tenant_id,id_tenant_key))',
+    'CREATE TABLE business_report_id_contact_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+        schedule_version_id INTEGER NOT NULL, id_tenant_key TEXT NOT NULL,
+        contact_version INTEGER NOT NULL, recipient_email TEXT NOT NULL,
+        response_generated_at TEXT NOT NULL, request_nonce_sha256 TEXT NOT NULL,
+        response_sha256 TEXT NOT NULL, created_by_user_id INTEGER NOT NULL,
+        reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tenant_id,id), UNIQUE(tenant_id,schedule_version_id))',
     'CREATE TABLE business_report_archives (
         id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
         schedule_key TEXT NOT NULL, schedule_version_id INTEGER NOT NULL,
@@ -242,6 +255,91 @@ report_check('new schedules start disabled',
     $prepared['action'] === 'prepared'
     && $prepared['schedule']['status'] === 'disabled'
     && (int)$prepared['schedule']['version_no'] === 1);
+
+$idContact = [
+    'tenant_key' => 'ewid-t1',
+    'tenant_slug' => 'one',
+    'contact_version' => 7,
+    'recipient_email' => 'id-reports@example.test',
+    'generated_at' => '2026-08-27T12:00:00Z',
+    'generated_at_db' => '2026-08-27 12:00:00',
+    'request_nonce_sha256' => str_repeat('a', 64),
+    'response_sha256' => str_repeat('b', 64),
+];
+$idPrepared = business_report_prepare_schedule_from_id(
+    $pdo, 'one', 'id-client-weekly', 11, (int)$definition['definition']['id'],
+    $idContact, 'UTC', 3, '09:00:00', true, 101, 'ID-backed canary',
+);
+report_check(
+    'ID-backed prepare atomically pins the disabled schedule and contact evidence',
+    $idPrepared['action'] === 'prepared'
+        && (int)$idPrepared['schedule']['version_no'] === 1
+        && $idPrepared['schedule']['status'] === 'disabled'
+        && (string)$idPrepared['id_contact']['id_tenant_key'] === 'ewid-t1'
+        && (int)$idPrepared['id_contact']['contact_version'] === 7
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_tenant_bindings')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_contact_snapshots')->fetchColumn() === 1,
+);
+$replayContact = array_replace($idContact, [
+    'request_nonce_sha256' => str_repeat('c', 64),
+    'response_sha256' => str_repeat('d', 64),
+]);
+$idReplay = business_report_prepare_schedule_from_id(
+    $pdo, 'one', 'id-client-weekly', 11, (int)$definition['definition']['id'],
+    $replayContact, 'UTC', 3, '09:00:00', true, 101, 'exact replay',
+);
+report_check(
+    'exact ID-backed prepare replay is ignored without duplicating evidence',
+    $idReplay['action'] === 'ignored'
+        && (int)$idReplay['schedule']['id'] === (int)$idPrepared['schedule']['id']
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_contact_snapshots')->fetchColumn() === 1,
+);
+report_throws(
+    'one ID contact version cannot name two recipients',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_schedule_from_id(
+        $pdo, 'one', 'id-client-weekly', 11, (int)$definition['definition']['id'],
+        array_replace($idContact, ['recipient_email' => 'changed@example.test']),
+        'UTC', 3, '10:00:00', true, 101, 'conflicting snapshot',
+    ),
+    'different recipient',
+);
+$newIdContact = array_replace($idContact, [
+    'contact_version' => 8,
+    'recipient_email' => 'new-id-reports@example.test',
+    'request_nonce_sha256' => str_repeat('e', 64),
+    'response_sha256' => str_repeat('f', 64),
+]);
+$idPreparedV2 = business_report_prepare_schedule_from_id(
+    $pdo, 'one', 'id-client-weekly', 11, (int)$definition['definition']['id'],
+    $newIdContact, 'UTC', 3, '10:00:00', true, 102, 'contact version eight',
+);
+report_check(
+    'a newer ID contact appends a new disabled schedule and evidence version',
+    $idPreparedV2['action'] === 'prepared'
+        && (int)$idPreparedV2['schedule']['version_no'] === 2
+        && (int)$idPreparedV2['id_contact']['contact_version'] === 8
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_contact_snapshots')->fetchColumn() === 2,
+);
+report_throws(
+    'ID contact evidence cannot roll back to an older version',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_schedule_from_id(
+        $pdo, 'one', 'id-client-weekly', 11, (int)$definition['definition']['id'],
+        $idContact, 'UTC', 3, '11:00:00', true, 101, 'version rollback',
+    ),
+    'backward',
+);
+report_throws(
+    'a local tenant cannot be rebound to another ID tenant key',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_schedule_from_id(
+        $pdo, 'one', 'other-id-weekly', 11, (int)$definition['definition']['id'],
+        array_replace($newIdContact, ['tenant_key' => 'ewid-t2']),
+        'UTC', 3, '09:00:00', true, 101, 'wrong binding',
+    ),
+    'different 8 West ID tenant',
+);
 report_throws(
     'schedule enable requires exact configuration allowlists',
     BusinessReportGateException::class,

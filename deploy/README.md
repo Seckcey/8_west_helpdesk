@@ -221,7 +221,7 @@ account after recording why it stopped.
 
 **If the release ships a new `db/migrations/NNN_*.sql`, follow that
 migration's reviewed ordering** (deploys never touch the DB). Migrations 011
-through 016 are explicitly migration-first; do not infer deploy-first from the
+through 017 are explicitly migration-first; do not infer deploy-first from the
 generic release command:
 
 ```bash
@@ -492,6 +492,33 @@ pending/approved child may exist. Keep the Coastmark sender disabled. Roll code
 back first while leaving the additive 016 structures and stronger guards in
 place; database restore is disaster recovery only. The full gate is in
 `docs/technician-time-corrections-contract.md`.
+
+Migration 017 (`017_id_report_contact_evidence.sql`) is a migration-first,
+additive candidate and is **not recorded as applied**. It adds only
+`business_report_id_tenant_bindings`,
+`business_report_id_contact_snapshots`, and six new immutable guards. It does
+not alter any migration-013 table or drop/recreate any of migration 013's
+fifteen triggers. An earlier application safely ignores both new tables.
+Every exact replay verifies candidate columns/defaults, visible indexes,
+foreign keys, and enforced checks. Six temporary swap guards block all writes
+while the six permanent 017 triggers are replaced; interrupted replay is
+recovered only by rerunning the same archived migration blob. Postflight
+requires six permanent guards, zero swaps, and zero privilege-preflight
+triggers. Snapshot writers serialize on the immutable binding row.
+
+Before applying 017, require exact-main CI green, including the standalone
+`safeharbor_id_report_test*` MySQL replay. Take and scratch-restore the standard
+root-only application/config/trigger-inclusive-database/grant backup; record
+the existing five business-report table counts and fifteen trigger hashes;
+stop report operator commands; and apply plus replay the archived exact Git
+blob through the trigger-capable operator. Require exact 6/12 column counts,
+six named 017 triggers, unchanged migration-013 trigger hashes and report row
+counts, and zero binding/snapshot rows. Deploy only matching source. Keep
+`id_report_contacts.enabled=false`, its secret empty, its tenant bindings
+empty, both business-report gates false, every report allowlist empty, and the
+scheduler absent. A later canary may configure one dedicated HMAC secret and
+one exact stable tenant-key binding through protected operator mechanisms; do
+not place either value in logs or evidence files.
 
 Deploy code only after the migration and grant postflight. Keep the protected
 `business_reports` block absent or fully default-off with empty allowlists.

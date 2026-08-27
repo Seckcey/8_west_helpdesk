@@ -11,6 +11,7 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../lib/bootstrap.php';
 require_once __DIR__ . '/../lib/business_reports.php';
+require_once __DIR__ . '/../lib/id_report_contacts.php';
 
 /** @return array<string,string> */
 function report_cli_options(array $arguments): array
@@ -58,15 +59,28 @@ function report_cli_emit_schedule(array $schedule, string $action): void
     echo 'RECIPIENT_SHA256=' . hash('sha256', (string)$schedule['recipient_email']) . "\n";
 }
 
+function report_cli_emit_id_contact(?array $evidence): void
+{
+    if (!is_array($evidence)) {
+        echo "CONTACT_SOURCE=MANUAL\n";
+        return;
+    }
+    echo "CONTACT_SOURCE=8WEST_ID\n";
+    echo 'ID_TENANT_KEY=' . (string)$evidence['id_tenant_key'] . "\n";
+    echo 'CONTACT_VERSION=' . (int)$evidence['contact_version'] . "\n";
+    echo 'CONTACT_RESPONSE_SHA256=' . (string)$evidence['response_sha256'] . "\n";
+}
+
 $command = $argv[1] ?? '';
 $usage = "Usage:\n"
     . "  php db/manage_business_reports.php publish-definition --tenant-slug=SLUG --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --recipient-email=EMAIL --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
+    . "  php db/manage_business_reports.php prepare-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php enable|disable --tenant-slug=SLUG --schedule-key=KEY --expected-version=N --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php inspect --tenant-slug=SLUG --schedule-key=KEY\n";
 
 try {
-    if (!in_array($command, ['publish-definition', 'prepare', 'enable', 'disable', 'inspect'], true)) {
+    if (!in_array($command, ['publish-definition', 'prepare', 'prepare-from-id', 'enable', 'disable', 'inspect'], true)) {
         throw new BusinessReportValidationException('Command is invalid.');
     }
     $options = report_cli_options(array_slice($argv, 2));
@@ -112,6 +126,38 @@ try {
             $options['reason'],
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
+        report_cli_emit_id_contact(null);
+        exit(0);
+    }
+
+    if ($command === 'prepare-from-id') {
+        report_cli_expect($options, [
+            'tenant-slug', 'schedule-key', 'client-id', 'definition-id',
+            'timezone', 'delivery-weekday', 'delivery-local-time',
+            'canary', 'actor-user-id', 'reason',
+        ]);
+        if (!in_array($options['canary'], ['0', '1'], true)) {
+            throw new BusinessReportValidationException('Canary must be exactly 0 or 1.');
+        }
+        // This is the only call site for the network client. Fetch before the
+        // database transaction, authenticate the exact document, then pin it.
+        $contact = id_report_contact_fetch($options['tenant-slug']);
+        $result = business_report_prepare_schedule_from_id(
+            $pdo,
+            $options['tenant-slug'],
+            $options['schedule-key'],
+            report_cli_positive_int($options['client-id'], 'Client id'),
+            report_cli_positive_int($options['definition-id'], 'Definition id'),
+            $contact,
+            $options['timezone'],
+            report_cli_positive_int($options['delivery-weekday'], 'Delivery weekday'),
+            $options['delivery-local-time'],
+            $options['canary'] === '1',
+            report_cli_positive_int($options['actor-user-id'], 'Actor user id'),
+            $options['reason'],
+        );
+        report_cli_emit_schedule($result['schedule'], $result['action']);
+        report_cli_emit_id_contact($result['id_contact']);
         exit(0);
     }
 
@@ -151,6 +197,13 @@ try {
         throw new BusinessReportGateException('The report schedule was not found.');
     }
     report_cli_emit_schedule($schedule, 'inspected');
+    report_cli_emit_id_contact(
+        business_report_latest_id_contact_for_key(
+            $pdo,
+            (int)$tenantId,
+            $options['schedule-key'],
+        ),
+    );
     $counts = $pdo->prepare(
         "SELECT
            (SELECT COUNT(*) FROM business_report_archives

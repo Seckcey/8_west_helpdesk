@@ -72,6 +72,8 @@ jobs:
         run: php app/tests/portal_data_test.php
       - name: Test scheduled archived business reports
         run: php app/tests/business_reports_test.php
+      - name: Test 8 West ID report-contact client contract
+        run: php app/tests/id_report_contacts_test.php
       - name: Test Milepost customer-sync contract
         run: php app/tests/suite_customer_sync_test.php
       - name: Test customer portal migration and tenant isolation
@@ -98,6 +100,15 @@ jobs:
           SAFEHARBOR_REPORT_TEST_USER: root
           SAFEHARBOR_REPORT_TEST_PASS: safeharbor-test-root
         run: php app/tests/business_reports_mysql_test.php
+      - name: Test ID report-contact evidence migration and runtime guards
+        env:
+          SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_ID_REPORT_TEST_DB: safeharbor_id_report_test
+          SAFEHARBOR_ID_REPORT_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_ID_REPORT_TEST_PORT: 3306
+          SAFEHARBOR_ID_REPORT_TEST_USER: root
+          SAFEHARBOR_ID_REPORT_TEST_PASS: safeharbor-test-root
+        run: php app/tests/id_report_contacts_mysql_test.php
       - name: Test customer-sync migration, receipts, and preserved history
         env:
           SAFEHARBOR_CUSTOMER_SYNC_TEST_DISPOSABLE_SERVER: '1'
