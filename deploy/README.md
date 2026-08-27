@@ -90,9 +90,8 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 007 (suite_subject) · 008 (Westy reports) · 009 (support intake) ·
 **010 (versioned service goals, migration-first on 2026-08-26)** ·
 **011 (approval-grade technician time, migration-first on 2026-08-26)** ·
-**012 (dark customer portal boundary, migration-first on 2026-08-26)**.
-Migration 013 (versioned archived business reports) is a source candidate and
-is not yet recorded as applied.
+**012 (dark customer portal boundary, migration-first on 2026-08-26)** ·
+**013 (versioned archived business reports, migration-first on 2026-08-26)**.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -156,9 +155,9 @@ column counts, 27 named indexes, 15 tenant-scoped foreign keys, 15 checks, and
 15 permanent lifecycle/immutability triggers. A fresh migration must create
 zero definitions, schedules, archives, deliveries, and attempts.
 
-Production's current database-wide DML grant includes `DELETE`. Before calling
-013 complete, remove the database-wide `DELETE` privilege and grant table-level
-`DELETE` only to the eight runtime paths that actually delete rows:
+Before migration 013, production's database-wide DML grant included `DELETE`.
+The controlled rollout removed the database-wide `DELETE` privilege and now
+grants table-level `DELETE` only to the eight runtime paths that actually delete rows:
 `clients`, `contacts`, `canned_responses`, `email_threads`, `messages`,
 `tickets`, `svc_rate_buckets`, and `svc_support_rate`. Preserve database-wide `SELECT`,
 `INSERT`, and `UPDATE`; the report triggers deny updates to immutable report
@@ -167,6 +166,33 @@ deletes still work inside rollback-only transactions, prove DELETE is denied
 on every report/portal/time-history table, and prove `TRUNCATE`, DDL, trigger,
 and grant authority remain absent. Never put the runtime password in a command,
 log, evidence file, or Git.
+
+Production applied migration 013 and deployed its matching source dark through
+Safeharbor PR #46 / merge `209bb42` on 2026-08-26. Exact-head Validate run
+`33027071016` and exact-main run `33027147921` passed, including disposable
+MySQL 8 migration replay, exact archive bytes, database guards, and the
+least-privilege lifecycle. Production postflight proved five InnoDB tables,
+the exact 10/15/13/12/10 column counts, 27 indexes, 15 tenant-scoped foreign
+keys, 15 checks, 15 triggers, and zero definitions, schedules, archives,
+deliveries, or attempts. The protected config remains byte-identical at
+`dd165dff89e9f048e8bfd0ff06b1c3f636b452abf9569e045f5925db5fe7de81`;
+the report block and scheduler are absent, so both gates and every allowlist
+remain inert. The runtime grant is database-wide `SELECT,INSERT,UPDATE` plus
+`DELETE` only on the eight operational tables above.
+
+The protected rollback record is
+`/srv/8west/backups/safeharbor/20260827T003557Z-pre-phase6-business-reports`.
+Its verified application and trigger-inclusive database SHA-256 values are
+`b9972bd06e414947fc57a8dc30c11528b710de7d864b318c2bd5534fb5b1c7c2`
+and `90e4bad9b5f474fe4555129dd649e2f48de45016c99090ab8f9d5ae9ce00da26`.
+Four stale protected config backups found in the non-pruning deploy tree were
+moved, without reading them, into that record's root-only quarantine; the live
+tree now has zero stale config backups. All 121 comparable app files—excluding
+the protected config and three intentional asset-version stamps—match the
+merged artifact byte-for-byte. Roll code back by deploying a prior exact
+merged release through the normal config-excluding path. Never unpack this
+application archive wholesale over `current`; any disaster-recovery extraction
+must exclude `config/config.php` and every `config.php.bak*`.
 
 Deploy code only after the migration and grant postflight. Keep the protected
 `business_reports` block absent or fully default-off with empty allowlists.

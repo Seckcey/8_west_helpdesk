@@ -14,9 +14,8 @@ config/config.sample.php   host config template (config.php is server-only, giti
 db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (010 versioned service
-                           goals, 011 approval-grade time, and 012 customer
-                           portal are applied; 013 business reports is the
-                           next migration-first source candidate)
+                           goals, 011 approval-grade time, 012 customer portal,
+                           and 013 business reports are applied)
 db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
                            identity tenant slug → provider tenant/client binding
 db/manage_business_reports.php
@@ -198,7 +197,10 @@ public/                    Apache docroot (page-per-file, like Milepost)
   exact weekly aggregate archives. Both generation and delivery default off;
   exact tenant/client/recipient allowlists and `canary_only` apply. A Graph 202
   means provider-submitted, not recipient-delivered, and ambiguous delivery is
-  terminal without automatic retry. See `docs/business-reports-contract.md`.
+  terminal without automatic retry. Production has migration 013 and the source
+  deployed dark, with no definition, schedule, archive, delivery, attempt,
+  recipient, or scheduler.
+  See `docs/business-reports-contract.md`.
 
 ## Develop
 

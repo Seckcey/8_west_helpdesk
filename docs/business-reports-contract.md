@@ -1,7 +1,9 @@
 # Safeharbor business-report contract
 
-Status: Phase 6 source contract. Deployment must remain dark until migration
-013, exact runtime grants, and the production canary gates below are verified.
+Status: Phase 6 is deployed dark through Safeharbor PR #46 / merge `209bb42`.
+Migration 013 and exact runtime grants are live; both report gates and every
+allowlist remain off/empty, with no definition, schedule, archive, delivery,
+attempt, recipient, or scheduler. The production canary gates below remain.
 
 ## Ownership and boundary
 
@@ -208,3 +210,16 @@ An earlier code release safely ignores the additive tables, so schema rollback
 is disaster-recovery-only. Retain the pre-migration database/application backup
 and migration evidence; dropping these tables destroys approval and delivery
 history and is not a routine rollback.
+
+The protected production rollback record is
+`/srv/8west/backups/safeharbor/20260827T003557Z-pre-phase6-business-reports`.
+The application and trigger-inclusive database archives were verified before
+migration and remain root-only. Code-first rollback must deploy a prior exact
+merged release through the normal config-excluding mechanism while the gates
+remain false. Never unpack the application archive wholesale over `current`:
+it contains the protected config and four potentially credential-bearing backup
+files later quarantined from the live tree without reading them. Any
+disaster-recovery extraction requires an exact code allowlist that excludes
+`config/config.php` and every
+`config.php.bak*`. Database restoration is disaster recovery only because later
+Safeharbor writes must not be discarded casually.

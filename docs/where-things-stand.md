@@ -27,14 +27,14 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–012 | **All applied** to production |
+| Migrations 001–013 | **All applied** to production |
 | Versioned service goals | **Live** through Safeharbor PR #37 / merge `1796f57` |
 | Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760` |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Phase 4's sender/receiver and Phase 5A's portal source are deployed default-off while existing service-intake gates remain live |
+| Anything "shipping dark" | Phase 4's sender/receiver, Phase 5A's portal source, and Phase 6's business-report source are deployed default-off while existing service-intake gates remain live |
 | Customer ticket-summary portal (Phase 5A) | **Deployed dark** through PR #44 / merge `3bb87fa`; migration 012 is applied, the global gate and OIDC values remain off/absent, and there are zero bindings/events |
-| Scheduled archived business reports (Phase 6) | **Source candidate only** on `codex/scheduled-business-reports`; migration 013 is not applied, both gates default off, allowlists are empty, and there are no definitions/schedules/archives/deliveries |
+| Scheduled archived business reports (Phase 6) | **Deployed dark** through PR #46 / merge `209bb42`; migration 013 is applied, both gates and every allowlist remain off/empty, and there are zero definitions/schedules/archives/deliveries/attempts plus no scheduler |
 
 ## Customer Service Tools development
 
@@ -227,8 +227,9 @@ enablement, fresh signed-in client-role acceptance, tenant isolation,
 revocation and disable-on-next-request proof, and desktop/mobile verification.
 See `docs/customer-portal-contract.md`.
 
-Phase 6 is a source candidate on `codex/scheduled-business-reports`. It adds an
-immutable version-1 weekly client-service definition, append-only schedule
+Phase 6 is deployed dark through Safeharbor PR #46 / merge
+`209bb421c2ea883f6434971544dc66556bff6167`. It adds an immutable version-1
+weekly client-service definition, append-only schedule
 versions, oldest-missing-period catch-up, exact JSON/text archives with SHA-256,
 and a one-attempt delivery state machine. Report queries bind the exact
 Safeharbor tenant/client and aggregate ticket counts, first-response facts,
@@ -247,12 +248,14 @@ delivery, while report subjects and bodies remain the verified archived bytes.
 
 Migration 013 defines five tenant-scoped tables, 27 indexes, 15 foreign keys,
 15 checks, and 15 actor/state/immutability triggers. The hermetic suite is
-50/50 locally; CI is wired for a destructive-name-guarded MySQL 8 suite that
+50/50 locally; exact-head CI run `33027071016` and exact-main run `33027147921`
+passed the destructive-name-guarded MySQL 8 suite that
 replays fresh schema plus migration, verifies native exact-byte archive hashes,
 exercises database guards and least-privilege runtime DML, and refuses report
-history deletion. Nothing in this paragraph is a production claim: 013 is not
-applied, code is not deployed, no scheduler is installed, and no recipient or
-schedule has been chosen. The contract and canary sequence are in
+history deletion. Production has all five empty report tables and 15 triggers;
+the protected config remains byte-identical with no report block, all gates and
+allowlists are inert, and no scheduler, recipient, definition, or schedule was
+created. The contract and canary sequence are in
 `docs/business-reports-contract.md`.
 
 ## First-tenant suite SSO repair
@@ -403,10 +406,12 @@ Migration `012_customer_portal.sql` was applied operator-first on 2026-08-26.
 Production has its two exact tables, seven lifecycle/audit triggers, enforced
 tenant/client ownership constraints, and zero mappings/events. The matching
 portal source is deployed dark; no OIDC configuration or canary was created.
-Migration `013_business_reports.sql` is a source candidate only. It has not
-been applied and production has no report definition, schedule, archive,
-delivery, attempt, gate, allowlist, recipient canary, or scheduler claimed by
-this repository.
+Migration `013_business_reports.sql` was applied operator-first on 2026-08-26.
+Production has five exact tenant-scoped tables, 27 indexes, 15 foreign keys,
+15 checks, and 15 lifecycle/immutability triggers. All five tables are empty;
+the matching source is deployed dark with no report config block, scheduler,
+recipient canary, definition, schedule, archive, delivery, or attempt. Runtime
+`DELETE` is now limited to the eight inventoried legacy operational tables.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
