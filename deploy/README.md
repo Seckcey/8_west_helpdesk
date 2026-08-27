@@ -120,11 +120,22 @@ preceding full application/database/grant backup is
 Production applied migration 012 and deployed its matching source dark through
 Safeharbor PR #44 / merge `3bb87fa` on 2026-08-26. Exact-main Validate run
 `33024372187` passed, including disposable-MySQL replay and tenant isolation.
-The production postflight proved two InnoDB tables, the exact 10/11 columns,
-6/3 indexes, 4/3 tenant-scoped foreign keys, one enforced slug check, seven
-lifecycle/audit triggers, and zero bindings/events. The runtime grant remains
-DML-only. `portal.enabled` is false by default because the protected config has
-no portal block, and `/portal/` remains 404 without setting a session cookie.
+PR #48 / merge `748f16ca4648ece2ce767966af46cd2788bd3f7c` then moved the
+disabled gate ahead of portal logout method/session handling. The production
+postflight proved two InnoDB tables, the exact 10/11 columns, 6/3 indexes, 4/3
+tenant-scoped foreign keys, one enforced slug check, seven lifecycle/audit
+triggers, and zero bindings/events. The runtime grant remains DML-only.
+
+The protected config now has an explicit `portal.enabled=false` block at
+SHA-256
+`c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`.
+It contains the fixed issuer and
+`https://safeharbor.8westit.com/portal/callback.php`, but its client ID and
+secret are empty. The private persistent revocation-cache directory exists
+with private permissions and is empty. `/portal/`, login, callback, and both
+GET and POST logout return 404 without setting a session cookie. 8 West ID's
+`f0ec49b` prerequisite is deployed dark with zero registered Safeharbor OIDC
+clients; do not mistake source readiness for a usable identity client.
 
 The protected rollback record is
 `/srv/8west/backups/safeharbor/20260826T234825Z-pre-phase5a-portal`; its verified
@@ -136,14 +147,16 @@ Rollback is code-first while the gate stays false; leave the two empty additive
 tables in place because prior code ignores them. A database restore is disaster
 recovery only because it would discard writes made after the backup.
 
-Only after a separately reviewed 8 West ID confidential client exists may the
-server-only portal issuer/client/callback/cache configuration be populated.
-The revocation cache belongs under the private persistent `shared/` tree and
-must be writable by the web identity without exposing it through Apache. One
-explicit canary mapping then follows prepare-disabled → inspect → explicit
-enable while the global switch is still false. Enabling the host and any live
-canary require their own authorization. The exact canary, active-session,
-revocation, tenant-isolation, and rollback sequence is in
+Preserve the explicit disabled non-secret scaffold and private empty cache.
+Only after a separately reviewed 8 West ID confidential client exists may its
+client ID and secret be installed through the protected operator path; never
+commit, print, or copy either value into release evidence. Keep the global
+switch false while one expressly approved canary mapping follows
+prepare-disabled → inspect → explicit enable. A live canary still requires
+deliberate global enablement, a fresh signed-in customer session, isolation,
+revocation, disable-on-next-request, logout, and desktop/mobile proof. The
+current portal is ticket-summary-only and must not gain billing, mutation, or
+customer endpoint control through activation. The exact sequence is in
 `docs/customer-portal-contract.md`.
 
 Migration 013 is migration-first and trigger-capable-operator-only. Before
@@ -174,11 +187,15 @@ MySQL 8 migration replay, exact archive bytes, database guards, and the
 least-privilege lifecycle. Production postflight proved five InnoDB tables,
 the exact 10/15/13/12/10 column counts, 27 indexes, 15 tenant-scoped foreign
 keys, 15 checks, 15 triggers, and zero definitions, schedules, archives,
-deliveries, or attempts. The protected config remains byte-identical at
-`dd165dff89e9f048e8bfd0ff06b1c3f636b452abf9569e045f5925db5fe7de81`;
-the report block and scheduler are absent, so both gates and every allowlist
-remain inert. The runtime grant is database-wide `SELECT,INSERT,UPDATE` plus
-`DELETE` only on the eight operational tables above.
+deliveries, or attempts. At that rollout the protected config was
+byte-identical at
+`dd165dff89e9f048e8bfd0ff06b1c3f636b452abf9569e045f5925db5fe7de81`.
+The later portal-only dark scaffold changed the whole-file hash to
+`c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`
+without adding a report block or scheduler, so both report gates and every
+allowlist remain inert. The runtime grant is database-wide
+`SELECT,INSERT,UPDATE` plus `DELETE` only on the eight operational tables
+above.
 
 The protected rollback record is
 `/srv/8west/backups/safeharbor/20260827T003557Z-pre-phase6-business-reports`.
@@ -285,20 +302,30 @@ private copy here.
   synced from Milepost's config server-side), `suite` (8 West ID issuer,
   `sso_secret`, cookie name — there is no `suite_sso` block and no SSO kill
   switch in this app; an unset secret simply fails every signature), `svc`
-  (Milepost alert intake HMAC, dark until 8.1.2), and
-  `storage.attachments_dir`.
+  (Milepost alert intake HMAC), the explicit disabled `portal` scaffold, and
+  `storage.attachments_dir`. The deploy must preserve the protected file
+  byte-for-byte unless the release has a separate exact config mutation
+  allowlist and backup.
 - `/srv/8west/apps/safeharbor/shared/attachments` — attachment bytes,
   `www-data:www-data 770`, created once:
   `sudo mkdir -p /srv/8west/apps/safeharbor/shared/attachments &&
    sudo chown -R www-data:www-data /srv/8west/apps/safeharbor/shared &&
    sudo chmod -R 770 /srv/8west/apps/safeharbor/shared`
   (outside `current/` on purpose — the deploy re-chmods `current/`).
+- `/srv/8west/apps/safeharbor/shared/portal-revocations` — private persistent
+  portal revocation cache, currently empty. Keep it outside `current/` and
+  inaccessible through Apache; do not use it as evidence that an OIDC client
+  or customer session exists.
 
 ## Smoke test
 
 ```bash
 curl -s  https://safeharbor.8westit.com/login.php | grep -o '<title>[^<]*'   # Sign in · Safeharbor
 curl -sI https://safeharbor.8westit.com/ | head -1                           # 302 → login
+for path in portal/ portal/login.php portal/callback.php portal/logout.php; do
+  curl -sS -D - -o /dev/null "https://safeharbor.8westit.com/$path"           # each 404; no Set-Cookie
+done
+curl -sS -X POST -D - -o /dev/null https://safeharbor.8westit.com/portal/logout.php # 404; no Set-Cookie
 cd tools/shots && node walkthrough.mjs                                       # full visual walkthrough
 ```
 

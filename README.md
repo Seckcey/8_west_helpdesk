@@ -28,15 +28,25 @@ and the **8 West IT 365 Control Panel**. Four products, four
 > conversation threading + inbound dedupe + bounce-loop protection · waiting
 > auto-resurface · collision detection with stale-send blocking · merge
 > tickets · deep search (message bodies, resolved included) · `?` shortcut
-> card · Reports with real numbers + billable CSV · one-click CSAT.
+> card · Reports with real numbers + billable CSV · one-click CSAT · versioned
+> service-goal snapshots · approval-reviewed technician time.
+>
+> Customer Service Tools follow-on: service goals and approval-grade time are
+> live. The operator-only approved-time seam to Coastmark draft invoice lines,
+> the 8 West ID customer ticket-summary portal, and archived weekly business
+> reports are deployed dark behind explicit allowlists and canary gates.
+> Safeharbor owns the operational records; Milepost supplies context only;
+> Coastmark never auto-posts through this seam; and the current portal exposes
+> no billing, ticket detail, or endpoint control. See
+> [docs/where-things-stand.md](docs/where-things-stand.md).
 
 ## What's here
 
 | Path | What |
 |---|---|
 | `brand/` | The Safeharbor brand package — logo masters (horizontal, square, app tile, favicon, mark), rasters, usage guide, canonical `tokens.json` |
-| `app/` | The app (v1.0 feature-complete, Sprints 1–5) — plain PHP 8.3 + MySQL + Apache, Milepost conventions. Queue, Ticket, Clients, Time, Reports, ⌘K palette. See `app/README.md` |
-| `docs/` | Product plan (`8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`) · `suite-sso-contract.md` (suite-wide identity reference) · `sprint-8.1-svc-alert-intake.md` (historical spec) · `open-decision-entitlement-and-subscription.md` · `competitor-research-2026-08.md` |
+| `app/` | The live desk plus Customer Service Tools boundaries — plain PHP 8.3 + MySQL + Apache. Queue, Ticket, Clients, versioned Service Goals, approval-grade Time, Reports, ⌘K palette, and dark/default-off integration surfaces. See `app/README.md` |
+| `docs/` | **`where-things-stand.md` (current verifiable status)** · product plan (`8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`) · `customer-portal-contract.md` · `business-reports-contract.md` · `coastmark-approved-time-export-contract.md` · `suite-sso-contract.md` · historical and research records |
 | `tools/` | Generators: brand builder, rasterizer, token sync, doc builder |
 
 ## Quick start

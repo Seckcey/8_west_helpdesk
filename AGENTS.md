@@ -16,6 +16,16 @@ https://safeharbor.8westit.com**. Production credentials are not published;
 use an authorized 8 West ID or local account.
 Remaining before the v1.0 stamp: the Phase 1 dogfood gate (4 weeks on
 8 West's real desk, zero data loss, p95 < 300ms).
+The follow-on Customer Service Tools foundation is also in production:
+versioned service goals and approval-grade technician time are live, while the
+approved-time draft-line seam, read-only customer portal, and archived business
+reports are deployed dark behind explicit gates. Safeharbor owns all help-desk
+records and workflows; Milepost supplies tenant/asset/telemetry context only;
+Coastmark alone owns financial facts and may receive approved Safeharbor time
+as draft invoice lines only, never automatic posting; the current portal shows
+ticket summaries only and exposes no customer endpoint control. Verify the
+exact live/dark state in `docs/where-things-stand.md` before changing a gate.
+
 **`svc.enabled` is already `true` in production** (verified 2026-08-08):
 Milepost's alert emitter shipped, and alert tickets have been arriving since
 2026-07-29. Anything that assumes the svc path is dark is out of date.
@@ -44,7 +54,7 @@ reference (`/srv/8west/apps/milepost/current` on the box): page-per-file in
 |---|---|
 | `brand/` | Logo system (SVG masters in `svg/`, rasters in `png/`), `tokens.json` — single source of brand truth |
 | `app/` | The PHP app (see `app/README.md`): `config/ db/ lib/ public/` |
-| `docs/` | **`where-things-stand.md` (read first — live/not-live status, verifiable)** · Planning docx · `suite-sso-contract.md` (suite-wide identity reference) · `coastmark-support-intake-contract.md` (partner support intake, both producers) · `westy-failure-reporting-contract.md` · `sprint-8.1-svc-alert-intake.md` (historical spec) · `open-decision-entitlement-and-subscription.md` · `competitor-research-2026-08.md` |
+| `docs/` | **`where-things-stand.md` (read first — live/not-live status, verifiable)** · Planning docx · `customer-portal-contract.md` · `business-reports-contract.md` · `coastmark-approved-time-export-contract.md` · `suite-sso-contract.md` (suite-wide staff identity reference) · `coastmark-support-intake-contract.md` (partner support intake, both producers) · `westy-failure-reporting-contract.md` · `sprint-8.1-svc-alert-intake.md` (historical spec) · `open-decision-entitlement-and-subscription.md` · `competitor-research-2026-08.md` |
 | `deploy/` | Apache vhost pair, `deploy.sh`, runbook for safeharbor.8westit.com |
 | `tools/` | Python generators (brand/doc/tokens); `tools/shots/` = Playwright walkthrough (dev-only) |
 

@@ -5,13 +5,20 @@ and the **8 West IT 365 Control Panel**. A user signs in once with **8 West ID**
 in any product with the same tenant context. This document is the contract each
 app implements against.
 
+This document governs Safeharbor's **technician/staff suite-cookie surface**.
+The separately gated customer ticket-summary portal uses the issuer's maintained
+`oidc_v1` authorization-code profile and
+`docs/customer-portal-contract.md` as its authority. It does not replace or
+silently migrate staff sign-in.
+
 > **Currency.** Corrected 2026-08-24 against `app/lib/auth.php`,
 > `app/lib/jwt.php`, `app/config/config.sample.php` and
 > `app/tests/suite_sso_test.php` in this repo, plus current Milepost `main`.
 > Revisions of this file before
-> that date specified an **OpenID Connect flow that was never built** and a
-> status table that no longer matched any app. Read *The OIDC design was never
-> built* below before writing a client against anything here.
+> that date specified obsolete **`/oauth2/*` OpenID Connect paths that were
+> never built** and a status table that no longer matched any app. The separate
+> customer-portal boundary was reconciled here on 2026-08-26; do not use this
+> staff-cookie contract as portal-client documentation.
 
 ## Protocol — as built
 
@@ -36,7 +43,7 @@ four shared-cookie consumers now accept RS256 only.
 **8 West ID is not Keycloak** and does not front one. It is a first-party PHP
 issuer in `Seckcey/8_west_id`.
 
-### The OIDC design was never built
+### The obsolete staff `/oauth2/*` design was never built
 
 Every revision of this contract up to 2026-08-02 opened with an OpenID Connect
 protocol section — authorization code + PKCE, `GET /oauth2/authorize`,
@@ -46,14 +53,21 @@ scopes `openid profile email tenant`.
 **Those exact `/oauth2/*` prototype paths were absent when verified on
 2026-08-02.** The current issuer later added an additive OIDC profile under its
 documented `/oauth/*` routes plus `/.well-known/openid-configuration`, and its
-public JWKS now also supports the RS256 suite cookie. Safeharbor still uses the
-legacy cookie profile; do not infer that it is an OIDC client.
+public JWKS now also supports the RS256 suite cookie. Safeharbor's staff surface
+still uses the legacy cookie profile; do not infer a staff OIDC migration.
 
-They were a design, never an implementation. Nothing in any suite app has ever
-called them. They are named here only so the next person who finds that table
-in git history recognises it — do not write an OIDC client against this
-document, it will not connect to anything. The asymmetric upgrade is still the
-intended destination; see *Deferred, and why it matters more each time* below.
+Those `/oauth2/*` paths were a design, never an implementation. Nothing in any
+suite app calls them. They are named here only so the next person who finds
+that table in git history recognises it — do not write an OIDC client against
+this document.
+
+Safeharbor now also contains a **separate customer-portal OIDC client** under
+`lib/eightwestid/` and `public/portal/`. Its source and the issuer prerequisite
+are deployed dark, but production has zero registered Safeharbor OIDC clients,
+empty client fields, and zero portal bindings/events. The portal remains 404
+and cookie-free while `portal.enabled=false`. Its exact claims, role gate,
+binding, revocation, and canary rules live only in
+`docs/customer-portal-contract.md`.
 
 ## Claims
 
@@ -166,7 +180,7 @@ Safeharbor no longer bails on an unknown slug — it creates the tenant (rule 1)
 
 | App | Product key | Suite SSO | Maps the user by |
 |---|---|---|---|
-| Safeharbor (this repo) | `safeharbor` | **live in production** at `2f64cdf`; RS256-only identity verification, local-session-first central logout and signed revocation-list enforcement | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
+| Safeharbor staff surface (this repo) | `safeharbor` | **live in production** at `2f64cdf`; RS256-only identity verification, local-session-first central logout and signed revocation-list enforcement | **`sub`** (`users.suite_subject`), with a one-time email backfill for pre-suite accounts |
 | Coastmark 365 (`coastmark`) | `coastmark` | **live in production** at `8b7b337`; RS256-only identity verification | `sub` |
 | Milepost (`8westit_webapp`) | `milepost` | **live in production** at `e99f4ea`; RS256-only identity verification behind the `suite_sso.enabled` kill switch; identity-only shared secret removed | **`sub`** (`users.suite_subject`); one-time claim prefers canonical email, then the legacy email-local-part username, and backfills the subject |
 | Cloudline (`missioncontrol`) | `missioncontrol` | **live in production** at `00bbb9d`; RS256-only identity verification and privilege-sensitive revalidation | `sub` |
@@ -208,9 +222,11 @@ exists in Milepost only.
 
 Still open, in rough priority order:
 
-- **Migrate Safeharbor to the issuer's authorization-code profile.** The issuer
-  now has a new-app OIDC client kit, but this application still uses the legacy
-  cookie transport. Treat that as a separate reviewed destination-app change.
+- **Migrate Safeharbor technician sign-in to the issuer's authorization-code
+  profile.** The issuer now has a new-app OIDC client kit, but the technician
+  surface still uses the legacy cookie transport. The dark customer portal is
+  a separate destination/client and is not evidence that staff migration is
+  complete. Treat any staff migration as its own reviewed change.
 - **Suite-wide sign out / complete consumer-session revocation.** The rule 4
   issuer handoff clears the shared cookie. Safeharbor now enforces the issuer's
   HMAC-signed revocation list for established suite sessions (60-second cache,
@@ -234,8 +250,9 @@ than a change to app-side session handling.
   flow, and pointed at `app/src/lib/sso.ts` / `app/src/lib/session.tsx` as
   stubs to be swapped for a real OIDC client. Safeharbor has no `app/src/` —
   those were TypeScript files from an earlier prototype of the app that the
-  plain-PHP rebuild never carried over. The OIDC client was never written in
-  any language.
+  plain-PHP rebuild never carried over. That staff `/oauth2/*` client was never
+  written in any language; the later customer-portal `oidc_v1` client is a
+  separate reviewed surface.
 - **Phase 1 (2026-07-22).** The HS256 cookie transport above shipped as a
   lighter stand-in for OIDC, plus `8west:theme` / `8west:avatar` for suite-wide
   user settings.

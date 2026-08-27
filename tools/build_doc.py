@@ -257,7 +257,9 @@ def build_cover(doc):
     run(p, "Coastmark", size=11.5, bold=True, color=NAVY_700, italic=True)
     run(p, " (accounting).", size=11.5, color=MUTED, italic=True)
 
-    for _ in range(6):
+    # Keep the expanded live/dark status and confidentiality line on the cover
+    # rather than spilling a single sentence onto an otherwise blank page.
+    for _ in range(3):
         spacer(doc, 12)
 
     meta = doc.add_table(rows=4, cols=2)
@@ -266,9 +268,11 @@ def build_cover(doc):
     rows = [
         ("Prepared for", "8 West IT, LLC — internal planning"),
         ("Chosen name", "Safeharbor — “Every client issue, safely ashore.” (Section 3)"),
-        ("Date", "August 2, 2026 (v1.2 revision)"),
-        ("Status", "v1.2 — Sprints 1–5 shipped; Phase 1 feature-complete. "
-                   "Remaining: the dogfood exit gate (4 weeks live desk, p95 < 300ms)."),
+        ("Date", "August 26, 2026 (v1.3 roadmap alignment)"),
+        ("Status", "v1.3 — the core desk, versioned service goals, and approval-grade "
+                   "technician time are live. Draft-line export, the customer portal, and "
+                   "archived reports are deployed dark pending controlled canaries; the "
+                   "dogfood exit gate also remains."),
     ]
     for i, (k, v) in enumerate(rows):
         c0, c1 = meta.rows[i].cells
@@ -304,10 +308,10 @@ def build_exec_summary(doc):
          "A help desk purpose-built for small MSPs (1–25 technicians) that is radically "
          "simpler, cleaner, and faster than ConnectWise, Autotask, or HaloPSA — because it "
          "is designed around the ticket queue technicians actually live in all day, and "
-         "because it is natively connected to Milepost (so alerts arrive as tickets with the "
-         "device, client, and contract already attached) and to Coastmark (so approved time "
-         "becomes an invoice line without a sync job, an export, or a prayer). No competitor "
-         "owns the RMM, the ledger, and the help desk. We would.")
+         "because it uses narrow, owned suite seams: Milepost supplies tenant, asset, and "
+         "telemetry context to Safeharbor-owned tickets, while Coastmark may accept only "
+         "owner/admin-approved Safeharbor time into draft invoice lines. Coastmark alone "
+         "owns rates, tax, invoices, posting, sending, payments, and ledger behavior.")
 
     h2(doc, "Why now — the research in four sentences")
     bullets(doc, [
@@ -397,7 +401,8 @@ def build_brand(doc):
 
 
 def build_naming(doc):
-    page_break(doc)
+    # The brand table carries only two rows onto the next page; continue there
+    # instead of reserving most of that page as whitespace.
     eyebrow(doc, "Section 3")
     h1(doc, "Naming — 20 Candidates with Taglines")
 
@@ -516,7 +521,8 @@ def build_research(doc):
     spacer(doc)
     h3(doc, "Strongly expected (deal-shaping, not deal-breaking)")
     bullets(doc, [
-        "White-labeled client portal (tickets, status, invoices, KB) — HaloPSA’s default portal is famously “ships ugly”",
+        "White-labeled client portal (tickets, status, invoices, KB) — a market expectation; "
+        "the current Safeharbor portal is intentionally ticket-summary-only",
         "Automation rules that a non-engineer can build (IFTTT-simple, not CW workflow weeks)",
         "Reporting: SLA attainment, tech utilization, ticket aging — Syncro loses deals here",
         "Billing handoff (native or QuickBooks/Xero), knowledge base, ticket templates/recurring tickets",
@@ -526,7 +532,9 @@ def build_research(doc):
     h3(doc, "Emerging expectations (2025–2026)")
     bullets(doc, [
         "AI triage, thread summarization, and draft replies — included in base price, not a $29–$50/agent add-on",
-        "CSAT surveys, dispatch/calendar and on-call, approval workflows, chat-first intake, remote session launch from ticket",
+        "CSAT surveys, dispatch/calendar and on-call, approval workflows, chat-first intake, "
+        "remote-session launch for technicians (customer endpoint control is outside the "
+        "current Safeharbor scope)",
     ])
 
     h2(doc, "4.2  What incumbents get wrong (verbatim)")
@@ -567,9 +575,10 @@ def build_research(doc):
     bullets(doc, [
         ("The 1–25 tech shop, taken seriously. ", "Every incumbent either locks them out, "
          "overserves them into complexity, or underserves them on PSA depth."),
-        ("Architecture, not integrations. ", "Owning Milepost (RMM) and Coastmark (ledger) "
-         "deletes the two most-hated categories: sync jobs and billing reconciliation. "
-         "Alert→ticket→time→invoice with zero connectors."),
+        ("Clear ownership, narrow seams. ", "Safeharbor owns tickets, service workflows, "
+         "SLA clocks, time, portal views, and reports. Milepost supplies context only; "
+         "Coastmark owns every financial decision and may receive approved time as draft "
+         "lines only, never as an automatic posting command."),
         ("Interaction design as the product. ", "No MSP tool delivers Linear-grade speed, "
          "a command palette, full keyboard control, and a clean dark UI. Techs live in the "
          "queue eight hours a day; the contrast wins demos by itself."),
@@ -579,7 +588,8 @@ def build_research(doc):
 
 
 def build_concept(doc):
-    page_break(doc)
+    # Market research ends with two short bullets on a carryover page. Start
+    # the concept below them so the roadmap does not ship a mostly blank page.
     eyebrow(doc, "Section 5")
     h1(doc, "Product Concept")
 
@@ -587,8 +597,10 @@ def build_concept(doc):
     para(doc,
          "For MSPs of 1–25 technicians who live in the ticket queue all day, Safeharbor is "
          "the help desk in the 8 West IT suite that turns every client signal — email, "
-         "portal, chat, or Milepost alert — into a resolved, invoiced outcome with the "
-         "fewest clicks in the industry. Unlike ConnectWise and Autotask, it is fast, "
+         "portal, chat, or Milepost alert — into a resolved, auditable service outcome with "
+         "the fewest clicks in the industry. Approved time may later cross one controlled "
+         "seam into Coastmark draft lines; Safeharbor never posts an invoice. Unlike "
+         "ConnectWise and Autotask, it is fast, "
          "quiet, and learnable in an afternoon. Unlike Syncro and Atera, it does not "
          "sacrifice SLA, contract, or reporting depth. Unlike HaloPSA, it needs no "
          "dedicated admin and no minimum seat count.", italic=False)
@@ -616,19 +628,19 @@ def build_concept(doc):
     table(doc,
           ["Module", "Scope", "Phase"],
           [
-              ("Intake", "Email-to-ticket (custom domain), client portal, widget; Teams intake in P3", "P1–P3"),
+              ("Intake", "Email/service intake live; customer portal is read-only summaries; widget and Teams intake deferred", "P1–P3"),
               ("Ticket core", "Queues, statuses, priorities, assignment, tags, internal notes, attachments, merge/link, @mentions", "P1"),
               ("Clients & contacts", "Multi-tenant client records, contacts, per-client defaults and routing", "P1"),
-              ("Time & billing", "One-click timers, auto work-log, billable flags, rates; Coastmark invoice handoff", "P2"),
-              ("SLAs", "Policies, business hours, breach warnings (gold) and healthy states (mint)", "P2"),
-              ("Client portal", "White-label submit/status/KB; invoices visible via Coastmark", "P2"),
+              ("Time & billing", "Approval-grade timers/work logs live; operator-controlled Coastmark draft-line handoff deployed dark", "P2"),
+              ("SLAs", "Versioned elapsed first-response targets live; business hours, holidays, and pause execution deferred", "P2"),
+              ("Client portal", "Current slice: read-only ticket summaries through 8 West ID; no billing, ticket detail, mutation, or endpoint control", "P2"),
               ("Knowledge base", "Internal + client-facing articles, suggested answers", "P2–P3"),
-              ("Milepost bridge", "Alert→ticket with asset context; device panel on ticket; remote session launch", "P2"),
+              ("Milepost bridge", "Signed alert intake plus tenant/asset/telemetry context only; no customer endpoint control", "P2"),
               ("Westy — suite assistant", "The 8 West IT 365 chatbot (shared with Milepost): onboarding tour on first sign-in + advise-only how-to helper on every page; drafting joins P3", "P1"),
-              ("Suite SSO", "8 West ID sign-in via the shared suite cookie (Milepost parity); full OIDC flow later", "P1"),
+              ("Suite SSO", "Staff sign-in via the shared suite cookie; separate default-off oidc_v1 customer portal with explicit binding", "P1–P2"),
               ("Automation", "Visual rule builder: routing, escalation, status, notifications, templates, recurring tickets", "P3"),
               ("AI assist", "Triage/classify, thread summary, draft reply, KB suggestions — included (Westy grows these)", "P3"),
-              ("Reporting", "SLA attainment, first-response, aging, utilization, client health dashboards", "P3"),
+              ("Reporting", "SLA/response/aging facts live; versioned archived weekly summaries with delivery evidence deployed dark", "P3"),
               ("CSAT & surveys", "One-tap resolution surveys, trend reporting", "P3"),
               ("Platform", "Public API, webhooks, importers (CW/Autotask/Syncro/Halo)", "P3"),
               ("Mobile", "iOS/Android triage, reply, timer", "P4"),
@@ -638,17 +650,20 @@ def build_concept(doc):
           widths=[1.4, 3.7, 0.9], size=9)
     spacer(doc)
 
-    h2(doc, "5.4  Suite integration — the killer flows")
+    h2(doc, "5.4  Suite integration — narrow owned flows")
     bullets(doc, [
-        ("Milepost → Safeharbor. ", "A server alert becomes a ticket with the device, client, "
-         "site, open alerts, and recent patches already attached. One click opens a remote "
-         "session from the ticket. Closing the ticket can auto-resolve the alert."),
-        ("Safeharbor → Coastmark. ", "Approved time on a ticket flows to the client’s "
-         "agreement; month-end invoicing is a review screen, not a reconciliation project. "
-         "No exports, no sync jobs, no “why is QuickBooks different again.”"),
-        ("One sign-in, one client record. ", "Suite SSO and a shared client graph: a client "
-         "created once exists everywhere — devices in Milepost, invoices in Coastmark, "
-         "tickets in Safeharbor."),
+        ("Milepost → Safeharbor. ", "A signed server alert can create a Safeharbor-owned "
+         "ticket carrying bounded tenant, asset, and telemetry context. Milepost does not "
+         "own the ticket, SLA clock, time, portal view, or report, and this seam exposes no "
+         "customer endpoint control."),
+        ("Safeharbor → Coastmark. ", "After a Safeharbor owner/admin approves billable time, "
+         "an operator may send one exact fact to a separately mapped Coastmark draft line. "
+         "Coastmark owns agreement, rate, tax, cents, invoice, posting, sending, Checkout, "
+         "payments, and ledger behavior; the seam can never perform those actions."),
+        ("8 West ID → Safeharbor portal. ", "8 West ID owns OIDC identity, tenant/product/role "
+         "claims, and preferences. Safeharbor owns an explicit identity-tenant-to-client "
+         "binding and read-only ticket-summary queries; there is no inferred shared client "
+         "graph."),
     ])
 
 
@@ -670,9 +685,9 @@ def build_ux(doc):
         ("The Ticket. ", "Conversation in the center like a chat thread; client, device "
          "(via Milepost), SLA countdown, and time timer in a slim right rail; every field "
          "editable inline. A tech should resolve a ticket without ever leaving this view."),
-        ("The Client. ", "One page per client: open tickets, devices, agreement, recent "
-         "invoices (via Coastmark), contacts, and health notes — the “answer the phone "
-         "smart” screen."),
+        ("The Client. ", "One Safeharbor-owned page per client: tickets, contacts, service "
+         "history, and clearly attributed context. The current scope does not copy Coastmark "
+         "financial records or expose Milepost endpoint control."),
         ("The Timer. ", "Persistent, quiet, always one click away; the app suggests time "
          "entries from actual work. The Friday-afternoon time-entry dread is the enemy; "
          "this screen is the weapon."),
@@ -729,15 +744,24 @@ def build_phases(doc):
          "zero data-loss incidents; p95 ticket-open interaction under 300ms; a new "
          "user reaches their first answered ticket with no human walkthrough (Westy "
          "carries the onboarding)."),
-        ("Phase 2 — MSP Essentials + Suite Integration", "Months 5–8",
-         "Become a real MSP tool and wire in Milepost & Coastmark. Private beta with "
-         "10–20 design-partner MSPs.",
-         ["In: SLA policies + business hours, one-click timers & auto work-log, white-label "
-          "client portal, KB basics, Milepost alert→ticket + device panel + remote launch, "
-          "Coastmark approved-time→invoice handoff",
-          "Out: automation builder, AI assist, mobile, dispatch"],
-         "Beta NPS ≥ 40; ≥ 80% of billable time entered same-day (vs. the industry’s "
-         "Friday batch); every beta MSP running at least one Milepost and one Coastmark flow."),
+        ("Phase 2 — MSP Essentials + Controlled Suite Seams", "Months 5–8",
+         "Deepen the desk while preserving independent ownership and controlled activation.",
+         ["In (LIVE): corrected response-SLA semantics, versioned service-goal policies, "
+          "and approval-grade technician time",
+          "In (DEPLOYED DARK): approved Safeharbor time → Coastmark draft lines only; "
+          "8 West ID customer ticket-summary portal; versioned archived delivery-tracked "
+          "weekly reports",
+          "Milepost boundary: tenant/asset/telemetry context only; Safeharbor owns every "
+          "ticket, workflow, SLA clock, time record, portal view, and report",
+          "Out: automatic invoice posting/sending/payment/ledger actions, inferred customer "
+          "mappings, customer endpoint control, broader portal billing/detail/mutation, "
+          "automation builder, autonomous AI actions, mobile, and dispatch"],
+         "Exit only after exact real canaries: Coastmark-owned mapping/rate/tax facts; one "
+         "registered Safeharbor application OIDC client; one explicitly approved "
+         "identity-tenant → Safeharbor tenant/client binding plus a real client-role user "
+         "with signed-in isolation/revocation proof; and one archived report with separate "
+         "recipient confirmation. Never invent a customer, credential, financial fact, or "
+         "recipient to satisfy a gate."),
         ("Phase 3 — Automation, Intelligence & Public Launch", "Months 8–12",
          "Open the doors with the features that win comparisons.",
          ["In: visual automation builder, AI triage/summary/draft (included), reporting "
@@ -819,7 +843,9 @@ def build_risks(doc):
               ("Scope creep into PSA bloat — becoming the thing we’re replacing",
                "The complexity budget is law: every feature earns its click. Phase exit criteria are enforced. Say no in public, on a principles page."),
               ("Table-stakes gap: “simple” reads as “missing SLAs/contracts”",
-               "Phase 2 is explicitly the depth phase — SLAs, time-to-invoice, portal ship before launch. Never launch against Halo without them."),
+               "Phase 2 adds versioned service goals, approval-grade time, and controlled "
+               "draft-only/report/portal seams without collapsing product ownership or "
+               "turning a dark deployment into an activation claim."),
               ("Migration friction keeps MSPs on incumbents",
                "Importers are a launch feature (P3), not an afterthought; white-glove migration free during beta."),
               ("Suite dependency: Milepost/Coastmark timelines slip",
@@ -865,7 +891,7 @@ def build_appendix(doc):
     spacer(doc, 10)
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run(p, "— 8 West IT, LLC · Safeharbor planning draft v1.1 · July 2026 —",
+    run(p, "— 8 West IT, LLC · Safeharbor planning draft v1.3 · August 2026 —",
         size=9, italic=True, color=MUTED)
 
 
