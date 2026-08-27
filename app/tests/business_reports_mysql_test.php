@@ -274,6 +274,7 @@ $server->exec("GRANT SELECT ON `{$escapedDb}`.* TO '{$runtimeUser}'@'%'");
 foreach (['business_report_definition_versions','business_report_schedule_versions','business_report_archives'] as $table) {
     $server->exec("GRANT INSERT ON `{$escapedDb}`.`{$table}` TO '{$runtimeUser}'@'%'");
 }
+$server->exec("GRANT UPDATE ON `{$escapedDb}`.`business_report_schedule_versions` TO '{$runtimeUser}'@'%'");
 foreach (['business_report_deliveries','business_report_delivery_attempts'] as $table) {
     $server->exec("GRANT INSERT, UPDATE ON `{$escapedDb}`.`{$table}` TO '{$runtimeUser}'@'%'");
 }

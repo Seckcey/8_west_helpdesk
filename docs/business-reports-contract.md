@@ -122,10 +122,12 @@ verified backup:
 sudo mysql safeharbor < app/db/migrations/013_business_reports.sql
 ```
 
-The report subsystem needs `SELECT` on source and report tables, `INSERT` on
-definition/schedule/archive tables, and `INSERT,UPDATE` on delivery/attempt
-tables. It needs no report-table `DELETE`, `ALTER`, `DROP`, or `TRIGGER`
-authority. Production currently shares one web/cron identity, so its unrelated
+The report subsystem needs `SELECT` on source and report tables; `INSERT` on
+definition, schedule, and archive tables; `UPDATE` on the schedule table for
+MySQL locking reads while database triggers still reject row mutation; and
+`INSERT,UPDATE` on delivery/attempt tables. It needs no report-table `DELETE`,
+`ALTER`, `DROP`, or `TRIGGER` authority. Production currently shares one
+web/cron identity, so its unrelated
 operational deletes are limited to the eight tables inventoried in
 `deploy/README.md`; it receives no `DELETE` on any report or history table.
 Migration tests exercise the report lifecycle through a narrower temporary
