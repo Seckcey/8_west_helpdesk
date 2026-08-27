@@ -56,7 +56,7 @@ reference (`/srv/8west/apps/milepost/current` on the box): page-per-file in
 |---|---|
 | `brand/` | Logo system (SVG masters in `svg/`, rasters in `png/`), `tokens.json` — single source of brand truth |
 | `app/` | The PHP app (see `app/README.md`): `config/ db/ lib/ public/` |
-| `docs/` | **`where-things-stand.md` (read first — live/not-live status, verifiable)** · Planning docx · `customer-portal-contract.md` · `business-reports-contract.md` · `coastmark-approved-time-export-contract.md` · `suite-sso-contract.md` (suite-wide staff identity reference) · `coastmark-support-intake-contract.md` (partner support intake, both producers) · `westy-failure-reporting-contract.md` · `sprint-8.1-svc-alert-intake.md` (historical spec) · `open-decision-entitlement-and-subscription.md` · `competitor-research-2026-08.md` |
+| `docs/` | **`where-things-stand.md` (read first — live/not-live status, verifiable)** · Planning docx · `technician-time-corrections-contract.md` · `customer-portal-contract.md` · `business-reports-contract.md` · `coastmark-approved-time-export-contract.md` · `suite-sso-contract.md` (suite-wide staff identity reference) · `coastmark-support-intake-contract.md` (partner support intake, both producers) · `westy-failure-reporting-contract.md` · `sprint-8.1-svc-alert-intake.md` (historical spec) · `open-decision-entitlement-and-subscription.md` · `competitor-research-2026-08.md` |
 | `deploy/` | Apache vhost pair, `deploy.sh`, runbook for safeharbor.8westit.com |
 | `tools/` | Python generators (brand/doc/tokens); `tools/shots/` = Playwright walkthrough (dev-only) |
 

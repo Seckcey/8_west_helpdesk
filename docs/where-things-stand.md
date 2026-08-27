@@ -29,7 +29,7 @@ If you change what is live, change this page in the same PR.
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
 | Migrations 001–015 | **All applied** to production |
 | Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published |
-| Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760` |
+| Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760`; rejected-time corrections and measured-overlap guards are a tested candidate, not yet migrated or deployed |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's sender/receiver, Phase 5A's portal source, Phase 6's business-report source, and the Milepost customer-directory receiver are deployed default-off while existing service-intake gates remain live |
@@ -149,7 +149,7 @@ rollback records are
 `/srv/8west/backups/safeharbor/20260826T223914Z-pre-phase3-migration`.
 
 Candidate evidence remains green: all eight server-free CI commands pass,
-service goals are 55/55, the provenance bridge is 2/2, approval time is 83/83,
+service goals are 55/55, the provenance bridge is 2/2, approval time is 99/99,
 suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is 97/97 on
 disposable MySQL 8. Desktop and mobile Playwright probes cover both "request
 never arrived" and "commit succeeded but response was lost" timer boundaries.
@@ -157,6 +157,30 @@ No authenticated production browser session was available during this release;
 the deploy did not reset or bypass identity to manufacture one, so a fresh
 signed-in visual acceptance remains an operator follow-up rather than a release
 rollback condition.
+
+The next Phase 3 hardening slice is implemented on the
+`codex/time-corrections-overlap` candidate only. Migration 016 adds one nullable
+append-only correction pointer, a one-replacement unique guard, and two narrow
+database-owned measured-time tables. A correction may point only to the same
+tenant, technician, ticket, client, and source row after that row is rejected;
+the replacement is a new pending entry and the rejected facts, review, and
+events remain unchanged. Owners may still review their own time for a one-person
+MSP.
+
+Measured intervals use half-open `[start, end)` semantics. Pending and approved
+intervals block overlaps for the same tenant and technician; rejected intervals
+do not, so their one correction may reuse corrected clock evidence. Persistent
+UTC-day guard rows plus a locking read serialize competing inserts before the
+overlap decision. The disposable MySQL suite passes 54/54, including a real
+two-connection race where the second request waits and then loses after the
+first commits; the original migration-011 suite remains 97/97. The browser
+freezes one correction key and payload before sending, and the operator sees
+the rejection, correction link, and replacement status on the Time page.
+
+This candidate has not changed production: migration 016 is not applied, no
+new tables or correction pointers exist there, and no Coastmark export or
+posting gate changed. The exact contract and migration-first canary are in
+`docs/technician-time-corrections-contract.md`.
 
 Phase 4's first release is deliberately manual and draft-only. Safeharbor's
 operator CLI selects one row by exact tenant slug + entry id + immutable entry
@@ -470,6 +494,11 @@ Migration `011_time_entry_approvals.sql` was applied operator-first on
 approval schema, seven permanent immutability/audit triggers, and the original
 legacy row remains pending. The migration replay and real-runtime rollback
 canary evidence are recorded in the Phase 3 section above.
+Migration `016_time_corrections_overlap.sql` is candidate-only. It has passed
+fresh-install, migration-011 upgrade, structural replay, malformed-object,
+underprivileged-preflight, correction-lineage, and real concurrency tests, but
+it is not applied to production and its two auxiliary tables do not exist
+there yet.
 Migration `012_customer_portal.sql` was applied operator-first on 2026-08-26.
 Production has its two exact tables, seven lifecycle/audit triggers, enforced
 tenant/client ownership constraints, and zero mappings/events. The matching
@@ -503,7 +532,7 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Twenty-five CLI suites live in `app/tests/`. Fourteen server-free contract suites
+Twenty-six CLI suites live in `app/tests/`. Fourteen server-free contract suites
 run in CI, including the hermetic service-goal, approval-time, approved-time
 export, portal auth/revocation, portal read-only/rendering, and archived-report
 gates plus the Milepost customer-sync contract. CI also runs the portal,
@@ -513,6 +542,13 @@ standalone too: it requires an explicit disposable-server acknowledgement,
 accepts only a `safeharbor_time_test*` database base, creates and proves one
 random per-run database, removes it in `finally`, exits nonzero when the fixture
 or cleanup is unavailable, and runs in Validate with dedicated MySQL credentials.
+The separate 54-check `time_corrections_mysql` suite creates another random
+scratch database, proves migration 016 from both fresh schema and migration
+011, verifies the emitted operator postflight, deliberately interrupts both
+the five-trigger auxiliary replacement and seven-trigger parent/audit
+replacement to prove ten fail-closed write guards and exact replay recovery,
+forks a second PHP/MySQL connection for the losing overlap race, and drops the
+exact database afterward. The server-free approval-time suite is 99/99.
 Existing integration suites (`suite_sso`,
 `svc_intake`, `svc_support`, `westy_report`, and `intake_service_goal`) need
 MySQL plus a scratch-only `config/config.php`;

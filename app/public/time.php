@@ -13,9 +13,14 @@ $canReview = in_array((string)$user['role'], ['owner', 'admin'], true);
 
 // Today's entries (UTC day)
 $eq = db()->prepare(
-    'SELECT e.*, t.subject, t.id AS tid
+    'SELECT e.*, t.subject, t.id AS tid,
+            replacement.id AS replacement_entry_id,
+            replacement.approval_status AS replacement_status
        FROM time_entries e
        JOIN tickets t ON t.id = e.ticket_id AND t.tenant_id = e.tenant_id
+       LEFT JOIN time_entries replacement
+         ON replacement.tenant_id = e.tenant_id
+        AND replacement.corrects_time_entry_id = e.id
       WHERE e.tenant_id = ? AND e.user_id = ? AND e.worked_at >= UTC_DATE()
       ORDER BY e.worked_at DESC, e.id DESC'
 );
@@ -37,9 +42,14 @@ $pendingOwn = (int)$pendingCountQuery->fetchColumn();
 // over. This is the technician's durable status/correction trail, including
 // rejection reasons among the most recent 100 earlier entries.
 $historyQuery = db()->prepare(
-    "SELECT e.*, t.subject, t.id AS tid
+    "SELECT e.*, t.subject, t.id AS tid,
+            replacement.id AS replacement_entry_id,
+            replacement.approval_status AS replacement_status
        FROM time_entries e
        JOIN tickets t ON t.id = e.ticket_id AND t.tenant_id = e.tenant_id
+       LEFT JOIN time_entries replacement
+         ON replacement.tenant_id = e.tenant_id
+        AND replacement.corrects_time_entry_id = e.id
       WHERE e.tenant_id = ? AND e.user_id = ?
         AND e.worked_at < UTC_DATE()
       ORDER BY (e.approval_status = 'pending') DESC,
@@ -90,6 +100,37 @@ $utcLabel = static function (?string $value): string {
     if ($value === null || $value === '') return 'not recorded';
     $date = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $value, new DateTimeZone('UTC'));
     return $date ? $date->format('Y-m-d H:i:s') . ' UTC' : 'invalid timestamp';
+};
+
+$renderCorrectionLineage = static function (array $entry) use ($utcRfc3339): void {
+    $correctionOf = isset($entry['corrects_time_entry_id'])
+        ? (int)$entry['corrects_time_entry_id']
+        : 0;
+    $replacementId = isset($entry['replacement_entry_id'])
+        ? (int)$entry['replacement_entry_id']
+        : 0;
+    if ($correctionOf > 0): ?>
+      <div class="entry-lineage">Correction of rejected entry #<?= $correctionOf ?> · original history kept</div>
+    <?php endif;
+    if ((string)$entry['approval_status'] !== 'rejected') return;
+    if ($replacementId > 0): ?>
+      <div class="entry-lineage">Replacement #<?= $replacementId ?> is <?= h((string)$entry['replacement_status']) ?></div>
+    <?php else:
+      $startedAt = $entry['started_at'] === null ? '' : $utcRfc3339((string)$entry['started_at']);
+      $endedAt = $entry['ended_at'] === null ? '' : $utcRfc3339((string)$entry['ended_at']);
+    ?>
+      <div class="correction-actions">
+        <button type="button" class="btn-chip time-correct"
+          data-rejected-entry-id="<?= (int)$entry['id'] ?>"
+          data-minutes="<?= (int)$entry['minutes'] ?>"
+          data-note="<?= h((string)$entry['note']) ?>"
+          data-billable="<?= (int)$entry['billable'] ?>"
+          data-worked-at="<?= h($utcRfc3339((string)$entry['worked_at'])) ?>"
+          data-started-at="<?= h($startedAt) ?>"
+          data-ended-at="<?= h($endedAt) ?>"
+          data-measured="<?= $startedAt !== '' ? '1' : '0' ?>">Correct &amp; resubmit</button>
+      </div>
+    <?php endif;
 };
 
 page_top($user, 'Time', 'time');
@@ -158,6 +199,7 @@ page_top($user, 'Time', 'time');
         <?php if ((string)$e['approval_status'] === 'rejected' && trim((string)$e['review_note']) !== ''): ?>
           <div class="entry-review-note">Review note: <?= h($e['review_note']) ?></div>
         <?php endif; ?>
+        <?php $renderCorrectionLineage($e); ?>
       </div>
       <span class="entry-badge <?= (int)$e['billable'] ? 'badge-billable' : '' ?>"><?= (int)$e['billable'] ? 'billable' : 'internal' ?></span>
       <span class="entry-badge status-<?= h($e['approval_status']) ?>"><?= h($e['approval_status']) ?></span>
@@ -177,6 +219,7 @@ page_top($user, 'Time', 'time');
         <?php if ((string)$e['approval_status'] === 'rejected' && trim((string)$e['review_note']) !== ''): ?>
           <div class="entry-review-note">Review note: <?= h($e['review_note']) ?></div>
         <?php endif; ?>
+        <?php $renderCorrectionLineage($e); ?>
       </div>
       <span class="entry-badge status-<?= h($e['approval_status']) ?>"><?= h($e['approval_status']) ?></span>
     </div>
@@ -204,6 +247,9 @@ page_top($user, 'Time', 'time');
             no measured interval
           <?php endif; ?>
         </div>
+        <?php if ($e['corrects_time_entry_id'] !== null): ?>
+          <div class="entry-lineage">Replacement for rejected entry #<?= (int)$e['corrects_time_entry_id'] ?></div>
+        <?php endif; ?>
       </div>
       <span class="entry-badge <?= (int)$e['billable'] ? 'badge-billable' : '' ?>"><?= (int)$e['billable'] ? 'billable' : 'internal' ?></span>
       <div class="review-actions">
