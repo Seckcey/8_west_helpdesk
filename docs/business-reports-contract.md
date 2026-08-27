@@ -1,11 +1,22 @@
 # Safeharbor business-report contract
 
-Status: Phase 6 is deployed dark through Safeharbor PR #46 / merge `209bb42`.
-Migration 013 and exact runtime grants are live; both report gates and every
-allowlist remain off/empty, with no definition, schedule, archive, delivery,
-attempt, recipient, or scheduler. The 8 West ID contact client and
-migration-017 immutable evidence tables are an implementation candidate, not a current
-production claim. The production canary gates below remain.
+Status: Phase 6's base is live through Safeharbor PR #46 / merge `209bb42`.
+The 8 West ID contact consumer and immutable evidence are live through PR #57 /
+release `cef39dd190e6488c4aabf7a673eb810b4465a3eb`, with migration 017
+applied. One controlled 8 West IT canary has stable tenant key `ewid-t1`,
+contact version 1, immutable definition 1, and logical schedule 1. Its schedule
+key `8west-it-weekly-canary-v1` is latest version 2 and active for Wednesday
+09:00 `America/Los_Angeles`. Exact canary allowlists are installed, but
+generation and delivery are both false. Archives, deliveries, and attempts are
+zero; there is no server scheduler, no provider submission, and no recipient-
+receipt claim. Both dedicated report-contact gates are off after the redacted
+onboarding probe.
+
+The first no-write dry run correctly waits for the first complete weekly
+window. A one-time Codex heartbeat is planned for Wednesday, 2026-09-02, to
+resume the controlled canary. Root-only production evidence is retained at
+`/srv/8west/backups/report-contact/20260827T115552Z-8west-it-canary` and
+`/srv/8west/backups/business-report/20260827T120122Z-8west-it-dry-run`.
 
 ## Ownership and boundary
 
@@ -147,6 +158,12 @@ Activation requires all of these independently:
 `canary_only=true` refuses every non-canary schedule even if all other values
 are allowlisted.
 
+The present 8 West IT canary is deliberately beyond the fresh-install state:
+its exact tenant, client, and recipient allowlists are installed, while
+`generation_enabled=false` and `delivery_enabled=false` still prevent archive
+creation and email submission. The contact lookup gates were turned off after
+the one redacted onboarding fetch; cron does not need or use them.
+
 ## Operator workflow
 
 Run migrations only through the trigger-capable operator after a protected,
@@ -250,6 +267,23 @@ Controlled rollout order:
 7. disable the schedule immediately on mismatch or uncertainty; and
 8. only after the canary is accepted, install the reviewed scheduler entry and
    observe at least one scheduled period before expanding an allowlist.
+
+## Current 8 West IT canary checkpoint
+
+The first four controlled preparation steps are complete for the exact 8 West
+IT canary. Safeharbor pinned `ewid-t1` contact version 1 without printing the
+address, published immutable definition 1, prepared logical schedule 1, and
+appended active version 2 for Wednesday 09:00 Pacific time. The protected
+allowlists contain only that canary's tenant, client, and recipient.
+
+The first dry run made no writes and correctly reported that the first complete
+Monday-through-Monday window is not due yet. Therefore there are still zero
+archives, deliveries, and attempts. Generation and delivery remain off, both
+contact gates are back off, and there is no server scheduler. The planned
+2026-09-02 one-time Codex heartbeat should resume at the dry-run gate, create
+and inspect at most one archive only after it is due, and leave delivery for a
+separate pinned approval. Do not describe a future Graph 202 as recipient
+delivery; inbox confirmation remains a separate fact.
 
 ## Rollback and retention
 

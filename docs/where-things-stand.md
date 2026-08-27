@@ -3,8 +3,9 @@
 **Last verified overall: 2026-08-09** against production, not from memory.
 The suite SSO sections below were separately verified on 2026-08-24. The
 Customer Service Tools and database sections were verified again through the
-2026-08-27 technician-time correction release; the rest of this page was not
-re-audited during those focused closeouts.
+2026-08-27 report-contact release and controlled 8 West IT customer/report
+canaries; the rest of this page was not re-audited during those focused
+closeouts.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -27,16 +28,16 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–016 | **All applied** to production |
+| Migrations 001–017 | **All applied** to production |
 | Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published |
 | Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Phase 4's sender/receiver, Phase 5A's portal source, Phase 6's business-report source, and the Milepost customer-directory receiver are deployed default-off while existing service-intake gates remain live |
+| Anything "shipping dark" | Phase 4's sender/receiver and Phase 5A's portal remain default-off. Phase 6 has one active canary schedule but generation/delivery remain off. The Milepost customer sender is off after one manual canary while Safeharbor's exact-canary receiver remains on. Existing service-intake gates remain live. |
 | Customer ticket-summary portal (Phase 5A) | **Deployed dark** through base PR #44 / merge `3bb87fa` plus disabled-logout hardening PR #48 / merge `748f16c`; migration 012 is applied, `portal.enabled=false`, client fields are empty, the private cache is empty, 8 West ID has zero Safeharbor OIDC clients, and Safeharbor has zero bindings/events |
-| Scheduled archived business reports (Phase 6) | **Deployed dark** through PR #46 / merge `209bb42`; migration 013 is applied, both gates and every allowlist remain off/empty, and there are zero definitions/schedules/archives/deliveries/attempts plus no scheduler |
-| 8 West ID-backed report contact onboarding | **Candidate only, not deployed**: default-off operator client plus migration 017 immutable binding/snapshot evidence; no contact fetch, binding, schedule, report, or send has occurred |
-| Milepost managed-customer receiver | **Deployed dark** through PR #52 / merge `d270343`; migration 015 is applied, the receiver returns 404, and there is no customer-sync identity, allowlist entry, binding, or event |
+| Scheduled archived business reports (Phase 6) | **Controlled 8 West IT canary prepared, not generated or delivered**: definition 1 and schedule 1 exist; schedule key `8west-it-weekly-canary-v1` is active at version 2 for Wednesday 09:00 America/Los_Angeles. Exact canary allowlists are installed, but generation and delivery are both off; archives/deliveries/attempts remain zero and there is no server scheduler. |
+| 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
+| Milepost managed-customer receiver | **One controlled 8 West IT create canary completed**: customer `4ebaeefa-b101-47f8-ac76-e49ab309d272` created Safeharbor client 13 with one binding and one receipt. Safeharbor's receiver remains on only for the exact canary; the Milepost sender is off and no scheduler is installed. |
 
 ## Customer Service Tools development
 
@@ -99,10 +100,10 @@ sixteen targets, zero later/attributed versions, two captured ticket snapshots,
 275 historical NULL snapshots, and the one unresolved legacy pending time row.
 The policy and ticket digests, DML-only runtime grants, and protected config
 hash remained unchanged. All 103 live PHP files lint; Apache syntax, login/root,
-and all five cookie-free dark portal routes pass; report/portal tables and the
-business-report scheduler remain empty/absent. All 129 deployed paths match the
-merge: 126 byte-identical plus three normalized cache-stamp files. The protected
-rollback record is
+and all five cookie-free dark portal routes passed. At that release checkpoint,
+report/portal tables and the business-report scheduler were empty/absent. All
+129 deployed paths matched the merge: 126 byte-identical plus three normalized
+cache-stamp files. The protected rollback record is
 `/srv/8west/backups/safeharbor/20260827T033805Z-pre-phase2b-service-goal-publication`.
 
 The time-provenance bridge shipped through PR #38 / merge `ceba5a4`. It
@@ -194,8 +195,8 @@ matched it; the protected config stayed byte-identical at
 The restored SSL vhost matches its pre-lock copy at
 `8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43`.
 Public login is `200`, an unauthenticated timer request is `401`, Coastmark
-export remains disabled/empty, and business reports remain unconfigured and
-empty. A fresh signed-in 8 West IT correction canary is still required; no
+export remains disabled/empty. Business reports were still unconfigured and
+empty at that release checkpoint. A fresh signed-in 8 West IT correction canary is still required; no
 credentials or identity bypass were used to manufacture it. The exact contract
 and canary are in `docs/technician-time-corrections-contract.md`.
 
@@ -340,44 +341,55 @@ Migration 013 defines five tenant-scoped tables, 27 indexes, 15 foreign keys,
 passed the destructive-name-guarded MySQL 8 suite that
 replays fresh schema plus migration, verifies native exact-byte archive hashes,
 exercises database guards and least-privilege runtime DML, and refuses report
-history deletion. Production has all five empty report tables and 15 triggers.
-At the Phase 6 rollout the protected config was byte-identical at
+history deletion. At the Phase 6 rollout production had all five empty report
+tables and 15 triggers. The protected config was byte-identical at
 `dd165dff89e9f048e8bfd0ff06b1c3f636b452abf9569e045f5925db5fe7de81`
 with no report block. The later explicit disabled portal scaffold changed the
-whole-file hash only; it added no report block or report state. All report
-gates and allowlists remain inert, and no scheduler, recipient, definition, or
-schedule was created. The contract and canary sequence are in
+whole-file hash only; it added no report block or report state.
+
+The follow-on 8 West ID report-contact consumer is live through Safeharbor PR
+#57 / release `cef39dd190e6488c4aabf7a673eb810b4465a3eb`. Migration 017 is
+applied and adds a separate immutable tenant binding and append-only contact-
+snapshot table with six new guards, without replacing or weakening any of
+migration 013's fifteen report triggers. Its dedicated server-only configs
+were installed on both apps. A bounded, redacted probe authenticated stable ID
+tenant key `ewid-t1` and contact version 1; both contact gates were turned off
+again after preparation. Safeharbor then atomically stored the immutable
+binding/contact evidence with definition 1 and schedule 1.
+
+The canary schedule key `8west-it-weekly-canary-v1` is now latest version 2,
+active for Wednesday 09:00 in `America/Los_Angeles`, with exact 8 West IT
+tenant/client/recipient canary allowlists. Generation and delivery are both
+false. A first no-write dry run correctly reported that it must wait for the
+first complete weekly window. There are still zero archives, deliveries, and
+attempts; no email submission or recipient receipt has occurred, and no server
+scheduler exists. A one-time Codex heartbeat is planned for Wednesday,
+2026-09-02, to continue the controlled canary. Root-only evidence is retained
+at `/srv/8west/backups/report-contact/20260827T115552Z-8west-it-canary` and
+`/srv/8west/backups/business-report/20260827T120122Z-8west-it-dry-run`. The
+contract and remaining canary sequence are in
 `docs/business-reports-contract.md`.
 
-The follow-on 8 West ID report-contact consumer is currently a candidate, not
-a production fact. Its dedicated `id_report_contacts` configuration defaults
-off with an empty HMAC secret and empty Safeharbor-slug → stable-ID-tenant-key
-map. Only the human-run `prepare-from-id` command loads the bounded,
-no-redirect HTTPS client; cron, generation, and delivery have no call path to
-it. Migration 017 adds a separate immutable tenant binding and append-only
-contact-snapshot table with six new guards, without replacing or weakening any
-of migration 013's fifteen report triggers. The authenticated contact evidence
-and disabled schedule commit atomically, exact repeats are ignored, and version
-rollback or same-version address conflicts fail closed. No migration 017 row,
-protected configuration value, schedule, report gate, scheduler, or delivery
-is live yet.
+The Milepost managed-customer receiver foundation shipped through Safeharbor
+PR #52 / merge `d270343dff6bfd3e65e263b693f2687e5f508bd0`, and its exact-canary
+receiver is now enabled. It accepts only the dedicated, signed and tenant-
+allowlisted source; it does not move tickets, messages, time, service goals,
+portal state, reports, billing, or endpoint controls. Exact-main Validate run
+`33047096931` passed.
 
-The Milepost managed-customer receiver foundation is deployed dark through
-Safeharbor PR #52 / merge
-`d270343dff6bfd3e65e263b693f2687e5f508bd0`. It accepts only the dedicated,
-signed and tenant-allowlisted source when deliberately enabled; it does not
-move tickets, messages, time, service goals, portal state, reports, billing, or
-endpoint controls. Exact-main Validate run `33047096931` passed.
-
-Migration 015 is applied in production and its two tables remain empty. The
-schema has 24 columns, 11 indexes, 10 enforced checks, five foreign keys, and
-eight lifecycle/immutability triggers across those tables. Existing data stayed
-at three clients, 277 tickets, and 541 messages. The protected config hash did
-not change; no customer-sync key, service identity, tenant allowlist, binding,
-or event exists, and both GET and POST to the receiver return 404. The protected
+Migration 015 is applied in production. Its schema has 24 columns, 11 indexes,
+10 enforced checks, five foreign keys, and eight lifecycle/immutability
+triggers across its two tables. A controlled version-1 `8west` canary created
+Safeharbor client 13 for Milepost customer
+`4ebaeefa-b101-47f8-ac76-e49ab309d272` and recorded exactly one binding and one
+immutable receipt for event `dce77b64-e382-466d-b4e3-5cf5bd7ce74b`. The 277
+existing tickets and 541 messages were preserved, and the new client has zero
+operational edges. The Safeharbor receiver remains enabled only for the exact
+canary identity and tenant; the Milepost sender was turned off after the manual
+tick, and no customer dispatcher is scheduled. The protected foundation
 rollback record is
 `/srv/8west/backups/safeharbor/20260827T065222Z-pre-customer-sync-foundation`.
-Activation still requires the controlled cross-app canary in
+The exact initial-canary and remaining lifecycle gates are in
 `docs/milepost-customer-sync-contract.md`.
 
 ## First-tenant suite SSO repair
@@ -538,15 +550,26 @@ West ID has zero Safeharbor OIDC clients and no credential, binding, enabled
 gate, or authenticated canary was created.
 Migration `013_business_reports.sql` was applied operator-first on 2026-08-26.
 Production has five exact tenant-scoped tables, 27 indexes, 15 foreign keys,
-15 checks, and 15 lifecycle/immutability triggers. All five tables are empty;
-the matching source is deployed dark with no report config block, scheduler,
-recipient canary, definition, schedule, archive, delivery, or attempt. Runtime
-`DELETE` is now limited to the eight inventoried legacy operational tables.
+15 checks, and 15 lifecycle/immutability triggers. It now holds immutable
+definition 1 and the two versions of logical schedule 1; version 2 is the
+latest active canary. Archives, deliveries, and attempts remain empty.
+Generation and delivery are both disabled, and there is no server scheduler.
+Runtime `DELETE` remains limited to the eight inventoried legacy operational
+tables.
 
 Migration `015_suite_customer_sync.sql` was applied operator-first on
-2026-08-27. Production has its two exact empty tables, 24 columns, 11 indexes,
-10 enforced checks, five foreign keys, and eight triggers. The receiver remains
-disabled with no protected key, identity, allowlist entry, binding, or event.
+2026-08-27. Production has its two exact tables, 24 columns, 11 indexes, 10
+enforced checks, five foreign keys, and eight triggers. They now hold one exact
+8 West IT customer binding and one immutable event receipt for Safeharbor
+client 13. The exact-canary receiver remains enabled; the Milepost sender is
+off and no customer dispatcher is scheduled.
+
+Migration `017_id_report_contact_evidence.sql` was applied operator-first on
+2026-08-27 and replayed from the exact merged Git blob. Production has its two
+evidence tables, six permanent triggers, one immutable `ewid-t1` tenant
+binding, and one contact-version-1 snapshot. Both dedicated contact gates are
+off after the redacted onboarding probe; the address and HMAC keys remain
+protected server-side.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
@@ -684,12 +707,14 @@ called out, and none may be satisfied by inventing customer or financial facts.
    revocation, logout, and desktop/mobile behavior. The portal remains ticket
    summaries only; billing, ticket detail, mutation, and endpoint control are
    out of scope.
-6. **Business-report scheduling needs one exact recipient canary.** First merge
-   and deploy the default-off ID contact client and migration 017, then configure
-   one protected stable tenant-key binding and use `prepare-from-id` to pin the
-   tenant admin contact. An approved tenant/client/schedule and separate
-   recipient confirmation must precede the reviewed cron installation.
-   Provider acceptance alone is not delivery.
+6. **Business-report delivery still needs its first completed weekly window.**
+   The exact 8 West IT contact, definition, and active schedule are pinned, but
+   generation/delivery remain off and the first dry run correctly found no due
+   complete period. The one-time 2026-09-02 heartbeat must repeat the dry run,
+   enable generation only for the exact canary, inspect the immutable archive,
+   and separately gate one pinned delivery. Microsoft Graph acceptance is not
+   inbox delivery; obtain recipient confirmation before installing a reviewed
+   server scheduler or widening any allowlist.
 7. **The Coastmark seam needs Coastmark-owned financial facts.** No production
    agreement/rate/tax mapping currently exists. A future canary may create only
    draft invoice lines from approved Safeharbor time; it must never post, send,

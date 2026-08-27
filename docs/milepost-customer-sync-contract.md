@@ -1,9 +1,14 @@
 # Milepost customer registry -> Safeharbor contract
 
-**Status:** source contract and migration 015 are default-off. Shipping these
-files does not enable a receiver, create a service identity, copy a secret,
-create a customer, or change an existing client. Production status belongs in
-`where-things-stand.md` only after separate runtime verification.
+**Status:** the source contract and migration 015 are live, and one controlled
+8 West IT create canary has crossed the seam. Milepost customer
+`4ebaeefa-b101-47f8-ac76-e49ab309d272`, event
+`dce77b64-e382-466d-b4e3-5cf5bd7ce74b`, created Safeharbor client 13 with one
+binding and one immutable receipt. Safeharbor's receiver remains enabled only
+for the exact canary identity and `8west` tenant. The Milepost sender is off
+after the one manual tick, and no dispatcher is scheduled. Shipping the source
+or migration alone still does not enable this integration; production status
+must be established by separate runtime evidence.
 
 This is the first narrow customer-provisioning seam. Milepost owns the suite
 customer identifier and the ordered name/status events. Safeharbor owns the
@@ -165,6 +170,22 @@ Rollback is to turn the Milepost dispatcher off and then set
 `suite_customer_sync.enabled=false`. Keep the client, binding, and immutable
 receipts for reconciliation. Never drop the tables, delete the client, reuse
 the customer id elsewhere, or bypass foreign keys as a rollback shortcut.
+
+## Production canary checkpoint
+
+On 2026-08-27, one manually dispatched version-1 `8west` event created
+Safeharbor client 13 and exactly one stable binding/receipt. Existing production
+facts stayed at 277 tickets and 541 messages, and the new client has zero
+operational edges. No ticket, time entry, service-goal snapshot, portal state,
+business-report fact, Coastmark fact, or endpoint-control action was created by
+the canary.
+
+The sender was turned off immediately after that one tick. Safeharbor's
+receiver stays on only for the exact dedicated identity and tenant allowlist,
+and neither side has a customer-sync scheduler. This proves initial creation;
+the contract's exact replay, rename, inactive-preservation, and reactivation
+checks remain controlled future lifecycle canaries rather than completed
+production claims.
 
 ## Required evidence
 
