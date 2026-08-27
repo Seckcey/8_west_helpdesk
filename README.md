@@ -49,7 +49,7 @@ and the **8 West IT 365 Control Panel**. Four products, four
 |---|---|
 | `brand/` | The Safeharbor brand package — logo masters (horizontal, square, app tile, favicon, mark), rasters, usage guide, canonical `tokens.json` |
 | `app/` | The live desk plus Customer Service Tools boundaries — plain PHP 8.3 + MySQL + Apache. Queue, Ticket, Clients, versioned Service Goals, approval-grade Time, Reports, ⌘K palette, and dark/default-off integration surfaces. See `app/README.md` |
-| `docs/` | **`where-things-stand.md` (current verifiable status)** · product plan (`8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`) · `customer-portal-contract.md` · `business-reports-contract.md` · `coastmark-approved-time-export-contract.md` · `suite-sso-contract.md` · historical and research records |
+| `docs/` | **`where-things-stand.md` (current verifiable status)** · product plan (`8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`) · `milepost-customer-sync-contract.md` · `customer-portal-contract.md` · `business-reports-contract.md` · `coastmark-approved-time-export-contract.md` · `suite-sso-contract.md` · historical and research records |
 | `tools/` | Generators: brand builder, rasterizer, token sync, doc builder |
 
 ## Quick start

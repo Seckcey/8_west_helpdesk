@@ -130,6 +130,20 @@ return [
         ],
     ],
 
+    // Milepost customer registry -> Safeharbor client provisioning.
+    // This is NOT alert/support intake and does not reuse any svc.secrets key.
+    // The exact caller identity is fixed in code as `milepost-customers`; its
+    // active svc_identities row must exist under every allowlisted destination
+    // tenant. The HMAC context names this Safeharbor receiver and v1 contract.
+    // Fresh installs stay closed until the sender outbox, exact tenant list,
+    // dedicated destination secret, migration 015, and rollback evidence have
+    // all been reviewed. Never commit the real secret.
+    'suite_customer_sync' => [
+        'enabled' => false,
+        'tenant_slugs' => [],
+        'hmac_secret' => '',
+    ],
+
     // Partner support intake (docs/coastmark-support-intake-contract.md).
     // Requests raised inside Coastmark or Waypoint open tickets in 8 WEST IT'S
     // OWN tenant, resolved explicitly by slug — same rule as westy_report below.
