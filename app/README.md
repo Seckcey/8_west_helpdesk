@@ -15,8 +15,8 @@ db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (010 versioned service
                            goals, 011 approval-grade time, 012 customer portal,
-                           and 013 business reports are applied; 014 guarded
-                           policy publication is a migration-first candidate)
+                           013 business reports, and 014 guarded policy
+                           publication are applied)
 db/manage_service_goals.php
                            operator-only inspect/plan/publish for one exact
                            tenant + Standard/Premium policy; reviewed digest

@@ -27,8 +27,8 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–013 | **All applied** to production; migration 014 is a release candidate and is not yet applied |
-| Versioned service goals | **v1 baseline live** through Safeharbor PR #37 / merge `1796f57`; guarded later-version publication is release-candidate only, with no v2 published |
+| Migrations 001–014 | **All applied** to production |
+| Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published |
 | Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760` |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
@@ -69,7 +69,7 @@ immutability guards are present. The deployed `service_goals.php` and
 canary resolved a v1 target and exact deadline, then rolled back without
 leaving a ticket.
 
-Phase 2B is a release candidate, not a published business policy. It adds an
+Phase 2B is live tooling, not a published later business policy. It adds an
 operator-only `inspect` / no-write `plan` / digest-bound `publish` CLI for one
 exact tenant and Standard or Premium policy. Publication locks and rechecks the
 tenant, active owner/admin actor, and latest immutable version, requires an
@@ -82,11 +82,26 @@ Migration 014 adds nullable attribution for truthful legacy compatibility, an
 exact non-cascading actor foreign key/index, four enforced checks, and two
 INSERT guards while retaining the four migration-010 immutability guards. Its
 fresh/upgrade/replay suite probes weakened and `NOT ENFORCED` checks,
-cascading foreign keys, no-op triggers, overlapping publishers, both actor
-demotion lock orders, rollback, and DML-only migration refusal. Deployment must
-be migration-first and create zero policy versions. Production still has only
+noncanonical foreign-key actions, no-op triggers, overlapping publishers, both
+actor demotion lock orders, rollback, and DML-only migration refusal. The
+deployment was migration-first and created zero policy versions. Production still has only
 the four v1 rows and sixteen targets; the real four target values and effective
 time for any v2 remain an explicit business decision and must not be invented.
+
+Release evidence: Safeharbor PR #50 merged as
+`12abd36de83cda276e6d96a79e873e2706bb3ff0`; exact-head Validate run
+`33036765540` and exact-main run `33036836019` passed, including all 53
+disposable-MySQL publication checks. Migration 014 emitted five successful
+postflight values and production independently retained four v1 versions,
+sixteen targets, zero later/attributed versions, two captured ticket snapshots,
+275 historical NULL snapshots, and the one unresolved legacy pending time row.
+The policy and ticket digests, DML-only runtime grants, and protected config
+hash remained unchanged. All 103 live PHP files lint; Apache syntax, login/root,
+and all five cookie-free dark portal routes pass; report/portal tables and the
+business-report scheduler remain empty/absent. All 129 deployed paths match the
+merge: 126 byte-identical plus three normalized cache-stamp files. The protected
+rollback record is
+`/srv/8west/backups/safeharbor/20260827T033805Z-pre-phase2b-service-goal-publication`.
 
 The time-provenance bridge shipped through PR #38 / merge `ceba5a4`. It
 removes the legacy merge rewrite of `time_entries.ticket_id`, refreshes the
