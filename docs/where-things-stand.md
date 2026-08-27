@@ -24,12 +24,12 @@ If you change what is live, change this page in the same PR.
 |---|---|
 | Safeharbor itself | **Live** at https://safeharbor.8westit.com, v1.0 feature-complete |
 | Alert intake (`api/svc/alerts.php`) | **Live** since 2026-07-29, Milepost emitting |
-| Telemetry automatic-close ownership | **Candidate only, not deployed**: migration 018 makes closure a one-use capability for exact signed Milepost alerts and permanently clears it on human/customer work |
+| Telemetry automatic-close ownership | **Live through PR #59 / merge `e7ee521` and migration 018**: only an untouched exact signed Milepost alert may close on source recovery; any human/customer work permanently removes that one-use ability |
 | Westy defect intake (`api/svc/westy.php`) | **Live** — receiver shipped; emitters are the other repos' side |
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–017 | **All applied** to production |
+| Migrations 001–018 | **All applied** to production |
 | Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published |
 | Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
@@ -42,8 +42,9 @@ If you change what is live, change this page in the same PR.
 
 ## Customer Service Tools development
 
-The follow-on alert-ownership hardening is a release candidate, not a live
-claim. Migration 018 adds a default-off, one-use automatic-close capability.
+The follow-on alert-ownership hardening is live through Safeharbor PR #59 /
+merge `e7ee5218017c88de18cf6f6476f34a1512593852`. Migration 018 adds a
+default-off, one-use automatic-close capability.
 Only the exact signed `milepost` alert endpoint can create an eligible numeric
 `alert:` ticket. Assignment, priority/status edits, client/technician/note
 messages, message edits/moves/deletes, logged time, and merge workflow consume
@@ -584,15 +585,17 @@ binding, and one contact-version-1 snapshot. Both dedicated contact gates are
 off after the redacted onboarding probe; the address and HMAC keys remain
 protected server-side.
 
-Migration `018_ticket_auto_close_eligibility.sql` is a release candidate and
-is not recorded as applied. It depends on `002_svc_intake.sql`, adds one
-default-zero ticket column, one enforced check, and six permanent ticket,
-message, and time-entry guards. Its first-run backfill is fail-closed and its
-replay never restores cleared eligibility. Deploy it migration-first with the
-matching source; do not infer a production fact from this candidate paragraph.
+Migration `018_ticket_auto_close_eligibility.sql` was applied and replayed
+migration-first on 2026-08-27 from release `e7ee521`'s exact Git blob. It adds
+one default-zero ticket column, one enforced check, and six permanent ticket,
+message, and time-entry guards. Production proved one column, six guards, zero
+temporary swap guards, and 22 strict historical candidates without changing
+any pre-existing ticket status. Signed canaries proved untouched recovery
+closes and human-touched recovery does not; exact cleanup returned the original
+277-ticket/541-message state.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
-`schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`; the candidate
+`schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`; the live
 automatic-close contract additionally requires migration 018.
 
 Verify:

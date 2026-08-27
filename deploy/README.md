@@ -242,9 +242,8 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 **014 (guarded service-goal publication, migration-first on 2026-08-27)** ·
 **015 (default-off customer sync, migration-first on 2026-08-27)** ·
 **016 (time corrections/overlap guards, migration-first on 2026-08-27)** ·
-**017 (8 West ID report-contact evidence, migration-first on 2026-08-27)**.
-Migration 018 is a migration-first release candidate and is not recorded as
-applied.
+**017 (8 West ID report-contact evidence, migration-first on 2026-08-27)** ·
+**018 (ticket automatic-close eligibility, migration-first on 2026-08-27)**.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -533,16 +532,24 @@ recipient-confirmation gates, install the reviewed cron entry for
 expanding any allowlist. The exact contract, commands, failure semantics, and
 rollback are in `docs/business-reports-contract.md`.
 
-Migration 018 (`018_ticket_auto_close_eligibility.sql`) is a migration-first
-release candidate and is **not recorded as applied**. It depends on
-`002_svc_intake.sql`, adds one default-zero eligibility column, one enforced
-check, and six permanent ticket/message/time-entry guards. Follow
+Migration 018 (`018_ticket_auto_close_eligibility.sql`) was applied
+migration-first on 2026-08-27 through PR #59 / release
+`e7ee5218017c88de18cf6f6476f34a1512593852`. The exact applied Git blob is
+18,251 bytes with SHA-256
+`cae74bd8348881a36c089d016e0eb76c0b4676341ed0d59e019885f9652ee252`.
+Apply and replay each proved one column, six permanent guards, zero swap
+guards, and 22 strictly eligible historical alerts; the pre-existing ticket
+status digest stayed unchanged. Two signed production canaries proved that an
+untouched alert closes on real recovery while a human-noted alert stays Open.
+Only the two canary tickets and their six messages were then removed, and the
+original 277-ticket/541-message status returned exactly.
+
+For any rebuild or recovery, follow
 `docs/ticket-auto-close-ownership-contract.md`: use exact green default-branch
 bytes, take and scratch-restore a fresh protected backup, deny only the
 Safeharbor vhost, lock only the Safeharbor runtime database account, require
-zero runtime connections, and apply plus replay the archived migration before
-deploying its matching source. Both runs must prove one column, six permanent
-guards, and zero swap guards. Keep both locks until source hashes and PHP lint
+zero runtime connections, and apply plus replay the exact Git blob before
+deploying its matching source. Keep both locks until source hashes and PHP lint
 match. Roll application code back first while leaving migration 018 and its
 fail-closed guards installed; never drop the guards as an incident response.
 

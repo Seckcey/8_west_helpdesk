@@ -15,12 +15,11 @@
 >   **shipped**, not deferred, and there is no `svc_alert_autoresolve` flag —
 >   the founder rule of 2026-07-30 replaced it. §2 of this document already
 >   records the rule correctly; §7 was never updated and now contradicts it.
->   The pre-018 deployed behaviour treated `status='open'` as untouched. The
->   migration-018 release candidate tightens that rule to a one-use database
->   capability that human/customer messages, ticket edits, merges, and time
->   entries permanently consume. See
->   `ticket-auto-close-ownership-contract.md`; do not call it live before its
->   migration-first production gate completes.
+>   The pre-018 deployed behaviour treated `status='open'` as untouched.
+>   Migration 018 and matching release `e7ee521` went live on 2026-08-27 and
+>   tighten that rule to a one-use database capability that human/customer
+>   messages, ticket edits, merges, and time entries permanently consume. See
+>   `ticket-auto-close-ownership-contract.md` for the recorded production gate.
 > - **Migration numbering hazard.** `002_svc_intake.sql` collides on the
 >   number 002 with `002_westy_onboarding.sql`, and the applied-so-far lists
 >   in `AGENTS.md` and `deploy/README.md` name only the westy one. Check the
