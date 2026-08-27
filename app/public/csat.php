@@ -60,7 +60,7 @@ header('Content-Type: text/html; charset=utf-8');
 <title><?= h($title) ?> · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
-<link rel="stylesheet" href="/assets/css/app.css?v=3">
+<link rel="stylesheet" href="/assets/css/app.css?v=4">
 </head>
 <body class="login-body">
 <div class="login-wrap">

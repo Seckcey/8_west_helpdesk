@@ -617,6 +617,33 @@ goal_mysql_check('permanent insert guards allow only exact unattributed lazy v1 
         'SELECT COUNT(*) FROM service_goal_policy_targets WHERE tenant_id=1',
     )->fetchColumn() === 8);
 
+service_goal_ensure_default_policies($pdo, 2);
+$historyCountsBefore = [
+    (int) $pdo->query('SELECT COUNT(*) FROM service_goal_policy_versions')->fetchColumn(),
+    (int) $pdo->query('SELECT COUNT(*) FROM service_goal_policy_targets')->fetchColumn(),
+];
+$mysqlHistory = service_goal_policy_history($pdo, 1, '2026-08-27 12:00:00');
+$mysqlOtherHistory = service_goal_policy_history($pdo, 2, '2026-08-27 12:00:00');
+goal_mysql_check('MySQL history reader keeps both tenants and their targets isolated',
+    $mysqlHistory['tenant']['id'] === 1
+    && $mysqlOtherHistory['tenant']['id'] === 2
+    && array_column($mysqlHistory['policies'], 'policy_key') === ['standard', 'premium']
+    && array_reduce(
+        [...$mysqlHistory['policies'][0]['versions'][0]['targets'], ...$mysqlHistory['policies'][1]['versions'][0]['targets']],
+        static fn(bool $exact, array $target): bool => $exact && (int) $target['tenant_id'] === 1,
+        true,
+    )
+    && array_reduce(
+        [...$mysqlOtherHistory['policies'][0]['versions'][0]['targets'], ...$mysqlOtherHistory['policies'][1]['versions'][0]['targets']],
+        static fn(bool $exact, array $target): bool => $exact && (int) $target['tenant_id'] === 2,
+        true,
+    ));
+goal_mysql_check('MySQL history reader performs no lazy or attribution write',
+    $historyCountsBefore === [
+        (int) $pdo->query('SELECT COUNT(*) FROM service_goal_policy_versions')->fetchColumn(),
+        (int) $pdo->query('SELECT COUNT(*) FROM service_goal_policy_targets')->fetchColumn(),
+    ]);
+
 $directPolicy = $pdo->prepare(
     'INSERT INTO service_goal_policy_versions
         (tenant_id,policy_key,version_no,display_name,effective_from,

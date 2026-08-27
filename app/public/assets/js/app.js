@@ -536,6 +536,7 @@
       { group: "Actions", title: "Go to Queue", hint: "g q", run: () => nav("/") },
       { group: "Actions", title: "Go to Time", hint: "g t", run: () => nav("/time.php") },
       { group: "Actions", title: "Go to Clients", hint: "g c", run: () => nav("/clients.php") },
+      { group: "Actions", title: "Go to Service goals", hint: "g s", run: () => nav("/service_goals.php") },
       { group: "Actions", title: "Go to Team", run: () => nav("/users.php") },
       { group: "Actions", title: "Saved replies", hint: "manage / snippets", run: () => nav("/snippets.php") },
       { group: "Actions", title: "Sign out", run: () => nav("/logout.php") },
@@ -692,6 +693,7 @@
       if (key === "q") { e.preventDefault(); nav("/"); }
       else if (key === "t") { e.preventDefault(); nav("/time.php"); }
       else if (key === "c") { e.preventDefault(); nav("/clients.php"); }
+      else if (key === "s") { e.preventDefault(); nav("/service_goals.php"); }
       return;
     }
     if (key === "g") { pendingG = true; setTimeout(() => (pendingG = false), 900); return; }
@@ -1249,7 +1251,7 @@
           <p>matching timer logs only after server-confirmed Send</p></div>
         <div><h4>Everywhere</h4>
           <p><kbd class="kbd">⌘K</kbd> palette (search reaches every message)</p>
-          <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd>/<kbd class="kbd">t</kbd>/<kbd class="kbd">c</kbd> navigate · <kbd class="kbd">?</kbd> this card</p></div>
+          <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd>/<kbd class="kbd">t</kbd>/<kbd class="kbd">c</kbd>/<kbd class="kbd">s</kbd> navigate · <kbd class="kbd">?</kbd> this card</p></div>
       </div></div>`;
     div.addEventListener("click", (e) => { if (e.target === div) toggleHelp(); });
     document.body.appendChild(div);

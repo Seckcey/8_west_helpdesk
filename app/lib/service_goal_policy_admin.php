@@ -3,8 +3,8 @@
  * Approval-grade publication of immutable service-goal policy versions.
  *
  * This module has no web or session dependency. Operator commands identify an
- * exact tenant slug and database user id; browser pages use only the small
- * client-tier authorization helpers at the bottom of this file.
+ * exact tenant slug and database user id; browser pages use only the read-only
+ * history view and small authorization helpers at the bottom of this file.
  */
 declare(strict_types=1);
 
@@ -516,6 +516,134 @@ function service_goal_policy_inspect(PDO $pdo, string $tenantSlug, string $polic
         'latest_version' => $versions === [] ? 0 : (int) end($versions)['version_no'],
         'versions' => $versions,
     ];
+}
+
+/**
+ * Build the signed-in staff view of one tenant's immutable policy history.
+ *
+ * This is deliberately not the lazy ticket-creation path: viewing a tenant
+ * with no policy rows returns an empty history and never creates v1 rows.
+ * The optional clock exists only so hermetic tests can pin current/scheduled
+ * labels; the web page always uses the database UTC clock.
+ *
+ * @return array{
+ *   tenant:array{id:int,slug:string,name:string},
+ *   as_of_utc:string,
+ *   policies:list<array{
+ *     policy_key:string,display_name:string,current_version:int|null,
+ *     latest_version:int,versions:list<array<string,mixed>>
+ *   }>
+ * }
+ */
+function service_goal_policy_history(
+    PDO $pdo,
+    int $tenantId,
+    ?string $asOfUtc = null,
+): array {
+    if ($tenantId < 1) {
+        throw new ServiceGoalPolicyValidationException('Tenant id must be positive.');
+    }
+
+    $tenantQuery = $pdo->prepare('SELECT id, slug, name FROM tenants WHERE id = ?');
+    $tenantQuery->execute([$tenantId]);
+    $tenant = $tenantQuery->fetch(PDO::FETCH_ASSOC);
+    if (! is_array($tenant) || (int) ($tenant['id'] ?? 0) !== $tenantId) {
+        throw new ServiceGoalPolicyGateException('The signed-in tenant was not found.');
+    }
+
+    $asOfTimestamp = service_goal_timestamp(
+        $asOfUtc ?? service_goal_policy_database_now($pdo),
+    );
+    if ($asOfTimestamp === null) {
+        throw new ServiceGoalPolicyValidationException('The history clock must be valid UTC.');
+    }
+    $asOfDatabase = gmdate('Y-m-d H:i:s', $asOfTimestamp);
+
+    $versionQuery = $pdo->prepare(
+        'SELECT policy.*, actor.full_name AS created_by_name
+           FROM service_goal_policy_versions policy
+           LEFT JOIN users actor
+             ON actor.tenant_id = policy.tenant_id
+            AND actor.id = policy.created_by_user_id
+          WHERE policy.tenant_id = ? AND policy.policy_key = ?
+          ORDER BY policy.version_no',
+    );
+
+    $policies = [];
+    foreach (SERVICE_GOAL_POLICY_KEYS as $policyKey) {
+        $versionQuery->execute([$tenantId, $policyKey]);
+        $versions = $versionQuery->fetchAll(PDO::FETCH_ASSOC);
+        $currentVersion = null;
+
+        foreach ($versions as &$version) {
+            $version['targets'] = service_goal_policy_version_targets(
+                $pdo,
+                $tenantId,
+                (int) $version['id'],
+            );
+            service_goal_policy_verify_version($version);
+
+            $effectiveTimestamp = service_goal_timestamp($version['effective_from'] ?? null);
+            if ($effectiveTimestamp === null) {
+                throw new ServiceGoalPolicyGateException(
+                    'Service-goal history contains an invalid effective time.',
+                );
+            }
+            $version['version_no'] = (int) $version['version_no'];
+            $version['created_by_user_id'] = $version['created_by_user_id'] === null
+                ? null
+                : (int) $version['created_by_user_id'];
+            $version['created_by_name'] = $version['created_by_name'] === null
+                ? null
+                : (string) $version['created_by_name'];
+            $version['reason'] = $version['reason'] === null
+                ? null
+                : (string) $version['reason'];
+            $version['effective_from'] = gmdate('Y-m-d H:i:s', $effectiveTimestamp);
+            $version['state'] = $effectiveTimestamp > $asOfTimestamp
+                ? 'scheduled'
+                : 'superseded';
+            if ($effectiveTimestamp <= $asOfTimestamp) {
+                $currentVersion = (int) $version['version_no'];
+            }
+        }
+        unset($version);
+
+        if ($currentVersion !== null) {
+            foreach ($versions as &$version) {
+                if ((int) $version['version_no'] === $currentVersion) {
+                    $version['state'] = 'current';
+                }
+            }
+            unset($version);
+        }
+
+        $policies[] = [
+            'policy_key' => $policyKey,
+            'display_name' => service_goal_policy_display_name($policyKey),
+            'current_version' => $currentVersion,
+            'latest_version' => $versions === []
+                ? 0
+                : (int) end($versions)['version_no'],
+            'versions' => $versions,
+        ];
+    }
+
+    return [
+        'tenant' => [
+            'id' => $tenantId,
+            'slug' => (string) $tenant['slug'],
+            'name' => (string) $tenant['name'],
+        ],
+        'as_of_utc' => $asOfDatabase,
+        'policies' => $policies,
+    ];
+}
+
+function service_goal_policy_can_view_history(array $user): bool
+{
+    return (int) ($user['is_active'] ?? 0) === 1
+        && in_array((string) ($user['role'] ?? ''), ['owner', 'admin', 'tech'], true);
 }
 
 function service_goal_policy_can_manage_client_tier(array $user): bool

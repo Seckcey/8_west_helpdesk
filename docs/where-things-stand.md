@@ -32,7 +32,7 @@ If you change what is live, change this page in the same PR.
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
 | Migrations 001–018 | **All applied** to production |
-| Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published |
+| Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published. This source tree also contains a GET-only staff history view, but that view is not live until a separate code release. |
 | Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
@@ -109,7 +109,7 @@ cannot be proven. Existing tenants receive Standard v1 (480 elapsed minutes)
 and Premium v1 (120 elapsed minutes); tenants created later receive the same
 defaults lazily on first ticket creation. Unsupported business clocks and
 waiting-pause modes fail visibly. Business calendars, holidays, pause
-execution, resolution clocks, policy-management UI, and explicit rebase
+execution, resolution clocks, a policy editor, and explicit rebase
 history remain later work. Migration 010 is applied in production: four
 policy versions and sixteen targets cover both current tenants, all 275
 historical tickets truthfully retain a NULL target, and all four database
@@ -136,6 +136,17 @@ actor demotion lock orders, rollback, and DML-only migration refusal. The
 deployment was migration-first and created zero policy versions. Production still has only
 the four v1 rows and sixteen targets; the real four target values and effective
 time for any v2 remain an explicit business decision and must not be invented.
+
+The follow-up history surface is a signed-in, tenant-scoped GET page. It shows
+Standard and Premium versions, exact effective UTC times, four first-response
+targets, current/scheduled/superseded state, and truthful actor/reason evidence.
+Lazy v1 is explicitly labelled as legacy attribution because no historical
+approver or reason exists. The page has no request-selected tenant, form, POST,
+API, editor, publish action, lazy initializer, migration, or configuration. Its
+source and hermetic isolation/role/boundary behavior are covered by the
+39-check publication suite. This is source status, not production acceptance;
+a separate code release and fresh signed-in 8 West IT read-only canary remain
+required.
 
 Release evidence: Safeharbor PR #50 merged as
 `12abd36de83cda276e6d96a79e873e2706bb3ff0`; exact-head Validate run
