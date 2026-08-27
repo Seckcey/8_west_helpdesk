@@ -3,8 +3,8 @@
 **Last verified overall: 2026-08-09** against production, not from memory.
 The suite SSO sections below were separately verified on 2026-08-24. The
 Customer Service Tools and database sections were verified again through the
-2026-08-27 Milepost customer-directory foundation release; the rest of this
-page was not re-audited during those focused closeouts.
+2026-08-27 technician-time correction release; the rest of this page was not
+re-audited during those focused closeouts.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -27,9 +27,9 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–015 | **All applied** to production |
+| Migrations 001–016 | **All applied** to production |
 | Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published |
-| Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760`; rejected-time corrections and measured-overlap guards are a tested candidate, not yet migrated or deployed |
+| Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's sender/receiver, Phase 5A's portal source, Phase 6's business-report source, and the Milepost customer-directory receiver are deployed default-off while existing service-intake gates remain live |
@@ -148,24 +148,14 @@ rollback records are
 `/srv/8west/backups/safeharbor/20260826T223441Z-pre-phase3-hardening` and
 `/srv/8west/backups/safeharbor/20260826T223914Z-pre-phase3-migration`.
 
-Candidate evidence remains green: all eight server-free CI commands pass,
-service goals are 55/55, the provenance bridge is 2/2, approval time is 99/99,
-suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is 97/97 on
-disposable MySQL 8. Desktop and mobile Playwright probes cover both "request
-never arrived" and "commit succeeded but response was lost" timer boundaries.
-No authenticated production browser session was available during this release;
-the deploy did not reset or bypass identity to manufacture one, so a fresh
-signed-in visual acceptance remains an operator follow-up rather than a release
-rollback condition.
-
-The next Phase 3 hardening slice is implemented on the
-`codex/time-corrections-overlap` candidate only. Migration 016 adds one nullable
-append-only correction pointer, a one-replacement unique guard, and two narrow
-database-owned measured-time tables. A correction may point only to the same
-tenant, technician, ticket, client, and source row after that row is rejected;
-the replacement is a new pending entry and the rejected facts, review, and
-events remain unchanged. Owners may still review their own time for a one-person
-MSP.
+Phase 3 hardening is live through Safeharbor PR #55 / merge
+`bb580a293f89deab278473e986c2e1232d2bc0c1`. Exact-main Validate run
+`33057438562` passed. Migration 016 adds one nullable append-only correction
+pointer, a one-replacement unique guard, and two narrow database-owned
+measured-time tables. A correction may point only to the same tenant,
+technician, ticket, client, and source row after that row is rejected; the
+replacement is a new pending entry and the rejected facts, review, and events
+remain unchanged. Owners may still review their own time for a one-person MSP.
 
 Measured intervals use half-open `[start, end)` semantics. Pending and approved
 intervals block overlaps for the same tenant and technician; rejected intervals
@@ -177,10 +167,36 @@ first commits; the original migration-011 suite remains 97/97. The browser
 freezes one correction key and payload before sending, and the operator sees
 the rejection, correction link, and replacement status on the Time page.
 
-This candidate has not changed production: migration 016 is not applied, no
-new tables or correction pointers exist there, and no Coastmark export or
-posting gate changed. The exact contract and migration-first canary are in
-`docs/technician-time-corrections-contract.md`.
+The fresh root-only rollback record is
+`/srv/8west/backups/safeharbor/20260827T092220Z-pre-time-corrections`. Its
+application/config/trigger-inclusive-database/runtime-grant `SHA256SUMS`
+verified, the archive and dump-completed marker passed, and a scratch restore
+proved 31 base tables, 43 pre-migration triggers, and unchanged time/event
+counts of `1:1`. A Safeharbor-only Apache lock returned `403` during the
+migration window without stopping the shared server.
+
+The initial clean-working-tree migration copy was CRLF-equivalent at SHA-256
+`6730158402a6e4539af48fb265bee05bf33e2f4d273bddd7cf299ff666c373c3`;
+it is not mislabeled as the exact Git bytes. The separately archived exact Git
+blob at SHA-256
+`0f07b0da0ab4c9e68308cc3ddf2af4c7e4e2171be81682168202245c8395eb25`
+was replayed after locking `safeharbor@localhost` and proving zero connections.
+It emitted `1,1,1,1,12,0,0,0`, time facts stayed unchanged, and the account was
+unlocked. Final database evidence is `1:2:12:0:1:1:0`: one correction column,
+two auxiliary tables, twelve permanent triggers, zero staging triggers, one
+time entry, one event, and zero measured-registry rows.
+
+Matching code deployed from a clean detached checkout of the merge. All 128
+non-stamp tracked application paths and all three normalized cache-stamp paths
+matched it; the protected config stayed byte-identical at
+`c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`.
+The restored SSL vhost matches its pre-lock copy at
+`8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43`.
+Public login is `200`, an unauthenticated timer request is `401`, Coastmark
+export remains disabled/empty, and business reports remain unconfigured and
+empty. A fresh signed-in 8 West IT correction canary is still required; no
+credentials or identity bypass were used to manufacture it. The exact contract
+and canary are in `docs/technician-time-corrections-contract.md`.
 
 Phase 4's first release is deliberately manual and draft-only. Safeharbor's
 operator CLI selects one row by exact tenant slug + entry id + immutable entry
@@ -483,7 +499,7 @@ teeth.
 
 ## Database
 
-Applied in production: **001 through 015**, including both files numbered 002.
+Applied in production: **001 through 016**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
 2026-08-09. Migration `010_service_goal_policies.sql` was applied before the
 matching code on 2026-08-26. It is additive and leaves historical ticket
@@ -494,11 +510,11 @@ Migration `011_time_entry_approvals.sql` was applied operator-first on
 approval schema, seven permanent immutability/audit triggers, and the original
 legacy row remains pending. The migration replay and real-runtime rollback
 canary evidence are recorded in the Phase 3 section above.
-Migration `016_time_corrections_overlap.sql` is candidate-only. It has passed
-fresh-install, migration-011 upgrade, structural replay, malformed-object,
-underprivileged-preflight, correction-lineage, and real concurrency tests, but
-it is not applied to production and its two auxiliary tables do not exist
-there yet.
+Migration `016_time_corrections_overlap.sql` was applied migration-first on
+2026-08-27 and replayed from the exact merged Git blob. Production has its one
+correction column, two InnoDB auxiliary tables, twelve permanent triggers, zero
+staging triggers, and zero correction/measured-registry rows before the signed-in
+canary. The one legacy time row and event remain unchanged.
 Migration `012_customer_portal.sql` was applied operator-first on 2026-08-26.
 Production has its two exact tables, seven lifecycle/audit triggers, enforced
 tenant/client ownership constraints, and zero mappings/events. The matching
@@ -631,7 +647,12 @@ called out, and none may be satisfied by inventing customer or financial facts.
    intake runs entirely on code defaults — which is fine and deliberate, but it
    means the first person to add product number three will be *creating* that
    block, not editing it. Copy the shape from `config/config.sample.php`.
-4. **Customer portal activation needs real identity and customer decisions.**
+4. **Technician-time correction acceptance needs a fresh signed-in session.**
+   Use the 8 West IT tenant to prove overlap conflict, exact adjacency,
+   rejection, one idempotently replayed correction, owner self-approval, and
+   unchanged parent/event history. Keep it nonbillable and leave the append-only
+   canary as audit evidence; do not bypass identity or enable Coastmark.
+5. **Customer portal activation needs real identity and customer decisions.**
    Register one exact confidential 8 West ID client, transfer its values
    through the protected operator path, and obtain one explicit
    identity-tenant → Safeharbor tenant/client canary mapping before enabling
@@ -639,10 +660,10 @@ called out, and none may be satisfied by inventing customer or financial facts.
    revocation, logout, and desktop/mobile behavior. The portal remains ticket
    summaries only; billing, ticket detail, mutation, and endpoint control are
    out of scope.
-5. **Business-report scheduling needs one exact recipient canary.** An approved
+6. **Business-report scheduling needs one exact recipient canary.** An approved
    tenant/client/recipient and separate recipient confirmation must precede the
    reviewed cron installation. Provider acceptance alone is not delivery.
-6. **The Coastmark seam needs Coastmark-owned financial facts.** No production
+7. **The Coastmark seam needs Coastmark-owned financial facts.** No production
    agreement/rate/tax mapping currently exists. A future canary may create only
    draft invoice lines from approved Safeharbor time; it must never post, send,
    create Checkout, record payment, or touch the ledger automatically.
