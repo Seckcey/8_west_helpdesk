@@ -147,5 +147,31 @@ Before deployment:
    facts did not change. Signed-out access must return to sign-in. No migration
    or protected configuration change belongs to this release.
 
+## GET-only history production release
+
+Safeharbor PR #65 is deployed as exact release
+`b02a7a63d71a4d1532f81aa727b0ede85c2649f3`; exact-main Validate run
+`33088142569` passed. This was a code-only release with no application
+configuration or migration change. The root-only backup and receipt are at
+`/srv/8west/backups/safeharbor/20260827T154017Z-pre-service-goal-history-b02a7a6`;
+its scratch restore proved 35 base tables and 60 triggers. Production matched
+137 ordinary tracked application files plus three normalized stamp files, and
+all 116 live PHP files linted.
+
+The correct Safeharbor maintenance lock returned `403`. Postflight returned
+login `200`, root `302`, signed-out `/service_goals.php` `302`, unauthenticated
+timer `401`, unauthenticated Westy intake `401`, portal `404`, and the separate
+support and ID host roots `302`. Protected configuration, grants, and database
+facts were unchanged. The portal, Coastmark approved-time export, 8 West ID
+report fetch, report generation, and report delivery gates remained off. No new
+`fatal`, `Uncaught`, or `SQLSTATE` log hits appeared.
+
+The initial runner installed the exact files and restored the locks but stopped
+on an unrecorded final assertion. Immediate finalization rechecked every
+postflight assertion and passed; the protected receipt records both runs. This
+is deployment and signed-out route evidence only. A fresh signed-in production
+8 West IT human still must verify the rendered Standard and Premium history and
+all eight target rows before signed-in UI acceptance can be claimed.
+
 No step in this contract authorizes merge, deployment, policy publication, or
 production mutation by itself.
