@@ -15,8 +15,12 @@
 >   **shipped**, not deferred, and there is no `svc_alert_autoresolve` flag —
 >   the founder rule of 2026-07-30 replaced it. §2 of this document already
 >   records the rule correctly; §7 was never updated and now contradicts it.
->   The shipped behaviour is in `svc_intake.php`: a ticket still `open` is
->   closed with a `system` line; `in_progress` / `waiting` gets the line only.
+>   The pre-018 deployed behaviour treated `status='open'` as untouched. The
+>   migration-018 release candidate tightens that rule to a one-use database
+>   capability that human/customer messages, ticket edits, merges, and time
+>   entries permanently consume. See
+>   `ticket-auto-close-ownership-contract.md`; do not call it live before its
+>   migration-first production gate completes.
 > - **Migration numbering hazard.** `002_svc_intake.sql` collides on the
 >   number 002 with `002_westy_onboarding.sql`, and the applied-so-far lists
 >   in `AGENTS.md` and `deploy/README.md` name only the westy one. Check the
@@ -95,7 +99,7 @@ Content-Type: application/json
 | Field | Rules |
 |---|---|
 | `event` | `opened` · `resolved` (v1). Unknown values → `422`. |
-| `external_key` | Stable, unique per alert at the source: `"alert:{milepost_alerts.id}"`. Max 64 chars. Drives idempotency. |
+| `external_key` | Stable, unique per alert at the source: `"alert:{milepost_alerts.id}"`. Exact decimal `BIGINT UNSIGNED` id (1 through 18446744073709551615), with no leading zero. Drives idempotency. |
 | `occurred_at` | ISO-8601 UTC. Skew > 24 h → `422`. |
 | `client.name` | Matched case-insensitively to `clients.name` within the tenant. No match → catch-all client **"Milepost Intake"** (created once, same pattern as Email Intake). Never auto-creates a real client. |
 | `severity` | `info` → `low`, `warning` → `normal`, `critical` → `urgent`. Unknown/missing → `normal`. High is reserved for human triage. |
@@ -113,18 +117,22 @@ Timestamp must be within ±300 s of server time (replay window). Compare with
   mapped priority, subject `[{severity}] {rule_key} on {hostname}` (190 cap),
   first message = full alert detail (`kind='system'`), SLA from the matched
   client's tier (premium 2 h / standard 8 h — existing convention).
-- `opened`, known `external_key` → update in place: refresh severity/message,
-  append a `system` line "Alert re-fired at {occurred_at}". Never duplicates.
+- `opened`, known `external_key` → append a `system` line "Alert re-fired at
+  {occurred_at}". Never duplicates and never rewrites ticket subject/priority;
+  after creation those are human triage fields.
 - `resolved`, known key → behavior follows ticket state (**founder rule
   2026-07-30**, shipped in PR #3, supersedes the v1 "status unchanged"
   default and the unbuilt `svc_alert_autoresolve` switch):
-  - ticket still `open` (no human has touched it) → append `system` line
+  - ticket still `open` **and its migration-018 one-use eligibility remains**
+    (the database has recorded no human/customer/timer/mutation ownership) → append `system` line
     "Resolved at source at … Ticket auto-closed." **and close it**
     (`status='resolved'`, `resolved_at` stamped). Machine alerts that clear
     themselves must not leave open tickets forever; the full paper trail
     stays inside the ticket.
-  - ticket `in_progress` / `waiting` (a tech owns it) → append the `system`
-    line only; the human still closes it.
+  - ticket ineligible, including an Open ticket a human assigned, reprioritized,
+    noted, replied to, merged, or logged time against, and every
+    `in_progress` / `waiting` ticket → append the `system` line only; the human
+    still closes it.
   - ticket already `resolved` → `200 {"action":"ignored"}`, no duplicate
     line (replay-safe). A late `opened` re-fire on a closed ticket appends
     provenance ("…after close") but never re-opens — a true new open
@@ -132,8 +140,9 @@ Timestamp must be within ±300 s of server time (replay window). Compare with
 - `resolved`, unknown key → `200 {"action":"ignored"}` (resolve raced ahead
   of open; not an error).
 
-**Limits:** body ≤ 16 KB · 120 requests/min per service identity · all string
-fields truncated to schema widths · every string through `h()` on render.
+**Limits:** body ≤ 16 KB · 120 requests/min per service identity · identity
+keys are validated exactly; display strings are truncated to schema widths ·
+every string through `h()` on render.
 
 ## 3. Server-side changes (Safeharbor)
 

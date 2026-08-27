@@ -128,7 +128,9 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    fingerprint is the SAME one the flag path uses, so praise and complaints
    about a question line up against each other.
 8. **Four `api/svc/*` producers, four different jobs — never merge them.**
-   `alerts.php` (machine alerts, keyed on the occurrence, auto-closes),
+   `alerts.php` (machine alerts, keyed on the occurrence; only an untouched
+   exact `alert:<numeric-id>` created by the signed `milepost` identity may
+   auto-close on real recovery),
    `westy.php` (Westy defects, one ticket per PROBLEM, stored text re-scrubbed),
    `support.php` (a person asking 8 West IT for help from inside **Coastmark or
    Waypoint** — more products to come — one ticket per SUBMISSION, text stored
@@ -214,11 +216,17 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   008 westy_reports · 009 support_intake · 010 versioned service goals ·
   011 approval-grade time · 012 customer portal · 013 business reports ·
   014 guarded policy publication · 015 customer sync ·
-  016 time corrections/overlap guards. `db/schema.sql` stays the canonical
-  fresh-install copy—keep it and every migration in lockstep.
-  Migration 017 (8 West ID report-contact binding/evidence) is currently a
-  default-off implementation candidate and is **not** recorded as applied;
-  verify `docs/where-things-stand.md` before changing that claim.
+  016 time corrections/overlap guards · 017 8 West ID report-contact
+  binding/evidence. `db/schema.sql` stays the canonical fresh-install
+  copy—keep it and every migration in lockstep. Migration 017 is live through
+  PR #57 / release `cef39dd`; its protected contact configs were installed,
+  one redacted 8 West IT canary stored the immutable binding/contact evidence,
+  and both dedicated contact gates were turned off again after preparation.
+  Migration 018 (one-use telemetry auto-close eligibility) is a separate
+  migration-first release candidate. It defaults every ticket ineligible and
+  permanently clears eligibility on ticket edits, human/customer messages,
+  message moves/deletes, and technician time. Its exact ownership and rollback
+  contract is `docs/ticket-auto-close-ownership-contract.md`.
   `002_svc_intake.sql` collides on the number 002 with
   `002_westy_onboarding.sql`, so numbering is not a reliable ordering. **It IS
   applied in production** — verified 2026-08-08 by schema, not by this list:

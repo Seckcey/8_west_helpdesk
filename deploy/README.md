@@ -52,11 +52,12 @@ sudo chown -R ubuntu:www-data /srv/8west/apps/safeharbor
 sudo chmod 640 /srv/8west/apps/safeharbor/current/config/config.php
 
 # From the exact clean repository checkout:
-# 3. Load the canonical schema and the two svc-only migrations as an operator.
+# 3. Load the canonical schema and the three svc-boundary migrations as an operator.
 # Never seed production; db/seed.php is a destructive sandbox-only reset.
 ssh milepost-ec2 "sudo mysql safeharbor" < app/db/schema.sql
 ssh milepost-ec2 "sudo mysql safeharbor" < app/db/migrations/002_svc_intake.sql
 ssh milepost-ec2 "sudo mysql safeharbor" < app/db/migrations/009_support_intake.sql
+ssh milepost-ec2 "sudo mysql safeharbor" < app/db/migrations/018_ticket_auto_close_eligibility.sql
 
 # Back on milepost-ec2 as the privileged operator:
 # 4. Preserve schema-wide SELECT/INSERT/UPDATE and add DELETE only to the eight
@@ -221,7 +222,7 @@ account after recording why it stopped.
 
 **If the release ships a new `db/migrations/NNN_*.sql`, follow that
 migration's reviewed ordering** (deploys never touch the DB). Migrations 011
-through 017 are explicitly migration-first; do not infer deploy-first from the
+through 018 are explicitly migration-first; do not infer deploy-first from the
 generic release command:
 
 ```bash
@@ -230,6 +231,7 @@ git show "$RELEASE_SHA:app/db/migrations/NNN_whatever.sql" | \
 ```
 
 Recorded as applied to production: 001 (mail_queue) · 002 (westy/onboarding) ·
+002_svc_intake (alert intake) ·
 003 (canned_responses) · 004 (attachments, email_threads, processed_mail,
 resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) ·
 007 (suite_subject) · 008 (Westy reports) · 009 (support intake) ·
@@ -239,7 +241,10 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 **013 (versioned archived business reports, migration-first on 2026-08-26)** ·
 **014 (guarded service-goal publication, migration-first on 2026-08-27)** ·
 **015 (default-off customer sync, migration-first on 2026-08-27)** ·
-**016 (time corrections/overlap guards, migration-first on 2026-08-27)**.
+**016 (time corrections/overlap guards, migration-first on 2026-08-27)** ·
+**017 (8 West ID report-contact evidence, migration-first on 2026-08-27)**.
+Migration 018 is a migration-first release candidate and is not recorded as
+applied.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -493,8 +498,9 @@ back first while leaving the additive 016 structures and stronger guards in
 place; database restore is disaster recovery only. The full gate is in
 `docs/technician-time-corrections-contract.md`.
 
-Migration 017 (`017_id_report_contact_evidence.sql`) is a migration-first,
-additive candidate and is **not recorded as applied**. It adds only
+Migration 017 (`017_id_report_contact_evidence.sql`) was applied
+migration-first on 2026-08-27 through PR #57 / release
+`cef39dd190e6488c4aabf7a673eb810b4465a3eb`. It adds only
 `business_report_id_tenant_bindings`,
 `business_report_id_contact_snapshots`, and six new immutable guards. It does
 not alter any migration-013 table or drop/recreate any of migration 013's
@@ -506,19 +512,17 @@ recovered only by rerunning the same archived migration blob. Postflight
 requires six permanent guards, zero swaps, and zero privilege-preflight
 triggers. Snapshot writers serialize on the immutable binding row.
 
-Before applying 017, require exact-main CI green, including the standalone
-`safeharbor_id_report_test*` MySQL replay. Take and scratch-restore the standard
-root-only application/config/trigger-inclusive-database/grant backup; record
-the existing five business-report table counts and fifteen trigger hashes;
-stop report operator commands; and apply plus replay the archived exact Git
-blob through the trigger-capable operator. Require exact 6/12 column counts,
-six named 017 triggers, unchanged migration-013 trigger hashes and report row
-counts, and zero binding/snapshot rows. Deploy only matching source. Keep
-`id_report_contacts.enabled=false`, its secret empty, its tenant bindings
-empty, both business-report gates false, every report allowlist empty, and the
-scheduler absent. A later canary may configure one dedicated HMAC secret and
-one exact stable tenant-key binding through protected operator mechanisms; do
-not place either value in logs or evidence files.
+The recorded release used exact-main CI, the standalone
+`safeharbor_id_report_test*` MySQL replay, a scratch-restored root-only
+application/config/trigger-inclusive-database/grant backup, archived exact Git
+bytes, and an apply-plus-replay through the trigger-capable operator. Current
+production has one immutable `ewid-t1` tenant binding and one contact-version-1
+snapshot from the redacted 8 West IT onboarding probe. Both dedicated contact
+gates are off; the recipient and HMAC material remain protected server-side.
+Any replay must preserve those two evidence rows, all migration-013 report rows
+and trigger hashes, the six named 017 triggers, and zero swap/preflight
+triggers. A fresh rebuild instead starts with zero binding/snapshot rows and
+must remain disabled until a separately controlled onboarding canary.
 
 Deploy code only after the migration and grant postflight. Keep the protected
 `business_reports` block absent or fully default-off with empty allowlists.
@@ -528,6 +532,19 @@ recipient-confirmation gates, install the reviewed cron entry for
 `app/cron/business_reports.php`; observe one scheduled weekly period before
 expanding any allowlist. The exact contract, commands, failure semantics, and
 rollback are in `docs/business-reports-contract.md`.
+
+Migration 018 (`018_ticket_auto_close_eligibility.sql`) is a migration-first
+release candidate and is **not recorded as applied**. It depends on
+`002_svc_intake.sql`, adds one default-zero eligibility column, one enforced
+check, and six permanent ticket/message/time-entry guards. Follow
+`docs/ticket-auto-close-ownership-contract.md`: use exact green default-branch
+bytes, take and scratch-restore a fresh protected backup, deny only the
+Safeharbor vhost, lock only the Safeharbor runtime database account, require
+zero runtime connections, and apply plus replay the archived migration before
+deploying its matching source. Both runs must prove one column, six permanent
+guards, and zero swap guards. Keep both locks until source hashes and PHP lint
+match. Roll application code back first while leaving migration 018 and its
+fail-closed guards installed; never drop the guards as an incident response.
 
 The web/cron runtime identity must remain DML-only. It needs `SELECT`,
 `INSERT`, and `UPDATE` on `safeharbor.*`, plus table-level `DELETE` only on the

@@ -19,6 +19,7 @@ if (!is_file($configPath)) {
 $CONFIG = require $configPath;
 
 require_once __DIR__ . '/service_goals.php';
+require_once __DIR__ . '/ticket_lifecycle.php';
 require_once __DIR__ . '/time_entries.php';
 
 if (($CONFIG['app_env'] ?? 'production') === 'dev') {

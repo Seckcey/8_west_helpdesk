@@ -24,6 +24,7 @@ If you change what is live, change this page in the same PR.
 |---|---|
 | Safeharbor itself | **Live** at https://safeharbor.8westit.com, v1.0 feature-complete |
 | Alert intake (`api/svc/alerts.php`) | **Live** since 2026-07-29, Milepost emitting |
+| Telemetry automatic-close ownership | **Candidate only, not deployed**: migration 018 makes closure a one-use capability for exact signed Milepost alerts and permanently clears it on human/customer work |
 | Westy defect intake (`api/svc/westy.php`) | **Live** — receiver shipped; emitters are the other repos' side |
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
@@ -40,6 +41,18 @@ If you change what is live, change this page in the same PR.
 | Milepost managed-customer receiver | **One controlled 8 West IT create canary completed**: customer `4ebaeefa-b101-47f8-ac76-e49ab309d272` created Safeharbor client 13 with one binding and one receipt. Safeharbor's receiver remains on only for the exact canary; the Milepost sender is off and no scheduler is installed. |
 
 ## Customer Service Tools development
+
+The follow-on alert-ownership hardening is a release candidate, not a live
+claim. Migration 018 adds a default-off, one-use automatic-close capability.
+Only the exact signed `milepost` alert endpoint can create an eligible numeric
+`alert:` ticket. Assignment, priority/status edits, client/technician/note
+messages, message edits/moves/deletes, logged time, and merge workflow consume
+that capability permanently. Re-fires become append-only evidence and do not
+rewrite subject or priority. Real recovery auto-closes only a still-eligible
+Open ticket in one database transaction; all other recovery events append a
+line and leave the ticket for a human. Westy remains advise-only and has no
+ticket-status action. Exact migration, canary, and rollback gates are in
+`docs/ticket-auto-close-ownership-contract.md`.
 
 Phase 1 shipped through Safeharbor PR #37 / merge
 `1796f57d0dede4eff298a6a710098999ba7e9670`. It corrects the existing
@@ -525,7 +538,7 @@ teeth.
 
 ## Database
 
-Applied in production: **001 through 016**, including both files numbered 002.
+Applied in production: **001 through 017**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
 2026-08-09. Migration `010_service_goal_policies.sql` was applied before the
 matching code on 2026-08-26. It is additive and leaves historical ticket
@@ -571,8 +584,16 @@ binding, and one contact-version-1 snapshot. Both dedicated contact gates are
 off after the redacted onboarding probe; the address and HMAC keys remain
 protected server-side.
 
+Migration `018_ticket_auto_close_eligibility.sql` is a release candidate and
+is not recorded as applied. It depends on `002_svc_intake.sql`, adds one
+default-zero ticket column, one enforced check, and six permanent ticket,
+message, and time-entry guards. Its first-run backfill is fail-closed and its
+replay never restores cleared eligibility. Deploy it migration-first with the
+matching source; do not infer a production fact from this candidate paragraph.
+
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
-`schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
+`schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`; the candidate
+automatic-close contract additionally requires migration 018.
 
 Verify:
 
@@ -585,12 +606,13 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Twenty-eight CLI suites live in `app/tests/`. Fifteen server-free contract suites
+Thirty CLI suites live in `app/tests/`. Sixteen server-free contract suites
 run in CI, including the hermetic service-goal, approval-time, approved-time
 export, portal auth/revocation, portal read-only/rendering, and archived-report
 gates plus the Milepost customer-sync contract. CI also runs the portal,
 service-goal-policy, business-report, and customer-sync migration/isolation
-suites on disposable MySQL 8. The 97-check `time_entries_mysql` suite is now
+suites on disposable MySQL 8, plus the signed alert handler and migration-018
+automatic-closure guards. The 97-check `time_entries_mysql` suite is now
 standalone too: it requires an explicit disposable-server acknowledgement,
 accepts only a `safeharbor_time_test*` database base, creates and proves one
 random per-run database, removes it in `finally`, exits nonzero when the fixture
