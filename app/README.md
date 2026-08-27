@@ -72,7 +72,9 @@ lib/mailer.php             outbound mail (mail_queue + transports:
                            Graph sendMail → SMTP → PHP mail(); Milepost parity)
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
 lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
-lib/svc_intake.php         Milepost alert events → tickets (idempotent upsert)
+lib/svc_intake.php         Milepost alert events → tickets (idempotent; only
+                           untouched signed telemetry may auto-close)
+lib/ticket_lifecycle.php   atomic one-use telemetry recovery transition
 lib/suite_customer_sync.php
                            dedicated signed Milepost customer registry → stable
                            Safeharbor client binding + immutable receipts; dark
@@ -90,6 +92,8 @@ lib/svc_support.php        Coastmark + Waypoint support requests → 8 West IT's
                            is not a code change
 tests/                     CLI contract + scratch-MySQL integration tests —
                            suite_sso_test.php, svc_intake_test.php,
+                           ticket_auto_close_contract_test.php,
+                           ticket_auto_close_mysql_test.php,
                            westy_report_test.php, svc_support_test.php,
                            intake_service_goal_test.php, time_entries_test.php,
                            time_entries_mysql_test.php,
@@ -228,15 +232,16 @@ public/                    Apache docroot (page-per-file, like Milepost)
   exact weekly aggregate archives. Both generation and delivery default off;
   exact tenant/client/recipient allowlists and `canary_only` apply. A Graph 202
   means provider-submitted, not recipient-delivered, and ambiguous delivery is
-  terminal without automatic retry. Production has migration 013 and the source
-  deployed dark, with no definition, schedule, archive, delivery, attempt,
-  recipient, or scheduler.
+  terminal without automatic retry. Production has migration 013, one prepared
+  8 West IT definition/schedule canary, both execution gates off, zero archives,
+  deliveries, or attempts, and no server scheduler.
   See `docs/business-reports-contract.md`.
-- ID-backed report onboarding candidate: `prepare-from-id` is the only network
-  call site and uses a dedicated default-off HMAC config. Migration 017 stores
+- ID-backed report onboarding: `prepare-from-id` is the only network call site
+  and uses a dedicated default-off HMAC config. Migration 017 is live and stores
   an immutable local-tenant/stable-ID binding plus append-only contact-version
-  evidence in the same transaction as the disabled schedule. It has not been
-  deployed or activated and cannot generate or send a report.
+  evidence in the same transaction as the disabled schedule. One redacted
+  8 West IT contact canary was stored; both contact gates are off. This path
+  cannot generate or send a report.
 - Milepost customer sync: independent from alert/support intake and dark unless
   `suite_customer_sync.enabled` is exactly true. The signed payload resolves an
   explicitly allowlisted Safeharbor tenant slug and binds one globally stable

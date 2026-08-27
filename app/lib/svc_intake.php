@@ -6,10 +6,11 @@
  * back to Milepost, never remediated, never written to the Milepost DB.
  * Idempotent on (tenant_id, external_key): re-fires update the existing
  * ticket and append a system line; they never create duplicates.
- * Auto-close (founder rule, 2026-07-30): a source resolve closes a ticket
- * no human has touched (status still 'open'). Once a tech moves the ticket
- * (in_progress / waiting), ownership is human — the resolve lands as a
- * system line and the human still closes it. Replays never re-open.
+ * Auto-close (founder rule, tightened 2026-08-27): a source resolve closes
+ * only a machine-created ticket whose one-use auto_close_eligible capability
+ * is still present. Any human/customer message, technician time, merge, or
+ * ticket mutation permanently consumes that capability. Replays never
+ * re-open, and re-fires add evidence without overwriting human ticket fields.
  * Mirrors lib/intake.php conventions (catch-all client, captured service goal,
  * kind='system' provenance lines) without touching the email pipeline.
  */
@@ -23,6 +24,27 @@ const SVC_SEVERITY_PRIORITY = [
     'critical' => 'urgent',
 ];
 
+/** The only signed service identity allowed to create telemetry tickets. */
+const SVC_ALERT_SERVICE = 'milepost';
+const SVC_ALERT_ID_MAX = '18446744073709551615'; // Milepost BIGINT UNSIGNED
+
+/** Authentication is shared by svc endpoints; alert authority is not. */
+function svc_alert_service_authorized(array $auth): bool
+{
+    return ($auth['ok'] ?? false) === true
+        && hash_equals(SVC_ALERT_SERVICE, (string)($auth['service'] ?? ''));
+}
+
+/** Exact Milepost alerts.id namespace, including the unsigned 64-bit ceiling. */
+function svc_alert_external_key_valid(string $externalKey): bool
+{
+    if (preg_match('/\Aalert:([1-9][0-9]{0,19})\z/D', $externalKey, $match) !== 1) {
+        return false;
+    }
+    $sourceId = $match[1];
+    return strlen($sourceId) < 20 || strcmp($sourceId, SVC_ALERT_ID_MAX) <= 0;
+}
+
 /**
  * Handle one verified alert payload. Returns:
  *   ['ok'=>true, 'action'=>'created|updated|ignored', 'ticket'=>?int]
@@ -34,9 +56,9 @@ function svc_alert_handle(array $p): array
     if (!in_array($event, ['opened', 'resolved'], true)) {
         return ['ok' => false, 'error' => 'unknown event'];
     }
-    $extKey = mb_substr(trim((string)($p['external_key'] ?? '')), 0, 64);
-    if ($extKey === '') {
-        return ['ok' => false, 'error' => 'external_key required'];
+    $extKey = trim((string)($p['external_key'] ?? ''));
+    if (!svc_alert_external_key_valid($extKey)) {
+        return ['ok' => false, 'error' => 'external_key invalid'];
     }
     $occurred = strtotime((string)($p['occurred_at'] ?? ''));
     if ($occurred === false || abs(time() - $occurred) > 24 * 3600) {
@@ -58,15 +80,29 @@ function svc_alert_handle(array $p): array
         if ($ticket['status'] === 'resolved') {
             return ['ok' => true, 'action' => 'ignored', 'ticket' => (int)$ticket['id']];
         }
-        // Auto-close a ticket no human has touched. Once a tech moves it
-        // (in_progress / waiting), ownership is human: the source truth
-        // lands as a system line and the human still closes it.
-        if ($ticket['status'] === 'open') {
-            svc_system_line((int)$ticket['id'], 'Resolved at source at ' . $occurredAt . ' UTC. Ticket auto-closed.');
-            db()->prepare('UPDATE tickets SET status = "resolved", resolved_at = ? WHERE id = ?')
-                ->execute([$occurredAt, (int)$ticket['id']]);
+        // The guarded transition consumes eligibility and writes recovery
+        // evidence atomically. A concurrent human mutation clears the bit,
+        // so it cannot be closed by this path afterwards.
+        if (ticket_try_machine_auto_close(
+            db(),
+            tenant_id(),
+            (int)$ticket['id'],
+            $occurredAt,
+        )) {
             return ['ok' => true, 'action' => 'updated', 'ticket' => (int)$ticket['id']];
         }
+
+        // A concurrent recovery may have won after our first read. Do not add
+        // a duplicate line in that case.
+        $state = db()->prepare('SELECT status FROM tickets WHERE id = ? AND tenant_id = ?');
+        $state->execute([(int)$ticket['id'], tenant_id()]);
+        if ($state->fetchColumn() === 'resolved') {
+            return ['ok' => true, 'action' => 'ignored', 'ticket' => (int)$ticket['id']];
+        }
+
+        // Ineligible means a person owns the outcome even if the visible
+        // status is still Open. Recovery remains useful evidence, not an
+        // autonomous status change.
         svc_system_line((int)$ticket['id'], 'Resolved at source at ' . $occurredAt . ' UTC.');
         return ['ok' => true, 'action' => 'updated', 'ticket' => (int)$ticket['id']];
     }
@@ -93,8 +129,8 @@ function svc_alert_handle(array $p): array
         db()->prepare(
             'INSERT INTO tickets
                 (tenant_id, client_id, contact_id, subject, priority, channel, external_key,
-                 sla_due_at, service_goal_target_id, created_at, updated_at)
-             VALUES (?,?,NULL,?,?,"alert",?,?,?,?,?)'
+                 auto_close_eligible, sla_due_at, service_goal_target_id, created_at, updated_at)
+             VALUES (?,?,NULL,?,?,"alert",?,1,?,?,?,?)'
         )->execute([
             tenant_id(),
             $clientId,
@@ -111,15 +147,13 @@ function svc_alert_handle(array $p): array
         return ['ok' => true, 'action' => 'created', 'ticket' => $tid];
     }
 
-    // Re-fire: refresh severity/subject, append provenance, never duplicate.
-    // A re-fire landing after an auto-close is out-of-order noise (a true
-    // new open arrives under a new external_key) — record it, stay closed.
+    // Re-fire: append provenance, never duplicate and never rewrite ticket
+    // fields. The initial alert owns the initial subject/priority; after that,
+    // a human owns triage. A true new open arrives under a new external_key.
     if ($ticket['status'] === 'resolved') {
         svc_system_line((int)$ticket['id'], svc_alert_detail($p, $occurredAt, 'Alert re-fired at source after close'));
         return ['ok' => true, 'action' => 'updated', 'ticket' => (int)$ticket['id']];
     }
-    db()->prepare('UPDATE tickets SET priority = ?, subject = ? WHERE id = ?')
-        ->execute([$priority, $subject, (int)$ticket['id']]);
     svc_system_line((int)$ticket['id'], svc_alert_detail($p, $occurredAt, 'Alert re-fired at source'));
     return ['ok' => true, 'action' => 'updated', 'ticket' => (int)$ticket['id']];
 }

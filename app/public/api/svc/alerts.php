@@ -40,6 +40,12 @@ try {
 if (!$auth['ok']) {
     json_out(['ok' => false, 'error' => $auth['code'] === 429 ? 'rate limited' : 'unauthorized'], $auth['code']);
 }
+// svc_auth.php authenticates every registered producer. This endpoint grants
+// the narrower alert authority only to the dedicated Milepost identity; a
+// support/Westy/customer-sync identity must never mint auto-close capability.
+if (!svc_alert_service_authorized($auth)) {
+    json_out(['ok' => false, 'error' => 'unauthorized'], 401);
+}
 
 $payload = json_decode($rawBody, true);
 if (!is_array($payload)) {

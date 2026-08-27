@@ -76,6 +76,30 @@ jobs:
         run: php app/tests/id_report_contacts_test.php
       - name: Test Milepost customer-sync contract
         run: php app/tests/suite_customer_sync_test.php
+      - name: Test signed Milepost alert intake handler
+        env:
+          SAFEHARBOR_SVC_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_SVC_TEST_DB: safeharbor_svc_test
+          SAFEHARBOR_SVC_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_SVC_TEST_PORT: 3306
+          SAFEHARBOR_SVC_TEST_USER: root
+          SAFEHARBOR_SVC_TEST_PASS: safeharbor-test-root
+        run: |
+          test ! -e app/config/config.php
+          cp app/config/config.sample.php app/config/config.php
+          trap 'rm -f app/config/config.php' EXIT
+          php app/tests/svc_intake_test.php
+      - name: Test ticket automatic-closure ownership contract
+        run: php app/tests/ticket_auto_close_contract_test.php
+      - name: Test ticket automatic-closure migration and guards
+        env:
+          SAFEHARBOR_AUTO_CLOSE_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_AUTO_CLOSE_TEST_DB: safeharbor_auto_close_test
+          SAFEHARBOR_AUTO_CLOSE_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_AUTO_CLOSE_TEST_PORT: 3306
+          SAFEHARBOR_AUTO_CLOSE_TEST_USER: root
+          SAFEHARBOR_AUTO_CLOSE_TEST_PASS: safeharbor-test-root
+        run: php app/tests/ticket_auto_close_mysql_test.php
       - name: Test customer portal migration and tenant isolation
         env:
           SAFEHARBOR_PORTAL_TEST_DB: safeharbor_portal_test
