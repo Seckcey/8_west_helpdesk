@@ -27,13 +27,13 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–011 | **All applied** to production |
+| Migrations 001–012 | **All applied** to production |
 | Versioned service goals | **Live** through Safeharbor PR #37 / merge `1796f57` |
 | Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760` |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Phase 4's sender/receiver only; both are deployed default-off while existing service-intake gates remain live |
-| Customer ticket-summary portal (Phase 5A) | **Source candidate only** on `codex/safeharbor-customer-portal`; not merged, registered, mapped, migrated, enabled, or deployed |
+| Anything "shipping dark" | Phase 4's sender/receiver and Phase 5A's portal source are deployed default-off while existing service-intake gates remain live |
+| Customer ticket-summary portal (Phase 5A) | **Deployed dark** through PR #44 / merge `3bb87fa`; migration 012 is applied, the global gate and OIDC values remain off/absent, and there are zero bindings/events |
 
 ## Customer Service Tools development
 
@@ -171,8 +171,8 @@ disabled-then-enabled mapping and a controlled 201/200 canary. The exact
 contract and rollback gates are in
 [`coastmark-approved-time-export-contract.md`](coastmark-approved-time-export-contract.md).
 
-Phase 5A is now a dark/default-off source candidate based on current
-`origin/main` `419d2ad`. It adds a separate `/portal` OIDC session and the
+Phase 5A is merged and deployed dark through Safeharbor PR #44 / release merge
+`3bb87fa`. It adds a separate `/portal` OIDC session and the
 maintained 8 West ID `oidc_v1` PHP kit, accepts only exact `client_owner`,
 `client_admin`, `client_staff`, and `client_viewer` roles with the exact
 `safeharbor` product, stores the signed subject/session-version pair for at
@@ -192,13 +192,39 @@ ticket number, subject, status, priority, and timestamps/counts. It has no
 messages, attachments, replies, AI, billing, technician-time, endpoint, or
 ticket-detail access.
 
-This is not a live claim. No real OIDC client, mapping, migration, global
-enable, merge, or deploy was performed. A later controlled canary requires a
-chosen business and production callback/client registration, protected
-backup, migration/operator proof, server-only config, exact CLI inspection,
-fresh signed-in client-role acceptance, tenant isolation, revocation and
-disable-on-next-request proof, and desktop/mobile verification. See
-`docs/customer-portal-contract.md`.
+The release merged as `3bb87fa39abe8973f2a7328c193e311a2c446f88`;
+exact-main Validate run `33024372187` passed. Migration 012 was applied through
+the privileged operator path and externally verified at two InnoDB tables,
+10/11 columns, 6/3 indexes, 4/3 tenant-scoped foreign keys, one enforced slug
+check, seven permanent triggers, and zero bindings/events. All prior business
+row counts and the runtime identity's DML-only grants remained unchanged.
+
+The exact merge source is deployed with all 93 production PHP files linting,
+Apache syntax valid, and 108/108 comparable tracked app-file hashes matching.
+The protected config stayed byte-identical (SHA-256
+`dd165dff89e9f048e8bfd0ff06b1c3f636b452abf9569e045f5925db5fe7de81`,
+`ubuntu:www-data`, mode `640`), has no portal block/client/secret/callback, and
+the private revocation cache was not created. `/portal/`, portal login, and
+callback each return the exact ten-byte 404 body without a cookie; staff login
+is 200, root is 302, and release-window fatal/parse/uncaught errors were zero.
+
+The protected rollback record is
+`/srv/8west/backups/safeharbor/20260826T234825Z-pre-phase5a-portal`.
+Its application archive SHA-256 is
+`e7890c2145636942ab13a3a0dce44ef13749a2647f8e7a2bfdf8119424906131`;
+the trigger-inclusive database dump SHA-256 is
+`3d316813f6d7524ccdfbd20bb056f1f66c4ab7bd3f69c0df291c66bb0d336819`.
+The verified code-first rollback keeps the portal false and leaves the two
+empty additive tables in place; the database dump is disaster recovery only.
+
+This is still not a customer-accessible claim. No OIDC client, server-side
+portal values, mapping, authenticated portal session, or customer-data read was
+created. A controlled canary still requires an explicitly registered callback
+and confidential client, protected server-only configuration, one approved
+business prepared disabled then inspected and enabled, deliberate global
+enablement, fresh signed-in client-role acceptance, tenant isolation,
+revocation and disable-on-next-request proof, and desktop/mobile verification.
+See `docs/customer-portal-contract.md`.
 
 ## First-tenant suite SSO repair
 
@@ -333,7 +359,7 @@ teeth.
 
 ## Database
 
-Applied in production: **001 through 011**, including both files numbered 002.
+Applied in production: **001 through 012**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
 2026-08-09. Migration `010_service_goal_policies.sql` was applied before the
 matching code on 2026-08-26. It is additive and leaves historical ticket
@@ -344,9 +370,10 @@ Migration `011_time_entry_approvals.sql` was applied operator-first on
 approval schema, seven permanent immutability/audit triggers, and the original
 legacy row remains pending. The migration replay and real-runtime rollback
 canary evidence are recorded in the Phase 3 section above.
-Migration `012_customer_portal.sql` is a source candidate only: it is not
-applied, and production has no customer-portal tables or mappings claimed by
-this page. It must create zero mappings on a later authorized run.
+Migration `012_customer_portal.sql` was applied operator-first on 2026-08-26.
+Production has its two exact tables, seven lifecycle/audit triggers, enforced
+tenant/client ownership constraints, and zero mappings/events. The matching
+portal source is deployed dark; no OIDC configuration or canary was created.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.

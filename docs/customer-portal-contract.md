@@ -1,5 +1,9 @@
 # Safeharbor customer portal contract
 
+**Status:** migration 012 and the reviewed source were merged and deployed
+dark on 2026-08-26. The global gate is off, portal OIDC values are absent, and
+there are zero bindings/events; no customer can sign in yet.
+
 Phase 5A adds one deliberately narrow customer surface: a dark/default-off,
 read-only list of ticket summaries for one explicitly mapped business. It does
 not change Safeharbor's technician authentication or auto-provision any local
@@ -130,8 +134,9 @@ or changed binding also destroys it on the next request.
 
 ## Dark launch and future controlled canary
 
-Source completion is not authorization to register or expose a client. The
-production sequence for a later authorized release is:
+Source completion is not authorization to register or expose a client. Steps
+1–3 below were completed on 2026-08-26 through Safeharbor PR #44 / merge
+`3bb87fa`; steps 4–8 remain separate controlled-canary gates:
 
 1. finish and deploy all earlier migration-first phases, including migration
    011 before 012;
@@ -170,5 +175,8 @@ The MySQL suite is destructive only in a database whose name begins
 migration replay, lifecycle/audit, cross-provider refusal, immutable-history,
 client-deletion refusal, and ticket-isolation probes.
 
-No real OIDC client, live mapping, migration, merge, or deployment is part of
-the source slice. Those remain explicit operational choices.
+The source slice itself created no real OIDC client or live mapping. Its later
+release applied migration 012 and deployed the source dark only. Registration,
+server-only OIDC configuration, one disabled-then-enabled binding, global
+enablement, and authenticated canary acceptance remain explicit operational
+choices.

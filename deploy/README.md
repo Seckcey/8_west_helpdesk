@@ -89,7 +89,8 @@ Recorded as applied to production: 001 (mail_queue) · 002 (westy/onboarding) ·
 resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) ·
 007 (suite_subject) · 008 (Westy reports) · 009 (support intake) ·
 **010 (versioned service goals, migration-first on 2026-08-26)** ·
-**011 (approval-grade technician time, migration-first on 2026-08-26)**.
+**011 (approval-grade technician time, migration-first on 2026-08-26)** ·
+**012 (dark customer portal boundary, migration-first on 2026-08-26)**.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -115,15 +116,24 @@ Production applied 011 through Safeharbor PR #40 / merge `b0a6760` on
 preceding full application/database/grant backup is
 `/srv/8west/backups/safeharbor/20260826T223441Z-pre-phase3-hardening`.
 
-Migration 012 (`customer_portal`) is **not applied** and its source is not a
-deployment instruction. It requires the production 011/composite ownership
-keys already in place. Before any later authorized portal release, run
-`portal_mysql_test.php` against disposable MySQL 8, take protected application
-and database backups, apply 012 with the trigger-capable operator, and verify
-the two tables, composite provider tenant/client FK, globally unique identity
-slug/client indexes, zero mappings, and seven lifecycle/audit triggers. Deploy
-with `portal.enabled=false`; `/portal/` must remain 404. Keep the switch false
-and run no portal CLI transition concurrently with the migration or a replay.
+Production applied migration 012 and deployed its matching source dark through
+Safeharbor PR #44 / merge `3bb87fa` on 2026-08-26. Exact-main Validate run
+`33024372187` passed, including disposable-MySQL replay and tenant isolation.
+The production postflight proved two InnoDB tables, the exact 10/11 columns,
+6/3 indexes, 4/3 tenant-scoped foreign keys, one enforced slug check, seven
+lifecycle/audit triggers, and zero bindings/events. The runtime grant remains
+DML-only. `portal.enabled` is false by default because the protected config has
+no portal block, and `/portal/` remains 404 without setting a session cookie.
+
+The protected rollback record is
+`/srv/8west/backups/safeharbor/20260826T234825Z-pre-phase5a-portal`; its verified
+application archive SHA-256 is
+`e7890c2145636942ab13a3a0dce44ef13749a2647f8e7a2bfdf8119424906131`
+and its trigger-inclusive database dump SHA-256 is
+`3d316813f6d7524ccdfbd20bb056f1f66c4ab7bd3f69c0df291c66bb0d336819`.
+Rollback is code-first while the gate stays false; leave the two empty additive
+tables in place because prior code ignores them. A database restore is disaster
+recovery only because it would discard writes made after the backup.
 
 Only after a separately reviewed 8 West ID confidential client exists may the
 server-only portal issuer/client/callback/cache configuration be populated.

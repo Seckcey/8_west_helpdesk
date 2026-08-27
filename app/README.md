@@ -14,8 +14,8 @@ config/config.sample.php   host config template (config.php is server-only, giti
 db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (010 versioned service
-                           goals and 011 approval-grade time are live; 012
-                           customer portal is a dark source candidate only)
+                           goals, 011 approval-grade time, and 012 customer
+                           portal are applied; portal source is deployed dark)
 db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
                            identity tenant slug → provider tenant/client binding
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
@@ -180,6 +180,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   through an explicit active CLI binding, and binds every ticket read to both
   provider tenant and client. See `docs/customer-portal-contract.md`; never
   infer a mapping from email/domain/name or enable a live business as a test.
+  Production has the migration and source but no portal OIDC values, bindings,
+  global enablement, or authenticated customer canary.
 
 ## Develop
 
