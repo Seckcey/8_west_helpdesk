@@ -630,5 +630,23 @@ time_check('stopped timer remains local until the exact server acknowledgement',
     && str_contains($clearTimer, 'current.entryKey !== entryKey')
     && str_contains($clearTimer, 'writeTimer(null)'));
 
+$mysqlHarness = file_get_contents(__DIR__ . '/time_entries_mysql_test.php');
+$validateWorkflow = file_get_contents(dirname(__DIR__, 2) . '/.github/workflows/validate.yml');
+time_check('destructive MySQL proof is standalone and fails closed without an explicit fixture',
+    is_string($mysqlHarness)
+    && !str_contains($mysqlHarness, 'lib/bootstrap.php')
+    && str_contains($mysqlHarness, "getenv('SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER')")
+    && str_contains($mysqlHarness, "\$disposableServer !== '1'")
+    && str_contains($mysqlHarness, "getenv('SAFEHARBOR_TIME_TEST_DB')")
+    && str_contains($mysqlHarness, 'Refusing destructive test database name.')
+    && str_contains($mysqlHarness, 'Time-entry MySQL fixture unavailable:')
+    && substr_count($mysqlHarness, 'exit(2);') >= 3);
+time_check('Validate executes the 96-check MySQL migration and guard proof',
+    is_string($validateWorkflow)
+    && str_contains($validateWorkflow, 'Test approval-grade time migration and database guards')
+    && str_contains($validateWorkflow, "SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'")
+    && str_contains($validateWorkflow, 'SAFEHARBOR_TIME_TEST_DB: safeharbor_time_test')
+    && str_contains($validateWorkflow, 'run: php app/tests/time_entries_mysql_test.php'));
+
 fwrite(STDOUT, "Approval-grade technician time: {$checks} checks, {$failures} failures\n");
 exit($failures === 0 ? 0 : 1);
