@@ -32,7 +32,10 @@ and the **8 West IT 365 Control Panel**. Four products, four
 > service-goal snapshots · approval-reviewed technician time.
 >
 > Customer Service Tools follow-on: service goals and approval-grade time are
-> live. The operator-only approved-time seam to Coastmark draft invoice lines,
+> live. Guarded later-version service-goal publication is deployed with no v2
+> policy published; real targets and their effective time remain an explicit
+> business decision. The operator-only approved-time seam to Coastmark draft
+> invoice lines,
 > the 8 West ID customer ticket-summary portal, and archived weekly business
 > reports are deployed dark behind explicit allowlists and canary gates.
 > Safeharbor owns the operational records; Milepost supplies context only;

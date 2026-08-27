@@ -95,7 +95,8 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 **010 (versioned service goals, migration-first on 2026-08-26)** ·
 **011 (approval-grade technician time, migration-first on 2026-08-26)** ·
 **012 (dark customer portal boundary, migration-first on 2026-08-26)** ·
-**013 (versioned archived business reports, migration-first on 2026-08-26)**.
+**013 (versioned archived business reports, migration-first on 2026-08-26)** ·
+**014 (guarded service-goal publication, migration-first on 2026-08-27)**.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -243,6 +244,39 @@ owner/admin actor, reason, and separately reviewed plan digest. Rollback is
 code-first while leaving the additive 014 shape in place; database restoration
 is disaster recovery only. The full policy and canary contract is in
 `docs/service-goal-policy-contract.md`.
+
+Production applied migration 014 and deployed its matching source through
+Safeharbor PR #50 / merge
+`12abd36de83cda276e6d96a79e873e2706bb3ff0` on 2026-08-27. Exact-head
+Validate run `33036765540` and exact-main run `33036836019` passed; the
+disposable MySQL suite completed 53/53 migration, drift, rollback,
+serialization, and runtime-privilege checks. The applied migration SHA-256 is
+`4062c65c985022d1c7ef07a3c0e127221437f3bd46cd1b79eb263480a388bc20`.
+
+Production postflight proved two attribution columns, the exact two-part actor
+index/FK with `NO ACTION`, four enforced checks, and six policy guards. Four v1
+versions, sixteen targets, zero later/attributed versions, two captured ticket
+snapshots, 275 historical NULL snapshots, and the one unresolved legacy
+pending time row remain unchanged. The policy/ticket digests, DML-only runtime
+grant digest, and protected config hash remained unchanged. All 103 live PHP
+files lint, Apache syntax and public login/root smoke pass, and all five dark
+portal routes remain cookie-free 404. Portal/report tables are empty and no
+business-report cron exists. All 129 deployed paths match the exact merge: 126
+byte-identical plus three normalized cache-stamp files. The verified root-only
+rollback record is
+`/srv/8west/backups/safeharbor/20260827T033805Z-pre-phase2b-service-goal-publication`.
+Its application archive, trigger-inclusive database dump, and manifest
+SHA-256 values are
+`8d892f03b4cf5eb4042ceaf2cb877e23c1fffb601f5e7f82c1cbb2aaded60d88`,
+`21b8c62bba6a5455163a45b175038d0056fa6970691d4b78e1d7cba0e9ff8b17`,
+and `8776fbb6f1e69ba1969b38dc8cb0e5005f6819608a0d7a3a0a9d78c0da8b2ff1`.
+The preserved policy, ticket-snapshot, runtime-grant, and config SHA-256
+values are
+`5eff8af39aeb1e28a4538654b2f790230147e070d50c45fcad5ce4eaa396e6f3`,
+`aec2812c424abb222ad9574412fc2d56ef1c3074d9c31f44c04efb8a3b9853e4`,
+`35673b03b5ac36996f9902f7b40a1581486437a6f2a31f5d849b961c4612def0`,
+and `c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`.
+No v2 policy was published.
 
 Deploy code only after the migration and grant postflight. Keep the protected
 `business_reports` block absent or fully default-off with empty allowlists.
