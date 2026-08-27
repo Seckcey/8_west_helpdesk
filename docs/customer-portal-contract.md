@@ -1,8 +1,16 @@
 # Safeharbor customer portal contract
 
-**Status:** migration 012 and the reviewed source were merged and deployed
-dark on 2026-08-26. The global gate is off, portal OIDC values are absent, and
-there are zero bindings/events; no customer can sign in yet.
+**Status:** migration 012 and the reviewed Phase 5A source were deployed dark
+through Safeharbor PR #44 / merge `3bb87fa`. Disabled-route hardening then
+deployed through PR #48 / merge
+`748f16ca4648ece2ce767966af46cd2788bd3f7c`. The protected host config now
+contains an explicit `portal.enabled=false` block at SHA-256
+`c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`:
+the fixed issuer and production callback are present, the client ID and secret
+are empty, and the private revocation-cache directory exists empty. Every
+portal route, including GET and POST logout, is a cookie-free 404. 8 West ID's
+`f0ec49b` prerequisite is deployed dark, but it has zero registered Safeharbor
+OIDC clients; Safeharbor has zero bindings/events. No customer can sign in yet.
 
 Phase 5A adds one deliberately narrow customer surface: a dark/default-off,
 read-only list of ticket summaries for one explicitly mapped business. It does
@@ -40,6 +48,11 @@ The vendored files under `lib/eightwestid/` are exact blobs from the maintained
 8 West ID `client-kits/php/eightwestid/` package at ID commit
 `f0ec49b6106791d0ba658ca16899562fbe5b3b86`. `portal_auth_test.php` pins every
 blob, so a local fork fails CI visibly.
+
+That exact 8 West ID prerequisite is deployed in production without creating
+or rotating an OIDC client, changing a tenant grant, or assigning a customer
+role. The current issuer therefore supports this contract in code, but there
+is still no production Safeharbor client registration or client secret.
 
 The confidential authorization-code flow is the maintained `oidc_v1` contract:
 
@@ -135,24 +148,30 @@ or changed binding also destroys it on the next request.
 ## Dark launch and future controlled canary
 
 Source completion is not authorization to register or expose a client. Steps
-1–3 below were completed on 2026-08-26 through Safeharbor PR #44 / merge
-`3bb87fa`; steps 4–8 remain separate controlled-canary gates:
+1–5 below are complete; steps 6–9 remain separate controlled-canary gates:
 
 1. finish and deploy all earlier migration-first phases, including migration
    011 before 012;
 2. back up Safeharbor and apply 012 through the trigger-capable reviewed
    operator path while the web identity remains DML-only;
-3. deploy this code with `portal.enabled=false` and verify `/portal/` is 404;
-4. register one confidential Safeharbor OIDC client in 8 West ID with the exact
-   production HTTPS callback, without committing its id or secret;
-5. configure the issuer/client/callback/private shared revocation cache while
-   keeping the global switch false;
-6. choose one expressly approved canary business, prepare its binding disabled,
+3. deploy the Phase 5A source and PR #48 logout gate with
+   `portal.enabled=false`; verify `/portal/`, `/portal/login.php`,
+   `/portal/callback.php`, and both GET and POST `/portal/logout.php` are 404
+   without `Set-Cookie`;
+4. deploy the reviewed 8 West ID `f0ec49b` prerequisite without creating a
+   client, assigning a role, or changing a grant;
+5. install the non-secret disabled scaffold: fixed issuer and callback, empty
+   client fields, and a private persistent empty revocation cache;
+6. register one confidential Safeharbor OIDC client in 8 West ID with the exact
+   production HTTPS callback, without committing or displaying its id or
+   secret, then transfer those values through the protected operator path while
+   the global gate remains false;
+7. choose one expressly approved canary business, prepare its binding disabled,
    inspect the JSON facts/events, then explicitly enable the binding;
-7. set `portal.enabled=true` only for the controlled canary window and verify a
+8. set `portal.enabled=true` only for the controlled canary window and verify a
    fresh signed-in session for each relevant client-role class, tenant/client
    isolation, revocation, disable-on-next-request, logout, desktop, and mobile;
-8. keep canary monitoring read-only. Do not infer permission for a second
+9. keep canary monitoring read-only. Do not infer permission for a second
    business.
 
 Immediate rollback is `portal.enabled=false`. Disabling the binding is the
@@ -175,8 +194,9 @@ The MySQL suite is destructive only in a database whose name begins
 migration replay, lifecycle/audit, cross-provider refusal, immutable-history,
 client-deletion refusal, and ticket-isolation probes.
 
-The source slice itself created no real OIDC client or live mapping. Its later
-release applied migration 012 and deployed the source dark only. Registration,
-server-only OIDC configuration, one disabled-then-enabled binding, global
-enablement, and authenticated canary acceptance remain explicit operational
-choices.
+The source slice and dark closeout created no real OIDC client or live mapping.
+Migration 012, the source, disabled-route hardening, the explicit non-secret
+host scaffold, and the empty private cache are live. Confidential-client
+registration and secure client-value installation, one
+disabled-then-enabled binding, global enablement, and authenticated canary
+acceptance remain explicit operational choices.

@@ -2,9 +2,9 @@
 
 **Last verified overall: 2026-08-09** against production, not from memory.
 The suite SSO sections below were separately verified on 2026-08-24. The
-Customer Service Tools and database sections were verified again on
-2026-08-26; the rest of this page was not re-audited during those focused
-closeouts.
+Customer Service Tools and database sections were verified again through the
+2026-08-26 PR #48 portal dark-closeout and explicit disabled host scaffold; the
+rest of this page was not re-audited during those focused closeouts.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -33,7 +33,7 @@ If you change what is live, change this page in the same PR.
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's sender/receiver, Phase 5A's portal source, and Phase 6's business-report source are deployed default-off while existing service-intake gates remain live |
-| Customer ticket-summary portal (Phase 5A) | **Deployed dark** through PR #44 / merge `3bb87fa`; migration 012 is applied, the global gate and OIDC values remain off/absent, and there are zero bindings/events |
+| Customer ticket-summary portal (Phase 5A) | **Deployed dark** through base PR #44 / merge `3bb87fa` plus disabled-logout hardening PR #48 / merge `748f16c`; migration 012 is applied, `portal.enabled=false`, client fields are empty, the private cache is empty, 8 West ID has zero Safeharbor OIDC clients, and Safeharbor has zero bindings/events |
 | Scheduled archived business reports (Phase 6) | **Deployed dark** through PR #46 / merge `209bb42`; migration 013 is applied, both gates and every allowlist remain off/empty, and there are zero definitions/schedules/archives/deliveries/attempts plus no scheduler |
 
 ## Customer Service Tools development
@@ -172,15 +172,17 @@ disabled-then-enabled mapping and a controlled 201/200 canary. The exact
 contract and rollback gates are in
 [`coastmark-approved-time-export-contract.md`](coastmark-approved-time-export-contract.md).
 
-Phase 5A is merged and deployed dark through Safeharbor PR #44 / release merge
-`3bb87fa`. It adds a separate `/portal` OIDC session and the
+Phase 5A's base is merged and deployed dark through Safeharbor PR #44 / release
+merge `3bb87fa`. Disabled-route hardening is deployed through PR #48 / merge
+`748f16ca4648ece2ce767966af46cd2788bd3f7c`. The slice adds a separate
+`/portal` OIDC session and the
 maintained 8 West ID `oidc_v1` PHP kit, accepts only exact `client_owner`,
 `client_admin`, `client_staff`, and `client_viewer` roles with the exact
 `safeharbor` product, stores the signed subject/session-version pair for at
 most eight hours, and fails closed when revocation state is more than five
 minutes stale. 8 West ID's additive Safeharbor OIDC surface policy is merged
-there as `f0ec49b`; no production client registration or value is invented in
-this repository.
+there as `f0ec49b` and is deployed dark without a Safeharbor client
+registration, client secret, grant change, or customer-role assignment.
 
 Migration 012 creates an immutable explicit binding lifecycle but no binding.
 The CLI is prepare-disabled → inspect exact identity slug/provider
@@ -193,21 +195,30 @@ ticket number, subject, status, priority, and timestamps/counts. It has no
 messages, attachments, replies, AI, billing, technician-time, endpoint, or
 ticket-detail access.
 
-The release merged as `3bb87fa39abe8973f2a7328c193e311a2c446f88`;
-exact-main Validate run `33024372187` passed. Migration 012 was applied through
-the privileged operator path and externally verified at two InnoDB tables,
-10/11 columns, 6/3 indexes, 4/3 tenant-scoped foreign keys, one enforced slug
-check, seven permanent triggers, and zero bindings/events. All prior business
-row counts and the runtime identity's DML-only grants remained unchanged.
+The base release merged as `3bb87fa39abe8973f2a7328c193e311a2c446f88`;
+exact-main Validate run `33024372187` passed. PR #48 then moved the disabled
+gate ahead of logout method/session handling and pinned that ordering in
+`portal_auth_test.php`. Migration 012 was applied through the privileged
+operator path and externally verified at two InnoDB tables, 10/11 columns,
+6/3 indexes, 4/3 tenant-scoped foreign keys, one enforced slug check, seven
+permanent triggers, and zero bindings/events. All prior business row counts and
+the runtime identity's DML-only grants remained unchanged.
 
-The exact merge source is deployed with all 93 production PHP files linting,
-Apache syntax valid, and 108/108 comparable tracked app-file hashes matching.
-The protected config stayed byte-identical (SHA-256
-`dd165dff89e9f048e8bfd0ff06b1c3f636b452abf9569e045f5925db5fe7de81`,
-`ubuntu:www-data`, mode `640`), has no portal block/client/secret/callback, and
-the private revocation cache was not created. `/portal/`, portal login, and
-callback each return the exact ten-byte 404 body without a cookie; staff login
-is 200, root is 302, and release-window fatal/parse/uncaught errors were zero.
+The base exact merge source deployed with all 93 then-current production PHP
+files linting, Apache syntax valid, and 108/108 comparable tracked app-file
+hashes matching. The protected config remained byte-identical through that
+release and the later Phase 6 rollout at SHA-256
+`dd165dff89e9f048e8bfd0ff06b1c3f636b452abf9569e045f5925db5fe7de81`.
+The later portal-only dark scaffold deliberately changed the protected config
+to SHA-256
+`c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`.
+It remains `ubuntu:www-data` mode `640` and contains the exact issuer,
+`https://safeharbor.8westit.com/portal/callback.php`, an empty client ID and
+secret, and `portal.enabled=false`. The private persistent revocation-cache
+directory exists with private permissions and is empty. `/portal/`, portal
+login, callback, and both GET and POST logout return 404 without `Set-Cookie`;
+staff login is 200, root is 302, and the dark closeout introduced no
+release-window fatal/parse/uncaught error.
 
 The protected rollback record is
 `/srv/8west/backups/safeharbor/20260826T234825Z-pre-phase5a-portal`.
@@ -218,14 +229,15 @@ the trigger-inclusive database dump SHA-256 is
 The verified code-first rollback keeps the portal false and leaves the two
 empty additive tables in place; the database dump is disaster recovery only.
 
-This is still not a customer-accessible claim. No OIDC client, server-side
-portal values, mapping, authenticated portal session, or customer-data read was
-created. A controlled canary still requires an explicitly registered callback
-and confidential client, protected server-only configuration, one approved
-business prepared disabled then inspected and enabled, deliberate global
-enablement, fresh signed-in client-role acceptance, tenant isolation,
-revocation and disable-on-next-request proof, and desktop/mobile verification.
-See `docs/customer-portal-contract.md`.
+This is still not a customer-accessible claim. No OIDC client registration,
+client ID/secret, mapping, authenticated portal session, or customer-data read
+was created. The non-secret disabled server scaffold and empty cache are
+preflight only. A controlled canary still requires one explicitly registered
+confidential client and protected credential transfer, one approved business
+prepared disabled then inspected and enabled, deliberate global enablement,
+fresh signed-in client-role acceptance, tenant isolation, revocation and
+disable-on-next-request proof, and desktop/mobile verification. See
+`docs/customer-portal-contract.md`.
 
 Phase 6 is deployed dark through Safeharbor PR #46 / merge
 `209bb421c2ea883f6434971544dc66556bff6167`. It adds an immutable version-1
@@ -252,10 +264,13 @@ Migration 013 defines five tenant-scoped tables, 27 indexes, 15 foreign keys,
 passed the destructive-name-guarded MySQL 8 suite that
 replays fresh schema plus migration, verifies native exact-byte archive hashes,
 exercises database guards and least-privilege runtime DML, and refuses report
-history deletion. Production has all five empty report tables and 15 triggers;
-the protected config remains byte-identical with no report block, all gates and
-allowlists are inert, and no scheduler, recipient, definition, or schedule was
-created. The contract and canary sequence are in
+history deletion. Production has all five empty report tables and 15 triggers.
+At the Phase 6 rollout the protected config was byte-identical at
+`dd165dff89e9f048e8bfd0ff06b1c3f636b452abf9569e045f5925db5fe7de81`
+with no report block. The later explicit disabled portal scaffold changed the
+whole-file hash only; it added no report block or report state. All report
+gates and allowlists remain inert, and no scheduler, recipient, definition, or
+schedule was created. The contract and canary sequence are in
 `docs/business-reports-contract.md`.
 
 ## First-tenant suite SSO repair
@@ -405,7 +420,10 @@ canary evidence are recorded in the Phase 3 section above.
 Migration `012_customer_portal.sql` was applied operator-first on 2026-08-26.
 Production has its two exact tables, seven lifecycle/audit triggers, enforced
 tenant/client ownership constraints, and zero mappings/events. The matching
-portal source is deployed dark; no OIDC configuration or canary was created.
+portal source and PR #48 logout hardening are deployed dark. The host has an
+explicit disabled non-secret portal scaffold and an empty private cache, but 8
+West ID has zero Safeharbor OIDC clients and no credential, binding, enabled
+gate, or authenticated canary was created.
 Migration `013_business_reports.sql` was applied operator-first on 2026-08-26.
 Production has five exact tenant-scoped tables, 27 indexes, 15 foreign keys,
 15 checks, and 15 lifecycle/immutability triggers. All five tables are empty;
@@ -503,7 +521,8 @@ assume it has never run.
 
 ## Known open items
 
-Nothing here blocks anyone; all are recorded so they are not rediscovered.
+These do not block the deployed dark code. They do block activation where
+called out, and none may be satisfied by inventing customer or financial facts.
 
 1. **`milepost-westy` / `controlpanel-westy` are unregistered.** The Westy
    contract describes them; production has no rows for them.
@@ -513,6 +532,21 @@ Nothing here blocks anyone; all are recorded so they are not rediscovered.
    intake runs entirely on code defaults — which is fine and deliberate, but it
    means the first person to add product number three will be *creating* that
    block, not editing it. Copy the shape from `config/config.sample.php`.
+4. **Customer portal activation needs real identity and customer decisions.**
+   Register one exact confidential 8 West ID client, transfer its values
+   through the protected operator path, and obtain one explicit
+   identity-tenant → Safeharbor tenant/client canary mapping before enabling
+   anything. A fresh signed-in customer session must prove isolation,
+   revocation, logout, and desktop/mobile behavior. The portal remains ticket
+   summaries only; billing, ticket detail, mutation, and endpoint control are
+   out of scope.
+5. **Business-report scheduling needs one exact recipient canary.** An approved
+   tenant/client/recipient and separate recipient confirmation must precede the
+   reviewed cron installation. Provider acceptance alone is not delivery.
+6. **The Coastmark seam needs Coastmark-owned financial facts.** No production
+   agreement/rate/tax mapping currently exists. A future canary may create only
+   draft invoice lines from approved Safeharbor time; it must never post, send,
+   create Checkout, record payment, or touch the ledger automatically.
 
 ## Traps that have already cost time
 

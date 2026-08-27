@@ -191,8 +191,13 @@ public/                    Apache docroot (page-per-file, like Milepost)
   through an explicit active CLI binding, and binds every ticket read to both
   provider tenant and client. See `docs/customer-portal-contract.md`; never
   infer a mapping from email/domain/name or enable a live business as a test.
-  Production has the migration and source but no portal OIDC values, bindings,
-  global enablement, or authenticated customer canary.
+  Production has an explicit disabled portal block with the fixed issuer and
+  callback, empty client ID/secret, a private empty revocation-cache directory,
+  zero bindings/events, and no authenticated customer canary. The 8 West ID
+  prerequisite is deployed dark but has zero registered Safeharbor OIDC
+  clients. Every portal route, including GET and POST logout, remains
+  cookie-free 404 while disabled. This surface shows ticket summaries only; it
+  has no billing, ticket detail, mutation, or customer endpoint control.
 - Business reports: independent versioned definitions and schedules produce
   exact weekly aggregate archives. Both generation and delivery default off;
   exact tenant/client/recipient allowlists and `canary_only` apply. A Graph 202
