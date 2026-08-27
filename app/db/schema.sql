@@ -1319,10 +1319,12 @@ CREATE TABLE IF NOT EXISTS time_entries (
   reviewed_by_user_id INT UNSIGNED NULL,
   reviewed_at         DATETIME NULL,
   review_note         VARCHAR(500) NOT NULL DEFAULT '',
+  corrects_time_entry_id INT UNSIGNED NULL,
   created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_time_entries_tenant_key (tenant_id, entry_key),
   UNIQUE KEY uq_time_entries_tenant_id (tenant_id, id),
+  UNIQUE KEY uq_time_entries_one_correction (tenant_id, corrects_time_entry_id),
   KEY ix_time_ticket (ticket_id),
   KEY ix_time_user_created (user_id, created_at),
   KEY ix_time_entries_ticket (tenant_id, ticket_id),
@@ -1342,7 +1344,9 @@ CREATE TABLE IF NOT EXISTS time_entries (
   CONSTRAINT fk_time_entries_user_tenant FOREIGN KEY (tenant_id, user_id)
     REFERENCES users (tenant_id, id),
   CONSTRAINT fk_time_entries_reviewer_tenant FOREIGN KEY (tenant_id, reviewed_by_user_id)
-    REFERENCES users (tenant_id, id)
+    REFERENCES users (tenant_id, id),
+  CONSTRAINT fk_time_entries_correction_tenant FOREIGN KEY (tenant_id, corrects_time_entry_id)
+    REFERENCES time_entries (tenant_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS time_entry_events (
@@ -1367,6 +1371,43 @@ CREATE TABLE IF NOT EXISTS time_entry_events (
     REFERENCES users (tenant_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Persistent UTC-day rows provide a small transaction lock target. Every
+-- measured insert locks its one or two covered UTC days before consulting the
+-- interval registry, so concurrent requests for the same technician cannot
+-- both pass an overlap check against an old snapshot.
+CREATE TABLE IF NOT EXISTS time_entry_interval_guards (
+  tenant_id  INT UNSIGNED NOT NULL,
+  user_id    INT UNSIGNED NOT NULL,
+  guard_date DATE NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (tenant_id, user_id, guard_date),
+  CONSTRAINT fk_time_interval_guards_tenant FOREIGN KEY (tenant_id)
+    REFERENCES tenants (id),
+  CONSTRAINT fk_time_interval_guards_user FOREIGN KEY (tenant_id, user_id)
+    REFERENCES users (tenant_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Database-owned mirror of measured facts. The parent time row remains the
+-- immutable source of truth; this narrow table exists only so the BEFORE
+-- INSERT trigger can take a current locking read without reading the table
+-- that invoked it.
+CREATE TABLE IF NOT EXISTS time_entry_measured_intervals (
+  tenant_id       INT UNSIGNED NOT NULL,
+  time_entry_id   INT UNSIGNED NOT NULL,
+  user_id         INT UNSIGNED NOT NULL,
+  started_at      DATETIME NOT NULL,
+  ended_at        DATETIME NOT NULL,
+  approval_status ENUM('pending','approved','rejected') NOT NULL,
+  PRIMARY KEY (tenant_id, time_entry_id),
+  KEY ix_time_measured_overlap
+    (tenant_id, user_id, approval_status, started_at, ended_at, time_entry_id),
+  CONSTRAINT ck_time_measured_positive CHECK (ended_at > started_at),
+  CONSTRAINT fk_time_measured_entry FOREIGN KEY (tenant_id, time_entry_id)
+    REFERENCES time_entries (tenant_id, id),
+  CONSTRAINT fk_time_measured_user FOREIGN KEY (tenant_id, user_id)
+    REFERENCES users (tenant_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Prove TRIGGER privilege before replacing any audit guard. The migration
 -- uses the same preflight before installing these canonical fresh-schema
 -- definitions.
@@ -1384,6 +1425,14 @@ FOR EACH ROW
 BEGIN
   DECLARE ticket_tenant_id INT UNSIGNED;
   DECLARE ticket_client_id INT UNSIGNED;
+  DECLARE correction_count INT DEFAULT 0;
+  DECLARE correction_status VARCHAR(16) DEFAULT NULL;
+  DECLARE correction_ticket_id INT UNSIGNED DEFAULT NULL;
+  DECLARE correction_client_id INT UNSIGNED DEFAULT NULL;
+  DECLARE correction_user_id INT UNSIGNED DEFAULT NULL;
+  DECLARE correction_source VARCHAR(16) DEFAULT NULL;
+  DECLARE locked_guard_date DATE DEFAULT NULL;
+  DECLARE conflicting_time_entry_id INT UNSIGNED DEFAULT NULL;
 
   SELECT tenant_id, client_id
     INTO ticket_tenant_id, ticket_client_id
@@ -1416,7 +1465,7 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'New time entries cannot be pre-reviewed';
   END IF;
   IF (NEW.started_at IS NULL) <> (NEW.ended_at IS NULL)
-     OR (NEW.started_at IS NOT NULL AND NEW.ended_at < NEW.started_at) THEN
+     OR (NEW.started_at IS NOT NULL AND NEW.ended_at <= NEW.started_at) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry interval is invalid';
   END IF;
   IF NEW.source = 'timer' AND NEW.started_at IS NULL THEN
@@ -1425,6 +1474,29 @@ BEGIN
   IF NEW.source = 'suggestion' AND NEW.started_at IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Suggested time cannot claim timer evidence';
   END IF;
+
+  IF NEW.corrects_time_entry_id IS NOT NULL THEN
+    SELECT COUNT(*), MAX(approval_status), MAX(ticket_id), MAX(client_id),
+           MAX(user_id), MAX(source)
+      INTO correction_count, correction_status, correction_ticket_id,
+           correction_client_id, correction_user_id, correction_source
+      FROM time_entries
+     WHERE tenant_id = NEW.tenant_id
+       AND id = NEW.corrects_time_entry_id;
+    IF correction_count <> 1 OR BINARY correction_status <> BINARY 'rejected' THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Only rejected time entries may be corrected';
+    END IF;
+    IF correction_user_id <> NEW.user_id THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry correction technician must match';
+    END IF;
+    IF correction_ticket_id <> NEW.ticket_id OR correction_client_id <> NEW.client_id THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry correction ticket and client must match';
+    END IF;
+    IF BINARY correction_source <> BINARY NEW.source THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry correction source must match';
+    END IF;
+  END IF;
+
   IF NEW.started_at IS NOT NULL THEN
     IF TIMESTAMPDIFF(SECOND, NEW.started_at, NEW.ended_at) > 86400 THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry interval cannot exceed 24 hours';
@@ -1437,6 +1509,52 @@ BEGIN
          - ROUND(TIMESTAMPDIFF(SECOND, NEW.started_at, NEW.ended_at) / 60.0)
        ) > 1 THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Minutes must match measured interval';
+    END IF;
+
+    INSERT IGNORE INTO time_entry_interval_guards
+      (tenant_id, user_id, guard_date)
+    VALUES
+      (NEW.tenant_id, NEW.user_id, DATE(NEW.started_at));
+    IF DATE(DATE_SUB(NEW.ended_at, INTERVAL 1 SECOND)) <> DATE(NEW.started_at) THEN
+      INSERT IGNORE INTO time_entry_interval_guards
+        (tenant_id, user_id, guard_date)
+      VALUES
+        (NEW.tenant_id, NEW.user_id,
+         DATE(DATE_SUB(NEW.ended_at, INTERVAL 1 SECOND)));
+    END IF;
+
+    SELECT guard_date
+      INTO locked_guard_date
+      FROM time_entry_interval_guards
+     WHERE tenant_id = NEW.tenant_id
+       AND user_id = NEW.user_id
+       AND guard_date = DATE(NEW.started_at)
+     FOR UPDATE;
+    IF DATE(DATE_SUB(NEW.ended_at, INTERVAL 1 SECOND)) <> DATE(NEW.started_at) THEN
+      SELECT guard_date
+        INTO locked_guard_date
+        FROM time_entry_interval_guards
+       WHERE tenant_id = NEW.tenant_id
+         AND user_id = NEW.user_id
+         AND guard_date = DATE(DATE_SUB(NEW.ended_at, INTERVAL 1 SECOND))
+       FOR UPDATE;
+    END IF;
+
+    SET conflicting_time_entry_id = NULL;
+    SELECT time_entry_id
+      INTO conflicting_time_entry_id
+      FROM time_entry_measured_intervals
+     WHERE tenant_id = NEW.tenant_id
+       AND user_id = NEW.user_id
+       AND approval_status IN ('pending', 'approved')
+       AND started_at < NEW.ended_at
+       AND ended_at > NEW.started_at
+     ORDER BY started_at, time_entry_id
+     LIMIT 1
+     FOR UPDATE;
+    IF conflicting_time_entry_id IS NOT NULL THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Measured time overlaps existing pending or approved time';
     END IF;
   END IF;
 END$$
@@ -1468,8 +1586,17 @@ BEGIN
        'reviewed_by_user_id', NEW.reviewed_by_user_id,
        'reviewed_at', NEW.reviewed_at,
        'review_note', NEW.review_note,
+       'corrects_time_entry_id', NEW.corrects_time_entry_id,
        'created_at', NEW.created_at
      ), UTC_TIMESTAMP());
+
+  IF NEW.started_at IS NOT NULL THEN
+    INSERT IGNORE INTO time_entry_measured_intervals
+      (tenant_id, time_entry_id, user_id, started_at, ended_at, approval_status)
+    VALUES
+      (NEW.tenant_id, NEW.id, NEW.user_id, NEW.started_at, NEW.ended_at,
+       NEW.approval_status);
+  END IF;
 END$$
 
 CREATE TRIGGER trg_time_entries_before_update
@@ -1491,6 +1618,7 @@ BEGIN
    AND NEW.worked_at <=> OLD.worked_at
    AND NEW.started_at <=> OLD.started_at
    AND NEW.ended_at <=> OLD.ended_at
+   AND NEW.corrects_time_entry_id <=> OLD.corrects_time_entry_id
    AND NEW.created_at <=> OLD.created_at
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry facts are immutable';
@@ -1526,6 +1654,26 @@ CREATE TRIGGER trg_time_entries_after_update
 AFTER UPDATE ON time_entries
 FOR EACH ROW
 BEGIN
+  DECLARE measured_registry_count INT DEFAULT 0;
+  DECLARE measured_registry_status VARCHAR(16) DEFAULT NULL;
+
+  IF NEW.started_at IS NOT NULL THEN
+    UPDATE time_entry_measured_intervals
+       SET approval_status = NEW.approval_status
+     WHERE tenant_id = NEW.tenant_id
+       AND time_entry_id = NEW.id
+       AND approval_status <> NEW.approval_status;
+    SELECT COUNT(*), MAX(approval_status)
+      INTO measured_registry_count, measured_registry_status
+      FROM time_entry_measured_intervals
+     WHERE tenant_id = NEW.tenant_id
+       AND time_entry_id = NEW.id;
+    IF measured_registry_count <> 1
+       OR BINARY measured_registry_status <> BINARY NEW.approval_status THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Measured time registry is incomplete';
+    END IF;
+  END IF;
+
   INSERT INTO time_entry_events
     (tenant_id, time_entry_id, actor_user_id, event_kind, from_status,
      to_status, reason, snapshot_json, created_at)
@@ -1550,6 +1698,7 @@ BEGIN
        'reviewed_by_user_id', NEW.reviewed_by_user_id,
        'reviewed_at', NEW.reviewed_at,
        'review_note', NEW.review_note,
+       'corrects_time_entry_id', NEW.corrects_time_entry_id,
        'created_at', NEW.created_at
      ), NEW.reviewed_at);
 END$$
@@ -1573,6 +1722,83 @@ BEFORE DELETE ON time_entry_events
 FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time entry events are immutable';
+END$$
+
+CREATE TRIGGER trg_time_interval_guards_no_update
+BEFORE UPDATE ON time_entry_interval_guards
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time interval guard rows are immutable';
+END$$
+
+CREATE TRIGGER trg_time_interval_guards_no_delete
+BEFORE DELETE ON time_entry_interval_guards
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Time interval guard rows cannot be deleted';
+END$$
+
+CREATE TRIGGER trg_time_measured_before_insert
+BEFORE INSERT ON time_entry_measured_intervals
+FOR EACH ROW
+BEGIN
+  DECLARE parent_count INT DEFAULT 0;
+  DECLARE parent_user_id INT UNSIGNED DEFAULT NULL;
+  DECLARE parent_started_at DATETIME DEFAULT NULL;
+  DECLARE parent_ended_at DATETIME DEFAULT NULL;
+  DECLARE parent_status VARCHAR(16) DEFAULT NULL;
+
+  SELECT COUNT(*), MAX(user_id), MAX(started_at), MAX(ended_at),
+         MAX(approval_status)
+    INTO parent_count, parent_user_id, parent_started_at, parent_ended_at,
+         parent_status
+    FROM time_entries
+   WHERE tenant_id = NEW.tenant_id
+     AND id = NEW.time_entry_id;
+  IF parent_count <> 1
+     OR NOT (parent_user_id <=> NEW.user_id)
+     OR NOT (parent_started_at <=> NEW.started_at)
+     OR NOT (parent_ended_at <=> NEW.ended_at)
+     OR NOT (BINARY parent_status <=> BINARY NEW.approval_status) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Measured time registry must match its immutable parent';
+  END IF;
+END$$
+
+CREATE TRIGGER trg_time_measured_before_update
+BEFORE UPDATE ON time_entry_measured_intervals
+FOR EACH ROW
+BEGIN
+  DECLARE parent_status VARCHAR(16) DEFAULT NULL;
+
+  IF NOT (
+       NEW.tenant_id <=> OLD.tenant_id
+   AND NEW.time_entry_id <=> OLD.time_entry_id
+   AND NEW.user_id <=> OLD.user_id
+   AND NEW.started_at <=> OLD.started_at
+   AND NEW.ended_at <=> OLD.ended_at
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Measured time registry facts are immutable';
+  END IF;
+
+  SELECT approval_status
+    INTO parent_status
+    FROM time_entries
+   WHERE tenant_id = NEW.tenant_id
+     AND id = NEW.time_entry_id;
+  IF parent_status IS NULL OR BINARY parent_status <> BINARY NEW.approval_status THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Measured time registry status must match its parent';
+  END IF;
+  IF OLD.approval_status <> 'pending'
+     OR NEW.approval_status NOT IN ('approved', 'rejected') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Measured time registry permits one review transition';
+  END IF;
+END$$
+
+CREATE TRIGGER trg_time_measured_no_delete
+BEFORE DELETE ON time_entry_measured_intervals
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Measured time registry rows cannot be deleted';
 END$$
 DELIMITER ;
 

@@ -55,6 +55,15 @@ jobs:
           SAFEHARBOR_TIME_TEST_USER: root
           SAFEHARBOR_TIME_TEST_PASS: safeharbor-test-root
         run: php app/tests/time_entries_mysql_test.php
+      - name: Test time corrections and measured overlap races
+        env:
+          SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_TIME_TEST_DB: safeharbor_time_test
+          SAFEHARBOR_TIME_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_TIME_TEST_PORT: 3306
+          SAFEHARBOR_TIME_TEST_USER: root
+          SAFEHARBOR_TIME_TEST_PASS: safeharbor-test-root
+        run: php app/tests/time_corrections_mysql_test.php
       - name: Test Coastmark approved-time export contract
         run: php app/tests/coastmark_time_export_test.php
       - name: Test customer portal authentication and revocation

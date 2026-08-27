@@ -106,13 +106,16 @@ $pdo->exec('CREATE TABLE time_entries (
     reviewed_by_user_id INTEGER NULL,
     reviewed_at TEXT NULL,
     review_note TEXT NOT NULL DEFAULT "",
+    corrects_time_entry_id INTEGER NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (tenant_id, entry_key),
+    UNIQUE (tenant_id, corrects_time_entry_id),
     FOREIGN KEY (tenant_id) REFERENCES tenants (id),
     FOREIGN KEY (client_id) REFERENCES clients (id),
     FOREIGN KEY (ticket_id) REFERENCES tickets (id),
     FOREIGN KEY (user_id) REFERENCES users (id),
-    FOREIGN KEY (reviewed_by_user_id) REFERENCES users (id)
+    FOREIGN KEY (reviewed_by_user_id) REFERENCES users (id),
+    FOREIGN KEY (corrects_time_entry_id) REFERENCES time_entries (id)
 )');
 $pdo->exec('CREATE TABLE time_entry_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,6 +149,35 @@ $pdo->exec("CREATE TRIGGER time_entry_review_event
         VALUES
             (NEW.tenant_id, NEW.id, NEW.reviewed_by_user_id, NEW.approval_status,
              OLD.approval_status, NEW.approval_status, NEW.review_note, '{}');
+    END");
+$pdo->exec("CREATE TRIGGER time_entry_correction_guard
+    BEFORE INSERT ON time_entries
+    WHEN NEW.corrects_time_entry_id IS NOT NULL
+    BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+            SELECT 1 FROM time_entries rejected
+             WHERE rejected.id = NEW.corrects_time_entry_id
+               AND rejected.tenant_id = NEW.tenant_id
+               AND rejected.user_id = NEW.user_id
+               AND rejected.ticket_id = NEW.ticket_id
+               AND rejected.client_id = NEW.client_id
+               AND rejected.source = NEW.source
+               AND rejected.approval_status = 'rejected'
+        ) THEN RAISE(ABORT, 'Only rejected time entries may be corrected') END;
+    END");
+$pdo->exec("CREATE TRIGGER time_entry_overlap_guard
+    BEFORE INSERT ON time_entries
+    WHEN NEW.started_at IS NOT NULL AND EXISTS (
+        SELECT 1 FROM time_entries existing
+         WHERE existing.tenant_id = NEW.tenant_id
+           AND existing.user_id = NEW.user_id
+           AND existing.approval_status IN ('pending', 'approved')
+           AND existing.started_at IS NOT NULL
+           AND existing.started_at < NEW.ended_at
+           AND existing.ended_at > NEW.started_at
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'Measured time overlaps existing pending or approved time');
     END");
 
 $pdo->exec("INSERT INTO tenants (id, name) VALUES (1, 'Tenant One'), (2, 'Tenant Two')");
@@ -280,13 +312,13 @@ time_expect_exception(
     'cannot claim',
 );
 time_expect_exception(
-    'timer endpoints must be ordered',
+    'timer endpoints must be strictly ordered',
     TimeEntryValidationException::class,
     fn() => time_entry_create($pdo, 1, 1, time_valid_input('timer.20260826.0041', [
         'started_at' => time_iso($intervalEnd),
         'ended_at' => time_iso($intervalStart),
     ])),
-    'must not be after',
+    'must be before',
 );
 time_expect_exception(
     'worked at must be inside timer interval',
@@ -387,6 +419,134 @@ time_check('rejection event carries the reason',
     $pdo->query("SELECT reason FROM time_entry_events WHERE time_entry_id = {$suggested['id']} AND event_kind = 'rejected'")->fetchColumn()
         === 'Not enough supporting detail.');
 
+$rejectedFactsBeforeCorrection = $pdo->query(
+    "SELECT ticket_id, client_id, user_id, minutes, note, billable, source,
+            worked_at, started_at, ended_at, approval_status, review_note
+       FROM time_entries WHERE id = {$suggested['id']}"
+)->fetch();
+$correctionInput = [
+    'entry_key' => 'correction.suggested.0001',
+    'worked_at' => time_iso(new DateTimeImmutable('-1 minute', new DateTimeZone('UTC'))),
+    'minutes' => 12,
+    'note' => 'Added the missing support detail',
+    'billable' => true,
+];
+$correction = time_entry_correct($pdo, 1, 1, $suggested['id'], $correctionInput);
+time_check('rejected time gets a new pending replacement with explicit lineage',
+    $correction['approval_status'] === 'pending'
+    && $correction['corrects_time_entry_id'] === $suggested['id']
+    && $correction['ticket_id'] === $suggested['ticket_id']
+    && $correction['client_id'] === $suggested['client_id']
+    && $correction['user_id'] === $suggested['user_id']
+    && $correction['source'] === $suggested['source']
+    && $correction['minutes'] === 12
+    && $correction['note'] === 'Added the missing support detail');
+time_check('creating a correction leaves every rejected fact and review byte unchanged',
+    $rejectedFactsBeforeCorrection === $pdo->query(
+        "SELECT ticket_id, client_id, user_id, minutes, note, billable, source,
+                worked_at, started_at, ended_at, approval_status, review_note
+           FROM time_entries WHERE id = {$suggested['id']}"
+    )->fetch());
+$correctionReplay = time_entry_correct($pdo, 1, 1, $suggested['id'], $correctionInput);
+time_check('exact correction retry is idempotent',
+    $correctionReplay['id'] === $correction['id']
+    && $correctionReplay['replayed'] === true
+    && (int)$pdo->query("SELECT COUNT(*) FROM time_entries
+          WHERE corrects_time_entry_id = {$suggested['id']}")->fetchColumn() === 1);
+time_expect_exception(
+    'one rejected entry cannot grow two sibling replacements',
+    TimeEntryConflictException::class,
+    fn() => time_entry_correct(
+        $pdo,
+        1,
+        1,
+        $suggested['id'],
+        array_replace($correctionInput, ['entry_key' => 'correction.suggested.0002']),
+    ),
+    'already has replacement',
+);
+time_expect_exception(
+    'another technician cannot correct rejected time',
+    TimeEntryForbiddenException::class,
+    fn() => time_entry_correct($pdo, 1, 2, $suggested['id'], $correctionInput),
+    'technician who logged',
+);
+time_expect_exception(
+    'correction lookup is tenant scoped',
+    TimeEntryNotFoundException::class,
+    fn() => time_entry_correct($pdo, 2, 4, $suggested['id'], $correctionInput),
+);
+time_expect_exception(
+    'pending or approved time cannot be called a correction target',
+    TimeEntryConflictException::class,
+    fn() => time_entry_correct($pdo, 1, 1, $reply['id'], [
+        'entry_key' => 'correction.pending.0001',
+        'worked_at' => time_iso(new DateTimeImmutable('-1 minute', new DateTimeZone('UTC'))),
+        'minutes' => 5,
+        'note' => 'Not allowed',
+        'billable' => true,
+    ]),
+    'Only rejected',
+);
+time_expect_exception(
+    'correction API facts cannot smuggle ticket or source authority',
+    TimeEntryValidationException::class,
+    fn() => time_entry_correct(
+        $pdo,
+        1,
+        1,
+        $suggested['id'],
+        array_replace($correctionInput, ['ticket_id' => 200]),
+    ),
+    'server controlled',
+);
+
+$firstStart = new DateTimeImmutable((string)$first['started_at'], new DateTimeZone('UTC'));
+$adjacentEnd = $firstStart;
+$adjacentStart = $adjacentEnd->modify('-5 minutes');
+$adjacentInput = time_valid_input('timer.adjacent.20260826.0001', [
+    'worked_at' => time_iso($adjacentEnd),
+    'started_at' => time_iso($adjacentStart),
+    'ended_at' => time_iso($adjacentEnd),
+    'minutes' => 5,
+    'note' => 'Adjacent measured work',
+]);
+$adjacent = time_entry_create($pdo, 1, 1, $adjacentInput);
+time_check('touching measured intervals are allowed without overlap',
+    $adjacent['ended_at'] === $first['started_at']);
+time_expect_exception(
+    'overlapping measured time is a typed conflict',
+    TimeEntryConflictException::class,
+    fn() => time_entry_create($pdo, 1, 1, time_valid_input('timer.overlap.20260826.0001', [
+        'worked_at' => time_iso($adjacentEnd->modify('-1 minute')),
+        'started_at' => time_iso($adjacentStart->modify('+1 minute')),
+        'ended_at' => time_iso($adjacentEnd->modify('-1 minute')),
+        'minutes' => 3,
+        'note' => 'Overlapping measured work',
+    ])),
+    'overlaps',
+);
+$adjacentRejected = time_entry_review(
+    $pdo,
+    1,
+    2,
+    'owner',
+    $adjacent['id'],
+    'rejected',
+    'Wrong work note',
+);
+$measuredCorrection = time_entry_correct($pdo, 1, 1, $adjacentRejected['id'], [
+    'entry_key' => 'correction.measured.0001',
+    'minutes' => 5,
+    'note' => 'Correct measured work note',
+    'billable' => true,
+]);
+time_check('rejected measured interval stops blocking its one pending correction',
+    $measuredCorrection['approval_status'] === 'pending'
+    && $measuredCorrection['corrects_time_entry_id'] === $adjacentRejected['id']
+    && $measuredCorrection['started_at'] === $adjacentRejected['started_at']
+    && $measuredCorrection['ended_at'] === $adjacentRejected['ended_at']);
+
 time_expect_exception(
     'review note cannot be silently truncated',
     TimeEntryValidationException::class,
@@ -421,8 +581,20 @@ $retryFacts = time_entry_validate_create_input([
     'billable' => false,
 ]);
 $retryFingerprint = time_entry_retry_fingerprint($retryFacts);
+$legacyRetryFields = [];
+foreach ([
+    'ticket_id', 'entry_key', 'source', 'worked_at', 'started_at',
+    'ended_at', 'minutes', 'note', 'billable',
+] as $legacyRetryField) {
+    $legacyRetryFields[$legacyRetryField] = $retryFacts[$legacyRetryField] ?? null;
+}
+$legacyRetryJson = json_encode(
+    $legacyRetryFields,
+    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+);
 time_check('reply recovery fingerprint is stable for exact normalized facts',
-    hash_equals($retryFingerprint, time_entry_retry_fingerprint($retryFacts)));
+    hash_equals($retryFingerprint, time_entry_retry_fingerprint($retryFacts))
+    && hash_equals(hash('sha256', $legacyRetryJson), $retryFingerprint));
 $changedRetryFacts = $retryFacts;
 $changedRetryFacts['billable'] = 1;
 time_check('reply recovery fingerprint changes with billing provenance',
@@ -531,6 +703,12 @@ time_check('approval queue renders worked-at source and interval evidence',
     && str_contains($timePageSource, 'source <?= h($e[\'source\']) ?>')
     && str_contains($timePageSource, 'measured <?= h($utcLabel')
     && str_contains($timePageSource, 'no measured interval'));
+time_check('rejected entries expose append-only correction lineage instead of an edit path',
+    is_string($timePageSource)
+    && str_contains($timePageSource, 'data-rejected-entry-id=')
+    && str_contains($timePageSource, 'Correct &amp; resubmit')
+    && str_contains($timePageSource, 'original history kept')
+    && str_contains($timePageSource, 'replacement.corrects_time_entry_id = e.id'));
 
 $exportSource = file_get_contents(__DIR__ . '/../public/reports_export.php');
 time_check('every untrusted CSV text field is formula-neutralized',
@@ -629,8 +807,41 @@ time_check('stopped timer remains local until the exact server acknowledgement',
     && str_contains($submitTimer, 'clearMatchingTimer(t.entryKey)')
     && str_contains($clearTimer, 'current.entryKey !== entryKey')
     && str_contains($clearTimer, 'writeTimer(null)'));
+time_check('browser correction freezes one idempotency key and exact payload before network',
+    is_string($appJs)
+    && str_contains($appJs, 'function newCorrectionKey()')
+    && str_contains($appJs, 'button.dataset.correctionPayload = JSON.stringify(payload)')
+    && str_contains($appJs, 'await api("/api/time_entry_correction.php", payload)')
+    && str_contains($appJs, 'responseEntryKey(result) !== payload.entry_key')
+    && str_contains($appJs, 'billingAnswer === null')
+    && str_contains($appJs, 'Type B for billable or I for internal.')
+    && str_contains($appJs, 'function parseCorrectionUtc(value)')
+    && str_contains($appJs, 'Corrected start (UTC, YYYY-MM-DDTHH:MM:SSZ)')
+    && str_contains($appJs, 'button.dataset.correctionPayload = ""'));
+
+$correctionApiSource = file_get_contents(__DIR__ . '/../public/api/time_entry_correction.php');
+time_check('correction endpoint derives tenant actor ticket and source on the server',
+    is_string($correctionApiSource)
+    && str_contains($correctionApiSource, '(int) $user[\'tenant_id\']')
+    && str_contains($correctionApiSource, '(int) $user[\'id\']')
+    && str_contains($correctionApiSource, 'time_entry_correct(')
+    && !str_contains($correctionApiSource, 'INSERT INTO time_entries'));
+
+$migration016Source = file_get_contents(__DIR__ . '/../db/migrations/016_time_corrections_overlap.sql');
+time_check('migration 016 installs database locks, overlap reads, and immutable correction ownership',
+    is_string($migration016Source)
+    && str_contains($migration016Source, 'INSERT IGNORE INTO time_entry_interval_guards')
+    && str_contains($migration016Source, 'FOR UPDATE;')
+    && str_contains($migration016Source, 'Measured time overlaps existing pending or approved time')
+    && str_contains($migration016Source, 'Only rejected time entries may be corrected')
+    && str_contains($migration016Source, 'NEW.corrects_time_entry_id <=> OLD.corrects_time_entry_id')
+    && str_contains($migration016Source, 'trg_time_016_insert_swap_guard')
+    && str_contains($migration016Source, 'Time audit writes are locked for migration 016 trigger swap')
+    && str_contains($migration016Source, 'trg_time_016_measured_insert_aux_swap')
+    && str_contains($migration016Source, 'migration 016 auxiliary trigger swap'));
 
 $mysqlHarness = file_get_contents(__DIR__ . '/time_entries_mysql_test.php');
+$correctionMysqlHarness = file_get_contents(__DIR__ . '/time_corrections_mysql_test.php');
 $validateWorkflow = file_get_contents(dirname(__DIR__, 2) . '/.github/workflows/validate.yml');
 time_check('destructive MySQL proof is standalone and fails closed without an explicit fixture',
     is_string($mysqlHarness)
@@ -653,6 +864,15 @@ time_check('Validate executes the 97-check MySQL migration and guard proof',
     && str_contains($validateWorkflow, "SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'")
     && str_contains($validateWorkflow, 'SAFEHARBOR_TIME_TEST_DB: safeharbor_time_test')
     && str_contains($validateWorkflow, 'run: php app/tests/time_entries_mysql_test.php'));
+time_check('Validate executes the random-database correction and real race proof',
+    is_string($correctionMysqlHarness)
+    && str_contains($correctionMysqlHarness, '$testDatabase = $databaseBase . \'_correction_\' . $runId')
+    && str_contains($correctionMysqlHarness, "getenv('SAFEHARBOR_TIME_CORRECTION_RACE_WORKER')")
+    && str_contains($correctionMysqlHarness, 'concurrent overlap waits on the database UTC-day guard')
+    && str_contains($correctionMysqlHarness, 'DROP DATABASE IF EXISTS {$quotedDatabase}')
+    && is_string($validateWorkflow)
+    && str_contains($validateWorkflow, 'Test time corrections and measured overlap races')
+    && str_contains($validateWorkflow, 'run: php app/tests/time_corrections_mysql_test.php'));
 
 fwrite(STDOUT, "Approval-grade technician time: {$checks} checks, {$failures} failures\n");
 exit($failures === 0 ? 0 : 1);

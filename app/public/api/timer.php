@@ -36,6 +36,9 @@ if (trim($raw) !== '') {
 if (!in_array($in['source'] ?? null, ['timer', 'suggestion', 'reply'], true)) {
     json_out(['ok' => false, 'error' => 'Source must be timer, suggestion, or an authorized reply retry'], 422);
 }
+if (array_key_exists('corrects_time_entry_id', $in)) {
+    json_out(['ok' => false, 'error' => 'Use the rejected-time correction endpoint for replacements.'], 422);
+}
 if (!array_key_exists('billable', $in)) {
     $in['billable'] = true;
 }

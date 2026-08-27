@@ -154,6 +154,22 @@
     return "timer:" + Date.now().toString(36) + ":" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   }
 
+  function newCorrectionKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return "correction:" + window.crypto.randomUUID();
+    }
+    return "correction:" + Date.now().toString(36) + ":" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+
+  function parseCorrectionUtc(value) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(text)) return null;
+    const milliseconds = Date.parse(text);
+    if (!Number.isFinite(milliseconds)) return null;
+    const canonical = new Date(milliseconds).toISOString().replace(".000Z", "Z");
+    return canonical === text ? { text, milliseconds } : null;
+  }
+
   const readTimer = () => {
     try {
       if (!TIMER_KEY) return null;
@@ -845,6 +861,126 @@
       }
     });
     if (dismiss) dismiss.addEventListener("click", () => rowEl.remove());
+  });
+
+  /* rejected entries are never edited; one new pending replacement links back */
+  $$(".time-correct").forEach((button) => {
+    button.addEventListener("click", async () => {
+      let payload = null;
+      try {
+        payload = button.dataset.correctionPayload
+          ? JSON.parse(button.dataset.correctionPayload)
+          : null;
+      } catch {
+        button.dataset.correctionPayload = "";
+      }
+
+      if (!payload) {
+        const measured = button.dataset.measured === "1";
+        let minutes = Number(button.dataset.minutes);
+        let workedAt = button.dataset.workedAt;
+        let startedAt = button.dataset.startedAt || null;
+        let endedAt = button.dataset.endedAt || null;
+        if (measured) {
+          const startedAnswer = prompt(
+            "Corrected start (UTC, YYYY-MM-DDTHH:MM:SSZ)",
+            startedAt || ""
+          );
+          if (startedAnswer === null) return;
+          const endedAnswer = prompt(
+            "Corrected end (UTC, YYYY-MM-DDTHH:MM:SSZ)",
+            endedAt || ""
+          );
+          if (endedAnswer === null) return;
+          const workedAnswer = prompt(
+            "Corrected worked-at time (UTC, inside that interval)",
+            workedAt || ""
+          );
+          if (workedAnswer === null) return;
+
+          const correctedStart = parseCorrectionUtc(startedAnswer);
+          const correctedEnd = parseCorrectionUtc(endedAnswer);
+          const correctedWorked = parseCorrectionUtc(workedAnswer);
+          if (!correctedStart || !correctedEnd || !correctedWorked) {
+            toast("Use real UTC times like 2026-08-25T10:30:00Z.");
+            return;
+          }
+          const duration = correctedEnd.milliseconds - correctedStart.milliseconds;
+          if (duration <= 0 || duration > 86400000) {
+            toast("Corrected measured time must be longer than zero and no more than 24 hours.");
+            return;
+          }
+          if (correctedWorked.milliseconds < correctedStart.milliseconds
+              || correctedWorked.milliseconds > correctedEnd.milliseconds) {
+            toast("Worked-at time must stay inside the corrected interval.");
+            return;
+          }
+          startedAt = correctedStart.text;
+          endedAt = correctedEnd.text;
+          workedAt = correctedWorked.text;
+          minutes = Math.max(1, Math.round(duration / 60000));
+        } else {
+          const answer = prompt("How many corrected minutes should be submitted?", String(minutes));
+          if (answer === null) return;
+          minutes = Number(answer.trim());
+          if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+            toast("Minutes must be a whole number from 1 to 1440.");
+            return;
+          }
+        }
+
+        const note = prompt("What should the corrected work note say?", button.dataset.note || "");
+        if (note === null) return;
+        if (Array.from(note).length > 255) {
+          toast("The corrected work note cannot exceed 255 characters.");
+          return;
+        }
+        const billingAnswer = prompt(
+          "Billing for corrected time: type B for billable or I for internal. Cancel leaves it unchanged.",
+          button.dataset.billable === "1" ? "B" : "I"
+        );
+        if (billingAnswer === null) return;
+        const billingChoice = billingAnswer.trim().toUpperCase();
+        if (billingChoice !== "B" && billingChoice !== "I") {
+          toast("Type B for billable or I for internal.");
+          return;
+        }
+        payload = {
+          rejected_entry_id: Number(button.dataset.rejectedEntryId),
+          entry_key: newCorrectionKey(),
+          worked_at: workedAt,
+          started_at: startedAt,
+          ended_at: endedAt,
+          minutes,
+          note,
+          billable: billingChoice === "B" ? 1 : 0,
+        };
+        // Freeze the exact key and facts before the request. A lost response
+        // therefore retries the same correction instead of making a sibling.
+        button.dataset.correctionPayload = JSON.stringify(payload);
+      }
+
+      button.disabled = true;
+      try {
+        const result = await api("/api/time_entry_correction.php", payload);
+        if (responseEntryKey(result) !== payload.entry_key) {
+          throw new Error("Correction acknowledgement did not match.");
+        }
+        toast(result.toast || "Correction submitted for approval.");
+        setTimeout(() => location.reload(), 600);
+      } catch (error) {
+        button.disabled = false;
+        const definitiveStatus = error instanceof Error ? Number(error.status || 0) : 0;
+        const canEdit = [400, 404, 409, 422].includes(definitiveStatus);
+        if (canEdit) button.dataset.correctionPayload = "";
+        const message = error instanceof Error && error.message
+          ? error.message
+          : "Correction was not submitted.";
+        toast(message + (canEdit
+          ? " Your rejected entry is unchanged; try again to edit the correction."
+          : " Your rejected entry is still unchanged."));
+      }
+    });
   });
 
   /* owner/admin review queue (time page) */

@@ -76,12 +76,38 @@ function time_entry_create(PDO $pdo, int $tenantId, int $actorUserId, array $inp
         return time_entry_replay_or_conflict($existing, $facts);
     }
 
+    if ($facts['corrects_time_entry_id'] !== null) {
+        $rejected = time_entry_find_by_id($pdo, $tenantId, $facts['corrects_time_entry_id']);
+        if ($rejected === null) {
+            throw new TimeEntryNotFoundException('Rejected time entry not found for this tenant.');
+        }
+        if ((int) $rejected['user_id'] !== $actorUserId) {
+            throw new TimeEntryForbiddenException('Only the technician who logged rejected time may correct it.');
+        }
+        if ((string) $rejected['approval_status'] !== 'rejected') {
+            throw new TimeEntryConflictException('Only rejected time can be corrected.');
+        }
+        if ((int) $rejected['ticket_id'] !== $facts['ticket_id']
+            || (int) $rejected['client_id'] !== $facts['client_id']
+        ) {
+            throw new TimeEntryConflictException('A correction must stay on the original ticket and client.');
+        }
+
+        $replacement = time_entry_find_correction($pdo, $tenantId, $facts['corrects_time_entry_id']);
+        if ($replacement !== null) {
+            throw new TimeEntryConflictException(
+                'Rejected time entry already has replacement #' . (int) $replacement['id'] . '.',
+            );
+        }
+    }
+
     try {
         $insert = $pdo->prepare(
             'INSERT INTO time_entries
                 (tenant_id, client_id, ticket_id, user_id, entry_key, source,
-                 worked_at, started_at, ended_at, minutes, note, billable, approval_status)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                 worked_at, started_at, ended_at, minutes, note, billable,
+                 corrects_time_entry_id, approval_status)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $insert->execute([
             $facts['tenant_id'],
@@ -96,20 +122,43 @@ function time_entry_create(PDO $pdo, int $tenantId, int $actorUserId, array $inp
             $facts['minutes'],
             $facts['note'],
             $facts['billable'],
+            $facts['corrects_time_entry_id'],
             'pending',
         ]);
     } catch (PDOException $error) {
         // A concurrent retry can win the unique (tenant_id, entry_key) race.
         // Re-read and compare every stored fact; unrelated constraint failures
         // remain real faults and are never disguised as successful replays.
-        if (!time_entry_is_constraint_error($error)) {
-            throw $error;
-        }
         $existing = time_entry_find_by_key($pdo, $tenantId, $facts['entry_key']);
-        if ($existing === null) {
-            throw $error;
+        if ($existing !== null) {
+            return time_entry_replay_or_conflict($existing, $facts);
         }
-        return time_entry_replay_or_conflict($existing, $facts);
+
+        if ($facts['corrects_time_entry_id'] !== null) {
+            $replacement = time_entry_find_correction($pdo, $tenantId, $facts['corrects_time_entry_id']);
+            if ($replacement !== null) {
+                throw new TimeEntryConflictException(
+                    'Rejected time entry already has replacement #' . (int) $replacement['id'] . '.',
+                );
+            }
+        }
+        if (time_entry_error_contains($error, 'Measured time overlaps existing pending or approved time')) {
+            throw new TimeEntryConflictException(
+                'Measured time overlaps another pending or approved entry for this technician.',
+            );
+        }
+        if (time_entry_error_contains($error, 'Only rejected time entries may be corrected')) {
+            throw new TimeEntryConflictException('Only rejected time can be corrected.');
+        }
+        if (time_entry_error_contains($error, 'Time entry correction technician must match')) {
+            throw new TimeEntryForbiddenException(
+                'Only the technician who logged rejected time may correct it.',
+            );
+        }
+        if (time_entry_error_contains($error, 'Time entry correction ticket and client must match')) {
+            throw new TimeEntryConflictException('A correction must stay on the original ticket and client.');
+        }
+        throw $error;
     }
 
     // Read by the tenant-scoped idempotency key rather than relying on
@@ -121,6 +170,65 @@ function time_entry_create(PDO $pdo, int $tenantId, int $actorUserId, array $inp
     }
 
     return time_entry_result($entry, false);
+}
+
+/**
+ * Create one append-only replacement for a rejected entry. Ticket, client,
+ * technician, and source provenance come from the rejected row rather than
+ * browser authority. The replacement still passes through time_entry_create()
+ * and therefore receives the same idempotency and database guards.
+ *
+ * @param array<string, mixed> $input
+ * @return array<string, mixed>
+ */
+function time_entry_correct(
+    PDO $pdo,
+    int $tenantId,
+    int $actorUserId,
+    int $rejectedEntryId,
+    array $input,
+): array {
+    if ($tenantId < 1 || $actorUserId < 1 || $rejectedEntryId < 1) {
+        throw new TimeEntryValidationException('A valid tenant, technician, and rejected entry are required.');
+    }
+    foreach ([
+        'tenant_id', 'client_id', 'ticket_id', 'user_id', 'source',
+        'corrects_time_entry_id', 'approval_status',
+    ] as $authorityField) {
+        if (array_key_exists($authorityField, $input)) {
+            throw new TimeEntryValidationException('Correction ownership and provenance are server controlled.');
+        }
+    }
+
+    $rejected = time_entry_find_by_id($pdo, $tenantId, $rejectedEntryId);
+    if ($rejected === null) {
+        throw new TimeEntryNotFoundException('Rejected time entry not found for this tenant.');
+    }
+    if ((int) $rejected['user_id'] !== $actorUserId) {
+        throw new TimeEntryForbiddenException('Only the technician who logged rejected time may correct it.');
+    }
+    if ((string) $rejected['approval_status'] !== 'rejected') {
+        throw new TimeEntryConflictException('Only rejected time can be corrected.');
+    }
+
+    $replacementInput = [
+        'ticket_id' => (int) $rejected['ticket_id'],
+        'entry_key' => $input['entry_key'] ?? null,
+        'source' => (string) $rejected['source'],
+        'worked_at' => $input['worked_at'] ?? time_entry_rfc3339((string) $rejected['worked_at']),
+        'started_at' => array_key_exists('started_at', $input)
+            ? $input['started_at']
+            : time_entry_nullable_rfc3339($rejected['started_at'] ?? null),
+        'ended_at' => array_key_exists('ended_at', $input)
+            ? $input['ended_at']
+            : time_entry_nullable_rfc3339($rejected['ended_at'] ?? null),
+        'minutes' => $input['minutes'] ?? null,
+        'note' => $input['note'] ?? null,
+        'billable' => $input['billable'] ?? null,
+        'corrects_time_entry_id' => $rejectedEntryId,
+    ];
+
+    return time_entry_create($pdo, $tenantId, $actorUserId, $replacementInput);
 }
 
 /**
@@ -197,8 +305,24 @@ function time_entry_validate_create_input(array $input): array
 {
     $ticketId = time_entry_validate_integer($input['ticket_id'] ?? null, 'Ticket id', 1, 4294967295);
 
+    $correctsTimeEntryId = null;
+    if (array_key_exists('corrects_time_entry_id', $input)
+        && $input['corrects_time_entry_id'] !== null
+    ) {
+        $correctsTimeEntryId = time_entry_validate_integer(
+            $input['corrects_time_entry_id'],
+            'Rejected entry id',
+            1,
+            4294967295,
+        );
+    }
+
     $source = $input['source'] ?? null;
-    if (!is_string($source) || !in_array($source, TIME_ENTRY_APP_SOURCES, true)) {
+    $sourceAllowed = is_string($source) && in_array($source, TIME_ENTRY_APP_SOURCES, true);
+    if ($source === 'legacy' && $correctsTimeEntryId !== null) {
+        $sourceAllowed = true;
+    }
+    if (!$sourceAllowed) {
         throw new TimeEntryValidationException('Source must be timer, reply, or suggestion.');
     }
 
@@ -234,8 +358,8 @@ function time_entry_validate_create_input(array $input): array
     if ($startedPresent) {
         [$startedAt, $startedEpoch] = time_entry_validate_utc_timestamp($input['started_at'], 'Started at');
         [$endedAt, $endedEpoch] = time_entry_validate_utc_timestamp($input['ended_at'], 'Ended at');
-        if ($startedEpoch > $endedEpoch) {
-            throw new TimeEntryValidationException('Started at must not be after ended at.');
+        if ($startedEpoch >= $endedEpoch) {
+            throw new TimeEntryValidationException('Started at must be before ended at.');
         }
         if ($endedEpoch - $startedEpoch > 86400) {
             throw new TimeEntryValidationException('A measured timer interval cannot exceed 24 hours.');
@@ -260,6 +384,7 @@ function time_entry_validate_create_input(array $input): array
         'minutes' => $minutes,
         'note' => $note,
         'billable' => $billable ? 1 : 0,
+        'corrects_time_entry_id' => $correctsTimeEntryId,
     ];
 }
 
@@ -393,6 +518,18 @@ function time_entry_find_by_id(PDO $pdo, int $tenantId, int $entryId): ?array
     return is_array($row) ? $row : null;
 }
 
+/** @return array<string, mixed>|null */
+function time_entry_find_correction(PDO $pdo, int $tenantId, int $rejectedEntryId): ?array
+{
+    $query = $pdo->prepare(
+        'SELECT * FROM time_entries
+          WHERE tenant_id = ? AND corrects_time_entry_id = ? LIMIT 1'
+    );
+    $query->execute([$tenantId, $rejectedEntryId]);
+    $row = $query->fetch(PDO::FETCH_ASSOC);
+    return is_array($row) ? $row : null;
+}
+
 /** @param array<string, mixed> $entry @param array<string, mixed> $facts @return array<string, mixed> */
 function time_entry_replay_or_conflict(array $entry, array $facts): array
 {
@@ -407,7 +544,9 @@ function time_entry_replay_or_conflict(array $entry, array $facts): array
         && time_entry_nullable_string($entry['ended_at'] ?? null) === $facts['ended_at']
         && (int) $entry['minutes'] === $facts['minutes']
         && (string) $entry['note'] === $facts['note']
-        && (int) $entry['billable'] === $facts['billable'];
+        && (int) $entry['billable'] === $facts['billable']
+        && (isset($entry['corrects_time_entry_id']) ? (int) $entry['corrects_time_entry_id'] : null)
+            === $facts['corrects_time_entry_id'];
 
     if (!$same) {
         throw new TimeEntryConflictException('Entry key was already used for different time facts.');
@@ -426,6 +565,29 @@ function time_entry_is_constraint_error(PDOException $error): bool
     return $state === '23000';
 }
 
+function time_entry_error_contains(PDOException $error, string $fragment): bool
+{
+    return str_contains($error->getMessage(), $fragment);
+}
+
+function time_entry_rfc3339(string $databaseTimestamp): string
+{
+    $date = DateTimeImmutable::createFromFormat(
+        '!Y-m-d H:i:s',
+        $databaseTimestamp,
+        new DateTimeZone('UTC'),
+    );
+    if ($date === false || $date->format('Y-m-d H:i:s') !== $databaseTimestamp) {
+        throw new RuntimeException('Stored time entry has an invalid UTC timestamp.');
+    }
+    return $date->format('Y-m-d\\TH:i:s\\Z');
+}
+
+function time_entry_nullable_rfc3339(mixed $databaseTimestamp): ?string
+{
+    return $databaseTimestamp === null ? null : time_entry_rfc3339((string) $databaseTimestamp);
+}
+
 /** @param array<string, mixed> $row @return array<string, mixed> */
 function time_entry_result(array $row, bool $replayed): array
 {
@@ -435,6 +597,9 @@ function time_entry_result(array $row, bool $replayed): array
     $row['billable'] = (bool) $row['billable'];
     $row['reviewed_by_user_id'] = isset($row['reviewed_by_user_id'])
         ? (int) $row['reviewed_by_user_id']
+        : null;
+    $row['corrects_time_entry_id'] = isset($row['corrects_time_entry_id'])
+        ? (int) $row['corrects_time_entry_id']
         : null;
     $row['started_at'] = time_entry_nullable_string($row['started_at'] ?? null);
     $row['ended_at'] = time_entry_nullable_string($row['ended_at'] ?? null);

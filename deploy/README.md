@@ -278,6 +278,44 @@ values are
 and `c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`.
 No v2 policy was published.
 
+Migration 016 (`016_time_corrections_overlap.sql`) is migration-first,
+additive, and trigger-capable-operator-only. It adds one immutable nullable
+correction pointer, one tenant-scoped unique key and self-foreign key, plus two
+database-owned InnoDB guard tables. Twelve permanent triggers preserve the
+existing append-only approval history, require a replacement to match one
+rejected parent inside the same tenant/technician/ticket/client/source, and
+serialize measured-time overlap decisions through persistent UTC-day locks.
+
+Before applying 016, require the exact-head Validate run green, including the
+disposable two-connection overlap race. Take and verify root-only application,
+trigger-inclusive database, config, and grant backups; record the current
+`time_entries`/`time_entry_events` counts and migration 011's seven guards.
+Stop concurrent time writes, apply the exact merged migration through the
+trigger-capable operator. Require correction column/index/FK and auxiliary
+structure flags of `1`, exactly twelve permanent triggers, zero staging
+triggers, and equal measured parent/registry counts. Re-run it once and prove
+the time facts/counts are unchanged. Only then deploy code that selects
+`corrects_time_entry_id`.
+
+The migration installs five fail-closed swap guards before replacing the seven
+existing approval/audit triggers. If it exits nonzero after that point, do not
+restart application traffic or manually remove those blockers: inspect the
+exact trigger set and replay the same reviewed migration. Inserts, updates,
+deletes, and audit rewrites remain denied until all twelve permanent guards are
+restored and the migration removes the five swap guards itself.
+An earlier set of five auxiliary swap guards protects guard/registry updates,
+deletes, and measured-registry inserts while replay replaces those integrity
+triggers; parent measured writes roll back while that swap is incomplete.
+
+Canary with a fresh signed-in 8 West IT session: log one measured pending row,
+prove same-technician overlap conflicts while exact adjacency works, reject it
+with a reason, submit and idempotently replay one correction, then approve it.
+The rejected parent and both original events must remain unchanged; exactly one
+pending/approved child may exist. Keep the Coastmark sender disabled. Roll code
+back first while leaving the additive 016 structures and stronger guards in
+place; database restore is disaster recovery only. The full gate is in
+`docs/technician-time-corrections-contract.md`.
+
 Deploy code only after the migration and grant postflight. Keep the protected
 `business_reports` block absent or fully default-off with empty allowlists.
 The deploy script does not install a scheduler. After one explicitly chosen
