@@ -35,6 +35,7 @@ If you change what is live, change this page in the same PR.
 | Anything "shipping dark" | Phase 4's sender/receiver, Phase 5A's portal source, Phase 6's business-report source, and the Milepost customer-directory receiver are deployed default-off while existing service-intake gates remain live |
 | Customer ticket-summary portal (Phase 5A) | **Deployed dark** through base PR #44 / merge `3bb87fa` plus disabled-logout hardening PR #48 / merge `748f16c`; migration 012 is applied, `portal.enabled=false`, client fields are empty, the private cache is empty, 8 West ID has zero Safeharbor OIDC clients, and Safeharbor has zero bindings/events |
 | Scheduled archived business reports (Phase 6) | **Deployed dark** through PR #46 / merge `209bb42`; migration 013 is applied, both gates and every allowlist remain off/empty, and there are zero definitions/schedules/archives/deliveries/attempts plus no scheduler |
+| 8 West ID-backed report contact onboarding | **Candidate only, not deployed**: default-off operator client plus migration 017 immutable binding/snapshot evidence; no contact fetch, binding, schedule, report, or send has occurred |
 | Milepost managed-customer receiver | **Deployed dark** through PR #52 / merge `d270343`; migration 015 is applied, the receiver returns 404, and there is no customer-sync identity, allowlist entry, binding, or event |
 
 ## Customer Service Tools development
@@ -348,6 +349,19 @@ gates and allowlists remain inert, and no scheduler, recipient, definition, or
 schedule was created. The contract and canary sequence are in
 `docs/business-reports-contract.md`.
 
+The follow-on 8 West ID report-contact consumer is currently a candidate, not
+a production fact. Its dedicated `id_report_contacts` configuration defaults
+off with an empty HMAC secret and empty Safeharbor-slug → stable-ID-tenant-key
+map. Only the human-run `prepare-from-id` command loads the bounded,
+no-redirect HTTPS client; cron, generation, and delivery have no call path to
+it. Migration 017 adds a separate immutable tenant binding and append-only
+contact-snapshot table with six new guards, without replacing or weakening any
+of migration 013's fifteen report triggers. The authenticated contact evidence
+and disabled schedule commit atomically, exact repeats are ignored, and version
+rollback or same-version address conflicts fail closed. No migration 017 row,
+protected configuration value, schedule, report gate, scheduler, or delivery
+is live yet.
+
 The Milepost managed-customer receiver foundation is deployed dark through
 Safeharbor PR #52 / merge
 `d270343dff6bfd3e65e263b693f2687e5f508bd0`. It accepts only the dedicated,
@@ -548,7 +562,7 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Twenty-six CLI suites live in `app/tests/`. Fourteen server-free contract suites
+Twenty-eight CLI suites live in `app/tests/`. Fifteen server-free contract suites
 run in CI, including the hermetic service-goal, approval-time, approved-time
 export, portal auth/revocation, portal read-only/rendering, and archived-report
 gates plus the Milepost customer-sync contract. CI also runs the portal,
@@ -575,6 +589,16 @@ MySQL plus a scratch-only `config/config.php`;
 `safeharbor_report_test*`, creates that exact scratch database with CI's MySQL
 operator, and proves the report lifecycle again through a temporary
 least-privilege identity before removing it.
+`id_report_contacts_mysql_test.php` separately requires an explicit disposable-
+server acknowledgement and a loopback MySQL endpoint. It creates a random
+`safeharbor_id_report_test*` database plus random runtime identity and removes
+both in an outer `finally`. It builds the report tables from the byte-frozen
+migration 013 before first-applying 017; rejects exact index, foreign-key, check-
+definition, and check-enforcement drift; interrupts replay after the six
+permanent guards are removed and proves all six write classes remain blocked;
+then uses two real processes to prove same-version/different-recipient inserts
+serialize on the immutable binding row. The canonical prepare path also runs
+through the temporary least-privilege identity.
 PHP lint and the database-free suites run on the Windows dev machine.
 
 The scratch application identity skips migration 010's four trigger
@@ -660,9 +684,12 @@ called out, and none may be satisfied by inventing customer or financial facts.
    revocation, logout, and desktop/mobile behavior. The portal remains ticket
    summaries only; billing, ticket detail, mutation, and endpoint control are
    out of scope.
-6. **Business-report scheduling needs one exact recipient canary.** An approved
-   tenant/client/recipient and separate recipient confirmation must precede the
-   reviewed cron installation. Provider acceptance alone is not delivery.
+6. **Business-report scheduling needs one exact recipient canary.** First merge
+   and deploy the default-off ID contact client and migration 017, then configure
+   one protected stable tenant-key binding and use `prepare-from-id` to pin the
+   tenant admin contact. An approved tenant/client/schedule and separate
+   recipient confirmation must precede the reviewed cron installation.
+   Provider acceptance alone is not delivery.
 7. **The Coastmark seam needs Coastmark-owned financial facts.** No production
    agreement/rate/tax mapping currently exists. A future canary may create only
    draft invoice lines from approved Safeharbor time; it must never post, send,

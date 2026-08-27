@@ -206,6 +206,24 @@ return [
         'timeout_seconds' => 15,
     ],
 
+    // Human-run weekly-report onboarding lookup from 8 West ID. This secret
+    // and identity are dedicated to this one read-only service and never reuse
+    // suite SSO, revocation, svc intake, mail, or customer-sync credentials.
+    // The endpoint is deliberately fixed to the exact production HTTPS host
+    // and path; redirects, alternate ports, and other hosts are refused.
+    // A binding maps one immutable 8 West ID tenant key to the exact local
+    // Safeharbor tenant slug, for example: '8west' => 'ewid-t1'.
+    //
+    // Default-off means no network request. Only the operator command
+    // `prepare-from-id` reads this block; cron/generation/delivery do not.
+    'id_report_contacts' => [
+        'enabled' => false,
+        'endpoint' => 'https://id.8westit.com/api/svc/report-contact.php',
+        'hmac_secret' => '',
+        'tenant_bindings' => [],
+        'timeout_seconds' => 10,
+    ],
+
     // Versioned weekly client service summaries. Definitions, schedules,
     // exact report bytes, delivery leases, and provider outcomes are archived
     // in Safeharbor. This path does not use mail_queue: a Microsoft Graph 202

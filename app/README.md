@@ -17,7 +17,8 @@ db/migrations/             numbered SQL migrations (010 versioned service
                            goals, 011 approval-grade time, 012 customer portal,
                            013 business reports, 014 guarded policy publication,
                            015 default-off Milepost customer sync, and 016 time
-                           corrections/overlap guards are applied)
+                           corrections/overlap guards are applied; 017 ID report
+                           contact evidence is a not-yet-deployed candidate)
 db/manage_service_goals.php
                            operator-only inspect/plan/publish for one exact
                            tenant + Standard/Premium policy; reviewed digest
@@ -25,8 +26,9 @@ db/manage_service_goals.php
 db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
                            identity tenant slug → provider tenant/client binding
 db/manage_business_reports.php
-                           owner/admin definition + schedule lifecycle; recipient
-                           is accepted as input but never echoed
+                           owner/admin definition + schedule lifecycle; canonical
+                           prepare reads a versioned tenant admin contact from
+                           8 West ID but never echoes the address
 db/run_business_report.php exact dry-run/generate/deliver for one pinned schedule
                            or archive; no batch or automatic retry
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
@@ -48,6 +50,8 @@ lib/portal_data.php        explicit binding lifecycle + tenant/client-bound,
 lib/portal_render.php      independent dark customer chrome (no staff session)
 lib/business_reports.php   versioned weekly aggregates, oldest-period catch-up,
                            immutable archive hashes, and one-attempt delivery truth
+lib/id_report_contacts.php operator-only exact-host/HMAC 8 West ID contact
+                           snapshot client; never loaded by cron or report runs
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
@@ -95,6 +99,8 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            portal_data_test.php, portal_mysql_test.php,
                            business_reports_test.php,
                            business_reports_mysql_test.php,
+                           id_report_contacts_test.php,
+                           id_report_contacts_mysql_test.php,
                            suite_customer_sync_test.php,
                            suite_customer_sync_mysql_test.php
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
@@ -226,6 +232,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
   deployed dark, with no definition, schedule, archive, delivery, attempt,
   recipient, or scheduler.
   See `docs/business-reports-contract.md`.
+- ID-backed report onboarding candidate: `prepare-from-id` is the only network
+  call site and uses a dedicated default-off HMAC config. Migration 017 stores
+  an immutable local-tenant/stable-ID binding plus append-only contact-version
+  evidence in the same transaction as the disabled schedule. It has not been
+  deployed or activated and cannot generate or send a report.
 - Milepost customer sync: independent from alert/support intake and dark unless
   `suite_customer_sync.enabled` is exactly true. The signed payload resolves an
   explicitly allowlisted Safeharbor tenant slug and binds one globally stable
@@ -248,6 +259,10 @@ php app/tests/portal_data_test.php
 # destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php
 php app/tests/business_reports_test.php
 # destructive only in safeharbor_report_test*: php app/tests/business_reports_mysql_test.php
+php app/tests/id_report_contacts_test.php
+# requires an acknowledged disposable loopback MySQL server; creates and
+# finally removes one random safeharbor_id_report_test* database and user:
+# SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER=1 php app/tests/id_report_contacts_mysql_test.php
 php app/tests/suite_customer_sync_test.php
 # destructive only in safeharbor_customer_sync_test*: php app/tests/suite_customer_sync_mysql_test.php
 SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh

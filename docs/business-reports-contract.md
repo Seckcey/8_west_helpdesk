@@ -3,15 +3,37 @@
 Status: Phase 6 is deployed dark through Safeharbor PR #46 / merge `209bb42`.
 Migration 013 and exact runtime grants are live; both report gates and every
 allowlist remain off/empty, with no definition, schedule, archive, delivery,
-attempt, recipient, or scheduler. The production canary gates below remain.
+attempt, recipient, or scheduler. The 8 West ID contact client and
+migration-017 immutable evidence tables are an implementation candidate, not a current
+production claim. The production canary gates below remain.
 
 ## Ownership and boundary
 
 Safeharbor owns report definitions, schedule versions, metric computation,
 immutable report archives, delivery leases, and delivery-attempt evidence.
-Milepost is not queried. 8 West ID is not a report-recipient directory.
-Coastmark is not queried and no report action creates, changes, approves,
-posts, sends, or pays an invoice.
+Milepost is not queried. 8 West ID owns the tenant's current weekly-report
+admin contact and exposes one private, read-only, versioned snapshot to
+Safeharbor during explicit operator onboarding. Safeharbor owns the pinned
+address and contact-version evidence used by its schedule. Coastmark is not
+queried and no report action creates, changes, approves, posts, sends, or pays
+an invoice.
+
+The ID lookup is not part of cron, generation, or delivery. Only
+`manage_business_reports.php prepare-from-id` loads the client. It sends an
+exact HMAC-authenticated POST to
+`https://id.8westit.com/api/svc/report-contact.php`, refuses redirects and
+alternate hosts/paths/ports, bounds the response, verifies the response HMAC,
+and checks the request nonce, stable `ewid-t<id>` tenant key, exact tenant slug,
+contact version, normalized address, and UTC generation time. Secrets, raw
+response bodies, and addresses are never logged or printed by the CLI.
+
+Migration 017 adds a one-to-one immutable Safeharbor tenant → 8 West ID tenant
+binding and append-only contact snapshots. The disabled schedule and its
+snapshot are committed in one transaction. A repeat of the same current
+contact version and exact schedule is a no-op; a version rollback, binding
+change, or same-version/different-address response conflicts. The old manual
+`prepare --recipient-email=...` command remains for compatibility, but new MSP
+onboarding uses `prepare-from-id` as the canonical path.
 
 The weekly report contains aggregate operational facts only. It does not read
 or render ticket subjects, message bodies, contacts, attachments, technician
@@ -88,6 +110,14 @@ email subject and body come from archived facts, not a later client rename.
 Fresh and production configuration must begin with:
 
 ```php
+'id_report_contacts' => [
+    'enabled' => false,
+    'endpoint' => 'https://id.8westit.com/api/svc/report-contact.php',
+    'hmac_secret' => '',
+    'tenant_bindings' => [],
+    'timeout_seconds' => 10,
+],
+
 'business_reports' => [
     'generation_enabled' => false,
     'delivery_enabled' => false,
@@ -101,10 +131,12 @@ Fresh and production configuration must begin with:
 
 Activation requires all of these independently:
 
-1. migration 013 and its fifteen triggers;
+1. migration 013 with its fifteen triggers, plus migration 017 with its two
+   evidence tables and six separate triggers;
 2. an immutable definition published by an active owner/admin;
-3. a disabled schedule prepared for one exact tenant, client, recipient,
-   timezone, weekday, local time, and canary flag;
+3. a disabled schedule prepared from the authenticated 8 West ID tenant
+   contact for one exact tenant, client, timezone, weekday, local time, and
+   canary flag;
 4. the exact tenant slug, `safeharbor-client:<id>`, and normalized recipient in
    protected configuration allowlists;
 5. an explicit appended `active` schedule version;
@@ -122,10 +154,22 @@ verified backup:
 
 ```bash
 sudo mysql safeharbor < app/db/migrations/013_business_reports.sql
+sudo mysql safeharbor < app/db/migrations/017_id_report_contact_evidence.sql
 ```
 
+Migration 017 validates the exact candidate column/default, visible-index,
+foreign-key, and enforced-check shape on every replay. It installs six
+temporary fail-closed guards before replacing any permanent 017 trigger, so an
+interrupted run blocks insert/update/delete on both evidence tables until an
+exact replay restores the permanent guards and removes the swaps. The snapshot
+insert trigger locks the immutable tenant-binding row before reading contact
+history; direct concurrent writers therefore cannot commit one contact version
+with different recipients.
+
 The report subsystem needs `SELECT` on source and report tables; `INSERT` on
-definition, schedule, and archive tables; `UPDATE` on the schedule table for
+definition, schedule, archive, ID tenant-binding, and ID contact-snapshot
+tables; `UPDATE` on the schedule, ID tenant-binding, and ID contact-snapshot
+tables only for
 MySQL locking reads while database triggers still reject row mutation; and
 `INSERT,UPDATE` on delivery/attempt tables. It needs no report-table `DELETE`,
 `ALTER`, `DROP`, or `TRIGGER` authority. Production currently shares one
@@ -141,9 +185,9 @@ Publish and prepare without sending:
 php app/db/manage_business_reports.php publish-definition \
   --tenant-slug=TENANT --actor-user-id=USER --reason='Publish reviewed v1'
 
-php app/db/manage_business_reports.php prepare \
+php app/db/manage_business_reports.php prepare-from-id \
   --tenant-slug=TENANT --schedule-key=KEY --client-id=CLIENT \
-  --definition-id=DEFINITION --recipient-email=recipient@example.com \
+  --definition-id=DEFINITION \
   --timezone=America/Los_Angeles --delivery-weekday=3 \
   --delivery-local-time=09:00:00 --canary=1 \
   --actor-user-id=USER --reason='Prepare controlled canary'
@@ -176,7 +220,10 @@ php app/db/run_business_report.php --tenant-slug=TENANT \
   --content-sha256=ARCHIVE_SHA256 --deliver
 ```
 
-The CLI never echoes the recipient address or report body. `submitted` must be
+The canonical command obtains the address from the exact protected
+`id_report_contacts.tenant_bindings` entry; an operator never passes or copies
+the address on the command line. The CLI never echoes the recipient address,
+secret, or report body. `submitted` must be
 reported to operators as provider acceptance only. Recipient confirmation is a
 separate acceptance fact.
 
@@ -192,8 +239,10 @@ Controlled rollout order:
 
 1. deploy migration and code with both gates false and empty allowlists;
 2. verify zero definitions, schedules, archives, deliveries, and attempts;
-3. choose one real tenant/client/recipient and record approval outside Git;
-4. publish, prepare, allowlist, enable, and dry-run;
+3. choose one real tenant/client, verify its 8 West ID tenant contact and
+   protected stable-key binding, and record approval outside Git;
+4. publish, prepare from ID, inspect the pinned key/version/digest, allowlist,
+   enable, and dry-run;
 5. enable generation only, create one archive, inspect its exact hash and
    aggregate content, then leave delivery off;
 6. enable delivery for that exact canary, run one pinned delivery, record
@@ -206,10 +255,11 @@ Controlled rollout order:
 
 The fastest stop is protected configuration with both gates false, followed by
 an appended disabled schedule version. Do not delete or rewrite report history.
-An earlier code release safely ignores the additive tables, so schema rollback
-is disaster-recovery-only. Retain the pre-migration database/application backup
-and migration evidence; dropping these tables destroys approval and delivery
-history and is not a routine rollback.
+An earlier code release safely ignores migration 017's two additive tables and
+migration 013's five additive tables, so schema rollback is
+disaster-recovery-only. Retain the pre-migration database/application backup
+and migration evidence; dropping these tables destroys contact, approval, and
+delivery history and is not a routine rollback.
 
 The protected production rollback record is
 `/srv/8west/backups/safeharbor/20260827T003557Z-pre-phase6-business-reports`.
