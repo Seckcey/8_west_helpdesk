@@ -2,8 +2,9 @@
 /**
  * MySQL integration coverage for migration 011 and approval-grade time.
  *
- * Run only against a disposable database whose name begins
- * `safeharbor_time_test`:
+ * Run only against a disposable MySQL server. The supplied database value is
+ * a safe base; this test appends a random run id, creates that exact new
+ * database, proves the active connection selected it, and drops it in finally:
  *
  *   SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER=1 \
  *   SAFEHARBOR_TIME_TEST_DB=safeharbor_time_test \
@@ -11,9 +12,9 @@
  *   SAFEHARBOR_TIME_TEST_USER=root \
  *   SAFEHARBOR_TIME_TEST_PASS=... php tests/time_entries_mysql_test.php
  *
- * The configured identity needs operator DDL + TRIGGER privileges. The suite
- * drops every table in that disposable database and, when CREATE USER is
- * available, also proves an app-like identity cannot weaken existing guards.
+ * The configured identity must be able to create/drop databases, create/drop
+ * users, grant schema privileges, and create triggers. All 97 checks, including
+ * the underprivileged migration and least-privilege runtime proofs, are required.
  */
 declare(strict_types=1);
 
@@ -27,13 +28,16 @@ if ($disposableServer !== '1') {
     exit(2);
 }
 
-$testDatabase = getenv('SAFEHARBOR_TIME_TEST_DB');
-if (!is_string($testDatabase)
-    || preg_match('/\Asafeharbor_time_test(?:_[a-z0-9_]+)?\z/', $testDatabase) !== 1
+$databaseBase = getenv('SAFEHARBOR_TIME_TEST_DB');
+if (!is_string($databaseBase)
+    || preg_match('/\Asafeharbor_time_test(?:_[a-z0-9_]+)?\z/', $databaseBase) !== 1
+    || strlen($databaseBase) > 48
 ) {
-    fwrite(STDERR, "Refusing destructive test database name.\n");
+    fwrite(STDERR, "Refusing destructive test database base.\n");
     exit(2);
 }
+$TIME_MYSQL_RUN_ID = bin2hex(random_bytes(6));
+$testDatabase = $databaseBase . '_' . $TIME_MYSQL_RUN_ID;
 $host = getenv('SAFEHARBOR_TIME_TEST_HOST') ?: '127.0.0.1';
 $portText = getenv('SAFEHARBOR_TIME_TEST_PORT') ?: '3306';
 $user = getenv('SAFEHARBOR_TIME_TEST_USER') ?: 'root';
@@ -54,15 +58,26 @@ $pdoOptions = [
     PDO::ATTR_EMULATE_PREPARES => false,
 ];
 $quotedDatabase = '`' . str_replace('`', '``', $testDatabase) . '`';
+$server = null;
+$pdo = null;
+$databaseCreated = false;
 try {
     $server = new PDO($serverDsn, $user, $pass, $pdoOptions);
     $server->exec(
-        "CREATE DATABASE IF NOT EXISTS {$quotedDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+        "CREATE DATABASE {$quotedDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
     );
+    $databaseCreated = true;
     $pdo = new PDO($serverDsn . ";dbname={$testDatabase}", $user, $pass, $pdoOptions);
     $pdo->exec("SET time_zone = '+00:00'");
 } catch (Throwable $error) {
-    fwrite(STDERR, 'Time-entry MySQL fixture unavailable: ' . $error->getMessage() . PHP_EOL);
+    if ($databaseCreated && $server instanceof PDO) {
+        try {
+            $server->exec("DROP DATABASE IF EXISTS {$quotedDatabase}");
+        } catch (Throwable) {
+            // The nonzero fixture refusal below remains authoritative.
+        }
+    }
+    fwrite(STDERR, 'Time-entry MySQL fixture unavailable: ' . $error::class . PHP_EOL);
     exit(2);
 }
 
@@ -72,7 +87,6 @@ $TIME_MYSQL_CONNECTION = [
     'pass' => $pass,
     'options' => $pdoOptions,
 ];
-$TIME_MYSQL_RUN_ID = bin2hex(random_bytes(5));
 
 $checks = 0;
 $failures = 0;
@@ -539,6 +553,21 @@ function verify_exact_structure(PDO $pdo, string $label): void
     check("{$label}: no staging trigger remains", $staging === 0);
 }
 
+$preflightUser = null;
+$runtimeUser = null;
+$underprivileged = null;
+$runtime = null;
+$fatalError = null;
+$cleanupError = false;
+
+try {
+$selectedDatabase = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
+check('fixture connection selected the exact random database',
+    hash_equals($testDatabase, $selectedDatabase));
+if (!hash_equals($testDatabase, $selectedDatabase)) {
+    throw new RuntimeException('Fixture connection selected an unexpected database.');
+}
+
 $pdo->setAttribute(PDO::ATTR_CASE, PDO::CASE_LOWER);
 $pdo->exec("SET SESSION sql_mode='STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
 $migrationPath = __DIR__ . '/../db/migrations/011_time_entry_approvals.sql';
@@ -986,6 +1015,41 @@ try {
 }
 check('least-privilege runtime proof executed with all guards retained',
     $runtimeProven && trigger_count($pdo) === 7);
+
+} catch (Throwable $error) {
+    $fatalError = $error;
+} finally {
+    $underprivileged = null;
+    $runtime = null;
+    $pdo = null;
+
+    if ($server instanceof PDO) {
+        foreach ([$preflightUser, $runtimeUser] as $temporaryUser) {
+            if (!is_string($temporaryUser) || $temporaryUser === '') continue;
+            try {
+                $server->exec("DROP USER IF EXISTS '{$temporaryUser}'@'%'");
+            } catch (Throwable) {
+                $cleanupError = true;
+            }
+        }
+        if ($databaseCreated) {
+            try {
+                $server->exec("DROP DATABASE IF EXISTS {$quotedDatabase}");
+            } catch (Throwable) {
+                $cleanupError = true;
+            }
+        }
+    }
+}
+
+if ($fatalError instanceof Throwable) {
+    fwrite(STDERR, 'Time-entry MySQL test execution failed: ' . $fatalError::class . PHP_EOL);
+    exit(1);
+}
+if ($cleanupError) {
+    fwrite(STDERR, "Time-entry MySQL fixture cleanup failed.\n");
+    exit(1);
+}
 
 echo "---\n{$checks} checks, {$failures} failures\n";
 exit($failures > 0 ? 1 : 0);

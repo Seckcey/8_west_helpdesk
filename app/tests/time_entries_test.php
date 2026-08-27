@@ -638,10 +638,16 @@ time_check('destructive MySQL proof is standalone and fails closed without an ex
     && str_contains($mysqlHarness, "getenv('SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER')")
     && str_contains($mysqlHarness, "\$disposableServer !== '1'")
     && str_contains($mysqlHarness, "getenv('SAFEHARBOR_TIME_TEST_DB')")
-    && str_contains($mysqlHarness, 'Refusing destructive test database name.')
+    && str_contains($mysqlHarness, 'Refusing destructive test database base.')
+    && str_contains($mysqlHarness, '$testDatabase = $databaseBase .')
+    && str_contains($mysqlHarness, 'SELECT DATABASE()')
+    && str_contains($mysqlHarness, 'fixture connection selected the exact random database')
+    && str_contains($mysqlHarness, 'CREATE DATABASE {$quotedDatabase}')
+    && !str_contains($mysqlHarness, 'CREATE DATABASE IF NOT EXISTS')
+    && str_contains($mysqlHarness, 'DROP DATABASE IF EXISTS {$quotedDatabase}')
     && str_contains($mysqlHarness, 'Time-entry MySQL fixture unavailable:')
     && substr_count($mysqlHarness, 'exit(2);') >= 3);
-time_check('Validate executes the 96-check MySQL migration and guard proof',
+time_check('Validate executes the 97-check MySQL migration and guard proof',
     is_string($validateWorkflow)
     && str_contains($validateWorkflow, 'Test approval-grade time migration and database guards')
     && str_contains($validateWorkflow, "SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'")

@@ -150,7 +150,7 @@ rollback records are
 
 Candidate evidence remains green: all eight server-free CI commands pass,
 service goals are 55/55, the provenance bridge is 2/2, approval time is 83/83,
-suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is 96/96 on
+suite SSO is 31/31 on scratch MySQL, and migration/runtime replay is 97/97 on
 disposable MySQL 8. Desktop and mobile Playwright probes cover both "request
 never arrived" and "commit succeeded but response was lost" timer boundaries.
 No authenticated production browser session was available during this release;
@@ -508,10 +508,11 @@ run in CI, including the hermetic service-goal, approval-time, approved-time
 export, portal auth/revocation, portal read-only/rendering, and archived-report
 gates plus the Milepost customer-sync contract. CI also runs the portal,
 service-goal-policy, business-report, and customer-sync migration/isolation
-suites on disposable MySQL 8. The 96-check `time_entries_mysql` suite is now
+suites on disposable MySQL 8. The 97-check `time_entries_mysql` suite is now
 standalone too: it requires an explicit disposable-server acknowledgement,
-accepts only a `safeharbor_time_test*` database name, exits nonzero when the
-fixture is unavailable, and runs in Validate with dedicated MySQL credentials.
+accepts only a `safeharbor_time_test*` database base, creates and proves one
+random per-run database, removes it in `finally`, exits nonzero when the fixture
+or cleanup is unavailable, and runs in Validate with dedicated MySQL credentials.
 Existing integration suites (`suite_sso`,
 `svc_intake`, `svc_support`, `westy_report`, and `intake_service_goal`) need
 MySQL plus a scratch-only `config/config.php`;
