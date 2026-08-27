@@ -1,8 +1,8 @@
 # Ticket automatic-closure ownership
 
-**Status:** release candidate on `codex/guard-alert-auto-close`; migration 018
-and matching code are not live until the migration-first production gate is
-completed.
+**Status:** live since 2026-08-27 through PR #59 / release
+`e7ee5218017c88de18cf6f6476f34a1512593852`; migration 018 and its matching
+application code passed the migration-first production gate.
 
 ## The rule
 
@@ -59,7 +59,19 @@ A re-fired or ambiguous historical alert remains ineligible. Replay skips the
 backfill entirely, so human work performed after migration can never be
 reclassified as untouched.
 
-## Production migration gate
+## Recorded production migration and repeatable gate
+
+The 2026-08-27 release used the exact 18,251-byte Git blob with SHA-256
+`cae74bd8348881a36c089d016e0eb76c0b4676341ed0d59e019885f9652ee252`.
+The protected backup was scratch-restored before DDL. Apply and replay each
+reported one column, six permanent guards, zero swap guards, and 22 eligible
+historical alerts. All pre-existing ticket statuses stayed byte-identical.
+Signed production canaries then proved both branches: untouched recovery
+closed its ticket, while a human-noted ticket stayed Open. Exact cleanup
+removed only the two canary tickets and their six messages, returning the
+database to 277 tickets and 541 messages with the original status digest.
+
+Use the following same gate for a rebuild or recovery.
 
 Migration 018 is migration-first. Use an exact green default-branch commit and
 the Safeharbor maintenance procedure in `deploy/README.md`.
