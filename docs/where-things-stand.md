@@ -3,8 +3,8 @@
 **Last verified overall: 2026-08-09** against production, not from memory.
 The suite SSO sections below were separately verified on 2026-08-24. The
 Customer Service Tools and database sections were verified again through the
-2026-08-26 PR #48 portal dark-closeout and explicit disabled host scaffold; the
-rest of this page was not re-audited during those focused closeouts.
+2026-08-27 Milepost customer-directory foundation release; the rest of this
+page was not re-audited during those focused closeouts.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -27,14 +27,15 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–014 | **All applied** to production |
+| Migrations 001–015 | **All applied** to production |
 | Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published |
 | Approval-grade technician time | **Live** through Safeharbor PR #40 / merge `b0a6760` |
 | Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; both global gates are off and there are zero mappings/imports |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Phase 4's sender/receiver, Phase 5A's portal source, and Phase 6's business-report source are deployed default-off while existing service-intake gates remain live |
+| Anything "shipping dark" | Phase 4's sender/receiver, Phase 5A's portal source, Phase 6's business-report source, and the Milepost customer-directory receiver are deployed default-off while existing service-intake gates remain live |
 | Customer ticket-summary portal (Phase 5A) | **Deployed dark** through base PR #44 / merge `3bb87fa` plus disabled-logout hardening PR #48 / merge `748f16c`; migration 012 is applied, `portal.enabled=false`, client fields are empty, the private cache is empty, 8 West ID has zero Safeharbor OIDC clients, and Safeharbor has zero bindings/events |
 | Scheduled archived business reports (Phase 6) | **Deployed dark** through PR #46 / merge `209bb42`; migration 013 is applied, both gates and every allowlist remain off/empty, and there are zero definitions/schedules/archives/deliveries/attempts plus no scheduler |
+| Milepost managed-customer receiver | **Deployed dark** through PR #52 / merge `d270343`; migration 015 is applied, the receiver returns 404, and there is no customer-sync identity, allowlist entry, binding, or event |
 
 ## Customer Service Tools development
 
@@ -307,6 +308,24 @@ gates and allowlists remain inert, and no scheduler, recipient, definition, or
 schedule was created. The contract and canary sequence are in
 `docs/business-reports-contract.md`.
 
+The Milepost managed-customer receiver foundation is deployed dark through
+Safeharbor PR #52 / merge
+`d270343dff6bfd3e65e263b693f2687e5f508bd0`. It accepts only the dedicated,
+signed and tenant-allowlisted source when deliberately enabled; it does not
+move tickets, messages, time, service goals, portal state, reports, billing, or
+endpoint controls. Exact-main Validate run `33047096931` passed.
+
+Migration 015 is applied in production and its two tables remain empty. The
+schema has 24 columns, 11 indexes, 10 enforced checks, five foreign keys, and
+eight lifecycle/immutability triggers across those tables. Existing data stayed
+at three clients, 277 tickets, and 541 messages. The protected config hash did
+not change; no customer-sync key, service identity, tenant allowlist, binding,
+or event exists, and both GET and POST to the receiver return 404. The protected
+rollback record is
+`/srv/8west/backups/safeharbor/20260827T065222Z-pre-customer-sync-foundation`.
+Activation still requires the controlled cross-app canary in
+`docs/milepost-customer-sync-contract.md`.
+
 ## First-tenant suite SSO repair
 
 Safeharbor PR [#31](https://github.com/Seckcey/8_west_helpdesk/pull/31)
@@ -440,7 +459,7 @@ teeth.
 
 ## Database
 
-Applied in production: **001 through 012**, including both files numbered 002.
+Applied in production: **001 through 015**, including both files numbered 002.
 `009_support_intake` (`clients.source_key`, `svc_support_rate`) was applied
 2026-08-09. Migration `010_service_goal_policies.sql` was applied before the
 matching code on 2026-08-26. It is additive and leaves historical ticket
@@ -465,6 +484,11 @@ the matching source is deployed dark with no report config block, scheduler,
 recipient canary, definition, schedule, archive, delivery, or attempt. Runtime
 `DELETE` is now limited to the eight inventoried legacy operational tables.
 
+Migration `015_suite_customer_sync.sql` was applied operator-first on
+2026-08-27. Production has its two exact empty tables, 24 columns, 11 indexes,
+10 enforced checks, five foreign keys, and eight triggers. The receiver remains
+disabled with no protected key, identity, allowlist entry, binding, or event.
+
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
 
@@ -479,11 +503,12 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Twenty-one CLI suites live in `app/tests/`. Twelve server-free contract suites
+Twenty-five CLI suites live in `app/tests/`. Fourteen server-free contract suites
 run in CI, including the hermetic service-goal, approval-time, approved-time
 export, portal auth/revocation, portal read-only/rendering, and archived-report
-gates. CI also runs the portal and business-report migration/isolation suites
-on disposable MySQL 8. Existing
+gates plus the Milepost customer-sync contract. CI also runs the portal,
+service-goal-policy, business-report, and customer-sync migration/isolation
+suites on disposable MySQL 8. Existing
 integration suites (`suite_sso`,
 `svc_intake`, `svc_support`, `westy_report`, `intake_service_goal`, and
 `time_entries_mysql`) need MySQL plus a scratch-only `config/config.php`;
