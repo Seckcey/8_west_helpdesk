@@ -27,6 +27,8 @@ function auto_close_contract_source(string $relative): string
 
 $intake = auto_close_contract_source('lib/svc_intake.php');
 $endpoint = auto_close_contract_source('public/api/svc/alerts.php');
+$westyEndpoint = auto_close_contract_source('public/api/svc/westy.php');
+$westyReport = auto_close_contract_source('lib/westy_report.php');
 $lifecycle = auto_close_contract_source('lib/ticket_lifecycle.php');
 $migration = auto_close_contract_source('db/migrations/018_ticket_auto_close_eligibility.sql');
 
@@ -53,6 +55,16 @@ auto_close_contract_check(
     str_contains($lifecycle, "status = 'open' AND auto_close_eligible = 1")
         && str_contains($lifecycle, 'auto_close_eligible = 0'),
     'machine recovery is an atomic eligible-to-consumed transition',
+);
+auto_close_contract_check(
+    str_contains($westyReport, "const WESTY_REPORT_MILEPOST_SERVICE = 'milepost-westy';")
+        && str_contains($westyEndpoint, 'westy_report_service_authorized($auth, $payload)'),
+    'Westy endpoint checks the dedicated identity plus payload job authority',
+);
+auto_close_contract_check(
+    !preg_match('/UPDATE\s+tickets\s+SET\s+status\b/i', $westyReport)
+        && !preg_match('/INSERT\s+INTO\s+tickets[\s\S]*?auto_close_eligible/i', $westyReport),
+    'Westy can neither close a ticket nor mint machine-close eligibility',
 );
 
 // Every other ticket creator omits the capability and therefore receives the

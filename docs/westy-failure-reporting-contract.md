@@ -1,7 +1,9 @@
 # Westy failure reporting — wire contract
 
-**Frozen 2026-08-08.** Receiver shipped in Safeharbor; Milepost and the Control
-Panel implement the emitter side against this document.
+**Wire body frozen 2026-08-08; receiver authority/retry rules hardened
+2026-08-27.** Safeharbor owns the receiver. The first external release admits
+only Milepost failure events; the Control Panel identity remains reserved for a
+separate review and activation.
 
 Full design and reasoning: `docs/superpowers/specs/2026-08-08-westy-failure-tickets-design.md`.
 
@@ -32,13 +34,17 @@ minute per identity**, fixed window.
 
 Every auth failure is the same generic `401` — unknown service, inactive
 identity, stale timestamp and bad signature are deliberately indistinguishable.
+An authenticated caller with the wrong job authority receives that same `401`.
+For the first external slice, the only accepted combination is exact service
+`milepost-westy`, exact `app=milepost`, and exact `event=failure`. A valid
+alert, support, customer-sync, or future Control Panel signature is not enough.
 
 ## 2. Service identities
 
 | App | Identity | Notes |
 |---|---|---|
-| Milepost | `milepost-westy` | **Not** the existing `milepost` identity |
-| Control Panel | `controlpanel-westy` | new HMAC signer in Go |
+| Milepost | `milepost-westy` | failure-only; **not** the existing `milepost` identity |
+| Control Panel | `controlpanel-westy` | reserved; not authorized by the first external release |
 | Safeharbor | *(none)* | reports in-process, never over the wire |
 
 Separate identities are the point: one rate-limit budget each, so a Westy
@@ -47,6 +53,8 @@ failure storm can never starve real alert intake. Each needs a row in
 `svc.secrets` — server-side only, never git, never chat.
 
 ## 3. Request body
+
+The external Milepost slice sends this failure body:
 
 ```json
 {
@@ -66,6 +74,11 @@ failure storm can never starve real alert intake. Each needs a row in
 }
 ```
 
+The following flagged-answer shape remains the storage contract for
+Safeharbor's session + CSRF, human-reviewed thumbs-down path. It is not accepted
+from `milepost-westy`; any future external flagged-answer emitter needs its own
+authority release.
+
 ```json
 {
   "event":       "flagged",
@@ -84,7 +97,7 @@ failure storm can never starve real alert intake. Each needs a row in
 
 | Field | Rules |
 |---|---|
-| `event` | `failure` or `flagged`. Anything else → 422. |
+| `event` | Storage accepts `failure` or `flagged`; the external Milepost authority accepts only `failure`. |
 | `app` | `milepost` or `controlpanel`. Unknown → 422. Sets which client row the ticket lands in. |
 | `surface` | where Westy was working: `westy_chat`, `westy_drafts`, … `[a-z0-9_]`, ≤32. Defaults to `westy_chat`. **Part of the fingerprint** — the same error in two surfaces stays two tickets. |
 | `occurred_at` | any `strtotime`-parseable stamp, within **24 hours**. Omit to mean now. |
@@ -109,7 +122,7 @@ failure storm can never starve real alert intake. Each needs a row in
 | Code | Meaning | What the emitter should do |
 |---|---|---|
 | `200` | handled — `{ok:true, ticket:<id\|null>, action:"created"\|"updated"\|"ignored"}` | mark the outbox row done |
-| `401` | bad or absent auth | stop and alert a human; retrying will not help |
+| `401` | bad/absent auth, or identity not authorized for this app/event | stop and alert a human; retrying will not help |
 | `404` | `svc.enabled` is off on the receiver | stop; nothing is wrong with your payload |
 | `405` | not a POST | fix the caller |
 | `422` | bad payload | dead-letter it; retrying identical bytes will not help |
@@ -143,12 +156,21 @@ to `high` at 25. If the ticket has been resolved and the problem returns, a new
 generation opens (`…:g2`) linked back to the closed one — nothing silently
 reopens.
 
+Transport replay is different from a repeat. If an emitter retries the exact
+same normalized failure envelope with the exact same `occurred_at` after losing
+the HTTP acknowledgement, the receiver returns the existing ticket with
+`action:"ignored"`. It does not change occurrences, last-seen, priority, or
+messages. A later timestamp is a genuine occurrence and still increments.
+
 ## 6. Emitter guidance
 
-**Milepost** already has everything needed: `lib/svc_notify.php` (signing),
-`svc_outbox` + `cron/svc_dispatch.php` (retry `[1,5,15]` minutes, dead-letter at
-10 attempts). The outbox row is keyed to `alert_id`, so it needs generalising to
-carry a Westy payload — that is the bulk of the work.
+**Milepost must use a separate tenant-owned Westy failure outbox and a separate
+CLI worker.** Do not generalise the live `svc_outbox`: that table requires an
+`alert_id`, admits only `opened|resolved`, and its dispatcher owns the exact
+`milepost` alert identity/endpoint whose untouched tickets alone may auto-close.
+Do not reuse the managed-customer outbox either; its version/status lineage and
+credential belong to a different contract. The Westy worker may reuse pure
+signing/validation patterns, never either live queue, identity, or cron job.
 
 **The Control Panel** needs a new HMAC signer in Go; `auth.go` already imports
 `hmac`. The signature is over `timestamp + "\n" + rawBody`, hex-encoded, compared
@@ -157,3 +179,9 @@ constant-time on our side.
 Both: enqueue on the failure path, never block the chat on the send, and never
 let a broken reporter take the assistant down. Reporting is best-effort by
 design.
+
+The first sender emits no recovery or resolved event. Westy-created tickets
+receive the database default `auto_close_eligible=0`, and this receiver has no
+ticket-status writer. They stay open until a human resolves them. A resolved
+problem that later returns opens a linked new generation instead of being
+silently reopened.

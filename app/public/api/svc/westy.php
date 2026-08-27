@@ -11,9 +11,10 @@
  * lib/westy_report.php in-process — no network hop to sign to itself, and it
  * still works when the web server is the thing having a bad day.
  *
- * Callers register their own identity (milepost-westy, controlpanel-westy),
- * deliberately separate from the `milepost` alert identity so a Westy failure
- * storm cannot burn the rate budget real alert intake depends on.
+ * The first external caller is the exact `milepost-westy` identity, limited to
+ * `app=milepost` + `event=failure`. It is deliberately separate from the
+ * `milepost` alert identity so a Westy failure storm cannot burn the rate
+ * budget real alert intake depends on or inherit its ticket-close authority.
  *
  * Status map: 200 handled · 401 bad/absent auth · 404 svc disabled ·
  * 405 non-POST · 422 bad payload · 429 over rate · 500 fault (caller retries).
@@ -53,6 +54,12 @@ if (!$auth['ok']) {
 $payload = json_decode($rawBody, true);
 if (!is_array($payload)) {
     json_out(['ok' => false, 'error' => 'invalid json'], 422);
+}
+// A valid signature proves identity, not job authority. Keep the same generic
+// 401 for every wrong service/app/event combination so this endpoint is not an
+// oracle and no existing alert/support/customer identity can file as Westy.
+if (!westy_report_service_authorized($auth, $payload)) {
+    json_out(['ok' => false, 'error' => 'unauthorized'], 401);
 }
 
 try {
