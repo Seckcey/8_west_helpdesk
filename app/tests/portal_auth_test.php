@@ -271,6 +271,16 @@ portal_auth_check('ticket-summary index is GET-only',
     && str_contains($indexSource, "REQUEST_METHOD'] ?? 'GET') !== 'GET'")
     && str_contains($indexSource, "header('Allow: GET')"));
 $logoutSource = file_get_contents(__DIR__ . '/../public/portal/logout.php');
+$logoutPortalGatePosition = is_string($logoutSource) ? strpos($logoutSource, 'if (! portal_enabled())') : false;
+$logoutMethodPosition = is_string($logoutSource) ? strpos($logoutSource, "REQUEST_METHOD'] ?? 'GET'") : false;
+$logoutSessionPosition = is_string($logoutSource) ? strpos($logoutSource, 'portal_session_start()') : false;
+portal_auth_check('logout default-off gate runs before method and session handling',
+    is_string($logoutSource)
+    && $logoutPortalGatePosition !== false
+    && $logoutMethodPosition !== false
+    && $logoutSessionPosition !== false
+    && $logoutPortalGatePosition < $logoutMethodPosition
+    && $logoutPortalGatePosition < $logoutSessionPosition);
 portal_auth_check('logout is POST plus CSRF and destroys local state before redirect',
     is_string($logoutSource)
     && str_contains($logoutSource, "REQUEST_METHOD'] ?? 'GET') !== 'POST'")
