@@ -16,7 +16,8 @@ db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (010 versioned service
                            goals, 011 approval-grade time, 012 customer portal,
                            013 business reports, and 014 guarded policy
-                           publication are applied)
+                           publication are applied; 015 is the default-off
+                           Milepost customer-sync candidate)
 db/manage_service_goals.php
                            operator-only inspect/plan/publish for one exact
                            tenant + Standard/Premium policy; reviewed digest
@@ -68,6 +69,10 @@ lib/mailer.php             outbound mail (mail_queue + transports:
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
 lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
 lib/svc_intake.php         Milepost alert events → tickets (idempotent upsert)
+lib/suite_customer_sync.php
+                           dedicated signed Milepost customer registry → stable
+                           Safeharbor client binding + immutable receipts; dark
+                           unless its independent gate and allowlist are enabled
 lib/westy_report.php       Westy defects → 8 West IT's OWN queue (one ticket per
                            problem; stored text re-scrubbed on arrival)
 db/export_approved_time.php
@@ -89,7 +94,9 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            coastmark_time_export_test.php, portal_auth_test.php,
                            portal_data_test.php, portal_mysql_test.php,
                            business_reports_test.php,
-                           business_reports_mysql_test.php
+                           business_reports_mysql_test.php,
+                           suite_customer_sync_test.php,
+                           suite_customer_sync_mysql_test.php
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
 cron/business_reports.php  independently gated report generation + one-attempt
                            Graph submission; deliberately not mail_queue
@@ -128,6 +135,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   api/svc/support.php      Signed human support requests from Coastmark and
                            Waypoint — one ticket each, text verbatim. LIVE
                            since 2026-08-09 (svc.support_enabled is true)
+  api/svc/customers.php    Dedicated Milepost customer-registry receiver;
+                           strict v1 HMAC/event contract, independently gated
+                           default-off; never reuses clients.source_key
   assets/css/app.css       Hand-written design system, semantic tokens
                            (dark / light / system themes)
   assets/js/app.js         Keyboard model, ⌘K palette, timer, theme switch,
@@ -216,6 +226,14 @@ public/                    Apache docroot (page-per-file, like Milepost)
   deployed dark, with no definition, schedule, archive, delivery, attempt,
   recipient, or scheduler.
   See `docs/business-reports-contract.md`.
+- Milepost customer sync: independent from alert/support intake and dark unless
+  `suite_customer_sync.enabled` is exactly true. The signed payload resolves an
+  explicitly allowlisted Safeharbor tenant slug and binds one globally stable
+  suite customer UUID to one local client. Sequential active versions may
+  rename that client. Inactive versions retain the source name in immutable
+  sync history without renaming or deleting the client; all operational history
+  remains. It never reads or writes `clients.source_key`. See
+  `docs/milepost-customer-sync-contract.md`.
 
 ## Develop
 
@@ -230,6 +248,8 @@ php app/tests/portal_data_test.php
 # destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php
 php app/tests/business_reports_test.php
 # destructive only in safeharbor_report_test*: php app/tests/business_reports_mysql_test.php
+php app/tests/suite_customer_sync_test.php
+# destructive only in safeharbor_customer_sync_test*: php app/tests/suite_customer_sync_mysql_test.php
 SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 cd tools/shots && node walkthrough.mjs                   # visual verification
 ```

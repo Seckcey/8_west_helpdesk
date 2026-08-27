@@ -65,6 +65,229 @@ CREATE TABLE IF NOT EXISTS clients (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
+-- Milepost customer registry bindings + immutable receipts (migration 015)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS suite_customer_sync_bindings (
+  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id           INT UNSIGNED NOT NULL,
+  customer_id         CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  client_id           INT UNSIGNED NOT NULL,
+  source_version      BIGINT UNSIGNED NOT NULL,
+  display_name        VARCHAR(128) NOT NULL,
+  status              ENUM('active','inactive') NOT NULL,
+  last_event_id       CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  last_occurred_at    DATETIME NOT NULL,
+  last_request_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_suite_customer_sync_customer (customer_id),
+  UNIQUE KEY uq_suite_customer_sync_client (tenant_id, client_id),
+  UNIQUE KEY uq_suite_customer_sync_binding_scope (tenant_id, id),
+  KEY ix_suite_customer_sync_tenant_status (tenant_id, status, customer_id),
+  CONSTRAINT fk_suite_customer_sync_binding_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_suite_customer_sync_binding_client
+    FOREIGN KEY (tenant_id, client_id) REFERENCES clients (tenant_id, id),
+  CONSTRAINT ck_suite_customer_sync_customer_uuid CHECK (
+    REGEXP_LIKE(customer_id, _ascii'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+  ),
+  CONSTRAINT ck_suite_customer_sync_version CHECK (source_version >= 1),
+  CONSTRAINT ck_suite_customer_sync_name CHECK (
+    display_name = TRIM(display_name)
+    AND CHAR_LENGTH(display_name) BETWEEN 1 AND 128
+    AND NOT REGEXP_LIKE(display_name, _utf8mb4'[[:cntrl:]]')
+  ),
+  CONSTRAINT ck_suite_customer_sync_event_uuid CHECK (
+    REGEXP_LIKE(last_event_id, _ascii'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+  ),
+  CONSTRAINT ck_suite_customer_sync_request_hash CHECK (
+    REGEXP_LIKE(last_request_sha256, _ascii'^[0-9a-f]{64}$')
+  )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS suite_customer_sync_events (
+  id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id      INT UNSIGNED NOT NULL,
+  event_id       CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  binding_id     BIGINT UNSIGNED NOT NULL,
+  customer_id    CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  client_id      INT UNSIGNED NOT NULL,
+  source_version BIGINT UNSIGNED NOT NULL,
+  display_name   VARCHAR(128) NOT NULL,
+  status         ENUM('active','inactive') NOT NULL,
+  occurred_at    DATETIME NOT NULL,
+  request_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  received_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_suite_customer_sync_event (event_id),
+  UNIQUE KEY uq_suite_customer_sync_source_version (tenant_id, customer_id, source_version),
+  UNIQUE KEY uq_suite_customer_sync_event_scope (tenant_id, id),
+  KEY ix_suite_customer_sync_event_binding (tenant_id, binding_id, id),
+  KEY ix_suite_customer_sync_event_client (tenant_id, client_id, received_at),
+  CONSTRAINT fk_suite_customer_sync_event_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_suite_customer_sync_event_binding
+    FOREIGN KEY (tenant_id, binding_id)
+    REFERENCES suite_customer_sync_bindings (tenant_id, id),
+  CONSTRAINT fk_suite_customer_sync_event_client
+    FOREIGN KEY (tenant_id, client_id) REFERENCES clients (tenant_id, id),
+  CONSTRAINT ck_suite_customer_sync_receipt_event_uuid CHECK (
+    REGEXP_LIKE(event_id, _ascii'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+  ),
+  CONSTRAINT ck_suite_customer_sync_receipt_customer_uuid CHECK (
+    REGEXP_LIKE(customer_id, _ascii'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+  ),
+  CONSTRAINT ck_suite_customer_sync_receipt_version CHECK (source_version >= 1),
+  CONSTRAINT ck_suite_customer_sync_receipt_name CHECK (
+    display_name = TRIM(display_name)
+    AND CHAR_LENGTH(display_name) BETWEEN 1 AND 128
+    AND NOT REGEXP_LIKE(display_name, _utf8mb4'[[:cntrl:]]')
+  ),
+  CONSTRAINT ck_suite_customer_sync_receipt_hash CHECK (
+    REGEXP_LIKE(request_sha256, _ascii'^[0-9a-f]{64}$')
+  )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- A DML-only deployment identity must fail before existing guards are dropped.
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_privilege_preflight;
+CREATE TRIGGER trg_suite_customer_sync_privilege_preflight
+BEFORE INSERT ON suite_customer_sync_events
+FOR EACH ROW
+SET @suite_customer_sync_trigger_privilege_preflight = 1;
+DROP TRIGGER trg_suite_customer_sync_privilege_preflight;
+
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_binding_before_insert;
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_binding_after_insert;
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_binding_before_update;
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_binding_after_update;
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_binding_no_delete;
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_event_before_insert;
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_events_no_update;
+DROP TRIGGER IF EXISTS trg_suite_customer_sync_events_no_delete;
+
+DELIMITER $$
+CREATE TRIGGER trg_suite_customer_sync_binding_before_insert
+BEFORE INSERT ON suite_customer_sync_bindings
+FOR EACH ROW
+BEGIN
+  IF NEW.source_version <> 1 OR NEW.status <> 'active' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync bindings must begin at active version 1';
+  END IF;
+  IF NEW.last_occurred_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 300 SECOND) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync event time is too far in the future';
+  END IF;
+  SET NEW.created_at = UTC_TIMESTAMP();
+  SET NEW.updated_at = NEW.created_at;
+END$$
+
+CREATE TRIGGER trg_suite_customer_sync_binding_after_insert
+AFTER INSERT ON suite_customer_sync_bindings
+FOR EACH ROW
+BEGIN
+  INSERT INTO suite_customer_sync_events
+    (tenant_id, event_id, binding_id, customer_id, client_id,
+     source_version, display_name, status, occurred_at, request_sha256,
+     received_at)
+  VALUES
+    (NEW.tenant_id, NEW.last_event_id, NEW.id, NEW.customer_id, NEW.client_id,
+     NEW.source_version, NEW.display_name, NEW.status, NEW.last_occurred_at,
+     NEW.last_request_sha256, NEW.updated_at);
+END$$
+
+CREATE TRIGGER trg_suite_customer_sync_binding_before_update
+BEFORE UPDATE ON suite_customer_sync_bindings
+FOR EACH ROW
+BEGIN
+  IF NOT (
+       NEW.id <=> OLD.id
+   AND NEW.tenant_id <=> OLD.tenant_id
+   AND NEW.customer_id <=> OLD.customer_id
+   AND NEW.client_id <=> OLD.client_id
+   AND NEW.created_at <=> OLD.created_at
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync binding identity is immutable';
+  END IF;
+  IF NEW.source_version <> OLD.source_version + 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync source versions must be sequential';
+  END IF;
+  IF NEW.last_event_id = OLD.last_event_id
+     OR NEW.last_request_sha256 = OLD.last_request_sha256 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync advances require a new event and request digest';
+  END IF;
+  IF NEW.last_occurred_at < OLD.last_occurred_at
+     OR NEW.last_occurred_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 300 SECOND) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync event times must be monotonic and not future dated';
+  END IF;
+  SET NEW.updated_at = UTC_TIMESTAMP();
+END$$
+
+CREATE TRIGGER trg_suite_customer_sync_binding_after_update
+AFTER UPDATE ON suite_customer_sync_bindings
+FOR EACH ROW
+BEGIN
+  INSERT INTO suite_customer_sync_events
+    (tenant_id, event_id, binding_id, customer_id, client_id,
+     source_version, display_name, status, occurred_at, request_sha256,
+     received_at)
+  VALUES
+    (NEW.tenant_id, NEW.last_event_id, NEW.id, NEW.customer_id, NEW.client_id,
+     NEW.source_version, NEW.display_name, NEW.status, NEW.last_occurred_at,
+     NEW.last_request_sha256, NEW.updated_at);
+END$$
+
+CREATE TRIGGER trg_suite_customer_sync_binding_no_delete
+BEFORE DELETE ON suite_customer_sync_bindings
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync bindings cannot be deleted';
+END$$
+
+CREATE TRIGGER trg_suite_customer_sync_event_before_insert
+BEFORE INSERT ON suite_customer_sync_events
+FOR EACH ROW
+BEGIN
+  DECLARE exact_binding INT DEFAULT 0;
+  SELECT COUNT(*) INTO exact_binding
+    FROM suite_customer_sync_bindings sync_binding
+    JOIN clients sync_client
+      ON sync_client.tenant_id = sync_binding.tenant_id
+     AND sync_client.id = sync_binding.client_id
+   WHERE sync_binding.tenant_id = NEW.tenant_id
+     AND sync_binding.id = NEW.binding_id
+     AND BINARY sync_binding.customer_id = BINARY NEW.customer_id
+     AND sync_binding.client_id = NEW.client_id
+     AND sync_binding.source_version = NEW.source_version
+     AND BINARY sync_binding.display_name = BINARY NEW.display_name
+     AND (
+       NEW.status = 'inactive'
+       OR BINARY sync_client.name = BINARY NEW.display_name
+     )
+     AND sync_binding.status = NEW.status
+     AND BINARY sync_binding.last_event_id = BINARY NEW.event_id
+     AND sync_binding.last_occurred_at = NEW.occurred_at
+     AND BINARY sync_binding.last_request_sha256 = BINARY NEW.request_sha256;
+  IF exact_binding <> 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync receipt must match the exact binding and client';
+  END IF;
+END$$
+
+CREATE TRIGGER trg_suite_customer_sync_events_no_update
+BEFORE UPDATE ON suite_customer_sync_events
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync event receipts are immutable';
+END$$
+
+CREATE TRIGGER trg_suite_customer_sync_events_no_delete
+BEFORE DELETE ON suite_customer_sync_events
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Customer sync event receipts are immutable';
+END$$
+DELIMITER ;
+
+-- --------------------------------------------------------
 -- Explicit customer-portal mapping and immutable lifecycle audit (migration 012)
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS customer_portal_bindings (

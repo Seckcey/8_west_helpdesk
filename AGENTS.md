@@ -31,8 +31,10 @@ Milepost's alert emitter shipped, and alert tickets have been arriving since
 2026-07-29. Anything that assumes the svc path is dark is out of date.
 **`svc.support_enabled` is `true` too** (2026-08-09): Coastmark and Waypoint
 both passed their canaries and both have turned their own emitters on, so
-partner support tickets are arriving for real customers. **Nothing under
-`api/svc/*` is dark any more.**
+partner support tickets are arriving for real customers. Those established
+routes are live, but that does **not** make every `api/svc/*` route live:
+`customers.php` has its own default-off `suite_customer_sync.enabled` gate,
+dedicated identity/key, and tenant allowlist.
 
 **Before starting work here, read `docs/where-things-stand.md`** — one page
 saying what is live, what is not, and how to verify each claim yourself rather
@@ -125,16 +127,24 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    no review box means nobody agreed to send those words anywhere. The
    fingerprint is the SAME one the flag path uses, so praise and complaints
    about a question line up against each other.
-8. **Three `api/svc/*` producers, three different jobs — never merge them.**
+8. **Four `api/svc/*` producers, four different jobs — never merge them.**
    `alerts.php` (machine alerts, keyed on the occurrence, auto-closes),
    `westy.php` (Westy defects, one ticket per PROBLEM, stored text re-scrubbed),
    `support.php` (a person asking 8 West IT for help from inside **Coastmark or
    Waypoint** — more products to come — one ticket per SUBMISSION, text stored
    **verbatim**, `channel='portal'`, contract in
-   `docs/coastmark-support-intake-contract.md`). The caller list is server
+   `docs/coastmark-support-intake-contract.md`), and `customers.php` (the
+   default-off Milepost customer registry, which creates one stable local
+   client binding and immutable receipts but never a ticket or
+   `clients.source_key`; contract in `docs/milepost-customer-sync-contract.md`).
+   Customer sync has its own exact `milepost-customers` identity, dedicated
+   HMAC context/key, `suite_customer_sync.enabled` gate, and tenant allowlist;
+   never route it through generic `svc.secrets` or the already-live `svc`
+   gates. The support caller list is server
    config `support_intake.sources` (`support_sources()`, defaults in
-   `SUPPORT_SOURCES_DEFAULT`), so **product number three costs a config line, an
-   identity row and a secret — never a code change**; production has no
+   `SUPPORT_SOURCES_DEFAULT`), so **an additional support product costs a
+   config line, an identity row and a secret — never a code change**;
+   production has no
    `support_intake` block at all today and runs on those defaults.
    **Waypoint is a standalone product outside 8 West IT 365**, so do not assume
    a support caller is a suite app. Westy's scrubbing
