@@ -163,6 +163,15 @@ For a reviewed migration-first window, deny only Safeharbor's SSL docroot,
 config-test, reload Apache, and prove the public endpoint returns `403`. Preserve
 the exact vhost first in the release record:
 
+Before copying or editing that file, resolve the active mapping with
+`sudo apache2ctl -S` and require all three exact facts: server name
+`safeharbor.8westit.com`, vhost file
+`/etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf`, and document
+root `/srv/8west/apps/safeharbor/current/public`. Never substitute
+`support-8westit-le-ssl.conf`: `support.8westit.com` is Milepost on this shared
+host. Hash both vhosts before and after a release so a mistaken target is
+detected even if Apache still reloads successfully.
+
 ```bash
 VHOST=/etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf
 BACKUP_DIR=/srv/8west/backups/safeharbor/YYYYMMDDTHHMMSSZ-pre-release
@@ -524,13 +533,35 @@ triggers. A fresh rebuild instead starts with zero binding/snapshot rows and
 must remain disabled until a separately controlled onboarding canary.
 
 Deploy code only after the migration and grant postflight. Keep the protected
-`business_reports` block absent or fully default-off with empty allowlists.
-The deploy script does not install a scheduler. After one explicitly chosen
-recipient canary has passed dry-run, archive, provider-submission, and separate
-recipient-confirmation gates, install the reviewed cron entry for
+`business_reports` block absent or fully default-off with empty allowlists on a
+fresh environment. The current controlled 8 West IT canary is the explicit
+exception: its schedule/tenant/client/recipient allowlists each contain one
+exact value while generation and delivery remain false. The deploy script does
+not install a scheduler. After one explicitly chosen recipient canary has
+passed dry-run, archive, provider-submission, and separate recipient-
+confirmation gates, install the reviewed cron entry for
 `app/cron/business_reports.php`; observe one scheduled weekly period before
 expanding any allowlist. The exact contract, commands, failure semantics, and
 rollback are in `docs/business-reports-contract.md`.
+
+The schedule-key gate shipped through PR #61 / exact release
+`8322266dbcf3eb6956eb9f1ca79a51948002aaec` on 2026-08-27. Its root-only
+backup and scratch-restore proof are at
+`/srv/8west/backups/safeharbor/20260827T143419Z-pre-report-schedule-key-gate`.
+The deployed tree matched 142 ordinary Git files and three normalized cache-
+stamp files; all 115 live PHP files linted, and the protected config remained
+preserved. Public acceptance on `safeharbor.8westit.com` passed; the canonical
+dry run refused only the incomplete weekly window and left archives,
+deliveries, attempts, and mail unchanged.
+
+That receipt also records a process miss: the attempted HTTP maintenance lock
+edited the separate support/Milepost vhost. The Safeharbor database account
+was locked with zero connections, the wrong vhost was restored exactly, the
+actual Safeharbor vhost remained at SHA-256
+`8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43`,
+and its release window had zero 5xx, fatal, or database errors. This is not
+accepted as a successful Safeharbor HTTP lock; future releases must pass the
+three-fact vhost preflight above before installation starts.
 
 Migration 018 (`018_ticket_auto_close_eligibility.sql`) was applied
 migration-first on 2026-08-27 through PR #59 / release

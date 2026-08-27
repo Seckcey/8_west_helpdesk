@@ -4,8 +4,9 @@
 The suite SSO sections below were separately verified on 2026-08-24. The
 Customer Service Tools and database sections were verified again through the
 2026-08-27 report-contact release, controlled 8 West IT customer/report
-canaries, and Milepost tenant-wide customer-sync activation; the rest of this
-page was not re-audited during those focused closeouts.
+canaries, Milepost tenant-wide customer-sync activation, and exact Safeharbor
+schedule-key release `8322266`; the rest of this page was not re-audited
+during those focused closeouts.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -36,7 +37,7 @@ If you change what is live, change this page in the same PR.
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's sender/receiver and Phase 5A's portal remain default-off. Phase 6 has one active canary schedule but generation/delivery remain off. Milepost customer sync is live only for exact tenant `8west`; Logbook activation remains separate. Existing service-intake gates remain live. |
 | Customer ticket-summary portal (Phase 5A) | **Deployed dark** through base PR #44 / merge `3bb87fa` plus disabled-logout hardening PR #48 / merge `748f16c`; migration 012 is applied, `portal.enabled=false`, client fields are empty, the private cache is empty, 8 West ID has zero Safeharbor OIDC clients, and Safeharbor has zero bindings/events |
-| Scheduled archived business reports (Phase 6) | **Controlled 8 West IT canary prepared, not generated or delivered**: definition 1 and schedule 1 exist; schedule key `8west-it-weekly-canary-v1` is active at version 2 for Wednesday 09:00 America/Los_Angeles. Exact canary allowlists are installed, but generation and delivery are both off; archives/deliveries/attempts remain zero and there is no server scheduler. |
+| Scheduled archived business reports (Phase 6) | **Controlled 8 West IT canary prepared, not generated or delivered**: exact release `8322266` is live with definition 1 and logical schedule 1; schedule key `8west-it-weekly-canary-v1` is active at version 2 for Wednesday 09:00 America/Los_Angeles. Its schedule/tenant/client/recipient allowlists each contain one exact value, but generation and delivery are both off; archives/deliveries/attempts remain zero and there is no server scheduler. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Milepost managed-customer receiver | **Live only for exact tenant `8west`**: Safeharbor client 13 is bound to Milepost customer `4ebaeefa-b101-47f8-ac76-e49ab309d272`; ordered v1/v2/v3 receipts finish at the real `8 West IT` name. Milepost has one root-owned one-minute dispatcher. Logbook activation remains separate. |
 
@@ -373,15 +374,32 @@ binding/contact evidence with definition 1 and schedule 1.
 
 The canary schedule key `8west-it-weekly-canary-v1` is now latest version 2,
 active for Wednesday 09:00 in `America/Los_Angeles`, with exact 8 West IT
-tenant/client/recipient canary allowlists. Generation and delivery are both
-false. A first no-write dry run correctly reported that it must wait for the
-first complete weekly window. There are still zero archives, deliveries, and
-attempts; no email submission or recipient receipt has occurred, and no server
-scheduler exists. A one-time Codex heartbeat is planned for Wednesday,
-2026-09-02, to continue the controlled canary. Root-only evidence is retained
-at `/srv/8west/backups/report-contact/20260827T115552Z-8west-it-canary` and
-`/srv/8west/backups/business-report/20260827T120122Z-8west-it-dry-run`. The
-contract and remaining canary sequence are in
+schedule/tenant/client/recipient canary allowlists. PR #61 / merge
+`8322266dbcf3eb6956eb9f1ca79a51948002aaec` made the schedule key its own
+mandatory gate and is the exact application release now served by
+`safeharbor.8westit.com`. PR CI run `33081410186` passed; exact-main run
+`33081562197` passed on attempt 2 after one unrelated flaky service-goal
+concurrency assertion was rerun unchanged.
+
+Generation and delivery are both false. The canonical no-write runner exits
+`2` only because the first Monday-through-Monday window is not yet a complete
+past window. The report-state digest is unchanged, archives/deliveries/
+attempts remain zero, the mail queue remains two sent and zero unsent, and
+there is no cron or systemd report scheduler. Public acceptance on the actual
+Safeharbor vhost passed login `200`, root `302`, unauthenticated timer `401`,
+and all four disabled portal routes as cookie-free `404`; 142 ordinary files,
+three normalized cache-stamp files, and 115 live PHP files passed exact/lint
+checks.
+
+The release receipt truthfully records that the HTTP maintenance edit targeted
+the separate support/Milepost vhost rather than Safeharbor. The Safeharbor DB
+account lock did engage with zero connections, both vhosts were restored or
+left at their exact preflight hashes, and the Safeharbor release window had
+zero 5xx, fatal, or database errors. Root-only evidence and the verified
+scratch-restored rollback are at
+`/srv/8west/backups/safeharbor/20260827T143419Z-pre-report-schedule-key-gate`.
+A one-time Codex heartbeat is planned for Wednesday, 2026-09-02, to continue
+the controlled canary. The contract and remaining sequence are in
 `docs/business-reports-contract.md`.
 
 The Milepost managed-customer receiver foundation shipped through Safeharbor
