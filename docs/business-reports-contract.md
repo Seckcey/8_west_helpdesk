@@ -133,6 +133,7 @@ Fresh and production configuration must begin with:
     'generation_enabled' => false,
     'delivery_enabled' => false,
     'canary_only' => true,
+    'schedule_keys' => [],
     'tenant_slugs' => [],
     'client_keys' => [],
     'recipient_emails' => [],
@@ -148,21 +149,23 @@ Activation requires all of these independently:
 3. a disabled schedule prepared from the authenticated 8 West ID tenant
    contact for one exact tenant, client, timezone, weekday, local time, and
    canary flag;
-4. the exact tenant slug, `safeharbor-client:<id>`, and normalized recipient in
-   protected configuration allowlists;
+4. the exact schedule key, tenant slug, `safeharbor-client:<id>`, and
+   normalized recipient in protected configuration allowlists;
 5. an explicit appended `active` schedule version;
 6. `generation_enabled=true` before archive generation; and
 7. `delivery_enabled=true` plus existing protected Microsoft Graph mail
    configuration before any send boundary.
 
 `canary_only=true` refuses every non-canary schedule even if all other values
-are allowlisted.
+are allowlisted. The exact schedule-key allowlist prevents another canary for
+the same tenant, client, and recipient from being picked up merely because it
+shares those three broader routing values.
 
 The present 8 West IT canary is deliberately beyond the fresh-install state:
-its exact tenant, client, and recipient allowlists are installed, while
-`generation_enabled=false` and `delivery_enabled=false` still prevent archive
-creation and email submission. The contact lookup gates were turned off after
-the one redacted onboarding fetch; cron does not need or use them.
+its exact schedule, tenant, client, and recipient allowlists are installed,
+while `generation_enabled=false` and `delivery_enabled=false` still prevent
+archive creation and email submission. The contact lookup gates were turned
+off after the one redacted onboarding fetch; cron does not need or use them.
 
 ## Operator workflow
 
@@ -210,7 +213,8 @@ php app/db/manage_business_reports.php prepare-from-id \
   --actor-user-id=USER --reason='Prepare controlled canary'
 ```
 
-After protected allowlists are exact, append the active version and perform a
+After protected allowlists contain only the exact schedule key, tenant,
+client, and recipient, append the active version and perform a
 no-write/no-network dry run:
 
 ```bash
@@ -247,8 +251,10 @@ separate acceptance fact.
 ## Scheduler and canary sequence
 
 `app/cron/business_reports.php` is bounded and protected by a MySQL advisory
-lock. Generation and pending/expired delivery enumeration are independent, so
-an archive created while delivery is off can be handled after an explicit
+lock. Enumeration skips every active schedule whose exact schedule key,
+tenant, client, recipient, or canary flag is outside protected configuration.
+Generation and pending/expired delivery enumeration are independent, so an
+archive created while delivery is off can be handled after an explicit
 delivery gate change. Installing a cron entry is a separate production action;
 the repository deploy does not edit crontab.
 
@@ -258,8 +264,8 @@ Controlled rollout order:
 2. verify zero definitions, schedules, archives, deliveries, and attempts;
 3. choose one real tenant/client, verify its 8 West ID tenant contact and
    protected stable-key binding, and record approval outside Git;
-4. publish, prepare from ID, inspect the pinned key/version/digest, allowlist,
-   enable, and dry-run;
+4. publish, prepare from ID, inspect the pinned key/version/digest, allowlist
+   that exact schedule/tenant/client/recipient tuple, enable, and dry-run;
 5. enable generation only, create one archive, inspect its exact hash and
    aggregate content, then leave delivery off;
 6. enable delivery for that exact canary, run one pinned delivery, record
@@ -274,7 +280,7 @@ The first four controlled preparation steps are complete for the exact 8 West
 IT canary. Safeharbor pinned `ewid-t1` contact version 1 without printing the
 address, published immutable definition 1, prepared logical schedule 1, and
 appended active version 2 for Wednesday 09:00 Pacific time. The protected
-allowlists contain only that canary's tenant, client, and recipient.
+allowlists contain only that canary's schedule, tenant, client, and recipient.
 
 The first dry run made no writes and correctly reported that the first complete
 Monday-through-Monday window is not due yet. Therefore there are still zero

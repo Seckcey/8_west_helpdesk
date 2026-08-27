@@ -237,6 +237,7 @@ return [
         'generation_enabled' => false,
         'delivery_enabled' => false,
         'canary_only' => true,
+        'schedule_keys' => [],     // e.g. client-weekly-canary-v1
         'tenant_slugs' => [],
         'client_keys' => [],       // e.g. safeharbor-client:123
         'recipient_emails' => [],  // normalized lowercase exact addresses

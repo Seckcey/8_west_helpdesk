@@ -39,6 +39,7 @@ function report_config(array $changes = []): array
         'generation_enabled' => true,
         'delivery_enabled' => true,
         'canary_only' => true,
+        'schedule_keys' => ['client-one-weekly'],
         'tenant_slugs' => ['one'],
         'client_keys' => ['safeharbor-client:11'],
         'recipient_emails' => ['reports@example.test'],
@@ -207,6 +208,7 @@ report_check('default configuration is fully inert', business_report_config([]) 
     'generation_enabled' => false,
     'delivery_enabled' => false,
     'canary_only' => true,
+    'schedule_keys' => [],
     'tenant_slugs' => [],
     'client_keys' => [],
     'recipient_emails' => [],
@@ -217,6 +219,20 @@ report_throws(
     BusinessReportValidationException::class,
     fn() => business_report_config(report_config(['tenant_slugs' => ['one', 'one']])),
     'duplicate',
+);
+report_throws(
+    'duplicate schedule allowlist values fail closed',
+    BusinessReportValidationException::class,
+    fn() => business_report_config(report_config([
+        'schedule_keys' => ['client-one-weekly', 'client-one-weekly'],
+    ])),
+    'duplicate',
+);
+report_throws(
+    'schedule allowlist values must be exact schedule keys',
+    BusinessReportValidationException::class,
+    fn() => business_report_config(report_config(['schedule_keys' => ['Client Weekly']])),
+    'schedule key',
 );
 report_throws(
     'tenant allowlist values must be exact slugs',
@@ -341,6 +357,15 @@ report_throws(
     'different 8 West ID tenant',
 );
 report_throws(
+    'schedule enable requires the exact schedule key allowlist',
+    BusinessReportGateException::class,
+    fn() => business_report_transition_schedule(
+        $pdo, 'one', 'client-one-weekly', 1, 'active', 101, 'bad schedule key',
+        report_config(['schedule_keys' => []]),
+    ),
+    'allowlisted',
+);
+report_throws(
     'schedule enable requires exact configuration allowlists',
     BusinessReportGateException::class,
     fn() => business_report_transition_schedule(
@@ -434,6 +459,24 @@ report_check('report text states denominator and financial/delivery limits',
 foreach (['private ticket', 'private response', 'private approved', 'private praise', 'other tenant'] as $secret) {
     report_check("report excludes sensitive fixture text: {$secret}", !str_contains($dryRun['text'], $secret));
 }
+report_throws(
+    'generation requires the exact schedule key allowlist',
+    BusinessReportGateException::class,
+    fn() => business_report_generate(
+        $pdo,
+        'one',
+        'client-one-weekly',
+        report_config(['schedule_keys' => []]),
+        $now,
+        false,
+        true,
+    ),
+    'allowlisted',
+);
+report_check(
+    'schedule key generation refusal writes no archive',
+    (int)$pdo->query('SELECT COUNT(*) FROM business_report_archives')->fetchColumn() === 0,
+);
 
 $generated = business_report_generate($pdo, 'one', 'client-one-weekly', report_config(), $now, false, true);
 $archiveId = (int)$generated['archive']['id'];
@@ -460,6 +503,31 @@ report_throws(
 );
 
 $pdo->exec("UPDATE clients SET name='Renamed Current Client' WHERE id=11");
+$scheduleGateCalls = 0;
+report_throws(
+    'delivery requires the exact schedule key allowlist before the send boundary',
+    BusinessReportGateException::class,
+    function () use ($pdo, $archiveId, $now, &$scheduleGateCalls): void {
+        business_report_deliver(
+            $pdo,
+            $archiveId,
+            report_config(['schedule_keys' => []]),
+            function () use (&$scheduleGateCalls): array {
+                $scheduleGateCalls++;
+                return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+            },
+            $now,
+        );
+    },
+    'allowlisted',
+);
+report_check(
+    'schedule key delivery refusal makes no transport call and keeps the delivery pending',
+    $scheduleGateCalls === 0
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_deliveries WHERE archive_id={$archiveId}",
+        )->fetchColumn() === 'pending',
+);
 $transportCalls = 0;
 $capturedSubject = '';
 $submitted = business_report_deliver(
@@ -576,7 +644,10 @@ $revokedEnumeration = business_report_pending_archive_ids(
     $pdo,
     $now,
     BUSINESS_REPORT_MAX_DUE_SCHEDULES,
-    report_config(['tenant_slugs' => [], 'client_keys' => [], 'recipient_emails' => []]),
+    report_config([
+        'schedule_keys' => [], 'tenant_slugs' => [],
+        'client_keys' => [], 'recipient_emails' => [],
+    ]),
 );
 report_check(
     'scheduler omits revoked pending rows but retains expired send-boundary recovery',
@@ -586,7 +657,10 @@ $revokedExpiredCalls = 0;
 $revokedRecovered = business_report_deliver(
     $pdo,
     (int)$revokedExpired['id'],
-    report_config(['tenant_slugs' => [], 'client_keys' => [], 'recipient_emails' => []]),
+    report_config([
+        'schedule_keys' => [], 'tenant_slugs' => [],
+        'client_keys' => [], 'recipient_emails' => [],
+    ]),
     function () use (&$revokedExpiredCalls): array {
         $revokedExpiredCalls++;
         return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
@@ -631,7 +705,7 @@ report_throws(
     'cannot change',
 );
 
-// Starvation guard: 101 due active schedules, only the last recipient allowed.
+// Starvation guard: 101 due active schedules, only the last key and recipient allowed.
 for ($i = 1; $i <= 101; $i++) {
     $key = sprintf('starve-%03d', $i);
     $recipient = $i === 101 ? 'allowed@example.test' : sprintf('blocked%03d@example.test', $i);
@@ -644,7 +718,10 @@ for ($i = 1; $i <= 101; $i++) {
     );
     $insert->execute([$key, (int)$definition['definition']['id'], $recipient]);
 }
-$starvationConfig = report_config(['recipient_emails' => ['allowed@example.test']]);
+$starvationConfig = report_config([
+    'schedule_keys' => ['starve-101'],
+    'recipient_emails' => ['allowed@example.test'],
+]);
 $due = business_report_due_schedule_keys($pdo, $now, 1, $starvationConfig);
 report_check('more than one hundred blocked schedules cannot starve an allowed due schedule',
     $due === [['tenant_slug' => 'one', 'schedule_key' => 'starve-101']]);

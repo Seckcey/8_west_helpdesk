@@ -49,13 +49,22 @@ function report_mysql_check(string $name, bool $condition): void
 }
 
 /** @param class-string<Throwable> $expected */
-function report_mysql_throws(string $name, string $expected, callable $operation): void
+function report_mysql_throws(
+    string $name,
+    string $expected,
+    callable $operation,
+    string $fragment = '',
+): void
 {
     try {
         $operation();
         report_mysql_check($name, false);
     } catch (Throwable $error) {
-        report_mysql_check($name, $error instanceof $expected);
+        report_mysql_check(
+            $name,
+            $error instanceof $expected
+                && ($fragment === '' || str_contains($error->getMessage(), $fragment)),
+        );
     }
 }
 
@@ -118,6 +127,7 @@ function report_mysql_config(): array
         'generation_enabled' => true,
         'delivery_enabled' => true,
         'canary_only' => true,
+        'schedule_keys' => ['weekly-one', 'weekly-runtime'],
         'tenant_slugs' => ['one'],
         'client_keys' => ['safeharbor-client:11'],
         'recipient_emails' => ['reports@example.test'],
@@ -204,6 +214,21 @@ report_mysql_throws('definition rows cannot be deleted', PDOException::class,
 $prepared = business_report_prepare_schedule(
     $pdo, 'one', 'weekly-one', 11, (int)$definition['definition']['id'],
     'reports@example.test', 'UTC', 7, '23:59:59', true, 101, 'prepare',
+);
+report_mysql_throws(
+    'real MySQL enable refuses an unallowlisted schedule key',
+    BusinessReportGateException::class,
+    fn() => business_report_transition_schedule(
+        $pdo,
+        'one',
+        'weekly-one',
+        1,
+        'active',
+        102,
+        'blocked enable',
+        array_replace(report_mysql_config(), ['schedule_keys' => []]),
+    ),
+    'allowlisted',
 );
 $enabled = business_report_transition_schedule(
     $pdo, 'one', 'weekly-one', 1, 'active', 102, 'enable', report_mysql_config(),
