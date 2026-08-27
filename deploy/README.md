@@ -91,6 +91,8 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 **010 (versioned service goals, migration-first on 2026-08-26)** ·
 **011 (approval-grade technician time, migration-first on 2026-08-26)** ·
 **012 (dark customer portal boundary, migration-first on 2026-08-26)**.
+Migration 013 (versioned archived business reports) is a source candidate and
+is not yet recorded as applied.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -145,22 +147,63 @@ canary require their own authorization. The exact canary, active-session,
 revocation, tenant-isolation, and rollback sequence is in
 `docs/customer-portal-contract.md`.
 
+Migration 013 is migration-first and trigger-capable-operator-only. Before
+application deployment, take and verify protected application, database, and
+grant backups; stop concurrent report lifecycle commands; run the disposable
+MySQL report suite; apply `013_business_reports.sql`; and require every printed
+postflight value to be `1`. Verify five InnoDB tables, exact 10/15/13/12/10
+column counts, 27 named indexes, 15 tenant-scoped foreign keys, 15 checks, and
+15 permanent lifecycle/immutability triggers. A fresh migration must create
+zero definitions, schedules, archives, deliveries, and attempts.
+
+Production's current database-wide DML grant includes `DELETE`. Before calling
+013 complete, remove the database-wide `DELETE` privilege and grant table-level
+`DELETE` only to the eight runtime paths that actually delete rows:
+`clients`, `contacts`, `canned_responses`, `email_threads`, `messages`,
+`tickets`, `svc_rate_buckets`, and `svc_support_rate`. Preserve database-wide `SELECT`,
+`INSERT`, and `UPDATE`; the report triggers deny updates to immutable report
+tables and permit only exact delivery/attempt transitions. Prove ordinary
+deletes still work inside rollback-only transactions, prove DELETE is denied
+on every report/portal/time-history table, and prove `TRUNCATE`, DDL, trigger,
+and grant authority remain absent. Never put the runtime password in a command,
+log, evidence file, or Git.
+
+Deploy code only after the migration and grant postflight. Keep the protected
+`business_reports` block absent or fully default-off with empty allowlists.
+The deploy script does not install a scheduler. After one explicitly chosen
+recipient canary has passed dry-run, archive, provider-submission, and separate
+recipient-confirmation gates, install the reviewed cron entry for
+`app/cron/business_reports.php`; observe one scheduled weekly period before
+expanding any allowlist. The exact contract, commands, failure semantics, and
+rollback are in `docs/business-reports-contract.md`.
+
 The web/cron runtime identity must remain DML-only. It needs `SELECT`,
-`INSERT`, `UPDATE`, and `DELETE` on `safeharbor.*`; it must not hold `ALTER`,
+`INSERT`, and `UPDATE` on `safeharbor.*`, plus table-level `DELETE` only on the
+eight allowlisted operational tables above; it must not hold `ALTER`,
 `CREATE`, `DROP`, `INDEX`, `REFERENCES`, `TRIGGER`, or `GRANT OPTION` because
 those privileges can bypass or remove approval audit guards (`TRUNCATE`
-requires `DROP`). Before calling migration 011 complete, preserve the current
-grant statement in the protected backup record, then converge the existing
-runtime account with the privileged operator:
+requires `DROP`). Preserve the current grant statement in the protected 013
+backup record, resolve the exact existing account rather than assuming its
+host component, then converge it with the privileged operator. For the current
+documented account shape, the SQL is:
 
 ```sql
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'safeharbor'@'localhost';
-GRANT SELECT, INSERT, UPDATE, DELETE ON safeharbor.* TO 'safeharbor'@'localhost';
+REVOKE DELETE ON safeharbor.* FROM 'safeharbor'@'localhost';
+GRANT DELETE ON safeharbor.clients TO 'safeharbor'@'localhost';
+GRANT DELETE ON safeharbor.contacts TO 'safeharbor'@'localhost';
+GRANT DELETE ON safeharbor.canned_responses TO 'safeharbor'@'localhost';
+GRANT DELETE ON safeharbor.email_threads TO 'safeharbor'@'localhost';
+GRANT DELETE ON safeharbor.messages TO 'safeharbor'@'localhost';
+GRANT DELETE ON safeharbor.svc_rate_buckets TO 'safeharbor'@'localhost';
+GRANT DELETE ON safeharbor.svc_support_rate TO 'safeharbor'@'localhost';
+GRANT DELETE ON safeharbor.tickets TO 'safeharbor'@'localhost';
 ```
 
 Run migrations only through the reviewed `sudo mysql safeharbor` operator
-path. Verify the runtime grant afterward and prove it cannot `TRUNCATE
-time_entries` or drop an audit trigger; never print or copy the account secret.
+path. Verify the runtime grants afterward and prove ordinary allowlisted
+deletes still work, report/history deletes fail, and the account cannot
+`TRUNCATE time_entries` or drop an audit trigger; never print or copy the
+account secret.
 
 ## Coastmark approved-time sender
 

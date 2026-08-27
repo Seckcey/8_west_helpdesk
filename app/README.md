@@ -15,9 +15,15 @@ db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
 db/migrations/             numbered SQL migrations (010 versioned service
                            goals, 011 approval-grade time, and 012 customer
-                           portal are applied; portal source is deployed dark)
+                           portal are applied; 013 business reports is the
+                           next migration-first source candidate)
 db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
                            identity tenant slug → provider tenant/client binding
+db/manage_business_reports.php
+                           owner/admin definition + schedule lifecycle; recipient
+                           is accepted as input but never echoed
+db/run_business_report.php exact dry-run/generate/deliver for one pinned schedule
+                           or archive; no batch or automatic retry
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
 lib/service_goals.php      versioned target resolver/snapshot + deterministic
                            first-response lamps and attainment
@@ -32,6 +38,8 @@ lib/portal_auth.php        separate <=8h OIDC session, exact client roles,
 lib/portal_data.php        explicit binding lifecycle + tenant/client-bound,
                            read-only ticket-summary queries
 lib/portal_render.php      independent dark customer chrome (no staff session)
+lib/business_reports.php   versioned weekly aggregates, oldest-period catch-up,
+                           immutable archive hashes, and one-attempt delivery truth
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
@@ -70,8 +78,12 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            intake_service_goal_test.php, time_entries_test.php,
                            time_entries_mysql_test.php,
                            coastmark_time_export_test.php, portal_auth_test.php,
-                           portal_data_test.php, portal_mysql_test.php
+                           portal_data_test.php, portal_mysql_test.php,
+                           business_reports_test.php,
+                           business_reports_mysql_test.php
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
+cron/business_reports.php  independently gated report generation + one-attempt
+                           Graph submission; deliberately not mail_queue
 cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
 cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
@@ -182,6 +194,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
   infer a mapping from email/domain/name or enable a live business as a test.
   Production has the migration and source but no portal OIDC values, bindings,
   global enablement, or authenticated customer canary.
+- Business reports: independent versioned definitions and schedules produce
+  exact weekly aggregate archives. Both generation and delivery default off;
+  exact tenant/client/recipient allowlists and `canary_only` apply. A Graph 202
+  means provider-submitted, not recipient-delivered, and ambiguous delivery is
+  terminal without automatic retry. See `docs/business-reports-contract.md`.
 
 ## Develop
 
@@ -192,6 +209,8 @@ find app -name "*.php" -print0 | xargs -0 -n1 php -l     # lint
 php app/tests/portal_auth_test.php
 php app/tests/portal_data_test.php
 # destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php
+php app/tests/business_reports_test.php
+# destructive only in safeharbor_report_test*: php app/tests/business_reports_mysql_test.php
 SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
 cd tools/shots && node walkthrough.mjs                   # visual verification
 ```
