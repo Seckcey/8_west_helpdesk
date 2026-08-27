@@ -200,13 +200,22 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   Cloudflare-proxied — port 22 times out on the hostname. Deploy with
   `SERVER=ubuntu@<origin-ip> KEY=<milepost.pem> bash deploy/deploy.sh`
   (Frank has the IP + key; the pem never enters git or chat).
-- **Migrations are manual**: after deploying code that ships a new
-  `db/migrations/NNN_*.sql`, stream it to `sudo mysql safeharbor` on the
-  box. Recorded as applied: 001 mail_queue · 002 westy/onboarding ·
+- **Migrations are manual and order-specific.** Never infer deploy-first from a
+  generic command: 007 and 010 through 016 were migration-first. For a
+  schema-changing release, require the exact green default-branch SHA, a fresh
+  verified root-only application/config/trigger-inclusive-DB/grant backup and
+  scratch restore, the Safeharbor-only endpoint/database write freeze, the
+  archived exact Git blob plus replay/postflight, then matching source deploy.
+  Never stop shared Apache or remove fail-closed migration guards manually; see
+  `deploy/README.md`.
+  Recorded as applied: 001 mail_queue · 002 westy/onboarding ·
   003 canned_responses · 004 attachments/threading/resurface ·
-  005 presence/merge/fulltext · 006 csat · **007 suite_subject (2026-08-02,
-  migration-first)** · 008 westy_reports. `db/schema.sql` stays the
-  canonical fresh-install copy — keep both in lockstep.
+  005 presence/merge/fulltext · 006 csat · 007 suite_subject ·
+  008 westy_reports · 009 support_intake · 010 versioned service goals ·
+  011 approval-grade time · 012 customer portal · 013 business reports ·
+  014 guarded policy publication · 015 customer sync ·
+  016 time corrections/overlap guards. `db/schema.sql` stays the canonical
+  fresh-install copy—keep it and every migration in lockstep.
   `002_svc_intake.sql` collides on the number 002 with
   `002_westy_onboarding.sql`, so numbering is not a reliable ordering. **It IS
   applied in production** — verified 2026-08-08 by schema, not by this list:

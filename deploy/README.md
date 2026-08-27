@@ -26,19 +26,23 @@ which lives on the same box (`support.8westit.com`).
   safeharbor-8westit-le-ssl.conf      port 443 (Let's Encrypt)
 ```
 
-## One-time setup (already done 2026-07-21; kept for rebuilds)
+## One-time setup (historical; rebuild requires a reviewed plan)
 
 > **Do not run `deploy/setup-server.sh` as currently written.** It still
 > creates the retired `/var/www/safeharbor` path while the authoritative app
 > root is `/srv/8west/apps/safeharbor/current`. The script is an outstanding
 > rebuild blocker and was deliberately left untouched in this documentation
-> closeout. Until it is repaired and reviewed, follow the commands below.
+> closeout. It also does not reproduce the current least-privilege database
+> grants. Never use it—or the old database-wide `DELETE` grant—as a rebuild
+> shortcut.
 
 ```bash
-# 1. MySQL database + user (password goes into config.php below)
+# On milepost-ec2 as the privileged operator:
+# 1. Keep the vhost disabled. Create the database + runtime identity, granting
+# schema-wide SELECT/INSERT/UPDATE only. The password goes into config.php.
 sudo mysql -e "CREATE DATABASE safeharbor CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; \
   CREATE USER 'safeharbor'@'localhost' IDENTIFIED BY '<password>'; \
-  GRANT SELECT, INSERT, UPDATE, DELETE ON safeharbor.* TO 'safeharbor'@'localhost'; \
+  GRANT SELECT, INSERT, UPDATE ON safeharbor.* TO 'safeharbor'@'localhost'; \
   FLUSH PRIVILEGES;"
 
 # 2. App dir + server config (copy config.sample.php, fill in the password)
@@ -47,14 +51,30 @@ sudo mkdir -p /srv/8west/apps/safeharbor/current/config
 sudo chown -R ubuntu:www-data /srv/8west/apps/safeharbor
 sudo chmod 640 /srv/8west/apps/safeharbor/current/config/config.php
 
-# 3. Deploy the code (from your machine), then load schema as an operator.
+# From the exact clean repository checkout:
+# 3. Load the canonical schema and the two svc-only migrations as an operator.
 # Never seed production; db/seed.php is a destructive sandbox-only reset.
-KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
-sudo mysql safeharbor < /srv/8west/apps/safeharbor/current/db/schema.sql
+ssh milepost-ec2 "sudo mysql safeharbor" < app/db/schema.sql
+ssh milepost-ec2 "sudo mysql safeharbor" < app/db/migrations/002_svc_intake.sql
+ssh milepost-ec2 "sudo mysql safeharbor" < app/db/migrations/009_support_intake.sql
 
-# 4. Vhosts (files in this directory) + reload
-scp -i ~/.ssh/milepost.pem deploy/apache-safeharbor*.conf ubuntu@<origin-ip>:/tmp/
-ssh -i ~/.ssh/milepost.pem ubuntu@<origin-ip> \
+# Back on milepost-ec2 as the privileged operator:
+# 4. Preserve schema-wide SELECT/INSERT/UPDATE and add DELETE only to the eight
+# inventoried operational tables after they exist. Never grant database-wide DELETE.
+sudo mysql -e "GRANT DELETE ON safeharbor.clients TO 'safeharbor'@'localhost'; \
+  GRANT DELETE ON safeharbor.contacts TO 'safeharbor'@'localhost'; \
+  GRANT DELETE ON safeharbor.canned_responses TO 'safeharbor'@'localhost'; \
+  GRANT DELETE ON safeharbor.email_threads TO 'safeharbor'@'localhost'; \
+  GRANT DELETE ON safeharbor.messages TO 'safeharbor'@'localhost'; \
+  GRANT DELETE ON safeharbor.svc_rate_buckets TO 'safeharbor'@'localhost'; \
+  GRANT DELETE ON safeharbor.svc_support_rate TO 'safeharbor'@'localhost'; \
+  GRANT DELETE ON safeharbor.tickets TO 'safeharbor'@'localhost';"
+
+# From the exact clean repository checkout:
+# 5. Deploy from a clean detached default-branch commit, then install the vhosts.
+SERVER=milepost-ec2 DEST=/srv/8west/apps/safeharbor/current bash deploy/deploy.sh
+scp deploy/apache-safeharbor*.conf milepost-ec2:/tmp/
+ssh milepost-ec2 \
   "sudo cp /tmp/apache-safeharbor.conf /etc/apache2/sites-available/safeharbor-8westit.conf && \
    sudo cp /tmp/apache-safeharbor-le-ssl.conf /etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf && \
    sudo apache2ctl configtest && sudo systemctl reload apache2"
@@ -65,12 +85,32 @@ at `/etc/letsencrypt/live/safeharbor.8westit.com/` and renews automatically.
 
 ## Every release
 
+Safeharbor has no protected deployment workflow. GitHub `Validate` is a test
+gate only; the production boundary is this manual operator procedure. Work in a
+new detached worktree so a moving branch or unrelated local change cannot enter
+the streamed artifact:
+
 ```bash
-git pull --ff-only                                   # ALWAYS — parallel agents work this repo
-# Run the reviewed tests, backup, and any migration-specific ordering first.
+git fetch --prune origin
+RELEASE_SHA="$(git rev-parse origin/main)"
+git show -s --format='%H %P %s' "$RELEASE_SHA"
+gh run list --workflow Validate --branch main --limit 1 \
+  --json databaseId,headSha,status,conclusion,url
+git worktree add --detach ../safeharbor-release-"${RELEASE_SHA:0:12}" "$RELEASE_SHA"
+cd ../safeharbor-release-"${RELEASE_SHA:0:12}"
+test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+test -z "$(git status --porcelain)"
+
+# Run the reviewed tests, verified backup, and migration-specific ordering first.
 # Deploy only after every required migration postflight passes.
-SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+SERVER=milepost-ec2 DEST=/srv/8west/apps/safeharbor/current bash deploy/deploy.sh
 ```
+
+The newest green run must name exactly `RELEASE_SHA`; recency alone is not a
+gate. `milepost-ec2` is the reviewed origin-IP alias and works with the deploy
+script's `IdentitiesOnly` option. Never rely on the script's Cloudflare-hostname
+default. Record the exact SHA, CI run, backup record, migration output, and
+postdeploy hashes in a root-only release record.
 
 No build step — the script lints the PHP, syncs brand assets, and streams
 `app/` to the server (never overwriting `config/config.php`), then fixes
@@ -78,14 +118,115 @@ ownership (`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets
 are cache-busted Milepost-style with `?v=` in `lib/render.php`,
 `lib/westy.php`, and `public/login.php`.
 
+### Protected backup and Safeharbor-only write freeze
+
+For a schema-changing release, create a new root-only record before any lock or
+DDL. Do not reuse an older release's backup:
+
+```bash
+ssh milepost-ec2 'sudo bash -se' <<'REMOTE'
+set -euo pipefail
+umask 077
+BACKUP_DIR="/srv/8west/backups/safeharbor/$(date -u +%Y%m%dT%H%M%SZ)-pre-release"
+install -d -m 0700 -o root -g root "$BACKUP_DIR"
+
+tar -C /srv/8west/apps/safeharbor/current \
+  --exclude='./config/config.php' --exclude='./config/config.php.bak*' \
+  -czf "$BACKUP_DIR/application.tar.gz" .
+install -m 0600 /srv/8west/apps/safeharbor/current/config/config.php \
+  "$BACKUP_DIR/config.php"
+mysqldump --single-transaction --quick --triggers --routines --events \
+  --hex-blob --no-tablespaces --set-gtid-purged=OFF safeharbor \
+  > "$BACKUP_DIR/database.sql"
+mysql -N -B -e "SHOW GRANTS FOR 'safeharbor'@'localhost'" \
+  > "$BACKUP_DIR/runtime-grants.sql"
+
+tar -tzf "$BACKUP_DIR/application.tar.gz" >/dev/null
+grep -q -- '-- Dump completed on' "$BACKUP_DIR/database.sql"
+cd "$BACKUP_DIR"
+sha256sum application.tar.gz config.php database.sql runtime-grants.sql \
+  > SHA256SUMS
+sha256sum -c SHA256SUMS
+printf '%s\n' "$BACKUP_DIR"
+REMOTE
+```
+
+Restore the dump into one exact allowlisted scratch database, verify the base
+table/trigger/time counts, then drop only that scratch database. A readable
+archive and a dump-completed marker are necessary but do not replace a restore.
+Keep the live config and grant record protected; never print either into chat,
+CI, or a public PR.
+
+The shared Apache service must never be stopped or restarted for Safeharbor.
+For a reviewed migration-first window, deny only Safeharbor's SSL docroot,
+config-test, reload Apache, and prove the public endpoint returns `403`. Preserve
+the exact vhost first in the release record:
+
+```bash
+VHOST=/etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf
+BACKUP_DIR=/srv/8west/backups/safeharbor/YYYYMMDDTHHMMSSZ-pre-release
+ssh milepost-ec2 "sudo cp --preserve=all '$VHOST' \
+  '$BACKUP_DIR/safeharbor-vhost-before-lock.conf' && \
+  test \"\$(sudo grep -c 'Require all granted' '$VHOST')\" = 1 && \
+  sudo sed -i 's/Require all granted/Require all denied/' '$VHOST' && \
+  sudo apache2ctl configtest && sudo systemctl reload apache2"
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  https://safeharbor.8westit.com/login.php          # exactly 403
+```
+
+Then lock the exact Safeharbor runtime account and require zero existing
+connections. This blocks Safeharbor's minute mail workers too; other products
+on the shared host remain available:
+
+```bash
+ssh milepost-ec2 "sudo mysql -e \
+  \"ALTER USER 'safeharbor'@'localhost' ACCOUNT LOCK\" && \
+  sudo mysql -N -B -e \
+  \"SELECT account_locked FROM mysql.user WHERE User='safeharbor' AND Host='localhost'; \
+    SELECT COUNT(*) FROM information_schema.processlist WHERE User='safeharbor';\""
+# Require exactly Y and 0. Do not start DDL otherwise.
+```
+
+Archive the exact Git blob rather than trusting working-tree newline bytes, hash
+it, and run the archived copy as the trigger-capable operator. For migration
+016 the reviewed blob hash is
+`0f07b0da0ab4c9e68308cc3ddf2af4c7e4e2171be81682168202245c8395eb25`:
+
+```bash
+BACKUP_DIR=/srv/8west/backups/safeharbor/YYYYMMDDTHHMMSSZ-pre-release
+MIGRATION=app/db/migrations/016_time_corrections_overlap.sql
+git show "$RELEASE_SHA:$MIGRATION" | ssh milepost-ec2 \
+  "sudo bash -c 'umask 077; cat > \
+  $BACKUP_DIR/016_time_corrections_overlap.exact.sql'"
+ssh milepost-ec2 "sudo sha256sum \
+  '$BACKUP_DIR/016_time_corrections_overlap.exact.sql' && \
+  sudo bash -c 'mysql --show-warnings safeharbor < \
+  $BACKUP_DIR/016_time_corrections_overlap.exact.sql > \
+  $BACKUP_DIR/migration-016-first-run.txt'"
+```
+
+Replay the same archived file once and preserve both outputs. If any migration
+command exits nonzero after DDL begins, keep both locks in place, inspect the
+exact partial shape, and replay the same reviewed bytes. Never manually remove
+staging/swap guards and never restore an old database over later help-desk
+writes as an automatic response.
+
+After the exact postflight and replay pass, deploy the matching clean detached
+commit while the endpoint remains locked. Verify application hashes, PHP lint,
+config preservation, runtime grants, and Apache syntax. Restore the vhost from
+the release record, require its SHA-256 to match the pre-lock value, reload
+Apache, unlock `safeharbor@localhost`, and run public plus authenticated smoke.
+If DDL never started, an aborted window may restore the vhost and unlock the
+account after recording why it stopped.
+
 **If the release ships a new `db/migrations/NNN_*.sql`, follow that
 migration's reviewed ordering** (deploys never touch the DB). Migrations 011
-through 014 are explicitly migration-first; do not infer deploy-first from the
+through 016 are explicitly migration-first; do not infer deploy-first from the
 generic release command:
 
 ```bash
-ssh -i ~/.ssh/milepost.pem ubuntu@<origin-ip> "sudo mysql safeharbor" \
-  < app/db/migrations/NNN_whatever.sql
+git show "$RELEASE_SHA:app/db/migrations/NNN_whatever.sql" | \
+  ssh milepost-ec2 "sudo mysql --show-warnings safeharbor"
 ```
 
 Recorded as applied to production: 001 (mail_queue) · 002 (westy/onboarding) ·
@@ -96,7 +237,9 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 **011 (approval-grade technician time, migration-first on 2026-08-26)** ·
 **012 (dark customer portal boundary, migration-first on 2026-08-26)** ·
 **013 (versioned archived business reports, migration-first on 2026-08-26)** ·
-**014 (guarded service-goal publication, migration-first on 2026-08-27)**.
+**014 (guarded service-goal publication, migration-first on 2026-08-27)** ·
+**015 (default-off customer sync, migration-first on 2026-08-27)** ·
+**016 (time corrections/overlap guards, migration-first on 2026-08-27)**.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -307,7 +450,41 @@ An earlier set of five auxiliary swap guards protects guard/registry updates,
 deletes, and measured-registry inserts while replay replaces those integrity
 triggers; parent measured writes roll back while that swap is incomplete.
 
-Canary with a fresh signed-in 8 West IT session: log one measured pending row,
+Production applied migration 016 and deployed its matching source through
+Safeharbor PR #55 / merge
+`bb580a293f89deab278473e986c2e1232d2bc0c1` on 2026-08-27. Exact-main
+Validate run `33057438562` passed. The verified root-only release record is
+`/srv/8west/backups/safeharbor/20260827T092220Z-pre-time-corrections`; its
+application, protected config, trigger-inclusive database, and runtime-grant
+hash manifest passed. The application archive and dump-completed marker passed,
+and a scratch restore proved 31 base tables, 43 pre-migration triggers, and
+unchanged time/event counts of `1:1`.
+
+The Safeharbor-only endpoint lock returned `403` during the migration window.
+The initial clean-working-tree file had CRLF bytes at SHA-256
+`6730158402a6e4539af48fb265bee05bf33e2f4d273bddd7cf299ff666c373c3`;
+it applied and replayed successfully but is not called the exact Git blob. The
+separately archived exact `git show` bytes hash to
+`0f07b0da0ab4c9e68308cc3ddf2af4c7e4e2171be81682168202245c8395eb25`.
+They were replayed while `safeharbor@localhost` was account-locked after zero
+connections, produced `1,1,1,1,12,0,0,0`, and left time facts unchanged. The
+account was unlocked after the postflight.
+
+Final database evidence is `1:2:12:0:1:1:0`: one correction column, two
+auxiliary tables, twelve permanent triggers, zero staging triggers, one time
+entry, one event, and zero measured-registry rows. Matching code deployed from
+a clean detached checkout. All 128 non-stamp tracked application paths and the
+three normalized cache-stamp paths matched the merge. The protected config
+remained byte-identical at
+`c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`.
+The restored SSL vhost and its pre-lock copy both hash to
+`8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43`;
+Apache syntax passed. Login is `200`, an unauthenticated timer request is `401`,
+Coastmark export remains disabled/empty, and business reports remain
+unconfigured/empty with no scheduler.
+
+The following canary remains open and requires a fresh signed-in 8 West IT
+session: log one measured pending row,
 prove same-technician overlap conflicts while exact adjacency works, reject it
 with a reason, submit and idempotently replay one correction, then approve it.
 The rejected parent and both original events must remain unchanged; exactly one
@@ -427,6 +604,8 @@ private copy here.
 ```bash
 curl -s  https://safeharbor.8westit.com/login.php | grep -o '<title>[^<]*'   # Sign in · Safeharbor
 curl -sI https://safeharbor.8westit.com/ | head -1                           # 302 → login
+curl -sS -X POST -H 'Content-Type: application/json' -d '{}' -o /dev/null \
+  -w '%{http_code}\n' https://safeharbor.8westit.com/api/timer.php             # 401
 for path in portal/ portal/login.php portal/callback.php portal/logout.php; do
   curl -sS -D - -o /dev/null "https://safeharbor.8westit.com/$path"           # each 404; no Set-Cookie
 done
@@ -437,8 +616,17 @@ cd tools/shots && node walkthrough.mjs                                       # f
 ## Rollback
 
 ```bash
-git checkout <older-sha> && SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+git fetch --prune origin
+OLDER_SHA='replace-with-reviewed-sha'
+git worktree add --detach ../safeharbor-rollback "$OLDER_SHA"
+cd ../safeharbor-rollback
+test "$(git rev-parse HEAD)" = "$OLDER_SHA"
+test -z "$(git status --porcelain)"
+SERVER=milepost-ec2 DEST=/srv/8west/apps/safeharbor/current bash deploy/deploy.sh
 ```
 
-DB is forward-only (schema.sql is idempotent via IF NOT EXISTS); reseeding
-(`php db/seed.php`) resets demo data.
+Normal rollback is code-first from an exact clean reviewed commit. Leave
+additive migration structures and stronger guards in place when the prior code
+is compatible; migration 016 explicitly supports that boundary. Restoring a
+database dump is disaster recovery only because it discards writes after the
+backup. Never run `php db/seed.php` in production—it resets demo data.

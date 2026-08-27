@@ -1,7 +1,10 @@
 # Technician time corrections and measured overlap contract
 
-Status: implemented and tested on `codex/time-corrections-overlap`; migration
-016 is not applied to production until the reviewed migration-first release.
+Status: merged through Safeharbor PR #55 / merge
+`bb580a293f89deab278473e986c2e1232d2bc0c1` and deployed on 2026-08-27.
+Migration 016 and the matching application source are live. The structural
+release is complete; the fresh signed-in 8 West IT correction canary remains an
+operator follow-up.
 
 ## What this slice owns
 
@@ -67,7 +70,8 @@ triggers keep its facts aligned with immutable `time_entries` rows.
 
 ## Migration-first release gate
 
-Before deploying code that selects `corrects_time_entry_id`:
+For any rebuild or replay before deploying code that selects
+`corrects_time_entry_id`:
 
 1. Fetch the reviewed default branch and record its exact commit.
 2. Back up the Safeharbor database with triggers and the current application.
@@ -84,6 +88,59 @@ Before deploying code that selects `corrects_time_entry_id`:
 8. Confirm the original rejected row/events are byte-identical, the replacement
    is the only child, reports still select approved billable rows only, and the
    Coastmark sender remains disabled.
+
+Production completed steps 1–6 on 2026-08-27. Steps 7–8 remain deliberately
+open: no credentials or identity bypass were used to manufacture an
+authenticated acceptance session.
+
+## Production release evidence — 2026-08-27
+
+- Exact source: merge
+  `bb580a293f89deab278473e986c2e1232d2bc0c1`; exact-main Validate run
+  `33057438562` passed, including the real two-connection overlap race.
+- The fresh root-only rollback record is
+  `/srv/8west/backups/safeharbor/20260827T092220Z-pre-time-corrections`.
+  Its verified `SHA256SUMS` records:
+  - application archive
+    `b8f105f843f1e5738ec28368b91e823019ab09492d81cee512ba4ddff69b9de4`;
+  - protected config
+    `c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`;
+  - trigger-inclusive database dump
+    `96c132bf1a36f475b6639869c49767f262afb2d0ee0cedf7c30a185bb596d391`;
+  - protected runtime-grant record
+    `e4cab4e47ea97f9ccbdfb1a9c90a41de917ac5fb65d2695e4471581d6e4174b2`.
+  The archive was readable, the dump-completed marker was present, and a
+  scratch restore proved 31 base tables, 43 pre-migration triggers, one time
+  entry, and one time event.
+- A Safeharbor-only Apache endpoint lock returned `403` during the migration
+  window without stopping shared Apache. The exact `safeharbor@localhost`
+  runtime account was
+  then locked, zero remaining connections were proved, and it was unlocked
+  only after the exact migration replay and postflight succeeded.
+- Byte provenance is recorded honestly. The initial clean-working-tree copy
+  had Windows CRLF bytes at SHA-256
+  `6730158402a6e4539af48fb265bee05bf33e2f4d273bddd7cf299ff666c373c3`.
+  It applied and replayed successfully, but it was not claimed as the exact Git
+  blob. The separately archived `git show` blob at SHA-256
+  `0f07b0da0ab4c9e68308cc3ddf2af4c7e4e2171be81682168202245c8395eb25`
+  was replayed under the database-account lock and emitted the same postflight:
+  `1,1,1,1,12,0,0,0`.
+- Final database evidence is `1:2:12:0:1:1:0`: one exact correction column,
+  two auxiliary tables, twelve permanent triggers, zero staging triggers, one
+  time entry, one time event, and zero measured-registry rows. Time facts were
+  unchanged and there are still zero correction rows before the canary.
+- Matching application code deployed from a clean detached checkout of the
+  merge. All 128 non-stamp tracked paths matched after CRLF normalization, and
+  the three intentional cache-stamp files matched after normalizing only their
+  `?v=` token. There were no missing or extra non-brand application paths.
+- The protected config remained byte-identical at the SHA above. The restored
+  SSL vhost and its pre-lock copy both hash to
+  `8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43`;
+  Apache syntax passed. Public login returned `200`, and an unauthenticated
+  timer application request returned `401`.
+- Coastmark export remains disabled with empty tenant/client allowlists and no
+  secret. Business-report configuration remains absent, all report tables are
+  empty, and no scheduler was installed.
 
 Migration 016 is additive. Application rollback may leave its nullable column,
 auxiliary rows, and stronger database guards in place. A database restore is
