@@ -192,6 +192,25 @@ return [
         'timeout_seconds' => 15,
     ],
 
+    // Versioned weekly client service summaries. Definitions, schedules,
+    // exact report bytes, delivery leases, and provider outcomes are archived
+    // in Safeharbor. This path does not use mail_queue: a Microsoft Graph 202
+    // is recorded as submitted to the provider, never as recipient-delivered,
+    // and an ambiguous outcome is terminal with no automatic retry.
+    //
+    // Fresh installs and production deploys stay inert. A canary requires all
+    // three exact allowlists plus the corresponding database schedule. Client
+    // keys use Safeharbor's stable internal form, not names or domains.
+    'business_reports' => [
+        'generation_enabled' => false,
+        'delivery_enabled' => false,
+        'canary_only' => true,
+        'tenant_slugs' => [],
+        'client_keys' => [],       // e.g. safeharbor-client:123
+        'recipient_emails' => [],  // normalized lowercase exact addresses
+        'lease_seconds' => 120,
+    ],
+
     // File storage OUTSIDE the deploy tree (deploy.sh re-chmods current/ on
     // every release; shared/ survives untouched). The web user needs write.
     'storage' => [

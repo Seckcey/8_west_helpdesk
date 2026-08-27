@@ -34,6 +34,7 @@ If you change what is live, change this page in the same PR.
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's sender/receiver and Phase 5A's portal source are deployed default-off while existing service-intake gates remain live |
 | Customer ticket-summary portal (Phase 5A) | **Deployed dark** through PR #44 / merge `3bb87fa`; migration 012 is applied, the global gate and OIDC values remain off/absent, and there are zero bindings/events |
+| Scheduled archived business reports (Phase 6) | **Source candidate only** on `codex/scheduled-business-reports`; migration 013 is not applied, both gates default off, allowlists are empty, and there are no definitions/schedules/archives/deliveries |
 
 ## Customer Service Tools development
 
@@ -226,6 +227,34 @@ enablement, fresh signed-in client-role acceptance, tenant isolation,
 revocation and disable-on-next-request proof, and desktop/mobile verification.
 See `docs/customer-portal-contract.md`.
 
+Phase 6 is a source candidate on `codex/scheduled-business-reports`. It adds an
+immutable version-1 weekly client-service definition, append-only schedule
+versions, oldest-missing-period catch-up, exact JSON/text archives with SHA-256,
+and a one-attempt delivery state machine. Report queries bind the exact
+Safeharbor tenant/client and aggregate ticket counts, first-response facts,
+versioned service-goal outcomes, approved billable operational minutes, and
+CSAT. They do not select ticket subjects, message bodies, contacts,
+attachments, technician/review notes, billing facts, endpoint controls, or AI
+output.
+
+Generation and delivery have independent global gates plus exact
+tenant/client/recipient allowlists; `canary_only` defaults true. The runner is
+separate from retrying `mail_queue`. Only an exact Microsoft Graph 202 is
+recorded as `submitted`, which means provider acceptance rather than inbox
+delivery. Ambiguous or expired send-boundary outcomes are terminal `uncertain`
+and never retry automatically. A later schedule version revokes old pending
+delivery, while report subjects and bodies remain the verified archived bytes.
+
+Migration 013 defines five tenant-scoped tables, 27 indexes, 15 foreign keys,
+15 checks, and 15 actor/state/immutability triggers. The hermetic suite is
+50/50 locally; CI is wired for a destructive-name-guarded MySQL 8 suite that
+replays fresh schema plus migration, verifies native exact-byte archive hashes,
+exercises database guards and least-privilege runtime DML, and refuses report
+history deletion. Nothing in this paragraph is a production claim: 013 is not
+applied, code is not deployed, no scheduler is installed, and no recipient or
+schedule has been chosen. The contract and canary sequence are in
+`docs/business-reports-contract.md`.
+
 ## First-tenant suite SSO repair
 
 Safeharbor PR [#31](https://github.com/Seckcey/8_west_helpdesk/pull/31)
@@ -374,6 +403,10 @@ Migration `012_customer_portal.sql` was applied operator-first on 2026-08-26.
 Production has its two exact tables, seven lifecycle/audit triggers, enforced
 tenant/client ownership constraints, and zero mappings/events. The matching
 portal source is deployed dark; no OIDC configuration or canary was created.
+Migration `013_business_reports.sql` is a source candidate only. It has not
+been applied and production has no report definition, schedule, archive,
+delivery, attempt, gate, allowlist, recipient canary, or scheduler claimed by
+this repository.
 
 `db/schema.sql` does **not** carry any `svc_*` object. A fresh install needs
 `schema.sql` + `002_svc_intake.sql` + `009_support_intake.sql`.
@@ -389,16 +422,21 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Nineteen CLI suites live in `app/tests/`. Eleven server-free contract suites
+Twenty-one CLI suites live in `app/tests/`. Twelve server-free contract suites
 run in CI, including the hermetic service-goal, approval-time, approved-time
-export, portal auth/revocation, and portal read-only/rendering gates. CI also
-runs the portal migration/isolation suite on disposable MySQL 8. Existing
+export, portal auth/revocation, portal read-only/rendering, and archived-report
+gates. CI also runs the portal and business-report migration/isolation suites
+on disposable MySQL 8. Existing
 integration suites (`suite_sso`,
 `svc_intake`, `svc_support`, `westy_report`, `intake_service_goal`, and
 `time_entries_mysql`) need MySQL plus a scratch-only `config/config.php`;
 `utf8_input` needs the scratch config but does not touch the database.
 `portal_mysql_test.php` is standalone, refuses any database name not beginning
 `safeharbor_portal_test`, and receives only disposable CI MySQL credentials.
+`business_reports_mysql_test.php` similarly refuses names outside
+`safeharbor_report_test*`, creates that exact scratch database with CI's MySQL
+operator, and proves the report lifecycle again through a temporary
+least-privilege identity before removing it.
 PHP lint and the database-free suites run on the Windows dev machine.
 
 The scratch application identity skips migration 010's four trigger

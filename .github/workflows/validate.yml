@@ -50,6 +50,8 @@ jobs:
         run: php app/tests/portal_auth_test.php
       - name: Test customer portal read-only boundary and rendering
         run: php app/tests/portal_data_test.php
+      - name: Test scheduled archived business reports
+        run: php app/tests/business_reports_test.php
       - name: Test customer portal migration and tenant isolation
         env:
           SAFEHARBOR_PORTAL_TEST_DB: safeharbor_portal_test
@@ -58,5 +60,13 @@ jobs:
           SAFEHARBOR_PORTAL_TEST_USER: root
           SAFEHARBOR_PORTAL_TEST_PASS: safeharbor-test-root
         run: php app/tests/portal_mysql_test.php
+      - name: Test business report migration and delivery state machine
+        env:
+          SAFEHARBOR_REPORT_TEST_DB: safeharbor_report_test
+          SAFEHARBOR_REPORT_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_REPORT_TEST_PORT: 3306
+          SAFEHARBOR_REPORT_TEST_USER: root
+          SAFEHARBOR_REPORT_TEST_PASS: safeharbor-test-root
+        run: php app/tests/business_reports_mysql_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php
