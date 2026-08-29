@@ -18,8 +18,10 @@ function goal_check(string $name, bool $condition): void
 }
 
 $now = strtotime('2026-08-25 12:00:00 UTC');
+$afterResponses = strtotime('2026-08-27 12:00:00 UTC');
 $base = [
     'status' => 'open',
+    'created_at' => '2026-08-25 10:00:00',
     'sla_due_at' => '2026-08-25 15:00:00',
     'first_response_at' => null,
 ];
@@ -40,22 +42,83 @@ goal_check('target boundary is reported without inventing elapsed time', sla_inf
 goal_check('first response exactly at target is met', sla_info([
     ...$base,
     'first_response_at' => '2026-08-25 15:00:00',
-], $now)['state'] === 'met');
+], $afterResponses)['state'] === 'met');
+goal_check('a future technician timestamp is still an unanswered target',
+    service_goal_response_outcome([
+        ...$base,
+        'first_response_at' => '2026-08-25 13:00:00',
+    ], $now) === null
+    && sla_info([
+        ...$base,
+        'first_response_at' => '2026-08-25 13:00:00',
+    ], $now) === ['state' => 'healthy', 'label' => '3h 00m left']);
+goal_check('a pre-open technician timestamp is not a ticket response',
+    service_goal_response_outcome([
+        ...$base,
+        'first_response_at' => '2026-08-25 09:00:00',
+    ], $now) === null
+    && sla_info([
+        ...$base,
+        'first_response_at' => '2026-08-25 09:00:00',
+    ], $now) === ['state' => 'healthy', 'label' => '3h 00m left']);
+goal_check('a technician response exactly at the as-of clock counts',
+    service_goal_response_outcome([
+        ...$base,
+        'first_response_at' => '2026-08-25 12:00:00',
+    ], $now) === true
+    && sla_info([
+        ...$base,
+        'first_response_at' => '2026-08-25 12:00:00',
+    ], $now) === ['state' => 'met', 'label' => 'Response met']);
 goal_check('resolved ticket uses its first response, not resolution time', sla_info([
     ...$base,
     'status' => 'resolved',
     'first_response_at' => '2026-08-25 14:00:00',
     'resolved_at' => '2026-08-27 12:00:00',
-], $now) === ['state' => 'met', 'label' => 'Response met']);
+], $afterResponses) === ['state' => 'met', 'label' => 'Response met']);
 goal_check('late first response remains breached after resolution', sla_info([
     ...$base,
     'status' => 'resolved',
     'first_response_at' => '2026-08-25 16:15:00',
-], $now) === ['state' => 'breached', 'label' => 'Response 1h 15m late']);
+], $afterResponses) === ['state' => 'breached', 'label' => 'Response 1h 15m late']);
 goal_check('resolved ticket without a technician response is not called met', sla_info([
     ...$base,
     'status' => 'resolved',
+    'resolved_at' => '2026-08-25 11:30:00',
 ], $now) === ['state' => 'breached', 'label' => 'No response']);
+goal_check('a future resolution does not decide the response target early',
+    service_goal_response_outcome([
+        ...$base,
+        'status' => 'resolved',
+        'resolved_at' => '2026-08-25 13:00:00',
+    ], $now) === null
+    && sla_info([
+        ...$base,
+        'status' => 'resolved',
+        'resolved_at' => '2026-08-25 13:00:00',
+    ], $now) === ['state' => 'healthy', 'label' => '3h 00m left']);
+goal_check('a pre-open resolution does not decide the response target',
+    service_goal_response_outcome([
+        ...$base,
+        'status' => 'resolved',
+        'resolved_at' => '2026-08-25 09:00:00',
+    ], $now) === null
+    && sla_info([
+        ...$base,
+        'status' => 'resolved',
+        'resolved_at' => '2026-08-25 09:00:00',
+    ], $now) === ['state' => 'healthy', 'label' => '3h 00m left']);
+goal_check('a resolution exactly at the as-of clock decides no response',
+    service_goal_response_outcome([
+        ...$base,
+        'status' => 'resolved',
+        'resolved_at' => '2026-08-25 12:00:00',
+    ], $now) === false
+    && sla_info([
+        ...$base,
+        'status' => 'resolved',
+        'resolved_at' => '2026-08-25 12:00:00',
+    ], $now) === ['state' => 'breached', 'label' => 'No response']);
 goal_check('missing target fails visibly', sla_info([
     ...$base,
     'sla_due_at' => '',
@@ -119,6 +182,7 @@ $pdo->exec('CREATE TABLE tickets (
     service_goal_target_id INTEGER NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NULL,
+    resolved_at TEXT NULL,
     merged_into_id INTEGER NULL,
     FOREIGN KEY (tenant_id, service_goal_target_id)
         REFERENCES service_goal_policy_targets (tenant_id, id)
@@ -274,6 +338,7 @@ $ticket->execute([2, 1, 'in_progress', '2026-08-25 10:00:00', '2026-08-24 10:00:
 $message->execute([2, 'note', '2026-08-25 09:00:00']); // notes are not responses
 $message->execute([2, 'tech', '2026-08-25 10:30:00']); // missed
 $ticket->execute([3, 1, 'resolved', '2026-08-25 15:00:00', '2026-08-24 10:00:00', null]); // no response: missed
+$pdo->exec("UPDATE tickets SET resolved_at = '2026-08-25 11:30:00' WHERE id = 3");
 $ticket->execute([4, 1, 'open', '2026-08-25 11:00:00', '2026-08-24 10:00:00', null]); // elapsed: missed
 $ticket->execute([5, 1, 'open', '2026-08-25 15:00:00', '2026-08-24 10:00:00', null]); // pending: excluded
 $ticket->execute([6, 1, 'resolved', '2026-08-01 11:00:00', '2026-07-20 10:00:00', null]); // outside period
@@ -293,6 +358,42 @@ goal_check('attainment counts first response met, not resolution time', $attainm
 goal_check('attainment percentage is derived from decided outcomes', $attainment['pct'] === 25);
 goal_check('merged source and survivor stay out of attainment', $attainment['n'] === 4);
 goal_check('another tenant cannot suppress an outcome through a merge pointer', $attainment['met'] === 1);
+
+$ticket->execute([11, 1, 'open', '2026-08-25 15:00:00', '2026-08-24 10:00:00', null]);
+$message->execute([11, 'tech', '2026-08-25 13:00:00']);
+$futureResponseAttainment = service_goal_response_attainment($pdo, 1, 30, $now);
+goal_check('attainment does not count a response after its as-of clock',
+    $futureResponseAttainment === $attainment);
+
+$ticket->execute([12, 1, 'open', '2026-08-25 15:00:00', '2026-08-24 10:00:00', null]);
+$message->execute([12, 'tech', '2026-08-24 09:00:00']);
+$preOpenResponseAttainment = service_goal_response_attainment($pdo, 1, 30, $now);
+goal_check('attainment does not count a response before its ticket opened',
+    $preOpenResponseAttainment === $attainment);
+
+$ticket->execute([13, 1, 'open', '2026-08-25 15:00:00', '2026-08-24 10:00:00', null]);
+$message->execute([13, 'tech', '2026-08-25 12:00:00']);
+$atClockResponseAttainment = service_goal_response_attainment($pdo, 1, 30, $now);
+goal_check('attainment counts a response exactly at its as-of clock',
+    $atClockResponseAttainment === ['n' => 5, 'met' => 2, 'pct' => 40]);
+
+$ticket->execute([14, 1, 'resolved', '2026-08-25 15:00:00', '2026-08-24 10:00:00', null]);
+$pdo->exec("UPDATE tickets SET resolved_at = '2026-08-25 13:00:00' WHERE id = 14");
+$futureResolutionAttainment = service_goal_response_attainment($pdo, 1, 30, $now);
+goal_check('attainment does not decide a resolution after its as-of clock',
+    $futureResolutionAttainment === $atClockResponseAttainment);
+
+$ticket->execute([15, 1, 'resolved', '2026-08-25 15:00:00', '2026-08-24 10:00:00', null]);
+$pdo->exec("UPDATE tickets SET resolved_at = '2026-08-25 12:00:00' WHERE id = 15");
+$atClockResolutionAttainment = service_goal_response_attainment($pdo, 1, 30, $now);
+goal_check('attainment decides a resolution exactly at its as-of clock',
+    $atClockResolutionAttainment === ['n' => 6, 'met' => 2, 'pct' => 33]);
+
+$ticket->execute([16, 1, 'resolved', '2026-08-25 15:00:00', '2026-08-24 10:00:00', null]);
+$pdo->exec("UPDATE tickets SET resolved_at = '2026-08-24 09:00:00' WHERE id = 16");
+$preOpenResolutionAttainment = service_goal_response_attainment($pdo, 1, 30, $now);
+goal_check('attainment does not decide a resolution before its ticket opened',
+    $preOpenResolutionAttainment === $atClockResolutionAttainment);
 
 $ticketSource = (string) file_get_contents(__DIR__ . '/../public/ticket.php');
 $appJsSource = (string) file_get_contents(__DIR__ . '/../public/assets/js/app.js');
