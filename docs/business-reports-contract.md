@@ -199,6 +199,7 @@ Fresh and production configuration must begin with:
     'generation_enabled' => false,
     'delivery_enabled' => false,
     'canary_only' => true,
+    'graph_sender' => '',
     'schedule_keys' => [],
     'tenant_slugs' => [],
     'client_keys' => [],
@@ -221,8 +222,16 @@ Activation requires all of these independently:
    normalized recipient in protected configuration allowlists;
 5. an explicit appended `active` schedule version;
 6. `generation_enabled=true` before archive generation; and
-7. `delivery_enabled=true` plus existing protected Microsoft Graph mail
-   configuration before any send boundary.
+7. a normalized, lowercase `business_reports.graph_sender` for a dedicated
+   report mailbox plus existing protected Microsoft Graph credentials; and
+8. `delivery_enabled=true` before any send boundary.
+
+Report delivery reuses the protected Graph credentials in memory but replaces
+the sender with `business_reports.graph_sender`. It never falls back to
+`mail.graph.sender`, so configuring report delivery does not change the
+ordinary help-desk sender used by ticket mail and inbound Graph polling. A
+missing or malformed report sender is refused before a delivery lease or
+attempt row is created.
 
 `canary_only=true` refuses every non-canary schedule even if all other values
 are allowlisted. The exact schedule-key allowlist prevents another canary for

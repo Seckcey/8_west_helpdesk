@@ -73,6 +73,7 @@ function business_report_config(?array $source = null): array
         'generation_enabled' => ($source['generation_enabled'] ?? false) === true,
         'delivery_enabled' => ($source['delivery_enabled'] ?? false) === true,
         'canary_only' => ($source['canary_only'] ?? true) !== false,
+        'graph_sender' => business_report_graph_sender($source['graph_sender'] ?? ''),
         'schedule_keys' => business_report_schedule_allowlist($source['schedule_keys'] ?? []),
         'tenant_slugs' => business_report_tenant_allowlist($source['tenant_slugs'] ?? []),
         'client_keys' => business_report_client_allowlist($source['client_keys'] ?? []),
@@ -188,6 +189,24 @@ function business_report_email(string $value): string
         throw new BusinessReportValidationException('Report recipient email must be normalized lowercase email.');
     }
     return $email;
+}
+
+function business_report_graph_sender(mixed $value): ?string
+{
+    if ($value === null || $value === '') return null;
+    if (!is_string($value)) {
+        throw new BusinessReportValidationException('Graph report sender configuration is invalid.');
+    }
+    $sender = strtolower(trim($value));
+    if ($sender !== $value
+        || strlen($sender) > 190
+        || filter_var($sender, FILTER_VALIDATE_EMAIL) === false
+    ) {
+        throw new BusinessReportValidationException(
+            'Graph report sender must be a normalized lowercase email address.',
+        );
+    }
+    return $sender;
 }
 
 function business_report_timezone(string $value): string
@@ -1738,6 +1757,32 @@ function business_report_transport_outcome(mixed $candidate): array
 }
 
 /**
+ * Build the in-process Graph configuration for reports only. The ordinary
+ * help-desk sender remains in mail.graph.sender for inbound polling and the
+ * retrying mail queue; report delivery must name its own dedicated sender and
+ * never falls back to the ordinary sender.
+ *
+ * @return array{tenant_id:string,client_id:string,client_secret:string,sender:string}
+ */
+function business_report_delivery_graph_config(array $config, ?array $mailGraph): array
+{
+    $sender = business_report_graph_sender($config['graph_sender'] ?? null);
+    if ($sender === null) {
+        throw new BusinessReportGateException(
+            'A dedicated Microsoft Graph report sender is not configured.',
+        );
+    }
+    if ($mailGraph === null) {
+        throw new BusinessReportGateException(
+            'Microsoft Graph report delivery credentials are not configured.',
+        );
+    }
+    $reportGraph = $mailGraph;
+    $reportGraph['sender'] = $sender;
+    return $reportGraph;
+}
+
+/**
  * @param null|callable(string,string,string):array{outcome:string,provider_http:int|null,outcome_code:string} $transport
  * @return array{action:string,status:string,archive_id:int,attempt_id:int|null}
  */
@@ -1801,10 +1846,7 @@ function business_report_deliver(
     $transportWasInjected = $transport !== null;
     if ($transport === null) {
         require_once __DIR__ . '/mailer.php';
-        $graph = mailer_graph_config();
-        if ($graph === null) {
-            throw new BusinessReportGateException('Microsoft Graph report delivery is not configured.');
-        }
+        $graph = business_report_delivery_graph_config($config, mailer_graph_config());
         $transport = static function (string $to, string $subject, string $body) use ($graph): array {
             return mailer_send_graph_result($graph, $to, $subject, $body);
         };
