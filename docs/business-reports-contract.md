@@ -70,13 +70,19 @@ change, or same-version/different-address response conflicts. The old manual
 tenant onboarding uses `prepare-from-id`; customer onboarding uses
 `prepare-client-from-id`.
 
-Migration 019 adds separate client-binding and client-contact-snapshot tables.
-The client binding is immutable and one-to-one; composite foreign keys pin the
-provider tenant and client. The disabled schedule and client snapshot commit
-atomically. Exact replay is a no-op; a client or ID-tenant rebind, schedule
+Migration 019 adds separate client-binding and client-contact-snapshot tables
+plus one immutable `(tenant_id, schedule_key)` contact-scope registry. The
+registry is pinned as `MANUAL`, `TENANT`, or `CLIENT` before schedule version
+1 and every enable, disable, and reconfiguration version inherits it. Migration
+backfills existing histories and refuses missing, orphaned, or mixed scope.
+The client binding is immutable and one-to-one; symmetric locking guards stop
+an ID tenant key from being claimed in both tenant and client lanes, including
+concurrent reverse-order inserts. The disabled schedule and client snapshot
+commit atomically. Exact replay is a no-op; a client or ID-tenant rebind,
 contact-scope change, contact-version rollback, or same-version/different-
-address response conflicts. Migration 017's tables, triggers, rows, commands,
-and internal 8 West IT canary remain unchanged.
+address response conflicts. Migration 017's tables, rows, commands, and
+internal 8 West IT canary remain unchanged; migration 019 strengthens the
+shared tenant-binding and tenant-snapshot insert guards without converting it.
 
 The weekly report contains aggregate operational facts only. It does not read
 or render ticket subjects, message bodies, contacts, attachments, technician
@@ -178,7 +184,8 @@ Activation requires all of these independently:
 
 1. migration 013 with its fifteen triggers, plus migration 017 with its two
    tenant evidence tables and six separate triggers; customer schedules also
-   require migration 019's two client evidence tables and six separate guards;
+   require migration 019's two client evidence tables, one immutable scope
+   registry, and its twelve protected trigger replacements;
 2. an immutable definition published by an active owner/admin;
 3. a disabled schedule prepared from the authenticated 8 West ID tenant
    contact for one exact tenant, client, timezone, weekday, local time, and
@@ -221,10 +228,11 @@ insert trigger locks the immutable tenant-binding row before reading contact
 history; direct concurrent writers therefore cannot commit one contact version
 with different recipients.
 
-Migration 019 applies the same replay discipline independently to the two
-client-scoped tables. Six temporary insert/update/delete swap guards remain in
-place while its six permanent actor, reach, version, and immutability guards
-are replaced. An interrupted run stays fail-closed until an exact replay.
+Migration 019 applies the same replay discipline across the scope registry,
+schedule insert boundary, both tenant evidence insert boundaries, and the two
+client-scoped tables. Twelve temporary swap guards remain in place while its
+twelve permanent scope, actor, reach, version, and immutability guards are
+replaced. An interrupted run stays fail-closed until an exact replay.
 
 The report subsystem needs `SELECT` on source and report tables; `INSERT` on
 definition, schedule, archive, ID tenant-binding, and ID contact-snapshot
@@ -239,8 +247,8 @@ operational deletes are limited to the eight tables inventoried in
 Migration tests exercise the report lifecycle through a narrower temporary
 identity with exactly the report-table mutation boundary.
 Client-scoped onboarding additionally needs `SELECT`, `INSERT`, and locking-
-read `UPDATE` on the two migration-019 tables; their permanent triggers still
-reject row updates and deletes.
+read `UPDATE` on the two client evidence tables and the contact-scope registry;
+their permanent triggers still reject row updates and deletes.
 
 Publish and prepare without sending:
 
@@ -381,7 +389,7 @@ that preparation step.
 The fastest stop is protected configuration with both gates false, followed by
 an appended disabled schedule version. Do not delete or rewrite report history.
 An earlier code release safely ignores migration 017's two additive tables,
-migration 019's two additive tables, and migration 013's five additive tables,
+migration 019's three additive tables, and migration 013's five additive tables,
 so schema rollback is
 disaster-recovery-only. Retain the pre-migration database/application backup
 and migration evidence; dropping these tables destroys contact, approval, and

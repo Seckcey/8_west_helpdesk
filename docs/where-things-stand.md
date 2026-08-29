@@ -467,8 +467,10 @@ the controlled canary. The contract and remaining sequence are in
 
 The next report-contact slice is implemented only as a release candidate.
 Migration 019 adds separate immutable client bindings and client contact
-snapshots without changing migration 017's tenant tables, triggers, rows, or
-8 West IT canary. The operator path accepts only an exact protected
+snapshots plus one immutable logical-schedule contact-scope registry. It
+preserves migration 017's tenant tables, evidence rows, and 8 West IT canary
+while strengthening the tenant insert guards symmetrically. The operator path
+accepts only an exact protected
 `safeharbor-client:<id> -> ewid-t<id>` entry, proves the provider tenant,
 client, definition, and active owner/admin before lookup, and commits only a
 disabled schedule plus contact evidence. It does not infer identity from a
@@ -692,11 +694,15 @@ off after the redacted onboarding probe; the address and HMAC keys remain
 protected server-side.
 
 Migration `019_client_report_contact_evidence.sql` is a release candidate and
-is **not applied**. It adds two client-scoped evidence tables, eight tenant-
-scoped foreign keys, six enforced checks, six permanent guards, and six
-temporary fail-closed replay guards. The existing migration-017 tables and
-canary are prerequisites and remain unchanged. Production still has only the
-tenant-scoped report-contact evidence described above.
+is **not applied**. It adds two client-scoped evidence tables plus one
+immutable `(tenant_id,schedule_key)` contact-scope registry: ten foreign-key
+constraints and six enforced checks across the three tables. It safely
+replaces twelve protected insert/immutability guards behind twelve temporary
+fail-closed replay guards, then requires twelve permanent replacements and zero
+swaps. The existing migration-017 tables, evidence rows, and canary are
+prerequisites and remain intact; its tenant binding/snapshot insert guards are
+strengthened by 019. Production still has only the tenant-scoped report-contact
+evidence described above.
 
 Migration `018_ticket_auto_close_eligibility.sql` was applied and replayed
 migration-first on 2026-08-27 from release `e7ee521`'s exact Git blob. It adds

@@ -245,8 +245,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
   evidence in the same transaction as the disabled schedule. One redacted
   8 West IT contact canary was stored; both contact gates are off. This path
   cannot generate or send a report. Migration 019 is a not-applied release
-  candidate adding an independent exact-client binding/evidence lane without
-  converting the tenant canary or inferring identity from names/domains/email.
+  candidate adding an independent exact-client binding/evidence lane and one
+  immutable manual/tenant-ID/client-ID scope per logical schedule. Inspect
+  reports the exact pinned scope and latest inherited evidence even after
+  enable/disable versions; no path converts the tenant canary or infers
+  identity from names/domains/email.
 - Milepost customer sync: independent from alert/support intake and dark unless
   `suite_customer_sync.enabled` is exactly true. The signed payload resolves an
   explicitly allowlisted Safeharbor tenant slug and binds one globally stable

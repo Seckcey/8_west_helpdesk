@@ -292,6 +292,8 @@ id_report_check(
         && substr_count($manager, 'id_report_contact_fetch_client(') === 1
         && str_contains($manager, "if (\$command === 'prepare-from-id')")
         && str_contains($manager, "if (\$command === 'prepare-client-from-id')")
+        && str_contains($manager, 'business_report_contact_scope_for_key(')
+        && str_contains($manager, 'CONTACT_SCOPE=MANUAL')
         && strpos($manager, 'business_report_schedule_target(')
             < strpos($manager, 'id_report_contact_fetch_client('),
     'operator prepare commands are not the only two network-call boundaries',

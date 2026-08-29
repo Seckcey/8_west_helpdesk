@@ -13,6 +13,9 @@ const BUSINESS_REPORT_TYPE = 'weekly_client_service_summary';
 const BUSINESS_REPORT_DEFINITION_KEY = 'weekly-client-service-summary';
 const BUSINESS_REPORT_CONTRACT_VERSION = 1;
 const BUSINESS_REPORT_MAX_DUE_SCHEDULES = 100;
+const BUSINESS_REPORT_CONTACT_SCOPE_MANUAL = 'MANUAL';
+const BUSINESS_REPORT_CONTACT_SCOPE_TENANT = 'TENANT';
+const BUSINESS_REPORT_CONTACT_SCOPE_CLIENT = 'CLIENT';
 
 class BusinessReportException extends RuntimeException {}
 final class BusinessReportValidationException extends BusinessReportException {}
@@ -525,6 +528,75 @@ function business_report_latest_id_client_contact_for_key(
 }
 
 /**
+ * Return the one contact scope inherited by the complete logical schedule
+ * history. Enable/disable versions intentionally carry no duplicate evidence,
+ * so the newest evidence-bearing version remains authoritative.
+ *
+ * @return array{scope:string,evidence:array<string,mixed>|null}|null
+ */
+function business_report_contact_scope_for_key(
+    PDO $pdo,
+    int $tenantId,
+    string $scheduleKey,
+): ?array {
+    $scheduleKey = business_report_schedule_key($scheduleKey);
+    $history = $pdo->prepare(
+        'SELECT COUNT(*) FROM business_report_schedule_versions
+          WHERE tenant_id = ? AND schedule_key = ?'
+    );
+    $history->execute([$tenantId, $scheduleKey]);
+    $historyCount = (int)$history->fetchColumn();
+
+    $scopeQuery = $pdo->prepare(
+        'SELECT contact_scope FROM business_report_contact_scope_bindings
+          WHERE tenant_id = ? AND schedule_key = ?'
+    );
+    $scopeQuery->execute([$tenantId, $scheduleKey]);
+    $scope = $scopeQuery->fetchColumn();
+    if ($historyCount === 0 && $scope === false) return null;
+    if ($historyCount === 0 || !is_string($scope)) {
+        throw new BusinessReportGateException(
+            'The report schedule contact-scope registry does not match its history.',
+        );
+    }
+
+    $tenantEvidence = business_report_latest_id_contact_for_key($pdo, $tenantId, $scheduleKey);
+    $clientEvidence = business_report_latest_id_client_contact_for_key($pdo, $tenantId, $scheduleKey);
+    if ($scope === BUSINESS_REPORT_CONTACT_SCOPE_MANUAL) {
+        if (is_array($tenantEvidence) || is_array($clientEvidence)) {
+            throw new BusinessReportGateException(
+                'The manual report contact scope has unexpected ID evidence.',
+            );
+        }
+        return ['scope' => $scope, 'evidence' => null];
+    }
+    if ($scope === BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+        && is_array($tenantEvidence)
+        && !is_array($clientEvidence)
+    ) {
+        return ['scope' => $scope, 'evidence' => $tenantEvidence];
+    }
+    if ($scope === BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+        && is_array($clientEvidence)
+        && !is_array($tenantEvidence)
+    ) {
+        return ['scope' => $scope, 'evidence' => $clientEvidence];
+    }
+    if (!in_array($scope, [
+        BUSINESS_REPORT_CONTACT_SCOPE_MANUAL,
+        BUSINESS_REPORT_CONTACT_SCOPE_TENANT,
+        BUSINESS_REPORT_CONTACT_SCOPE_CLIENT,
+    ], true)) {
+        throw new BusinessReportGateException(
+            'The report schedule contact scope is invalid.',
+        );
+    }
+    throw new BusinessReportGateException(
+        'The report schedule contact scope does not match its immutable evidence.',
+    );
+}
+
+/**
  * Validate the authenticated, redaction-safe snapshot returned by the
  * operator-only 8 West ID client before it reaches a transaction.
  *
@@ -661,12 +733,42 @@ function business_report_prepare_schedule(
     $id = 0;
     $action = 'prepared';
     $evidence = null;
+    $requestedContactScope = $idContact === null
+        ? BUSINESS_REPORT_CONTACT_SCOPE_MANUAL
+        : ($idContactClientId === null
+            ? BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+            : BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
     $pdo->beginTransaction();
     try {
+        // Lock the logical schedule first. Every later enable, disable, or
+        // reconfiguration inherits the first committed contact scope.
+        $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey, true);
+        $contactScope = business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey);
+        if (is_array($contactScope)) {
+            if (!hash_equals((string)$contactScope['scope'], $requestedContactScope)) {
+                throw new BusinessReportConflictException(
+                    'A report schedule key cannot change its contact scope.',
+                );
+            }
+        } else {
+            $scopeInsert = $pdo->prepare(
+                'INSERT INTO business_report_contact_scope_bindings
+                    (tenant_id, schedule_key, contact_scope, created_by_user_id, reason)
+                 VALUES (?, ?, ?, ?, ?)'
+            );
+            $scopeInsert->execute([
+                $tenantId,
+                $scheduleKey,
+                $requestedContactScope,
+                $actorUserId,
+                $reason,
+            ]);
+        }
+
         if ($idContact !== null) {
             // Serialize first binding, version monotonicity, and schedule
-            // preparation for this local tenant without changing migration
-            // 013's schedule trigger contract.
+            // preparation for this local tenant. Migration 019 also enforces
+            // the same logical contact scope below the application boundary.
             $clientScoped = $idContactClientId !== null;
             $bindingSql = $clientScoped
                 ? 'SELECT * FROM business_report_id_client_bindings WHERE tenant_id = ? AND client_id = ?'
@@ -781,7 +883,6 @@ function business_report_prepare_schedule(
             }
         }
 
-        $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey, true);
         if (is_array($latest) && (string)$latest['status'] === 'active') {
             throw new BusinessReportConflictException('Disable the active report schedule before reconfiguring it.');
         }
@@ -793,26 +894,6 @@ function business_report_prepare_schedule(
             throw new BusinessReportConflictException(
                 'A report schedule key cannot change client, definition, or timezone.',
             );
-        }
-        if ($idContact !== null && is_array($latest)) {
-            $oppositeEvidence = $idContactClientId === null
-                ? business_report_id_client_contact_for_schedule(
-                    $pdo,
-                    $tenantId,
-                    (int)$latest['id'],
-                    true,
-                )
-                : business_report_id_contact_for_schedule(
-                    $pdo,
-                    $tenantId,
-                    (int)$latest['id'],
-                    true,
-                );
-            if (is_array($oppositeEvidence)) {
-                throw new BusinessReportConflictException(
-                    'A report schedule key cannot change its 8 West ID contact scope.',
-                );
-            }
         }
         if ($idContact !== null
             && is_array($latest)
@@ -1026,6 +1107,11 @@ function business_report_transition_schedule(
         $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey, true);
         if (!is_array($latest) || (int)$latest['version_no'] !== $expectedVersion) {
             throw new BusinessReportConflictException('Report schedule version changed; inspect it again.');
+        }
+        if (!is_array(business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey))) {
+            throw new BusinessReportGateException(
+                'The report schedule contact scope was not found.',
+            );
         }
         $fromStatus = (string)$latest['status'];
         if ($fromStatus === $toStatus) {

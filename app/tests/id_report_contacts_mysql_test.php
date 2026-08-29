@@ -114,8 +114,85 @@ function id_mysql_snapshot_worker(): void
     }
 }
 
+/** Isolated second connection proving cross-table ID-key serialization. */
+function id_mysql_binding_worker(): void
+{
+    $host = getenv('SAFEHARBOR_ID_REPORT_TEST_HOST');
+    $port = getenv('SAFEHARBOR_ID_REPORT_TEST_PORT');
+    $database = getenv('SAFEHARBOR_ID_REPORT_TEST_DB_EXACT');
+    $user = getenv('SAFEHARBOR_ID_REPORT_TEST_RUNTIME_USER');
+    $pass = getenv('SAFEHARBOR_ID_REPORT_TEST_RUNTIME_PASS');
+    $readyFile = getenv('SAFEHARBOR_ID_REPORT_TEST_READY_FILE');
+    $readyDirectory = is_string($readyFile) ? realpath(dirname($readyFile)) : false;
+    $temporaryDirectory = realpath(sys_get_temp_dir());
+    if (!is_string($host) || !in_array($host, ['127.0.0.1', 'localhost', '::1'], true)
+        || !is_string($port) || preg_match('/\A[0-9]{1,5}\z/D', $port) !== 1
+        || (int)$port < 1 || (int)$port > 65535
+        || !is_string($database)
+        || preg_match('/\Asafeharbor_id_report_test(?:_[a-z0-9_]+)?_[0-9a-f]{12}\z/D', $database) !== 1
+        || !is_string($user) || preg_match('/\Aid_report_[0-9a-f]{12}\z/D', $user) !== 1
+        || !is_string($pass) || preg_match('/\A[0-9a-f]{48}\z/D', $pass) !== 1
+        || !is_string($readyFile)
+        || preg_match('/\Asafeharbor-id-binding-race-[0-9a-f]{12}\.ready\z/D', basename($readyFile)) !== 1
+        || !is_string($readyDirectory) || !is_string($temporaryDirectory)
+        || strcasecmp($readyDirectory, $temporaryDirectory) !== 0
+    ) {
+        fwrite(STDERR, "BINDING_WORKER_INPUT_REFUSED\n");
+        exit(2);
+    }
+    register_shutdown_function(static function () use ($readyFile): void {
+        if (is_file($readyFile)) @unlink($readyFile);
+    });
+
+    $pdo = null;
+    try {
+        $pdo = new PDO(
+            "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4",
+            $user,
+            $pass,
+            [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+            ],
+        );
+        $pdo->exec("SET time_zone = '+00:00'");
+        $pdo->exec('SET SESSION innodb_lock_wait_timeout = 5');
+        $pdo->beginTransaction();
+        if (file_put_contents($readyFile, 'ready', LOCK_EX) !== 5) {
+            throw new RuntimeException('Cannot create binding-race readiness marker.');
+        }
+        fwrite(STDOUT, "READY\n");
+        fflush(STDOUT);
+        $pdo->exec("INSERT INTO business_report_id_tenant_bindings
+            (tenant_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+            VALUES (2,'ewid-t7','two',201,'concurrent tenant claimant')");
+        $pdo->commit();
+        fwrite(STDOUT, "COMMITTED\n");
+        exit(0);
+    } catch (PDOException $error) {
+        if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
+        $sqlState = is_array($error->errorInfo) ? (string)($error->errorInfo[0] ?? '') : '';
+        if ($sqlState === '45000'
+            && str_contains(strtolower($error->getMessage()), 'already bound at client scope')
+        ) {
+            fwrite(STDOUT, "CONFLICT\n");
+            exit(0);
+        }
+        fwrite(STDERR, "BINDING_WORKER_DATABASE_REJECTED\n");
+        exit(1);
+    } catch (Throwable) {
+        if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
+        fwrite(STDERR, "BINDING_WORKER_FAILED\n");
+        exit(1);
+    }
+}
+
 if (getenv('SAFEHARBOR_ID_REPORT_TEST_WORKER') === '1') {
     id_mysql_snapshot_worker();
+}
+if (getenv('SAFEHARBOR_ID_REPORT_TEST_BINDING_WORKER') === '1') {
+    id_mysql_binding_worker();
 }
 
 $disposableServer = getenv('SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER');
@@ -296,6 +373,108 @@ function id_mysql_client_snapshot(int $version, string $email, string $byte): ar
     ]);
 }
 
+/** @return array<string,mixed> */
+function id_mysql_report_config(string $scheduleKey, string $recipient): array
+{
+    return [
+        'generation_enabled' => false,
+        'delivery_enabled' => false,
+        'canary_only' => true,
+        'schedule_keys' => [$scheduleKey],
+        'tenant_slugs' => ['one'],
+        'client_keys' => ['safeharbor-client:11'],
+        'recipient_emails' => [$recipient],
+        'lease_seconds' => 120,
+    ];
+}
+
+/** @return array<string,mixed> */
+function id_mysql_prepare_unpinned_tenant_schedule(
+    PDO $pdo,
+    int $definitionId,
+    string $scheduleKey,
+    string $recipient,
+): array {
+    $pdo->beginTransaction();
+    try {
+        $scope = $pdo->prepare(
+            'INSERT INTO business_report_contact_scope_bindings
+                (tenant_id, schedule_key, contact_scope, created_by_user_id, reason)
+             VALUES (1, ?, ?, 101, ?)'
+        );
+        $scope->execute([
+            $scheduleKey,
+            BUSINESS_REPORT_CONTACT_SCOPE_TENANT,
+            'two-connection tenant-scope fixture',
+        ]);
+
+        $schedule = $pdo->prepare(
+            "INSERT INTO business_report_schedule_versions
+                (tenant_id, schedule_key, version_no, definition_version_id,
+                 client_id, recipient_email, schedule_timezone,
+                 delivery_weekday, delivery_local_time, canary, status,
+                 created_by_user_id, reason)
+             VALUES (1, ?, 1, ?, 11, ?, 'UTC', 1, '09:00:00', 1,
+                     'disabled', 101, 'two-connection tenant-scope fixture')"
+        );
+        $schedule->execute([$scheduleKey, $definitionId, $recipient]);
+        $scheduleId = (int)$pdo->lastInsertId();
+        $pdo->commit();
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
+
+    $select = $pdo->prepare(
+        'SELECT * FROM business_report_schedule_versions WHERE id=?'
+    );
+    $select->execute([$scheduleId]);
+    $row = $select->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($row)) {
+        throw new RuntimeException('Tenant-scope race fixture schedule was not stored.');
+    }
+    return $row;
+}
+
+/** @return array<string,string> */
+function id_mysql_contact_scope_trigger_contract(PDO $pdo): array
+{
+    $names = [
+        'trg_business_report_contact_scope_before_insert',
+        'trg_business_report_contact_scope_no_update',
+        'trg_business_report_contact_scope_no_delete',
+        'trg_business_report_schedules_before_insert',
+        'trg_business_report_id_binding_before_insert',
+        'trg_business_report_id_snapshot_before_insert',
+        'trg_br_id_client_binding_before_insert',
+        'trg_br_id_client_binding_no_update',
+        'trg_br_id_client_binding_no_delete',
+        'trg_br_id_client_snapshot_before_insert',
+        'trg_br_id_client_snapshot_no_update',
+        'trg_br_id_client_snapshot_no_delete',
+    ];
+    $placeholders = implode(',', array_fill(0, count($names), '?'));
+    $query = $pdo->prepare(
+        "SELECT trigger_name, event_object_table, event_manipulation,
+                action_timing, action_statement
+           FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE() AND trigger_name IN ({$placeholders})"
+    );
+    $query->execute($names);
+    $contract = [];
+    foreach ($query->fetchAll(PDO::FETCH_NUM) as $row) {
+        $statement = preg_replace('/\s+/', ' ', trim((string)$row[4]));
+        $contract[(string)$row[0]] = implode('|', [
+            (string)$row[1],
+            (string)$row[2],
+            (string)$row[3],
+            (string)$statement,
+        ]);
+    }
+    ksort($contract, SORT_STRING);
+    return $contract;
+}
+
 /**
  * @param array<string,string> $workerEnvironment
  * @param array<string,mixed> $mainSnapshot
@@ -414,6 +593,87 @@ function id_mysql_run_snapshot_race(
     }
 }
 
+/**
+ * @param array<string,string> $workerEnvironment
+ * @return array{blocked:bool,exit_code:int,stdout:list<string>,stderr_empty:bool}
+ */
+function id_mysql_run_binding_race(PDO $runtime, array $workerEnvironment): array
+{
+    $readyFile = $workerEnvironment['SAFEHARBOR_ID_REPORT_TEST_READY_FILE'] ?? '';
+    if (!is_string($readyFile) || is_file($readyFile)) {
+        throw new RuntimeException('Binding race readiness marker is unsafe.');
+    }
+    $process = null;
+    $pipes = [];
+    $mainCommitted = false;
+    try {
+        $runtime->beginTransaction();
+        $runtime->exec("INSERT INTO business_report_id_client_bindings
+            (tenant_id,client_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+            VALUES (1,13,'ewid-t7','customer-thirteen',101,'concurrent client claimant')");
+
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $process = proc_open([PHP_BINARY, __FILE__], $descriptors, $pipes, null, $workerEnvironment);
+        if (!is_resource($process)) throw new RuntimeException('Cannot start binding race worker.');
+        fclose($pipes[0]);
+        unset($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+
+        $readyDeadline = microtime(true) + 5.0;
+        $status = proc_get_status($process);
+        while (!is_file($readyFile) && microtime(true) < $readyDeadline) {
+            $status = proc_get_status($process);
+            if (!$status['running']) break;
+            usleep(20_000);
+        }
+        if (!is_file($readyFile)) {
+            throw new RuntimeException('Binding race worker did not become ready.');
+        }
+        usleep(250_000);
+        $status = proc_get_status($process);
+        $blocked = (bool)$status['running'];
+        if (!$blocked) throw new RuntimeException('Binding race worker did not block on the client claim.');
+
+        $runtime->commit();
+        $mainCommitted = true;
+        $exitDeadline = microtime(true) + 6.0;
+        while ($status['running'] && microtime(true) < $exitDeadline) {
+            usleep(20_000);
+            $status = proc_get_status($process);
+        }
+        if ($status['running']) throw new RuntimeException('Binding race worker timed out.');
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        $exitCode = (int)$status['exitcode'];
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $pipes = [];
+        $closedExitCode = proc_close($process);
+        $process = null;
+        if ($exitCode < 0) $exitCode = $closedExitCode;
+        return [
+            'blocked' => $blocked,
+            'exit_code' => $exitCode,
+            'stdout' => preg_split('/\R/', trim($stdout)) ?: [],
+            'stderr_empty' => trim($stderr) === '',
+        ];
+    } finally {
+        if (is_resource($process)) {
+            $status = proc_get_status($process);
+            if ($status['running']) proc_terminate($process);
+            foreach ($pipes as $pipe) if (is_resource($pipe)) fclose($pipe);
+            proc_close($process);
+        }
+        if (!$mainCommitted && $runtime->inTransaction()) $runtime->rollBack();
+        if (is_file($readyFile)) @unlink($readyFile);
+    }
+}
+
 $quotedDatabase = '`' . str_replace('`', '``', $database) . '`';
 $runtimeUser = 'id_report_' . $runId;
 $runtimePass = bin2hex(random_bytes(24));
@@ -454,6 +714,7 @@ try {
         'migration 013 tracked blob remains exact while migration 017 stays isolated',
     );
     id_mysql_execute_file($pdo, __DIR__ . '/../db/schema.sql');
+    $freshContactScopeTriggerContract = id_mysql_contact_scope_trigger_contract($pdo);
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
     try {
         $pdo->exec(
@@ -462,6 +723,7 @@ try {
                 business_report_id_client_bindings,
                 business_report_id_contact_snapshots,
                 business_report_id_tenant_bindings,
+                business_report_contact_scope_bindings,
                 business_report_delivery_attempts,
                 business_report_deliveries,
                 business_report_archives,
@@ -485,7 +747,117 @@ try {
         'true migration-013 baseline has five report tables and fifteen guards',
     );
     id_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/017_id_report_contact_evidence.sql');
+
+    // Prove the first installation inherits the original contact source even
+    // when the latest logical version is an enable/disable transition with no
+    // duplicate contact evidence.
+    $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES
+        (97,'Backfill Tenant','backfill-tenant'),
+        (98,'Backfill Manual','backfill-manual')");
+    $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
+        (97,97,'Backfill Tenant Client'),
+        (98,98,'Backfill Manual Client')");
+    $pdo->exec("INSERT INTO users
+        (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
+        (970,97,'owner97@example.test','','Owner Ninety Seven','97','owner',1),
+        (980,98,'owner98@example.test','','Owner Ninety Eight','98','owner',1)");
+    $backfillTenantDefinition = business_report_publish_definition(
+        $pdo,
+        'backfill-tenant',
+        970,
+        'tenant-scope backfill definition',
+    );
+    $backfillManualDefinition = business_report_publish_definition(
+        $pdo,
+        'backfill-manual',
+        980,
+        'manual-scope backfill definition',
+    );
+    $pdo->exec("INSERT INTO business_report_id_tenant_bindings
+        (tenant_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+        VALUES (97,'ewid-t97','backfill-tenant',970,'tenant-scope backfill binding')");
+    $backfillScheduleInsert = $pdo->prepare(
+        "INSERT INTO business_report_schedule_versions
+            (tenant_id,schedule_key,version_no,definition_version_id,client_id,
+             recipient_email,schedule_timezone,delivery_weekday,delivery_local_time,
+             canary,status,created_by_user_id,reason)
+         VALUES (?,?,?,?,? ,?,'UTC',1,'09:00:00',1,?,?,?)"
+    );
+    $backfillScheduleInsert->execute([
+        97,
+        'backfill-tenant',
+        1,
+        (int)$backfillTenantDefinition['definition']['id'],
+        97,
+        'backfill-tenant@example.test',
+        'disabled',
+        970,
+        'tenant-scope version one',
+    ]);
+    $backfillTenantScheduleId = (int)$pdo->lastInsertId();
+    $pdo->exec("INSERT INTO business_report_id_contact_snapshots
+        (tenant_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+         response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+        VALUES (97,{$backfillTenantScheduleId},'ewid-t97',1,'backfill-tenant@example.test',
+         '2026-08-28 12:00:00','" . str_repeat('1', 64) . "','" . str_repeat('2', 64) . "',
+         970,'tenant-scope version-one evidence')");
+    foreach ([[2, 'active'], [3, 'disabled']] as [$versionNo, $status]) {
+        $backfillScheduleInsert->execute([
+            97,
+            'backfill-tenant',
+            $versionNo,
+            (int)$backfillTenantDefinition['definition']['id'],
+            97,
+            'backfill-tenant@example.test',
+            $status,
+            970,
+            "tenant-scope {$status} transition",
+        ]);
+    }
+    $backfillScheduleInsert->execute([
+        98,
+        'backfill-manual',
+        1,
+        (int)$backfillManualDefinition['definition']['id'],
+        98,
+        'backfill-manual@example.test',
+        'disabled',
+        980,
+        'manual-scope version one',
+    ]);
     id_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql');
+    $backfilledTenantScope = business_report_contact_scope_for_key(
+        $pdo,
+        97,
+        'backfill-tenant',
+    );
+    $backfilledManualScope = business_report_contact_scope_for_key(
+        $pdo,
+        98,
+        'backfill-manual',
+    );
+    id_mysql_check(
+        is_array($backfilledTenantScope)
+            && $backfilledTenantScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+            && (int)($backfilledTenantScope['evidence']['contact_version'] ?? 0) === 1
+            && is_array($backfilledManualScope)
+            && $backfilledManualScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_MANUAL
+            && $backfilledManualScope['evidence'] === null
+            && $pdo->query(
+                "SELECT CONCAT(schedule_key, ':', contact_scope)
+                   FROM business_report_contact_scope_bindings
+                  WHERE tenant_id IN (97,98) ORDER BY tenant_id"
+            )->fetchAll(PDO::FETCH_COLUMN) === [
+                'backfill-tenant:TENANT',
+                'backfill-manual:MANUAL',
+            ],
+        'migration 019 backfills one original scope across complete transitioned schedule history',
+    );
+    id_mysql_check(
+        count($freshContactScopeTriggerContract) === 12
+            && id_mysql_contact_scope_trigger_contract($pdo) === $freshContactScopeTriggerContract,
+        'fresh schema and migrations install the exact same twelve scope enforcement triggers',
+    );
 
 id_mysql_check(
     $pdo->query(
@@ -576,6 +948,21 @@ id_mysql_check(
                 AND constraint_type='CHECK'"
         )->fetchColumn() === 6,
     'client evidence schema has exact index, foreign-key, and check counts',
+);
+id_mysql_check(
+    $pdo->query(
+        "SELECT CONCAT(table_name, ':', COUNT(*))
+           FROM information_schema.columns
+          WHERE table_schema=DATABASE()
+            AND table_name='business_report_contact_scope_bindings'
+          GROUP BY table_name"
+    )->fetchColumn() === 'business_report_contact_scope_bindings:6'
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.triggers
+              WHERE trigger_schema=DATABASE()
+                AND trigger_name LIKE 'trg_business_report_contact_scope_%'"
+        )->fetchColumn() === 3,
+    'fresh schema and migration 019 have exact immutable contact-scope parity',
 );
 
 $pdo->exec(
@@ -776,19 +1163,37 @@ $pdo->exec(
     'ALTER TABLE business_report_id_client_contact_snapshots
        ADD CONSTRAINT ck_br_id_client_snapshot_version CHECK (contact_version >= 1)'
 );
+$pdo->exec(
+    'ALTER TABLE business_report_contact_scope_bindings
+       ALTER INDEX ix_business_report_contact_scope_actor INVISIBLE'
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => id_mysql_execute_file($pdo, $migration019),
+    'migration 019 replay refuses an invisible contact-scope index',
+);
+$pdo->exec(
+    'ALTER TABLE business_report_contact_scope_bindings
+       ALTER INDEX ix_business_report_contact_scope_actor VISIBLE'
+);
 id_mysql_execute_file($pdo, $migration019);
 id_mysql_check(
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE()
             AND trigger_name LIKE 'trg_br_id_client_%'"
-    )->fetchColumn() === 6,
-    'exact migration-019 shape restoration replays with six guards and no swaps',
+    )->fetchColumn() === 6
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.triggers
+              WHERE trigger_schema=DATABASE()
+                AND trigger_name LIKE 'trg_business_report_contact_scope_%'"
+        )->fetchColumn() === 3,
+    'exact migration-019 shape restoration replays with client and scope guards',
 );
 
 $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (1,'Tenant One','one'),(2,'Tenant Two','two')");
 $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
-    (11,1,'Client One'),(12,1,'Client Twelve'),(22,2,'Client Two')");
+    (11,1,'Client One'),(12,1,'Client Twelve'),(13,1,'Client Thirteen'),(22,2,'Client Two')");
 $pdo->exec("INSERT INTO users
     (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
     (101,1,'owner1@example.test','','Owner One','O1','owner',1),
@@ -806,8 +1211,12 @@ id_mysql_check(
     $prepared['action'] === 'prepared'
         && $prepared['schedule']['status'] === 'disabled'
         && (int)$prepared['id_contact']['contact_version'] === 1
-        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_tenant_bindings')->fetchColumn() === 1
-        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_contact_snapshots')->fetchColumn() === 1,
+        && (int)$pdo->query(
+            'SELECT COUNT(*) FROM business_report_id_tenant_bindings WHERE tenant_id=1'
+        )->fetchColumn() === 1
+        && (int)$pdo->query(
+            'SELECT COUNT(*) FROM business_report_id_contact_snapshots WHERE tenant_id=1'
+        )->fetchColumn() === 1,
     'runtime atomically creates one immutable binding and snapshot',
 );
 $replay = business_report_prepare_schedule_from_id(
@@ -818,7 +1227,9 @@ $replay = business_report_prepare_schedule_from_id(
 id_mysql_check(
     $replay['action'] === 'ignored'
         && (int)$replay['schedule']['id'] === (int)$prepared['schedule']['id']
-        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_contact_snapshots')->fetchColumn() === 1,
+        && (int)$pdo->query(
+            'SELECT COUNT(*) FROM business_report_id_contact_snapshots WHERE tenant_id=1'
+        )->fetchColumn() === 1,
     'exact prepare replay is idempotent even with a fresh request nonce',
 );
 id_mysql_throws(
@@ -839,6 +1250,31 @@ id_mysql_check(
     (int)$newer['schedule']['version_no'] === 2
         && (int)$newer['id_contact']['contact_version'] === 2,
     'a newer ID contact creates the next disabled schedule version',
+);
+$tenantScopeEnabled = business_report_transition_schedule(
+    $pdo, 'one', 'id-weekly', 2, 'active', 101, 'enable inherited tenant scope',
+    id_mysql_report_config('id-weekly', 'new-admin@example.test'),
+);
+$tenantScopeDisabled = business_report_transition_schedule(
+    $pdo, 'one', 'id-weekly', 3, 'disabled', 101, 'disable inherited tenant scope',
+    id_mysql_report_config('id-weekly', 'new-admin@example.test'),
+);
+$tenantScope = business_report_contact_scope_for_key($pdo, 1, 'id-weekly');
+id_mysql_check(
+    (int)$tenantScopeEnabled['schedule']['version_no'] === 3
+        && (int)$tenantScopeDisabled['schedule']['version_no'] === 4
+        && is_array($tenantScope)
+        && $tenantScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+        && (int)($tenantScope['evidence']['contact_version'] ?? 0) === 2,
+    'tenant contact scope and latest evidence survive enable and disable versions',
+);
+id_mysql_throws(
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_schedule(
+        $pdo, 'one', 'id-weekly', 11, (int)$definition['definition']['id'],
+        'new-admin@example.test', 'UTC', 1, '11:00:00', true, 101, 'manual bypass',
+    ),
+    'tenant ID schedule history cannot be changed to manual',
 );
 
 $definitionTwo = business_report_publish_definition($pdo, 'two', 201, 'Tenant two definition');
@@ -871,8 +1307,12 @@ id_mysql_check(
         )->fetchColumn() === 0
         && (int)$pdo->query(
             "SELECT COUNT(*) FROM business_report_id_tenant_bindings WHERE tenant_id=2"
+        )->fetchColumn() === 0
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM business_report_contact_scope_bindings
+              WHERE tenant_id=2 AND schedule_key='atomic-weekly'"
         )->fetchColumn() === 0,
-    'snapshot failure rolls back both the disabled schedule and first tenant binding',
+    'snapshot failure rolls back scope, disabled schedule, and first tenant binding',
 );
 id_mysql_throws(
     BusinessReportConflictException::class,
@@ -965,6 +1405,60 @@ id_mysql_check(
         && (int)$clientNewer['id_contact']['contact_version'] === 2,
     'newer client contact creates the next disabled schedule version',
 );
+$clientScopeEnabled = business_report_transition_schedule(
+    $pdo, 'one', 'client-id-weekly', 2, 'active', 101, 'enable inherited client scope',
+    id_mysql_report_config('client-id-weekly', 'new-customer-admin@example.test'),
+);
+$clientScopeDisabled = business_report_transition_schedule(
+    $pdo, 'one', 'client-id-weekly', 3, 'disabled', 101, 'disable inherited client scope',
+    id_mysql_report_config('client-id-weekly', 'new-customer-admin@example.test'),
+);
+$clientScope = business_report_contact_scope_for_key($pdo, 1, 'client-id-weekly');
+id_mysql_check(
+    (int)$clientScopeEnabled['schedule']['version_no'] === 3
+        && (int)$clientScopeDisabled['schedule']['version_no'] === 4
+        && is_array($clientScope)
+        && $clientScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+        && (int)($clientScope['evidence']['contact_version'] ?? 0) === 2,
+    'client contact scope and latest evidence survive enable and disable versions',
+);
+$scopeSwitchRows = (int)$pdo->query(
+    "SELECT COUNT(*) FROM business_report_schedule_versions
+      WHERE schedule_key IN ('id-weekly','client-id-weekly')"
+)->fetchColumn();
+id_mysql_throws(
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'id-weekly', 11, (int)$definition['definition']['id'],
+        id_mysql_client_snapshot(2, 'new-customer-admin@example.test', '6'),
+        'UTC', 1, '11:00:00', true, 101, 'tenant to client bypass',
+    ),
+    'tenant ID history cannot be changed to client ID after transitions',
+);
+id_mysql_throws(
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_schedule_from_id(
+        $pdo, 'one', 'client-id-weekly', 11, (int)$definition['definition']['id'],
+        id_mysql_snapshot(2, 'new-admin@example.test', '6'),
+        'UTC', 1, '11:00:00', true, 101, 'client to tenant bypass',
+    ),
+    'client ID history cannot be changed to tenant ID after transitions',
+);
+id_mysql_throws(
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_schedule(
+        $pdo, 'one', 'client-id-weekly', 11, (int)$definition['definition']['id'],
+        'new-customer-admin@example.test', 'UTC', 1, '11:00:00', true, 101, 'client to manual bypass',
+    ),
+    'client ID history cannot be changed to manual',
+);
+id_mysql_check(
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM business_report_schedule_versions
+          WHERE schedule_key IN ('id-weekly','client-id-weekly')"
+    )->fetchColumn() === $scopeSwitchRows,
+    'refused scope switches leave both logical histories unchanged',
+);
 id_mysql_throws(
     BusinessReportConflictException::class,
     fn() => business_report_prepare_client_schedule_from_id(
@@ -1038,8 +1532,12 @@ id_mysql_check(
         && (int)$pdo->query(
             "SELECT COUNT(*) FROM business_report_id_client_bindings
               WHERE tenant_id=1 AND client_id=12"
+        )->fetchColumn() === 0
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM business_report_contact_scope_bindings
+              WHERE tenant_id=1 AND schedule_key='client-atomic-weekly'"
         )->fetchColumn() === 0,
-    'client snapshot failure rolls back its disabled schedule and first binding',
+    'client snapshot failure rolls back scope, disabled schedule, and first binding',
 );
 
 $clientBindingId = 11;
@@ -1075,6 +1573,78 @@ id_mysql_throws(
     ),
     'database refuses client snapshot deletes',
 );
+$manualScopeSchedule = business_report_prepare_schedule(
+    $pdo, 'one', 'manual-scope-db', 11, (int)$definition['definition']['id'],
+    'manual-scope@example.test', 'UTC', 1, '09:00:00', true, 101, 'manual scope database proof',
+);
+$manualScopeScheduleId = (int)$manualScopeSchedule['schedule']['id'];
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec(
+        "UPDATE business_report_contact_scope_bindings SET reason='changed'
+          WHERE tenant_id=1 AND schedule_key='manual-scope-db'"
+    ),
+    'contact scopes are immutable',
+    'database refuses contact-scope updates',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec(
+        "DELETE FROM business_report_contact_scope_bindings
+          WHERE tenant_id=1 AND schedule_key='manual-scope-db'"
+    ),
+    'contact scopes are immutable',
+    'database refuses contact-scope deletes',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_schedule_versions
+        (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,
+         schedule_timezone,delivery_weekday,delivery_local_time,canary,status,created_by_user_id,reason)
+        VALUES (1,'scope-less-bypass',1," . (int)$definition['definition']['id'] . ",11,
+         'manual-scope@example.test','UTC',1,'09:00:00',1,'disabled',101,'scope-less bypass')"),
+    'requires its immutable contact scope',
+    'database refuses a schedule inserted without a scope registry row',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_contact_snapshots
+        (tenant_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+         response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+        VALUES (1,{$manualScopeScheduleId},'ewid-t1',3,'manual-scope@example.test',
+         '2026-08-28 12:00:00','" . str_repeat('1', 64) . "','" . str_repeat('2', 64) . "',
+         101,'manual to tenant bypass')"),
+    'immutable contact scope is not tenant ID',
+    'database refuses direct manual-to-tenant evidence bypass',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_client_contact_snapshots
+        (tenant_id,client_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+         response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+        VALUES (1,11,{$manualScopeScheduleId},'ewid-t4',3,'manual-scope@example.test',
+         '2026-08-28 12:00:00','" . str_repeat('3', 64) . "','" . str_repeat('4', 64) . "',
+         101,'manual to client bypass')"),
+    'immutable contact scope is not client ID',
+    'database refuses direct manual-to-client evidence bypass',
+);
+$tenantScopeScheduleId = (int)$tenantScopeDisabled['schedule']['id'];
+$clientScopeScheduleId = (int)$clientScopeDisabled['schedule']['id'];
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_client_contact_snapshots
+        (tenant_id,client_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+         response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+        VALUES (1,11,{$tenantScopeScheduleId},'ewid-t4',3,'new-admin@example.test',
+         '2026-08-28 12:00:00','" . str_repeat('5', 64) . "','" . str_repeat('6', 64) . "',
+         101,'tenant to client bypass')"),
+    'immutable contact scope is not client ID',
+    'database refuses direct tenant-to-client evidence after transitions',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_contact_snapshots
+        (tenant_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+         response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+        VALUES (1,{$clientScopeScheduleId},'ewid-t1',3,'new-customer-admin@example.test',
+         '2026-08-28 12:00:00','" . str_repeat('7', 64) . "','" . str_repeat('8', 64) . "',
+         101,'client to tenant bypass')"),
+    'immutable contact scope is not tenant ID',
+    'database refuses direct client-to-tenant evidence after transitions',
+);
 id_mysql_throws(
     PDOException::class,
     fn() => $pdo->exec("INSERT INTO business_report_id_client_bindings
@@ -1088,6 +1658,16 @@ id_mysql_throws(
         (tenant_id,client_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
         VALUES (1,12,'ewid-t5','customer-twelve',201,'wrong tenant actor')"),
     'database refuses a client binding by an actor outside the provider tenant',
+);
+$pdo->exec("INSERT INTO business_report_id_client_bindings
+    (tenant_id,client_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+    VALUES (1,12,'ewid-t5','customer-twelve',101,'reverse-order client winner')");
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_tenant_bindings
+        (tenant_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+        VALUES (2,'ewid-t5','two',201,'reverse-order tenant reuse')"),
+    'already bound at client scope',
+    'database symmetrically refuses tenant binding after a client binding owns the ID key',
 );
 
 $replayGuardSchedule = business_report_prepare_schedule(
@@ -1106,8 +1686,8 @@ $replayGuardSchedule = business_report_prepare_schedule(
 );
 $countsBeforeReplay = (string)$pdo->query(
     "SELECT CONCAT(
-      (SELECT COUNT(*) FROM business_report_id_tenant_bindings), ':',
-      (SELECT COUNT(*) FROM business_report_id_contact_snapshots))"
+      (SELECT COUNT(*) FROM business_report_id_tenant_bindings WHERE tenant_id=1), ':',
+      (SELECT COUNT(*) FROM business_report_id_contact_snapshots WHERE tenant_id=1))"
 )->fetchColumn();
 id_mysql_execute_until(
     $pdo,
@@ -1180,8 +1760,8 @@ id_mysql_rejects_with_signal(
 id_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/017_id_report_contact_evidence.sql');
 $countsAfterReplay = (string)$pdo->query(
     "SELECT CONCAT(
-      (SELECT COUNT(*) FROM business_report_id_tenant_bindings), ':',
-      (SELECT COUNT(*) FROM business_report_id_contact_snapshots))"
+      (SELECT COUNT(*) FROM business_report_id_tenant_bindings WHERE tenant_id=1), ':',
+      (SELECT COUNT(*) FROM business_report_id_contact_snapshots WHERE tenant_id=1))"
 )->fetchColumn();
 id_mysql_check(
     $countsBeforeReplay === $countsAfterReplay
@@ -1228,6 +1808,12 @@ id_mysql_check(
         "SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE()
             AND trigger_name IN (
+              'trg_business_report_contact_scope_before_insert',
+              'trg_business_report_contact_scope_no_update',
+              'trg_business_report_contact_scope_no_delete',
+              'trg_business_report_schedules_before_insert',
+              'trg_business_report_id_binding_before_insert',
+              'trg_business_report_id_snapshot_before_insert',
               'trg_br_id_client_binding_before_insert',
               'trg_br_id_client_binding_no_update',
               'trg_br_id_client_binding_no_delete',
@@ -1238,11 +1824,73 @@ id_mysql_check(
         && (int)$pdo->query(
             "SELECT COUNT(*) FROM information_schema.triggers
               WHERE trigger_schema=DATABASE()
-                AND trigger_name LIKE 'trg_br_id_client_%_swap_%'"
-        )->fetchColumn() === 6,
-    'interrupted migration-019 replay leaves all six client swap guards installed',
+                AND trigger_name IN (
+                  'trg_br_contact_scope_swap_insert',
+                  'trg_br_contact_scope_swap_update',
+                  'trg_br_contact_scope_swap_delete',
+                  'trg_br_schedule_scope_swap_insert',
+                  'trg_br_id_tenant_binding_swap_insert',
+                  'trg_br_id_tenant_snapshot_swap_insert',
+                  'trg_br_id_client_binding_swap_insert',
+                  'trg_br_id_client_binding_swap_update',
+                  'trg_br_id_client_binding_swap_delete',
+                  'trg_br_id_client_snapshot_swap_insert',
+                  'trg_br_id_client_snapshot_swap_update',
+                  'trg_br_id_client_snapshot_swap_delete')"
+        )->fetchColumn() === 12,
+    'interrupted migration-019 replay leaves all twelve fail-closed swap guards installed',
 );
 $clientSwapSignal = 'migration 019 client report-contact replay is in progress';
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_contact_scope_bindings
+        (tenant_id,schedule_key,contact_scope,created_by_user_id,reason)
+        VALUES (1,'blocked-scope','MANUAL',101,'blocked scope insert')"),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks scope inserts',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec(
+        "UPDATE business_report_contact_scope_bindings SET reason='blocked'
+          WHERE tenant_id=1 AND schedule_key='manual-scope-db'"
+    ),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks scope updates',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec(
+        "DELETE FROM business_report_contact_scope_bindings
+          WHERE tenant_id=1 AND schedule_key='manual-scope-db'"
+    ),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks scope deletes',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_schedule_versions
+        (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,
+         schedule_timezone,delivery_weekday,delivery_local_time,canary,status,created_by_user_id,reason)
+        VALUES (1,'blocked-schedule',1," . (int)$definition['definition']['id'] . ",11,
+         'blocked@example.test','UTC',1,'09:00:00',1,'disabled',101,'blocked schedule')"),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks schedule inserts',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_tenant_bindings
+        (tenant_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+        VALUES (2,'ewid-t6','two',201,'blocked tenant binding')"),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks tenant-binding inserts',
+);
+$tenantReplayGuardScheduleId = (int)$tenantScopeDisabled['schedule']['id'];
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_contact_snapshots
+        (tenant_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+         response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+        VALUES (1,{$tenantReplayGuardScheduleId},'ewid-t1',3,'new-admin@example.test',
+         '2026-08-28 12:00:00','" . str_repeat('c', 64) . "','" . str_repeat('d', 64) . "',
+         101,'blocked tenant snapshot')"),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks tenant-snapshot inserts',
+);
 id_mysql_rejects_with_signal(
     fn() => $pdo->exec("INSERT INTO business_report_id_client_bindings
         (tenant_id,client_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
@@ -1300,7 +1948,7 @@ $clientCountsAfterReplay = (string)$pdo->query(
 )->fetchColumn();
 id_mysql_check(
     $clientCountsBeforeReplay === $clientCountsAfterReplay
-        && $clientCountsAfterReplay === '1:2'
+        && $clientCountsAfterReplay === '2:2'
         && (int)$pdo->query(
             "SELECT COUNT(*) FROM information_schema.triggers
               WHERE trigger_schema=DATABASE()
@@ -1309,9 +1957,20 @@ id_mysql_check(
         && (int)$pdo->query(
             "SELECT COUNT(*) FROM information_schema.triggers
               WHERE trigger_schema=DATABASE()
-                AND trigger_name LIKE 'trg_br_id_client_%_swap_%'"
-        )->fetchColumn() === 0,
-    'exact migration-019 retry restores guards and preserves client evidence',
+                AND trigger_name LIKE '%_swap_%'"
+        )->fetchColumn() === 0
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.triggers
+              WHERE trigger_schema=DATABASE()
+                AND trigger_name IN (
+                  'trg_business_report_contact_scope_before_insert',
+                  'trg_business_report_contact_scope_no_update',
+                  'trg_business_report_contact_scope_no_delete',
+                  'trg_business_report_schedules_before_insert',
+                  'trg_business_report_id_binding_before_insert',
+                  'trg_business_report_id_snapshot_before_insert')"
+        )->fetchColumn() === 6,
+    'exact migration-019 retry restores scope, tenant, and client guards and preserves evidence',
 );
 
 $escapedDatabase = str_replace('`', '``', $database);
@@ -1323,6 +1982,7 @@ $server->exec(
      TO '{$runtimeUser}'@'%'"
 );
 foreach ([
+    'business_report_contact_scope_bindings',
     'business_report_id_tenant_bindings',
     'business_report_id_contact_snapshots',
     'business_report_id_client_bindings',
@@ -1392,13 +2052,48 @@ id_mysql_throws(
     'append-only runtime identity cannot delete client evidence',
 );
 
-$raceScheduleA = business_report_prepare_schedule(
-    $pdo, 'one', 'id-race-a', 11, (int)$definition['definition']['id'],
-    'race-a@example.test', 'UTC', 1, '09:00:00', true, 101, 'race schedule a',
+$bindingRaceReadyFile = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
+    . DIRECTORY_SEPARATOR . 'safeharbor-id-binding-race-' . $runId . '.ready';
+$bindingWorkerEnvironment = [
+    'SAFEHARBOR_ID_REPORT_TEST_BINDING_WORKER' => '1',
+    'SAFEHARBOR_ID_REPORT_TEST_HOST' => $host,
+    'SAFEHARBOR_ID_REPORT_TEST_PORT' => (string)$port,
+    'SAFEHARBOR_ID_REPORT_TEST_DB_EXACT' => $database,
+    'SAFEHARBOR_ID_REPORT_TEST_RUNTIME_USER' => $runtimeUser,
+    'SAFEHARBOR_ID_REPORT_TEST_RUNTIME_PASS' => $runtimePass,
+    'SAFEHARBOR_ID_REPORT_TEST_READY_FILE' => $bindingRaceReadyFile,
+];
+foreach (['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR'] as $environmentName) {
+    $environmentValue = getenv($environmentName);
+    if (is_string($environmentValue) && $environmentValue !== '') {
+        $bindingWorkerEnvironment[$environmentName] = $environmentValue;
+    }
+}
+$bindingRace = id_mysql_run_binding_race($runtime, $bindingWorkerEnvironment);
+id_mysql_check(
+    $bindingRace['blocked'],
+    'tenant claimant blocks while the concurrent client binding owns the ID-key lock',
 );
-$raceScheduleB = business_report_prepare_schedule(
-    $pdo, 'one', 'id-race-b', 11, (int)$definition['definition']['id'],
-    'race-b@example.test', 'UTC', 1, '09:00:00', true, 101, 'race schedule b',
+id_mysql_check(
+    $bindingRace['exit_code'] === 0
+        && $bindingRace['stdout'] === ['READY', 'CONFLICT']
+        && $bindingRace['stderr_empty'],
+    'blocked tenant claimant exits only through the symmetric client-scope conflict',
+);
+id_mysql_check(
+    $pdo->query(
+        "SELECT CONCAT(
+          (SELECT COUNT(*) FROM business_report_id_client_bindings WHERE id_tenant_key='ewid-t7'), ':',
+          (SELECT COUNT(*) FROM business_report_id_tenant_bindings WHERE id_tenant_key='ewid-t7'))"
+    )->fetchColumn() === '1:0',
+    'concurrent cross-table claim commits only the client-scope winner',
+);
+
+$raceScheduleA = id_mysql_prepare_unpinned_tenant_schedule(
+    $runtime, (int)$definition['definition']['id'], 'id-race-a', 'race-a@example.test',
+);
+$raceScheduleB = id_mysql_prepare_unpinned_tenant_schedule(
+    $runtime, (int)$definition['definition']['id'], 'id-race-b', 'race-b@example.test',
 );
 $raceReadyFile = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
     . DIRECTORY_SEPARATOR . 'safeharbor-id-report-race-' . $runId . '.ready';
@@ -1409,7 +2104,7 @@ $workerEnvironment = [
     'SAFEHARBOR_ID_REPORT_TEST_DB_EXACT' => $database,
     'SAFEHARBOR_ID_REPORT_TEST_RUNTIME_USER' => $runtimeUser,
     'SAFEHARBOR_ID_REPORT_TEST_RUNTIME_PASS' => $runtimePass,
-    'SAFEHARBOR_ID_REPORT_TEST_SCHEDULE_ID' => (string)$raceScheduleB['schedule']['id'],
+    'SAFEHARBOR_ID_REPORT_TEST_SCHEDULE_ID' => (string)$raceScheduleB['id'],
     'SAFEHARBOR_ID_REPORT_TEST_READY_FILE' => $raceReadyFile,
 ];
 foreach (['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR'] as $environmentName) {
@@ -1420,7 +2115,7 @@ foreach (['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR'] as $environme
 }
 $race = id_mysql_run_snapshot_race(
     $runtime,
-    (int)$raceScheduleA['schedule']['id'],
+    (int)$raceScheduleA['id'],
     id_mysql_snapshot(3, 'race-a@example.test', 'a'),
     $workerEnvironment,
 );

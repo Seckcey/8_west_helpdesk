@@ -59,14 +59,31 @@ function report_cli_emit_schedule(array $schedule, string $action): void
     echo 'RECIPIENT_SHA256=' . hash('sha256', (string)$schedule['recipient_email']) . "\n";
 }
 
-function report_cli_emit_id_contact(?array $evidence): void
+function report_cli_emit_id_contact(?array $evidence, string $scope): void
 {
+    if (!in_array($scope, [
+        BUSINESS_REPORT_CONTACT_SCOPE_MANUAL,
+        BUSINESS_REPORT_CONTACT_SCOPE_TENANT,
+        BUSINESS_REPORT_CONTACT_SCOPE_CLIENT,
+    ], true)) {
+        throw new BusinessReportGateException('The report contact scope is invalid.');
+    }
     if (!is_array($evidence)) {
+        if ($scope !== BUSINESS_REPORT_CONTACT_SCOPE_MANUAL) {
+            throw new BusinessReportGateException('8 West ID report-contact evidence is missing.');
+        }
         echo "CONTACT_SOURCE=MANUAL\n";
+        echo "CONTACT_SCOPE=MANUAL\n";
         return;
     }
+    $evidenceScope = array_key_exists('client_id', $evidence)
+        ? BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+        : BUSINESS_REPORT_CONTACT_SCOPE_TENANT;
+    if (!hash_equals($evidenceScope, $scope)) {
+        throw new BusinessReportGateException('The report contact evidence scope does not match.');
+    }
     echo "CONTACT_SOURCE=8WEST_ID\n";
-    echo 'CONTACT_SCOPE=' . (array_key_exists('client_id', $evidence) ? 'CLIENT' : 'TENANT') . "\n";
+    echo 'CONTACT_SCOPE=' . $scope . "\n";
     echo 'ID_TENANT_KEY=' . (string)$evidence['id_tenant_key'] . "\n";
     echo 'CONTACT_VERSION=' . (int)$evidence['contact_version'] . "\n";
     echo 'CONTACT_RESPONSE_SHA256=' . (string)$evidence['response_sha256'] . "\n";
@@ -128,7 +145,7 @@ try {
             $options['reason'],
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
-        report_cli_emit_id_contact(null);
+        report_cli_emit_id_contact(null, BUSINESS_REPORT_CONTACT_SCOPE_MANUAL);
         exit(0);
     }
 
@@ -159,7 +176,7 @@ try {
             $options['reason'],
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
-        report_cli_emit_id_contact($result['id_contact']);
+        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
         exit(0);
     }
 
@@ -200,7 +217,7 @@ try {
             $options['reason'],
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
-        report_cli_emit_id_contact($result['id_contact']);
+        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_TENANT);
         exit(0);
     }
 
@@ -240,19 +257,15 @@ try {
         throw new BusinessReportGateException('The report schedule was not found.');
     }
     report_cli_emit_schedule($schedule, 'inspected');
-    $contactEvidence = business_report_latest_id_client_contact_for_key(
+    $contactScope = business_report_contact_scope_for_key(
         $pdo,
         (int)$tenantId,
         $options['schedule-key'],
     );
-    if (!is_array($contactEvidence)) {
-        $contactEvidence = business_report_latest_id_contact_for_key(
-            $pdo,
-            (int)$tenantId,
-            $options['schedule-key'],
-        );
+    if (!is_array($contactScope)) {
+        throw new BusinessReportGateException('The report contact scope was not found.');
     }
-    report_cli_emit_id_contact($contactEvidence);
+    report_cli_emit_id_contact($contactScope['evidence'], (string)$contactScope['scope']);
     $counts = $pdo->prepare(
         "SELECT
            (SELECT COUNT(*) FROM business_report_archives
