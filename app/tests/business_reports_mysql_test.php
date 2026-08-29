@@ -653,8 +653,8 @@ foreach ([
     $pdo->prepare("INSERT INTO tickets
         (id,tenant_id,client_id,subject,status,priority,channel,sla_due_at,
          service_goal_target_id,created_at,updated_at)
-        VALUES (?,1,11,'Report serialization fixture','open','normal','phone',NULL,NULL,?,?)")
-        ->execute([$raceTicketId, $raceWorkedAt, $raceWorkedAt]);
+        VALUES (?,1,11,'Report serialization fixture','open','normal','phone',?,NULL,?,?)")
+        ->execute([$raceTicketId, $raceWorkedAt, $raceWorkedAt, $raceWorkedAt]);
     $raceEntry = report_mysql_create_approved_time(
         $pdo,
         $raceTicketId,
