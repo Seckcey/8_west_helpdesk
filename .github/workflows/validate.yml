@@ -9,6 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  browser-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/shots/package-lock.json
+      - name: Install browser contract dependencies
+        working-directory: tools/shots
+        run: npm ci --ignore-scripts
+      - name: Install Chromium for browser contracts
+        working-directory: tools/shots
+        run: npx playwright install --with-deps chromium
+      - name: Test technician-time retry contracts in a real browser
+        run: node tools/shots/time-contract.test.mjs
+
   php:
     runs-on: ubuntu-latest
     services:
