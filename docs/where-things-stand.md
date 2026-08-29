@@ -33,9 +33,10 @@ If you change what is live, change this page in the same PR.
 | Migrations 001–019 | **All applied** to production |
 | Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published. The GET-only staff history view is deployed through PR #65 / release `b02a7a6`; signed-out routing and the 2026-08-29 authenticated Frankie/`8west` production acceptance both passed. |
 | Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
-| Approved time → Coastmark draft lines | **Version 2 deployed dark** through Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`. The permanent 8 West IT master UUID is hard-blocked. Both time gates are off and there are zero mappings/imports/draft lines. |
+| Append-only approved-time adjustment slips | **Development candidate only on `codex/time-approval-adjustments-20260829`; not merged, migrated, or deployed.** Owners/admins add numbered correction slips while original approvals remain immutable. Migration 020 is not applied. |
+| Approved time → Coastmark draft lines | **Version 2 is deployed dark; send retirement is development-only in this branch.** The live releases are Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`. Both time gates are off, the permanent 8 West IT master UUID is hard-blocked, and there are zero mappings/imports/draft lines. If this adjustment slice lands, Safeharbor v2 becomes inspection-only and `--send` stops before signing or network transport. Any future send requires receipt/reversal-aware v3. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark time sender/receiver remain default-off. The portal is enabled only for the Lifestyle canary, with authenticated acceptance still open. Report generation/delivery are off and no scheduler exists. Existing service-intake gates remain live. |
+| Anything "shipping dark" | Phase 4's deployed Safeharbor-to-Coastmark v2 sender/receiver remain default-off. This development branch retires the Safeharbor sender instead of preparing a canary. The portal is enabled only for the Lifestyle canary, with authenticated acceptance still open. Report generation/delivery are off and no scheduler exists. Existing service-intake gates remain live. |
 | Customer ticket-summary portal (Phase 5A) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing passed; `support.8westit.com/portal` is 404. Fresh authenticated customer acceptance remains open, so full portal acceptance is not claimed. |
 | Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted` and is `submitted`, which is provider acceptance, not inbox proof. Generation/delivery are off, `canary_only` is true, and no scheduler exists. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
@@ -290,14 +291,23 @@ empty at that release checkpoint. A fresh signed-in 8 West IT correction canary 
 credentials or identity bypass were used to manufacture it. The exact contract
 and canary are in `docs/technician-time-corrections-contract.md`.
 
-Phase 4's first release is deliberately manual and draft-only. Safeharbor's
-operator CLI selects one row by exact tenant slug + entry id + immutable entry
-key, requires approved billable reviewer-backed facts and exact protected
-tenant/client allowlists, then sends a versioned HMAC payload to Coastmark. Its
+Phase 4's deployed version 2 release was deliberately manual and draft-only.
+Safeharbor's operator CLI selected one row by exact tenant slug + entry id +
+immutable entry key, required approved billable reviewer-backed facts and exact
+protected tenant/client allowlists, then sent a versioned HMAC payload to
+Coastmark. Its
 stable keys are `tenants.slug`, `safeharbor-client:<captured client_id>`, the
 stored `entry_key`, and Safeharbor-local numeric user keys. Raw notes, subjects,
 messages, people data, rates, tax, cents, invoice numbers, and posting commands
 do not cross the seam. There is no scheduler, batch, or automatic retry.
+
+The current approved-time-adjustment development candidate changes the
+Safeharbor side to inspection-only. Dry-run still exposes the exact redacted v2
+payload for review, but `--send` hard-refuses before endpoint validation,
+signing, or transport even if the legacy gate is true. Version 2 cannot safely
+describe a correction made after Coastmark accepted the original. A future v3
+must serialize a durable Safeharbor export claim/receipt against adjustments
+and receive an append-only Coastmark reversal acknowledgement.
 
 Coastmark's separately reviewed receiver owns the explicit mapping, agreement
 rate, tax, integer cents, immutable import evidence, and one source-managed line
@@ -333,9 +343,10 @@ verified rollback pair is
 `d848b963e0594b14411173871ca559515cecff8ee1fa16b0947a2297781a4680`).
 
 Production currently has zero Coastmark agreements and agreement lines, so no
-truthful mapping target exists yet. The remaining Phase 4 acceptance gate is an
-explicit Coastmark-owned client/agreement/rate/tax decision followed by one
-disabled-then-enabled mapping and a controlled 201/200 canary. The exact
+truthful mapping target exists yet. A version 2 mapping and 201/200 canary are
+no longer valid acceptance gates for this development candidate. Any future
+canary first requires a receipt/reversal-aware version 3 contract, then an
+explicit Coastmark-owned client/agreement/rate/tax decision. The exact current
 contract and rollback gates are in
 [`coastmark-approved-time-export-contract.md`](coastmark-approved-time-export-contract.md).
 
@@ -773,7 +784,7 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Thirty CLI suites live in `app/tests/`. Sixteen server-free contract suites
+Thirty-three CLI suites live in `app/tests/`. Eighteen server-free contract suites
 run in CI, including the hermetic service-goal, approval-time, approved-time
 export, portal auth/revocation, portal read-only/rendering, and archived-report
 gates plus the Milepost customer-sync contract. CI also runs the portal,
@@ -795,6 +806,11 @@ the five-trigger auxiliary replacement and seven-trigger parent/audit
 replacement to prove ten fail-closed write guards and exact replay recovery,
 forks a second PHP/MySQL connection for the losing overlap race, and drops the
 exact database afterward. The server-free approval-time suite is 105/105.
+The append-only adjustment suite adds 44 server-free checks plus a separately
+acknowledged disposable-MySQL fixture. It proves fresh install and upgrade,
+exact schema/guard definitions, replay, interrupted guarded replacement,
+least-privilege direct DML, immutable original evidence, and real competing
+version/key races before removing its exact scratch database.
 Existing integration suites (`suite_sso`,
 `svc_intake`, `svc_support`, `westy_report`, and `intake_service_goal`) need
 MySQL plus a scratch-only `config/config.php`;
@@ -804,7 +820,10 @@ MySQL plus a scratch-only `config/config.php`;
 `business_reports_mysql_test.php` similarly refuses names outside
 `safeharbor_report_test*`, creates that exact scratch database with CI's MySQL
 operator, and proves the report lifecycle again through a temporary
-least-privilege identity before removing it.
+least-privilege identity. It also proves both orders of the persisted-report
+versus approved-time-adjustment race: the shared tenant lock decides which
+fact wins, and MySQL UTC is captured only after that lock so a waiting report
+cannot backdate past a committed correction.
 `id_report_contacts_mysql_test.php` separately requires an explicit disposable-
 server acknowledgement and a loopback MySQL endpoint. It creates a random
 `safeharbor_id_report_test*` database plus random runtime identity and removes
@@ -845,10 +864,11 @@ reaches, so the pin is not optional:
 ### Technician time has a rendered browser test; Westy still needs one
 
 `tools/shots/time-contract.test.mjs` now executes the real `app.js` in pinned
-Chromium during Validate. Its seven contracts prove stopped-timer and
-correction retries, exact review acknowledgements, frozen uncertain retries,
-editable validation failures, and conflict reconciliation. That is behavioral
-browser proof rather than a source-shape assertion.
+Chromium during Validate. Its twelve contracts prove stopped-timer and
+correction retries, exact review and adjustment acknowledgements, a complete
+manager-visible correction-slip history, frozen uncertain retries, editable
+validation failures, and conflict reconciliation. That is behavioral browser
+proof rather than a source-shape assertion.
 
 Westy still has no equivalent rendered contract. That half *is* checkable on
 the Windows machine, and it is worth doing whenever `westy.js` changes:
@@ -918,10 +938,13 @@ called out, and none may be satisfied by inventing customer or financial facts.
    HTTP status. Never retry that attempt. A future run needs a new archive and
    separate approval; provider acceptance and inbox delivery each need their
    own evidence before any scheduler is installed or allowlist widened.
-7. **The Coastmark seam needs Coastmark-owned financial facts.** No production
-   agreement/rate/tax mapping currently exists. A future canary may create only
-   draft invoice lines from approved Safeharbor time; it must never post, send,
-   create Checkout, record payment, or touch the ledger automatically.
+7. **The Coastmark seam needs a new safe receipt contract and Coastmark-owned
+   financial facts.** Version 2 cannot represent a later approved-time
+   correction, so this development branch makes it inspection-only. No
+   production agreement/rate/tax mapping currently exists. A future
+   receipt/reversal-aware version 3 canary may create only draft invoice lines;
+   it must never post, send, create Checkout, record payment, or touch the
+   ledger automatically.
 8. **Customer creation is not yet suite-wide.** Milepost propagation is live
    into Safeharbor and Logbook, but Lifestyle has a historical peer-tenant
    conflict. Coastmark and Control Panel have no customer auto-provision lane.

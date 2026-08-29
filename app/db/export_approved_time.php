@@ -7,7 +7,7 @@
  *   php db/export_approved_time.php --tenant-slug=8west --entry-id=123 \
  *     --entry-key=timer:... --dry-run
  *
- * Deliberate send (still requires the server-side feature gate + allowlists):
+ * Retired send probe (always refuses before signing or network transport):
  *   php db/export_approved_time.php --tenant-slug=8west --entry-id=123 \
  *     --entry-key=timer:... --send
  */
@@ -86,6 +86,8 @@ try {
         exit(0);
     }
 
+    // Version 2 is inspection-only once append-only approval adjustments
+    // exist. This call intentionally throws; no configuration can enable it.
     $result = coastmark_time_export_send($payload, $config);
     echo "SEND_ACKNOWLEDGED=PASS\n";
     echo 'ACTION=' . $result['action'] . "\n";

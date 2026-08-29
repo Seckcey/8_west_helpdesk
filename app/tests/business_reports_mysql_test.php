@@ -5,6 +5,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(1);
 
 require_once __DIR__ . '/../lib/business_reports.php';
+require_once __DIR__ . '/../lib/time_entry_adjustments.php';
 
 $database = getenv('SAFEHARBOR_REPORT_TEST_DB') ?: 'safeharbor_report_test';
 if (preg_match('/\Asafeharbor_report_test(?:_[a-z0-9_]+)?\z/', $database) !== 1) {
@@ -21,6 +22,96 @@ $options = [
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES => false,
 ];
+
+// Independent report and adjustment sessions are bound to the exact scratch
+// database by a random marker created by the parent process.
+if (getenv('SAFEHARBOR_REPORT_RACE_WORKER') === '1') {
+    $raceToken = getenv('SAFEHARBOR_REPORT_RACE_TOKEN');
+    $raceMode = getenv('SAFEHARBOR_REPORT_RACE_MODE');
+    $raceSchedule = getenv('SAFEHARBOR_REPORT_RACE_SCHEDULE');
+    $raceEntryText = getenv('SAFEHARBOR_REPORT_RACE_ENTRY');
+    $raceNowText = getenv('SAFEHARBOR_REPORT_RACE_NOW');
+    $raceRequireDue = getenv('SAFEHARBOR_REPORT_RACE_REQUIRE_DUE');
+    if (!is_string($raceToken) || preg_match('/\A[a-f0-9]{64}\z/D', $raceToken) !== 1
+        || !is_string($raceMode) || !in_array($raceMode, ['report', 'adjustment'], true)
+        || !is_string($raceSchedule)
+        || !in_array($raceSchedule, ['weekly-race-report', 'weekly-race-adjustment'], true)
+        || !is_string($raceEntryText) || preg_match('/\A[1-9][0-9]{0,9}\z/D', $raceEntryText) !== 1
+        || !is_string($raceNowText) || preg_match('/\A[1-9][0-9]{0,10}\z/D', $raceNowText) !== 1
+        || !is_string($raceRequireDue) || !in_array($raceRequireDue, ['0', '1'], true)
+    ) {
+        fwrite(STDERR, "Business-report race worker refused its target.\n");
+        exit(2);
+    }
+
+    try {
+        $worker = new PDO($serverDsn . ";dbname={$database}", $user, $pass, $options);
+        $worker->exec("SET time_zone = '+00:00'");
+        $worker->exec('SET SESSION innodb_lock_wait_timeout=15');
+        if (!hash_equals($database, (string) $worker->query('SELECT DATABASE()')->fetchColumn())) {
+            throw new RuntimeException('Business-report race worker selected an unexpected database.');
+        }
+        $marker = $worker->query('SELECT worker_token FROM report_race_test_marker WHERE id=1');
+        if (!hash_equals($raceToken, (string) $marker->fetchColumn())) {
+            throw new RuntimeException('Business-report race worker marker did not match.');
+        }
+
+        echo "ready\n";
+        fflush(STDOUT);
+        if ($raceMode === 'report') {
+            try {
+                $result = business_report_generate(
+                    $worker,
+                    'one',
+                    $raceSchedule,
+                    report_mysql_config(),
+                    (int) $raceNowText,
+                    false,
+                    $raceRequireDue === '1',
+                );
+                echo json_encode([
+                    'status' => 201,
+                    'action' => $result['action'],
+                    'archive_id' => (int) $result['archive']['id'],
+                ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n";
+            } catch (BusinessReportConflictException $error) {
+                if (!str_contains($error->getMessage(), 'cannot archive adjusted approved time')) {
+                    throw $error;
+                }
+                echo json_encode([
+                    'status' => 409,
+                    'error' => 'adjusted_v1',
+                ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n";
+            }
+            exit(0);
+        }
+
+        try {
+            $result = time_entry_adjustment_create($worker, 1, 101, 'owner', [
+                'entry_id' => (int) $raceEntryText,
+                'adjustment_key' => 'adjustment.report-race.report.0001',
+                'expected_version' => 0,
+                'effective_minutes' => 20,
+                'effective_billable' => true,
+                'reason' => 'Concurrent report serialization proof',
+            ]);
+            echo json_encode([
+                'status' => 201,
+                'id' => (int) $result['id'],
+                'version' => (int) $result['version'],
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n";
+        } catch (TimeEntryConflictException $error) {
+            echo json_encode([
+                'status' => time_entry_http_status($error),
+                'error' => 'stale_version',
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n";
+        }
+        exit(0);
+    } catch (Throwable $error) {
+        fwrite(STDERR, 'Business-report race worker failed with ' . $error::class . PHP_EOL);
+        exit(1);
+    }
+}
 
 try {
     $server = new PDO($serverDsn, $user, $pass, $options);
@@ -127,12 +218,159 @@ function report_mysql_config(): array
         'generation_enabled' => true,
         'delivery_enabled' => true,
         'canary_only' => true,
-        'schedule_keys' => ['weekly-one', 'weekly-runtime'],
+        'schedule_keys' => [
+            'weekly-one',
+            'weekly-runtime',
+            'weekly-race-report',
+            'weekly-race-adjustment',
+        ],
         'tenant_slugs' => ['one'],
         'client_keys' => ['safeharbor-client:11'],
         'recipient_emails' => ['reports@example.test'],
         'lease_seconds' => 120,
     ];
+}
+
+/** @return array<string,mixed> */
+function report_mysql_start_race_worker(
+    string $token,
+    string $mode,
+    string $scheduleKey,
+    int $entryId,
+    int $now,
+    bool $requireDue,
+): array {
+    $environment = getenv();
+    if (!is_array($environment)) $environment = [];
+    $environment['SAFEHARBOR_REPORT_RACE_WORKER'] = '1';
+    $environment['SAFEHARBOR_REPORT_RACE_TOKEN'] = $token;
+    $environment['SAFEHARBOR_REPORT_RACE_MODE'] = $mode;
+    $environment['SAFEHARBOR_REPORT_RACE_SCHEDULE'] = $scheduleKey;
+    $environment['SAFEHARBOR_REPORT_RACE_ENTRY'] = (string) $entryId;
+    $environment['SAFEHARBOR_REPORT_RACE_NOW'] = (string) $now;
+    $environment['SAFEHARBOR_REPORT_RACE_REQUIRE_DUE'] = $requireDue ? '1' : '0';
+    $pipes = [];
+    $process = proc_open(
+        [PHP_BINARY, __FILE__],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        __DIR__,
+        $environment,
+    );
+    if (!is_resource($process)) {
+        throw new RuntimeException('Cannot start business-report race worker.');
+    }
+    fclose($pipes[0]);
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $output = '';
+    $errors = '';
+    $ready = false;
+    $deadline = microtime(true) + 5.0;
+    do {
+        $output .= (string) stream_get_contents($pipes[1]);
+        $errors .= (string) stream_get_contents($pipes[2]);
+        $ready = preg_match('/(?:\A|\R)ready\R/', $output) === 1;
+        $status = proc_get_status($process);
+        if ($ready || !($status['running'] ?? false)) break;
+        usleep(20000);
+    } while (microtime(true) < $deadline);
+    return compact('process', 'pipes', 'output', 'errors', 'ready');
+}
+
+/** @param array<string,mixed> $worker @return array<string,mixed> */
+function report_mysql_finish_race_worker(array $worker): array
+{
+    $process = $worker['process'];
+    $pipes = $worker['pipes'];
+    $output = (string) $worker['output'];
+    $errors = (string) $worker['errors'];
+    $timedOut = false;
+    $lastExit = -1;
+    $deadline = microtime(true) + 15.0;
+    while (true) {
+        $output .= (string) stream_get_contents($pipes[1]);
+        $errors .= (string) stream_get_contents($pipes[2]);
+        $status = proc_get_status($process);
+        if (!($status['running'] ?? false)) {
+            $lastExit = (int) ($status['exitcode'] ?? -1);
+            break;
+        }
+        if (microtime(true) >= $deadline) {
+            $timedOut = true;
+            proc_terminate($process);
+            break;
+        }
+        usleep(20000);
+    }
+    $output .= (string) stream_get_contents($pipes[1]);
+    $errors .= (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $closedExit = proc_close($process);
+    $exit = $closedExit >= 0 ? $closedExit : $lastExit;
+    $lines = preg_split('/\R/', trim($output)) ?: [];
+    $payload = json_decode((string) end($lines), true);
+    return [
+        'ready' => (bool) $worker['ready'],
+        'timed_out' => $timedOut,
+        'exit' => $exit,
+        'stderr' => $errors,
+        'payload' => is_array($payload) ? $payload : null,
+    ];
+}
+
+function report_mysql_waiters(
+    PDO $server,
+    string $database,
+    string $table,
+    int $minimum,
+): bool {
+    $query = $server->prepare(
+        "SELECT COUNT(DISTINCT waits.REQUESTING_THREAD_ID)
+           FROM performance_schema.data_lock_waits waits
+           JOIN performance_schema.data_locks requested
+             ON requested.ENGINE = waits.ENGINE
+            AND requested.ENGINE_LOCK_ID = waits.REQUESTING_ENGINE_LOCK_ID
+          WHERE requested.OBJECT_SCHEMA = ?
+            AND requested.OBJECT_NAME = ?
+            AND requested.LOCK_STATUS = 'WAITING'"
+    );
+    $deadline = microtime(true) + 5.0;
+    do {
+        $query->execute([$database, $table]);
+        if ((int) $query->fetchColumn() >= $minimum) return true;
+        usleep(20000);
+    } while (microtime(true) < $deadline);
+    return false;
+}
+
+/** @return array<string,mixed> */
+function report_mysql_create_approved_time(
+    PDO $pdo,
+    int $ticketId,
+    string $entryKey,
+    string $workedAt,
+    int $minutes,
+): array {
+    $created = time_entry_create($pdo, 1, 103, [
+        'ticket_id' => $ticketId,
+        'entry_key' => $entryKey,
+        'source' => 'suggestion',
+        'worked_at' => $workedAt,
+        'minutes' => $minutes,
+        'note' => 'Business-report serialization fixture',
+        'billable' => true,
+    ]);
+    return time_entry_review(
+        $pdo,
+        1,
+        101,
+        'owner',
+        (int) $created['id'],
+        'approved',
+        'Approved for report serialization fixture',
+    );
 }
 
 report_mysql_reset($pdo);
@@ -266,9 +504,10 @@ $pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body,created_at)
 $generated = business_report_generate($pdo, 'one', 'weekly-one', report_mysql_config(), $testNow, false, true);
 $archiveId = (int)$generated['archive']['id'];
 $archive = $pdo->query("SELECT * FROM business_report_archives WHERE id={$archiveId}")->fetch(PDO::FETCH_ASSOC);
-report_mysql_check('native MySQL create-reload verifies exact archive bytes',
+report_mysql_check('native MySQL archive preserves exact bytes and a future test clock',
     is_array($archive)
-    && business_report_archived_content($archive)['metrics'] === $generated['metrics']);
+    && business_report_archived_content($archive)['metrics'] === $generated['metrics']
+    && (string) $archive['generated_at'] === gmdate('Y-m-d H:i:s', $testNow));
 report_mysql_throws('database rejects archive text tampering', PDOException::class,
     fn() => $pdo->exec("UPDATE business_report_archives SET report_text='tampered' WHERE id={$archiveId}"));
 report_mysql_throws('database rejects archive deletion', PDOException::class,
@@ -372,6 +611,191 @@ report_mysql_check('least-privilege runtime can append and finalize the controll
     && $runtimeGenerated['action'] === 'created'
     && $runtimeDelivered['status'] === 'submitted');
 $server->exec("DROP USER IF EXISTS '{$runtimeUser}'@'%'");
+
+// Prove the tenant row is the first shared serialization point between a
+// persisted report and an append-only approval adjustment. Two schedules keep
+// the opposite lock-order outcomes independent.
+$raceFixtures = [];
+foreach ([
+    'weekly-race-report' => [1101, 'suggestion.report-race.report.0001'],
+    'weekly-race-adjustment' => [1102, 'suggestion.report-race.adjustment.0001'],
+] as $raceScheduleKey => [$raceTicketId, $raceEntryKey]) {
+    $racePrepared = business_report_prepare_schedule(
+        $pdo,
+        'one',
+        $raceScheduleKey,
+        11,
+        (int) $definition['definition']['id'],
+        'reports@example.test',
+        'UTC',
+        7,
+        '23:59:59',
+        true,
+        101,
+        'Prepare report-adjustment serialization fixture',
+    );
+    business_report_transition_schedule(
+        $pdo,
+        'one',
+        $raceScheduleKey,
+        (int) $racePrepared['schedule']['version_no'],
+        'active',
+        101,
+        'Enable report-adjustment serialization fixture',
+        report_mysql_config(),
+    );
+    $raceSchedule = business_report_active_schedule($pdo, 'one', $raceScheduleKey);
+    $raceWindow = business_report_next_window($pdo, $raceSchedule);
+    $raceWorkedAt = (new DateTimeImmutable(
+        $raceWindow['period_start'],
+        new DateTimeZone('UTC'),
+    ))->modify('+2 days')->format('Y-m-d H:i:s');
+    $pdo->prepare("INSERT INTO tickets
+        (id,tenant_id,client_id,subject,status,priority,channel,sla_due_at,
+         service_goal_target_id,created_at,updated_at)
+        VALUES (?,1,11,'Report serialization fixture','open','normal','phone',NULL,NULL,?,?)")
+        ->execute([$raceTicketId, $raceWorkedAt, $raceWorkedAt]);
+    $raceEntry = report_mysql_create_approved_time(
+        $pdo,
+        $raceTicketId,
+        $raceEntryKey,
+        $raceWorkedAt,
+        30,
+    );
+    $raceFixtures[$raceScheduleKey] = [
+        'schedule_id' => (int) $raceSchedule['id'],
+        'entry_id' => (int) $raceEntry['id'],
+        'period_end' => $raceWindow['period_end'],
+    ];
+}
+
+$raceToken = bin2hex(random_bytes(32));
+$pdo->exec("CREATE TABLE report_race_test_marker (
+    id TINYINT UNSIGNED NOT NULL,
+    worker_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT ck_report_race_marker_id CHECK (id=1)
+) ENGINE=InnoDB");
+$raceMarker = $pdo->prepare(
+    'INSERT INTO report_race_test_marker (id,worker_token) VALUES (1,?)'
+);
+$raceMarker->execute([$raceToken]);
+
+// Report-first: hold the schedule row so the report pauses only after taking
+// the tenant row. The adjustment must then wait on that tenant, not slip in
+// ahead of the report's adjustment guard.
+$reportFirstFixture = $raceFixtures['weekly-race-report'];
+$scheduleHolder = new PDO($serverDsn . ";dbname={$database}", $user, $pass, $options);
+$scheduleHolder->exec("SET time_zone = '+00:00'");
+$scheduleHolder->beginTransaction();
+$heldSchedule = $scheduleHolder->prepare(
+    'SELECT id FROM business_report_schedule_versions WHERE tenant_id=1 AND id=? FOR UPDATE'
+);
+$heldSchedule->execute([$reportFirstFixture['schedule_id']]);
+if ((int) $heldSchedule->fetchColumn() !== $reportFirstFixture['schedule_id']) {
+    throw new RuntimeException('Report-first schedule lock target was not found.');
+}
+$reportFirstWorker = report_mysql_start_race_worker(
+    $raceToken,
+    'report',
+    'weekly-race-report',
+    $reportFirstFixture['entry_id'],
+    $testNow,
+    true,
+);
+$reportQueuedOnSchedule = $reportFirstWorker['ready']
+    && report_mysql_waiters($server, $database, 'business_report_schedule_versions', 1);
+$adjustmentAfterReportWorker = report_mysql_start_race_worker(
+    $raceToken,
+    'adjustment',
+    'weekly-race-report',
+    $reportFirstFixture['entry_id'],
+    $testNow,
+    true,
+);
+$adjustmentQueuedOnTenant = $adjustmentAfterReportWorker['ready']
+    && report_mysql_waiters($server, $database, 'tenants', 1);
+$adjustmentAbsentBeforeReportCommit = (int) $pdo->query(
+    'SELECT COUNT(*) FROM time_entry_approval_adjustments WHERE tenant_id=1'
+)->fetchColumn() === 0;
+$scheduleHolder->commit();
+$reportFirstResult = report_mysql_finish_race_worker($reportFirstWorker);
+$adjustmentAfterReportResult = report_mysql_finish_race_worker($adjustmentAfterReportWorker);
+report_mysql_check('report-first worker holds tenant before waiting on its schedule row',
+    $reportQueuedOnSchedule
+    && $adjustmentQueuedOnTenant
+    && $adjustmentAbsentBeforeReportCommit
+    && $reportFirstResult['ready']
+    && $adjustmentAfterReportResult['ready']
+    && !$reportFirstResult['timed_out']
+    && !$adjustmentAfterReportResult['timed_out']
+    && $reportFirstResult['exit'] === 0
+    && $adjustmentAfterReportResult['exit'] === 0
+    && trim($reportFirstResult['stderr']) === ''
+    && trim($adjustmentAfterReportResult['stderr']) === '');
+report_mysql_check('report-first race archives once before the later adjustment is appended',
+    (int) ($reportFirstResult['payload']['status'] ?? 0) === 201
+    && ($reportFirstResult['payload']['action'] ?? null) === 'created'
+    && (int) ($adjustmentAfterReportResult['payload']['status'] ?? 0) === 201
+    && (int) $pdo->query("SELECT COUNT(*) FROM business_report_archives
+          WHERE tenant_id=1 AND schedule_key='weekly-race-report'")->fetchColumn() === 1
+    && (int) $pdo->query("SELECT COUNT(*) FROM time_entry_approval_adjustments
+          WHERE tenant_id=1 AND time_entry_id={$reportFirstFixture['entry_id']}")->fetchColumn() === 1);
+
+// Adjustment-first: hold the tenant, start a no-due report with a deliberately
+// old requested cutoff, and only then insert the slip. The report must wait at
+// the tenant row, choose DB UTC after that wait instead of backdating, see the
+// committed slip, and refuse definition v1.
+$adjustmentFirstFixture = $raceFixtures['weekly-race-adjustment'];
+$adjustmentHolder = new PDO($serverDsn . ";dbname={$database}", $user, $pass, $options);
+$adjustmentHolder->exec("SET time_zone = '+00:00'");
+$adjustmentHolder->beginTransaction();
+$heldTenant = $adjustmentHolder->query('SELECT id FROM tenants WHERE id=1 FOR UPDATE');
+if ((int) $heldTenant->fetchColumn() !== 1) {
+    throw new RuntimeException('Adjustment-first tenant lock target was not found.');
+}
+$olderRaceCutoff = strtotime($adjustmentFirstFixture['period_end'] . ' UTC');
+if ($olderRaceCutoff === false) {
+    throw new RuntimeException('Adjustment-first old cutoff is invalid.');
+}
+$adjustmentFirstReportWorker = report_mysql_start_race_worker(
+    $raceToken,
+    'report',
+    'weekly-race-adjustment',
+    $adjustmentFirstFixture['entry_id'],
+    $olderRaceCutoff,
+    false,
+);
+$reportQueuedOnTenant = $adjustmentFirstReportWorker['ready']
+    && report_mysql_waiters($server, $database, 'tenants', 1);
+$adjustmentAbsentWhenReportStarted = (int) $pdo->query(
+    "SELECT COUNT(*) FROM time_entry_approval_adjustments
+      WHERE tenant_id=1 AND time_entry_id={$adjustmentFirstFixture['entry_id']}"
+)->fetchColumn() === 0;
+time_entry_adjustment_create($adjustmentHolder, 1, 101, 'owner', [
+    'entry_id' => $adjustmentFirstFixture['entry_id'],
+    'adjustment_key' => 'adjustment.report-race.adjustment.0001',
+    'expected_version' => 0,
+    'effective_minutes' => 20,
+    'effective_billable' => true,
+    'reason' => 'Adjustment wins report serialization proof',
+]);
+$adjustmentHolder->commit();
+$adjustmentFirstReportResult = report_mysql_finish_race_worker($adjustmentFirstReportWorker);
+report_mysql_check('adjustment-first report worker waits on the shared tenant lock',
+    $reportQueuedOnTenant
+    && $adjustmentAbsentWhenReportStarted
+    && $adjustmentFirstReportResult['ready']
+    && !$adjustmentFirstReportResult['timed_out']
+    && $adjustmentFirstReportResult['exit'] === 0
+    && trim($adjustmentFirstReportResult['stderr']) === '');
+report_mysql_check('adjustment-first race makes definition v1 refuse the archive',
+    (int) ($adjustmentFirstReportResult['payload']['status'] ?? 0) === 409
+    && ($adjustmentFirstReportResult['payload']['error'] ?? null) === 'adjusted_v1'
+    && (int) $pdo->query("SELECT COUNT(*) FROM business_report_archives
+          WHERE tenant_id=1 AND schedule_key='weekly-race-adjustment'")->fetchColumn() === 0
+    && (int) $pdo->query("SELECT COUNT(*) FROM time_entry_approval_adjustments
+          WHERE tenant_id=1 AND time_entry_id={$adjustmentFirstFixture['entry_id']}")->fetchColumn() === 1);
 
 $countsBeforeReplay = $pdo->query(
     "SELECT CONCAT(

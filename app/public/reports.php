@@ -55,24 +55,57 @@ $ag = $aging->fetch();
 // entry snapshot, never from a ticket that may later be merged or reassigned.
 $tt = db()->prepare(
     "SELECT u.full_name, u.initials, u.color,
-            SUM(e.minutes) AS min_total
+            SUM(CASE WHEN e.billable = 1 THEN e.minutes ELSE 0 END) AS original_min_total,
+            SUM(CASE
+                  WHEN COALESCE(adjustment.effective_billable, e.billable) = 1
+                  THEN COALESCE(adjustment.effective_minutes, e.minutes)
+                  ELSE 0
+                END) AS min_total,
+            SUM(CASE WHEN adjustment.id IS NOT NULL AND e.billable = 1 THEN 1 ELSE 0 END) AS adjusted_count
        FROM time_entries e
        JOIN users u   ON u.id = e.user_id AND u.tenant_id = e.tenant_id
-      WHERE e.tenant_id = ? AND e.approval_status = 'approved' AND e.billable = 1
+       LEFT JOIN time_entry_approval_adjustments adjustment
+         ON adjustment.tenant_id = e.tenant_id
+        AND adjustment.time_entry_id = e.id
+        AND adjustment.version_no = (
+            SELECT MAX(latest.version_no)
+              FROM time_entry_approval_adjustments latest
+             WHERE latest.tenant_id = e.tenant_id AND latest.time_entry_id = e.id
+        )
+      WHERE e.tenant_id = ? AND e.approval_status = 'approved'
         AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
-      GROUP BY u.id ORDER BY min_total DESC"
+      GROUP BY u.id
+      HAVING min_total > 0 OR original_min_total > 0
+      ORDER BY min_total DESC"
 );
 $tt->execute([$tid]);
 $timeByTech = $tt->fetchAll();
 
 // Approved billable hours by captured client, 30d.
 $bc = db()->prepare(
-    "SELECT c.id, c.name, ROUND(SUM(e.minutes) / 60, 1) AS hours
+    "SELECT c.id, c.name,
+            ROUND(SUM(CASE WHEN e.billable = 1 THEN e.minutes ELSE 0 END) / 60, 1) AS original_hours,
+            ROUND(SUM(CASE
+                  WHEN COALESCE(adjustment.effective_billable, e.billable) = 1
+                  THEN COALESCE(adjustment.effective_minutes, e.minutes)
+                  ELSE 0
+                END) / 60, 1) AS hours,
+            SUM(CASE WHEN adjustment.id IS NOT NULL AND e.billable = 1 THEN 1 ELSE 0 END) AS adjusted_count
        FROM time_entries e
        JOIN clients c ON c.id = e.client_id AND c.tenant_id = e.tenant_id
-      WHERE e.tenant_id = ? AND e.approval_status = 'approved' AND e.billable = 1
+       LEFT JOIN time_entry_approval_adjustments adjustment
+         ON adjustment.tenant_id = e.tenant_id
+        AND adjustment.time_entry_id = e.id
+        AND adjustment.version_no = (
+            SELECT MAX(latest.version_no)
+              FROM time_entry_approval_adjustments latest
+             WHERE latest.tenant_id = e.tenant_id AND latest.time_entry_id = e.id
+        )
+      WHERE e.tenant_id = ? AND e.approval_status = 'approved'
         AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)
-      GROUP BY c.id ORDER BY SUM(e.minutes) DESC"
+      GROUP BY c.id
+      HAVING hours > 0 OR original_hours > 0
+      ORDER BY hours DESC"
 );
 $bc->execute([$tid]);
 $billByClient = $bc->fetchAll();
@@ -134,32 +167,38 @@ page_top($user, 'Reports', 'reports');
         <?php endforeach; ?>
       </div>
 
-      <div class="rail-label">Approved billable time this week</div>
+      <div class="rail-label">Effective approved billable time this week</div>
       <div class="card rail-list">
         <?php if (!$timeByTech): ?><div class="empty"><p>No billable time approved this week yet.</p></div><?php endif; ?>
         <?php foreach ($timeByTech as $t): ?>
         <div class="entry-row">
           <?= avatar($t, 24) ?>
           <div class="entry-main"><div class="entry-note"><?= h($t['full_name']) ?></div></div>
-          <span class="entry-badge badge-billable">approved billable</span>
+          <span class="entry-badge badge-billable">effective approved billable</span>
           <span class="entry-min"><?= $fmtMin((int)$t['min_total']) ?></span>
+          <?php if ((int)$t['adjusted_count'] > 0): ?>
+            <span class="entry-badge">raw <?= $fmtMin((int)$t['original_min_total']) ?> · <?= (int)$t['adjusted_count'] ?> corrected</span>
+          <?php endif; ?>
         </div>
         <?php endforeach; ?>
       </div>
     </div>
 
     <div>
-      <div class="rail-label">Approved billable hours by client (30d)</div>
+      <div class="rail-label">Effective approved billable hours by client (30d)</div>
       <div class="card rail-list">
         <?php if (!$billByClient): ?><div class="empty"><p>No approved billable time in the last 30 days.</p></div><?php endif; ?>
         <?php foreach ($billByClient as $b): ?>
         <div class="entry-row">
           <div class="entry-main"><div class="entry-note"><a class="link" href="/client.php?id=<?= (int)$b['id'] ?>"><?= h($b['name']) ?></a></div></div>
           <span class="entry-min"><?= h((string)$b['hours']) ?>h</span>
+          <?php if ((int)$b['adjusted_count'] > 0): ?>
+            <span class="entry-badge">raw <?= h((string)$b['original_hours']) ?>h · <?= (int)$b['adjusted_count'] ?> corrected</span>
+          <?php endif; ?>
         </div>
         <?php endforeach; ?>
       </div>
-      <p class="page-note">Approved time is operational evidence only. Export does not post or invoice anything.</p>
+      <p class="page-note">Effective totals use the newest append-only correction slip while keeping each original approval unchanged. Approved time is operational evidence only; export does not post or invoice anything.</p>
     </div>
   </div>
 </div>

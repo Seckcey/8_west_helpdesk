@@ -195,10 +195,12 @@ return [
         'tenant_slug' => '8west',
     ],
 
-    // Approved Safeharbor time -> Coastmark draft invoice lines only.
-    // This is an operator-run, one-entry-at-a-time sender. It has no scheduler
-    // and stays inert until the global gate, exact tenant/client allowlists,
-    // HTTPS endpoint, service identity, and server-only secret are all set.
+    // Approved Safeharbor time -> Coastmark v2 inspection only.
+    // The old one-entry sender is hard-retired in code: `--send` refuses before
+    // endpoint validation, signing, or network transport even if `enabled` is
+    // accidentally true. Keep the legacy setting false. Sending requires a new
+    // v3 with a durable Safeharbor claim/receipt and an append-only Coastmark
+    // adjustment/reversal acknowledgement.
     // Client keys come only from active Milepost customer bindings as
     // `milepost-customer:<uuid>`. Local Safeharbor row ids are never billing
     // identities, and the reserved 8 West IT master customer is hard-blocked.
@@ -206,7 +208,7 @@ return [
     // sending, Checkout, payments, and ledger behavior. Never put those facts
     // in this config or sender payload.
     'coastmark_time_export' => [
-        'enabled' => false,
+        'enabled' => false, // legacy v2 setting; cannot enable network sending
         'endpoint' => 'https://coastmark.8westit.com/api/integrations/safeharbor/time-entries',
         'service' => 'safeharbor-time',
         'secret' => '',

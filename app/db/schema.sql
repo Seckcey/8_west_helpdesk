@@ -2359,6 +2359,201 @@ END$$
 DELIMITER ;
 
 -- --------------------------------------------------------
+-- Append-only effective corrections to approved time. The approved parent
+-- remains unchanged; each version records what reports and draft exports may
+-- treat as effective after an owner/admin correction.
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS time_entry_approval_adjustments (
+  id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id          INT UNSIGNED NOT NULL,
+  time_entry_id      INT UNSIGNED NOT NULL,
+  adjustment_key     VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  version_no         INT UNSIGNED NOT NULL,
+  effective_minutes  INT UNSIGNED NOT NULL,
+  effective_billable TINYINT(1) NOT NULL,
+  reason             VARCHAR(500) NOT NULL,
+  actor_user_id      INT UNSIGNED NOT NULL,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_time_adjustment_tenant_key (tenant_id, adjustment_key),
+  UNIQUE KEY uq_time_adjustment_entry_version (tenant_id, time_entry_id, version_no),
+  KEY ix_time_adjustment_entry_created (tenant_id, time_entry_id, created_at, id),
+  KEY ix_time_adjustment_actor_created (tenant_id, actor_user_id, created_at, id),
+  CONSTRAINT ck_time_adjustment_version CHECK (version_no >= 1),
+  CONSTRAINT ck_time_adjustment_minutes CHECK (effective_minutes BETWEEN 0 AND 1440),
+  CONSTRAINT ck_time_adjustment_billable CHECK (effective_billable IN (0, 1)),
+  CONSTRAINT ck_time_adjustment_zero_nonbillable
+    CHECK (effective_minutes <> 0 OR effective_billable = 0),
+  CONSTRAINT ck_time_adjustment_reason
+    CHECK (CHAR_LENGTH(TRIM(reason)) BETWEEN 1 AND 500),
+  -- Removed after the permanent triggers below are created. Until then, a
+  -- fresh schema interrupted after CREATE TABLE cannot accept any row.
+  CONSTRAINT ck_time_adjustment_install_lock CHECK (0),
+  CONSTRAINT fk_time_adjustment_tenant FOREIGN KEY (tenant_id)
+    REFERENCES tenants (id),
+  CONSTRAINT fk_time_adjustment_entry FOREIGN KEY (tenant_id, time_entry_id)
+    REFERENCES time_entries (tenant_id, id),
+  CONSTRAINT fk_time_adjustment_actor FOREIGN KEY (tenant_id, actor_user_id)
+    REFERENCES users (tenant_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+DROP TRIGGER IF EXISTS trg_time_adjustment_privilege_preflight;
+CREATE TRIGGER trg_time_adjustment_privilege_preflight
+BEFORE INSERT ON time_entry_approval_adjustments
+FOR EACH ROW
+SET @time_adjustment_trigger_privilege_preflight = 1;
+DROP TRIGGER trg_time_adjustment_privilege_preflight;
+
+DROP TRIGGER IF EXISTS trg_time_adjustments_before_insert;
+DROP TRIGGER IF EXISTS trg_time_adjustments_no_update;
+DROP TRIGGER IF EXISTS trg_time_adjustments_no_delete;
+
+DELIMITER $$
+CREATE TRIGGER trg_time_adjustments_before_insert
+BEFORE INSERT ON time_entry_approval_adjustments
+FOR EACH ROW
+BEGIN
+  DECLARE tenant_found INT DEFAULT 0;
+  DECLARE parent_found INT DEFAULT 0;
+  DECLARE parent_minutes INT UNSIGNED DEFAULT NULL;
+  DECLARE parent_billable TINYINT DEFAULT NULL;
+  DECLARE parent_status VARCHAR(16) DEFAULT NULL;
+  DECLARE parent_reviewer_id INT UNSIGNED DEFAULT NULL;
+  DECLARE parent_reviewed_at DATETIME DEFAULT NULL;
+  DECLARE actor_found INT DEFAULT 0;
+  DECLARE actor_role VARCHAR(32) DEFAULT NULL;
+  DECLARE actor_active TINYINT DEFAULT NULL;
+  DECLARE latest_version INT UNSIGNED DEFAULT 0;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET tenant_found = 0;
+    SELECT 1
+      INTO tenant_found
+      FROM tenants
+     WHERE id = NEW.tenant_id
+     FOR UPDATE;
+  END;
+  IF tenant_found <> 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Adjustment tenant does not exist';
+  END IF;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET parent_found = 0;
+    SELECT 1, minutes, billable, approval_status,
+           reviewed_by_user_id, reviewed_at
+      INTO parent_found, parent_minutes, parent_billable, parent_status,
+           parent_reviewer_id, parent_reviewed_at
+      FROM time_entries
+     WHERE tenant_id = NEW.tenant_id
+       AND id = NEW.time_entry_id
+     FOR UPDATE;
+  END;
+  IF parent_found <> 1 OR BINARY parent_status <> BINARY 'approved'
+     OR parent_reviewer_id IS NULL OR parent_reviewed_at IS NULL THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Adjustments require approved time with review evidence';
+  END IF;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET actor_found = 0;
+    SELECT 1, role, is_active
+      INTO actor_found, actor_role, actor_active
+      FROM users
+     WHERE tenant_id = NEW.tenant_id
+       AND id = NEW.actor_user_id
+     FOR UPDATE;
+  END;
+  IF actor_found <> 1 OR actor_active <> 1
+     OR (BINARY actor_role <> BINARY 'owner'
+         AND BINARY actor_role <> BINARY 'admin') THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Adjustment actor must be an active owner or admin';
+  END IF;
+
+  IF NEW.adjustment_key IS NULL
+     OR OCTET_LENGTH(NEW.adjustment_key) NOT BETWEEN 16 AND 64
+     OR NOT (BINARY NEW.adjustment_key REGEXP BINARY '^[A-Za-z0-9][A-Za-z0-9._:-]*$') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Adjustment key is not conservative';
+  END IF;
+  -- Match PHP trim() exactly at the database boundary: space, tab, LF, VT,
+  -- CR, and NUL are removed from both ends in any mixture.
+  SET NEW.reason = COALESCE(NEW.reason, '');
+  time_adjustment_reason_left: WHILE CHAR_LENGTH(NEW.reason) > 0 DO
+    IF ASCII(LEFT(NEW.reason, 1)) IN (0, 9, 10, 11, 13, 32) THEN
+      SET NEW.reason = SUBSTRING(NEW.reason, 2);
+    ELSE
+      LEAVE time_adjustment_reason_left;
+    END IF;
+  END WHILE time_adjustment_reason_left;
+  time_adjustment_reason_right: WHILE CHAR_LENGTH(NEW.reason) > 0 DO
+    IF ASCII(RIGHT(NEW.reason, 1)) IN (0, 9, 10, 11, 13, 32) THEN
+      SET NEW.reason = LEFT(NEW.reason, CHAR_LENGTH(NEW.reason) - 1);
+    ELSE
+      LEAVE time_adjustment_reason_right;
+    END IF;
+  END WHILE time_adjustment_reason_right;
+  IF CHAR_LENGTH(NEW.reason) NOT BETWEEN 1 AND 500 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Adjustment reason is required';
+  END IF;
+  IF NEW.effective_minutes > parent_minutes THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Effective minutes exceed original approved time';
+  END IF;
+  IF parent_billable = 0 AND NEW.effective_billable <> 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Originally internal time cannot become billable';
+  END IF;
+  IF NEW.effective_minutes = 0 AND NEW.effective_billable <> 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Zero effective minutes must be nonbillable';
+  END IF;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET latest_version = 0;
+    SELECT version_no
+      INTO latest_version
+      FROM time_entry_approval_adjustments
+     WHERE tenant_id = NEW.tenant_id
+       AND time_entry_id = NEW.time_entry_id
+     ORDER BY version_no DESC
+     LIMIT 1;
+  END;
+  IF NEW.version_no <> latest_version + 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Adjustment does not follow current adjustment version';
+  END IF;
+
+  SET NEW.created_at = UTC_TIMESTAMP();
+END$$
+
+CREATE TRIGGER trg_time_adjustments_no_update
+BEFORE UPDATE ON time_entry_approval_adjustments
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Approved-time adjustments are immutable';
+END$$
+
+CREATE TRIGGER trg_time_adjustments_no_delete
+BEFORE DELETE ON time_entry_approval_adjustments
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Approved-time adjustments cannot be deleted';
+END$$
+DELIMITER ;
+
+SET @time_adjustment_schema_install_lock_ddl = IF(
+  (SELECT COUNT(*)
+     FROM information_schema.table_constraints
+    WHERE constraint_schema = DATABASE()
+      AND table_name = 'time_entry_approval_adjustments'
+      AND constraint_type = 'CHECK'
+      AND constraint_name = 'ck_time_adjustment_install_lock') = 1,
+  'ALTER TABLE time_entry_approval_adjustments DROP CHECK ck_time_adjustment_install_lock',
+  'DO 0'
+);
+PREPARE time_adjustment_schema_statement FROM @time_adjustment_schema_install_lock_ddl;
+EXECUTE time_adjustment_schema_statement;
+DEALLOCATE PREPARE time_adjustment_schema_statement;
+
+-- --------------------------------------------------------
 -- Westy reports (failure + flagged-answer intake; migration 008)
 -- One row per PROBLEM, not per occurrence — see db/migrations/008_westy_reports.sql
 -- --------------------------------------------------------

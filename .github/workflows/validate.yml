@@ -79,6 +79,8 @@ jobs:
         run: php app/tests/time_provenance_bridge_test.php
       - name: Test approval-grade technician time
         run: php app/tests/time_entries_test.php
+      - name: Test append-only approved-time adjustments
+        run: php app/tests/time_entry_adjustments_test.php
       - name: Test approval-grade time migration and database guards
         env:
           SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'
@@ -97,6 +99,15 @@ jobs:
           SAFEHARBOR_TIME_TEST_USER: root
           SAFEHARBOR_TIME_TEST_PASS: safeharbor-test-root
         run: php app/tests/time_corrections_mysql_test.php
+      - name: Test approved-time adjustment migration, guards, and version race
+        env:
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_DB: safeharbor_time_adjustment_test
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_PORT: 3306
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_USER: root
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_PASS: safeharbor-test-root
+        run: php app/tests/time_entry_adjustments_mysql_test.php
       - name: Test Coastmark approved-time export contract
         run: php app/tests/coastmark_time_export_test.php
       - name: Test customer portal authentication and revocation
