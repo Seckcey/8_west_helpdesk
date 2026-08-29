@@ -74,7 +74,11 @@ Migration 019 adds separate client-binding and client-contact-snapshot tables
 plus one immutable `(tenant_id, schedule_key)` contact-scope registry. The
 registry is pinned as `MANUAL`, `TENANT`, or `CLIENT` before schedule version
 1 and every enable, disable, and reconfiguration version inherits it. Migration
-backfills existing histories and refuses missing, orphaned, or mixed scope.
+backfills existing histories and refuses missing, orphaned, or mixed scope. It
+also refuses a latest active tenant- or client-scoped schedule unless its
+recipient matches the newest evidence-bearing version; client scope must match
+the evidence client too. Future activation is enforced by both the application
+and database trigger, and active/due runtime reads fail closed on any mismatch.
 The client binding is immutable and one-to-one; symmetric locking guards stop
 an ID tenant key from being claimed in both tenant and client lanes, including
 concurrent reverse-order inserts. The disabled schedule and client snapshot
@@ -232,7 +236,9 @@ Migration 019 applies the same replay discipline across the scope registry,
 schedule insert boundary, both tenant evidence insert boundaries, and the two
 client-scoped tables. Twelve temporary swap guards remain in place while its
 twelve permanent scope, actor, reach, version, and immutability guards are
-replaced. An interrupted run stays fail-closed until an exact replay.
+replaced. Their exact names, tables, events, timing, and fail-closed signal are
+verified before replacement. An interrupted run stays fail-closed until an
+exact replay.
 
 The report subsystem needs `SELECT` on source and report tables; `INSERT` on
 definition, schedule, archive, ID tenant-binding, and ID contact-snapshot

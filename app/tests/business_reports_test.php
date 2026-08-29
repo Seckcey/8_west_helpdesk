@@ -569,6 +569,77 @@ report_check(
         && $clientInheritedScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
         && (int)($clientInheritedScope['evidence']['contact_version'] ?? 0) === 2,
 );
+$tenantRuntimePrepared = business_report_prepare_schedule_from_id(
+    $pdo, 'one', 'tenant-runtime-drift', 11, (int)$definition['definition']['id'],
+    array_replace($newIdContact, [
+        'request_nonce_sha256' => str_repeat('b', 64),
+        'response_sha256' => str_repeat('c', 64),
+    ]),
+    'UTC', 3, '10:00:00', true, 101, 'tenant runtime drift fixture',
+);
+$tenantRuntimeActive = business_report_transition_schedule(
+    $pdo, 'one', 'tenant-runtime-drift', 1, 'active', 101, 'enable valid tenant runtime fixture',
+    report_config([
+        'schedule_keys' => ['tenant-runtime-drift'],
+        'recipient_emails' => ['new-id-reports@example.test'],
+    ]),
+);
+$pdo->exec(
+    "UPDATE business_report_schedule_versions
+        SET recipient_email='tenant-runtime-substituted@example.test'
+      WHERE id=" . (int)$tenantRuntimeActive['schedule']['id']
+);
+report_throws(
+    'active tenant schedule read fails closed when its recipient differs from newest evidence',
+    BusinessReportGateException::class,
+    fn() => business_report_active_schedule($pdo, 'one', 'tenant-runtime-drift'),
+    'latest immutable ID contact evidence',
+);
+
+$clientRuntimeContact = array_replace($clientIdContact, [
+    'contact_version' => 2,
+    'recipient_email' => 'new-customer-admin@example.test',
+    'request_nonce_sha256' => str_repeat('7', 64),
+    'response_sha256' => str_repeat('8', 64),
+]);
+$clientRuntimePrepared = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-runtime-drift', 11, (int)$definition['definition']['id'],
+    $clientRuntimeContact, 'UTC', 3, '10:00:00', true, 101, 'client runtime drift fixture',
+);
+$clientRuntimeActive = business_report_transition_schedule(
+    $pdo, 'one', 'client-runtime-drift', 1, 'active', 101, 'enable valid client runtime fixture',
+    report_config([
+        'schedule_keys' => ['client-runtime-drift'],
+        'recipient_emails' => ['new-customer-admin@example.test'],
+    ]),
+);
+$pdo->exec(
+    'UPDATE business_report_schedule_versions SET client_id=12 WHERE id='
+    . (int)$clientRuntimeActive['schedule']['id']
+);
+report_throws(
+    'active client schedule read fails closed when its client differs from newest evidence',
+    BusinessReportGateException::class,
+    fn() => business_report_active_schedule($pdo, 'one', 'client-runtime-drift'),
+    'latest immutable ID contact evidence',
+);
+$driftedDue = business_report_due_schedule_keys(
+    $pdo,
+    time() + (21 * 86400),
+    10,
+    report_config([
+        'schedule_keys' => ['tenant-runtime-drift', 'client-runtime-drift'],
+        'client_keys' => ['safeharbor-client:11', 'safeharbor-client:12'],
+        'recipient_emails' => [
+            'tenant-runtime-substituted@example.test',
+            'new-customer-admin@example.test',
+        ],
+    ]),
+);
+report_check(
+    'due inventory omits active tenant and client schedules whose targets drift from ID evidence',
+    $driftedDue === [],
+);
 $scopeBypassScheduleCount = (int)$pdo->query(
     'SELECT COUNT(*) FROM business_report_schedule_versions'
 )->fetchColumn();
@@ -1017,9 +1088,19 @@ report_throws(
 );
 
 // Starvation guard: 101 due active schedules, only the last key and recipient allowed.
+$starvationScopeInsert = $pdo->prepare(
+    'INSERT INTO business_report_contact_scope_bindings
+        (tenant_id,schedule_key,contact_scope,created_by_user_id,reason)
+     VALUES (1,?,?,101,?)'
+);
 for ($i = 1; $i <= 101; $i++) {
     $key = sprintf('starve-%03d', $i);
     $recipient = $i === 101 ? 'allowed@example.test' : sprintf('blocked%03d@example.test', $i);
+    $starvationScopeInsert->execute([
+        $key,
+        BUSINESS_REPORT_CONTACT_SCOPE_MANUAL,
+        'starvation inventory fixture',
+    ]);
     $insert = $pdo->prepare(
         "INSERT INTO business_report_schedule_versions
             (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,

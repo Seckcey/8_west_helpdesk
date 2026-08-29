@@ -797,6 +797,9 @@ DROP TRIGGER trg_business_report_privilege_preflight;
 DROP TRIGGER IF EXISTS trg_business_report_definitions_before_insert;
 DROP TRIGGER IF EXISTS trg_business_report_definitions_no_update;
 DROP TRIGGER IF EXISTS trg_business_report_definitions_no_delete;
+DROP TRIGGER IF EXISTS trg_business_report_contact_scope_before_insert;
+DROP TRIGGER IF EXISTS trg_business_report_contact_scope_no_update;
+DROP TRIGGER IF EXISTS trg_business_report_contact_scope_no_delete;
 DROP TRIGGER IF EXISTS trg_business_report_schedules_before_insert;
 DROP TRIGGER IF EXISTS trg_business_report_schedules_no_update;
 DROP TRIGGER IF EXISTS trg_business_report_schedules_no_delete;
@@ -894,7 +897,8 @@ BEFORE INSERT ON business_report_schedule_versions
 FOR EACH ROW
 BEGIN
   DECLARE actor_is_authorized INT DEFAULT 0;
-  DECLARE contact_scope_matches INT DEFAULT 0;
+  DECLARE locked_contact_scope VARCHAR(16) DEFAULT NULL;
+  DECLARE active_contact_matches INT DEFAULT 0;
   DECLARE latest_version INT DEFAULT 0;
   DECLARE latest_status VARCHAR(16) DEFAULT NULL;
   DECLARE latest_client_id INT UNSIGNED DEFAULT NULL;
@@ -906,10 +910,12 @@ BEGIN
   IF actor_is_authorized <> 1 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Business report schedule actor must be an active owner or admin';
   END IF;
-  SELECT COUNT(*) INTO contact_scope_matches
+  SELECT contact_scope INTO locked_contact_scope
     FROM business_report_contact_scope_bindings
-   WHERE tenant_id = NEW.tenant_id AND schedule_key = NEW.schedule_key;
-  IF contact_scope_matches <> 1 THEN
+   WHERE tenant_id = NEW.tenant_id
+     AND BINARY schedule_key = BINARY NEW.schedule_key
+   FOR UPDATE;
+  IF locked_contact_scope IS NULL THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'Business report schedule requires its immutable contact scope';
   END IF;
@@ -936,6 +942,53 @@ BEGIN
   END IF;
   IF latest_status = 'active' AND NEW.status <> 'disabled' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'An active business report schedule must be explicitly disabled';
+  END IF;
+  IF NEW.status = 'active' AND BINARY locked_contact_scope = BINARY 'TENANT' THEN
+    SELECT COUNT(*) INTO active_contact_matches
+      FROM business_report_id_contact_snapshots evidence
+      JOIN business_report_schedule_versions evidence_schedule
+        ON evidence_schedule.tenant_id = evidence.tenant_id
+       AND evidence_schedule.id = evidence.schedule_version_id
+     WHERE evidence_schedule.tenant_id = NEW.tenant_id
+       AND BINARY evidence_schedule.schedule_key = BINARY NEW.schedule_key
+       AND evidence_schedule.version_no = (
+         SELECT MAX(latest_schedule.version_no)
+           FROM business_report_id_contact_snapshots latest_evidence
+           JOIN business_report_schedule_versions latest_schedule
+             ON latest_schedule.tenant_id = latest_evidence.tenant_id
+            AND latest_schedule.id = latest_evidence.schedule_version_id
+          WHERE latest_schedule.tenant_id = NEW.tenant_id
+            AND BINARY latest_schedule.schedule_key = BINARY NEW.schedule_key
+       )
+       AND BINARY evidence.recipient_email = BINARY NEW.recipient_email;
+    IF active_contact_matches <> 1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Active tenant-ID report recipient must match latest immutable evidence';
+    END IF;
+  ELSEIF NEW.status = 'active' AND BINARY locked_contact_scope = BINARY 'CLIENT' THEN
+    SELECT COUNT(*) INTO active_contact_matches
+      FROM business_report_id_client_contact_snapshots evidence
+      JOIN business_report_schedule_versions evidence_schedule
+        ON evidence_schedule.tenant_id = evidence.tenant_id
+       AND evidence_schedule.id = evidence.schedule_version_id
+     WHERE evidence_schedule.tenant_id = NEW.tenant_id
+       AND BINARY evidence_schedule.schedule_key = BINARY NEW.schedule_key
+       AND evidence_schedule.version_no = (
+         SELECT MAX(latest_schedule.version_no)
+           FROM business_report_id_client_contact_snapshots latest_evidence
+           JOIN business_report_schedule_versions latest_schedule
+             ON latest_schedule.tenant_id = latest_evidence.tenant_id
+            AND latest_schedule.id = latest_evidence.schedule_version_id
+          WHERE latest_schedule.tenant_id = NEW.tenant_id
+            AND BINARY latest_schedule.schedule_key = BINARY NEW.schedule_key
+       )
+       AND evidence.client_id = NEW.client_id
+       AND evidence_schedule.client_id = NEW.client_id
+       AND BINARY evidence.recipient_email = BINARY NEW.recipient_email;
+    IF active_contact_matches <> 1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Active client-ID report recipient and client must match latest immutable evidence';
+    END IF;
   END IF;
 END$$
 
@@ -1907,6 +1960,19 @@ BEFORE INSERT ON time_entries
 FOR EACH ROW
 SET @time_entry_trigger_privilege_preflight = 1;
 DROP TRIGGER trg_time_entry_privilege_preflight;
+
+DROP TRIGGER IF EXISTS trg_time_entries_before_insert;
+DROP TRIGGER IF EXISTS trg_time_entries_after_insert;
+DROP TRIGGER IF EXISTS trg_time_entries_before_update;
+DROP TRIGGER IF EXISTS trg_time_entries_after_update;
+DROP TRIGGER IF EXISTS trg_time_entries_no_delete;
+DROP TRIGGER IF EXISTS trg_time_entry_events_no_update;
+DROP TRIGGER IF EXISTS trg_time_entry_events_no_delete;
+DROP TRIGGER IF EXISTS trg_time_interval_guards_no_update;
+DROP TRIGGER IF EXISTS trg_time_interval_guards_no_delete;
+DROP TRIGGER IF EXISTS trg_time_measured_before_insert;
+DROP TRIGGER IF EXISTS trg_time_measured_before_update;
+DROP TRIGGER IF EXISTS trg_time_measured_no_delete;
 
 DELIMITER $$
 CREATE TRIGGER trg_time_entries_before_insert

@@ -309,6 +309,33 @@ id_report_check(
         && !str_contains($manager, "echo \$contact['recipient_email']"),
     'operator output exposes the raw report address',
 );
+$tenantPrepareStart = strpos($manager, "if (\$command === 'prepare-from-id')");
+$clientPrepareStart = strpos($manager, "if (\$command === 'prepare-client-from-id')");
+$transitionStart = strpos($manager, "if (\$command === 'enable' || \$command === 'disable')");
+$tenantPrepareBlock = is_int($tenantPrepareStart) && is_int($clientPrepareStart)
+    && $clientPrepareStart > $tenantPrepareStart
+    ? substr($manager, $tenantPrepareStart, $clientPrepareStart - $tenantPrepareStart)
+    : '';
+$clientPrepareBlock = is_int($clientPrepareStart) && is_int($transitionStart)
+    && $transitionStart > $clientPrepareStart
+    ? substr($manager, $clientPrepareStart, $transitionStart - $clientPrepareStart)
+    : '';
+id_report_check(
+    substr_count(
+        $tenantPrepareBlock,
+        "report_cli_emit_id_contact(\$result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_TENANT);",
+    ) === 1
+        && !str_contains($tenantPrepareBlock, 'BUSINESS_REPORT_CONTACT_SCOPE_CLIENT'),
+    'prepare-from-id CLI receipt does not report its exact tenant contact scope',
+);
+id_report_check(
+    substr_count(
+        $clientPrepareBlock,
+        "report_cli_emit_id_contact(\$result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);",
+    ) === 1
+        && !str_contains($clientPrepareBlock, 'BUSINESS_REPORT_CONTACT_SCOPE_TENANT'),
+    'prepare-client-from-id CLI receipt does not report its exact client contact scope',
+);
 
 if ($idReportFailures > 0) {
     fwrite(STDERR, "id_report_contacts_test: {$idReportFailures} failure(s) / {$idReportChecks} checks\n");

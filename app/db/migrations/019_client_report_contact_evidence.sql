@@ -224,6 +224,84 @@ BEGIN
       SET MESSAGE_TEXT = 'report contact-scope registry does not match schedule history';
   END IF;
 
+  IF EXISTS (
+       SELECT 1
+         FROM business_report_contact_scope_bindings scope_binding
+         JOIN business_report_schedule_versions active_schedule
+           ON active_schedule.tenant_id = scope_binding.tenant_id
+          AND BINARY active_schedule.schedule_key = BINARY scope_binding.schedule_key
+        WHERE scope_binding.contact_scope = 'TENANT'
+          AND active_schedule.status = 'active'
+          AND active_schedule.version_no = (
+            SELECT MAX(current_schedule.version_no)
+              FROM business_report_schedule_versions current_schedule
+             WHERE current_schedule.tenant_id = active_schedule.tenant_id
+               AND BINARY current_schedule.schedule_key = BINARY active_schedule.schedule_key
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM business_report_id_contact_snapshots evidence
+              JOIN business_report_schedule_versions evidence_schedule
+                ON evidence_schedule.tenant_id = evidence.tenant_id
+               AND evidence_schedule.id = evidence.schedule_version_id
+             WHERE evidence_schedule.tenant_id = active_schedule.tenant_id
+               AND BINARY evidence_schedule.schedule_key = BINARY active_schedule.schedule_key
+               AND evidence_schedule.version_no = (
+                 SELECT MAX(latest_schedule.version_no)
+                   FROM business_report_id_contact_snapshots latest_evidence
+                   JOIN business_report_schedule_versions latest_schedule
+                     ON latest_schedule.tenant_id = latest_evidence.tenant_id
+                    AND latest_schedule.id = latest_evidence.schedule_version_id
+                  WHERE latest_schedule.tenant_id = active_schedule.tenant_id
+                    AND BINARY latest_schedule.schedule_key = BINARY active_schedule.schedule_key
+               )
+               AND BINARY evidence.recipient_email = BINARY active_schedule.recipient_email
+          )
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'latest active tenant-ID report recipient does not match newest evidence';
+  END IF;
+
+  IF EXISTS (
+       SELECT 1
+         FROM business_report_contact_scope_bindings scope_binding
+         JOIN business_report_schedule_versions active_schedule
+           ON active_schedule.tenant_id = scope_binding.tenant_id
+          AND BINARY active_schedule.schedule_key = BINARY scope_binding.schedule_key
+        WHERE scope_binding.contact_scope = 'CLIENT'
+          AND active_schedule.status = 'active'
+          AND active_schedule.version_no = (
+            SELECT MAX(current_schedule.version_no)
+              FROM business_report_schedule_versions current_schedule
+             WHERE current_schedule.tenant_id = active_schedule.tenant_id
+               AND BINARY current_schedule.schedule_key = BINARY active_schedule.schedule_key
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM business_report_id_client_contact_snapshots evidence
+              JOIN business_report_schedule_versions evidence_schedule
+                ON evidence_schedule.tenant_id = evidence.tenant_id
+               AND evidence_schedule.id = evidence.schedule_version_id
+             WHERE evidence_schedule.tenant_id = active_schedule.tenant_id
+               AND BINARY evidence_schedule.schedule_key = BINARY active_schedule.schedule_key
+               AND evidence_schedule.version_no = (
+                 SELECT MAX(latest_schedule.version_no)
+                   FROM business_report_id_client_contact_snapshots latest_evidence
+                   JOIN business_report_schedule_versions latest_schedule
+                     ON latest_schedule.tenant_id = latest_evidence.tenant_id
+                    AND latest_schedule.id = latest_evidence.schedule_version_id
+                  WHERE latest_schedule.tenant_id = active_schedule.tenant_id
+                    AND BINARY latest_schedule.schedule_key = BINARY active_schedule.schedule_key
+               )
+               AND evidence.client_id = active_schedule.client_id
+               AND evidence_schedule.client_id = active_schedule.client_id
+               AND BINARY evidence.recipient_email = BINARY active_schedule.recipient_email
+          )
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'latest active client-ID report recipient and client do not match newest evidence';
+  END IF;
+
   IF (SELECT GROUP_CONCAT(
               CONCAT(column_name, ':', column_type, ':', is_nullable)
               ORDER BY ordinal_position SEPARATOR '|')
@@ -545,19 +623,44 @@ CREATE PROCEDURE safeharbor_assert_client_report_contact_swap()
 BEGIN
   IF (SELECT COUNT(*) FROM information_schema.triggers
        WHERE trigger_schema = DATABASE()
-         AND trigger_name IN (
-           'trg_br_contact_scope_swap_insert',
-           'trg_br_contact_scope_swap_update',
-           'trg_br_contact_scope_swap_delete',
-           'trg_br_schedule_scope_swap_insert',
-           'trg_br_id_tenant_binding_swap_insert',
-           'trg_br_id_tenant_snapshot_swap_insert',
-           'trg_br_id_client_binding_swap_insert',
-           'trg_br_id_client_binding_swap_update',
-           'trg_br_id_client_binding_swap_delete',
-           'trg_br_id_client_snapshot_swap_insert',
-           'trg_br_id_client_snapshot_swap_update',
-           'trg_br_id_client_snapshot_swap_delete'
+         AND action_timing = 'BEFORE'
+         AND (
+           (trigger_name = 'trg_br_contact_scope_swap_insert'
+             AND event_object_table = 'business_report_contact_scope_bindings'
+             AND event_manipulation = 'INSERT')
+           OR (trigger_name = 'trg_br_contact_scope_swap_update'
+             AND event_object_table = 'business_report_contact_scope_bindings'
+             AND event_manipulation = 'UPDATE')
+           OR (trigger_name = 'trg_br_contact_scope_swap_delete'
+             AND event_object_table = 'business_report_contact_scope_bindings'
+             AND event_manipulation = 'DELETE')
+           OR (trigger_name = 'trg_br_schedule_scope_swap_insert'
+             AND event_object_table = 'business_report_schedule_versions'
+             AND event_manipulation = 'INSERT')
+           OR (trigger_name = 'trg_br_id_tenant_binding_swap_insert'
+             AND event_object_table = 'business_report_id_tenant_bindings'
+             AND event_manipulation = 'INSERT')
+           OR (trigger_name = 'trg_br_id_tenant_snapshot_swap_insert'
+             AND event_object_table = 'business_report_id_contact_snapshots'
+             AND event_manipulation = 'INSERT')
+           OR (trigger_name = 'trg_br_id_client_binding_swap_insert'
+             AND event_object_table = 'business_report_id_client_bindings'
+             AND event_manipulation = 'INSERT')
+           OR (trigger_name = 'trg_br_id_client_binding_swap_update'
+             AND event_object_table = 'business_report_id_client_bindings'
+             AND event_manipulation = 'UPDATE')
+           OR (trigger_name = 'trg_br_id_client_binding_swap_delete'
+             AND event_object_table = 'business_report_id_client_bindings'
+             AND event_manipulation = 'DELETE')
+           OR (trigger_name = 'trg_br_id_client_snapshot_swap_insert'
+             AND event_object_table = 'business_report_id_client_contact_snapshots'
+             AND event_manipulation = 'INSERT')
+           OR (trigger_name = 'trg_br_id_client_snapshot_swap_update'
+             AND event_object_table = 'business_report_id_client_contact_snapshots'
+             AND event_manipulation = 'UPDATE')
+           OR (trigger_name = 'trg_br_id_client_snapshot_swap_delete'
+             AND event_object_table = 'business_report_id_client_contact_snapshots'
+             AND event_manipulation = 'DELETE')
          )
          AND LOWER(action_statement) LIKE '%signal sqlstate%'
          AND LOWER(action_statement) LIKE '%migration 019 client report-contact replay is in progress%') <> 12 THEN
@@ -625,7 +728,8 @@ BEFORE INSERT ON business_report_schedule_versions
 FOR EACH ROW
 BEGIN
   DECLARE actor_is_authorized INT DEFAULT 0;
-  DECLARE contact_scope_matches INT DEFAULT 0;
+  DECLARE locked_contact_scope VARCHAR(16) DEFAULT NULL;
+  DECLARE active_contact_matches INT DEFAULT 0;
   DECLARE latest_version INT DEFAULT 0;
   DECLARE latest_status VARCHAR(16) DEFAULT NULL;
   DECLARE latest_client_id INT UNSIGNED DEFAULT NULL;
@@ -643,10 +747,12 @@ BEGIN
       SET MESSAGE_TEXT = 'Business report schedule actor must be an active owner or admin';
   END IF;
 
-  SELECT COUNT(*) INTO contact_scope_matches
+  SELECT contact_scope INTO locked_contact_scope
     FROM business_report_contact_scope_bindings
-   WHERE tenant_id = NEW.tenant_id AND schedule_key = NEW.schedule_key;
-  IF contact_scope_matches <> 1 THEN
+   WHERE tenant_id = NEW.tenant_id
+     AND BINARY schedule_key = BINARY NEW.schedule_key
+   FOR UPDATE;
+  IF locked_contact_scope IS NULL THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'Business report schedule requires its immutable contact scope';
   END IF;
@@ -680,6 +786,53 @@ BEGIN
   IF latest_status = 'active' AND NEW.status <> 'disabled' THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'An active business report schedule must be explicitly disabled';
+  END IF;
+  IF NEW.status = 'active' AND BINARY locked_contact_scope = BINARY 'TENANT' THEN
+    SELECT COUNT(*) INTO active_contact_matches
+      FROM business_report_id_contact_snapshots evidence
+      JOIN business_report_schedule_versions evidence_schedule
+        ON evidence_schedule.tenant_id = evidence.tenant_id
+       AND evidence_schedule.id = evidence.schedule_version_id
+     WHERE evidence_schedule.tenant_id = NEW.tenant_id
+       AND BINARY evidence_schedule.schedule_key = BINARY NEW.schedule_key
+       AND evidence_schedule.version_no = (
+         SELECT MAX(latest_schedule.version_no)
+           FROM business_report_id_contact_snapshots latest_evidence
+           JOIN business_report_schedule_versions latest_schedule
+             ON latest_schedule.tenant_id = latest_evidence.tenant_id
+            AND latest_schedule.id = latest_evidence.schedule_version_id
+          WHERE latest_schedule.tenant_id = NEW.tenant_id
+            AND BINARY latest_schedule.schedule_key = BINARY NEW.schedule_key
+       )
+       AND BINARY evidence.recipient_email = BINARY NEW.recipient_email;
+    IF active_contact_matches <> 1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Active tenant-ID report recipient must match latest immutable evidence';
+    END IF;
+  ELSEIF NEW.status = 'active' AND BINARY locked_contact_scope = BINARY 'CLIENT' THEN
+    SELECT COUNT(*) INTO active_contact_matches
+      FROM business_report_id_client_contact_snapshots evidence
+      JOIN business_report_schedule_versions evidence_schedule
+        ON evidence_schedule.tenant_id = evidence.tenant_id
+       AND evidence_schedule.id = evidence.schedule_version_id
+     WHERE evidence_schedule.tenant_id = NEW.tenant_id
+       AND BINARY evidence_schedule.schedule_key = BINARY NEW.schedule_key
+       AND evidence_schedule.version_no = (
+         SELECT MAX(latest_schedule.version_no)
+           FROM business_report_id_client_contact_snapshots latest_evidence
+           JOIN business_report_schedule_versions latest_schedule
+             ON latest_schedule.tenant_id = latest_evidence.tenant_id
+            AND latest_schedule.id = latest_evidence.schedule_version_id
+          WHERE latest_schedule.tenant_id = NEW.tenant_id
+            AND BINARY latest_schedule.schedule_key = BINARY NEW.schedule_key
+       )
+       AND evidence.client_id = NEW.client_id
+       AND evidence_schedule.client_id = NEW.client_id
+       AND BINARY evidence.recipient_email = BINARY NEW.recipient_email;
+    IF active_contact_matches <> 1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Active client-ID report recipient and client must match latest immutable evidence';
+    END IF;
   END IF;
 END$$
 

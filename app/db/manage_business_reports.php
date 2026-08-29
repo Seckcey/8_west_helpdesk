@@ -176,7 +176,7 @@ try {
             $options['reason'],
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
-        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
+        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_TENANT);
         exit(0);
     }
 
@@ -217,7 +217,7 @@ try {
             $options['reason'],
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
-        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_TENANT);
+        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
         exit(0);
     }
 

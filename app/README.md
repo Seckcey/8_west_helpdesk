@@ -248,8 +248,10 @@ public/                    Apache docroot (page-per-file, like Milepost)
   candidate adding an independent exact-client binding/evidence lane and one
   immutable manual/tenant-ID/client-ID scope per logical schedule. Inspect
   reports the exact pinned scope and latest inherited evidence even after
-  enable/disable versions; no path converts the tenant canary or infers
-  identity from names/domains/email.
+  enable/disable versions. ID-scoped activation and active/due reads fail closed
+  unless the current recipient (and client for client scope) matches that latest
+  evidence; no path converts the tenant canary or infers identity from
+  names/domains/email.
 - Milepost customer sync: independent from alert/support intake and dark unless
   `suite_customer_sync.enabled` is exactly true. The signed payload resolves an
   explicitly allowlisted Safeharbor tenant slug and binds one globally stable

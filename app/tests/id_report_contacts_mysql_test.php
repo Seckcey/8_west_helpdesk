@@ -713,8 +713,15 @@ try {
         $migration013Blob === 'e6d8e9d0d0393281d03911ea10b595c9aa3e514f',
         'migration 013 tracked blob remains exact while migration 017 stays isolated',
     );
-    id_mysql_execute_file($pdo, __DIR__ . '/../db/schema.sql');
+    $schemaPath = __DIR__ . '/../db/schema.sql';
+    id_mysql_execute_file($pdo, $schemaPath);
     $freshContactScopeTriggerContract = id_mysql_contact_scope_trigger_contract($pdo);
+    id_mysql_execute_file($pdo, $schemaPath);
+    id_mysql_check(
+        count($freshContactScopeTriggerContract) === 12
+            && id_mysql_contact_scope_trigger_contract($pdo) === $freshContactScopeTriggerContract,
+        'fresh schema replays twice with the exact same twelve scope enforcement triggers',
+    );
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
     try {
         $pdo->exec(
@@ -747,6 +754,7 @@ try {
         'true migration-013 baseline has five report tables and fifteen guards',
     );
     id_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/017_id_report_contact_evidence.sql');
+    $migration019 = __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql';
 
     // Prove the first installation inherits the original contact source even
     // when the latest logical version is an enable/disable transition with no
@@ -815,6 +823,35 @@ try {
         ]);
     }
     $backfillScheduleInsert->execute([
+        97,
+        'backfill-tenant-drift',
+        1,
+        (int)$backfillTenantDefinition['definition']['id'],
+        97,
+        'backfill-evidence@example.test',
+        'disabled',
+        970,
+        'tenant drift version-one evidence target',
+    ]);
+    $backfillTenantDriftScheduleId = (int)$pdo->lastInsertId();
+    $pdo->exec("INSERT INTO business_report_id_contact_snapshots
+        (tenant_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+         response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+        VALUES (97,{$backfillTenantDriftScheduleId},'ewid-t97',2,'backfill-evidence@example.test',
+         '2026-08-28 12:00:00','" . str_repeat('3', 64) . "','" . str_repeat('4', 64) . "',
+         970,'tenant drift version-one evidence')");
+    $backfillScheduleInsert->execute([
+        97,
+        'backfill-tenant-drift',
+        2,
+        (int)$backfillTenantDefinition['definition']['id'],
+        97,
+        'backfill-substituted@example.test',
+        'active',
+        970,
+        'pre-migration tenant recipient drift',
+    ]);
+    $backfillScheduleInsert->execute([
         98,
         'backfill-manual',
         1,
@@ -825,7 +862,73 @@ try {
         980,
         'manual-scope version one',
     ]);
-    id_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql');
+    id_mysql_rejects_with_signal(
+        fn() => id_mysql_execute_file($pdo, $migration019),
+        'latest active tenant-ID report recipient does not match newest evidence',
+        'migration 019 refuses a pre-existing active tenant recipient substitution',
+    );
+    $backfillScheduleInsert->execute([
+        97,
+        'backfill-tenant-drift',
+        3,
+        (int)$backfillTenantDefinition['definition']['id'],
+        97,
+        'backfill-substituted@example.test',
+        'disabled',
+        970,
+        'operator disables drifted tenant schedule before migration retry',
+    ]);
+
+    $pdo->exec("INSERT INTO business_report_id_client_bindings
+        (tenant_id,client_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+        VALUES (97,97,'ewid-t197','backfill-client',970,'client drift migration fixture')");
+    $backfillScheduleInsert->execute([
+        97,
+        'backfill-client',
+        1,
+        (int)$backfillTenantDefinition['definition']['id'],
+        97,
+        'backfill-client-evidence@example.test',
+        'disabled',
+        970,
+        'client drift version-one evidence target',
+    ]);
+    $backfillClientScheduleId = (int)$pdo->lastInsertId();
+    $pdo->exec("INSERT INTO business_report_id_client_contact_snapshots
+        (tenant_id,client_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+         response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+        VALUES (97,97,{$backfillClientScheduleId},'ewid-t197',1,
+         'backfill-client-evidence@example.test','2026-08-28 12:00:00',
+         '" . str_repeat('5', 64) . "','" . str_repeat('6', 64) . "',970,
+         'client drift version-one evidence')");
+    $backfillScheduleInsert->execute([
+        97,
+        'backfill-client',
+        2,
+        (int)$backfillTenantDefinition['definition']['id'],
+        97,
+        'backfill-client-substituted@example.test',
+        'active',
+        970,
+        'pre-migration client recipient drift',
+    ]);
+    id_mysql_rejects_with_signal(
+        fn() => id_mysql_execute_file($pdo, $migration019),
+        'latest active client-ID report recipient and client do not match newest evidence',
+        'migration 019 refuses a pre-existing active client recipient substitution',
+    );
+    $backfillScheduleInsert->execute([
+        97,
+        'backfill-client',
+        3,
+        (int)$backfillTenantDefinition['definition']['id'],
+        97,
+        'backfill-client-substituted@example.test',
+        'disabled',
+        970,
+        'operator disables drifted client schedule before migration retry',
+    ]);
+    id_mysql_execute_file($pdo, $migration019);
     $backfilledTenantScope = business_report_contact_scope_for_key(
         $pdo,
         97,
@@ -836,6 +939,11 @@ try {
         98,
         'backfill-manual',
     );
+    $backfilledClientScope = business_report_contact_scope_for_key(
+        $pdo,
+        97,
+        'backfill-client',
+    );
     id_mysql_check(
         is_array($backfilledTenantScope)
             && $backfilledTenantScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_TENANT
@@ -843,15 +951,20 @@ try {
             && is_array($backfilledManualScope)
             && $backfilledManualScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_MANUAL
             && $backfilledManualScope['evidence'] === null
+            && is_array($backfilledClientScope)
+            && $backfilledClientScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+            && (int)($backfilledClientScope['evidence']['client_id'] ?? 0) === 97
             && $pdo->query(
                 "SELECT CONCAT(schedule_key, ':', contact_scope)
                    FROM business_report_contact_scope_bindings
-                  WHERE tenant_id IN (97,98) ORDER BY tenant_id"
+                  WHERE tenant_id IN (97,98) ORDER BY tenant_id, schedule_key"
             )->fetchAll(PDO::FETCH_COLUMN) === [
+                'backfill-client:CLIENT',
                 'backfill-tenant:TENANT',
+                'backfill-tenant-drift:TENANT',
                 'backfill-manual:MANUAL',
             ],
-        'migration 019 backfills one original scope across complete transitioned schedule history',
+        'migration 019 backfills original scopes across complete transitioned schedule histories',
     );
     id_mysql_check(
         count($freshContactScopeTriggerContract) === 12
@@ -1078,6 +1191,35 @@ id_mysql_check(
 );
 
 $migration019 = __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql';
+$pdo->exec(
+    "CREATE TRIGGER trg_br_contact_scope_swap_insert
+     BEFORE UPDATE ON business_report_contact_scope_bindings
+     FOR EACH ROW SIGNAL SQLSTATE '45000'
+       SET MESSAGE_TEXT='Migration 019 client report-contact replay is in progress'"
+);
+id_mysql_rejects_with_signal(
+    fn() => id_mysql_execute_file($pdo, $migration019),
+    'fail-closed swap guards are incomplete',
+    'migration 019 rejects a stale swap name and signal wired to the wrong event',
+);
+id_mysql_check(
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND trigger_name LIKE '%_swap_%'"
+    )->fetchColumn() === 12,
+    'malformed stale-swap proof would pass a name-only twelve-trigger count',
+);
+$pdo->exec('DROP TRIGGER trg_br_contact_scope_swap_insert');
+id_mysql_execute_file($pdo, $migration019);
+id_mysql_check(
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE() AND trigger_name LIKE '%_swap_%'"
+    )->fetchColumn() === 0
+        && id_mysql_contact_scope_trigger_contract($pdo) === $freshContactScopeTriggerContract,
+    'migration retry replaces the malformed stale guard and restores exact permanent guards',
+);
 $pdo->exec(
     'ALTER TABLE business_report_id_client_bindings
        DROP INDEX uq_br_id_client_binding_key,
@@ -1371,8 +1513,8 @@ id_mysql_check(
         && (int)$clientPrepared['schedule']['version_no'] === 1
         && (int)$clientPrepared['id_contact']['client_id'] === 11
         && (string)$clientPrepared['id_contact']['id_tenant_key'] === 'ewid-t4'
-        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_bindings')->fetchColumn() === 1
-        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_bindings WHERE tenant_id=1')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE tenant_id=1')->fetchColumn() === 1,
     'client runtime atomically creates one exact binding, disabled schedule, and snapshot',
 );
 $clientReplay = business_report_prepare_client_schedule_from_id(
@@ -1383,7 +1525,7 @@ $clientReplay = business_report_prepare_client_schedule_from_id(
 id_mysql_check(
     $clientReplay['action'] === 'ignored'
         && (int)$clientReplay['schedule']['id'] === (int)$clientPrepared['schedule']['id']
-        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE tenant_id=1')->fetchColumn() === 1,
     'exact client prepare replay is idempotent with a fresh request nonce',
 );
 id_mysql_throws(
@@ -1795,8 +1937,8 @@ $clientReplayGuardSchedule = business_report_prepare_schedule(
 );
 $clientCountsBeforeReplay = (string)$pdo->query(
     "SELECT CONCAT(
-      (SELECT COUNT(*) FROM business_report_id_client_bindings), ':',
-      (SELECT COUNT(*) FROM business_report_id_client_contact_snapshots))"
+      (SELECT COUNT(*) FROM business_report_id_client_bindings WHERE tenant_id=1), ':',
+      (SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE tenant_id=1))"
 )->fetchColumn();
 id_mysql_execute_until(
     $pdo,
@@ -1943,8 +2085,8 @@ id_mysql_rejects_with_signal(
 id_mysql_execute_file($pdo, $migration019);
 $clientCountsAfterReplay = (string)$pdo->query(
     "SELECT CONCAT(
-      (SELECT COUNT(*) FROM business_report_id_client_bindings), ':',
-      (SELECT COUNT(*) FROM business_report_id_client_contact_snapshots))"
+      (SELECT COUNT(*) FROM business_report_id_client_bindings WHERE tenant_id=1), ':',
+      (SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE tenant_id=1))"
 )->fetchColumn();
 id_mysql_check(
     $clientCountsBeforeReplay === $clientCountsAfterReplay
@@ -1971,6 +2113,86 @@ id_mysql_check(
                   'trg_business_report_id_snapshot_before_insert')"
         )->fetchColumn() === 6,
     'exact migration-019 retry restores scope, tenant, and client guards and preserves evidence',
+);
+
+$tenantSubstitution = business_report_prepare_schedule_from_id(
+    $pdo, 'one', 'tenant-active-substitution', 11, (int)$definition['definition']['id'],
+    id_mysql_snapshot(2, 'new-admin@example.test', 'e'),
+    'UTC', 1, '09:00:00', true, 101, 'tenant activation substitution fixture',
+);
+$pdo->exec("INSERT INTO business_report_schedule_versions
+    (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,
+     schedule_timezone,delivery_weekday,delivery_local_time,canary,status,created_by_user_id,reason)
+    VALUES (1,'tenant-active-substitution',2," . (int)$definition['definition']['id'] . ",11,
+     'tenant-substituted@example.test','UTC',1,'09:00:00',1,'disabled',101,
+     'direct disabled tenant substitution')");
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_schedule_versions
+        (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,
+         schedule_timezone,delivery_weekday,delivery_local_time,canary,status,created_by_user_id,reason)
+        VALUES (1,'tenant-active-substitution',3," . (int)$definition['definition']['id'] . ",11,
+         'tenant-substituted@example.test','UTC',1,'09:00:00',1,'active',101,
+         'direct active tenant substitution')"),
+    'active tenant-ID report recipient must match latest immutable evidence',
+    'database refuses direct disabled-then-active tenant recipient substitution',
+);
+id_mysql_throws(
+    BusinessReportGateException::class,
+    fn() => business_report_transition_schedule(
+        $pdo, 'one', 'tenant-active-substitution', 2, 'active', 101,
+        'application tenant substitution attempt',
+        id_mysql_report_config('tenant-active-substitution', 'tenant-substituted@example.test'),
+    ),
+    'application refuses to activate a tenant recipient that differs from latest evidence',
+);
+id_mysql_check(
+    (int)$tenantSubstitution['schedule']['version_no'] === 1
+        && $pdo->query(
+            "SELECT CONCAT(MAX(version_no), ':', SUM(status='active'))
+               FROM business_report_schedule_versions
+              WHERE tenant_id=1 AND schedule_key='tenant-active-substitution'"
+        )->fetchColumn() === '2:0',
+    'refused tenant substitutions leave the logical schedule disabled',
+);
+
+$clientSubstitution = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-active-substitution', 11, (int)$definition['definition']['id'],
+    id_mysql_client_snapshot(2, 'new-customer-admin@example.test', 'd'),
+    'UTC', 1, '09:00:00', true, 101, 'client activation substitution fixture',
+);
+$pdo->exec("INSERT INTO business_report_schedule_versions
+    (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,
+     schedule_timezone,delivery_weekday,delivery_local_time,canary,status,created_by_user_id,reason)
+    VALUES (1,'client-active-substitution',2," . (int)$definition['definition']['id'] . ",11,
+     'client-substituted@example.test','UTC',1,'09:00:00',1,'disabled',101,
+     'direct disabled client substitution')");
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_schedule_versions
+        (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,
+         schedule_timezone,delivery_weekday,delivery_local_time,canary,status,created_by_user_id,reason)
+        VALUES (1,'client-active-substitution',3," . (int)$definition['definition']['id'] . ",11,
+         'client-substituted@example.test','UTC',1,'09:00:00',1,'active',101,
+         'direct active client substitution')"),
+    'active client-ID report recipient and client must match latest immutable evidence',
+    'database refuses direct disabled-then-active client recipient substitution',
+);
+id_mysql_throws(
+    BusinessReportGateException::class,
+    fn() => business_report_transition_schedule(
+        $pdo, 'one', 'client-active-substitution', 2, 'active', 101,
+        'application client substitution attempt',
+        id_mysql_report_config('client-active-substitution', 'client-substituted@example.test'),
+    ),
+    'application refuses to activate a client recipient that differs from latest evidence',
+);
+id_mysql_check(
+    (int)$clientSubstitution['schedule']['version_no'] === 1
+        && $pdo->query(
+            "SELECT CONCAT(MAX(version_no), ':', SUM(status='active'))
+               FROM business_report_schedule_versions
+              WHERE tenant_id=1 AND schedule_key='client-active-substitution'"
+        )->fetchColumn() === '2:0',
+    'refused client substitutions leave the logical schedule disabled',
 );
 
 $escapedDatabase = str_replace('`', '``', $database);

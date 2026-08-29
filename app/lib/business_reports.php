@@ -596,6 +596,41 @@ function business_report_contact_scope_for_key(
     );
 }
 
+/** @param array<string,mixed> $schedule */
+function business_report_assert_schedule_contact_evidence(PDO $pdo, array $schedule): void
+{
+    $tenantId = (int)($schedule['tenant_id'] ?? 0);
+    $scheduleKey = business_report_schedule_key((string)($schedule['schedule_key'] ?? ''));
+    $recipient = (string)($schedule['recipient_email'] ?? '');
+    $clientId = (int)($schedule['client_id'] ?? 0);
+    if ($tenantId < 1 || $clientId < 1 || $recipient === '') {
+        throw new BusinessReportGateException('The report schedule contact evidence target is invalid.');
+    }
+    $contactScope = business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey);
+    if (!is_array($contactScope)) {
+        throw new BusinessReportGateException('The report schedule contact scope was not found.');
+    }
+    if ($contactScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_MANUAL) return;
+
+    $evidence = $contactScope['evidence'] ?? null;
+    if ($contactScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+        && is_array($evidence)
+        && (string)($evidence['recipient_email'] ?? '') === $recipient
+    ) {
+        return;
+    }
+    if ($contactScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+        && is_array($evidence)
+        && (int)($evidence['client_id'] ?? 0) === $clientId
+        && (string)($evidence['recipient_email'] ?? '') === $recipient
+    ) {
+        return;
+    }
+    throw new BusinessReportGateException(
+        'The report schedule recipient and client do not match the latest immutable ID contact evidence.',
+    );
+}
+
 /**
  * Validate the authenticated, redaction-safe snapshot returned by the
  * operator-only 8 West ID client before it reaches a transaction.
@@ -1125,6 +1160,7 @@ function business_report_transition_schedule(
             $actorUserId,
         );
         if ($toStatus === 'active') {
+            business_report_assert_schedule_contact_evidence($pdo, $latest);
             $gateSchedule = $latest;
             $gateSchedule['tenant_slug'] = $tenantSlug;
             business_report_assert_schedule_gate(
@@ -1199,6 +1235,7 @@ function business_report_active_schedule(PDO $pdo, string $tenantSlug, string $s
     ) {
         throw new BusinessReportGateException('The active report schedule uses an unsupported definition.');
     }
+    business_report_assert_schedule_contact_evidence($pdo, $row);
     return $row;
 }
 
