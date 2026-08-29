@@ -1843,13 +1843,15 @@ function business_report_generate(
     $pdo->beginTransaction();
     try {
         // Persisted reports and append-only approved-time adjustments share
-        // this tenant row as their first lock. That fixed order makes the
-        // winner visible before report metrics are read: an adjustment that
-        // wins makes v1 fail closed, while a report that wins archives before
-        // the later adjustment can be appended.
+        // this tenant row as their first lock. Reports need only a shared
+        // lock: it still excludes an adjustment's exclusive lock while
+        // preserving the report runtime's SELECT-only tenant privilege. That
+        // fixed order makes the winner visible before report metrics are read:
+        // an adjustment that wins makes v1 fail closed, while a report that
+        // wins archives before the later adjustment can be appended.
         $tenantLockSql = 'SELECT id FROM tenants WHERE id = ? AND slug = ?';
         if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
-            $tenantLockSql .= ' FOR UPDATE';
+            $tenantLockSql .= ' FOR SHARE';
         }
         $tenantLock = $pdo->prepare($tenantLockSql);
         $tenantLock->execute([$tenantId, $tenantSlug]);
