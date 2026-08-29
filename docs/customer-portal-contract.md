@@ -45,14 +45,18 @@ tenant context. The only POST is CSRF-protected local/central sign-out.
 
 ## OIDC authority
 
-The vendored files under `lib/eightwestid/` are exact blobs from the maintained
-8 West ID `client-kits/php/eightwestid/` package at ID commit
-`f0ec49b6106791d0ba658ca16899562fbe5b3b86`. `portal_auth_test.php` pins every
-blob, so a local fork fails CI visibly.
+Every vendored file under `lib/eightwestid/` is pinned by exact Git-blob digest
+in `portal_auth_test.php`, so any unreviewed drift fails CI visibly. `jwt.php`
+and `revocations.php` are the exact maintained 8 West ID
+`client-kits/php/eightwestid/` blobs at ID commit
+`6cc31c71f9b1f9ac63218c932531ea885237f470`. The other package files
+originated at `f0ec49b6106791d0ba658ca16899562fbe5b3b86`.
 
-That exact 8 West ID prerequisite is deployed in production. The later
-controlled activation registered one production Safeharbor client and moved
-its values only through protected server configuration. The replacement
+The issuer prerequisite through `ed49db95` is deployed in production. The
+maintained-kit revision above is the reviewed client update for this release
+and changes no client, role, or grant by itself. The later controlled
+activation registered one production Safeharbor client and moved its values
+only through protected server configuration. The replacement
 Lifestyle customer identity `t4u10` is enabled; predecessor `t4u7` is
 permanently inactive, revoked, and quarantined. The root-only quarantine
 receipt is
@@ -169,8 +173,8 @@ its fresh authenticated checks and step 9 remain open:
    `portal.enabled=false`; verify `/portal/`, `/portal/login.php`,
    `/portal/callback.php`, and both GET and POST `/portal/logout.php` are 404
    without `Set-Cookie`;
-4. deploy the reviewed 8 West ID `f0ec49b` prerequisite without creating a
-   client, assigning a role, or changing a grant;
+4. deploy the reviewed 8 West ID prerequisite through `ed49db95` without
+   creating a client, assigning a role, or changing a grant;
 5. install the non-secret disabled scaffold: fixed issuer and callback, empty
    client fields, and a private persistent empty revocation cache;
 6. register one confidential Safeharbor OIDC client in 8 West ID with the exact

@@ -43,7 +43,7 @@ lib/time_entries.php       single writer for idempotent pending time + guarded
 lib/coastmark_time_export.php
                            default-off, operator-controlled export of one
                            approved billable time fact to Coastmark drafts
-lib/eightwestid/           exact maintained 8 West ID oidc_v1 PHP client
+lib/eightwestid/           blob-pinned reviewed 8 West ID oidc_v1 PHP client
 lib/portal_auth.php        separate <=8h OIDC session, exact client roles,
                            bounded fail-closed revocation, active binding recheck
 lib/portal_data.php        explicit binding lifecycle + tenant/client-bound,

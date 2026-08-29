@@ -246,6 +246,78 @@ suite_revocation_check(
     'signed malformed JSON was not distinguished from an untrusted response',
 );
 
+$legacyObjectRevoked = (object) $legacyPayload;
+$legacyObjectRevoked->revoked = (object) [];
+$legacyObjectRevokedBody = json_encode(
+    $legacyObjectRevoked,
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+);
+suite_revocation_check(
+    suite_revocation_verify_signed_body(
+        $legacyObjectRevokedBody,
+        hash_hmac('sha256', $legacyObjectRevokedBody, $secret),
+        $secret,
+        $now,
+    )['status'] === 'signed_invalid',
+    'a signed legacy revoked object was confused with the required JSON array',
+);
+
+$versionedObjectAuthorizations = (object) $versionedPayload;
+$versionedObjectAuthorizations->authorizations = (object) [
+    '0' => (object) ['sub' => 't9u4', 'session_version' => '2.7'],
+    '1' => (object) ['sub' => 't9u5', 'session_version' => '4.9'],
+];
+$versionedObjectBody = json_encode(
+    $versionedObjectAuthorizations,
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+);
+$versionedObjectVerified = suite_revocation_verify_signed_body(
+    $versionedObjectBody,
+    hash_hmac('sha256', $versionedObjectBody, $secret),
+    $secret,
+    $now,
+);
+suite_revocation_check(
+    $versionedObjectVerified['status'] === 'ok'
+        && $versionedObjectVerified['snapshot']['mode'] === 'invalid',
+    'a signed versioned authorization object masqueraded as the required JSON array',
+);
+suite_revocation_check(
+    suite_revocation_body_mentions_versioned($versionedObjectBody),
+    'malformed signed v2 did not trip the irreversible versioned-feed latch',
+);
+$malformedV2Envelope = suite_revocation_cache_envelope(
+    $now,
+    false,
+    $versionedObjectBody,
+    hash_hmac('sha256', $versionedObjectBody, $secret),
+    $secret,
+);
+suite_revocation_check(
+    $malformedV2Envelope['versioned_observed'] === true
+        && suite_revocation_apply_mode($legacy, 'compat', $malformedV2Envelope['versioned_observed'])['mode']
+            === 'invalid',
+    'legacy feed was accepted after a malformed signed v2 observation',
+);
+
+$versionedObjectRevoked = (object) $versionedPayload;
+$versionedObjectRevoked->revoked = (object) [];
+$versionedObjectRevokedBody = json_encode(
+    $versionedObjectRevoked,
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+);
+$versionedObjectRevokedVerified = suite_revocation_verify_signed_body(
+    $versionedObjectRevokedBody,
+    hash_hmac('sha256', $versionedObjectRevokedBody, $secret),
+    $secret,
+    $now,
+);
+suite_revocation_check(
+    $versionedObjectRevokedVerified['status'] === 'ok'
+        && $versionedObjectRevokedVerified['snapshot']['mode'] === 'invalid',
+    'a signed versioned revoked object masqueraded as the required JSON array',
+);
+
 $cache = suite_revocation_cache_envelope($now, false, $body, $signature, $secret);
 suite_revocation_check(
     $cache['versioned_observed'] === true

@@ -103,7 +103,11 @@ function suite_revocation_invalid_snapshot(int $generatedAt): array
  *   revoked:array<string,array{since:string,reason:string}>,
  *   authorizations:array<string,string>}|null
  */
-function suite_revocation_snapshot_from_payload(mixed $payload, int $now): ?array
+function suite_revocation_snapshot_from_payload(
+    mixed $payload,
+    int $now,
+    ?stdClass $wireShape = null,
+): ?array
 {
     $mentionsVersioned = is_array($payload)
         && ! array_is_list($payload)
@@ -128,14 +132,18 @@ function suite_revocation_snapshot_from_payload(mixed $payload, int $now): ?arra
         || $payload['count'] > SUITE_REVOCATION_MAX_ENTRIES
         || ! is_array($payload['revoked'] ?? null)
         || ! array_is_list($payload['revoked'])
+        || ($wireShape !== null
+            && (! property_exists($wireShape, 'revoked') || ! is_array($wireShape->revoked)))
         || $payload['count'] !== count($payload['revoked'])) {
         return $invalid();
     }
 
     $revoked = [];
-    foreach ($payload['revoked'] as $entry) {
+    foreach ($payload['revoked'] as $index => $entry) {
         if (! is_array($entry)
             || array_is_list($entry)
+            || ($wireShape !== null
+                && ! (($wireShape->revoked[$index] ?? null) instanceof stdClass))
             || ! suite_revocation_exact_keys($entry, ['reason', 'since', 'sub'])
             || ! suite_revocation_subject_valid($entry['sub'] ?? null)
             || ! suite_revocation_since_valid($entry['since'] ?? null)
@@ -176,14 +184,19 @@ function suite_revocation_snapshot_from_payload(mixed $payload, int $now): ?arra
         || $payload['authorization_count'] > SUITE_REVOCATION_MAX_ENTRIES
         || ! is_array($payload['authorizations'] ?? null)
         || ! array_is_list($payload['authorizations'])
+        || ($wireShape !== null
+            && (! property_exists($wireShape, 'authorizations')
+                || ! is_array($wireShape->authorizations)))
         || $payload['authorization_count'] !== count($payload['authorizations'])) {
         return suite_revocation_invalid_snapshot($generatedAt);
     }
 
     $authorizations = [];
-    foreach ($payload['authorizations'] as $entry) {
+    foreach ($payload['authorizations'] as $index => $entry) {
         if (! is_array($entry)
             || array_is_list($entry)
+            || ($wireShape !== null
+                && ! (($wireShape->authorizations[$index] ?? null) instanceof stdClass))
             || ! suite_revocation_exact_keys($entry, ['session_version', 'sub'])
             || ! suite_revocation_subject_valid($entry['sub'] ?? null)
             || ! suite_session_version_valid($entry['session_version'] ?? null)
@@ -218,10 +231,11 @@ function suite_revocation_verify_signed_body(
 
     try {
         $payload = json_decode($body, true, 16, JSON_THROW_ON_ERROR);
+        $wireShape = json_decode($body, false, 16, JSON_THROW_ON_ERROR);
     } catch (JsonException) {
         return ['status' => 'signed_invalid', 'reason' => 'payload_invalid'];
     }
-    if (! is_array($payload) || array_is_list($payload)) {
+    if (! is_array($payload) || array_is_list($payload) || ! $wireShape instanceof stdClass) {
         return ['status' => 'signed_invalid', 'reason' => 'payload_invalid'];
     }
     $generatedAt = suite_revocation_generated_at($payload['generated_at'] ?? null);
@@ -232,7 +246,7 @@ function suite_revocation_verify_signed_body(
         || $generatedAt > $now + SUITE_REVOCATION_CLOCK_SKEW) {
         return ['status' => 'stale', 'reason' => 'generated_at_stale'];
     }
-    $snapshot = suite_revocation_snapshot_from_payload($payload, $now);
+    $snapshot = suite_revocation_snapshot_from_payload($payload, $now, $wireShape);
     if ($snapshot === null) {
         return ['status' => 'signed_invalid', 'reason' => 'payload_invalid_or_stale'];
     }
@@ -246,15 +260,14 @@ function suite_revocation_body_mentions_versioned(string $body): bool
         return false;
     }
     try {
-        $payload = json_decode($body, true, 16, JSON_THROW_ON_ERROR);
+        $payload = json_decode($body, false, 16, JSON_THROW_ON_ERROR);
     } catch (JsonException) {
         return false;
     }
 
-    return is_array($payload)
-        && ! array_is_list($payload)
-        && (array_key_exists('authorizations', $payload)
-            || array_key_exists('authorization_count', $payload));
+    return $payload instanceof stdClass
+        && (property_exists($payload, 'authorizations')
+            || property_exists($payload, 'authorization_count'));
 }
 
 function suite_revocation_session_version_mode(mixed $value): ?string

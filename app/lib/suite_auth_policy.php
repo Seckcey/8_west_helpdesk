@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 const SUITE_MFA_POLICY_VERSION = 'suite-mfa-v1';
 const SUITE_MFA_METHODS = ['otp', 'recovery', 'mfa_trusted_device', 'passkey'];
+const SUITE_KNOWN_AMR = ['pwd', ...SUITE_MFA_METHODS];
 const SUITE_MFA_POLICY_MAX_AGE = 2592000;
 
 function suite_mfa_policy_mode(mixed $value): string
@@ -16,6 +17,44 @@ function suite_mfa_policy_mode(mixed $value): string
 function suite_local_password_allowed(array $user): bool
 {
     return trim((string) ($user['suite_subject'] ?? '')) === '';
+}
+
+function suite_amr_valid(mixed $methods): bool
+{
+    if (! is_array($methods) || ! array_is_list($methods) || count($methods) > 10) {
+        return false;
+    }
+    $seen = [];
+    foreach ($methods as $method) {
+        if (! is_string($method)
+            || ! in_array($method, SUITE_KNOWN_AMR, true)
+            || in_array($method, $seen, true)) {
+            return false;
+        }
+        $seen[] = $method;
+    }
+    return true;
+}
+
+/**
+ * The issuer may add a future product without requiring a Safeharbor release,
+ * but every entitlement key must retain the suite's bounded canonical form.
+ */
+function suite_products_valid(mixed $products): bool
+{
+    if (! is_array($products) || ! array_is_list($products) || count($products) > 64) {
+        return false;
+    }
+    $seen = [];
+    foreach ($products as $product) {
+        if (! is_string($product)
+            || preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $product) !== 1
+            || in_array($product, $seen, true)) {
+            return false;
+        }
+        $seen[] = $product;
+    }
+    return true;
 }
 
 /** @return array{compliant: bool, reason: string} */
@@ -35,7 +74,13 @@ function suite_mfa_policy_evaluate(array $claims, int $now, int $maxAge, int $cl
         return ['compliant' => false, 'reason' => 'auth_time_invalid'];
     }
     $methods = $claims['amr'] ?? null;
-    if (! is_array($methods) || array_intersect($methods, SUITE_MFA_METHODS) === []) {
+    if (! is_array($methods) || ! array_is_list($methods)) {
+        return ['compliant' => false, 'reason' => 'mfa_method_missing'];
+    }
+    if (! suite_amr_valid($methods)) {
+        return ['compliant' => false, 'reason' => 'amr_invalid'];
+    }
+    if (array_intersect($methods, SUITE_MFA_METHODS) === []) {
         return ['compliant' => false, 'reason' => 'mfa_method_missing'];
     }
     $mfaTime = $claims['8west:mfa_time'] ?? null;

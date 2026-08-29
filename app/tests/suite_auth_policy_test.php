@@ -19,6 +19,32 @@ $valid = [
 policy_check(suite_mfa_policy_evaluate($valid, $now, 2592000)['compliant'], 'trusted browser refused');
 $passkey = array_replace($valid, ['amr' => ['passkey']]);
 policy_check(suite_mfa_policy_evaluate($passkey, $now, 2592000)['compliant'], 'passkey refused');
+policy_check(suite_amr_valid(['passkey']), 'passkey was not in the closed AMR set');
+policy_check(! suite_amr_valid(['passkey', 'future_factor']), 'unknown AMR passed structural validation');
+policy_check(! suite_amr_valid(['passkey', 'passkey']), 'duplicate AMR values passed structural validation');
+policy_check(suite_products_valid(['safeharbor', 'future_product']), 'canonical future product key was refused');
+policy_check(! suite_products_valid(['safeharbor', 'safeharbor']), 'duplicate product key was accepted');
+policy_check(! suite_products_valid(['safeharbor', 123]), 'mixed-type product list was accepted');
+policy_check(! suite_products_valid(['Safeharbor']), 'noncanonical product key was accepted');
+policy_check(! suite_products_valid(array_map(
+    static fn (int $index): string => 'product_' . $index,
+    range(1, 65),
+)), 'oversized product list was accepted');
+$unknownWithPasskey = array_replace($valid, ['amr' => ['passkey', 'future_factor']]);
+policy_check(
+    suite_mfa_policy_evaluate($unknownWithPasskey, $now, 2592000)['reason'] === 'amr_invalid',
+    'unknown method was hidden beside a passkey',
+);
+$unknownOnly = array_replace($valid, ['amr' => ['future_factor']]);
+policy_check(
+    suite_mfa_policy_evaluate($unknownOnly, $now, 2592000)['reason'] === 'amr_invalid',
+    'unknown-only method was not refused explicitly',
+);
+$passwordOnly = array_replace($valid, ['amr' => ['pwd']]);
+policy_check(
+    suite_mfa_policy_evaluate($passwordOnly, $now, 2592000)['reason'] === 'mfa_method_missing',
+    'password-only authentication was accepted as MFA evidence',
+);
 policy_check(suite_mfa_policy_evaluate([], $now, 2592000)['reason'] === 'contract_missing', 'legacy claims accepted');
 $notAuthenticated = array_replace($valid, ['8west:mfa_authenticated' => false]);
 policy_check(suite_mfa_policy_evaluate($notAuthenticated, $now, 2592000)['reason'] === 'mfa_not_authenticated', 'single factor accepted');

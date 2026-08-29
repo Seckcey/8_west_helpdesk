@@ -201,12 +201,18 @@ final class RevocationChecker
             throw new ProtocolException('The revocation endpoint rejected the client.');
         }
         try {
+            $shape = json_decode($response->body, false, 16, JSON_THROW_ON_ERROR);
             $payload = json_decode($response->body, true, 16, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             throw new ProtocolException('The revocation response was invalid.');
         }
-        if (! is_array($payload)
+        if (! $shape instanceof \stdClass
+            || ! is_array($payload)
             || array_is_list($payload)
+            || ! property_exists($shape, 'revoked')
+            || ! is_array($shape->revoked)
+            || ! property_exists($shape, 'authorizations')
+            || ! is_array($shape->authorizations)
             || ! is_string($payload['generated_at'] ?? null)
             || ! is_int($payload['count'] ?? null)
             || $payload['count'] < 0
@@ -231,8 +237,9 @@ final class RevocationChecker
         }
 
         $revoked = [];
-        foreach ($payload['revoked'] as $row) {
-            if (! is_array($row)
+        foreach ($payload['revoked'] as $index => $row) {
+            if (! (($shape->revoked[$index] ?? null) instanceof \stdClass)
+                || ! is_array($row)
                 || array_is_list($row)
                 || ! valid_revocation_subject($row['sub'] ?? null)
                 || ! is_string($row['since'] ?? null)
@@ -249,8 +256,9 @@ final class RevocationChecker
         }
 
         $authorizations = [];
-        foreach ($payload['authorizations'] as $row) {
-            if (! is_array($row)
+        foreach ($payload['authorizations'] as $index => $row) {
+            if (! (($shape->authorizations[$index] ?? null) instanceof \stdClass)
+                || ! is_array($row)
                 || array_is_list($row)
                 || ! valid_revocation_subject($row['sub'] ?? null)
                 || ! valid_session_version($row['session_version'] ?? null)

@@ -7,6 +7,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/suite_auth_policy.php';
+
 function b64url_encode(string $data): string
 {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
@@ -15,6 +17,53 @@ function b64url_encode(string $data): string
 function b64url_decode(string $data): string
 {
     return base64_decode(strtr($data, '-_', '+/') . str_repeat('=', (4 - strlen($data) % 4) % 4));
+}
+
+/** @return array{0: array<string,mixed>|null, 1: string|null} */
+function jwt_decode_header_reason(string $encodedHeader, ?string $expectedAlgorithm = null): array
+{
+    $json = b64url_decode($encodedHeader);
+    $shape = json_decode($json);
+    $header = json_decode($json, true);
+    if (! $shape instanceof stdClass
+        || ! is_array($header)
+        || ($expectedAlgorithm !== null && ($header['alg'] ?? null) !== $expectedAlgorithm)
+        || (property_exists($shape, 'crit')
+            && (! is_array($shape->crit) || ($header['crit'] ?? null) !== []))) {
+        return [null, 'unexpected_algorithm'];
+    }
+    return [$header, null];
+}
+
+/** @return array{0: array<string,mixed>|null, 1: string|null} */
+function jwt_decode_claims_reason(string $encodedBody): array
+{
+    $json = b64url_decode($encodedBody);
+    $shape = json_decode($json);
+    $payload = json_decode($json, true);
+    if (! $shape instanceof stdClass || ! is_array($payload) || array_is_list($payload)) {
+        return [null, 'bad_payload'];
+    }
+    // The shared suite cookie deliberately has no OIDC audience, authorized
+    // party, or nonce. Their presence marks a different token type even when
+    // the issuer and signature are otherwise valid.
+    if (array_key_exists('aud', $payload)
+        || array_key_exists('nonce', $payload)
+        || array_key_exists('azp', $payload)) {
+        return [null, 'token_type_invalid'];
+    }
+    // Associative decoding collapses {"0":"passkey"} into the same PHP
+    // array as ["passkey"]. Inspect the original JSON containers first.
+    if ((property_exists($shape, 'amr') && ! is_array($shape->amr))
+        || (array_key_exists('amr', $payload) && ! suite_amr_valid($payload['amr']))) {
+        return [null, 'amr_invalid'];
+    }
+    if ((property_exists($shape, '8west:products') && ! is_array($shape->{'8west:products'}))
+        || (array_key_exists('8west:products', $payload)
+            && ! suite_products_valid($payload['8west:products']))) {
+        return [null, 'products_invalid'];
+    }
+    return [$payload, null];
 }
 
 function jwt_encode(array $payload, string $secret): string
@@ -32,14 +81,14 @@ function jwt_verify(string $token, string $secret, string $issuer): ?array
     if (count($parts) !== 3) return null;
     [$header, $body, $sig] = $parts;
 
-    $decodedHeader = json_decode(b64url_decode($header), true);
-    if (! is_array($decodedHeader) || ($decodedHeader['alg'] ?? '') !== 'HS256') return null;
+    [$decodedHeader] = jwt_decode_header_reason($header, 'HS256');
+    if ($decodedHeader === null) return null;
 
     $expected = b64url_encode(hash_hmac('sha256', "$header.$body", $secret, true));
     if (!hash_equals($expected, $sig)) return null;
 
-    $payload = json_decode(b64url_decode($body), true);
-    if (!is_array($payload)) return null;
+    [$payload] = jwt_decode_claims_reason($body);
+    if ($payload === null) return null;
     if (($payload['iss'] ?? '') !== $issuer) return null;
     if (($payload['exp'] ?? 0) < time()) return null;
     if (empty($payload['sub']) || empty($payload['email'])) return null;
@@ -64,16 +113,14 @@ function jwt_verify_reason(string $token, string $secret, string $issuer): array
     if (count($parts) !== 3) return [null, 'malformed_token'];
     [$header, $body, $sig] = $parts;
 
-    $decodedHeader = json_decode(b64url_decode($header), true);
-    if (! is_array($decodedHeader) || ($decodedHeader['alg'] ?? '') !== 'HS256') {
-        return [null, 'unexpected_algorithm'];
-    }
+    [$decodedHeader, $headerReason] = jwt_decode_header_reason($header, 'HS256');
+    if ($decodedHeader === null) return [null, $headerReason];
 
     $expected = b64url_encode(hash_hmac('sha256', "$header.$body", $secret, true));
     if (!hash_equals($expected, $sig)) return [null, 'bad_signature'];
 
-    $payload = json_decode(b64url_decode($body), true);
-    if (!is_array($payload)) return [null, 'bad_payload'];
+    [$payload, $payloadReason] = jwt_decode_claims_reason($body);
+    if ($payload === null) return [null, $payloadReason];
     if (($payload['iss'] ?? '') !== $issuer) return [null, 'wrong_issuer'];
     if (($payload['exp'] ?? 0) < time()) return [null, 'expired_token'];
     if (empty($payload['sub']) || empty($payload['email'])) return [null, 'missing_claims'];
@@ -119,10 +166,8 @@ function jwt_verify_rs256_reason(string $token, array $jwks, string $issuer): ar
     $parts = explode('.', $token);
     if (count($parts) !== 3) return [null, 'malformed_token'];
     [$header, $body, $sig] = $parts;
-    $decodedHeader = json_decode(b64url_decode($header), true);
-    if (! is_array($decodedHeader) || ($decodedHeader['alg'] ?? '') !== 'RS256') {
-        return [null, 'unexpected_algorithm'];
-    }
+    [$decodedHeader, $headerReason] = jwt_decode_header_reason($header, 'RS256');
+    if ($decodedHeader === null) return [null, $headerReason];
     $kid = (string) ($decodedHeader['kid'] ?? '');
     if ($kid === '') return [null, 'missing_kid'];
     $match = null;
@@ -138,8 +183,8 @@ function jwt_verify_rs256_reason(string $token, array $jwks, string $issuer): ar
     if (openssl_verify($header . '.' . $body, b64url_decode($sig), $publicKey, OPENSSL_ALGO_SHA256) !== 1) {
         return [null, 'bad_signature'];
     }
-    $payload = json_decode(b64url_decode($body), true);
-    if (! is_array($payload)) return [null, 'bad_payload'];
+    [$payload, $payloadReason] = jwt_decode_claims_reason($body);
+    if ($payload === null) return [null, $payloadReason];
     if (($payload['iss'] ?? '') !== $issuer) return [null, 'wrong_issuer'];
     if (($payload['exp'] ?? 0) < time()) return [null, 'expired_token'];
     if (empty($payload['sub']) || empty($payload['email'])) return [null, 'missing_claims'];
@@ -169,8 +214,9 @@ function jwt_load_jwks(string $url, string $cachePath, int $ttl = 3600, bool $fo
 function jwt_verify_suite_reason(string $token, array $suite): array
 {
     $parts = explode('.', $token);
-    $header = count($parts) === 3 ? json_decode(b64url_decode($parts[0]), true) : null;
-    if (! is_array($header)) return [null, 'malformed_token'];
+    if (count($parts) !== 3) return [null, 'malformed_token'];
+    [$header, $headerReason] = jwt_decode_header_reason($parts[0]);
+    if ($header === null) return [null, $headerReason ?? 'malformed_token'];
     $alg = (string) ($header['alg'] ?? '');
     $allowed = (array) ($suite['token_algorithms'] ?? ['HS256']);
     $issuer = (string) ($suite['issuer'] ?? 'https://id.8westit.com');
