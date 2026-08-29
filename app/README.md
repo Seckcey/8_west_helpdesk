@@ -36,8 +36,8 @@ lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out
 lib/service_goals.php      versioned target resolver/snapshot + deterministic
                            first-response lamps and attainment
 lib/service_goal_policy_admin.php
-                           immutable policy publication plan, actor/version
-                           locks, exact-four target write, and client-tier RBAC
+                           full immutable-history verification, digest-bound
+                           publication, exact-four target write, and tier RBAC
 lib/time_entries.php       single writer for idempotent pending time + guarded
                            owner/admin approval decisions
 lib/coastmark_time_export.php

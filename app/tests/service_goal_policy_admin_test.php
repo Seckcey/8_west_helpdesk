@@ -319,6 +319,40 @@ goal_admin_check('the exact response ceiling produces a valid bounded ticket due
     $ceilingSnapshot['first_response_minutes'] === SERVICE_GOAL_POLICY_MAX_RESPONSE_MINUTES
     && $ceilingSnapshot['due_at'] === '2100-06-01 00:00:00');
 
+$tenantTwoTargets = ['low' => 210, 'normal' => 150, 'high' => 75, 'urgent' => 25];
+$tenantTwoReason = "Full immutable\nchain probe";
+$tenantTwoPlan = service_goal_policy_plan(
+    $pdo, 'two', 'premium', 1, '2099-09-01T00:00:00Z',
+    $tenantTwoTargets, 201, $tenantTwoReason,
+);
+service_goal_policy_publish(
+    $pdo, 'two', 'premium', 1, '2099-09-01T00:00:00Z',
+    $tenantTwoTargets, 201, $tenantTwoReason, $tenantTwoPlan['plan_sha256'],
+);
+$tenantTwoIntact = service_goal_policy_inspect($pdo, 'two', 'premium');
+goal_admin_check('full-chain verification keeps historically supported multiline reasons valid',
+    $tenantTwoIntact['versions'][1]['reason'] === $tenantTwoReason);
+$tenantTwoV1 = (int) $pdo->query(
+    "SELECT id FROM service_goal_policy_versions
+      WHERE tenant_id=2 AND policy_key='premium' AND version_no=1",
+)->fetchColumn();
+$pdo->exec(
+    "UPDATE service_goal_policy_targets SET first_response_minutes=121
+      WHERE tenant_id=2 AND policy_version_id={$tenantTwoV1} AND priority='low'",
+);
+goal_admin_throws('inspect refuses a damaged immutable predecessor even when the latest version is valid',
+    ServiceGoalPolicyGateException::class,
+    fn() => service_goal_policy_inspect($pdo, 'two', 'premium'));
+goal_admin_throws('plan refuses to stack a new version on damaged immutable history',
+    ServiceGoalPolicyGateException::class,
+    fn() => service_goal_policy_plan(
+        $pdo, 'two', 'premium', 2, '2100-09-01T00:00:00Z',
+        $tenantTwoTargets, 201, 'Must not publish over drift',
+    ));
+goal_admin_throws('the staff history view refuses to display damaged immutable history',
+    ServiceGoalPolicyGateException::class,
+    fn() => service_goal_policy_history($pdo, 2, '2099-09-01 00:00:00'));
+
 $owner = ['role' => 'owner', 'is_active' => 1];
 $admin = ['role' => 'admin', 'is_active' => 1];
 $tech = ['role' => 'tech', 'is_active' => 1];
