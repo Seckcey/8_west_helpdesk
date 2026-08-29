@@ -37,6 +37,7 @@ $pdoOptions = [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES => false,
+    PDO::ATTR_CASE => PDO::CASE_LOWER,
 ];
 
 require_once __DIR__ . '/../lib/time_entry_adjustments.php';
@@ -777,7 +778,7 @@ try {
         fn() => $raw->execute([1,$internal['id'],'adjustment.raw.billable.1',1,20,1,'Wrong billing class',101,'2000-01-01 00:00:00']),
         '45000', 'cannot become billable');
     adjustment_mysql_expect('database refuses zero billable minutes',
-        fn() => $raw->execute([1,$internal['id'],'adjustment.raw.zero.0001',1,0,1,'Zero billing',101,'2000-01-01 00:00:00']),
+        fn() => $raw->execute([1,$approved['id'],'adjustment.raw.zero.0001',3,0,1,'Zero billing',101,'2000-01-01 00:00:00']),
         '', 'Zero effective minutes');
     adjustment_mysql_expect('database refuses a skipped version',
         fn() => $raw->execute([1,$internal['id'],'adjustment.raw.version.01',2,20,0,'Skipped version',101,'2000-01-01 00:00:00']),
