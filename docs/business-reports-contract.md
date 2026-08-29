@@ -150,6 +150,26 @@ proof that the recipient received or read it. A timeout, exception, malformed
 result, non-202 response, or expired send lease becomes terminal `uncertain`.
 Safeharbor never retries an uncertain attempt automatically.
 
+The Graph adapter returns a deliberately small evidence tuple. That tuple
+never contains a response body, recipient/sender address, access token, client
+credential, or exception text:
+
+- `graph_accepted` carries HTTP `202` and is the only submitted outcome;
+- `graph_send_rejected` carries the definite non-202 `sendMail` status;
+- `graph_token_rejected` carries the definite non-200 token-endpoint status;
+- `graph_token_invalid_response` carries HTTP `200` when the token response is
+  structurally unusable; and
+- `graph_send_transport_error`, `graph_send_unknown_response`,
+  `graph_token_transport_error`, `graph_token_unknown_response`, and
+  `graph_payload_invalid` carry HTTP `NULL`.
+
+The report finalizer independently allowlists those exact combinations before
+writing immutable evidence. Any malformed or unapproved result becomes
+`invalid_transport_outcome` with HTTP `NULL`. The ordinary retrying
+`mail_queue` keeps its existing boolean success/failure contract; when Graph
+fails, its diagnostic is now the same sanitized category and optional known
+HTTP status rather than provider-body text.
+
 Revoked `pending` rows are omitted from scheduled delivery. An expired
 `sending` row is different because the send boundary was already crossed: its
 archive hash and tenant/client scope are reverified, then it is row-locked and

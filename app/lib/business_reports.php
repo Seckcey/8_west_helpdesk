@@ -1688,6 +1688,56 @@ function business_report_recover_expired_delivery(PDO $pdo, array $delivery, str
 }
 
 /**
+ * Accept only the bounded Graph evidence vocabulary. This is the last guard
+ * before immutable attempt evidence is written, so malformed or caller-made
+ * values lose both their code and HTTP status instead of becoming a covert
+ * place to store provider bodies, addresses, credentials, or exception text.
+ *
+ * @return array{outcome:string,provider_http:int|null,outcome_code:string}
+ */
+function business_report_transport_outcome(mixed $candidate): array
+{
+    $invalid = [
+        'outcome' => 'uncertain',
+        'provider_http' => null,
+        'outcome_code' => 'invalid_transport_outcome',
+    ];
+    if (!is_array($candidate)) return $invalid;
+
+    $http = $candidate['provider_http'] ?? null;
+    if ($http !== null && (!is_int($http) || $http < 100 || $http > 599)) return $invalid;
+    $code = $candidate['outcome_code'] ?? null;
+    if (!is_string($code)) return $invalid;
+
+    if (($candidate['outcome'] ?? null) === 'submitted'
+        && $http === 202
+        && $code === 'graph_accepted'
+    ) {
+        return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+    }
+    if ($code === 'graph_send_rejected' && $http !== null && $http !== 202) {
+        return ['outcome' => 'uncertain', 'provider_http' => $http, 'outcome_code' => $code];
+    }
+    if ($code === 'graph_token_rejected' && $http !== null && $http !== 200) {
+        return ['outcome' => 'uncertain', 'provider_http' => $http, 'outcome_code' => $code];
+    }
+    if ($code === 'graph_token_invalid_response' && $http === 200) {
+        return ['outcome' => 'uncertain', 'provider_http' => 200, 'outcome_code' => $code];
+    }
+    if ($http === null && in_array($code, [
+        'graph_send_transport_error',
+        'graph_send_unknown_response',
+        'graph_token_transport_error',
+        'graph_token_unknown_response',
+        'graph_payload_invalid',
+        'transport_exception',
+    ], true)) {
+        return ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => $code];
+    }
+    return $invalid;
+}
+
+/**
  * @param null|callable(string,string,string):array{outcome:string,provider_http:int|null,outcome_code:string} $transport
  * @return array{action:string,status:string,archive_id:int,attempt_id:int|null}
  */
@@ -1756,11 +1806,7 @@ function business_report_deliver(
             throw new BusinessReportGateException('Microsoft Graph report delivery is not configured.');
         }
         $transport = static function (string $to, string $subject, string $body) use ($graph): array {
-            $error = null;
-            $accepted = mailer_send_graph($graph, $to, $subject, $body, $error);
-            return $accepted
-                ? ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted']
-                : ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_not_trustworthy'];
+            return mailer_send_graph_result($graph, $to, $subject, $body);
         };
     }
 
@@ -1829,22 +1875,10 @@ function business_report_deliver(
     } catch (Throwable) {
         $outcome = ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'transport_exception'];
     }
-    if (!is_array($outcome)) {
-        $outcome = ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'invalid_transport_outcome'];
-    }
-    $providerHttp = $outcome['provider_http'] ?? null;
-    if ($providerHttp !== null && (!is_int($providerHttp) || $providerHttp < 100 || $providerHttp > 599)) {
-        $providerHttp = null;
-    }
-    $outcomeCode = is_string($outcome['outcome_code'] ?? null)
-        && preg_match('/\A[a-z0-9_]{1,64}\z/D', $outcome['outcome_code']) === 1
-        ? $outcome['outcome_code']
-        : 'invalid_transport_outcome';
-    $status = ($outcome['outcome'] ?? null) === 'submitted'
-        && $providerHttp === 202
-        && $outcomeCode === 'graph_accepted'
-        ? 'submitted'
-        : 'uncertain';
+    $outcome = business_report_transport_outcome($outcome);
+    $providerHttp = $outcome['provider_http'];
+    $outcomeCode = $outcome['outcome_code'];
+    $status = $outcome['outcome'];
 
     $completedAt = gmdate('Y-m-d H:i:s', $transportWasInjected ? $now : max($now, time()));
     $pdo->beginTransaction();
