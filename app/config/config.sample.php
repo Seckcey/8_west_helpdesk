@@ -244,6 +244,9 @@ return [
         'generation_enabled' => false,
         'delivery_enabled' => false,
         'canary_only' => true,
+        // Required for delivery. This report-only mailbox never changes the
+        // mail.graph.sender used by ticket mail and inbound Graph polling.
+        'graph_sender' => '',      // normalized lowercase exact address
         'schedule_keys' => [],     // e.g. client-weekly-canary-v1
         'tenant_slugs' => [],
         'client_keys' => [],       // e.g. safeharbor-client:123

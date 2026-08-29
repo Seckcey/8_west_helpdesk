@@ -3,8 +3,13 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/business_reports.php';
+$reportCfgValues = [];
 if (!function_exists('cfg')) {
-    function cfg(string $key, mixed $default = null): mixed { return $default; }
+    function cfg(string $key, mixed $default = null): mixed
+    {
+        global $reportCfgValues;
+        return array_key_exists($key, $reportCfgValues) ? $reportCfgValues[$key] : $default;
+    }
 }
 require_once __DIR__ . '/../lib/mailer.php';
 
@@ -62,6 +67,7 @@ function report_config(array $changes = []): array
         'generation_enabled' => true,
         'delivery_enabled' => true,
         'canary_only' => true,
+        'graph_sender' => 'weekly-reports@example.test',
         'schedule_keys' => ['client-one-weekly'],
         'tenant_slugs' => ['one'],
         'client_keys' => ['safeharbor-client:11'],
@@ -251,6 +257,7 @@ report_check('default configuration is fully inert', business_report_config([]) 
     'generation_enabled' => false,
     'delivery_enabled' => false,
     'canary_only' => true,
+    'graph_sender' => null,
     'schedule_keys' => [],
     'tenant_slugs' => [],
     'client_keys' => [],
@@ -264,6 +271,66 @@ $graphConfig = [
     'client_secret' => 'fixture-client-secret',
     'sender' => 'sender@example.test',
 ];
+$reportGraphConfig = business_report_delivery_graph_config(
+    business_report_config(report_config()),
+    $graphConfig,
+);
+report_check(
+    'business reports replace only the in-process Graph sender',
+    $reportGraphConfig['tenant_id'] === $graphConfig['tenant_id']
+        && $reportGraphConfig['client_id'] === $graphConfig['client_id']
+        && $reportGraphConfig['client_secret'] === $graphConfig['client_secret']
+        && $reportGraphConfig['sender'] === 'weekly-reports@example.test'
+        && $graphConfig['sender'] === 'sender@example.test',
+);
+$graphWithoutOrdinarySender = $graphConfig;
+$graphWithoutOrdinarySender['sender'] = '';
+$reportGraphWithoutOrdinarySender = business_report_delivery_graph_config(
+    business_report_config(report_config()),
+    $graphWithoutOrdinarySender,
+);
+report_check(
+    'business reports do not depend on the ordinary help-desk Graph sender',
+    $reportGraphWithoutOrdinarySender['tenant_id'] === $graphConfig['tenant_id']
+        && $reportGraphWithoutOrdinarySender['client_id'] === $graphConfig['client_id']
+        && $reportGraphWithoutOrdinarySender['client_secret'] === $graphConfig['client_secret']
+        && $reportGraphWithoutOrdinarySender['sender'] === 'weekly-reports@example.test'
+        && $graphWithoutOrdinarySender['sender'] === '',
+);
+report_throws(
+    'business reports never fall back to the ordinary help-desk Graph sender',
+    BusinessReportGateException::class,
+    fn() => business_report_delivery_graph_config(business_report_config([]), $graphConfig),
+    'dedicated',
+);
+report_throws(
+    'business report delivery refuses missing Graph credentials before sending',
+    BusinessReportGateException::class,
+    fn() => business_report_delivery_graph_config(
+        business_report_config(report_config()),
+        null,
+    ),
+    'credentials',
+);
+$graphMissingCredential = $graphWithoutOrdinarySender;
+$graphMissingCredential['client_secret'] = '';
+report_throws(
+    'business report delivery refuses an incomplete Graph credential set',
+    BusinessReportGateException::class,
+    fn() => business_report_delivery_graph_config(
+        business_report_config(report_config()),
+        $graphMissingCredential,
+    ),
+    'credentials',
+);
+report_throws(
+    'business report sender must be normalized lowercase email',
+    BusinessReportValidationException::class,
+    fn() => business_report_config(report_config([
+        'graph_sender' => 'Weekly-Reports@example.test',
+    ])),
+    'normalized lowercase',
+);
 $graphRequests = [];
 $graphAccepted = mailer_send_graph_result(
     $graphConfig,
@@ -1041,6 +1108,54 @@ report_check('archive reload preserves exact JSON bytes and content hash',
     ));
 report_check('archive creates exactly one pending tracked delivery',
     (int)$pdo->query("SELECT COUNT(*) FROM business_report_deliveries WHERE archive_id={$archiveId} AND status='pending'")->fetchColumn() === 1);
+
+report_throws(
+    'missing dedicated report sender is refused before the send boundary',
+    BusinessReportGateException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        $archiveId,
+        report_config(['graph_sender' => '']),
+        null,
+        $now,
+    ),
+    'dedicated',
+);
+report_check(
+    'report sender refusal creates no attempt and leaves delivery pending',
+    (int)$pdo->query('SELECT COUNT(*) FROM business_report_delivery_attempts')->fetchColumn() === 0
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_deliveries WHERE archive_id={$archiveId}",
+        )->fetchColumn() === 'pending',
+);
+
+$reportCfgValues['mail.graph'] = [
+    'tenant_id' => 'fixture-tenant',
+    'client_id' => '',
+    'client_secret' => 'fixture-client-secret',
+    // Prove this is not the deciding field for report delivery.
+    'sender' => '',
+];
+report_throws(
+    'incomplete Graph credentials are refused before the delivery lease',
+    BusinessReportGateException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        $archiveId,
+        report_config(),
+        null,
+        $now,
+    ),
+    'credentials',
+);
+unset($reportCfgValues['mail.graph']);
+report_check(
+    'credential refusal creates no attempt and leaves delivery pending',
+    (int)$pdo->query('SELECT COUNT(*) FROM business_report_delivery_attempts')->fetchColumn() === 0
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_deliveries WHERE archive_id={$archiveId}",
+        )->fetchColumn() === 'pending',
+);
 
 $second = business_report_generate($pdo, 'one', 'client-one-weekly', report_config(), $now, false, true);
 report_check('missed periods catch up oldest first without skipping',
