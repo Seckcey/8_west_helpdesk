@@ -646,15 +646,17 @@ foreach ([
     );
     $raceSchedule = business_report_active_schedule($pdo, 'one', $raceScheduleKey);
     $raceWindow = business_report_next_window($pdo, $raceSchedule);
-    $raceWorkedAt = (new DateTimeImmutable(
+    $raceWorkedAtInstant = (new DateTimeImmutable(
         $raceWindow['period_start'],
         new DateTimeZone('UTC'),
-    ))->modify('+2 days')->format('Y-m-d H:i:s');
+    ))->modify('+2 days');
+    $raceWorkedAt = $raceWorkedAtInstant->format('Y-m-d\TH:i:s\Z');
+    $raceDatabaseAt = $raceWorkedAtInstant->format('Y-m-d H:i:s');
     $pdo->prepare("INSERT INTO tickets
         (id,tenant_id,client_id,subject,status,priority,channel,sla_due_at,
          service_goal_target_id,created_at,updated_at)
         VALUES (?,1,11,'Report serialization fixture','open','normal','phone',?,NULL,?,?)")
-        ->execute([$raceTicketId, $raceWorkedAt, $raceWorkedAt, $raceWorkedAt]);
+        ->execute([$raceTicketId, $raceDatabaseAt, $raceDatabaseAt, $raceDatabaseAt]);
     $raceEntry = report_mysql_create_approved_time(
         $pdo,
         $raceTicketId,
