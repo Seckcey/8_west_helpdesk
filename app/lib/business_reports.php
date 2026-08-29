@@ -835,6 +835,225 @@ function business_report_same_prepared_schedule(
         && (int)$schedule['canary'] === ($canary ? 1 : 0);
 }
 
+/**
+ * Prove one managed-customer report preparation without writing report state.
+ *
+ * The 8 West ID contact is fetched by the operator CLI before this function is
+ * called. This read-only plan then rechecks the exact Safeharbor actor, report
+ * target, active Milepost customer UUID, existing contact binding/history, and
+ * immutable schedule identity. A later prepare still locks and rechecks every
+ * fact because this preview deliberately acquires no write lock.
+ *
+ * @return array{
+ *   action:string,
+ *   schedule:array<string,mixed>,
+ *   id_contact:array<string,mixed>,
+ *   customer_id_sha256:string
+ * }
+ */
+function business_report_plan_customer_schedule_from_id(
+    PDO $pdo,
+    string $tenantSlug,
+    string $scheduleKey,
+    int $clientId,
+    int $definitionId,
+    string $expectedCustomerId,
+    array $idContact,
+    string $timezone,
+    int $deliveryWeekday,
+    string $deliveryLocalTime,
+    bool $canary,
+    int $actorUserId,
+    string $reason,
+): array {
+    $scheduleKey = business_report_schedule_key($scheduleKey);
+    $timezone = business_report_timezone($timezone);
+    $deliveryLocalTime = business_report_time($deliveryLocalTime);
+    if ($deliveryWeekday < 1 || $deliveryWeekday > 7) {
+        throw new BusinessReportValidationException('Report delivery weekday is invalid.');
+    }
+    business_report_key($reason, 500, 'Schedule reason');
+    if (preg_match(BUSINESS_REPORT_MILEPOST_CUSTOMER_UUID, $expectedCustomerId) !== 1
+        || hash_equals(BUSINESS_REPORT_MASTER_CUSTOMER_ID, $expectedCustomerId)
+    ) {
+        throw new BusinessReportValidationException(
+            'A managed customer report scope requires an exact non-master Milepost customer id.',
+        );
+    }
+
+    $validated = business_report_id_contact_validate($idContact, null);
+    $target = business_report_schedule_target(
+        $pdo,
+        $tenantSlug,
+        $clientId,
+        $definitionId,
+        $actorUserId,
+    );
+    $tenantId = (int)$target['tenant_id'];
+
+    $customerBindingQuery = $pdo->prepare(
+        'SELECT customer_id, status FROM suite_customer_sync_bindings
+          WHERE tenant_id = ? AND client_id = ?'
+    );
+    $customerBindingQuery->execute([$tenantId, $clientId]);
+    $customerBindings = $customerBindingQuery->fetchAll(PDO::FETCH_ASSOC);
+    if (count($customerBindings) !== 1
+        || !is_string($customerBindings[0]['customer_id'] ?? null)
+        || !hash_equals($expectedCustomerId, $customerBindings[0]['customer_id'])
+        || !hash_equals('active', (string)($customerBindings[0]['status'] ?? ''))
+    ) {
+        throw new BusinessReportGateException(
+            'The active Milepost customer binding changed before report planning.',
+        );
+    }
+
+    $contactScope = business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey);
+    if (is_array($contactScope)
+        && !hash_equals(BUSINESS_REPORT_CONTACT_SCOPE_CLIENT, (string)$contactScope['scope'])
+    ) {
+        throw new BusinessReportConflictException(
+            'A report schedule key cannot change its contact scope.',
+        );
+    }
+
+    $bindingQuery = $pdo->prepare(
+        'SELECT * FROM business_report_id_client_bindings
+          WHERE tenant_id = ? AND client_id = ?'
+    );
+    $bindingQuery->execute([$tenantId, $clientId]);
+    $binding = $bindingQuery->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($binding)) {
+        $clientKeyQuery = $pdo->prepare(
+            'SELECT tenant_id, client_id FROM business_report_id_client_bindings
+              WHERE id_tenant_key = ?'
+        );
+        $clientKeyQuery->execute([$validated['tenant_key']]);
+        if ($clientKeyQuery->fetch(PDO::FETCH_ASSOC) !== false) {
+            throw new BusinessReportConflictException(
+                'The 8 West ID tenant is already bound to a different Safeharbor client.',
+            );
+        }
+        $tenantBindingQuery = $pdo->prepare(
+            'SELECT tenant_id FROM business_report_id_tenant_bindings WHERE id_tenant_key = ?'
+        );
+        $tenantBindingQuery->execute([$validated['tenant_key']]);
+        if ($tenantBindingQuery->fetchColumn() !== false) {
+            throw new BusinessReportConflictException(
+                'The 8 West ID tenant is already bound at Safeharbor tenant scope.',
+            );
+        }
+    } elseif (!hash_equals((string)$binding['id_tenant_key'], $validated['tenant_key'])
+        || !hash_equals((string)$binding['id_tenant_slug'], $validated['tenant_slug'])
+    ) {
+        throw new BusinessReportConflictException(
+            'The Safeharbor client is already bound to a different 8 West ID tenant.',
+        );
+    }
+
+    $contactHistoryQuery = $pdo->prepare(
+        'SELECT contact_version, recipient_email
+           FROM business_report_id_client_contact_snapshots
+          WHERE tenant_id = ? AND client_id = ? AND id_tenant_key = ?
+          ORDER BY contact_version DESC, id DESC LIMIT 1'
+    );
+    $contactHistoryQuery->execute([$tenantId, $clientId, $validated['tenant_key']]);
+    $contactHistory = $contactHistoryQuery->fetch(PDO::FETCH_ASSOC);
+    if (is_array($contactHistory)
+        && (int)$validated['contact_version'] < (int)$contactHistory['contact_version']
+    ) {
+        throw new BusinessReportConflictException(
+            'The 8 West ID report-contact version moved backward.',
+        );
+    }
+    if (is_array($contactHistory)
+        && (int)$validated['contact_version'] === (int)$contactHistory['contact_version']
+        && !hash_equals((string)$contactHistory['recipient_email'], $validated['recipient_email'])
+    ) {
+        throw new BusinessReportConflictException(
+            'The same 8 West ID report-contact version named a different recipient.',
+        );
+    }
+
+    $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey);
+    if (is_array($latest)
+        && (!is_array($contactScope) || !is_array($binding) || !is_array($contactHistory))
+    ) {
+        throw new BusinessReportGateException(
+            'The existing managed-customer report schedule has incomplete contact evidence.',
+        );
+    }
+    if (is_array($latest) && (string)$latest['status'] === 'active') {
+        throw new BusinessReportConflictException(
+            'Disable the active report schedule before reconfiguring it.',
+        );
+    }
+    if (is_array($latest)
+        && ((int)$latest['client_id'] !== $clientId
+            || (int)$latest['definition_version_id'] !== $definitionId
+            || (string)$latest['schedule_timezone'] !== $timezone)
+    ) {
+        throw new BusinessReportConflictException(
+            'A report schedule key cannot change client, definition, or timezone.',
+        );
+    }
+
+    $action = 'planned';
+    $version = is_array($latest) ? (int)$latest['version_no'] + 1 : 1;
+    $scheduleId = null;
+    if (is_array($latest)
+        && business_report_same_prepared_schedule(
+            $latest,
+            $clientId,
+            $definitionId,
+            $validated['recipient_email'],
+            $timezone,
+            $deliveryWeekday,
+            $deliveryLocalTime,
+            $canary,
+        )
+    ) {
+        $latestEvidence = business_report_id_client_contact_for_schedule(
+            $pdo,
+            $tenantId,
+            (int)$latest['id'],
+        );
+        if (is_array($latestEvidence)
+            && hash_equals((string)$latestEvidence['id_tenant_key'], $validated['tenant_key'])
+            && (int)$latestEvidence['contact_version'] === (int)$validated['contact_version']
+            && hash_equals((string)$latestEvidence['recipient_email'], $validated['recipient_email'])
+        ) {
+            $action = 'ignored';
+            $version = (int)$latest['version_no'];
+            $scheduleId = (int)$latest['id'];
+        }
+    }
+
+    return [
+        'action' => $action,
+        'schedule' => [
+            'id' => $scheduleId,
+            'tenant_id' => $tenantId,
+            'schedule_key' => $scheduleKey,
+            'version_no' => $version,
+            'status' => 'disabled',
+            'client_id' => $clientId,
+            'definition_version_id' => $definitionId,
+            'schedule_timezone' => $timezone,
+            'delivery_weekday' => $deliveryWeekday,
+            'delivery_local_time' => $deliveryLocalTime,
+            'canary' => $canary ? 1 : 0,
+            'recipient_sha256' => hash('sha256', $validated['recipient_email']),
+        ],
+        'id_contact' => [
+            'client_id' => $clientId,
+            'id_tenant_key' => $validated['tenant_key'],
+            'contact_version' => (int)$validated['contact_version'],
+            'response_sha256' => $validated['response_sha256'],
+        ],
+        'customer_id_sha256' => hash('sha256', $expectedCustomerId),
+    ];
+}
+
 /** @return array{action:string,schedule:array<string,mixed>} */
 function business_report_prepare_schedule(
     PDO $pdo,

@@ -26,6 +26,24 @@ function report_check(string $name, bool $condition): void
     }
 }
 
+/** Digest every fixture table so a read-only operation cannot hide a write. */
+function report_database_digest(PDO $pdo): string
+{
+    $tables = $pdo->query(
+        "SELECT name FROM sqlite_master
+          WHERE type='table' AND name NOT LIKE 'sqlite_%'
+          ORDER BY name"
+    )->fetchAll(PDO::FETCH_COLUMN);
+    $state = [];
+    foreach ($tables as $table) {
+        if (!is_string($table) || preg_match('/\A[a-z_][a-z0-9_]*\z/D', $table) !== 1) {
+            throw new RuntimeException('Unexpected fixture table name.');
+        }
+        $state[$table] = $pdo->query('SELECT * FROM "' . $table . '" ORDER BY rowid')->fetchAll(PDO::FETCH_ASSOC);
+    }
+    return hash('sha256', json_encode($state, JSON_THROW_ON_ERROR));
+}
+
 /** @param class-string<Throwable> $expected */
 function report_throws(string $name, string $expected, callable $operation, string $fragment = ''): void
 {
@@ -902,6 +920,67 @@ $managedCustomerContact = array_replace($clientIdContact, [
     'request_nonce_sha256' => str_repeat('7', 64),
     'response_sha256' => str_repeat('8', 64),
 ]);
+$managedPlanBefore = report_database_digest($pdo);
+$managedPlan = business_report_plan_customer_schedule_from_id(
+    $pdo,
+    'one',
+    'managed-customer-id-weekly',
+    12,
+    (int)$definition['definition']['id'],
+    $managedCustomerId,
+    $managedCustomerContact,
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'stable customer ID plan',
+);
+report_check(
+    'managed-customer plan proves the exact disabled version without exposing its address',
+    $managedPlan['action'] === 'planned'
+        && $managedPlan['schedule']['id'] === null
+        && (int)$managedPlan['schedule']['version_no'] === 1
+        && $managedPlan['schedule']['status'] === 'disabled'
+        && (int)$managedPlan['schedule']['client_id'] === 12
+        && $managedPlan['schedule']['schedule_timezone'] === 'UTC'
+        && (int)$managedPlan['schedule']['delivery_weekday'] === 3
+        && $managedPlan['schedule']['delivery_local_time'] === '09:00:00'
+        && hash_equals(
+            hash('sha256', 'managed-admin@example.test'),
+            (string)$managedPlan['schedule']['recipient_sha256'],
+        )
+        && !array_key_exists('recipient_email', $managedPlan['schedule'])
+        && !array_key_exists('recipient_email', $managedPlan['id_contact']),
+);
+report_check(
+    'managed-customer plan performs zero database mutations',
+    hash_equals($managedPlanBefore, report_database_digest($pdo)),
+);
+report_throws(
+    'managed-customer plan refuses a different permanent UUID without writing',
+    BusinessReportGateException::class,
+    fn() => business_report_plan_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-wrong-plan',
+        12,
+        (int)$definition['definition']['id'],
+        '11234567-89ab-4def-8abc-0123456789ab',
+        $managedCustomerContact,
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'wrong customer plan refusal',
+    ),
+    'binding changed',
+);
+report_check(
+    'refused managed-customer plan performs zero database mutations',
+    hash_equals($managedPlanBefore, report_database_digest($pdo)),
+);
 $managedPrepared = business_report_prepare_customer_schedule_from_id(
     $pdo,
     'one',
@@ -923,6 +1002,82 @@ report_check(
         && (int)$managedPrepared['schedule']['client_id'] === 12
         && (int)$managedPrepared['id_contact']['client_id'] === 12
         && (string)$managedPrepared['id_contact']['id_tenant_key'] === 'ewid-t50',
+);
+$managedReplayPlanBefore = report_database_digest($pdo);
+$managedReplayPlan = business_report_plan_customer_schedule_from_id(
+    $pdo,
+    'one',
+    'managed-customer-id-weekly',
+    12,
+    (int)$definition['definition']['id'],
+    $managedCustomerId,
+    array_replace($managedCustomerContact, [
+        'request_nonce_sha256' => str_repeat('9', 64),
+        'response_sha256' => str_repeat('a', 64),
+    ]),
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'stable customer replay plan',
+);
+report_check(
+    'managed-customer plan recognizes an exact prepared replay without writing',
+    $managedReplayPlan['action'] === 'ignored'
+        && (int)$managedReplayPlan['schedule']['id'] === (int)$managedPrepared['schedule']['id']
+        && (int)$managedReplayPlan['schedule']['version_no'] === 1
+        && hash_equals($managedReplayPlanBefore, report_database_digest($pdo)),
+);
+$managedContactUpdatePlan = business_report_plan_customer_schedule_from_id(
+    $pdo,
+    'one',
+    'managed-customer-id-weekly',
+    12,
+    (int)$definition['definition']['id'],
+    $managedCustomerId,
+    array_replace($managedCustomerContact, [
+        'contact_version' => 2,
+        'request_nonce_sha256' => str_repeat('b', 64),
+        'response_sha256' => str_repeat('c', 64),
+    ]),
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'stable customer update plan',
+);
+report_check(
+    'new ID contact version plans the next disabled schedule without writing',
+    $managedContactUpdatePlan['action'] === 'planned'
+        && $managedContactUpdatePlan['schedule']['id'] === null
+        && (int)$managedContactUpdatePlan['schedule']['version_no'] === 2
+        && hash_equals($managedReplayPlanBefore, report_database_digest($pdo)),
+);
+report_throws(
+    'same ID contact version cannot plan a different recipient',
+    BusinessReportConflictException::class,
+    fn() => business_report_plan_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-id-weekly',
+        12,
+        (int)$definition['definition']['id'],
+        $managedCustomerId,
+        array_replace($managedCustomerContact, ['recipient_email' => 'changed@example.test']),
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'same version recipient conflict',
+    ),
+    'same 8 West ID report-contact version',
+);
+report_check(
+    'conflicting ID contact plan performs zero database mutations',
+    hash_equals($managedReplayPlanBefore, report_database_digest($pdo)),
 );
 $managedReplay = business_report_prepare_customer_schedule_from_id(
     $pdo,
@@ -948,6 +1103,31 @@ report_check(
         && (int)$managedReplay['schedule']['id'] === (int)$managedPrepared['schedule']['id'],
 );
 $pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=12");
+$inactivePlanBefore = report_database_digest($pdo);
+report_throws(
+    'managed-customer plan refuses an inactivated source binding without writing',
+    BusinessReportGateException::class,
+    fn() => business_report_plan_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-id-weekly',
+        12,
+        (int)$definition['definition']['id'],
+        $managedCustomerId,
+        $managedCustomerContact,
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'inactive customer plan refusal',
+    ),
+    'binding changed',
+);
+report_check(
+    'inactive managed-customer plan performs zero database mutations',
+    hash_equals($inactivePlanBefore, report_database_digest($pdo)),
+);
 report_throws(
     'managed-customer preparation refuses an inactivated source binding before writing',
     BusinessReportGateException::class,
@@ -1777,6 +1957,25 @@ $source = file_get_contents(__DIR__ . '/../lib/business_reports.php') ?: '';
 foreach (['t.subject', 'm.body', 'time_entries.note', 'review_note', 'contacts ', 'attachments '] as $forbidden) {
     report_check("report query source excludes {$forbidden}", !str_contains($source, $forbidden));
 }
+
+$planStart = strpos($source, 'function business_report_plan_customer_schedule_from_id(');
+$prepareStart = strpos($source, 'function business_report_prepare_schedule(');
+$planSource = is_int($planStart) && is_int($prepareStart) && $prepareStart > $planStart
+    ? substr($source, $planStart, $prepareStart - $planStart)
+    : '';
+report_check(
+    'managed-customer planning source contains no database mutation or delivery boundary',
+    $planSource !== ''
+        && preg_match('/\b(?:INSERT|UPDATE|DELETE|REPLACE)\b/i', $planSource) !== 1
+        && !str_contains($planSource, 'beginTransaction')
+        && !str_contains($planSource, '->commit(')
+        && !str_contains($planSource, '->rollBack(')
+        && !str_contains($planSource, 'business_report_prepare_')
+        && !str_contains($planSource, 'business_report_generate(')
+        && !str_contains($planSource, 'business_report_deliver(')
+        && !str_contains($planSource, 'mailer_')
+        && !str_contains($planSource, 'graph_'),
+);
 
 $cronSource = file_get_contents(__DIR__ . '/../cron/business_reports.php') ?: '';
 report_check(

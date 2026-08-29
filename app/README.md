@@ -28,9 +28,10 @@ db/manage_service_goals.php
 db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
                            identity tenant slug → provider tenant/client binding
 db/manage_business_reports.php
-                           owner/admin definition + schedule lifecycle; canonical
-                           prepare reads a versioned tenant or exact-client
-                           admin contact from 8 West ID but never echoes it
+                           owner/admin definition + schedule lifecycle; the
+                           customer plan performs no writes, while plan/prepare
+                           read a versioned tenant or exact-client admin contact
+                           from 8 West ID but never echo it
 db/run_business_report.php exact dry-run/generate/deliver for one pinned schedule
                            or archive; no batch or automatic retry
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
@@ -240,19 +241,25 @@ public/                    Apache docroot (page-per-file, like Milepost)
   exact weekly aggregate archives. Both generation and delivery default off;
   exact schedule/tenant/client/recipient allowlists and `canary_only` apply.
   A Graph 202 means provider-submitted, not recipient-delivered, and ambiguous
-  delivery is terminal without automatic retry. Production has migration 013,
-  one prepared 8 West IT definition/schedule canary, both execution gates off,
-  zero archives, deliveries, or attempts, and no server scheduler.
+  delivery is terminal without automatic retry. Production has migrations 013,
+  017, and 019 plus three controlled Lifestyle archives: two attempts are
+  terminal `uncertain`, while the third is Graph-accepted/submitted but has no
+  inbox confirmation. Every Lifestyle schedule is disabled, both execution
+  gates are off, `canary_only` is true, and no server scheduler exists.
   See `docs/business-reports-contract.md`.
-- ID-backed report onboarding: `prepare-from-id`, historical
+- ID-backed report onboarding: no-write new-customer
+  `plan-customer-from-id`, `prepare-from-id`, historical
   `prepare-client-from-id`, and new-customer `prepare-customer-from-id` are the
   only network call sites and use a dedicated
   default-off HMAC config. Migration 017 is live and stores
   an immutable local-tenant/stable-ID binding plus append-only contact-version
   evidence in the same transaction as the disabled schedule. One redacted
   8 West IT contact canary was stored; both contact gates are off. This path
-  cannot generate or send a report. Migration 019 is live and adds an
-  independent exact-client binding/evidence lane and one
+  cannot generate or send a report. The plan command performs only bounded
+  reads after the authenticated contact lookup, prints digests rather than the
+  address, and requires the later prepare command to lock and recheck every
+  fact. Migration 019 is applied and adds an independent exact-client
+  binding/evidence lane and one
   immutable manual/tenant-ID/client-ID scope per logical schedule. Inspect
   reports the exact pinned scope and latest inherited evidence even after
   enable/disable versions. ID-scoped activation and active/due reads fail closed

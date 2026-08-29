@@ -62,10 +62,11 @@ Names, domains, local database ids, and email addresses are never new-customer
 mapping inputs. Coastmark is not queried and no report action creates, changes,
 approves, posts, sends, or pays an invoice.
 
-The ID lookup is not part of cron, generation, or delivery. Only the explicit
-operator commands `prepare-from-id`, historical `prepare-client-from-id`, and
-new-customer `prepare-customer-from-id` load the client. They send an
-exact HMAC-authenticated POST to
+The ID lookup is not part of cron, generation, or delivery. Only four explicit
+operator commands load the client: no-write `plan-customer-from-id`,
+`prepare-from-id`, historical `prepare-client-from-id`, and new-customer
+`prepare-customer-from-id`. The client sends an exact
+HMAC-authenticated POST to
 `https://id.8westit.com/api/svc/report-contact.php`, refuses redirects and
 alternate hosts/paths/ports, bounds the response, verifies the response HMAC,
 and checks the request nonce, stable `ewid-t<id>` tenant key, exact tenant slug,
@@ -77,6 +78,16 @@ exact client, and report-definition reach in Safeharbor. It then resolves only
 the exact protected `safeharbor-client:<id> -> ewid-t<id>` entry. The returned
 ID tenant slug is authenticated output; Safeharbor does not guess it from its
 local tenant or client.
+
+`plan-customer-from-id` proves the active owner/admin, exact report target,
+active permanent Milepost customer UUID, protected customer-to-ID mapping,
+authenticated current contact, existing immutable contact scope/history, and
+next disabled schedule version using database reads only. It prints the
+customer and recipient SHA-256 digests, never either raw address or report
+body. It performs no Graph request and cannot create a definition, binding,
+contact snapshot, schedule, archive, delivery, or attempt. Because planning
+deliberately takes no write lock, `prepare-customer-from-id` must still lock
+and recheck every fact before committing immutable evidence.
 
 `prepare-customer-from-id` performs the same target proof, then requires one
 exact active `suite_customer_sync_bindings` row for that provider tenant and
@@ -356,7 +367,7 @@ Client-scoped onboarding additionally needs `SELECT`, `INSERT`, and locking-
 read `UPDATE` on the two client evidence tables and the contact-scope registry;
 their permanent triggers still reject row updates and deletes.
 
-Publish and prepare without sending:
+Plan and prepare without sending:
 
 ```bash
 php app/db/manage_business_reports.php publish-definition \
@@ -368,6 +379,13 @@ php app/db/manage_business_reports.php prepare-from-id \
   --timezone=America/Los_Angeles --delivery-weekday=3 \
   --delivery-local-time=09:00:00 --canary=1 \
   --actor-user-id=USER --reason='Prepare controlled canary'
+
+php app/db/manage_business_reports.php plan-customer-from-id \
+  --tenant-slug=PROVIDER --schedule-key=KEY --client-id=CLIENT \
+  --definition-id=DEFINITION \
+  --timezone=America/Los_Angeles --delivery-weekday=3 \
+  --delivery-local-time=09:00:00 --canary=1 \
+  --actor-user-id=USER --reason='Plan exact customer canary'
 
 php app/db/manage_business_reports.php prepare-customer-from-id \
   --tenant-slug=PROVIDER --schedule-key=KEY --client-id=CLIENT \
@@ -430,8 +448,9 @@ Controlled rollout order:
 2. verify zero definitions, schedules, archives, deliveries, and attempts;
 3. choose one real tenant/client, verify its 8 West ID tenant contact and
    protected stable-key binding, and record approval outside Git;
-4. publish, prepare from ID, inspect the pinned key/version/digest, allowlist
-   that exact schedule/tenant/client/recipient tuple, enable, and dry-run;
+4. publish, run the no-write customer plan, prepare from ID, inspect the pinned
+   key/version/digest, allowlist that exact schedule/tenant/client/recipient
+   tuple, enable, and dry-run;
 5. enable generation only, create one archive, inspect its exact hash and
    aggregate content, then leave delivery off;
 6. enable delivery for that exact canary, run one pinned delivery, record
@@ -443,19 +462,17 @@ Controlled rollout order:
 ## Current controlled-canary checkpoint
 
 The earlier 8 West IT preparation remains immutable historical evidence. The
-separate 8 West Lifestyle customer canary completed the migration, contact,
-archive, and one-attempt delivery safety checks described in the status above.
-Its logical schedule is stopped by latest version 3, both report gates and the
-contact endpoints are off, and no scheduler exists.
+separate 8 West Lifestyle customer lane has three controlled archives, and the
+latest version of every schedule key is disabled. Attempt 1 is terminal
+`uncertain` with `graph_not_trustworthy` and no provider HTTP status. Attempt 2
+is terminal `uncertain` with Graph HTTP 404 / `graph_send_rejected`. Neither
+may ever be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted` and
+is `submitted`; that is provider acceptance only, not inbox-delivery proof.
 
-The terminal delivery record is deliberate evidence, not a retry queue. The
-send boundary was crossed, but there is no trustworthy Graph result and no
-provider HTTP status, so the record is `uncertain` with outcome
-`graph_not_trustworthy`. Never resubmit that archive automatically or manually
-as though the first attempt were known not to have happened. A future canary
-requires a new archive and a separately reviewed authorization window. Even an
-exact Graph 202 would prove provider acceptance only; this closeout has neither
-provider acceptance nor recipient confirmation.
+Both report gates and the contact endpoints are off, `canary_only` is true,
+and no scheduler exists. A future canary requires a new archive and a
+separately reviewed authorization window. Scheduler installation or allowlist
+widening still requires recipient confirmation independent of Graph's 202.
 
 ## Rollback and retention
 
