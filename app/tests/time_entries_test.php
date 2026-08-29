@@ -397,12 +397,55 @@ $afterFacts = $pdo->query("SELECT ticket_id, client_id, user_id, minutes, note, 
 time_check('owner can approve one pending entry',
     $approved['approval_status'] === 'approved'
     && $approved['reviewed_by_user_id'] === 2
-    && $approved['review_note'] === 'Checked against ticket work');
+    && $approved['review_note'] === 'Checked against ticket work'
+    && $approved['replayed'] === false);
 time_check('database trigger owns reviewed at', is_string($approved['reviewed_at']) && $approved['reviewed_at'] !== '');
 time_check('review does not rewrite factual time', $beforeFacts === $afterFacts);
 time_check('database trigger records exactly one approval event',
     (int) $pdo->query("SELECT COUNT(*) FROM time_entry_events WHERE time_entry_id = {$first['id']}")->fetchColumn() === 2
     && (int) $pdo->query("SELECT COUNT(*) FROM time_entry_events WHERE time_entry_id = {$first['id']} AND event_kind = 'approved'")->fetchColumn() === 1);
+$approvedReviewedAt = $approved['reviewed_at'];
+$approvedEventCount = (int) $pdo->query(
+    "SELECT COUNT(*) FROM time_entry_events WHERE time_entry_id = {$first['id']}"
+)->fetchColumn();
+$approvedReplay = time_entry_review(
+    $pdo,
+    1,
+    2,
+    'owner',
+    $first['id'],
+    'approved',
+    '  Checked against ticket work  ',
+);
+time_check('an exact normalized approval retry returns the stored terminal review',
+    $approvedReplay['id'] === $approved['id']
+    && $approvedReplay['approval_status'] === 'approved'
+    && $approvedReplay['reviewed_by_user_id'] === 2
+    && $approvedReplay['review_note'] === 'Checked against ticket work'
+    && $approvedReplay['replayed'] === true);
+time_check('an exact approval retry does not move its timestamp or append an audit event',
+    $approvedReplay['reviewed_at'] === $approvedReviewedAt
+    && (int) $pdo->query(
+        "SELECT COUNT(*) FROM time_entry_events WHERE time_entry_id = {$first['id']}"
+    )->fetchColumn() === $approvedEventCount);
+time_expect_exception(
+    'the original reviewer cannot replay a changed approval note',
+    TimeEntryConflictException::class,
+    fn() => time_entry_review($pdo, 1, 2, 'owner', $first['id'], 'approved', 'Different note'),
+    'already been reviewed',
+);
+time_expect_exception(
+    'the original reviewer cannot replay a changed decision',
+    TimeEntryConflictException::class,
+    fn() => time_entry_review($pdo, 1, 2, 'owner', $first['id'], 'rejected', 'Changed decision'),
+    'already been reviewed',
+);
+time_expect_exception(
+    'a different reviewer cannot claim the same approval receipt',
+    TimeEntryConflictException::class,
+    fn() => time_entry_review($pdo, 1, 3, 'admin', $first['id'], 'approved', 'Checked against ticket work'),
+    'already been reviewed',
+);
 time_expect_exception(
     'reviewed entries cannot transition again',
     TimeEntryConflictException::class,
@@ -827,6 +870,16 @@ time_check('correction endpoint derives tenant actor ticket and source on the se
     && str_contains($correctionApiSource, 'time_entry_correct(')
     && !str_contains($correctionApiSource, 'INSERT INTO time_entries'));
 
+$reviewApiSource = file_get_contents(__DIR__ . '/../public/api/time_entry_review.php');
+time_check('review endpoint returns one exact terminal-review acknowledgement',
+    is_string($reviewApiSource)
+    && str_contains($reviewApiSource, "'review_ack' => [")
+    && str_contains($reviewApiSource, "'entry_id' => (int) \$entry['id']")
+    && str_contains($reviewApiSource, "'decision' => \$decisionLabel")
+    && str_contains($reviewApiSource, "'reviewer_user_id' => (int) \$entry['reviewed_by_user_id']")
+    && str_contains($reviewApiSource, "'note' => (string) \$entry['review_note']")
+    && str_contains($reviewApiSource, "'replayed' => (bool) \$entry['replayed']"));
+
 $migration016Source = file_get_contents(__DIR__ . '/../db/migrations/016_time_corrections_overlap.sql');
 time_check('migration 016 installs database locks, overlap reads, and immutable correction ownership',
     is_string($migration016Source)
@@ -857,8 +910,11 @@ time_check('destructive MySQL proof is standalone and fails closed without an ex
     && !str_contains($mysqlHarness, 'CREATE DATABASE IF NOT EXISTS')
     && str_contains($mysqlHarness, 'DROP DATABASE IF EXISTS {$quotedDatabase}')
     && str_contains($mysqlHarness, 'Time-entry MySQL fixture unavailable:')
+    && str_contains($mysqlHarness, "getenv('SAFEHARBOR_TIME_REVIEW_RACE_WORKER')")
+    && str_contains($mysqlHarness, 'performance_schema.data_lock_waits')
+    && str_contains($mysqlHarness, 'concurrent reviews serialize into one exact replay or one truthful conflict')
     && substr_count($mysqlHarness, 'exit(2);') >= 3);
-time_check('Validate executes the 97-check MySQL migration and guard proof',
+time_check('Validate executes the 98-check MySQL migration, guard, and review-race proof',
     is_string($validateWorkflow)
     && str_contains($validateWorkflow, 'Test approval-grade time migration and database guards')
     && str_contains($validateWorkflow, "SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'")

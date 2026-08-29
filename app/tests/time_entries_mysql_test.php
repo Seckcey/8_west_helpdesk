@@ -13,7 +13,7 @@
  *   SAFEHARBOR_TIME_TEST_PASS=... php tests/time_entries_mysql_test.php
  *
  * The configured identity must be able to create/drop databases, create/drop
- * users, grant schema privileges, and create triggers. All 97 checks, including
+ * users, grant schema privileges, and create triggers. All 98 checks, including
  * the underprivileged migration and least-privilege runtime proofs, are required.
  */
 declare(strict_types=1);
@@ -36,8 +36,6 @@ if (!is_string($databaseBase)
     fwrite(STDERR, "Refusing destructive test database base.\n");
     exit(2);
 }
-$TIME_MYSQL_RUN_ID = bin2hex(random_bytes(6));
-$testDatabase = $databaseBase . '_' . $TIME_MYSQL_RUN_ID;
 $host = getenv('SAFEHARBOR_TIME_TEST_HOST') ?: '127.0.0.1';
 $portText = getenv('SAFEHARBOR_TIME_TEST_PORT') ?: '3306';
 $user = getenv('SAFEHARBOR_TIME_TEST_USER') ?: 'root';
@@ -57,6 +55,102 @@ $pdoOptions = [
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES => false,
 ];
+
+require_once __DIR__ . '/../lib/time_entries.php';
+
+// A separate PHP process performs each side of the review races. A worker may
+// connect only to the exact random database created by this parent harness,
+// and its request facts come from this small fixed scenario allowlist.
+if (getenv('SAFEHARBOR_TIME_REVIEW_RACE_WORKER') === '1') {
+    $workerRunId = getenv('SAFEHARBOR_TIME_REVIEW_RACE_RUN_ID');
+    $workerToken = getenv('SAFEHARBOR_TIME_REVIEW_RACE_TOKEN');
+    $workerEntryText = getenv('SAFEHARBOR_TIME_REVIEW_RACE_ENTRY');
+    $workerScenario = getenv('SAFEHARBOR_TIME_REVIEW_RACE_SCENARIO');
+    if (!is_string($workerRunId)
+        || preg_match('/\A[a-f0-9]{12}\z/D', $workerRunId) !== 1
+        || !is_string($workerToken)
+        || preg_match('/\A[a-f0-9]{64}\z/D', $workerToken) !== 1
+        || !is_string($workerEntryText)
+        || preg_match('/\A[1-9][0-9]{0,9}\z/D', $workerEntryText) !== 1
+        || !is_string($workerScenario)
+        || !in_array($workerScenario, ['exact', 'conflict'], true)
+    ) {
+        fwrite(STDERR, "Review-race worker refused its target.\n");
+        exit(2);
+    }
+
+    // The intended database is reconstructed rather than accepted from a
+    // worker-specific target variable. The already validated inherited base
+    // plus the parent's exact random run id must name this one fixture.
+    $workerDatabase = $databaseBase . '_' . $workerRunId;
+    $workerEntryId = (int) $workerEntryText;
+    $workerReviewerId = $workerScenario === 'exact' ? 102 : 101;
+    $workerReviewerRole = $workerScenario === 'exact' ? 'admin' : 'owner';
+    $workerDecision = $workerScenario === 'exact' ? 'approved' : 'rejected';
+    $workerNote = $workerScenario === 'exact'
+        ? 'Concurrent exact approval'
+        : 'Concurrent conflicting rejection';
+
+    try {
+        $worker = new PDO(
+            $serverDsn . ';dbname=' . $workerDatabase,
+            $user,
+            $pass,
+            $pdoOptions,
+        );
+        $worker->exec("SET time_zone = '+00:00'");
+        $worker->exec('SET SESSION innodb_lock_wait_timeout=15');
+        $selectedWorkerDatabase = $worker->query('SELECT DATABASE()')->fetchColumn();
+        if (!is_string($selectedWorkerDatabase)
+            || !hash_equals($workerDatabase, $selectedWorkerDatabase)
+        ) {
+            throw new RuntimeException('Review-race worker selected an unexpected database.');
+        }
+        $markerQuery = $worker->prepare(
+            'SELECT worker_token FROM time_review_race_test_marker WHERE run_id = ?'
+        );
+        $markerQuery->execute([$workerRunId]);
+        $storedWorkerToken = $markerQuery->fetchColumn();
+        if (!is_string($storedWorkerToken)
+            || !hash_equals($storedWorkerToken, $workerToken)
+        ) {
+            throw new RuntimeException('Review-race worker marker did not match.');
+        }
+        echo "ready\n";
+        flush();
+        $result = time_entry_review(
+            $worker,
+            1,
+            $workerReviewerId,
+            $workerReviewerRole,
+            $workerEntryId,
+            $workerDecision,
+            $workerNote,
+        );
+        echo json_encode([
+            'status' => 200,
+            'entry_id' => (int) $result['id'],
+            'decision' => (string) $result['approval_status'],
+            'reviewer_user_id' => (int) $result['reviewed_by_user_id'],
+            'note' => (string) $result['review_note'],
+            'reviewed_at' => (string) $result['reviewed_at'],
+            'replayed' => (bool) $result['replayed'],
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n";
+        exit(0);
+    } catch (TimeEntryConflictException $error) {
+        echo json_encode([
+            'status' => time_entry_http_status($error),
+            'error' => 'review_conflict',
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n";
+        exit(0);
+    } catch (Throwable $error) {
+        fwrite(STDERR, 'Review-race worker failed with ' . $error::class . PHP_EOL);
+        exit(1);
+    }
+}
+
+$TIME_MYSQL_RUN_ID = bin2hex(random_bytes(6));
+$testDatabase = $databaseBase . '_' . $TIME_MYSQL_RUN_ID;
 $quotedDatabase = '`' . str_replace('`', '``', $testDatabase) . '`';
 $server = null;
 $pdo = null;
@@ -170,6 +264,213 @@ function parallel_connection(): PDO
     );
     $connection->exec("SET time_zone = '+00:00'");
     return $connection;
+}
+
+/** @return array<string,mixed> */
+function start_review_race_worker(
+    string $runId,
+    string $workerToken,
+    int $entryId,
+    string $scenario,
+): array
+{
+    $environment = getenv();
+    if (!is_array($environment)) {
+        $environment = [];
+    }
+    $environment['SAFEHARBOR_TIME_REVIEW_RACE_WORKER'] = '1';
+    $environment['SAFEHARBOR_TIME_REVIEW_RACE_RUN_ID'] = $runId;
+    $environment['SAFEHARBOR_TIME_REVIEW_RACE_TOKEN'] = $workerToken;
+    $environment['SAFEHARBOR_TIME_REVIEW_RACE_ENTRY'] = (string) $entryId;
+    $environment['SAFEHARBOR_TIME_REVIEW_RACE_SCENARIO'] = $scenario;
+
+    $pipes = [];
+    $process = proc_open(
+        [PHP_BINARY, __FILE__],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        __DIR__,
+        $environment,
+    );
+    if (!is_resource($process)) {
+        throw new RuntimeException('Cannot start review-race worker.');
+    }
+    fclose($pipes[0]);
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+
+    $output = '';
+    $errorOutput = '';
+    $ready = false;
+    $deadline = microtime(true) + 5.0;
+    do {
+        $chunk = stream_get_contents($pipes[1]);
+        if (is_string($chunk) && $chunk !== '') {
+            $output .= $chunk;
+        }
+        $errorChunk = stream_get_contents($pipes[2]);
+        if (is_string($errorChunk) && $errorChunk !== '') {
+            $errorOutput .= $errorChunk;
+        }
+        $ready = preg_match('/(?:\A|\R)ready\R/', $output) === 1;
+        $status = proc_get_status($process);
+        if ($ready || !($status['running'] ?? false)) {
+            break;
+        }
+        usleep(20000);
+    } while (microtime(true) < $deadline);
+
+    return [
+        'process' => $process,
+        'stdout' => $pipes[1],
+        'stderr' => $pipes[2],
+        'output' => $output,
+        'error_output' => $errorOutput,
+        'ready' => $ready,
+    ];
+}
+
+/** @param array<string,mixed> $worker @return array<string,mixed> */
+function finish_review_race_worker(array $worker): array
+{
+    $process = $worker['process'];
+    $stdout = $worker['stdout'];
+    $stderr = $worker['stderr'];
+    $output = (string) $worker['output'];
+    $errorOutput = (string) $worker['error_output'];
+    $deadline = microtime(true) + 15.0;
+    $lastExit = null;
+    $timedOut = false;
+
+    while (true) {
+        $chunk = stream_get_contents($stdout);
+        if (is_string($chunk) && $chunk !== '') {
+            $output .= $chunk;
+        }
+        $errorChunk = stream_get_contents($stderr);
+        if (is_string($errorChunk) && $errorChunk !== '') {
+            $errorOutput .= $errorChunk;
+        }
+        $status = proc_get_status($process);
+        if (!($status['running'] ?? false)) {
+            $lastExit = (int) ($status['exitcode'] ?? -1);
+            break;
+        }
+        if (microtime(true) >= $deadline) {
+            $timedOut = true;
+            proc_terminate($process);
+            break;
+        }
+        usleep(20000);
+    }
+
+    $chunk = stream_get_contents($stdout);
+    if (is_string($chunk) && $chunk !== '') {
+        $output .= $chunk;
+    }
+    $errorChunk = stream_get_contents($stderr);
+    if (is_string($errorChunk) && $errorChunk !== '') {
+        $errorOutput .= $errorChunk;
+    }
+    fclose($stdout);
+    fclose($stderr);
+    $closedExit = proc_close($process);
+    $exitCode = $closedExit >= 0 ? $closedExit : ($lastExit ?? -1);
+
+    $lines = preg_split('/\R/', trim($output)) ?: [];
+    $lastLine = $lines === [] ? '' : (string) end($lines);
+    $result = json_decode($lastLine, true);
+    return [
+        'ready' => (bool) $worker['ready'],
+        'timed_out' => $timedOut,
+        'exit_code' => $exitCode,
+        'stdout' => $output,
+        'stderr' => $errorOutput,
+        'result' => is_array($result) ? $result : null,
+    ];
+}
+
+function wait_for_review_lock_waiters(
+    PDO $server,
+    string $database,
+    int $minimumWaiters,
+): bool {
+    $query = $server->prepare(
+        "SELECT COUNT(DISTINCT waits.REQUESTING_THREAD_ID)
+           FROM performance_schema.data_lock_waits waits
+           JOIN performance_schema.data_locks requested
+             ON requested.ENGINE = waits.ENGINE
+            AND requested.ENGINE_LOCK_ID = waits.REQUESTING_ENGINE_LOCK_ID
+          WHERE requested.OBJECT_SCHEMA = ?
+            AND requested.OBJECT_NAME = 'time_entries'
+            AND requested.LOCK_STATUS = 'WAITING'"
+    );
+    $deadline = microtime(true) + 5.0;
+    do {
+        $query->execute([$database]);
+        if ((int) $query->fetchColumn() >= $minimumWaiters) {
+            return true;
+        }
+        usleep(20000);
+    } while (microtime(true) < $deadline);
+    return false;
+}
+
+/**
+ * @param list<string> $scenarios
+ * @return array{queued:list<bool>,workers:list<array<string,mixed>>}
+ */
+function run_review_race(
+    PDO $server,
+    string $database,
+    string $runId,
+    string $workerToken,
+    int $entryId,
+    array $scenarios,
+): array {
+    $databaseBase = getenv('SAFEHARBOR_TIME_TEST_DB');
+    if (!is_string($databaseBase)
+        || preg_match('/\A[a-f0-9]{12}\z/D', $runId) !== 1
+        || preg_match('/\A[a-f0-9]{64}\z/D', $workerToken) !== 1
+        || !hash_equals($database, $databaseBase . '_' . $runId)
+    ) {
+        throw new RuntimeException('Review-race parent target binding failed.');
+    }
+    $locker = parallel_connection();
+    $workers = [];
+    $queued = [];
+    $failure = null;
+    try {
+        $locker->beginTransaction();
+        $lock = $locker->prepare('SELECT id FROM time_entries WHERE tenant_id = 1 AND id = ? FOR UPDATE');
+        $lock->execute([$entryId]);
+        if ((int) $lock->fetchColumn() !== $entryId) {
+            throw new RuntimeException('Review-race lock target was not found.');
+        }
+
+        foreach ($scenarios as $index => $scenario) {
+            $workers[] = start_review_race_worker($runId, $workerToken, $entryId, $scenario);
+            $worker = $workers[$index];
+            $queued[] = (bool) $worker['ready']
+                && wait_for_review_lock_waiters($server, $database, $index + 1);
+        }
+        $locker->commit();
+    } catch (Throwable $error) {
+        $failure = $error;
+    } finally {
+        if ($locker->inTransaction()) {
+            $locker->rollBack();
+        }
+    }
+
+    $results = [];
+    foreach ($workers as $worker) {
+        $results[] = finish_review_race_worker($worker);
+    }
+    if ($failure instanceof Throwable) {
+        throw $failure;
+    }
+    return ['queued' => $queued, 'workers' => $results];
 }
 
 function reset_database(PDO $pdo): void
@@ -877,6 +1178,115 @@ check('owner rejection records mandatory reason',
     (time_entry($pdo, $rejectId)['review_note'] ?? '') === 'Not customer work'
     && (string) $pdo->query("SELECT reason FROM time_entry_events
       WHERE time_entry_id={$rejectId} AND event_kind='rejected'")->fetchColumn() === 'Not customer work');
+
+// Force every contender past its initial pending read by holding the exact row
+// lock before the workers start. performance_schema proves each separate PHP /
+// MySQL session is waiting on time_entries before the lock is released. The
+// first race proves an identical loser receives a replay receipt; the second
+// queues the exact approval before a conflicting rejection and proves the
+// conflict loses with 409. Both rows retain exactly one review audit event.
+$reviewRaceWorkerToken = bin2hex(random_bytes(32));
+$pdo->exec("CREATE TABLE time_review_race_test_marker (
+  run_id CHAR(12) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  worker_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  PRIMARY KEY (run_id)
+) ENGINE=InnoDB");
+$reviewRaceMarker = $pdo->prepare(
+    'INSERT INTO time_review_race_test_marker (run_id, worker_token) VALUES (?, ?)'
+);
+$reviewRaceMarker->execute([$TIME_MYSQL_RUN_ID, $reviewRaceWorkerToken]);
+
+$insert->execute([1,11,'review-race-exact',1001,103,20,
+    'Exact review race',1,'reply','2026-08-26 12:20:00']);
+$exactRaceEntryId = (int) $pdo->query("SELECT id FROM time_entries
+  WHERE tenant_id=1 AND entry_key='review-race-exact'")->fetchColumn();
+$insert->execute([1,11,'review-race-conflict',1001,103,20,
+    'Conflicting review race',1,'reply','2026-08-26 12:40:00']);
+$conflictRaceEntryId = (int) $pdo->query("SELECT id FROM time_entries
+  WHERE tenant_id=1 AND entry_key='review-race-conflict'")->fetchColumn();
+
+$exactRace = run_review_race(
+    $server,
+    $testDatabase,
+    $TIME_MYSQL_RUN_ID,
+    $reviewRaceWorkerToken,
+    $exactRaceEntryId,
+    ['exact', 'exact'],
+);
+$conflictRace = run_review_race(
+    $server,
+    $testDatabase,
+    $TIME_MYSQL_RUN_ID,
+    $reviewRaceWorkerToken,
+    $conflictRaceEntryId,
+    ['exact', 'conflict'],
+);
+
+$allRaceWorkers = array_merge($exactRace['workers'], $conflictRace['workers']);
+$raceWorkersClean = true;
+foreach ($allRaceWorkers as $workerResult) {
+    $raceWorkersClean = $raceWorkersClean
+        && ($workerResult['ready'] ?? false) === true
+        && ($workerResult['timed_out'] ?? true) === false
+        && (int) ($workerResult['exit_code'] ?? -1) === 0
+        && trim((string) ($workerResult['stderr'] ?? '')) === ''
+        && is_array($workerResult['result'] ?? null);
+}
+
+$exactPayloads = array_map(
+    static fn(array $workerResult): mixed => $workerResult['result'] ?? null,
+    $exactRace['workers'],
+);
+$exactReplayFlags = array_map(
+    static fn(mixed $payload): mixed => is_array($payload) ? ($payload['replayed'] ?? null) : null,
+    $exactPayloads,
+);
+sort($exactReplayFlags);
+$exactReviewedTimes = array_map(
+    static fn(mixed $payload): string => is_array($payload)
+        ? (string) ($payload['reviewed_at'] ?? '')
+        : '',
+    $exactPayloads,
+);
+$exactPayloadsMatch = true;
+foreach ($exactPayloads as $payload) {
+    $exactPayloadsMatch = $exactPayloadsMatch
+        && is_array($payload)
+        && (int) ($payload['status'] ?? 0) === 200
+        && (int) ($payload['entry_id'] ?? 0) === $exactRaceEntryId
+        && ($payload['decision'] ?? '') === 'approved'
+        && (int) ($payload['reviewer_user_id'] ?? 0) === 102
+        && ($payload['note'] ?? '') === 'Concurrent exact approval';
+}
+
+$conflictWinner = $conflictRace['workers'][0]['result'] ?? null;
+$conflictLoser = $conflictRace['workers'][1]['result'] ?? null;
+$exactRaceReviewEvents = (int) $pdo->query("SELECT COUNT(*) FROM time_entry_events
+  WHERE time_entry_id={$exactRaceEntryId} AND event_kind IN ('approved','rejected')")->fetchColumn();
+$conflictRaceReviewEvents = (int) $pdo->query("SELECT COUNT(*) FROM time_entry_events
+  WHERE time_entry_id={$conflictRaceEntryId} AND event_kind IN ('approved','rejected')")->fetchColumn();
+
+check('concurrent reviews serialize into one exact replay or one truthful conflict',
+    $raceWorkersClean
+    && $exactRace['queued'] === [true, true]
+    && $conflictRace['queued'] === [true, true]
+    && $exactPayloadsMatch
+    && $exactReplayFlags === [false, true]
+    && $exactReviewedTimes[0] !== ''
+    && count(array_unique($exactReviewedTimes)) === 1
+    && is_array($conflictWinner)
+    && (int) ($conflictWinner['status'] ?? 0) === 200
+    && (int) ($conflictWinner['entry_id'] ?? 0) === $conflictRaceEntryId
+    && ($conflictWinner['decision'] ?? '') === 'approved'
+    && (int) ($conflictWinner['reviewer_user_id'] ?? 0) === 102
+    && ($conflictWinner['note'] ?? '') === 'Concurrent exact approval'
+    && ($conflictWinner['replayed'] ?? null) === false
+    && is_array($conflictLoser)
+    && (int) ($conflictLoser['status'] ?? 0) === 409
+    && ($conflictLoser['error'] ?? '') === 'review_conflict'
+    && $exactRaceReviewEvents === 1
+    && $conflictRaceReviewEvents === 1
+    && (time_entry($pdo, $conflictRaceEntryId)['approval_status'] ?? '') === 'approved');
 
 $eventId = (int) $pdo->query("SELECT id FROM time_entry_events WHERE time_entry_id={$timerId} LIMIT 1")->fetchColumn();
 expect_pdo('event snapshots cannot be updated',
