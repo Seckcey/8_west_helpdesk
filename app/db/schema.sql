@@ -2388,7 +2388,7 @@ CREATE TABLE IF NOT EXISTS time_entry_approval_adjustments (
     CHECK (CHAR_LENGTH(TRIM(reason)) BETWEEN 1 AND 500),
   -- Removed after the permanent triggers below are created. Until then, a
   -- fresh schema interrupted after CREATE TABLE cannot accept any row.
-  CONSTRAINT ck_time_adjustment_install_lock CHECK (0),
+  CONSTRAINT ck_time_adjustment_install_lock CHECK (0 = 1),
   CONSTRAINT fk_time_adjustment_tenant FOREIGN KEY (tenant_id)
     REFERENCES tenants (id),
   CONSTRAINT fk_time_adjustment_entry FOREIGN KEY (tenant_id, time_entry_id)

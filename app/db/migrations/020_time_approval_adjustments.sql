@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS time_entry_approval_adjustments (
   -- This temporary enforced check makes the newly created empty table reject
   -- every insert if first application stops before any trigger can be added.
   -- It is removed only after the permanent guards have been created.
-  CONSTRAINT ck_time_adjustment_install_lock CHECK (0),
+  CONSTRAINT ck_time_adjustment_install_lock CHECK (0 = 1),
   CONSTRAINT fk_time_adjustment_tenant FOREIGN KEY (tenant_id)
     REFERENCES tenants (id),
   CONSTRAINT fk_time_adjustment_entry FOREIGN KEY (tenant_id, time_entry_id)
@@ -247,7 +247,7 @@ SET @time_adjustment_install_lock_exact = (
      AND constraints_table.constraint_name = 'ck_time_adjustment_install_lock'
      AND constraints_table.enforced = 'YES'
      AND REPLACE(REPLACE(REPLACE(REPLACE(
-           LOWER(checks_table.check_clause), '`', ''), ' ', ''), '(', ''), ')', '') = '0'
+           LOWER(checks_table.check_clause), '`', ''), ' ', ''), '(', ''), ')', '') = '0=1'
 );
 
 SET @time_adjustment_table_exact = (
