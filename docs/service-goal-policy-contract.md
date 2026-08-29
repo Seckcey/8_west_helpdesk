@@ -179,10 +179,23 @@ report fetch, report generation, and report delivery gates remained off. No new
 
 The initial runner installed the exact files and restored the locks but stopped
 on an unrecorded final assertion. Immediate finalization rechecked every
-postflight assertion and passed; the protected receipt records both runs. This
-is deployment and signed-out route evidence only. A fresh signed-in production
-8 West IT human still must verify the rendered Standard and Premium history and
-all eight target rows before signed-in UI acceptance can be claimed.
+postflight assertion and passed; the protected receipt records both runs.
+
+Signed-in production acceptance was completed on 2026-08-29 by Frankie in the
+`8west` tenant. The rendered page showed Standard v1 at 480 minutes for all
+four priorities and Premium v1 at 120 minutes for all four priorities. It also
+showed the supported semantics exactly: elapsed UTC time, no waiting pause, and
+no resolution goal. The page matched no-write CLI `inspect` results at SHA-256
+`0d6edc2900823dc1556f75e3e0feb35207fc866b4298e18f6d8ad2fdc8783f1a`
+for Standard and
+`4816fcd28cc33fafb5a507b60ec1d028ba7c68f4f81f4cfe6be816bdfc7ba3b4`
+for Premium. No policy, target, ticket snapshot, migration, or configuration
+was written. The root-only receipt is
+`/srv/8west/backups/safeharbor/20260827T154017Z-pre-service-goal-history-b02a7a6/service-goal-signed-in-acceptance-20260829T062933Z.txt`
+at SHA-256
+`74912b7f39cc9a78ec597a1266ce57525f0f0cc8c95e3efdd473797da6a77f45`.
+Version 2 remains intentionally absent pending real target values, an exact
+future effective UTC time, an authorized actor, and an immutable reason.
 
 No step in this contract authorizes merge, deployment, policy publication, or
 production mutation by itself.

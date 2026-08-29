@@ -31,7 +31,7 @@ If you change what is live, change this page in the same PR.
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
 | Migrations 001–019 | **All applied** to production |
-| Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published. The GET-only staff history view is deployed through PR #65 / release `b02a7a6`; signed-out routing passed, while fresh signed-in production human acceptance remains open. |
+| Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published. The GET-only staff history view is deployed through PR #65 / release `b02a7a6`; signed-out routing and the 2026-08-29 authenticated Frankie/`8west` production acceptance both passed. |
 | Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
 | Approved time → Coastmark draft lines | **Version 2 deployed dark** through Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`. The permanent 8 West IT master UUID is hard-blocked. Both time gates are off and there are zero mappings/imports/draft lines. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
@@ -147,9 +147,21 @@ API, editor, publish action, lazy initializer, migration, or configuration. Its
 source and hermetic isolation/role/boundary behavior are covered by the
 39-check publication suite. The code is deployed through Safeharbor PR #65 /
 exact release `b02a7a63d71a4d1532f81aa727b0ede85c2649f3`, and exact-main
-Validate run `33088142569` passed. This proves the release, not the rendered
-signed-in experience: a fresh signed-in production 8 West IT human acceptance
-check is still required and has not been claimed.
+Validate run `33088142569` passed. Authenticated production acceptance was
+completed on 2026-08-29 by Frankie in the `8west` tenant: the rendered page
+showed Standard v1 at 480 minutes for all four priorities and Premium v1 at 120
+minutes for all four priorities, with elapsed UTC time, no waiting pause, and
+no resolution goal. Those rows matched no-write CLI `inspect` results at
+SHA-256 `0d6edc2900823dc1556f75e3e0feb35207fc866b4298e18f6d8ad2fdc8783f1a`
+for Standard and
+`4816fcd28cc33fafb5a507b60ec1d028ba7c68f4f81f4cfe6be816bdfc7ba3b4`
+for Premium. No policy, target, ticket snapshot, migration, or configuration
+was written. The root-only acceptance receipt is
+`/srv/8west/backups/safeharbor/20260827T154017Z-pre-service-goal-history-b02a7a6/service-goal-signed-in-acceptance-20260829T062933Z.txt`
+at SHA-256
+`74912b7f39cc9a78ec597a1266ce57525f0f0cc8c95e3efdd473797da6a77f45`.
+Version 2 remains intentionally absent until the real targets, effective UTC
+time, authorized actor, and reason are supplied and approved.
 
 The code-only release used the root-only backup and receipt at
 `/srv/8west/backups/safeharbor/20260827T154017Z-pre-service-goal-history-b02a7a6`.
