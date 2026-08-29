@@ -397,7 +397,7 @@ adjustment_check(
 adjustment_check(
     'migration first application is table-locked until permanent guards exist',
     is_string($migration)
-        && str_contains($migration, 'CONSTRAINT ck_time_adjustment_install_lock CHECK (0)')
+        && str_contains($migration, 'CONSTRAINT ck_time_adjustment_install_lock CHECK (0 = 1)')
         && str_contains($migration, 'DROP CHECK ck_time_adjustment_install_lock')
         && str_contains($migration, '@time_adjustment_install_lock_remaining = 0'),
 );

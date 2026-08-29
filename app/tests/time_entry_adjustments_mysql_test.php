@@ -891,7 +891,7 @@ try {
                 AND constraints_table.constraint_name='ck_time_adjustment_install_lock'
                 AND constraints_table.enforced='YES'
                 AND REPLACE(REPLACE(REPLACE(REPLACE(
-                      LOWER(checks_table.check_clause),'`',''),' ',''),'(',''),')','')='0'"
+                       LOWER(checks_table.check_clause),'`',''),' ',''),'(',''),')','')='0=1'"
         )->fetchColumn();
         adjustment_mysql_check('first-apply interruption leaves the exact enforced install lock',
             $installLockExact === 1 && adjustment_mysql_table_trigger_total($pdo) === 0);
