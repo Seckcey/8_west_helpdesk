@@ -95,11 +95,12 @@ $usage = "Usage:\n"
     . "  php db/manage_business_reports.php prepare --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --recipient-email=EMAIL --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare-client-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
+    . "  php db/manage_business_reports.php prepare-customer-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php enable|disable --tenant-slug=SLUG --schedule-key=KEY --expected-version=N --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php inspect --tenant-slug=SLUG --schedule-key=KEY\n";
 
 try {
-    if (!in_array($command, ['publish-definition', 'prepare', 'prepare-from-id', 'prepare-client-from-id', 'enable', 'disable', 'inspect'], true)) {
+    if (!in_array($command, ['publish-definition', 'prepare', 'prepare-from-id', 'prepare-client-from-id', 'prepare-customer-from-id', 'enable', 'disable', 'inspect'], true)) {
         throw new BusinessReportValidationException('Command is invalid.');
     }
     $options = report_cli_options(array_slice($argv, 2));
@@ -192,11 +193,13 @@ try {
         $clientId = report_cli_positive_int($options['client-id'], 'Client id');
         $definitionId = report_cli_positive_int($options['definition-id'], 'Definition id');
         $actorUserId = report_cli_positive_int($options['actor-user-id'], 'Actor user id');
-        // Prove the operator, provider tenant, client, and definition reach
-        // before making the one exact, configured ID lookup.
-        business_report_schedule_target(
+        // The local-id lane may refresh only an existing client-scoped
+        // schedule. New managed customers must prove their permanent Milepost
+        // UUID before making the one exact, configured ID lookup.
+        business_report_legacy_client_refresh_target(
             $pdo,
             $options['tenant-slug'],
+            $options['schedule-key'],
             $clientId,
             $definitionId,
             $actorUserId,
@@ -208,6 +211,58 @@ try {
             $options['schedule-key'],
             $clientId,
             $definitionId,
+            $contact,
+            $options['timezone'],
+            report_cli_positive_int($options['delivery-weekday'], 'Delivery weekday'),
+            $options['delivery-local-time'],
+            $options['canary'] === '1',
+            $actorUserId,
+            $options['reason'],
+        );
+        report_cli_emit_schedule($result['schedule'], $result['action']);
+        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
+        exit(0);
+    }
+
+    if ($command === 'prepare-customer-from-id') {
+        report_cli_expect($options, [
+            'tenant-slug', 'schedule-key', 'client-id', 'definition-id',
+            'timezone', 'delivery-weekday', 'delivery-local-time',
+            'canary', 'actor-user-id', 'reason',
+        ]);
+        if (!in_array($options['canary'], ['0', '1'], true)) {
+            throw new BusinessReportValidationException('Canary must be exactly 0 or 1.');
+        }
+        $clientId = report_cli_positive_int($options['client-id'], 'Client id');
+        $definitionId = report_cli_positive_int($options['definition-id'], 'Definition id');
+        $actorUserId = report_cli_positive_int($options['actor-user-id'], 'Actor user id');
+        // Prove the operator and local report target first. The contact lookup
+        // then derives Milepost's permanent customer UUID from the exact active
+        // Safeharbor binding; the numeric client id never becomes authority.
+        business_report_schedule_target(
+            $pdo,
+            $options['tenant-slug'],
+            $clientId,
+            $definitionId,
+            $actorUserId,
+        );
+        $customerId = id_report_contact_active_customer_id(
+            $pdo,
+            $options['tenant-slug'],
+            $clientId,
+        );
+        $contact = id_report_contact_fetch_customer(
+            $pdo,
+            $options['tenant-slug'],
+            $clientId,
+        );
+        $result = business_report_prepare_customer_schedule_from_id(
+            $pdo,
+            $options['tenant-slug'],
+            $options['schedule-key'],
+            $clientId,
+            $definitionId,
+            $customerId,
             $contact,
             $options['timezone'],
             report_cli_positive_int($options['delivery-weekday'], 'Delivery weekday'),

@@ -238,8 +238,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   one prepared 8 West IT definition/schedule canary, both execution gates off,
   zero archives, deliveries, or attempts, and no server scheduler.
   See `docs/business-reports-contract.md`.
-- ID-backed report onboarding: `prepare-from-id` and
-  `prepare-client-from-id` are the only network call sites and use a dedicated
+- ID-backed report onboarding: `prepare-from-id`, historical
+  `prepare-client-from-id`, and new-customer `prepare-customer-from-id` are the
+  only network call sites and use a dedicated
   default-off HMAC config. Migration 017 is live and stores
   an immutable local-tenant/stable-ID binding plus append-only contact-version
   evidence in the same transaction as the disabled schedule. One redacted
@@ -251,7 +252,14 @@ public/                    Apache docroot (page-per-file, like Milepost)
   enable/disable versions. ID-scoped activation and active/due reads fail closed
   unless the current recipient (and client for client scope) matches that latest
   evidence; no path converts the tenant canary or infers identity from
-  names/domains/email.
+  names/domains/email. New customer preparation derives an exact
+  `milepost-customer:<uuid>` key from the active local customer-sync binding;
+  the ID contact lookup never selects a customer by Safeharbor's wipe-sensitive
+  numeric client id.
+  `prepare-client-from-id` now refuses any new logical schedule and can only
+  refresh an existing client-scoped ID schedule. A new Milepost-managed client
+  also cannot enter through the manual or tenant-contact lane; the reserved
+  8 West IT master customer remains explicitly tenant-scoped.
 - Milepost customer sync: independent from alert/support intake and dark unless
   `suite_customer_sync.enabled` is exactly true. The signed payload resolves an
   explicitly allowlisted Safeharbor tenant slug and binds one globally stable

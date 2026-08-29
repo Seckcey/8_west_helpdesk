@@ -16,6 +16,9 @@ const BUSINESS_REPORT_MAX_DUE_SCHEDULES = 100;
 const BUSINESS_REPORT_CONTACT_SCOPE_MANUAL = 'MANUAL';
 const BUSINESS_REPORT_CONTACT_SCOPE_TENANT = 'TENANT';
 const BUSINESS_REPORT_CONTACT_SCOPE_CLIENT = 'CLIENT';
+const BUSINESS_REPORT_MILEPOST_CUSTOMER_UUID =
+    '/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D';
+const BUSINESS_REPORT_MASTER_CUSTOMER_ID = '4ebaeefa-b101-47f8-ac76-e49ab309d272';
 
 class BusinessReportException extends RuntimeException {}
 final class BusinessReportValidationException extends BusinessReportException {}
@@ -470,6 +473,58 @@ function business_report_latest_schedule(PDO $pdo, int $tenantId, string $schedu
     return is_array($row) ? $row : null;
 }
 
+/**
+ * The wipe-sensitive client-id contact command is retained only to refresh an
+ * existing client-scoped schedule. It must never create a new logical schedule
+ * or convert tenant/manual history into the legacy client lane.
+ *
+ * @return array<string,mixed>
+ */
+function business_report_legacy_client_refresh_target(
+    PDO $pdo,
+    string $tenantSlug,
+    string $scheduleKey,
+    int $clientId,
+    int $definitionId,
+    int $actorUserId,
+): array {
+    $scheduleKey = business_report_schedule_key($scheduleKey);
+    $target = business_report_schedule_target(
+        $pdo,
+        $tenantSlug,
+        $clientId,
+        $definitionId,
+        $actorUserId,
+    );
+    $latest = business_report_latest_schedule(
+        $pdo,
+        (int)$target['tenant_id'],
+        $scheduleKey,
+    );
+    if (!is_array($latest)
+        || (int)($latest['client_id'] ?? 0) !== $clientId
+        || (int)($latest['definition_version_id'] ?? 0) !== $definitionId
+    ) {
+        throw new BusinessReportGateException(
+            'Legacy client-id contact refresh requires exact existing schedule history; '
+            . 'use stable customer onboarding for a new managed customer.',
+        );
+    }
+    $contactScope = business_report_contact_scope_for_key(
+        $pdo,
+        (int)$target['tenant_id'],
+        $scheduleKey,
+    );
+    if (!is_array($contactScope)
+        || !hash_equals(BUSINESS_REPORT_CONTACT_SCOPE_CLIENT, (string)$contactScope['scope'])
+    ) {
+        throw new BusinessReportGateException(
+            'Legacy client-id contact refresh requires existing client-scoped ID evidence.',
+        );
+    }
+    return $target;
+}
+
 /** @return array<string,mixed>|null */
 function business_report_id_contact_for_schedule(
     PDO $pdo,
@@ -754,6 +809,7 @@ function business_report_prepare_schedule(
     string $reason,
     ?array $idContact = null,
     ?int $idContactClientId = null,
+    ?string $expectedCustomerId = null,
 ): array {
     $scheduleKey = business_report_schedule_key($scheduleKey);
     $recipientEmail = business_report_email($recipientEmail);
@@ -765,6 +821,16 @@ function business_report_prepare_schedule(
     $reason = business_report_key($reason, 500, 'Schedule reason');
     if ($idContact === null && $idContactClientId !== null) {
         throw new BusinessReportValidationException('A client report-contact scope requires authenticated evidence.');
+    }
+    if ($expectedCustomerId !== null
+        && ($idContact === null
+            || $idContactClientId !== $clientId
+            || preg_match(BUSINESS_REPORT_MILEPOST_CUSTOMER_UUID, $expectedCustomerId) !== 1
+            || hash_equals(BUSINESS_REPORT_MASTER_CUSTOMER_ID, $expectedCustomerId))
+    ) {
+        throw new BusinessReportValidationException(
+            'A managed customer report scope requires an exact non-master Milepost customer id.',
+        );
     }
     if ($idContact !== null) {
         if ($idContactClientId !== null && $idContactClientId !== $clientId) {
@@ -794,9 +860,64 @@ function business_report_prepare_schedule(
             : BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
     $pdo->beginTransaction();
     try {
-        // Lock the logical schedule first. Every later enable, disable, or
-        // reconfiguration inherits the first committed contact scope.
+        // Match the production customer-sync lock order: tenant first, then
+        // managed binding. This prevents a report FK check and a concurrent
+        // tenant→binding source update from waiting on each other in reverse.
+        $tenantLockSql = 'SELECT id FROM tenants WHERE id = ? AND slug = ?';
+        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+            $tenantLockSql .= ' FOR SHARE';
+        }
+        $tenantLock = $pdo->prepare($tenantLockSql);
+        $tenantLock->execute([$tenantId, $tenantSlug]);
+        if ((int)$tenantLock->fetchColumn() !== $tenantId) {
+            throw new BusinessReportGateException(
+                'The exact report tenant changed before schedule preparation.',
+            );
+        }
+
+        // Serialize with the exact managed-customer source row (or its unique
+        // insertion gap). This both closes active→inactive preparation races
+        // and prevents a local-id/manual schedule from winning a race against
+        // Milepost's first managed binding for the same client.
+        $customerBindingSql =
+            'SELECT customer_id, status FROM suite_customer_sync_bindings
+              WHERE tenant_id = ? AND client_id = ?';
+        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+            // We never mutate Milepost-owned context. A shared row/gap lock is
+            // enough to serialize source updates/inserts through this commit
+            // and needs only read authority on supported MySQL 8 releases.
+            $customerBindingSql .= ' FOR SHARE';
+        }
+        $customerBindingQuery = $pdo->prepare($customerBindingSql);
+        $customerBindingQuery->execute([$tenantId, $clientId]);
+        $customerBinding = $customerBindingQuery->fetch(PDO::FETCH_ASSOC);
+        if ($expectedCustomerId !== null) {
+            if (!is_array($customerBinding)
+                || !is_string($customerBinding['customer_id'] ?? null)
+                || !hash_equals($expectedCustomerId, $customerBinding['customer_id'])
+                || !hash_equals('active', (string)($customerBinding['status'] ?? ''))
+            ) {
+                throw new BusinessReportGateException(
+                    'The active Milepost customer binding changed before report preparation.',
+                );
+            }
+        }
+
+        // Lock the logical schedule after any managed-customer source row.
+        // Every later enable, disable, or reconfiguration inherits the first
+        // committed contact scope.
         $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey, true);
+        if (!is_array($latest)
+            && $expectedCustomerId === null
+            && is_array($customerBinding)
+            && !(is_string($customerBinding['customer_id'] ?? null)
+                && hash_equals(BUSINESS_REPORT_MASTER_CUSTOMER_ID, $customerBinding['customer_id'])
+                && hash_equals(BUSINESS_REPORT_CONTACT_SCOPE_TENANT, $requestedContactScope))
+        ) {
+            throw new BusinessReportGateException(
+                'A new managed-customer report schedule requires stable customer onboarding.',
+            );
+        }
         $contactScope = business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey);
         if (is_array($contactScope)) {
             if (!hash_equals((string)$contactScope['scope'], $requestedContactScope)) {
@@ -1134,6 +1255,48 @@ function business_report_prepare_client_schedule_from_id(
         || (int)($result['id_contact']['client_id'] ?? 0) !== $clientId
     ) {
         throw new BusinessReportGateException('Client-scoped 8 West ID report-contact evidence is missing.');
+    }
+    return $result;
+}
+
+/** @return array{action:string,schedule:array<string,mixed>,id_contact:array<string,mixed>} */
+function business_report_prepare_customer_schedule_from_id(
+    PDO $pdo,
+    string $tenantSlug,
+    string $scheduleKey,
+    int $clientId,
+    int $definitionId,
+    string $expectedCustomerId,
+    array $idContact,
+    string $timezone,
+    int $deliveryWeekday,
+    string $deliveryLocalTime,
+    bool $canary,
+    int $actorUserId,
+    string $reason,
+): array {
+    $validated = business_report_id_contact_validate($idContact, null);
+    $result = business_report_prepare_schedule(
+        $pdo,
+        $tenantSlug,
+        $scheduleKey,
+        $clientId,
+        $definitionId,
+        $validated['recipient_email'],
+        $timezone,
+        $deliveryWeekday,
+        $deliveryLocalTime,
+        $canary,
+        $actorUserId,
+        $reason,
+        $validated,
+        $clientId,
+        $expectedCustomerId,
+    );
+    if (!is_array($result['id_contact'] ?? null)
+        || (int)($result['id_contact']['client_id'] ?? 0) !== $clientId
+    ) {
+        throw new BusinessReportGateException('Managed-customer 8 West ID contact evidence is missing.');
     }
     return $result;
 }

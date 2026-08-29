@@ -215,19 +215,25 @@ return [
     // The endpoint is deliberately fixed to the exact production HTTPS host
     // and path; redirects, alternate ports, and other hosts are refused.
     // A tenant binding maps one immutable 8 West ID tenant key to the exact
-    // local Safeharbor tenant slug. A client binding instead uses only the
-    // stable `safeharbor-client:<id>` key. Never infer either mapping from a
-    // company name, domain, or email address.
+    // local Safeharbor tenant slug. `client_bindings` retains a refresh-only
+    // local-id compatibility lane for existing schedule histories. New MSP
+    // customer onboarding uses
+    // `customer_bindings`, keyed by Milepost's immutable
+    // `milepost-customer:<uuid>` identity. Never infer any mapping from a
+    // company name, domain, or email address. The reserved 8 West IT master
+    // customer UUID is refused here; its weekly report uses the tenant lane.
     //
     // Default-off means no network request. Only the operator commands
-    // `prepare-from-id` and `prepare-client-from-id` read this block;
-    // cron/generation/delivery do not.
+    // `prepare-from-id`, `prepare-client-from-id`, and
+    // `prepare-customer-from-id` read this block; cron/generation/delivery do
+    // not.
     'id_report_contacts' => [
         'enabled' => false,
         'endpoint' => 'https://id.8westit.com/api/svc/report-contact.php',
         'hmac_secret' => '',
         'tenant_bindings' => [],
         'client_bindings' => [],
+        'customer_bindings' => [],
         'timeout_seconds' => 10,
     ],
 
