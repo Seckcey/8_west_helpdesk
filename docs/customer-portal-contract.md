@@ -1,21 +1,22 @@
 # Safeharbor customer portal contract
 
-**Status:** migration 012 and the reviewed Phase 5A source were deployed dark
-through Safeharbor PR #44 / merge `3bb87fa`. Disabled-route hardening then
-deployed through PR #48 / merge
-`748f16ca4648ece2ce767966af46cd2788bd3f7c`. The protected host config now
-contains an explicit `portal.enabled=false` block at SHA-256
-`c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`:
-the fixed issuer and production callback are present, the client ID and secret
-are empty, and the private revocation-cache directory exists empty. Every
-portal route, including GET and POST logout, is a cookie-free 404. 8 West ID's
-`f0ec49b` prerequisite is deployed dark, but it has zero registered Safeharbor
-OIDC clients; Safeharbor has zero bindings/events. No customer can sign in yet.
+**Status:** migration 012 and the reviewed Phase 5A source are live, and the
+current Safeharbor application is exact PR #68 merge
+`7bf63edb9bc0583cf865124b45f002d0717dcab9` after exact-main Validate run
+`33226867525`. A confidential Safeharbor OIDC client is installed through the
+protected operator path without recording its values here. The global portal
+gate is enabled, protected config SHA-256 is
+`e272ccc44f8200774530fabda634b3d65032805ef360d6f73da3a91afc3fb0f4`, and
+binding id 1 actively maps the expressly approved 8 West Lifestyle identity
+tenant to Safeharbor provider tenant 1/client 14.
 
-Phase 5A adds one deliberately narrow customer surface: a dark/default-off,
-read-only list of ticket summaries for one explicitly mapped business. It does
-not change Safeharbor's technician authentication or auto-provision any local
-tenant, client, user, or mapping.
+Signed-out acceptance passed on the canonical
+`https://safeharbor.8westit.com/portal` surface. The separate
+`support.8westit.com/portal` path is 404 and is not a portal alias. Fresh
+authenticated customer acceptance is still pending Frankie; this is not a
+claim that a customer ticket list has been viewed successfully. The surface
+remains a read-only list of ticket summaries and does not change technician
+authentication or auto-provision any local tenant, client, user, or mapping.
 
 This contract is the authorization boundary. A later feature may add to it
 only through a separate review; it must not reinterpret this slice as implied
@@ -49,10 +50,20 @@ The vendored files under `lib/eightwestid/` are exact blobs from the maintained
 `f0ec49b6106791d0ba658ca16899562fbe5b3b86`. `portal_auth_test.php` pins every
 blob, so a local fork fails CI visibly.
 
-That exact 8 West ID prerequisite is deployed in production without creating
-or rotating an OIDC client, changing a tenant grant, or assigning a customer
-role. The current issuer therefore supports this contract in code, but there
-is still no production Safeharbor client registration or client secret.
+That exact 8 West ID prerequisite is deployed in production. The later
+controlled activation registered one production Safeharbor client and moved
+its values only through protected server configuration. The replacement
+Lifestyle customer identity `t4u10` is enabled; predecessor `t4u7` is
+permanently inactive, revoked, and quarantined. The root-only quarantine
+receipt is
+`/srv/8west/backups/identity-quarantine/20260829T011053Z/quarantine-receipt-20260829T015737Z.txt`
+with SHA-256
+`56ace0529b430e0f227d7ce9983976d8f1bf45840d05dab0c1aefd583b8e1c04`.
+Coastmark merge `c9f44096af80a0a97b8415e3f4037c88867ecfab` is deployed live and adds the separate
+fail-closed fresh-revocation check before its suite SSO may write or reactivate
+anything. Financial counts were unchanged, its Safeharbor-time receiver remains
+off/404, and mappings, imports, and draft lines remain zero; it does not give
+the portal billing access.
 
 The confidential authorization-code flow is the maintained `oidc_v1` contract:
 
@@ -145,10 +156,10 @@ returns 503 without serving tenant data. Explicit revocation, a missing
 subject, or a different session version destroys the local session. A disabled
 or changed binding also destroys it on the next request.
 
-## Dark launch and future controlled canary
+## Controlled canary state
 
-Source completion is not authorization to register or expose a client. Steps
-1–5 below are complete; steps 6–9 remain separate controlled-canary gates:
+Steps 1–7 below are complete. Step 8 has only signed-out routing acceptance;
+its fresh authenticated checks and step 9 remain open:
 
 1. finish and deploy all earlier migration-first phases, including migration
    011 before 012;
@@ -174,9 +185,17 @@ Source completion is not authorization to register or expose a client. Steps
 9. keep canary monitoring read-only. Do not infer permission for a second
    business.
 
-Immediate rollback is `portal.enabled=false`. Disabling the binding is the
-durable per-business kill switch and invalidates an open portal session on its
-next request. Do not delete audit rows or hand-edit the deployed tree.
+The gate and binding are currently enabled only for the approved Lifestyle
+canary. Signed-out canonical routing passed; a fresh authenticated session has
+not yet completed the data-isolation, revocation, logout, desktop, or mobile
+checks. Immediate rollback is `portal.enabled=false`. Disabling the binding is
+the durable per-business kill switch and invalidates an open portal session on
+its next request. Do not delete audit rows or hand-edit the deployed tree.
+
+The root-only portal activation record is
+`/srv/8west/backups/safeharbor/20260829T021900Z-pre-lifestyle-portal-canary`.
+Its portal-canary receipt SHA-256 is
+`4e6d81f955f582171cea5f78c7ea98f92923e288ef6863c925fa157cfa1a6efc`.
 
 ## Required gates
 
@@ -194,9 +213,9 @@ The MySQL suite is destructive only in a database whose name begins
 migration replay, lifecycle/audit, cross-provider refusal, immutable-history,
 client-deletion refusal, and ticket-isolation probes.
 
-The source slice and dark closeout created no real OIDC client or live mapping.
-Migration 012, the source, disabled-route hardening, the explicit non-secret
-host scaffold, and the empty private cache are live. Confidential-client
-registration and secure client-value installation, one
-disabled-then-enabled binding, global enablement, and authenticated canary
-acceptance remain explicit operational choices.
+Migration 012, the source, disabled-route hardening, confidential-client
+registration, protected client-value installation, one disabled-then-enabled
+Lifestyle binding, and global enablement are live. Signed-out routing is
+accepted on the canonical Safeharbor domain and refused as 404 on the support
+domain. Fresh authenticated customer acceptance remains an explicit human
+gate; do not call the portal fully accepted until it passes.

@@ -1,36 +1,39 @@
 # Safeharbor business-report contract
 
-Status: Phase 6's base is live through Safeharbor PR #46 / merge `209bb42`.
-The 8 West ID contact consumer and immutable evidence are live through PR #57 /
-release `cef39dd190e6488c4aabf7a673eb810b4465a3eb`, with migration 017
-applied. One controlled 8 West IT canary has stable tenant key `ewid-t1`,
-contact version 1, immutable definition 1, and logical schedule 1. Its schedule
-key `8west-it-weekly-canary-v1` is latest version 2 and active for Wednesday
-09:00 `America/Los_Angeles`. PR #61 / merge
-`8322266dbcf3eb6956eb9f1ca79a51948002aaec` added an independent exact
-schedule-key allowlist to the existing tenant, client, and recipient gates.
-Those report bytes remain live at `safeharbor.8westit.com` inside the later
-exact application release `da9560a`; all four allowlists contain only the
-controlled canary, but generation and delivery are both false. Archives,
-deliveries, and attempts are zero; there is no server scheduler, no provider
-submission, and no recipient-receipt claim. Both dedicated report-contact
-gates are off after the redacted onboarding probe.
+Status: Phase 6's base and tenant-scoped 8 West IT evidence remain live through
+the earlier releases described below. The client-scoped lane is now also live
+through Safeharbor PR #68 / exact merge
+`7bf63edb9bc0583cf865124b45f002d0717dcab9`; exact-main Validate run
+`33226867525` passed before that commit was deployed. Migration 019 was applied
+and replayed from exact Git bytes whose SHA-256 is
+`5dceec1c10a8e79515da9a3296e5ce0388fcc1e5e2206759e7ac1cadf77efbfe`.
+Production has all three migration-019 tables, twelve protected permanent
+guards, and zero temporary swap guards. The root-only rollback record is
+`/srv/8west/backups/safeharbor/20260829T015329Z-pre-client-report-contact-019`;
+its release-receipt SHA-256 is
+`a044d06c949c473f1fec13fe76b0fd27d4c37486dd2c365de874d83932923a97`
+and its final evidence-manifest SHA-256 is
+`24a07bcb4ea347eb65831348df1ac309e7c662d61cf717c27b5729ba5b6b4f6f`.
 
-Client-scoped report-contact binding is a release candidate only. Migration
-019 and its code add a second immutable lane for customer reports: one exact
-`(Safeharbor tenant, Safeharbor client) -> 8 West ID tenant` binding. No
-migration, protected client mapping, customer schedule, generation, delivery,
-or production state change has been made for that lane. The existing tenant-
-scoped 8 West IT canary remains migration-017 evidence and is not converted.
+The controlled 8 West Lifestyle customer lane binds Safeharbor client 14 to
+the exact 8 West ID tenant key and has one immutable client-contact snapshot.
+The contact lookup endpoints were turned back off after preparation. The only
+recipient value recorded here is its SHA-256 digest,
+`4f57f85e0af372af6b3b09bf48be8961a23fa0fc371f36a9b2d3a54ee4998ef8`.
+Schedule key `8west-lifestyle-weekly-canary-v1` has immutable versions 1
+disabled, 2 active, and 3 disabled; version 3 is latest, so the logical
+schedule is stopped. One archive was generated and independently recomputed at
+SHA-256
+`93bbdab3ac0d42e1da95fa93f8c393123749d7d1548f4a2afa62e95317a8b0ce`.
+The one delivery attempt ended terminal `uncertain` with outcome
+`graph_not_trustworthy` and no provider HTTP status. It must never be retried.
+There is no provider-acceptance or inbox-delivery claim. Generation and
+delivery are off and no cron or systemd report scheduler is installed.
 
-The first no-write dry run correctly waits for the first complete weekly
-window. A one-time Codex heartbeat is planned for Wednesday, 2026-09-02, to
-resume the controlled canary. Root-only production evidence is retained at
-`/srv/8west/backups/report-contact/20260827T115552Z-8west-it-canary` and
-`/srv/8west/backups/business-report/20260827T120122Z-8west-it-dry-run`. The
-schedule-key release backup, verified scratch restore, hashes, and truthful
-release receipt are at
-`/srv/8west/backups/safeharbor/20260827T143419Z-pre-report-schedule-key-gate`.
+Root-only Lifestyle canary evidence is at
+`/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`.
+The canary receipt SHA-256 is
+`86fd9852e7defbe1b809895a6bc2529e9fae9f9acea3f1b274b347fa4b524492`.
 
 ## Ownership and boundary
 
@@ -338,57 +341,22 @@ Controlled rollout order:
 8. only after the canary is accepted, install the reviewed scheduler entry and
    observe at least one scheduled period before expanding an allowlist.
 
-## Current 8 West IT canary checkpoint
+## Current controlled-canary checkpoint
 
-The first four controlled preparation steps are complete for the exact 8 West
-IT canary. Safeharbor pinned `ewid-t1` contact version 1 without printing the
-address, published immutable definition 1, prepared logical schedule 1, and
-appended active version 2 for Wednesday 09:00 Pacific time. The protected
-allowlists contain only that canary's schedule, tenant, client, and recipient.
+The earlier 8 West IT preparation remains immutable historical evidence. The
+separate 8 West Lifestyle customer canary completed the migration, contact,
+archive, and one-attempt delivery safety checks described in the status above.
+Its logical schedule is stopped by latest version 3, both report gates and the
+contact endpoints are off, and no scheduler exists.
 
-PR #61 CI run `33081410186` passed the report suites, and unchanged exact-main
-CI run `33081562197` passed on attempt 2 after rerunning one unrelated flaky
-service-goal concurrency assertion. The report implementation remains the
-reviewed `8322266` bytes inside the later deployed application release
-`da9560a`; that later release changed only Westy receiver behavior and
-preserved report state and configuration. The schedule-key release matched
-142 ordinary tracked files plus three normalized cache-stamp files, linted all
-115 live PHP files
-(114 release files plus protected `config.php`), preserved the protected
-config, and exposed cache marker `20260827144708` from the real Safeharbor
-vhost.
-
-The canonical dry run made no writes and exited `2` with the sole refusal
-`Report period must be a complete past window.` That is the CLI's validation-
-refusal exit, not a schedule-key or configuration failure. Before and after,
-the report-state digest stayed
-`616da802d46157bc4ff3b0d48c204286a21d1caeacae9da1c7912d3c79bde882`;
-there were still zero archives, deliveries, and attempts, and the mail queue
-remained two sent and zero unsent. Generation and delivery remain off, both
-contact gates are back off, and there is no cron or systemd report scheduler.
-
-One release-process defect is recorded rather than hidden: the attempted HTTP
-maintenance lock targeted the separate `support.8westit.com` Milepost vhost,
-not Safeharbor's vhost. The Safeharbor database account was locked with zero
-connections during installation, both vhosts finished byte-identical to their
-preflight values, and Safeharbor logged zero 5xx, fatal, or database errors in
-the release window. Future releases must resolve `apache2ctl -S` and require
-`safeharbor.8westit.com` ->
-`/etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf` ->
-`/srv/8west/apps/safeharbor/current/public` before editing a lock file.
-
-The planned 2026-09-02 one-time Codex heartbeat should resume at the dry-run
-gate, create and inspect at most one archive only after it is due, and leave
-delivery for a separate pinned approval. Do not describe a future Graph 202 as
-recipient delivery; inbox confirmation remains a separate fact.
-
-The customer lane remains earlier in the sequence: the reviewed protected
-mapping is exact client 14 to `ewid-t4`, but it is not installed by this code
-release. Migration 019 must be applied and verified first; only afterward may
-an operator temporarily enable the contact lookup, run
-`prepare-client-from-id`, inspect a disabled schedule, and turn the contact
-gate off again. Generation, delivery, and scheduler installation stay outside
-that preparation step.
+The terminal delivery record is deliberate evidence, not a retry queue. The
+send boundary was crossed, but there is no trustworthy Graph result and no
+provider HTTP status, so the record is `uncertain` with outcome
+`graph_not_trustworthy`. Never resubmit that archive automatically or manually
+as though the first attempt were known not to have happened. A future canary
+requires a new archive and a separately reviewed authorization window. Even an
+exact Graph 202 would prove provider acceptance only; this closeout has neither
+provider acceptance nor recipient confirmation.
 
 ## Rollback and retention
 
