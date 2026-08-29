@@ -3,6 +3,10 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/business_reports.php';
+if (!function_exists('cfg')) {
+    function cfg(string $key, mixed $default = null): mixed { return $default; }
+}
+require_once __DIR__ . '/../lib/mailer.php';
 
 $checks = 0;
 $failures = 0;
@@ -30,6 +34,25 @@ function report_throws(string $name, string $expected, callable $operation, stri
                 && ($fragment === '' || str_contains($error->getMessage(), $fragment)),
         );
     }
+}
+
+/**
+ * @param list<array<string,mixed>> $responses
+ * @param list<array{url:string,headers:array,payload:string,timeout:int}> $requests
+ */
+function report_graph_http_fixture(array $responses, array &$requests): callable
+{
+    $position = 0;
+    return static function (
+        string $url,
+        array $headers,
+        string $payload,
+        int $timeout,
+    ) use ($responses, &$requests, &$position): array {
+        $requests[] = compact('url', 'headers', 'payload', 'timeout');
+        if (!array_key_exists($position, $responses)) throw new RuntimeException('Unexpected Graph request.');
+        return $responses[$position++];
+    };
 }
 
 /** @return array<string,mixed> */
@@ -234,6 +257,152 @@ report_check('default configuration is fully inert', business_report_config([]) 
     'recipient_emails' => [],
     'lease_seconds' => 120,
 ]);
+
+$graphConfig = [
+    'tenant_id' => 'fixture-tenant',
+    'client_id' => 'fixture-client',
+    'client_secret' => 'fixture-client-secret',
+    'sender' => 'sender@example.test',
+];
+$graphRequests = [];
+$graphAccepted = mailer_send_graph_result(
+    $graphConfig,
+    'recipient@example.test',
+    'Fixture subject',
+    'Fixture body',
+    report_graph_http_fixture([
+        ['http' => 200, 'body' => '{"access_token":"fixture-access-token","expires_in":3600}'],
+        ['http' => 202, 'body' => 'provider-private-body'],
+    ], $graphRequests),
+);
+report_check('Graph 202 produces only bounded accepted evidence',
+    $graphAccepted === ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted']
+    && count($graphRequests) === 2);
+report_check('Graph accepted evidence contains no message, address, token, credential, or provider body',
+    !str_contains(json_encode($graphAccepted, JSON_THROW_ON_ERROR), 'recipient@example.test')
+    && !str_contains(json_encode($graphAccepted, JSON_THROW_ON_ERROR), 'fixture-access-token')
+    && !str_contains(json_encode($graphAccepted, JSON_THROW_ON_ERROR), 'fixture-client-secret')
+    && !str_contains(json_encode($graphAccepted, JSON_THROW_ON_ERROR), 'provider-private-body'));
+
+$graphRequests = [];
+$graphRejected = mailer_send_graph_result(
+    $graphConfig,
+    'recipient@example.test',
+    'Fixture subject',
+    'Fixture body',
+    report_graph_http_fixture([
+        ['http' => 200, 'body' => '{"access_token":"fixture-access-token","expires_in":3600}'],
+        ['http' => 403, 'body' => 'private rejection body'],
+    ], $graphRequests),
+);
+report_check('definite Graph send rejection keeps safe HTTP and category only',
+    $graphRejected === ['outcome' => 'uncertain', 'provider_http' => 403, 'outcome_code' => 'graph_send_rejected']
+    && !str_contains(json_encode($graphRejected, JSON_THROW_ON_ERROR), 'private rejection body'));
+
+$graphRequests = [];
+$tokenRejected = mailer_send_graph_result(
+    $graphConfig,
+    'recipient@example.test',
+    'Fixture subject',
+    'Fixture body',
+    report_graph_http_fixture([
+        ['http' => 401, 'body' => '{"error_description":"private credential detail"}'],
+    ], $graphRequests),
+);
+report_check('definite Graph token rejection keeps safe HTTP and category only',
+    $tokenRejected === ['outcome' => 'uncertain', 'provider_http' => 401, 'outcome_code' => 'graph_token_rejected']
+    && count($graphRequests) === 1
+    && !str_contains(json_encode($tokenRejected, JSON_THROW_ON_ERROR), 'private credential detail'));
+
+$graphRequests = [];
+$tokenInvalid = mailer_send_graph_result(
+    $graphConfig,
+    'recipient@example.test',
+    'Fixture subject',
+    'Fixture body',
+    report_graph_http_fixture([
+        ['http' => 200, 'body' => '{"access_token":[],"detail":"private token response"}'],
+    ], $graphRequests),
+);
+report_check('HTTP 200 token response without a token is bounded invalid evidence',
+    $tokenInvalid === ['outcome' => 'uncertain', 'provider_http' => 200, 'outcome_code' => 'graph_token_invalid_response']
+    && !str_contains(json_encode($tokenInvalid, JSON_THROW_ON_ERROR), 'private token response'));
+
+$graphRequests = [];
+$graphNetwork = mailer_send_graph_result(
+    $graphConfig,
+    'recipient@example.test',
+    'Fixture subject',
+    'Fixture body',
+    report_graph_http_fixture([
+        ['error' => 'raw network exception text'],
+    ], $graphRequests),
+);
+report_check('Graph network failure keeps HTTP unknown and drops raw error text',
+    $graphNetwork === ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_token_transport_error']
+    && !str_contains(json_encode($graphNetwork, JSON_THROW_ON_ERROR), 'raw network exception text'));
+
+$graphRequests = [];
+$graphSendNetwork = mailer_send_graph_result(
+    $graphConfig,
+    'recipient@example.test',
+    'Fixture subject',
+    'Fixture body',
+    report_graph_http_fixture([
+        ['http' => 200, 'body' => '{"access_token":"fixture-access-token","expires_in":3600}'],
+        ['error' => 'raw send exception text'],
+    ], $graphRequests),
+);
+report_check('Graph send network failure keeps HTTP unknown and drops raw error text',
+    $graphSendNetwork === ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_send_transport_error']
+    && !str_contains(json_encode($graphSendNetwork, JSON_THROW_ON_ERROR), 'raw send exception text'));
+
+$graphRequests = [];
+$graphUnknown = mailer_send_graph_result(
+    $graphConfig,
+    'recipient@example.test',
+    'Fixture subject',
+    'Fixture body',
+    report_graph_http_fixture([
+        ['http' => 200, 'body' => '{"access_token":"fixture-access-token","expires_in":3600}'],
+        ['http' => 0, 'body' => 'private unknown body'],
+    ], $graphRequests),
+);
+report_check('unknown Graph send response keeps HTTP NULL and a safe category',
+    $graphUnknown === ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_send_unknown_response']
+    && !str_contains(json_encode($graphUnknown, JSON_THROW_ON_ERROR), 'private unknown body'));
+
+$graphRequests = [];
+$graphInvalidPayload = mailer_send_graph_result(
+    $graphConfig,
+    'recipient@example.test',
+    "Invalid \xB1 subject",
+    'Fixture body',
+    report_graph_http_fixture([
+        ['http' => 200, 'body' => '{"access_token":"fixture-access-token","expires_in":3600}'],
+    ], $graphRequests),
+);
+report_check('local Graph payload failure stores no message bytes or invented HTTP status',
+    $graphInvalidPayload === ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_payload_invalid']
+    && count($graphRequests) === 1);
+
+$legacyError = null;
+$graphRequests = [];
+$legacyAccepted = mailer_send_graph(
+    $graphConfig,
+    'recipient@example.test',
+    'Fixture subject',
+    'Fixture body',
+    $legacyError,
+    report_graph_http_fixture([
+        ['http' => 401, 'body' => '{"error_description":"private credential detail"}'],
+    ], $graphRequests),
+);
+report_check('legacy mail_queue Graph contract stays boolean with a sanitized error',
+    $legacyAccepted === false
+    && $legacyError === 'Microsoft Graph token request was rejected (HTTP 401).'
+    && !str_contains($legacyError, 'private credential detail'));
+
 report_throws(
     'duplicate allowlist values fail closed',
     BusinessReportValidationException::class,
@@ -949,6 +1118,40 @@ $badHttp = business_report_deliver(
     $now,
 );
 report_check('HTTP 200 cannot be promoted to submitted', $badHttp['status'] === 'uncertain');
+$rejectedArchive = report_archive_fixture($pdo, (int)$enabled['schedule']['id'], 'client-one-weekly', '2026-07-05 00:00:00');
+$rejected = business_report_deliver(
+    $pdo, (int)$rejectedArchive['id'], report_config(),
+    fn(): array => ['outcome' => 'uncertain', 'provider_http' => 403, 'outcome_code' => 'graph_send_rejected'],
+    $now,
+);
+$rejectedAttempt = $pdo->query(
+    'SELECT provider_http,outcome_code FROM business_report_delivery_attempts WHERE delivery_id='
+    . (int)$pdo->query(
+        'SELECT id FROM business_report_deliveries WHERE archive_id=' . (int)$rejectedArchive['id'],
+    )->fetchColumn(),
+)->fetch(PDO::FETCH_ASSOC);
+report_check('definite Graph rejection persists only safe status and category',
+    $rejected['status'] === 'uncertain'
+    && is_array($rejectedAttempt)
+    && (int)$rejectedAttempt['provider_http'] === 403
+    && $rejectedAttempt['outcome_code'] === 'graph_send_rejected');
+$untrustedArchive = report_archive_fixture($pdo, (int)$enabled['schedule']['id'], 'client-one-weekly', '2026-07-04 00:00:00');
+$untrusted = business_report_deliver(
+    $pdo, (int)$untrustedArchive['id'], report_config(),
+    fn(): array => ['outcome' => 'uncertain', 'provider_http' => 418, 'outcome_code' => 'private_secret'],
+    $now,
+);
+$untrustedAttempt = $pdo->query(
+    'SELECT provider_http,outcome_code FROM business_report_delivery_attempts WHERE delivery_id='
+    . (int)$pdo->query(
+        'SELECT id FROM business_report_deliveries WHERE archive_id=' . (int)$untrustedArchive['id'],
+    )->fetchColumn(),
+)->fetch(PDO::FETCH_ASSOC);
+report_check('unapproved transport evidence is replaced instead of persisted',
+    $untrusted['status'] === 'uncertain'
+    && is_array($untrustedAttempt)
+    && $untrustedAttempt['provider_http'] === null
+    && $untrustedAttempt['outcome_code'] === 'invalid_transport_outcome');
 $throwArchive = report_archive_fixture($pdo, (int)$enabled['schedule']['id'], 'client-one-weekly', '2026-06-29 00:00:00');
 $thrown = business_report_deliver(
     $pdo, (int)$throwArchive['id'], report_config(),

@@ -6,7 +6,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/bootstrap.php';
+if (!function_exists('cfg')) require_once __DIR__ . '/bootstrap.php';
 
 /** Queue an email. Returns the queue id. */
 function mail_queue(string $to, string $subject, string $bodyText, ?int $ticketId = null): int
@@ -72,40 +72,138 @@ function graph_http_get(string $url, string $token, int $timeout = 20): array
     return ['http' => $http, 'body' => (string)$resp];
 }
 
-/** App-only token, cached in-process (cron sends batches per run). */
-function graph_token(array $g, ?string &$err = null): ?string
+/** Keep only a real provider HTTP status. Zero and malformed values are unknown. */
+function graph_provider_http(array $response): ?int
 {
-    static $cache = null; // [client_id, expires_at, token]
-    $now = time();
-    if (is_array($cache) && $cache[0] === $g['client_id'] && $cache[1] > $now + 60) {
-        return $cache[2];
-    }
-    $r = graph_http_post(
-        'https://login.microsoftonline.com/' . rawurlencode($g['tenant_id']) . '/oauth2/v2.0/token',
-        ['Content-Type: application/x-www-form-urlencoded'],
-        http_build_query([
-            'grant_type'    => 'client_credentials',
-            'client_id'     => $g['client_id'],
-            'client_secret' => $g['client_secret'],
-            'scope'         => 'https://graph.microsoft.com/.default',
-        ])
-    );
-    if (isset($r['error'])) { $err = 'Graph token request failed: ' . $r['error']; return null; }
-    $j = json_decode($r['body'], true);
-    if ($r['http'] !== 200 || !is_array($j) || trim((string)($j['access_token'] ?? '')) === '') {
-        $detail = is_array($j) ? (string)($j['error_description'] ?? ($j['error'] ?? '')) : (string)$r['body'];
-        $err = 'Graph token rejected (HTTP ' . $r['http'] . '): '
-             . substr(trim(preg_replace('/\s+/', ' ', $detail)), 0, 300);
-        return null;
-    }
-    $cache = [$g['client_id'], $now + max(60, (int)($j['expires_in'] ?? 3600)), (string)$j['access_token']];
-    return $cache[2];
+    $http = $response['http'] ?? null;
+    return is_int($http) && $http >= 100 && $http <= 599 ? $http : null;
 }
 
-function mailer_send_graph(array $g, string $to, string $subject, string $body, ?string &$err = null): bool
+/**
+ * Request an app-only token and return bounded evidence plus the in-process
+ * token. The token is transient and must never be persisted or logged.
+ *
+ * @param null|callable(string,array,string,int):array<string,mixed> $httpPost
+ * @return array{token:string|null,provider_http:int|null,outcome_code:string}
+ */
+function graph_token_result(array $g, ?callable $httpPost = null): array
 {
-    $token = graph_token($g, $err);
-    if ($token === null) return false;
+    static $cache = null; // [tenant_id, client_id, expires_at, token]
+    $now = time();
+    $useCache = $httpPost === null;
+    if ($useCache && is_array($cache)
+        && $cache[0] === $g['tenant_id']
+        && $cache[1] === $g['client_id']
+        && $cache[2] > $now + 60
+    ) {
+        return ['token' => $cache[3], 'provider_http' => 200, 'outcome_code' => 'graph_token_acquired'];
+    }
+
+    $post = $httpPost ?? 'graph_http_post';
+    try {
+        $r = $post(
+            'https://login.microsoftonline.com/' . rawurlencode($g['tenant_id']) . '/oauth2/v2.0/token',
+            ['Content-Type: application/x-www-form-urlencoded'],
+            http_build_query([
+                'grant_type'    => 'client_credentials',
+                'client_id'     => $g['client_id'],
+                'client_secret' => $g['client_secret'],
+                'scope'         => 'https://graph.microsoft.com/.default',
+            ]),
+            20,
+        );
+    } catch (Throwable) {
+        return ['token' => null, 'provider_http' => null, 'outcome_code' => 'graph_token_transport_error'];
+    }
+
+    if (!is_array($r)) {
+        return ['token' => null, 'provider_http' => null, 'outcome_code' => 'graph_token_unknown_response'];
+    }
+    if (array_key_exists('error', $r)) {
+        return ['token' => null, 'provider_http' => null, 'outcome_code' => 'graph_token_transport_error'];
+    }
+    $http = graph_provider_http($r);
+    if ($http === null) {
+        return ['token' => null, 'provider_http' => null, 'outcome_code' => 'graph_token_unknown_response'];
+    }
+    if ($http !== 200) {
+        return ['token' => null, 'provider_http' => $http, 'outcome_code' => 'graph_token_rejected'];
+    }
+
+    $j = json_decode((string)($r['body'] ?? ''), true);
+    $rawToken = is_array($j) ? ($j['access_token'] ?? null) : null;
+    $token = is_string($rawToken) ? trim($rawToken) : '';
+    if ($token === '') {
+        return ['token' => null, 'provider_http' => 200, 'outcome_code' => 'graph_token_invalid_response'];
+    }
+    if ($useCache) {
+        $expiresIn = is_int($j['expires_in'] ?? null) ? $j['expires_in'] : 3600;
+        $cache = [
+            $g['tenant_id'],
+            $g['client_id'],
+            $now + max(60, $expiresIn),
+            $token,
+        ];
+    }
+    return ['token' => $token, 'provider_http' => 200, 'outcome_code' => 'graph_token_acquired'];
+}
+
+/** Turn bounded evidence into a safe legacy error string for mail_queue. */
+function graph_result_error(array $result): string
+{
+    $labels = [
+        'graph_token_rejected' => 'Microsoft Graph token request was rejected',
+        'graph_token_invalid_response' => 'Microsoft Graph token response was invalid',
+        'graph_token_transport_error' => 'Microsoft Graph token service could not be reached',
+        'graph_token_unknown_response' => 'Microsoft Graph token response was unknown',
+        'graph_send_rejected' => 'Microsoft Graph sendMail request was rejected',
+        'graph_send_transport_error' => 'Microsoft Graph sendMail service could not be reached',
+        'graph_send_unknown_response' => 'Microsoft Graph sendMail response was unknown',
+        'graph_payload_invalid' => 'Microsoft Graph message could not be encoded',
+    ];
+    $code = is_string($result['outcome_code'] ?? null) ? $result['outcome_code'] : '';
+    $message = $labels[$code] ?? 'Microsoft Graph mail submission was uncertain';
+    $http = $result['provider_http'] ?? null;
+    if (is_int($http) && $http >= 100 && $http <= 599) $message .= " (HTTP {$http})";
+    return $message . '.';
+}
+
+/** App-only token, cached in-process (cron sends batches per run). */
+function graph_token(array $g, ?string &$err = null, ?callable $httpPost = null): ?string
+{
+    $result = graph_token_result($g, $httpPost);
+    if ($result['token'] !== null) {
+        $err = null;
+        return $result['token'];
+    }
+    $err = graph_result_error($result);
+    return null;
+}
+
+/**
+ * Send through Microsoft Graph and return only approval-safe evidence.
+ * Response bodies, addresses, tokens, credentials, and exception text never
+ * leave this function in its result.
+ *
+ * @param null|callable(string,array,string,int):array<string,mixed> $httpPost
+ * @return array{outcome:string,provider_http:int|null,outcome_code:string}
+ */
+function mailer_send_graph_result(
+    array $g,
+    string $to,
+    string $subject,
+    string $body,
+    ?callable $httpPost = null,
+): array {
+    $tokenResult = graph_token_result($g, $httpPost);
+    $token = $tokenResult['token'];
+    if ($token === null) {
+        return [
+            'outcome' => 'uncertain',
+            'provider_http' => $tokenResult['provider_http'],
+            'outcome_code' => $tokenResult['outcome_code'],
+        ];
+    }
     $msg = [
         'message' => [
             'subject' => $subject,
@@ -114,18 +212,58 @@ function mailer_send_graph(array $g, string $to, string $subject, string $body, 
         ],
         'saveToSentItems' => false,
     ];
-    $r = graph_http_post(
-        'https://graph.microsoft.com/v1.0/users/' . rawurlencode($g['sender']) . '/sendMail',
-        ['Authorization: Bearer ' . $token, 'Content-Type: application/json'],
-        json_encode($msg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-    );
-    if (isset($r['error'])) { $err = 'Graph sendMail failed: ' . $r['error']; return false; }
-    if ($r['http'] !== 202) {
-        $err = 'Graph sendMail rejected (HTTP ' . $r['http'] . '): '
-             . substr(trim(preg_replace('/\s+/', ' ', (string)$r['body'])), 0, 300);
-        return false;
+
+    try {
+        $payload = json_encode(
+            $msg,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+        );
+    } catch (Throwable) {
+        return ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_payload_invalid'];
     }
-    return true;
+
+    $post = $httpPost ?? 'graph_http_post';
+    try {
+        $r = $post(
+            'https://graph.microsoft.com/v1.0/users/' . rawurlencode($g['sender']) . '/sendMail',
+            ['Authorization: Bearer ' . $token, 'Content-Type: application/json'],
+            $payload,
+            20,
+        );
+    } catch (Throwable) {
+        return ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_send_transport_error'];
+    }
+
+    if (!is_array($r)) {
+        return ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_send_unknown_response'];
+    }
+    if (array_key_exists('error', $r)) {
+        return ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_send_transport_error'];
+    }
+    $http = graph_provider_http($r);
+    if ($http === null) {
+        return ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_send_unknown_response'];
+    }
+    if ($http !== 202) {
+        return ['outcome' => 'uncertain', 'provider_http' => $http, 'outcome_code' => 'graph_send_rejected'];
+    }
+    return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+}
+
+function mailer_send_graph(
+    array $g,
+    string $to,
+    string $subject,
+    string $body,
+    ?string &$err = null,
+    ?callable $httpPost = null,
+): bool {
+    $result = mailer_send_graph_result($g, $to, $subject, $body, $httpPost);
+    $accepted = $result['outcome'] === 'submitted'
+        && $result['provider_http'] === 202
+        && $result['outcome_code'] === 'graph_accepted';
+    $err = $accepted ? null : graph_result_error($result);
+    return $accepted;
 }
 
 /** Send one email NOW (used by the dispatch cron). Returns true on success. */

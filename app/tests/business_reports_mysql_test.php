@@ -289,6 +289,33 @@ report_mysql_check('database permits only exact submitted transition evidence',
     $delivery['status'] === 'submitted' && $transportCalls === 1
     && (int)$pdo->query("SELECT COUNT(*) FROM business_report_delivery_attempts
                           WHERE status='submitted' AND provider_http=202 AND outcome_code='graph_accepted'")->fetchColumn() === 1);
+$rejectedGenerated = business_report_generate(
+    $pdo, 'one', 'weekly-one', report_mysql_config(), $testNow, false, true,
+);
+$rejectedArchiveId = (int)$rejectedGenerated['archive']['id'];
+$rejectedDelivery = business_report_deliver(
+    $pdo,
+    $rejectedArchiveId,
+    report_mysql_config(),
+    fn(): array => [
+        'outcome' => 'uncertain',
+        'provider_http' => 403,
+        'outcome_code' => 'graph_send_rejected',
+    ],
+    $testNow,
+);
+report_mysql_check('MySQL preserves definite Graph rejection as safe terminal evidence',
+    $rejectedDelivery['status'] === 'uncertain'
+    && (int)$pdo->query(
+        "SELECT COUNT(*)
+           FROM business_report_delivery_attempts a
+           JOIN business_report_deliveries d
+             ON d.tenant_id=a.tenant_id AND d.id=a.delivery_id
+          WHERE d.archive_id={$rejectedArchiveId}
+            AND a.status='uncertain'
+            AND a.provider_http=403
+            AND a.outcome_code='graph_send_rejected'"
+    )->fetchColumn() === 1);
 report_mysql_throws('terminal delivery cannot be rewritten', PDOException::class,
     fn() => $pdo->exec("UPDATE business_report_deliveries SET status='uncertain' WHERE archive_id={$archiveId}"));
 report_mysql_throws('delivery evidence cannot be deleted', PDOException::class,
