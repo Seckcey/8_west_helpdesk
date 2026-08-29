@@ -947,11 +947,14 @@ try {
             '11234567-89ab-4def-8abc-0123456789ab',
             str_repeat('a', 64),
         ]);
+        $managedResolvedId = id_report_contact_active_customer_id(
+            $pdo,
+            'managed-provider',
+            96,
+        );
         try {
             id_report_contact_fetch_customer(
-                $pdo,
-                'managed-provider',
-                96,
+                $managedResolvedId,
                 [
                     'enabled' => true,
                     'endpoint' => ID_REPORT_CONTACT_ENDPOINT,
@@ -979,8 +982,10 @@ try {
             $managedResolutionStopped = $error->getMessage() === 'managed-customer-resolution-proved';
         }
         id_mysql_check(
-            $managedTransportReached && $managedResolutionStopped,
-            'real MySQL resolves report onboarding through the active Milepost customer UUID',
+            $managedResolvedId === $managedCustomerId
+                && $managedTransportReached
+                && $managedResolutionStopped,
+            'real MySQL resolves once then fetches through the exact active Milepost customer UUID',
         );
     } finally {
         if ($pdo->inTransaction()) $pdo->rollBack();

@@ -94,6 +94,15 @@ order as customer sync. An inactivation cannot race a newly pinned contact,
 opposite lock order cannot deadlock the two workflows, and report preparation
 receives no update authority over Milepost-owned context.
 
+The operator command resolves the active UUID once, passes that exact value to
+the ID contact client, and passes the same value into the transaction recheck;
+the contact client never performs a second binding lookup. After preparation,
+an inactive Milepost binding does not change the immutable customer identity,
+contact evidence, or Safeharbor schedule status. It never automatically disables
+an existing report schedule. Safeharbor owns that operational switch: a human
+owner/admin must inspect the workflow and append an explicit disabled schedule
+version when appropriate.
+
 Migration 017 adds a one-to-one immutable Safeharbor tenant → 8 West ID tenant
 binding and append-only contact snapshots. The disabled schedule and its
 snapshot are committed in one transaction. A repeat of the same current

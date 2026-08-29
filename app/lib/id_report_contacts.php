@@ -607,10 +607,10 @@ function id_report_contact_active_customer_id(
 }
 
 /**
- * Fetch the current contact for one exact active Milepost-managed customer.
- * The local Safeharbor client id is used only to find its immutable suite
- * customer UUID; protected configuration is keyed by that UUID, never by the
- * wipe-sensitive local id, company name, domain, or email address.
+ * Fetch the current contact for one exact Milepost customer UUID already
+ * resolved by the caller. This network client does not query Safeharbor's
+ * binding table: protected configuration is keyed by the supplied UUID, never
+ * by a wipe-sensitive local id, company name, domain, or email address.
  *
  * @param callable(string,list<string>,string,int,int):array<string,mixed>|null $transport
  * @return array{
@@ -620,9 +620,7 @@ function id_report_contact_active_customer_id(
  * }
  */
 function id_report_contact_fetch_customer(
-    PDO $pdo,
-    string $tenantSlug,
-    int $clientId,
+    string $customerId,
     ?array $source = null,
     ?callable $transport = null,
     ?int $now = null,
@@ -632,9 +630,7 @@ function id_report_contact_fetch_customer(
         throw new IdReportContactGateException('8 West ID report-contact lookup is disabled.');
     }
 
-    $customerKey = id_report_contact_customer_key(
-        id_report_contact_active_customer_id($pdo, $tenantSlug, $clientId),
-    );
+    $customerKey = id_report_contact_customer_key($customerId);
     if (!array_key_exists($customerKey, $config['customer_bindings'])) {
         throw new IdReportContactGateException('The exact report-contact customer is not configured.');
     }

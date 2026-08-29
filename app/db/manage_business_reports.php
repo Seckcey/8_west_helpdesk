@@ -252,9 +252,7 @@ try {
             $clientId,
         );
         $contact = id_report_contact_fetch_customer(
-            $pdo,
-            $options['tenant-slug'],
-            $clientId,
+            $customerId,
         );
         $result = business_report_prepare_customer_schedule_from_id(
             $pdo,
