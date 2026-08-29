@@ -20,6 +20,9 @@ const ID_REPORT_CONTACT_UUID_V4 =
 const ID_REPORT_CONTACT_TENANT_KEY = '/\Aewid-t[1-9][0-9]{0,9}\z/D';
 const ID_REPORT_CONTACT_TENANT_SLUG = '/\A[a-z0-9][a-z0-9-]{0,63}\z/D';
 const ID_REPORT_CONTACT_CLIENT_KEY = '/\Asafeharbor-client:[1-9][0-9]{0,9}\z/D';
+const ID_REPORT_CONTACT_CUSTOMER_KEY =
+    '/\Amilepost-customer:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D';
+const ID_REPORT_CONTACT_MASTER_CUSTOMER_ID = '4ebaeefa-b101-47f8-ac76-e49ab309d272';
 
 final class IdReportContactValidationException extends InvalidArgumentException {}
 final class IdReportContactGateException extends RuntimeException {}
@@ -43,6 +46,7 @@ function id_report_contact_tenant_key_valid(string $tenantKey): bool
  *   hmac_secret:string,
  *   tenant_bindings:array<string,string>,
  *   client_bindings:array<string,string>,
+ *   customer_bindings:array<string,string>,
  *   timeout_seconds:int
  * }
  */
@@ -59,6 +63,7 @@ function id_report_contact_config(?array $source = null): array
     $secret = $source['hmac_secret'] ?? '';
     $bindings = $source['tenant_bindings'] ?? [];
     $clientBindings = $source['client_bindings'] ?? [];
+    $customerBindings = $source['customer_bindings'] ?? [];
     $timeout = $source['timeout_seconds'] ?? 10;
     if (!is_bool($enabled)
         || !is_string($endpoint)
@@ -69,6 +74,8 @@ function id_report_contact_config(?array $source = null): array
         || count($bindings) > 64
         || !is_array($clientBindings)
         || count($clientBindings) > 256
+        || !is_array($customerBindings)
+        || count($customerBindings) > 256
         || !is_int($timeout)
         || $timeout < 1
         || $timeout > 30
@@ -105,8 +112,31 @@ function id_report_contact_config(?array $source = null): array
         }
         $normalizedClientBindings[$clientKey] = $tenantKey;
     }
+
+    $normalizedCustomerBindings = [];
+    foreach ($customerBindings as $customerKey => $tenantKey) {
+        if (!is_string($customerKey)
+            || preg_match(ID_REPORT_CONTACT_CUSTOMER_KEY, $customerKey) !== 1
+            || hash_equals(
+                'milepost-customer:' . ID_REPORT_CONTACT_MASTER_CUSTOMER_ID,
+                $customerKey,
+            )
+            || !is_string($tenantKey)
+            || !id_report_contact_tenant_key_valid($tenantKey)
+            || in_array($tenantKey, $normalizedBindings, true)
+            || in_array($tenantKey, $normalizedClientBindings, true)
+            || in_array($tenantKey, $normalizedCustomerBindings, true)
+        ) {
+            throw new IdReportContactValidationException('8 West ID report-contact customer binding is invalid.');
+        }
+        $normalizedCustomerBindings[$customerKey] = $tenantKey;
+    }
     if ($enabled
-        && ($secret === '' || ($normalizedBindings === [] && $normalizedClientBindings === []))
+        && ($secret === '' || (
+            $normalizedBindings === []
+            && $normalizedClientBindings === []
+            && $normalizedCustomerBindings === []
+        ))
     ) {
         throw new IdReportContactValidationException('Enabled 8 West ID report-contact configuration is incomplete.');
     }
@@ -117,6 +147,7 @@ function id_report_contact_config(?array $source = null): array
         'hmac_secret' => $secret,
         'tenant_bindings' => $normalizedBindings,
         'client_bindings' => $normalizedClientBindings,
+        'customer_bindings' => $normalizedCustomerBindings,
         'timeout_seconds' => $timeout,
     ];
 }
@@ -127,6 +158,16 @@ function id_report_contact_client_key(int $clientId): string
         throw new IdReportContactValidationException('Safeharbor report-contact client id is invalid.');
     }
     return 'safeharbor-client:' . $clientId;
+}
+
+function id_report_contact_customer_key(string $customerId): string
+{
+    if (preg_match(ID_REPORT_CONTACT_UUID_V4, $customerId) !== 1
+        || hash_equals(ID_REPORT_CONTACT_MASTER_CUSTOMER_ID, $customerId)
+    ) {
+        throw new IdReportContactValidationException('Milepost report-contact customer id is invalid.');
+    }
+    return 'milepost-customer:' . $customerId;
 }
 
 function id_report_contact_uuid_v4(): string
@@ -529,6 +570,80 @@ function id_report_contact_fetch_client(
     );
 }
 
+/** Resolve one client's exact active Milepost customer UUID without guessing. */
+function id_report_contact_active_customer_id(
+    PDO $pdo,
+    string $tenantSlug,
+    int $clientId,
+): string {
+    if (preg_match(ID_REPORT_CONTACT_TENANT_SLUG, $tenantSlug) !== 1
+        || $clientId < 1
+        || $clientId > 4_294_967_295
+    ) {
+        throw new IdReportContactValidationException('Managed report-contact customer target is invalid.');
+    }
+
+    $statement = $pdo->prepare(
+        "SELECT binding.customer_id
+           FROM tenants tenant
+           JOIN clients client
+             ON client.tenant_id = tenant.id
+            AND client.id = ?
+           JOIN suite_customer_sync_bindings binding
+             ON binding.tenant_id = tenant.id
+            AND binding.client_id = client.id
+            AND binding.status = 'active'
+          WHERE tenant.slug = ?"
+    );
+    $statement->execute([$clientId, $tenantSlug]);
+    $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+    if (count($rows) !== 1 || !is_string($rows[0]['customer_id'] ?? null)) {
+        throw new IdReportContactGateException(
+            'The Safeharbor client has no exact active Milepost customer binding.',
+        );
+    }
+    id_report_contact_customer_key($rows[0]['customer_id']);
+    return $rows[0]['customer_id'];
+}
+
+/**
+ * Fetch the current contact for one exact Milepost customer UUID already
+ * resolved by the caller. This network client does not query Safeharbor's
+ * binding table: protected configuration is keyed by the supplied UUID, never
+ * by a wipe-sensitive local id, company name, domain, or email address.
+ *
+ * @param callable(string,list<string>,string,int,int):array<string,mixed>|null $transport
+ * @return array{
+ *   tenant_key:string,tenant_slug:string,contact_version:int,
+ *   recipient_email:string,generated_at:string,generated_at_db:string,
+ *   request_nonce_sha256:string,response_sha256:string
+ * }
+ */
+function id_report_contact_fetch_customer(
+    string $customerId,
+    ?array $source = null,
+    ?callable $transport = null,
+    ?int $now = null,
+): array {
+    $config = id_report_contact_config($source);
+    if ($config['enabled'] !== true) {
+        throw new IdReportContactGateException('8 West ID report-contact lookup is disabled.');
+    }
+
+    $customerKey = id_report_contact_customer_key($customerId);
+    if (!array_key_exists($customerKey, $config['customer_bindings'])) {
+        throw new IdReportContactGateException('The exact report-contact customer is not configured.');
+    }
+    return id_report_contact_fetch_bound_key(
+        $config['customer_bindings'][$customerKey],
+        null,
+        $config,
+        $transport,
+        $now,
+        $customerKey,
+    );
+}
+
 /**
  * @param array<string,mixed> $config
  * @param callable(string,list<string>,string,int,int):array<string,mixed>|null $transport
@@ -544,14 +659,17 @@ function id_report_contact_fetch_bound_key(
     array $config,
     ?callable $transport = null,
     ?int $now = null,
+    ?string $expectedCustomerKey = null,
 ): array {
     $config = id_report_contact_config($config);
     if ($config['enabled'] !== true) {
         throw new IdReportContactGateException('8 West ID report-contact lookup is disabled.');
     }
-    $configured = $expectedTenantSlug === null
-        ? in_array($tenantKey, $config['client_bindings'], true)
-        : (($config['tenant_bindings'][$expectedTenantSlug] ?? null) === $tenantKey);
+    $configured = $expectedCustomerKey !== null
+        ? (($config['customer_bindings'][$expectedCustomerKey] ?? null) === $tenantKey)
+        : ($expectedTenantSlug === null
+            ? in_array($tenantKey, $config['client_bindings'], true)
+            : (($config['tenant_bindings'][$expectedTenantSlug] ?? null) === $tenantKey));
     if (!$configured) {
         throw new IdReportContactGateException('The exact report-contact binding is not configured.');
     }

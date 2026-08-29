@@ -52,14 +52,19 @@ Milepost is not queried. 8 West ID owns the tenant's current weekly-report
 admin contact and exposes one private, read-only, versioned snapshot to
 Safeharbor during explicit operator onboarding. Safeharbor owns the pinned
 address and contact-version evidence used by its schedule. A customer schedule
-uses an explicit stable `safeharbor-client:<id>` mapping to an ID tenant key;
-names, domains, and email addresses are never mapping inputs. Coastmark is not
-queried and no report action creates, changes, approves, posts, sends, or pays
-an invoice.
+prepared through the new-customer lane uses an explicit
+`milepost-customer:<uuid>` mapping to an ID tenant key. Safeharbor derives that
+key from its exact active Milepost customer binding; the historical
+`safeharbor-client:<id>` lane is refresh-only legacy compatibility: it requires
+an existing client-scoped schedule history and cannot create a new logical
+schedule.
+Names, domains, local database ids, and email addresses are never new-customer
+mapping inputs. Coastmark is not queried and no report action creates, changes,
+approves, posts, sends, or pays an invoice.
 
 The ID lookup is not part of cron, generation, or delivery. Only the explicit
-operator commands `prepare-from-id` and `prepare-client-from-id` load the
-client. They send an
+operator commands `prepare-from-id`, historical `prepare-client-from-id`, and
+new-customer `prepare-customer-from-id` load the client. They send an
 exact HMAC-authenticated POST to
 `https://id.8westit.com/api/svc/report-contact.php`, refuses redirects and
 alternate hosts/paths/ports, bounds the response, verifies the response HMAC,
@@ -73,6 +78,31 @@ the exact protected `safeharbor-client:<id> -> ewid-t<id>` entry. The returned
 ID tenant slug is authenticated output; Safeharbor does not guess it from its
 local tenant or client.
 
+`prepare-customer-from-id` performs the same target proof, then requires one
+exact active `suite_customer_sync_bindings` row for that provider tenant and
+client. It derives `milepost-customer:<uuid>` from that row and resolves only
+the corresponding protected mapping to `ewid-t<id>`. An inactive, missing,
+malformed, cross-tenant, or unconfigured customer is refused before any ID
+request. This is the required lane for new MSP customer onboarding because the
+Milepost UUID survives Safeharbor database replacement while a local client id
+does not. Milepost customer `4ebaeefa-b101-47f8-ac76-e49ab309d272` is the
+reserved 8 West IT master record and is refused in this customer lane; the MSP's
+own weekly report continues through tenant-scoped `prepare-from-id`. After the
+network lookup, schedule preparation locks and rechecks the same active UUID in
+its database transaction with shared read locks in the same tenant-then-binding
+order as customer sync. An inactivation cannot race a newly pinned contact,
+opposite lock order cannot deadlock the two workflows, and report preparation
+receives no update authority over Milepost-owned context.
+
+The operator command resolves the active UUID once, passes that exact value to
+the ID contact client, and passes the same value into the transaction recheck;
+the contact client never performs a second binding lookup. After preparation,
+an inactive Milepost binding does not change the immutable customer identity,
+contact evidence, or Safeharbor schedule status. It never automatically disables
+an existing report schedule. Safeharbor owns that operational switch: a human
+owner/admin must inspect the workflow and append an explicit disabled schedule
+version when appropriate.
+
 Migration 017 adds a one-to-one immutable Safeharbor tenant → 8 West ID tenant
 binding and append-only contact snapshots. The disabled schedule and its
 snapshot are committed in one transaction. A repeat of the same current
@@ -80,7 +110,12 @@ contact version and exact schedule is a no-op; a version rollback, binding
 change, or same-version/different-address response conflicts. The old manual
 `prepare --recipient-email=...` command remains for compatibility, but new MSP
 tenant onboarding uses `prepare-from-id`; customer onboarding uses
-`prepare-client-from-id`.
+`prepare-customer-from-id`. Existing local-id schedules retain their immutable
+historical evidence and do not migrate implicitly; the legacy local-id command
+technically refuses a new schedule history. Once a client has a Milepost
+managed-customer binding, neither the manual nor tenant-contact lane can create
+a new non-master schedule for it; only the stable-customer command can. The
+reserved 8 West IT master record remains on the tenant-contact lane.
 
 Migration 019 adds separate client-binding and client-contact-snapshot tables
 plus one immutable `(tenant_id, schedule_key)` contact-scope registry. The
@@ -201,6 +236,7 @@ Fresh and production configuration must begin with:
     'hmac_secret' => '',
     'tenant_bindings' => [],
     'client_bindings' => [],
+    'customer_bindings' => [],
     'timeout_seconds' => 10,
 ],
 
@@ -227,8 +263,10 @@ Activation requires all of these independently:
 3. a disabled schedule prepared from the authenticated 8 West ID tenant
    contact for one exact tenant, client, timezone, weekday, local time, and
    canary flag;
-4. the exact schedule key, tenant slug, `safeharbor-client:<id>`, and
-   normalized recipient in protected configuration allowlists;
+4. the exact `milepost-customer:<uuid> -> ewid-t<id>` contact mapping for new
+   customers (or the historical local-id contact mapping for an existing
+   schedule), plus the exact schedule key, tenant slug, local schedule client,
+   and normalized recipient in the separate execution allowlists;
 5. an explicit appended `active` schedule version;
 6. `generation_enabled=true` before archive generation; and
 7. a normalized, lowercase `business_reports.graph_sender` for a dedicated
@@ -310,7 +348,7 @@ php app/db/manage_business_reports.php prepare-from-id \
   --delivery-local-time=09:00:00 --canary=1 \
   --actor-user-id=USER --reason='Prepare controlled canary'
 
-php app/db/manage_business_reports.php prepare-client-from-id \
+php app/db/manage_business_reports.php prepare-customer-from-id \
   --tenant-slug=PROVIDER --schedule-key=KEY --client-id=CLIENT \
   --definition-id=DEFINITION \
   --timezone=America/Los_Angeles --delivery-weekday=3 \
@@ -347,9 +385,10 @@ php app/db/run_business_report.php --tenant-slug=TENANT \
 ```
 
 The canonical commands obtain the address from an exact protected
-`id_report_contacts.tenant_bindings` or `client_bindings` entry; an operator
-never passes or copies the address on the command line. The CLI never echoes
-the recipient address, secret, or report body. `submitted` must be
+`id_report_contacts.tenant_bindings`, historical `client_bindings`, or stable
+`customer_bindings` entry; an operator never passes or copies the address on
+the command line. The CLI never echoes the recipient address, secret, or
+report body. `submitted` must be
 reported to operators as provider acceptance only. Recipient confirmation is a
 separate acceptance fact.
 

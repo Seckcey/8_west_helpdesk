@@ -163,6 +163,10 @@ $schema = [
     'CREATE TABLE tenants (id INTEGER PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE)',
     'CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, role TEXT NOT NULL, is_active INTEGER NOT NULL)',
     'CREATE TABLE clients (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL, UNIQUE(tenant_id,id))',
+    'CREATE TABLE suite_customer_sync_bindings (
+        tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
+        customer_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL,
+        UNIQUE(tenant_id,client_id))',
     'CREATE TABLE business_report_definition_versions (
         id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
         definition_key TEXT NOT NULL, version_no INTEGER NOT NULL, report_type TEXT NOT NULL,
@@ -249,7 +253,12 @@ $schema = [
 foreach ($schema as $statement) $pdo->exec($statement);
 
 $pdo->exec("INSERT INTO tenants VALUES (1,'Tenant One','one'),(2,'Tenant Two','two')");
-$pdo->exec("INSERT INTO clients VALUES (11,1,'Client One'),(12,1,'Client Twelve'),(22,2,'Client Two')");
+$pdo->exec("INSERT INTO clients VALUES
+    (11,1,'Client One'),(12,1,'Client Twelve'),(13,1,'Client Thirteen'),
+    (14,1,'Client Fourteen'),(22,2,'Client Two')");
+$pdo->exec("INSERT INTO suite_customer_sync_bindings VALUES
+    (1,12,'01234567-89ab-4def-8abc-0123456789ab','active'),
+    (1,13,'4ebaeefa-b101-47f8-ac76-e49ab309d272','active')");
 $pdo->exec("INSERT INTO users VALUES
     (101,1,'owner',1),(102,1,'admin',1),(103,1,'tech',1),(104,1,'admin',0),(201,2,'owner',1)");
 
@@ -729,6 +738,238 @@ report_check(
         && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_bindings')->fetchColumn() === 1
         && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
 );
+$legacyRefreshTarget = business_report_legacy_client_refresh_target(
+    $pdo,
+    'one',
+    'client-scoped-id-weekly',
+    11,
+    (int)$definition['definition']['id'],
+    101,
+);
+report_check(
+    'legacy local-id contact lane can refresh only its exact existing client schedule',
+    (int)$legacyRefreshTarget['tenant_id'] === 1
+        && (int)$legacyRefreshTarget['client_id'] === 11,
+);
+report_throws(
+    'legacy local-id contact lane cannot create a new schedule history',
+    BusinessReportGateException::class,
+    fn() => business_report_legacy_client_refresh_target(
+        $pdo,
+        'one',
+        'new-local-id-bypass',
+        11,
+        (int)$definition['definition']['id'],
+        101,
+    ),
+    'stable customer onboarding',
+);
+report_throws(
+    'legacy local-id contact lane cannot enter tenant-scoped schedule history',
+    BusinessReportGateException::class,
+    fn() => business_report_legacy_client_refresh_target(
+        $pdo,
+        'one',
+        'id-client-weekly',
+        11,
+        (int)$definition['definition']['id'],
+        101,
+    ),
+    'client-scoped',
+);
+report_throws(
+    'manual address cannot create a new schedule for a Milepost-managed customer',
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_schedule(
+        $pdo,
+        'one',
+        'managed-manual-bypass',
+        12,
+        (int)$definition['definition']['id'],
+        'manual@example.test',
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'manual managed-customer bypass',
+    ),
+    'stable customer onboarding',
+);
+report_throws(
+    'tenant contact lane cannot create a new non-master managed-customer schedule',
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-tenant-bypass',
+        12,
+        (int)$definition['definition']['id'],
+        $newIdContact,
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'tenant managed-customer bypass',
+    ),
+    'stable customer onboarding',
+);
+$masterTenantPrepared = business_report_prepare_schedule_from_id(
+    $pdo,
+    'one',
+    'master-tenant-weekly',
+    13,
+    (int)$definition['definition']['id'],
+    $newIdContact,
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    '8 West IT tenant-scope report',
+);
+report_check(
+    '8 West IT master record keeps the tenant-scoped weekly-report lane',
+    $masterTenantPrepared['action'] === 'prepared'
+        && $masterTenantPrepared['schedule']['status'] === 'disabled'
+        && (int)$masterTenantPrepared['schedule']['client_id'] === 13,
+);
+report_check(
+    'managed-customer bypass refusals leave no schedule history',
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM business_report_schedule_versions
+          WHERE schedule_key IN ('managed-manual-bypass','managed-tenant-bypass')"
+    )->fetchColumn() === 0,
+);
+
+$managedCustomerId = '01234567-89ab-4def-8abc-0123456789ab';
+$managedCustomerContact = array_replace($clientIdContact, [
+    'tenant_key' => 'ewid-t50',
+    'tenant_slug' => 'managed-customer',
+    'recipient_email' => 'managed-admin@example.test',
+    'request_nonce_sha256' => str_repeat('7', 64),
+    'response_sha256' => str_repeat('8', 64),
+]);
+$managedPrepared = business_report_prepare_customer_schedule_from_id(
+    $pdo,
+    'one',
+    'managed-customer-id-weekly',
+    12,
+    (int)$definition['definition']['id'],
+    $managedCustomerId,
+    $managedCustomerContact,
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'stable customer ID canary',
+);
+report_check(
+    'managed-customer prepare locks the active Milepost UUID through evidence commit',
+    $managedPrepared['action'] === 'prepared'
+        && (int)$managedPrepared['schedule']['client_id'] === 12
+        && (int)$managedPrepared['id_contact']['client_id'] === 12
+        && (string)$managedPrepared['id_contact']['id_tenant_key'] === 'ewid-t50',
+);
+$managedReplay = business_report_prepare_customer_schedule_from_id(
+    $pdo,
+    'one',
+    'managed-customer-id-weekly',
+    12,
+    (int)$definition['definition']['id'],
+    $managedCustomerId,
+    array_replace($managedCustomerContact, [
+        'request_nonce_sha256' => str_repeat('9', 64),
+        'response_sha256' => str_repeat('a', 64),
+    ]),
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'stable customer exact replay',
+);
+report_check(
+    'managed-customer exact replay keeps one disabled schedule and one snapshot',
+    $managedReplay['action'] === 'ignored'
+        && (int)$managedReplay['schedule']['id'] === (int)$managedPrepared['schedule']['id'],
+);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=12");
+report_throws(
+    'managed-customer preparation refuses an inactivated source binding before writing',
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-inactive',
+        12,
+        (int)$definition['definition']['id'],
+        $managedCustomerId,
+        $managedCustomerContact,
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'inactive customer refusal',
+    ),
+    'binding changed',
+);
+report_check(
+    'inactive customer refusal leaves no schedule scope or version',
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM business_report_contact_scope_bindings
+          WHERE schedule_key='managed-customer-inactive'"
+    )->fetchColumn() === 0
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM business_report_schedule_versions
+              WHERE schedule_key='managed-customer-inactive'"
+        )->fetchColumn() === 0,
+);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE client_id=12");
+report_throws(
+    'managed-customer preparation refuses a different permanent UUID',
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-wrong-id',
+        12,
+        (int)$definition['definition']['id'],
+        '11234567-89ab-4def-8abc-0123456789ab',
+        $managedCustomerContact,
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'wrong customer refusal',
+    ),
+    'binding changed',
+);
+report_throws(
+    '8 West IT master UUID cannot enter a customer-scoped report schedule',
+    BusinessReportValidationException::class,
+    fn() => business_report_prepare_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-master',
+        12,
+        (int)$definition['definition']['id'],
+        BUSINESS_REPORT_MASTER_CUSTOMER_ID,
+        $managedCustomerContact,
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'master customer refusal',
+    ),
+    'non-master',
+);
+
 $clientIdReplay = business_report_prepare_client_schedule_from_id(
     $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
     array_replace($clientIdContact, [
@@ -741,7 +982,9 @@ report_check(
     'exact client-scoped prepare replay is idempotent',
     $clientIdReplay['action'] === 'ignored'
         && (int)$clientIdReplay['schedule']['id'] === (int)$clientIdPrepared['schedule']['id']
-        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+        && (int)$pdo->query(
+            'SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE client_id=11'
+        )->fetchColumn() === 1,
 );
 report_throws(
     'client-scoped contact version cannot name another recipient',
@@ -767,7 +1010,9 @@ report_check(
     'new client contact version appends disabled schedule and evidence',
     (int)$clientIdV2['schedule']['version_no'] === 2
         && (int)$clientIdV2['id_contact']['contact_version'] === 2
-        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 2,
+        && (int)$pdo->query(
+            'SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE client_id=11'
+        )->fetchColumn() === 2,
 );
 $clientIdEnabled = business_report_transition_schedule(
     $pdo,
@@ -936,7 +1181,7 @@ report_throws(
     'one ID tenant cannot be reused by another Safeharbor client',
     BusinessReportConflictException::class,
     fn() => business_report_prepare_client_schedule_from_id(
-        $pdo, 'one', 'client-twelve-key', 12, (int)$definition['definition']['id'],
+        $pdo, 'one', 'client-fourteen-key', 14, (int)$definition['definition']['id'],
         $clientIdContact, 'UTC', 3, '09:00:00', true, 101, 'ID tenant reuse',
     ),
     'different Safeharbor client',

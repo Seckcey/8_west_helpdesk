@@ -5,6 +5,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(1);
 
 require_once __DIR__ . '/../lib/business_reports.php';
+require_once __DIR__ . '/../lib/id_report_contacts.php';
 
 /** Isolated second connection used only by the deterministic lock race below. */
 function id_mysql_snapshot_worker(): void
@@ -188,11 +189,108 @@ function id_mysql_binding_worker(): void
     }
 }
 
+/** Full prepare-path worker racing an uncommitted customer inactivation. */
+function id_mysql_customer_prepare_worker(): void
+{
+    $host = getenv('SAFEHARBOR_ID_REPORT_TEST_HOST');
+    $port = getenv('SAFEHARBOR_ID_REPORT_TEST_PORT');
+    $database = getenv('SAFEHARBOR_ID_REPORT_TEST_DB_EXACT');
+    $user = getenv('SAFEHARBOR_ID_REPORT_TEST_RUNTIME_USER');
+    $pass = getenv('SAFEHARBOR_ID_REPORT_TEST_RUNTIME_PASS');
+    $definitionId = getenv('SAFEHARBOR_ID_REPORT_TEST_DEFINITION_ID');
+    $customerId = getenv('SAFEHARBOR_ID_REPORT_TEST_CUSTOMER_ID');
+    $readyFile = getenv('SAFEHARBOR_ID_REPORT_TEST_READY_FILE');
+    $readyDirectory = is_string($readyFile) ? realpath(dirname($readyFile)) : false;
+    $temporaryDirectory = realpath(sys_get_temp_dir());
+    if (!is_string($host) || !in_array($host, ['127.0.0.1', 'localhost', '::1'], true)
+        || !is_string($port) || preg_match('/\A[0-9]{1,5}\z/D', $port) !== 1
+        || (int)$port < 1 || (int)$port > 65535
+        || !is_string($database)
+        || preg_match('/\Asafeharbor_id_report_test(?:_[a-z0-9_]+)?_[0-9a-f]{12}\z/D', $database) !== 1
+        || !is_string($user) || preg_match('/\Aid_report_[0-9a-f]{12}\z/D', $user) !== 1
+        || !is_string($pass) || preg_match('/\A[0-9a-f]{48}\z/D', $pass) !== 1
+        || !is_string($definitionId) || preg_match('/\A[1-9][0-9]{0,9}\z/D', $definitionId) !== 1
+        || !is_string($customerId)
+        || preg_match(BUSINESS_REPORT_MILEPOST_CUSTOMER_UUID, $customerId) !== 1
+        || !is_string($readyFile)
+        || preg_match('/\Asafeharbor-id-customer-race-[0-9a-f]{12}\.ready\z/D', basename($readyFile)) !== 1
+        || !is_string($readyDirectory) || !is_string($temporaryDirectory)
+        || strcasecmp($readyDirectory, $temporaryDirectory) !== 0
+    ) {
+        fwrite(STDERR, "CUSTOMER_WORKER_INPUT_REFUSED\n");
+        exit(2);
+    }
+    register_shutdown_function(static function () use ($readyFile): void {
+        if (is_file($readyFile)) @unlink($readyFile);
+    });
+
+    $pdo = null;
+    try {
+        $pdo = new PDO(
+            "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4",
+            $user,
+            $pass,
+            [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+            ],
+        );
+        $pdo->exec("SET time_zone = '+00:00'");
+        $pdo->exec('SET SESSION innodb_lock_wait_timeout = 5');
+        if (file_put_contents($readyFile, 'ready', LOCK_EX) !== 5) {
+            throw new RuntimeException('Cannot create customer-race readiness marker.');
+        }
+        fwrite(STDOUT, "READY\n");
+        fflush(STDOUT);
+        business_report_prepare_customer_schedule_from_id(
+            $pdo,
+            'race-provider',
+            'customer-inactivation-race',
+            31,
+            (int)$definitionId,
+            $customerId,
+            [
+                'tenant_key' => 'ewid-t31',
+                'tenant_slug' => 'race-customer',
+                'contact_version' => 1,
+                'recipient_email' => 'race-admin@example.test',
+                'generated_at' => '2026-08-29T12:00:00Z',
+                'generated_at_db' => '2026-08-29 12:00:00',
+                'request_nonce_sha256' => str_repeat('c', 64),
+                'response_sha256' => str_repeat('d', 64),
+            ],
+            'UTC',
+            1,
+            '09:00:00',
+            true,
+            301,
+            'customer inactivation race',
+        );
+        fwrite(STDERR, "CUSTOMER_WORKER_UNEXPECTED_PREPARE\n");
+        exit(1);
+    } catch (BusinessReportGateException $error) {
+        if (str_contains(strtolower($error->getMessage()), 'binding changed')) {
+            fwrite(STDOUT, "REFUSED\n");
+            exit(0);
+        }
+        fwrite(STDERR, "CUSTOMER_WORKER_WRONG_GATE\n");
+        exit(1);
+    } catch (Throwable) {
+        if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
+        fwrite(STDERR, "CUSTOMER_WORKER_FAILED\n");
+        exit(1);
+    }
+}
+
 if (getenv('SAFEHARBOR_ID_REPORT_TEST_WORKER') === '1') {
     id_mysql_snapshot_worker();
 }
 if (getenv('SAFEHARBOR_ID_REPORT_TEST_BINDING_WORKER') === '1') {
     id_mysql_binding_worker();
+}
+if (getenv('SAFEHARBOR_ID_REPORT_TEST_CUSTOMER_WORKER') === '1') {
+    id_mysql_customer_prepare_worker();
 }
 
 $disposableServer = getenv('SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER');
@@ -674,6 +772,110 @@ function id_mysql_run_binding_race(PDO $runtime, array $workerEnvironment): arra
     }
 }
 
+/**
+ * Commit a valid inactive customer event while the full prepare worker waits
+ * behind the production tenant→binding source lock order. The worker must
+ * wake, re-read inactive, and refuse without leaving report scope, schedule,
+ * binding, or contact evidence.
+ *
+ * @param array<string,string> $workerEnvironment
+ * @return array{blocked:bool,exit_code:int,stdout:list<string>,stderr_empty:bool}
+ */
+function id_mysql_run_customer_prepare_race(PDO $owner, array $workerEnvironment): array
+{
+    $readyFile = $workerEnvironment['SAFEHARBOR_ID_REPORT_TEST_READY_FILE'] ?? '';
+    if (!is_string($readyFile) || is_file($readyFile)) {
+        throw new RuntimeException('Customer race readiness marker is unsafe.');
+    }
+    $process = null;
+    $pipes = [];
+    $mainCommitted = false;
+    try {
+        $owner->beginTransaction();
+        $tenantLock = $owner->query(
+            "SELECT id FROM tenants WHERE id=31 AND slug='race-provider' FOR UPDATE"
+        );
+        if ((int)$tenantLock->fetchColumn() !== 31) {
+            throw new RuntimeException('Customer race could not lock the exact tenant first.');
+        }
+        $update = $owner->prepare(
+            "UPDATE suite_customer_sync_bindings
+                SET source_version=2, status='inactive', last_event_id=?,
+                    last_occurred_at=UTC_TIMESTAMP(), last_request_sha256=?
+              WHERE tenant_id=31 AND client_id=31 AND source_version=1"
+        );
+        $update->execute([
+            '51234567-89ab-4def-8abc-0123456789ab',
+            str_repeat('b', 64),
+        ]);
+        if ($update->rowCount() !== 1) {
+            throw new RuntimeException('Customer race could not stage exact inactivation.');
+        }
+
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $process = proc_open([PHP_BINARY, __FILE__], $descriptors, $pipes, null, $workerEnvironment);
+        if (!is_resource($process)) throw new RuntimeException('Cannot start customer race worker.');
+        fclose($pipes[0]);
+        unset($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+
+        $readyDeadline = microtime(true) + 5.0;
+        $status = proc_get_status($process);
+        while (!is_file($readyFile) && microtime(true) < $readyDeadline) {
+            $status = proc_get_status($process);
+            if (!$status['running']) break;
+            usleep(20_000);
+        }
+        if (!is_file($readyFile)) {
+            throw new RuntimeException('Customer race worker did not become ready.');
+        }
+        usleep(250_000);
+        $status = proc_get_status($process);
+        $blocked = (bool)$status['running'];
+        if (!$blocked) {
+            throw new RuntimeException('Customer prepare did not block behind the source transaction.');
+        }
+
+        $owner->commit();
+        $mainCommitted = true;
+        $exitDeadline = microtime(true) + 6.0;
+        while ($status['running'] && microtime(true) < $exitDeadline) {
+            usleep(20_000);
+            $status = proc_get_status($process);
+        }
+        if ($status['running']) throw new RuntimeException('Customer race worker timed out.');
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        $exitCode = (int)$status['exitcode'];
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $pipes = [];
+        $closedExitCode = proc_close($process);
+        $process = null;
+        if ($exitCode < 0) $exitCode = $closedExitCode;
+        return [
+            'blocked' => $blocked,
+            'exit_code' => $exitCode,
+            'stdout' => preg_split('/\R/', trim($stdout)) ?: [],
+            'stderr_empty' => trim($stderr) === '',
+        ];
+    } finally {
+        if (is_resource($process)) {
+            $status = proc_get_status($process);
+            if ($status['running']) proc_terminate($process);
+            foreach ($pipes as $pipe) if (is_resource($pipe)) fclose($pipe);
+            proc_close($process);
+        }
+        if (!$mainCommitted && $owner->inTransaction()) $owner->rollBack();
+        if (is_file($readyFile)) @unlink($readyFile);
+    }
+}
+
 $quotedDatabase = '`' . str_replace('`', '``', $database) . '`';
 $runtimeUser = 'id_report_' . $runId;
 $runtimePass = bin2hex(random_bytes(24));
@@ -722,6 +924,72 @@ try {
             && id_mysql_contact_scope_trigger_contract($pdo) === $freshContactScopeTriggerContract,
         'fresh schema replays twice with the exact same twelve scope enforcement triggers',
     );
+
+    // Exercise the stable-customer resolver against real MySQL 8 tables and
+    // joins. The transport deliberately stops after proving that the exact
+    // active Milepost customer UUID, rather than the local client id, selected
+    // the configured ID tenant key. The transaction is rolled back in full.
+    $managedCustomerId = '01234567-89ab-4def-8abc-0123456789ab';
+    $managedTransportReached = false;
+    $managedResolutionStopped = false;
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (96,'Managed Customer Tenant','managed-provider')");
+        $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (96,96,'Managed Customer')");
+        $managedBinding = $pdo->prepare(
+            "INSERT INTO suite_customer_sync_bindings
+                (tenant_id,customer_id,client_id,source_version,display_name,status,
+                 last_event_id,last_occurred_at,last_request_sha256)
+             VALUES (96,?,96,1,'Managed Customer','active',?,UTC_TIMESTAMP(),?)"
+        );
+        $managedBinding->execute([
+            $managedCustomerId,
+            '11234567-89ab-4def-8abc-0123456789ab',
+            str_repeat('a', 64),
+        ]);
+        $managedResolvedId = id_report_contact_active_customer_id(
+            $pdo,
+            'managed-provider',
+            96,
+        );
+        try {
+            id_report_contact_fetch_customer(
+                $managedResolvedId,
+                [
+                    'enabled' => true,
+                    'endpoint' => ID_REPORT_CONTACT_ENDPOINT,
+                    'hmac_secret' => str_repeat('b', 64),
+                    'tenant_bindings' => [],
+                    'client_bindings' => [],
+                    'customer_bindings' => [
+                        'milepost-customer:' . $managedCustomerId => 'ewid-t96',
+                    ],
+                    'timeout_seconds' => 10,
+                ],
+                static function (
+                    string $endpoint,
+                    array $headers,
+                    string $body,
+                    int $timeout,
+                    int $maxBytes,
+                ) use (&$managedTransportReached): array {
+                    $managedTransportReached = true;
+                    throw new RuntimeException('managed-customer-resolution-proved');
+                },
+                1_800_000_000,
+            );
+        } catch (RuntimeException $error) {
+            $managedResolutionStopped = $error->getMessage() === 'managed-customer-resolution-proved';
+        }
+        id_mysql_check(
+            $managedResolvedId === $managedCustomerId
+                && $managedTransportReached
+                && $managedResolutionStopped,
+            'real MySQL resolves once then fetches through the exact active Milepost customer UUID',
+        );
+    } finally {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+    }
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
     try {
         $pdo->exec(
@@ -2359,6 +2627,82 @@ id_mysql_check(
 id_mysql_check(
     $raceRecipients === ['race-a@example.test'],
     'two-connection race commits only the serialized winner recipient',
+);
+
+$customerRaceId = '31234567-89ab-4def-8abc-0123456789ab';
+$pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (31,'Race Provider','race-provider')");
+$pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (31,31,'Race Customer')");
+$pdo->exec("INSERT INTO users
+    (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
+    (301,31,'race-owner@example.test','','Race Owner','RO','owner',1)");
+$customerRaceDefinition = business_report_publish_definition(
+    $pdo,
+    'race-provider',
+    301,
+    'customer source-row race definition',
+);
+$customerRaceBinding = $pdo->prepare(
+    "INSERT INTO suite_customer_sync_bindings
+        (tenant_id,customer_id,client_id,source_version,display_name,status,
+         last_event_id,last_occurred_at,last_request_sha256)
+     VALUES (31,?,31,1,'Race Customer','active',?,UTC_TIMESTAMP(),?)"
+);
+$customerRaceBinding->execute([
+    $customerRaceId,
+    '41234567-89ab-4def-8abc-0123456789ab',
+    str_repeat('a', 64),
+]);
+$customerRaceReadyFile = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
+    . DIRECTORY_SEPARATOR . 'safeharbor-id-customer-race-' . $runId . '.ready';
+$customerRaceEnvironment = [
+    'SAFEHARBOR_ID_REPORT_TEST_CUSTOMER_WORKER' => '1',
+    'SAFEHARBOR_ID_REPORT_TEST_HOST' => $host,
+    'SAFEHARBOR_ID_REPORT_TEST_PORT' => (string)$port,
+    'SAFEHARBOR_ID_REPORT_TEST_DB_EXACT' => $database,
+    'SAFEHARBOR_ID_REPORT_TEST_RUNTIME_USER' => $runtimeUser,
+    'SAFEHARBOR_ID_REPORT_TEST_RUNTIME_PASS' => $runtimePass,
+    'SAFEHARBOR_ID_REPORT_TEST_DEFINITION_ID' => (string)$customerRaceDefinition['definition']['id'],
+    'SAFEHARBOR_ID_REPORT_TEST_CUSTOMER_ID' => $customerRaceId,
+    'SAFEHARBOR_ID_REPORT_TEST_READY_FILE' => $customerRaceReadyFile,
+];
+foreach (['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR'] as $environmentName) {
+    $environmentValue = getenv($environmentName);
+    if (is_string($environmentValue) && $environmentValue !== '') {
+        $customerRaceEnvironment[$environmentName] = $environmentValue;
+    }
+}
+$customerRace = id_mysql_run_customer_prepare_race($pdo, $customerRaceEnvironment);
+id_mysql_check(
+    $customerRace['blocked'],
+    'full managed-customer prepare blocks behind tenant-first source inactivation',
+);
+id_mysql_check(
+    $customerRace['exit_code'] === 0
+        && $customerRace['stdout'] === ['READY', 'REFUSED']
+        && $customerRace['stderr_empty'],
+    'blocked prepare wakes only to refuse the now-inactive customer binding',
+);
+id_mysql_check(
+    $pdo->query(
+        "SELECT CONCAT(source_version, ':', status, ':',
+          (SELECT COUNT(*) FROM suite_customer_sync_events
+            WHERE tenant_id=31 AND customer_id='{$customerRaceId}'))
+           FROM suite_customer_sync_bindings
+          WHERE tenant_id=31 AND client_id=31"
+    )->fetchColumn() === '2:inactive:2',
+    'concurrent inactivation commits one ordered receipt and remains authoritative at prepare commit',
+);
+id_mysql_check(
+    $pdo->query(
+        "SELECT CONCAT(
+          (SELECT COUNT(*) FROM business_report_schedule_versions
+            WHERE tenant_id=31 AND schedule_key='customer-inactivation-race'), ':',
+          (SELECT COUNT(*) FROM business_report_contact_scope_bindings
+            WHERE tenant_id=31 AND schedule_key='customer-inactivation-race'), ':',
+          (SELECT COUNT(*) FROM business_report_id_client_bindings WHERE tenant_id=31), ':',
+          (SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE tenant_id=31))"
+    )->fetchColumn() === '0:0:0:0',
+    'refused customer race leaves no partial report schedule or ID evidence',
 );
 } catch (Throwable $error) {
     $runError = $error;

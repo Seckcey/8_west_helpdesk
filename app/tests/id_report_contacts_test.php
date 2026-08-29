@@ -53,6 +53,7 @@ function id_report_config(array $overrides = []): array
         'hmac_secret' => str_repeat('a', 64),
         'tenant_bindings' => ['8west' => 'ewid-t1'],
         'client_bindings' => ['safeharbor-client:14' => 'ewid-t4'],
+        'customer_bindings' => [],
         'timeout_seconds' => 10,
     ], $overrides);
 }
@@ -131,17 +132,19 @@ $dark = id_report_contact_config([
     'hmac_secret' => '',
     'tenant_bindings' => [],
     'client_bindings' => [],
+    'customer_bindings' => [],
     'timeout_seconds' => 10,
 ]);
 id_report_check(
     $dark['enabled'] === false
         && $dark['tenant_bindings'] === []
-        && $dark['client_bindings'] === [],
+        && $dark['client_bindings'] === []
+        && $dark['customer_bindings'] === [],
     'default-off config changed',
 );
 foreach ([
     ['enabled' => true, 'hmac_secret' => ''],
-    ['enabled' => true, 'tenant_bindings' => [], 'client_bindings' => []],
+    ['enabled' => true, 'tenant_bindings' => [], 'client_bindings' => [], 'customer_bindings' => []],
     ['enabled' => 1],
     ['endpoint' => 'http://id.8westit.com/api/svc/report-contact.php'],
     ['endpoint' => 'https://evil.example/api/svc/report-contact.php'],
@@ -160,6 +163,23 @@ foreach ([
         'safeharbor-client:14' => 'ewid-t4',
         'safeharbor-client:15' => 'ewid-t4',
     ]],
+    ['customer_bindings' => ['customer:01234567-89ab-4def-8abc-0123456789ab' => 'ewid-t5']],
+    ['customer_bindings' => ['milepost-customer:01234567-89AB-4def-8abc-0123456789ab' => 'ewid-t5']],
+    ['customer_bindings' => ['milepost-customer:01234567-89ab-4def-8abc-0123456789ab' => 'ewid-t1']],
+    ['customer_bindings' => ['milepost-customer:01234567-89ab-4def-8abc-0123456789ab' => 'ewid-t4']],
+    [
+        'client_bindings' => [],
+        'customer_bindings' => [
+            'milepost-customer:' . ID_REPORT_CONTACT_MASTER_CUSTOMER_ID => 'ewid-t5',
+        ],
+    ],
+    [
+        'client_bindings' => [],
+        'customer_bindings' => [
+            'milepost-customer:01234567-89ab-4def-8abc-0123456789ab' => 'ewid-t5',
+            'milepost-customer:11234567-89ab-4def-8abc-0123456789ab' => 'ewid-t5',
+        ],
+    ],
     ['timeout_seconds' => 31],
 ] as $override) {
     id_report_refuses(
@@ -215,6 +235,91 @@ id_report_check(
         && $clientSnapshot['contact_version'] === 7
         && $clientSnapshot['recipient_email'] === 'admin@example.test',
     'client binding did not return the exact authenticated ID tenant snapshot',
+);
+
+$customerId = '01234567-89ab-4def-8abc-0123456789ab';
+$customerKey = id_report_contact_customer_key($customerId);
+id_report_check(
+    $customerKey === 'milepost-customer:' . $customerId,
+    'Milepost customer binding key changed',
+);
+id_report_refuses(
+    static fn() => id_report_contact_customer_key(ID_REPORT_CONTACT_MASTER_CUSTOMER_ID),
+    '8 West IT master customer was accepted in the customer-report lane',
+);
+$customerPdo = new PDO('sqlite::memory:');
+$customerPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$customerPdo->exec('CREATE TABLE tenants (id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE)');
+$customerPdo->exec('CREATE TABLE clients (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+$customerPdo->exec(
+    'CREATE TABLE suite_customer_sync_bindings (
+        tenant_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL,
+        customer_id TEXT NOT NULL,
+        status TEXT NOT NULL
+    )'
+);
+$customerPdo->exec("INSERT INTO tenants (id, slug) VALUES (1, '8west')");
+$customerPdo->exec('INSERT INTO clients (id, tenant_id) VALUES (14, 1)');
+$customerPdo->prepare(
+    'INSERT INTO suite_customer_sync_bindings
+        (tenant_id, client_id, customer_id, status) VALUES (1, 14, ?, ?)'
+)->execute([$customerId, 'active']);
+$customerConfig = id_report_config([
+    'client_bindings' => [],
+    'customer_bindings' => [$customerKey => 'ewid-t4'],
+]);
+$resolvedCustomerId = id_report_contact_active_customer_id($customerPdo, '8west', 14);
+id_report_check(
+    $resolvedCustomerId === $customerId,
+    'active customer resolver did not return the exact permanent UUID',
+);
+$customerSnapshot = id_report_contact_fetch_customer(
+    $resolvedCustomerId,
+    $customerConfig,
+    id_report_transport(),
+    1_800_000_000,
+);
+id_report_check(
+    $customerSnapshot['tenant_key'] === 'ewid-t4'
+        && $customerSnapshot['tenant_slug'] === '8-west-lifestyle'
+        && $customerSnapshot['contact_version'] === 7
+        && $customerSnapshot['recipient_email'] === 'admin@example.test',
+    'stable Milepost customer binding did not return the exact ID contact',
+);
+id_report_refuses(
+    static fn() => id_report_contact_active_customer_id(
+        $customerPdo,
+        '8west',
+        15,
+    ),
+    'client without a managed-customer binding was accepted',
+);
+id_report_refuses(
+    static fn() => id_report_contact_active_customer_id(
+        $customerPdo,
+        'other',
+        14,
+    ),
+    'managed customer binding escaped its Safeharbor tenant',
+);
+$customerPdo->exec("UPDATE suite_customer_sync_bindings SET status = 'inactive'");
+id_report_refuses(
+    static fn() => id_report_contact_active_customer_id(
+        $customerPdo,
+        '8west',
+        14,
+    ),
+    'inactive managed customer was accepted for report onboarding',
+);
+$customerPdo->exec("UPDATE suite_customer_sync_bindings SET status = 'active'");
+id_report_refuses(
+    static fn() => id_report_contact_fetch_customer(
+        $customerId,
+        id_report_config(['client_bindings' => [], 'customer_bindings' => []]),
+        id_report_transport(),
+    ),
+    'unconfigured managed customer was accepted',
 );
 
 id_report_refuses(
@@ -281,22 +386,53 @@ id_report_check(
         && ($sampleBlock['endpoint'] ?? null) === ID_REPORT_CONTACT_ENDPOINT
         && ($sampleBlock['hmac_secret'] ?? null) === ''
         && ($sampleBlock['tenant_bindings'] ?? null) === []
-        && ($sampleBlock['client_bindings'] ?? null) === [],
+        && ($sampleBlock['client_bindings'] ?? null) === []
+        && ($sampleBlock['customer_bindings'] ?? null) === [],
     'sample configuration is not dark, empty, and exact-host pinned',
 );
 $manager = (string)file_get_contents(__DIR__ . '/../db/manage_business_reports.php');
 $runner = (string)file_get_contents(__DIR__ . '/../db/run_business_report.php');
 $cron = (string)file_get_contents(__DIR__ . '/../cron/business_reports.php');
+$contactLibrary = (string)file_get_contents(__DIR__ . '/../lib/id_report_contacts.php');
+$customerFetchFunctionStart = strpos(
+    $contactLibrary,
+    'function id_report_contact_fetch_customer(',
+);
+$boundFetchFunctionStart = strpos(
+    $contactLibrary,
+    'function id_report_contact_fetch_bound_key(',
+);
+$customerFetchFunction = is_int($customerFetchFunctionStart)
+    && is_int($boundFetchFunctionStart)
+    && $boundFetchFunctionStart > $customerFetchFunctionStart
+    ? substr(
+        $contactLibrary,
+        $customerFetchFunctionStart,
+        $boundFetchFunctionStart - $customerFetchFunctionStart,
+    )
+    : '';
+id_report_check(
+    str_contains($customerFetchFunction, 'string $customerId')
+        && !str_contains($customerFetchFunction, 'PDO $pdo')
+        && !str_contains($customerFetchFunction, 'id_report_contact_active_customer_id(')
+        && substr_count($customerFetchFunction, 'id_report_contact_customer_key($customerId)') === 1,
+    'customer contact fetch performs another Safeharbor binding lookup',
+);
 id_report_check(
     substr_count($manager, 'id_report_contact_fetch(') === 1
         && substr_count($manager, 'id_report_contact_fetch_client(') === 1
+        && substr_count($manager, 'id_report_contact_fetch_customer(') === 1
         && str_contains($manager, "if (\$command === 'prepare-from-id')")
         && str_contains($manager, "if (\$command === 'prepare-client-from-id')")
+        && str_contains($manager, "if (\$command === 'prepare-customer-from-id')")
+        && str_contains($manager, 'business_report_legacy_client_refresh_target(')
         && str_contains($manager, 'business_report_contact_scope_for_key(')
         && str_contains($manager, 'CONTACT_SCOPE=MANUAL')
-        && strpos($manager, 'business_report_schedule_target(')
-            < strpos($manager, 'id_report_contact_fetch_client('),
-    'operator prepare commands are not the only two network-call boundaries',
+        && strpos($manager, 'business_report_legacy_client_refresh_target(')
+            < strpos($manager, 'id_report_contact_fetch_client(')
+        && strrpos($manager, 'business_report_schedule_target(')
+            < strpos($manager, 'id_report_contact_fetch_customer('),
+    'operator prepare commands are not the only three network-call boundaries',
 );
 id_report_check(
     !str_contains($runner, 'id_report_contact')
@@ -311,14 +447,32 @@ id_report_check(
 );
 $tenantPrepareStart = strpos($manager, "if (\$command === 'prepare-from-id')");
 $clientPrepareStart = strpos($manager, "if (\$command === 'prepare-client-from-id')");
+$customerPrepareStart = strpos($manager, "if (\$command === 'prepare-customer-from-id')");
 $transitionStart = strpos($manager, "if (\$command === 'enable' || \$command === 'disable')");
 $tenantPrepareBlock = is_int($tenantPrepareStart) && is_int($clientPrepareStart)
     && $clientPrepareStart > $tenantPrepareStart
     ? substr($manager, $tenantPrepareStart, $clientPrepareStart - $tenantPrepareStart)
     : '';
-$clientPrepareBlock = is_int($clientPrepareStart) && is_int($transitionStart)
-    && $transitionStart > $clientPrepareStart
-    ? substr($manager, $clientPrepareStart, $transitionStart - $clientPrepareStart)
+$clientPrepareBlock = is_int($clientPrepareStart) && is_int($customerPrepareStart)
+    && $customerPrepareStart > $clientPrepareStart
+    ? substr($manager, $clientPrepareStart, $customerPrepareStart - $clientPrepareStart)
+    : '';
+$customerPrepareBlock = is_int($customerPrepareStart) && is_int($transitionStart)
+    && $transitionStart > $customerPrepareStart
+    ? substr($manager, $customerPrepareStart, $transitionStart - $customerPrepareStart)
+    : '';
+$customerFetchCallStart = strpos($customerPrepareBlock, 'id_report_contact_fetch_customer(');
+$customerFetchCallEnd = is_int($customerFetchCallStart)
+    ? strpos($customerPrepareBlock, ');', $customerFetchCallStart)
+    : false;
+$customerFetchCall = is_int($customerFetchCallStart)
+    && is_int($customerFetchCallEnd)
+    && $customerFetchCallEnd > $customerFetchCallStart
+    ? substr(
+        $customerPrepareBlock,
+        $customerFetchCallStart,
+        $customerFetchCallEnd - $customerFetchCallStart + 2,
+    )
     : '';
 id_report_check(
     substr_count(
@@ -335,6 +489,28 @@ id_report_check(
     ) === 1
         && !str_contains($clientPrepareBlock, 'BUSINESS_REPORT_CONTACT_SCOPE_TENANT'),
     'prepare-client-from-id CLI receipt does not report its exact client contact scope',
+);
+id_report_check(
+    strpos($clientPrepareBlock, 'business_report_legacy_client_refresh_target(')
+        < strpos($clientPrepareBlock, 'id_report_contact_fetch_client('),
+    'legacy client-id command can make a network request before proving existing schedule history',
+);
+id_report_check(
+    substr_count(
+        $customerPrepareBlock,
+        "report_cli_emit_id_contact(\$result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);",
+    ) === 1
+        && !str_contains($customerPrepareBlock, 'BUSINESS_REPORT_CONTACT_SCOPE_TENANT')
+        && strpos($customerPrepareBlock, 'business_report_schedule_target(')
+            < strpos($customerPrepareBlock, 'id_report_contact_active_customer_id(')
+        && strpos($customerPrepareBlock, 'id_report_contact_active_customer_id(')
+            < strpos($customerPrepareBlock, 'id_report_contact_fetch_customer(')
+        && substr_count($customerPrepareBlock, 'id_report_contact_active_customer_id(') === 1
+        && str_contains($customerFetchCall, '$customerId')
+        && !str_contains($customerFetchCall, '$pdo')
+        && str_contains($customerPrepareBlock, 'business_report_prepare_customer_schedule_from_id(')
+        && str_contains($customerPrepareBlock, '$customerId,'),
+    'prepare-customer-from-id does not prove and report its exact client contact scope',
 );
 
 if ($idReportFailures > 0) {

@@ -117,7 +117,11 @@ client.
    and immutable receipt, but it does not rename the retained client. It does
    not delete, retarget, rewrite, or resolve a ticket. It preserves technician
    time, service-goal snapshots/deadlines, contacts, portal history, report
-   history, and all other Safeharbor facts.
+   history, and all other Safeharbor facts. The permanent `customer_id` remains
+   the same. Inactivity never appends a disabled report-schedule version or
+   otherwise changes schedule status; Safeharbor owns that switch, and a human
+   owner/admin must explicitly disable the Safeharbor schedule when the service
+   workflow calls for it.
 4. A later sequential `active` version may reactivate the binding and rename
    the same client. This is still the same source customer and local client.
 5. Replaying the exact event id and exact raw body returns the original
