@@ -30,6 +30,21 @@ jobs:
         run: find app -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Test suite authentication policy
         run: php app/tests/suite_auth_policy_test.php
+      - name: Test suite authorization-session revocation
+        run: php app/tests/suite_revocation_test.php
+      - name: Test suite admission before database writes
+        env:
+          SAFEHARBOR_SSO_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_SSO_TEST_DB: safeharbor_sso_test
+          SAFEHARBOR_SSO_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_SSO_TEST_PORT: 3306
+          SAFEHARBOR_SSO_TEST_USER: root
+          SAFEHARBOR_SSO_TEST_PASS: safeharbor-test-root
+        run: |
+          test ! -e app/config/config.php
+          cp app/config/config.sample.php app/config/config.php
+          trap 'rm -f app/config/config.php' EXIT
+          php app/tests/suite_sso_test.php
       - name: Test central suite logout
         run: php app/tests/suite_logout_test.php
       - name: Test suite token algorithms

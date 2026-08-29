@@ -16,6 +16,7 @@ require_once __DIR__ . '/jwt.php';
 require_once __DIR__ . '/suite_auth_policy.php';
 require_once __DIR__ . '/suite_roles.php';
 require_once __DIR__ . '/suite_preferences.php';
+require_once __DIR__ . '/suite_revocation_policy.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_set_cookie_params([
@@ -36,7 +37,13 @@ function current_user(): ?array
         // Repair old sessions and keep every tenant-scoped helper bound to
         // the authenticated database row instead of tenant 1 fallback.
         $_SESSION['tenant_id'] = (int)$user['tenant_id'];
-        suite_sso_refresh_claims();
+        suite_sso_refresh_claims((string)($user['suite_subject'] ?? ''));
+        if ((string)($user['suite_subject'] ?? '') !== '') {
+            // Centralize the check here so API handlers that resolve their
+            // session directly cannot accidentally bypass require_login().
+            require_once __DIR__ . '/revocation.php';
+            enforce_revocation($user);
+        }
     }
     return $user;
 }
@@ -58,12 +65,18 @@ function suite_sso_claims(): ?array
  * updated at id.8westit.com), refresh the session copies. Render uses them
  * to apply the theme and show the central avatar. Cheap: one HMAC per request.
  */
-function suite_sso_refresh_claims(): void
+function suite_sso_refresh_claims(?string $expectedSubject = null): void
 {
     $claims = suite_sso_claims();
     if ($claims === null) return;
+    $claimSubject = (string)($claims['sub'] ?? '');
+    if ($expectedSubject !== null
+        && $expectedSubject !== ''
+        && ! hash_equals($expectedSubject, $claimSubject)) {
+        return;
+    }
     $preferencesSig = json_encode($claims['8west:preferences'] ?? null);
-    $etag = $claims['sub'] . '|' . ($claims['8west:theme'] ?? '') . '|'
+    $etag = $claimSubject . '|' . ($claims['8west:theme'] ?? '') . '|'
         . ($claims['8west:avatar'] ?? '') . '|' . (string)$preferencesSig . '|' . ($claims['exp'] ?? '');
     if (($_SESSION['suite_claims_etag'] ?? '') === $etag) return;
     $_SESSION['suite_claims_etag'] = $etag;
@@ -80,12 +93,6 @@ function require_login(): array
     $user = current_user();
     if (!$user && suite_sso_attempt()) {
         $user = current_user();
-    }
-    if ($user) {
-        // Disabled at 8 West ID means disabled here, now — not whenever this
-        // app's own session happens to end. Cached, so this is a file read.
-        require_once __DIR__ . '/revocation.php';
-        enforce_revocation($user);
     }
     if (!$user) {
         $next = $_SERVER['REQUEST_URI'] ?? '/';
@@ -128,6 +135,11 @@ function suite_sso_attempt(): bool
     if ($claims === null) return suite_sso_refuse($reason ?? 'token_rejected');
 
     $subject = trim((string)($claims['sub'] ?? ''));
+    $hasSessionVersion = array_key_exists('8west:session_version', $claims);
+    $sessionVersion = $claims['8west:session_version'] ?? null;
+    if ($hasSessionVersion && ! suite_session_version_valid($sessionVersion)) {
+        return suite_sso_refuse('session_version_invalid', $subject);
+    }
 
     $policyMode = suite_mfa_policy_mode(cfg('suite.mfa_policy_mode', 'report'));
     $policy = $policyMode === 'off'
@@ -172,6 +184,31 @@ function suite_sso_attempt(): bool
     $localRole = safeharbor_suite_local_role($suiteRole, $slug);
     if ($localRole === null) {
         return suite_sso_refuse('role_not_admitted', $subject);
+    }
+
+    if (! suite_revocation_subject_valid($subject)) {
+        return suite_sso_refuse('subject_invalid', $subject);
+    }
+
+    // Admission must be authorized before tenant creation, subject backfill,
+    // user provisioning, role sync, session creation, or last-login writes.
+    // Existing sessions deliberately ride through an issuer outage; a new
+    // local session does not, because it has no previously authorized state.
+    require_once __DIR__ . '/revocation.php';
+    $authorizationSnapshot = revocation_list();
+    if ($authorizationSnapshot === null) {
+        return suite_sso_refuse('authorization_feed_unavailable', $subject);
+    }
+    $authorizationDecision = suite_revocation_decision(
+        $authorizationSnapshot,
+        $subject,
+        $sessionVersion,
+    );
+    if ($authorizationDecision['action'] !== 'allow') {
+        return suite_sso_refuse(
+            'authorization_' . $authorizationDecision['reason'],
+            $subject,
+        );
     }
 
     $stmt = db()->prepare('SELECT id FROM tenants WHERE slug = ?');
@@ -237,6 +274,14 @@ function suite_sso_attempt(): bool
     $_SESSION['user_id'] = (int)$user['id'];
     $_SESSION['tenant_id'] = $tenantId;
     $_SESSION['suite_mfa_policy'] = $policy['compliant'] ? 'compliant' : $policy['reason'];
+    if ($hasSessionVersion) {
+        $_SESSION['suite_session_version'] = $sessionVersion;
+    } else {
+        // Consumer-first compatibility: legacy cookies remain usable while
+        // the signed feed is still revoked-only. An authoritative new feed
+        // will require this value and request a fresh sign-in if it is absent.
+        unset($_SESSION['suite_session_version']);
+    }
     db()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([(int)$user['id']]);
     return true;
 }
@@ -252,6 +297,7 @@ function attempt_login(string $email, string $password): bool
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];
     $_SESSION['tenant_id'] = (int)$user['tenant_id'];
+    unset($_SESSION['suite_session_version']);
     db()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([(int)$user['id']]);
     return true;
 }

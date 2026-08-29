@@ -14,8 +14,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 $user = current_user();
 if (!$user && suite_sso_attempt()) $user = current_user();
 if (!$user) json_out(['ok' => false, 'error' => 'Unauthorized'], 401);
-require_once __DIR__ . '/../../lib/revocation.php';
-enforce_revocation($user);
 csrf_check();
 
 if (!in_array((string) ($user['role'] ?? ''), TIME_ENTRY_APPROVAL_ROLES, true)) {

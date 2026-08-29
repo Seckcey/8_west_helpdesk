@@ -52,6 +52,12 @@ return [
         'token_algorithms' => ['RS256'],
         'jwks_url' => 'https://id.8westit.com/.well-known/jwks.json',
         'jwks_cache_path' => '/tmp/safeharbor-ewid-jwks.json',
+        // Private, release-independent cache. The directory must be owned by
+        // the web user and mode 0700; the cache file is written mode 0600.
+        'revocation_cache_path' => '/srv/8west/apps/safeharbor/shared/suite-revocations/snapshot-v3.json',
+        // compat during consumer-first rollout; strict after the ID v2 feed
+        // is accepted. Unknown values fail closed.
+        'session_version_mode' => 'compat',
         // off | report | enforce. Keep report until the suite-wide rollout gate.
         'mfa_policy_mode' => 'report',
         'mfa_max_age' => 2592000,
