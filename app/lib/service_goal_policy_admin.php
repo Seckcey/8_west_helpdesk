@@ -184,6 +184,36 @@ function service_goal_policy_version_targets(PDO $pdo, int $tenantId, int $versi
     return $query->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/** @return list<array<string,mixed>> */
+function service_goal_policy_versions(
+    PDO $pdo,
+    int $tenantId,
+    string $policyKey,
+    bool $forUpdate = false,
+): array {
+    if ($tenantId < 1) {
+        throw new ServiceGoalPolicyValidationException('Tenant id must be positive.');
+    }
+    $policyKey = service_goal_policy_key($policyKey);
+    $query = $pdo->prepare(
+        'SELECT * FROM service_goal_policy_versions
+          WHERE tenant_id = ? AND policy_key = ?
+          ORDER BY version_no'
+        . service_goal_policy_for_update($pdo, $forUpdate),
+    );
+    $query->execute([$tenantId, $policyKey]);
+    $versions = $query->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($versions as &$version) {
+        $version['targets'] = service_goal_policy_version_targets(
+            $pdo,
+            $tenantId,
+            (int) $version['id'],
+        );
+    }
+    unset($version);
+    return $versions;
+}
+
 /** @return array<string,mixed>|null */
 function service_goal_policy_latest(
     PDO $pdo,
@@ -191,17 +221,11 @@ function service_goal_policy_latest(
     string $policyKey,
     bool $forUpdate = false,
 ): ?array {
-    $query = $pdo->prepare(
-        'SELECT * FROM service_goal_policy_versions
-          WHERE tenant_id = ? AND policy_key = ?
-          ORDER BY version_no DESC LIMIT 1'
-        . service_goal_policy_for_update($pdo, $forUpdate),
-    );
-    $query->execute([$tenantId, service_goal_policy_key($policyKey)]);
-    $policy = $query->fetch(PDO::FETCH_ASSOC);
-    if (! is_array($policy)) return null;
-    $policy['targets'] = service_goal_policy_version_targets($pdo, $tenantId, (int) $policy['id']);
-    return $policy;
+    $policyKey = service_goal_policy_key($policyKey);
+    $versions = service_goal_policy_versions($pdo, $tenantId, $policyKey, $forUpdate);
+    service_goal_policy_verify_history($versions, $tenantId, $policyKey);
+    if ($versions === []) return null;
+    return $versions[array_key_last($versions)];
 }
 
 /** Refuse to publish on top of malformed or incomplete immutable history. */
@@ -237,6 +261,87 @@ function service_goal_policy_verify_version(array $policy): void
         ) {
             throw new ServiceGoalPolicyGateException('Current policy targets are incomplete or unsupported.');
         }
+    }
+}
+
+/**
+ * Refuse to inspect or extend a policy when any immutable predecessor drifted.
+ *
+ * @param list<array<string,mixed>> $versions
+ */
+function service_goal_policy_verify_history(
+    array $versions,
+    int $tenantId,
+    string $policyKey,
+): void {
+    if ($tenantId < 1) {
+        throw new ServiceGoalPolicyValidationException('Tenant id must be positive.');
+    }
+    $policyKey = service_goal_policy_key($policyKey);
+    $expectedVersion = 1;
+    $previousEffective = null;
+    $baselineMinutes = (int) SERVICE_GOAL_DEFAULT_POLICIES[$policyKey]['first_response_minutes'];
+
+    foreach ($versions as $policy) {
+        if ((int) ($policy['id'] ?? 0) < 1
+            || (int) ($policy['tenant_id'] ?? 0) !== $tenantId
+            || (string) ($policy['policy_key'] ?? '') !== $policyKey
+            || (int) ($policy['version_no'] ?? 0) !== $expectedVersion
+        ) {
+            throw new ServiceGoalPolicyGateException(
+                'Policy history is not one exact tenant-scoped sequential chain.',
+            );
+        }
+        service_goal_policy_verify_version($policy);
+
+        $effective = (string) ($policy['effective_from'] ?? '');
+        $effectiveTimestamp = service_goal_timestamp($effective);
+        if ($effectiveTimestamp === null
+            || gmdate('Y-m-d H:i:s', $effectiveTimestamp) !== $effective
+            || ($previousEffective !== null && $effectiveTimestamp <= $previousEffective)
+        ) {
+            throw new ServiceGoalPolicyGateException(
+                'Policy history effective times are invalid or do not move forward.',
+            );
+        }
+
+        $actorId = $policy['created_by_user_id'] ?? null;
+        $reason = $policy['reason'] ?? null;
+        if ($expectedVersion === 1) {
+            if ($effective !== '1970-01-01 00:00:00'
+                || $actorId !== null
+                || $reason !== null
+            ) {
+                throw new ServiceGoalPolicyGateException(
+                    'Policy v1 is not the exact unattributed lazy baseline.',
+                );
+            }
+            foreach ($policy['targets'] as $target) {
+                if ((int) $target['first_response_minutes'] !== $baselineMinutes) {
+                    throw new ServiceGoalPolicyGateException(
+                        'Policy v1 targets do not match the exact lazy baseline.',
+                    );
+                }
+            }
+        } else {
+            if ((int) $actorId < 1 || ! is_string($reason)) {
+                throw new ServiceGoalPolicyGateException(
+                    'Later policy history is missing immutable actor or reason attribution.',
+                );
+            }
+            try {
+                service_goal_policy_reason($reason);
+            } catch (ServiceGoalPolicyValidationException $error) {
+                throw new ServiceGoalPolicyGateException(
+                    'Later policy history contains an invalid immutable reason.',
+                    0,
+                    $error,
+                );
+            }
+        }
+
+        $previousEffective = $effectiveTimestamp;
+        $expectedVersion++;
     }
 }
 
@@ -496,20 +601,8 @@ function service_goal_policy_inspect(PDO $pdo, string $tenantSlug, string $polic
 {
     $tenant = service_goal_policy_tenant($pdo, $tenantSlug);
     $policyKey = service_goal_policy_key($policyKey);
-    $query = $pdo->prepare(
-        'SELECT * FROM service_goal_policy_versions
-          WHERE tenant_id = ? AND policy_key = ? ORDER BY version_no',
-    );
-    $query->execute([$tenant['id'], $policyKey]);
-    $versions = $query->fetchAll(PDO::FETCH_ASSOC);
-    foreach ($versions as &$version) {
-        $version['targets'] = service_goal_policy_version_targets(
-            $pdo,
-            $tenant['id'],
-            (int) $version['id'],
-        );
-    }
-    unset($version);
+    $versions = service_goal_policy_versions($pdo, $tenant['id'], $policyKey);
+    service_goal_policy_verify_history($versions, $tenant['id'], $policyKey);
     return [
         'tenant' => $tenant,
         'policy_key' => $policyKey,
@@ -581,8 +674,11 @@ function service_goal_policy_history(
                 $tenantId,
                 (int) $version['id'],
             );
-            service_goal_policy_verify_version($version);
+        }
+        unset($version);
+        service_goal_policy_verify_history($versions, $tenantId, $policyKey);
 
+        foreach ($versions as &$version) {
             $effectiveTimestamp = service_goal_timestamp($version['effective_from'] ?? null);
             if ($effectiveTimestamp === null) {
                 throw new ServiceGoalPolicyGateException(

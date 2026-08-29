@@ -43,14 +43,21 @@ php db/manage_service_goals.php publish [the exact plan options] \
   --plan-sha256=the-lowercase-digest-returned-by-plan
 ```
 
-`inspect` and `plan` do not write. `plan` returns canonical JSON plus its
-SHA-256. `publish` begins a transaction, locks the exact tenant, actor, and
-latest policy row, rechecks the actor's active owner/admin status, expected
-current version, and future effective time, recomputes the canonical plan, and
-refuses unless the digest is identical. It then inserts one version and all four
-targets, re-reads the exact persisted facts, and commits. Any target failure,
-digest change, stale version, or concurrent winner rolls the full transaction
-back. The CLI never calls the session-based `tenant_id()` fallback.
+`inspect` and `plan` do not write. Both validate the complete immutable chain,
+not only its newest row: exact tenant/key ownership, the unattributed v1
+baseline, sequential versions, strictly increasing UTC effective times,
+supported semantics, later-version attribution, and four canonical targets per
+version must all agree. A damaged predecessor therefore blocks inspection and
+publication instead of becoming a foundation for another version.
+
+`plan` returns canonical JSON plus its SHA-256. `publish` begins a transaction,
+locks the exact tenant, actor, and policy-version chain, rechecks the actor's
+active owner/admin status, expected current version, complete history, and
+future effective time, recomputes the canonical plan, and refuses unless the
+digest is identical. It then inserts one version and all four targets, re-reads
+the exact persisted facts, and commits. Any target failure, digest change,
+stale version, damaged predecessor, or concurrent winner rolls the full
+transaction back. The CLI never calls the session-based `tenant_id()` fallback.
 
 The effective time and response minutes are business decisions. Migration and
 code deployment deliberately create no v2 policy and do not supply placeholder
@@ -77,7 +84,9 @@ action. In particular, it never calls the lazy v1 initializer; a tenant with no
 policy rows sees an empty history and a read causes no write. It states the
 currently supported behavior exactly: elapsed UTC first-response time, no
 waiting pause, no resolution goal, and no business-calendar claim. Ticket
-snapshots remain unchanged.
+snapshots remain unchanged. Before rendering, it applies the same complete
+immutable-chain verification as the operator path and returns an unavailable
+state rather than displaying internally inconsistent history.
 
 ## Database invariants
 
@@ -126,7 +135,9 @@ and CSRF enforcement.
 Before deployment:
 
 1. Run PHP lint plus the hermetic service-goal, publication, ticket-producer,
-   identity, time, portal, and report suites.
+   identity, time, portal, and report suites. The publication suite must prove
+   that `inspect`, `plan`, and the staff history view all refuse a damaged older
+   version even when the newest version is otherwise valid.
 2. Run the destructive-name-guarded disposable MySQL suite. It must replay
    fresh schema and the migration, exercise the migration-010 upgrade path,
    verify actor/check/trigger shapes, refuse adversarial same-name drift, prove
