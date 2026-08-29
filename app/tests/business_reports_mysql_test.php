@@ -165,13 +165,13 @@ report_mysql_check('all twenty-one report triggers are installed',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_business_report_%'"
-    )->fetchColumn() === 29);
+    )->fetchColumn() === 21);
 report_mysql_check('all report relationships are tenant-scoped',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.table_constraints
           WHERE constraint_schema=DATABASE() AND constraint_type='FOREIGN KEY'
             AND table_name LIKE 'business_report_%'"
-    )->fetchColumn() === 21);
+    )->fetchColumn() === 29);
 report_mysql_check('exact JSON bytes use LONGTEXT rather than native JSON normalization',
     $pdo->query(
         "SELECT CONCAT(table_name,':',column_type) FROM information_schema.columns
