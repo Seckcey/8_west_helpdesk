@@ -13,6 +13,9 @@ const BUSINESS_REPORT_TYPE = 'weekly_client_service_summary';
 const BUSINESS_REPORT_DEFINITION_KEY = 'weekly-client-service-summary';
 const BUSINESS_REPORT_CONTRACT_VERSION = 1;
 const BUSINESS_REPORT_MAX_DUE_SCHEDULES = 100;
+const BUSINESS_REPORT_CONTACT_SCOPE_MANUAL = 'MANUAL';
+const BUSINESS_REPORT_CONTACT_SCOPE_TENANT = 'TENANT';
+const BUSINESS_REPORT_CONTACT_SCOPE_CLIENT = 'CLIENT';
 
 class BusinessReportException extends RuntimeException {}
 final class BusinessReportValidationException extends BusinessReportException {}
@@ -467,6 +470,24 @@ function business_report_id_contact_for_schedule(
 }
 
 /** @return array<string,mixed>|null */
+function business_report_id_client_contact_for_schedule(
+    PDO $pdo,
+    int $tenantId,
+    int $scheduleVersionId,
+    bool $forUpdate = false,
+): ?array {
+    $sql = 'SELECT * FROM business_report_id_client_contact_snapshots
+             WHERE tenant_id = ? AND schedule_version_id = ? LIMIT 1';
+    if ($forUpdate && $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+        $sql .= ' FOR UPDATE';
+    }
+    $query = $pdo->prepare($sql);
+    $query->execute([$tenantId, $scheduleVersionId]);
+    $row = $query->fetch(PDO::FETCH_ASSOC);
+    return is_array($row) ? $row : null;
+}
+
+/** @return array<string,mixed>|null */
 function business_report_latest_id_contact_for_key(
     PDO $pdo,
     int $tenantId,
@@ -486,6 +507,130 @@ function business_report_latest_id_contact_for_key(
     return is_array($row) ? $row : null;
 }
 
+/** @return array<string,mixed>|null */
+function business_report_latest_id_client_contact_for_key(
+    PDO $pdo,
+    int $tenantId,
+    string $scheduleKey,
+): ?array {
+    $query = $pdo->prepare(
+        'SELECT evidence.*
+           FROM business_report_id_client_contact_snapshots evidence
+           JOIN business_report_schedule_versions schedule
+             ON schedule.tenant_id = evidence.tenant_id
+            AND schedule.id = evidence.schedule_version_id
+          WHERE evidence.tenant_id = ? AND schedule.schedule_key = ?
+          ORDER BY schedule.version_no DESC LIMIT 1'
+    );
+    $query->execute([$tenantId, $scheduleKey]);
+    $row = $query->fetch(PDO::FETCH_ASSOC);
+    return is_array($row) ? $row : null;
+}
+
+/**
+ * Return the one contact scope inherited by the complete logical schedule
+ * history. Enable/disable versions intentionally carry no duplicate evidence,
+ * so the newest evidence-bearing version remains authoritative.
+ *
+ * @return array{scope:string,evidence:array<string,mixed>|null}|null
+ */
+function business_report_contact_scope_for_key(
+    PDO $pdo,
+    int $tenantId,
+    string $scheduleKey,
+): ?array {
+    $scheduleKey = business_report_schedule_key($scheduleKey);
+    $history = $pdo->prepare(
+        'SELECT COUNT(*) FROM business_report_schedule_versions
+          WHERE tenant_id = ? AND schedule_key = ?'
+    );
+    $history->execute([$tenantId, $scheduleKey]);
+    $historyCount = (int)$history->fetchColumn();
+
+    $scopeQuery = $pdo->prepare(
+        'SELECT contact_scope FROM business_report_contact_scope_bindings
+          WHERE tenant_id = ? AND schedule_key = ?'
+    );
+    $scopeQuery->execute([$tenantId, $scheduleKey]);
+    $scope = $scopeQuery->fetchColumn();
+    if ($historyCount === 0 && $scope === false) return null;
+    if ($historyCount === 0 || !is_string($scope)) {
+        throw new BusinessReportGateException(
+            'The report schedule contact-scope registry does not match its history.',
+        );
+    }
+
+    $tenantEvidence = business_report_latest_id_contact_for_key($pdo, $tenantId, $scheduleKey);
+    $clientEvidence = business_report_latest_id_client_contact_for_key($pdo, $tenantId, $scheduleKey);
+    if ($scope === BUSINESS_REPORT_CONTACT_SCOPE_MANUAL) {
+        if (is_array($tenantEvidence) || is_array($clientEvidence)) {
+            throw new BusinessReportGateException(
+                'The manual report contact scope has unexpected ID evidence.',
+            );
+        }
+        return ['scope' => $scope, 'evidence' => null];
+    }
+    if ($scope === BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+        && is_array($tenantEvidence)
+        && !is_array($clientEvidence)
+    ) {
+        return ['scope' => $scope, 'evidence' => $tenantEvidence];
+    }
+    if ($scope === BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+        && is_array($clientEvidence)
+        && !is_array($tenantEvidence)
+    ) {
+        return ['scope' => $scope, 'evidence' => $clientEvidence];
+    }
+    if (!in_array($scope, [
+        BUSINESS_REPORT_CONTACT_SCOPE_MANUAL,
+        BUSINESS_REPORT_CONTACT_SCOPE_TENANT,
+        BUSINESS_REPORT_CONTACT_SCOPE_CLIENT,
+    ], true)) {
+        throw new BusinessReportGateException(
+            'The report schedule contact scope is invalid.',
+        );
+    }
+    throw new BusinessReportGateException(
+        'The report schedule contact scope does not match its immutable evidence.',
+    );
+}
+
+/** @param array<string,mixed> $schedule */
+function business_report_assert_schedule_contact_evidence(PDO $pdo, array $schedule): void
+{
+    $tenantId = (int)($schedule['tenant_id'] ?? 0);
+    $scheduleKey = business_report_schedule_key((string)($schedule['schedule_key'] ?? ''));
+    $recipient = (string)($schedule['recipient_email'] ?? '');
+    $clientId = (int)($schedule['client_id'] ?? 0);
+    if ($tenantId < 1 || $clientId < 1 || $recipient === '') {
+        throw new BusinessReportGateException('The report schedule contact evidence target is invalid.');
+    }
+    $contactScope = business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey);
+    if (!is_array($contactScope)) {
+        throw new BusinessReportGateException('The report schedule contact scope was not found.');
+    }
+    if ($contactScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_MANUAL) return;
+
+    $evidence = $contactScope['evidence'] ?? null;
+    if ($contactScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+        && is_array($evidence)
+        && (string)($evidence['recipient_email'] ?? '') === $recipient
+    ) {
+        return;
+    }
+    if ($contactScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+        && is_array($evidence)
+        && (int)($evidence['client_id'] ?? 0) === $clientId
+        && (string)($evidence['recipient_email'] ?? '') === $recipient
+    ) {
+        return;
+    }
+    throw new BusinessReportGateException(
+        'The report schedule recipient and client do not match the latest immutable ID contact evidence.',
+    );
+}
+
 /**
  * Validate the authenticated, redaction-safe snapshot returned by the
  * operator-only 8 West ID client before it reaches a transaction.
@@ -496,9 +641,9 @@ function business_report_latest_id_contact_for_key(
  *   request_nonce_sha256:string,response_sha256:string
  * }
  */
-function business_report_id_contact_validate(array $snapshot, string $tenantSlug): array
+function business_report_id_contact_validate(array $snapshot, ?string $expectedIdTenantSlug): array
 {
-    business_report_slug($tenantSlug);
+    if ($expectedIdTenantSlug !== null) business_report_slug($expectedIdTenantSlug);
     $keys = array_keys($snapshot);
     sort($keys, SORT_STRING);
     $expected = [
@@ -511,7 +656,10 @@ function business_report_id_contact_validate(array $snapshot, string $tenantSlug
         || filter_var(substr($snapshot['tenant_key'], 6), FILTER_VALIDATE_INT, [
             'options' => ['min_range' => 1, 'max_range' => 4_294_967_295],
         ]) === false
-        || ($snapshot['tenant_slug'] ?? null) !== $tenantSlug
+        || !is_string($snapshot['tenant_slug'] ?? null)
+        || preg_match('/\A[a-z0-9][a-z0-9-]{0,63}\z/D', $snapshot['tenant_slug']) !== 1
+        || ($expectedIdTenantSlug !== null
+            && $snapshot['tenant_slug'] !== $expectedIdTenantSlug)
         || !is_int($snapshot['contact_version'] ?? null)
         || $snapshot['contact_version'] < 1
         || !is_string($snapshot['recipient_email'] ?? null)
@@ -541,7 +689,7 @@ function business_report_id_contact_validate(array $snapshot, string $tenantSlug
     }
     return [
         'tenant_key' => $snapshot['tenant_key'],
-        'tenant_slug' => $tenantSlug,
+        'tenant_slug' => $snapshot['tenant_slug'],
         'contact_version' => $snapshot['contact_version'],
         'recipient_email' => $recipient,
         'generated_at' => $snapshot['generated_at'],
@@ -586,6 +734,7 @@ function business_report_prepare_schedule(
     int $actorUserId,
     string $reason,
     ?array $idContact = null,
+    ?int $idContactClientId = null,
 ): array {
     $scheduleKey = business_report_schedule_key($scheduleKey);
     $recipientEmail = business_report_email($recipientEmail);
@@ -595,8 +744,19 @@ function business_report_prepare_schedule(
         throw new BusinessReportValidationException('Report delivery weekday is invalid.');
     }
     $reason = business_report_key($reason, 500, 'Schedule reason');
+    if ($idContact === null && $idContactClientId !== null) {
+        throw new BusinessReportValidationException('A client report-contact scope requires authenticated evidence.');
+    }
     if ($idContact !== null) {
-        $idContact = business_report_id_contact_validate($idContact, $tenantSlug);
+        if ($idContactClientId !== null && $idContactClientId !== $clientId) {
+            throw new BusinessReportValidationException(
+                'The client report-contact evidence must target the exact schedule client.',
+            );
+        }
+        $idContact = business_report_id_contact_validate(
+            $idContact,
+            $idContactClientId === null ? $tenantSlug : null,
+        );
         if (!hash_equals($recipientEmail, $idContact['recipient_email'])) {
             throw new BusinessReportValidationException(
                 'The report recipient does not match the authenticated 8 West ID snapshot.',
@@ -608,48 +768,138 @@ function business_report_prepare_schedule(
     $id = 0;
     $action = 'prepared';
     $evidence = null;
+    $requestedContactScope = $idContact === null
+        ? BUSINESS_REPORT_CONTACT_SCOPE_MANUAL
+        : ($idContactClientId === null
+            ? BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+            : BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
     $pdo->beginTransaction();
     try {
+        // Lock the logical schedule first. Every later enable, disable, or
+        // reconfiguration inherits the first committed contact scope.
+        $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey, true);
+        $contactScope = business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey);
+        if (is_array($contactScope)) {
+            if (!hash_equals((string)$contactScope['scope'], $requestedContactScope)) {
+                throw new BusinessReportConflictException(
+                    'A report schedule key cannot change its contact scope.',
+                );
+            }
+        } else {
+            $scopeInsert = $pdo->prepare(
+                'INSERT INTO business_report_contact_scope_bindings
+                    (tenant_id, schedule_key, contact_scope, created_by_user_id, reason)
+                 VALUES (?, ?, ?, ?, ?)'
+            );
+            $scopeInsert->execute([
+                $tenantId,
+                $scheduleKey,
+                $requestedContactScope,
+                $actorUserId,
+                $reason,
+            ]);
+        }
+
         if ($idContact !== null) {
             // Serialize first binding, version monotonicity, and schedule
-            // preparation for this local tenant without changing migration
-            // 013's schedule trigger contract.
-            $bindingQuery = $pdo->prepare(
-                'SELECT * FROM business_report_id_tenant_bindings WHERE tenant_id = ?'
-                . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE')
-            );
-            $bindingQuery->execute([$tenantId]);
+            // preparation for this local tenant. Migration 019 also enforces
+            // the same logical contact scope below the application boundary.
+            $clientScoped = $idContactClientId !== null;
+            $bindingSql = $clientScoped
+                ? 'SELECT * FROM business_report_id_client_bindings WHERE tenant_id = ? AND client_id = ?'
+                : 'SELECT * FROM business_report_id_tenant_bindings WHERE tenant_id = ?';
+            if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') $bindingSql .= ' FOR UPDATE';
+            $bindingQuery = $pdo->prepare($bindingSql);
+            $bindingQuery->execute($clientScoped ? [$tenantId, $clientId] : [$tenantId]);
             $binding = $bindingQuery->fetch(PDO::FETCH_ASSOC);
             if (!is_array($binding)) {
-                $bindingInsert = $pdo->prepare(
-                    'INSERT INTO business_report_id_tenant_bindings
-                        (tenant_id, id_tenant_key, id_tenant_slug,
-                         created_by_user_id, reason)
-                     VALUES (?, ?, ?, ?, ?)'
-                );
-                $bindingInsert->execute([
-                    $tenantId,
-                    $idContact['tenant_key'],
-                    $idContact['tenant_slug'],
-                    $actorUserId,
-                    $reason,
-                ]);
+                if ($clientScoped) {
+                    $clientKeyQuery = $pdo->prepare(
+                        'SELECT tenant_id, client_id FROM business_report_id_client_bindings
+                          WHERE id_tenant_key = ?'
+                        . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE')
+                    );
+                    $clientKeyQuery->execute([$idContact['tenant_key']]);
+                    if ($clientKeyQuery->fetch(PDO::FETCH_ASSOC) !== false) {
+                        throw new BusinessReportConflictException(
+                            'The 8 West ID tenant is already bound to a different Safeharbor client.',
+                        );
+                    }
+                    $tenantBindingQuery = $pdo->prepare(
+                        'SELECT tenant_id FROM business_report_id_tenant_bindings WHERE id_tenant_key = ?'
+                        . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE')
+                    );
+                    $tenantBindingQuery->execute([$idContact['tenant_key']]);
+                    if ($tenantBindingQuery->fetchColumn() !== false) {
+                        throw new BusinessReportConflictException(
+                            'The 8 West ID tenant is already bound at Safeharbor tenant scope.',
+                        );
+                    }
+                    $bindingInsert = $pdo->prepare(
+                        'INSERT INTO business_report_id_client_bindings
+                            (tenant_id, client_id, id_tenant_key, id_tenant_slug,
+                             created_by_user_id, reason)
+                         VALUES (?, ?, ?, ?, ?, ?)'
+                    );
+                    $bindingInsert->execute([
+                        $tenantId,
+                        $clientId,
+                        $idContact['tenant_key'],
+                        $idContact['tenant_slug'],
+                        $actorUserId,
+                        $reason,
+                    ]);
+                } else {
+                    $clientBindingQuery = $pdo->prepare(
+                        'SELECT tenant_id FROM business_report_id_client_bindings WHERE id_tenant_key = ?'
+                        . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE')
+                    );
+                    $clientBindingQuery->execute([$idContact['tenant_key']]);
+                    if ($clientBindingQuery->fetchColumn() !== false) {
+                        throw new BusinessReportConflictException(
+                            'The 8 West ID tenant is already bound to a Safeharbor client.',
+                        );
+                    }
+                    $bindingInsert = $pdo->prepare(
+                        'INSERT INTO business_report_id_tenant_bindings
+                            (tenant_id, id_tenant_key, id_tenant_slug,
+                             created_by_user_id, reason)
+                         VALUES (?, ?, ?, ?, ?)'
+                    );
+                    $bindingInsert->execute([
+                        $tenantId,
+                        $idContact['tenant_key'],
+                        $idContact['tenant_slug'],
+                        $actorUserId,
+                        $reason,
+                    ]);
+                }
             } elseif (!hash_equals((string)$binding['id_tenant_key'], $idContact['tenant_key'])
                 || !hash_equals((string)$binding['id_tenant_slug'], $idContact['tenant_slug'])
             ) {
                 throw new BusinessReportConflictException(
-                    'The Safeharbor tenant is already bound to a different 8 West ID tenant.',
+                    $clientScoped
+                        ? 'The Safeharbor client is already bound to a different 8 West ID tenant.'
+                        : 'The Safeharbor tenant is already bound to a different 8 West ID tenant.',
                 );
             }
 
             $contactHistoryQuery = $pdo->prepare(
-                'SELECT contact_version, recipient_email
-                   FROM business_report_id_contact_snapshots
-                  WHERE tenant_id = ? AND id_tenant_key = ?
+                'SELECT contact_version, recipient_email FROM '
+                . ($clientScoped
+                    ? 'business_report_id_client_contact_snapshots'
+                    : 'business_report_id_contact_snapshots')
+                . ' WHERE tenant_id = ?'
+                . ($clientScoped ? ' AND client_id = ?' : '')
+                . ' AND id_tenant_key = ?
                   ORDER BY contact_version DESC, id DESC LIMIT 1'
                 . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE')
             );
-            $contactHistoryQuery->execute([$tenantId, $idContact['tenant_key']]);
+            $contactHistoryQuery->execute(
+                $clientScoped
+                    ? [$tenantId, $clientId, $idContact['tenant_key']]
+                    : [$tenantId, $idContact['tenant_key']],
+            );
             $contactHistory = $contactHistoryQuery->fetch(PDO::FETCH_ASSOC);
             if (is_array($contactHistory)
                 && (int)$idContact['contact_version'] < (int)$contactHistory['contact_version']
@@ -668,7 +918,6 @@ function business_report_prepare_schedule(
             }
         }
 
-        $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey, true);
         if (is_array($latest) && (string)$latest['status'] === 'active') {
             throw new BusinessReportConflictException('Disable the active report schedule before reconfiguring it.');
         }
@@ -694,12 +943,19 @@ function business_report_prepare_schedule(
                 $canary,
             )
         ) {
-            $latestEvidence = business_report_id_contact_for_schedule(
-                $pdo,
-                $tenantId,
-                (int)$latest['id'],
-                true,
-            );
+            $latestEvidence = $idContactClientId === null
+                ? business_report_id_contact_for_schedule(
+                    $pdo,
+                    $tenantId,
+                    (int)$latest['id'],
+                    true,
+                )
+                : business_report_id_client_contact_for_schedule(
+                    $pdo,
+                    $tenantId,
+                    (int)$latest['id'],
+                    true,
+                );
             if (is_array($latestEvidence)
                 && hash_equals((string)$latestEvidence['id_tenant_key'], $idContact['tenant_key'])
                 && (int)$latestEvidence['contact_version'] === (int)$idContact['contact_version']
@@ -727,15 +983,21 @@ function business_report_prepare_schedule(
         ]);
         $id = (int)$pdo->lastInsertId();
         if ($idContact !== null) {
+            $clientScoped = $idContactClientId !== null;
             $evidenceInsert = $pdo->prepare(
-                'INSERT INTO business_report_id_contact_snapshots
-                    (tenant_id, schedule_version_id, id_tenant_key,
-                     contact_version, recipient_email, response_generated_at,
-                     request_nonce_sha256, response_sha256,
-                     created_by_user_id, reason)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO '
+                . ($clientScoped
+                    ? 'business_report_id_client_contact_snapshots'
+                    : 'business_report_id_contact_snapshots')
+                . ' (tenant_id, '
+                . ($clientScoped ? 'client_id, ' : '')
+                . 'schedule_version_id, id_tenant_key,
+                    contact_version, recipient_email, response_generated_at,
+                    request_nonce_sha256, response_sha256,
+                    created_by_user_id, reason)
+                 VALUES (' . ($clientScoped ? '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?' : '?, ?, ?, ?, ?, ?, ?, ?, ?, ?') . ')'
             );
-            $evidenceInsert->execute([
+            $evidenceValues = [
                 $tenantId,
                 $id,
                 $idContact['tenant_key'],
@@ -746,10 +1008,16 @@ function business_report_prepare_schedule(
                 $idContact['response_sha256'],
                 $actorUserId,
                 $reason,
-            ]);
+            ];
+            if ($clientScoped) array_splice($evidenceValues, 1, 0, [$clientId]);
+            $evidenceInsert->execute($evidenceValues);
             $evidenceId = (int)$pdo->lastInsertId();
             $evidenceQuery = $pdo->prepare(
-                'SELECT * FROM business_report_id_contact_snapshots
+                'SELECT * FROM '
+                . ($clientScoped
+                    ? 'business_report_id_client_contact_snapshots'
+                    : 'business_report_id_contact_snapshots')
+                . '
                   WHERE tenant_id = ? AND id = ?'
             );
             $evidenceQuery->execute([$tenantId, $evidenceId]);
@@ -811,6 +1079,46 @@ function business_report_prepare_schedule_from_id(
     return $result;
 }
 
+/** @return array{action:string,schedule:array<string,mixed>,id_contact:array<string,mixed>} */
+function business_report_prepare_client_schedule_from_id(
+    PDO $pdo,
+    string $tenantSlug,
+    string $scheduleKey,
+    int $clientId,
+    int $definitionId,
+    array $idContact,
+    string $timezone,
+    int $deliveryWeekday,
+    string $deliveryLocalTime,
+    bool $canary,
+    int $actorUserId,
+    string $reason,
+): array {
+    $validated = business_report_id_contact_validate($idContact, null);
+    $result = business_report_prepare_schedule(
+        $pdo,
+        $tenantSlug,
+        $scheduleKey,
+        $clientId,
+        $definitionId,
+        $validated['recipient_email'],
+        $timezone,
+        $deliveryWeekday,
+        $deliveryLocalTime,
+        $canary,
+        $actorUserId,
+        $reason,
+        $validated,
+        $clientId,
+    );
+    if (!is_array($result['id_contact'] ?? null)
+        || (int)($result['id_contact']['client_id'] ?? 0) !== $clientId
+    ) {
+        throw new BusinessReportGateException('Client-scoped 8 West ID report-contact evidence is missing.');
+    }
+    return $result;
+}
+
 /** @return array{action:string,schedule:array<string,mixed>} */
 function business_report_transition_schedule(
     PDO $pdo,
@@ -835,6 +1143,11 @@ function business_report_transition_schedule(
         if (!is_array($latest) || (int)$latest['version_no'] !== $expectedVersion) {
             throw new BusinessReportConflictException('Report schedule version changed; inspect it again.');
         }
+        if (!is_array(business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey))) {
+            throw new BusinessReportGateException(
+                'The report schedule contact scope was not found.',
+            );
+        }
         $fromStatus = (string)$latest['status'];
         if ($fromStatus === $toStatus) {
             throw new BusinessReportConflictException('Report schedule transition must change status explicitly.');
@@ -847,6 +1160,7 @@ function business_report_transition_schedule(
             $actorUserId,
         );
         if ($toStatus === 'active') {
+            business_report_assert_schedule_contact_evidence($pdo, $latest);
             $gateSchedule = $latest;
             $gateSchedule['tenant_slug'] = $tenantSlug;
             business_report_assert_schedule_gate(
@@ -921,6 +1235,7 @@ function business_report_active_schedule(PDO $pdo, string $tenantSlug, string $s
     ) {
         throw new BusinessReportGateException('The active report schedule uses an unsupported definition.');
     }
+    business_report_assert_schedule_contact_evidence($pdo, $row);
     return $row;
 }
 

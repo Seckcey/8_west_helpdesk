@@ -137,13 +137,14 @@ function report_mysql_config(): array
 
 report_mysql_reset($pdo);
 report_mysql_execute_file($pdo, __DIR__ . '/../db/schema.sql');
-report_mysql_check('fresh schema creates seven report tables including ID contact evidence',
+report_mysql_check('fresh schema creates ten report tables including immutable contact scope',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.tables
           WHERE table_schema=DATABASE() AND table_name LIKE 'business_report_%'"
-    )->fetchColumn() === 7);
+    )->fetchColumn() === 10);
 report_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/013_business_reports.sql');
-report_mysql_check('migration 013 replays over exact fresh-schema objects', true);
+report_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql');
+report_mysql_check('migrations 013 and 019 replay over exact fresh-schema objects', true);
 report_mysql_check('report tables retain exact per-table column counts',
     $pdo->query(
         "SELECT CONCAT(table_name,':',COUNT(*)) shape
@@ -152,24 +153,27 @@ report_mysql_check('report tables retain exact per-table column counts',
           GROUP BY table_name ORDER BY table_name"
     )->fetchAll(PDO::FETCH_COLUMN) === [
         'business_report_archives:13',
+        'business_report_contact_scope_bindings:6',
         'business_report_definition_versions:10',
         'business_report_deliveries:12',
         'business_report_delivery_attempts:10',
+        'business_report_id_client_bindings:7',
+        'business_report_id_client_contact_snapshots:13',
         'business_report_id_contact_snapshots:12',
         'business_report_id_tenant_bindings:6',
         'business_report_schedule_versions:15',
     ]);
-report_mysql_check('all twenty-one report triggers are installed',
+report_mysql_check('all twenty-four report triggers are installed',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_business_report_%'"
-    )->fetchColumn() === 21);
+    )->fetchColumn() === 24);
 report_mysql_check('all report relationships are tenant-scoped',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.table_constraints
           WHERE constraint_schema=DATABASE() AND constraint_type='FOREIGN KEY'
             AND table_name LIKE 'business_report_%'"
-    )->fetchColumn() === 21);
+    )->fetchColumn() === 31);
 report_mysql_check('exact JSON bytes use LONGTEXT rather than native JSON normalization',
     $pdo->query(
         "SELECT CONCAT(table_name,':',column_type) FROM information_schema.columns
@@ -301,6 +305,7 @@ $server->exec("GRANT SELECT ON `{$escapedDb}`.* TO '{$runtimeUser}'@'%'");
 foreach (['business_report_definition_versions','business_report_schedule_versions','business_report_archives'] as $table) {
     $server->exec("GRANT INSERT ON `{$escapedDb}`.`{$table}` TO '{$runtimeUser}'@'%'");
 }
+$server->exec("GRANT INSERT, UPDATE ON `{$escapedDb}`.`business_report_contact_scope_bindings` TO '{$runtimeUser}'@'%'");
 $server->exec("GRANT UPDATE ON `{$escapedDb}`.`business_report_schedule_versions` TO '{$runtimeUser}'@'%'");
 foreach (['business_report_deliveries','business_report_delivery_attempts'] as $table) {
     $server->exec("GRANT INSERT, UPDATE ON `{$escapedDb}`.`{$table}` TO '{$runtimeUser}'@'%'");
@@ -350,6 +355,7 @@ $countsBeforeReplay = $pdo->query(
       (SELECT COUNT(*) FROM business_report_delivery_attempts))"
 )->fetchColumn();
 report_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/013_business_reports.sql');
+report_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql');
 $countsAfterReplay = $pdo->query(
     "SELECT CONCAT(
       (SELECT COUNT(*) FROM business_report_definition_versions),':',

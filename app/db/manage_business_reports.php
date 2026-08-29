@@ -59,13 +59,31 @@ function report_cli_emit_schedule(array $schedule, string $action): void
     echo 'RECIPIENT_SHA256=' . hash('sha256', (string)$schedule['recipient_email']) . "\n";
 }
 
-function report_cli_emit_id_contact(?array $evidence): void
+function report_cli_emit_id_contact(?array $evidence, string $scope): void
 {
+    if (!in_array($scope, [
+        BUSINESS_REPORT_CONTACT_SCOPE_MANUAL,
+        BUSINESS_REPORT_CONTACT_SCOPE_TENANT,
+        BUSINESS_REPORT_CONTACT_SCOPE_CLIENT,
+    ], true)) {
+        throw new BusinessReportGateException('The report contact scope is invalid.');
+    }
     if (!is_array($evidence)) {
+        if ($scope !== BUSINESS_REPORT_CONTACT_SCOPE_MANUAL) {
+            throw new BusinessReportGateException('8 West ID report-contact evidence is missing.');
+        }
         echo "CONTACT_SOURCE=MANUAL\n";
+        echo "CONTACT_SCOPE=MANUAL\n";
         return;
     }
+    $evidenceScope = array_key_exists('client_id', $evidence)
+        ? BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+        : BUSINESS_REPORT_CONTACT_SCOPE_TENANT;
+    if (!hash_equals($evidenceScope, $scope)) {
+        throw new BusinessReportGateException('The report contact evidence scope does not match.');
+    }
     echo "CONTACT_SOURCE=8WEST_ID\n";
+    echo 'CONTACT_SCOPE=' . $scope . "\n";
     echo 'ID_TENANT_KEY=' . (string)$evidence['id_tenant_key'] . "\n";
     echo 'CONTACT_VERSION=' . (int)$evidence['contact_version'] . "\n";
     echo 'CONTACT_RESPONSE_SHA256=' . (string)$evidence['response_sha256'] . "\n";
@@ -76,11 +94,12 @@ $usage = "Usage:\n"
     . "  php db/manage_business_reports.php publish-definition --tenant-slug=SLUG --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --recipient-email=EMAIL --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
+    . "  php db/manage_business_reports.php prepare-client-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php enable|disable --tenant-slug=SLUG --schedule-key=KEY --expected-version=N --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php inspect --tenant-slug=SLUG --schedule-key=KEY\n";
 
 try {
-    if (!in_array($command, ['publish-definition', 'prepare', 'prepare-from-id', 'enable', 'disable', 'inspect'], true)) {
+    if (!in_array($command, ['publish-definition', 'prepare', 'prepare-from-id', 'prepare-client-from-id', 'enable', 'disable', 'inspect'], true)) {
         throw new BusinessReportValidationException('Command is invalid.');
     }
     $options = report_cli_options(array_slice($argv, 2));
@@ -126,7 +145,7 @@ try {
             $options['reason'],
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
-        report_cli_emit_id_contact(null);
+        report_cli_emit_id_contact(null, BUSINESS_REPORT_CONTACT_SCOPE_MANUAL);
         exit(0);
     }
 
@@ -157,7 +176,48 @@ try {
             $options['reason'],
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
-        report_cli_emit_id_contact($result['id_contact']);
+        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_TENANT);
+        exit(0);
+    }
+
+    if ($command === 'prepare-client-from-id') {
+        report_cli_expect($options, [
+            'tenant-slug', 'schedule-key', 'client-id', 'definition-id',
+            'timezone', 'delivery-weekday', 'delivery-local-time',
+            'canary', 'actor-user-id', 'reason',
+        ]);
+        if (!in_array($options['canary'], ['0', '1'], true)) {
+            throw new BusinessReportValidationException('Canary must be exactly 0 or 1.');
+        }
+        $clientId = report_cli_positive_int($options['client-id'], 'Client id');
+        $definitionId = report_cli_positive_int($options['definition-id'], 'Definition id');
+        $actorUserId = report_cli_positive_int($options['actor-user-id'], 'Actor user id');
+        // Prove the operator, provider tenant, client, and definition reach
+        // before making the one exact, configured ID lookup.
+        business_report_schedule_target(
+            $pdo,
+            $options['tenant-slug'],
+            $clientId,
+            $definitionId,
+            $actorUserId,
+        );
+        $contact = id_report_contact_fetch_client($clientId);
+        $result = business_report_prepare_client_schedule_from_id(
+            $pdo,
+            $options['tenant-slug'],
+            $options['schedule-key'],
+            $clientId,
+            $definitionId,
+            $contact,
+            $options['timezone'],
+            report_cli_positive_int($options['delivery-weekday'], 'Delivery weekday'),
+            $options['delivery-local-time'],
+            $options['canary'] === '1',
+            $actorUserId,
+            $options['reason'],
+        );
+        report_cli_emit_schedule($result['schedule'], $result['action']);
+        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
         exit(0);
     }
 
@@ -197,13 +257,15 @@ try {
         throw new BusinessReportGateException('The report schedule was not found.');
     }
     report_cli_emit_schedule($schedule, 'inspected');
-    report_cli_emit_id_contact(
-        business_report_latest_id_contact_for_key(
-            $pdo,
-            (int)$tenantId,
-            $options['schedule-key'],
-        ),
+    $contactScope = business_report_contact_scope_for_key(
+        $pdo,
+        (int)$tenantId,
+        $options['schedule-key'],
     );
+    if (!is_array($contactScope)) {
+        throw new BusinessReportGateException('The report contact scope was not found.');
+    }
+    report_cli_emit_id_contact($contactScope['evidence'], (string)$contactScope['scope']);
     $counts = $pdo->prepare(
         "SELECT
            (SELECT COUNT(*) FROM business_report_archives

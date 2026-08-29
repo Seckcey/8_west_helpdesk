@@ -211,16 +211,20 @@ return [
     // suite SSO, revocation, svc intake, mail, or customer-sync credentials.
     // The endpoint is deliberately fixed to the exact production HTTPS host
     // and path; redirects, alternate ports, and other hosts are refused.
-    // A binding maps one immutable 8 West ID tenant key to the exact local
-    // Safeharbor tenant slug, for example: '8west' => 'ewid-t1'.
+    // A tenant binding maps one immutable 8 West ID tenant key to the exact
+    // local Safeharbor tenant slug. A client binding instead uses only the
+    // stable `safeharbor-client:<id>` key. Never infer either mapping from a
+    // company name, domain, or email address.
     //
-    // Default-off means no network request. Only the operator command
-    // `prepare-from-id` reads this block; cron/generation/delivery do not.
+    // Default-off means no network request. Only the operator commands
+    // `prepare-from-id` and `prepare-client-from-id` read this block;
+    // cron/generation/delivery do not.
     'id_report_contacts' => [
         'enabled' => false,
         'endpoint' => 'https://id.8westit.com/api/svc/report-contact.php',
         'hmac_secret' => '',
         'tenant_bindings' => [],
+        'client_bindings' => [],
         'timeout_seconds' => 10,
     ],
 

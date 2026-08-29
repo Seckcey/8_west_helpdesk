@@ -16,6 +16,13 @@ deliveries, and attempts are zero; there is no server scheduler, no provider
 submission, and no recipient-receipt claim. Both dedicated report-contact
 gates are off after the redacted onboarding probe.
 
+Client-scoped report-contact binding is a release candidate only. Migration
+019 and its code add a second immutable lane for customer reports: one exact
+`(Safeharbor tenant, Safeharbor client) -> 8 West ID tenant` binding. No
+migration, protected client mapping, customer schedule, generation, delivery,
+or production state change has been made for that lane. The existing tenant-
+scoped 8 West IT canary remains migration-017 evidence and is not converted.
+
 The first no-write dry run correctly waits for the first complete weekly
 window. A one-time Codex heartbeat is planned for Wednesday, 2026-09-02, to
 resume the controlled canary. Root-only production evidence is retained at
@@ -32,12 +39,15 @@ immutable report archives, delivery leases, and delivery-attempt evidence.
 Milepost is not queried. 8 West ID owns the tenant's current weekly-report
 admin contact and exposes one private, read-only, versioned snapshot to
 Safeharbor during explicit operator onboarding. Safeharbor owns the pinned
-address and contact-version evidence used by its schedule. Coastmark is not
+address and contact-version evidence used by its schedule. A customer schedule
+uses an explicit stable `safeharbor-client:<id>` mapping to an ID tenant key;
+names, domains, and email addresses are never mapping inputs. Coastmark is not
 queried and no report action creates, changes, approves, posts, sends, or pays
 an invoice.
 
-The ID lookup is not part of cron, generation, or delivery. Only
-`manage_business_reports.php prepare-from-id` loads the client. It sends an
+The ID lookup is not part of cron, generation, or delivery. Only the explicit
+operator commands `prepare-from-id` and `prepare-client-from-id` load the
+client. They send an
 exact HMAC-authenticated POST to
 `https://id.8westit.com/api/svc/report-contact.php`, refuses redirects and
 alternate hosts/paths/ports, bounds the response, verifies the response HMAC,
@@ -45,13 +55,38 @@ and checks the request nonce, stable `ewid-t<id>` tenant key, exact tenant slug,
 contact version, normalized address, and UTC generation time. Secrets, raw
 response bodies, and addresses are never logged or printed by the CLI.
 
+`prepare-client-from-id` first proves the active owner/admin, provider tenant,
+exact client, and report-definition reach in Safeharbor. It then resolves only
+the exact protected `safeharbor-client:<id> -> ewid-t<id>` entry. The returned
+ID tenant slug is authenticated output; Safeharbor does not guess it from its
+local tenant or client.
+
 Migration 017 adds a one-to-one immutable Safeharbor tenant → 8 West ID tenant
 binding and append-only contact snapshots. The disabled schedule and its
 snapshot are committed in one transaction. A repeat of the same current
 contact version and exact schedule is a no-op; a version rollback, binding
 change, or same-version/different-address response conflicts. The old manual
 `prepare --recipient-email=...` command remains for compatibility, but new MSP
-onboarding uses `prepare-from-id` as the canonical path.
+tenant onboarding uses `prepare-from-id`; customer onboarding uses
+`prepare-client-from-id`.
+
+Migration 019 adds separate client-binding and client-contact-snapshot tables
+plus one immutable `(tenant_id, schedule_key)` contact-scope registry. The
+registry is pinned as `MANUAL`, `TENANT`, or `CLIENT` before schedule version
+1 and every enable, disable, and reconfiguration version inherits it. Migration
+backfills existing histories and refuses missing, orphaned, or mixed scope. It
+also refuses a latest active tenant- or client-scoped schedule unless its
+recipient matches the newest evidence-bearing version; client scope must match
+the evidence client too. Future activation is enforced by both the application
+and database trigger, and active/due runtime reads fail closed on any mismatch.
+The client binding is immutable and one-to-one; symmetric locking guards stop
+an ID tenant key from being claimed in both tenant and client lanes, including
+concurrent reverse-order inserts. The disabled schedule and client snapshot
+commit atomically. Exact replay is a no-op; a client or ID-tenant rebind,
+contact-scope change, contact-version rollback, or same-version/different-
+address response conflicts. Migration 017's tables, rows, commands, and
+internal 8 West IT canary remain unchanged; migration 019 strengthens the
+shared tenant-binding and tenant-snapshot insert guards without converting it.
 
 The weekly report contains aggregate operational facts only. It does not read
 or render ticket subjects, message bodies, contacts, attachments, technician
@@ -133,6 +168,7 @@ Fresh and production configuration must begin with:
     'endpoint' => 'https://id.8westit.com/api/svc/report-contact.php',
     'hmac_secret' => '',
     'tenant_bindings' => [],
+    'client_bindings' => [],
     'timeout_seconds' => 10,
 ],
 
@@ -151,7 +187,9 @@ Fresh and production configuration must begin with:
 Activation requires all of these independently:
 
 1. migration 013 with its fifteen triggers, plus migration 017 with its two
-   evidence tables and six separate triggers;
+   tenant evidence tables and six separate triggers; customer schedules also
+   require migration 019's two client evidence tables, one immutable scope
+   registry, and its twelve protected trigger replacements;
 2. an immutable definition published by an active owner/admin;
 3. a disabled schedule prepared from the authenticated 8 West ID tenant
    contact for one exact tenant, client, timezone, weekday, local time, and
@@ -182,6 +220,7 @@ verified backup:
 ```bash
 sudo mysql safeharbor < app/db/migrations/013_business_reports.sql
 sudo mysql safeharbor < app/db/migrations/017_id_report_contact_evidence.sql
+sudo mysql safeharbor < app/db/migrations/019_client_report_contact_evidence.sql
 ```
 
 Migration 017 validates the exact candidate column/default, visible-index,
@@ -192,6 +231,14 @@ exact replay restores the permanent guards and removes the swaps. The snapshot
 insert trigger locks the immutable tenant-binding row before reading contact
 history; direct concurrent writers therefore cannot commit one contact version
 with different recipients.
+
+Migration 019 applies the same replay discipline across the scope registry,
+schedule insert boundary, both tenant evidence insert boundaries, and the two
+client-scoped tables. Twelve temporary swap guards remain in place while its
+twelve permanent scope, actor, reach, version, and immutability guards are
+replaced. Their exact names, tables, events, timing, and fail-closed signal are
+verified before replacement. An interrupted run stays fail-closed until an
+exact replay.
 
 The report subsystem needs `SELECT` on source and report tables; `INSERT` on
 definition, schedule, archive, ID tenant-binding, and ID contact-snapshot
@@ -205,6 +252,9 @@ operational deletes are limited to the eight tables inventoried in
 `deploy/README.md`; it receives no `DELETE` on any report or history table.
 Migration tests exercise the report lifecycle through a narrower temporary
 identity with exactly the report-table mutation boundary.
+Client-scoped onboarding additionally needs `SELECT`, `INSERT`, and locking-
+read `UPDATE` on the two client evidence tables and the contact-scope registry;
+their permanent triggers still reject row updates and deletes.
 
 Publish and prepare without sending:
 
@@ -218,6 +268,13 @@ php app/db/manage_business_reports.php prepare-from-id \
   --timezone=America/Los_Angeles --delivery-weekday=3 \
   --delivery-local-time=09:00:00 --canary=1 \
   --actor-user-id=USER --reason='Prepare controlled canary'
+
+php app/db/manage_business_reports.php prepare-client-from-id \
+  --tenant-slug=PROVIDER --schedule-key=KEY --client-id=CLIENT \
+  --definition-id=DEFINITION \
+  --timezone=America/Los_Angeles --delivery-weekday=3 \
+  --delivery-local-time=09:00:00 --canary=1 \
+  --actor-user-id=USER --reason='Prepare exact customer canary'
 ```
 
 After protected allowlists contain only the exact schedule key, tenant,
@@ -248,10 +305,10 @@ php app/db/run_business_report.php --tenant-slug=TENANT \
   --content-sha256=ARCHIVE_SHA256 --deliver
 ```
 
-The canonical command obtains the address from the exact protected
-`id_report_contacts.tenant_bindings` entry; an operator never passes or copies
-the address on the command line. The CLI never echoes the recipient address,
-secret, or report body. `submitted` must be
+The canonical commands obtain the address from an exact protected
+`id_report_contacts.tenant_bindings` or `client_bindings` entry; an operator
+never passes or copies the address on the command line. The CLI never echoes
+the recipient address, secret, or report body. `submitted` must be
 reported to operators as provider acceptance only. Recipient confirmation is a
 separate acceptance fact.
 
@@ -325,12 +382,21 @@ gate, create and inspect at most one archive only after it is due, and leave
 delivery for a separate pinned approval. Do not describe a future Graph 202 as
 recipient delivery; inbox confirmation remains a separate fact.
 
+The customer lane remains earlier in the sequence: the reviewed protected
+mapping is exact client 14 to `ewid-t4`, but it is not installed by this code
+release. Migration 019 must be applied and verified first; only afterward may
+an operator temporarily enable the contact lookup, run
+`prepare-client-from-id`, inspect a disabled schedule, and turn the contact
+gate off again. Generation, delivery, and scheduler installation stay outside
+that preparation step.
+
 ## Rollback and retention
 
 The fastest stop is protected configuration with both gates false, followed by
 an appended disabled schedule version. Do not delete or rewrite report history.
-An earlier code release safely ignores migration 017's two additive tables and
-migration 013's five additive tables, so schema rollback is
+An earlier code release safely ignores migration 017's two additive tables,
+migration 019's three additive tables, and migration 013's five additive tables,
+so schema rollback is
 disaster-recovery-only. Retain the pre-migration database/application backup
 and migration evidence; dropping these tables destroys contact, approval, and
 delivery history and is not a routine rollback.

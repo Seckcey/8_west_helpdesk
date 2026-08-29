@@ -569,6 +569,22 @@ CREATE TABLE IF NOT EXISTS business_report_schedule_versions (
   CONSTRAINT ck_business_report_schedule_recipient CHECK (recipient_email = LOWER(TRIM(recipient_email)))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS business_report_contact_scope_bindings (
+  tenant_id          INT UNSIGNED NOT NULL,
+  schedule_key       VARCHAR(64) NOT NULL,
+  contact_scope      ENUM('MANUAL','TENANT','CLIENT') NOT NULL,
+  created_by_user_id INT UNSIGNED NOT NULL,
+  reason             VARCHAR(500) NOT NULL,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (tenant_id, schedule_key),
+  KEY ix_business_report_contact_scope_actor
+    (tenant_id, created_by_user_id, created_at),
+  CONSTRAINT fk_business_report_contact_scope_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_business_report_contact_scope_actor
+    FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES users (tenant_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS business_report_id_tenant_bindings (
   tenant_id          INT UNSIGNED NOT NULL,
   id_tenant_key      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -621,6 +637,68 @@ CREATE TABLE IF NOT EXISTS business_report_id_contact_snapshots (
   CONSTRAINT ck_business_report_id_snapshot_nonce_hash
     CHECK (request_nonce_sha256 REGEXP '^[0-9a-f]{64}$'),
   CONSTRAINT ck_business_report_id_snapshot_response_hash
+    CHECK (response_sha256 REGEXP '^[0-9a-f]{64}$')
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS business_report_id_client_bindings (
+  tenant_id          INT UNSIGNED NOT NULL,
+  client_id          INT UNSIGNED NOT NULL,
+  id_tenant_key      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  id_tenant_slug     VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_by_user_id INT UNSIGNED NOT NULL,
+  reason             VARCHAR(500) NOT NULL,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (tenant_id, client_id),
+  UNIQUE KEY uq_br_id_client_binding_key (id_tenant_key),
+  UNIQUE KEY uq_br_id_client_binding_scope (tenant_id, client_id, id_tenant_key),
+  KEY ix_br_id_client_binding_actor (tenant_id, created_by_user_id, created_at),
+  CONSTRAINT fk_br_id_client_binding_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_br_id_client_binding_client FOREIGN KEY (tenant_id, client_id)
+    REFERENCES clients (tenant_id, id),
+  CONSTRAINT fk_br_id_client_binding_actor FOREIGN KEY (tenant_id, created_by_user_id)
+    REFERENCES users (tenant_id, id),
+  CONSTRAINT ck_br_id_client_binding_key
+    CHECK (id_tenant_key REGEXP '^ewid-t[1-9][0-9]{0,9}$'
+           AND CAST(SUBSTRING(id_tenant_key, 7) AS UNSIGNED) BETWEEN 1 AND 4294967295),
+  CONSTRAINT ck_br_id_client_binding_slug
+    CHECK (id_tenant_slug REGEXP '^[a-z0-9][a-z0-9-]{0,63}$')
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS business_report_id_client_contact_snapshots (
+  id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id             INT UNSIGNED NOT NULL,
+  client_id             INT UNSIGNED NOT NULL,
+  schedule_version_id   INT UNSIGNED NOT NULL,
+  id_tenant_key         VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  contact_version       BIGINT UNSIGNED NOT NULL,
+  recipient_email       VARCHAR(190) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  response_generated_at DATETIME NOT NULL,
+  request_nonce_sha256  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  response_sha256       CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_by_user_id    INT UNSIGNED NOT NULL,
+  reason                VARCHAR(500) NOT NULL,
+  created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_br_id_client_snapshot_tenant_id (tenant_id, id),
+  UNIQUE KEY uq_br_id_client_snapshot_schedule (tenant_id, schedule_version_id),
+  KEY ix_br_id_client_snapshot_version
+    (tenant_id, client_id, id_tenant_key, contact_version, id),
+  KEY ix_br_id_client_snapshot_actor (tenant_id, created_by_user_id, created_at),
+  CONSTRAINT fk_br_id_client_snapshot_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_br_id_client_snapshot_client FOREIGN KEY (tenant_id, client_id)
+    REFERENCES clients (tenant_id, id),
+  CONSTRAINT fk_br_id_client_snapshot_schedule FOREIGN KEY (tenant_id, schedule_version_id)
+    REFERENCES business_report_schedule_versions (tenant_id, id),
+  CONSTRAINT fk_br_id_client_snapshot_binding FOREIGN KEY (tenant_id, client_id, id_tenant_key)
+    REFERENCES business_report_id_client_bindings (tenant_id, client_id, id_tenant_key),
+  CONSTRAINT fk_br_id_client_snapshot_actor FOREIGN KEY (tenant_id, created_by_user_id)
+    REFERENCES users (tenant_id, id),
+  CONSTRAINT ck_br_id_client_snapshot_version CHECK (contact_version >= 1),
+  CONSTRAINT ck_br_id_client_snapshot_recipient
+    CHECK (recipient_email = LOWER(TRIM(recipient_email))),
+  CONSTRAINT ck_br_id_client_snapshot_nonce_hash
+    CHECK (request_nonce_sha256 REGEXP '^[0-9a-f]{64}$'),
+  CONSTRAINT ck_br_id_client_snapshot_response_hash
     CHECK (response_sha256 REGEXP '^[0-9a-f]{64}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -719,6 +797,9 @@ DROP TRIGGER trg_business_report_privilege_preflight;
 DROP TRIGGER IF EXISTS trg_business_report_definitions_before_insert;
 DROP TRIGGER IF EXISTS trg_business_report_definitions_no_update;
 DROP TRIGGER IF EXISTS trg_business_report_definitions_no_delete;
+DROP TRIGGER IF EXISTS trg_business_report_contact_scope_before_insert;
+DROP TRIGGER IF EXISTS trg_business_report_contact_scope_no_update;
+DROP TRIGGER IF EXISTS trg_business_report_contact_scope_no_delete;
 DROP TRIGGER IF EXISTS trg_business_report_schedules_before_insert;
 DROP TRIGGER IF EXISTS trg_business_report_schedules_no_update;
 DROP TRIGGER IF EXISTS trg_business_report_schedules_no_delete;
@@ -728,6 +809,12 @@ DROP TRIGGER IF EXISTS trg_business_report_id_binding_no_delete;
 DROP TRIGGER IF EXISTS trg_business_report_id_snapshot_before_insert;
 DROP TRIGGER IF EXISTS trg_business_report_id_snapshot_no_update;
 DROP TRIGGER IF EXISTS trg_business_report_id_snapshot_no_delete;
+DROP TRIGGER IF EXISTS trg_br_id_client_binding_before_insert;
+DROP TRIGGER IF EXISTS trg_br_id_client_binding_no_update;
+DROP TRIGGER IF EXISTS trg_br_id_client_binding_no_delete;
+DROP TRIGGER IF EXISTS trg_br_id_client_snapshot_before_insert;
+DROP TRIGGER IF EXISTS trg_br_id_client_snapshot_no_update;
+DROP TRIGGER IF EXISTS trg_br_id_client_snapshot_no_delete;
 DROP TRIGGER IF EXISTS trg_business_report_archives_before_insert;
 DROP TRIGGER IF EXISTS trg_business_report_archives_no_update;
 DROP TRIGGER IF EXISTS trg_business_report_archives_no_delete;
@@ -772,11 +859,46 @@ BEFORE DELETE ON business_report_definition_versions
 FOR EACH ROW
 SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Business report definitions are immutable'$$
 
+CREATE TRIGGER trg_business_report_contact_scope_before_insert
+BEFORE INSERT ON business_report_contact_scope_bindings
+FOR EACH ROW
+BEGIN
+  DECLARE actor_is_authorized INT DEFAULT 0;
+  DECLARE schedule_history INT DEFAULT 0;
+  SELECT COUNT(*) INTO actor_is_authorized
+    FROM users
+   WHERE tenant_id = NEW.tenant_id AND id = NEW.created_by_user_id
+     AND is_active = 1 AND role IN ('owner','admin');
+  IF actor_is_authorized <> 1 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Business report contact scope actor must be an active owner or admin';
+  END IF;
+  SELECT COUNT(*) INTO schedule_history
+    FROM business_report_schedule_versions
+   WHERE tenant_id = NEW.tenant_id AND schedule_key = NEW.schedule_key;
+  IF schedule_history <> 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Business report contact scope must be pinned before its first schedule version';
+  END IF;
+END$$
+
+CREATE TRIGGER trg_business_report_contact_scope_no_update
+BEFORE UPDATE ON business_report_contact_scope_bindings
+FOR EACH ROW
+SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Business report contact scopes are immutable'$$
+
+CREATE TRIGGER trg_business_report_contact_scope_no_delete
+BEFORE DELETE ON business_report_contact_scope_bindings
+FOR EACH ROW
+SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Business report contact scopes are immutable'$$
+
 CREATE TRIGGER trg_business_report_schedules_before_insert
 BEFORE INSERT ON business_report_schedule_versions
 FOR EACH ROW
 BEGIN
   DECLARE actor_is_authorized INT DEFAULT 0;
+  DECLARE locked_contact_scope VARCHAR(16) DEFAULT NULL;
+  DECLARE active_contact_matches INT DEFAULT 0;
   DECLARE latest_version INT DEFAULT 0;
   DECLARE latest_status VARCHAR(16) DEFAULT NULL;
   DECLARE latest_client_id INT UNSIGNED DEFAULT NULL;
@@ -787,6 +909,15 @@ BEGIN
      AND is_active = 1 AND role IN ('owner','admin');
   IF actor_is_authorized <> 1 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Business report schedule actor must be an active owner or admin';
+  END IF;
+  SELECT contact_scope INTO locked_contact_scope
+    FROM business_report_contact_scope_bindings
+   WHERE tenant_id = NEW.tenant_id
+     AND BINARY schedule_key = BINARY NEW.schedule_key
+   FOR UPDATE;
+  IF locked_contact_scope IS NULL THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Business report schedule requires its immutable contact scope';
   END IF;
   SELECT COALESCE(MAX(version_no), 0) INTO latest_version
     FROM business_report_schedule_versions
@@ -812,6 +943,53 @@ BEGIN
   IF latest_status = 'active' AND NEW.status <> 'disabled' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'An active business report schedule must be explicitly disabled';
   END IF;
+  IF NEW.status = 'active' AND BINARY locked_contact_scope = BINARY 'TENANT' THEN
+    SELECT COUNT(*) INTO active_contact_matches
+      FROM business_report_id_contact_snapshots evidence
+      JOIN business_report_schedule_versions evidence_schedule
+        ON evidence_schedule.tenant_id = evidence.tenant_id
+       AND evidence_schedule.id = evidence.schedule_version_id
+     WHERE evidence_schedule.tenant_id = NEW.tenant_id
+       AND BINARY evidence_schedule.schedule_key = BINARY NEW.schedule_key
+       AND evidence_schedule.version_no = (
+         SELECT MAX(latest_schedule.version_no)
+           FROM business_report_id_contact_snapshots latest_evidence
+           JOIN business_report_schedule_versions latest_schedule
+             ON latest_schedule.tenant_id = latest_evidence.tenant_id
+            AND latest_schedule.id = latest_evidence.schedule_version_id
+          WHERE latest_schedule.tenant_id = NEW.tenant_id
+            AND BINARY latest_schedule.schedule_key = BINARY NEW.schedule_key
+       )
+       AND BINARY evidence.recipient_email = BINARY NEW.recipient_email;
+    IF active_contact_matches <> 1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Active tenant-ID report recipient must match latest immutable evidence';
+    END IF;
+  ELSEIF NEW.status = 'active' AND BINARY locked_contact_scope = BINARY 'CLIENT' THEN
+    SELECT COUNT(*) INTO active_contact_matches
+      FROM business_report_id_client_contact_snapshots evidence
+      JOIN business_report_schedule_versions evidence_schedule
+        ON evidence_schedule.tenant_id = evidence.tenant_id
+       AND evidence_schedule.id = evidence.schedule_version_id
+     WHERE evidence_schedule.tenant_id = NEW.tenant_id
+       AND BINARY evidence_schedule.schedule_key = BINARY NEW.schedule_key
+       AND evidence_schedule.version_no = (
+         SELECT MAX(latest_schedule.version_no)
+           FROM business_report_id_client_contact_snapshots latest_evidence
+           JOIN business_report_schedule_versions latest_schedule
+             ON latest_schedule.tenant_id = latest_evidence.tenant_id
+            AND latest_schedule.id = latest_evidence.schedule_version_id
+          WHERE latest_schedule.tenant_id = NEW.tenant_id
+            AND BINARY latest_schedule.schedule_key = BINARY NEW.schedule_key
+       )
+       AND evidence.client_id = NEW.client_id
+       AND evidence_schedule.client_id = NEW.client_id
+       AND BINARY evidence.recipient_email = BINARY NEW.recipient_email;
+    IF active_contact_matches <> 1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Active client-ID report recipient and client must match latest immutable evidence';
+    END IF;
+  END IF;
 END$$
 
 CREATE TRIGGER trg_business_report_schedules_no_update
@@ -829,6 +1007,7 @@ BEFORE INSERT ON business_report_id_tenant_bindings
 FOR EACH ROW
 BEGIN
   DECLARE binding_matches INT DEFAULT 0;
+  DECLARE client_scope_key VARCHAR(32) DEFAULT NULL;
   SELECT COUNT(*) INTO binding_matches
     FROM tenants t
     JOIN users u ON u.tenant_id = t.id
@@ -840,6 +1019,15 @@ BEGIN
   IF binding_matches <> 1 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = '8 West ID report binding must match its tenant and active actor';
+  END IF;
+  SELECT id_tenant_key INTO client_scope_key
+    FROM business_report_id_client_bindings
+         FORCE INDEX (uq_br_id_client_binding_key)
+   WHERE id_tenant_key = NEW.id_tenant_key
+   LIMIT 1 FOR UPDATE;
+  IF client_scope_key IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = '8 West ID report tenant is already bound at client scope';
   END IF;
 END$$
 
@@ -859,6 +1047,12 @@ FOR EACH ROW
 BEGIN
   DECLARE locked_binding_tenant INT UNSIGNED DEFAULT NULL;
   DECLARE snapshot_matches INT DEFAULT 0;
+  DECLARE logical_schedule_key VARCHAR(64) DEFAULT NULL;
+  DECLARE logical_schedule_version INT UNSIGNED DEFAULT 0;
+  DECLARE logical_history_versions INT DEFAULT 0;
+  DECLARE locked_contact_scope VARCHAR(16) DEFAULT NULL;
+  DECLARE tenant_scope_evidence INT DEFAULT 0;
+  DECLARE client_scope_evidence INT DEFAULT 0;
   DECLARE latest_contact_version BIGINT UNSIGNED DEFAULT 0;
   DECLARE conflicting_same_version INT DEFAULT 0;
   SELECT tenant_id INTO locked_binding_tenant
@@ -887,6 +1081,45 @@ BEGIN
   IF snapshot_matches <> 1 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = '8 West ID contact snapshot must match its disabled schedule and active actor';
+  END IF;
+  SELECT schedule_key, version_no
+    INTO logical_schedule_key, logical_schedule_version
+    FROM business_report_schedule_versions
+   WHERE tenant_id = NEW.tenant_id AND id = NEW.schedule_version_id
+   FOR UPDATE;
+  SELECT contact_scope INTO locked_contact_scope
+    FROM business_report_contact_scope_bindings
+   WHERE tenant_id = NEW.tenant_id
+     AND BINARY schedule_key = BINARY logical_schedule_key
+   FOR UPDATE;
+  IF locked_contact_scope IS NULL OR BINARY locked_contact_scope <> BINARY 'TENANT' THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Report schedule immutable contact scope is not tenant ID';
+  END IF;
+  SELECT COUNT(*) INTO logical_history_versions
+    FROM business_report_schedule_versions
+   WHERE tenant_id = NEW.tenant_id
+     AND BINARY schedule_key = BINARY logical_schedule_key;
+  SELECT COUNT(*) INTO tenant_scope_evidence
+    FROM business_report_id_contact_snapshots e
+    JOIN business_report_schedule_versions s
+      ON s.tenant_id = e.tenant_id AND s.id = e.schedule_version_id
+   WHERE e.tenant_id = NEW.tenant_id
+     AND BINARY s.schedule_key = BINARY logical_schedule_key;
+  SELECT COUNT(*) INTO client_scope_evidence
+    FROM business_report_id_client_contact_snapshots e
+    JOIN business_report_schedule_versions s
+      ON s.tenant_id = e.tenant_id AND s.id = e.schedule_version_id
+   WHERE e.tenant_id = NEW.tenant_id
+     AND BINARY s.schedule_key = BINARY logical_schedule_key;
+  IF client_scope_evidence <> 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Report schedule contact scope is already client ID';
+  END IF;
+  IF tenant_scope_evidence = 0
+     AND (logical_schedule_version <> 1 OR logical_history_versions <> 1) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Report schedule contact scope is already manual';
   END IF;
   SELECT COALESCE(MAX(contact_version), 0) INTO latest_contact_version
     FROM business_report_id_contact_snapshots
@@ -917,6 +1150,161 @@ CREATE TRIGGER trg_business_report_id_snapshot_no_delete
 BEFORE DELETE ON business_report_id_contact_snapshots
 FOR EACH ROW
 SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '8 West ID contact snapshots are immutable'$$
+
+CREATE TRIGGER trg_br_id_client_binding_before_insert
+BEFORE INSERT ON business_report_id_client_bindings
+FOR EACH ROW
+BEGIN
+  DECLARE binding_matches INT DEFAULT 0;
+  DECLARE tenant_scope_key VARCHAR(32) DEFAULT NULL;
+  SELECT COUNT(*) INTO binding_matches
+    FROM clients c
+    JOIN users u ON u.tenant_id = c.tenant_id
+   WHERE c.tenant_id = NEW.tenant_id
+     AND c.id = NEW.client_id
+     AND u.id = NEW.created_by_user_id
+     AND u.is_active = 1
+     AND u.role IN ('owner','admin');
+  IF binding_matches <> 1 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Client report binding must match its tenant, client, and active actor';
+  END IF;
+  SELECT id_tenant_key INTO tenant_scope_key
+    FROM business_report_id_tenant_bindings
+         FORCE INDEX (uq_business_report_id_binding_key)
+   WHERE id_tenant_key = NEW.id_tenant_key
+   LIMIT 1 FOR UPDATE;
+  IF tenant_scope_key IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = '8 West ID report tenant is already bound at tenant scope';
+  END IF;
+END$$
+
+CREATE TRIGGER trg_br_id_client_binding_no_update
+BEFORE UPDATE ON business_report_id_client_bindings
+FOR EACH ROW
+SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Client report bindings are immutable'$$
+
+CREATE TRIGGER trg_br_id_client_binding_no_delete
+BEFORE DELETE ON business_report_id_client_bindings
+FOR EACH ROW
+SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Client report bindings are immutable'$$
+
+CREATE TRIGGER trg_br_id_client_snapshot_before_insert
+BEFORE INSERT ON business_report_id_client_contact_snapshots
+FOR EACH ROW
+BEGIN
+  DECLARE locked_binding_client INT UNSIGNED DEFAULT NULL;
+  DECLARE snapshot_matches INT DEFAULT 0;
+  DECLARE logical_schedule_key VARCHAR(64) DEFAULT NULL;
+  DECLARE logical_schedule_version INT UNSIGNED DEFAULT 0;
+  DECLARE logical_history_versions INT DEFAULT 0;
+  DECLARE locked_contact_scope VARCHAR(16) DEFAULT NULL;
+  DECLARE tenant_scope_evidence INT DEFAULT 0;
+  DECLARE client_scope_evidence INT DEFAULT 0;
+  DECLARE latest_contact_version BIGINT UNSIGNED DEFAULT 0;
+  DECLARE conflicting_same_version INT DEFAULT 0;
+  SELECT client_id INTO locked_binding_client
+    FROM business_report_id_client_bindings
+   WHERE tenant_id = NEW.tenant_id
+     AND client_id = NEW.client_id
+     AND BINARY id_tenant_key = BINARY NEW.id_tenant_key
+   FOR UPDATE;
+  IF locked_binding_client IS NULL THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Client contact snapshot requires its exact client binding';
+  END IF;
+  SELECT COUNT(*) INTO snapshot_matches
+    FROM business_report_schedule_versions s
+    JOIN clients c ON c.tenant_id = s.tenant_id AND c.id = s.client_id
+    JOIN business_report_id_client_bindings b
+      ON b.tenant_id = s.tenant_id
+     AND b.client_id = s.client_id
+     AND BINARY b.id_tenant_key = BINARY NEW.id_tenant_key
+    JOIN users u ON u.tenant_id = s.tenant_id
+   WHERE s.tenant_id = NEW.tenant_id
+     AND s.client_id = NEW.client_id
+     AND s.id = NEW.schedule_version_id
+     AND s.status = 'disabled'
+     AND BINARY s.recipient_email = BINARY NEW.recipient_email
+     AND s.created_by_user_id = NEW.created_by_user_id
+     AND u.id = NEW.created_by_user_id
+     AND u.is_active = 1
+     AND u.role IN ('owner','admin');
+  IF snapshot_matches <> 1 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Client contact snapshot must match its disabled client schedule and active actor';
+  END IF;
+  SELECT schedule_key, version_no
+    INTO logical_schedule_key, logical_schedule_version
+    FROM business_report_schedule_versions
+   WHERE tenant_id = NEW.tenant_id AND id = NEW.schedule_version_id
+   FOR UPDATE;
+  SELECT contact_scope INTO locked_contact_scope
+    FROM business_report_contact_scope_bindings
+   WHERE tenant_id = NEW.tenant_id
+     AND BINARY schedule_key = BINARY logical_schedule_key
+   FOR UPDATE;
+  IF locked_contact_scope IS NULL OR BINARY locked_contact_scope <> BINARY 'CLIENT' THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Report schedule immutable contact scope is not client ID';
+  END IF;
+  SELECT COUNT(*) INTO logical_history_versions
+    FROM business_report_schedule_versions
+   WHERE tenant_id = NEW.tenant_id
+     AND BINARY schedule_key = BINARY logical_schedule_key;
+  SELECT COUNT(*) INTO tenant_scope_evidence
+    FROM business_report_id_contact_snapshots e
+    JOIN business_report_schedule_versions s
+      ON s.tenant_id = e.tenant_id AND s.id = e.schedule_version_id
+   WHERE e.tenant_id = NEW.tenant_id
+     AND BINARY s.schedule_key = BINARY logical_schedule_key;
+  SELECT COUNT(*) INTO client_scope_evidence
+    FROM business_report_id_client_contact_snapshots e
+    JOIN business_report_schedule_versions s
+      ON s.tenant_id = e.tenant_id AND s.id = e.schedule_version_id
+   WHERE e.tenant_id = NEW.tenant_id
+     AND BINARY s.schedule_key = BINARY logical_schedule_key;
+  IF tenant_scope_evidence <> 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Report schedule contact scope is already tenant ID';
+  END IF;
+  IF client_scope_evidence = 0
+     AND (logical_schedule_version <> 1 OR logical_history_versions <> 1) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Report schedule contact scope is already manual';
+  END IF;
+  SELECT COALESCE(MAX(contact_version), 0) INTO latest_contact_version
+    FROM business_report_id_client_contact_snapshots
+   WHERE tenant_id = NEW.tenant_id
+     AND client_id = NEW.client_id
+     AND BINARY id_tenant_key = BINARY NEW.id_tenant_key;
+  IF NEW.contact_version < latest_contact_version THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Client contact version cannot move backward';
+  END IF;
+  SELECT COUNT(*) INTO conflicting_same_version
+    FROM business_report_id_client_contact_snapshots
+   WHERE tenant_id = NEW.tenant_id
+     AND client_id = NEW.client_id
+     AND BINARY id_tenant_key = BINARY NEW.id_tenant_key
+     AND contact_version = NEW.contact_version
+     AND BINARY recipient_email <> BINARY NEW.recipient_email;
+  IF conflicting_same_version > 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Client contact version cannot name different recipients';
+  END IF;
+END$$
+
+CREATE TRIGGER trg_br_id_client_snapshot_no_update
+BEFORE UPDATE ON business_report_id_client_contact_snapshots
+FOR EACH ROW
+SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Client contact snapshots are immutable'$$
+
+CREATE TRIGGER trg_br_id_client_snapshot_no_delete
+BEFORE DELETE ON business_report_id_client_contact_snapshots
+FOR EACH ROW
+SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Client contact snapshots are immutable'$$
 
 CREATE TRIGGER trg_business_report_archives_before_insert
 BEFORE INSERT ON business_report_archives
@@ -1572,6 +1960,19 @@ BEFORE INSERT ON time_entries
 FOR EACH ROW
 SET @time_entry_trigger_privilege_preflight = 1;
 DROP TRIGGER trg_time_entry_privilege_preflight;
+
+DROP TRIGGER IF EXISTS trg_time_entries_before_insert;
+DROP TRIGGER IF EXISTS trg_time_entries_after_insert;
+DROP TRIGGER IF EXISTS trg_time_entries_before_update;
+DROP TRIGGER IF EXISTS trg_time_entries_after_update;
+DROP TRIGGER IF EXISTS trg_time_entries_no_delete;
+DROP TRIGGER IF EXISTS trg_time_entry_events_no_update;
+DROP TRIGGER IF EXISTS trg_time_entry_events_no_delete;
+DROP TRIGGER IF EXISTS trg_time_interval_guards_no_update;
+DROP TRIGGER IF EXISTS trg_time_interval_guards_no_delete;
+DROP TRIGGER IF EXISTS trg_time_measured_before_insert;
+DROP TRIGGER IF EXISTS trg_time_measured_before_update;
+DROP TRIGGER IF EXISTS trg_time_measured_no_delete;
 
 DELIMITER $$
 CREATE TRIGGER trg_time_entries_before_insert

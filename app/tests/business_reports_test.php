@@ -150,6 +150,11 @@ $schema = [
         canary INTEGER NOT NULL, status TEXT NOT NULL, created_by_user_id INTEGER NOT NULL,
         reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(tenant_id,schedule_key,version_no), UNIQUE(tenant_id,id))',
+    'CREATE TABLE business_report_contact_scope_bindings (
+        tenant_id INTEGER NOT NULL, schedule_key TEXT NOT NULL,
+        contact_scope TEXT NOT NULL, created_by_user_id INTEGER NOT NULL,
+        reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(tenant_id,schedule_key))',
     'CREATE TABLE business_report_id_tenant_bindings (
         tenant_id INTEGER PRIMARY KEY, id_tenant_key TEXT NOT NULL UNIQUE,
         id_tenant_slug TEXT NOT NULL, created_by_user_id INTEGER NOT NULL,
@@ -162,6 +167,21 @@ $schema = [
         response_generated_at TEXT NOT NULL, request_nonce_sha256 TEXT NOT NULL,
         response_sha256 TEXT NOT NULL, created_by_user_id INTEGER NOT NULL,
         reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tenant_id,id), UNIQUE(tenant_id,schedule_version_id))',
+    'CREATE TABLE business_report_id_client_bindings (
+        tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
+        id_tenant_key TEXT NOT NULL UNIQUE, id_tenant_slug TEXT NOT NULL,
+        created_by_user_id INTEGER NOT NULL, reason TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(tenant_id,client_id), UNIQUE(tenant_id,client_id,id_tenant_key))',
+    'CREATE TABLE business_report_id_client_contact_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL, schedule_version_id INTEGER NOT NULL,
+        id_tenant_key TEXT NOT NULL, contact_version INTEGER NOT NULL,
+        recipient_email TEXT NOT NULL, response_generated_at TEXT NOT NULL,
+        request_nonce_sha256 TEXT NOT NULL, response_sha256 TEXT NOT NULL,
+        created_by_user_id INTEGER NOT NULL, reason TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(tenant_id,id), UNIQUE(tenant_id,schedule_version_id))',
     'CREATE TABLE business_report_archives (
         id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
@@ -271,6 +291,47 @@ report_check('new schedules start disabled',
     $prepared['action'] === 'prepared'
     && $prepared['schedule']['status'] === 'disabled'
     && (int)$prepared['schedule']['version_no'] === 1);
+$manualScope = business_report_contact_scope_for_key($pdo, 1, 'client-one-weekly');
+report_check(
+    'a manual schedule pins one immutable manual contact scope',
+    is_array($manualScope)
+        && $manualScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_MANUAL
+        && $manualScope['evidence'] === null
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM business_report_contact_scope_bindings
+              WHERE tenant_id=1 AND schedule_key='client-one-weekly' AND contact_scope='MANUAL'"
+        )->fetchColumn() === 1,
+);
+$pdo->exec(
+    "DELETE FROM business_report_contact_scope_bindings
+      WHERE tenant_id=1 AND schedule_key='client-one-weekly'"
+);
+report_throws(
+    'enable fails closed when the logical contact-scope registry is missing',
+    BusinessReportGateException::class,
+    fn() => business_report_transition_schedule(
+        $pdo,
+        'one',
+        'client-one-weekly',
+        1,
+        'active',
+        101,
+        'missing scope refusal',
+        report_config(),
+    ),
+    'contact-scope registry',
+);
+$restoreManualScope = $pdo->prepare(
+    'INSERT INTO business_report_contact_scope_bindings
+        (tenant_id,schedule_key,contact_scope,created_by_user_id,reason)
+     VALUES (1,?,?,?,?)'
+);
+$restoreManualScope->execute([
+    'client-one-weekly',
+    BUSINESS_REPORT_CONTACT_SCOPE_MANUAL,
+    101,
+    'restore hermetic scope fixture',
+]);
 
 $idContact = [
     'tenant_key' => 'ewid-t1',
@@ -337,6 +398,58 @@ report_check(
         && (int)$idPreparedV2['id_contact']['contact_version'] === 8
         && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_contact_snapshots')->fetchColumn() === 2,
 );
+$idEnabled = business_report_transition_schedule(
+    $pdo,
+    'one',
+    'id-client-weekly',
+    2,
+    'active',
+    101,
+    'enable inherited tenant scope',
+    report_config([
+        'schedule_keys' => ['id-client-weekly'],
+        'recipient_emails' => ['new-id-reports@example.test'],
+    ]),
+);
+$idDisabled = business_report_transition_schedule(
+    $pdo,
+    'one',
+    'id-client-weekly',
+    3,
+    'disabled',
+    101,
+    'disable inherited tenant scope',
+    report_config(),
+);
+$tenantInheritedScope = business_report_contact_scope_for_key($pdo, 1, 'id-client-weekly');
+report_check(
+    'enable and disable versions inherit the latest tenant ID evidence',
+    (int)$idEnabled['schedule']['version_no'] === 3
+        && (int)$idDisabled['schedule']['version_no'] === 4
+        && is_array($tenantInheritedScope)
+        && $tenantInheritedScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_TENANT
+        && (int)($tenantInheritedScope['evidence']['contact_version'] ?? 0) === 8,
+);
+$tenantHistoryBeforeScopeBypass = (int)$pdo->query(
+    "SELECT COUNT(*) FROM business_report_schedule_versions
+      WHERE tenant_id=1 AND schedule_key='id-client-weekly'"
+)->fetchColumn();
+report_throws(
+    'tenant ID history cannot be changed to manual after enable and disable',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_schedule(
+        $pdo, 'one', 'id-client-weekly', 11, (int)$definition['definition']['id'],
+        'new-id-reports@example.test', 'UTC', 3, '11:00:00', true, 101, 'manual scope bypass',
+    ),
+    'contact scope',
+);
+report_check(
+    'refused tenant-to-manual bypass leaves schedule history unchanged',
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM business_report_schedule_versions
+          WHERE tenant_id=1 AND schedule_key='id-client-weekly'"
+    )->fetchColumn() === $tenantHistoryBeforeScopeBypass,
+);
 report_throws(
     'ID contact evidence cannot roll back to an older version',
     BusinessReportConflictException::class,
@@ -355,6 +468,275 @@ report_throws(
         'UTC', 3, '09:00:00', true, 101, 'wrong binding',
     ),
     'different 8 West ID tenant',
+);
+
+$clientIdContact = [
+    'tenant_key' => 'ewid-t4',
+    'tenant_slug' => 'customer-one',
+    'contact_version' => 1,
+    'recipient_email' => 'customer-admin@example.test',
+    'generated_at' => '2026-08-28T12:00:00Z',
+    'generated_at_db' => '2026-08-28 12:00:00',
+    'request_nonce_sha256' => str_repeat('1', 64),
+    'response_sha256' => str_repeat('2', 64),
+];
+$clientIdPrepared = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+    $clientIdContact, 'UTC', 3, '09:00:00', true, 101, 'client ID canary',
+);
+report_check(
+    'client-scoped ID prepare pins the exact client and authenticated ID tenant',
+    $clientIdPrepared['action'] === 'prepared'
+        && (int)$clientIdPrepared['id_contact']['client_id'] === 11
+        && (string)$clientIdPrepared['id_contact']['id_tenant_key'] === 'ewid-t4'
+        && (string)$clientIdPrepared['id_contact']['recipient_email'] === 'customer-admin@example.test'
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_bindings')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+);
+$clientIdReplay = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+    array_replace($clientIdContact, [
+        'request_nonce_sha256' => str_repeat('3', 64),
+        'response_sha256' => str_repeat('4', 64),
+    ]),
+    'UTC', 3, '09:00:00', true, 101, 'exact client replay',
+);
+report_check(
+    'exact client-scoped prepare replay is idempotent',
+    $clientIdReplay['action'] === 'ignored'
+        && (int)$clientIdReplay['schedule']['id'] === (int)$clientIdPrepared['schedule']['id']
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+);
+report_throws(
+    'client-scoped contact version cannot name another recipient',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+        array_replace($clientIdContact, ['recipient_email' => 'other@example.test']),
+        'UTC', 3, '10:00:00', true, 101, 'client conflict',
+    ),
+    'different recipient',
+);
+$clientIdV2 = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+    array_replace($clientIdContact, [
+        'contact_version' => 2,
+        'recipient_email' => 'new-customer-admin@example.test',
+        'request_nonce_sha256' => str_repeat('5', 64),
+        'response_sha256' => str_repeat('6', 64),
+    ]),
+    'UTC', 3, '10:00:00', true, 102, 'client contact v2',
+);
+report_check(
+    'new client contact version appends disabled schedule and evidence',
+    (int)$clientIdV2['schedule']['version_no'] === 2
+        && (int)$clientIdV2['id_contact']['contact_version'] === 2
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 2,
+);
+$clientIdEnabled = business_report_transition_schedule(
+    $pdo,
+    'one',
+    'client-scoped-id-weekly',
+    2,
+    'active',
+    101,
+    'enable inherited client scope',
+    report_config([
+        'schedule_keys' => ['client-scoped-id-weekly'],
+        'recipient_emails' => ['new-customer-admin@example.test'],
+    ]),
+);
+$clientIdDisabled = business_report_transition_schedule(
+    $pdo,
+    'one',
+    'client-scoped-id-weekly',
+    3,
+    'disabled',
+    101,
+    'disable inherited client scope',
+    report_config(),
+);
+$clientInheritedScope = business_report_contact_scope_for_key(
+    $pdo,
+    1,
+    'client-scoped-id-weekly',
+);
+report_check(
+    'enable and disable versions inherit the latest client ID evidence',
+    (int)$clientIdEnabled['schedule']['version_no'] === 3
+        && (int)$clientIdDisabled['schedule']['version_no'] === 4
+        && is_array($clientInheritedScope)
+        && $clientInheritedScope['scope'] === BUSINESS_REPORT_CONTACT_SCOPE_CLIENT
+        && (int)($clientInheritedScope['evidence']['contact_version'] ?? 0) === 2,
+);
+$tenantRuntimePrepared = business_report_prepare_schedule_from_id(
+    $pdo, 'one', 'tenant-runtime-drift', 11, (int)$definition['definition']['id'],
+    array_replace($newIdContact, [
+        'request_nonce_sha256' => str_repeat('b', 64),
+        'response_sha256' => str_repeat('c', 64),
+    ]),
+    'UTC', 3, '10:00:00', true, 101, 'tenant runtime drift fixture',
+);
+$tenantRuntimeActive = business_report_transition_schedule(
+    $pdo, 'one', 'tenant-runtime-drift', 1, 'active', 101, 'enable valid tenant runtime fixture',
+    report_config([
+        'schedule_keys' => ['tenant-runtime-drift'],
+        'recipient_emails' => ['new-id-reports@example.test'],
+    ]),
+);
+$pdo->exec(
+    "UPDATE business_report_schedule_versions
+        SET recipient_email='tenant-runtime-substituted@example.test'
+      WHERE id=" . (int)$tenantRuntimeActive['schedule']['id']
+);
+report_throws(
+    'active tenant schedule read fails closed when its recipient differs from newest evidence',
+    BusinessReportGateException::class,
+    fn() => business_report_active_schedule($pdo, 'one', 'tenant-runtime-drift'),
+    'latest immutable ID contact evidence',
+);
+
+$clientRuntimeContact = array_replace($clientIdContact, [
+    'contact_version' => 2,
+    'recipient_email' => 'new-customer-admin@example.test',
+    'request_nonce_sha256' => str_repeat('7', 64),
+    'response_sha256' => str_repeat('8', 64),
+]);
+$clientRuntimePrepared = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-runtime-drift', 11, (int)$definition['definition']['id'],
+    $clientRuntimeContact, 'UTC', 3, '10:00:00', true, 101, 'client runtime drift fixture',
+);
+$clientRuntimeActive = business_report_transition_schedule(
+    $pdo, 'one', 'client-runtime-drift', 1, 'active', 101, 'enable valid client runtime fixture',
+    report_config([
+        'schedule_keys' => ['client-runtime-drift'],
+        'recipient_emails' => ['new-customer-admin@example.test'],
+    ]),
+);
+$pdo->exec(
+    'UPDATE business_report_schedule_versions SET client_id=12 WHERE id='
+    . (int)$clientRuntimeActive['schedule']['id']
+);
+report_throws(
+    'active client schedule read fails closed when its client differs from newest evidence',
+    BusinessReportGateException::class,
+    fn() => business_report_active_schedule($pdo, 'one', 'client-runtime-drift'),
+    'latest immutable ID contact evidence',
+);
+$driftedDue = business_report_due_schedule_keys(
+    $pdo,
+    time() + (21 * 86400),
+    10,
+    report_config([
+        'schedule_keys' => ['tenant-runtime-drift', 'client-runtime-drift'],
+        'client_keys' => ['safeharbor-client:11', 'safeharbor-client:12'],
+        'recipient_emails' => [
+            'tenant-runtime-substituted@example.test',
+            'new-customer-admin@example.test',
+        ],
+    ]),
+);
+report_check(
+    'due inventory omits active tenant and client schedules whose targets drift from ID evidence',
+    $driftedDue === [],
+);
+$scopeBypassScheduleCount = (int)$pdo->query(
+    'SELECT COUNT(*) FROM business_report_schedule_versions'
+)->fetchColumn();
+foreach ([
+    'manual-to-tenant' => static fn() => business_report_prepare_schedule_from_id(
+        $pdo, 'one', 'client-one-weekly', 11, (int)$definition['definition']['id'],
+        $newIdContact, 'UTC', 3, '11:00:00', true, 101, 'manual to tenant bypass',
+    ),
+    'manual-to-client' => static fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-one-weekly', 11, (int)$definition['definition']['id'],
+        $clientIdContact, 'UTC', 3, '11:00:00', true, 101, 'manual to client bypass',
+    ),
+    'tenant-to-client' => static fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'id-client-weekly', 11, (int)$definition['definition']['id'],
+        $clientIdContact, 'UTC', 3, '11:00:00', true, 101, 'tenant to client bypass',
+    ),
+    'client-to-tenant' => static fn() => business_report_prepare_schedule_from_id(
+        $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+        $newIdContact, 'UTC', 3, '11:00:00', true, 101, 'client to tenant bypass',
+    ),
+    'client-to-manual' => static fn() => business_report_prepare_schedule(
+        $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+        'new-customer-admin@example.test', 'UTC', 3, '11:00:00', true, 101, 'client to manual bypass',
+    ),
+] as $scopeBypassName => $scopeBypass) {
+    report_throws(
+        "{$scopeBypassName} contact scope bypass is refused",
+        BusinessReportConflictException::class,
+        $scopeBypass,
+        'contact scope',
+    );
+}
+report_check(
+    'all refused contact-scope bypasses leave schedule history unchanged',
+    (int)$pdo->query('SELECT COUNT(*) FROM business_report_schedule_versions')->fetchColumn()
+        === $scopeBypassScheduleCount,
+);
+report_throws(
+    'client-scoped contact version cannot move backward',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+        $clientIdContact, 'UTC', 3, '11:00:00', true, 101, 'client rollback',
+    ),
+    'backward',
+);
+report_throws(
+    'one client cannot be rebound to a different ID tenant',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'other-client-key', 11, (int)$definition['definition']['id'],
+        array_replace($clientIdContact, ['tenant_key' => 'ewid-t5']),
+        'UTC', 3, '09:00:00', true, 101, 'client rebind',
+    ),
+    'different 8 West ID tenant',
+);
+report_throws(
+    'one ID tenant cannot be reused by another Safeharbor client',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-twelve-key', 12, (int)$definition['definition']['id'],
+        $clientIdContact, 'UTC', 3, '09:00:00', true, 101, 'ID tenant reuse',
+    ),
+    'different Safeharbor client',
+);
+report_throws(
+    'client-scoped prepare cannot reach a client in another provider tenant',
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'cross-tenant-client', 22, (int)$definition['definition']['id'],
+        array_replace($clientIdContact, ['tenant_key' => 'ewid-t6']),
+        'UTC', 3, '09:00:00', true, 101, 'cross tenant client',
+    ),
+    'exact tenant',
+);
+$mixedScopeSchedule = business_report_prepare_schedule(
+    $pdo, 'one', 'mixed-scope-fixture', 11, (int)$definition['definition']['id'],
+    'mixed@example.test', 'UTC', 3, '09:00:00', true, 101, 'isolated mixed scope fixture',
+);
+$mixedScopeScheduleId = (int)$mixedScopeSchedule['schedule']['id'];
+$pdo->exec("INSERT INTO business_report_id_contact_snapshots
+    (tenant_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+     response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+    VALUES (1,{$mixedScopeScheduleId},'ewid-t1',9,'mixed@example.test',
+     '2026-08-28 12:00:00','" . str_repeat('7', 64) . "','" . str_repeat('8', 64) . "',
+     101,'deliberately mixed tenant lane')");
+$pdo->exec("INSERT INTO business_report_id_client_contact_snapshots
+    (tenant_id,client_id,schedule_version_id,id_tenant_key,contact_version,recipient_email,
+     response_generated_at,request_nonce_sha256,response_sha256,created_by_user_id,reason)
+    VALUES (1,11,{$mixedScopeScheduleId},'ewid-t4',3,'mixed@example.test',
+     '2026-08-28 12:00:00','" . str_repeat('9', 64) . "','" . str_repeat('a', 64) . "',
+     101,'deliberately mixed client lane')");
+report_throws(
+    'a deliberately mixed history fails closed instead of preferring one ID lane',
+    BusinessReportGateException::class,
+    fn() => business_report_contact_scope_for_key($pdo, 1, 'mixed-scope-fixture'),
+    'manual report contact scope',
 );
 report_throws(
     'schedule enable requires the exact schedule key allowlist',
@@ -706,9 +1088,19 @@ report_throws(
 );
 
 // Starvation guard: 101 due active schedules, only the last key and recipient allowed.
+$starvationScopeInsert = $pdo->prepare(
+    'INSERT INTO business_report_contact_scope_bindings
+        (tenant_id,schedule_key,contact_scope,created_by_user_id,reason)
+     VALUES (1,?,?,101,?)'
+);
 for ($i = 1; $i <= 101; $i++) {
     $key = sprintf('starve-%03d', $i);
     $recipient = $i === 101 ? 'allowed@example.test' : sprintf('blocked%03d@example.test', $i);
+    $starvationScopeInsert->execute([
+        $key,
+        BUSINESS_REPORT_CONTACT_SCOPE_MANUAL,
+        'starvation inventory fixture',
+    ]);
     $insert = $pdo->prepare(
         "INSERT INTO business_report_schedule_versions
             (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,

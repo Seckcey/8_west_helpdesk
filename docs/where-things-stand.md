@@ -40,6 +40,7 @@ If you change what is live, change this page in the same PR.
 | Customer ticket-summary portal (Phase 5A) | **Deployed dark** through base PR #44 / merge `3bb87fa` plus disabled-logout hardening PR #48 / merge `748f16c`; migration 012 is applied, `portal.enabled=false`, client fields are empty, the private cache is empty, 8 West ID has zero Safeharbor OIDC clients, and Safeharbor has zero bindings/events |
 | Scheduled archived business reports (Phase 6) | **Controlled 8 West IT canary prepared, not generated or delivered**: report gate release `8322266` remains in the current `da9560a` application release with definition 1 and logical schedule 1; schedule key `8west-it-weekly-canary-v1` is active at version 2 for Wednesday 09:00 America/Los_Angeles. Its schedule/tenant/client/recipient allowlists each contain one exact value, but generation and delivery are both off; archives/deliveries/attempts remain zero and there is no server scheduler. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
+| Client-scoped 8 West ID report contacts | **Release candidate only, not production**: migration 019 and code add exact client-key bindings beside the existing tenant lane. The protected client-14 → `ewid-t4` mapping is not installed; no customer schedule, generation, delivery, or scheduler state is changed. |
 | Milepost managed-customer receiver | **Live only for exact tenant `8west`**: Safeharbor client 13 is bound to Milepost customer `4ebaeefa-b101-47f8-ac76-e49ab309d272`; ordered v1/v2/v3 receipts finish at the real `8 West IT` name. Milepost has one root-owned one-minute dispatcher. Logbook activation remains separate. |
 
 ## Customer Service Tools development
@@ -464,6 +465,20 @@ A one-time Codex heartbeat is planned for Wednesday, 2026-09-02, to continue
 the controlled canary. The contract and remaining sequence are in
 `docs/business-reports-contract.md`.
 
+The next report-contact slice is implemented only as a release candidate.
+Migration 019 adds separate immutable client bindings and client contact
+snapshots plus one immutable logical-schedule contact-scope registry. It
+preserves migration 017's tenant tables, evidence rows, and 8 West IT canary
+while strengthening the tenant insert guards symmetrically. The operator path
+accepts only an exact protected
+`safeharbor-client:<id> -> ewid-t<id>` entry, proves the provider tenant,
+client, definition, and active owner/admin before lookup, and commits only a
+disabled schedule plus contact evidence. It does not infer identity from a
+client name, domain, or email. The reviewed canary mapping is client 14 to
+`ewid-t4`, but it is not installed in production; migration, protected config,
+schedule preparation, generation, delivery, and scheduler state all remain
+unchanged until a separate release gate.
+
 The Milepost managed-customer receiver foundation shipped through Safeharbor
 PR #52 / merge `d270343dff6bfd3e65e263b693f2687e5f508bd0`, and its receiver is
 enabled for only the dedicated signed identity and exact `8west` tenant. It
@@ -678,6 +693,17 @@ binding, and one contact-version-1 snapshot. Both dedicated contact gates are
 off after the redacted onboarding probe; the address and HMAC keys remain
 protected server-side.
 
+Migration `019_client_report_contact_evidence.sql` is a release candidate and
+is **not applied**. It adds two client-scoped evidence tables plus one
+immutable `(tenant_id,schedule_key)` contact-scope registry: ten foreign-key
+constraints and six enforced checks across the three tables. It safely
+replaces twelve protected insert/immutability guards behind twelve temporary
+fail-closed replay guards, then requires twelve permanent replacements and zero
+swaps. The existing migration-017 tables, evidence rows, and canary are
+prerequisites and remain intact; its tenant binding/snapshot insert guards are
+strengthened by 019. Production still has only the tenant-scoped report-contact
+evidence described above.
+
 Migration `018_ticket_auto_close_eligibility.sql` was applied and replayed
 migration-first on 2026-08-27 from release `e7ee521`'s exact Git blob. It adds
 one default-zero ticket column, one enforced check, and six permanent ticket,
@@ -740,6 +766,13 @@ permanent guards are removed and proves all six write classes remain blocked;
 then uses two real processes to prove same-version/different-recipient inserts
 serialize on the immutable binding row. The canonical prepare path also runs
 through the temporary least-privilege identity.
+The same suite now first-applies migration 019 after 017, rejects client-table
+index/foreign-key/check drift, interrupts and recovers all six client-table
+write guards, proves exact replay and version monotonicity, refuses cross-
+tenant/client reach and ID-key reuse, and exercises client preparation through
+the same delete-free temporary runtime identity. The server-free ID and report
+suites separately pin exact config parsing, no-inference routing, atomic
+disabled preparation, and idempotent replay.
 PHP lint and the database-free suites run on the Windows dev machine.
 
 The scratch application identity skips migration 010's four trigger

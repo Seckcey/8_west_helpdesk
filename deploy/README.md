@@ -254,6 +254,9 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 **017 (8 West ID report-contact evidence, migration-first on 2026-08-27)** ·
 **018 (ticket automatic-close eligibility, migration-first on 2026-08-27)**.
 
+Migration 019 is a migration-first release candidate, not an applied
+production migration. Its separate gate is documented below.
+
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
 schema-compatible rollback point. Do not apply 011 while production runs code
@@ -531,6 +534,28 @@ Any replay must preserve those two evidence rows, all migration-013 report rows
 and trigger hashes, the six named 017 triggers, and zero swap/preflight
 triggers. A fresh rebuild instead starts with zero binding/snapshot rows and
 must remain disabled until a separately controlled onboarding canary.
+
+Migration 019 (`019_client_report_contact_evidence.sql`) is a release
+candidate and is not applied. It requires migrations 013 and 017 first and
+adds `business_report_id_client_bindings`,
+`business_report_id_client_contact_snapshots`, and the immutable
+`business_report_contact_scope_bindings` registry. It strengthens the schedule
+and tenant-evidence insert guards and installs the six independent client-lane
+guards.
+Apply it migration-first from an exact green default-branch Git blob under the
+normal Safeharbor-only write freeze and trigger-capable operator. Its postflight
+must show three migration-019 tables, twelve protected permanent trigger
+replacements, zero swap guards, and unchanged migration-017 binding/snapshot
+rows. The disposable MySQL suite must first-apply, backfill original logical
+schedule scopes, replay, interrupt, recover, and exercise the temporary least-
+privilege runtime path. That runtime needs locking-read `UPDATE` plus `INSERT`
+on the scope registry as well as the four ID evidence tables; permanent
+triggers still reject scope updates/deletes. Do not install the protected
+client mapping or deploy the code until those gates pass. The reviewed future
+mapping is the exact stable client key for client 14 to `ewid-t4`; names,
+domains, and email addresses are never accepted as mapping inputs. Schedule
+preparation remains disabled-only, with generation, delivery, and scheduler
+installation separate later gates.
 
 Deploy code only after the migration and grant postflight. Keep the protected
 `business_reports` block absent or fully default-off with empty allowlists on a

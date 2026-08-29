@@ -17,8 +17,9 @@ db/migrations/             numbered SQL migrations (010 versioned service
                            goals, 011 approval-grade time, 012 customer portal,
                            013 business reports, 014 guarded policy publication,
                            015 default-off Milepost customer sync, and 016 time
-                           corrections/overlap guards are applied; 017 ID report
-                           contact evidence is a not-yet-deployed candidate)
+                           corrections/overlap guards, 017 ID report contact,
+                           and 018 ticket auto-close are applied; 019 client-
+                           scoped report contact is a release candidate)
 db/manage_service_goals.php
                            operator-only inspect/plan/publish for one exact
                            tenant + Standard/Premium policy; reviewed digest
@@ -27,8 +28,8 @@ db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
                            identity tenant slug → provider tenant/client binding
 db/manage_business_reports.php
                            owner/admin definition + schedule lifecycle; canonical
-                           prepare reads a versioned tenant admin contact from
-                           8 West ID but never echoes the address
+                           prepare reads a versioned tenant or exact-client
+                           admin contact from 8 West ID but never echoes it
 db/run_business_report.php exact dry-run/generate/deliver for one pinned schedule
                            or archive; no batch or automatic retry
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
@@ -51,7 +52,8 @@ lib/portal_render.php      independent dark customer chrome (no staff session)
 lib/business_reports.php   versioned weekly aggregates, oldest-period catch-up,
                            immutable archive hashes, and one-attempt delivery truth
 lib/id_report_contacts.php operator-only exact-host/HMAC 8 West ID contact
-                           snapshot client; never loaded by cron or report runs
+                           snapshot client with explicit tenant/client maps;
+                           never loaded by cron or report runs
 lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            suite_sso_attempt() verifies the ewid_token cookie,
                            keys the user by the immutable `sub` claim, provisions
@@ -236,12 +238,20 @@ public/                    Apache docroot (page-per-file, like Milepost)
   one prepared 8 West IT definition/schedule canary, both execution gates off,
   zero archives, deliveries, or attempts, and no server scheduler.
   See `docs/business-reports-contract.md`.
-- ID-backed report onboarding: `prepare-from-id` is the only network call site
-  and uses a dedicated default-off HMAC config. Migration 017 is live and stores
+- ID-backed report onboarding: `prepare-from-id` and
+  `prepare-client-from-id` are the only network call sites and use a dedicated
+  default-off HMAC config. Migration 017 is live and stores
   an immutable local-tenant/stable-ID binding plus append-only contact-version
   evidence in the same transaction as the disabled schedule. One redacted
   8 West IT contact canary was stored; both contact gates are off. This path
-  cannot generate or send a report.
+  cannot generate or send a report. Migration 019 is a not-applied release
+  candidate adding an independent exact-client binding/evidence lane and one
+  immutable manual/tenant-ID/client-ID scope per logical schedule. Inspect
+  reports the exact pinned scope and latest inherited evidence even after
+  enable/disable versions. ID-scoped activation and active/due reads fail closed
+  unless the current recipient (and client for client scope) matches that latest
+  evidence; no path converts the tenant canary or infers identity from
+  names/domains/email.
 - Milepost customer sync: independent from alert/support intake and dark unless
   `suite_customer_sync.enabled` is exactly true. The signed payload resolves an
   explicitly allowlisted Safeharbor tenant slug and binds one globally stable

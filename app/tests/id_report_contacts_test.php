@@ -52,6 +52,7 @@ function id_report_config(array $overrides = []): array
         'endpoint' => ID_REPORT_CONTACT_ENDPOINT,
         'hmac_secret' => str_repeat('a', 64),
         'tenant_bindings' => ['8west' => 'ewid-t1'],
+        'client_bindings' => ['safeharbor-client:14' => 'ewid-t4'],
         'timeout_seconds' => 10,
     ], $overrides);
 }
@@ -82,7 +83,7 @@ function id_report_transport(?callable $mutate = null): callable
             'ok' => true,
             'schema_version' => 1,
             'tenant_key' => $request['tenant_key'],
-            'tenant_slug' => '8west',
+            'tenant_slug' => $request['tenant_key'] === 'ewid-t4' ? '8-west-lifestyle' : '8west',
             'contact_version' => 7,
             'weekly_report_email' => 'admin@example.test',
             'generated_at' => gmdate('Y-m-d\TH:i:s\Z', (int)$headerMap['x-8w-timestamp']),
@@ -129,12 +130,18 @@ $dark = id_report_contact_config([
     'endpoint' => ID_REPORT_CONTACT_ENDPOINT,
     'hmac_secret' => '',
     'tenant_bindings' => [],
+    'client_bindings' => [],
     'timeout_seconds' => 10,
 ]);
-id_report_check($dark['enabled'] === false && $dark['tenant_bindings'] === [], 'default-off config changed');
+id_report_check(
+    $dark['enabled'] === false
+        && $dark['tenant_bindings'] === []
+        && $dark['client_bindings'] === [],
+    'default-off config changed',
+);
 foreach ([
     ['enabled' => true, 'hmac_secret' => ''],
-    ['enabled' => true, 'tenant_bindings' => []],
+    ['enabled' => true, 'tenant_bindings' => [], 'client_bindings' => []],
     ['enabled' => 1],
     ['endpoint' => 'http://id.8westit.com/api/svc/report-contact.php'],
     ['endpoint' => 'https://evil.example/api/svc/report-contact.php'],
@@ -145,6 +152,14 @@ foreach ([
     ['tenant_bindings' => ['8WEST' => 'ewid-t1']],
     ['tenant_bindings' => ['8west' => '8west']],
     ['tenant_bindings' => ['8west' => 'ewid-t4294967296']],
+    ['client_bindings' => ['client-14' => 'ewid-t4']],
+    ['client_bindings' => ['safeharbor-client:0' => 'ewid-t4']],
+    ['client_bindings' => ['safeharbor-client:4294967296' => 'ewid-t4']],
+    ['client_bindings' => ['safeharbor-client:14' => 'ewid-t1']],
+    ['client_bindings' => [
+        'safeharbor-client:14' => 'ewid-t4',
+        'safeharbor-client:15' => 'ewid-t4',
+    ]],
     ['timeout_seconds' => 31],
 ] as $override) {
     id_report_refuses(
@@ -188,6 +203,19 @@ id_report_check(
         && preg_match('/\A[0-9a-f]{64}\z/D', $snapshot['response_sha256']) === 1,
     'authenticated snapshot was not normalized exactly',
 );
+$clientSnapshot = id_report_contact_fetch_client(
+    14,
+    id_report_config(),
+    id_report_transport(),
+    1_800_000_000,
+);
+id_report_check(
+    $clientSnapshot['tenant_key'] === 'ewid-t4'
+        && $clientSnapshot['tenant_slug'] === '8-west-lifestyle'
+        && $clientSnapshot['contact_version'] === 7
+        && $clientSnapshot['recipient_email'] === 'admin@example.test',
+    'client binding did not return the exact authenticated ID tenant snapshot',
+);
 
 id_report_refuses(
     static fn() => id_report_contact_fetch('8west', id_report_config(['enabled' => false]), id_report_transport()),
@@ -196,6 +224,21 @@ id_report_refuses(
 id_report_refuses(
     static fn() => id_report_contact_fetch('other', id_report_config(), id_report_transport()),
     'unbound tenant was accepted',
+);
+id_report_refuses(
+    static fn() => id_report_contact_fetch_client(15, id_report_config(), id_report_transport()),
+    'unbound client was accepted',
+);
+id_report_refuses(
+    static fn() => id_report_contact_fetch_client(
+        14,
+        id_report_config(),
+        id_report_transport(static fn(array $state): array => [
+            'document' => array_replace($state['document'], ['tenant_slug' => 'Customer One']),
+        ]),
+        1_800_000_000,
+    ),
+    'client lookup accepted a malformed authenticated ID tenant slug',
 );
 
 $badMutations = [
@@ -237,7 +280,8 @@ id_report_check(
         && ($sampleBlock['enabled'] ?? null) === false
         && ($sampleBlock['endpoint'] ?? null) === ID_REPORT_CONTACT_ENDPOINT
         && ($sampleBlock['hmac_secret'] ?? null) === ''
-        && ($sampleBlock['tenant_bindings'] ?? null) === [],
+        && ($sampleBlock['tenant_bindings'] ?? null) === []
+        && ($sampleBlock['client_bindings'] ?? null) === [],
     'sample configuration is not dark, empty, and exact-host pinned',
 );
 $manager = (string)file_get_contents(__DIR__ . '/../db/manage_business_reports.php');
@@ -245,8 +289,14 @@ $runner = (string)file_get_contents(__DIR__ . '/../db/run_business_report.php');
 $cron = (string)file_get_contents(__DIR__ . '/../cron/business_reports.php');
 id_report_check(
     substr_count($manager, 'id_report_contact_fetch(') === 1
-        && str_contains($manager, "if (\$command === 'prepare-from-id')"),
-    'operator prepare command is not the one network-call boundary',
+        && substr_count($manager, 'id_report_contact_fetch_client(') === 1
+        && str_contains($manager, "if (\$command === 'prepare-from-id')")
+        && str_contains($manager, "if (\$command === 'prepare-client-from-id')")
+        && str_contains($manager, 'business_report_contact_scope_for_key(')
+        && str_contains($manager, 'CONTACT_SCOPE=MANUAL')
+        && strpos($manager, 'business_report_schedule_target(')
+            < strpos($manager, 'id_report_contact_fetch_client('),
+    'operator prepare commands are not the only two network-call boundaries',
 );
 id_report_check(
     !str_contains($runner, 'id_report_contact')
@@ -258,6 +308,33 @@ id_report_check(
     !str_contains($manager, "echo 'RECIPIENT_EMAIL='")
         && !str_contains($manager, "echo \$contact['recipient_email']"),
     'operator output exposes the raw report address',
+);
+$tenantPrepareStart = strpos($manager, "if (\$command === 'prepare-from-id')");
+$clientPrepareStart = strpos($manager, "if (\$command === 'prepare-client-from-id')");
+$transitionStart = strpos($manager, "if (\$command === 'enable' || \$command === 'disable')");
+$tenantPrepareBlock = is_int($tenantPrepareStart) && is_int($clientPrepareStart)
+    && $clientPrepareStart > $tenantPrepareStart
+    ? substr($manager, $tenantPrepareStart, $clientPrepareStart - $tenantPrepareStart)
+    : '';
+$clientPrepareBlock = is_int($clientPrepareStart) && is_int($transitionStart)
+    && $transitionStart > $clientPrepareStart
+    ? substr($manager, $clientPrepareStart, $transitionStart - $clientPrepareStart)
+    : '';
+id_report_check(
+    substr_count(
+        $tenantPrepareBlock,
+        "report_cli_emit_id_contact(\$result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_TENANT);",
+    ) === 1
+        && !str_contains($tenantPrepareBlock, 'BUSINESS_REPORT_CONTACT_SCOPE_CLIENT'),
+    'prepare-from-id CLI receipt does not report its exact tenant contact scope',
+);
+id_report_check(
+    substr_count(
+        $clientPrepareBlock,
+        "report_cli_emit_id_contact(\$result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);",
+    ) === 1
+        && !str_contains($clientPrepareBlock, 'BUSINESS_REPORT_CONTACT_SCOPE_TENANT'),
+    'prepare-client-from-id CLI receipt does not report its exact client contact scope',
 );
 
 if ($idReportFailures > 0) {
