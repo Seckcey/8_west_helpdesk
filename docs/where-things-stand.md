@@ -435,6 +435,15 @@ CSAT. They do not select ticket subjects, message bodies, contacts,
 attachments, technician/review notes, billing facts, endpoint controls, or AI
 output.
 
+The source-only onboarding planner `plan-customer-from-id` proves one exact
+active Milepost customer UUID, its configured and authenticated 8 West ID
+admin contact, the Safeharbor owner/admin and report target, existing immutable
+contact history, and the next disabled schedule version. It performs database
+reads only, prints customer/recipient digests rather than the address, makes no
+Graph request, and cannot create or enable any report state. The later prepare
+command still locks and rechecks every fact. This planning surface does not
+change the recorded production gates, schedules, archives, or deliveries.
+
 Generation and delivery have independent global gates plus exact
 tenant/client/recipient allowlists; `canary_only` defaults true. The runner is
 separate from retrying `mail_queue`. Only an exact Microsoft Graph 202 is
@@ -903,12 +912,13 @@ called out, and none may be satisfied by inventing customer or financial facts.
    are live. Frankie must still sign in fresh and prove ticket-summary
    isolation, revocation, logout, and desktop/mobile behavior. Billing, ticket
    detail, mutation, and endpoint control remain out of scope.
-6. **The Lifestyle report canary stopped at the uncertain boundary.** Its one
-   archive is verified, latest schedule version 3 is disabled, and the only
-   attempt is terminal `uncertain` with no trustworthy Graph result or provider
-   HTTP status. Never retry that attempt. A future run needs a new archive and
-   separate approval; provider acceptance and inbox delivery each need their
-   own evidence before any scheduler is installed or allowlist widened.
+6. **The Lifestyle report canary has provider acceptance but no inbox proof.**
+   Three archives are verified and every latest schedule version is disabled.
+   Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt
+   3 returned Graph HTTP 202 / `graph_accepted` and is `submitted`, which proves
+   provider acceptance only. A future run needs a new archive and separate
+   approval; recipient confirmation is still required before any scheduler is
+   installed or allowlist widened.
 7. **The Coastmark seam needs Coastmark-owned financial facts.** No production
    agreement/rate/tax mapping currently exists. A future canary may create only
    draft invoice lines from approved Safeharbor time; it must never post, send,
