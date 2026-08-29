@@ -96,6 +96,9 @@ portal_auth_check('revocation fallback is pinned to five minutes',
     $oidc['revocation_maximum_stale_seconds'] === 300);
 portal_auth_check('configured OIDC client is confidential-kit compatible',
     portal_oidc_client() instanceof EightWest\Id\Client);
+portal_auth_check('vendored oidc_v1 treats passkey as known MFA evidence',
+    in_array('passkey', \EightWest\Id\KNOWN_AMR, true)
+    && in_array('passkey', \EightWest\Id\MFA_METHODS, true));
 
 $PORTAL_TEST_CONFIG['portal']['required_product'] = 'milepost';
 portal_auth_expect('different product cannot weaken the entitlement gate',
@@ -236,7 +239,7 @@ $kitBlobs = [
     'errors.php' => '86ed368cada6aa6ac7778e519fcba665b5dbe024',
     'http.php' => 'b553cc7ab69aad3d763ce122f781f18ed39763cf',
     'jwt.php' => '8c56e98ef12d9dc467c7ee2ed31cadd72da233a8',
-    'policy.php' => '4c0cb8b61ccac95caa1e6e646b91c27b3e1f146e',
+    'policy.php' => 'a2bebc9a5926e6b2c6270110e15718160dce66b2',
     'revocations.php' => 'f38be1149e2ebcfe8a6349de06cee43a6d8de8f1',
 ];
 foreach ($kitBlobs as $file => $expected) {

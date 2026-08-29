@@ -17,6 +17,8 @@ $valid = [
     'amr' => ['pwd', 'mfa_trusted_device'],
 ];
 policy_check(suite_mfa_policy_evaluate($valid, $now, 2592000)['compliant'], 'trusted browser refused');
+$passkey = array_replace($valid, ['amr' => ['passkey']]);
+policy_check(suite_mfa_policy_evaluate($passkey, $now, 2592000)['compliant'], 'passkey refused');
 policy_check(suite_mfa_policy_evaluate([], $now, 2592000)['reason'] === 'contract_missing', 'legacy claims accepted');
 $notAuthenticated = array_replace($valid, ['8west:mfa_authenticated' => false]);
 policy_check(suite_mfa_policy_evaluate($notAuthenticated, $now, 2592000)['reason'] === 'mfa_not_authenticated', 'single factor accepted');
