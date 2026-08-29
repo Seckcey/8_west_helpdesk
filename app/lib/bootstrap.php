@@ -11,6 +11,8 @@ mb_internal_encoding('UTF-8');
 
 define('APP_ROOT', dirname(__DIR__));
 
+require_once __DIR__ . '/release.php';
+
 $configPath = APP_ROOT . '/config/config.php';
 if (!is_file($configPath)) {
     http_response_code(500);

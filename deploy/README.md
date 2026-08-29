@@ -15,26 +15,36 @@ which lives on the same box (`support.8westit.com`).
 > `ssh -i ~/.ssh/milepost.pem ubuntu@<origin-ip>` (Frank has the IP; the
 > `.pem` is the Milepost key — never commit it).
 
-## Layout on the server (mirrors Milepost)
+## Layout on the server
 
 ```
-/srv/8west/apps/safeharbor/current/   the app (deploy target)
-  config/config.php                   DB credentials (server-only, ubuntu:www-data 640)
-  db/ lib/ public/                    code (deployed from this repo)
+/srv/8west/apps/safeharbor/
+  current -> releases/<40-char Git revision>   one atomic pointer
+  releases/<40-char Git revision>/            immutable root:www-data app
+    REVISION                                 exact reviewed commit
+    ARTIFACT_SHA256                           exact Git-archive digest
+    RELEASE_DIGEST                            installed-file manifest digest
+    config/config.php -> ../../../shared/config/config.php
+  shared/config/config.php                    protected root:www-data 640
+  shared/attachments/                         mutable uploads; never a release input
 /etc/apache2/sites-available/
   safeharbor-8westit.conf             port 80 (HTTPS redirect)
   safeharbor-8westit-le-ssl.conf      port 443 (Let's Encrypt)
+/srv/8west/backups/safeharbor/        root-only conversion/release records
 ```
+
+Apache keeps `DocumentRoot` on `current/public`, while both reviewed
+`<Directory>` rules match `releases/*/public` because Apache resolves the
+symlink. Releases are never edited after assembly. A failed public health or
+login check atomically restores the exact previous link and reloads Apache.
 
 ## One-time setup (historical; rebuild requires a reviewed plan)
 
-> **Do not run `deploy/setup-server.sh` as currently written.** It still
-> creates the retired `/var/www/safeharbor` path while the authoritative app
-> root is `/srv/8west/apps/safeharbor/current`. The script is an outstanding
-> rebuild blocker and was deliberately left untouched in this documentation
-> closeout. It also does not reproduce the current least-privilege database
-> grants. Never use it—or the old database-wide `DELETE` grant—as a rebuild
-> shortcut.
+> **`deploy/setup-server.sh` is retired and now fails before changing
+> anything.** Its former implementation created `/var/www/safeharbor` and did
+> not reproduce the least-privilege database grants or atomic release layout.
+> A rebuild needs a separately reviewed plan. Never use the retired layout or
+> the old database-wide `DELETE` grant as a shortcut.
 
 ```bash
 # On milepost-ec2 as the privileged operator:
@@ -46,10 +56,10 @@ sudo mysql -e "CREATE DATABASE safeharbor CHARACTER SET utf8mb4 COLLATE utf8mb4_
   FLUSH PRIVILEGES;"
 
 # 2. App dir + server config (copy config.sample.php, fill in the password)
-sudo mkdir -p /srv/8west/apps/safeharbor/current/config
+sudo mkdir -p /srv/8west/apps/safeharbor/shared/config
 # → write config.php, then:
-sudo chown -R ubuntu:www-data /srv/8west/apps/safeharbor
-sudo chmod 640 /srv/8west/apps/safeharbor/current/config/config.php
+sudo chown root:www-data /srv/8west/apps/safeharbor/shared/config/config.php
+sudo chmod 640 /srv/8west/apps/safeharbor/shared/config/config.php
 
 # From the exact clean repository checkout:
 # 3. Load the canonical schema and the three svc-boundary migrations as an operator.
@@ -72,17 +82,56 @@ sudo mysql -e "GRANT DELETE ON safeharbor.clients TO 'safeharbor'@'localhost'; \
   GRANT DELETE ON safeharbor.tickets TO 'safeharbor'@'localhost';"
 
 # From the exact clean repository checkout:
-# 5. Deploy from a clean detached default-branch commit, then install the vhosts.
-SERVER=milepost-ec2 DEST=/srv/8west/apps/safeharbor/current bash deploy/deploy.sh
+# 5. Install the reviewed vhosts, then deploy from a clean detached
+# default-branch commit into the already-prepared atomic layout.
 scp deploy/apache-safeharbor*.conf milepost-ec2:/tmp/
 ssh milepost-ec2 \
   "sudo cp /tmp/apache-safeharbor.conf /etc/apache2/sites-available/safeharbor-8westit.conf && \
    sudo cp /tmp/apache-safeharbor-le-ssl.conf /etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf && \
    sudo apache2ctl configtest && sudo systemctl reload apache2"
+EXPECTED_SHA="$RELEASE_SHA" SERVER=milepost-ec2 bash deploy/deploy.sh
 ```
 
 TLS note: the cert was issued with the box's existing certbot (snap). It lives
 at `/etc/letsencrypt/live/safeharbor.8westit.com/` and renews automatically.
+
+## One-time conversion of the legacy real `current` directory
+
+Run this once before the first atomic release. It refuses a symlinked or
+already-converted layout, an unexpected vhost byte, an unsafe config, a
+non-regular legacy tree entry, or a busy release lock. Supply the exact live
+application revision from the latest protected production receipt; do not
+guess it.
+
+The converter first writes a root-only external archive of the complete real
+`current` tree (including the protected config), copies both vhosts exactly,
+hashes and verifies all three, and compares the archive back to the live tree.
+Only then does it move config to the server-owned shared path, create the
+immutable legacy release, switch `current`, and update only the two Safeharbor
+vhost directory rules. Any later failure restores the real directory and both
+vhosts from that exact backup, reloads Apache, and repeats the public checks.
+The attachment directory is never copied, moved, traversed, chmodded, or
+chowned; its filesystem identity is checked before and after.
+
+```bash
+# Read-only preflight on the server; retain the two exact hashes.
+ssh milepost-ec2 \
+  "sudo sha256sum /etc/apache2/sites-available/safeharbor-8westit.conf \
+   /etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf"
+
+# Run from a fresh clean checkout of the exact green main revision containing
+# these controllers. CURRENT_REVISION is the independently verified live SHA.
+EXPECTED_SHA="$RELEASE_SHA" \
+CURRENT_REVISION="$VERIFIED_LIVE_SHA" \
+EXPECTED_HTTP_VHOST_SHA256="$HTTP_VHOST_SHA256" \
+EXPECTED_HTTPS_VHOST_SHA256="$HTTPS_VHOST_SHA256" \
+SERVER=milepost-ec2 \
+bash deploy/prepare-atomic-layout.sh
+```
+
+Do not run the converter again after `current` becomes a symlink. Do not
+manually create `shared/config`, `releases`, or a replacement link to bypass a
+refusal; resolve the unexpected state against the retained root-only record.
 
 ## Every release
 
@@ -102,22 +151,32 @@ cd ../safeharbor-release-"${RELEASE_SHA:0:12}"
 test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 test -z "$(git status --porcelain)"
 
-# Run the reviewed tests, verified backup, and migration-specific ordering first.
+# Run the reviewed tests and migration-specific ordering first.
 # Deploy only after every required migration postflight passes.
-SERVER=milepost-ec2 DEST=/srv/8west/apps/safeharbor/current bash deploy/deploy.sh
+EXPECTED_SHA="$RELEASE_SHA" SERVER=milepost-ec2 bash deploy/deploy.sh
 ```
 
 The newest green run must name exactly `RELEASE_SHA`; recency alone is not a
 gate. `milepost-ec2` is the reviewed origin-IP alias and works with the deploy
 script's `IdentitiesOnly` option. Never rely on the script's Cloudflare-hostname
 default. Record the exact SHA, CI run, backup record, migration output, and
-postdeploy hashes in a root-only release record.
+postdeploy hashes in the root-only release record created by the controller.
 
-No build step — the script lints the PHP, syncs brand assets, and streams
-`app/` to the server (never overwriting `config/config.php`), then fixes
-ownership (`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets
-are cache-busted Milepost-style with `?v=` in `lib/render.php`,
-`lib/westy.php`, and `public/login.php`.
+The launcher refuses tracked, untracked, and ignored workspace bytes, requires
+the exact commit to remain `origin/main`, builds the same Git archive twice,
+and verifies both digests before upload. The server verifies the controller and
+archive again, extracts away from `current`, rejects runtime config and
+non-regular entries, copies only the six reviewed brand blobs from that
+archive, lints every PHP file, writes an installed-file manifest, and applies
+root-owned read-only permissions. It then creates the external exact artifact
+record and changes `current` in one rename. `health.php`, the login title, and
+the signed-out root are checked through the public hostname after an Apache
+config test and graceful reload.
+
+Local asset query strings use the first 12 characters of the immutable
+`REVISION` marker. They therefore change with the reviewed commit without
+rewriting PHP after extraction. The separately released shared Westy layout
+continues to use its own versioned path.
 
 ### Protected backup and Safeharbor-only write freeze
 
@@ -131,21 +190,34 @@ umask 077
 BACKUP_DIR="/srv/8west/backups/safeharbor/$(date -u +%Y%m%dT%H%M%SZ)-pre-release"
 install -d -m 0700 -o root -g root "$BACKUP_DIR"
 
-tar -C /srv/8west/apps/safeharbor/current \
+APP_ROOT=/srv/8west/apps/safeharbor
+CURRENT_TARGET="$(readlink -f "$APP_ROOT/current")"
+case "$CURRENT_TARGET/" in
+  "$APP_ROOT/releases/"*) ;;
+  *) printf '%s\n' 'current resolves outside Safeharbor releases' >&2; exit 1 ;;
+esac
+tar -C "$CURRENT_TARGET" \
   --exclude='./config/config.php' --exclude='./config/config.php.bak*' \
   -czf "$BACKUP_DIR/application.tar.gz" .
-install -m 0600 /srv/8west/apps/safeharbor/current/config/config.php \
+install -m 0600 "$APP_ROOT/shared/config/config.php" \
   "$BACKUP_DIR/config.php"
 mysqldump --single-transaction --quick --triggers --routines --events \
   --hex-blob --no-tablespaces --set-gtid-purged=OFF safeharbor \
   > "$BACKUP_DIR/database.sql"
 mysql -N -B -e "SHOW GRANTS FOR 'safeharbor'@'localhost'" \
   > "$BACKUP_DIR/runtime-grants.sql"
+printf 'current_target=%s\nrevision=%s\nartifact_sha256=%s\nrelease_digest=%s\n' \
+  "$CURRENT_TARGET" \
+  "$(tr -d '\r\n' < "$CURRENT_TARGET/REVISION")" \
+  "$(tr -d '\r\n' < "$CURRENT_TARGET/ARTIFACT_SHA256")" \
+  "$(tr -d '\r\n' < "$CURRENT_TARGET/RELEASE_DIGEST")" \
+  > "$BACKUP_DIR/release-markers.txt"
+chmod 0600 "$BACKUP_DIR/release-markers.txt"
 
 tar -tzf "$BACKUP_DIR/application.tar.gz" >/dev/null
 grep -q -- '-- Dump completed on' "$BACKUP_DIR/database.sql"
 cd "$BACKUP_DIR"
-sha256sum application.tar.gz config.php database.sql runtime-grants.sql \
+sha256sum application.tar.gz config.php database.sql runtime-grants.sql release-markers.txt \
   > SHA256SUMS
 sha256sum -c SHA256SUMS
 printf '%s\n' "$BACKUP_DIR"
@@ -755,20 +827,25 @@ private copy here.
 
 ## Server-side state the deploy does NOT manage
 
-- `config/config.php` — includes the `ai` block (Westy's provider/key,
+- `/srv/8west/apps/safeharbor/shared/config/config.php` — includes the `ai`
+  block (Westy's provider/key,
   synced from Milepost's config server-side), `suite` (8 West ID issuer,
   `sso_secret`, cookie name — there is no `suite_sso` block and no SSO kill
   switch in this app; an unset secret simply fails every signature), `svc`
   (Milepost alert intake HMAC), the explicit disabled `portal` scaffold, and
   `storage.attachments_dir`. The deploy must preserve the protected file
   byte-for-byte unless the release has a separate exact config mutation
-  allowlist and backup.
+  allowlist and backup. Every immutable release links to this one root-owned
+  file; the normal deploy verifies its digest before and after and never copies
+  it into an artifact.
 - `/srv/8west/apps/safeharbor/shared/attachments` — attachment bytes,
   `www-data:www-data 770`, created once:
   `sudo mkdir -p /srv/8west/apps/safeharbor/shared/attachments &&
-   sudo chown -R www-data:www-data /srv/8west/apps/safeharbor/shared &&
-   sudo chmod -R 770 /srv/8west/apps/safeharbor/shared`
-  (outside `current/` on purpose — the deploy re-chmods `current/`).
+   sudo chown www-data:www-data /srv/8west/apps/safeharbor/shared/attachments &&
+   sudo chmod 770 /srv/8west/apps/safeharbor/shared/attachments`.
+  Never recursively chmod or chown the whole shared directory: config has a
+  separate root-owned boundary. The release controllers only compare the
+  attachment directory's filesystem identity; they do not traverse it.
 - `/srv/8west/apps/safeharbor/shared/portal-revocations` — private persistent
   portal revocation cache, currently empty. Keep it outside `current/` and
   inaccessible through Apache; do not use it as evidence that an OIDC client
@@ -777,6 +854,7 @@ private copy here.
 ## Smoke test
 
 ```bash
+curl -sS https://safeharbor.8westit.com/health.php                    # exact revision + digests
 curl -s  https://safeharbor.8westit.com/login.php | grep -o '<title>[^<]*'   # Sign in · Safeharbor
 curl -sI https://safeharbor.8westit.com/ | head -1                           # 302 → login
 curl -sS -X POST -H 'Content-Type: application/json' -d '{}' -o /dev/null \
@@ -790,18 +868,22 @@ cd tools/shots && node walkthrough.mjs                                       # f
 
 ## Rollback
 
-```bash
-git fetch --prune origin
-OLDER_SHA='replace-with-reviewed-sha'
-git worktree add --detach ../safeharbor-rollback "$OLDER_SHA"
-cd ../safeharbor-rollback
-test "$(git rev-parse HEAD)" = "$OLDER_SHA"
-test -z "$(git status --porcelain)"
-SERVER=milepost-ec2 DEST=/srv/8west/apps/safeharbor/current bash deploy/deploy.sh
-```
+Every unsuccessful release automatically restores the exact previous
+`current` target while holding the same lock, validates Apache, reloads it, and
+repeats the public login/root checks. The failed candidate remains immutable
+for diagnosis; no previous release is deleted.
 
-Normal rollback is code-first from an exact clean reviewed commit. Leave
-additive migration structures and stronger guards in place when the prior code
-is compatible; migration 016 explicitly supports that boundary. Restoring a
-database dump is disaster recovery only because it discards writes after the
-backup. Never run `php db/seed.php` in production—it resets demo data.
+After a release has passed and committed, normal code rollback is forward:
+review and merge a revert on `main`, require exact-main CI green, and deploy
+that new exact revision through the same controller. This keeps production
+equal to reviewed main and avoids an unrecorded hand-edited pointer. A direct
+emergency pointer rollback is a separate destructive production operation and
+requires its own exact target/digest approval, lock, config/link preflight,
+public checks, and receipt; this repository intentionally provides no casual
+shortcut for it.
+
+Leave additive migration structures and stronger guards in place when the
+reverted code is compatible; migration 016 explicitly supports that boundary.
+Restoring a database dump is disaster recovery only because it discards writes
+after the backup. Never run `php db/seed.php` in production—it resets demo
+data.

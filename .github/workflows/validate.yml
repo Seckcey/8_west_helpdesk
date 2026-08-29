@@ -53,6 +53,12 @@ jobs:
         run: php app/tests/suite_roles_test.php
       - name: Test suite preferences
         run: php app/tests/suite_preferences_test.php
+      - name: Test immutable release markers and cache keys
+        run: php app/tests/release_markers_test.php
+      - name: Test atomic release source shape
+        run: bash deploy/tests/atomic-release-source-shape-test.sh
+      - name: Test atomic release and one-time conversion failures
+        run: bash deploy/tests/atomic-release-safety-test.sh
       - name: Test service goals
         run: php app/tests/service_goals_test.php
       - name: Test service-goal policy publication

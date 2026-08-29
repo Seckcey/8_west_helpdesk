@@ -49,7 +49,7 @@ header('Content-Type: text/html; charset=utf-8');
 <title>Sign in · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
-<link rel="stylesheet" href="/assets/css/app.css?v=4">
+<link rel="stylesheet" href="<?= h(safeharbor_asset_url('/assets/css/app.css')) ?>">
 </head>
 <body class="login-body">
 <div class="login-wrap">
@@ -85,7 +85,7 @@ header('Content-Type: text/html; charset=utf-8');
     by 8 West IT, LLC · Part of the 8 West IT Total Business Suite
   </p>
   <p class="login-foot">Your appearance follows your global 8 West ID settings after sign-in.</p>
-<script src="/assets/js/app.js?v=3" defer></script>
+<script src="<?= h(safeharbor_asset_url('/assets/js/app.js')) ?>" defer></script>
 </div>
 </body>
 </html>

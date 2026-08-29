@@ -1,61 +1,97 @@
 #!/usr/bin/env bash
-# Deploy the Safeharbor PHP app to safeharbor.8westit.com (EC2, Apache).
-# No build step (plain PHP, like Milepost) — sync brand assets, stream a
-# tarball, untar into the app dir, stamp asset versions for cache-busting.
-# config/config.php on the server is NEVER overwritten.
-#
-# NEVER edit the deployed tree by hand. This script untars straight over
-# /srv/8west/apps/safeharbor/current, so a host-side edit is destroyed without
-# comment on the next run — and until then production is running code that no
-# commit describes and nobody can review or roll back. On 2026-08-02 Milepost
-# was found carrying drill-era hot patches in lib/isolation.php and
-# lib/tools.php that were not byte-identical to the merged fixes; the live tree
-# and main had quietly diverged. Milepost now refuses a full deploy when its
-# state file disagrees with the tree. This script has no such guard.
-#
-# If it runs in production, it is merged. Host-side experiments belong in a
-# disposable copy (/tmp), never in the deploy directory.
-#
-# The untar is also not atomic: a request arriving mid-extraction can read a
-# half-written file, which is what produced the one-off
-# "SQLSTATE[HY093] Invalid parameter number" in the error log at 02:57:19 on
-# 2026-08-02 — not a bind bug; every statement in that file balances. Fixing
-# it properly means the release-symlink pattern plus an Apache change, since
-# the <Directory> blocks match the resolved path.
-#
-# Usage (from the repo root, Git Bash):
-#   KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
-#
-set -euo pipefail
+# Release one exact, reviewed Safeharbor commit through the server-side atomic
+# release controller. No working-tree or ignored byte is included.
+set -Eeuo pipefail
+umask 077
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SERVER="${SERVER:-ubuntu@safeharbor.8westit.com}"
-DEST="${DEST:-/srv/8west/apps/safeharbor/current}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVER="${SERVER:-milepost-ec2}"
 KEY="${KEY:-}"
+EXPECTED_SHA="${EXPECTED_SHA:-}"
+APP_ROOT="/srv/8west/apps/safeharbor"
+EXPECTED_ORIGIN="https://github.com/Seckcey/8_west_helpdesk.git"
+CONTROLLER="$ROOT/deploy/release-server.sh"
 
+die() {
+  printf 'Safeharbor release refused: %s\n' "$1" >&2
+  exit 1
+}
+
+[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || \
+  die 'EXPECTED_SHA must be the approved lowercase 40-character commit.'
+for command_name in cmp git mktemp scp sha256sum ssh tar; do
+  command -v "$command_name" >/dev/null 2>&1 || die "required command is missing: $command_name"
+done
+[[ -f "$CONTROLLER" && ! -L "$CONTROLLER" ]] || die 'server release controller is missing or unsafe.'
+[[ "$(git -C "$ROOT" rev-parse --is-inside-work-tree 2>/dev/null || true)" == 'true' ]] || \
+  die 'run from an isolated Safeharbor Git checkout.'
+
+actual_origin="$(git -C "$ROOT" remote get-url origin)"
+if [[ "$actual_origin" != "$EXPECTED_ORIGIN" && "$actual_origin" != 'git@github.com:Seckcey/8_west_helpdesk.git' ]]; then
+  die "unexpected Git origin: $actual_origin"
+fi
+[[ "$(git -C "$ROOT" rev-parse --verify HEAD)" == "$EXPECTED_SHA" ]] || \
+  die 'the checkout is not at EXPECTED_SHA.'
+[[ -z "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" ]] || \
+  die 'the checkout has tracked or untracked changes.'
+[[ -z "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all --ignored)" ]] || \
+  die 'the checkout contains ignored files; use a fresh isolated worktree.'
+git -C "$ROOT" show "${EXPECTED_SHA}:deploy/release-server.sh" | cmp -s - "$CONTROLLER" || \
+  die 'the server controller does not match EXPECTED_SHA.'
+if git -C "$ROOT" ls-tree -r "$EXPECTED_SHA" | awk '$1 != "100644" && $1 != "100755" { exit 1 }'; then
+  :
+else
+  die 'the reviewed tree contains a non-regular Git entry.'
+fi
+
+printf '%s\n' '==> Confirming the approved commit is still exact main'
+git -C "$ROOT" fetch --prune origin main
+[[ "$(git -C "$ROOT" rev-parse --verify refs/remotes/origin/main)" == "$EXPECTED_SHA" ]] || \
+  die 'origin/main is not EXPECTED_SHA; review the new main before releasing.'
+
+STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/safeharbor-artifact.${EXPECTED_SHA}.XXXXXX")"
+REMOTE_DIR=''
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
 [[ -n "$KEY" ]] && SSH_OPTS+=(-i "$KEY")
+cleanup() {
+  local status=$?
+  trap - EXIT
+  set +e
+  if [[ -n "$REMOTE_DIR" && "$REMOTE_DIR" =~ ^/tmp/safeharbor-release\.[A-Za-z0-9]+$ ]]; then
+    ssh "${SSH_OPTS[@]}" "$SERVER" "rm -rf -- '$REMOTE_DIR'" >/dev/null 2>&1
+  fi
+  case "$STATE_DIR" in
+    "${TMPDIR:-/tmp}"/safeharbor-artifact.*) rm -rf -- "$STATE_DIR" ;;
+  esac
+  exit "$status"
+}
+trap cleanup EXIT
 
-echo "==> Syncing brand assets"
-mkdir -p "$ROOT/app/public/assets/brand"
-cp "$ROOT/brand/svg/favicon.svg" "$ROOT/brand/svg/safeharbor-mark.svg" "$ROOT/app/public/assets/brand/"
-cp "$ROOT/brand/png/favicon.ico" "$ROOT/brand/png/apple-touch-icon.png" \
-   "$ROOT/brand/png/app-tile-192.png" "$ROOT/brand/png/app-tile-512.png" \
-   "$ROOT/app/public/assets/brand/"
+ARTIFACT="$STATE_DIR/release.tar"
+VERIFY_ARTIFACT="$STATE_DIR/release.verify.tar"
+git -C "$ROOT" archive --format=tar --prefix=source/ "$EXPECTED_SHA" -o "$ARTIFACT"
+git -C "$ROOT" archive --format=tar --prefix=source/ "$EXPECTED_SHA" -o "$VERIFY_ARTIFACT"
+cmp -s "$ARTIFACT" "$VERIFY_ARTIFACT" || die 'Git produced a non-deterministic release artifact.'
+rm -f -- "$VERIFY_ARTIFACT"
+ARTIFACT_SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
+CONTROLLER_SHA256="$(sha256sum "$CONTROLLER" | awk '{print $1}')"
+[[ "$ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || die 'artifact digest was not canonical.'
+[[ "$CONTROLLER_SHA256" =~ ^[0-9a-f]{64}$ ]] || die 'controller digest was not canonical.'
+tar -tf "$ARTIFACT" >/dev/null
+if tar -tf "$ARTIFACT" | grep -Eq '(^|/)config/config\.php$|(^|/)\.git(/|$)'; then
+  die 'the exact Git artifact unexpectedly contains protected runtime state.'
+fi
 
-echo "==> Linting PHP"
-find "$ROOT/app" -name "*.php" -print0 | xargs -0 -n1 php -l > /dev/null
+REMOTE_DIR="$(ssh "${SSH_OPTS[@]}" "$SERVER" 'mktemp -d /tmp/safeharbor-release.XXXXXX')"
+[[ "$REMOTE_DIR" =~ ^/tmp/safeharbor-release\.[A-Za-z0-9]+$ ]] || \
+  die 'the server returned an unsafe staging path.'
 
-echo "==> Uploading to $SERVER:$DEST"
-tar -czf - -C "$ROOT" \
-  --exclude='app/config/config.php' \
-  app | ssh "${SSH_OPTS[@]}" "$SERVER" \
-  "mkdir -p '$DEST' && tar -xzf - -C '$DEST' --strip-components=1 --no-same-owner \
-   && sudo chown -R ubuntu:www-data '$DEST' \
-   && sudo find '$DEST' -type d -exec chmod 2750 {} + \
-   && sudo find '$DEST' -type f -exec chmod 640 {} + \
-   && V=\$(date +%Y%m%d%H%M%S) \
-   && sudo sed -i \"s/?v=[0-9A-Za-z]\\+/?v=\$V/g\" '$DEST/lib/render.php' '$DEST/lib/westy.php' '$DEST/public/login.php' \
-   && echo \"server: deployed (assets v=\$V)\""
+printf '%s\n' '==> Uploading the exact reviewed artifact'
+scp "${SSH_OPTS[@]}" "$ARTIFACT" "$CONTROLLER" "$SERVER:$REMOTE_DIR/"
 
-echo "==> Live: https://safeharbor.8westit.com"
+printf '%s\n' '==> Running the locked atomic release'
+ssh "${SSH_OPTS[@]}" "$SERVER" \
+  "sudo env APP_ROOT='$APP_ROOT' EXPECTED_SHA='$EXPECTED_SHA' EXPECTED_ARTIFACT_SHA256='$ARTIFACT_SHA256' EXPECTED_CONTROLLER_SHA256='$CONTROLLER_SHA256' bash '$REMOTE_DIR/release-server.sh' '$REMOTE_DIR/release.tar'"
+
+printf 'Safeharbor release completed: revision=%s artifact_sha256=%s\n' \
+  "$EXPECTED_SHA" "$ARTIFACT_SHA256"

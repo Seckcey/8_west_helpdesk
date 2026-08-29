@@ -150,10 +150,10 @@ function westy_bubble_render(): void
 <div id="westy-root" data-csrf="<?= csrf_token() ?>" data-onboarded="<?= $onboarded ?>" data-name="<?= $firstName ?>" data-uid="<?= (int)($user['id'] ?? 0) ?>">
   <button type="button" id="westy-bubble" aria-expanded="false" aria-controls="westy-panel"
           aria-label="Ask Westy — Safeharbor helper"
-          title="Ask Westy — Safeharbor helper"><img src="/assets/img/westy-avatar.png?v=1" alt="Westy" width="56" height="56"></button>
+          title="Ask Westy — Safeharbor helper"><img src="<?= h(safeharbor_asset_url('/assets/img/westy-avatar.png')) ?>" alt="Westy" width="56" height="56"></button>
   <section id="westy-panel" hidden aria-label="Chat with Westy">
     <header class="westy-head">
-      <img class="westy-head-avatar" src="/assets/img/westy-avatar.png?v=1" alt="" width="28" height="28">
+      <img class="westy-head-avatar" src="<?= h(safeharbor_asset_url('/assets/img/westy-avatar.png')) ?>" alt="" width="28" height="28">
       <b>Westy</b><span class="westy-sub">Safeharbor helper · advises, never acts</span>
       <button type="button" id="westy-close" aria-label="Close chat">&times;</button>
     </header>
@@ -164,14 +164,13 @@ function westy_bubble_render(): void
     </form>
   </section>
 </div>
-<script src="/assets/js/westy.js?v=1" defer></script>
+<script src="<?= h(safeharbor_asset_url('/assets/js/westy.js')) ?>" defer></script>
 <?php /* Shared suite layout: drag + resize, served live from the Westy package
          so a fix reaches every 8 West IT 365 app without a deploy here. It
          loads its own stylesheet, so this is one tag and not two.
-         The version is in the PATH and there is deliberately no ?v= — this is
-         one of the three files deploy.sh rewrites with
-         `sed s/?v=[0-9A-Za-z]\+/?v=$V/g`, which would clobber a query string
-         on every release. */ ?>
+         The version is in the PATH and there is deliberately no query-string
+         cache key. Safeharbor's local assets use the immutable Git revision;
+         the shared Westy release has its own independently reviewed path. */ ?>
 <script src="https://westy.8westit.com/v1/westy-layout.js" defer></script>
 <?php
 }

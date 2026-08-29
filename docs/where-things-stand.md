@@ -24,6 +24,7 @@ If you change what is live, change this page in the same PR.
 | Thing | State |
 |---|---|
 | Safeharbor itself | **Live** at https://safeharbor.8westit.com, v1.0 feature-complete |
+| Atomic application releases | **Code candidate, not yet a production claim**: the reviewed path converts the legacy real `current` directory once, then releases only clean exact-main artifacts through immutable directories and an atomic pointer with automatic rollback. Production remains on its previously verified layout until that conversion is separately run and evidenced. |
 | Alert intake (`api/svc/alerts.php`) | **Live** since 2026-07-29, Milepost emitting |
 | Telemetry automatic-close ownership | **Live through PR #59 / merge `e7ee521` and migration 018**: only an untouched exact signed Milepost alert may close on source recovery; any human/customer work permanently removes that one-use ability |
 | Westy defect intake (`api/svc/westy.php`) | Safeharbor's in-process failure and human-reviewed feedback paths are **live**. External receiver hardening is deployed through PR #62 / release `da9560a`, but delivery remains **dark** because no Westy service identity is registered; its authority is exact `milepost-westy` + `app=milepost` + `event=failure` only. |
@@ -924,8 +925,11 @@ called out, and none may be satisfied by inventing customer or financial facts.
   `docker restart` does not pick up a new secret; only `docker compose up -d`
   does. A correctly installed secret will still return `401` after a mere
   restart. This bit Waypoint during go-live.
-- **Never hand-edit the deployed tree.** `deploy.sh` untars straight over
-  `current/`, so a host-side edit vanishes without comment on the next release.
+- **Never hand-edit the deployed tree.** The legacy production path wrote over
+  `current/`; the replacement controller makes release directories root-owned,
+  refuses non-Git artifact bytes, and changes only the atomic pointer. Until
+  the one-time conversion is evidenced in production, treat the legacy risk as
+  still present rather than assuming the new layout is live.
 - **SSH uses the origin IP, not the domain** — Cloudflare proxies the hostname
   and port 22 times out. The `milepost-ec2` alias handles this.
 - **Deploy only from committed `main`.** Two checkouts once overwrote each
