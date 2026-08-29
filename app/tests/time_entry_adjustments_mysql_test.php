@@ -458,9 +458,9 @@ function adjustment_mysql_verify_structure(
         ];
     }
     $expectedForeignKeys = [
-        'fk_time_adjustment_actor' => ['users', 'tenant_id=tenant_id,actor_user_id=id', 'RESTRICT', 'RESTRICT'],
-        'fk_time_adjustment_entry' => ['time_entries', 'tenant_id=tenant_id,time_entry_id=id', 'RESTRICT', 'RESTRICT'],
-        'fk_time_adjustment_tenant' => ['tenants', 'tenant_id=id', 'RESTRICT', 'RESTRICT'],
+        'fk_time_adjustment_actor' => ['users', 'tenant_id=tenant_id,actor_user_id=id', 'NO ACTION', 'NO ACTION'],
+        'fk_time_adjustment_entry' => ['time_entries', 'tenant_id=tenant_id,time_entry_id=id', 'NO ACTION', 'NO ACTION'],
+        'fk_time_adjustment_tenant' => ['tenants', 'tenant_id=id', 'NO ACTION', 'NO ACTION'],
     ];
 
     $checkRows = $pdo->query(
