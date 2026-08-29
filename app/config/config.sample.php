@@ -193,6 +193,9 @@ return [
     // This is an operator-run, one-entry-at-a-time sender. It has no scheduler
     // and stays inert until the global gate, exact tenant/client allowlists,
     // HTTPS endpoint, service identity, and server-only secret are all set.
+    // Client keys come only from active Milepost customer bindings as
+    // `milepost-customer:<uuid>`. Local Safeharbor row ids are never billing
+    // identities, and the reserved 8 West IT master customer is hard-blocked.
     // Coastmark owns rates, taxes, cents, invoice numbers, approval, posting,
     // sending, Checkout, payments, and ledger behavior. Never put those facts
     // in this config or sender payload.

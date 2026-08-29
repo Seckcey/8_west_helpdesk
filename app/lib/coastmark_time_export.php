@@ -12,6 +12,10 @@ declare(strict_types=1);
 final class CoastmarkTimeExportValidationException extends InvalidArgumentException {}
 final class CoastmarkTimeExportTransportException extends RuntimeException {}
 
+const COASTMARK_TIME_EXPORT_VERSION = 2;
+const COASTMARK_TIME_EXPORT_CLIENT_PREFIX = 'milepost-customer:';
+const COASTMARK_TIME_EXPORT_MASTER_CUSTOMER_ID = '4ebaeefa-b101-47f8-ac76-e49ab309d272';
+
 const COASTMARK_TIME_EXPORT_FIELDS = [
     'version',
     'event',
@@ -32,7 +36,7 @@ const COASTMARK_TIME_EXPORT_FIELDS = [
 ];
 
 /**
- * Build the exact version-1 fact for one explicitly identified time entry.
+ * Build the exact version-2 fact for one explicitly identified time entry.
  *
  * @param array<string, mixed> $config
  * @return array<string, mixed>
@@ -64,7 +68,9 @@ function coastmark_time_export_payload(
                 e.minutes, e.note, e.billable, e.approval_status,
                 e.user_id, e.reviewed_by_user_id, e.reviewed_at,
                 t.slug AS tenant_slug,
-                reviewer.id AS reviewer_exists
+                reviewer.id AS reviewer_exists,
+                customer_binding.customer_id,
+                customer_binding.status AS customer_status
            FROM time_entries e
            JOIN tenants t ON t.id = e.tenant_id
            JOIN clients c ON c.id = e.client_id AND c.tenant_id = e.tenant_id
@@ -72,6 +78,9 @@ function coastmark_time_export_payload(
              ON technician.id = e.user_id AND technician.tenant_id = e.tenant_id
            LEFT JOIN users reviewer
              ON reviewer.id = e.reviewed_by_user_id AND reviewer.tenant_id = e.tenant_id
+           LEFT JOIN suite_customer_sync_bindings customer_binding
+             ON customer_binding.tenant_id = e.tenant_id
+            AND customer_binding.client_id = e.client_id
           WHERE e.id = ? AND e.entry_key = ? AND t.slug = ?
           LIMIT 1"
     );
@@ -94,8 +103,17 @@ function coastmark_time_export_payload(
         throw new CoastmarkTimeExportValidationException('Approved time is missing reviewer evidence.');
     }
 
-    $clientKey = 'safeharbor-client:' . (int) $entry['client_id'];
-    coastmark_time_export_key($clientKey, 128, 'Client key');
+    if ($entry['customer_id'] === null) {
+        throw new CoastmarkTimeExportValidationException(
+            'Time entry client has no Milepost customer binding.',
+        );
+    }
+    if ((string) $entry['customer_status'] !== 'active') {
+        throw new CoastmarkTimeExportValidationException(
+            'Time entry client does not have an active Milepost customer binding.',
+        );
+    }
+    $clientKey = coastmark_time_export_customer_client_key((string) $entry['customer_id']);
     $clientAllowlist = coastmark_time_export_allowlist(
         $config['client_keys'] ?? [],
         128,
@@ -113,7 +131,7 @@ function coastmark_time_export_payload(
     }
 
     $payload = [
-        'version' => 1,
+        'version' => COASTMARK_TIME_EXPORT_VERSION,
         'event' => 'safeharbor.time_entry.approved',
         'tenant_key' => (string) $entry['tenant_slug'],
         'client_key' => $clientKey,
@@ -320,7 +338,7 @@ function coastmark_time_export_assert_payload_shape(array $payload): void
     if (array_keys($payload) !== COASTMARK_TIME_EXPORT_FIELDS) {
         throw new CoastmarkTimeExportValidationException('Coastmark payload field order or shape is invalid.');
     }
-    if (($payload['version'] ?? null) !== 1
+    if (($payload['version'] ?? null) !== COASTMARK_TIME_EXPORT_VERSION
         || ($payload['event'] ?? null) !== 'safeharbor.time_entry.approved'
         || ($payload['billable'] ?? null) !== true
         || ($payload['approval_status'] ?? null) !== 'approved'
@@ -328,7 +346,7 @@ function coastmark_time_export_assert_payload_shape(array $payload): void
         throw new CoastmarkTimeExportValidationException('Coastmark payload approval contract is invalid.');
     }
     coastmark_time_export_key_value($payload['tenant_key'] ?? null, 64, 'Tenant key');
-    coastmark_time_export_key_value($payload['client_key'] ?? null, 128, 'Client key');
+    coastmark_time_export_client_key_value($payload['client_key'] ?? null);
     coastmark_time_export_key_value($payload['entry_key'] ?? null, 64, 'Entry key');
     coastmark_time_export_key_value($payload['technician_key'] ?? null, 128, 'Technician key');
     coastmark_time_export_key_value($payload['reviewer_key'] ?? null, 128, 'Reviewer key');
@@ -358,6 +376,37 @@ function coastmark_time_export_assert_payload_shape(array $payload): void
     if ($approvedAt < $workedAt) {
         throw new CoastmarkTimeExportValidationException('Approval cannot predate the recorded work.');
     }
+}
+
+function coastmark_time_export_customer_client_key(string $customerId): string
+{
+    if (preg_match(
+        '/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D',
+        $customerId,
+    ) !== 1) {
+        throw new CoastmarkTimeExportValidationException('Milepost customer id is invalid.');
+    }
+    if (hash_equals(COASTMARK_TIME_EXPORT_MASTER_CUSTOMER_ID, $customerId)) {
+        throw new CoastmarkTimeExportValidationException(
+            '8 West IT is the master MSP and is never a billable Coastmark customer.',
+        );
+    }
+
+    return COASTMARK_TIME_EXPORT_CLIENT_PREFIX . $customerId;
+}
+
+function coastmark_time_export_client_key_value(mixed $value): string
+{
+    if (!is_string($value) || !str_starts_with($value, COASTMARK_TIME_EXPORT_CLIENT_PREFIX)) {
+        throw new CoastmarkTimeExportValidationException('Client key is invalid.');
+    }
+    $customerId = substr($value, strlen(COASTMARK_TIME_EXPORT_CLIENT_PREFIX));
+    $expected = coastmark_time_export_customer_client_key($customerId);
+    if (!hash_equals($expected, $value)) {
+        throw new CoastmarkTimeExportValidationException('Client key is invalid.');
+    }
+
+    return $value;
 }
 
 /** @return list<string> */

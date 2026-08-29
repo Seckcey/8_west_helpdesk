@@ -41,7 +41,7 @@ function export_config(array $changes = []): array
         'service' => 'safeharbor-time',
         'secret' => str_repeat('s', 32),
         'tenant_slugs' => ['8west'],
-        'client_keys' => ['safeharbor-client:11'],
+        'client_keys' => ['milepost-customer:11111111-1111-4111-8111-111111111111'],
         'timeout_seconds' => 15,
     ], $changes);
 }
@@ -55,6 +55,13 @@ $pdo->exec('CREATE TABLE clients (
 )');
 $pdo->exec('CREATE TABLE users (
     id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL
+)');
+$pdo->exec('CREATE TABLE suite_customer_sync_bindings (
+    id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    customer_id TEXT NOT NULL UNIQUE,
+    client_id INTEGER NOT NULL,
+    status TEXT NOT NULL
 )');
 $pdo->exec('CREATE TABLE time_entries (
     id INTEGER PRIMARY KEY,
@@ -76,8 +83,15 @@ $pdo->exec("INSERT INTO tenants VALUES (1,'8west'),(2,'customer')");
 $pdo->exec("INSERT INTO clients VALUES
     (11,1,'coastmark:acme'),
     (12,1,NULL),
+    (13,1,NULL),
+    (14,1,NULL),
     (21,2,'coastmark:other')");
 $pdo->exec('INSERT INTO users VALUES (101,1),(102,1),(201,2)');
+$pdo->exec("INSERT INTO suite_customer_sync_bindings VALUES
+    (1,1,'11111111-1111-4111-8111-111111111111',11,'active'),
+    (2,1,'4ebaeefa-b101-47f8-ac76-e49ab309d272',13,'active'),
+    (3,1,'33333333-3333-4333-8333-333333333333',14,'inactive'),
+    (4,2,'22222222-2222-4222-8222-222222222222',21,'active')");
 $insert = $pdo->prepare('INSERT INTO time_entries VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
 $insert->execute([
     501, 1, 11, 901, 101, 'timer:approved:0001', 'timer',
@@ -99,6 +113,16 @@ $insert->execute([
     '2026-08-26 20:00:00', 15, 'other tenant', 1,
     'approved', 201, '2026-08-26 20:05:00',
 ]);
+$insert->execute([
+    505, 1, 13, 905, 101, 'timer:master:00005', 'timer',
+    '2026-08-26 20:00:00', 15, 'master tenant work', 1,
+    'approved', 102, '2026-08-26 20:05:00',
+]);
+$insert->execute([
+    506, 1, 14, 906, 101, 'timer:inactive:006', 'timer',
+    '2026-08-26 20:00:00', 15, 'inactive customer work', 1,
+    'approved', 102, '2026-08-26 20:05:00',
+]);
 
 $payload = coastmark_time_export_payload(
     $pdo,
@@ -109,12 +133,13 @@ $payload = coastmark_time_export_payload(
 );
 export_check('payload has exact versioned field order', array_keys($payload) === COASTMARK_TIME_EXPORT_FIELDS);
 export_check('payload identifies approved billable event',
-    $payload['version'] === 1
+    $payload['version'] === COASTMARK_TIME_EXPORT_VERSION
     && $payload['event'] === 'safeharbor.time_entry.approved'
     && $payload['billable'] === true
     && $payload['approval_status'] === 'approved');
-export_check('tenant and client facts are immutable deterministic Safeharbor keys',
-    $payload['tenant_key'] === '8west' && $payload['client_key'] === 'safeharbor-client:11');
+export_check('tenant and client facts use the stable Milepost customer binding',
+    $payload['tenant_key'] === '8west'
+    && $payload['client_key'] === 'milepost-customer:11111111-1111-4111-8111-111111111111');
 export_check('time and source facts are exact',
     $payload['entry_key'] === 'timer:approved:0001'
     && $payload['entry_id'] === 501
@@ -167,16 +192,56 @@ export_throws(
     'not allowlisted',
 );
 export_throws(
-    'client key must be explicitly allowlisted',
+    'a client without a Milepost binding is refused',
     CoastmarkTimeExportValidationException::class,
     fn() => coastmark_time_export_payload(
         $pdo,
         '8west',
         503,
         'timer:no-source:003',
+        export_config(),
+    ),
+    'no Milepost customer binding',
+);
+export_throws(
+    'wipe-sensitive local client keys cannot satisfy the allowlist',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_payload(
+        $pdo,
+        '8west',
+        501,
+        'timer:approved:0001',
         export_config(['client_keys' => ['safeharbor-client:11']]),
     ),
     'not allowlisted',
+);
+export_throws(
+    '8 West IT master is refused even when an operator allowlists it',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_payload(
+        $pdo,
+        '8west',
+        505,
+        'timer:master:00005',
+        export_config(['client_keys' => [
+            'milepost-customer:' . COASTMARK_TIME_EXPORT_MASTER_CUSTOMER_ID,
+        ]]),
+    ),
+    'never a billable Coastmark customer',
+);
+export_throws(
+    'inactive Milepost customer binding is refused',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_payload(
+        $pdo,
+        '8west',
+        506,
+        'timer:inactive:006',
+        export_config(['client_keys' => [
+            'milepost-customer:33333333-3333-4333-8333-333333333333',
+        ]]),
+    ),
+    'active Milepost customer binding',
 );
 export_throws(
     'cross-tenant entry cannot be selected through an allowlisted tenant',
@@ -218,6 +283,22 @@ export_throws(
     CoastmarkTimeExportValidationException::class,
     fn() => coastmark_time_export_request($notApproved, 'safeharbor-time', str_repeat('s', 32), $timestamp),
     'approval contract',
+);
+$legacyContract = $payload;
+$legacyContract['version'] = 1;
+export_throws(
+    'legacy local-id contract is refused before signing',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_request($legacyContract, 'safeharbor-time', str_repeat('s', 32), $timestamp),
+    'approval contract',
+);
+$masterPayload = $payload;
+$masterPayload['client_key'] = 'milepost-customer:' . COASTMARK_TIME_EXPORT_MASTER_CUSTOMER_ID;
+export_throws(
+    'manually constructed master payload is refused before signing',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_request($masterPayload, 'safeharbor-time', str_repeat('s', 32), $timestamp),
+    'never a billable Coastmark customer',
 );
 
 $ack = static function (string $endpoint, array $headers, string $body, int $timeout) use ($payload): array {
