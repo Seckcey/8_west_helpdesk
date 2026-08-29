@@ -47,16 +47,16 @@ tenant context. The only POST is CSRF-protected local/central sign-out.
 
 Every vendored file under `lib/eightwestid/` is pinned by exact Git-blob digest
 in `portal_auth_test.php`, so any unreviewed drift fails CI visibly. `jwt.php`
-is the exact maintained 8 West ID `client-kits/php/eightwestid/jwt.php` blob at
-ID commit `ed49db95c97ca848c07f27180c6d0e06c40756e8`. The other package files
-originated at `f0ec49b6106791d0ba658ca16899562fbe5b3b86`; Safeharbor's pinned
-`revocations.php` adds the consumer-side JSON container check for the
-authorization response. Replace that local delta with an exact maintained-kit
-blob once the same check lands upstream, never by silently dropping the check.
+and `revocations.php` are the exact maintained 8 West ID
+`client-kits/php/eightwestid/` blobs at ID commit
+`6cc31c71f9b1f9ac63218c932531ea885237f470`. The other package files
+originated at `f0ec49b6106791d0ba658ca16899562fbe5b3b86`.
 
-That exact 8 West ID prerequisite is deployed in production. The later
-controlled activation registered one production Safeharbor client and moved
-its values only through protected server configuration. The replacement
+The issuer prerequisite through `ed49db95` is deployed in production. The
+maintained-kit revision above is the reviewed client update for this release
+and changes no client, role, or grant by itself. The later controlled
+activation registered one production Safeharbor client and moved its values
+only through protected server configuration. The replacement
 Lifestyle customer identity `t4u10` is enabled; predecessor `t4u7` is
 permanently inactive, revoked, and quarantined. The root-only quarantine
 receipt is
