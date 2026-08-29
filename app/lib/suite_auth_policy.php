@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 const SUITE_MFA_POLICY_VERSION = 'suite-mfa-v1';
-const SUITE_MFA_METHODS = ['otp', 'recovery', 'mfa_trusted_device'];
+const SUITE_MFA_METHODS = ['otp', 'recovery', 'mfa_trusted_device', 'passkey'];
 const SUITE_MFA_POLICY_MAX_AGE = 2592000;
 
 function suite_mfa_policy_mode(mixed $value): string

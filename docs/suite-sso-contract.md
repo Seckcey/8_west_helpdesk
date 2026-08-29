@@ -83,14 +83,17 @@ binding, revocation, and canary rules live only in
 | `8west:theme` | string | Suite-wide UI theme: `dark` · `light` · `system` |
 | `8west:avatar` | string | Suite-wide avatar URL |
 | `8west:auth_policy` | string | Authentication-event contract; currently `suite-mfa-v1` |
-| `auth_time` | int | Unix time of the password authentication |
-| `amr` | string[] | Authentication methods: `pwd` plus `otp`, `recovery`, or `mfa_trusted_device` |
+| `auth_time` | int | Unix time of the primary authentication event |
+| `amr` | string[] | Authentication methods used. Password flows include `pwd`; a passkey may be the sole method. |
 | `8west:mfa_authenticated` | bool | Accepted MFA evidence exists for this authentication event |
-| `8west:mfa_time` | int/null | Unix time the second factor was originally proved |
+| `8west:mfa_time` | int/null | Unix time the accepted MFA evidence was originally proved |
 | `8west:mfa` | bool | Enrollment only; not current authentication proof |
 
 `sub` and `email` are both mandatory — a token missing either is refused
 (`missing_claims`).
+
+Allowed MFA methods are `otp`, `recovery`, `mfa_trusted_device`, and `passkey`.
+A passkey counts as MFA-capable evidence without a separate password method.
 
 Safeharbor evaluates authentication-event evidence through
 `suite.mfa_policy_mode`. New releases use `report`, which admits the existing
