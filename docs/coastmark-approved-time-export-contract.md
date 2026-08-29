@@ -1,10 +1,80 @@
 # Safeharbor approved time to Coastmark draft lines
 
-**Status:** the original version-1 seam was deployed dark on 2026-08-26; both
-global gates remain off and no production mapping, import, draft-line canary,
-or financial action occurred. Version 2 replaces the wipe-sensitive local
-client key with Milepost's durable customer UUID and adds a permanent 8 West IT
-master exclusion. Shipping version 2 is not permission to enable either gate.
+**Status:** version 2 was deployed dark on 2026-08-29; both global gates remain
+off and no production mapping, import, draft-line canary, or financial action
+occurred. Version 2 replaces the wipe-sensitive local client key with
+Milepost's durable customer UUID and adds a permanent 8 West IT master
+exclusion. Deploying version 2 is not permission to enable either gate.
+
+## Verified 2026-08-29 production closeout
+
+Safeharbor commit `a42872be1f9cd76ebb0a3b2bad91c16f2c0bb0ff` was deployed to
+`milepost-ec2` / `AWS-MILEPOST` at `2026-08-29T03:56:19Z`. Exact-main CI run
+[`33232316449`](https://github.com/Seckcey/8_west_helpdesk/actions/runs/33232316449)
+passed, and the release artifact SHA-256 is
+`65bb61852ee44639465d8d3cabf4b79c97ad2180c86785c6d41bcd1ecb87d15d`.
+
+The verified pre-release backup is
+`/srv/8west/backups/safeharbor/20260829T035454Z-pre-approved-time-v2-a42872b`.
+Its application, database, protected-config, and grants SHA-256 values are,
+respectively:
+
+- `ed2cde4733b605fb34d95dd9282a8c994e65c63a2913426dd858df973c4708bc`;
+- `d2fb72683e1f886658630d0a1412721c03bdfa7c445bcf05149f6c5a5e241b3e`;
+- `e272ccc44f8200774530fabda634b3d65032805ef360d6f73da3a91afc3fb0f4`;
+  and
+- `35673b03b5ac36996f9902f7b40a1581486437a6f2a31f5d849b961c4612def0`.
+
+The restore-shape check was `38:4:16:2:4:69`. The retained release receipt is
+`/srv/8west/backups/safeharbor/20260829T035454Z-pre-approved-time-v2-a42872b/approved-time-v2-release-receipt-20260829T0356Z.txt`
+with SHA-256
+`c52e4b13959ccb7d6a4c2df75900fc86ff087b6d54a624a564e01a92b2bf9b73`.
+
+At `2026-08-29T04:12:53Z`, the protected server-only handshake prerequisites
+were configured while the sender remained false. Safeharbor now has the
+canonical HTTPS receiver endpoint and service identity, tenant allowlist
+`[8west]`, and a client allowlist containing only 8 West Lifestyle customer
+`f22fc65c-70ca-439e-b703-f85c82da885d`. The 8 West IT master UUID is absent
+from the allowlist and remains hard-blocked. The permanent master key and legacy
+local-id key were rejected; the canonical Lifestyle key was structurally valid.
+
+The pre-change protected configuration backup is
+`/srv/8west/backups/safeharbor/20260829T041253Z-pre-approved-time-handshake/config.php`
+with SHA-256
+`e272ccc44f8200774530fabda634b3d65032805ef360d6f73da3a91afc3fb0f4`.
+The post-change protected configuration SHA-256 is
+`e652fef2c69b981e31b571b08408ba0b6a9381d7e746859ae052d531fa053891`.
+The retained handshake receipt is
+`/srv/8west/backups/safeharbor/20260829T041253Z-pre-approved-time-handshake/approved-time-handshake-receipt-20260829T0413Z.txt`
+with SHA-256
+`4c30da1b32bd94ba80e7155e070040354c31bac5788484fcb009fe51f99a9238`.
+
+Coastmark's matching service identity, fixed `8west` organization, 300-second
+clock-skew limit, and protected secret are configured while its receiver remains
+false and returns HTTP 404. The two protected secrets match; neither value was
+printed, and no reusable secret digest was recorded. The live Milepost bindings
+remain active for 8 West IT customer
+`4ebaeefa-b101-47f8-ac76-e49ab309d272` to Safeharbor client 13 and 8 West
+Lifestyle customer `f22fc65c-70ca-439e-b703-f85c82da885d` to client 14.
+
+Safeharbor has four pending time entries, including the one-minute billable
+canary-preparation entry 10 created through the normal UI on 8 West Lifestyle
+ticket 434 and client 14, plus one rejected entry. Entry 10 remains
+`approval_status=pending`; no human approval was performed. The retained
+canary-preparation receipt is
+`/srv/8west/backups/safeharbor/20260829T035454Z-pre-approved-time-v2-a42872b/lifestyle-time-canary-preparation-20260829T0407Z.txt`
+with SHA-256
+`b10d78db10cacf6a8dda1b4fd3e0828b8b16e20535c4cb494d29744a69ffd59a`.
+
+No time entry was approved, exported, or retried during the release or canary
+preparation. Login
+returned 200, the root returned 302, the portal returned 200, the scheduler had
+zero failures, and the fatal-error scan was clean. Coastmark separately
+reverified zero mappings, imports, and Safeharbor source lines; its eight
+existing invoices and fourteen journals were unchanged. **This was a
+code-and-schema release plus non-financial canary preparation only: it did not
+create a draft invoice line, approve or send an invoice, post a journal, open
+Checkout, record payment, or perform any other financial action.**
 
 This is the only planned financial seam between Safeharbor and Coastmark.
 Safeharbor supplies one immutable operational fact: a specific technician time
