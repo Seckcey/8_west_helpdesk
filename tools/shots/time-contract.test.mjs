@@ -27,6 +27,12 @@ const PAGE = `<!doctype html>
           data-rejected-entry-id="51" data-measured="0" data-minutes="17"
           data-worked-at="2026-08-29T10:00:00Z" data-note="Original rejected work"
           data-billable="0">Correct</button>
+  <section id="time-review-queue">
+    <div class="review-row" data-time-entry-id="73">
+      <button class="time-review" type="button" data-decision="approved">Approve</button>
+      <button class="time-review" type="button" data-decision="rejected">Reject</button>
+    </div>
+  </section>
   <script src="/assets/js/app.js"></script>
 </body></html>`;
 
@@ -59,7 +65,9 @@ async function openPage({ timer, responder }) {
     if (url.pathname === '/assets/js/app.js') {
       return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: APP_JS });
     }
-    if (url.pathname === '/api/timer.php' || url.pathname === '/api/time_entry_correction.php') {
+    if (url.pathname === '/api/timer.php'
+        || url.pathname === '/api/time_entry_correction.php'
+        || url.pathname === '/api/time_entry_review.php') {
       return responder(route, url.pathname);
     }
     return route.fulfill({ status: 404, body: '' });
@@ -255,6 +263,244 @@ test('a definitive correction conflict clears the draft so a technician can edit
     assert.equal(requests[1].note, 'Edited correction');
     assert.equal(requests[0].billable, 0);
     assert.equal(requests[1].billable, 1);
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('review retries freeze one normalized decision through network, 5xx, and mismatched acknowledgements', async () => {
+  const requests = [];
+  let attempt = 0;
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_review.php');
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      attempt += 1;
+      if (attempt === 1) return route.abort('failed');
+      if (attempt === 2) {
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Temporarily unavailable.' }),
+        });
+      }
+      if (attempt === 3) {
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            review_ack: {
+              entry_id: body.entry_id,
+              decision: body.decision,
+              note: body.note,
+              replayed: true,
+            },
+          }),
+        });
+      }
+      if (attempt === 4) {
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            review_ack: {
+              entry_id: String(body.entry_id),
+              decision: body.decision,
+              reviewer_user_id: '11',
+              note: body.note,
+              replayed: true,
+            },
+          }),
+        });
+      }
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          review_ack: {
+            entry_id: body.entry_id,
+            decision: body.decision,
+            reviewer_user_id: 11,
+            note: body.note,
+            replayed: true,
+          },
+          toast: 'Time rejected',
+        }),
+      });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    let prompts = 0;
+    page.on('dialog', async (dialog) => {
+      assert.equal(dialog.type(), 'prompt');
+      prompts += 1;
+      await dialog.accept('  Missing customer notes  ');
+    });
+
+    const row = page.locator('.review-row');
+    const approve = row.locator('[data-decision="approved"]');
+    const reject = row.locator('[data-decision="rejected"]');
+    for (let i = 0; i < 4; i += 1) {
+      await reject.click();
+      await page.waitForFunction(() => {
+        const row = document.querySelector('.review-row');
+        const retry = row?.querySelector('[data-decision="rejected"]');
+        const alternate = row?.querySelector('[data-decision="approved"]');
+        return retry?.disabled === false
+          && alternate?.disabled === true;
+      });
+      assert.equal(await row.count(), 1, 'an uncertain or mismatched reply must retain the row');
+      assert.equal(await reject.isEnabled(), true, 'the exact frozen action must remain retryable');
+      assert.equal(await approve.isDisabled(), true, 'an alternate decision must stay unavailable');
+    }
+
+    await reject.click();
+    await page.locator('#time-review-queue .empty').waitFor();
+    assert.equal(await row.count(), 0, 'a matching replay receipt clears the row');
+    assert.equal(prompts, 1, 'retries must not ask for changed review facts');
+    assert.equal(requests.length, 5);
+    assert.deepEqual(requests[0], {
+      entry_id: 73,
+      decision: 'rejected',
+      note: 'Missing customer notes',
+    });
+    requests.slice(1).forEach((request) => assert.deepEqual(request, requests[0]));
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('an overlong rejection note stays editable and never reaches the server', async () => {
+  const requests = [];
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_review.php');
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({ status: 500, body: '' });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    let prompts = 0;
+    page.on('dialog', async (dialog) => {
+      assert.equal(dialog.type(), 'prompt');
+      prompts += 1;
+      await dialog.accept('x'.repeat(501));
+    });
+
+    const row = page.locator('.review-row');
+    const approve = row.locator('[data-decision="approved"]');
+    const reject = row.locator('[data-decision="rejected"]');
+    await reject.click();
+    await page.locator('.toast').filter({ hasText: 'cannot exceed 500 characters' }).waitFor();
+
+    assert.equal(prompts, 1);
+    assert.equal(requests.length, 0, 'client validation must not send a known-invalid review');
+    assert.equal(await approve.isEnabled(), true);
+    assert.equal(await reject.isEnabled(), true);
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('a deterministic review validation error reopens the draft for an edited retry', async () => {
+  const requests = [];
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_review.php');
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      if (requests.length === 1) {
+        return route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Use an accepted rejection reason.' }),
+        });
+      }
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          review_ack: {
+            entry_id: body.entry_id,
+            decision: body.decision,
+            reviewer_user_id: 11,
+            note: body.note,
+            replayed: false,
+          },
+          toast: 'Time rejected',
+        }),
+      });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    const answers = ['First server-rejected note', 'Edited accepted note'];
+    let prompts = 0;
+    page.on('dialog', async (dialog) => {
+      assert.equal(dialog.type(), 'prompt');
+      await dialog.accept(answers[prompts]);
+      prompts += 1;
+    });
+
+    const row = page.locator('.review-row');
+    const approve = row.locator('[data-decision="approved"]');
+    const reject = row.locator('[data-decision="rejected"]');
+    await reject.click();
+    await page.locator('.toast').filter({ hasText: 'Use an accepted rejection reason.' }).waitFor();
+    assert.equal(await approve.isEnabled(), true, 'a deterministic validation error must reopen both choices');
+    assert.equal(await reject.isEnabled(), true);
+
+    await reject.click();
+    await page.locator('#time-review-queue .empty').waitFor();
+    assert.equal(prompts, 2, 'the retry must ask for an edited note');
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].note, answers[0]);
+    assert.equal(requests[1].note, answers[1]);
+    assert.notDeepEqual(requests[1], requests[0]);
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('a review conflict refreshes to reconcile instead of enabling another decision', async () => {
+  const requests = [];
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_review.php');
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Review state changed.' }),
+      });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    page.on('dialog', async (dialog) => dialog.accept('Already handled'));
+    const reloaded = page.waitForEvent('load');
+    await page.locator('[data-decision="rejected"]').click();
+    await page.locator('.toast').filter({ hasText: 'refreshing' }).waitFor();
+    assert.equal(await page.locator('[data-decision="approved"]').isDisabled(), true);
+    assert.equal(await page.locator('[data-decision="rejected"]').isDisabled(), true);
+    await reloaded;
+    assert.equal(requests.length, 1, 'a conflict must not silently retry another action');
+    assert.deepEqual(requests[0], {
+      entry_id: 73,
+      decision: 'rejected',
+      note: 'Already handled',
+    });
     assert.deepEqual(errors, []);
   } finally {
     await session.browser.close();

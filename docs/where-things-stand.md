@@ -254,7 +254,8 @@ do not, so their one correction may reuse corrected clock evidence. Persistent
 UTC-day guard rows plus a locking read serialize competing inserts before the
 overlap decision. The disposable MySQL suite passes 54/54, including a real
 two-connection race where the second request waits and then loses after the
-first commits; the original migration-011 suite remains 97/97. The browser
+first commits; the migration-011 suite is now 98/98, including real
+two-connection exact-retry and conflicting-review races. The browser
 freezes one correction key and payload before sending, and the operator sees
 the rejection, correction link, and replacement status on the Time page.
 
@@ -778,18 +779,22 @@ export, portal auth/revocation, portal read-only/rendering, and archived-report
 gates plus the Milepost customer-sync contract. CI also runs the portal,
 service-goal-policy, business-report, and customer-sync migration/isolation
 suites on disposable MySQL 8, plus the signed alert handler and migration-018
-automatic-closure guards. The 97-check `time_entries_mysql` suite is now
+automatic-closure guards. The 98-check `time_entries_mysql` suite is now
 standalone too: it requires an explicit disposable-server acknowledgement,
 accepts only a `safeharbor_time_test*` database base, creates and proves one
 random per-run database, removes it in `finally`, exits nonzero when the fixture
 or cleanup is unavailable, and runs in Validate with dedicated MySQL credentials.
+It holds each pending review row, proves two separate worker connections are
+waiting on that exact table, then verifies one exact retry is acknowledged as
+a replay while a differently worded/decided loser receives `409`; each race
+writes exactly one review audit event.
 The separate 54-check `time_corrections_mysql` suite creates another random
 scratch database, proves migration 016 from both fresh schema and migration
 011, verifies the emitted operator postflight, deliberately interrupts both
 the five-trigger auxiliary replacement and seven-trigger parent/audit
 replacement to prove ten fail-closed write guards and exact replay recovery,
 forks a second PHP/MySQL connection for the losing overlap race, and drops the
-exact database afterward. The server-free approval-time suite is 99/99.
+exact database afterward. The server-free approval-time suite is 105/105.
 Existing integration suites (`suite_sso`,
 `svc_intake`, `svc_support`, `westy_report`, and `intake_service_goal`) need
 MySQL plus a scratch-only `config/config.php`;
@@ -837,12 +842,16 @@ reaches, so the pin is not optional:
 3. `cd /tmp/<dir> && php tests/<suite>.php`.
 4. **Delete the directory afterwards** — that wrapper pulls in real credentials.
 
-### The browser behavior still needs a rendered test
+### Technician time has a rendered browser test; Westy still needs one
 
-`time_entries_test.php` now inspects safety-critical `app.js` source patterns,
-but no CLI test executes the rendered JavaScript. A green run therefore is not
-behavioral browser proof. That half *is* checkable on the Windows machine, and
-it is worth doing whenever `app.js` or `westy.js` changes:
+`tools/shots/time-contract.test.mjs` now executes the real `app.js` in pinned
+Chromium during Validate. Its seven contracts prove stopped-timer and
+correction retries, exact review acknowledgements, frozen uncertain retries,
+editable validation failures, and conflict reconciliation. That is behavioral
+browser proof rather than a source-shape assertion.
+
+Westy still has no equivalent rendered contract. That half *is* checkable on
+the Windows machine, and it is worth doing whenever `westy.js` changes:
 
 1. Copy `app.css` and `westy.js` into a scratch directory and add a page with
    the same scaffold `lib/westy.php` renders (`#westy-root` and its children,

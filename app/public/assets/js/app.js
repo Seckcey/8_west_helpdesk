@@ -986,37 +986,93 @@
   });
 
   /* owner/admin review queue (time page) */
-  $$(".time-review").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const row = button.closest(".review-row");
-      if (!row) return;
-      const decision = button.dataset.decision;
-      let note = "";
-      if (decision === "rejected") {
-        const answer = prompt("Why is this time entry being rejected? The technician will see this note.");
-        if (answer === null) return;
-        note = answer.trim();
-        if (!note) { toast("A rejection note is required."); return; }
-      }
-      const controls = $$(".time-review", row);
-      controls.forEach((control) => { control.disabled = true; });
-      try {
-        const r = await api("/api/time_entry_review.php", {
-          entry_id: Number(row.dataset.timeEntryId),
-          decision,
-          note,
-        });
-        if (!r.ok) throw new Error("review rejected");
-        toast(r.toast || (decision === "approved" ? "Time approved." : "Time rejected."));
-        row.remove();
-        const queue = $("#time-review-queue");
-        if (queue && !$(".review-row", queue)) {
-          queue.innerHTML = '<div class="empty"><p>No technician time is waiting for review.</p></div>';
+  function reviewAckMatches(response, payload) {
+    const ack = response && response.review_ack && typeof response.review_ack === "object"
+      && !Array.isArray(response.review_ack)
+      ? response.review_ack
+      : null;
+    if (response?.ok !== true || !ack || typeof ack.replayed !== "boolean") return false;
+    if (!Number.isInteger(ack.entry_id) || ack.entry_id !== payload.entry_id) return false;
+    if (typeof ack.decision !== "string" || ack.decision !== payload.decision) return false;
+    if (typeof ack.note !== "string" || ack.note !== payload.note) return false;
+    return Number.isInteger(ack.reviewer_user_id)
+      && ack.reviewer_user_id === Number(timerUserId);
+  }
+
+  $$(".review-row").forEach((row) => {
+    const controls = $$(".time-review", row);
+    let frozenPayload = null;
+    controls.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const selectedDecision = String(button.dataset.decision || "");
+        if (frozenPayload && selectedDecision !== frozenPayload.decision) {
+          toast("Retry the same review decision, or refresh to reconcile it.");
+          return;
         }
-      } catch {
-        toast("Review was not saved — refresh and try again.");
-        controls.forEach((control) => { control.disabled = false; });
-      }
+
+        if (!frozenPayload) {
+          let note = "";
+          if (selectedDecision === "rejected") {
+            const answer = prompt("Why is this time entry being rejected? The technician will see this note.");
+            if (answer === null) return;
+            note = answer.trim();
+            if (!note) { toast("A rejection note is required."); return; }
+            if (Array.from(note).length > 500) {
+              toast("A rejection note cannot exceed 500 characters.");
+              return;
+            }
+          }
+          // Once sent, uncertain failures must replay these exact normalized
+          // facts. A different decision is unsafe until the server reconciles.
+          frozenPayload = Object.freeze({
+            entry_id: Number(row.dataset.timeEntryId),
+            decision: selectedDecision,
+            note,
+          });
+        }
+
+        controls.forEach((control) => { control.disabled = true; });
+        try {
+          const r = await api("/api/time_entry_review.php", frozenPayload);
+          if (!reviewAckMatches(r, frozenPayload)) {
+            throw new Error("Review acknowledgement did not match.");
+          }
+          toast(r.toast || (frozenPayload.decision === "approved" ? "Time approved." : "Time rejected."));
+          row.remove();
+          const queue = $("#time-review-queue");
+          if (queue && !$(".review-row", queue)) {
+            queue.innerHTML = '<div class="empty"><p>No technician time is waiting for review.</p></div>';
+          }
+        } catch (error) {
+          const status = error instanceof Error ? Number(error.status || 0) : 0;
+          if (status === 409) {
+            toast("Review state changed on the server — refreshing.");
+            setTimeout(() => location.reload(), 250);
+            return;
+          }
+          if (status === 400 || status === 422) {
+            const message = error instanceof Error && error.message
+              ? error.message
+              : "Review was not saved.";
+            frozenPayload = null;
+            controls.forEach((control) => { control.disabled = false; });
+            toast(message + " Review was not saved; edit and try again.");
+            return;
+          }
+          if (status === 401 || status === 403 || status === 404) {
+            const message = error instanceof Error && error.message
+              ? error.message
+              : "Review access or entry changed.";
+            toast(message + " Refreshing to reconcile.");
+            setTimeout(() => location.reload(), 250);
+            return;
+          }
+          toast("Review was not confirmed — retry the same decision, or refresh.");
+          controls.forEach((control) => {
+            control.disabled = control.dataset.decision !== frozenPayload.decision;
+          });
+        }
+      });
     });
   });
 

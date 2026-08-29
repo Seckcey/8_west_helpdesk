@@ -62,5 +62,12 @@ $decisionLabel = $entry['approval_status'] === 'approved' ? 'approved' : 'reject
 json_out([
     'ok' => true,
     'toast' => 'Time entry #' . (int) $entry['id'] . ' ' . $decisionLabel . '.',
+    'review_ack' => [
+        'entry_id' => (int) $entry['id'],
+        'decision' => $decisionLabel,
+        'reviewer_user_id' => (int) $entry['reviewed_by_user_id'],
+        'note' => (string) $entry['review_note'],
+        'replayed' => (bool) $entry['replayed'],
+    ],
     'entry' => $entry,
 ]);
