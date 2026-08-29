@@ -163,6 +163,21 @@ $schema = [
         response_sha256 TEXT NOT NULL, created_by_user_id INTEGER NOT NULL,
         reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(tenant_id,id), UNIQUE(tenant_id,schedule_version_id))',
+    'CREATE TABLE business_report_id_client_bindings (
+        tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
+        id_tenant_key TEXT NOT NULL UNIQUE, id_tenant_slug TEXT NOT NULL,
+        created_by_user_id INTEGER NOT NULL, reason TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(tenant_id,client_id), UNIQUE(tenant_id,client_id,id_tenant_key))',
+    'CREATE TABLE business_report_id_client_contact_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL, schedule_version_id INTEGER NOT NULL,
+        id_tenant_key TEXT NOT NULL, contact_version INTEGER NOT NULL,
+        recipient_email TEXT NOT NULL, response_generated_at TEXT NOT NULL,
+        request_nonce_sha256 TEXT NOT NULL, response_sha256 TEXT NOT NULL,
+        created_by_user_id INTEGER NOT NULL, reason TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tenant_id,id), UNIQUE(tenant_id,schedule_version_id))',
     'CREATE TABLE business_report_archives (
         id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
         schedule_key TEXT NOT NULL, schedule_version_id INTEGER NOT NULL,
@@ -355,6 +370,108 @@ report_throws(
         'UTC', 3, '09:00:00', true, 101, 'wrong binding',
     ),
     'different 8 West ID tenant',
+);
+
+$clientIdContact = [
+    'tenant_key' => 'ewid-t4',
+    'tenant_slug' => 'customer-one',
+    'contact_version' => 1,
+    'recipient_email' => 'customer-admin@example.test',
+    'generated_at' => '2026-08-28T12:00:00Z',
+    'generated_at_db' => '2026-08-28 12:00:00',
+    'request_nonce_sha256' => str_repeat('1', 64),
+    'response_sha256' => str_repeat('2', 64),
+];
+$clientIdPrepared = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+    $clientIdContact, 'UTC', 3, '09:00:00', true, 101, 'client ID canary',
+);
+report_check(
+    'client-scoped ID prepare pins the exact client and authenticated ID tenant',
+    $clientIdPrepared['action'] === 'prepared'
+        && (int)$clientIdPrepared['id_contact']['client_id'] === 11
+        && (string)$clientIdPrepared['id_contact']['id_tenant_key'] === 'ewid-t4'
+        && (string)$clientIdPrepared['id_contact']['recipient_email'] === 'customer-admin@example.test'
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_bindings')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+);
+$clientIdReplay = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+    array_replace($clientIdContact, [
+        'request_nonce_sha256' => str_repeat('3', 64),
+        'response_sha256' => str_repeat('4', 64),
+    ]),
+    'UTC', 3, '09:00:00', true, 101, 'exact client replay',
+);
+report_check(
+    'exact client-scoped prepare replay is idempotent',
+    $clientIdReplay['action'] === 'ignored'
+        && (int)$clientIdReplay['schedule']['id'] === (int)$clientIdPrepared['schedule']['id']
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+);
+report_throws(
+    'client-scoped contact version cannot name another recipient',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+        array_replace($clientIdContact, ['recipient_email' => 'other@example.test']),
+        'UTC', 3, '10:00:00', true, 101, 'client conflict',
+    ),
+    'different recipient',
+);
+$clientIdV2 = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+    array_replace($clientIdContact, [
+        'contact_version' => 2,
+        'recipient_email' => 'new-customer-admin@example.test',
+        'request_nonce_sha256' => str_repeat('5', 64),
+        'response_sha256' => str_repeat('6', 64),
+    ]),
+    'UTC', 3, '10:00:00', true, 102, 'client contact v2',
+);
+report_check(
+    'new client contact version appends disabled schedule and evidence',
+    (int)$clientIdV2['schedule']['version_no'] === 2
+        && (int)$clientIdV2['id_contact']['contact_version'] === 2
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 2,
+);
+report_throws(
+    'client-scoped contact version cannot move backward',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-scoped-id-weekly', 11, (int)$definition['definition']['id'],
+        $clientIdContact, 'UTC', 3, '11:00:00', true, 101, 'client rollback',
+    ),
+    'backward',
+);
+report_throws(
+    'one client cannot be rebound to a different ID tenant',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'other-client-key', 11, (int)$definition['definition']['id'],
+        array_replace($clientIdContact, ['tenant_key' => 'ewid-t5']),
+        'UTC', 3, '09:00:00', true, 101, 'client rebind',
+    ),
+    'different 8 West ID tenant',
+);
+report_throws(
+    'one ID tenant cannot be reused by another Safeharbor client',
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-twelve-key', 12, (int)$definition['definition']['id'],
+        $clientIdContact, 'UTC', 3, '09:00:00', true, 101, 'ID tenant reuse',
+    ),
+    'different Safeharbor client',
+);
+report_throws(
+    'client-scoped prepare cannot reach a client in another provider tenant',
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'cross-tenant-client', 22, (int)$definition['definition']['id'],
+        array_replace($clientIdContact, ['tenant_key' => 'ewid-t6']),
+        'UTC', 3, '09:00:00', true, 101, 'cross tenant client',
+    ),
+    'exact tenant',
 );
 report_throws(
     'schedule enable requires the exact schedule key allowlist',

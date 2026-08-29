@@ -1,5 +1,5 @@
 <?php
-/** Standalone MySQL 8 proof for migration 017 and ID contact evidence guards. */
+/** Standalone MySQL 8 proof for migrations 017/019 and ID contact evidence guards. */
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') exit(1);
@@ -287,6 +287,15 @@ function id_mysql_snapshot(int $version, string $email, string $byte): array
     ];
 }
 
+/** @return array<string,mixed> */
+function id_mysql_client_snapshot(int $version, string $email, string $byte): array
+{
+    return array_replace(id_mysql_snapshot($version, $email, $byte), [
+        'tenant_key' => 'ewid-t4',
+        'tenant_slug' => 'customer-one',
+    ]);
+}
+
 /**
  * @param array<string,string> $workerEnvironment
  * @param array<string,mixed> $mainSnapshot
@@ -449,6 +458,8 @@ try {
     try {
         $pdo->exec(
             'DROP TABLE IF EXISTS
+                business_report_id_client_contact_snapshots,
+                business_report_id_client_bindings,
                 business_report_id_contact_snapshots,
                 business_report_id_tenant_bindings,
                 business_report_delivery_attempts,
@@ -474,6 +485,7 @@ try {
         'true migration-013 baseline has five report tables and fifteen guards',
     );
     id_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/017_id_report_contact_evidence.sql');
+    id_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql');
 
 id_mysql_check(
     $pdo->query(
@@ -515,6 +527,55 @@ id_mysql_check(
                 AND constraint_type='CHECK'"
         )->fetchColumn() === 6,
     'fresh schema and replay retain exact index, foreign-key, and check counts',
+);
+id_mysql_check(
+    $pdo->query(
+        "SELECT CONCAT(table_name, ':', COUNT(*))
+           FROM information_schema.columns
+          WHERE table_schema=DATABASE()
+            AND table_name IN (
+              'business_report_id_client_bindings',
+              'business_report_id_client_contact_snapshots')
+          GROUP BY table_name ORDER BY table_name"
+    )->fetchAll(PDO::FETCH_COLUMN) === [
+        'business_report_id_client_bindings:7',
+        'business_report_id_client_contact_snapshots:13',
+    ],
+    'fresh schema and migration 019 have exact client evidence table parity',
+);
+id_mysql_check(
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND trigger_name LIKE 'trg_br_id_client_%'"
+    )->fetchColumn() === 6,
+    'all six immutable client binding and snapshot guards are installed',
+);
+id_mysql_check(
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.statistics
+          WHERE table_schema=DATABASE()
+            AND table_name IN (
+              'business_report_id_client_bindings',
+              'business_report_id_client_contact_snapshots')"
+    )->fetchColumn() === 22
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.table_constraints
+              WHERE constraint_schema=DATABASE()
+                AND table_name IN (
+                  'business_report_id_client_bindings',
+                  'business_report_id_client_contact_snapshots')
+                AND constraint_type='FOREIGN KEY'"
+        )->fetchColumn() === 8
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.table_constraints
+              WHERE constraint_schema=DATABASE()
+                AND table_name IN (
+                  'business_report_id_client_bindings',
+                  'business_report_id_client_contact_snapshots')
+                AND constraint_type='CHECK'"
+        )->fetchColumn() === 6,
+    'client evidence schema has exact index, foreign-key, and check counts',
 );
 
 $pdo->exec(
@@ -629,8 +690,105 @@ id_mysql_check(
     'exact shape restoration replays with six permanent guards and no swaps',
 );
 
+$migration019 = __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql';
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_bindings
+       DROP INDEX uq_br_id_client_binding_key,
+       ADD KEY uq_br_id_client_binding_key (id_tenant_key)'
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => id_mysql_execute_file($pdo, $migration019),
+    'migration 019 replay refuses a weakened client-binding unique index',
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_bindings
+       DROP INDEX uq_br_id_client_binding_key,
+       ADD UNIQUE KEY uq_br_id_client_binding_key (id_tenant_key)'
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_bindings
+       ALTER INDEX ix_br_id_client_binding_actor INVISIBLE'
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => id_mysql_execute_file($pdo, $migration019),
+    'migration 019 replay refuses an invisible client-binding index',
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_bindings
+       ALTER INDEX ix_br_id_client_binding_actor VISIBLE'
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       DROP FOREIGN KEY fk_br_id_client_snapshot_tenant'
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       ADD CONSTRAINT fk_br_id_client_snapshot_tenant
+         FOREIGN KEY (tenant_id) REFERENCES clients (id)'
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => id_mysql_execute_file($pdo, $migration019),
+    'migration 019 replay refuses a client snapshot foreign key with the wrong target',
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       DROP FOREIGN KEY fk_br_id_client_snapshot_tenant'
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       ADD CONSTRAINT fk_br_id_client_snapshot_tenant
+         FOREIGN KEY (tenant_id) REFERENCES tenants (id)'
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       ALTER CHECK ck_br_id_client_snapshot_version NOT ENFORCED'
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => id_mysql_execute_file($pdo, $migration019),
+    'migration 019 replay refuses a disabled client snapshot check',
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       ALTER CHECK ck_br_id_client_snapshot_version ENFORCED'
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       DROP CHECK ck_br_id_client_snapshot_version'
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       ADD CONSTRAINT ck_br_id_client_snapshot_version CHECK (contact_version >= 0)'
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => id_mysql_execute_file($pdo, $migration019),
+    'migration 019 replay refuses a weakened client contact-version check',
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       DROP CHECK ck_br_id_client_snapshot_version'
+);
+$pdo->exec(
+    'ALTER TABLE business_report_id_client_contact_snapshots
+       ADD CONSTRAINT ck_br_id_client_snapshot_version CHECK (contact_version >= 1)'
+);
+id_mysql_execute_file($pdo, $migration019);
+id_mysql_check(
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND trigger_name LIKE 'trg_br_id_client_%'"
+    )->fetchColumn() === 6,
+    'exact migration-019 shape restoration replays with six guards and no swaps',
+);
+
 $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (1,'Tenant One','one'),(2,'Tenant Two','two')");
-$pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (11,1,'Client One'),(22,2,'Client Two')");
+$pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
+    (11,1,'Client One'),(12,1,'Client Twelve'),(22,2,'Client Two')");
 $pdo->exec("INSERT INTO users
     (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
     (101,1,'owner1@example.test','','Owner One','O1','owner',1),
@@ -763,6 +921,175 @@ id_mysql_throws(
     'database refuses an ID tenant key outside the producer contract range',
 );
 
+$clientPrepared = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-id-weekly', 11, (int)$definition['definition']['id'],
+    id_mysql_client_snapshot(1, 'customer-admin@example.test', '1'),
+    'UTC', 1, '09:00:00', true, 101, 'client-scoped ID prepare',
+);
+id_mysql_check(
+    $clientPrepared['action'] === 'prepared'
+        && (int)$clientPrepared['schedule']['version_no'] === 1
+        && (int)$clientPrepared['id_contact']['client_id'] === 11
+        && (string)$clientPrepared['id_contact']['id_tenant_key'] === 'ewid-t4'
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_bindings')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+    'client runtime atomically creates one exact binding, disabled schedule, and snapshot',
+);
+$clientReplay = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-id-weekly', 11, (int)$definition['definition']['id'],
+    id_mysql_client_snapshot(1, 'customer-admin@example.test', '3'),
+    'UTC', 1, '09:00:00', true, 101, 'client exact replay',
+);
+id_mysql_check(
+    $clientReplay['action'] === 'ignored'
+        && (int)$clientReplay['schedule']['id'] === (int)$clientPrepared['schedule']['id']
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_id_client_contact_snapshots')->fetchColumn() === 1,
+    'exact client prepare replay is idempotent with a fresh request nonce',
+);
+id_mysql_throws(
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-id-weekly', 11, (int)$definition['definition']['id'],
+        id_mysql_client_snapshot(1, 'changed-customer@example.test', '4'),
+        'UTC', 1, '10:00:00', true, 101, 'client same-version conflict',
+    ),
+    'client same contact version with another address is refused',
+);
+$clientNewer = business_report_prepare_client_schedule_from_id(
+    $pdo, 'one', 'client-id-weekly', 11, (int)$definition['definition']['id'],
+    id_mysql_client_snapshot(2, 'new-customer-admin@example.test', '5'),
+    'UTC', 1, '10:00:00', true, 102, 'client version two',
+);
+id_mysql_check(
+    (int)$clientNewer['schedule']['version_no'] === 2
+        && (int)$clientNewer['id_contact']['contact_version'] === 2,
+    'newer client contact creates the next disabled schedule version',
+);
+id_mysql_throws(
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-id-weekly', 11, (int)$definition['definition']['id'],
+        id_mysql_client_snapshot(1, 'customer-admin@example.test', '7'),
+        'UTC', 1, '11:00:00', true, 101, 'client rollback',
+    ),
+    'client contact version rollback is refused',
+);
+id_mysql_throws(
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-id-rebind', 11, (int)$definition['definition']['id'],
+        array_replace(id_mysql_client_snapshot(2, 'new-customer-admin@example.test', '8'), [
+            'tenant_key' => 'ewid-t5',
+            'tenant_slug' => 'other-customer',
+        ]),
+        'UTC', 1, '09:00:00', true, 101, 'client rebind',
+    ),
+    'one Safeharbor client cannot be rebound to another ID tenant',
+);
+id_mysql_throws(
+    BusinessReportConflictException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-id-reuse', 12, (int)$definition['definition']['id'],
+        id_mysql_client_snapshot(2, 'new-customer-admin@example.test', '9'),
+        'UTC', 1, '09:00:00', true, 101, 'client key reuse',
+    ),
+    'one ID tenant cannot be bound to two Safeharbor clients',
+);
+id_mysql_throws(
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-cross-tenant', 22, (int)$definition['definition']['id'],
+        array_replace(id_mysql_client_snapshot(1, 'two@example.test', 'a'), [
+            'tenant_key' => 'ewid-t6',
+            'tenant_slug' => 'customer-two',
+        ]),
+        'UTC', 1, '09:00:00', true, 101, 'cross-tenant client',
+    ),
+    'client prepare cannot reach another provider tenant',
+);
+
+$pdo->exec('DROP TRIGGER IF EXISTS test_id_client_snapshot_atomic_failure');
+$pdo->exec(
+    "CREATE TRIGGER test_id_client_snapshot_atomic_failure
+     BEFORE INSERT ON business_report_id_client_contact_snapshots
+     FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='test client snapshot failure'"
+);
+$clientAtomicFailure = false;
+try {
+    business_report_prepare_client_schedule_from_id(
+        $pdo, 'one', 'client-atomic-weekly', 12, (int)$definition['definition']['id'],
+        array_replace(id_mysql_client_snapshot(1, 'twelve@example.test', 'c'), [
+            'tenant_key' => 'ewid-t5',
+            'tenant_slug' => 'customer-twelve',
+        ]),
+        'UTC', 1, '09:00:00', true, 101, 'client atomic failure proof',
+    );
+} catch (Throwable $error) {
+    $clientAtomicFailure = $error instanceof PDOException;
+} finally {
+    $pdo->exec('DROP TRIGGER IF EXISTS test_id_client_snapshot_atomic_failure');
+}
+id_mysql_check(
+    $clientAtomicFailure
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM business_report_schedule_versions
+              WHERE tenant_id=1 AND schedule_key='client-atomic-weekly'"
+        )->fetchColumn() === 0
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM business_report_id_client_bindings
+              WHERE tenant_id=1 AND client_id=12"
+        )->fetchColumn() === 0,
+    'client snapshot failure rolls back its disabled schedule and first binding',
+);
+
+$clientBindingId = 11;
+$clientSnapshotId = (int)$clientPrepared['id_contact']['id'];
+id_mysql_throws(
+    PDOException::class,
+    fn() => $pdo->exec(
+        "UPDATE business_report_id_client_bindings SET reason='changed'
+          WHERE tenant_id=1 AND client_id={$clientBindingId}"
+    ),
+    'database refuses client binding updates',
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => $pdo->exec(
+        "DELETE FROM business_report_id_client_bindings
+          WHERE tenant_id=1 AND client_id={$clientBindingId}"
+    ),
+    'database refuses client binding deletes',
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => $pdo->exec(
+        "UPDATE business_report_id_client_contact_snapshots SET reason='changed'
+          WHERE id={$clientSnapshotId}"
+    ),
+    'database refuses client snapshot updates',
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => $pdo->exec(
+        "DELETE FROM business_report_id_client_contact_snapshots WHERE id={$clientSnapshotId}"
+    ),
+    'database refuses client snapshot deletes',
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => $pdo->exec("INSERT INTO business_report_id_client_bindings
+        (tenant_id,client_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+        VALUES (1,12,'ewid-t1','tenant-scope-reuse',101,'tenant scope reuse')"),
+    'database refuses reuse of an ID tenant already bound at tenant scope',
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => $pdo->exec("INSERT INTO business_report_id_client_bindings
+        (tenant_id,client_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+        VALUES (1,12,'ewid-t5','customer-twelve',201,'wrong tenant actor')"),
+    'database refuses a client binding by an actor outside the provider tenant',
+);
+
 $replayGuardSchedule = business_report_prepare_schedule(
     $pdo,
     'one',
@@ -872,6 +1199,121 @@ id_mysql_check(
     'exact retry restores permanent guards, removes swaps, and preserves every evidence row',
 );
 
+$clientReplayGuardSchedule = business_report_prepare_schedule(
+    $pdo,
+    'one',
+    'client-id-replay-guard',
+    11,
+    (int)$definition['definition']['id'],
+    'client-replay-guard@example.test',
+    'UTC',
+    1,
+    '09:00:00',
+    true,
+    101,
+    'client fail-closed replay proof',
+);
+$clientCountsBeforeReplay = (string)$pdo->query(
+    "SELECT CONCAT(
+      (SELECT COUNT(*) FROM business_report_id_client_bindings), ':',
+      (SELECT COUNT(*) FROM business_report_id_client_contact_snapshots))"
+)->fetchColumn();
+id_mysql_execute_until(
+    $pdo,
+    $migration019,
+    'DROP TRIGGER IF EXISTS trg_br_id_client_snapshot_no_delete',
+);
+id_mysql_check(
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND trigger_name IN (
+              'trg_br_id_client_binding_before_insert',
+              'trg_br_id_client_binding_no_update',
+              'trg_br_id_client_binding_no_delete',
+              'trg_br_id_client_snapshot_before_insert',
+              'trg_br_id_client_snapshot_no_update',
+              'trg_br_id_client_snapshot_no_delete')"
+    )->fetchColumn() === 0
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.triggers
+              WHERE trigger_schema=DATABASE()
+                AND trigger_name LIKE 'trg_br_id_client_%_swap_%'"
+        )->fetchColumn() === 6,
+    'interrupted migration-019 replay leaves all six client swap guards installed',
+);
+$clientSwapSignal = 'migration 019 client report-contact replay is in progress';
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_client_bindings
+        (tenant_id,client_id,id_tenant_key,id_tenant_slug,created_by_user_id,reason)
+        VALUES (1,12,'ewid-t5','customer-twelve',101,'blocked insert')"),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks client binding inserts',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec(
+        "UPDATE business_report_id_client_bindings SET reason='blocked'
+          WHERE tenant_id=1 AND client_id=11"
+    ),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks client binding updates',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec(
+        'DELETE FROM business_report_id_client_bindings WHERE tenant_id=1 AND client_id=11'
+    ),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks client binding deletes',
+);
+$clientReplayGuardScheduleId = (int)$clientReplayGuardSchedule['schedule']['id'];
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec("INSERT INTO business_report_id_client_contact_snapshots
+        (tenant_id,client_id,schedule_version_id,id_tenant_key,contact_version,
+         recipient_email,response_generated_at,request_nonce_sha256,response_sha256,
+         created_by_user_id,reason)
+        VALUES (1,11,{$clientReplayGuardScheduleId},'ewid-t4',3,
+         'client-replay-guard@example.test','2026-08-28 12:00:00',
+         '" . str_repeat('a', 64) . "','" . str_repeat('b', 64) . "',101,'blocked insert')"),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks client snapshot inserts',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec(
+        "UPDATE business_report_id_client_contact_snapshots SET reason='blocked'
+          WHERE id={$clientSnapshotId}"
+    ),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks client snapshot updates',
+);
+id_mysql_rejects_with_signal(
+    fn() => $pdo->exec(
+        "DELETE FROM business_report_id_client_contact_snapshots WHERE id={$clientSnapshotId}"
+    ),
+    $clientSwapSignal,
+    'interrupted migration-019 replay blocks client snapshot deletes',
+);
+id_mysql_execute_file($pdo, $migration019);
+$clientCountsAfterReplay = (string)$pdo->query(
+    "SELECT CONCAT(
+      (SELECT COUNT(*) FROM business_report_id_client_bindings), ':',
+      (SELECT COUNT(*) FROM business_report_id_client_contact_snapshots))"
+)->fetchColumn();
+id_mysql_check(
+    $clientCountsBeforeReplay === $clientCountsAfterReplay
+        && $clientCountsAfterReplay === '1:2'
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.triggers
+              WHERE trigger_schema=DATABASE()
+                AND trigger_name LIKE 'trg_br_id_client_%'"
+        )->fetchColumn() === 6
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.triggers
+              WHERE trigger_schema=DATABASE()
+                AND trigger_name LIKE 'trg_br_id_client_%_swap_%'"
+        )->fetchColumn() === 0,
+    'exact migration-019 retry restores guards and preserves client evidence',
+);
+
 $escapedDatabase = str_replace('`', '``', $database);
 $server->exec("CREATE USER '{$runtimeUser}'@'%' IDENTIFIED BY '{$runtimePass}'");
 $runtimeUserCreated = true;
@@ -880,7 +1322,12 @@ $server->exec(
     "GRANT INSERT, UPDATE ON `{$escapedDatabase}`.`business_report_schedule_versions`
      TO '{$runtimeUser}'@'%'"
 );
-foreach (['business_report_id_tenant_bindings', 'business_report_id_contact_snapshots'] as $table) {
+foreach ([
+    'business_report_id_tenant_bindings',
+    'business_report_id_contact_snapshots',
+    'business_report_id_client_bindings',
+    'business_report_id_client_contact_snapshots',
+] as $table) {
     // UPDATE is required by MySQL's locking reads. Permanent triggers still
     // make both evidence tables append-only.
     $server->exec("GRANT INSERT, UPDATE ON `{$escapedDatabase}`.`{$table}` TO '{$runtimeUser}'@'%'");
@@ -916,6 +1363,33 @@ id_mysql_throws(
     PDOException::class,
     fn() => $runtime->exec('DELETE FROM business_report_id_contact_snapshots WHERE id=' . (int)$runtimePrepared['id_contact']['id']),
     'append-only runtime identity cannot delete evidence',
+);
+$runtimeClientPrepared = business_report_prepare_client_schedule_from_id(
+    $runtime, 'one', 'client-id-runtime-weekly', 11, (int)$definition['definition']['id'],
+    id_mysql_client_snapshot(2, 'new-customer-admin@example.test', 'b'),
+    'UTC', 1, '09:00:00', true, 101, 'least privilege client prepare',
+);
+id_mysql_check(
+    $runtimeClientPrepared['action'] === 'prepared'
+        && (int)$runtimeClientPrepared['id_contact']['client_id'] === 11
+        && (int)$runtimeClientPrepared['id_contact']['contact_version'] === 2,
+    'append-only runtime identity can pin a client-scoped ID schedule',
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => $runtime->exec(
+        'UPDATE business_report_id_client_contact_snapshots SET reason=reason WHERE id='
+        . (int)$runtimeClientPrepared['id_contact']['id']
+    ),
+    'append-only runtime identity cannot update client evidence',
+);
+id_mysql_throws(
+    PDOException::class,
+    fn() => $runtime->exec(
+        'DELETE FROM business_report_id_client_contact_snapshots WHERE id='
+        . (int)$runtimeClientPrepared['id_contact']['id']
+    ),
+    'append-only runtime identity cannot delete client evidence',
 );
 
 $raceScheduleA = business_report_prepare_schedule(

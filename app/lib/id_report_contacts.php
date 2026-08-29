@@ -19,6 +19,7 @@ const ID_REPORT_CONTACT_UUID_V4 =
     '/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D';
 const ID_REPORT_CONTACT_TENANT_KEY = '/\Aewid-t[1-9][0-9]{0,9}\z/D';
 const ID_REPORT_CONTACT_TENANT_SLUG = '/\A[a-z0-9][a-z0-9-]{0,63}\z/D';
+const ID_REPORT_CONTACT_CLIENT_KEY = '/\Asafeharbor-client:[1-9][0-9]{0,9}\z/D';
 
 final class IdReportContactValidationException extends InvalidArgumentException {}
 final class IdReportContactGateException extends RuntimeException {}
@@ -41,6 +42,7 @@ function id_report_contact_tenant_key_valid(string $tenantKey): bool
  *   endpoint:string,
  *   hmac_secret:string,
  *   tenant_bindings:array<string,string>,
+ *   client_bindings:array<string,string>,
  *   timeout_seconds:int
  * }
  */
@@ -56,6 +58,7 @@ function id_report_contact_config(?array $source = null): array
     $endpoint = $source['endpoint'] ?? ID_REPORT_CONTACT_ENDPOINT;
     $secret = $source['hmac_secret'] ?? '';
     $bindings = $source['tenant_bindings'] ?? [];
+    $clientBindings = $source['client_bindings'] ?? [];
     $timeout = $source['timeout_seconds'] ?? 10;
     if (!is_bool($enabled)
         || !is_string($endpoint)
@@ -64,6 +67,8 @@ function id_report_contact_config(?array $source = null): array
         || ($secret !== '' && preg_match('/\A[0-9a-f]{64}\z/D', $secret) !== 1)
         || !is_array($bindings)
         || count($bindings) > 64
+        || !is_array($clientBindings)
+        || count($clientBindings) > 256
         || !is_int($timeout)
         || $timeout < 1
         || $timeout > 30
@@ -83,7 +88,26 @@ function id_report_contact_config(?array $source = null): array
         }
         $normalizedBindings[$tenantSlug] = $tenantKey;
     }
-    if ($enabled && ($secret === '' || $normalizedBindings === [])) {
+
+    $normalizedClientBindings = [];
+    foreach ($clientBindings as $clientKey => $tenantKey) {
+        if (!is_string($clientKey)
+            || preg_match(ID_REPORT_CONTACT_CLIENT_KEY, $clientKey) !== 1
+            || filter_var(substr($clientKey, 18), FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1, 'max_range' => 4_294_967_295],
+            ]) === false
+            || !is_string($tenantKey)
+            || !id_report_contact_tenant_key_valid($tenantKey)
+            || in_array($tenantKey, $normalizedBindings, true)
+            || in_array($tenantKey, $normalizedClientBindings, true)
+        ) {
+            throw new IdReportContactValidationException('8 West ID report-contact client binding is invalid.');
+        }
+        $normalizedClientBindings[$clientKey] = $tenantKey;
+    }
+    if ($enabled
+        && ($secret === '' || ($normalizedBindings === [] && $normalizedClientBindings === []))
+    ) {
         throw new IdReportContactValidationException('Enabled 8 West ID report-contact configuration is incomplete.');
     }
 
@@ -92,8 +116,17 @@ function id_report_contact_config(?array $source = null): array
         'endpoint' => $endpoint,
         'hmac_secret' => $secret,
         'tenant_bindings' => $normalizedBindings,
+        'client_bindings' => $normalizedClientBindings,
         'timeout_seconds' => $timeout,
     ];
+}
+
+function id_report_contact_client_key(int $clientId): string
+{
+    if ($clientId < 1 || $clientId > 4_294_967_295) {
+        throw new IdReportContactValidationException('Safeharbor report-contact client id is invalid.');
+    }
+    return 'safeharbor-client:' . $clientId;
 }
 
 function id_report_contact_uuid_v4(): string
@@ -250,7 +283,7 @@ function id_report_contact_decode_response(
     string $rawBody,
     string $secret,
     string $expectedTenantKey,
-    string $expectedTenantSlug,
+    ?string $expectedTenantSlug,
     string $requestNonce,
     int $requestTime,
 ): array {
@@ -259,7 +292,8 @@ function id_report_contact_decode_response(
         || strlen($rawBody) > ID_REPORT_CONTACT_MAX_RESPONSE_BYTES
         || preg_match('/\A[0-9a-f]{64}\z/D', $secret) !== 1
         || !id_report_contact_tenant_key_valid($expectedTenantKey)
-        || preg_match(ID_REPORT_CONTACT_TENANT_SLUG, $expectedTenantSlug) !== 1
+        || ($expectedTenantSlug !== null
+            && preg_match(ID_REPORT_CONTACT_TENANT_SLUG, $expectedTenantSlug) !== 1)
         || preg_match(ID_REPORT_CONTACT_UUID_V4, $requestNonce) !== 1
         || $requestTime < 1
     ) {
@@ -294,7 +328,9 @@ function id_report_contact_decode_response(
         || ($document['ok'] ?? null) !== true
         || ($document['schema_version'] ?? null) !== 1
         || ($document['tenant_key'] ?? null) !== $expectedTenantKey
-        || ($document['tenant_slug'] ?? null) !== $expectedTenantSlug
+        || !is_string($document['tenant_slug'] ?? null)
+        || preg_match(ID_REPORT_CONTACT_TENANT_SLUG, $document['tenant_slug']) !== 1
+        || ($expectedTenantSlug !== null && $document['tenant_slug'] !== $expectedTenantSlug)
         || !is_int($document['contact_version'] ?? null)
         || $document['contact_version'] < 1
         || !is_string($document['weekly_report_email'] ?? null)
@@ -311,7 +347,7 @@ function id_report_contact_decode_response(
 
     return [
         'tenant_key' => $expectedTenantKey,
-        'tenant_slug' => $expectedTenantSlug,
+        'tenant_slug' => $document['tenant_slug'],
         'contact_version' => $document['contact_version'],
         'recipient_email' => $email,
         'generated_at' => $document['generated_at'],
@@ -450,7 +486,75 @@ function id_report_contact_fetch(
     ) {
         throw new IdReportContactGateException('The exact report-contact tenant is not configured.');
     }
-    $tenantKey = $config['tenant_bindings'][$tenantSlug];
+    return id_report_contact_fetch_bound_key(
+        $config['tenant_bindings'][$tenantSlug],
+        $tenantSlug,
+        $config,
+        $transport,
+        $now,
+    );
+}
+
+/**
+ * Fetch the current contact for one exact configured Safeharbor client.
+ * The ID tenant slug is authenticated output, never inferred from local data.
+ *
+ * @param callable(string,list<string>,string,int,int):array<string,mixed>|null $transport
+ * @return array{
+ *   tenant_key:string,tenant_slug:string,contact_version:int,
+ *   recipient_email:string,generated_at:string,generated_at_db:string,
+ *   request_nonce_sha256:string,response_sha256:string
+ * }
+ */
+function id_report_contact_fetch_client(
+    int $clientId,
+    ?array $source = null,
+    ?callable $transport = null,
+    ?int $now = null,
+): array {
+    $config = id_report_contact_config($source);
+    if ($config['enabled'] !== true) {
+        throw new IdReportContactGateException('8 West ID report-contact lookup is disabled.');
+    }
+    $clientKey = id_report_contact_client_key($clientId);
+    if (!array_key_exists($clientKey, $config['client_bindings'])) {
+        throw new IdReportContactGateException('The exact report-contact client is not configured.');
+    }
+    return id_report_contact_fetch_bound_key(
+        $config['client_bindings'][$clientKey],
+        null,
+        $config,
+        $transport,
+        $now,
+    );
+}
+
+/**
+ * @param array<string,mixed> $config
+ * @param callable(string,list<string>,string,int,int):array<string,mixed>|null $transport
+ * @return array{
+ *   tenant_key:string,tenant_slug:string,contact_version:int,
+ *   recipient_email:string,generated_at:string,generated_at_db:string,
+ *   request_nonce_sha256:string,response_sha256:string
+ * }
+ */
+function id_report_contact_fetch_bound_key(
+    string $tenantKey,
+    ?string $expectedTenantSlug,
+    array $config,
+    ?callable $transport = null,
+    ?int $now = null,
+): array {
+    $config = id_report_contact_config($config);
+    if ($config['enabled'] !== true) {
+        throw new IdReportContactGateException('8 West ID report-contact lookup is disabled.');
+    }
+    $configured = $expectedTenantSlug === null
+        ? in_array($tenantKey, $config['client_bindings'], true)
+        : (($config['tenant_bindings'][$expectedTenantSlug] ?? null) === $tenantKey);
+    if (!$configured) {
+        throw new IdReportContactGateException('The exact report-contact binding is not configured.');
+    }
     $requestTime = $now ?? time();
     $request = id_report_contact_request(
         $tenantKey,
@@ -489,7 +593,7 @@ function id_report_contact_fetch(
         $response['body'],
         $config['hmac_secret'],
         $tenantKey,
-        $tenantSlug,
+        $expectedTenantSlug,
         $request['nonce'],
         (int)$request['timestamp'],
     );

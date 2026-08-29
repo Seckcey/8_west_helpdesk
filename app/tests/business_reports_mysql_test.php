@@ -137,11 +137,11 @@ function report_mysql_config(): array
 
 report_mysql_reset($pdo);
 report_mysql_execute_file($pdo, __DIR__ . '/../db/schema.sql');
-report_mysql_check('fresh schema creates seven report tables including ID contact evidence',
+report_mysql_check('fresh schema creates nine report tables including tenant and client ID evidence',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.tables
           WHERE table_schema=DATABASE() AND table_name LIKE 'business_report_%'"
-    )->fetchColumn() === 7);
+    )->fetchColumn() === 9);
 report_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/013_business_reports.sql');
 report_mysql_check('migration 013 replays over exact fresh-schema objects', true);
 report_mysql_check('report tables retain exact per-table column counts',
@@ -155,6 +155,8 @@ report_mysql_check('report tables retain exact per-table column counts',
         'business_report_definition_versions:10',
         'business_report_deliveries:12',
         'business_report_delivery_attempts:10',
+        'business_report_id_client_bindings:7',
+        'business_report_id_client_contact_snapshots:13',
         'business_report_id_contact_snapshots:12',
         'business_report_id_tenant_bindings:6',
         'business_report_schedule_versions:15',
@@ -163,7 +165,7 @@ report_mysql_check('all twenty-one report triggers are installed',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_business_report_%'"
-    )->fetchColumn() === 21);
+    )->fetchColumn() === 29);
 report_mysql_check('all report relationships are tenant-scoped',
     (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.table_constraints
