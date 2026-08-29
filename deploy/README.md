@@ -252,10 +252,9 @@ resurface_at) · 005 (ticket_presence, merged_into_id, FULLTEXT) · 006 (csat) �
 **015 (default-off customer sync, migration-first on 2026-08-27)** ·
 **016 (time corrections/overlap guards, migration-first on 2026-08-27)** ·
 **017 (8 West ID report-contact evidence, migration-first on 2026-08-27)** ·
-**018 (ticket automatic-close eligibility, migration-first on 2026-08-27)**.
-
-Migration 019 is a migration-first release candidate, not an applied
-production migration. Its separate gate is documented below.
+**018 (ticket automatic-close eligibility, migration-first on 2026-08-27)** ·
+**019 (client-scoped report-contact evidence, migration-first on
+2026-08-28)**.
 
 The merged time-provenance bridge must be live before migration 011. It keeps
 historical time on the source ticket during a merge and gives 011 a
@@ -290,16 +289,18 @@ postflight proved two InnoDB tables, the exact 10/11 columns, 6/3 indexes, 4/3
 tenant-scoped foreign keys, one enforced slug check, seven lifecycle/audit
 triggers, and zero bindings/events. The runtime grant remains DML-only.
 
-The protected config now has an explicit `portal.enabled=false` block at
+At the initial dark-release checkpoint, protected config had an explicit
+`portal.enabled=false` block at
 SHA-256
 `c5644541ba4aa93cd097d657e48bf194d1f3db92aefda673817e2d2a76785693`.
 It contains the fixed issuer and
 `https://safeharbor.8westit.com/portal/callback.php`, but its client ID and
 secret are empty. The private persistent revocation-cache directory exists
 with private permissions and is empty. `/portal/`, login, callback, and both
-GET and POST logout return 404 without setting a session cookie. 8 West ID's
-`f0ec49b` prerequisite is deployed dark with zero registered Safeharbor OIDC
-clients; do not mistake source readiness for a usable identity client.
+GET and POST logout returned 404 without setting a session cookie. At that
+checkpoint, 8 West ID's `f0ec49b` prerequisite was deployed dark with zero
+registered Safeharbor OIDC clients; the later controlled activation below
+supersedes those client and routing facts.
 
 The protected rollback record is
 `/srv/8west/backups/safeharbor/20260826T234825Z-pre-phase5a-portal`; its verified
@@ -311,16 +312,33 @@ Rollback is code-first while the gate stays false; leave the two empty additive
 tables in place because prior code ignores them. A database restore is disaster
 recovery only because it would discard writes made after the backup.
 
-Preserve the explicit disabled non-secret scaffold and private empty cache.
-Only after a separately reviewed 8 West ID confidential client exists may its
-client ID and secret be installed through the protected operator path; never
-commit, print, or copy either value into release evidence. Keep the global
-switch false while one expressly approved canary mapping follows
-prepare-disabled → inspect → explicit enable. A live canary still requires
-deliberate global enablement, a fresh signed-in customer session, isolation,
-revocation, disable-on-next-request, logout, and desktop/mobile proof. The
-current portal is ticket-summary-only and must not gain billing, mutation, or
-customer endpoint control through activation. The exact sequence is in
+The later controlled Lifestyle activation installed the confidential client
+values only through the protected operator path, enabled global portal config,
+and enabled binding id 1 for the expressly approved identity tenant to provider
+tenant 1/client 14. Current protected config SHA-256 is
+`e272ccc44f8200774530fabda634b3d65032805ef360d6f73da3a91afc3fb0f4`.
+The canonical Safeharbor portal passed signed-out routing; the support-domain
+`/portal` path is 404. Fresh authenticated customer acceptance is still open
+and must prove isolation, revocation, disable-on-next-request, logout, desktop,
+and mobile behavior before the canary is called fully accepted.
+
+The root-only activation record is
+`/srv/8west/backups/safeharbor/20260829T021900Z-pre-lifestyle-portal-canary`;
+its portal-canary receipt SHA-256 is
+`4e6d81f955f582171cea5f78c7ea98f92923e288ef6863c925fa157cfa1a6efc`.
+8 West ID replacement subject `t4u10` is enabled; predecessor `t4u7` is
+permanently inactive, revoked, and quarantined. The root-only quarantine
+receipt SHA-256 is
+`56ace0529b430e0f227d7ce9983976d8f1bf45840d05dab0c1aefd583b8e1c04`.
+Coastmark merge `c9f44096af80a0a97b8415e3f4037c88867ecfab` is deployed live and
+independently fails closed against a fresh signed revocation feed before suite
+SSO can write or reactivate anything. Financial counts were unchanged; its
+Safeharbor-time receiver remains off/404 and mappings/imports/draft lines remain
+zero. It does not connect the portal to billing.
+Immediate rollback remains `portal.enabled=false`, followed by disabling the
+exact binding if a durable per-customer stop is required. The portal remains
+ticket-summary-only and must not gain billing, mutation, or customer endpoint
+control through activation. The exact sequence is in
 `docs/customer-portal-contract.md`.
 
 Migration 013 is migration-first and trigger-capable-operator-only. Before
@@ -535,27 +553,32 @@ and trigger hashes, the six named 017 triggers, and zero swap/preflight
 triggers. A fresh rebuild instead starts with zero binding/snapshot rows and
 must remain disabled until a separately controlled onboarding canary.
 
-Migration 019 (`019_client_report_contact_evidence.sql`) is a release
-candidate and is not applied. It requires migrations 013 and 017 first and
-adds `business_report_id_client_bindings`,
+Migration 019 (`019_client_report_contact_evidence.sql`) is applied in
+production through Safeharbor PR #68 / exact merge
+`7bf63edb9bc0583cf865124b45f002d0717dcab9`; exact-main Validate run
+`33226867525` passed before deployment. It requires migrations 013 and 017
+first and adds `business_report_id_client_bindings`,
 `business_report_id_client_contact_snapshots`, and the immutable
 `business_report_contact_scope_bindings` registry. It strengthens the schedule
 and tenant-evidence insert guards and installs the six independent client-lane
 guards.
-Apply it migration-first from an exact green default-branch Git blob under the
-normal Safeharbor-only write freeze and trigger-capable operator. Its postflight
-must show three migration-019 tables, twelve protected permanent trigger
-replacements, zero swap guards, and unchanged migration-017 binding/snapshot
-rows. The disposable MySQL suite must first-apply, backfill original logical
-schedule scopes, replay, interrupt, recover, and exercise the temporary least-
-privilege runtime path. That runtime needs locking-read `UPDATE` plus `INSERT`
-on the scope registry as well as the four ID evidence tables; permanent
-triggers still reject scope updates/deletes. Do not install the protected
-client mapping or deploy the code until those gates pass. The reviewed future
-mapping is the exact stable client key for client 14 to `ewid-t4`; names,
-domains, and email addresses are never accepted as mapping inputs. Schedule
-preparation remains disabled-only, with generation, delivery, and scheduler
-installation separate later gates.
+The recorded release applied and replayed the exact Git blob at SHA-256
+`5dceec1c10a8e79515da9a3296e5ce0388fcc1e5e2206759e7ac1cadf77efbfe`
+under the Safeharbor-only write freeze and trigger-capable operator. Postflight
+proved three migration-019 tables, twelve protected permanent trigger
+replacements, zero swap guards, and preserved migration-017 evidence. The
+root-only backup is
+`/srv/8west/backups/safeharbor/20260829T015329Z-pre-client-report-contact-019`;
+release-receipt SHA-256 is
+`a044d06c949c473f1fec13fe76b0fd27d4c37486dd2c365de874d83932923a97`
+and final evidence-manifest SHA-256 is
+`24a07bcb4ea347eb65831348df1ac309e7c662d61cf717c27b5729ba5b6b4f6f`.
+
+The exact client 14 identity binding and one immutable contact snapshot are now
+installed. Names, domains, and email addresses were not mapping inputs. Both
+contact endpoints were turned off after preparation. The runtime still needs
+locking-read `UPDATE` plus `INSERT` on the scope registry and four ID evidence
+tables; permanent triggers reject scope updates/deletes.
 
 Deploy code only after the migration and grant postflight. Keep the protected
 `business_reports` block absent or fully default-off with empty allowlists on a
@@ -568,6 +591,23 @@ confirmation gates, install the reviewed cron entry for
 `app/cron/business_reports.php`; observe one scheduled weekly period before
 expanding any allowlist. The exact contract, commands, failure semantics, and
 rollback are in `docs/business-reports-contract.md`.
+
+The controlled 8 West Lifestyle canary did not pass provider submission or
+recipient confirmation. Schedule key `8west-lifestyle-weekly-canary-v1` has
+versions 1 disabled, 2 active, and latest version 3 disabled. One archive was
+verified at SHA-256
+`93bbdab3ac0d42e1da95fa93f8c393123749d7d1548f4a2afa62e95317a8b0ce`.
+Its only recipient value in release evidence is SHA-256
+`4f57f85e0af372af6b3b09bf48be8961a23fa0fc371f36a9b2d3a54ee4998ef8`.
+The single attempt is terminal `uncertain` with outcome
+`graph_not_trustworthy` and no provider HTTP status; never retry it. Generation
+and delivery are off, both contact endpoints are off, and no cron or systemd
+report scheduler is installed.
+
+Root-only canary evidence is at
+`/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`;
+its receipt SHA-256 is
+`86fd9852e7defbe1b809895a6bc2529e9fae9f9acea3f1b274b347fa4b524492`.
 
 The schedule-key gate shipped through PR #61 / exact release
 `8322266dbcf3eb6956eb9f1ca79a51948002aaec` on 2026-08-27. Its root-only
@@ -611,9 +651,10 @@ new fatal or SQL errors.
 The first verification attempt stopped before maintenance mode or code
 installation because its checker used the wrong business-report table name;
 it changed no live state. The corrected release completed afterward. The
-receiver remains dark with zero `milepost-westy` identities. Report
-generation/delivery, ID report-contact fetch, Coastmark time export, and the
-customer portal remain off, and no report cron or timer was installed.
+receiver remains dark with zero `milepost-westy` identities. At that release
+checkpoint, report generation/delivery, ID report-contact fetch, Coastmark time
+export, and the customer portal were off, and no report cron or timer was
+installed.
 
 Migration 018 (`018_ticket_auto_close_eligibility.sql`) was applied
 migration-first on 2026-08-27 through PR #59 / release
