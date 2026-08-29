@@ -79,6 +79,18 @@ $pdo->exec('CREATE TABLE time_entries (
     reviewed_by_user_id INTEGER NULL,
     reviewed_at TEXT NULL
 )');
+$pdo->exec('CREATE TABLE time_entry_approval_adjustments (
+    id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    time_entry_id INTEGER NOT NULL,
+    adjustment_key TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    effective_minutes INTEGER NOT NULL,
+    effective_billable INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    actor_user_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+)');
 $pdo->exec("INSERT INTO tenants VALUES (1,'8west'),(2,'customer')");
 $pdo->exec("INSERT INTO clients VALUES
     (11,1,'coastmark:acme'),
@@ -123,6 +135,14 @@ $insert->execute([
     '2026-08-26 20:00:00', 15, 'inactive customer work', 1,
     'approved', 102, '2026-08-26 20:05:00',
 ]);
+$insert->execute([
+    507, 1, 11, 907, 101, 'timer:adjusted:0007', 'timer',
+    '2026-08-26 20:00:00', 30, 'later corrected', 1,
+    'approved', 102, '2026-08-26 20:05:00',
+]);
+$pdo->exec("INSERT INTO time_entry_approval_adjustments VALUES
+    (1,1,507,'adjustment.coastmark.fixture.0001',1,15,1,
+     'Corrected approved duration',102,'2026-08-26 20:10:00')");
 
 $payload = coastmark_time_export_payload(
     $pdo,
@@ -154,6 +174,19 @@ export_check('people are non-PII Safeharbor-local keys',
 export_check('raw note is excluded and only its digest crosses the seam',
     !in_array('=private technician note', $payload, true)
     && $payload['note_sha256'] === hash('sha256', '=private technician note'));
+
+export_throws(
+    'adjusted approved time is refused until Coastmark owns a reversal contract',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_payload(
+        $pdo,
+        '8west',
+        507,
+        'timer:adjusted:0007',
+        export_config(),
+    ),
+    'Adjusted approved time',
+);
 
 export_throws(
     'pending time is refused',
@@ -301,146 +334,20 @@ export_throws(
     'never a billable Coastmark customer',
 );
 
-$ack = static function (string $endpoint, array $headers, string $body, int $timeout) use ($payload): array {
-    $hash = hash('sha256', $body);
-    return [
-        'status' => 201,
-        'body' => json_encode([
-            'ok' => true,
-            'action' => 'created',
-            'source' => ['tenant_key' => $payload['tenant_key'], 'entry_key' => $payload['entry_key']],
-            'coastmark' => ['import_id' => 1, 'invoice_id' => 2, 'invoice_line_id' => 3],
-            'payload_sha256' => $hash,
-        ], JSON_THROW_ON_ERROR),
-    ];
+$transportCalls = 0;
+$transportSpy = static function () use (&$transportCalls): array {
+    $transportCalls++;
+    return ['status' => 201, 'body' => '{}'];
 };
-$created = coastmark_time_export_send($payload, export_config(), $ack, $timestamp);
-export_check('201 acknowledgement returns only draft import identifiers',
-    $created['action'] === 'created'
-    && $created['import_id'] === 1
-    && $created['invoice_id'] === 2
-    && $created['invoice_line_id'] === 3);
-
-$replay = static function (string $endpoint, array $headers, string $body, int $timeout) use ($payload): array {
-    return [
-        'status' => 200,
-        'body' => json_encode([
-            'ok' => true,
-            'action' => 'ignored',
-            'source' => ['tenant_key' => $payload['tenant_key'], 'entry_key' => $payload['entry_key']],
-            'coastmark' => ['import_id' => 1, 'invoice_id' => 2, 'invoice_line_id' => 3],
-            'payload_sha256' => hash('sha256', $body),
-        ], JSON_THROW_ON_ERROR),
-    ];
-};
-export_check('200 exact replay is a truthful ignored acknowledgement',
-    coastmark_time_export_send($payload, export_config(), $replay, $timestamp)['action'] === 'ignored');
-
 export_throws(
-    'global feature gate blocks all network transport',
+    'v2 send is retired even when every old configuration gate is enabled',
     CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_send($payload, export_config(['enabled' => false]), $ack, $timestamp),
-    'disabled',
+    fn() => coastmark_time_export_send($payload, export_config(), $transportSpy, $timestamp),
+    'receipt/reversal-aware v3',
 );
-export_throws(
-    'non-HTTPS endpoint is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(['endpoint' => 'http://coastmark.example/api/integrations/safeharbor/time-entries']),
-        $ack,
-        $timestamp,
-    ),
-    'HTTPS',
-);
-export_throws(
-    'non-canonical HTTPS path is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(['endpoint' => 'https://coastmark.example/api/other']),
-        $ack,
-        $timestamp,
-    ),
-    'HTTPS',
-);
-export_throws(
-    'non-canonical HTTPS port is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(['endpoint' => 'https://coastmark.example:8443/api/integrations/safeharbor/time-entries']),
-        $ack,
-        $timestamp,
-    ),
-    'HTTPS',
-);
-export_throws(
-    'HTTP failure remains retryable only with same key',
-    CoastmarkTimeExportTransportException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(),
-        fn() => ['status' => 503, 'body' => '{}'],
-        $timestamp,
-    ),
-    'same entry key',
-);
-export_throws(
-    'mismatched source acknowledgement is refused',
-    CoastmarkTimeExportTransportException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(),
-        fn(string $endpoint, array $headers, string $body, int $timeout) => [
-            'status' => 201,
-            'body' => json_encode([
-                'ok' => true,
-                'action' => 'created',
-                'source' => ['tenant_key' => 'wrong', 'entry_key' => $payload['entry_key']],
-                'coastmark' => ['import_id' => 1, 'invoice_id' => 2, 'invoice_line_id' => 3],
-                'payload_sha256' => hash('sha256', $body),
-            ], JSON_THROW_ON_ERROR),
-        ],
-        $timestamp,
-    ),
-    'did not match',
-);
-export_throws(
-    'acknowledgement cannot add invoice numbers or other unreviewed fields',
-    CoastmarkTimeExportTransportException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(),
-        fn(string $endpoint, array $headers, string $body, int $timeout) => [
-            'status' => 201,
-            'body' => json_encode([
-                'ok' => true,
-                'action' => 'created',
-                'source' => ['tenant_key' => $payload['tenant_key'], 'entry_key' => $payload['entry_key']],
-                'coastmark' => [
-                    'import_id' => 1,
-                    'invoice_id' => 2,
-                    'invoice_line_id' => 3,
-                    'invoice_number' => 'SH-UNREVIEWED',
-                ],
-                'payload_sha256' => hash('sha256', $body),
-            ], JSON_THROW_ON_ERROR),
-        ],
-        $timestamp,
-    ),
-    'did not match',
-);
-export_throws(
-    'oversized acknowledgement is refused',
-    CoastmarkTimeExportTransportException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(),
-        fn() => ['status' => 201, 'body' => str_repeat('x', 16_385)],
-        $timestamp,
-    ),
-    'safe limit',
+export_check(
+    'retired v2 stops before signing or network transport',
+    $transportCalls === 0 && !function_exists('coastmark_time_export_curl'),
 );
 
 echo "Coastmark approved-time export: {$checks} checks, {$failures} failures\n";

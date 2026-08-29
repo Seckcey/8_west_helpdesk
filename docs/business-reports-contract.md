@@ -171,6 +171,27 @@ Version 1 reports:
 - CSAT surveys created in the window, with only responses received by
   `generated_at` included in response count and average.
 
+Definition v1 predates append-only approved-time adjustments and must not
+silently change its meaning. New generation therefore fails closed when the
+tenant/client window contains an adjustment created by `generated_at` for an
+otherwise applicable approved entry. Tenant, client, period, review-time, and
+generated-time cutoffs are all exact. Existing archives remain byte-frozen.
+A copied v1 contract stored under a later definition ordinal is unsupported
+and is refused during both schedule preparation and active reads. A future
+definition v2 must publish new reviewed contract bytes before archived reports
+may count effective adjusted facts.
+
+Persisted generation locks the exact tenant row before any schedule row or
+metric read. Adjustment creation uses that same tenant-first serialization
+point. If an adjustment wins, definition v1 waits, sees it, and refuses the
+archive; if generation wins, the adjustment waits until the immutable archive
+commits. Only after obtaining that lock does persisted generation read the
+database UTC clock and establish `generated_at`. A supplied integration-test
+clock may move that cutoff forward for deterministic future windows, never
+backward before the lock. The no-write dry run intentionally takes no such
+lock: it is a best-effort read-only preview and is not proof of what a later
+archive will contain while operators are changing approved time.
+
 Every query binds the exact Safeharbor tenant and client. Metrics JSON is
 encoded once, stored as exact `LONGTEXT` bytes under `JSON_VALID`, and hashed
 together with the exact text report. MySQL triggers verify the hash, report
@@ -358,7 +379,8 @@ php app/db/manage_business_reports.php prepare-customer-from-id \
 
 After protected allowlists contain only the exact schedule key, tenant,
 client, and recipient, append the active version and perform a
-no-write/no-network dry run:
+no-write/no-network dry run. This preview is deliberately unlocked and
+best-effort; persisted generation rechecks under the tenant serialization lock:
 
 ```bash
 php app/db/manage_business_reports.php enable \

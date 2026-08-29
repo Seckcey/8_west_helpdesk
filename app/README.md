@@ -18,8 +18,9 @@ db/migrations/             numbered SQL migrations (010 versioned service
                            013 business reports, 014 guarded policy publication,
                            015 default-off Milepost customer sync, and 016 time
                            corrections/overlap guards, 017 ID report contact,
-                           and 018 ticket auto-close are applied; 019 client-
-                           scoped report contact is a release candidate)
+                           018 ticket auto-close, and 019 client-scoped report
+                           contact are applied; 020 append-only approved-time
+                           adjustments is a not-applied release candidate)
 db/manage_service_goals.php
                            operator-only inspect/plan/publish for one exact
                            tenant + Standard/Premium policy; reviewed digest
@@ -40,9 +41,12 @@ lib/service_goal_policy_admin.php
                            publication, exact-four target write, and tier RBAC
 lib/time_entries.php       single writer for idempotent pending time + guarded
                            owner/admin approval decisions
+lib/time_entry_adjustments.php
+                           append-only owner/admin correction slips for approved
+                           time; original approval facts remain immutable
 lib/coastmark_time_export.php
-                           default-off, operator-controlled export of one
-                           approved billable time fact to Coastmark drafts
+                           v2 dry-run inspector for one approved billable time
+                           fact; send is hard-retired pending receipt-aware v3
 lib/eightwestid/           blob-pinned reviewed 8 West ID oidc_v1 PHP client
 lib/portal_auth.php        separate <=8h OIDC session, exact client roles,
                            bounded fail-closed revocation, active binding recheck
@@ -84,8 +88,8 @@ lib/suite_customer_sync.php
 lib/westy_report.php       Westy defects → 8 West IT's OWN queue (one ticket per
                            problem; stored text re-scrubbed on arrival)
 db/export_approved_time.php
-                           dry-run/send CLI requiring exact tenant + id + key;
-                           never supplies financial facts or posts an invoice
+                           v2 dry-run inspector requiring exact tenant + id +
+                           key; --send is a no-network retirement refusal
 lib/svc_support.php        Coastmark + Waypoint support requests → 8 West IT's
                            own queue (one ticket per submission; text stored
                            VERBATIM — deliberately none of westy_report's
@@ -99,6 +103,8 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            westy_report_test.php, svc_support_test.php,
                            intake_service_goal_test.php, time_entries_test.php,
                            time_entries_mysql_test.php,
+                           time_entry_adjustments_test.php,
+                           time_entry_adjustments_mysql_test.php,
                            service_goal_policy_admin_test.php,
                            service_goal_policy_mysql_test.php,
                            coastmark_time_export_test.php, portal_auth_test.php,
@@ -245,8 +251,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   an immutable local-tenant/stable-ID binding plus append-only contact-version
   evidence in the same transaction as the disabled schedule. One redacted
   8 West IT contact canary was stored; both contact gates are off. This path
-  cannot generate or send a report. Migration 019 is a not-applied release
-  candidate adding an independent exact-client binding/evidence lane and one
+  cannot generate or send a report. Migration 019 is live and adds an
+  independent exact-client binding/evidence lane and one
   immutable manual/tenant-ID/client-ID scope per logical schedule. Inspect
   reports the exact pinned scope and latest inherited evidence even after
   enable/disable versions. ID-scoped activation and active/due reads fail closed

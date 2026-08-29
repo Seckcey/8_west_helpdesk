@@ -246,6 +246,47 @@ function business_report_utc(string $value, string $label): string
     return $value;
 }
 
+/**
+ * Choose the persisted archive cutoff only after the tenant lock is held.
+ *
+ * Live MySQL generation is anchored to the database UTC clock. An explicit
+ * later clock remains available for deterministic future-window integration
+ * tests, but an earlier caller value can never backdate the archive. SQLite is
+ * the hermetic contract-test driver and retains its explicit deterministic
+ * clock because it has no production concurrency role.
+ */
+function business_report_persisted_generated_at(PDO $pdo, ?int $requestedNow): string
+{
+    $driver = (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'mysql') {
+        $databaseNow = $pdo->query('SELECT UTC_TIMESTAMP()')->fetchColumn();
+    } elseif ($driver === 'sqlite') {
+        if ($requestedNow !== null) {
+            return business_report_utc(
+                gmdate('Y-m-d H:i:s', $requestedNow),
+                'Generated at',
+            );
+        }
+        $databaseNow = $pdo->query("SELECT strftime('%Y-%m-%d %H:%M:%S','now')")
+            ->fetchColumn();
+    } else {
+        throw new BusinessReportGateException('Business report database clock is unsupported.');
+    }
+
+    if (!is_string($databaseNow)) {
+        throw new BusinessReportGateException('Business report database UTC clock is unavailable.');
+    }
+    $databaseNow = business_report_utc($databaseNow, 'Database UTC clock');
+    if ($requestedNow === null) {
+        return $databaseNow;
+    }
+    $requestedAt = business_report_utc(
+        gmdate('Y-m-d H:i:s', $requestedNow),
+        'Generated at',
+    );
+    return $requestedAt > $databaseNow ? $requestedAt : $databaseNow;
+}
+
 /** @return array{period_start:string,period_end:string,due_at:string,timezone:string} */
 function business_report_previous_week_window(
     int $now,
@@ -449,6 +490,7 @@ function business_report_schedule_target(
     $row = $query->fetch(PDO::FETCH_ASSOC);
     if (!is_array($row)
         || (string)$row['definition_key'] !== BUSINESS_REPORT_DEFINITION_KEY
+        || (int)$row['definition_version_no'] !== BUSINESS_REPORT_CONTRACT_VERSION
         || (string)$row['report_type'] !== BUSINESS_REPORT_TYPE
         || (string)$row['contract_sha256'] !== business_report_contract_sha256()
         || !hash_equals((string)$row['contract_sha256'], hash('sha256', (string)$row['contract_json']))
@@ -1412,6 +1454,7 @@ function business_report_active_schedule(PDO $pdo, string $tenantSlug, string $s
         throw new BusinessReportGateException('No active report schedule matched the exact tenant and key.');
     }
     if ((string)$row['definition_key'] !== BUSINESS_REPORT_DEFINITION_KEY
+        || (int)$row['definition_version_no'] !== BUSINESS_REPORT_CONTRACT_VERSION
         || (string)$row['report_type'] !== BUSINESS_REPORT_TYPE
         || (string)$row['contract_sha256'] !== business_report_contract_sha256()
     ) {
@@ -1451,6 +1494,51 @@ function business_report_assert_schedule_gate(array $schedule, array $config, st
     }
 }
 
+/**
+ * Definition v1 promised raw approved-time facts. It cannot silently reinterpret
+ * an entry after an append-only approval adjustment becomes applicable.
+ */
+function business_report_assert_v1_adjustment_free(
+    PDO $pdo,
+    array $schedule,
+    string $periodStart,
+    string $periodEnd,
+    string $generatedAt,
+): void {
+    if ((int) ($schedule['definition_version_no'] ?? 0) !== BUSINESS_REPORT_CONTRACT_VERSION) {
+        throw new BusinessReportGateException(
+            'Business report metrics require the exact supported definition version.',
+        );
+    }
+
+    $adjusted = $pdo->prepare(
+        "SELECT 1
+           FROM time_entry_approval_adjustments adjustment
+           JOIN time_entries entry
+             ON entry.tenant_id = adjustment.tenant_id
+            AND entry.id = adjustment.time_entry_id
+          WHERE entry.tenant_id = ? AND entry.client_id = ?
+            AND entry.approval_status = 'approved'
+            AND entry.worked_at >= ? AND entry.worked_at < ?
+            AND entry.reviewed_at IS NOT NULL AND entry.reviewed_at <= ?
+            AND adjustment.created_at <= ?
+          LIMIT 1"
+    );
+    $adjusted->execute([
+        (int) $schedule['tenant_id'],
+        (int) $schedule['client_id'],
+        $periodStart,
+        $periodEnd,
+        $generatedAt,
+        $generatedAt,
+    ]);
+    if ($adjusted->fetchColumn() !== false) {
+        throw new BusinessReportConflictException(
+            'Business report definition v1 cannot archive adjusted approved time.',
+        );
+    }
+}
+
 /** @return array<string,mixed> */
 function business_report_metrics(
     PDO $pdo,
@@ -1467,6 +1555,13 @@ function business_report_metrics(
     }
     $tenantId = (int)$schedule['tenant_id'];
     $clientId = (int)$schedule['client_id'];
+    business_report_assert_v1_adjustment_free(
+        $pdo,
+        $schedule,
+        $periodStart,
+        $periodEnd,
+        $generatedAt,
+    );
 
     $opened = $pdo->prepare(
         'SELECT COUNT(*) FROM tickets
@@ -1705,16 +1800,23 @@ function business_report_generate(
     bool $dryRun = false,
     bool $requireDue = true,
 ): array {
-    $now ??= time();
+    $requestedNow = $now;
+    $previewNow = $now ?? time();
     $config = business_report_config($rawConfig);
     $schedule = business_report_active_schedule($pdo, $tenantSlug, $scheduleKey);
     business_report_assert_schedule_gate($schedule, $config, $dryRun ? 'dry_run' : 'generation');
     $window = business_report_next_window($pdo, $schedule);
-    $generatedAt = gmdate('Y-m-d H:i:s', $now);
-    if ($requireDue && $generatedAt < $window['due_at']) {
-        throw new BusinessReportGateException('The report schedule is not due yet.');
-    }
     if ($dryRun) {
+        // A dry run is deliberately read-only and does not take the tenant
+        // serialization lock. It is a best-effort preview, never evidence of
+        // the exact facts a later persisted archive will capture.
+        $generatedAt = business_report_utc(
+            gmdate('Y-m-d H:i:s', $previewNow),
+            'Generated at',
+        );
+        if ($requireDue && $generatedAt < $window['due_at']) {
+            throw new BusinessReportGateException('The report schedule is not due yet.');
+        }
         $metrics = business_report_metrics(
             $pdo,
             $schedule,
@@ -1740,6 +1842,27 @@ function business_report_generate(
     $tenantId = (int)$schedule['tenant_id'];
     $pdo->beginTransaction();
     try {
+        // Persisted reports and append-only approved-time adjustments share
+        // this tenant row as their first lock. That fixed order makes the
+        // winner visible before report metrics are read: an adjustment that
+        // wins makes v1 fail closed, while a report that wins archives before
+        // the later adjustment can be appended.
+        $tenantLockSql = 'SELECT id FROM tenants WHERE id = ? AND slug = ?';
+        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+            $tenantLockSql .= ' FOR UPDATE';
+        }
+        $tenantLock = $pdo->prepare($tenantLockSql);
+        $tenantLock->execute([$tenantId, $tenantSlug]);
+        if ((int) $tenantLock->fetchColumn() !== $tenantId) {
+            throw new BusinessReportConflictException(
+                'The report tenant changed before archive generation completed.',
+            );
+        }
+        $generatedAt = business_report_persisted_generated_at($pdo, $requestedNow);
+        if ($requireDue && $generatedAt < $window['due_at']) {
+            throw new BusinessReportGateException('The report schedule is not due yet.');
+        }
+
         if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
             $scheduleLock = $pdo->prepare(
                 'SELECT id FROM business_report_schedule_versions

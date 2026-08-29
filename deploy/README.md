@@ -707,20 +707,21 @@ account secret.
 
 ## Coastmark approved-time sender
 
-Safeharbor's half of the draft-line seam is an operator-only CLI and has no
-database migration, scheduler, batch, or automatic retry. Its contract and
-canary procedure are in
+Safeharbor's version 2 half of the draft-line seam is now an inspection-only
+CLI and has no database migration, scheduler, batch, or automatic retry. Its
+retirement and replacement requirements are in
 [`docs/coastmark-approved-time-export-contract.md`](../docs/coastmark-approved-time-export-contract.md).
-Deploy it with `coastmark_time_export.enabled=false`, empty tenant/client
-allowlists, and no secret. Do not enable it until Coastmark's separately
-reviewed receiver migration, forced-RLS/immutability tests, global gate, and one
-explicit mapping are ready.
+Deploy it with `coastmark_time_export.enabled=false`. The legacy setting cannot
+enable sending: `--send` hard-refuses before endpoint validation, signing, or
+network transport. Do not prepare a version 2 mapping or canary.
 
-Before any send, run the exact entry as `--dry-run`; the output must contain no
-raw note or secret. A canary must prove a 201 create followed by a 200 exact
-replay, one immutable Coastmark import/line, and a draft that remains unposted,
-unsent, and unrelated to Checkout, payment, or ledger records. Rollback is gate
-and mapping disablement, never deletion of accepted financial-side evidence.
+The exact entry may be run as `--dry-run`; the output must contain no raw note
+or secret. Any future send requires a receipt/reversal-aware version 3 that
+serializes a durable Safeharbor export claim against adjustment creation and
+records an append-only Coastmark acknowledgement. Its controlled canary may
+create only a draft that remains unposted, unsent, and unrelated to Checkout,
+payment, or ledger records. Rollback is gate and mapping disablement, never
+deletion of accepted financial-side evidence.
 
 `002_svc_intake.sql` collides on 002 with `002_westy_onboarding.sql`, so the
 numbering does not order it and its live state is not established by the list

@@ -7,6 +7,11 @@ import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APP_JS = await readFile(path.join(ROOT, 'app/public/assets/js/app.js'), 'utf8');
+const TIME_PHP = await readFile(path.join(ROOT, 'app/public/time.php'), 'utf8');
+const ADJUSTMENT_API_PHP = await readFile(
+  path.join(ROOT, 'app/public/api/time_entry_adjustment.php'),
+  'utf8',
+);
 const ORIGIN = 'http://safeharbor.test';
 const TIMER_KEY = 'safeharbor.timer.v2.7:11';
 const OTHER_SCOPE_KEY = 'safeharbor.timer.v2.8:11';
@@ -31,6 +36,30 @@ const PAGE = `<!doctype html>
     <div class="review-row" data-time-entry-id="73">
       <button class="time-review" type="button" data-decision="approved">Approve</button>
       <button class="time-review" type="button" data-decision="rejected">Reject</button>
+    </div>
+  </section>
+  <section id="time-adjustment-ledger">
+    <div class="adjustment-row" data-time-entry-id="88">
+      <div class="adjustment-original">Original approval: 60m billable · owner · 2026-08-29 10:30:00 UTC</div>
+      <div class="adjustment-effective">Effective version 2: 45m internal</div>
+      <div class="adjustment-reason">Current adjustment reason: customer goodwill credit</div>
+      <details class="adjustment-history">
+        <summary>All correction slips (2)</summary>
+        <ol>
+          <li class="adjustment-history-item">Version 1 · 50m billable · by user #11<div>Reason: duplicate work</div></li>
+          <li class="adjustment-history-item">Version 2 · 45m internal · by user #12<div>Reason: customer goodwill credit</div></li>
+        </ol>
+      </details>
+      <button class="time-adjust" type="button"
+              data-entry-id="88" data-original-minutes="60" data-original-billable="1"
+              data-effective-minutes="45" data-effective-billable="0" data-version="2">Adjust effective value</button>
+    </div>
+    <div class="adjustment-row" data-time-entry-id="89">
+      <div class="adjustment-original">Original approval: 20m internal</div>
+      <div class="adjustment-effective">Effective version 0 (original): 20m internal</div>
+      <button class="time-adjust" type="button"
+              data-entry-id="89" data-original-minutes="20" data-original-billable="0"
+              data-effective-minutes="20" data-effective-billable="0" data-version="0">Adjust effective value</button>
     </div>
   </section>
   <script src="/assets/js/app.js"></script>
@@ -67,13 +96,31 @@ async function openPage({ timer, responder }) {
     }
     if (url.pathname === '/api/timer.php'
         || url.pathname === '/api/time_entry_correction.php'
-        || url.pathname === '/api/time_entry_review.php') {
+        || url.pathname === '/api/time_entry_review.php'
+        || url.pathname === '/api/time_entry_adjustment.php') {
       return responder(route, url.pathname);
     }
     return route.fulfill({ status: 404, body: '' });
   });
   await page.goto(`${ORIGIN}/time.php`);
   return { browser, context, page, errors };
+}
+
+function adjustmentSuccess(body, overrides = {}) {
+  return {
+    ok: true,
+    adjustment_ack: {
+      adjustment_key: body.adjustment_key,
+      entry_id: body.entry_id,
+      version_no: body.expected_version + 1,
+      effective_minutes: body.effective_minutes,
+      effective_billable: body.effective_billable,
+      adjusted_by_user_id: 11,
+      reason: body.reason,
+      replayed: false,
+      ...overrides,
+    },
+  };
 }
 
 test('stopped timer survives failure and mismatched acknowledgement, then clears only on its exact key', async () => {
@@ -501,6 +548,278 @@ test('a review conflict refreshes to reconcile instead of enabling another decis
       decision: 'rejected',
       note: 'Already handled',
     });
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('approved adjustment UI labels original evidence separately and accepts only an exact typed receipt', async () => {
+  const requests = [];
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_adjustment.php');
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      const response = adjustmentSuccess(body);
+      response.toast = 'Approved time adjusted';
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(response),
+      });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    assert.match(TIME_PHP, /WHERE e\.tenant_id = \? AND e\.approval_status = 'approved'/);
+    assert.match(TIME_PHP, /AND e\.id = \? LIMIT 1/);
+    assert.match(TIME_PHP, /Original approval:/);
+    assert.match(TIME_PHP, /Effective version/);
+    assert.match(TIME_PHP, /time_entry_adjustment_history_by_entry/);
+    assert.match(TIME_PHP, /All correction slips/);
+    assert.match(TIME_PHP, /Extra time must be logged as a new pending entry/);
+    assert.match(ADJUSTMENT_API_PHP, /TIME_ENTRY_ADJUSTMENT_ROLES/);
+    assert.match(ADJUSTMENT_API_PHP, /'adjustment_ack' => \[/);
+    assert.match(ADJUSTMENT_API_PHP, /'version_no' => \(int\) \$adjustment\['version'\]/);
+    const row = page.locator('.adjustment-row[data-time-entry-id="88"]');
+    assert.match(await row.locator('.adjustment-original').innerText(), /Original approval: 60m billable/);
+    assert.match(await row.locator('.adjustment-effective').innerText(), /Effective version 2: 45m internal/);
+    assert.match(await row.locator('.adjustment-reason').innerText(), /customer goodwill credit/);
+    assert.match(await row.locator('.adjustment-history summary').innerText(), /All correction slips \(2\)/);
+    await row.locator('.adjustment-history summary').click();
+    assert.deepEqual(
+      await row.locator('.adjustment-history-item').allInnerTexts(),
+      [
+        'Version 1 · 50m billable · by user #11\nReason: duplicate work',
+        'Version 2 · 45m internal · by user #12\nReason: customer goodwill credit',
+      ],
+    );
+
+    const answers = ['30', 'I', 'Customer-approved reduction'];
+    let prompts = 0;
+    page.on('dialog', async (dialog) => {
+      assert.equal(dialog.type(), 'prompt');
+      await dialog.accept(answers[prompts]);
+      prompts += 1;
+    });
+
+    await row.locator('.time-adjust').click();
+    await page.locator('.toast').filter({ hasText: 'Approved time adjusted' }).waitFor();
+    assert.equal(prompts, 3);
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0], {
+      entry_id: 88,
+      adjustment_key: requests[0].adjustment_key,
+      expected_version: 2,
+      effective_minutes: 30,
+      effective_billable: false,
+      reason: 'Customer-approved reduction',
+    });
+    assert.match(requests[0].adjustment_key, /^adjustment:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('approved adjustment retries freeze one cryptographic key and payload through network, 5xx, and malformed success', async () => {
+  const requests = [];
+  let attempt = 0;
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_adjustment.php');
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      attempt += 1;
+      if (attempt === 1) return route.abort('failed');
+      if (attempt === 2) {
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Temporarily unavailable.' }),
+        });
+      }
+      if (attempt === 3) {
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(adjustmentSuccess(body, {
+            version_no: String(body.expected_version + 1),
+          })),
+        });
+      }
+      const response = adjustmentSuccess(body, { replayed: true });
+      response.toast = 'Adjustment already saved';
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(response),
+      });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    const answers = ['25', 'B', 'Contract credit'];
+    let prompts = 0;
+    page.on('dialog', async (dialog) => {
+      assert.equal(dialog.type(), 'prompt');
+      await dialog.accept(answers[prompts]);
+      prompts += 1;
+    });
+
+    const button = page.locator('.time-adjust[data-entry-id="88"]');
+    for (let index = 0; index < 3; index += 1) {
+      await button.click();
+      await page.waitForFunction(() => {
+        const control = document.querySelector('.time-adjust[data-entry-id="88"]');
+        return control?.disabled === false && Boolean(control.dataset.adjustmentPayload);
+      });
+      assert.equal(prompts, 3, 'an uncertain retry must never ask for edited facts');
+    }
+
+    await button.click();
+    await page.locator('.toast').filter({ hasText: 'Adjustment already saved' }).waitFor();
+    assert.equal(requests.length, 4);
+    requests.slice(1).forEach((request) => assert.deepEqual(request, requests[0]));
+    assert.match(requests[0].adjustment_key, /^adjustment:/);
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('a deterministic adjustment validation error clears the draft for an edited key and payload', async () => {
+  const requests = [];
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_adjustment.php');
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      if (requests.length === 1) {
+        return route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Use a more specific adjustment reason.' }),
+        });
+      }
+      const response = adjustmentSuccess(body);
+      response.toast = 'Edited adjustment saved';
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(response),
+      });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    const answers = ['40', 'B', 'First reason', '35', 'I', 'Specific approved reason'];
+    let prompts = 0;
+    page.on('dialog', async (dialog) => {
+      assert.equal(dialog.type(), 'prompt');
+      await dialog.accept(answers[prompts]);
+      prompts += 1;
+    });
+
+    const button = page.locator('.time-adjust[data-entry-id="88"]');
+    await button.click();
+    await page.locator('.toast').filter({ hasText: 'Use a more specific adjustment reason.' }).waitFor();
+    assert.equal(await button.isEnabled(), true);
+    assert.equal(await button.getAttribute('data-adjustment-payload'), '');
+
+    await button.click();
+    await page.locator('.toast').filter({ hasText: 'Edited adjustment saved' }).waitFor();
+    assert.equal(prompts, 6);
+    assert.equal(requests.length, 2);
+    assert.notEqual(requests[1].adjustment_key, requests[0].adjustment_key);
+    assert.equal(requests[0].effective_minutes, 40);
+    assert.equal(requests[0].reason, 'First reason');
+    assert.equal(requests[1].effective_minutes, 35);
+    assert.equal(requests[1].effective_billable, false);
+    assert.equal(requests[1].reason, 'Specific approved reason');
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('an approved adjustment version conflict refreshes to reconcile and never offers a stale retry', async () => {
+  const requests = [];
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_adjustment.php');
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Approved time version changed.' }),
+      });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    const answers = ['30', 'I', 'Version conflict test'];
+    let prompts = 0;
+    page.on('dialog', async (dialog) => {
+      await dialog.accept(answers[prompts]);
+      prompts += 1;
+    });
+
+    const button = page.locator('.time-adjust[data-entry-id="88"]');
+    const reloaded = page.waitForEvent('load');
+    await button.click();
+    await page.locator('.toast').filter({ hasText: 'Refreshing to reconcile' }).waitFor();
+    assert.equal(await button.isDisabled(), true);
+    await reloaded;
+    assert.equal(prompts, 3);
+    assert.equal(requests.length, 1);
+    assert.deepEqual(errors, []);
+  } finally {
+    await session.browser.close();
+  }
+});
+
+test('the browser blocks added minutes and never offers billable for an originally internal approval', async () => {
+  const requests = [];
+  const session = await openPage({
+    responder: async (route, pathname) => {
+      assert.equal(pathname, '/api/time_entry_adjustment.php');
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      const response = adjustmentSuccess(body);
+      response.toast = 'Internal adjustment saved';
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(response),
+      });
+    },
+  });
+
+  try {
+    const { page, errors } = session;
+    const answers = ['21', '10', 'Duplicate internal work'];
+    const questions = [];
+    let prompts = 0;
+    page.on('dialog', async (dialog) => {
+      questions.push(dialog.message());
+      await dialog.accept(answers[prompts]);
+      prompts += 1;
+    });
+
+    const button = page.locator('.time-adjust[data-entry-id="89"]');
+    await button.click();
+    await page.locator('.toast').filter({ hasText: 'cannot add time' }).waitFor();
+    assert.equal(requests.length, 0);
+
+    await button.click();
+    await page.locator('.toast').filter({ hasText: 'Internal adjustment saved' }).waitFor();
+    assert.equal(prompts, 3, 'internal time asks for minutes and reason only after the invalid first attempt');
+    assert.equal(questions.some((question) => /billing/i.test(question)), false);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].effective_minutes, 10);
+    assert.equal(requests[0].effective_billable, false);
+    assert.equal(requests[0].expected_version, 0);
     assert.deepEqual(errors, []);
   } finally {
     await session.browser.close();

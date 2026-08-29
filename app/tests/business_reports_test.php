@@ -246,6 +246,11 @@ $schema = [
         id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
         minutes INTEGER NOT NULL, note TEXT NOT NULL, billable INTEGER NOT NULL,
         approval_status TEXT NOT NULL, worked_at TEXT NOT NULL, reviewed_at TEXT NULL)',
+    'CREATE TABLE time_entry_approval_adjustments (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, time_entry_id INTEGER NOT NULL,
+        adjustment_key TEXT NOT NULL, version_no INTEGER NOT NULL,
+        effective_minutes INTEGER NOT NULL, effective_billable INTEGER NOT NULL,
+        reason TEXT NOT NULL, actor_user_id INTEGER NOT NULL, created_at TEXT NOT NULL)',
     'CREATE TABLE csat (
         id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, score INTEGER NULL,
         comment TEXT NOT NULL, created_at TEXT NOT NULL, responded_at TEXT NULL)',
@@ -527,6 +532,52 @@ report_check('definition v1 publishes exact immutable bytes',
     ));
 report_check('definition publication is idempotent',
     business_report_publish_definition($pdo, 'one', 102, 'same contract')['action'] === 'ignored');
+
+// A new ordinal carrying copied v1 bytes is not a supported v2 definition.
+// Both schedule preparation and active reads must fail closed before metrics.
+$copiedDefinition = $pdo->prepare(
+    'INSERT INTO business_report_definition_versions
+        (tenant_id,definition_key,version_no,report_type,contract_json,
+         contract_sha256,created_by_user_id,reason)
+     SELECT tenant_id,definition_key,2,report_type,contract_json,
+            contract_sha256,created_by_user_id,?
+       FROM business_report_definition_versions
+      WHERE tenant_id=1 AND id=?'
+);
+$copiedDefinition->execute(['unsupported copied v1 bytes', (int)$definition['definition']['id']]);
+$copiedDefinitionId = (int)$pdo->lastInsertId();
+report_throws(
+    'schedule preparation refuses a copied contract under unsupported definition v2',
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_schedule(
+        $pdo, 'one', 'unsupported-definition-v2', 11, $copiedDefinitionId,
+        'reports@example.test', 'UTC', 3, '09:00:00', true, 101, 'must refuse',
+    ),
+    'supported report definition',
+);
+$unsupportedActive = $pdo->prepare(
+    'INSERT INTO business_report_schedule_versions
+        (tenant_id,schedule_key,version_no,definition_version_id,client_id,
+         recipient_email,schedule_timezone,delivery_weekday,delivery_local_time,
+         canary,status,created_by_user_id,reason)
+     VALUES (1,?,1,?,11,?,\'UTC\',3,\'09:00:00\',1,\'active\',101,?)'
+);
+$unsupportedActive->execute([
+    'unsupported-definition-v2',
+    $copiedDefinitionId,
+    'reports@example.test',
+    'direct fixture must fail closed',
+]);
+report_throws(
+    'active schedule read refuses a copied contract under unsupported definition v2',
+    BusinessReportGateException::class,
+    fn() => business_report_active_schedule($pdo, 'one', 'unsupported-definition-v2'),
+    'unsupported definition',
+);
+$pdo->exec("DELETE FROM business_report_schedule_versions
+  WHERE tenant_id=1 AND schedule_key='unsupported-definition-v2'");
+$pdo->exec("DELETE FROM business_report_definition_versions
+  WHERE tenant_id=1 AND id={$copiedDefinitionId}");
 
 $prepared = business_report_prepare_schedule(
     $pdo, 'one', 'client-one-weekly', 11, (int)$definition['definition']['id'],
@@ -1353,6 +1404,47 @@ report_check('archive reload preserves exact JSON bytes and content hash',
     ));
 report_check('archive creates exactly one pending tracked delivery',
     (int)$pdo->query("SELECT COUNT(*) FROM business_report_deliveries WHERE archive_id={$archiveId} AND status='pending'")->fetchColumn() === 1);
+
+// Definition v1 promised the original approved-time model. It may honor the
+// generated-at cutoff and tenant/client scope, but it must never silently
+// reinterpret an applicable append-only adjustment.
+$time->execute([6,1,11,20,'future-adjusted note',1,'approved','2026-08-12 12:00:00','2026-08-12 13:00:00']);
+$time->execute([7,1,11,10,'applicable-adjusted note',1,'approved','2026-08-12 14:00:00','2026-08-12 15:00:00']);
+$pdo->exec("INSERT INTO time_entry_approval_adjustments VALUES
+    (1,1,6,'adjustment:future',1,5,1,'Created after report cutoff',101,'2026-08-27 00:00:00'),
+    (2,2,5,'adjustment:other-tenant',1,1,1,'Other tenant only',201,'2026-08-25 00:00:00')");
+$adjustmentSchedule = business_report_active_schedule($pdo, 'one', 'client-one-weekly');
+$cutoffMetrics = business_report_metrics(
+    $pdo,
+    $adjustmentSchedule,
+    '2026-08-10 00:00:00',
+    '2026-08-17 00:00:00',
+    '2026-08-26 12:00:00',
+);
+report_check(
+    'definition v1 adjustment guard honors generated-at cutoff and tenant isolation',
+    $cutoffMetrics['approved_billable_time']['minutes'] === 90,
+);
+$pdo->exec("INSERT INTO time_entry_approval_adjustments VALUES
+    (3,1,7,'adjustment:applicable',1,5,1,'Applicable before report cutoff',101,'2026-08-25 00:00:00')");
+report_throws(
+    'definition v1 refuses applicable adjusted approved time',
+    BusinessReportConflictException::class,
+    fn() => business_report_metrics(
+        $pdo,
+        $adjustmentSchedule,
+        '2026-08-10 00:00:00',
+        '2026-08-17 00:00:00',
+        '2026-08-26 12:00:00',
+    ),
+    'definition v1',
+);
+$unchangedArchivedContent = business_report_archived_content($reloaded);
+report_check(
+    'later adjustments do not rewrite an existing archive',
+    $unchangedArchivedContent['metrics'] === $generated['metrics']
+        && hash_equals((string)$reloaded['content_sha256'], (string)$generated['archive']['content_sha256']),
+);
 
 report_throws(
     'missing dedicated report sender is refused before the send boundary',

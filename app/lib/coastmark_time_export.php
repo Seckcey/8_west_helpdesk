@@ -10,7 +10,6 @@
 declare(strict_types=1);
 
 final class CoastmarkTimeExportValidationException extends InvalidArgumentException {}
-final class CoastmarkTimeExportTransportException extends RuntimeException {}
 
 const COASTMARK_TIME_EXPORT_VERSION = 2;
 const COASTMARK_TIME_EXPORT_CLIENT_PREFIX = 'milepost-customer:';
@@ -69,6 +68,11 @@ function coastmark_time_export_payload(
                 e.user_id, e.reviewed_by_user_id, e.reviewed_at,
                 t.slug AS tenant_slug,
                 reviewer.id AS reviewer_exists,
+                EXISTS (
+                    SELECT 1 FROM time_entry_approval_adjustments adjustment
+                     WHERE adjustment.tenant_id = e.tenant_id
+                       AND adjustment.time_entry_id = e.id
+                ) AS has_approval_adjustment,
                 customer_binding.customer_id,
                 customer_binding.status AS customer_status
            FROM time_entries e
@@ -89,6 +93,11 @@ function coastmark_time_export_payload(
     if (!is_array($entry)) {
         throw new CoastmarkTimeExportValidationException(
             'No time entry matched the explicit tenant, id, and entry key.',
+        );
+    }
+    if ((int) ($entry['has_approval_adjustment'] ?? 0) === 1) {
+        throw new CoastmarkTimeExportValidationException(
+            'Adjusted approved time cannot use the Coastmark v2 export contract.',
         );
     }
     if ((int) $entry['billable'] !== 1 || (string) $entry['approval_status'] !== 'approved') {
@@ -203,133 +212,27 @@ function coastmark_time_export_request(array $payload, string $service, string $
 }
 
 /**
- * Send exactly once. Ambiguous failures are deliberately returned to the
- * operator; repeating the same entry key is safe because Coastmark is the
- * idempotency authority.
+ * Version 2 is permanently inspection-only once approval adjustments exist.
+ *
+ * A detached v2 payload has no Safeharbor receipt/claim that can serialize a
+ * later correction, and Coastmark has no reversal acknowledgement. Therefore
+ * even a fully enabled configuration must stop before signing or transport.
+ * A new receipt/reversal-aware v3 must replace this function; this is never a
+ * flag to flip.
  *
  * @param array<string, mixed> $payload
  * @param array<string, mixed> $config
  * @param null|callable(string,list<string>,string,int):array{status:int,body:string} $transport
- * @return array{action:string,import_id:int,invoice_id:int,invoice_line_id:int,payload_sha256:string}
  */
 function coastmark_time_export_send(
     array $payload,
     array $config,
     ?callable $transport = null,
     ?int $timestamp = null,
-): array {
-    if (($config['enabled'] ?? false) !== true) {
-        throw new CoastmarkTimeExportValidationException('Coastmark time export is disabled.');
-    }
-    $endpoint = trim((string) ($config['endpoint'] ?? ''));
-    if (!coastmark_time_export_https_endpoint($endpoint)) {
-        throw new CoastmarkTimeExportValidationException(
-            'Coastmark export endpoint must be the canonical HTTPS receiver URL.',
-        );
-    }
-    $service = trim((string) ($config['service'] ?? ''));
-    $secret = (string) ($config['secret'] ?? '');
-    $timeout = max(3, min(30, (int) ($config['timeout_seconds'] ?? 15)));
-    $request = coastmark_time_export_request($payload, $service, $secret, $timestamp ?? time());
-
-    $transport ??= 'coastmark_time_export_curl';
-    $response = $transport($endpoint, $request['headers'], $request['body'], $timeout);
-    $status = (int) ($response['status'] ?? 0);
-    $responseBody = (string) ($response['body'] ?? '');
-    if (strlen($responseBody) > 16_384) {
-        throw new CoastmarkTimeExportTransportException('Coastmark response exceeded the safe limit.');
-    }
-    if (!in_array($status, [200, 201], true)) {
-        throw new CoastmarkTimeExportTransportException(
-            "Coastmark returned HTTP {$status}; retry only with the same entry key.",
-        );
-    }
-
-    try {
-        $decoded = json_decode($responseBody, true, flags: JSON_THROW_ON_ERROR);
-    } catch (JsonException) {
-        throw new CoastmarkTimeExportTransportException('Coastmark returned an invalid acknowledgement.');
-    }
-    $expectedAction = $status === 201 ? 'created' : 'ignored';
-    if (!is_array($decoded)
-        || !coastmark_time_export_exact_keys(
-            $decoded,
-            ['ok', 'action', 'source', 'coastmark', 'payload_sha256'],
-        )
-        || !is_array($decoded['source'] ?? null)
-        || !coastmark_time_export_exact_keys($decoded['source'], ['tenant_key', 'entry_key'])
-        || !is_array($decoded['coastmark'] ?? null)
-        || !coastmark_time_export_exact_keys(
-            $decoded['coastmark'],
-            ['import_id', 'invoice_id', 'invoice_line_id'],
-        )
-        || ($decoded['ok'] ?? null) !== true
-        || ($decoded['action'] ?? null) !== $expectedAction
-        || ($decoded['source']['tenant_key'] ?? null) !== $payload['tenant_key']
-        || ($decoded['source']['entry_key'] ?? null) !== $payload['entry_key']
-        || ($decoded['payload_sha256'] ?? null) !== $request['payload_sha256']
-    ) {
-        throw new CoastmarkTimeExportTransportException('Coastmark acknowledgement did not match the sent entry.');
-    }
-    $coastmark = $decoded['coastmark'] ?? null;
-    if (!is_array($coastmark)) {
-        throw new CoastmarkTimeExportTransportException('Coastmark acknowledgement omitted draft identifiers.');
-    }
-    foreach (['import_id', 'invoice_id', 'invoice_line_id'] as $field) {
-        if (!is_int($coastmark[$field] ?? null) || $coastmark[$field] < 1) {
-            throw new CoastmarkTimeExportTransportException('Coastmark acknowledgement contained an invalid identifier.');
-        }
-    }
-    return [
-        'action' => $expectedAction,
-        'import_id' => $coastmark['import_id'],
-        'invoice_id' => $coastmark['invoice_id'],
-        'invoice_line_id' => $coastmark['invoice_line_id'],
-        'payload_sha256' => $request['payload_sha256'],
-    ];
-}
-
-/** @return array{status:int,body:string} */
-function coastmark_time_export_curl(string $endpoint, array $headers, string $body, int $timeout): array
-{
-    if (!function_exists('curl_init')) {
-        throw new CoastmarkTimeExportTransportException('PHP cURL is unavailable.');
-    }
-    $responseBody = '';
-    $overflow = false;
-    $curl = curl_init($endpoint);
-    curl_setopt_array($curl, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $body,
-        CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_RETURNTRANSFER => false,
-        CURLOPT_FOLLOWLOCATION => false,
-        CURLOPT_CONNECTTIMEOUT => min(5, $timeout),
-        CURLOPT_TIMEOUT => $timeout,
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_SSL_VERIFYHOST => 2,
-        CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (&$responseBody, &$overflow): int {
-            if (strlen($responseBody) + strlen($chunk) > 16_384) {
-                $overflow = true;
-                return 0;
-            }
-            $responseBody .= $chunk;
-            return strlen($chunk);
-        },
-    ]);
-    $ok = curl_exec($curl);
-    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-    $errorCode = curl_errno($curl);
-    curl_close($curl);
-    if ($overflow) {
-        throw new CoastmarkTimeExportTransportException('Coastmark response exceeded the safe limit.');
-    }
-    if ($ok === false) {
-        throw new CoastmarkTimeExportTransportException(
-            "Coastmark request failed before a trustworthy acknowledgement (cURL {$errorCode}).",
-        );
-    }
-    return ['status' => $status, 'body' => $responseBody];
+): never {
+    throw new CoastmarkTimeExportValidationException(
+        'Coastmark time export v2 is retired; a receipt/reversal-aware v3 is required before any send.',
+    );
 }
 
 /** @param array<string, mixed> $payload */
@@ -450,15 +353,6 @@ function coastmark_time_export_key_value(mixed $value, int $maximum, string $lab
     return coastmark_time_export_key($value, $maximum, $label);
 }
 
-/** @param list<string> $expected */
-function coastmark_time_export_exact_keys(array $value, array $expected): bool
-{
-    $actual = array_keys($value);
-    sort($actual);
-    sort($expected);
-    return $actual === $expected;
-}
-
 function coastmark_time_export_timestamp(string $value, string $label): string
 {
     $date = DateTimeImmutable::createFromFormat(
@@ -474,21 +368,6 @@ function coastmark_time_export_timestamp(string $value, string $label): string
         throw new CoastmarkTimeExportValidationException("{$label} is not an exact UTC database timestamp.");
     }
     return $date->format('Y-m-d\TH:i:s\Z');
-}
-
-function coastmark_time_export_https_endpoint(string $endpoint): bool
-{
-    $parts = parse_url($endpoint);
-    return is_array($parts)
-        && ($parts['scheme'] ?? null) === 'https'
-        && is_string($parts['host'] ?? null)
-        && $parts['host'] !== ''
-        && ($parts['path'] ?? '') === '/api/integrations/safeharbor/time-entries'
-        && (!isset($parts['port']) || $parts['port'] === 443)
-        && !isset($parts['user'])
-        && !isset($parts['pass'])
-        && !isset($parts['query'])
-        && !isset($parts['fragment']);
 }
 
 function coastmark_time_export_rfc3339_value(mixed $value, string $label): int
