@@ -22,7 +22,7 @@ const KNOWN_ROLES = [
     'client_staff' => 'operator',
     'client_viewer' => 'viewer',
 ];
-const MFA_METHODS = ['otp', 'recovery', 'mfa_trusted_device'];
+const MFA_METHODS = ['otp', 'recovery', 'mfa_trusted_device', 'passkey'];
 const KNOWN_AMR = ['pwd', ...MFA_METHODS];
 const SESSION_VERSION_COMPONENT_MAX = '18446744073709551615';
 const PREFERENCES_SCHEMA = '8west-user-preferences-v1';
