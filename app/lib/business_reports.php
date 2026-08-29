@@ -1777,7 +1777,18 @@ function business_report_delivery_graph_config(array $config, ?array $mailGraph)
             'Microsoft Graph report delivery credentials are not configured.',
         );
     }
-    $reportGraph = $mailGraph;
+    $reportGraph = [];
+    foreach (['tenant_id', 'client_id', 'client_secret'] as $key) {
+        $value = trim((string)($mailGraph[$key] ?? ''));
+        if ($value === '') {
+            throw new BusinessReportGateException(
+                'Microsoft Graph report delivery credentials are not configured.',
+            );
+        }
+        $reportGraph[$key] = $value;
+    }
+    // Deliberately ignore mail.graph.sender. Reports own their sender and must
+    // not depend on or mutate the ordinary ticket/inbound mailbox setting.
     $reportGraph['sender'] = $sender;
     return $reportGraph;
 }
@@ -1846,7 +1857,11 @@ function business_report_deliver(
     $transportWasInjected = $transport !== null;
     if ($transport === null) {
         require_once __DIR__ . '/mailer.php';
-        $graph = business_report_delivery_graph_config($config, mailer_graph_config());
+        $mailGraph = cfg('mail.graph');
+        $graph = business_report_delivery_graph_config(
+            $config,
+            is_array($mailGraph) ? $mailGraph : null,
+        );
         $transport = static function (string $to, string $subject, string $body) use ($graph): array {
             return mailer_send_graph_result($graph, $to, $subject, $body);
         };

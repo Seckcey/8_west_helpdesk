@@ -1,10 +1,10 @@
 # Where things stand
 
-**Last focused production verification: 2026-08-28** for the client-scoped
-report-contact release, Lifestyle identity replacement, report canary, and
-portal activation. Safeharbor is exact PR #68 merge
-`7bf63edb9bc0583cf865124b45f002d0717dcab9`; exact-main Validate run
-`33226867525` passed. The broader 2026-08-09 inventory and the separately
+**Last focused production verification: 2026-08-29** for approved-time
+version 2, service-goal history, the Lifestyle report canaries, and portal
+activation. Safeharbor is exact PR #72 merge
+`a42872be1f9cd76ebb0a3b2bad91c16f2c0bb0ff`; exact-main Validate run
+`33232316449` passed. The broader 2026-08-09 inventory and the separately
 verified 2026-08-24 suite SSO history remain below; unrelated surfaces were not
 re-audited during this focused closeout.
 
@@ -33,11 +33,11 @@ If you change what is live, change this page in the same PR.
 | Migrations 001–019 | **All applied** to production |
 | Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published. The GET-only staff history view is deployed through PR #65 / release `b02a7a6`; signed-out routing passed, while fresh signed-in production human acceptance remains open. |
 | Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
-| Approved time → Coastmark draft lines | **Deployed dark** through Safeharbor PR #42 / merge `ad7fb1c` and Coastmark PR #54 / merge `8a7e951`; Coastmark's separate identity fence `c9f4409` is also live. Both time gates are off and there are zero mappings/imports/draft lines. |
+| Approved time → Coastmark draft lines | **Version 2 deployed dark** through Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`. The permanent 8 West IT master UUID is hard-blocked. Both time gates are off and there are zero mappings/imports/draft lines. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark time sender/receiver remain default-off. The portal is enabled only for the Lifestyle canary, with authenticated acceptance still open. Report generation/delivery are off and no scheduler exists. Existing service-intake gates remain live. |
 | Customer ticket-summary portal (Phase 5A) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing passed; `support.8westit.com/portal` is 404. Fresh authenticated customer acceptance remains open, so full portal acceptance is not claimed. |
-| Scheduled archived business reports (Phase 6) | **One controlled Lifestyle archive, stopped safely after one uncertain attempt**: schedule `8west-lifestyle-weekly-canary-v1` has versions 1 disabled / 2 active / latest 3 disabled. One archive hash is verified. The single attempt is terminal `uncertain` with `graph_not_trustworthy` and no provider HTTP status; never retry it. Generation/delivery are off, no scheduler exists, and no inbox delivery is claimed. |
+| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted` and is `submitted`, which is provider acceptance, not inbox proof. Generation/delivery are off, `canary_only` is true, and no scheduler exists. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Client-scoped 8 West ID report contacts | **Live through PR #68 / merge `7bf63ed` and migration 019**: client 14 has one exact 8 West ID binding and immutable contact snapshot. Both contact endpoints are back off after preparation; only the recipient digest is recorded. |
 | Lifestyle identity replacement | **Enabled safely**: replacement subject `t4u10` is active; predecessor `t4u7` is permanently inactive, revoked, and quarantined. Deployed Coastmark merge `c9f4409` fails closed on a fresh signed revocation feed before any SSO write/reactivation. |
@@ -478,14 +478,20 @@ Safeharbor client 14 now has the exact ID tenant binding and one immutable
 contact snapshot. The contact endpoints were turned back off after preparation;
 only recipient SHA-256
 `4f57f85e0af372af6b3b09bf48be8961a23fa0fc371f36a9b2d3a54ee4998ef8`
-is recorded. Lifestyle schedule key `8west-lifestyle-weekly-canary-v1` has
-versions 1 disabled, 2 active, and latest 3 disabled. One archive was generated
-and recomputed at SHA-256
-`93bbdab3ac0d42e1da95fa93f8c393123749d7d1548f4a2afa62e95317a8b0ce`.
-Its one delivery attempt is terminal `uncertain` with outcome
-`graph_not_trustworthy` and no provider HTTP status. Never retry it. Generation
-and delivery are off, no scheduler exists, and neither provider acceptance nor
-inbox delivery is claimed.
+is recorded. The latest version of each Lifestyle schedule key is disabled.
+
+Archive 1 (`8west-lifestyle-weekly-canary-v1`) has SHA-256
+`93bbdab3ac0d42e1da95fa93f8c393123749d7d1548f4a2afa62e95317a8b0ce`;
+its attempt is terminal `uncertain` with `graph_not_trustworthy` and no HTTP
+status. Archive 2 (`8west-lifestyle-weekly-canary-v2`) has SHA-256
+`10ed1d4cca108204705cdd9584d9a5bc824c1dbfcfbcfab26fceb2a6cb8562ae`;
+its attempt is terminal `uncertain` with Graph HTTP 404 and
+`graph_send_rejected`. Never retry either uncertain attempt. Archive 3
+(`8west-lifestyle-weekly-canary-v3`) has SHA-256
+`d404de18f59d1546f77fd38ec0ff5071b3194124184f8c903c3d8f989381a909`;
+its attempt is `submitted` with Graph HTTP 202 and `graph_accepted`. That is
+provider acceptance only, not inbox-delivery proof. Generation and delivery
+are off, `canary_only` is true, and no scheduler exists.
 
 The root-only Lifestyle canary record is
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`;

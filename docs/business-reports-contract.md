@@ -20,15 +20,24 @@ the exact 8 West ID tenant key and has one immutable client-contact snapshot.
 The contact lookup endpoints were turned back off after preparation. The only
 recipient value recorded here is its SHA-256 digest,
 `4f57f85e0af372af6b3b09bf48be8961a23fa0fc371f36a9b2d3a54ee4998ef8`.
-Schedule key `8west-lifestyle-weekly-canary-v1` has immutable versions 1
-disabled, 2 active, and 3 disabled; version 3 is latest, so the logical
-schedule is stopped. One archive was generated and independently recomputed at
-SHA-256
+Three controlled Lifestyle canaries now exist, and the latest version of each
+schedule is disabled. Archive 1, for key
+`8west-lifestyle-weekly-canary-v1`, has SHA-256
 `93bbdab3ac0d42e1da95fa93f8c393123749d7d1548f4a2afa62e95317a8b0ce`.
-The one delivery attempt ended terminal `uncertain` with outcome
-`graph_not_trustworthy` and no provider HTTP status. It must never be retried.
-There is no provider-acceptance or inbox-delivery claim. Generation and
-delivery are off and no cron or systemd report scheduler is installed.
+Its attempt ended terminal `uncertain` with outcome `graph_not_trustworthy`
+and no provider HTTP status. Archive 2, for key
+`8west-lifestyle-weekly-canary-v2`, has SHA-256
+`10ed1d4cca108204705cdd9584d9a5bc824c1dbfcfbcfab26fceb2a6cb8562ae`.
+Its attempt ended terminal `uncertain` after Microsoft Graph returned HTTP 404
+with outcome `graph_send_rejected`. Neither uncertain attempt may be retried.
+
+Archive 3, for key `8west-lifestyle-weekly-canary-v3`, has SHA-256
+`d404de18f59d1546f77fd38ec0ff5071b3194124184f8c903c3d8f989381a909`.
+Its one attempt returned Microsoft Graph HTTP 202 with outcome
+`graph_accepted` and is recorded as `submitted`. This proves only that
+Microsoft accepted the request; it is not inbox-delivery proof. Report
+generation and delivery remain off, `canary_only` remains true, and no cron or
+systemd report scheduler is installed.
 
 Root-only Lifestyle canary evidence is at
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`.
