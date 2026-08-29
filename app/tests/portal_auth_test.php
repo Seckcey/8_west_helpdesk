@@ -69,6 +69,7 @@ final class PortalAuthFakeHttp implements HttpClient
 {
     public int $calls = 0;
     public bool $fail = false;
+    public ?string $rawBody = null;
     /** @var array<string,mixed> */
     public array $payload = [];
 
@@ -81,7 +82,10 @@ final class PortalAuthFakeHttp implements HttpClient
     ): HttpResponse {
         $this->calls++;
         if ($this->fail) throw new RuntimeException('simulated outage');
-        return new HttpResponse(200, json_encode($this->payload, JSON_THROW_ON_ERROR));
+        return new HttpResponse(
+            200,
+            $this->rawBody ?? json_encode($this->payload, JSON_THROW_ON_ERROR),
+        );
     }
 }
 
@@ -233,14 +237,74 @@ $revokedChecker = new RevocationChecker(
 portal_auth_check('explicit revocation wins over matching inventory',
     $revokedChecker->isRevoked('t9u4', '2.7') === true);
 
+$objectAuthorizationHttp = new PortalAuthFakeHttp();
+$objectAuthorizationPayload = (object) [
+    'generated_at' => gmdate('Y-m-d\TH:i:sP', $now),
+    'count' => 0,
+    'revoked' => [],
+    'authorization_count' => 1,
+    'authorizations' => [],
+];
+$objectAuthorizationPayload->authorizations = (object) [
+    '0' => (object) ['sub' => 't9u4', 'session_version' => '2.7'],
+];
+$objectAuthorizationHttp->rawBody = json_encode(
+    $objectAuthorizationPayload,
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+);
+$objectAuthorizationChecker = new RevocationChecker(
+    'https://id.example.test/oauth/revocations.php',
+    'safeharbor-portal-test-object-authorizations',
+    str_repeat('s', 48),
+    $objectAuthorizationHttp,
+    new MemoryRevocationCache(),
+    60,
+    300,
+    static fn(): int => $now,
+);
+portal_auth_expect(
+    'numeric-key authorization object cannot masquerade as the response array',
+    RevocationUnavailableException::class,
+    fn() => $objectAuthorizationChecker->isRevoked('t9u4', '2.7'),
+);
+
+$objectRevokedHttp = new PortalAuthFakeHttp();
+$objectRevokedPayload = (object) [
+    'generated_at' => gmdate('Y-m-d\TH:i:sP', $now),
+    'count' => 0,
+    'revoked' => [],
+    'authorization_count' => 1,
+    'authorizations' => [(object) ['sub' => 't9u4', 'session_version' => '2.7']],
+];
+$objectRevokedPayload->revoked = (object) [];
+$objectRevokedHttp->rawBody = json_encode(
+    $objectRevokedPayload,
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+);
+$objectRevokedChecker = new RevocationChecker(
+    'https://id.example.test/oauth/revocations.php',
+    'safeharbor-portal-test-object-revoked',
+    str_repeat('s', 48),
+    $objectRevokedHttp,
+    new MemoryRevocationCache(),
+    60,
+    300,
+    static fn(): int => $now,
+);
+portal_auth_expect(
+    'empty revoked object cannot masquerade as the response array',
+    RevocationUnavailableException::class,
+    fn() => $objectRevokedChecker->isRevoked('t9u4', '2.7'),
+);
+
 $kitBlobs = [
     'attempt_store.php' => 'be9d617a7836927396530672e2ceb57491375ef9',
     'eightwestid.php' => '722f6fe7f8cca9279f47979d3630894217f2a795',
     'errors.php' => '86ed368cada6aa6ac7778e519fcba665b5dbe024',
     'http.php' => 'b553cc7ab69aad3d763ce122f781f18ed39763cf',
-    'jwt.php' => '8c56e98ef12d9dc467c7ee2ed31cadd72da233a8',
+    'jwt.php' => 'a7a68e2c9e37f620f568d51c759daa647321c0c7',
     'policy.php' => 'a2bebc9a5926e6b2c6270110e15718160dce66b2',
-    'revocations.php' => 'f38be1149e2ebcfe8a6349de06cee43a6d8de8f1',
+    'revocations.php' => '564cad379609900aaeb920007b7ef42653f9088b',
 ];
 foreach ($kitBlobs as $file => $expected) {
     $content = file_get_contents(__DIR__ . '/../lib/eightwestid/' . $file);
@@ -249,7 +313,7 @@ foreach ($kitBlobs as $file => $expected) {
     $actual = $canonical !== ''
         ? hash('sha1', 'blob ' . strlen($canonical) . "\0" . $canonical)
         : '';
-    portal_auth_check("maintained oidc_v1 blob {$file} is exact", hash_equals($expected, $actual));
+    portal_auth_check("reviewed oidc_v1 blob {$file} is pinned", hash_equals($expected, $actual));
 }
 
 $authSource = file_get_contents(__DIR__ . '/../lib/portal_auth.php');

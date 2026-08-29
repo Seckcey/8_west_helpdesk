@@ -45,10 +45,14 @@ tenant context. The only POST is CSRF-protected local/central sign-out.
 
 ## OIDC authority
 
-The vendored files under `lib/eightwestid/` are exact blobs from the maintained
-8 West ID `client-kits/php/eightwestid/` package at ID commit
-`f0ec49b6106791d0ba658ca16899562fbe5b3b86`. `portal_auth_test.php` pins every
-blob, so a local fork fails CI visibly.
+Every vendored file under `lib/eightwestid/` is pinned by exact Git-blob digest
+in `portal_auth_test.php`, so any unreviewed drift fails CI visibly. `jwt.php`
+is the exact maintained 8 West ID `client-kits/php/eightwestid/jwt.php` blob at
+ID commit `ed49db95c97ca848c07f27180c6d0e06c40756e8`. The other package files
+originated at `f0ec49b6106791d0ba658ca16899562fbe5b3b86`; Safeharbor's pinned
+`revocations.php` adds the consumer-side JSON container check for the
+authorization response. Replace that local delta with an exact maintained-kit
+blob once the same check lands upstream, never by silently dropping the check.
 
 That exact 8 West ID prerequisite is deployed in production. The later
 controlled activation registered one production Safeharbor client and moved
@@ -169,8 +173,8 @@ its fresh authenticated checks and step 9 remain open:
    `portal.enabled=false`; verify `/portal/`, `/portal/login.php`,
    `/portal/callback.php`, and both GET and POST `/portal/logout.php` are 404
    without `Set-Cookie`;
-4. deploy the reviewed 8 West ID `f0ec49b` prerequisite without creating a
-   client, assigning a role, or changing a grant;
+4. deploy the reviewed 8 West ID prerequisite through `ed49db95` without
+   creating a client, assigning a role, or changing a grant;
 5. install the non-secret disabled scaffold: fixed issuer and callback, empty
    client fields, and a private persistent empty revocation cache;
 6. register one confidential Safeharbor OIDC client in 8 West ID with the exact

@@ -39,8 +39,8 @@ final class IdTokenVerifier
             throw new PolicyException('token_invalid');
         }
         [$encodedHeader, $encodedClaims, $encodedSignature] = $parts;
-        $header = decode_json_segment($encodedHeader, 'token_header_invalid');
-        $claims = decode_json_segment($encodedClaims, 'token_claims_invalid');
+        [$header, $headerShape] = decode_json_segment_with_shape($encodedHeader, 'token_header_invalid');
+        [$claims, $claimsShape] = decode_json_segment_with_shape($encodedClaims, 'token_claims_invalid');
         $signature = strict_b64url_decode($encodedSignature, 'token_signature_invalid');
 
         if (($header['alg'] ?? null) !== 'RS256'
@@ -48,7 +48,8 @@ final class IdTokenVerifier
             || isset($header['jku'])
             || isset($header['jwk'])
             || isset($header['x5u'])
-            || (isset($header['crit']) && $header['crit'] !== [])) {
+            || (property_exists($headerShape, 'crit')
+                && (! is_array($headerShape->crit) || $header['crit'] !== []))) {
             throw new PolicyException('token_algorithm_invalid');
         }
         $kid = $header['kid'] ?? null;
@@ -79,11 +80,11 @@ final class IdTokenVerifier
             throw new PolicyException('token_signature_invalid');
         }
 
-        return $this->identityFromClaims($claims, $expectedNonce);
+        return $this->identityFromClaims($claims, $claimsShape, $expectedNonce);
     }
 
     /** @param array<string,mixed> $claims */
-    private function identityFromClaims(array $claims, string $expectedNonce): Identity
+    private function identityFromClaims(array $claims, \stdClass $claimsShape, string $expectedNonce): Identity
     {
         $now = ($this->clock)();
         if (($claims['iss'] ?? null) !== $this->issuer) {
@@ -91,7 +92,9 @@ final class IdTokenVerifier
         }
         $audience = $claims['aud'] ?? null;
         $audienceValid = $audience === $this->clientId
-            || (is_array($audience)
+            || (property_exists($claimsShape, 'aud')
+                && is_array($claimsShape->aud)
+                && is_array($audience)
                 && array_is_list($audience)
                 && count($audience) === 1
                 && $audience[0] === $this->clientId);
@@ -137,6 +140,10 @@ final class IdTokenVerifier
             throw new PolicyException('session_version_invalid');
         }
 
+        if (! property_exists($claimsShape, '8west:products')
+            || ! is_array($claimsShape->{'8west:products'})) {
+            throw new PolicyException('products_invalid');
+        }
         $products = validated_string_list(
             $claims['8west:products'] ?? null,
             'products_invalid',
@@ -158,6 +165,9 @@ final class IdTokenVerifier
             throw new PolicyException('capability_role_invalid');
         }
 
+        if (property_exists($claimsShape, 'amr') && ! is_array($claimsShape->amr)) {
+            throw new PolicyException('amr_invalid');
+        }
         $methodsRaw = $claims['amr'] ?? [];
         $methods = validated_string_list($methodsRaw, 'amr_invalid', 10);
         foreach ($methods as $method) {
@@ -285,16 +295,23 @@ final class IdTokenVerifier
 /** @return array<string,mixed> */
 function decode_json_segment(string $encoded, string $reason): array
 {
+    return decode_json_segment_with_shape($encoded, $reason)[0];
+}
+
+/** @return array{0:array<string,mixed>,1:\stdClass} */
+function decode_json_segment_with_shape(string $encoded, string $reason): array
+{
     $raw = strict_b64url_decode($encoded, $reason);
     try {
         $value = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+        $shape = json_decode($raw, false, 32, JSON_THROW_ON_ERROR);
     } catch (\JsonException) {
         throw new PolicyException($reason);
     }
-    if (! is_array($value) || array_is_list($value)) {
+    if (! is_array($value) || array_is_list($value) || ! $shape instanceof \stdClass) {
         throw new PolicyException($reason);
     }
-    return $value;
+    return [$value, $shape];
 }
 
 function strict_b64url_decode(string $encoded, string $reason): string

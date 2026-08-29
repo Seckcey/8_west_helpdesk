@@ -93,8 +93,26 @@ binding, revocation, and canary rules live only in
 `sub` and `email` are both mandatory — a token missing either is refused
 (`missing_claims`).
 
+The suite cookie is a distinct token type, not an OIDC ID token. It therefore
+contains no `aud`, `nonce`, or `azp`; the presence of any one refuses the token
+as `token_type_invalid`, even when the issuer and signature are valid. The JWT
+header may omit `crit` or carry an explicit empty JSON array. Object-shaped or
+nonempty `crit` values are unsupported and refused.
+
+`8west:products` must be a JSON array of at most 64 unique canonical product
+keys (`a-z`, digits, and underscore, beginning with a letter, up to 32
+characters each). This structural gate remains open to a future canonical key;
+Safeharbor's separate entitlement gate still requires the exact `safeharbor`
+key. An object encoding, mixed type, duplicate, malformed key, or oversized
+list is refused before tenant, user, or session writes.
+
 Allowed MFA methods are `otp`, `recovery`, `mfa_trusted_device`, and `passkey`.
 A passkey counts as MFA-capable evidence without a separate password method.
+The complete authentication-method set is closed: `pwd` plus those four MFA
+methods. Any unrecognized `amr` value refuses the authentication event, even
+when it appears beside a valid passkey or another recognized method, and even
+while MFA policy monitoring is set to `off` or `report`. The claim must be a
+JSON array; object-shaped encodings, including an empty object, are invalid.
 
 Safeharbor evaluates authentication-event evidence through
 `suite.mfa_policy_mode`. New releases use `report`, which admits the existing
@@ -135,7 +153,10 @@ expiry.
    versioned field. That observation is authenticated in the private cache and
    cannot roll back to legacy; the completed rollout sets `strict`, which also
    survives cache deletion or a replacement host. Other consumers need their
-   own equivalent enforcement.
+   own equivalent enforcement. Both `revoked` and `authorizations` must be JSON
+   arrays containing JSON objects. A signed versioned response with an
+   object-shaped container fails closed and still commits the one-way v2 latch;
+   a later correctly signed legacy response cannot restore compatibility mode.
 5. **Deep links carry context, not credentials.** Cross-product links
    (`Milepost device → Safeharbor ticket`) pass ids only; the receiving app
    re-authorizes from its own cookie.
@@ -171,11 +192,15 @@ Reason codes, in the order they can occur:
 |---|---|---|
 | `no_cookie` | `suite_sso_attempt()` | no `ewid_token` on the request |
 | `malformed_token` | `jwt_verify_reason()` | not three dot-separated segments |
+| `unexpected_algorithm` | `jwt_verify_reason()` | algorithm is not pinned, or `crit` is object-shaped/nonempty |
 | `bad_signature` | `jwt_verify_reason()` | HMAC mismatch — usually a wrong or unset shared secret |
 | `bad_payload` | `jwt_verify_reason()` | body is not JSON object |
+| `token_type_invalid` | `jwt_verify_reason()` | an OIDC-only `aud`, `nonce`, or `azp` claim appeared in the suite cookie |
 | `wrong_issuer` | `jwt_verify_reason()` | `iss` is not the configured issuer |
 | `expired_token` | `jwt_verify_reason()` | `exp` in the past |
 | `missing_claims` | `jwt_verify_reason()` | `sub` or `email` absent |
+| `amr_invalid` | `jwt_verify_reason()` | `amr` is not a bounded unique JSON array of recognized methods |
+| `products_invalid` | `jwt_verify_reason()` | `8west:products` has the wrong container or an invalid, duplicate, or oversized key list |
 | `product_not_entitled` | `suite_sso_attempt()` | `8west:products` lacks this app's key — the most common cause, fixed in the 8 West ID control panel, not in app code |
 | `tenant_slug_invalid` | `suite_sso_attempt()` | `8west:tenant` is empty |
 | `role_not_admitted` | `suite_sso_attempt()` | role is outside the tenant-aware Safeharbor map, including viewers and downstream client contacts |

@@ -202,21 +202,27 @@ final class RevocationChecker
         }
         try {
             $payload = json_decode($response->body, true, 16, JSON_THROW_ON_ERROR);
+            $wireShape = json_decode($response->body, false, 16, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             throw new ProtocolException('The revocation response was invalid.');
         }
         if (! is_array($payload)
             || array_is_list($payload)
+            || ! $wireShape instanceof \stdClass
             || ! is_string($payload['generated_at'] ?? null)
             || ! is_int($payload['count'] ?? null)
             || $payload['count'] < 0
             || ! is_array($payload['revoked'] ?? null)
             || ! array_is_list($payload['revoked'])
+            || ! property_exists($wireShape, 'revoked')
+            || ! is_array($wireShape->revoked)
             || count($payload['revoked']) > REVOCATION_MAX_ENTRIES
             || ! is_int($payload['authorization_count'] ?? null)
             || $payload['authorization_count'] < 0
             || ! is_array($payload['authorizations'] ?? null)
             || ! array_is_list($payload['authorizations'])
+            || ! property_exists($wireShape, 'authorizations')
+            || ! is_array($wireShape->authorizations)
             || count($payload['authorizations']) > REVOCATION_MAX_ENTRIES
             || $payload['count'] !== count($payload['revoked'])
             || $payload['authorization_count'] !== count($payload['authorizations'])) {
@@ -231,9 +237,10 @@ final class RevocationChecker
         }
 
         $revoked = [];
-        foreach ($payload['revoked'] as $row) {
+        foreach ($payload['revoked'] as $index => $row) {
             if (! is_array($row)
                 || array_is_list($row)
+                || ! (($wireShape->revoked[$index] ?? null) instanceof \stdClass)
                 || ! valid_revocation_subject($row['sub'] ?? null)
                 || ! is_string($row['since'] ?? null)
                 || $row['since'] === ''
@@ -249,9 +256,10 @@ final class RevocationChecker
         }
 
         $authorizations = [];
-        foreach ($payload['authorizations'] as $row) {
+        foreach ($payload['authorizations'] as $index => $row) {
             if (! is_array($row)
                 || array_is_list($row)
+                || ! (($wireShape->authorizations[$index] ?? null) instanceof \stdClass)
                 || ! valid_revocation_subject($row['sub'] ?? null)
                 || ! valid_session_version($row['session_version'] ?? null)
                 || array_key_exists($row['sub'], $authorizations)) {

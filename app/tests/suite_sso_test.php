@@ -177,8 +177,8 @@ function suite_sso_execute_sql_file(PDO $pdo, string $path): void
     }
 }
 
-/** Mint a token the verifier will accept. */
-function scratch_token(array $overrides = []): string
+/** Mint a token the verifier will accept unless an override is the subject of a deny test. */
+function scratch_token(array $overrides = [], array $headerOverrides = []): string
 {
     global $CONFIG;
 
@@ -198,7 +198,7 @@ function scratch_token(array $overrides = []): string
     }
 
     $enc = fn (array $p): string => rtrim(strtr(base64_encode(json_encode($p)), '+/', '-_'), '=');
-    $header = $enc(['alg' => 'HS256', 'typ' => 'JWT']);
+    $header = $enc(array_replace(['alg' => 'HS256', 'typ' => 'JWT'], $headerOverrides));
     $body = $enc($claims);
     $sig = rtrim(strtr(base64_encode(
         hash_hmac('sha256', $header . '.' . $body, $CONFIG['suite']['sso_secret'], true)
@@ -207,9 +207,9 @@ function scratch_token(array $overrides = []): string
     return $header . '.' . $body . '.' . $sig;
 }
 
-function arrive(array $overrides = []): bool
+function arrive(array $overrides = [], array $headerOverrides = []): bool
 {
-    $_COOKIE['ewid_token'] = scratch_token($overrides);
+    $_COOKIE['ewid_token'] = scratch_token($overrides, $headerOverrides);
     $_SESSION = [];
 
     if (! suite_sso_attempt()) {
@@ -221,6 +221,27 @@ function arrive(array $overrides = []): bool
     // and subject-bound avatar into the session. Stopping after the raw login
     // helper made the avatar assertion test a path the application never uses.
     return current_user() !== null;
+}
+
+function suite_sso_admission_state_digest(): string
+{
+    $tenants = db()->query('SELECT * FROM tenants ORDER BY id')->fetchAll();
+    $users = db()->query('SELECT * FROM users ORDER BY id')->fetchAll();
+
+    return hash('sha256', json_encode([$tenants, $users], JSON_THROW_ON_ERROR));
+}
+
+/** Prove a denied token creates no local user/tenant write and no session. */
+function denied_without_admission(array $claims, array $headerOverrides = []): bool
+{
+    $before = suite_sso_admission_state_digest();
+    $_COOKIE['ewid_token'] = scratch_token($claims, $headerOverrides);
+    $_SESSION = [];
+    $accepted = suite_sso_attempt();
+
+    return ! $accepted
+        && $_SESSION === []
+        && hash_equals($before, suite_sso_admission_state_digest());
 }
 
 // Fresh scratch state.
@@ -307,6 +328,56 @@ check('msp tech signs in', arrive(['8west:role' => 'msp_tech']) === true);
 check('msp tech maps to local tech', db()->query('SELECT role FROM users LIMIT 1')->fetchColumn() === 'tech');
 check('msp owner signs in after a role change', arrive(['8west:role' => 'msp_owner']) === true);
 check('central role changes reconcile locally', db()->query('SELECT role FROM users LIMIT 1')->fetchColumn() === 'owner');
+
+// Enforce mode accepts a passkey as the complete authentication method. A
+// recognized method must never hide an unrecognized AMR value, and that deny
+// must happen before tenant or user provisioning.
+$CONFIG['suite']['mfa_policy_mode'] = 'enforce';
+$passkeyClaims = [
+    '8west:auth_policy' => 'suite-mfa-v1',
+    '8west:mfa_authenticated' => true,
+    '8west:mfa_time' => time() - 60,
+    'auth_time' => time() - 30,
+    'amr' => ['passkey'],
+];
+check('passkey-only authentication signs in under enforce mode', arrive($passkeyClaims) === true);
+$CONFIG['suite']['mfa_policy_mode'] = 'off';
+$deniedClaims = [
+    'unknown AMR beside a passkey' => ['amr' => ['passkey', 'future_factor']],
+    'duplicate AMR' => ['amr' => ['passkey', 'passkey']],
+    'numeric-key AMR object' => ['amr' => (object) ['0' => 'passkey']],
+    'empty AMR object' => ['amr' => (object) []],
+    'numeric-key product object' => ['8west:products' => (object) ['0' => 'safeharbor']],
+    'empty product object' => ['8west:products' => (object) []],
+    'duplicate product key' => ['8west:products' => ['safeharbor', 'safeharbor']],
+    'noncanonical product key' => ['8west:products' => ['safeharbor', 'Future-Product']],
+    'OIDC audience' => ['aud' => 'another-oidc-client'],
+    'OIDC nonce' => ['nonce' => 'transaction-specific-nonce'],
+    'OIDC authorized party' => ['azp' => 'another-oidc-client'],
+];
+$deniedIndex = 90;
+foreach ($deniedClaims as $label => $claimOverrides) {
+    $deniedIndex++;
+    check(
+        "{$label} is refused without any user, tenant, or session write",
+        denied_without_admission(array_merge($passkeyClaims, [
+            'sub' => 't90u' . $deniedIndex,
+            'email' => "denied-{$deniedIndex}@scratch.test",
+            '8west:tenant' => "denied-{$deniedIndex}-must-not-exist",
+        ], $claimOverrides)),
+    );
+}
+foreach ([(object) [], ['future_extension']] as $index => $critical) {
+    check(
+        'unsupported or object-shaped critical header is refused without admission ' . ($index + 1),
+        denied_without_admission(array_merge($passkeyClaims, [
+            'sub' => 't91u' . ($index + 1),
+            'email' => 'critical-' . ($index + 1) . '@scratch.test',
+            '8west:tenant' => 'critical-' . ($index + 1) . '-must-not-exist',
+        ]), ['crit' => $critical]),
+    );
+}
+$CONFIG['suite']['mfa_policy_mode'] = 'report';
 
 // --- An account created before suite entry is claimed once by email.
 db()->exec('DELETE FROM users');
@@ -412,6 +483,80 @@ check('concurrent downgrade refusal preserves the authenticated v2 bytes',
     is_array($raceEnvelope)
     && $raceEnvelope['versioned_observed'] === true
     && hash_equals($raceEnvelope['body'], $versionedBody));
+
+// Exercise the complete two-response runtime path. A correctly signed v2
+// payload with an object masquerading as the authorization array must latch v2
+// before failing closed. A later correctly signed legacy response may not
+// erase that fact or regain compatibility admission.
+$malformedV2Payload = (object) [
+    'generated_at' => gmdate('c'),
+    'count' => 0,
+    'revoked' => [],
+    'authorization_count' => 1,
+    'authorizations' => [],
+];
+$malformedV2Payload->authorizations = (object) [
+    '0' => (object) ['sub' => 't9u1', 'session_version' => '1.1'],
+];
+$malformedV2Body = json_encode(
+    $malformedV2Payload,
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+);
+$malformedV2Signature = hash_hmac('sha256', $malformedV2Body, $CONFIG['suite']['sso_secret']);
+$twoStepCache = $suiteRevocationDir . '/malformed-v2-downgrade-v3.json';
+$CONFIG['suite']['revocation_cache_path'] = $twoStepCache;
+$CONFIG['suite']['session_version_mode'] = 'compat';
+$twoStepResponses = [
+    [
+        'status' => 200,
+        'body' => $malformedV2Body,
+        'headers' => [
+            'HTTP/1.1 200 OK',
+            'X-Suite-Signature: ' . $malformedV2Signature,
+        ],
+    ],
+    [
+        'status' => 200,
+        'body' => $legacyBody,
+        'headers' => [
+            'HTTP/1.1 200 OK',
+            'X-Suite-Signature: ' . $legacySignature,
+        ],
+    ],
+];
+$GLOBALS['__SAFEHARBOR_REVOCATION_FETCH'] = static function (string $url) use (&$twoStepResponses): ?array {
+    $next = array_shift($twoStepResponses);
+    return is_array($next) ? $next : null;
+};
+$malformedV2Snapshot = revocation_list();
+$latchedMalformedV2 = revocation_read_cache(
+    $twoStepCache,
+    $CONFIG['suite']['sso_secret'],
+    time(),
+);
+check('signed malformed v2 fails closed and durably trips the v2 latch',
+    is_array($malformedV2Snapshot)
+    && $malformedV2Snapshot['mode'] === 'invalid'
+    && is_array($latchedMalformedV2)
+    && $latchedMalformedV2['versioned_observed'] === true
+    && hash_equals($latchedMalformedV2['body'], $malformedV2Body));
+file_put_contents($twoStepCache, json_encode(suite_revocation_cache_envelope(
+    time() - REVOCATION_CACHE_TTL - 1,
+    true,
+    $malformedV2Body,
+    $malformedV2Signature,
+    $CONFIG['suite']['sso_secret'],
+), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+$downgradeSnapshot = revocation_list();
+$afterDowngrade = revocation_read_cache($twoStepCache, $CONFIG['suite']['sso_secret'], time());
+check('later signed legacy feed cannot downgrade a malformed-v2 latch',
+    is_array($downgradeSnapshot)
+    && $downgradeSnapshot['mode'] === 'invalid'
+    && is_array($afterDowngrade)
+    && $afterDowngrade['versioned_observed'] === true
+    && hash_equals($afterDowngrade['body'], $malformedV2Body)
+    && $twoStepResponses === []);
+$GLOBALS['__SAFEHARBOR_REVOCATION_FETCH'] = static fn (string $url): ?array => null;
 
 $strictMalformedCache = $suiteRevocationDir . '/strict-malformed-v3.json';
 $CONFIG['suite']['revocation_cache_path'] = $strictMalformedCache;

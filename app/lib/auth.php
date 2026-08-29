@@ -140,6 +140,13 @@ function suite_sso_attempt(): bool
     if ($hasSessionVersion && ! suite_session_version_valid($sessionVersion)) {
         return suite_sso_refuse('session_version_invalid', $subject);
     }
+    if (array_key_exists('amr', $claims) && ! suite_amr_valid($claims['amr'])) {
+        return suite_sso_refuse('amr_invalid', $subject);
+    }
+    if (array_key_exists('8west:products', $claims)
+        && ! suite_products_valid($claims['8west:products'])) {
+        return suite_sso_refuse('products_invalid', $subject);
+    }
 
     $policyMode = suite_mfa_policy_mode(cfg('suite.mfa_policy_mode', 'report'));
     $policy = $policyMode === 'off'
@@ -156,7 +163,7 @@ function suite_sso_attempt(): bool
         error_log('suite sso mfa report: ' . $policy['reason'] . ' sub=' . $subject);
     }
 
-    if (!in_array('safeharbor', (array)($claims['8west:products'] ?? []), true)) {
+    if (! in_array('safeharbor', $claims['8west:products'] ?? [], true)) {
         return suite_sso_refuse('product_not_entitled', $subject);
     }
 
