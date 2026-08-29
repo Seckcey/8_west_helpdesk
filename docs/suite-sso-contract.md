@@ -11,7 +11,7 @@ The separately gated customer ticket-summary portal uses the issuer's maintained
 `docs/customer-portal-contract.md` as its authority. It does not replace or
 silently migrate staff sign-in.
 
-> **Currency.** Corrected 2026-08-24 against `app/lib/auth.php`,
+> **Currency.** Corrected 2026-08-29 against `app/lib/auth.php`,
 > `app/lib/jwt.php`, `app/config/config.sample.php` and
 > `app/tests/suite_sso_test.php` in this repo, plus current Milepost `main`.
 > Revisions of this file before
@@ -38,7 +38,7 @@ four shared-cookie consumers now accept RS256 only.
 | Accepted algorithms | `RS256` only since `2026-08-24T04:17:47Z` |
 | Verification | app-side; `jwt_verify_suite_reason()` in `app/lib/jwt.php`, exact `kid` from issuer JWKS |
 | Safeharbor entry point | `suite_sso_attempt()` in `app/lib/auth.php`, called from `require_login()` and `public/login.php` |
-| Safeharbor config | the `suite` block (`issuer`, `sso_secret`, `cookie_name`, `token_algorithms`, `jwks_url`, `jwks_cache_path`) in server-only `config/config.php` |
+| Safeharbor config | the `suite` block (`issuer`, `sso_secret`, `cookie_name`, `token_algorithms`, `jwks_url`, `jwks_cache_path`, `revocation_cache_path`, `session_version_mode`) in server-only `config/config.php` |
 
 **8 West ID is not Keycloak** and does not front one. It is a first-party PHP
 issuer in `Seckcey/8_west_id`.
@@ -80,6 +80,7 @@ binding, revocation, and canary rules live only in
 | `8west:tenant` | string | **Tenant slug** — the customer account; binds every record in every product |
 | `8west:products` | string[] | Licensed product keys, from `["safeharbor","milepost","coastmark","coastline_control_panel"]` |
 | `8west:role` | string | Staff roles (`owner`, `admin`, `tech`, `readonly`) or tenant-aware `msp_*` / `client_*` roles |
+| `8west:session_version` | string | Exact `user-generation.tenant-generation` authorization version. New cookies carry it. `compat` permits an older cookie only before this consumer has observed a signed versioned feed; the final production setting is `strict`. |
 | `8west:theme` | string | Suite-wide UI theme: `dark` · `light` · `system` |
 | `8west:avatar` | string | Suite-wide avatar URL |
 | `8west:auth_policy` | string | Authentication-event contract; currently `suite-mfa-v1` |
@@ -124,8 +125,16 @@ expiry.
    immediately signing the user back in with the still-valid suite cookie.
    It does **not** directly terminate already-established local sessions in
    other products. Safeharbor separately checks 8 West ID's signed revocation
-   list on every authenticated request through a 60-second cache, deactivates
-   a revoked local user and destroys that session. Other consumers need their
+   snapshot on every authenticated request through a 60-second cache. An
+   explicit `revoked` entry deactivates the local user and destroys that
+   session. Once the signed snapshot includes `authorizations`, Safeharbor also
+   requires the local session's subject and exact cookie session version to be
+   present; absence or mismatch destroys only the local session and requests a
+   fresh ID sign-in. A revoked-only snapshot retains the legacy behavior only
+   while `session_version_mode=compat` and this host has never observed either
+   versioned field. That observation is authenticated in the private cache and
+   cannot roll back to legacy; the completed rollout sets `strict`, which also
+   survives cache deletion or a replacement host. Other consumers need their
    own equivalent enforcement.
 5. **Deep links carry context, not credentials.** Cross-product links
    (`Milepost device → Safeharbor ticket`) pass ids only; the receiving app
@@ -212,7 +221,9 @@ exists in Milepost only.
    path. Safeharbor still requires `suite.sso_secret` for the independently
    authenticated revocation snapshot. A host that was never
    configured fails every signature — effectively off, but off by accident
-   rather than by design.
+   rather than by design. `session_version_mode` is mandatory: missing,
+   blank, or unknown values fail closed rather than silently returning to the
+   rollout-only compatibility behavior.
 2. **Migration `app/db/migrations/007_suite_subject.sql` is applied in
    production.** It was applied migration-first on 2026-08-02 before the code
    deployment; see `docs/suite-sso-deploy-acceptance.md`. It must still be
@@ -230,13 +241,11 @@ Still open, in rough priority order:
   surface still uses the legacy cookie transport. The dark customer portal is
   a separate destination/client and is not evidence that staff migration is
   complete. Treat any staff migration as its own reviewed change.
-- **Suite-wide sign out / complete consumer-session revocation.** The rule 4
-  issuer handoff clears the shared cookie. Safeharbor now enforces the issuer's
-  HMAC-signed revocation list for established suite sessions (60-second cache,
-  15-minute maximum snapshot age, logged fail-open on issuer/signature/stale
-  failures), but every other consumer must implement equivalent enforcement
-  before “sign out everywhere” is a suite-wide guarantee. A full OIDC logout
-  design remains separate work.
+- **Suite-wide sign out.** The rule 4 issuer handoff clears the shared cookie.
+  Safeharbor enforces the issuer's HMAC-signed revoked and current-authorization
+  inventories for established suite sessions (60-second cache, 15-minute
+  maximum snapshot age, logged fail-open on issuer/signature/stale failures).
+  A full OIDC logout design remains separate work.
 - **Multi-account picker** for a user belonging to more than one customer
   account.
 - **Entitlement revocation.** 8 West ID now derives effective products from
@@ -266,3 +275,7 @@ than a change to app-side session handling.
 - **2026-08-08.** Corrected Safeharbor's staff-tenant, migration and
   revocation status; rechecked Milepost's now-sub-based mapping against its
   current `main`.
+- **2026-08-29.** Shared-cookie sessions began retaining the exact issuer
+  authorization generation. Safeharbor accepts the revoked-only feed during
+  consumer-first rollout, then requires a subject/version match once the
+  signed authorization inventory appears.

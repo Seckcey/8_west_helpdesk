@@ -178,3 +178,32 @@ Worth someone's attention — all predate today and all produce fatal 500s:
   `utf8mb4` column; pasted text kills the request.
 - `public/ticket_new.php:36` — `SQLSTATE[HY093] Invalid parameter number`.
   A placeholder/bind mismatch, so that path fails every time it is hit.
+
+## 2026-08-29 — Versioned suite-session rollout
+
+This release is consumer-first. Safeharbor must be live in compatibility mode
+before 8 West ID publishes its authorization inventory or requires a session
+version in the shared cookie.
+
+1. Back up the current release, server-only config, and database. Record hashes
+   and verify the backup can be read.
+2. Create `/srv/8west/apps/safeharbor/shared/suite-revocations` owned by the web
+   user with directory mode `0700`. Set the server-only suite config to:
+   `revocation_cache_path=/srv/8west/apps/safeharbor/shared/suite-revocations/snapshot-v3.json`
+   and `session_version_mode=compat`.
+3. Deploy this consumer release. Before the issuer change, prove a fresh suite
+   callback, an authenticated read, and a valid signed legacy feed. An
+   unavailable or invalid feed must create no tenant, user, role, or session.
+4. Deploy the 8 West ID release that adds the exact cookie version and signed
+   authorization inventory. Prove a fresh Safeharbor sign-in records the exact
+   version, then prove a version change requests fresh sign-in while an explicit
+   revocation retains the durable local cutoff.
+5. Change only `session_version_mode` to `strict`, restart the PHP service as
+   required, delete no cache as part of the change, and repeat the protected
+   signed-in read. Strict is the permanent setting; it rejects a legacy feed
+   even after cache loss or a rebuilt host.
+
+Rollback the issuer first while every consumer is still in `compat`. Once this
+host is `strict`, do not roll the issuer back to the revoked-only feed. Restore
+the paired known-good ID and consumer releases instead; never weaken `strict`
+as an outage workaround.

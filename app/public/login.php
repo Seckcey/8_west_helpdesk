@@ -3,21 +3,35 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/auth.php';
 enforce_https();
 
-if (current_user() || suite_sso_attempt()) {
+$reauthRequired = (string)($_GET['reauth'] ?? '') === '1';
+$user = current_user();
+if (! $user && ! $reauthRequired && suite_sso_attempt()) {
+    $user = current_user();
+}
+if ($user && ! $reauthRequired) {
     header('Location: /');
     exit;
 }
 
-$error = '';
+$error = $reauthRequired
+    ? 'Your 8 West ID access changed. Sign in there again to continue.'
+    : '';
 $email = 'frankie@8westit.com';
-$next = $_GET['next'] ?? '/';
-if (!str_starts_with((string)$next, '/')) $next = '/';
+$safeNext = static function (mixed $value): string {
+    if (! is_string($value)
+        || preg_match('/^\/(?![\/\\\\])/D', $value) !== 1
+        || preg_match('/[\x00-\x1F\x7F]/D', $value) === 1) {
+        return '/';
+    }
+
+    return $value;
+};
+$next = $safeNext($_GET['next'] ?? '/');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $email = trim((string)($_POST['email'] ?? ''));
-    $next  = (string)($_POST['next'] ?? '/');
-    if (!str_starts_with($next, '/')) $next = '/';
+    $next = $safeNext($_POST['next'] ?? '/');
     if (attempt_login($email, (string)($_POST['password'] ?? ''))) {
         header('Location: ' . $next);
         exit;
