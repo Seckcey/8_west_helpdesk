@@ -4823,28 +4823,29 @@ SET @cm_claim_checks_ok = (
              AND constraint_type='CHECK') = COUNT(*) + @cm_claim_install_lock_present
      AND COALESCE(SUM(
            live_constraint.constraint_name
-             <=> CONCAT('ck_cm_export_',SUBSTRING(canonical_constraint.constraint_name,6))
-       AND live_constraint.enforced <=> canonical_constraint.enforced
-       AND CAST(live_check.check_clause AS BINARY)
-             <=> CAST(canonical_check.check_clause AS BINARY)
+             <=> CONCAT('ck_cm_export_',SUBSTRING(expected.constraint_name,6))
+       AND live_constraint.enforced='YES'
+       AND CAST(REGEXP_REPLACE(
+             REPLACE(REPLACE(REPLACE(REPLACE(
+               live_check.check_clause,
+               CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
+               '`',''),'_utf8mb4',''),'_ascii',''),
+             '[[:space:]()]','') AS BINARY)
+             <=> CAST(REGEXP_REPLACE(expected.normalized_clause,
+                                    '[[:space:]()]','') AS BINARY)
      ),0) = COUNT(*)
-    FROM information_schema.table_constraints canonical_constraint
-    JOIN information_schema.check_constraints canonical_check
-      ON canonical_check.constraint_schema=canonical_constraint.constraint_schema
-     AND canonical_check.constraint_name=canonical_constraint.constraint_name
+    FROM safeharbor_m021_source_checks expected
     LEFT JOIN information_schema.table_constraints live_constraint
-      ON live_constraint.constraint_schema=canonical_constraint.constraint_schema
+      ON live_constraint.constraint_schema=DATABASE()
      AND live_constraint.table_name='coastmark_time_export_claims'
      AND live_constraint.constraint_name=
-           CONCAT('ck_cm_export_',SUBSTRING(canonical_constraint.constraint_name,6))
+           CONCAT('ck_cm_export_',SUBSTRING(expected.constraint_name,6))
      AND live_constraint.constraint_type='CHECK'
     LEFT JOIN information_schema.check_constraints live_check
       ON live_check.constraint_schema=live_constraint.constraint_schema
      AND live_check.constraint_name=live_constraint.constraint_name
-   WHERE canonical_constraint.constraint_schema=DATABASE()
-     AND canonical_constraint.table_name='safeharbor_m021_reference_claims'
-     AND canonical_constraint.constraint_type='CHECK'
-     AND canonical_constraint.constraint_name<>'rc21_claim_install_lock'
+   WHERE expected.table_name='safeharbor_m021_reference_claims'
+     AND expected.install_lock=0
 );
 SET @cm_receipt_checks_ok = (
   SELECT (SELECT COUNT(*) FROM information_schema.table_constraints
@@ -4853,28 +4854,29 @@ SET @cm_receipt_checks_ok = (
              AND constraint_type='CHECK') = COUNT(*) + @cm_receipt_install_lock_present
      AND COALESCE(SUM(
            live_constraint.constraint_name
-             <=> CONCAT('ck_cm_export_',SUBSTRING(canonical_constraint.constraint_name,6))
-       AND live_constraint.enforced <=> canonical_constraint.enforced
-       AND CAST(live_check.check_clause AS BINARY)
-             <=> CAST(canonical_check.check_clause AS BINARY)
+             <=> CONCAT('ck_cm_export_',SUBSTRING(expected.constraint_name,6))
+       AND live_constraint.enforced='YES'
+       AND CAST(REGEXP_REPLACE(
+             REPLACE(REPLACE(REPLACE(REPLACE(
+               live_check.check_clause,
+               CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
+               '`',''),'_utf8mb4',''),'_ascii',''),
+             '[[:space:]()]','') AS BINARY)
+             <=> CAST(REGEXP_REPLACE(expected.normalized_clause,
+                                    '[[:space:]()]','') AS BINARY)
      ),0) = COUNT(*)
-    FROM information_schema.table_constraints canonical_constraint
-    JOIN information_schema.check_constraints canonical_check
-      ON canonical_check.constraint_schema=canonical_constraint.constraint_schema
-     AND canonical_check.constraint_name=canonical_constraint.constraint_name
+    FROM safeharbor_m021_source_checks expected
     LEFT JOIN information_schema.table_constraints live_constraint
-      ON live_constraint.constraint_schema=canonical_constraint.constraint_schema
+      ON live_constraint.constraint_schema=DATABASE()
      AND live_constraint.table_name='coastmark_time_export_receipts'
      AND live_constraint.constraint_name=
-           CONCAT('ck_cm_export_',SUBSTRING(canonical_constraint.constraint_name,6))
+           CONCAT('ck_cm_export_',SUBSTRING(expected.constraint_name,6))
      AND live_constraint.constraint_type='CHECK'
     LEFT JOIN information_schema.check_constraints live_check
       ON live_check.constraint_schema=live_constraint.constraint_schema
      AND live_check.constraint_name=live_constraint.constraint_name
-   WHERE canonical_constraint.constraint_schema=DATABASE()
-     AND canonical_constraint.table_name='safeharbor_m021_reference_receipts'
-     AND canonical_constraint.constraint_type='CHECK'
-     AND canonical_constraint.constraint_name<>'rc21_receipt_install_lock'
+   WHERE expected.table_name='safeharbor_m021_reference_receipts'
+     AND expected.install_lock=0
 );
 
 DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_trigger_manifest;

@@ -675,44 +675,7 @@ try {
         cm_v3_guard_snapshot($pdo) === $caseDriftSnapshot);
     $pdo->exec('DROP TRIGGER trg_cm_export_claim_before_insert');
     $pdo->exec($canonicalClaimInsert);
-    try {
-        cm_v3_apply($pdo, $migration);
-    } catch (Throwable $repairFailure) {
-        $checkLifecycle = (string) $pdo->query("SELECT CONCAT(
-              'event=',COALESCE(SUM(canonical_constraint.constraint_name='rc21_claim_event_key'
-                AND CAST(live_check.check_clause AS BINARY)
-                    <=> CAST(canonical_check.check_clause AS BINARY)),0),
-              ',hash=',COALESCE(SUM(canonical_constraint.constraint_name='rc21_claim_hash'
-                AND CAST(live_check.check_clause AS BINARY)
-                    <=> CAST(canonical_check.check_clause AS BINARY)),0),
-              ',payload=',COALESCE(SUM(canonical_constraint.constraint_name='rc21_claim_payload'
-                AND CAST(live_check.check_clause AS BINARY)
-                    <=> CAST(canonical_check.check_clause AS BINARY)),0),
-              ',predecessor=',COALESCE(SUM(canonical_constraint.constraint_name='rc21_claim_predecessor_shape'
-                AND CAST(live_check.check_clause AS BINARY)
-                    <=> CAST(canonical_check.check_clause AS BINARY)),0))
-            FROM information_schema.table_constraints canonical_constraint
-            JOIN information_schema.check_constraints canonical_check
-              ON canonical_check.constraint_schema=canonical_constraint.constraint_schema
-             AND canonical_check.constraint_name=canonical_constraint.constraint_name
-            LEFT JOIN information_schema.table_constraints live_constraint
-              ON live_constraint.constraint_schema=canonical_constraint.constraint_schema
-             AND live_constraint.table_name='coastmark_time_export_claims'
-             AND live_constraint.constraint_name=CONCAT(
-                   'ck_cm_export_',SUBSTRING(canonical_constraint.constraint_name,6))
-             AND live_constraint.constraint_type='CHECK'
-            LEFT JOIN information_schema.check_constraints live_check
-              ON live_check.constraint_schema=live_constraint.constraint_schema
-             AND live_check.constraint_name=live_constraint.constraint_name
-           WHERE canonical_constraint.constraint_schema=DATABASE()
-             AND canonical_constraint.table_name='safeharbor_m021_reference_claims'
-             AND canonical_constraint.constraint_type='CHECK'")->fetchColumn();
-        throw new RuntimeException(
-            'Trusted claim-check lifecycle booleans after exact trigger repair: ' . $checkLifecycle,
-            0,
-            $repairFailure,
-        );
-    }
+    cm_v3_apply($pdo, $migration);
     cm_v3_check('exact body repair recovers from the case-only drift refusal',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
 

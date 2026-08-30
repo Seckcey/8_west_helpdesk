@@ -696,7 +696,7 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, 'migration_021_refcheck_claim_event_key_failed')
     && str_contains($migrationOperational, 'migration_021_refcheck_receipt_operation_key_failed')
     && str_contains($migrationOperational, '@cm_reference_source_check_definition_failure')
-    && substr_count($migrationOperational, 'CONCAT(CHAR(92),CHAR(39))') === 3
+    && substr_count($migrationOperational, 'CONCAT(CHAR(92),CHAR(39))') === 5
     && !str_contains($migrationOperational, "live_check.check_clause,CHAR(92),''")
     && str_contains($migrationOperational, '@cm_reference_source_required_check_failure')
     && str_contains($migrationOperational, '@cm_reference_source_claim_install_lock_count')
@@ -708,7 +708,7 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, '@cm_reference_claim_source_shape_ok')
     && str_contains($migrationOperational, '@cm_reference_claim_disposable')
     && !str_contains($migrationOperational, 'LOWER(live_check.check_clause)')
-    && substr_count($migrationOperational, 'REGEXP_REPLACE(expected.normalized_clause') === 3
+    && substr_count($migrationOperational, 'REGEXP_REPLACE(expected.normalized_clause') === 5
     && substr_count($migrationOperational, 'DROP TRIGGER IF EXISTS trg_cm_ref_021_') === 12
     && substr_count($migrationOperational, 'CREATE TRIGGER trg_cm_ref_021_') === 12
     && !str_contains($migrationOperational, 'CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_')
