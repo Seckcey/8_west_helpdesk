@@ -169,6 +169,229 @@ CREATE TABLE safeharbor_m021_reference_receipts (
   CONSTRAINT rc21_receipt_install_lock CHECK (0 = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Build the exact trigger answer key on migration-owned reference tables.
+-- MySQL serializes both the reference and live bodies on this same server;
+-- binary ACTION_STATEMENT hashes therefore preserve every quoted byte
+-- without depending on formatting differences between MySQL versions.
+DELIMITER $$
+CREATE TRIGGER trg_cm_ref_021_claim_insert_swap
+BEFORE INSERT ON safeharbor_m021_reference_claims FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
+END$$
+CREATE TRIGGER trg_cm_ref_021_claim_update_swap
+BEFORE UPDATE ON safeharbor_m021_reference_claims FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
+END$$
+CREATE TRIGGER trg_cm_ref_021_claim_delete_swap
+BEFORE DELETE ON safeharbor_m021_reference_claims FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
+END$$
+CREATE TRIGGER trg_cm_ref_021_receipt_insert_swap
+BEFORE INSERT ON safeharbor_m021_reference_receipts FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
+END$$
+CREATE TRIGGER trg_cm_ref_021_receipt_update_swap
+BEFORE UPDATE ON safeharbor_m021_reference_receipts FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
+END$$
+CREATE TRIGGER trg_cm_ref_021_receipt_delete_swap
+BEFORE DELETE ON safeharbor_m021_reference_receipts FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
+END$$
+CREATE TRIGGER trg_cm_ref_021_claim_before_insert
+BEFORE INSERT ON safeharbor_m021_reference_claims
+FOR EACH ROW
+BEGIN
+  DECLARE tenant_found INT DEFAULT 0;
+  DECLARE parent_found INT DEFAULT 0;
+  DECLARE parent_status VARCHAR(16) DEFAULT NULL;
+  DECLARE parent_billable TINYINT DEFAULT NULL;
+  DECLARE parent_reviewer INT UNSIGNED DEFAULT NULL;
+  DECLARE parent_reviewed DATETIME DEFAULT NULL;
+  DECLARE parent_client_id INT UNSIGNED DEFAULT NULL;
+  DECLARE binding_found INT DEFAULT 0;
+  DECLARE binding_customer_id CHAR(36) DEFAULT NULL;
+  DECLARE binding_status VARCHAR(16) DEFAULT NULL;
+  DECLARE payload_client_key VARCHAR(128) DEFAULT NULL;
+  DECLARE actor_found INT DEFAULT 0;
+  DECLARE actor_role VARCHAR(32) DEFAULT NULL;
+  DECLARE actor_active TINYINT DEFAULT NULL;
+  DECLARE latest_version INT DEFAULT -1;
+  DECLARE latest_claim_id BIGINT UNSIGNED DEFAULT NULL;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET tenant_found = 0;
+    SELECT 1 INTO tenant_found FROM tenants WHERE id=NEW.tenant_id FOR UPDATE;
+  END;
+  IF tenant_found <> 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export claim tenant does not exist';
+  END IF;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET parent_found = 0;
+    SELECT 1,approval_status,billable,reviewed_by_user_id,reviewed_at,client_id
+      INTO parent_found,parent_status,parent_billable,parent_reviewer,parent_reviewed,
+           parent_client_id
+      FROM time_entries
+     WHERE tenant_id=NEW.tenant_id AND id=NEW.time_entry_id
+     FOR UPDATE;
+  END;
+  IF parent_found <> 1 OR BINARY parent_status <> BINARY 'approved' OR parent_billable <> 1
+     OR parent_reviewer IS NULL OR parent_reviewed IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export claims require approved billable reviewed time';
+  END IF;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND
+      BEGIN
+        SET binding_found=0;
+        SET binding_customer_id=NULL;
+        SET binding_status=NULL;
+      END;
+    SELECT 1,customer_id,status
+      INTO binding_found,binding_customer_id,binding_status
+      FROM suite_customer_sync_bindings
+     WHERE tenant_id=NEW.tenant_id AND client_id=parent_client_id
+     FOR UPDATE;
+  END;
+  SET payload_client_key=JSON_UNQUOTE(JSON_EXTRACT(NEW.payload_json,'$.client_key'));
+  IF binding_found <> 1 OR BINARY binding_status <> BINARY 'active'
+     OR NOT (BINARY payload_client_key <=>
+             BINARY CONCAT('milepost-customer:',binding_customer_id)) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Export claims require an active matching customer binding';
+  END IF;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET actor_found = 0;
+    SELECT 1,role,is_active INTO actor_found,actor_role,actor_active
+      FROM users
+     WHERE tenant_id=NEW.tenant_id AND id=NEW.created_by_user_id
+     FOR UPDATE;
+  END;
+  IF actor_found <> 1 OR actor_active <> 1
+     OR (BINARY actor_role <> BINARY 'owner'
+         AND BINARY actor_role <> BINARY 'admin') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export claim actor is not authorized';
+  END IF;
+
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND
+      BEGIN SET latest_version=-1; SET latest_claim_id=NULL; END;
+    SELECT source_version,id INTO latest_version,latest_claim_id
+      FROM coastmark_time_export_claims
+     WHERE tenant_id=NEW.tenant_id AND time_entry_id=NEW.time_entry_id
+     ORDER BY source_version DESC LIMIT 1;
+  END;
+  IF NEW.source_version <> latest_version + 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export claim does not follow current source version';
+  END IF;
+  IF NOT (NEW.predecessor_claim_id <=> latest_claim_id) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export claim predecessor is not current';
+  END IF;
+  SET NEW.created_at=UTC_TIMESTAMP();
+END$$
+CREATE TRIGGER trg_cm_ref_021_claim_no_update
+BEFORE UPDATE ON safeharbor_m021_reference_claims FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export claims are immutable';
+END$$
+CREATE TRIGGER trg_cm_ref_021_claim_no_delete
+BEFORE DELETE ON safeharbor_m021_reference_claims FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export claims cannot be deleted';
+END$$
+CREATE TRIGGER trg_cm_ref_021_receipt_before_insert
+BEFORE INSERT ON safeharbor_m021_reference_receipts
+FOR EACH ROW
+BEGIN
+  DECLARE tenant_found INT DEFAULT 0;
+  DECLARE claim_found INT DEFAULT 0;
+  DECLARE latest_found INT DEFAULT 0;
+  DECLARE latest_kind VARCHAR(32) DEFAULT NULL;
+  DECLARE latest_outcome VARCHAR(32) DEFAULT NULL;
+  DECLARE latest_created DATETIME DEFAULT NULL;
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET tenant_found=0;
+    SELECT 1 INTO tenant_found FROM tenants WHERE id=NEW.tenant_id FOR UPDATE;
+  END;
+  IF tenant_found <> 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export receipt tenant does not exist';
+  END IF;
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET claim_found=0;
+    SELECT 1 INTO claim_found
+      FROM coastmark_time_export_claims
+     WHERE tenant_id=NEW.tenant_id AND id=NEW.claim_id
+     FOR UPDATE;
+  END;
+  IF claim_found <> 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export receipt claim does not exist';
+  END IF;
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND
+      BEGIN
+        SET latest_found=0;
+        SET latest_kind=NULL;
+        SET latest_outcome=NULL;
+        SET latest_created=NULL;
+      END;
+    SELECT 1,operation_kind,outcome,created_at
+      INTO latest_found,latest_kind,latest_outcome,latest_created
+      FROM coastmark_time_export_receipts
+     WHERE tenant_id=NEW.tenant_id AND claim_id=NEW.claim_id
+     ORDER BY id DESC LIMIT 1;
+  END;
+  IF NEW.operation_kind = 'dispatch_started' THEN
+    IF NEW.outcome <> 'dispatching'
+       OR (latest_found=1 AND latest_outcome <> 'absent') THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export dispatch transition is not permitted';
+    END IF;
+  ELSEIF NEW.operation_kind = 'status_started' THEN
+    IF NEW.outcome <> 'checking'
+       OR NOT (IS_USED_LOCK(CONCAT('safeharbor:cm-status:',NEW.claim_id))
+               <=> CONNECTION_ID())
+       OR (latest_found=1 AND latest_outcome IN
+           ('accepted','replayed','manual_exception','conflict'))
+       OR (latest_found=1
+           AND latest_outcome IN ('dispatching','checking')
+           AND latest_created > DATE_SUB(UTC_TIMESTAMP(),INTERVAL 35 SECOND)) THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export status transition is not permitted';
+    END IF;
+  ELSEIF NEW.operation_kind = 'dispatch_result' THEN
+    IF latest_found<>1 OR latest_kind <> 'dispatch_started' OR latest_outcome <> 'dispatching'
+       OR NEW.outcome NOT IN ('accepted','replayed','ambiguous','conflict','manual_exception') THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export dispatch result transition is not permitted';
+    END IF;
+  ELSEIF NEW.operation_kind = 'status_result' THEN
+    IF latest_found<>1 OR latest_kind <> 'status_started' OR latest_outcome <> 'checking'
+       OR NEW.outcome NOT IN ('accepted','replayed','absent','ambiguous','conflict','manual_exception') THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export status result transition is not permitted';
+    END IF;
+  ELSE
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Export receipt operation is not permitted';
+  END IF;
+  SET NEW.created_at=UTC_TIMESTAMP();
+END$$
+CREATE TRIGGER trg_cm_ref_021_receipt_no_update
+BEFORE UPDATE ON safeharbor_m021_reference_receipts FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export receipts are immutable';
+END$$
+CREATE TRIGGER trg_cm_ref_021_receipt_no_delete
+BEFORE DELETE ON safeharbor_m021_reference_receipts FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export receipts cannot be deleted';
+END$$
+DELIMITER ;
+
+
 SET @cm_claim_table_ok = (
   SELECT COUNT(*) = 2
      AND COUNT(DISTINCT engine) = 1
@@ -516,90 +739,119 @@ SET @cm_receipt_checks_ok = (
 
 DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_trigger_manifest;
 CREATE TEMPORARY TABLE safeharbor_m021_trigger_manifest (
+  trigger_name          VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reference_trigger_name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  guard_kind            VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  event_object_table    VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reference_object_table VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  event_manipulation    VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action_sha256         CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  PRIMARY KEY (trigger_name),
+  UNIQUE KEY uq_m021_reference_trigger (reference_trigger_name)
+) ENGINE=MEMORY;
+INSERT INTO safeharbor_m021_trigger_manifest
+  (trigger_name,reference_trigger_name,guard_kind,event_object_table,
+   reference_object_table,event_manipulation)
+VALUES
+  ('trg_cm_claim_021_insert_swap','trg_cm_ref_021_claim_insert_swap','swap',
+   'coastmark_time_export_claims','safeharbor_m021_reference_claims','INSERT'),
+  ('trg_cm_claim_021_update_swap','trg_cm_ref_021_claim_update_swap','swap',
+   'coastmark_time_export_claims','safeharbor_m021_reference_claims','UPDATE'),
+  ('trg_cm_claim_021_delete_swap','trg_cm_ref_021_claim_delete_swap','swap',
+   'coastmark_time_export_claims','safeharbor_m021_reference_claims','DELETE'),
+  ('trg_cm_receipt_021_insert_swap','trg_cm_ref_021_receipt_insert_swap','swap',
+   'coastmark_time_export_receipts','safeharbor_m021_reference_receipts','INSERT'),
+  ('trg_cm_receipt_021_update_swap','trg_cm_ref_021_receipt_update_swap','swap',
+   'coastmark_time_export_receipts','safeharbor_m021_reference_receipts','UPDATE'),
+  ('trg_cm_receipt_021_delete_swap','trg_cm_ref_021_receipt_delete_swap','swap',
+   'coastmark_time_export_receipts','safeharbor_m021_reference_receipts','DELETE'),
+  ('trg_cm_export_claim_before_insert','trg_cm_ref_021_claim_before_insert','permanent',
+   'coastmark_time_export_claims','safeharbor_m021_reference_claims','INSERT'),
+  ('trg_cm_export_claim_no_update','trg_cm_ref_021_claim_no_update','permanent',
+   'coastmark_time_export_claims','safeharbor_m021_reference_claims','UPDATE'),
+  ('trg_cm_export_claim_no_delete','trg_cm_ref_021_claim_no_delete','permanent',
+   'coastmark_time_export_claims','safeharbor_m021_reference_claims','DELETE'),
+  ('trg_cm_export_receipt_before_insert','trg_cm_ref_021_receipt_before_insert','permanent',
+   'coastmark_time_export_receipts','safeharbor_m021_reference_receipts','INSERT'),
+  ('trg_cm_export_receipt_no_update','trg_cm_ref_021_receipt_no_update','permanent',
+   'coastmark_time_export_receipts','safeharbor_m021_reference_receipts','UPDATE'),
+  ('trg_cm_export_receipt_no_delete','trg_cm_ref_021_receipt_no_delete','permanent',
+   'coastmark_time_export_receipts','safeharbor_m021_reference_receipts','DELETE');
+
+UPDATE safeharbor_m021_trigger_manifest expected
+JOIN information_schema.triggers reference
+  ON reference.trigger_schema=DATABASE()
+ AND CAST(reference.trigger_name AS BINARY)=CAST(expected.reference_trigger_name AS BINARY)
+SET expected.action_sha256=SHA2(CAST(reference.action_statement AS BINARY),256)
+WHERE reference.action_timing='BEFORE'
+  AND reference.action_orientation='ROW'
+  AND reference.action_condition IS NULL
+  AND CAST(reference.event_object_table AS BINARY)=CAST(expected.reference_object_table AS BINARY)
+  AND CAST(reference.event_manipulation AS BINARY)=CAST(expected.event_manipulation AS BINARY);
+
+SET @cm_reference_triggers_ok = (
+  SELECT COUNT(*)=12 AND COUNT(action_sha256)=12
+    FROM safeharbor_m021_trigger_manifest
+);
+
+DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_validated_triggers;
+CREATE TEMPORARY TABLE safeharbor_m021_validated_triggers (
   trigger_name       VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   guard_kind         VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   event_object_table VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   event_manipulation VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  action_sha256      CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   PRIMARY KEY (trigger_name)
 ) ENGINE=MEMORY;
-INSERT INTO safeharbor_m021_trigger_manifest
-  (trigger_name,guard_kind,event_object_table,event_manipulation,action_sha256)
-VALUES
-  ('trg_cm_claim_021_insert_swap','swap','coastmark_time_export_claims','INSERT',
-   '771f82e83a8f9798b7bdcff7dad368d19fd4d9fd8423d297ce1ee5349b891960'),
-  ('trg_cm_claim_021_update_swap','swap','coastmark_time_export_claims','UPDATE',
-   '771f82e83a8f9798b7bdcff7dad368d19fd4d9fd8423d297ce1ee5349b891960'),
-  ('trg_cm_claim_021_delete_swap','swap','coastmark_time_export_claims','DELETE',
-   '771f82e83a8f9798b7bdcff7dad368d19fd4d9fd8423d297ce1ee5349b891960'),
-  ('trg_cm_receipt_021_insert_swap','swap','coastmark_time_export_receipts','INSERT',
-   'c02699492864023cf38744261d28a4289b7fe108132811fedb74ea19e346dc77'),
-  ('trg_cm_receipt_021_update_swap','swap','coastmark_time_export_receipts','UPDATE',
-   'c02699492864023cf38744261d28a4289b7fe108132811fedb74ea19e346dc77'),
-  ('trg_cm_receipt_021_delete_swap','swap','coastmark_time_export_receipts','DELETE',
-   'c02699492864023cf38744261d28a4289b7fe108132811fedb74ea19e346dc77'),
-  ('trg_cm_export_claim_before_insert','permanent','coastmark_time_export_claims','INSERT',
-   'b85037f0cd62efd9818a75dfb560a835b0750e0f64bd8de22e58220153532f0b'),
-  ('trg_cm_export_claim_no_update','permanent','coastmark_time_export_claims','UPDATE',
-   'e92501875314cc34e52c99d8b9b4f1fa65def4284b57446671439c70e21c652f'),
-  ('trg_cm_export_claim_no_delete','permanent','coastmark_time_export_claims','DELETE',
-   '41ddc492f29424d957e011195914afef774902c4e601247d536d2d50510e2f68'),
-  ('trg_cm_export_receipt_before_insert','permanent','coastmark_time_export_receipts','INSERT',
-   'ebc2332991ab471edba54017bb86ea889cddf33659dc56879d2cee63b8f4549a'),
-  ('trg_cm_export_receipt_no_update','permanent','coastmark_time_export_receipts','UPDATE',
-   'f102251a23b13f5d11306afbce62d6ce7e33a57899cf555841b48ae1bfce5862'),
-  ('trg_cm_export_receipt_no_delete','permanent','coastmark_time_export_receipts','DELETE',
-   'cab0fd81313682ad6a8ebbfb160b895c9f770883931126194fff174dd10b64a8');
+INSERT INTO safeharbor_m021_validated_triggers
+  (trigger_name,guard_kind,event_object_table,event_manipulation)
+SELECT expected.trigger_name,expected.guard_kind,expected.event_object_table,
+       expected.event_manipulation
+  FROM safeharbor_m021_trigger_manifest expected
+  JOIN information_schema.triggers live
+    ON live.trigger_schema=DATABASE()
+   AND CAST(live.trigger_name AS BINARY)=CAST(expected.trigger_name AS BINARY)
+ WHERE live.action_timing='BEFORE'
+   AND live.action_orientation='ROW'
+   AND live.action_condition IS NULL
+   AND CAST(live.event_object_table AS BINARY)=CAST(expected.event_object_table AS BINARY)
+   AND CAST(live.event_manipulation AS BINARY)=CAST(expected.event_manipulation AS BINARY)
+   AND SHA2(CAST(live.action_statement AS BINARY),256)=expected.action_sha256;
+
+SET @cm_validated_trigger_count =
+  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers);
 
 SET @cm_initial_trigger_set_ok = (
-  SELECT COALESCE(SUM(
-           expected.trigger_name IS NOT NULL
-       AND live.action_timing='BEFORE'
-       AND live.action_orientation='ROW'
-       AND live.action_condition IS NULL
-       AND live.event_object_table=expected.event_object_table
-       AND live.event_manipulation=expected.event_manipulation
-       AND SHA2(LOWER(REGEXP_REPLACE(REPLACE(live.action_statement,'`',''),
-                                    '[[:space:]]+','')),256)=expected.action_sha256
-     ),0)=COUNT(*)
+  SELECT COUNT(*)=@cm_validated_trigger_count
     FROM information_schema.triggers live
-    LEFT JOIN safeharbor_m021_trigger_manifest expected
-      ON expected.trigger_name=live.trigger_name
    WHERE live.trigger_schema=DATABASE()
-     AND live.event_object_table IN
-         ('coastmark_time_export_claims','coastmark_time_export_receipts')
+     AND (live.event_object_table IN
+             ('coastmark_time_export_claims','coastmark_time_export_receipts')
+          OR EXISTS (
+               SELECT 1 FROM safeharbor_m021_trigger_manifest reserved
+                WHERE LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+          ))
 );
 SET @cm_initial_guard_coverage_ok = (
-     (@cm_claim_install_lock_present=1 OR
-      (SELECT COUNT(*) FROM information_schema.triggers
-        WHERE trigger_schema=DATABASE()
-          AND trigger_name IN ('trg_cm_export_claim_before_insert',
-                               'trg_cm_claim_021_insert_swap')) > 0)
- AND (@cm_claim_install_lock_present=1 OR
-      (SELECT COUNT(*) FROM information_schema.triggers
-        WHERE trigger_schema=DATABASE()
-          AND trigger_name IN ('trg_cm_export_claim_no_update',
-                               'trg_cm_claim_021_update_swap')) > 0)
- AND (@cm_claim_install_lock_present=1 OR
-      (SELECT COUNT(*) FROM information_schema.triggers
-        WHERE trigger_schema=DATABASE()
-          AND trigger_name IN ('trg_cm_export_claim_no_delete',
-                               'trg_cm_claim_021_delete_swap')) > 0)
- AND (@cm_receipt_install_lock_present=1 OR
-      (SELECT COUNT(*) FROM information_schema.triggers
-        WHERE trigger_schema=DATABASE()
-          AND trigger_name IN ('trg_cm_export_receipt_before_insert',
-                               'trg_cm_receipt_021_insert_swap')) > 0)
- AND (@cm_receipt_install_lock_present=1 OR
-      (SELECT COUNT(*) FROM information_schema.triggers
-        WHERE trigger_schema=DATABASE()
-          AND trigger_name IN ('trg_cm_export_receipt_no_update',
-                               'trg_cm_receipt_021_update_swap')) > 0)
- AND (@cm_receipt_install_lock_present=1 OR
-      (SELECT COUNT(*) FROM information_schema.triggers
-        WHERE trigger_schema=DATABASE()
-          AND trigger_name IN ('trg_cm_export_receipt_no_delete',
-                               'trg_cm_receipt_021_delete_swap')) > 0)
+  SELECT
+       (@cm_claim_install_lock_present=1 OR
+        COALESCE(SUM(trigger_name IN ('trg_cm_export_claim_before_insert',
+                                     'trg_cm_claim_021_insert_swap')),0)>0)
+   AND (@cm_claim_install_lock_present=1 OR
+        COALESCE(SUM(trigger_name IN ('trg_cm_export_claim_no_update',
+                                     'trg_cm_claim_021_update_swap')),0)>0)
+   AND (@cm_claim_install_lock_present=1 OR
+        COALESCE(SUM(trigger_name IN ('trg_cm_export_claim_no_delete',
+                                     'trg_cm_claim_021_delete_swap')),0)>0)
+   AND (@cm_receipt_install_lock_present=1 OR
+        COALESCE(SUM(trigger_name IN ('trg_cm_export_receipt_before_insert',
+                                     'trg_cm_receipt_021_insert_swap')),0)>0)
+   AND (@cm_receipt_install_lock_present=1 OR
+        COALESCE(SUM(trigger_name IN ('trg_cm_export_receipt_no_update',
+                                     'trg_cm_receipt_021_update_swap')),0)>0)
+   AND (@cm_receipt_install_lock_present=1 OR
+        COALESCE(SUM(trigger_name IN ('trg_cm_export_receipt_no_delete',
+                                     'trg_cm_receipt_021_delete_swap')),0)>0)
+    FROM safeharbor_m021_validated_triggers
 );
 SET @cm_export_preflight_failure = CASE
   WHEN NOT (@cm_claim_table_ok <=> 1) THEN 'migration_021_claim_table_failed'
@@ -612,6 +864,7 @@ SET @cm_export_preflight_failure = CASE
   WHEN NOT (@cm_receipt_fks_ok <=> 1) THEN 'migration_021_receipt_fks_failed'
   WHEN NOT (@cm_claim_checks_ok <=> 1) THEN 'migration_021_claim_checks_failed'
   WHEN NOT (@cm_receipt_checks_ok <=> 1) THEN 'migration_021_receipt_checks_failed'
+  WHEN NOT (@cm_reference_triggers_ok <=> 1) THEN 'migration_021_reference_triggers_failed'
   WHEN NOT (@cm_initial_trigger_set_ok <=> 1) THEN 'migration_021_initial_triggers_failed'
   WHEN NOT (@cm_initial_guard_coverage_ok <=> 1) THEN 'migration_021_guard_coverage_failed'
   ELSE NULL
@@ -662,42 +915,39 @@ BEGIN
 END$$
 DELIMITER ;
 
+DELETE FROM safeharbor_m021_validated_triggers;
+INSERT INTO safeharbor_m021_validated_triggers
+  (trigger_name,guard_kind,event_object_table,event_manipulation)
+SELECT expected.trigger_name,expected.guard_kind,expected.event_object_table,
+       expected.event_manipulation
+  FROM safeharbor_m021_trigger_manifest expected
+  JOIN information_schema.triggers live
+    ON live.trigger_schema=DATABASE()
+   AND CAST(live.trigger_name AS BINARY)=CAST(expected.trigger_name AS BINARY)
+ WHERE live.action_timing='BEFORE'
+   AND live.action_orientation='ROW'
+   AND live.action_condition IS NULL
+   AND CAST(live.event_object_table AS BINARY)=CAST(expected.event_object_table AS BINARY)
+   AND CAST(live.event_manipulation AS BINARY)=CAST(expected.event_manipulation AS BINARY)
+   AND SHA2(CAST(live.action_statement AS BINARY),256)=expected.action_sha256;
+
+SET @cm_validated_trigger_count =
+  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers);
+SET @cm_validated_swap_count =
+  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers WHERE guard_kind='swap');
+
 SET @cm_after_swap_trigger_set_ok = (
-  SELECT COALESCE(SUM(
-           expected.trigger_name IS NOT NULL
-       AND live.action_timing='BEFORE'
-       AND live.action_orientation='ROW'
-       AND live.action_condition IS NULL
-       AND live.event_object_table=expected.event_object_table
-       AND live.event_manipulation=expected.event_manipulation
-       AND SHA2(LOWER(REGEXP_REPLACE(REPLACE(live.action_statement,'`',''),
-                                    '[[:space:]]+','')),256)=expected.action_sha256
-     ),0)=COUNT(*)
+  SELECT COUNT(*)=@cm_validated_trigger_count
     FROM information_schema.triggers live
-    LEFT JOIN safeharbor_m021_trigger_manifest expected
-      ON expected.trigger_name=live.trigger_name
    WHERE live.trigger_schema=DATABASE()
-     AND live.event_object_table IN
-         ('coastmark_time_export_claims','coastmark_time_export_receipts')
+     AND (live.event_object_table IN
+             ('coastmark_time_export_claims','coastmark_time_export_receipts')
+          OR EXISTS (
+               SELECT 1 FROM safeharbor_m021_trigger_manifest reserved
+                WHERE LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+          ))
 );
-SET @cm_swaps_ready = (
-  SELECT COUNT(*)=6
-     AND COALESCE(SUM(
-           live.trigger_name IS NOT NULL
-       AND live.action_timing='BEFORE'
-       AND live.action_orientation='ROW'
-       AND live.action_condition IS NULL
-       AND live.event_object_table=expected.event_object_table
-       AND live.event_manipulation=expected.event_manipulation
-       AND SHA2(LOWER(REGEXP_REPLACE(REPLACE(live.action_statement,'`',''),
-                                    '[[:space:]]+','')),256)=expected.action_sha256
-     ),0)=6
-    FROM safeharbor_m021_trigger_manifest expected
-    LEFT JOIN information_schema.triggers live
-      ON live.trigger_schema=DATABASE()
-     AND live.trigger_name=expected.trigger_name
-   WHERE expected.guard_kind='swap'
-);
+SET @cm_swaps_ready = (@cm_validated_swap_count=6);
 SET @cm_swap_precondition_sql=IF(
   @cm_after_swap_trigger_set_ok=1 AND @cm_swaps_ready=1,
   'DO 0',
@@ -904,42 +1154,39 @@ BEGIN
 END$$
 DELIMITER ;
 
-SET @cm_permanent_guards_ok = (
-  SELECT COUNT(*)=6
-     AND COALESCE(SUM(
-           live.trigger_name IS NOT NULL
-       AND live.action_timing='BEFORE'
-       AND live.action_orientation='ROW'
-       AND live.action_condition IS NULL
-       AND live.event_object_table=expected.event_object_table
-       AND live.event_manipulation=expected.event_manipulation
-       AND SHA2(LOWER(REGEXP_REPLACE(REPLACE(live.action_statement,'`',''),
-                                    '[[:space:]]+','')),256)=expected.action_sha256
-     ),0)=6
-    FROM safeharbor_m021_trigger_manifest expected
-    LEFT JOIN information_schema.triggers live
-      ON live.trigger_schema=DATABASE()
-     AND live.trigger_name=expected.trigger_name
-   WHERE expected.guard_kind='permanent'
-);
+DELETE FROM safeharbor_m021_validated_triggers;
+INSERT INTO safeharbor_m021_validated_triggers
+  (trigger_name,guard_kind,event_object_table,event_manipulation)
+SELECT expected.trigger_name,expected.guard_kind,expected.event_object_table,
+       expected.event_manipulation
+  FROM safeharbor_m021_trigger_manifest expected
+  JOIN information_schema.triggers live
+    ON live.trigger_schema=DATABASE()
+   AND CAST(live.trigger_name AS BINARY)=CAST(expected.trigger_name AS BINARY)
+ WHERE live.action_timing='BEFORE'
+   AND live.action_orientation='ROW'
+   AND live.action_condition IS NULL
+   AND CAST(live.event_object_table AS BINARY)=CAST(expected.event_object_table AS BINARY)
+   AND CAST(live.event_manipulation AS BINARY)=CAST(expected.event_manipulation AS BINARY)
+   AND SHA2(CAST(live.action_statement AS BINARY),256)=expected.action_sha256;
+
+SET @cm_validated_trigger_count =
+  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers);
+SET @cm_validated_permanent_count =
+  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers WHERE guard_kind='permanent');
+
+SET @cm_permanent_guards_ok = (@cm_validated_permanent_count=6);
 SET @cm_all_guard_triggers_ok = (
   SELECT COUNT(*)=12
-     AND COALESCE(SUM(
-           expected.trigger_name IS NOT NULL
-       AND live.action_timing='BEFORE'
-       AND live.action_orientation='ROW'
-       AND live.action_condition IS NULL
-       AND live.event_object_table=expected.event_object_table
-       AND live.event_manipulation=expected.event_manipulation
-       AND SHA2(LOWER(REGEXP_REPLACE(REPLACE(live.action_statement,'`',''),
-                                    '[[:space:]]+','')),256)=expected.action_sha256
-     ),0)=12
+     AND COUNT(*)=@cm_validated_trigger_count
     FROM information_schema.triggers live
-    LEFT JOIN safeharbor_m021_trigger_manifest expected
-      ON expected.trigger_name=live.trigger_name
    WHERE live.trigger_schema=DATABASE()
-     AND live.event_object_table IN
-         ('coastmark_time_export_claims','coastmark_time_export_receipts')
+     AND (live.event_object_table IN
+             ('coastmark_time_export_claims','coastmark_time_export_receipts')
+          OR EXISTS (
+               SELECT 1 FROM safeharbor_m021_trigger_manifest reserved
+                WHERE LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+          ))
 );
 SET @cm_guard_removal_precondition_sql=IF(
   @cm_swaps_ready=1 AND @cm_permanent_guards_ok=1 AND @cm_all_guard_triggers_ok=1,
@@ -975,25 +1222,39 @@ PREPARE cm_export_statement FROM @cm_receipt_lock_ddl;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
+DELETE FROM safeharbor_m021_validated_triggers;
+INSERT INTO safeharbor_m021_validated_triggers
+  (trigger_name,guard_kind,event_object_table,event_manipulation)
+SELECT expected.trigger_name,expected.guard_kind,expected.event_object_table,
+       expected.event_manipulation
+  FROM safeharbor_m021_trigger_manifest expected
+  JOIN information_schema.triggers live
+    ON live.trigger_schema=DATABASE()
+   AND CAST(live.trigger_name AS BINARY)=CAST(expected.trigger_name AS BINARY)
+ WHERE live.action_timing='BEFORE'
+   AND live.action_orientation='ROW'
+   AND live.action_condition IS NULL
+   AND CAST(live.event_object_table AS BINARY)=CAST(expected.event_object_table AS BINARY)
+   AND CAST(live.event_manipulation AS BINARY)=CAST(expected.event_manipulation AS BINARY)
+   AND SHA2(CAST(live.action_statement AS BINARY),256)=expected.action_sha256;
+
+SET @cm_validated_trigger_count =
+  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers);
+SET @cm_validated_permanent_count =
+  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers WHERE guard_kind='permanent');
+
 SET @cm_export_final_guards_ok = (
   SELECT COUNT(*)=6
-     AND COALESCE(SUM(
-           expected.trigger_name IS NOT NULL
-       AND expected.guard_kind='permanent'
-       AND live.action_timing='BEFORE'
-       AND live.action_orientation='ROW'
-       AND live.action_condition IS NULL
-       AND live.event_object_table=expected.event_object_table
-       AND live.event_manipulation=expected.event_manipulation
-       AND SHA2(LOWER(REGEXP_REPLACE(REPLACE(live.action_statement,'`',''),
-                                    '[[:space:]]+','')),256)=expected.action_sha256
-     ),0)=6
+     AND COUNT(*)=@cm_validated_trigger_count
+     AND @cm_validated_permanent_count=6
     FROM information_schema.triggers live
-    LEFT JOIN safeharbor_m021_trigger_manifest expected
-      ON expected.trigger_name=live.trigger_name
    WHERE live.trigger_schema=DATABASE()
-     AND live.event_object_table IN
-         ('coastmark_time_export_claims','coastmark_time_export_receipts')
+     AND (live.event_object_table IN
+             ('coastmark_time_export_claims','coastmark_time_export_receipts')
+          OR EXISTS (
+               SELECT 1 FROM safeharbor_m021_trigger_manifest reserved
+                WHERE LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+          ))
 );
 SET @cm_export_install_locks_gone = (
   SELECT COUNT(*) = 0
@@ -1011,6 +1272,7 @@ PREPARE cm_export_statement FROM @cm_export_final_sql;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
+DROP TEMPORARY TABLE safeharbor_m021_validated_triggers;
 DROP TEMPORARY TABLE safeharbor_m021_trigger_manifest;
 
 -- Migration-only postflight result; canonical schema stops before this marker.

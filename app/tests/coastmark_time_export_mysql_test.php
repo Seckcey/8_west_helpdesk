@@ -163,6 +163,22 @@ function cm_v3_install_swap_guards(PDO $pdo, string $path): void
     }
     if ($installed !== 6) throw new RuntimeException('Did not find all six migration swap guards.');
 }
+function cm_v3_trigger_statement(string $path, string $triggerName): string
+{
+    $sql = file_get_contents($path);
+    if (!is_string($sql)) throw new RuntimeException('Cannot read migration.');
+    foreach (cm_v3_statements($sql) as $statement) {
+        $plain = preg_replace('/\A(?:\s*--[^\n]*(?:\n|\z))+/', '', $statement) ?? $statement;
+        if (preg_match(
+            '/^\s*CREATE\s+TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+'
+                . preg_quote($triggerName, '/') . '\b/i',
+            $plain,
+        ) === 1) {
+            return $statement;
+        }
+    }
+    throw new RuntimeException('Canonical trigger statement not found: ' . $triggerName);
+}
 function cm_v3_guard_snapshot(PDO $pdo): string
 {
     return (string) $pdo->query(
@@ -283,9 +299,11 @@ try {
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_cm_export_%'")->fetchColumn() === 6);
     $guardSnapshot = cm_v3_guard_snapshot($pdo);
     cm_v3_apply($pdo, $migration);
+    $replayedGuardSnapshot = cm_v3_guard_snapshot($pdo);
+    cm_v3_check('binary raw ACTION_STATEMENT hashes stay stable across exact replay',
+        $replayedGuardSnapshot === $guardSnapshot);
     cm_v3_check('canonical migration replays after both install locks are removed',
-        cm_v3_guard_snapshot($pdo) === $guardSnapshot
-        && (int) $pdo->query("SELECT COUNT(*)
+        (int) $pdo->query("SELECT COUNT(*)
           FROM information_schema.table_constraints
           WHERE constraint_schema=DATABASE()
             AND table_name IN
@@ -419,6 +437,67 @@ try {
 
     cm_v3_apply($pdo, $migration);
     cm_v3_check('exactly repaired schema replays and retains the same canonical guards',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+
+    cm_v3_install_swap_guards($pdo, $migration);
+    $pdo->exec('DROP TRIGGER trg_cm_export_claim_before_insert');
+    $canonicalClaimInsert = cm_v3_trigger_statement(
+        $migration,
+        'trg_cm_export_claim_before_insert',
+    );
+    $caseDriftClaimInsert = str_replace(
+        "'$.client_key'",
+        "'$.CLIENT_KEY'",
+        $canonicalClaimInsert,
+        $caseReplacementCount,
+    );
+    if ($caseReplacementCount !== 1) {
+        throw new RuntimeException('Case-only JSON path drift fixture was not exact.');
+    }
+    $pdo->exec($caseDriftClaimInsert);
+    $caseDriftSnapshot = cm_v3_guard_snapshot($pdo);
+    cm_v3_expect('migration refuses case-only JSON path drift in a reserved trigger body',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('case-only body drift is refused before any guard replacement',
+        cm_v3_guard_snapshot($pdo) === $caseDriftSnapshot);
+    $pdo->exec('DROP TRIGGER trg_cm_export_claim_before_insert');
+    $pdo->exec($canonicalClaimInsert);
+    cm_v3_apply($pdo, $migration);
+    cm_v3_check('exact body repair recovers from the case-only drift refusal',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+
+    $pdo->exec('CREATE TABLE cm_v3_reserved_trigger_host(id INT PRIMARY KEY) ENGINE=InnoDB');
+    cm_v3_install_swap_guards($pdo, $migration);
+    $pdo->exec('DROP TRIGGER trg_cm_export_claim_no_delete');
+    $canonicalClaimDelete = cm_v3_trigger_statement(
+        $migration,
+        'trg_cm_export_claim_no_delete',
+    );
+    $wrongTableClaimDelete = str_replace(
+        'BEFORE DELETE ON coastmark_time_export_claims',
+        'BEFORE DELETE ON cm_v3_reserved_trigger_host',
+        $canonicalClaimDelete,
+        $wrongTableReplacementCount,
+    );
+    if ($wrongTableReplacementCount !== 1) {
+        throw new RuntimeException('Wrong-table reserved-name fixture was not exact.');
+    }
+    $pdo->exec($wrongTableClaimDelete);
+    $wrongTableSnapshot = cm_v3_guard_snapshot($pdo);
+    cm_v3_expect('migration refuses a reserved trigger name attached to the wrong table',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('wrong-table refusal leaves every target-table guard byte unchanged',
+        cm_v3_guard_snapshot($pdo) === $wrongTableSnapshot);
+    cm_v3_check('wrong-table reserved trigger is not deleted as collateral',
+        (int) $pdo->query("SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND trigger_name='trg_cm_export_claim_no_delete'
+            AND event_object_table='cm_v3_reserved_trigger_host'")->fetchColumn() === 1);
+    $pdo->exec('DROP TRIGGER trg_cm_export_claim_no_delete');
+    $pdo->exec($canonicalClaimDelete);
+    cm_v3_apply($pdo, $migration);
+    $pdo->exec('DROP TABLE cm_v3_reserved_trigger_host');
+    cm_v3_check('exact table repair recovers from the wrong-table refusal',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
 
     cm_v3_install_swap_guards($pdo, $migration);

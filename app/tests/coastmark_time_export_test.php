@@ -600,7 +600,8 @@ $triggerManifest = [];
 $triggerDefinitions = [];
 if (is_string($migration)) {
     preg_match_all(
-        "/\\('([^']+)','(?:swap|permanent)','[^']+','(?:INSERT|UPDATE|DELETE)',\\s*'([0-9a-f]{64})'\\)/",
+        "/\\('([^']+)','([^']+)','(?:swap|permanent)',\\s*'[^']+','[^']+',"
+            . "'(?:INSERT|UPDATE|DELETE)'\\)/",
         $migration,
         $manifestRows,
         PREG_SET_ORDER,
@@ -613,12 +614,20 @@ if (is_string($migration)) {
         PREG_SET_ORDER,
     );
     foreach ($definitionRows as $row) {
-        $normalized = strtolower(preg_replace('/\\s+/', '', str_replace('`', '', $row[2])) ?? '');
-        $triggerDefinitions[$row[1]] = hash('sha256', $normalized);
+        $triggerDefinitions[$row[1]] = hash(
+            'sha256',
+            str_replace("\r\n", "\n", $row[2]),
+        );
     }
 }
 ksort($triggerManifest);
 ksort($triggerDefinitions);
+$triggerPairsExact = count($triggerManifest) === 12;
+foreach ($triggerManifest as $triggerName => $referenceTriggerName) {
+    $triggerPairsExact = $triggerPairsExact
+        && isset($triggerDefinitions[$triggerName], $triggerDefinitions[$referenceTriggerName])
+        && $triggerDefinitions[$triggerName] === $triggerDefinitions[$referenceTriggerName];
+}
 export_check('migration and canonical schema carry both tables and six immutable guards',
     is_string($migration) && is_string($schema)
     && str_contains($migration, 'CREATE TABLE IF NOT EXISTS coastmark_time_export_claims')
@@ -655,12 +664,16 @@ export_check('migration and canonical schema share the complete exact financial-
     && str_contains($migrationOperational, 'enforced')
     && str_contains($migrationOperational, 'migration_021_claim_table_failed')
     && str_contains($migrationOperational, '@cm_export_preflight_failure')
+    && str_contains($migrationOperational, '@cm_reference_triggers_ok')
+    && str_contains($migrationOperational, 'safeharbor_m021_validated_triggers')
+    && str_contains($migrationOperational, 'SHA2(CAST(reference.action_statement AS BINARY),256)')
+    && str_contains($migrationOperational, 'SHA2(CAST(live.action_statement AS BINARY),256)')
+    && !str_contains($migrationOperational, 'LOWER(REGEXP_REPLACE(REPLACE(live.action_statement')
     && str_contains($migrationOperational, '@cm_swaps_ready')
     && str_contains($migrationOperational, '@cm_permanent_guards_ok')
     && str_contains($migrationOperational, '@cm_export_final_guards_ok'));
-export_check('all twelve trigger manifest hashes exactly bind the executable guard bodies',
-    count($triggerManifest) === 12
-    && $triggerManifest === $triggerDefinitions);
+export_check('all twelve reference triggers byte-bind the executable guard bodies',
+    $triggerPairsExact);
 export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',
     is_string($cli)
     && str_contains($cli, "['claim', 'send', 'status', 'inspect-claim']")
