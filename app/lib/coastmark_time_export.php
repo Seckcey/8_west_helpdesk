@@ -994,7 +994,12 @@ function coastmark_time_export_record_response(
         throw new CoastmarkTimeExportAmbiguousException('Acknowledgement JSON is invalid.', 0, $error);
     }
     try {
-        $ack = coastmark_time_export_validate_ack($claim, $decoded);
+        $ack = coastmark_time_export_validate_ack(
+            $claim,
+            $decoded,
+            $status,
+            $statusOnly,
+        );
     } catch (CoastmarkTimeExportAmbiguousException $error) {
         coastmark_time_export_append_receipt(
             $pdo, $claim, $statusOnly ? 'status_result' : 'dispatch_result',
@@ -1023,16 +1028,35 @@ function coastmark_time_export_record_response(
 }
 
 /** @param array<string,mixed> $claim @return array{action:string,coastmark_event_id:int,invoice_id:int,invoice_line_id:?int} */
-function coastmark_time_export_validate_ack(array $claim, mixed $decoded): array
+function coastmark_time_export_validate_ack(
+    array $claim,
+    mixed $decoded,
+    int $responseStatus,
+    bool $statusOnly,
+): array
 {
     $action = is_array($decoded) ? ($decoded['action'] ?? null) : null;
     $event = is_array($decoded) && is_array($decoded['event'] ?? null) ? $decoded['event'] : [];
     $draft = is_array($decoded) && is_array($decoded['draft'] ?? null) ? $decoded['draft'] : [];
     $lineId = array_key_exists('invoice_line_id', $draft) ? $draft['invoice_line_id'] : false;
+    $rawSourceVersion = $claim['source_version'] ?? null;
+    $sourceVersionValid = (is_int($rawSourceVersion) && $rawSourceVersion >= 0)
+        || (is_string($rawSourceVersion)
+            && preg_match('/\A(?:0|[1-9][0-9]*)\z/D', $rawSourceVersion) === 1);
+    $sourceVersion = $sourceVersionValid ? (int) $rawSourceVersion : -1;
+    $newActions = $sourceVersion === 0
+        ? ['created']
+        : ['corrected', 'manual_exception'];
+    $actionMatchesOperation = is_string($action) && ($statusOnly
+        ? $responseStatus === 200 && in_array($action, $newActions, true)
+        : (($responseStatus === 201 && in_array($action, $newActions, true))
+            || ($responseStatus === 200 && $action === 'ignored')));
     if (!is_array($decoded)
         || ($decoded['ok'] ?? null) !== true
+        || !$sourceVersionValid
         || !is_string($action)
         || !in_array($action, ['created', 'corrected', 'ignored', 'manual_exception'], true)
+        || !$actionMatchesOperation
         || !hash_equals((string) $claim['event_key'], (string) ($event['event_key'] ?? ''))
         || !hash_equals((string) $claim['payload_sha256'], (string) ($event['payload_sha256'] ?? ''))
         || !is_int($event['coastmark_event_id'] ?? null)
@@ -1042,6 +1066,7 @@ function coastmark_time_export_validate_ack(array $claim, mixed $decoded): array
         || (!is_null($lineId) && (!is_int($lineId) || $lineId < 1))
         || ($action === 'manual_exception' && $lineId !== null)
         || (in_array($action, ['created', 'corrected'], true) && $lineId === null)
+        || ($sourceVersion === 0 && $action === 'ignored' && $lineId === null)
     ) {
         throw new CoastmarkTimeExportAmbiguousException('Acknowledgement does not match the claim.');
     }

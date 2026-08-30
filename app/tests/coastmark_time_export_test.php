@@ -120,6 +120,10 @@ $insert->execute([
     503,1,11,903,'timer:false404:0003','timer','2026-08-26 20:00:00',20,
     'status proof',1,'approved',101,102,'2026-08-26 20:05:00',
 ]);
+$insert->execute([
+    504,1,11,904,'timer:wrongack:0004','timer','2026-08-26 20:00:00',20,
+    'ack mismatch proof',1,'approved',101,102,'2026-08-26 20:05:00',
+]);
 
 $config = export_config();
 export_expect(
@@ -213,6 +217,128 @@ export_check('correction claim forms the exact next immutable chain link',
     && $correction['payload']['minutes'] === 15
     && $correction['payload']['adjusted_by_key'] === 'safeharbor-user:103'
     && $correction['payload']['adjustment_reason_sha256'] === hash('sha256', 'Corrected duration'));
+
+$baseCreatedAck = json_decode(export_ack($base['claim']), true, flags: JSON_THROW_ON_ERROR);
+$baseReplayAck = json_decode(export_ack($base['claim'], 'ignored'), true, flags: JSON_THROW_ON_ERROR);
+$correctionAck = json_decode(
+    export_ack($correction['claim'], 'corrected'),
+    true,
+    flags: JSON_THROW_ON_ERROR,
+);
+$correctionReplayAck = json_decode(
+    export_ack($correction['claim'], 'ignored'),
+    true,
+    flags: JSON_THROW_ON_ERROR,
+);
+export_check('acknowledgements bind new, replay, and status actions to the claim version',
+    coastmark_time_export_validate_ack($base['claim'], $baseCreatedAck, 201, false)['action'] === 'created'
+    && coastmark_time_export_validate_ack($base['claim'], $baseReplayAck, 200, false)['action'] === 'ignored'
+    && coastmark_time_export_validate_ack($base['claim'], $baseCreatedAck, 200, true)['action'] === 'created'
+    && coastmark_time_export_validate_ack($correction['claim'], $correctionAck, 201, false)['action'] === 'corrected'
+    && coastmark_time_export_validate_ack($correction['claim'], $correctionReplayAck, 200, false)['action'] === 'ignored'
+    && coastmark_time_export_validate_ack($correction['claim'], $correctionAck, 200, true)['action'] === 'corrected');
+export_expect(
+    'an original claim cannot accept a correction-only manual exception',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $base['claim'],
+        json_decode(export_ack($base['claim'], 'manual_exception'), true, flags: JSON_THROW_ON_ERROR),
+        201,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'a correction claim cannot accept an original created action',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $correction['claim'],
+        json_decode(export_ack($correction['claim'], 'created'), true, flags: JSON_THROW_ON_ERROR),
+        201,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'a new-event response cannot call itself an exact replay',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $correction['claim'],
+        $correctionReplayAck,
+        201,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'a replay response cannot call itself a newly created event',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $base['claim'],
+        $baseCreatedAck,
+        200,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'an original approval replay must retain its draft line identifier',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $base['claim'],
+        json_decode(export_ack($base['claim'], 'ignored', 91, null), true, flags: JSON_THROW_ON_ERROR),
+        200,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'status accepts only the exact recovered disposition at HTTP 200',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $correction['claim'],
+        $correctionReplayAck,
+        200,
+        true,
+    ),
+    'does not match',
+);
+export_expect(
+    'status refuses a success body delivered with a new-event status code',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $correction['claim'],
+        $correctionAck,
+        201,
+        true,
+    ),
+    'does not match',
+);
+$wrongAckClaim = coastmark_time_export_claim(
+    $pdo, '8west', 504, 'timer:wrongack:0004', 102, $config,
+    'safeharbor-time:11111111111111111111111111111111',
+);
+export_expect(
+    'a mismatched receiver disposition becomes recoverable ambiguity, not terminal success',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_send_claim(
+        $pdo,
+        (int) $wrongAckClaim['claim']['id'],
+        $config,
+        fn() => [
+            'status' => 201,
+            'body' => export_ack($wrongAckClaim['claim'], 'manual_exception'),
+        ],
+        1_777_777_776,
+    ),
+    'does not match',
+);
+export_check('mismatched receiver disposition is recorded as explicit ambiguous evidence',
+    (string) $pdo->query('SELECT outcome FROM coastmark_time_export_receipts WHERE claim_id=' .
+        (int) $wrongAckClaim['claim']['id'] . ' ORDER BY id DESC LIMIT 1')->fetchColumn() === 'ambiguous'
+    && (string) $pdo->query('SELECT detail_code FROM coastmark_time_export_receipts WHERE claim_id=' .
+        (int) $wrongAckClaim['claim']['id'] . ' ORDER BY id DESC LIMIT 1')->fetchColumn()
+        === 'ack_did_not_match_claim');
 
 $sendCalls = 0;
 $send = coastmark_time_export_send_claim(
@@ -443,7 +569,7 @@ export_check('an explicit send is possible after exact absence evidence',
 
 export_check('receipt history is append-only evidence for starts and outcomes',
     (int) $pdo->query('SELECT COUNT(*) FROM coastmark_time_export_receipts')->fetchColumn() >= 8
-    && (int) $pdo->query("SELECT COUNT(*) FROM coastmark_time_export_receipts WHERE outcome='ambiguous'")->fetchColumn() === 2);
+    && (int) $pdo->query("SELECT COUNT(*) FROM coastmark_time_export_receipts WHERE outcome='ambiguous'")->fetchColumn() === 3);
 
 $migration = file_get_contents(__DIR__ . '/../db/migrations/021_coastmark_time_export_v3.sql');
 $schema = file_get_contents(__DIR__ . '/../db/schema.sql');
