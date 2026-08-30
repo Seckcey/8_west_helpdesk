@@ -565,10 +565,16 @@ installed.
 `reports@8westit.com` now exists without human members. Safeharbor's app-only
 Graph submission does not need a human mailbox member, but archive 3 does not
 prove that new address was the sender. A new exact-sender canary is still
-required. A reviewed cron wrapper, template, and narrow install/verify/disable/
-uninstall tool now exist in source; normal deployment cannot install them, and
-activation requires separate recipient, dedicated-sender, and protected-gate
-attestations.
+required. A corrected cron wrapper/template/manager and locked deploy helper now
+exist in source only. Report runs hold a shared deployment lock; deployment
+refuses an active cron name or in-flight run and takes the exclusive lock. The
+manager requires an exact root-only digest-bound bundle and will activate only
+from a root-only record binding the release/config hash, exact
+`reports@8westit.com` sender, tenant/client/schedule/recipient tuple, provider
+acceptance, recipient confirmation, archive hash, and protected-gate review.
+Emergency disable removes the active cron name even in both-file drift, but
+does not terminate an already-running PHP process. Nothing is installed or
+active, and no production config or evidence record has been created.
 
 The root-only Lifestyle canary record is
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`;
@@ -993,7 +999,9 @@ called out, and none may be satisfied by inventing customer or financial facts.
    retried. All schedules and both execution gates remain off. Before the
    source-only scheduler bundle can be installed or activated, a new archive
    must separately prove `reports@8westit.com` as sender, Graph acceptance, and
-   recipient receipt under an authorized canary window.
+   recipient receipt under an authorized canary window. The exact release,
+   config digest, and canary tuple must then be recorded in the root-only
+   activation format; literal confirmation flags are no longer sufficient.
 7. **The correction-safe Coastmark seam still needs a Coastmark agreement and
    mapping.** Durable version-3 claims, receipts, status recovery, and
    correction/reversal events are implemented in isolated branches, but no

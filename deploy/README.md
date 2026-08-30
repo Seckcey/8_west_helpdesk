@@ -103,7 +103,9 @@ test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 test -z "$(git status --porcelain)"
 
 # Run the reviewed tests, verified backup, and migration-specific ordering first.
-# Deploy only after every required migration postflight passes.
+# If the report scheduler is active, use its root-owned control bundle to
+# disable it and verify `stopped` before deployment. The deploy helper refuses
+# an active cron name or in-flight report lock; it never re-enables scheduling.
 SERVER=milepost-ec2 DEST=/srv/8west/apps/safeharbor/current bash deploy/deploy.sh
 ```
 
@@ -113,11 +115,16 @@ script's `IdentitiesOnly` option. Never rely on the script's Cloudflare-hostname
 default. Record the exact SHA, CI run, backup record, migration output, and
 postdeploy hashes in a root-only release record.
 
-No build step — the script lints the PHP, syncs brand assets, and streams
-`app/` to the server (never overwriting `config/config.php`), then fixes
-ownership (`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets
-are cache-busted Milepost-style with `?v=` in `lib/render.php`,
-`lib/westy.php`, and `public/login.php`.
+No build step — the script lints the PHP, syncs brand assets, stages an exact
+SHA-256-verified root-only remote installer, and streams `app/` to the server
+without overwriting `config/config.php`. The remote installer requires the
+report scheduler's active cron name to be absent, takes the exclusive side of
+the persistent root-owned report/deploy lock, preserves the config hash, then
+fixes ownership
+(`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets are
+cache-busted Milepost-style with `?v=` in `lib/render.php`, `lib/westy.php`,
+and `public/login.php`. This closes the scheduler-versus-extraction race; it
+does not claim to make ordinary web requests atomic during extraction.
 
 ### Protected backup and Safeharbor-only write freeze
 
@@ -585,12 +592,13 @@ Deploy code only after the migration and grant postflight. Keep the protected
 fresh environment. The current controlled 8 West IT canary is the explicit
 exception: its schedule/tenant/client/recipient allowlists each contain one
 exact value while generation and delivery remain false. The deploy script does
-not install a scheduler. The scheduler bundle is intentionally separate:
-`app/cron/run_business_reports.sh` pins the `www-data` runtime and records every
-outcome through `logger`; `deploy/safeharbor-business-reports.cron` is the one
-reviewed entry; and `deploy/manage-business-report-scheduler.sh` installs it
-disabled, verifies exact root ownership/content, and provides narrow enable,
-disable, and uninstall operations. A normal deploy cannot activate it.
+not install or activate a scheduler. It refuses an active scheduler and shares
+a lock protocol with `app/cron/run_business_reports.sh`, so a report cannot
+read the app during extraction. The manager must run only from a root:root 0700
+control directory with root:root 0600 manager/template/manifest files. The
+manifest binds the exact release and deployed wrapper/runner hashes; preflight
+also requires the whole app tree to be `ubuntu:www-data` with 2750 directories
+and 0640 ordinary files.
 
 The controlled 8 West Lifestyle history now has three archives. Attempts 1
 and 2 are terminal `uncertain` and must never be retried. Archive 3 returned
@@ -605,8 +613,9 @@ The new `reports@8westit.com` mailbox exists without human members. That is
 compatible with application-only Graph sending, but archive 3 does not prove
 that the new mailbox was the sender. Do not activate the scheduler until a new
 dedicated-sender canary has its own Graph-acceptance and recipient-confirmation
-evidence. After that separately authorized canary, stage and verify the
-scheduler without enabling it:
+evidence. After that separately authorized canary, follow the root-only control
+bundle and activation-record procedure in `docs/business-reports-contract.md`,
+then stage and verify the scheduler without enabling it:
 
 ```bash
 sudo bash manage-business-report-scheduler.sh preflight
@@ -614,10 +623,15 @@ sudo bash manage-business-report-scheduler.sh install-disabled
 sudo bash manage-business-report-scheduler.sh verify disabled
 ```
 
-Activation additionally requires the three explicit attestations documented
-in `docs/business-reports-contract.md`; observe one scheduled weekly period
-before expanding any allowlist. The exact contract, commands, failure
-semantics, and rollback are there.
+Activation requires the exact root-only evidence artifact documented in
+`docs/business-reports-contract.md`. It binds the release/manifest/config hash,
+the exact `reports@8westit.com` sender, tenant/client/schedule/recipient tuple,
+Graph acceptance, recipient confirmation, archive hash, and protected-gate
+review time. Literal checkbox flags are not accepted. Observe one scheduled
+weekly period before expanding any allowlist. Emergency disable always removes
+the active cron name to unique root-only quarantine, even when a dot-disabled
+copy already exists, but does not terminate an in-flight PHP process; inspect
+the report/deploy lock before deploying.
 
 Root-only canary evidence is at
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`;

@@ -129,7 +129,9 @@ jobs:
         run: |
           bash -n app/cron/run_business_reports.sh
           bash -n deploy/manage-business-report-scheduler.sh
+          bash -n deploy/remote-install-safeharbor-app.sh
           php app/tests/business_reports_test.php
+          sudo bash app/tests/business_report_scheduler_linux_test.sh
       - name: Test 8 West ID report-contact client contract
         run: php app/tests/id_report_contacts_test.php
       - name: Test Milepost customer-sync contract

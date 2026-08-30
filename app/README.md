@@ -253,22 +253,22 @@ public/                    Apache docroot (page-per-file, like Milepost)
   2 remain terminal `uncertain`. Both execution gates and every Lifestyle
   schedule remain off. A default-off scheduler wrapper/template/manager exists
   in source but is not installed; the new dedicated report sender needs its own
-  canary before activation.
+  canary and root-only config/tuple evidence before activation.
   See `docs/business-reports-contract.md`.
 - ID-backed report onboarding: no-write new-customer
   `plan-customer-from-id`, `prepare-from-id`, historical
   `prepare-client-from-id`, and new-customer `prepare-customer-from-id` are the
   only network call sites and use a dedicated
-  default-off HMAC config. Migration 017 is live and stores
+  default-off HMAC config. Migrations 017 and 019 are live and store
   an immutable local-tenant/stable-ID binding plus append-only contact-version
   evidence in the same transaction as the disabled schedule. One redacted
-  8 West IT contact canary was stored; both contact gates are off. This path
-  cannot generate or send a report. The plan command performs only bounded
-  reads after the authenticated contact lookup, prints digests rather than the
-  address, and requires the later prepare command to lock and recheck every
-  fact. Migration 019 is applied and adds an independent exact-client
-  binding/evidence lane and one
-  immutable manual/tenant-ID/client-ID scope per logical schedule. Inspect
+  8 West IT contact canary and the exact Lifestyle client binding/contact
+  snapshot were stored; both contact gates are off. This path cannot generate
+  or send a report. The plan command performs only bounded reads after the
+  authenticated contact lookup, prints digests rather than the address, and
+  requires the later prepare command to lock and recheck every fact. Migration
+  019 adds an independent exact-client binding/evidence lane and one immutable
+  manual/tenant-ID/client-ID scope per logical schedule. Inspect
   reports the exact pinned scope and latest inherited evidence even after
   enable/disable versions. ID-scoped activation and active/due reads fail closed
   unless the current recipient (and client for client scope) matches that latest

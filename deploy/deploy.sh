@@ -32,6 +32,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER="${SERVER:-ubuntu@safeharbor.8westit.com}"
 DEST="${DEST:-/srv/8west/apps/safeharbor/current}"
 KEY="${KEY:-}"
+REMOTE_INSTALLER="$ROOT/deploy/remote-install-safeharbor-app.sh"
+
+[[ "$DEST" == '/srv/8west/apps/safeharbor/current' ]] || {
+  printf 'Refusing non-canonical Safeharbor destination: %s\n' "$DEST" >&2
+  exit 64
+}
+[[ -f "$REMOTE_INSTALLER" && ! -L "$REMOTE_INSTALLER" ]] || {
+  printf 'Reviewed remote installer is missing or symlinked.\n' >&2
+  exit 66
+}
 
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
 [[ -n "$KEY" ]] && SSH_OPTS+=(-i "$KEY")
@@ -45,17 +55,44 @@ cp "$ROOT/brand/png/favicon.ico" "$ROOT/brand/png/apple-touch-icon.png" \
 
 echo "==> Linting PHP"
 find "$ROOT/app" -name "*.php" -print0 | xargs -0 -n1 php -l > /dev/null
+bash -n "$REMOTE_INSTALLER"
+if find "$ROOT/app" -type l -print -quit | grep -q .; then
+  printf 'Refusing an application artifact containing symlinks.\n' >&2
+  exit 65
+fi
 
-echo "==> Uploading to $SERVER:$DEST"
+echo "==> Staging exact root-owned deploy helper on $SERVER"
+INSTALLER_SHA="$(sha256sum "$REMOTE_INSTALLER")"
+INSTALLER_SHA="${INSTALLER_SHA%% *}"
+REMOTE_INSTALLER_PATH="/run/safeharbor-deploy/remote-install-safeharbor-app.$INSTALLER_SHA.$$.sh"
+REMOTE_INSTALLER_STAGED=0
+cleanup_remote_installer() {
+  if [[ "$REMOTE_INSTALLER_STAGED" -eq 1 ]]; then
+    ssh "${SSH_OPTS[@]}" "$SERVER" \
+      "sudo /usr/bin/unlink -- '$REMOTE_INSTALLER_PATH'" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_remote_installer EXIT
+
+ssh "${SSH_OPTS[@]}" "$SERVER" \
+  "sudo /usr/bin/install -d -o root -g root -m 0700 -- /run/safeharbor-deploy \
+   && sudo /usr/bin/tee '$REMOTE_INSTALLER_PATH' >/dev/null \
+   && sudo /usr/bin/chown root:root -- '$REMOTE_INSTALLER_PATH' \
+   && sudo /usr/bin/chmod 0600 -- '$REMOTE_INSTALLER_PATH' \
+   && test \"\$(sudo /usr/bin/stat -c '%U:%G:%a' -- '$REMOTE_INSTALLER_PATH')\" = root:root:600 \
+   && printf '%s  %s\n' '$INSTALLER_SHA' '$REMOTE_INSTALLER_PATH' \
+      | sudo /usr/bin/sha256sum -c --status" < "$REMOTE_INSTALLER"
+REMOTE_INSTALLER_STAGED=1
+
+echo "==> Uploading to $SERVER:$DEST under the report/deploy lock"
 tar -czf - -C "$ROOT" \
   --exclude='app/config/config.php' \
   app | ssh "${SSH_OPTS[@]}" "$SERVER" \
-  "mkdir -p '$DEST' && tar -xzf - -C '$DEST' --strip-components=1 --no-same-owner \
-   && sudo chown -R ubuntu:www-data '$DEST' \
-   && sudo find '$DEST' -type d -exec chmod 2750 {} + \
-   && sudo find '$DEST' -type f -exec chmod 640 {} + \
-   && V=\$(date +%Y%m%d%H%M%S) \
-   && sudo sed -i \"s/?v=[0-9A-Za-z]\\+/?v=\$V/g\" '$DEST/lib/render.php' '$DEST/lib/westy.php' '$DEST/public/login.php' \
-   && echo \"server: deployed (assets v=\$V)\""
+  "sudo /usr/bin/bash '$REMOTE_INSTALLER_PATH'"
+
+ssh "${SSH_OPTS[@]}" "$SERVER" \
+  "sudo /usr/bin/unlink -- '$REMOTE_INSTALLER_PATH'"
+REMOTE_INSTALLER_STAGED=0
+trap - EXIT
 
 echo "==> Live: https://safeharbor.8westit.com"

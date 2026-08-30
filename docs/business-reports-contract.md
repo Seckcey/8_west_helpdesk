@@ -453,55 +453,152 @@ archive created while delivery is off can be handled after an explicit
 delivery gate change. Installing a cron entry is a separate production action;
 the repository deploy does not edit crontab.
 
-The release-ready operations bundle is also deliberately separate from normal
+The release-ready operations bundle is deliberately separate from normal
 deployment:
 
 - `app/cron/run_business_reports.sh` refuses any user except `www-data`, pins
-  `/usr/bin/php` and the exact application working directory, checks only
-  protected-config metadata/readability, preserves the PHP exit status, and
-  records output in the host journal/syslog under
+  the exact `ubuntu:www-data` 2750/0640 deployment metadata, and takes a shared
+  persistent root-owned lock at
+  `/var/lib/safeharbor-report-scheduler/business-reports-deploy.lock` before it
+  reads runner code. It preserves PHP's failure status even if the final
+  error-log call fails and records output under
   `safeharbor-business-reports`;
-- `deploy/safeharbor-business-reports.cron` invokes only that wrapper every
-  five minutes. The PHP schedule still decides whether a weekly period is due;
-- `deploy/manage-business-report-scheduler.sh install-disabled` installs the
-  reviewed root-owned file at a dot-containing Ubuntu cron filename, so no job
-  is scheduled; and
-- activation is a separate command that refuses unless the operator supplies
-  the exact recipient-canary, dedicated-sender-canary, and protected-gate
-  attestations. Disable and uninstall touch only the two exact scheduler paths.
+- `deploy/remote-install-safeharbor-app.sh` is staged by `deploy/deploy.sh` as
+  an exact SHA-256-verified root-only file. It refuses while the active cron
+  name exists, refuses an exact legacy runner that predates locking, takes the
+  exclusive side of the same persistent lock, preserves the
+  protected config, and never installs or enables cron. A normal release must
+  therefore stop scheduling before the existing non-atomic app extraction;
+- `deploy/safeharbor-business-reports.cron` invokes only the wrapper every five
+  minutes. The PHP schedule still decides whether a weekly period is due; and
+- `deploy/manage-business-report-scheduler.sh` trusts only a root:root 0700
+  control directory whose manager, cron template, and manifest are root:root
+  0600. The manifest binds the exact release plus manager, template, deployed
+  wrapper, and runner hashes. It also verifies the entire deployed tree is
+  `ubuntu:www-data` with directories 2750 and ordinary files 0640, contains no
+  symlinks or special files, and is not writable by `www-data`.
 
-From an exact clean reviewed release, copy only the two `deploy/` scheduler
-files to one private temporary directory on the host, then run:
+Do not run the manager from `/tmp`, a user-owned checkout, or a directory that
+the deployment/runtime users can alter. From an exact clean reviewed release,
+stage the two control files under `/root`, then create the manifest without
+copying or displaying protected config:
 
 ```bash
-sudo bash manage-business-report-scheduler.sh preflight
-sudo bash manage-business-report-scheduler.sh install-disabled
-sudo bash manage-business-report-scheduler.sh verify disabled
+# Run locally from the exact clean reviewed release. Stream bytes directly into
+# root-owned host files; never execute a user-owned /tmp copy with sudo.
+RELEASE_SHA="$(git rev-parse HEAD)"
+test "$RELEASE_SHA" = EXACT_40_HEX_RELEASE_SHA
+CONTROL_DIR=/root/safeharbor-report-scheduler-$RELEASE_SHA
+MANAGER_SHA="$(sha256sum deploy/manage-business-report-scheduler.sh)"
+MANAGER_SHA="${MANAGER_SHA%% *}"
+CRON_SHA="$(sha256sum deploy/safeharbor-business-reports.cron)"
+CRON_SHA="${CRON_SHA%% *}"
+
+ssh milepost-ec2 \
+  "sudo install -d -o root -g root -m 0700 '$CONTROL_DIR'"
+ssh milepost-ec2 \
+  "sudo tee '$CONTROL_DIR/manage-business-report-scheduler.sh' >/dev/null \
+   && sudo chown root:root '$CONTROL_DIR/manage-business-report-scheduler.sh' \
+   && sudo chmod 0600 '$CONTROL_DIR/manage-business-report-scheduler.sh'" \
+  < deploy/manage-business-report-scheduler.sh
+ssh milepost-ec2 \
+  "sudo tee '$CONTROL_DIR/safeharbor-business-reports.cron' >/dev/null \
+   && sudo chown root:root '$CONTROL_DIR/safeharbor-business-reports.cron' \
+   && sudo chmod 0600 '$CONTROL_DIR/safeharbor-business-reports.cron'" \
+  < deploy/safeharbor-business-reports.cron
+ssh milepost-ec2 \
+  "printf '%s  %s\n' '$MANAGER_SHA' \
+      '$CONTROL_DIR/manage-business-report-scheduler.sh' \
+      '$CRON_SHA' '$CONTROL_DIR/safeharbor-business-reports.cron' \
+   | sudo sha256sum -c"
+
+ssh milepost-ec2 "sudo bash -s -- '$CONTROL_DIR' '$RELEASE_SHA'" <<'REMOTE'
+set -euo pipefail
+dir="$1"
+release="$2"
+manager_sha="$(sha256sum "$dir/manage-business-report-scheduler.sh")"
+cron_sha="$(sha256sum "$dir/safeharbor-business-reports.cron")"
+wrapper_sha="$(sha256sum /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh)"
+runner_sha="$(sha256sum /srv/8west/apps/safeharbor/current/cron/business_reports.php)"
+printf '%s\n' \
+  schema=safeharbor-business-report-scheduler-bundle-v1 \
+  release_sha="$release" \
+  manager_sha256="${manager_sha%% *}" \
+  cron_sha256="${cron_sha%% *}" \
+  wrapper_sha256="${wrapper_sha%% *}" \
+  runner_sha256="${runner_sha%% *}" \
+  > "$dir/scheduler-bundle.manifest"
+chown root:root "$dir/scheduler-bundle.manifest"
+chmod 0600 "$dir/scheduler-bundle.manifest"
+REMOTE
+
+ssh milepost-ec2 \
+  "sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' preflight \
+   && sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' install-disabled \
+   && sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' verify disabled"
 ```
 
-Those commands are production writes and still require the normal release
-authorization. They do not run a report or read protected config bytes. Only
-after a new `reports@8westit.com` sender canary has separately passed provider
-submission and recipient confirmation may an authorized operator run:
+These commands are production writes and still require normal release
+authorization. They do not run a report or expose/parse protected config. The
+manager hashes config only to bind evidence. Before activation, a new canary
+must prove that `reports@8westit.com` itself received Graph acceptance and that
+the separately addressed recipient confirmed the exact archive. The mailbox
+may have no human members because sending is application-only, but that does
+not substitute for the sender-specific canary.
+
+Store the canary receipt outside Git in one root:root 0700 directory. Its
+root:root 0600 activation file must contain exactly the following keys and real
+evidence values; never use placeholders at activation:
+
+```text
+schema=safeharbor-business-report-scheduler-activation-v1
+release_sha=EXACT_40_HEX_RELEASE_SHA
+bundle_manifest_sha256=SHA256_OF_SCHEDULER_BUNDLE_MANIFEST
+protected_config_sha256=SHA256_OF_CURRENT_PROTECTED_CONFIG
+sender=reports@8westit.com
+tenant_slug=EXACT_TENANT_SLUG
+client_id=EXACT_SAFEHARBOR_CLIENT_ID
+schedule_key=EXACT_SCHEDULE_KEY
+recipient=EXACT_CONFIRMED_RECIPIENT
+graph_status=202
+graph_accepted_at=YYYY-MM-DDTHH:MM:SSZ
+recipient_confirmation=confirmed
+recipient_confirmed_at=YYYY-MM-DDTHH:MM:SSZ
+archive_sha256=EXACT_CONFIRMED_ARCHIVE_SHA256
+protected_gates_reviewed_at=YYYY-MM-DDTHH:MM:SSZ
+```
+
+The enable command repeats the exact tuple as operator intent and refuses any
+artifact/config/release/tuple mismatch:
 
 ```bash
 sudo bash manage-business-report-scheduler.sh enable \
-  --confirm-recipient-canary-passed \
-  --confirm-dedicated-sender-canary-passed \
-  --confirm-protected-gates-reviewed
+  --activation-evidence /root/ROOT_ONLY_CANARY_RECORD/activation.env \
+  --expect-tenant-slug EXACT_TENANT_SLUG \
+  --expect-client-id EXACT_SAFEHARBOR_CLIENT_ID \
+  --expect-schedule-key EXACT_SCHEDULE_KEY \
+  --expect-recipient EXACT_CONFIRMED_RECIPIENT
 sudo bash manage-business-report-scheduler.sh verify active
 sudo journalctl -t safeharbor-business-reports --since '15 minutes ago'
 ```
 
-The fastest scheduler stop does not depend on application or database health:
+Emergency disable always moves the active cron name and activation record to
+unique root-only evidence paths, even if a dot-disabled file already exists.
+This prevents new launches; it does **not** kill or wait for an in-flight PHP
+process. Inspect the printed preservation paths and the deployment-lock holder
+before changing application files:
 
 ```bash
 sudo bash manage-business-report-scheduler.sh disable
-sudo bash manage-business-report-scheduler.sh verify disabled
+sudo bash manage-business-report-scheduler.sh verify stopped
 ```
 
-After the disabled file has been preserved and reviewed, remove only the exact
-reviewed scheduler files with:
+Every later code deploy must begin from `stopped`; the deploy helper then
+refuses an active name or shared-lock holder. After deployment, rebuild the
+root-only bundle manifest for the new exact release, rerun preflight, create a
+new config-bound canary record, install disabled, and only then consider a
+separately authorized activation. To remove the reviewed disabled control file
+after stop (quarantined evidence remains untouched):
 
 ```bash
 sudo bash manage-business-report-scheduler.sh uninstall \

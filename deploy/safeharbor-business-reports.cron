@@ -1,6 +1,8 @@
 # Safeharbor archived business reports. Managed only by
-# deploy/manage-business-report-scheduler.sh after the dedicated-sender canary.
-# The PHP runner remains inert while both protected execution gates are false.
+# deploy/manage-business-report-scheduler.sh after an exact root-only activation
+# record binds the reviewed release/config, reports@8westit.com canary, and
+# tenant/client/schedule/recipient tuple. The wrapper also holds the shared side
+# of Safeharbor's deployment lock for its complete run.
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=""
