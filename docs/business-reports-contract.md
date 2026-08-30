@@ -464,23 +464,33 @@ deployment:
   error-log call fails and records output under
   `safeharbor-business-reports`;
 - `deploy/remote-install-safeharbor-app.sh` is staged by `deploy/deploy.sh` as
-  an exact SHA-256-verified root-only file. It refuses while the active cron
-  name exists, refuses an exact legacy runner that predates locking, takes the
-  exclusive side of the same persistent lock, preserves the
-  protected config, and never installs or enables cron. A normal release must
-  therefore stop scheduling before the existing non-atomic app extraction;
+  an exact SHA-256-verified root-only file alongside the reviewed complete-app
+  hasher. The local half refuses a dirty Git release and builds the app plus
+  derived brand files from that exact commit's Git archive. The remote half refuses
+  while the active cron name exists, refuses an exact legacy runner that
+  predates locking, takes the exclusive side of the same persistent lock,
+  verifies the incoming app in root-only staging against the clean source
+  digest before live extraction, preserves the
+  protected config, then records the complete post-cache-stamp artifact in a
+  root-only current marker plus a uniquely named immutable record. It never
+  installs or enables cron. A normal release must therefore stop scheduling
+  before the existing non-atomic app extraction;
 - `deploy/safeharbor-business-reports.cron` invokes only the wrapper every five
   minutes. The PHP schedule still decides whether a weekly period is due; and
 - `deploy/manage-business-report-scheduler.sh` trusts only a root:root 0700
-  control directory whose manager, cron template, and manifest are root:root
-  0600. The manifest binds the exact release plus manager, template, deployed
-  wrapper, and runner hashes. It also verifies the entire deployed tree is
-  `ubuntu:www-data` with directories 2750 and ordinary files 0640, contains no
-  symlinks or special files, and is not writable by `www-data`.
+  control directory whose manager, cron template, complete-app hasher, and
+  manifest are root:root 0600. The manifest binds the exact release, manager,
+  template, hasher, clean source artifact, complete deployed artifact,
+  immutable release marker, wrapper, and runner hashes. The manager holds the
+  shared deployment lock while it re-hashes the whole app (excluding only the
+  separately bound protected config). It also verifies the entire deployed
+  tree is `ubuntu:www-data` with directories 2750 and ordinary files 0640,
+  contains no symlinks or special files, and is not writable by `www-data`.
 
 Do not run the manager from `/tmp`, a user-owned checkout, or a directory that
 the deployment/runtime users can alter. From an exact clean reviewed release,
-stage the two control files under `/root`, then create the manifest without
+stage the three control files under `/root`, then create the manifest from the
+deploy-created immutable release record without
 copying or displaying protected config:
 
 ```bash
@@ -493,6 +503,8 @@ MANAGER_SHA="$(sha256sum deploy/manage-business-report-scheduler.sh)"
 MANAGER_SHA="${MANAGER_SHA%% *}"
 CRON_SHA="$(sha256sum deploy/safeharbor-business-reports.cron)"
 CRON_SHA="${CRON_SHA%% *}"
+HASHER_SHA="$(sha256sum deploy/hash-safeharbor-app-artifact.sh)"
+HASHER_SHA="${HASHER_SHA%% *}"
 
 ssh milepost-ec2 \
   "sudo install -d -o root -g root -m 0700 '$CONTROL_DIR'"
@@ -507,9 +519,15 @@ ssh milepost-ec2 \
    && sudo chmod 0600 '$CONTROL_DIR/safeharbor-business-reports.cron'" \
   < deploy/safeharbor-business-reports.cron
 ssh milepost-ec2 \
+  "sudo tee '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' >/dev/null \
+   && sudo chown root:root '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' \
+   && sudo chmod 0600 '$CONTROL_DIR/hash-safeharbor-app-artifact.sh'" \
+  < deploy/hash-safeharbor-app-artifact.sh
+ssh milepost-ec2 \
   "printf '%s  %s\n' '$MANAGER_SHA' \
       '$CONTROL_DIR/manage-business-report-scheduler.sh' \
       '$CRON_SHA' '$CONTROL_DIR/safeharbor-business-reports.cron' \
+      '$HASHER_SHA' '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' \
    | sudo sha256sum -c"
 
 ssh milepost-ec2 "sudo bash -s -- '$CONTROL_DIR' '$RELEASE_SHA'" <<'REMOTE'
@@ -518,13 +536,30 @@ dir="$1"
 release="$2"
 manager_sha="$(sha256sum "$dir/manage-business-report-scheduler.sh")"
 cron_sha="$(sha256sum "$dir/safeharbor-business-reports.cron")"
+hasher_sha="$(sha256sum "$dir/hash-safeharbor-app-artifact.sh")"
 wrapper_sha="$(sha256sum /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh)"
 runner_sha="$(sha256sum /srv/8west/apps/safeharbor/current/cron/business_reports.php)"
+marker=/var/lib/safeharbor-report-scheduler/releases/current-app-artifact.manifest
+test "$(stat -c '%U:%G:%a' "$marker")" = root:root:600
+marker_release="$(sed -n 's/^release_sha=//p' "$marker")"
+source_artifact="$(sed -n 's/^source_artifact_sha256=//p' "$marker")"
+deployed_artifact="$(sed -n 's/^deployed_artifact_sha256=//p' "$marker")"
+marker_hasher="$(sed -n 's/^hasher_sha256=//p' "$marker")"
+marker_sha="$(sha256sum "$marker")"
+test "$marker_release" = "$release"
+test "$marker_hasher" = "${hasher_sha%% *}"
+unique="${marker%/*}/app-artifact.$marker_release.$deployed_artifact.manifest"
+test "$(stat -c '%U:%G:%a' "$unique")" = root:root:600
+cmp -s "$marker" "$unique"
 printf '%s\n' \
-  schema=safeharbor-business-report-scheduler-bundle-v1 \
+  schema=safeharbor-business-report-scheduler-bundle-v2 \
   release_sha="$release" \
   manager_sha256="${manager_sha%% *}" \
   cron_sha256="${cron_sha%% *}" \
+  hasher_sha256="${hasher_sha%% *}" \
+  source_artifact_sha256="$source_artifact" \
+  deployed_artifact_sha256="$deployed_artifact" \
+  release_marker_sha256="${marker_sha%% *}" \
   wrapper_sha256="${wrapper_sha%% *}" \
   runner_sha256="${runner_sha%% *}" \
   > "$dir/scheduler-bundle.manifest"
@@ -551,9 +586,11 @@ root:root 0600 activation file must contain exactly the following keys and real
 evidence values; never use placeholders at activation:
 
 ```text
-schema=safeharbor-business-report-scheduler-activation-v1
+schema=safeharbor-business-report-scheduler-activation-v2
 release_sha=EXACT_40_HEX_RELEASE_SHA
 bundle_manifest_sha256=SHA256_OF_SCHEDULER_BUNDLE_MANIFEST
+deployed_artifact_sha256=SHA256_OF_COMPLETE_DEPLOYED_APP_EXCLUDING_PROTECTED_CONFIG
+release_marker_sha256=SHA256_OF_CURRENT_IMMUTABLE_RELEASE_MARKER
 protected_config_sha256=SHA256_OF_CURRENT_PROTECTED_CONFIG
 sender=reports@8westit.com
 tenant_slug=EXACT_TENANT_SLUG
@@ -594,11 +631,14 @@ sudo bash manage-business-report-scheduler.sh verify stopped
 ```
 
 Every later code deploy must begin from `stopped`; the deploy helper then
-refuses an active name or shared-lock holder. After deployment, rebuild the
-root-only bundle manifest for the new exact release, rerun preflight, create a
-new config-bound canary record, install disabled, and only then consider a
-separately authorized activation. To remove the reviewed disabled control file
-after stop (quarantined evidence remains untouched):
+refuses an active name or shared-lock holder. A failed source-artifact check
+leaves the old marker in place and requires release recovery because extraction
+is still non-atomic. After a successful deployment, every old bundle and
+activation record is intentionally stale. Rebuild the root-only bundle manifest
+from the new immutable marker, rerun preflight, create a new artifact/config-
+bound canary record, install disabled, and only then consider a separately
+authorized activation. To remove the reviewed disabled control file after stop
+(quarantined evidence remains untouched):
 
 ```bash
 sudo bash manage-business-report-scheduler.sh uninstall \

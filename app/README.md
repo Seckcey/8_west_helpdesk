@@ -251,9 +251,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
   delivery is terminal without automatic retry. The controlled Lifestyle
   archive 3 now has separate recipient-inbox confirmation, while archives 1 and
   2 remain terminal `uncertain`. Both execution gates and every Lifestyle
-  schedule remain off. A default-off scheduler wrapper/template/manager exists
-  in source but is not installed; the new dedicated report sender needs its own
-  canary and root-only config/tuple evidence before activation.
+  schedule remain off. A default-off scheduler wrapper/template/manager and
+  deterministic complete-app hasher exist in source but are not installed.
+  Activation additionally requires the deploy-created immutable release marker
+  and exact deployed-artifact digest; the new dedicated report sender needs its
+  own canary and root-only artifact/config/tuple evidence before activation.
   See `docs/business-reports-contract.md`.
 - ID-backed report onboarding: no-write new-customer
   `plan-customer-from-id`, `prepare-from-id`, historical

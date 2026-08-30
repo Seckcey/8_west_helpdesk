@@ -108,6 +108,12 @@ logger_status="${pipeline_status[1]}"
 if [[ "$logger_status" -ne 0 ]]; then
     printf '%s: logger failed with status %s; PHP status was %s\n' \
         "$LOG_TAG" "$logger_status" "$php_status" >&2
+    # PHP is the business operation. If both sides fail, preserve that primary
+    # failure for cron and operator recovery; 74 is reserved for a logger-only
+    # failure after PHP succeeded.
+    if [[ "$php_status" -ne 0 ]]; then
+        exit "$php_status"
+    fi
     exit 74
 fi
 if [[ "$php_status" -ne 0 ]]; then

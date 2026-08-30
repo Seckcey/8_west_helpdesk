@@ -9,6 +9,7 @@ umask 077
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_SELF="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
 readonly CRON_SOURCE="$SCRIPT_DIR/safeharbor-business-reports.cron"
+readonly ARTIFACT_HASHER="$SCRIPT_DIR/hash-safeharbor-app-artifact.sh"
 readonly BUNDLE_MANIFEST="$SCRIPT_DIR/scheduler-bundle.manifest"
 
 readonly TEST_ROOT="${SAFEHARBOR_SCHEDULER_TEST_ROOT:-}"
@@ -37,6 +38,8 @@ readonly REPORT_WRAPPER="$APP_ROOT/cron/run_business_reports.sh"
 readonly PROTECTED_CONFIG="$APP_ROOT/config/config.php"
 readonly DEPLOY_LOCK_DIR="$ROOT_PREFIX/var/lib/safeharbor-report-scheduler"
 readonly DEPLOY_LOCK="$DEPLOY_LOCK_DIR/business-reports-deploy.lock"
+readonly RELEASE_RECORD_DIR="$DEPLOY_LOCK_DIR/releases"
+readonly CURRENT_RELEASE_RECORD="$RELEASE_RECORD_DIR/current-app-artifact.manifest"
 readonly RUNTIME_USER='www-data'
 readonly RUNTIME_GROUP='www-data'
 
@@ -55,9 +58,10 @@ Usage:
   manage-business-report-scheduler.sh disable
   manage-business-report-scheduler.sh uninstall --confirm-remove-exact-scheduler-files
 
-The source directory must be root:root 0700 and contain only reviewed
-root:root 0600 files plus scheduler-bundle.manifest. install-disabled does not
-schedule work. enable binds the exact reviewed release, protected-config hash,
+The source directory must be root:root 0700 and contain only the reviewed
+root:root 0600 manager, cron template, complete-artifact hasher, and bundle
+manifest. install-disabled does not schedule work. enable binds the exact
+reviewed release, immutable deployed-artifact record, protected-config hash,
 reports@8westit.com sender canary, and expected tenant/client/schedule/recipient
 tuple. disable removes the active cron path but does not kill an in-flight run.
 USAGE
@@ -172,27 +176,30 @@ require_source() {
 
     require_control_source_metadata
     verify_metadata "$CRON_SOURCE" root root 600 'reviewed-cron-source'
+    verify_metadata "$ARTIFACT_HASHER" root root 600 'artifact-hasher'
     verify_metadata "$BUNDLE_MANIFEST" root root 600 'bundle-manifest'
     while IFS= read -r -d '' entry; do
         case "${entry##*/}" in
-            manage-business-report-scheduler.sh|safeharbor-business-reports.cron|scheduler-bundle.manifest)
+            manage-business-report-scheduler.sh|safeharbor-business-reports.cron|hash-safeharbor-app-artifact.sh|scheduler-bundle.manifest)
                 source_entries=$((source_entries + 1))
                 ;;
             *) scheduler_fail 'control-source-directory-has-unexpected-entry' 65 ;;
         esac
     done < <(/usr/bin/find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 -print0)
-    [[ "$source_entries" -eq 3 ]] \
+    [[ "$source_entries" -eq 4 ]] \
         || scheduler_fail 'control-source-directory-entry-count-invalid' 65
     load_exact_kv_file \
         "$BUNDLE_MANIFEST" BUNDLE \
-        'schema,release_sha,manager_sha256,cron_sha256,wrapper_sha256,runner_sha256' \
+        'schema,release_sha,manager_sha256,cron_sha256,hasher_sha256,source_artifact_sha256,deployed_artifact_sha256,release_marker_sha256,wrapper_sha256,runner_sha256' \
         'bundle-manifest'
 
-    [[ "${BUNDLE[schema]}" == 'safeharbor-business-report-scheduler-bundle-v1' ]] \
+    [[ "${BUNDLE[schema]}" == 'safeharbor-business-report-scheduler-bundle-v2' ]] \
         || scheduler_fail 'bundle-manifest-schema-invalid' 65
     [[ "${BUNDLE[release_sha]}" =~ ^[0-9a-f]{40}$ ]] \
         || scheduler_fail 'bundle-manifest-release-invalid' 65
-    for line in manager_sha256 cron_sha256 wrapper_sha256 runner_sha256; do
+    for line in manager_sha256 cron_sha256 hasher_sha256 \
+        source_artifact_sha256 deployed_artifact_sha256 release_marker_sha256 \
+        wrapper_sha256 runner_sha256; do
         [[ "${BUNDLE[$line]}" =~ ^[0-9a-f]{64}$ ]] \
             || scheduler_fail "bundle-manifest-hash-invalid:$line" 65
     done
@@ -202,6 +209,9 @@ require_source() {
     actual="$(sha256_file "$CRON_SOURCE")"
     [[ "$actual" == "${BUNDLE[cron_sha256]}" ]] \
         || scheduler_fail 'reviewed-cron-source-digest-mismatch' 65
+    actual="$(sha256_file "$ARTIFACT_HASHER")"
+    [[ "$actual" == "${BUNDLE[hasher_sha256]}" ]] \
+        || scheduler_fail 'artifact-hasher-digest-mismatch' 65
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         case "$line" in
@@ -235,6 +245,55 @@ verify_deployed_tree_metadata() {
     done < <(/usr/bin/find "$APP_ROOT" -xdev -type f -print0)
 }
 
+declare -A DEPLOYED_RELEASE=()
+verify_deployed_release_record() {
+    local actual marker_hash unique_record
+
+    verify_metadata "$RELEASE_RECORD_DIR" root root 700 \
+        'release-record-directory'
+    verify_physical_directory "$RELEASE_RECORD_DIR" \
+        'release-record-directory'
+    verify_metadata "$CURRENT_RELEASE_RECORD" root root 600 \
+        'current-release-record'
+    load_exact_kv_file \
+        "$CURRENT_RELEASE_RECORD" DEPLOYED_RELEASE \
+        'schema,release_sha,source_artifact_sha256,deployed_artifact_sha256,hasher_sha256' \
+        'current-release-record'
+
+    [[ "${DEPLOYED_RELEASE[schema]}" == 'safeharbor-deployed-app-artifact-v1' ]] \
+        || scheduler_fail 'current-release-record-schema-invalid' 65
+    [[ "${DEPLOYED_RELEASE[release_sha]}" =~ ^[0-9a-f]{40}$ ]] \
+        || scheduler_fail 'current-release-record-release-invalid' 65
+    for actual in source_artifact_sha256 deployed_artifact_sha256 hasher_sha256; do
+        [[ "${DEPLOYED_RELEASE[$actual]}" =~ ^[0-9a-f]{64}$ ]] \
+            || scheduler_fail "current-release-record-hash-invalid:$actual" 65
+    done
+
+    unique_record="$RELEASE_RECORD_DIR/app-artifact.${DEPLOYED_RELEASE[release_sha]}.${DEPLOYED_RELEASE[deployed_artifact_sha256]}.manifest"
+    verify_metadata "$unique_record" root root 600 'immutable-release-record'
+    /usr/bin/cmp -s -- "$CURRENT_RELEASE_RECORD" "$unique_record" \
+        || scheduler_fail 'immutable-release-record-content-mismatch' 65
+
+    marker_hash="$(sha256_file "$CURRENT_RELEASE_RECORD")"
+    [[ "$marker_hash" == "${BUNDLE[release_marker_sha256]}" ]] \
+        || scheduler_fail 'release-marker-digest-mismatch' 65
+    [[ "${DEPLOYED_RELEASE[release_sha]}" == "${BUNDLE[release_sha]}" ]] \
+        || scheduler_fail 'release-marker-release-mismatch' 65
+    [[ "${DEPLOYED_RELEASE[source_artifact_sha256]}" == "${BUNDLE[source_artifact_sha256]}" ]] \
+        || scheduler_fail 'release-marker-source-artifact-mismatch' 65
+    [[ "${DEPLOYED_RELEASE[deployed_artifact_sha256]}" == "${BUNDLE[deployed_artifact_sha256]}" ]] \
+        || scheduler_fail 'release-marker-deployed-artifact-mismatch' 65
+    [[ "${DEPLOYED_RELEASE[hasher_sha256]}" == "${BUNDLE[hasher_sha256]}" ]] \
+        || scheduler_fail 'release-marker-hasher-mismatch' 65
+
+    actual="$(/usr/bin/bash "$ARTIFACT_HASHER" "$APP_ROOT")" \
+        || scheduler_fail 'deployed-artifact-hash-failed' 74
+    [[ "$actual" =~ ^[0-9a-f]{64}$ ]] \
+        || scheduler_fail 'deployed-artifact-hash-invalid' 74
+    [[ "$actual" == "${BUNDLE[deployed_artifact_sha256]}" ]] \
+        || scheduler_fail 'deployed-artifact-digest-mismatch' 65
+}
+
 require_runtime() {
     local path actual
     for path in /usr/bin/bash /usr/bin/php /usr/bin/logger /usr/bin/id \
@@ -262,6 +321,7 @@ require_runtime() {
     verify_metadata "$DEPLOY_LOCK" root "$RUNTIME_GROUP" 640 \
         'deploy-lock'
     verify_deployed_tree_metadata
+    verify_deployed_release_record
 
     /usr/bin/id "$RUNTIME_USER" >/dev/null 2>&1 \
         || scheduler_fail 'runtime-user-missing' 67
@@ -290,6 +350,10 @@ require_runtime() {
 }
 
 acquire_deploy_idle_lock() {
+    verify_metadata "$DEPLOY_LOCK_DIR" root "$RUNTIME_GROUP" 750 \
+        'deploy-lock-directory'
+    verify_metadata "$DEPLOY_LOCK" root "$RUNTIME_GROUP" 640 \
+        'deploy-lock'
     exec 8<"$DEPLOY_LOCK" \
         || scheduler_fail 'deploy-lock-open-failed' 75
     /usr/bin/flock --shared --nonblock 8 \
@@ -320,16 +384,20 @@ validate_activation_evidence() {
     verify_metadata "$evidence" root root 600 'activation-evidence'
     load_exact_kv_file \
         "$evidence" ACTIVATION \
-        'schema,release_sha,bundle_manifest_sha256,protected_config_sha256,sender,tenant_slug,client_id,schedule_key,recipient,graph_status,graph_accepted_at,recipient_confirmation,recipient_confirmed_at,archive_sha256,protected_gates_reviewed_at' \
+        'schema,release_sha,bundle_manifest_sha256,deployed_artifact_sha256,release_marker_sha256,protected_config_sha256,sender,tenant_slug,client_id,schedule_key,recipient,graph_status,graph_accepted_at,recipient_confirmation,recipient_confirmed_at,archive_sha256,protected_gates_reviewed_at' \
         'activation-evidence'
 
-    [[ "${ACTIVATION[schema]}" == 'safeharbor-business-report-scheduler-activation-v1' ]] \
+    [[ "${ACTIVATION[schema]}" == 'safeharbor-business-report-scheduler-activation-v2' ]] \
         || scheduler_fail 'activation-evidence-schema-invalid' 65
     [[ "${ACTIVATION[release_sha]}" == "${BUNDLE[release_sha]}" ]] \
         || scheduler_fail 'activation-release-mismatch' 65
     manifest_hash="$(sha256_file "$BUNDLE_MANIFEST")"
     [[ "${ACTIVATION[bundle_manifest_sha256]}" == "$manifest_hash" ]] \
         || scheduler_fail 'activation-bundle-digest-mismatch' 65
+    [[ "${ACTIVATION[deployed_artifact_sha256]}" == "${BUNDLE[deployed_artifact_sha256]}" ]] \
+        || scheduler_fail 'activation-deployed-artifact-mismatch' 65
+    [[ "${ACTIVATION[release_marker_sha256]}" == "${BUNDLE[release_marker_sha256]}" ]] \
+        || scheduler_fail 'activation-release-marker-mismatch' 65
     [[ "${ACTIVATION[protected_config_sha256]}" =~ ^[0-9a-f]{64}$ ]] \
         || scheduler_fail 'activation-config-digest-invalid' 65
     config_hash="$(sha256_file "$PROTECTED_CONFIG")"
@@ -451,15 +519,15 @@ case "$command" in
     preflight)
         [[ "$#" -eq 0 ]] || scheduler_usage
         require_source
-        require_runtime
         acquire_deploy_idle_lock
+        require_runtime
         printf 'SCHEDULER_PREFLIGHT=PASS\n'
         ;;
     install-disabled)
         [[ "$#" -eq 0 ]] || scheduler_usage
         require_source
-        require_runtime
         acquire_deploy_idle_lock
+        require_runtime
         path_absent "$CRON_ACTIVE" && path_absent "$CRON_DISABLED" \
             && path_absent "$ACTIVATION_RECORD" \
             || scheduler_fail 'scheduler-state-already-present' 1
@@ -470,8 +538,8 @@ case "$command" in
         [[ "$#" -eq 1 ]] || scheduler_usage
         require_source
         if [[ "$1" == active ]]; then
-            require_runtime
             acquire_deploy_idle_lock
+            require_runtime
         fi
         verify_state "$1"
         ;;
@@ -488,8 +556,8 @@ case "$command" in
         expect_schedule="$8"
         expect_recipient="${10}"
         require_source
-        require_runtime
         acquire_deploy_idle_lock
+        require_runtime
         path_absent "$CRON_ACTIVE" || scheduler_fail 'active-scheduler-already-present' 1
         path_absent "$ACTIVATION_RECORD" || scheduler_fail 'activation-record-already-present' 1
         verify_cron_file "$CRON_DISABLED" 'disabled'

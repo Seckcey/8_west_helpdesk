@@ -115,16 +115,24 @@ script's `IdentitiesOnly` option. Never rely on the script's Cloudflare-hostname
 default. Record the exact SHA, CI run, backup record, migration output, and
 postdeploy hashes in a root-only release record.
 
-No build step — the script lints the PHP, syncs brand assets, stages an exact
-SHA-256-verified root-only remote installer, and streams `app/` to the server
-without overwriting `config/config.php`. The remote installer requires the
-report scheduler's active cron name to be absent, takes the exclusive side of
-the persistent root-owned report/deploy lock, preserves the config hash, then
-fixes ownership
+No application build step — the script refuses a dirty Git checkout, creates
+the app and its six derived brand files from the exact Git release archive,
+lints that isolated artifact, stages exact SHA-256-verified root-only installer
+and full-app hasher controls, and streams only staged `app/` to the server
+without overwriting
+`config/config.php`. The remote installer requires the report scheduler's
+active cron name to be absent, takes the exclusive side of the persistent
+root-owned report/deploy lock, verifies the incoming clean-source artifact in
+root-only staging before it touches the live tree,
+preserves the config hash, then fixes ownership
 (`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets are
 cache-busted Milepost-style with `?v=` in `lib/render.php`, `lib/westy.php`,
-and `public/login.php`. This closes the scheduler-versus-extraction race; it
-does not claim to make ordinary web requests atomic during extraction.
+and `public/login.php`. Before releasing the lock it writes a root-only current
+record and a uniquely named immutable record that bind the release, source
+artifact, complete deployed artifact, and exact hasher. The complete digest
+excludes only protected `config/config.php`, whose digest remains a separate
+activation fact. This closes the scheduler-versus-extraction race; it does not
+claim to make ordinary web requests atomic during extraction.
 
 ### Protected backup and Safeharbor-only write freeze
 
@@ -595,10 +603,13 @@ exact value while generation and delivery remain false. The deploy script does
 not install or activate a scheduler. It refuses an active scheduler and shares
 a lock protocol with `app/cron/run_business_reports.sh`, so a report cannot
 read the app during extraction. The manager must run only from a root:root 0700
-control directory with root:root 0600 manager/template/manifest files. The
-manifest binds the exact release and deployed wrapper/runner hashes; preflight
-also requires the whole app tree to be `ubuntu:www-data` with 2750 directories
-and 0640 ordinary files.
+control directory with root:root 0600 manager/template/full-artifact-hasher/
+manifest files. The manifest binds the exact release, clean source artifact,
+complete deployed artifact, unique/current root-only release marker, and
+deployed wrapper/runner hashes. Preflight holds the shared deployment lock while
+it re-hashes the full app tree, excluding only the separately bound protected
+config, and also requires `ubuntu:www-data` with 2750 directories and 0640
+ordinary files.
 
 The controlled 8 West Lifestyle history now has three archives. Attempts 1
 and 2 are terminal `uncertain` and must never be retried. Archive 3 returned
@@ -624,8 +635,9 @@ sudo bash manage-business-report-scheduler.sh verify disabled
 ```
 
 Activation requires the exact root-only evidence artifact documented in
-`docs/business-reports-contract.md`. It binds the release/manifest/config hash,
-the exact `reports@8westit.com` sender, tenant/client/schedule/recipient tuple,
+`docs/business-reports-contract.md`. It binds the release/manifest/full-app
+artifact/release-marker/config hashes, the exact `reports@8westit.com` sender,
+tenant/client/schedule/recipient tuple,
 Graph acceptance, recipient confirmation, archive hash, and protected-gate
 review time. Literal checkbox flags are not accepted. Observe one scheduled
 weekly period before expanding any allowlist. Emergency disable always removes
