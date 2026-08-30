@@ -1588,6 +1588,43 @@ report_check('dry run writes no archive or delivery',
     $dryRun['action'] === 'dry_run'
     && (int)$pdo->query('SELECT COUNT(*) FROM business_report_archives')->fetchColumn() === 0
     && (int)$pdo->query('SELECT COUNT(*) FROM business_report_deliveries')->fetchColumn() === 0);
+$clientNameUpdate = $pdo->prepare('UPDATE clients SET name=? WHERE tenant_id=1 AND id=11');
+$clientNameUpdate->execute(["Client \u{202E}One"]);
+report_throws(
+    'generation refuses a display-direction control in the customer name',
+    BusinessReportConflictException::class,
+    fn() => business_report_generate(
+        $pdo,
+        'one',
+        'client-one-weekly',
+        report_config(),
+        $now,
+        true,
+        false,
+    ),
+    'metric schema',
+);
+report_check(
+    'display-direction generation refusal archives and delivers nothing',
+    (int) $pdo->query('SELECT COUNT(*) FROM business_report_archives')->fetchColumn() === 0
+        && (int) $pdo->query('SELECT COUNT(*) FROM business_report_deliveries')->fetchColumn() === 0,
+);
+$clientNameUpdate->execute(['Café München 東京']);
+$internationalNameDryRun = business_report_generate(
+    $pdo,
+    'one',
+    'client-one-weekly',
+    report_config(),
+    $now,
+    true,
+    false,
+);
+report_check(
+    'generation preserves an ordinary international customer name',
+    $internationalNameDryRun['metrics']['source']['client_name'] === 'Café München 東京'
+        && str_contains($internationalNameDryRun['text'], 'Client: Café München 東京'),
+);
+$clientNameUpdate->execute(['Client One']);
 report_check('report window is exact start-inclusive end-exclusive UTC',
     $dryRun['archive']['period_start'] === '2026-08-10 00:00:00'
     && $dryRun['archive']['period_end'] === '2026-08-17 00:00:00');
@@ -1713,6 +1750,76 @@ report_check(
     (string) $reloaded['metrics_json'] === business_report_metrics_json($generated['metrics'])
         && (string) $reloaded['report_text'] === $generated['text']
         && business_report_archived_content($reloaded) === $unchangedArchivedContent,
+);
+$duplicateV1Archive = report_archive_fixture(
+    $pdo,
+    (int) $enabled['schedule']['id'],
+    'client-one-weekly',
+    '2026-07-13 00:00:00',
+);
+$duplicateV1JsonCount = 0;
+$duplicateV1Json = preg_replace(
+    '/\A\{"schema_version":1,/',
+    '{"schema_version":1,"schema_version":1,',
+    (string) $duplicateV1Archive['metrics_json'],
+    1,
+    $duplicateV1JsonCount,
+);
+if (!is_string($duplicateV1Json) || $duplicateV1JsonCount !== 1) {
+    throw new RuntimeException('Duplicate v1 JSON fixture could not be built exactly.');
+}
+$duplicateV1Hash = business_report_content_sha256_from_json(
+    $duplicateV1Json,
+    (string) $duplicateV1Archive['report_text'],
+);
+$pdo->prepare(
+    'UPDATE business_report_archives SET metrics_json=?,content_sha256=? WHERE id=?',
+)->execute([
+    $duplicateV1Json,
+    $duplicateV1Hash,
+    (int) $duplicateV1Archive['id'],
+]);
+$duplicateV1Archive['metrics_json'] = $duplicateV1Json;
+$duplicateV1Archive['content_sha256'] = $duplicateV1Hash;
+report_throws(
+    'definition v1 reload refuses duplicate JSON member names',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content($duplicateV1Archive),
+    'metric schema',
+);
+$duplicateV1TransportCalls = 0;
+$duplicateV1AttemptsBefore = (int) $pdo->query(
+    'SELECT COUNT(*) FROM business_report_delivery_attempts',
+)->fetchColumn();
+report_throws(
+    'definition v1 delivery refuses duplicate JSON member names',
+    BusinessReportConflictException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        (int) $duplicateV1Archive['id'],
+        report_config(),
+        function () use (&$duplicateV1TransportCalls): array {
+            $duplicateV1TransportCalls++;
+            return [
+                'outcome' => 'submitted',
+                'provider_http' => 202,
+                'outcome_code' => 'graph_accepted',
+            ];
+        },
+        $now,
+    ),
+    'metric schema',
+);
+report_check(
+    'definition v1 duplicate JSON makes zero transport or delivery-attempt calls',
+    $duplicateV1TransportCalls === 0
+        && (int) $pdo->query(
+            'SELECT COUNT(*) FROM business_report_delivery_attempts',
+        )->fetchColumn() === $duplicateV1AttemptsBefore
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_deliveries WHERE archive_id='
+            . (int) $duplicateV1Archive['id'],
+        )->fetchColumn() === 'pending',
 );
 
 // Definition v2 uses one effective row per approved entry. Multiple immutable
@@ -1933,6 +2040,27 @@ $nonfiniteText = preg_replace(
 if (!is_string($nonfiniteText)) {
     throw new RuntimeException('Nonfinite archive text fixture could not be built exactly.');
 }
+$formatControlMetrics = $v2Generated['metrics'];
+$formatControlClientName = (string) $formatControlMetrics['source']['client_name']
+    . "\u{202E}hidden";
+$formatControlMetrics['source']['client_name'] = $formatControlClientName;
+$formatControlText = str_replace(
+    'Client: ' . $v2Generated['metrics']['source']['client_name'],
+    'Client: ' . $formatControlClientName,
+    $canonicalV2Text,
+);
+$duplicateV2JsonCount = 0;
+$duplicateV2Json = preg_replace(
+    '/\A\{"schema_version":1,/',
+    '{"schema_version":1,"schema_version":1,',
+    (string) $v2Archive['metrics_json'],
+    1,
+    $duplicateV2JsonCount,
+);
+if (!is_string($duplicateV2Json) || $duplicateV2JsonCount !== 1) {
+    throw new RuntimeException('Duplicate v2 JSON fixture could not be built exactly.');
+}
+$hiddenRawV2Json = (string) $v2Archive['metrics_json'] . " \t\r\n";
 $adversarialV2Archives = [
     'newline client text injection' => [
         business_report_metrics_json($newlineMetrics),
@@ -1957,6 +2085,18 @@ $adversarialV2Archives = [
     'nonfinite JSON number' => [
         $nonfiniteMetricsJson,
         $nonfiniteText,
+    ],
+    'Unicode display-direction control' => [
+        business_report_metrics_json($formatControlMetrics),
+        $formatControlText,
+    ],
+    'duplicate JSON member names' => [
+        $duplicateV2Json,
+        $canonicalV2Text,
+    ],
+    'hidden raw JSON whitespace bytes' => [
+        $hiddenRawV2Json,
+        $canonicalV2Text,
     ],
 ];
 $forgeV2Metrics = $pdo->prepare(

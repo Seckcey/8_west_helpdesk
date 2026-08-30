@@ -857,6 +857,9 @@ $mysqlAdversarialMetricKinds = [
     'unknown secret and financial fields',
     'integer string type confusion',
     'out-of-range integer',
+    'Unicode display-direction control',
+    'duplicate JSON member names',
+    'hidden raw JSON whitespace bytes',
 ];
 foreach ($mysqlAdversarialMetricKinds as $index => $kind) {
     $daysBefore = 21 + ($index * 7);
@@ -899,9 +902,32 @@ foreach ($mysqlAdversarialMetricKinds as $index => $kind) {
             'Tickets opened: ' . $metrics['tickets']['opened'],
             $text,
         );
+    } elseif ($kind === 'Unicode display-direction control') {
+        $opened = (string) $metrics['tickets']['opened'];
+        $metrics['tickets']['opened'] = $opened . "\u{202E}hidden";
+        $text = str_replace(
+            "Tickets opened: {$opened}",
+            'Tickets opened: ' . $metrics['tickets']['opened'],
+            $text,
+        );
     }
 
     $metricsJson = business_report_metrics_json($metrics);
+    if ($kind === 'duplicate JSON member names') {
+        $duplicateCount = 0;
+        $metricsJson = preg_replace(
+            '/\A\{"schema_version":1,/',
+            '{"schema_version":1,"schema_version":1,',
+            $metricsJson,
+            1,
+            $duplicateCount,
+        );
+        if (!is_string($metricsJson) || $duplicateCount !== 1) {
+            throw new RuntimeException('Native MySQL duplicate JSON fixture was not exact.');
+        }
+    } elseif ($kind === 'hidden raw JSON whitespace bytes') {
+        $metricsJson .= " \t\r\n";
+    }
     $hash = business_report_content_sha256_from_json($metricsJson, $text);
     $forgedArchiveInsert->execute([
         1,

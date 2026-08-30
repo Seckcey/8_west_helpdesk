@@ -2155,7 +2155,7 @@ function business_report_archive_strings_are_safe(mixed $value): bool
 {
     if (is_string($value)) {
         return mb_check_encoding($value, 'UTF-8')
-            && preg_match('/[\p{Cc}\x{2028}\x{2029}]/u', $value) === 0;
+            && preg_match('/[\p{Cc}\p{Cf}\x{2028}\x{2029}]/u', $value) === 0;
     }
     if (!is_array($value)) return true;
     foreach ($value as $item) {
@@ -2555,6 +2555,20 @@ function business_report_archived_content(array $archive): array
         throw new BusinessReportConflictException('The archived report content hash does not match.');
     }
     business_report_assert_archive_metric_schema($metrics);
+    try {
+        $canonicalMetricsJson = business_report_metrics_json($metrics);
+    } catch (JsonException $error) {
+        throw new BusinessReportConflictException(
+            'The archived report metric schema JSON cannot be encoded canonically.',
+            0,
+            $error,
+        );
+    }
+    if (!hash_equals($canonicalMetricsJson, $metricsJson)) {
+        throw new BusinessReportConflictException(
+            'The archived report metric schema JSON is not canonical.',
+        );
+    }
     try {
         set_error_handler(
             static function (int $severity, string $message, string $file, int $line): never {

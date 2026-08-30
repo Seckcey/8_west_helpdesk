@@ -248,7 +248,7 @@ function suite_customer_sync_validate(array $payload, ?int $now = null): array
         || $displayName !== trim($displayName)
         || !mb_check_encoding($displayName, 'UTF-8')
         || mb_strlen($displayName, 'UTF-8') > 128
-        || preg_match('/\p{Cc}/u', $displayName) === 1
+        || preg_match('/[\p{Cc}\p{Cf}\x{2028}\x{2029}]/u', $displayName) === 1
     ) {
         throw new SuiteCustomerSyncValidationException('display_name_invalid');
     }
