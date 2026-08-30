@@ -144,6 +144,19 @@ function cm_v3_apply(PDO $pdo, string $path): void
         }
     }
 }
+function cm_v3_guard_snapshot(PDO $pdo): string
+{
+    return (string) $pdo->query(
+        "SELECT COALESCE(GROUP_CONCAT(
+            CONCAT(trigger_name,':',SHA2(action_statement,256))
+            ORDER BY trigger_name SEPARATOR ','
+         ),'')
+           FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND event_object_table IN
+                ('coastmark_time_export_claims','coastmark_time_export_receipts')"
+    )->fetchColumn();
+}
 /** @return array{process:resource,pipes:array<int,resource>} */
 function cm_v3_worker(string $database, int $entry, string $suffix): array
 {
@@ -246,6 +259,47 @@ try {
           WHERE table_schema=DATABASE() AND table_name LIKE 'coastmark_time_export_%'")->fetchColumn() === 2
         && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_cm_export_%'")->fetchColumn() === 6);
+    $guardSnapshot = cm_v3_guard_snapshot($pdo);
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_claims DROP INDEX uq_cm_export_claim_event');
+    cm_v3_expect('migration refuses a claim table with weakened event uniqueness',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('index drift is refused before any permanent guard is replaced',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_claims
+        ADD UNIQUE KEY uq_cm_export_claim_event (tenant_id,event_key)');
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        MODIFY response_status INT UNSIGNED NULL');
+    cm_v3_expect('migration refuses a receipt table with the wrong column type',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('column drift is refused before any permanent guard is replaced',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        MODIFY response_status SMALLINT UNSIGNED NULL');
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP CHECK ck_cm_export_receipt_detail');
+    cm_v3_expect('migration refuses a receipt table with a missing validation check',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('check drift is refused before any permanent guard is replaced',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec("ALTER TABLE coastmark_time_export_receipts
+        ADD CONSTRAINT ck_cm_export_receipt_detail
+        CHECK (detail_code REGEXP '^[a-z][a-z0-9_]{2,63}$')");
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP FOREIGN KEY fk_cm_export_receipt_claim');
+    cm_v3_expect('migration refuses a receipt table with a missing claim foreign key',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('foreign-key drift is refused before any permanent guard is replaced',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ADD CONSTRAINT fk_cm_export_receipt_claim FOREIGN KEY (tenant_id,claim_id)
+        REFERENCES coastmark_time_export_claims (tenant_id,id)');
+    cm_v3_apply($pdo, $migration);
+    cm_v3_check('exactly repaired schema replays and retains the same canonical guards',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
 
     $claim = coastmark_time_export_claim(
         $pdo, '8west', 501, 'timer:mysql:000001', 102, cm_v3_config(),

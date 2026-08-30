@@ -271,15 +271,27 @@ portal_mysql_check('portal create writes exactly one customer-authored message',
     count($customerMessages) === 1
     && $customerMessages[0]['kind'] === 'client'
     && $customerMessages[0]['author_name'] === 'Acme Customer');
+$pdo->exec("INSERT INTO messages(ticket_id,author_name,kind,body,created_at)
+    SELECT {$customerTicketId},'Imported Old Tech','tech','pre-open response',DATE_SUB(created_at,INTERVAL 1 SECOND)
+      FROM tickets WHERE id={$customerTicketId}");
+$pdo->exec("INSERT INTO messages(ticket_id,author_name,kind,body,created_at)
+    VALUES ({$customerTicketId},'Future Tech','tech','future response',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE))");
 $pdo->exec("INSERT INTO messages(ticket_id,author_name,kind,body) VALUES
     ({$customerTicketId},'Private Tech','note','private note'),
     ({$customerTicketId},'Milepost','system','private automation'),
     ({$customerTicketId},'Support Tech','tech','customer-visible response')");
+$validResponseAt = (string)$pdo->query(
+    "SELECT created_at FROM messages
+      WHERE ticket_id={$customerTicketId} AND body='customer-visible response'"
+)->fetchColumn();
 $customerDetail = portal_ticket_detail($pdo, 1, 11, $customerTicketId);
 portal_mysql_check('portal detail excludes internal notes and automation lines',
-    array_column($customerDetail['messages'], 'kind') === ['client', 'tech']
+    array_column($customerDetail['messages'], 'kind') === ['tech', 'client', 'tech', 'tech']
     && ! str_contains(json_encode($customerDetail, JSON_THROW_ON_ERROR), 'private note')
     && ! str_contains(json_encode($customerDetail, JSON_THROW_ON_ERROR), 'private automation'));
+portal_mysql_check('portal milestone ignores pre-open and future technician timestamps',
+    $validResponseAt !== ''
+    && $customerDetail['ticket']['first_response_at'] === $validResponseAt);
 portal_mysql_expect('different customer cannot read portal ticket', PortalDataNotFoundException::class,
     fn() => portal_ticket_detail($pdo, 1, 12, $customerTicketId));
 $pdo->exec("UPDATE tickets SET status='waiting' WHERE id={$customerTicketId}");

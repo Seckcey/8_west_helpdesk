@@ -574,6 +574,24 @@ export_check('receipt history is append-only evidence for starts and outcomes',
 $migration = file_get_contents(__DIR__ . '/../db/migrations/021_coastmark_time_export_v3.sql');
 $schema = file_get_contents(__DIR__ . '/../db/schema.sql');
 $cli = file_get_contents(__DIR__ . '/../db/export_approved_time.php');
+$preflightMarker = '-- CREATE TABLE IF NOT EXISTS is only a convenience for a fresh install.';
+$migrationPreflightStart = is_string($migration) ? strpos($migration, $preflightMarker) : false;
+$migrationPreflightEnd = is_string($migration)
+    ? strpos($migration, '-- Fail closed while permanent triggers', (int) $migrationPreflightStart)
+    : false;
+$schemaPreflightStart = is_string($schema) ? strpos($schema, $preflightMarker) : false;
+$schemaPreflightEnd = is_string($schema)
+    ? strpos($schema, 'DROP TRIGGER IF EXISTS trg_cm_export_claim_before_insert', (int) $schemaPreflightStart)
+    : false;
+$migrationPreflight = $migrationPreflightStart !== false && $migrationPreflightEnd !== false
+    ? substr($migration, $migrationPreflightStart, $migrationPreflightEnd - $migrationPreflightStart)
+    : null;
+$schemaPreflight = $schemaPreflightStart !== false && $schemaPreflightEnd !== false
+    ? substr($schema, $schemaPreflightStart, $schemaPreflightEnd - $schemaPreflightStart)
+    : null;
+$schemaPreflight = is_string($schemaPreflight)
+    ? str_replace('cm_export_schema_statement', 'cm_export_statement', $schemaPreflight)
+    : null;
 export_check('migration and canonical schema carry both tables and six immutable guards',
     is_string($migration) && is_string($schema)
     && str_contains($migration, 'CREATE TABLE IF NOT EXISTS coastmark_time_export_claims')
@@ -588,6 +606,15 @@ export_check('migration and canonical schema carry both tables and six immutable
     && substr_count($schema, "'DO 0'") >= 2
     && substr_count($schema, 'CREATE TRIGGER trg_cm_export_claim_') === 3
     && substr_count($schema, 'CREATE TRIGGER trg_cm_export_receipt_') === 3);
+export_check('migration and canonical schema share the exact financial-table preflight',
+    is_string($migrationPreflight)
+    && $migrationPreflight === $schemaPreflight
+    && str_contains($migrationPreflight, '@cm_claim_table_ok')
+    && str_contains($migrationPreflight, '@cm_receipt_columns_ok')
+    && str_contains($migrationPreflight, '@cm_claim_indexes_ok')
+    && str_contains($migrationPreflight, '@cm_receipt_fks_ok')
+    && str_contains($migrationPreflight, '@cm_claim_checks_ok')
+    && str_contains($migrationPreflight, 'migration_021_coastmark_export_preflight_failed'));
 export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',
     is_string($cli)
     && str_contains($cli, "['claim', 'send', 'status', 'inspect-claim']")

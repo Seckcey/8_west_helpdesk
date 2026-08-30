@@ -131,6 +131,19 @@ portal_workflow_check('ticket detail includes only customer and technician conve
     array_column($detail['messages'], 'kind') === ['client', 'tech']
     && ! str_contains(json_encode($detail, JSON_THROW_ON_ERROR), 'INTERNAL SECRET')
     && ! str_contains(json_encode($detail, JSON_THROW_ON_ERROR), 'AUTOMATION SECRET'));
+portal_workflow_check('pre-open technician history cannot become the portal response milestone',
+    $detail['ticket']['first_response_at'] === null);
+$futureResponse = gmdate('Y-m-d H:i:s', time() + 300);
+$pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body,created_at)
+    VALUES (?,'Future Tech','tech','FUTURE RESPONSE',?)")->execute([$ticketId, $futureResponse]);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId);
+portal_workflow_check('future technician history cannot become the portal response milestone',
+    $detail['ticket']['first_response_at'] === null);
+$pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body,created_at)
+    VALUES (?,'Current Tech','tech','A real current response.',?)")->execute([$ticketId, $ticket['created_at']]);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId);
+portal_workflow_check('portal response milestone uses the first response inside the real ticket lifetime',
+    $detail['ticket']['first_response_at'] === $ticket['created_at']);
 portal_workflow_expect('same-provider different customer cannot read the ticket', PortalDataNotFoundException::class,
     fn() => portal_ticket_detail($pdo, 1, 12, $ticketId));
 portal_workflow_expect('different provider cannot read the ticket', PortalDataNotFoundException::class,

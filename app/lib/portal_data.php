@@ -675,7 +675,10 @@ function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticke
                 goal_target.first_response_minutes AS service_goal_response_minutes,
                 (SELECT MIN(first_reply.created_at)
                    FROM messages first_reply
-                  WHERE first_reply.ticket_id = t.id AND first_reply.kind = 'tech') AS first_response_at
+                  WHERE first_reply.ticket_id = t.id
+                    AND first_reply.kind = 'tech'
+                    AND first_reply.created_at >= t.created_at
+                    AND first_reply.created_at <= CURRENT_TIMESTAMP) AS first_response_at
            FROM tickets t
            LEFT JOIN service_goal_policy_targets goal_target
              ON goal_target.tenant_id = t.tenant_id

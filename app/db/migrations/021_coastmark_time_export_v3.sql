@@ -83,6 +83,258 @@ CREATE TABLE IF NOT EXISTS coastmark_time_export_receipts (
   CONSTRAINT ck_cm_export_receipt_install_lock CHECK (0 = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- CREATE TABLE IF NOT EXISTS is only a convenience for a fresh install. It
+-- must never bless a same-named object whose columns, constraints, or storage
+-- engine have drifted. Prove the exact durable shape before replacing any
+-- write guard.
+SET @cm_claim_table_ok = (
+  SELECT COUNT(*) = 1
+    FROM information_schema.tables
+   WHERE table_schema = DATABASE()
+     AND table_name = 'coastmark_time_export_claims'
+     AND engine = 'InnoDB'
+);
+SET @cm_receipt_table_ok = (
+  SELECT COUNT(*) = 1
+    FROM information_schema.tables
+   WHERE table_schema = DATABASE()
+     AND table_name = 'coastmark_time_export_receipts'
+     AND engine = 'InnoDB'
+);
+SET @cm_claim_columns_ok = (
+  SELECT COUNT(*) = 10
+     AND SUM(column_name = 'id' AND column_type = 'bigint unsigned'
+             AND is_nullable = 'NO' AND extra = 'auto_increment') = 1
+     AND SUM(column_name IN ('tenant_id','time_entry_id','source_version','created_by_user_id')
+             AND column_type = 'int unsigned' AND is_nullable = 'NO') = 4
+     AND SUM(column_name = 'event_key' AND column_type = 'varchar(64)'
+             AND character_set_name = 'ascii' AND collation_name = 'ascii_bin'
+             AND is_nullable = 'NO') = 1
+     AND SUM(column_name = 'predecessor_claim_id' AND column_type = 'bigint unsigned'
+             AND is_nullable = 'YES') = 1
+     AND SUM(column_name = 'payload_sha256' AND column_type = 'char(64)'
+             AND character_set_name = 'ascii' AND collation_name = 'ascii_bin'
+             AND is_nullable = 'NO') = 1
+     AND SUM(column_name = 'payload_json' AND column_type = 'longtext'
+             AND character_set_name = 'utf8mb4' AND collation_name = 'utf8mb4_bin'
+             AND is_nullable = 'NO') = 1
+     AND SUM(column_name = 'created_at' AND column_type = 'datetime'
+             AND is_nullable = 'NO'
+             AND UPPER(COALESCE(column_default,'')) = 'CURRENT_TIMESTAMP') = 1
+    FROM information_schema.columns
+   WHERE table_schema = DATABASE()
+     AND table_name = 'coastmark_time_export_claims'
+);
+SET @cm_receipt_columns_ok = (
+  SELECT COUNT(*) = 13
+     AND SUM(column_name = 'id' AND column_type = 'bigint unsigned'
+             AND is_nullable = 'NO' AND extra = 'auto_increment') = 1
+     AND SUM(column_name = 'tenant_id' AND column_type = 'int unsigned'
+             AND is_nullable = 'NO') = 1
+     AND SUM(column_name IN ('claim_id','coastmark_event_id','invoice_id','invoice_line_id')
+             AND column_type = 'bigint unsigned'
+             AND is_nullable = IF(column_name = 'claim_id','NO','YES')) = 4
+     AND SUM(column_name = 'operation_key' AND column_type = 'varchar(64)'
+             AND character_set_name = 'ascii' AND collation_name = 'ascii_bin'
+             AND is_nullable = 'NO') = 1
+     AND SUM(column_name = 'operation_kind'
+             AND column_type = "enum('dispatch_started','dispatch_result','status_started','status_result')"
+             AND is_nullable = 'NO') = 1
+     AND SUM(column_name = 'outcome'
+             AND column_type = "enum('dispatching','checking','accepted','replayed','absent','ambiguous','conflict','manual_exception')"
+             AND is_nullable = 'NO') = 1
+     AND SUM(column_name = 'response_status' AND column_type = 'smallint unsigned'
+             AND is_nullable = 'YES') = 1
+     AND SUM(column_name = 'response_sha256' AND column_type = 'char(64)'
+             AND character_set_name = 'ascii' AND collation_name = 'ascii_bin'
+             AND is_nullable = 'YES') = 1
+     AND SUM(column_name = 'detail_code' AND column_type = 'varchar(64)'
+             AND character_set_name = 'ascii' AND collation_name = 'ascii_bin'
+             AND is_nullable = 'NO') = 1
+     AND SUM(column_name = 'created_at' AND column_type = 'datetime'
+             AND is_nullable = 'NO'
+             AND UPPER(COALESCE(column_default,'')) = 'CURRENT_TIMESTAMP') = 1
+    FROM information_schema.columns
+   WHERE table_schema = DATABASE()
+     AND table_name = 'coastmark_time_export_receipts'
+);
+SET @cm_claim_indexes_ok = (
+  SELECT COUNT(*) = 6
+     AND SUM(index_name = 'PRIMARY' AND non_unique = 0 AND is_visible = 'YES'
+             AND columns_csv = 'id') = 1
+     AND SUM(index_name = 'uq_cm_export_claim_tenant_id' AND non_unique = 0
+             AND is_visible = 'YES' AND columns_csv = 'tenant_id,id') = 1
+     AND SUM(index_name = 'uq_cm_export_claim_event' AND non_unique = 0
+             AND is_visible = 'YES' AND columns_csv = 'tenant_id,event_key') = 1
+     AND SUM(index_name = 'uq_cm_export_claim_version' AND non_unique = 0
+             AND is_visible = 'YES' AND columns_csv = 'tenant_id,time_entry_id,source_version') = 1
+     AND SUM(index_name = 'uq_cm_export_claim_predecessor' AND non_unique = 0
+             AND is_visible = 'YES' AND columns_csv = 'tenant_id,predecessor_claim_id') = 1
+     AND SUM(index_name = 'ix_cm_export_claim_actor' AND non_unique = 1
+             AND is_visible = 'YES' AND columns_csv = 'tenant_id,created_by_user_id,created_at,id') = 1
+    FROM (
+      SELECT index_name, MIN(non_unique) AS non_unique, MIN(is_visible) AS is_visible,
+             GROUP_CONCAT(column_name ORDER BY seq_in_index) AS columns_csv
+        FROM information_schema.statistics
+       WHERE table_schema = DATABASE()
+         AND table_name = 'coastmark_time_export_claims'
+       GROUP BY index_name
+    ) exact_indexes
+);
+SET @cm_receipt_indexes_ok = (
+  SELECT COUNT(*) = 4
+     AND SUM(index_name = 'PRIMARY' AND non_unique = 0 AND is_visible = 'YES'
+             AND columns_csv = 'id') = 1
+     AND SUM(index_name = 'uq_cm_export_receipt_operation' AND non_unique = 0
+             AND is_visible = 'YES' AND columns_csv = 'tenant_id,operation_key') = 1
+     AND SUM(index_name = 'ix_cm_export_receipt_claim' AND non_unique = 1
+             AND is_visible = 'YES' AND columns_csv = 'tenant_id,claim_id,id') = 1
+     AND SUM(index_name = 'ix_cm_export_receipt_outcome' AND non_unique = 1
+             AND is_visible = 'YES' AND columns_csv = 'tenant_id,outcome,created_at,id') = 1
+    FROM (
+      SELECT index_name, MIN(non_unique) AS non_unique, MIN(is_visible) AS is_visible,
+             GROUP_CONCAT(column_name ORDER BY seq_in_index) AS columns_csv
+        FROM information_schema.statistics
+       WHERE table_schema = DATABASE()
+         AND table_name = 'coastmark_time_export_receipts'
+       GROUP BY index_name
+    ) exact_indexes
+);
+SET @cm_claim_fks_ok = (
+  SELECT COUNT(*) = 4
+     AND SUM(constraint_name = 'fk_cm_export_claim_tenant'
+             AND referenced_table_name = 'tenants' AND columns_csv = 'tenant_id=id'
+             AND update_rule = 'RESTRICT' AND delete_rule = 'RESTRICT') = 1
+     AND SUM(constraint_name = 'fk_cm_export_claim_entry'
+             AND referenced_table_name = 'time_entries'
+             AND columns_csv = 'tenant_id=tenant_id,time_entry_id=id'
+             AND update_rule = 'RESTRICT' AND delete_rule = 'RESTRICT') = 1
+     AND SUM(constraint_name = 'fk_cm_export_claim_actor'
+             AND referenced_table_name = 'users'
+             AND columns_csv = 'tenant_id=tenant_id,created_by_user_id=id'
+             AND update_rule = 'RESTRICT' AND delete_rule = 'RESTRICT') = 1
+     AND SUM(constraint_name = 'fk_cm_export_claim_predecessor'
+             AND referenced_table_name = 'coastmark_time_export_claims'
+             AND columns_csv = 'tenant_id=tenant_id,predecessor_claim_id=id'
+             AND update_rule = 'RESTRICT' AND delete_rule = 'RESTRICT') = 1
+    FROM (
+      SELECT usage_table.constraint_name,
+             MIN(usage_table.referenced_table_name) AS referenced_table_name,
+             MIN(rules.update_rule) AS update_rule, MIN(rules.delete_rule) AS delete_rule,
+             GROUP_CONCAT(CONCAT(usage_table.column_name,'=',usage_table.referenced_column_name)
+                          ORDER BY usage_table.ordinal_position) AS columns_csv
+        FROM information_schema.key_column_usage usage_table
+        JOIN information_schema.referential_constraints rules
+          ON rules.constraint_schema = usage_table.table_schema
+         AND rules.table_name = usage_table.table_name
+         AND rules.constraint_name = usage_table.constraint_name
+       WHERE usage_table.table_schema = DATABASE()
+         AND usage_table.table_name = 'coastmark_time_export_claims'
+         AND usage_table.referenced_table_name IS NOT NULL
+       GROUP BY usage_table.constraint_name
+    ) exact_fks
+);
+SET @cm_receipt_fks_ok = (
+  SELECT COUNT(*) = 2
+     AND SUM(constraint_name = 'fk_cm_export_receipt_tenant'
+             AND referenced_table_name = 'tenants' AND columns_csv = 'tenant_id=id'
+             AND update_rule = 'RESTRICT' AND delete_rule = 'RESTRICT') = 1
+     AND SUM(constraint_name = 'fk_cm_export_receipt_claim'
+             AND referenced_table_name = 'coastmark_time_export_claims'
+             AND columns_csv = 'tenant_id=tenant_id,claim_id=id'
+             AND update_rule = 'RESTRICT' AND delete_rule = 'RESTRICT') = 1
+    FROM (
+      SELECT usage_table.constraint_name,
+             MIN(usage_table.referenced_table_name) AS referenced_table_name,
+             MIN(rules.update_rule) AS update_rule, MIN(rules.delete_rule) AS delete_rule,
+             GROUP_CONCAT(CONCAT(usage_table.column_name,'=',usage_table.referenced_column_name)
+                          ORDER BY usage_table.ordinal_position) AS columns_csv
+        FROM information_schema.key_column_usage usage_table
+        JOIN information_schema.referential_constraints rules
+          ON rules.constraint_schema = usage_table.table_schema
+         AND rules.table_name = usage_table.table_name
+         AND rules.constraint_name = usage_table.constraint_name
+       WHERE usage_table.table_schema = DATABASE()
+         AND usage_table.table_name = 'coastmark_time_export_receipts'
+         AND usage_table.referenced_table_name IS NOT NULL
+       GROUP BY usage_table.constraint_name
+    ) exact_fks
+);
+SET @cm_claim_checks_ok = (
+  SELECT COUNT(*) IN (4,5)
+     AND SUM(enforced = 'YES') = COUNT(*)
+     AND SUM(constraint_name = 'ck_cm_export_claim_event_key'
+             AND normalized_clause LIKE '%event_key%regexp%'
+             AND normalized_clause LIKE '%safeharbor-time:%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_claim_hash'
+             AND normalized_clause LIKE '%payload_sha256%regexp%'
+             AND normalized_clause LIKE '%[0-9a-f]{64}%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_claim_payload'
+             AND normalized_clause LIKE '%json_valid(payload_json)%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_claim_predecessor_shape'
+             AND normalized_clause LIKE '%source_version=0%predecessor_claim_idisnull%'
+             AND normalized_clause LIKE '%source_version>0%predecessor_claim_idisnotnull%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_claim_install_lock'
+             AND normalized_clause LIKE '%0=1%') = COUNT(*) - 4
+    FROM (
+      SELECT constraints_table.constraint_name, constraints_table.enforced,
+             LOWER(REPLACE(REPLACE(REPLACE(checks_table.check_clause,'`',''),' ',''),CHAR(10),''))
+               AS normalized_clause
+        FROM information_schema.check_constraints checks_table
+        JOIN information_schema.table_constraints constraints_table
+          ON constraints_table.constraint_schema = checks_table.constraint_schema
+         AND constraints_table.constraint_name = checks_table.constraint_name
+       WHERE constraints_table.constraint_schema = DATABASE()
+         AND constraints_table.table_name = 'coastmark_time_export_claims'
+         AND constraints_table.constraint_type = 'CHECK'
+    ) exact_checks
+);
+SET @cm_receipt_checks_ok = (
+  SELECT COUNT(*) IN (5,6)
+     AND SUM(enforced = 'YES') = COUNT(*)
+     AND SUM(constraint_name = 'ck_cm_export_receipt_operation_key'
+             AND normalized_clause LIKE '%operation_key%regexp%'
+             AND normalized_clause LIKE '%safeharbor-op:%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_receipt_response_status'
+             AND normalized_clause LIKE '%response_statusisnull%'
+             AND normalized_clause LIKE '%between100and599%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_receipt_response_hash'
+             AND normalized_clause LIKE '%response_sha256isnull%'
+             AND normalized_clause LIKE '%[0-9a-f]{64}%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_receipt_detail'
+             AND normalized_clause LIKE '%detail_code%regexp%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_receipt_ack_shape'
+             AND normalized_clause LIKE '%outcome=%accepted%coastmark_event_idisnotnull%'
+             AND normalized_clause LIKE '%outcome=%replayed%invoice_idisnotnull%'
+             AND normalized_clause LIKE '%outcome=%manual_exception%invoice_line_idisnull%') = 1
+     AND SUM(constraint_name = 'ck_cm_export_receipt_install_lock'
+             AND normalized_clause LIKE '%0=1%') = COUNT(*) - 5
+    FROM (
+      SELECT constraints_table.constraint_name, constraints_table.enforced,
+             LOWER(REPLACE(REPLACE(REPLACE(checks_table.check_clause,'`',''),' ',''),CHAR(10),''))
+               AS normalized_clause
+        FROM information_schema.check_constraints checks_table
+        JOIN information_schema.table_constraints constraints_table
+          ON constraints_table.constraint_schema = checks_table.constraint_schema
+         AND constraints_table.constraint_name = checks_table.constraint_name
+       WHERE constraints_table.constraint_schema = DATABASE()
+         AND constraints_table.table_name = 'coastmark_time_export_receipts'
+         AND constraints_table.constraint_type = 'CHECK'
+    ) exact_checks
+);
+SET @cm_export_preflight_sql = IF(
+  @cm_claim_table_ok = 1 AND @cm_receipt_table_ok = 1
+  AND @cm_claim_columns_ok = 1 AND @cm_receipt_columns_ok = 1
+  AND @cm_claim_indexes_ok = 1 AND @cm_receipt_indexes_ok = 1
+  AND @cm_claim_fks_ok = 1 AND @cm_receipt_fks_ok = 1
+  AND @cm_claim_checks_ok = 1 AND @cm_receipt_checks_ok = 1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_021_coastmark_export_preflight_failed'
+);
+PREPARE cm_export_statement FROM @cm_export_preflight_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+
 -- Fail closed while permanent triggers are installed or replaced on replay.
 DROP TRIGGER IF EXISTS trg_cm_claim_021_insert_swap;
 DROP TRIGGER IF EXISTS trg_cm_claim_021_update_swap;
@@ -343,6 +595,53 @@ SET @cm_receipt_lock_ddl=IF(
       AND constraint_name='ck_cm_export_receipt_install_lock')=1,
   'ALTER TABLE coastmark_time_export_receipts DROP CHECK ck_cm_export_receipt_install_lock','DO 0');
 PREPARE cm_export_statement FROM @cm_receipt_lock_ddl;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+
+SET @cm_export_permanent_guards_ok = (
+  SELECT COUNT(*) = 6
+     AND SUM(trigger_name = 'trg_cm_export_claim_before_insert'
+             AND event_object_table = 'coastmark_time_export_claims'
+             AND event_manipulation = 'INSERT'
+             AND action_statement LIKE '%approved billable reviewed time%') = 1
+     AND SUM(trigger_name = 'trg_cm_export_claim_no_update'
+             AND event_object_table = 'coastmark_time_export_claims'
+             AND event_manipulation = 'UPDATE'
+             AND action_statement LIKE '%claims are immutable%') = 1
+     AND SUM(trigger_name = 'trg_cm_export_claim_no_delete'
+             AND event_object_table = 'coastmark_time_export_claims'
+             AND event_manipulation = 'DELETE'
+             AND action_statement LIKE '%claims cannot be deleted%') = 1
+     AND SUM(trigger_name = 'trg_cm_export_receipt_before_insert'
+             AND event_object_table = 'coastmark_time_export_receipts'
+             AND event_manipulation = 'INSERT'
+             AND action_statement LIKE '%status transition is not permitted%') = 1
+     AND SUM(trigger_name = 'trg_cm_export_receipt_no_update'
+             AND event_object_table = 'coastmark_time_export_receipts'
+             AND event_manipulation = 'UPDATE'
+             AND action_statement LIKE '%receipts are immutable%') = 1
+     AND SUM(trigger_name = 'trg_cm_export_receipt_no_delete'
+             AND event_object_table = 'coastmark_time_export_receipts'
+             AND event_manipulation = 'DELETE'
+             AND action_statement LIKE '%receipts cannot be deleted%') = 1
+    FROM information_schema.triggers
+   WHERE trigger_schema = DATABASE()
+     AND event_object_table IN ('coastmark_time_export_claims','coastmark_time_export_receipts')
+     AND action_timing = 'BEFORE'
+);
+SET @cm_export_install_locks_gone = (
+  SELECT COUNT(*) = 0
+    FROM information_schema.table_constraints
+   WHERE constraint_schema = DATABASE()
+     AND table_name IN ('coastmark_time_export_claims','coastmark_time_export_receipts')
+     AND constraint_name IN ('ck_cm_export_claim_install_lock','ck_cm_export_receipt_install_lock')
+);
+SET @cm_export_final_sql = IF(
+  @cm_export_permanent_guards_ok = 1 AND @cm_export_install_locks_gone = 1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_021_coastmark_export_postcondition_failed'
+);
+PREPARE cm_export_statement FROM @cm_export_final_sql;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
