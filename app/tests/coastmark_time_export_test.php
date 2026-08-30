@@ -583,6 +583,9 @@ export_check('migration and canonical schema carry both tables and six immutable
     && str_contains($migration, 'Export claims require an active matching customer binding')
     && str_contains($migration, "IS_USED_LOCK(CONCAT('safeharbor:cm-status:',NEW.claim_id))")
     && str_contains($migration, 'INTERVAL 35 SECOND')
+    && str_contains($schema, '@cm_export_claim_install_lock_ddl = IF(')
+    && str_contains($schema, '@cm_export_receipt_install_lock_ddl = IF(')
+    && substr_count($schema, "'DO 0'") >= 2
     && substr_count($schema, 'CREATE TRIGGER trg_cm_export_claim_') === 3
     && substr_count($schema, 'CREATE TRIGGER trg_cm_export_receipt_') === 3);
 export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',

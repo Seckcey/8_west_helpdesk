@@ -2807,8 +2807,31 @@ BEFORE DELETE ON coastmark_time_export_receipts FOR EACH ROW
 BEGIN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Coastmark export receipts cannot be deleted'; END$$
 DELIMITER ;
 
-ALTER TABLE coastmark_time_export_claims DROP CHECK ck_cm_export_claim_install_lock;
-ALTER TABLE coastmark_time_export_receipts DROP CHECK ck_cm_export_receipt_install_lock;
+SET @cm_export_claim_install_lock_ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema=DATABASE()
+      AND table_name='coastmark_time_export_claims'
+      AND constraint_type='CHECK'
+      AND constraint_name='ck_cm_export_claim_install_lock')=1,
+  'ALTER TABLE coastmark_time_export_claims DROP CHECK ck_cm_export_claim_install_lock',
+  'DO 0'
+);
+PREPARE cm_export_schema_statement FROM @cm_export_claim_install_lock_ddl;
+EXECUTE cm_export_schema_statement;
+DEALLOCATE PREPARE cm_export_schema_statement;
+
+SET @cm_export_receipt_install_lock_ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema=DATABASE()
+      AND table_name='coastmark_time_export_receipts'
+      AND constraint_type='CHECK'
+      AND constraint_name='ck_cm_export_receipt_install_lock')=1,
+  'ALTER TABLE coastmark_time_export_receipts DROP CHECK ck_cm_export_receipt_install_lock',
+  'DO 0'
+);
+PREPARE cm_export_schema_statement FROM @cm_export_receipt_install_lock_ddl;
+EXECUTE cm_export_schema_statement;
+DEALLOCATE PREPARE cm_export_schema_statement;
 
 -- --------------------------------------------------------
 -- Westy reports (failure + flagged-answer intake; migration 008)
