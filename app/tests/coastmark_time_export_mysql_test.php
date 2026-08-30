@@ -767,27 +767,35 @@ try {
     $injectedBoundaryDrift = false;
     cm_v3_expect(
         'fresh four-table proof refuses coordinated drift injected at its exact boundary',
-        fn() => cm_v3_apply(
+        function () use (
+            &$injectedBoundaryDrift,
             $pdo,
             $migration,
-            function (string $phase, string $statement) use (
-                &$injectedBoundaryDrift,
-                $boundaryContender,
-                $setCoordinatedDetailPattern,
-            ): void {
-                if ($phase !== 'before'
-                    || $injectedBoundaryDrift
-                    || !str_starts_with(ltrim($statement), 'LOCK TABLES')
-                    || !str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
-                    return;
-                }
-                $setCoordinatedDetailPattern(
+            $boundaryContender,
+            $setCoordinatedDetailPattern,
+        ): void {
+            cm_v3_apply(
+                $pdo,
+                $migration,
+                function (string $phase, string $statement) use (
+                    &$injectedBoundaryDrift,
                     $boundaryContender,
-                    '^[a-z ][a-z0-9_]{2,63}$',
-                );
-                $injectedBoundaryDrift = true;
-            },
-        ),
+                    $setCoordinatedDetailPattern,
+                ): void {
+                    if ($phase !== 'before'
+                        || $injectedBoundaryDrift
+                        || !str_starts_with(ltrim($statement), 'LOCK TABLES')
+                        || !str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
+                        return;
+                    }
+                    $setCoordinatedDetailPattern(
+                        $boundaryContender,
+                        '^[a-z ][a-z0-9_]{2,63}$',
+                    );
+                    $injectedBoundaryDrift = true;
+                },
+            );
+        },
         'migration_021_reference_cleanup_boundary_failed',
     );
     $boundaryReferenceCount = (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
@@ -799,10 +807,6 @@ try {
         . $pdo->quote($migrationLockName) . ') <=> CONNECTION_ID()')->fetchColumn();
     cm_v3_check('boundary drift refusal keeps both reference evidence tables and the advisory lock',
         $injectedBoundaryDrift && $boundaryReferenceCount === 2 && $boundaryLockOwned === 1);
-    if (!$injectedBoundaryDrift || $boundaryReferenceCount !== 2 || $boundaryLockOwned !== 1) {
-        fwrite(STDERR, "# boundary-state injected=" . (int) $injectedBoundaryDrift
-            . " references={$boundaryReferenceCount} advisory_owned={$boundaryLockOwned}\n");
-    }
     $setCoordinatedDetailPattern($boundaryContender, '^[a-z][a-z0-9_]{2,63}$');
     cm_v3_apply($pdo, $migration);
 
@@ -837,24 +841,31 @@ try {
     $injectedFinalDrift = false;
     cm_v3_expect(
         'live-only completion proof rejects same-run drift after reference cleanup',
-        fn() => cm_v3_apply(
+        function () use (
+            &$injectedFinalDrift,
             $pdo,
             $migration,
-            function (string $phase, string $statement) use (
-                &$injectedFinalDrift,
-                $boundaryContender,
-            ): void {
-                if ($phase !== 'before'
-                    || $injectedFinalDrift
-                    || !str_starts_with(ltrim($statement), 'LOCK TABLES')
-                    || str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
-                    return;
-                }
-                $boundaryContender->exec("ALTER TABLE coastmark_time_export_receipts
-                    COMMENT='same-run-live-drift'");
-                $injectedFinalDrift = true;
-            },
-        ),
+            $boundaryContender,
+        ): void {
+            cm_v3_apply(
+                $pdo,
+                $migration,
+                function (string $phase, string $statement) use (
+                    &$injectedFinalDrift,
+                    $boundaryContender,
+                ): void {
+                    if ($phase !== 'before'
+                        || $injectedFinalDrift
+                        || !str_starts_with(ltrim($statement), 'LOCK TABLES')
+                        || str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
+                        return;
+                    }
+                    $boundaryContender->exec("ALTER TABLE coastmark_time_export_receipts
+                        COMMENT='same-run-live-drift'");
+                    $injectedFinalDrift = true;
+                },
+            );
+        },
         'migration_021_final_locked_postcondition_failed',
     );
     $finalDriftComment = (string) $pdo->query("SELECT table_comment FROM information_schema.tables
@@ -866,14 +877,6 @@ try {
         $injectedFinalDrift
         && $finalDriftComment === 'same-run-live-drift'
         && $finalDriftLockOwned === 1);
-    if (!$injectedFinalDrift
-        || $finalDriftComment !== 'same-run-live-drift'
-        || $finalDriftLockOwned !== 1
-    ) {
-        fwrite(STDERR, '# final-drift-state injected=' . (int) $injectedFinalDrift
-            . ' comment_match=' . (int) ($finalDriftComment === 'same-run-live-drift')
-            . " advisory_owned={$finalDriftLockOwned}\n");
-    }
     $boundaryContender->exec("ALTER TABLE coastmark_time_export_receipts COMMENT=''");
     cm_v3_apply($pdo, $migration);
 
@@ -882,23 +885,30 @@ try {
     $metadataLockInstalled = false;
     cm_v3_expect(
         'four-table cleanup lock has a bounded wait behind incompatible metadata ownership',
-        fn() => cm_v3_apply(
+        function () use (
+            &$metadataLockInstalled,
             $timeoutRunner,
             $migration,
-            function (string $phase, string $statement) use (
-                &$metadataLockInstalled,
-                $mdlBlocker,
-            ): void {
-                if ($phase !== 'before'
-                    || $metadataLockInstalled
-                    || !str_starts_with(ltrim($statement), 'LOCK TABLES')
-                    || !str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
-                    return;
-                }
-                $mdlBlocker->exec('LOCK TABLES coastmark_time_export_claims READ');
-                $metadataLockInstalled = true;
-            },
-        ),
+            $mdlBlocker,
+        ): void {
+            cm_v3_apply(
+                $timeoutRunner,
+                $migration,
+                function (string $phase, string $statement) use (
+                    &$metadataLockInstalled,
+                    $mdlBlocker,
+                ): void {
+                    if ($phase !== 'before'
+                        || $metadataLockInstalled
+                        || !str_starts_with(ltrim($statement), 'LOCK TABLES')
+                        || !str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
+                        return;
+                    }
+                    $mdlBlocker->exec('LOCK TABLES coastmark_time_export_claims READ');
+                    $metadataLockInstalled = true;
+                },
+            );
+        },
         'timeout',
     );
     $metadataTimeoutReferenceCount = (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
@@ -908,10 +918,6 @@ try {
             ->fetchColumn();
     cm_v3_check('metadata-lock timeout preserves both references before either destructive DROP',
         $metadataLockInstalled && $metadataTimeoutReferenceCount === 2);
-    if (!$metadataLockInstalled || $metadataTimeoutReferenceCount !== 2) {
-        fwrite(STDERR, '# metadata-timeout-state blocker=' . (int) $metadataLockInstalled
-            . " references={$metadataTimeoutReferenceCount}\n");
-    }
     $mdlBlocker->exec('UNLOCK TABLES');
     $mdlBlocker = null;
     $timeoutRunner = null;
