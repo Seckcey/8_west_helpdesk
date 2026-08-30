@@ -1,6 +1,6 @@
 <?php
 /**
- * Customer-portal binding lifecycle and read-only ticket-summary queries.
+ * Customer-portal binding lifecycle and tenant-bound ticket workflows.
  *
  * The identity tenant slug is only a lookup key into an explicit operator
  * binding. It is never derived from a numeric claim, email, domain, client
@@ -8,6 +8,8 @@
  * read is constrained by the resolved provider tenant and client together.
  */
 declare(strict_types=1);
+
+require_once __DIR__ . '/service_goals.php';
 
 class PortalDataException extends RuntimeException
 {
@@ -32,6 +34,9 @@ final class PortalDataForbiddenException extends PortalDataException
 const PORTAL_IDENTITY_TENANT_SLUG_PATTERN = '/^[a-z0-9][a-z0-9-]{0,63}$/D';
 const PORTAL_FIXED_RESERVED_IDENTITY_TENANT_SLUGS = ['8west', 'internal'];
 const PORTAL_CLIENT_ROLES = ['client_owner', 'client_admin', 'client_staff', 'client_viewer'];
+const PORTAL_TICKET_WRITE_ROLES = ['client_owner', 'client_admin', 'client_staff'];
+const PORTAL_TICKET_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+const PORTAL_TICKET_BODY_MAX_CHARACTERS = 8000;
 
 /** @return list<string> */
 function portal_reserved_identity_tenant_slugs(?array $configured = null): array
@@ -376,11 +381,16 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
     $counts = ['open' => 0, 'in_progress' => 0, 'waiting' => 0, 'resolved' => 0];
     $countStmt = $pdo->prepare(
         'SELECT status, COUNT(*) AS total
-           FROM tickets
-          WHERE tenant_id = :tenant_id
-            AND client_id = :client_id
-            AND merged_into_id IS NULL
-          GROUP BY status'
+           FROM tickets t
+          WHERE t.tenant_id = :tenant_id
+            AND t.client_id = :client_id
+            AND t.merged_into_id IS NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM tickets merged_source
+                 WHERE merged_source.tenant_id = t.tenant_id
+                   AND merged_source.merged_into_id = t.id
+            )
+          GROUP BY t.status'
     );
     $countStmt->execute(['tenant_id' => $tenantId, 'client_id' => $clientId]);
     foreach ($countStmt->fetchAll() as $row) {
@@ -388,12 +398,17 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
     }
 
     $tickets = $pdo->prepare(
-        "SELECT id, subject, status, priority, created_at, updated_at, resolved_at
-           FROM tickets
-          WHERE tenant_id = :tenant_id
-            AND client_id = :client_id
-            AND merged_into_id IS NULL
-          ORDER BY updated_at DESC, id DESC
+        "SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at, t.resolved_at
+           FROM tickets t
+          WHERE t.tenant_id = :tenant_id
+            AND t.client_id = :client_id
+            AND t.merged_into_id IS NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM tickets merged_source
+                 WHERE merged_source.tenant_id = t.tenant_id
+                   AND merged_source.merged_into_id = t.id
+            )
+          ORDER BY t.updated_at DESC, t.id DESC
           LIMIT {$limit}"
     );
     $tickets->execute(['tenant_id' => $tenantId, 'client_id' => $clientId]);
@@ -403,4 +418,336 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
         'counts' => $counts,
         'tickets' => $tickets->fetchAll(),
     ];
+}
+
+function portal_role_can_write_tickets(string $role): bool
+{
+    return in_array($role, PORTAL_TICKET_WRITE_ROLES, true);
+}
+
+function portal_text_length(string $value): int
+{
+    return function_exists('mb_strlen') ? mb_strlen($value, 'UTF-8') : strlen($value);
+}
+
+function portal_ticket_subject(mixed $value): string
+{
+    if (! is_string($value) || preg_match('//u', $value) !== 1) {
+        throw new PortalDataValidationException('Enter a valid ticket subject.');
+    }
+    $value = trim($value);
+    if ($value === ''
+        || portal_text_length($value) > 190
+        || preg_match('/[\x00-\x1f\x7f]/', $value) === 1) {
+        throw new PortalDataValidationException('Enter a ticket subject between 1 and 190 characters.');
+    }
+    return $value;
+}
+
+function portal_ticket_body(mixed $value): string
+{
+    if (! is_string($value) || preg_match('//u', $value) !== 1) {
+        throw new PortalDataValidationException('Enter a valid message.');
+    }
+    $value = trim(str_replace(["\r\n", "\r"], "\n", $value));
+    if ($value === ''
+        || portal_text_length($value) > PORTAL_TICKET_BODY_MAX_CHARACTERS
+        || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $value) === 1) {
+        throw new PortalDataValidationException(
+            'Enter a message between 1 and ' . PORTAL_TICKET_BODY_MAX_CHARACTERS . ' characters.'
+        );
+    }
+    return $value;
+}
+
+function portal_ticket_priority(mixed $value): string
+{
+    if (! is_string($value) || ! in_array($value, PORTAL_TICKET_PRIORITIES, true)) {
+        throw new PortalDataValidationException('Choose a supported ticket priority.');
+    }
+    return $value;
+}
+
+function portal_ticket_author(mixed $value): string
+{
+    if (! is_string($value) || preg_match('//u', $value) !== 1) {
+        throw new PortalDataValidationException('The signed-in customer name is invalid.');
+    }
+    $value = trim($value);
+    if ($value === ''
+        || strlen($value) > 190
+        || preg_match('/[\x00-\x1f\x7f]/', $value) === 1) {
+        throw new PortalDataValidationException('The signed-in customer name is invalid.');
+    }
+    if (portal_text_length($value) > 128) {
+        if (function_exists('mb_substr')) {
+            $value = mb_substr($value, 0, 127, 'UTF-8') . '…';
+        } else {
+            $characters = preg_split('//u', $value, -1, PREG_SPLIT_NO_EMPTY);
+            if (! is_array($characters)) {
+                throw new PortalDataValidationException('The signed-in customer name is invalid.');
+            }
+            $value = implode('', array_slice($characters, 0, 127)) . '…';
+        }
+    }
+    return $value;
+}
+
+/**
+ * Return one customer-visible ticket and its public conversation. Internal
+ * notes and system/automation evidence are deliberately excluded.
+ *
+ * @return array{ticket:array<string,mixed>,messages:list<array<string,mixed>>}
+ */
+function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticketId): array
+{
+    if ($tenantId < 1 || $clientId < 1 || $ticketId < 1) {
+        throw new PortalDataValidationException('The ticket boundary is invalid.');
+    }
+    $ticket = $pdo->prepare(
+        "SELECT t.id, t.subject, t.status, t.priority, t.channel,
+                t.sla_due_at, t.created_at, t.updated_at, t.resolved_at,
+                goal_policy.display_name AS service_goal_policy_name,
+                goal_policy.version_no AS service_goal_version_no,
+                goal_target.first_response_minutes AS service_goal_response_minutes,
+                (SELECT MIN(first_reply.created_at)
+                   FROM messages first_reply
+                  WHERE first_reply.ticket_id = t.id AND first_reply.kind = 'tech') AS first_response_at
+           FROM tickets t
+           LEFT JOIN service_goal_policy_targets goal_target
+             ON goal_target.tenant_id = t.tenant_id
+            AND goal_target.id = t.service_goal_target_id
+           LEFT JOIN service_goal_policy_versions goal_policy
+             ON goal_policy.tenant_id = t.tenant_id
+            AND goal_policy.id = goal_target.policy_version_id
+          WHERE t.id = :ticket_id
+            AND t.tenant_id = :tenant_id
+            AND t.client_id = :client_id
+            AND t.merged_into_id IS NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM tickets merged_source
+                 WHERE merged_source.tenant_id = t.tenant_id
+                   AND merged_source.merged_into_id = t.id
+            )
+          LIMIT 1"
+    );
+    $ticket->execute([
+        'ticket_id' => $ticketId,
+        'tenant_id' => $tenantId,
+        'client_id' => $clientId,
+    ]);
+    $ticketRow = $ticket->fetch();
+    if (! is_array($ticketRow)) {
+        throw new PortalDataNotFoundException('That ticket is not available for this business.');
+    }
+
+    $messages = $pdo->prepare(
+        "SELECT m.id, m.author_name, m.kind, m.body, m.created_at
+           FROM messages m
+           JOIN tickets t ON t.id = m.ticket_id
+          WHERE m.ticket_id = :ticket_id
+            AND t.tenant_id = :tenant_id
+            AND t.client_id = :client_id
+            AND t.merged_into_id IS NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM tickets merged_source
+                 WHERE merged_source.tenant_id = t.tenant_id
+                   AND merged_source.merged_into_id = t.id
+            )
+            AND m.kind IN ('client','tech')
+          ORDER BY m.id ASC"
+    );
+    $messages->execute([
+        'ticket_id' => $ticketId,
+        'tenant_id' => $tenantId,
+        'client_id' => $clientId,
+    ]);
+    return ['ticket' => $ticketRow, 'messages' => $messages->fetchAll()];
+}
+
+function portal_create_ticket(
+    PDO $pdo,
+    int $tenantId,
+    int $clientId,
+    string $role,
+    string $authorName,
+    mixed $subject,
+    mixed $priority,
+    mixed $body,
+): int {
+    if ($tenantId < 1 || $clientId < 1) {
+        throw new PortalDataValidationException('The customer boundary is invalid.');
+    }
+    if (! portal_role_can_write_tickets($role)) {
+        throw new PortalDataForbiddenException('This customer role cannot open tickets.');
+    }
+    $authorName = portal_ticket_author($authorName);
+    $subject = portal_ticket_subject($subject);
+    $priority = portal_ticket_priority($priority);
+    $body = portal_ticket_body($body);
+
+    $pdo->beginTransaction();
+    try {
+        $client = $pdo->prepare(
+            'SELECT id FROM clients WHERE tenant_id = :tenant_id AND id = :client_id LIMIT 1'
+        );
+        $client->execute(['tenant_id' => $tenantId, 'client_id' => $clientId]);
+        if ($client->fetchColumn() === false) {
+            throw new PortalDataNotFoundException('The mapped customer no longer exists.');
+        }
+        $goal = service_goal_snapshot_for_new_ticket($pdo, $tenantId, $clientId, $priority);
+        $insert = $pdo->prepare(
+            "INSERT INTO tickets
+                (tenant_id, client_id, contact_id, subject, status, priority, assignee_id,
+                 channel, sla_due_at, service_goal_target_id, created_at, updated_at)
+             VALUES
+                (:tenant_id, :client_id, NULL, :subject, 'open', :priority, NULL,
+                 'portal', :sla_due_at, :service_goal_target_id, :created_at, :updated_at)"
+        );
+        $insert->execute([
+            'tenant_id' => $tenantId,
+            'client_id' => $clientId,
+            'subject' => $subject,
+            'priority' => $priority,
+            'sla_due_at' => $goal['due_at'],
+            'service_goal_target_id' => $goal['target_id'],
+            'created_at' => $goal['opened_at'],
+            'updated_at' => $goal['opened_at'],
+        ]);
+        $ticketId = (int)$pdo->lastInsertId();
+        $message = $pdo->prepare(
+            "INSERT INTO messages (ticket_id, author_name, kind, body)
+             VALUES (:ticket_id, :author_name, 'client', :body)"
+        );
+        $message->execute([
+            'ticket_id' => $ticketId,
+            'author_name' => $authorName,
+            'body' => $body,
+        ]);
+        $pdo->commit();
+        return $ticketId;
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
+}
+
+function portal_reply_to_ticket(
+    PDO $pdo,
+    int $tenantId,
+    int $clientId,
+    int $ticketId,
+    string $role,
+    string $authorName,
+    mixed $body,
+): int {
+    if ($tenantId < 1 || $clientId < 1 || $ticketId < 1) {
+        throw new PortalDataValidationException('The ticket boundary is invalid.');
+    }
+    if (! portal_role_can_write_tickets($role)) {
+        throw new PortalDataForbiddenException('This customer role cannot reply to tickets.');
+    }
+    $authorName = portal_ticket_author($authorName);
+    $body = portal_ticket_body($body);
+    $pdo->beginTransaction();
+    try {
+        $driver = (string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+        $ticketSql = "SELECT t.id, t.status, t.updated_at
+                        FROM tickets t
+                       WHERE t.id = :ticket_id
+                         AND t.tenant_id = :tenant_id
+                         AND t.client_id = :client_id
+                         AND t.merged_into_id IS NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM tickets merged_source
+                              WHERE merged_source.tenant_id = t.tenant_id
+                                AND merged_source.merged_into_id = t.id
+                         )
+                       LIMIT 1" . ($driver === 'mysql' ? ' FOR UPDATE' : '');
+        $ticket = $pdo->prepare($ticketSql);
+        $ticket->execute([
+            'ticket_id' => $ticketId,
+            'tenant_id' => $tenantId,
+            'client_id' => $clientId,
+        ]);
+        $ticketRow = $ticket->fetch();
+        if (! is_array($ticketRow)) {
+            throw new PortalDataNotFoundException('That ticket is not available for this business.');
+        }
+        if (($ticketRow['status'] ?? '') === 'resolved') {
+            throw new PortalDataConflictException('This ticket is resolved. Open a new request if more help is needed.');
+        }
+        $previousUpdatedAt = service_goal_timestamp($ticketRow['updated_at'] ?? null);
+        if ($previousUpdatedAt === null) {
+            throw new PortalDataConflictException('The ticket activity time is invalid.');
+        }
+        // Never move activity backward when PHP and MySQL clocks differ or a
+        // later timestamp is already present. Same-second equality is valid;
+        // the locked postcondition below proves the write without rowCount.
+        $touchAt = gmdate('Y-m-d H:i:s', max(time(), $previousUpdatedAt));
+        $message = $pdo->prepare(
+            "INSERT INTO messages (ticket_id, author_name, kind, body)
+             VALUES (:ticket_id, :author_name, 'client', :body)"
+        );
+        $message->execute([
+            'ticket_id' => $ticketId,
+            'author_name' => $authorName,
+            'body' => $body,
+        ]);
+        $messageId = (int)$pdo->lastInsertId();
+        $touch = $pdo->prepare(
+            "UPDATE tickets
+                SET status = CASE WHEN status = 'waiting' THEN 'open' ELSE status END,
+                    updated_at = CASE
+                        WHEN updated_at > :updated_at_floor THEN updated_at
+                        ELSE :updated_at_value
+                    END
+              WHERE id = :ticket_id
+                AND tenant_id = :tenant_id
+                AND client_id = :client_id
+                AND status <> 'resolved'
+                AND merged_into_id IS NULL"
+        );
+        $touch->execute([
+            'updated_at_floor' => $touchAt,
+            'updated_at_value' => $touchAt,
+            'ticket_id' => $ticketId,
+            'tenant_id' => $tenantId,
+            'client_id' => $clientId,
+        ]);
+        // PDO MySQL reports changed rows, so a same-second open-ticket touch
+        // can legitimately be zero. Prove the exact postcondition instead of
+        // treating rowCount as matched rows. The merged-source check also
+        // closes a merge race before the customer message commits.
+        $confirm = $pdo->prepare(
+            "SELECT t.id
+               FROM tickets t
+              WHERE t.id = :ticket_id
+                AND t.tenant_id = :tenant_id
+                AND t.client_id = :client_id
+                AND t.status <> 'resolved'
+                AND t.merged_into_id IS NULL
+                AND t.updated_at >= :updated_at_floor
+                AND NOT EXISTS (
+                    SELECT 1 FROM tickets merged_source
+                     WHERE merged_source.tenant_id = t.tenant_id
+                       AND merged_source.merged_into_id = t.id
+                )
+              LIMIT 1" . ($driver === 'mysql' ? ' FOR UPDATE' : '')
+        );
+        $confirm->execute([
+            'ticket_id' => $ticketId,
+            'tenant_id' => $tenantId,
+            'client_id' => $clientId,
+            'updated_at_floor' => $touchAt,
+        ]);
+        if ($confirm->fetchColumn() === false) {
+            throw new PortalDataConflictException('The ticket changed while the reply was being saved. Try again.');
+        }
+        $pdo->commit();
+        return $messageId;
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
 }

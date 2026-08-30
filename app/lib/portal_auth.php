@@ -22,7 +22,10 @@ use EightWest\Id\RevocationUnavailableException;
 const PORTAL_SESSION_NAME = 'safeharbor_portal';
 const PORTAL_SESSION_KEY = '_safeharbor_portal_identity';
 const PORTAL_CSRF_KEY = '_safeharbor_portal_csrf';
+const PORTAL_ACTION_NONCES_KEY = '_safeharbor_portal_action_nonces';
 const PORTAL_SESSION_MAX_SECONDS = 28800;
+const PORTAL_ACTION_NONCE_MAX_AGE_SECONDS = 3600;
+const PORTAL_ACTION_NONCE_MAX_PER_PURPOSE = 8;
 const PORTAL_REVOCATION_REFRESH_SECONDS = 60;
 const PORTAL_REVOCATION_MAXIMUM_STALE_SECONDS = 300;
 const PORTAL_REQUIRED_PRODUCT = 'safeharbor';
@@ -332,6 +335,74 @@ function portal_csrf_valid(mixed $sent): bool
         && is_string($expected)
         && $expected !== ''
         && hash_equals($expected, $sent);
+}
+
+function portal_action_purpose(string $purpose): string
+{
+    if (preg_match('/\A[a-z][a-z0-9:_-]{0,95}\z/D', $purpose) !== 1) {
+        throw new PortalAuthException('The portal action purpose is invalid.');
+    }
+    return $purpose;
+}
+
+/**
+ * Issue a short-lived, one-use action nonce in addition to the session CSRF
+ * token. Keeping a small set per purpose lets two legitimate browser tabs
+ * coexist while still making reload/replay unable to duplicate a mutation.
+ */
+function portal_action_nonce(string $purpose, ?int $now = null): string
+{
+    portal_session_start();
+    $purpose = portal_action_purpose($purpose);
+    $now ??= time();
+    $all = $_SESSION[PORTAL_ACTION_NONCES_KEY] ?? [];
+    if (! is_array($all)) $all = [];
+    $tokens = is_array($all[$purpose] ?? null) ? $all[$purpose] : [];
+    foreach ($tokens as $candidate => $issuedAt) {
+        if (! is_string($candidate)
+            || preg_match('/\A[a-f0-9]{64}\z/D', $candidate) !== 1
+            || ! is_int($issuedAt)
+            || $issuedAt < $now - PORTAL_ACTION_NONCE_MAX_AGE_SECONDS
+            || $issuedAt > $now + 120) {
+            unset($tokens[$candidate]);
+        }
+    }
+    while (count($tokens) >= PORTAL_ACTION_NONCE_MAX_PER_PURPOSE) {
+        array_shift($tokens);
+    }
+    $token = bin2hex(random_bytes(32));
+    $tokens[$token] = $now;
+    $all[$purpose] = $tokens;
+    $_SESSION[PORTAL_ACTION_NONCES_KEY] = $all;
+    return $token;
+}
+
+function portal_action_nonce_consume(string $purpose, mixed $sent, ?int $now = null): bool
+{
+    portal_session_start();
+    $purpose = portal_action_purpose($purpose);
+    $now ??= time();
+    if (! is_string($sent) || preg_match('/\A[a-f0-9]{64}\z/D', $sent) !== 1) {
+        return false;
+    }
+    $all = $_SESSION[PORTAL_ACTION_NONCES_KEY] ?? [];
+    if (! is_array($all)) $all = [];
+    $tokens = is_array($all[$purpose] ?? null) ? $all[$purpose] : [];
+    $matched = null;
+    foreach ($tokens as $candidate => $issuedAt) {
+        if (is_string($candidate) && hash_equals($candidate, $sent)) {
+            $matched = $candidate;
+            break;
+        }
+    }
+    if ($matched === null) return false;
+    $issuedAt = $tokens[$matched] ?? null;
+    unset($tokens[$matched]);
+    $all[$purpose] = $tokens;
+    $_SESSION[PORTAL_ACTION_NONCES_KEY] = $all;
+    return is_int($issuedAt)
+        && $issuedAt >= $now - PORTAL_ACTION_NONCE_MAX_AGE_SECONDS
+        && $issuedAt <= $now + 120;
 }
 
 function portal_destroy_session(): void

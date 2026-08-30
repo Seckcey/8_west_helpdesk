@@ -40,7 +40,9 @@ and the **8 West IT 365 Control Panel**. Four products, four
 > reports are deployed dark behind explicit allowlists and canary gates.
 > Safeharbor owns the operational records; Milepost supplies context only;
 > Coastmark never auto-posts through this seam; and the current portal exposes
-> no billing, ticket detail, or endpoint control. See
+> no billing, ticket detail, or endpoint control. The isolated Phase 5B source
+> adds customer create/detail/reply without exposing billing, internal notes,
+> AI actions, or endpoint control; it is not merged or deployed. See
 > [docs/where-things-stand.md](docs/where-things-stand.md).
 
 ## What's here

@@ -152,6 +152,20 @@ $pdo->exec("INSERT INTO users
     (103,1,'tech1@example.test','','Tech One','T1','tech',1),
     (104,1,'inactive1@example.test','','Inactive Admin','IA','admin',0),
     (201,2,'owner2@example.test','','Owner Two','O2','owner',1)");
+$pdo->exec('ALTER TABLE tickets ADD COLUMN auto_close_eligible TINYINT(1) NOT NULL DEFAULT 0 AFTER merged_into_id');
+$pdo->exec("INSERT INTO service_goal_policy_versions
+    (tenant_id,policy_key,version_no,display_name,effective_from,clock_mode,time_zone,pause_mode)
+    VALUES
+    (1,'standard',1,'Standard','1970-01-01 00:00:00','elapsed','UTC','none'),
+    (2,'standard',1,'Standard','1970-01-01 00:00:00','elapsed','UTC','none')");
+$pdo->exec("INSERT INTO service_goal_policy_targets
+    (tenant_id,policy_version_id,priority,first_response_minutes,resolution_minutes)
+    SELECT policy.tenant_id,policy.id,priority.name,480,NULL
+      FROM service_goal_policy_versions policy
+      JOIN (
+        SELECT 'low' AS name UNION ALL SELECT 'normal' UNION ALL SELECT 'high' UNION ALL SELECT 'urgent'
+      ) priority
+     WHERE policy.policy_key='standard' AND policy.version_no=1");
 $pdo->exec("INSERT INTO tickets
     (id,tenant_id,client_id,subject,status,priority,channel,sla_due_at,merged_into_id,created_at,updated_at,resolved_at) VALUES
     (1001,1,11,'Acme open','open','high','email','2026-08-27 00:00:00',NULL,'2026-08-25 10:00:00','2026-08-26 10:00:00',NULL),
@@ -213,14 +227,128 @@ portal_mysql_check('active request recheck binds slug, tenant, client, and bindi
 $summary = portal_ticket_summary($pdo, 1, 11, 50);
 $ticketIds = array_map(static fn(array $row): int => (int)$row['id'], $summary['tickets']);
 sort($ticketIds);
-portal_mysql_check('ticket summary returns only mapped tenant/client non-merged rows',
-    $ticketIds === [1001, 1002]);
-portal_mysql_check('ticket counts remain inside mapped tenant/client',
-    $summary['counts'] === ['open' => 1, 'in_progress' => 0, 'waiting' => 0, 'resolved' => 1]);
+portal_mysql_check('ticket summary hides merged stubs and their survivors',
+    $ticketIds === [1002]);
+portal_mysql_check('ticket counts hide merged history and remain inside mapped tenant/client',
+    $summary['counts'] === ['open' => 0, 'in_progress' => 0, 'waiting' => 0, 'resolved' => 1]);
 portal_mysql_check('ticket summary field list has no message/contact/assignee/billing facts',
     array_keys($summary['tickets'][0]) === [
         'id', 'subject', 'status', 'priority', 'created_at', 'updated_at', 'resolved_at',
     ]);
+portal_mysql_expect('merged survivor cannot expose moved conversation', PortalDataNotFoundException::class,
+    fn() => portal_ticket_detail($pdo, 1, 11, 1001));
+
+$customerTicketId = portal_create_ticket(
+    $pdo,
+    1,
+    11,
+    'client_owner',
+    'Acme Customer',
+    'Portal-created request',
+    'high',
+    'A customer needs help from the portal.',
+);
+$customerTicket = $pdo->query(
+    "SELECT tenant_id,client_id,status,priority,channel,assignee_id,contact_id,
+            service_goal_target_id,auto_close_eligible
+       FROM tickets WHERE id={$customerTicketId}"
+)->fetch();
+portal_mysql_check('portal create writes one human-owned exact-scope ticket',
+    is_array($customerTicket)
+    && (int)$customerTicket['tenant_id'] === 1
+    && (int)$customerTicket['client_id'] === 11
+    && $customerTicket['status'] === 'open'
+    && $customerTicket['priority'] === 'high'
+    && $customerTicket['channel'] === 'portal'
+    && $customerTicket['assignee_id'] === null
+    && $customerTicket['contact_id'] === null
+    && (int)$customerTicket['service_goal_target_id'] > 0
+    && (int)$customerTicket['auto_close_eligible'] === 0);
+$customerMessages = $pdo->query(
+    "SELECT kind,author_name,body FROM messages WHERE ticket_id={$customerTicketId} ORDER BY id"
+)->fetchAll();
+portal_mysql_check('portal create writes exactly one customer-authored message',
+    count($customerMessages) === 1
+    && $customerMessages[0]['kind'] === 'client'
+    && $customerMessages[0]['author_name'] === 'Acme Customer');
+$pdo->exec("INSERT INTO messages(ticket_id,author_name,kind,body) VALUES
+    ({$customerTicketId},'Private Tech','note','private note'),
+    ({$customerTicketId},'Milepost','system','private automation'),
+    ({$customerTicketId},'Support Tech','tech','customer-visible response')");
+$customerDetail = portal_ticket_detail($pdo, 1, 11, $customerTicketId);
+portal_mysql_check('portal detail excludes internal notes and automation lines',
+    array_column($customerDetail['messages'], 'kind') === ['client', 'tech']
+    && ! str_contains(json_encode($customerDetail, JSON_THROW_ON_ERROR), 'private note')
+    && ! str_contains(json_encode($customerDetail, JSON_THROW_ON_ERROR), 'private automation'));
+portal_mysql_expect('different customer cannot read portal ticket', PortalDataNotFoundException::class,
+    fn() => portal_ticket_detail($pdo, 1, 12, $customerTicketId));
+$pdo->exec("UPDATE tickets SET status='waiting' WHERE id={$customerTicketId}");
+portal_reply_to_ticket($pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Customer follow-up');
+$customerStatus = $pdo->query(
+    "SELECT status,auto_close_eligible FROM tickets WHERE id={$customerTicketId}"
+)->fetch();
+portal_mysql_check('customer reply resurfaces waiting work without auto-close capability',
+    is_array($customerStatus)
+    && $customerStatus['status'] === 'open'
+    && (int)$customerStatus['auto_close_eligible'] === 0);
+$pdo->exec("UPDATE tickets SET status='open',updated_at=UTC_TIMESTAMP() WHERE id={$customerTicketId}");
+$sameSecondBefore = (string)$pdo->query(
+    "SELECT updated_at FROM tickets WHERE id={$customerTicketId}"
+)->fetchColumn();
+$sameSecondReplyId = portal_reply_to_ticket(
+    $pdo,
+    1,
+    11,
+    $customerTicketId,
+    'client_owner',
+    'Acme Customer',
+    'Immediate same-second follow-up',
+);
+$sameSecondAfter = (string)$pdo->query(
+    "SELECT updated_at FROM tickets WHERE id={$customerTicketId}"
+)->fetchColumn();
+portal_mysql_check('same-second open-ticket reply cannot produce a false row-count conflict',
+    strtotime($sameSecondAfter . ' UTC') >= strtotime($sameSecondBefore . ' UTC')
+    && (string)$pdo->query("SELECT body FROM messages WHERE id={$sameSecondReplyId}")->fetchColumn()
+        === 'Immediate same-second follow-up');
+$futureActivity = gmdate('Y-m-d H:i:s', time() + 300);
+$pdo->prepare('UPDATE tickets SET updated_at=? WHERE id=?')->execute([$futureActivity, $customerTicketId]);
+$skewReplyId = portal_reply_to_ticket(
+    $pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Clock-skew-safe follow-up'
+);
+$afterSkewReply = (string)$pdo->query(
+    "SELECT updated_at FROM tickets WHERE id={$customerTicketId}"
+)->fetchColumn();
+portal_mysql_check('reply never regresses a later database activity timestamp',
+    strtotime($afterSkewReply . ' UTC') >= strtotime($futureActivity . ' UTC')
+    && (string)$pdo->query("SELECT body FROM messages WHERE id={$skewReplyId}")->fetchColumn()
+        === 'Clock-skew-safe follow-up');
+$pdo->exec("CREATE TRIGGER portal_test_message_touch_before_insert
+    BEFORE INSERT ON messages
+    FOR EACH ROW
+    UPDATE tickets
+       SET auto_close_eligible=0,
+           updated_at=DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE)
+     WHERE id=NEW.ticket_id AND auto_close_eligible=1");
+$pdo->exec("UPDATE tickets
+    SET auto_close_eligible=1,updated_at=UTC_TIMESTAMP()
+    WHERE id={$customerTicketId}");
+$triggerReplyId = portal_reply_to_ticket(
+    $pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Trigger-timestamp follow-up'
+);
+$triggerTouched = $pdo->query(
+    "SELECT updated_at,auto_close_eligible FROM tickets WHERE id={$customerTicketId}"
+)->fetch();
+portal_mysql_check('reply preserves a newer production-shape message-trigger timestamp',
+    is_array($triggerTouched)
+    && strtotime((string)$triggerTouched['updated_at'] . ' UTC') >= time() + 540
+    && (int)$triggerTouched['auto_close_eligible'] === 0
+    && (string)$pdo->query("SELECT body FROM messages WHERE id={$triggerReplyId}")->fetchColumn()
+        === 'Trigger-timestamp follow-up');
+$pdo->exec('DROP TRIGGER portal_test_message_touch_before_insert');
+$pdo->exec("UPDATE tickets SET status='resolved',resolved_at=UTC_TIMESTAMP() WHERE id={$customerTicketId}");
+portal_mysql_expect('resolved portal ticket refuses a customer reply', PortalDataConflictException::class,
+    fn() => portal_reply_to_ticket($pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Should fail'));
 
 $sameActive = portal_transition_binding(
     $pdo, $bindingId, 'acme-id', 1, 11, 102, 'active', 'Idempotent retry.'
