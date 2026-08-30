@@ -60,9 +60,13 @@ if (getenv('SAFEHARBOR_REPORT_RACE_WORKER') === '1') {
         if (!hash_equals($raceToken, (string) $marker->fetchColumn())) {
             throw new RuntimeException('Business-report race worker marker did not match.');
         }
-        // Pin both competing sessions to the same database second. The durable
+        // Pin only the v2 competitors to the same database second. The durable
         // v2 adjustment-id cutoff, not clock precision, must preserve order.
-        $worker->exec('SET timestamp = ' . (int) $raceNowText);
+        // V1 keeps its original live database clock so the legacy race proof
+        // continues to verify that a waiting report cannot be backdated.
+        if (str_starts_with($raceSchedule, 'weekly-race-v2-')) {
+            $worker->exec('SET timestamp = ' . (int) $raceNowText);
+        }
 
         echo "ready\n";
         fflush(STDOUT);
