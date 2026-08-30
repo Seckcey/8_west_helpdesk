@@ -4073,8 +4073,8 @@ SET @cm_reference_source_fks_ok = (
      AND rule.table_name=live.table_name
      AND rule.constraint_name=live.constraint_name
 );
-SET @cm_reference_source_checks_ok = (
-  (SELECT COUNT(*)=0
+SET @cm_reference_source_check_definitions_ok = (
+  SELECT COUNT(*)=0
      FROM information_schema.table_constraints live_constraint
      JOIN information_schema.check_constraints live_check
        ON live_check.constraint_schema=live_constraint.constraint_schema
@@ -4092,9 +4092,10 @@ SET @cm_reference_source_checks_ok = (
                 REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
                                 '_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
-              <> CAST(expected.normalized_clause AS BINARY)))
-  AND
-  (SELECT COUNT(*)=9
+              <> CAST(expected.normalized_clause AS BINARY))
+);
+SET @cm_reference_source_required_checks_ok = (
+  SELECT COUNT(*)=9
      FROM safeharbor_m021_source_checks expected
      JOIN information_schema.table_constraints live_constraint
        ON live_constraint.constraint_schema=DATABASE()
@@ -4102,7 +4103,11 @@ SET @cm_reference_source_checks_ok = (
       AND live_constraint.constraint_name=expected.constraint_name
       AND live_constraint.constraint_type='CHECK'
       AND live_constraint.enforced='YES'
-    WHERE expected.install_lock=0)
+    WHERE expected.install_lock=0
+);
+SET @cm_reference_source_checks_ok = (
+  @cm_reference_source_check_definitions_ok=1
+  AND @cm_reference_source_required_checks_ok=1
   AND
   (SELECT COUNT(*)<=1 FROM information_schema.table_constraints
     WHERE constraint_schema=DATABASE()
@@ -5194,8 +5199,8 @@ SET @cm_reference_cleanup_source_fks_ok = (
      AND rule.table_name=live.table_name
      AND rule.constraint_name=live.constraint_name
 );
-SET @cm_reference_cleanup_source_checks_ok = (
-  (SELECT COUNT(*)=0
+SET @cm_reference_cleanup_source_check_definitions_ok = (
+  SELECT COUNT(*)=0
      FROM information_schema.table_constraints live_constraint
      JOIN information_schema.check_constraints live_check
        ON live_check.constraint_schema=live_constraint.constraint_schema
@@ -5213,9 +5218,10 @@ SET @cm_reference_cleanup_source_checks_ok = (
                 REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
                                 '_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
-              <> CAST(expected.normalized_clause AS BINARY)))
-  AND
-  (SELECT COUNT(*)=9
+              <> CAST(expected.normalized_clause AS BINARY))
+);
+SET @cm_reference_cleanup_source_required_checks_ok = (
+  SELECT COUNT(*)=9
      FROM safeharbor_m021_source_checks expected
      JOIN information_schema.table_constraints live_constraint
        ON live_constraint.constraint_schema=DATABASE()
@@ -5223,7 +5229,11 @@ SET @cm_reference_cleanup_source_checks_ok = (
       AND live_constraint.constraint_name=expected.constraint_name
       AND live_constraint.constraint_type='CHECK'
       AND live_constraint.enforced='YES'
-    WHERE expected.install_lock=0)
+    WHERE expected.install_lock=0
+);
+SET @cm_reference_cleanup_source_checks_ok = (
+  @cm_reference_cleanup_source_check_definitions_ok=1
+  AND @cm_reference_cleanup_source_required_checks_ok=1
 );
 SET @cm_reference_cleanup_source_shape_ok = (
   @cm_reference_cleanup_source_tables_ok=1
@@ -5425,8 +5435,8 @@ SET @cm_reference_claim_source_fks_ok = (
      AND rule.constraint_name=live.constraint_name
    WHERE expected.table_name='safeharbor_m021_reference_claims'
 );
-SET @cm_reference_claim_source_checks_ok = (
-  (SELECT COUNT(*)=0
+SET @cm_reference_claim_source_check_definitions_ok = (
+  SELECT COUNT(*)=0
      FROM information_schema.table_constraints live_constraint
      JOIN information_schema.check_constraints live_check
        ON live_check.constraint_schema=live_constraint.constraint_schema
@@ -5443,9 +5453,10 @@ SET @cm_reference_claim_source_checks_ok = (
                 REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
                                 '_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
-              <> CAST(expected.normalized_clause AS BINARY)))
-  AND
-  (SELECT COUNT(*)=4
+              <> CAST(expected.normalized_clause AS BINARY))
+);
+SET @cm_reference_claim_source_required_checks_ok = (
+  SELECT COUNT(*)=4
      FROM safeharbor_m021_source_checks expected
      JOIN information_schema.table_constraints live_constraint
        ON live_constraint.constraint_schema=DATABASE()
@@ -5454,7 +5465,11 @@ SET @cm_reference_claim_source_checks_ok = (
       AND live_constraint.constraint_type='CHECK'
       AND live_constraint.enforced='YES'
     WHERE expected.table_name='safeharbor_m021_reference_claims'
-      AND expected.install_lock=0)
+      AND expected.install_lock=0
+);
+SET @cm_reference_claim_source_checks_ok = (
+  @cm_reference_claim_source_check_definitions_ok=1
+  AND @cm_reference_claim_source_required_checks_ok=1
 );
 SET @cm_reference_claim_source_shape_ok = (
   @cm_reference_claim_source_table_ok=1
