@@ -123,6 +123,14 @@ payload hash, Coastmark event ID, disposition, and draft identifiers match the
 claim's rules. Coastmark's `manual_exception` acknowledgement deliberately has
 no line ID.
 
+The disposition is version- and operation-bound. A new version-0 dispatch is
+`201 created`; a new later-version dispatch is `201 corrected` or
+`201 manual_exception`; and an exact dispatch replay is `200 ignored`. Status
+recovery is always `200` and returns the stored version-appropriate
+`created`, `corrected`, or `manual_exception` disposition, never `ignored`.
+Any other status/disposition pair is ambiguous evidence rather than terminal
+success.
+
 A changed-fact 409 is terminal conflict and requires a human. A timeout,
 connection error, server error, malformed response, or mismatched
 acknowledgement is `ambiguous`: Coastmark may have committed, so Safeharbor
