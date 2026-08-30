@@ -373,6 +373,22 @@ function report_mysql_create_approved_time(
     );
 }
 
+$schedulerLockSql = "SELECT GET_LOCK('safeharbor_business_reports_v1', 0)";
+$schedulerReleaseSql = "SELECT RELEASE_LOCK('safeharbor_business_reports_v1')";
+$firstLock = $pdo->query($schedulerLockSql)->fetchColumn();
+$secondLockWhileHeld = $server->query($schedulerLockSql)->fetchColumn();
+$firstRelease = $pdo->query($schedulerReleaseSql)->fetchColumn();
+$secondLockAfterRelease = $server->query($schedulerLockSql)->fetchColumn();
+$secondRelease = $server->query($schedulerReleaseSql)->fetchColumn();
+business_report_advisory_lock_release($firstRelease);
+business_report_advisory_lock_release($secondRelease);
+report_mysql_check(
+    'real MySQL sessions distinguish scheduler contention and verified release',
+    business_report_advisory_lock_state($firstLock) === 'acquired'
+        && business_report_advisory_lock_state($secondLockWhileHeld) === 'contended'
+        && business_report_advisory_lock_state($secondLockAfterRelease) === 'acquired',
+);
+
 report_mysql_reset($pdo);
 report_mysql_execute_file($pdo, __DIR__ . '/../db/schema.sql');
 report_mysql_check('fresh schema creates ten report tables including immutable contact scope',

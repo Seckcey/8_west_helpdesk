@@ -75,6 +75,8 @@ require_physical_directory() {
     || report_scheduler_fail 'refused: logger is unavailable' 69
 [[ -x /usr/bin/flock ]] \
     || report_scheduler_fail 'refused: /usr/bin/flock is unavailable' 69
+[[ -x /usr/bin/mktemp && -x /usr/bin/rm ]] \
+    || report_scheduler_fail 'refused: secure output staging is unavailable' 69
 
 require_metadata "$DEPLOY_LOCK_DIR" root www-data 750 'deploy lock directory'
 require_metadata "$DEPLOY_LOCK" root www-data 640 'deploy lock'
@@ -97,17 +99,38 @@ cd -- "$APP_ROOT" \
 [[ "$(pwd -P)" == "$APP_ROOT" ]] \
     || report_scheduler_fail 'refused: Safeharbor application root resolved unexpectedly' 72
 
+report_output="$(/usr/bin/mktemp /tmp/safeharbor-business-reports.XXXXXXXXXX)" \
+    || report_scheduler_fail 'refused: secure output staging failed' 74
+trap '/usr/bin/rm -f -- "$report_output"' EXIT
+[[ -f "$report_output" && ! -L "$report_output" \
+    && "$(/usr/bin/stat -c '%U:%G:%a' -- "$report_output")" == 'www-data:www-data:600' ]] \
+    || report_scheduler_fail 'refused: secure output staging metadata mismatch' 77
+
+# Run the business operation to completion before handing its output to the
+# logger. A logger that closes its pipe early must never SIGPIPE PHP and replace
+# the business operation's real exit status.
 set +e
-"$PHP_BIN" "$REPORT_RUNNER" 2>&1 \
-    | "$LOGGER_BIN" --stderr --tag "$LOG_TAG" --priority user.notice
-pipeline_status=("${PIPESTATUS[@]}")
+"$PHP_BIN" "$REPORT_RUNNER" >"$report_output" 2>&1
+php_status=$?
+"$LOGGER_BIN" --stderr --tag "$LOG_TAG" --priority user.notice \
+    <"$report_output"
+logger_status=$?
+/usr/bin/rm -f -- "$report_output"
+cleanup_status=$?
+if [[ "$cleanup_status" -eq 0 ]]; then
+    trap - EXIT
+fi
 set -e
 
-php_status="${pipeline_status[0]}"
-logger_status="${pipeline_status[1]}"
-if [[ "$logger_status" -ne 0 ]]; then
-    printf '%s: logger failed with status %s; PHP status was %s\n' \
-        "$LOG_TAG" "$logger_status" "$php_status" >&2
+if [[ "$logger_status" -ne 0 || "$cleanup_status" -ne 0 ]]; then
+    if [[ "$logger_status" -ne 0 ]]; then
+        printf '%s: logger failed with status %s; PHP status was %s\n' \
+            "$LOG_TAG" "$logger_status" "$php_status" >&2
+    fi
+    if [[ "$cleanup_status" -ne 0 ]]; then
+        printf '%s: secure output cleanup failed with status %s; PHP status was %s\n' \
+            "$LOG_TAG" "$cleanup_status" "$php_status" >&2
+    fi
     # PHP is the business operation. If both sides fail, preserve that primary
     # failure for cron and operator recovery; 74 is reserved for a logger-only
     # failure after PHP succeeded.

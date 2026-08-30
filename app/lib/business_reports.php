@@ -26,6 +26,21 @@ final class BusinessReportGateException extends BusinessReportException {}
 final class BusinessReportConflictException extends BusinessReportException {}
 final class BusinessReportTransportException extends BusinessReportException {}
 
+/** @return 'acquired'|'contended' */
+function business_report_advisory_lock_state(mixed $result): string
+{
+    if ($result === 1 || $result === '1') return 'acquired';
+    if ($result === 0 || $result === '0') return 'contended';
+    throw new BusinessReportGateException('Business report advisory lock failed.');
+}
+
+function business_report_advisory_lock_release(mixed $result): void
+{
+    if ($result !== 1 && $result !== '1') {
+        throw new BusinessReportGateException('Business report advisory lock release failed.');
+    }
+}
+
 /** @return array<string,mixed> */
 function business_report_contract_v1(): array
 {

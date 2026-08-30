@@ -32,8 +32,17 @@ if ($normalized['generation_enabled'] !== true && $normalized['delivery_enabled'
 }
 
 $pdo = db();
-$lock = $pdo->query("SELECT GET_LOCK('safeharbor_business_reports_v1', 0)")->fetchColumn();
-if ((int)$lock !== 1) {
+try {
+    $lockStatement = $pdo->query("SELECT GET_LOCK('safeharbor_business_reports_v1', 0)");
+    $lock = $lockStatement instanceof PDOStatement
+        ? $lockStatement->fetchColumn()
+        : false;
+    $lockState = business_report_advisory_lock_state($lock);
+} catch (Throwable) {
+    fwrite(STDERR, "Business report advisory lock failed.\n");
+    exit(1);
+}
+if ($lockState === 'contended') {
     echo "BUSINESS_REPORTS_ALREADY_RUNNING=1\n";
     exit(0);
 }
@@ -42,6 +51,7 @@ $generated = 0;
 $submitted = 0;
 $uncertain = 0;
 $errors = 0;
+$lockReleaseFailed = false;
 try {
     if ($normalized['generation_enabled'] === true) {
         foreach (business_report_due_schedule_keys($pdo, time(), BUSINESS_REPORT_MAX_DUE_SCHEDULES, $config) as $due) {
@@ -82,7 +92,19 @@ try {
         }
     }
 } finally {
-    $pdo->query("SELECT RELEASE_LOCK('safeharbor_business_reports_v1')");
+    try {
+        $releaseStatement = $pdo->query("SELECT RELEASE_LOCK('safeharbor_business_reports_v1')");
+        $released = $releaseStatement instanceof PDOStatement
+            ? $releaseStatement->fetchColumn()
+            : false;
+        business_report_advisory_lock_release($released);
+    } catch (Throwable) {
+        $lockReleaseFailed = true;
+    }
+}
+if ($lockReleaseFailed) {
+    $errors++;
+    fwrite(STDERR, "Business report advisory lock release failed.\n");
 }
 
 echo 'GENERATED=' . $generated . "\n";

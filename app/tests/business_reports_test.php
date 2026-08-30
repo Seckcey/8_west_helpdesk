@@ -502,6 +502,32 @@ report_check('legacy mail_queue Graph contract stays boolean with a sanitized er
     && $legacyError === 'Microsoft Graph token request was rejected (HTTP 401).'
     && !str_contains($legacyError, 'private credential detail'));
 
+report_check(
+    'advisory lock helper distinguishes acquired and contended states',
+    business_report_advisory_lock_state(1) === 'acquired'
+        && business_report_advisory_lock_state('1') === 'acquired'
+        && business_report_advisory_lock_state(0) === 'contended'
+        && business_report_advisory_lock_state('0') === 'contended',
+);
+foreach ([null, false, true, '', 'unexpected'] as $invalidLockState) {
+    report_throws(
+        'advisory lock helper fails on operational or malformed state',
+        BusinessReportGateException::class,
+        fn() => business_report_advisory_lock_state($invalidLockState),
+        'lock failed',
+    );
+}
+business_report_advisory_lock_release(1);
+business_report_advisory_lock_release('1');
+foreach ([null, false, 0, '0', 'unexpected'] as $invalidReleaseState) {
+    report_throws(
+        'advisory lock release helper fails on unsuccessful state',
+        BusinessReportGateException::class,
+        fn() => business_report_advisory_lock_release($invalidReleaseState),
+        'release failed',
+    );
+}
+
 report_throws(
     'duplicate allowlist values fail closed',
     BusinessReportValidationException::class,
@@ -1988,6 +2014,14 @@ report_check(
     str_contains($cronSource, "GET_LOCK('safeharbor_business_reports_v1', 0)")
         && str_contains($cronSource, "RELEASE_LOCK('safeharbor_business_reports_v1')"),
 );
+report_check(
+    'scheduled runner distinguishes overlap from advisory-lock failure',
+    str_contains($cronSource, 'business_report_advisory_lock_state($lock)')
+        && str_contains($cronSource, "\$lockState === 'contended'")
+        && str_contains($cronSource, 'Business report advisory lock failed.')
+        && str_contains($cronSource, 'business_report_advisory_lock_release($released)')
+        && str_contains($cronSource, 'Business report advisory lock release failed.'),
+);
 
 $schedulerWrapper = file_get_contents(__DIR__ . '/../cron/run_business_reports.sh') ?: '';
 $schedulerTemplate = file_get_contents(__DIR__ . '/../../deploy/safeharbor-business-reports.cron') ?: '';
@@ -2016,7 +2050,10 @@ report_check(
 );
 report_check(
     'scheduler wrapper preserves PHP failure status even when its final logger call fails',
-    str_contains($schedulerWrapper, 'pipeline_status=("${PIPESTATUS[@]}")')
+    str_contains($schedulerWrapper, 'mktemp /tmp/safeharbor-business-reports.')
+        && str_contains($schedulerWrapper, '"$PHP_BIN" "$REPORT_RUNNER" >"$report_output" 2>&1')
+        && str_contains($schedulerWrapper, '<"$report_output"')
+        && !str_contains($schedulerWrapper, '| "$LOGGER_BIN"')
         && str_contains($schedulerWrapper, '--tag "$LOG_TAG" --priority user.notice')
         && str_contains($schedulerWrapper, '--tag "$LOG_TAG" --priority user.err')
         && str_contains($schedulerWrapper, 'unable to log runner status')
@@ -2105,6 +2142,8 @@ report_check(
         && str_contains($schedulerBehaviorTest, 'runtime-owned deployment file is rejected')
         && str_contains($schedulerBehaviorTest, 'final logger failure preserves the PHP runner status')
         && str_contains($schedulerBehaviorTest, 'simultaneous PHP and main logger failure preserves PHP status')
+        && str_contains($schedulerBehaviorTest, 'early-closing logger cannot contaminate PHP status')
+        && str_contains($schedulerBehaviorTest, 'mid-stream logger failure cannot contaminate PHP status')
         && str_contains($schedulerBehaviorTest, 'preflight rejects loaded-library content drift')
         && str_contains($schedulerBehaviorTest, 'old activation evidence cannot reactivate after locked deployment')
         && str_contains($schedulerBehaviorTest, 'deploy refuses while a report run still holds the shared lock'),

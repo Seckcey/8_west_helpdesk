@@ -140,7 +140,9 @@ expect_deployer_failure() {
 /usr/bin/printf '%s\n' \
     '<?php' \
     '$sleep = (int)(getenv("SAFEHARBOR_TEST_RUNNER_SLEEP") ?: 0);' \
+    '$bytes = (int)(getenv("SAFEHARBOR_TEST_RUNNER_BYTES") ?: 0);' \
     'if ($sleep > 0) { sleep($sleep); }' \
+    'if ($bytes > 0) { fwrite(STDOUT, str_repeat("x", $bytes)); }' \
     'fwrite(STDOUT, "scheduler-test-runner\\n");' \
     'exit((int)(getenv("SAFEHARBOR_TEST_RUNNER_STATUS") ?: 0));' \
     > "$APP_ROOT/cron/business_reports.php"
@@ -265,7 +267,10 @@ write_activation_evidence
 
 check 'root-owned exact bundle and deployment pass preflight' run_manager preflight
 
-/usr/bin/flock --exclusive "$DEPLOY_LOCK" -c '/usr/bin/sleep 30' &
+# Keep the lock in the flock parent only. Otherwise the command child inherits
+# the descriptor, so killing the recorded holder can leave an orphaned sleep
+# holding the lock and make the next independent assertion fail spuriously.
+/usr/bin/flock --close --exclusive "$DEPLOY_LOCK" -c '/usr/bin/sleep 30' &
 deploy_lock_holder=$!
 background_pids+=("$deploy_lock_holder")
 /usr/bin/sleep 1
@@ -381,7 +386,7 @@ expect_deployer_failure 'non-atomic deploy refuses while scheduler is active' \
 # Reproduce the dangerous both-path drift, then prove disable moves the active
 # entry regardless and does not terminate an already-running lock holder.
 /usr/bin/install -o root -g root -m 0644 -- "$TEMPLATE_SOURCE" "$CRON_DISABLED"
-/usr/bin/flock --shared "$DEPLOY_LOCK" -c '/usr/bin/sleep 30' &
+/usr/bin/flock --close --shared "$DEPLOY_LOCK" -c '/usr/bin/sleep 30' &
 lock_holder=$!
 background_pids+=("$lock_holder")
 /usr/bin/sleep 1
@@ -415,7 +420,7 @@ expect_deployer_failure 'deploy refuses a pre-locking legacy report process' \
 /usr/bin/kill "$legacy_runner"
 wait "$legacy_runner" 2>/dev/null || true
 
-/usr/bin/flock --shared "$DEPLOY_LOCK" -c '/usr/bin/sleep 30' &
+/usr/bin/flock --close --shared "$DEPLOY_LOCK" -c '/usr/bin/sleep 30' &
 lock_holder=$!
 background_pids+=("$lock_holder")
 /usr/bin/sleep 1
@@ -461,6 +466,8 @@ check 'postdeploy artifact-bound bundle and ownership pass preflight' run_manage
     'done' \
     'if [[ "$priority" == user.err && "${SAFEHARBOR_TEST_LOGGER_FAIL_ERROR:-0}" == 1 ]]; then exit 91; fi' \
     'if [[ "$priority" == user.notice ]]; then' \
+    '  [[ "${SAFEHARBOR_TEST_LOGGER_CLOSE_EARLY:-0}" == 1 ]] && exit 93' \
+    '  if [[ "${SAFEHARBOR_TEST_LOGGER_CLOSE_MIDSTREAM:-0}" == 1 ]]; then /usr/bin/head -c 4096 >/dev/null; exit 94; fi' \
     '  /usr/bin/cat >/dev/null' \
     '  [[ "${SAFEHARBOR_TEST_LOGGER_FAIL_NOTICE:-0}" == 1 ]] && exit 92' \
     'fi' \
@@ -486,6 +493,28 @@ set +e
 wrapper_status=$?
 set -e
 check 'simultaneous PHP and main logger failure preserves PHP status' \
+    /usr/bin/test "$wrapper_status" -eq 42
+
+set +e
+/usr/sbin/runuser -u www-data -- /usr/bin/env "${TEST_ENV[@]}" \
+    SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN="$SANDBOX/test-bin/logger" \
+    SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_RUNNER_BYTES=1048576 \
+    SAFEHARBOR_TEST_LOGGER_CLOSE_EARLY=1 \
+    /usr/bin/bash "$APP_ROOT/cron/run_business_reports.sh" >/dev/null 2>&1
+wrapper_status=$?
+set -e
+check 'early-closing logger cannot contaminate PHP status' \
+    /usr/bin/test "$wrapper_status" -eq 42
+
+set +e
+/usr/sbin/runuser -u www-data -- /usr/bin/env "${TEST_ENV[@]}" \
+    SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN="$SANDBOX/test-bin/logger" \
+    SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_RUNNER_BYTES=1048576 \
+    SAFEHARBOR_TEST_LOGGER_CLOSE_MIDSTREAM=1 \
+    /usr/bin/bash "$APP_ROOT/cron/run_business_reports.sh" >/dev/null 2>&1
+wrapper_status=$?
+set -e
+check 'mid-stream logger failure cannot contaminate PHP status' \
     /usr/bin/test "$wrapper_status" -eq 42
 
 set +e
