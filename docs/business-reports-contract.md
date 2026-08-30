@@ -452,6 +452,7 @@ verified backup:
 sudo mysql safeharbor < app/db/migrations/013_business_reports.sql
 sudo mysql safeharbor < app/db/migrations/017_id_report_contact_evidence.sql
 sudo mysql safeharbor < app/db/migrations/019_client_report_contact_evidence.sql
+sudo mysql safeharbor < app/db/migrations/023_business_report_archive_scope.sql
 ```
 
 Migration 017 validates the exact candidate column/default, visible-index,
@@ -470,6 +471,13 @@ twelve permanent scope, actor, reach, version, and immutability guards are
 replaced. Their exact names, tables, events, timing, and fail-closed signal are
 verified before replacement. An interrupted run stays fail-closed until an
 exact replay.
+
+Migration 023 leaves the already-applied migration-013 bytes unchanged. It
+installs and verifies one temporary fail-closed archive-insert blocker before
+replacing the permanent archive trigger, proves that the replacement binds
+`metrics.period.schedule_timezone` to the immutable schedule timezone, and
+removes the blocker only after exact postflight. An interrupted run continues
+to reject archive inserts until replay completes.
 
 The report subsystem needs `SELECT` on source and report tables; `INSERT` on
 definition, schedule, archive, ID tenant-binding, and ID contact-snapshot

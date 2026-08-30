@@ -419,7 +419,50 @@ report_mysql_check('fresh schema creates ten report tables including immutable c
     )->fetchColumn() === 10);
 report_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/013_business_reports.sql');
 report_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/019_client_report_contact_evidence.sql');
-report_mysql_check('migrations 013 and 019 replay over exact fresh-schema objects', true);
+$archiveScopeMigration = __DIR__ . '/../db/migrations/023_business_report_archive_scope.sql';
+report_mysql_execute_file($pdo, $archiveScopeMigration);
+report_mysql_execute_file($pdo, $archiveScopeMigration);
+report_mysql_check('migrations 013, 019, and replay-safe 023 run over exact fresh-schema objects', true);
+report_mysql_check(
+    'migration 023 installs the exact schedule-timezone archive guard',
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND trigger_name='trg_business_report_archives_before_insert'
+            AND event_object_table='business_report_archives'
+            AND action_statement LIKE '%$.period.schedule_timezone%'
+            AND action_statement LIKE '%s.schedule_timezone%'",
+    )->fetchColumn() === 1,
+);
+$pdo->exec("CREATE TRIGGER trg_br_archive_scope_swap_insert
+    BEFORE INSERT ON business_report_archives FOR EACH ROW
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'Business report archives are locked for migration 023 trigger swap'");
+$pdo->exec('DROP TRIGGER trg_business_report_archives_before_insert');
+report_mysql_throws(
+    'interrupted migration 023 keeps archive inserts fail-closed',
+    PDOException::class,
+    fn() => $pdo->exec("INSERT INTO business_report_archives
+        (tenant_id,client_id,schedule_key,schedule_version_id,definition_version_id,
+         period_start,period_end,generated_at,metrics_json,report_text,content_sha256)
+        VALUES (1,1,'blocked',1,1,UTC_TIMESTAMP(),UTC_TIMESTAMP(),UTC_TIMESTAMP(),
+                '{}','blocked','" . str_repeat('0', 64) . "')"),
+    'migration 023 trigger swap',
+);
+report_mysql_execute_file($pdo, $archiveScopeMigration);
+report_mysql_check(
+    'migration 023 replay restores one permanent guard and removes its blocker',
+    (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND trigger_name='trg_business_report_archives_before_insert'",
+    )->fetchColumn() === 1
+        && (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.triggers
+              WHERE trigger_schema=DATABASE()
+                AND trigger_name='trg_br_archive_scope_swap_insert'",
+        )->fetchColumn() === 0,
+);
 report_mysql_check('report tables retain exact per-table column counts',
     $pdo->query(
         "SELECT CONCAT(table_name,':',COUNT(*)) shape

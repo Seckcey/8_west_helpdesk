@@ -336,8 +336,6 @@ BEGIN
          = CONCAT(DATE_FORMAT(NEW.period_start, '%Y-%m-%dT%H:%i:%s'), 'Z')
      AND JSON_UNQUOTE(JSON_EXTRACT(NEW.metrics_json, '$.period.end_utc_exclusive'))
          = CONCAT(DATE_FORMAT(NEW.period_end, '%Y-%m-%dT%H:%i:%s'), 'Z')
-     AND BINARY JSON_UNQUOTE(JSON_EXTRACT(NEW.metrics_json, '$.period.schedule_timezone'))
-         = BINARY s.schedule_timezone
      AND JSON_UNQUOTE(JSON_EXTRACT(NEW.metrics_json, '$.generated_at'))
          = CONCAT(DATE_FORMAT(NEW.generated_at, '%Y-%m-%dT%H:%i:%s'), 'Z');
   IF schedule_matches <> 1 THEN
