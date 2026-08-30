@@ -2220,6 +2220,24 @@ function business_report_archive_iso_utc(mixed $value): bool
         && (int) substr($value, 0, 4) >= 1000;
 }
 
+/** @param array<string,mixed> $period */
+function business_report_archive_v3_is_complete_local_week(array $period): bool
+{
+    try {
+        $timezone = new DateTimeZone((string)($period['schedule_timezone'] ?? ''));
+        $startUtc = new DateTimeImmutable((string)($period['start_utc'] ?? ''));
+        $endUtc = new DateTimeImmutable((string)($period['end_utc_exclusive'] ?? ''));
+        $startLocal = $startUtc->setTimezone($timezone);
+        $endLocal = $endUtc->setTimezone($timezone);
+        $expectedEndLocal = $startLocal->modify('+7 days');
+    } catch (Throwable) {
+        return false;
+    }
+    return $startLocal->format('N H:i:s') === '1 00:00:00'
+        && $endLocal->format('N H:i:s') === '1 00:00:00'
+        && $endUtc->getTimestamp() === $expectedEndLocal->getTimestamp();
+}
+
 /**
  * Refuse any archive metric that is not exactly one of the immutable v1/v2/v3
  * public contracts. This deliberately validates every nested key and scalar
@@ -2311,6 +2329,11 @@ function business_report_assert_archive_metric_schema(array $metrics): void
         || !is_string($period['schedule_timezone'] ?? null)
         || strlen($period['schedule_timezone']) > 64
         || !in_array($period['schedule_timezone'], timezone_identifiers_list(), true)
+    ) {
+        $invalid();
+    }
+    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V3
+        && !business_report_archive_v3_is_complete_local_week($period)
     ) {
         $invalid();
     }
@@ -2746,14 +2769,19 @@ function business_report_minimally_verified_archived_content(array $archive): ar
 function business_report_archived_source_for_scope(array $metrics, array $context): array
 {
     $source = $metrics['source'] ?? null;
+    $period = $metrics['period'] ?? null;
     if (!is_array($source)
+        || !is_array($period)
         || !is_string($source['tenant_key'] ?? null)
         || !is_string($source['client_key'] ?? null)
+        || !is_string($period['schedule_timezone'] ?? null)
+        || !is_string($context['schedule_timezone'] ?? null)
         || !hash_equals((string)$context['tenant_slug'], $source['tenant_key'])
         || !hash_equals('safeharbor-client:' . (int)$context['client_id'], $source['client_key'])
+        || !hash_equals($context['schedule_timezone'], $period['schedule_timezone'])
     ) {
         throw new BusinessReportConflictException(
-            'The archived report source does not match its database scope.',
+            'The archived report source or timezone does not match its database scope.',
         );
     }
     return $source;
@@ -2919,6 +2947,7 @@ function business_report_generate(
         $archive = $existing->fetch(PDO::FETCH_ASSOC);
         if (is_array($archive)) {
             $archivedContent = business_report_archived_content($archive);
+            business_report_archived_source_for_scope($archivedContent['metrics'], $schedule);
             $pdo->commit();
             return [
                 'action' => 'ignored',
@@ -2983,7 +3012,7 @@ function business_report_delivery_context(PDO $pdo, int $archiveId): array
     $query = $pdo->prepare(
         'SELECT d.*, a.schedule_key, a.client_id, a.metrics_json, a.report_text,
                 a.content_sha256, a.period_start, a.period_end,
-                s.canary, s.status AS schedule_status,
+                s.canary, s.status AS schedule_status, s.schedule_timezone,
                 t.slug AS tenant_slug
            FROM business_report_deliveries d
            JOIN business_report_archives a ON a.tenant_id = d.tenant_id AND a.id = d.archive_id

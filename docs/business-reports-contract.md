@@ -232,12 +232,15 @@ archive will contain while operators are changing approved time.
 Every query binds the exact Safeharbor tenant and client. Metrics JSON is
 encoded once, stored as exact `LONGTEXT` bytes under `JSON_VALID`, and hashed
 together with the exact text report. MySQL triggers verify the hash, report
-scope, definition, client snapshot, period, and generated timestamp before an
-archive can be inserted. Reload additionally regenerates the canonical report
-text from the exact archived metrics and requires a byte-for-byte match before
-idempotent generation or delivery may use it. A caller cannot bless private or
-financial text by merely recomputing the unkeyed content checksum. Definitions,
-schedules, and archives are insert-only.
+scope, definition, client snapshot, period, schedule timezone, and generated
+timestamp before an archive can be inserted. Reload additionally requires a
+version-3 period to be local Monday midnight through the next local Monday
+midnight, including 167- and 169-hour daylight-saving weeks, regenerates the
+canonical report text, and requires a byte-for-byte match before idempotent
+generation or delivery may use it. Delivery and customer-portal reads rebind
+the archived timezone to the immutable schedule. A caller cannot bless private
+or financial text by merely recomputing the unkeyed content checksum.
+Definitions, schedules, and archives are insert-only.
 
 ## Definition version 2
 

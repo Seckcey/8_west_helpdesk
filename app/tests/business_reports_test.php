@@ -2044,6 +2044,93 @@ report_check(
         && !str_contains($v3ReadableText, 'private reason')
         && !str_contains($v3ReadableText, '$'),
 );
+$v3Scope = business_report_archived_source_for_scope($v3ReadableMetrics, [
+    'tenant_slug' => 'one',
+    'client_id' => 11,
+    'schedule_timezone' => 'America/Los_Angeles',
+]);
+report_check(
+    'definition v3 archive scope binds the immutable schedule timezone',
+    ($v3Scope['client_key'] ?? null) === 'safeharbor-client:11',
+);
+report_throws(
+    'definition v3 archive scope refuses a timezone that differs from its schedule',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_source_for_scope($v3ReadableMetrics, [
+        'tenant_slug' => 'one',
+        'client_id' => 11,
+        'schedule_timezone' => 'UTC',
+    ]),
+    'timezone',
+);
+$v3TuesdayMetrics = $v3ReadableMetrics;
+$v3TuesdayMetrics['period'] = [
+    'start_utc' => '2026-08-18T07:00:00Z',
+    'end_utc_exclusive' => '2026-08-25T07:00:00Z',
+    'schedule_timezone' => 'America/Los_Angeles',
+];
+$v3TuesdayText = $v3ReadableText;
+$v3TuesdayJson = business_report_metrics_json($v3TuesdayMetrics);
+report_throws(
+    'self-hashed v3 Tuesday-through-Tuesday archive cannot claim a completed Monday week',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content([
+        'metrics_json' => $v3TuesdayJson,
+        'report_text' => $v3TuesdayText,
+        'content_sha256' => business_report_content_sha256_from_json(
+            $v3TuesdayJson,
+            $v3TuesdayText,
+        ),
+    ]),
+    'metric schema',
+);
+$v3DstPeriods = [
+    'spring 167-hour week' => [
+        'start_utc' => '2026-03-02T08:00:00Z',
+        'end_utc_exclusive' => '2026-03-09T07:00:00Z',
+        'schedule_timezone' => 'America/Los_Angeles',
+    ],
+    'fall 169-hour week' => [
+        'start_utc' => '2026-10-26T07:00:00Z',
+        'end_utc_exclusive' => '2026-11-02T08:00:00Z',
+        'schedule_timezone' => 'America/Los_Angeles',
+    ],
+];
+foreach ($v3DstPeriods as $name => $period) {
+    $dstMetrics = $v3ReadableMetrics;
+    $dstMetrics['period'] = $period;
+    $dstMetrics['generated_at'] = str_starts_with($name, 'spring')
+        ? '2026-03-10T12:00:00Z'
+        : '2026-11-03T12:00:00Z';
+    business_report_assert_archive_metric_schema($dstMetrics);
+    report_check("definition v3 accepts the exact {$name}", true);
+}
+$v3BadSpringMetrics = $v3ReadableMetrics;
+$v3BadSpringMetrics['period'] = [
+    'start_utc' => '2026-03-02T08:00:00Z',
+    'end_utc_exclusive' => '2026-03-09T08:00:00Z',
+    'schedule_timezone' => 'America/Los_Angeles',
+];
+$v3BadSpringMetrics['generated_at'] = '2026-03-10T12:00:00Z';
+report_throws(
+    'definition v3 refuses a fixed 168-hour spring period that ends at 1 AM local',
+    BusinessReportConflictException::class,
+    fn() => business_report_assert_archive_metric_schema($v3BadSpringMetrics),
+    'metric schema',
+);
+$v3BadFallMetrics = $v3ReadableMetrics;
+$v3BadFallMetrics['period'] = [
+    'start_utc' => '2026-10-26T07:00:00Z',
+    'end_utc_exclusive' => '2026-11-02T07:00:00Z',
+    'schedule_timezone' => 'America/Los_Angeles',
+];
+$v3BadFallMetrics['generated_at'] = '2026-11-03T12:00:00Z';
+report_throws(
+    'definition v3 refuses a fixed 168-hour fall period that ends Sunday local',
+    BusinessReportConflictException::class,
+    fn() => business_report_assert_archive_metric_schema($v3BadFallMetrics),
+    'metric schema',
+);
 $v3CatchUpMetrics = $v3ReadableMetrics;
 $v3CatchUpMetrics['generated_at'] = '2026-09-05T03:27:01Z';
 report_check(

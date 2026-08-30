@@ -843,6 +843,88 @@ report_mysql_check(
             . (int) $v3Generated['archive']['id'] . " AND status='pending'",
         )->fetchColumn() === 1,
 );
+$v3Schedule = business_report_active_schedule($pdo, 'one', 'weekly-v3');
+$v3ArchiveInsert = static function (
+    PDO $pdo,
+    array $schedule,
+    array $metrics,
+    ?string $reportText = null,
+): void {
+    $metricsJson = business_report_metrics_json($metrics);
+    $reportText ??= business_report_text($metrics);
+    $isoToDb = static fn(string $value): string => str_replace(
+        'T',
+        ' ',
+        substr($value, 0, -1),
+    );
+    $insert = $pdo->prepare(
+        'INSERT INTO business_report_archives
+            (tenant_id,client_id,schedule_key,schedule_version_id,definition_version_id,
+             period_start,period_end,generated_at,metrics_json,report_text,content_sha256)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    );
+    $insert->execute([
+        (int)$schedule['tenant_id'],
+        (int)$schedule['client_id'],
+        (string)$schedule['schedule_key'],
+        (int)$schedule['id'],
+        (int)$schedule['definition_version_id'],
+        $isoToDb((string)$metrics['period']['start_utc']),
+        $isoToDb((string)$metrics['period']['end_utc_exclusive']),
+        $isoToDb((string)$metrics['generated_at']),
+        $metricsJson,
+        $reportText,
+        business_report_content_sha256_from_json($metricsJson, $reportText),
+    ]);
+};
+$v3WrongTimezoneMetrics = $v3Generated['metrics'];
+$v3WrongTimezoneStart = (new DateTimeImmutable(
+    (string)$v3WrongTimezoneMetrics['period']['start_utc'],
+))->modify('-21 days');
+$v3WrongTimezoneEnd = (new DateTimeImmutable(
+    (string)$v3WrongTimezoneMetrics['period']['end_utc_exclusive'],
+))->modify('-21 days');
+$v3WrongTimezoneMetrics['period'] = [
+    'start_utc' => $v3WrongTimezoneStart->format('Y-m-d\TH:i:s\Z'),
+    'end_utc_exclusive' => $v3WrongTimezoneEnd->format('Y-m-d\TH:i:s\Z'),
+    'schedule_timezone' => 'UTC',
+];
+report_mysql_throws(
+    'native MySQL archive trigger binds metric timezone to the schedule',
+    PDOException::class,
+    fn() => $v3ArchiveInsert(
+        $pdo,
+        $v3Schedule,
+        $v3WrongTimezoneMetrics,
+        (string)$v3Archive['report_text'],
+    ),
+    'active schedule snapshot',
+);
+$v3TuesdayMetrics = $v3Generated['metrics'];
+$v3TuesdayStart = (new DateTimeImmutable(
+    (string)$v3TuesdayMetrics['period']['start_utc'],
+))->modify('-13 days');
+$v3TuesdayEnd = (new DateTimeImmutable(
+    (string)$v3TuesdayMetrics['period']['end_utc_exclusive'],
+))->modify('-13 days');
+$v3TuesdayMetrics['period']['start_utc'] = $v3TuesdayStart->format('Y-m-d\TH:i:s\Z');
+$v3TuesdayMetrics['period']['end_utc_exclusive'] = $v3TuesdayEnd->format('Y-m-d\TH:i:s\Z');
+$v3ArchiveInsert(
+    $pdo,
+    $v3Schedule,
+    $v3TuesdayMetrics,
+    (string)$v3Archive['report_text'],
+);
+$v3TuesdayArchiveId = (int)$pdo->lastInsertId();
+$v3TuesdayArchive = $pdo->query(
+    'SELECT * FROM business_report_archives WHERE id=' . $v3TuesdayArchiveId,
+)->fetch(PDO::FETCH_ASSOC);
+report_mysql_throws(
+    'native MySQL self-hashed v3 Tuesday period is refused on runtime reload',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content(is_array($v3TuesdayArchive) ? $v3TuesdayArchive : []),
+    'metric schema',
+);
 
 $forgedPeriodStart = (new DateTimeImmutable(
     $v2Window['period_start'],
