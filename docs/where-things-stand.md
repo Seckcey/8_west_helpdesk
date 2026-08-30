@@ -1,10 +1,13 @@
 # Where things stand
 
-**Last focused production verification: 2026-08-29** for approved-time
-version 2, the scheduled Standard/Premium service-goal v2 policies, the
-Lifestyle report canaries, and portal activation. Safeharbor is exact PR #72 merge
+**Current default branch verified 2026-08-29:** `main` is exact PR #79 merge
+`7d4035d90e3ac5783ea47a68fd10ba2c7fdd4da7`. **Last focused production
+verification: 2026-08-29** for approved-time version 2, the scheduled
+Standard/Premium service-goal v2 policies, the Lifestyle report canaries, and
+portal activation was exact PR #72 merge
 `a42872be1f9cd76ebb0a3b2bad91c16f2c0bb0ff`; exact-main Validate run
-`33232316449` passed. The broader 2026-08-09 inventory and the separately
+`33232316449` passed. Reverify the deployed commit before the next release.
+The broader 2026-08-09 inventory and the separately
 verified 2026-08-24 suite SSO history remain below; unrelated surfaces were not
 re-audited during this focused closeout.
 
@@ -36,9 +39,9 @@ If you change what is live, change this page in the same PR.
 | Append-only approved-time adjustment slips | **Development candidate only on `codex/time-approval-adjustments-20260829`; not merged, migrated, or deployed.** Owners/admins add numbered correction slips while original approvals remain immutable. Migration 020 is not applied. |
 | Approved time → Coastmark draft lines | **Version 2 is deployed dark; correction-safe version 3 is local review work only.** The live releases are Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`; both gates are off and production has zero mappings/imports/draft lines. This isolated branch adds durable Safeharbor claims/receipts, explicit status recovery, and chained correction/reversal facts. It is not pushed, merged, migrated, deployed, configured, or enabled. The permanent 8 West IT master UUID stays hard-blocked. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Phase 4's deployed Safeharbor-to-Coastmark v2 sender/receiver remain default-off. Version 3 is local-only and both new claim/send gates also default off. The portal is enabled only for the Lifestyle canary, with authenticated acceptance still open. Report generation/delivery are off and no scheduler exists. Existing service-intake gates remain live. |
-| Customer ticket-summary portal (Phase 5A) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing passed; `support.8westit.com/portal` is 404. Fresh authenticated customer acceptance remains open, so full portal acceptance is not claimed. |
-| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted` and is `submitted`, which is provider acceptance, not inbox proof. Generation/delivery are off, `canary_only` is true, and no scheduler exists. |
+| Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark v2 sender/receiver remain default-off; correction-safe v3 is source-only and both new claim/send gates default off. The portal is enabled only for the Lifestyle canary; basic authenticated access passed, but the deployed experience remains summary-only. Report generation/delivery are off and no scheduler exists. Existing service-intake gates remain live. |
+| Customer portal (Phase 5A live; Phase 5B source-only) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing and a fresh authenticated Lifestyle session passed; `support.8westit.com/portal` is 404. Frankie rejected the read-only summary experience as not useful. Phase 5B create/detail/reply work is isolated on `codex/customer-portal-useful-20260829` and is not merged or deployed. It fails closed on all merged history, and staff merge now refuses cross-customer tickets; a Lifestyle data audit/reset remains a release gate. |
+| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`; on 2026-08-29 Frankie separately confirmed the matching Lifestyle report arrived in the test inbox. Generation/delivery are off, `canary_only` is true, and no scheduler exists. The new `reports@8westit.com` shared mailbox exists but was not the proven sender for this receipt. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Client-scoped 8 West ID report contacts | **Live through PR #68 / merge `7bf63ed` and migration 019**: client 14 has one exact 8 West ID binding and immutable contact snapshot. Both contact endpoints are back off after preparation; only the recipient digest is recorded. |
 | Lifestyle identity replacement | **Enabled safely**: replacement subject `t4u10` is active; predecessor `t4u7` is permanently inactive, revoked, and quarantined. Deployed Coastmark merge `c9f4409` fails closed on a fresh signed revocation feed before any SSO write/reactivation. |
@@ -441,10 +444,12 @@ SHA-256
 `e272ccc44f8200774530fabda634b3d65032805ef360d6f73da3a91afc3fb0f4`, and
 binding id 1 actively maps the approved Lifestyle identity tenant to provider
 tenant 1/client 14. The canonical Safeharbor portal passed signed-out routing;
-the support-domain `/portal` path remains 404. Fresh signed-in customer
-acceptance, tenant isolation, revocation, disable-on-next-request, logout, and
-desktop/mobile verification are still open, so no authenticated customer-data
-read is claimed.
+the support-domain `/portal` path remains 404. On 2026-08-29 Frankie completed
+a fresh Lifestyle sign-in and confirmed the authenticated portal opened for
+the intended customer. That closes the basic OIDC/customer-display proof, but
+the deployed read-only summary experience was rejected as not useful. Tenant
+isolation, revocation, disable-on-next-request, logout, and desktop/mobile
+checks must be repeated when the Phase 5B create/detail/reply source is released.
 
 The root-only activation record is
 `/srv/8west/backups/safeharbor/20260829T021900Z-pre-lifestyle-portal-canary`;
@@ -753,8 +758,8 @@ Migration `012_customer_portal.sql` was applied operator-first on 2026-08-26.
 Production has its two exact tables, seven lifecycle/audit triggers, and
 enforced tenant/client ownership constraints. Its initial state had zero
 mappings/events and a disabled portal. The later Lifestyle canary has active
-binding id 1 and the global gate enabled; authenticated customer acceptance is
-still open.
+binding id 1 and the global gate enabled; basic authenticated Lifestyle access
+passed on 2026-08-29, while Phase 5B workflow acceptance remains open.
 Migration `013_business_reports.sql` was applied operator-first on 2026-08-26.
 Production has five exact tenant-scoped tables, 27 indexes, 15 foreign keys,
 15 checks, and 15 lifecycle/immutability triggers. It retains the earlier 8 West
@@ -820,9 +825,9 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and
 
 ## Tests
 
-Thirty-three CLI suites live in `app/tests/`. Eighteen server-free contract suites
+Thirty-five CLI suites live in `app/tests/`. Eighteen server-free contract suites
 run in CI, including the hermetic service-goal, approval-time, approved-time
-export, portal auth/revocation, portal read-only/rendering, and archived-report
+export, portal auth/revocation, portal rendering, customer ticket workflow, and archived-report
 gates plus the Milepost customer-sync contract. CI also runs the portal,
 service-goal-policy, business-report, and customer-sync migration/isolation
 suites on disposable MySQL 8, plus the signed alert handler and migration-018
@@ -963,18 +968,20 @@ called out, and none may be satisfied by inventing customer or financial facts.
    rejection, one idempotently replayed correction, owner self-approval, and
    unchanged parent/event history. Keep it nonbillable and leave the append-only
    canary as audit evidence; do not bypass identity or enable Coastmark.
-5. **The enabled Lifestyle portal needs fresh authenticated acceptance.** The
-   confidential client, protected values, global gate, and exact binding id 1
-   are live. Frankie must still sign in fresh and prove ticket-summary
-   isolation, revocation, logout, and desktop/mobile behavior. Billing, ticket
-   detail, mutation, and endpoint control remain out of scope.
-6. **The Lifestyle report canary has provider acceptance but no inbox proof.**
-   Three archives are verified and every latest schedule version is disabled.
-   Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt
-   3 returned Graph HTTP 202 / `graph_accepted` and is `submitted`, which proves
-   provider acceptance only. A future run needs a new archive and separate
-   approval; recipient confirmation is still required before any scheduler is
-   installed or allowlist widened.
+5. **The Lifestyle portal needs the useful Phase 5B release and acceptance.**
+   Fresh authentication and the intended Lifestyle customer display passed,
+   but Frankie rejected the deployed read-only summary surface as not useful.
+   The isolated Phase 5B source adds exact-scope create/detail/reply while
+   keeping viewers read-only and notes, billing, AI, and endpoint control out.
+   It still needs review, release approval, tenant-isolation/revocation/logout
+   probes, and desktop/mobile acceptance.
+6. **The Lifestyle report canary has provider and inbox evidence, but remains
+   stopped.** Three archives are verified and every latest schedule version is
+   disabled. Attempts 1 and 2 are terminal `uncertain` and must never be
+   retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie
+   separately confirmed the matching report arrived. A future scheduled run
+   still needs the reviewed scheduler release and sender canary before any
+   allowlist is widened.
 7. **The correction-safe Coastmark seam still needs a Coastmark agreement and
    mapping.** Durable version-3 claims, receipts, status recovery, and
    correction/reversal events are implemented in isolated branches, but no

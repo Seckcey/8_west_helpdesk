@@ -50,9 +50,10 @@ lib/coastmark_time_export.php
                            fact; send is hard-retired pending receipt-aware v3
 lib/eightwestid/           blob-pinned reviewed 8 West ID oidc_v1 PHP client
 lib/portal_auth.php        separate <=8h OIDC session, exact client roles,
-                           bounded fail-closed revocation, active binding recheck
+                           bounded fail-closed revocation, active binding recheck,
+                           CSRF + one-use mutation nonces
 lib/portal_data.php        explicit binding lifecycle + tenant/client-bound,
-                           read-only ticket-summary queries
+                           ticket summaries, public conversation, create/reply
 lib/portal_render.php      independent dark customer chrome (no staff session)
 lib/business_reports.php   versioned weekly aggregates, oldest-period catch-up,
                            immutable archive hashes, and one-attempt delivery truth
@@ -109,7 +110,8 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            service_goal_policy_admin_test.php,
                            service_goal_policy_mysql_test.php,
                            coastmark_time_export_test.php, portal_auth_test.php,
-                           portal_data_test.php, portal_mysql_test.php,
+                           portal_data_test.php, portal_ticket_workflow_test.php,
+                           portal_mysql_test.php,
                            business_reports_test.php,
                            business_reports_mysql_test.php,
                            id_report_contacts_test.php,
@@ -137,8 +139,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   csat.php                 One-tap resolution survey (token-authed, public)
   attachment.php           Forced-download attachment serving
   login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
-  portal/                  Default-off customer OIDC surface: read-only ticket
-                           summaries + POST/CSRF logout; no detail or mutation API
+  portal/                  Default-off customer OIDC surface: tenant-scoped help
+                           dashboard, ticket create/detail/reply + safe logout
   api/ticket_action.php    Optimistic field updates (strict whitelists)
   api/timer.php            Idempotent pending timer/suggestion submission
   api/time_entry_review.php Owner/admin approve/reject transition
@@ -189,7 +191,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   and timer.
 - Collision detection: 20s presence heartbeats paint "viewing/typing…"
   chips in the ticket header (api/presence.php).
-- Merge: rail button or the duplicate banner (same contact, 48h) —
+- Merge: rail button or the duplicate banner (same contact, 48h) — only
+  tickets for the same customer may be merged. The two ticket rows are locked
+  and rechecked before any conversation is moved. Then
   messages/files move to the survivor and the source becomes a linked resolved
   stub (`merged_into_id`). Time remains on that source so its captured
   ticket/client provenance cannot change.
@@ -230,13 +234,13 @@ public/                    Apache docroot (page-per-file, like Milepost)
   through an explicit active CLI binding, and binds every ticket read to both
   provider tenant and client. See `docs/customer-portal-contract.md`; never
   infer a mapping from email/domain/name or enable a live business as a test.
-  Production has an explicit disabled portal block with the fixed issuer and
-  callback, empty client ID/secret, a private empty revocation-cache directory,
-  zero bindings/events, and no authenticated customer canary. The 8 West ID
-  prerequisite is deployed dark but has zero registered Safeharbor OIDC
-  clients. Every portal route, including GET and POST logout, remains
-  cookie-free 404 while disabled. This surface shows ticket summaries only; it
-  has no billing, ticket detail, mutation, or customer endpoint control.
+  `client_owner`, `client_admin`, and `client_staff` may open and reply to an
+  exact customer ticket; `client_viewer` remains read-only. Detail exposes only
+  customer and technician messages, never notes or system evidence. Every
+  mutation uses CSRF plus a one-use action nonce. Customers cannot resolve a
+  ticket, upload attachments, access billing, or control an endpoint. The live
+  Lifestyle canary still runs the Phase 5A summary-only source until this
+  Phase 5B branch is reviewed, released, and accepted.
 - Business reports: independent versioned definitions and schedules produce
   exact weekly aggregate archives. Both generation and delivery default off;
   exact schedule/tenant/client/recipient allowlists and `canary_only` apply.
@@ -292,6 +296,7 @@ php app/tests/service_goal_policy_admin_test.php
 # destructive only in safeharbor_service_goal_test*: php app/tests/service_goal_policy_mysql_test.php
 php app/tests/portal_auth_test.php
 php app/tests/portal_data_test.php
+php app/tests/portal_ticket_workflow_test.php
 # destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php
 php app/tests/business_reports_test.php
 # destructive only in safeharbor_report_test*: php app/tests/business_reports_mysql_test.php

@@ -89,6 +89,7 @@ final class PortalAuthFakeHttp implements HttpClient
     }
 }
 
+portal_session_start();
 portal_auth_check('portal is dark by default', portal_enabled() === false);
 $PORTAL_TEST_CONFIG['portal']['enabled'] = true;
 $oidc = portal_oidc_config();
@@ -165,6 +166,16 @@ portal_auth_check('exact subject/session-version local session validates',
     portal_local_identity($now) === $validSession);
 portal_auth_check('portal CSRF validates exact token', portal_csrf_valid(str_repeat('a', 64)));
 portal_auth_check('portal CSRF rejects a different token', ! portal_csrf_valid(str_repeat('b', 64)));
+$createNonce = portal_action_nonce('ticket:create', $now);
+portal_auth_check('portal action nonce is valid once',
+    portal_action_nonce_consume('ticket:create', $createNonce, $now));
+portal_auth_check('portal action nonce replay is refused',
+    ! portal_action_nonce_consume('ticket:create', $createNonce, $now));
+$expiredNonce = portal_action_nonce('ticket:reply:42', $now - PORTAL_ACTION_NONCE_MAX_AGE_SECONDS - 1);
+portal_auth_check('expired portal action nonce is refused',
+    ! portal_action_nonce_consume('ticket:reply:42', $expiredNonce, $now));
+portal_auth_expect('malformed action purpose is refused', PortalAuthException::class,
+    fn() => portal_action_nonce('../ticket', $now));
 
 $_SESSION[PORTAL_SESSION_KEY]['expires_at'] = $now;
 portal_auth_check('expired local session is refused', portal_local_identity($now) === null);
@@ -333,10 +344,28 @@ $indexSource = file_get_contents(__DIR__ . '/../public/portal/index.php');
 portal_auth_check('default-off gate runs before session and data access',
     is_string($indexSource)
     && strpos($indexSource, 'if (! portal_enabled())') < strpos($indexSource, 'portal_authenticated_context'));
-portal_auth_check('ticket-summary index is GET-only',
+portal_auth_check('help-center index is GET-only',
     is_string($indexSource)
     && str_contains($indexSource, "REQUEST_METHOD'] ?? 'GET') !== 'GET'")
     && str_contains($indexSource, "header('Allow: GET')"));
+$newTicketSource = file_get_contents(__DIR__ . '/../public/portal/new.php');
+$ticketDetailSource = file_get_contents(__DIR__ . '/../public/portal/ticket.php');
+foreach (['new ticket' => $newTicketSource, 'ticket detail' => $ticketDetailSource] as $route => $source) {
+    portal_auth_check("{$route} default-off gate runs before request/session handling",
+        is_string($source)
+        && strpos($source, 'if (! portal_enabled())') < strpos($source, "REQUEST_METHOD'] ?? 'GET'")
+        && strpos($source, 'if (! portal_enabled())') < strpos($source, 'portal_authenticated_context'));
+    portal_auth_check("{$route} mutation requires CSRF plus one-use action nonce",
+        is_string($source)
+        && str_contains($source, 'portal_csrf_valid(')
+        && str_contains($source, 'portal_action_nonce_consume(')
+        && str_contains($source, "true, 303"));
+    $mutationMarker = $route === 'new ticket' ? 'portal_create_ticket(' : 'portal_reply_to_ticket(';
+    portal_auth_check("{$route} persists the consumed nonce before mutation",
+        is_string($source)
+        && strpos($source, 'portal_action_nonce_consume(') < strpos($source, 'session_write_close()')
+        && strpos($source, 'session_write_close()') < strpos($source, $mutationMarker));
+}
 $logoutSource = file_get_contents(__DIR__ . '/../public/portal/logout.php');
 $logoutPortalGatePosition = is_string($logoutSource) ? strpos($logoutSource, 'if (! portal_enabled())') : false;
 $logoutMethodPosition = is_string($logoutSource) ? strpos($logoutSource, "REQUEST_METHOD'] ?? 'GET'") : false;

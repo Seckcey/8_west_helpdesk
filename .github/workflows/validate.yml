@@ -121,8 +121,10 @@ jobs:
         run: php app/tests/coastmark_time_export_mysql_test.php
       - name: Test customer portal authentication and revocation
         run: php app/tests/portal_auth_test.php
-      - name: Test customer portal read-only boundary and rendering
+      - name: Test customer portal boundary and rendering
         run: php app/tests/portal_data_test.php
+      - name: Test customer portal ticket workflow
+        run: php app/tests/portal_ticket_workflow_test.php
       - name: Test scheduled archived business reports
         run: php app/tests/business_reports_test.php
       - name: Test 8 West ID report-contact client contract

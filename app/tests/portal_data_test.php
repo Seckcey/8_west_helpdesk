@@ -74,19 +74,25 @@ portal_data_expect('oversized operator reason is refused', PortalDataValidationE
 
 $dataSource = file_get_contents(__DIR__ . '/../lib/portal_data.php');
 $summaryStart = is_string($dataSource) ? strpos($dataSource, 'function portal_ticket_summary') : false;
-$summarySource = $summaryStart === false ? '' : substr($dataSource, $summaryStart);
-portal_data_check('ticket summary has exactly two read-only ticket queries',
-    substr_count($summarySource, 'FROM tickets') === 2);
+$summaryEnd = $summaryStart === false ? false : strpos($dataSource, 'function portal_role_can_write_tickets', $summaryStart);
+$summarySource = ($summaryStart === false || $summaryEnd === false)
+    ? ''
+    : substr($dataSource, $summaryStart, $summaryEnd - $summaryStart);
+portal_data_check('ticket summary has exactly two top-level read-only ticket queries',
+    substr_count($summarySource, 'FROM tickets t') === 2);
 portal_data_check('every ticket-summary query binds provider tenant and client',
     substr_count($summarySource, 'tenant_id = :tenant_id') >= 3
-    && substr_count($summarySource, 'client_id = :client_id') === 2
+    && substr_count($summarySource, 't.client_id = :client_id') === 2
     && str_contains($summarySource, 'AND id = :client_id'));
 portal_data_check('ticket summary excludes merged stubs',
     substr_count($summarySource, 'merged_into_id IS NULL') === 2);
+portal_data_check('ticket summary fails closed on every merged survivor',
+    substr_count($summarySource, 'FROM tickets merged_source') === 2
+    && substr_count($summarySource, 'merged_source.merged_into_id = t.id') === 2);
 portal_data_check('ticket summary reads no message, attachment, time, AI, or billing tables',
     preg_match('/\b(?:messages|attachments|time_entries|assistant_log|invoices?|payments?)\b/i', $summarySource) !== 1);
 portal_data_check('ticket summary selects a closed summary field list',
-    str_contains($summarySource, 'SELECT id, subject, status, priority, created_at, updated_at, resolved_at')
+    str_contains($summarySource, 'SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at, t.resolved_at')
     && !str_contains($summarySource, 'SELECT *'));
 
 $recheckStart = is_string($dataSource) ? strpos($dataSource, 'function portal_active_binding_recheck') : false;
@@ -116,10 +122,18 @@ foreach (glob(__DIR__ . '/../public/portal/*.php') ?: [] as $file) {
     $source = file_get_contents($file);
     if (is_string($source)) $publicSources .= "\n" . $source;
 }
-portal_data_check('customer-facing portal endpoints contain no SQL mutations',
+portal_data_check('customer-facing portal endpoints contain no raw SQL mutations',
     preg_match('/\b(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|TRUNCATE)\b/i', $publicSources) !== 1);
-portal_data_check('customer-facing portal exposes no reply, upload, AI, billing, or endpoint route',
-    preg_match('#/(?:api|attachment|reply|westy|invoice|payment|device|endpoint)[A-Za-z0-9_./-]*#i', $publicSources) !== 1);
+portal_data_check('portal mutation routes delegate to tenant-bound workflow functions',
+    str_contains($publicSources, 'portal_create_ticket(')
+    && str_contains($publicSources, 'portal_reply_to_ticket(')
+    && preg_match('#/(?:api|attachment|westy|invoice|payment|device|endpoint)[A-Za-z0-9_./-]*#i', $publicSources) !== 1);
+portal_data_check('only customer owner, admin, and staff roles can write tickets',
+    portal_role_can_write_tickets('client_owner')
+    && portal_role_can_write_tickets('client_admin')
+    && portal_role_can_write_tickets('client_staff')
+    && ! portal_role_can_write_tickets('client_viewer')
+    && ! portal_role_can_write_tickets('msp_owner'));
 
 $callbackSource = file_get_contents(__DIR__ . '/../public/portal/callback.php');
 portal_data_check('callback creates no tenant, client, or user records',
@@ -177,6 +191,7 @@ if (is_string($migration) && is_string($schema)) {
 $context = [
     'identity' => [
         'display_name' => '<script>alert(1)</script>',
+        'role' => 'client_staff',
     ],
     'binding' => [],
 ];
@@ -201,12 +216,17 @@ portal_data_check('rendered tenant, identity, and subject text is escaped',
     && !str_contains($rendered, '<script>ticket</script>')
     && !str_contains($rendered, '<img src=x onerror=alert(1)>')
     && str_contains($rendered, '&lt;script&gt;ticket&lt;/script&gt;'));
-portal_data_check('rendered ticket is a summary without a ticket-detail link',
-    str_contains($rendered, '#42') && !str_contains($rendered, '/ticket.php'));
+portal_data_check('rendered ticket links only to the customer portal detail route',
+    str_contains($rendered, '#42')
+    && str_contains($rendered, '/portal/ticket.php?id=42')
+    && !str_contains($rendered, 'href="/ticket.php'));
 portal_data_check('rendered portal has only the sign-out form mutation surface',
     substr_count($rendered, '<form') === 1
     && str_contains($rendered, 'action="/portal/logout.php"')
     && str_contains($rendered, 'name="csrf"'));
+portal_data_check('writer dashboard offers a customer-scoped help action',
+    str_contains($rendered, 'href="/portal/new.php"')
+    && str_contains($rendered, '>Get help</a>'));
 portal_data_check('rendered portal is dark by default and presentation-only',
     str_contains($rendered, '<html lang="en" data-theme="dark">')
     && !str_contains($rendered, '<script'));

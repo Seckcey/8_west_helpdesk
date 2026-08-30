@@ -581,6 +581,29 @@ img { display: block; }
 .rail-list-name { font-size: 13px; }
 .rail-list-sub { font-size: 11.5px; color: var(--muted); }
 
+/* Customer help portal */
+.portal-ticket-link { display: block; color: inherit; transition: background .1s; }
+.portal-ticket-link:hover { background: var(--hover); color: inherit; }
+.portal-ticket-head { align-items: flex-start; }
+.portal-status {
+  display: inline-flex; align-items: center; padding: 2px 8px;
+  border-radius: 999px; font-size: 10.5px; font-weight: 600;
+  background: var(--chip-bg); color: var(--muted);
+}
+.portal-status-open { background: var(--gold-soft-bg); color: var(--gold); }
+.portal-status-in_progress { background: var(--accent-soft-bg); color: var(--cyan); }
+.portal-status-waiting { background: var(--chip-bg); color: var(--muted); }
+.portal-status-resolved { background: var(--mint-soft-bg); color: var(--mint); }
+.portal-priority-help { justify-content: flex-end; }
+.portal-priority-help p { font-size: 11.5px; line-height: 1.45; color: var(--dim); }
+.portal-closed-note { padding: 12px 14px; color: var(--muted); font-size: 12.5px; }
+@media (max-width: 700px) {
+  .portal-ticket-head .btn-primary { width: 100%; justify-content: center; }
+  .reply-foot { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .reply-foot .btn-primary { width: 100%; justify-content: center; }
+  .msg { max-width: 94%; }
+}
+
 /* ==========================================================================
    Time page
    ========================================================================== */

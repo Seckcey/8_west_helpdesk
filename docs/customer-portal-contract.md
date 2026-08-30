@@ -1,9 +1,8 @@
 # Safeharbor customer portal contract
 
-**Status:** migration 012 and the reviewed Phase 5A source are live, and the
-current Safeharbor application is exact PR #68 merge
-`7bf63edb9bc0583cf865124b45f002d0717dcab9` after exact-main Validate run
-`33226867525`. A confidential Safeharbor OIDC client is installed through the
+**Status:** migration 012 and the reviewed Phase 5A source are live through
+PR #68 merge `7bf63edb9bc0583cf865124b45f002d0717dcab9` after exact-main
+Validate run `33226867525`. A confidential Safeharbor OIDC client is installed through the
 protected operator path without recording its values here. The global portal
 gate is enabled, protected config SHA-256 is
 `e272ccc44f8200774530fabda634b3d65032805ef360d6f73da3a91afc3fb0f4`, and
@@ -12,11 +11,16 @@ tenant to Safeharbor provider tenant 1/client 14.
 
 Signed-out acceptance passed on the canonical
 `https://safeharbor.8westit.com/portal` surface. The separate
-`support.8westit.com/portal` path is 404 and is not a portal alias. Fresh
-authenticated customer acceptance is still pending Frankie; this is not a
-claim that a customer ticket list has been viewed successfully. The surface
-remains a read-only list of ticket summaries and does not change technician
-authentication or auto-provision any local tenant, client, user, or mapping.
+`support.8westit.com/portal` path is 404 and is not a portal alias. On
+2026-08-29 Frankie completed a fresh Lifestyle sign-in and confirmed the
+authenticated portal opened for the intended customer. That closes the basic
+OIDC/customer-display proof, but Frankie correctly rejected the read-only
+summary surface as not useful. The deployed surface remains summary-only.
+
+The reviewed Phase 5B source on branch
+`codex/customer-portal-useful-20260829` adds a tenant-bound customer help
+workflow. It is not merged or deployed yet. It must pass the gates below and
+an explicit release approval before it changes the live portal.
 
 This contract is the authorization boundary. A later feature may add to it
 only through a separate review; it must not reinterpret this slice as implied
@@ -30,7 +34,7 @@ OIDC identity, signed tenant/product/role claims, session authorization
 generations, and the revocation inventory. The provider tenant/client rows are
 Safeharbor facts. No Milepost or Coastmark data is queried.
 
-Phase 5A exposes only:
+Deployed Phase 5A exposes only:
 
 - ticket number;
 - subject;
@@ -42,6 +46,37 @@ It has no ticket detail route and exposes zero messages, internal notes,
 attachments, replies, uploads, contacts, assignees, technician time, service
 goal internals, AI, billing, invoice posting, device/endpoint control, or other
 tenant context. The only POST is CSRF-protected local/central sign-out.
+
+Phase 5B adds only these customer-owned operations:
+
+- `client_owner`, `client_admin`, and `client_staff` may open a ticket for the
+  exact mapped provider tenant/client; `client_viewer` remains read-only;
+- every new ticket is `channel=portal`, `status=open`, unassigned, has no
+  inferred contact, captures its immutable effective response-goal target,
+  and starts with a `kind=client` message. An admitted long 8 West ID display
+  name is deterministically shortened to a 128-character author label rather
+  than blocking that customer from writing;
+- ticket detail shows only `kind=client` and `kind=tech` messages. Internal
+  notes and system/automation evidence never cross the portal boundary;
+- merged source stubs and every survivor with a merged source are hidden from
+  the dashboard, detail, and reply paths. Staff merges now lock both ticket
+  rows and refuse different customers before moving any conversation. Before
+  release, the Lifestyle canary data must be audited/reset so no legacy merge
+  history is trusted;
+- customer replies are allowed only while a ticket is not resolved. A reply
+  returns `waiting` work to `open` for human attention and never resolves it;
+  and
+- every mutation requires the portal session CSRF token plus a short-lived,
+  one-use action nonce. The consumed nonce is durably written and the session
+  lock is closed before the database mutation, followed by POST/Redirect/GET.
+  An uncertain response tells the customer to inspect the dashboard or thread
+  before retrying instead of falsely claiming that nothing was saved.
+
+Phase 5B still exposes no attachments, technician time, contacts, assignees,
+AI controls, billing, invoice posting, device/endpoint control, internal notes,
+or system evidence. It provides no customer close/resolve operation. Portal
+tickets and replies therefore remain human-owned and cannot gain Milepost's
+one-use telemetry auto-close capability.
 
 ## OIDC authority
 
@@ -87,8 +122,9 @@ The confidential authorization-code flow is the maintained `oidc_v1` contract:
 The kit validates the broader suite role vocabulary because other applications
 use it. Safeharbor then applies the closed four-role customer gate above.
 Staff, MSP, viewer aliases, recovery roles, and unknown roles are not admitted
-to this portal. All four accepted customer roles see the same read-only
-summaries for their mapped business.
+to this portal. All four accepted customer roles may read their mapped
+business. Only the three explicit customer writer roles above may create or
+reply; `client_viewer` fails closed as read-only.
 
 The maintained issuer kit still validates its full signed identity-assurance
 contract, including verified email, subject/numeric-tenant consistency, and
@@ -148,7 +184,8 @@ Every authenticated request performs, in order:
 2. 8 West ID revocation/authorization-inventory validation;
 3. an active binding recheck using the exact binding id, identity slug,
    provider tenant id, and client id; and
-4. summary reads whose SQL binds both provider tenant id and client id.
+4. every summary, ticket-detail, create, and reply operation binding both
+   provider tenant id and client id.
 
 The identity-slug lookup during callback is the single bootstrap query whose
 purpose is to discover the explicitly mapped provider ids. The callback then
@@ -190,9 +227,11 @@ its fresh authenticated checks and step 9 remain open:
    business.
 
 The gate and binding are currently enabled only for the approved Lifestyle
-canary. Signed-out canonical routing passed; a fresh authenticated session has
-not yet completed the data-isolation, revocation, logout, desktop, or mobile
-checks. Immediate rollback is `portal.enabled=false`. Disabling the binding is
+canary. Signed-out canonical routing and a fresh authenticated Lifestyle
+session passed; the deployed summary-only experience was rejected as not
+useful. The remaining data-isolation, revocation, disable-on-next-request,
+logout, and desktop/mobile checks must be repeated after Phase 5B is deployed.
+Immediate rollback is `portal.enabled=false`. Disabling the binding is
 the durable per-business kill switch and invalidates an open portal session on
 its next request. Do not delete audit rows or hand-edit the deployed tree.
 
@@ -209,6 +248,7 @@ Run from the repository root:
 find app -name '*.php' -print0 | xargs -0 -n1 php -l
 php app/tests/portal_auth_test.php
 php app/tests/portal_data_test.php
+php app/tests/portal_ticket_workflow_test.php
 SAFEHARBOR_PORTAL_TEST_DB=safeharbor_portal_test php app/tests/portal_mysql_test.php
 ```
 
@@ -221,5 +261,6 @@ Migration 012, the source, disabled-route hardening, confidential-client
 registration, protected client-value installation, one disabled-then-enabled
 Lifestyle binding, and global enablement are live. Signed-out routing is
 accepted on the canonical Safeharbor domain and refused as 404 on the support
-domain. Fresh authenticated customer acceptance remains an explicit human
-gate; do not call the portal fully accepted until it passes.
+domain. Fresh Lifestyle authentication passed on 2026-08-29. Phase 5B's
+create/detail/reply experience remains source-only until review, release, and
+fresh authenticated acceptance pass.
