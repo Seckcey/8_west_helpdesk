@@ -696,7 +696,8 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, 'migration_021_refcheck_claim_event_key_failed')
     && str_contains($migrationOperational, 'migration_021_refcheck_receipt_operation_key_failed')
     && str_contains($migrationOperational, '@cm_reference_source_check_definition_failure')
-    && str_contains($migrationOperational, "'migration_021_refcheck_event_l'")
+    && substr_count($migrationOperational, 'CONCAT(CHAR(92),CHAR(39))') === 3
+    && !str_contains($migrationOperational, "live_check.check_clause,CHAR(92),''")
     && str_contains($migrationOperational, '@cm_reference_source_required_check_failure')
     && str_contains($migrationOperational, '@cm_reference_source_claim_install_lock_count')
     && str_contains($migrationOperational, '@cm_reference_source_receipt_install_lock_count')

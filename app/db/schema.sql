@@ -4086,23 +4086,8 @@ SET @cm_reference_source_fks_ok = (
      AND rule.constraint_name=live.constraint_name
 );
 SET @cm_reference_source_check_definition_failure = (
-  SELECT CASE
-           WHEN expected.failure_code='migration_021_refcheck_claim_event_key_failed'
-             THEN CONCAT(
-               'migration_021_refcheck_event_l',
-               CHAR_LENGTH(REGEXP_REPLACE(
-                 REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
-                                 '_utf8mb4',''),'_ascii',''),
-                 '[[:space:]()]','')),
-               '_',
-               LEFT(SHA2(REGEXP_REPLACE(
-                 REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
-                                 '_utf8mb4',''),'_ascii',''),
-                 '[[:space:]()]',''),256),16)
-             )
-           ELSE COALESCE(expected.failure_code,
-                         'migration_021_refcheck_unexpected_failed')
-         END
+  SELECT MIN(COALESCE(expected.failure_code,
+                      'migration_021_refcheck_unexpected_failed'))
      FROM information_schema.table_constraints live_constraint
      JOIN information_schema.check_constraints live_check
        ON live_check.constraint_schema=live_constraint.constraint_schema
@@ -4117,18 +4102,13 @@ SET @cm_reference_source_check_definition_failure = (
       AND (expected.constraint_name IS NULL
            OR live_constraint.enforced<>'YES'
            OR CAST(REGEXP_REPLACE(
-                REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
-                                '_utf8mb4',''),'_ascii',''),
+                REPLACE(REPLACE(REPLACE(REPLACE(
+                  live_check.check_clause,
+                  CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
+                  '`',''),'_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
               <> CAST(REGEXP_REPLACE(expected.normalized_clause,
                                      '[[:space:]()]','') AS BINARY))
-    ORDER BY CASE
-               WHEN expected.failure_code=
-                    'migration_021_refcheck_claim_event_key_failed' THEN 0
-               ELSE 1
-             END,
-             expected.failure_code
-    LIMIT 1
 );
 SET @cm_reference_source_check_definitions_ok = (
   @cm_reference_source_check_definition_failure IS NULL
@@ -5273,8 +5253,10 @@ SET @cm_reference_cleanup_source_check_definitions_ok = (
       AND (expected.constraint_name IS NULL
            OR live_constraint.enforced<>'YES'
            OR CAST(REGEXP_REPLACE(
-                REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
-                                '_utf8mb4',''),'_ascii',''),
+                REPLACE(REPLACE(REPLACE(REPLACE(
+                  live_check.check_clause,
+                  CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
+                  '`',''),'_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
               <> CAST(REGEXP_REPLACE(expected.normalized_clause,
                                      '[[:space:]()]','') AS BINARY))
@@ -5509,8 +5491,10 @@ SET @cm_reference_claim_source_check_definitions_ok = (
       AND (expected.constraint_name IS NULL
            OR live_constraint.enforced<>'YES'
            OR CAST(REGEXP_REPLACE(
-                REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
-                                '_utf8mb4',''),'_ascii',''),
+                REPLACE(REPLACE(REPLACE(REPLACE(
+                  live_check.check_clause,
+                  CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
+                  '`',''),'_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
               <> CAST(REGEXP_REPLACE(expected.normalized_clause,
                                      '[[:space:]()]','') AS BINARY))
