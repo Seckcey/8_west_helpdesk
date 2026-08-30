@@ -4441,7 +4441,12 @@ SET @cm_receipt_install_lock_present = (
 -- the live table has no exact install lock, then keep the clause comparison
 -- binary-exact for the live lifecycle state.
 SET @cm_claim_reference_lock_ddl=IF(
-  @cm_claim_install_lock_present=0,
+  @cm_claim_install_lock_present=0
+  AND (SELECT COUNT(*) FROM information_schema.table_constraints
+        WHERE constraint_schema=DATABASE()
+          AND table_name='safeharbor_m021_reference_claims'
+          AND constraint_type='CHECK'
+          AND constraint_name='rc21_claim_install_lock')=1,
   'ALTER TABLE safeharbor_m021_reference_claims DROP CHECK rc21_claim_install_lock',
   'DO 0'
 );
@@ -4449,7 +4454,12 @@ PREPARE cm_export_statement FROM @cm_claim_reference_lock_ddl;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 SET @cm_receipt_reference_lock_ddl=IF(
-  @cm_receipt_install_lock_present=0,
+  @cm_receipt_install_lock_present=0
+  AND (SELECT COUNT(*) FROM information_schema.table_constraints
+        WHERE constraint_schema=DATABASE()
+          AND table_name='safeharbor_m021_reference_receipts'
+          AND constraint_type='CHECK'
+          AND constraint_name='rc21_receipt_install_lock')=1,
   'ALTER TABLE safeharbor_m021_reference_receipts DROP CHECK rc21_receipt_install_lock',
   'DO 0'
 );
