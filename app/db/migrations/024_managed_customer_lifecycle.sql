@@ -592,7 +592,7 @@ SET @mc_lifecycle_trigger_ok = (
 );
 SET @mc_lifecycle_postflight_sql = IF(
   @mc_lifecycle_trigger_ok=1,
-  'SELECT 1',
+  'DO 0',
   'SELECT * FROM information_schema.migration_024_managed_customer_lifecycle_postflight_failed'
 );
 PREPARE mc_lifecycle_postflight FROM @mc_lifecycle_postflight_sql;
@@ -1373,7 +1373,7 @@ SET @mc_restore_trigger_ok=(
 );
 SET @mc_restore_postflight_sql=IF(
   @mc_restore_trigger_ok=1,
-  'SELECT 1',
+  'DO 0',
   'SELECT * FROM information_schema.migration_024_managed_customer_restore_postflight_failed'
 );
 PREPARE mc_restore_postflight FROM @mc_restore_postflight_sql;
