@@ -1013,6 +1013,7 @@ DEALLOCATE PREPARE cm_export_statement;
 
 DROP TEMPORARY TABLE safeharbor_m021_trigger_manifest;
 
+-- Migration-only postflight result; canonical schema stops before this marker.
 SELECT
   (SELECT COUNT(*) FROM information_schema.columns
     WHERE table_schema=DATABASE() AND table_name='coastmark_time_export_claims') AS claim_columns,

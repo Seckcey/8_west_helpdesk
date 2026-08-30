@@ -575,14 +575,17 @@ $migration = file_get_contents(__DIR__ . '/../db/migrations/021_coastmark_time_e
 $schema = file_get_contents(__DIR__ . '/../db/schema.sql');
 $cli = file_get_contents(__DIR__ . '/../db/export_approved_time.php');
 $preflightMarker = '-- CREATE TABLE IF NOT EXISTS is only a convenience for a fresh install.';
-$schemaOperationalEndMarker = '-- --------------------------------------------------------';
+$postflightMarker = '-- Migration-only postflight result; canonical schema stops before this marker.';
 $migrationOperationalStart = is_string($migration) ? strpos($migration, $preflightMarker) : false;
 $schemaOperationalStart = is_string($schema) ? strpos($schema, $preflightMarker) : false;
-$schemaOperationalEnd = is_string($schema)
-    ? strpos($schema, $schemaOperationalEndMarker, (int) $schemaOperationalStart)
+$migrationOperationalEnd = is_string($migration)
+    ? strpos($migration, $postflightMarker, (int) $migrationOperationalStart)
     : false;
-$migrationOperational = $migrationOperationalStart !== false
-    ? substr($migration, $migrationOperationalStart)
+$schemaOperationalEnd = is_string($schema)
+    ? strpos($schema, $postflightMarker, (int) $schemaOperationalStart)
+    : false;
+$migrationOperational = $migrationOperationalStart !== false && $migrationOperationalEnd !== false
+    ? substr($migration, $migrationOperationalStart, $migrationOperationalEnd - $migrationOperationalStart)
     : null;
 $schemaOperational = $schemaOperationalStart !== false && $schemaOperationalEnd !== false
     ? substr($schema, $schemaOperationalStart, $schemaOperationalEnd - $schemaOperationalStart)
@@ -633,6 +636,8 @@ export_check('migration and canonical schema carry both tables and six immutable
 export_check('migration and canonical schema share the complete exact financial-table operation',
     is_string($migrationOperational)
     && $migrationOperational === $schemaOperational
+    && str_contains((string) $migration, 'AS claim_columns')
+    && !str_contains((string) $schema, 'AS claim_columns')
     && str_contains($migrationOperational, '@cm_claim_table_ok')
     && str_contains($migrationOperational, '@cm_receipt_columns_ok')
     && str_contains($migrationOperational, 'generation_expression')

@@ -4615,15 +4615,7 @@ DEALLOCATE PREPARE cm_export_statement;
 
 DROP TEMPORARY TABLE safeharbor_m021_trigger_manifest;
 
-SELECT
-  (SELECT COUNT(*) FROM information_schema.columns
-    WHERE table_schema=DATABASE() AND table_name='coastmark_time_export_claims') AS claim_columns,
-  (SELECT COUNT(*) FROM information_schema.columns
-    WHERE table_schema=DATABASE() AND table_name='coastmark_time_export_receipts') AS receipt_columns,
-  (SELECT COUNT(*) FROM information_schema.triggers
-    WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_cm_export_claim_%') AS claim_triggers,
-  (SELECT COUNT(*) FROM information_schema.triggers
-    WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_cm_export_receipt_%') AS receipt_triggers;
+-- Migration-only postflight result; canonical schema stops before this marker.
 -- --------------------------------------------------------
 -- Westy reports (failure + flagged-answer intake; migration 008)
 -- One row per PROBLEM, not per occurrence — see db/migrations/008_westy_reports.sql
