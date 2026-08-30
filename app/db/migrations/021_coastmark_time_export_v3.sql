@@ -169,11 +169,11 @@ CREATE TABLE safeharbor_m021_reference_receipts (
   CONSTRAINT rc21_receipt_install_lock CHECK (0 = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+DELIMITER $$
 -- Build the exact trigger answer key on migration-owned reference tables.
 -- MySQL serializes both the reference and live bodies on this same server;
 -- binary ACTION_STATEMENT hashes therefore preserve every quoted byte
 -- without depending on formatting differences between MySQL versions.
-DELIMITER $$
 CREATE TRIGGER trg_cm_ref_021_claim_insert_swap
 BEFORE INSERT ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
