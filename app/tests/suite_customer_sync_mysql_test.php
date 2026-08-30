@@ -280,6 +280,10 @@ sync_mysql_check('fresh schema records changed-name inactive receipt without ren
 
 // Recreate the feature through its upgrade artifact, proving migration 015
 // independently from the fresh-schema path.
+// The later activation receipt table is an intentional downstream foreign-key
+// consumer of the source binding. Remove that empty downstream fixture before
+// isolating and rebuilding migration 015 itself.
+$pdo->exec('DROP TABLE managed_customer_activation_receipts');
 $triggers = $pdo->query(
     "SELECT trigger_name FROM information_schema.triggers
       WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_suite_customer_sync_%'"
