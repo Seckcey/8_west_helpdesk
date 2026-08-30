@@ -4086,7 +4086,7 @@ SET @cm_reference_source_fks_ok = (
      AND rule.constraint_name=live.constraint_name
 );
 SET @cm_reference_source_check_definition_failure = (
-  SELECT MIN(CASE
+  SELECT CASE
            WHEN expected.failure_code='migration_021_refcheck_claim_event_key_failed'
              THEN CONCAT(
                'migration_021_refcheck_event_l',
@@ -4102,7 +4102,7 @@ SET @cm_reference_source_check_definition_failure = (
              )
            ELSE COALESCE(expected.failure_code,
                          'migration_021_refcheck_unexpected_failed')
-         END)
+         END
      FROM information_schema.table_constraints live_constraint
      JOIN information_schema.check_constraints live_check
        ON live_check.constraint_schema=live_constraint.constraint_schema
@@ -4122,6 +4122,13 @@ SET @cm_reference_source_check_definition_failure = (
                 '[[:space:]()]','') AS BINARY)
               <> CAST(REGEXP_REPLACE(expected.normalized_clause,
                                      '[[:space:]()]','') AS BINARY))
+    ORDER BY CASE
+               WHEN expected.failure_code=
+                    'migration_021_refcheck_claim_event_key_failed' THEN 0
+               ELSE 1
+             END,
+             expected.failure_code
+    LIMIT 1
 );
 SET @cm_reference_source_check_definitions_ok = (
   @cm_reference_source_check_definition_failure IS NULL
