@@ -141,6 +141,10 @@ function activation_sqlite(): PDO
         702, 1, BUSINESS_REPORT_DEFINITION_KEY, 2, BUSINESS_REPORT_TYPE,
         business_report_contract_json(2), business_report_contract_sha256(2), 101, 'v2',
     ]);
+    $definition->execute([
+        703, 1, BUSINESS_REPORT_DEFINITION_KEY, 3, BUSINESS_REPORT_TYPE,
+        business_report_contract_json(3), business_report_contract_sha256(3), 101, 'v3',
+    ]);
     foreach (['tickets','time_entries','coastmark_export_sentinel',
               'endpoint_control_sentinel','ai_write_sentinel'] as $table) {
         $pdo->exec("INSERT INTO {$table} (id,marker) VALUES (1,'unchanged')");
@@ -189,7 +193,7 @@ function activation_report_config(): array
         'delivery_enabled' => false,
         'canary_only' => true,
         'graph_sender' => '',
-        'schedule_keys' => ['managed-weekly:11111111-1111-4111-8111-111111111111'],
+        'schedule_keys' => ['managed-weekly-v3:11111111-1111-4111-8111-111111111111'],
         'tenant_slugs' => ['provider-one'],
         'client_keys' => ['safeharbor-client:11'],
         'recipient_emails' => ['reports@managed-one.example'],
@@ -210,7 +214,7 @@ activation_check($defaults['enabled'] === false, 'sample-less activation is not 
 activation_check($defaults['canary_only'] === true, 'default activation is not canary-only');
 activation_check(
     managed_customer_activation_schedule_key('11111111-1111-4111-8111-111111111111')
-        === 'managed-weekly:11111111-1111-4111-8111-111111111111',
+        === 'managed-weekly-v3:11111111-1111-4111-8111-111111111111',
     'deterministic schedule key changed',
 );
 activation_refuses(

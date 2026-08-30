@@ -15,7 +15,7 @@ require_once __DIR__ . '/portal_data.php';
 const MANAGED_CUSTOMER_ACTIVATION_SCHEMA_VERSION = 1;
 const MANAGED_CUSTOMER_ACTIVATION_EVIDENCE_SCHEMA = 2;
 const MANAGED_CUSTOMER_ACTIVATION_CONTEXT = 'safeharbor-managed-customer-activation-v1';
-const MANAGED_CUSTOMER_ACTIVATION_PREFIX = 'managed-weekly:';
+const MANAGED_CUSTOMER_ACTIVATION_PREFIX = 'managed-weekly-v3:';
 const MANAGED_CUSTOMER_ACTIVATION_TIMEZONE = 'America/Los_Angeles';
 const MANAGED_CUSTOMER_ACTIVATION_WEEKDAY = 3;
 const MANAGED_CUSTOMER_ACTIVATION_LOCAL_TIME = '09:00:00';
@@ -439,7 +439,7 @@ function managed_customer_activation_apply(
 
         $definition = $pdo->prepare(
             'SELECT * FROM business_report_definition_versions
-              WHERE tenant_id = ? AND definition_key = ? AND version_no = 2' . $suffix
+              WHERE tenant_id = ? AND definition_key = ? AND version_no = 3' . $suffix
         );
         $definition->execute([$candidateTenantId, BUSINESS_REPORT_DEFINITION_KEY]);
         $definitionRows = $definition->fetchAll(PDO::FETCH_ASSOC);
@@ -447,7 +447,7 @@ function managed_customer_activation_apply(
             || !business_report_definition_supported($definitionRows[0])
         ) {
             throw new ManagedCustomerActivationGateException(
-                'The exact version-2 weekly report definition is unavailable.',
+                'The exact version-3 weekly report definition is unavailable.',
             );
         }
         $definitionId = (int)$definitionRows[0]['id'];

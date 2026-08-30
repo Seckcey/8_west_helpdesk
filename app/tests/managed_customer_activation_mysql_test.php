@@ -155,7 +155,7 @@ function activation_mysql_report_config(string $customerId, int $clientId, strin
         'delivery_enabled' => false,
         'canary_only' => true,
         'graph_sender' => '',
-        'schedule_keys' => ['managed-weekly:' . $customerId],
+        'schedule_keys' => ['managed-weekly-v3:' . $customerId],
         'tenant_slugs' => ['provider-one'],
         'client_keys' => ['safeharbor-client:' . $clientId],
         'recipient_emails' => [$recipient],
@@ -307,7 +307,7 @@ try {
              recipient_sha256,evidence_sha256)
             VALUES (1,1,1,'11111111-1111-4111-8111-111111111111',1,
                     '" . str_repeat('0', 64) . "','ewid-t1','blocked',1,1,
-                    'managed-weekly:11111111-1111-4111-8111-111111111111',
+                    'managed-weekly-v3:11111111-1111-4111-8111-111111111111',
                     1,2,1,'" . str_repeat('1', 64) . "','" . str_repeat('2', 64)
                     . "','" . str_repeat('3', 64) . "')"),
         'interrupted migration blocker refuses receipt insert',
@@ -353,6 +353,10 @@ try {
     $definition->execute([
         1, BUSINESS_REPORT_DEFINITION_KEY, 2, BUSINESS_REPORT_TYPE,
         business_report_contract_json(2), business_report_contract_sha256(2), 101, 'v2',
+    ]);
+    $definition->execute([
+        1, BUSINESS_REPORT_DEFINITION_KEY, 3, BUSINESS_REPORT_TYPE,
+        business_report_contract_json(3), business_report_contract_sha256(3), 101, 'v3',
     ]);
 
     $commandA = [PHP_BINARY, __FILE__, 'race-child', $database, '1'];

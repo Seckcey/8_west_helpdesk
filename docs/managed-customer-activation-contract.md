@@ -46,8 +46,8 @@ either operation.
 Defaults are deliberately visible and test-pinned:
 
 ```text
-schedule key:       managed-weekly:<permanent-lowercase-UUIDv4>
-definition:         weekly-client-service-summary version 2
+schedule key:       managed-weekly-v3:<permanent-lowercase-UUIDv4>
+definition:         weekly-client-service-summary version 3
 time zone:          America/Los_Angeles
 delivery weekday:   3 (ISO Wednesday)
 delivery local time:09:00:00

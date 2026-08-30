@@ -1543,7 +1543,7 @@ CREATE TABLE IF NOT EXISTS managed_customer_activation_receipts (
   ) ENFORCED,
   CONSTRAINT ck_mc_activation_contact_version CHECK (contact_version >= 1) ENFORCED,
   CONSTRAINT ck_mc_activation_schedule_key CHECK (
-    BINARY schedule_key = BINARY CONCAT(_ascii'managed-weekly:', customer_id)
+    BINARY schedule_key = BINARY CONCAT(_ascii'managed-weekly-v3:', customer_id)
   ) ENFORCED,
   CONSTRAINT ck_mc_activation_id_response_hash CHECK (
     REGEXP_LIKE(id_response_sha256, _ascii'^[0-9a-f]{64}$')
@@ -1651,9 +1651,9 @@ BEGIN
      AND active.status = 'active'
      AND prepared.canary = 1
      AND definition.definition_key = 'weekly-client-service-summary'
-     AND definition.version_no = 2;
+     AND definition.version_no = 3;
   IF schedule_ok <> 1 THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'activation receipt schedule pair is not exact version 2';
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'activation receipt schedule pair is not exact version 3';
   END IF;
 
   SELECT COUNT(*) INTO evidence_ok
