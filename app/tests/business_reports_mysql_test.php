@@ -226,7 +226,7 @@ function report_mysql_config(): array
             'weekly-race-adjustment',
         ],
         'tenant_slugs' => ['one'],
-        'client_keys' => ['safeharbor-client:11'],
+        'client_keys' => ['safeharbor-client:11', 'safeharbor-client:13'],
         'recipient_emails' => ['reports@example.test'],
         'lease_seconds' => 120,
     ];
@@ -443,7 +443,7 @@ report_mysql_check('exact JSON bytes use LONGTEXT rather than native JSON normal
 
 $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (1,'Tenant One','one'),(2,'Tenant Two','two')");
 $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
-    (11,1,'Client One'),(12,1,'Client Twelve'),(22,2,'Client Two')");
+    (11,1,'Client One'),(12,1,'Client Twelve'),(13,1,'Client Thirteen'),(22,2,'Client Two')");
 $pdo->exec("INSERT INTO users
     (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
     (101,1,'owner1@example.test','','Owner One','O1','owner',1),
@@ -601,7 +601,7 @@ $v2Prepared = business_report_prepare_schedule(
     $pdo,
     'one',
     'weekly-v2',
-    11,
+    13,
     (int) $definitionV2['definition']['id'],
     'reports@example.test',
     'UTC',
@@ -631,27 +631,32 @@ $v2WorkedAtDb = str_replace(['T', 'Z'], [' ', ''], $v2WorkedAt);
 $pdo->prepare("INSERT INTO tickets
     (id,tenant_id,client_id,subject,status,priority,channel,sla_due_at,
      service_goal_target_id,created_at,updated_at)
-    VALUES (1002,1,12,'Other client fixture','open','normal','phone',?,NULL,?,?)")
-    ->execute([$v2WorkedAtDb, $v2WorkedAtDb, $v2WorkedAtDb]);
+    VALUES
+      (1002,1,12,'Other client fixture','open','normal','phone',?,NULL,?,?),
+      (1003,1,13,'V2 isolated client fixture','open','normal','phone',?,NULL,?,?)")
+    ->execute([
+        $v2WorkedAtDb, $v2WorkedAtDb, $v2WorkedAtDb,
+        $v2WorkedAtDb, $v2WorkedAtDb, $v2WorkedAtDb,
+    ]);
 $v2Clock = time();
 $pdo->exec('SET timestamp = ' . $v2Clock);
 $v2EntryA = report_mysql_create_approved_time(
     $pdo,
-    1001,
+    1003,
     'suggestion.report-v2.entry-a.0001',
     $v2WorkedAt,
     60,
 );
 $v2EntryB = report_mysql_create_approved_time(
     $pdo,
-    1001,
+    1003,
     'suggestion.report-v2.entry-b.0001',
     $v2WorkedAt,
     30,
 );
 $v2EntryC = report_mysql_create_approved_time(
     $pdo,
-    1001,
+    1003,
     'suggestion.report-v2.entry-c.0001',
     $v2WorkedAt,
     20,
