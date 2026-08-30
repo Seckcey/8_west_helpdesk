@@ -3928,14 +3928,23 @@ SET @cm_receipt_checks_ok = (
          AND constraints_table.constraint_type = 'CHECK'
     ) exact_checks
 );
+SET @cm_export_preflight_failure = CASE
+  WHEN NOT (@cm_claim_table_ok <=> 1) THEN 'migration_021_claim_table_failed'
+  WHEN NOT (@cm_receipt_table_ok <=> 1) THEN 'migration_021_receipt_table_failed'
+  WHEN NOT (@cm_claim_columns_ok <=> 1) THEN 'migration_021_claim_columns_failed'
+  WHEN NOT (@cm_receipt_columns_ok <=> 1) THEN 'migration_021_receipt_columns_failed'
+  WHEN NOT (@cm_claim_indexes_ok <=> 1) THEN 'migration_021_claim_indexes_failed'
+  WHEN NOT (@cm_receipt_indexes_ok <=> 1) THEN 'migration_021_receipt_indexes_failed'
+  WHEN NOT (@cm_claim_fks_ok <=> 1) THEN 'migration_021_claim_fks_failed'
+  WHEN NOT (@cm_receipt_fks_ok <=> 1) THEN 'migration_021_receipt_fks_failed'
+  WHEN NOT (@cm_claim_checks_ok <=> 1) THEN 'migration_021_claim_checks_failed'
+  WHEN NOT (@cm_receipt_checks_ok <=> 1) THEN 'migration_021_receipt_checks_failed'
+  ELSE NULL
+END;
 SET @cm_export_preflight_sql = IF(
-  @cm_claim_table_ok = 1 AND @cm_receipt_table_ok = 1
-  AND @cm_claim_columns_ok = 1 AND @cm_receipt_columns_ok = 1
-  AND @cm_claim_indexes_ok = 1 AND @cm_receipt_indexes_ok = 1
-  AND @cm_claim_fks_ok = 1 AND @cm_receipt_fks_ok = 1
-  AND @cm_claim_checks_ok = 1 AND @cm_receipt_checks_ok = 1,
+  @cm_export_preflight_failure IS NULL,
   'DO 0',
-  'SELECT * FROM information_schema.migration_021_coastmark_export_preflight_failed'
+  CONCAT('SELECT * FROM information_schema.', @cm_export_preflight_failure)
 );
 PREPARE cm_export_schema_statement FROM @cm_export_preflight_sql;
 EXECUTE cm_export_schema_statement;

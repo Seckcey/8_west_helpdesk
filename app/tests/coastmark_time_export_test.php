@@ -614,7 +614,8 @@ export_check('migration and canonical schema share the exact financial-table pre
     && str_contains($migrationPreflight, '@cm_claim_indexes_ok')
     && str_contains($migrationPreflight, '@cm_receipt_fks_ok')
     && str_contains($migrationPreflight, '@cm_claim_checks_ok')
-    && str_contains($migrationPreflight, 'migration_021_coastmark_export_preflight_failed'));
+    && str_contains($migrationPreflight, 'migration_021_claim_table_failed')
+    && str_contains($migrationPreflight, '@cm_export_preflight_failure'));
 export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',
     is_string($cli)
     && str_contains($cli, "['claim', 'send', 'status', 'inspect-claim']")
