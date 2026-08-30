@@ -137,6 +137,26 @@ function lifecycle_mysql_schema_contract(PDO $pdo): array
     return $contract;
 }
 
+/** @param array<string,list<array<string,mixed>>> $left
+ *  @param array<string,list<array<string,mixed>>> $right
+ */
+function lifecycle_mysql_first_contract_difference(array $left, array $right): string
+{
+    foreach (array_unique([...array_keys($left), ...array_keys($right)]) as $section) {
+        $leftRows = $left[$section] ?? [];
+        $rightRows = $right[$section] ?? [];
+        $rowCount = max(count($leftRows), count($rightRows));
+        for ($index = 0; $index < $rowCount; $index++) {
+            if (($leftRows[$index] ?? null) === ($rightRows[$index] ?? null)) continue;
+            return $section . '[' . $index . '] replayed='
+                . json_encode($leftRows[$index] ?? null, JSON_THROW_ON_ERROR)
+                . ' fresh='
+                . json_encode($rightRows[$index] ?? null, JSON_THROW_ON_ERROR);
+        }
+    }
+    return 'none';
+}
+
 function lifecycle_mysql_pre024_schema(): string
 {
     $sql = file_get_contents(__DIR__ . '/../db/schema.sql');
@@ -592,7 +612,7 @@ try {
     lifecycle_mysql_check(
         $exitA===0 && $exitB===0 && $actions===['contained','replayed'],
         'two real workers serialize to one containment and one lost-ack replay'
-            . (($stderrA.$stderrB)==='' ? '' : ' (worker error)'),
+            . (($stderrA.$stderrB)==='' ? '' : ' (worker error: ' . trim($stderrA.$stderrB) . ')'),
     );
     lifecycle_mysql_check(
         (int)$pdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_receipts')->fetchColumn()===1
@@ -673,7 +693,9 @@ try {
         $restoreExitA===0 && $restoreExitB===0
             && $restoreActions===['restore_replayed','restored'],
         'two real restore workers serialize to one restored receipt and one lost-ack replay'
-            . (($restoreStderrA.$restoreStderrB)==='' ? '' : ' (worker error)'),
+            . (($restoreStderrA.$restoreStderrB)===''
+                ? ''
+                : ' (worker error: ' . trim($restoreStderrA.$restoreStderrB) . ')'),
     );
     lifecycle_mysql_check(
         managed_customer_operational($pdo, 1, 11)
@@ -819,9 +841,16 @@ try {
     $admin->exec("CREATE DATABASE {$quotedFreshDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $fresh = lifecycle_mysql_connection($freshDatabase);
     lifecycle_mysql_execute_file($fresh, __DIR__ . '/../db/schema.sql');
+    $replayedContract = lifecycle_mysql_schema_contract($pdo);
+    $freshContract = lifecycle_mysql_schema_contract($fresh);
+    $parityDifference = lifecycle_mysql_first_contract_difference(
+        $replayedContract,
+        $freshContract,
+    );
     lifecycle_mysql_check(
-        lifecycle_mysql_schema_contract($pdo) === lifecycle_mysql_schema_contract($fresh),
-        'fresh schema and replayed migration 024 have exact table check index FK and trigger parity',
+        $replayedContract === $freshContract,
+        'fresh schema and replayed migration 024 have exact table check index FK and trigger parity'
+            . ($parityDifference === 'none' ? '' : ' (' . $parityDifference . ')'),
     );
 
     if ($lifecycleMysqlFailures>0) {

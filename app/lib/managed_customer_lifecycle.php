@@ -177,6 +177,16 @@ function managed_customer_lifecycle_latest_schedule(
     return is_array($row) ? $row : null;
 }
 
+function managed_customer_lifecycle_retryable_database_error(Throwable $error): bool
+{
+    if (!$error instanceof PDOException) return false;
+    $driverCode = is_array($error->errorInfo ?? null)
+        ? (int)($error->errorInfo[1] ?? 0)
+        : 0;
+    return in_array($driverCode, [1062, 1205, 1213], true)
+        || (string)$error->getCode() === '40001';
+}
+
 /** @return PDOStatement */
 function managed_customer_lifecycle_write(PDO $pdo, string $sql, array $values): PDOStatement
 {
@@ -327,6 +337,7 @@ function managed_customer_lifecycle_apply(
     int $actorUserId,
     array $rawConfig,
     ?callable $fault = null,
+    int $retryAttempt = 0,
 ): array {
     $config = managed_customer_lifecycle_config($rawConfig);
     if ($config['enabled'] !== true) {
@@ -629,6 +640,24 @@ function managed_customer_lifecycle_apply(
         ];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        if (managed_customer_lifecycle_retryable_database_error($error)
+            && $retryAttempt < 2
+        ) {
+            // Missing immutable-receipt keys are gap locked. A competing
+            // worker can therefore be selected as MySQL's deadlock victim
+            // even though one correct transaction commits. Retry the whole
+            // transaction a hard-bounded two times; every retry rechecks the
+            // current source and committed receipt before making any write.
+            usleep(25_000 * ($retryAttempt + 1));
+            return managed_customer_lifecycle_apply(
+                $pdo,
+                $candidate,
+                $actorUserId,
+                $rawConfig,
+                $fault,
+                $retryAttempt + 1,
+            );
+        }
         if ($error instanceof ManagedCustomerLifecycleException
             || $error instanceof BusinessReportException
         ) {
@@ -766,6 +795,7 @@ function managed_customer_lifecycle_restore(
     array $rawLifecycleConfig,
     array $rawBusinessReportConfig,
     ?callable $fault = null,
+    int $retryAttempt = 0,
 ): array {
     $config = managed_customer_lifecycle_config($rawLifecycleConfig);
     if ($config['enabled'] !== true || $config['restoration_enabled'] !== true) {
@@ -1229,6 +1259,21 @@ function managed_customer_lifecycle_restore(
         ];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        if (managed_customer_lifecycle_retryable_database_error($error)
+            && $retryAttempt < 2
+        ) {
+            usleep(25_000 * ($retryAttempt + 1));
+            return managed_customer_lifecycle_restore(
+                $pdo,
+                $candidate,
+                $rawEvidence,
+                $actorUserId,
+                $rawLifecycleConfig,
+                $rawBusinessReportConfig,
+                $fault,
+                $retryAttempt + 1,
+            );
+        }
         if ($error instanceof ManagedCustomerLifecycleException
             || $error instanceof BusinessReportException
         ) {
