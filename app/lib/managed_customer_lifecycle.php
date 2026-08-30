@@ -156,6 +156,27 @@ function managed_customer_lifecycle_lock_suffix(PDO $pdo, string $kind = 'update
     return $kind === 'share' ? ' FOR SHARE' : ' FOR UPDATE';
 }
 
+/** @return array<string,mixed>|null */
+function managed_customer_lifecycle_latest_schedule(
+    PDO $pdo,
+    int $tenantId,
+    string $scheduleKey,
+): ?array {
+    // Lifecycle never updates schedule history. The exact portal row (or its
+    // unique insertion gap) is the per-client exclusive serialization point;
+    // this shared current read prevents a concurrent schedule append without
+    // granting the runtime UPDATE authority over immutable schedule versions.
+    $query = $pdo->prepare(
+        'SELECT * FROM business_report_schedule_versions
+          WHERE tenant_id = ? AND schedule_key = ?
+          ORDER BY version_no DESC LIMIT 1'
+        . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+    );
+    $query->execute([$tenantId, $scheduleKey]);
+    $row = $query->fetch(PDO::FETCH_ASSOC);
+    return is_array($row) ? $row : null;
+}
+
 /** @return PDOStatement */
 function managed_customer_lifecycle_write(PDO $pdo, string $sql, array $values): PDOStatement
 {
@@ -274,7 +295,7 @@ function managed_customer_lifecycle_existing_receipt(
     $query = $pdo->prepare(
         'SELECT * FROM managed_customer_lifecycle_receipts
           WHERE customer_id = ? AND source_version = ? AND action = ?'
-        . managed_customer_lifecycle_lock_suffix($pdo)
+        . managed_customer_lifecycle_lock_suffix($pdo, 'share')
     );
     $query->execute([$customerId, $sourceVersion, $action]);
     $row = $query->fetch(PDO::FETCH_ASSOC);
@@ -341,11 +362,12 @@ function managed_customer_lifecycle_apply(
     $pdo->beginTransaction();
     try {
         // Match activation/report lock order: provider tenant, actor, source,
-        // then portal and report rows. This avoids a source/actor lock cycle
-        // with an activation candidate selected just before status changed.
+        // then portal and report rows. Read-only ownership rows use shared
+        // locks so the narrow runtime never needs write authority over them;
+        // the portal row/gap remains the exclusive per-client lifecycle lock.
         $tenant = $pdo->prepare(
             'SELECT id FROM tenants WHERE id = ? AND slug = ?'
-            . managed_customer_lifecycle_lock_suffix($pdo)
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
         );
         $tenant->execute([$candidateTenantId, $candidateTenantSlug]);
         if ((int)$tenant->fetchColumn() !== $candidateTenantId) {
@@ -357,7 +379,7 @@ function managed_customer_lifecycle_apply(
             "SELECT id FROM users
               WHERE tenant_id = ? AND id = ? AND is_active = 1
                 AND role IN ('owner','admin')"
-            . managed_customer_lifecycle_lock_suffix($pdo)
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
         );
         $actorQuery->execute([$candidateTenantId, $actorUserId]);
         if ((int)$actorQuery->fetchColumn() !== $actorUserId) {
@@ -386,7 +408,7 @@ function managed_customer_lifecycle_apply(
                          AND receipt.request_sha256 = binding.last_request_sha256
                        WHERE binding.id = ? AND binding.tenant_id = ?
                          AND binding.client_id = ? AND binding.customer_id = ?"
-            . managed_customer_lifecycle_lock_suffix($pdo);
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share');
         $sourceQuery = $pdo->prepare($sourceSql);
         $sourceQuery->execute([
             $candidateBindingId, $candidateTenantId, $candidateClientId, $customerId,
@@ -514,11 +536,10 @@ function managed_customer_lifecycle_apply(
             if ($portalWasActive === 1) $portalDisabledEventId = $portalStateEventId;
         }
 
-        $latest = business_report_latest_schedule(
+        $latest = managed_customer_lifecycle_latest_schedule(
             $pdo,
             $candidateTenantId,
             $scheduleKey,
-            true,
         );
         $scheduleWasActive = is_array($latest) && (string)$latest['status'] === 'active' ? 1 : 0;
         $scheduleActiveVersionId = $scheduleWasActive === 1 ? (int)$latest['id'] : null;
@@ -688,7 +709,7 @@ function managed_customer_lifecycle_existing_restore_receipt(
     $query = $pdo->prepare(
         'SELECT * FROM managed_customer_lifecycle_restore_receipts
           WHERE customer_id = ? AND source_version = ?'
-        . managed_customer_lifecycle_lock_suffix($pdo)
+        . managed_customer_lifecycle_lock_suffix($pdo, 'share')
     );
     $query->execute([$customerId, $sourceVersion]);
     $row = $query->fetch(PDO::FETCH_ASSOC);
@@ -788,7 +809,7 @@ function managed_customer_lifecycle_restore(
     try {
         $tenant = $pdo->prepare(
             'SELECT id FROM tenants WHERE id = ? AND slug = ?'
-            . managed_customer_lifecycle_lock_suffix($pdo)
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
         );
         $tenant->execute([$candidateTenantId, $candidateTenantSlug]);
         if ((int)$tenant->fetchColumn() !== $candidateTenantId) {
@@ -800,7 +821,7 @@ function managed_customer_lifecycle_restore(
             "SELECT id FROM users
               WHERE tenant_id = ? AND id = ? AND is_active = 1
                 AND role IN ('owner','admin')"
-            . managed_customer_lifecycle_lock_suffix($pdo)
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
         );
         $actor->execute([$candidateTenantId, $actorUserId]);
         if ((int)$actor->fetchColumn() !== $actorUserId) {
@@ -828,7 +849,7 @@ function managed_customer_lifecycle_restore(
                 AND receipt.request_sha256 = binding.last_request_sha256
               WHERE binding.id = ? AND binding.tenant_id = ?
                 AND binding.client_id = ? AND binding.customer_id = ?"
-            . managed_customer_lifecycle_lock_suffix($pdo)
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
         );
         $source->execute([
             $candidateBindingId, $candidateTenantId, $candidateClientId, $customerId,
@@ -899,7 +920,7 @@ function managed_customer_lifecycle_restore(
         $idBinding = $pdo->prepare(
             'SELECT * FROM business_report_id_client_bindings
               WHERE tenant_id = ? AND client_id = ?'
-            . managed_customer_lifecycle_lock_suffix($pdo)
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
         );
         $idBinding->execute([$candidateTenantId, $candidateClientId]);
         $idBindingRow = $idBinding->fetch(PDO::FETCH_ASSOC);
@@ -974,11 +995,10 @@ function managed_customer_lifecycle_restore(
                 && hash_equals((string)$portalOwner['portal_state_sha256'], $portalStateSha256);
         }
 
-        $latestSchedule = business_report_latest_schedule(
+        $latestSchedule = managed_customer_lifecycle_latest_schedule(
             $pdo,
             $candidateTenantId,
             $scheduleKey,
-            true,
         );
         if (is_array($latestSchedule) && (string)$latestSchedule['status'] === 'active') {
             throw new ManagedCustomerLifecycleConflictException(
