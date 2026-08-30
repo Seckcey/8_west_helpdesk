@@ -41,8 +41,24 @@ try {
         (int)$context['identity']['client_id'],
         50,
     );
-    portal_render_dashboard($context, $summary);
 } catch (Throwable $error) {
     error_log('[safeharbor-portal] summary_failed type=' . $error::class);
     portal_render_error(503, 'Temporarily unavailable', 'Ticket summaries are temporarily unavailable. Try again shortly.');
+    exit;
 }
+
+$reportArchives = null;
+try {
+    $reportArchives = portal_report_archives(
+        db(),
+        (int)$context['identity']['tenant_id'],
+        (int)$context['identity']['client_id'],
+        3,
+    );
+} catch (Throwable $error) {
+    // A report verification/read failure must hide reports, but it must not
+    // take down the customer's ticket workflow.
+    error_log('[safeharbor-portal] report_summary_failed type=' . $error::class);
+}
+
+portal_render_dashboard($context, $summary, $reportArchives);

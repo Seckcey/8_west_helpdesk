@@ -53,8 +53,10 @@ lib/portal_auth.php        separate <=8h OIDC session, exact client roles,
                            bounded fail-closed revocation, active binding recheck,
                            CSRF + one-use mutation nonces
 lib/portal_data.php        explicit binding lifecycle + tenant/client-bound,
-                           ticket summaries, public conversation, create/reply
-lib/portal_render.php      independent dark customer chrome (no staff session)
+                           ticket summaries, public conversation, create/reply,
+                           and verified weekly archive reads
+lib/portal_render.php      independent dark customer chrome, clear work groups,
+                           reply flow, and readable archives (no staff session)
 lib/business_reports.php   immutable v1 plus correction-aware v2 weekly aggregates,
                            lock-captured adjustment cutoffs, canonical archive
                            reload, oldest-period catch-up, exact hashes, and
@@ -113,6 +115,7 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            service_goal_policy_mysql_test.php,
                            coastmark_time_export_test.php, portal_auth_test.php,
                            portal_data_test.php, portal_ticket_workflow_test.php,
+                           portal_report_archive_test.php,
                            portal_mysql_test.php,
                            business_reports_test.php,
                            business_reports_mysql_test.php,
@@ -145,7 +148,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   attachment.php           Forced-download attachment serving
   login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
   portal/                  Default-off customer OIDC surface: tenant-scoped help
-                           dashboard, ticket create/detail/reply + safe logout
+                           dashboard, ticket create/detail/reply, verified
+                           weekly archives + safe logout
   api/ticket_action.php    Optimistic field updates (strict whitelists)
   api/timer.php            Idempotent pending timer/suggestion submission
   api/time_entry_review.php Owner/admin approve/reject transition
@@ -245,7 +249,10 @@ public/                    Apache docroot (page-per-file, like Milepost)
   mutation uses CSRF plus a one-use action nonce. Customers cannot resolve a
   ticket, upload attachments, access billing, or control an endpoint. The live
   Lifestyle canary still runs the Phase 5A summary-only source until this
-  Phase 5B branch is reviewed, released, and accepted.
+  stacked Phase 5B/usefulness source is reviewed, released, and accepted. The
+  stacked portal groups waiting/open/recent work and offers GET-only access to
+  canonical tenant/client-bound weekly archives; it exposes no individual
+  technician facts, recipients, delivery attempts, or financial status.
 - Business reports: independent versioned definitions and schedules produce
   exact weekly aggregate archives. Both generation and delivery default off;
   exact schedule/tenant/client/recipient allowlists and `canary_only` apply.
@@ -305,6 +312,8 @@ php app/tests/service_goal_policy_admin_test.php
 php app/tests/portal_auth_test.php
 php app/tests/portal_data_test.php
 php app/tests/portal_ticket_workflow_test.php
+php app/tests/portal_report_archive_test.php
+node tools/shots/portal-contract.test.mjs
 # destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php
 php app/tests/business_reports_test.php
 # destructive only in safeharbor_report_test*: php app/tests/business_reports_mysql_test.php

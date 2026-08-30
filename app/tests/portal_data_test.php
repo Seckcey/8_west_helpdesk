@@ -74,7 +74,7 @@ portal_data_expect('oversized operator reason is refused', PortalDataValidationE
 
 $dataSource = file_get_contents(__DIR__ . '/../lib/portal_data.php');
 $summaryStart = is_string($dataSource) ? strpos($dataSource, 'function portal_ticket_summary') : false;
-$summaryEnd = $summaryStart === false ? false : strpos($dataSource, 'function portal_role_can_write_tickets', $summaryStart);
+$summaryEnd = $summaryStart === false ? false : strpos($dataSource, 'function portal_report_archive_select_sql', $summaryStart);
 $summarySource = ($summaryStart === false || $summaryEnd === false)
     ? ''
     : substr($dataSource, $summaryStart, $summaryEnd - $summaryStart);
@@ -94,6 +94,11 @@ portal_data_check('ticket summary reads no message, attachment, time, AI, or bil
 portal_data_check('ticket summary selects a closed summary field list',
     str_contains($summarySource, 'SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at, t.resolved_at')
     && !str_contains($summarySource, 'SELECT *'));
+portal_data_check('ticket summary keeps waiting and active work ahead of resolved history',
+    str_contains($summarySource, "WHEN 'waiting' THEN 0")
+    && str_contains($summarySource, "WHEN 'in_progress' THEN 1")
+    && str_contains($summarySource, "WHEN 'open' THEN 2")
+    && str_contains($summarySource, "WHEN 'resolved' THEN 3"));
 
 $recheckStart = is_string($dataSource) ? strpos($dataSource, 'function portal_active_binding_recheck') : false;
 $recheckEnd = $recheckStart === false ? false : strpos($dataSource, 'function portal_inspect_binding', $recheckStart);
@@ -226,7 +231,16 @@ portal_data_check('rendered portal has only the sign-out form mutation surface',
     && str_contains($rendered, 'name="csrf"'));
 portal_data_check('writer dashboard offers a customer-scoped help action',
     str_contains($rendered, 'href="/portal/new.php"')
-    && str_contains($rendered, '>Get help</a>'));
+    && substr_count($rendered, '>Open support request</a>') >= 1);
+portal_data_check('dashboard separates open, waiting, and recently resolved work',
+    str_contains($rendered, 'Your support requests')
+    && str_contains($rendered, 'Open requests')
+    && str_contains($rendered, 'Recently resolved')
+    && str_contains($rendered, 'Waiting on you'));
+portal_data_check('dashboard links only to verified portal report pages',
+    str_contains($rendered, 'Service summaries')
+    && !str_contains($rendered, '/reports.php')
+    && !str_contains($rendered, 'recipient_email'));
 portal_data_check('rendered portal is dark by default and presentation-only',
     str_contains($rendered, '<html lang="en" data-theme="dark">')
     && !str_contains($rendered, '<script'));

@@ -26,6 +26,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Test technician-time retry contracts in a real browser
         run: node tools/shots/time-contract.test.mjs
+      - name: Test customer portal usefulness in a real browser
+        run: node tools/shots/portal-contract.test.mjs
 
   php:
     runs-on: ubuntu-latest
@@ -125,6 +127,8 @@ jobs:
         run: php app/tests/portal_data_test.php
       - name: Test customer portal ticket workflow
         run: php app/tests/portal_ticket_workflow_test.php
+      - name: Test customer portal weekly archive access
+        run: php app/tests/portal_report_archive_test.php
       - name: Test scheduled archived business reports
         run: |
           bash -n app/cron/run_business_reports.sh

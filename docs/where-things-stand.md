@@ -40,7 +40,7 @@ If you change what is live, change this page in the same PR.
 | Approved time → Coastmark draft lines | **Version 2 is deployed dark; correction-safe version 3 is local review work only.** The live releases are Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`; both gates are off and production has zero mappings/imports/draft lines. This isolated branch adds durable Safeharbor claims/receipts, explicit status recovery, and chained correction/reversal facts. It is not pushed, merged, migrated, deployed, configured, or enabled. The permanent 8 West IT master UUID stays hard-blocked. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark v2 sender/receiver remain default-off; correction-safe v3 is source-only and both new claim/send gates default off. The portal is enabled only for the Lifestyle canary; basic authenticated access passed, but the deployed experience remains summary-only. Report generation/delivery are off; a default-off full-artifact-bound scheduler bundle now exists in source but is not installed. Existing service-intake gates remain live. |
-| Customer portal (Phase 5A live; Phase 5B source-only) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing and a fresh authenticated Lifestyle session passed; `support.8westit.com/portal` is 404. Frankie rejected the read-only summary experience as not useful. Phase 5B create/detail/reply work is isolated on `codex/customer-portal-useful-20260829` and is not merged or deployed. It fails closed on all merged history, and staff merge now refuses cross-customer tickets; a Lifestyle data audit/reset remains a release gate. |
+| Customer portal (Phase 5A live; useful portal source-only) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing and a fresh authenticated Lifestyle session passed; `support.8westit.com/portal` is 404. Frankie rejected the deployed read-only summary experience as not useful. Draft PR #88 adds exact-scope create/detail/reply; the stacked `codex/customer-portal-usefulness-v2-20260830` source groups waiting/open/recent work, makes new help obvious, and opens only reverified tenant/client weekly archives from draft PR #89. Nothing in those draft layers is merged or deployed. Merged history remains fail-closed, staff merge refuses cross-customer tickets, and a Lifestyle data audit/reset remains a release gate. |
 | Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie confirmed the exact archive-3 report reached the recipient inbox. Generation/delivery are off, `canary_only` is true, and the new default-off scheduler operations bundle is source-only, not installed. Separate source-only definitions v2 and v3 add correction-aware time and a plain-language completed-week report while keeping v1 archives immutable. None of those source-only additions is published or deployed. The new `reports@8westit.com` sender still needs its own canary. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Client-scoped 8 West ID report contacts | **Live through PR #68 / merge `7bf63ed` and migration 019**: client 14 has one exact 8 West ID binding and immutable contact snapshot. Both contact endpoints are back off after preparation; only the recipient digest is recorded. |
@@ -468,6 +468,19 @@ reactivate anything. Financial counts were unchanged; the Safeharbor-time
 receiver remains off/404, and mappings, imports, and draft lines remain zero.
 That is an identity safety fence, not portal billing access.
 See `docs/customer-portal-contract.md`.
+
+The later source-only usefulness slice does not add authority. It presents the
+already-reviewed customer ticket workflow as waiting-for-customer, open/in
+progress, and recently resolved groups, while keeping human-only resolution.
+Its GET-only report page selects the exact signed-in tenant/client's immutable
+Safeharbor archives and rechecks supported definition bytes, canonical
+JSON/text, SHA-256, source keys, period, and generation time before rendering
+aggregate service cards or the escaped exact archive. It never reads report
+recipients/delivery attempts, individual technician entries or rates, ticket
+messages, billing status, Coastmark, Milepost, AI actions, or endpoint control.
+The desktop/mobile browser contract and hermetic cross-tenant/customer archive
+suite are green locally. This source is not merged, deployed, configured, or
+activated.
 
 Phase 6 is deployed dark through Safeharbor PR #46 / merge
 `209bb421c2ea883f6434971544dc66556bff6167`. It adds an immutable version-1
@@ -1017,8 +1030,10 @@ called out, and none may be satisfied by inventing customer or financial facts.
    but Frankie rejected the deployed read-only summary surface as not useful.
    The isolated Phase 5B source adds exact-scope create/detail/reply while
    keeping viewers read-only and notes, billing, AI, and endpoint control out.
-   It still needs review, release approval, tenant-isolation/revocation/logout
-   probes, and desktop/mobile acceptance.
+   The stacked usefulness slice also adds clear work groups and verified weekly
+   archive access without new write authority. It still needs review, release
+   approval, tenant-isolation/revocation/logout probes, a Lifestyle data
+   audit/reset, and fresh authenticated desktop/mobile acceptance.
 6. **The existing Lifestyle report canary is complete, but the dedicated
    sender canary is not.** Archive 3 has Graph acceptance plus Frankie-confirmed
    inbox receipt; attempts 1 and 2 remain terminal `uncertain` and must never be

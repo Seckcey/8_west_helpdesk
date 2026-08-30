@@ -31,7 +31,7 @@ function portal_page_start(string $title, string $bodyClass = ''): void
 <meta name="theme-color" content="#061936">
 <title><?= portal_h($title) ?> · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
-<link rel="stylesheet" href="/assets/css/app.css?v=4">
+<link rel="stylesheet" href="/assets/css/app.css?v=5">
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
     <?php
@@ -92,7 +92,7 @@ function portal_status_label(string $status): string
     return match ($status) {
         'open' => 'Open',
         'in_progress' => 'In progress',
-        'waiting' => 'Waiting',
+        'waiting' => 'Waiting for your reply',
         'resolved' => 'Resolved',
         default => 'Unknown',
     };
@@ -138,16 +138,104 @@ function portal_priority_label(string $priority): string
     };
 }
 
+/** @param list<array<string,mixed>> $tickets @param list<string> $statuses */
+function portal_tickets_with_status(array $tickets, array $statuses): array
+{
+    return array_values(array_filter(
+        $tickets,
+        static fn(array $ticket): bool => in_array((string)($ticket['status'] ?? ''), $statuses, true),
+    ));
+}
+
+/** @param list<array<string,mixed>> $tickets */
+function portal_render_ticket_list(array $tickets, string $emptyMessage): void
+{
+    ?>
+<div class="card rail-list portal-ticket-list">
+  <?php if ($tickets === []): ?>
+    <div class="empty"><?= portal_h($emptyMessage) ?></div>
+  <?php else: ?>
+    <?php foreach ($tickets as $ticket): ?>
+      <a class="rail-list-item portal-ticket-link" href="/portal/ticket.php?id=<?= (int)$ticket['id'] ?>">
+        <div class="portal-ticket-row">
+          <div class="portal-ticket-copy">
+            <h3 class="rail-list-name">#<?= (int)$ticket['id'] ?> · <?= portal_h($ticket['subject']) ?></h3>
+            <p class="rail-list-sub">
+              <?= portal_h(portal_priority_label((string)$ticket['priority'])) ?> priority
+              · Updated <?= portal_h(portal_relative_time((string)$ticket['updated_at'])) ?>
+            </p>
+          </div>
+          <span class="portal-status portal-status-<?= portal_h((string)$ticket['status']) ?>"><?= portal_h(portal_status_label((string)$ticket['status'])) ?></span>
+        </div>
+      </a>
+    <?php endforeach; ?>
+  <?php endif; ?>
+</div>
+    <?php
+}
+
+function portal_report_period_label(
+    string $periodStart,
+    string $periodEnd,
+    string $scheduleTimezone = 'UTC',
+): string
+{
+    try {
+        $utc = new DateTimeZone('UTC');
+        $timezone = new DateTimeZone($scheduleTimezone);
+        $start = (new DateTimeImmutable($periodStart, $utc))->setTimezone($timezone);
+        $endExclusive = (new DateTimeImmutable($periodEnd, $utc))->setTimezone($timezone);
+        if ($endExclusive <= $start) return 'Archived week';
+        return $start->format('M j') . ' – ' . $endExclusive->modify('-1 second')->format('M j, Y');
+    } catch (Throwable) {
+        return 'Archived week';
+    }
+}
+
+/** @param array<string,mixed> $archive */
+function portal_render_report_preview(array $archive, bool $latest = false): void
+{
+    $metrics = is_array($archive['metrics'] ?? null) ? $archive['metrics'] : [];
+    $tickets = is_array($metrics['tickets'] ?? null) ? $metrics['tickets'] : [];
+    $goal = is_array($metrics['service_goal'] ?? null) ? $metrics['service_goal'] : [];
+    $period = is_array($metrics['period'] ?? null) ? $metrics['period'] : [];
+    $attainment = $goal['attainment_percent'] ?? null;
+    ?>
+<a class="card portal-report-preview" href="/portal/reports.php?id=<?= (int)$archive['id'] ?>">
+  <div class="portal-report-preview-head">
+    <div>
+      <p class="portal-report-kicker"><?= $latest ? 'Latest archived summary' : 'Archived summary' ?></p>
+      <h3><?= portal_h(portal_report_period_label(
+          (string)$archive['period_start'],
+          (string)$archive['period_end'],
+          (string)($period['schedule_timezone'] ?? 'UTC'),
+      )) ?></h3>
+    </div>
+    <span class="portal-report-version">v<?= (int)$archive['definition_version'] ?></span>
+  </div>
+  <p class="page-sub">
+    <?= (int)($tickets['opened'] ?? 0) ?> opened · <?= (int)($tickets['resolved'] ?? 0) ?> resolved
+    · Service goal <?= $attainment === null ? 'not yet decided' : (int)$attainment . '%' ?>
+  </p>
+  <span class="portal-report-open">View summary →</span>
+</a>
+    <?php
+}
+
 /**
  * @param array{identity:array<string,mixed>,binding:array<string,mixed>} $context
  * @param array{client:array<string,mixed>,counts:array<string,int>,tickets:list<array<string,mixed>>} $summary
+ * @param null|list<array<string,mixed>> $reportArchives
  */
-function portal_render_dashboard(array $context, array $summary): void
+function portal_render_dashboard(array $context, array $summary, ?array $reportArchives = []): void
 {
     $identity = $context['identity'];
     $client = $summary['client'];
     $counts = $summary['counts'];
     $canWrite = portal_role_can_write_tickets((string)($identity['role'] ?? ''));
+    $waitingTickets = portal_tickets_with_status($summary['tickets'], ['waiting']);
+    $openTickets = portal_tickets_with_status($summary['tickets'], ['open', 'in_progress']);
+    $resolvedTickets = portal_tickets_with_status($summary['tickets'], ['resolved']);
     portal_page_start('Help center');
     ?>
 <main class="page">
@@ -158,7 +246,7 @@ function portal_render_dashboard(array $context, array $summary): void
       <p class="page-sub">Signed in as <?= portal_h($identity['display_name']) ?> · <?= portal_h(portal_role_label((string)$identity['role'])) ?> · secured by 8 West ID</p>
     </div>
     <div class="page-actions">
-      <?php if ($canWrite): ?><a class="btn-primary" href="/portal/new.php">Get help</a><?php endif; ?>
+      <?php if ($canWrite): ?><a class="btn-primary" href="/portal/new.php">Open support request</a><?php endif; ?>
       <form method="post" action="/portal/logout.php">
         <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>">
         <button type="submit" class="btn-ghost">Sign out</button>
@@ -166,11 +254,22 @@ function portal_render_dashboard(array $context, array $summary): void
     </div>
   </header>
 
+  <?php if ($canWrite): ?>
+    <section class="card portal-help-callout" aria-labelledby="portal-help-heading">
+      <div>
+        <p class="portal-report-kicker">Need help?</p>
+        <h2 id="portal-help-heading">Tell us what is not working</h2>
+        <p class="page-sub">Open a request, follow the customer-visible conversation, and reply when the support team needs you.</p>
+      </div>
+      <a class="btn-primary" href="/portal/new.php">Open support request</a>
+    </section>
+  <?php endif; ?>
+
   <section class="stats" aria-label="Ticket counts">
     <?php foreach ([
         'open' => ['Open', 'stat-warn'],
         'in_progress' => ['In progress', 'stat-good'],
-        'waiting' => ['Waiting', 'stat-dim'],
+        'waiting' => ['Waiting on you', 'stat-warn'],
         'resolved' => ['Resolved', 'stat-good'],
     ] as $status => [$label, $class]): ?>
       <article class="card stat">
@@ -180,31 +279,144 @@ function portal_render_dashboard(array $context, array $summary): void
     <?php endforeach; ?>
   </section>
 
-  <section aria-labelledby="portal-ticket-heading">
-    <div class="page-head">
-      <div>
-        <h2 id="portal-ticket-heading" class="page-title">Recent tickets</h2>
-        <p class="page-sub">Open a ticket to read the customer-visible conversation</p>
+  <div class="portal-dashboard-grid">
+    <section class="portal-ticket-groups" aria-labelledby="portal-ticket-heading">
+      <div class="portal-section-head">
+        <div>
+          <h2 id="portal-ticket-heading" class="page-title">Your support requests</h2>
+          <p class="page-sub">Choose a request to read the customer-visible conversation.</p>
+        </div>
       </div>
-    </div>
-    <div class="card rail-list">
-      <?php if ($summary['tickets'] === []): ?>
-        <div class="empty">No tickets are available for this business.</div>
-      <?php else: ?>
-        <?php foreach ($summary['tickets'] as $ticket): ?>
-          <a class="rail-list-item portal-ticket-link" href="/portal/ticket.php?id=<?= (int)$ticket['id'] ?>">
-            <h3 class="rail-list-name">#<?= (int)$ticket['id'] ?> · <?= portal_h($ticket['subject']) ?></h3>
-            <p class="rail-list-sub">
-              <?= portal_h(portal_status_label((string)$ticket['status'])) ?>
-              · <?= portal_h(portal_priority_label((string)$ticket['priority'])) ?> priority
-              · Updated <?= portal_h(portal_relative_time((string)$ticket['updated_at'])) ?>
-            </p>
-          </a>
-        <?php endforeach; ?>
+
+      <?php if ($waitingTickets !== []): ?>
+        <section class="portal-ticket-group" aria-labelledby="portal-waiting-heading">
+          <h3 id="portal-waiting-heading">Waiting for your reply</h3>
+          <p class="page-sub">The support team needs an answer or update from your business.</p>
+          <?php portal_render_ticket_list($waitingTickets, 'Nothing is waiting for your reply.'); ?>
+        </section>
       <?php endif; ?>
+
+      <section class="portal-ticket-group" aria-labelledby="portal-open-heading">
+        <h3 id="portal-open-heading">Open requests</h3>
+        <p class="page-sub">These are new or being worked by the support team.</p>
+        <?php portal_render_ticket_list($openTickets, 'You have no open support requests.'); ?>
+      </section>
+
+      <section class="portal-ticket-group" aria-labelledby="portal-resolved-heading">
+        <h3 id="portal-resolved-heading">Recently resolved</h3>
+        <p class="page-sub">Finished requests remain readable for your records.</p>
+        <?php portal_render_ticket_list($resolvedTickets, 'No resolved requests are in the recent list.'); ?>
+      </section>
+      <p class="page-note">Only your business’s customer-visible messages appear here. Internal notes, attachments, individual technician time, billing details, AI controls, and endpoint controls remain private.</p>
+    </section>
+
+    <aside class="portal-report-rail" aria-labelledby="portal-report-heading">
+      <div class="portal-section-head">
+        <div>
+          <p class="portal-report-kicker">Weekly record</p>
+          <h2 id="portal-report-heading" class="page-title">Service summaries</h2>
+          <p class="page-sub">Verified, archived facts about your support week.</p>
+        </div>
+      </div>
+      <?php if ($reportArchives === null): ?>
+        <div class="card portal-report-empty">Service summaries are temporarily unavailable. Your tickets still work normally.</div>
+      <?php elseif ($reportArchives === []): ?>
+        <div class="card portal-report-empty">No weekly service summaries have been archived for this business yet.</div>
+      <?php else: ?>
+        <?php portal_render_report_preview($reportArchives[0], true); ?>
+        <a class="btn-ghost portal-report-all" href="/portal/reports.php">View all archived summaries</a>
+      <?php endif; ?>
+    </aside>
+  </div>
+</main>
+    <?php
+    portal_page_end();
+}
+
+/** @param list<array<string,mixed>> $archives */
+function portal_render_reports(array $context, array $archives): void
+{
+    $clientName = (string)($context['binding']['client_name'] ?? 'Your business');
+    portal_page_start('Weekly service summaries');
+    ?>
+<main class="page page-narrow">
+  <a href="/portal/" class="backlink">← Help center</a>
+  <header class="page-head portal-ticket-head">
+    <div>
+      <p class="page-sub"><?= portal_h($clientName) ?></p>
+      <h1 class="page-title">Weekly service summaries</h1>
+      <p class="page-sub">Each card opens the exact verified archive saved for that week.</p>
     </div>
-    <p class="page-note">Only your business’s customer-visible messages appear here. Internal notes, attachments, technician time, billing, AI controls, and endpoint controls remain private.</p>
+  </header>
+  <div class="portal-report-list">
+    <?php if ($archives === []): ?>
+      <div class="card empty">No weekly service summaries have been archived for this business yet.</div>
+    <?php else: ?>
+      <?php foreach ($archives as $index => $archive): ?>
+        <?php portal_render_report_preview($archive, $index === 0); ?>
+      <?php endforeach; ?>
+    <?php endif; ?>
+  </div>
+  <p class="page-note">These summaries contain customer-level service totals only. They do not show ticket messages, internal notes, technician entries or rates, recipients, delivery attempts, invoices, AI controls, or endpoint controls.</p>
+</main>
+    <?php
+    portal_page_end();
+}
+
+/** @param array<string,mixed> $archive */
+function portal_render_report(array $context, array $archive): void
+{
+    $metrics = $archive['metrics'];
+    $tickets = $metrics['tickets'];
+    $firstResponse = $metrics['first_response'];
+    $goal = $metrics['service_goal'];
+    $approvedTime = $metrics['approved_billable_time'];
+    $csat = $metrics['csat'];
+    $attainment = $goal['attainment_percent'];
+    $responseAverage = $firstResponse['average_minutes'];
+    $approvedMinutes = (int)$approvedTime['minutes'];
+    $csatAverage = $csat['average_score_out_of_3'];
+    portal_page_start('Weekly service summary');
+    ?>
+<main class="page page-narrow">
+  <a href="/portal/reports.php" class="backlink">← All service summaries</a>
+  <header class="page-head portal-ticket-head">
+    <div>
+      <p class="portal-report-kicker">Verified archive · definition v<?= (int)$archive['definition_version'] ?></p>
+      <h1 class="page-title"><?= portal_h(portal_report_period_label(
+          (string)$archive['period_start'],
+          (string)$archive['period_end'],
+          (string)($metrics['period']['schedule_timezone'] ?? 'UTC'),
+      )) ?></h1>
+      <p class="page-sub"><?= portal_h((string)$metrics['source']['client_name']) ?> · generated <?= portal_h(portal_format_utc((string)$archive['generated_at'])) ?></p>
+    </div>
+  </header>
+
+  <section class="stats portal-report-stats" aria-label="Weekly service totals">
+    <article class="card stat"><div class="stat-k">Tickets opened</div><div class="stat-v"><?= (int)$tickets['opened'] ?></div></article>
+    <article class="card stat"><div class="stat-k">Tickets resolved</div><div class="stat-v stat-good"><?= (int)$tickets['resolved'] ?></div></article>
+    <article class="card stat"><div class="stat-k">Avg. first response</div><div class="stat-v"><?= $responseAverage === null ? '—' : (int)$responseAverage . ' min' ?></div></article>
+    <article class="card stat"><div class="stat-k">Response goal</div><div class="stat-v <?= $attainment === null ? 'stat-dim' : 'stat-good' ?>"><?= $attainment === null ? '—' : (int)$attainment . '%' ?></div></article>
   </section>
+
+  <section class="portal-report-detail-grid">
+    <article class="card portal-report-fact">
+      <span class="rail-k">Approved operational time</span>
+      <strong><?= $approvedMinutes ?> minutes · <?= portal_h(number_format($approvedMinutes / 60, 2, '.', '')) ?> hours</strong>
+      <p>Customer-level approved service time only. This is not an invoice or posting status.</p>
+    </article>
+    <article class="card portal-report-fact">
+      <span class="rail-k">Customer satisfaction</span>
+      <strong><?= $csatAverage === null ? 'No scored responses' : portal_h((string)$csatAverage) . ' / 3' ?></strong>
+      <p><?= (int)$csat['responses_received_by_generated_at'] ?> responses from <?= (int)$csat['surveys_sent'] ?> surveys.</p>
+    </article>
+  </section>
+
+  <details class="card portal-report-official">
+    <summary>Read the exact archived summary</summary>
+    <pre><?= portal_h((string)$archive['text']) ?></pre>
+  </details>
+  <p class="page-note">Archive SHA-256: <code><?= portal_h((string)$archive['content_sha256']) ?></code>. The portal verifies the immutable definition, canonical JSON/text, hash, tenant, customer, period, and generation time before showing this page.</p>
 </main>
     <?php
     portal_page_end();
@@ -297,6 +509,12 @@ function portal_render_ticket(
 
   <?php if ($notice !== null && $notice !== ''): ?><div class="form-ok" role="status"><?= portal_h($notice) ?></div><?php endif; ?>
   <?php if ($error !== null && $error !== ''): ?><div class="form-error" role="alert"><?= portal_h($error) ?></div><?php endif; ?>
+  <?php if (($ticket['status'] ?? '') === 'waiting' && $canReply): ?>
+    <div class="card portal-waiting-callout" role="status">
+      <strong>The support team is waiting for your reply.</strong>
+      <span>Send an update below and this request will return to the open queue for a human technician.</span>
+    </div>
+  <?php endif; ?>
 
   <div class="ticket-grid">
     <section class="thread" aria-labelledby="portal-conversation-heading">
@@ -320,7 +538,7 @@ function portal_render_ticket(
         <form method="post" action="/portal/ticket.php?id=<?= $ticketId ?>" class="card reply">
           <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>">
           <input type="hidden" name="action_nonce" value="<?= portal_h($nonce) ?>">
-          <label class="field" for="portal-reply">Reply to the support team</label>
+          <label class="field" for="portal-reply"><?= ($ticket['status'] ?? '') === 'waiting' ? 'Send the update the support team needs' : 'Reply to the support team' ?></label>
           <textarea id="portal-reply" name="body" maxlength="<?= PORTAL_TICKET_BODY_MAX_CHARACTERS ?>" required
                     placeholder="Add an update or answer the technician’s question…"><?= portal_h($draft) ?></textarea>
           <div class="reply-foot">

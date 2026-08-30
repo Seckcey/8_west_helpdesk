@@ -17,10 +17,14 @@ authenticated portal opened for the intended customer. That closes the basic
 OIDC/customer-display proof, but Frankie correctly rejected the read-only
 summary surface as not useful. The deployed surface remains summary-only.
 
-The reviewed Phase 5B source on branch
-`codex/customer-portal-useful-20260829` adds a tenant-bound customer help
-workflow. It is not merged or deployed yet. It must pass the gates below and
-an explicit release approval before it changes the live portal.
+The reviewed Phase 5B source is in draft PR #88. Draft PR #89 adds the exact
+versioned-report archive contract beneath it. The stacked
+`codex/customer-portal-usefulness-v2-20260830` branch turns those safe building
+blocks into a useful customer home: action-first ticket groups, a clear
+waiting-for-customer reply flow, and read-only access to fully reverified
+weekly service-summary archives. None of those three draft layers is merged or
+deployed. They require green review plus explicit release approval before the
+live portal changes.
 
 This contract is the authorization boundary. A later feature may add to it
 only through a separate review; it must not reinterpret this slice as implied
@@ -29,7 +33,8 @@ permission to expose adjacent help-desk data.
 ## Ownership and non-goals
 
 Safeharbor owns the portal view, the explicit identity-tenant-to-client
-binding, the local portal session, and all ticket-summary reads. 8 West ID owns
+binding, the local portal session, ticket reads, and immutable weekly report
+archives. 8 West ID owns
 OIDC identity, signed tenant/product/role claims, session authorization
 generations, and the revocation inventory. The provider tenant/client rows are
 Safeharbor facts. No Milepost or Coastmark data is queried.
@@ -47,7 +52,8 @@ attachments, replies, uploads, contacts, assignees, technician time, service
 goal internals, AI, billing, invoice posting, device/endpoint control, or other
 tenant context. The only POST is CSRF-protected local/central sign-out.
 
-Phase 5B adds only these customer-owned operations:
+Phase 5B and the stacked usefulness slice add only these customer-owned
+operations:
 
 - `client_owner`, `client_admin`, and `client_staff` may open a ticket for the
   exact mapped provider tenant/client; `client_viewer` remains read-only;
@@ -65,6 +71,16 @@ Phase 5B adds only these customer-owned operations:
   history is trusted;
 - customer replies are allowed only while a ticket is not resolved. A reply
   returns `waiting` work to `open` for human attention and never resolves it;
+- the dashboard separates `waiting` work that needs a customer reply, open or
+  in-progress work, and recently resolved work, with an obvious new-request
+  action. These are presentation groups over the existing closed ticket field
+  list, not new workflow authority;
+- `/portal/reports.php` is GET-only. It reads only the exact signed-in provider
+  tenant/client's Safeharbor report definition and archive rows. Before any
+  customer sees an archive, it rechecks the supported immutable definition,
+  canonical JSON and text, content SHA-256, tenant/client source keys, period,
+  and generation timestamp. It shows aggregate ticket, response-goal,
+  approved operational-time, and CSAT facts plus the escaped exact archive;
   and
 - every mutation requires the portal session CSRF token plus a short-lived,
   one-use action nonce. The consumed nonce is durably written and the session
@@ -72,9 +88,12 @@ Phase 5B adds only these customer-owned operations:
   An uncertain response tells the customer to inspect the dashboard or thread
   before retrying instead of falsely claiming that nothing was saved.
 
-Phase 5B still exposes no attachments, technician time, contacts, assignees,
-AI controls, billing, invoice posting, device/endpoint control, internal notes,
-or system evidence. It provides no customer close/resolve operation. Portal
+The useful portal still exposes no attachments, individual technician time or
+rates, contacts, assignees, recipients, delivery attempts, AI controls,
+billing details, invoice posting, device/endpoint control, internal notes, or
+system evidence. The weekly aggregate explicitly says approved operational
+time is not invoice or posting status. The portal provides no customer
+close/resolve operation. Portal
 tickets and replies therefore remain human-owned and cannot gain Milepost's
 one-use telemetry auto-close capability.
 
@@ -184,8 +203,8 @@ Every authenticated request performs, in order:
 2. 8 West ID revocation/authorization-inventory validation;
 3. an active binding recheck using the exact binding id, identity slug,
    provider tenant id, and client id; and
-4. every summary, ticket-detail, create, and reply operation binding both
-   provider tenant id and client id.
+4. every ticket summary/detail/create/reply and weekly archive list/detail
+   operation binding both provider tenant id and client id.
 
 The identity-slug lookup during callback is the single bootstrap query whose
 purpose is to discover the explicitly mapped provider ids. The callback then
@@ -249,6 +268,8 @@ find app -name '*.php' -print0 | xargs -0 -n1 php -l
 php app/tests/portal_auth_test.php
 php app/tests/portal_data_test.php
 php app/tests/portal_ticket_workflow_test.php
+php app/tests/portal_report_archive_test.php
+node tools/shots/portal-contract.test.mjs
 SAFEHARBOR_PORTAL_TEST_DB=safeharbor_portal_test php app/tests/portal_mysql_test.php
 ```
 
@@ -262,5 +283,6 @@ registration, protected client-value installation, one disabled-then-enabled
 Lifestyle binding, and global enablement are live. Signed-out routing is
 accepted on the canonical Safeharbor domain and refused as 404 on the support
 domain. Fresh Lifestyle authentication passed on 2026-08-29. Phase 5B's
-create/detail/reply experience remains source-only until review, release, and
-fresh authenticated acceptance pass.
+create/detail/reply experience and the stacked grouped-dashboard/verified-
+archive experience remain source-only until review, release, and fresh
+authenticated desktop/mobile acceptance pass.

@@ -408,7 +408,14 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
                  WHERE merged_source.tenant_id = t.tenant_id
                    AND merged_source.merged_into_id = t.id
             )
-          ORDER BY t.updated_at DESC, t.id DESC
+          ORDER BY CASE t.status
+                     WHEN 'waiting' THEN 0
+                     WHEN 'in_progress' THEN 1
+                     WHEN 'open' THEN 2
+                     WHEN 'resolved' THEN 3
+                     ELSE 4
+                   END,
+                   t.updated_at DESC, t.id DESC
           LIMIT {$limit}"
     );
     $tickets->execute(['tenant_id' => $tenantId, 'client_id' => $clientId]);
@@ -418,6 +425,149 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
         'counts' => $counts,
         'tickets' => $tickets->fetchAll(),
     ];
+}
+
+function portal_report_archive_select_sql(): string
+{
+    return "SELECT a.id, a.tenant_id, a.client_id, a.schedule_key,
+                   a.schedule_version_id, a.definition_version_id,
+                   a.period_start, a.period_end, a.generated_at,
+                   a.metrics_json, a.report_text, a.content_sha256,
+                   t.slug AS tenant_slug,
+                   d.definition_key, d.version_no AS definition_version_no,
+                   d.report_type, d.contract_json, d.contract_sha256
+              FROM business_report_archives a
+              JOIN tenants t ON t.id = a.tenant_id
+              JOIN clients c ON c.tenant_id = a.tenant_id AND c.id = a.client_id
+              JOIN business_report_definition_versions d
+                ON d.tenant_id = a.tenant_id AND d.id = a.definition_version_id";
+}
+
+/**
+ * Re-verify the immutable archive before any customer sees it. This is more
+ * than a hash check: the definition, canonical JSON/text, tenant key, client
+ * key, period, and generated timestamp must all agree with the exact database
+ * scope selected for the signed-in portal session.
+ *
+ * @return array<string,mixed>
+ */
+function portal_report_archive_verified(array $row, int $tenantId, int $clientId): array
+{
+    require_once __DIR__ . '/business_reports.php';
+    if ((int)($row['tenant_id'] ?? 0) !== $tenantId
+        || (int)($row['client_id'] ?? 0) !== $clientId
+        || ! business_report_definition_supported($row)) {
+        throw new PortalDataConflictException('The archived service summary could not be verified.');
+    }
+
+    try {
+        $content = business_report_archived_content($row);
+        $metrics = $content['metrics'];
+        business_report_archived_source_for_scope($metrics, [
+            'tenant_slug' => (string)$row['tenant_slug'],
+            'client_id' => $clientId,
+        ]);
+    } catch (BusinessReportException $error) {
+        throw new PortalDataConflictException(
+            'The archived service summary could not be verified.',
+            0,
+            $error,
+        );
+    }
+
+    $definition = $metrics['definition'] ?? null;
+    $period = $metrics['period'] ?? null;
+    $source = $metrics['source'] ?? null;
+    $expectedStart = str_replace(' ', 'T', (string)$row['period_start']) . 'Z';
+    $expectedEnd = str_replace(' ', 'T', (string)$row['period_end']) . 'Z';
+    $expectedGenerated = str_replace(' ', 'T', (string)$row['generated_at']) . 'Z';
+    if (! is_array($definition)
+        || ! is_array($period)
+        || ! is_array($source)
+        || ! hash_equals((string)$row['definition_key'], (string)($definition['key'] ?? ''))
+        || (int)$row['definition_version_no'] !== (int)($definition['version'] ?? 0)
+        || ! hash_equals((string)$row['contract_sha256'], (string)($definition['sha256'] ?? ''))
+        || ! hash_equals($expectedStart, (string)($period['start_utc'] ?? ''))
+        || ! hash_equals($expectedEnd, (string)($period['end_utc_exclusive'] ?? ''))
+        || ! hash_equals($expectedGenerated, (string)($metrics['generated_at'] ?? ''))
+        || ! is_string($source['client_name'] ?? null)
+        || trim((string)$source['client_name']) === '') {
+        throw new PortalDataConflictException('The archived service summary scope does not match its content.');
+    }
+
+    return [
+        'id' => (int)$row['id'],
+        'period_start' => (string)$row['period_start'],
+        'period_end' => (string)$row['period_end'],
+        'generated_at' => (string)$row['generated_at'],
+        'content_sha256' => (string)$row['content_sha256'],
+        'definition_version' => (int)$row['definition_version_no'],
+        'metrics' => $metrics,
+        'text' => (string)$content['text'],
+    ];
+}
+
+/** @return list<array<string,mixed>> */
+function portal_report_archives(PDO $pdo, int $tenantId, int $clientId, int $limit = 24): array
+{
+    require_once __DIR__ . '/business_reports.php';
+    if ($tenantId < 1 || $clientId < 1 || $limit < 1 || $limit > 52) {
+        throw new PortalDataValidationException('The service-summary boundary is invalid.');
+    }
+    $query = $pdo->prepare(
+        portal_report_archive_select_sql()
+        . " WHERE a.tenant_id = :tenant_id
+              AND a.client_id = :client_id
+              AND d.definition_key = :definition_key
+              AND d.report_type = :report_type
+            ORDER BY a.period_end DESC, a.id DESC
+            LIMIT {$limit}"
+    );
+    $query->execute([
+        'tenant_id' => $tenantId,
+        'client_id' => $clientId,
+        'definition_key' => BUSINESS_REPORT_DEFINITION_KEY,
+        'report_type' => BUSINESS_REPORT_TYPE,
+    ]);
+
+    $archives = [];
+    foreach ($query->fetchAll() as $row) {
+        if (! is_array($row)) {
+            throw new PortalDataConflictException('The archived service summary row is invalid.');
+        }
+        $archives[] = portal_report_archive_verified($row, $tenantId, $clientId);
+    }
+    return $archives;
+}
+
+/** @return array<string,mixed> */
+function portal_report_archive(PDO $pdo, int $tenantId, int $clientId, int $archiveId): array
+{
+    require_once __DIR__ . '/business_reports.php';
+    if ($tenantId < 1 || $clientId < 1 || $archiveId < 1) {
+        throw new PortalDataValidationException('The service-summary boundary is invalid.');
+    }
+    $query = $pdo->prepare(
+        portal_report_archive_select_sql()
+        . " WHERE a.id = :archive_id
+              AND a.tenant_id = :tenant_id
+              AND a.client_id = :client_id
+              AND d.definition_key = :definition_key
+              AND d.report_type = :report_type
+            LIMIT 1"
+    );
+    $query->execute([
+        'archive_id' => $archiveId,
+        'tenant_id' => $tenantId,
+        'client_id' => $clientId,
+        'definition_key' => BUSINESS_REPORT_DEFINITION_KEY,
+        'report_type' => BUSINESS_REPORT_TYPE,
+    ]);
+    $row = $query->fetch();
+    if (! is_array($row)) {
+        throw new PortalDataNotFoundException('That service summary is not available for this business.');
+    }
+    return portal_report_archive_verified($row, $tenantId, $clientId);
 }
 
 function portal_role_can_write_tickets(string $role): bool
