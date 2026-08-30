@@ -82,27 +82,27 @@ POST
 <sha256(raw request body)>
 ```
 
-The authenticated 200 response must have exactly this member order and types:
-`ok`, schema version 2, customer UUID, integer customer source version,
-lowercase 64-hex customer receipt ID, permanent identity tenant key and slug,
-integer contact version, canonical lowercase weekly email, UTC generated time,
-and the exact request nonce. Its signature preimage is
+The authenticated 200 response has the exact 20-member order pinned in
+`managed-customer-lifecycle-contract.md`. In addition to the original
+customer/source/receipt/contact facts, it requires active customer and identity
+tenant status, lifecycle version 1, positive transition and OAuth session
+versions, `observed_active` or `restored`, a lowercase lifecycle evidence hash,
+and `lifecycle_owned=false`. Its signature preimage is
 `8west-id-report-contact-response-v1`, newline, nonce, newline, and the raw
 response-body SHA-256. Duplicate members, reordered members, redirects,
 alternate endpoints, non-200 responses, signature mismatches, or generated
 times outside the inclusive 300-second request window fail closed.
 
-The normalized handoff is strict and ordered: schema version, customer UUID,
-source version, immutable customer receipt ID, permanent ID tenant key and
-slug, contact version, canonical weekly recipient, UTC response time, nonce
-hash, and response hash. The schema-2 producer contract comes from dependent
-8 West ID commit `2db57fb`; that producer must reach its final reviewed head
-before this consumer is restacked or released.
+The normalized handoff retains those lifecycle fields in exact order before
+the permanent ID tenant/contact facts, nonce hash, and response hash. Activation
+also proves that local Safeharbor source history contains no inactive event;
+post-inactive restoration belongs to the separately latched lifecycle contract.
 
 The transaction then rechecks all of these local facts:
 
 1. one exact tenant/client/source-binding ID still names the same UUID,
-   authenticated source version, and `active` status;
+   authenticated source version, and `active` status, with no local inactive
+   event anywhere in its immutable history;
 2. the configured actor is still an active owner/admin in that tenant;
 3. the ID tenant key/slug is absent or already bound to that exact client,
    never another tenant/client or the older tenant-wide contact lane;

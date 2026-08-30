@@ -42,6 +42,14 @@ function evidence_document(array $changes = []): array
         'customer_id' => $evidenceCustomer,
         'customer_source_version' => 7,
         'customer_receipt_id' => str_repeat('b', 64),
+        'customer_status' => 'active',
+        'lifecycle_version' => 1,
+        'lifecycle_transition_id' => 19,
+        'lifecycle_action' => 'observed_active',
+        'lifecycle_evidence_sha256' => str_repeat('c', 64),
+        'identity_tenant_status' => 'active',
+        'identity_oauth_session_version' => 6,
+        'lifecycle_owned' => false,
         'identity_tenant_key' => 'ewid-t91',
         'identity_tenant_slug' => 'managed-one',
         'contact_version' => 3,
@@ -171,6 +179,9 @@ $decoded = managed_customer_id_evidence_decode_response(
 evidence_check(
     array_keys($decoded) === [
         'schema_version', 'customer_id', 'source_version', 'customer_receipt_id',
+        'customer_status', 'lifecycle_version', 'lifecycle_transition_id',
+        'lifecycle_action', 'lifecycle_evidence_sha256', 'identity_tenant_status',
+        'identity_oauth_session_version', 'lifecycle_owned',
         'tenant_key', 'tenant_slug', 'contact_version', 'recipient_email',
         'generated_at_db', 'request_nonce_sha256', 'response_sha256',
     ],
@@ -181,6 +192,14 @@ evidence_check(
         && $decoded['customer_id'] === $evidenceCustomer
         && $decoded['source_version'] === 7
         && $decoded['customer_receipt_id'] === str_repeat('b', 64)
+        && $decoded['customer_status'] === 'active'
+        && $decoded['lifecycle_version'] === 1
+        && $decoded['lifecycle_transition_id'] === 19
+        && $decoded['lifecycle_action'] === 'observed_active'
+        && $decoded['lifecycle_evidence_sha256'] === str_repeat('c', 64)
+        && $decoded['identity_tenant_status'] === 'active'
+        && $decoded['identity_oauth_session_version'] === 6
+        && $decoded['lifecycle_owned'] === false
         && $decoded['tenant_key'] === 'ewid-t91'
         && $decoded['tenant_slug'] === 'managed-one'
         && $decoded['contact_version'] === 3
@@ -234,6 +253,16 @@ evidence_decode_refuses(['customer_id' => '33333333-3333-4333-8333-333333333333'
 evidence_decode_refuses(['customer_source_version' => '7'], 'schema-2 decoder accepted a non-integer source version');
 evidence_decode_refuses(['customer_source_version' => 0], 'schema-2 decoder accepted source version zero');
 evidence_decode_refuses(['customer_receipt_id' => str_repeat('B', 64)], 'schema-2 decoder accepted a noncanonical receipt id');
+evidence_decode_refuses(['customer_status' => 'inactive'], 'schema-2 decoder accepted an inactive customer');
+evidence_decode_refuses(['lifecycle_version' => 2], 'schema-2 decoder accepted another lifecycle version');
+evidence_decode_refuses(['lifecycle_transition_id' => 0], 'schema-2 decoder accepted a nonpositive lifecycle transition');
+evidence_decode_refuses(['lifecycle_transition_id' => '19'], 'schema-2 decoder accepted a string lifecycle transition');
+evidence_decode_refuses(['lifecycle_action' => 'observed_inactive'], 'schema-2 decoder accepted another lifecycle action');
+evidence_decode_refuses(['lifecycle_evidence_sha256' => str_repeat('C', 64)], 'schema-2 decoder accepted a noncanonical lifecycle digest');
+evidence_decode_refuses(['identity_tenant_status' => 'suspended'], 'schema-2 decoder accepted an inactive identity tenant');
+evidence_decode_refuses(['identity_oauth_session_version' => 0], 'schema-2 decoder accepted a nonpositive OAuth generation');
+evidence_decode_refuses(['identity_oauth_session_version' => '6'], 'schema-2 decoder accepted a string OAuth generation');
+evidence_decode_refuses(['lifecycle_owned' => true], 'schema-2 decoder accepted lifecycle-owned restoration');
 evidence_decode_refuses(['identity_tenant_key' => 'ewid-t0'], 'schema-2 decoder accepted an invalid identity tenant key');
 evidence_decode_refuses(['identity_tenant_slug' => 'Managed-One'], 'schema-2 decoder accepted a noncanonical identity tenant slug');
 evidence_decode_refuses(['contact_version' => 0], 'schema-2 decoder accepted contact version zero');

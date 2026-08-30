@@ -275,6 +275,23 @@ return [
         'delivery_local_time' => '09:00:00',
     ],
 
+    // Immediate fail-closed containment for exact Milepost-managed customers.
+    // The read boundary blocks portal access and report generation/delivery as
+    // soon as an inactive source event is visible. This default-off worker
+    // additionally disables the portal binding and appends a disabled report
+    // schedule version with immutable evidence. The expanded signed 8 West ID
+    // lifecycle fields are consumed, but restoration deliberately remains
+    // unsupported until the ID receipt can be mapped to Safeharbor's exact
+    // current source receipt; schema-2 contact evidence alone is never enough.
+    'managed_customer_lifecycle' => [
+        'enabled' => false,
+        'restoration_enabled' => false,
+        'customer_ids' => [],
+        // Exact provider tenant slug => active Safeharbor owner/admin user id.
+        'tenant_actors' => [],
+        'batch_size' => 5,
+    ],
+
     // Versioned weekly client service summaries. Definitions, schedules,
     // exact report bytes, delivery leases, and provider outcomes are archived
     // in Safeharbor. This path does not use mail_queue: a Microsoft Graph 202

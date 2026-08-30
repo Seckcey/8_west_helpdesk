@@ -9,6 +9,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/managed_customer_status.php';
+
 const BUSINESS_REPORT_TYPE = 'weekly_client_service_summary';
 const BUSINESS_REPORT_DEFINITION_KEY = 'weekly-client-service-summary';
 const BUSINESS_REPORT_CONTRACT_VERSION_V1 = 1;
@@ -32,6 +34,19 @@ final class BusinessReportValidationException extends BusinessReportException {}
 final class BusinessReportGateException extends BusinessReportException {}
 final class BusinessReportConflictException extends BusinessReportException {}
 final class BusinessReportTransportException extends BusinessReportException {}
+
+function business_report_assert_managed_customer_operational(
+    PDO $pdo,
+    int $tenantId,
+    int $clientId,
+    bool $forShare = false,
+): void {
+    if (!managed_customer_operational($pdo, $tenantId, $clientId, $forShare)) {
+        throw new BusinessReportGateException(
+            'The managed customer is inactive or awaits fresh identity restoration evidence.',
+        );
+    }
+}
 
 /** @return 'acquired'|'contended' */
 function business_report_advisory_lock_state(mixed $result): string
@@ -2845,6 +2860,11 @@ function business_report_generate(
     $previewNow = $now ?? time();
     $config = business_report_config($rawConfig);
     $schedule = business_report_active_schedule($pdo, $tenantSlug, $scheduleKey);
+    business_report_assert_managed_customer_operational(
+        $pdo,
+        (int)$schedule['tenant_id'],
+        (int)$schedule['client_id'],
+    );
     business_report_assert_schedule_gate($schedule, $config, $dryRun ? 'dry_run' : 'generation');
     $window = business_report_next_window($pdo, $schedule);
     if ($dryRun) {
@@ -2910,6 +2930,12 @@ function business_report_generate(
                 'The report tenant changed before archive generation completed.',
             );
         }
+        business_report_assert_managed_customer_operational(
+            $pdo,
+            $tenantId,
+            (int)$schedule['client_id'],
+            true,
+        );
         $adjustmentIdCutoff = business_report_contract_uses_adjustments(
             (int) ($schedule['definition_version_no'] ?? 0),
         )
@@ -3192,6 +3218,12 @@ function business_report_deliver(
         return ['action' => 'ignored', 'status' => $deliveryStatus, 'archive_id' => $archiveId, 'attempt_id' => null];
     }
 
+    business_report_assert_managed_customer_operational(
+        $pdo,
+        (int)$context['tenant_id'],
+        (int)$context['client_id'],
+    );
+
     $archivedClientName = business_report_key(
         (string)$archivedSource['client_name'],
         128,
@@ -3227,6 +3259,12 @@ function business_report_deliver(
             $pdo->commit();
             return ['action' => 'recovered_uncertain', 'status' => 'uncertain', 'archive_id' => $archiveId, 'attempt_id' => null];
         }
+        business_report_assert_managed_customer_operational(
+            $pdo,
+            (int)$context['tenant_id'],
+            (int)$context['client_id'],
+            true,
+        );
         $latestSchedule = business_report_latest_schedule(
             $pdo,
             (int)$context['tenant_id'],
@@ -3271,13 +3309,32 @@ function business_report_deliver(
     }
 
     $subject = 'Safeharbor weekly service summary — ' . $archivedClientName;
+    // This is the final boundary before bytes leave Safeharbor. Keep a shared
+    // lock on the managed source row across the network call: an already-
+    // committed inactive event is refused, while a concurrent inactive event
+    // waits and is therefore ordered after this exact send attempt.
+    $managedBoundaryTransaction = false;
     try {
+        $pdo->beginTransaction();
+        $managedBoundaryTransaction = true;
+        business_report_assert_managed_customer_operational(
+            $pdo,
+            (int)$context['tenant_id'],
+            (int)$context['client_id'],
+            true,
+        );
         $outcome = $transport(
             (string)$context['recipient_email'],
             $subject,
             $archivedContent['text'],
         );
+        $pdo->commit();
+        $managedBoundaryTransaction = false;
+    } catch (BusinessReportGateException $error) {
+        if ($managedBoundaryTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
     } catch (Throwable) {
+        if ($managedBoundaryTransaction && $pdo->inTransaction()) $pdo->rollBack();
         $outcome = ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'transport_exception'];
     }
     $outcome = business_report_transport_outcome($outcome);
@@ -3409,6 +3466,11 @@ function business_report_pending_archive_ids(
             continue;
         }
         try {
+            business_report_assert_managed_customer_operational(
+                $pdo,
+                (int)$delivery['tenant_id'],
+                (int)$delivery['client_id'],
+            );
             business_report_assert_schedule_gate($delivery, $config, 'delivery');
         } catch (BusinessReportGateException) {
             continue;

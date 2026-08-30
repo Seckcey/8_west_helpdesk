@@ -114,6 +114,9 @@ function managed_customer_id_evidence_request(
  * @param array<string,list<string>> $headers
  * @return array{
  *   schema_version:int,customer_id:string,source_version:int,customer_receipt_id:string,
+ *   customer_status:string,lifecycle_version:int,lifecycle_transition_id:int,
+ *   lifecycle_action:string,lifecycle_evidence_sha256:string,
+ *   identity_tenant_status:string,identity_oauth_session_version:int,lifecycle_owned:bool,
  *   tenant_key:string,tenant_slug:string,contact_version:int,recipient_email:string,
  *   generated_at_db:string,request_nonce_sha256:string,response_sha256:string
  * }
@@ -169,8 +172,11 @@ function managed_customer_id_evidence_decode_response(
     }
     $expectedKeys = [
         'ok', 'schema_version', 'customer_id', 'customer_source_version',
-        'customer_receipt_id', 'identity_tenant_key', 'identity_tenant_slug',
-        'contact_version', 'weekly_report_email', 'generated_at', 'request_nonce',
+        'customer_receipt_id', 'customer_status', 'lifecycle_version',
+        'lifecycle_transition_id', 'lifecycle_action', 'lifecycle_evidence_sha256',
+        'identity_tenant_status', 'identity_oauth_session_version', 'lifecycle_owned',
+        'identity_tenant_key', 'identity_tenant_slug', 'contact_version',
+        'weekly_report_email', 'generated_at', 'request_nonce',
     ];
     if (!is_array($document)
         || array_is_list($document)
@@ -184,6 +190,17 @@ function managed_customer_id_evidence_decode_response(
         || $document['customer_source_version'] < 1
         || !is_string($document['customer_receipt_id'] ?? null)
         || preg_match('/\A[0-9a-f]{64}\z/D', $document['customer_receipt_id']) !== 1
+        || ($document['customer_status'] ?? null) !== 'active'
+        || ($document['lifecycle_version'] ?? null) !== 1
+        || !is_int($document['lifecycle_transition_id'] ?? null)
+        || $document['lifecycle_transition_id'] < 1
+        || !in_array($document['lifecycle_action'] ?? null, ['observed_active', 'restored'], true)
+        || !is_string($document['lifecycle_evidence_sha256'] ?? null)
+        || preg_match('/\A[0-9a-f]{64}\z/D', $document['lifecycle_evidence_sha256']) !== 1
+        || ($document['identity_tenant_status'] ?? null) !== 'active'
+        || !is_int($document['identity_oauth_session_version'] ?? null)
+        || $document['identity_oauth_session_version'] < 1
+        || ($document['lifecycle_owned'] ?? null) !== false
         || !is_string($document['identity_tenant_key'] ?? null)
         || !id_report_contact_tenant_key_valid($document['identity_tenant_key'])
         || !is_string($document['identity_tenant_slug'] ?? null)
@@ -219,6 +236,14 @@ function managed_customer_id_evidence_decode_response(
         'customer_id' => $expectedCustomerId,
         'source_version' => $document['customer_source_version'],
         'customer_receipt_id' => $document['customer_receipt_id'],
+        'customer_status' => $document['customer_status'],
+        'lifecycle_version' => $document['lifecycle_version'],
+        'lifecycle_transition_id' => $document['lifecycle_transition_id'],
+        'lifecycle_action' => $document['lifecycle_action'],
+        'lifecycle_evidence_sha256' => $document['lifecycle_evidence_sha256'],
+        'identity_tenant_status' => $document['identity_tenant_status'],
+        'identity_oauth_session_version' => $document['identity_oauth_session_version'],
+        'lifecycle_owned' => $document['lifecycle_owned'],
         'tenant_key' => $document['identity_tenant_key'],
         'tenant_slug' => $document['identity_tenant_slug'],
         'contact_version' => $document['contact_version'],

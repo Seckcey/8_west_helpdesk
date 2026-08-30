@@ -45,6 +45,11 @@ function activation_sqlite(): PDO
             customer_id TEXT NOT NULL UNIQUE, client_id INTEGER NOT NULL,
             source_version INTEGER NOT NULL, display_name TEXT NOT NULL,
             status TEXT NOT NULL, UNIQUE(tenant_id,client_id), UNIQUE(tenant_id,id))',
+        'CREATE TABLE suite_customer_sync_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+            event_id TEXT NOT NULL, binding_id INTEGER NOT NULL, customer_id TEXT NOT NULL,
+            client_id INTEGER NOT NULL, source_version INTEGER NOT NULL,
+            status TEXT NOT NULL, request_sha256 TEXT NOT NULL)',
         'CREATE TABLE customer_portal_bindings (
             id INTEGER PRIMARY KEY AUTOINCREMENT, identity_tenant_slug TEXT NOT NULL UNIQUE,
             tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL, status TEXT NOT NULL,
@@ -175,6 +180,14 @@ function activation_evidence(array $changes = []): array
         'customer_id' => '11111111-1111-4111-8111-111111111111',
         'source_version' => 1,
         'customer_receipt_id' => str_repeat('9', 64),
+        'customer_status' => 'active',
+        'lifecycle_version' => 1,
+        'lifecycle_transition_id' => 7,
+        'lifecycle_action' => 'observed_active',
+        'lifecycle_evidence_sha256' => str_repeat('8', 64),
+        'identity_tenant_status' => 'active',
+        'identity_oauth_session_version' => 3,
+        'lifecycle_owned' => false,
         'tenant_key' => 'ewid-t91',
         'tenant_slug' => 'managed-one',
         'contact_version' => 3,
@@ -507,6 +520,31 @@ activation_refuses(
         activation_report_config(),
     ),
     'an inactive Milepost binding passed the under-lock recheck',
+);
+
+$latchedPdo = activation_sqlite();
+$latchedPdo->exec('UPDATE suite_customer_sync_bindings SET source_version=3 WHERE id=501');
+$latchedCandidate = activation_candidate($latchedPdo);
+$latchedEvent = $latchedPdo->prepare("INSERT INTO suite_customer_sync_events
+    (tenant_id,event_id,binding_id,customer_id,client_id,source_version,status,request_sha256)
+    VALUES (1,'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',501,
+            '11111111-1111-4111-8111-111111111111',11,2,'inactive',?)");
+$latchedEvent->execute([str_repeat('e', 64)]);
+activation_check(
+    managed_customer_activation_candidates($latchedPdo, activation_config()) === [],
+    'post-inactive active customer remained eligible for ordinary activation',
+);
+activation_refuses(
+    ManagedCustomerActivationGateException::class,
+    static fn() => managed_customer_activation_apply(
+        $latchedPdo,
+        $latchedCandidate,
+        activation_evidence(['source_version' => 3]),
+        101,
+        activation_config(),
+        activation_report_config(),
+    ),
+    'stale continuously-active candidate cleared an inactive lifecycle latch under lock',
 );
 
 $conflictPdo = activation_sqlite();

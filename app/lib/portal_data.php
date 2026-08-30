@@ -10,6 +10,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/service_goals.php';
+require_once __DIR__ . '/managed_customer_status.php';
 
 class PortalDataException extends RuntimeException
 {
@@ -150,7 +151,10 @@ function portal_active_binding_by_identity(PDO $pdo, string $identityTenantSlug)
     );
     $stmt->execute(['identity_tenant_slug' => $slug]);
     $row = $stmt->fetch();
-    return is_array($row) ? $row : null;
+    if (!is_array($row)) return null;
+    return managed_customer_operational($pdo, (int)$row['tenant_id'], (int)$row['client_id'])
+        ? $row
+        : null;
 }
 
 /** @return array<string,mixed>|null */
@@ -179,7 +183,8 @@ function portal_active_binding_recheck(
         'client_id' => $clientId,
     ]);
     $row = $stmt->fetch();
-    return is_array($row) ? $row : null;
+    if (!is_array($row)) return null;
+    return managed_customer_operational($pdo, $tenantId, $clientId) ? $row : null;
 }
 
 /** @return array<string,mixed> */

@@ -1610,6 +1610,21 @@ $pdo->exec("INSERT INTO csat VALUES
     (3,200,1,'other tenant','2026-08-14 10:00:00','2026-08-15 10:00:00')");
 
 $now = strtotime('2026-08-26 12:00:00 UTC');
+$pdo->exec("INSERT INTO suite_customer_sync_bindings VALUES
+    (1,11,'11111111-1111-4111-8111-111111111111','active')");
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=11");
+report_throws(
+    'inactive managed customer refuses report preview before metrics or archive work',
+    BusinessReportGateException::class,
+    fn() => business_report_generate($pdo, 'one', 'client-one-weekly', report_config(), $now, true, false),
+    'inactive',
+);
+report_check(
+    'inactive preview refusal writes no archive or delivery',
+    (int)$pdo->query('SELECT COUNT(*) FROM business_report_archives')->fetchColumn() === 0
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_deliveries')->fetchColumn() === 0,
+);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE client_id=11");
 $dryRun = business_report_generate($pdo, 'one', 'client-one-weekly', report_config(), $now, true, false);
 report_check('dry run writes no archive or delivery',
     $dryRun['action'] === 'dry_run'
@@ -1717,6 +1732,85 @@ report_check('archive reload preserves exact JSON bytes and content hash',
     ));
 report_check('archive creates exactly one pending tracked delivery',
     (int)$pdo->query("SELECT COUNT(*) FROM business_report_deliveries WHERE archive_id={$archiveId} AND status='pending'")->fetchColumn() === 1);
+
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=11");
+report_check(
+    'inactive managed customer is omitted from pending delivery selection',
+    business_report_pending_archive_ids($pdo, $now, 10, report_config()) === [],
+);
+$inactiveDeliveryCalls = 0;
+report_throws(
+    'inactive managed customer refuses direct pending delivery before claiming a lease',
+    BusinessReportGateException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        $archiveId,
+        report_config(),
+        function () use (&$inactiveDeliveryCalls): array {
+            $inactiveDeliveryCalls++;
+            return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+        },
+        $now,
+    ),
+    'inactive',
+);
+report_check(
+    'inactive direct-delivery refusal makes no transport or attempt and stays pending',
+    $inactiveDeliveryCalls === 0
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_delivery_attempts')->fetchColumn() === 0
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_deliveries WHERE archive_id={$archiveId}",
+        )->fetchColumn() === 'pending',
+);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE client_id=11");
+
+$raceArchive = report_archive_fixture(
+    $pdo,
+    (int)$enabled['schedule']['id'],
+    'client-one-weekly',
+    '2025-01-06 00:00:00',
+);
+$raceDeliveryId = (int)$pdo->query(
+    'SELECT id FROM business_report_deliveries WHERE archive_id=' . (int)$raceArchive['id'],
+)->fetchColumn();
+$pdo->exec("CREATE TRIGGER report_inactivate_after_claim
+    AFTER INSERT ON business_report_delivery_attempts
+    WHEN NEW.delivery_id={$raceDeliveryId}
+    BEGIN
+      UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=11;
+    END");
+$finalBoundaryCalls = 0;
+report_throws(
+    'final pre-send recheck refuses an inactive event committed after lease claim',
+    BusinessReportGateException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        (int)$raceArchive['id'],
+        report_config(),
+        function () use (&$finalBoundaryCalls): array {
+            $finalBoundaryCalls++;
+            return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+        },
+        $now,
+    ),
+    'inactive',
+);
+report_check(
+    'final inactive recheck crosses no transport boundary and retains conservative lease evidence',
+    $finalBoundaryCalls === 0
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_deliveries WHERE id={$raceDeliveryId}",
+        )->fetchColumn() === 'sending'
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_delivery_attempts WHERE delivery_id={$raceDeliveryId}",
+        )->fetchColumn() === 'started',
+);
+$pdo->exec('DROP TRIGGER report_inactivate_after_claim');
+$pdo->exec("DELETE FROM business_report_delivery_attempts WHERE delivery_id={$raceDeliveryId}");
+$pdo->exec("DELETE FROM business_report_deliveries WHERE id={$raceDeliveryId}");
+$pdo->exec('DELETE FROM business_report_archives WHERE id=' . (int)$raceArchive['id']);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE client_id=11");
+$pdo->exec("DELETE FROM suite_customer_sync_bindings WHERE client_id=11");
 
 // Definition v1 promised the original approved-time model. It may honor the
 // generated-at cutoff and tenant/client scope, but it must never silently

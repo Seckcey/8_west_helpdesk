@@ -156,6 +156,9 @@ function managed_customer_activation_evidence(array $source): array
 {
     $expectedKeys = [
         'schema_version', 'customer_id', 'source_version', 'customer_receipt_id',
+        'customer_status', 'lifecycle_version', 'lifecycle_transition_id',
+        'lifecycle_action', 'lifecycle_evidence_sha256', 'identity_tenant_status',
+        'identity_oauth_session_version', 'lifecycle_owned',
         'tenant_key', 'tenant_slug', 'contact_version', 'recipient_email', 'generated_at_db',
         'request_nonce_sha256', 'response_sha256',
     ];
@@ -166,6 +169,17 @@ function managed_customer_activation_evidence(array $source): array
         || $source['source_version'] < 1
         || !is_string($source['customer_receipt_id'] ?? null)
         || preg_match('/\A[0-9a-f]{64}\z/D', $source['customer_receipt_id']) !== 1
+        || ($source['customer_status'] ?? null) !== 'active'
+        || ($source['lifecycle_version'] ?? null) !== 1
+        || !is_int($source['lifecycle_transition_id'] ?? null)
+        || $source['lifecycle_transition_id'] < 1
+        || !in_array($source['lifecycle_action'] ?? null, ['observed_active', 'restored'], true)
+        || !is_string($source['lifecycle_evidence_sha256'] ?? null)
+        || preg_match('/\A[0-9a-f]{64}\z/D', $source['lifecycle_evidence_sha256']) !== 1
+        || ($source['identity_tenant_status'] ?? null) !== 'active'
+        || !is_int($source['identity_oauth_session_version'] ?? null)
+        || $source['identity_oauth_session_version'] < 1
+        || ($source['lifecycle_owned'] ?? null) !== false
         || !is_string($source['tenant_key'] ?? null)
         || preg_match('/\Aewid-t[1-9][0-9]{0,9}\z/D', $source['tenant_key']) !== 1
         || !is_string($source['tenant_slug'] ?? null)
@@ -260,6 +274,12 @@ function managed_customer_activation_candidates(PDO $pdo, array $config): array
                AND client.id = binding.client_id
              WHERE binding.status = 'active'
                AND binding.customer_id IN ({$placeholders})
+               AND NOT EXISTS (
+                   SELECT 1 FROM suite_customer_sync_events inactive_event
+                    WHERE inactive_event.tenant_id = binding.tenant_id
+                      AND inactive_event.binding_id = binding.id
+                      AND inactive_event.status = 'inactive'
+               )
                AND NOT EXISTS (
                    SELECT 1
                      FROM managed_customer_activation_receipts receipt
@@ -439,6 +459,16 @@ function managed_customer_activation_apply(
         ) {
             throw new ManagedCustomerActivationGateException(
                 'The exact active Milepost customer binding changed before activation.',
+            );
+        }
+        $inactiveHistory = $pdo->prepare(
+            "SELECT COUNT(*) FROM suite_customer_sync_events
+              WHERE tenant_id = ? AND binding_id = ? AND status = 'inactive'"
+        );
+        $inactiveHistory->execute([$candidateTenantId, $candidateBindingId]);
+        if ((int)$inactiveHistory->fetchColumn() !== 0) {
+            throw new ManagedCustomerActivationGateException(
+                'Managed-customer activation cannot clear a prior inactive lifecycle latch.',
             );
         }
 
