@@ -1,0 +1,8 @@
+# Safeharbor archived business reports. Managed only by
+# deploy/manage-business-report-scheduler.sh after the dedicated-sender canary.
+# The PHP runner remains inert while both protected execution gates are false.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+*/5 * * * * www-data /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh

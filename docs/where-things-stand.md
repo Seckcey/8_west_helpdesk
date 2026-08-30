@@ -39,9 +39,9 @@ If you change what is live, change this page in the same PR.
 | Append-only approved-time adjustment slips | **Development candidate only on `codex/time-approval-adjustments-20260829`; not merged, migrated, or deployed.** Owners/admins add numbered correction slips while original approvals remain immutable. Migration 020 is not applied. |
 | Approved time → Coastmark draft lines | **Version 2 is deployed dark; correction-safe version 3 is local review work only.** The live releases are Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`; both gates are off and production has zero mappings/imports/draft lines. This isolated branch adds durable Safeharbor claims/receipts, explicit status recovery, and chained correction/reversal facts. It is not pushed, merged, migrated, deployed, configured, or enabled. The permanent 8 West IT master UUID stays hard-blocked. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark v2 sender/receiver remain default-off; correction-safe v3 is source-only and both new claim/send gates default off. The portal is enabled only for the Lifestyle canary; basic authenticated access passed, but the deployed experience remains summary-only. Report generation/delivery are off and no scheduler exists. Existing service-intake gates remain live. |
+| Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark v2 sender/receiver remain default-off; correction-safe v3 is source-only and both new claim/send gates default off. The portal is enabled only for the Lifestyle canary; basic authenticated access passed, but the deployed experience remains summary-only. Report generation/delivery are off; a reviewed default-off scheduler bundle now exists in source but is not installed. Existing service-intake gates remain live. |
 | Customer portal (Phase 5A live; Phase 5B source-only) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing and a fresh authenticated Lifestyle session passed; `support.8westit.com/portal` is 404. Frankie rejected the read-only summary experience as not useful. Phase 5B create/detail/reply work is isolated on `codex/customer-portal-useful-20260829` and is not merged or deployed. It fails closed on all merged history, and staff merge now refuses cross-customer tickets; a Lifestyle data audit/reset remains a release gate. |
-| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`; on 2026-08-29 Frankie separately confirmed the matching Lifestyle report arrived in the test inbox. Generation/delivery are off, `canary_only` is true, and no scheduler exists. The new `reports@8westit.com` shared mailbox exists but was not the proven sender for this receipt. |
+| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie confirmed the exact archive-3 report reached the recipient inbox. Generation/delivery are off, `canary_only` is true, and the new default-off scheduler operations bundle is source-only, not installed. The new `reports@8westit.com` sender still needs its own canary. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Client-scoped 8 West ID report contacts | **Live through PR #68 / merge `7bf63ed` and migration 019**: client 14 has one exact 8 West ID binding and immutable contact snapshot. Both contact endpoints are back off after preparation; only the recipient digest is recorded. |
 | Lifestyle identity replacement | **Enabled safely**: replacement subject `t4u10` is active; predecessor `t4u7` is permanently inactive, revoked, and quarantined. Deployed Coastmark merge `c9f4409` fails closed on a fresh signed revocation feed before any SSO write/reactivation. |
@@ -554,9 +554,21 @@ its attempt is terminal `uncertain` with Graph HTTP 404 and
 `graph_send_rejected`. Never retry either uncertain attempt. Archive 3
 (`8west-lifestyle-weekly-canary-v3`) has SHA-256
 `d404de18f59d1546f77fd38ec0ff5071b3194124184f8c903c3d8f989381a909`;
-its attempt is `submitted` with Graph HTTP 202 and `graph_accepted`. That is
-provider acceptance only, not inbox-delivery proof. Generation and delivery
-are off, `canary_only` is true, and no scheduler exists.
+its attempt is `submitted` with Graph HTTP 202 and `graph_accepted`. Frankie
+separately confirmed on 2026-08-29 that the archive-3 8 West Lifestyle report
+reached the recipient inbox. Its period was `2026-08-17T07:00:00Z` through
+`2026-08-24T07:00:00Z` (end exclusive), and its generation timestamp was
+`2026-08-29T03:27:01Z`. That closes recipient proof for archive 3 only.
+Generation and delivery are off, `canary_only` is true, and no scheduler is
+installed.
+
+`reports@8westit.com` now exists without human members. Safeharbor's app-only
+Graph submission does not need a human mailbox member, but archive 3 does not
+prove that new address was the sender. A new exact-sender canary is still
+required. A reviewed cron wrapper, template, and narrow install/verify/disable/
+uninstall tool now exist in source; normal deployment cannot install them, and
+activation requires separate recipient, dedicated-sender, and protected-gate
+attestations.
 
 The root-only Lifestyle canary record is
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`;
@@ -763,10 +775,10 @@ passed on 2026-08-29, while Phase 5B workflow acceptance remains open.
 Migration `013_business_reports.sql` was applied operator-first on 2026-08-26.
 Production has five exact tenant-scoped tables, 27 indexes, 15 foreign keys,
 15 checks, and 15 lifecycle/immutability triggers. It retains the earlier 8 West
-IT evidence and now also holds the Lifestyle logical schedule's three immutable
-versions, one verified archive, one delivery, and one terminal uncertain
-attempt. Latest Lifestyle version 3 is disabled. Generation and delivery are
-both disabled, and there is no server scheduler.
+IT evidence and the three controlled Lifestyle archive/delivery histories
+described above. The latest version of every Lifestyle canary schedule is
+disabled. Generation and delivery are both disabled, and no server scheduler
+is installed.
 Runtime `DELETE` remains limited to the eight inventoried legacy operational
 tables.
 
@@ -975,13 +987,13 @@ called out, and none may be satisfied by inventing customer or financial facts.
    keeping viewers read-only and notes, billing, AI, and endpoint control out.
    It still needs review, release approval, tenant-isolation/revocation/logout
    probes, and desktop/mobile acceptance.
-6. **The Lifestyle report canary has provider and inbox evidence, but remains
-   stopped.** Three archives are verified and every latest schedule version is
-   disabled. Attempts 1 and 2 are terminal `uncertain` and must never be
-   retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie
-   separately confirmed the matching report arrived. A future scheduled run
-   still needs the reviewed scheduler release and sender canary before any
-   allowlist is widened.
+6. **The existing Lifestyle report canary is complete, but the dedicated
+   sender canary is not.** Archive 3 has Graph acceptance plus Frankie-confirmed
+   inbox receipt; attempts 1 and 2 remain terminal `uncertain` and must never be
+   retried. All schedules and both execution gates remain off. Before the
+   source-only scheduler bundle can be installed or activated, a new archive
+   must separately prove `reports@8westit.com` as sender, Graph acceptance, and
+   recipient receipt under an authorized canary window.
 7. **The correction-safe Coastmark seam still needs a Coastmark agreement and
    mapping.** Durable version-3 claims, receipts, status recovery, and
    correction/reversal events are implemented in isolated branches, but no

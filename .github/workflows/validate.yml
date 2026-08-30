@@ -126,7 +126,10 @@ jobs:
       - name: Test customer portal ticket workflow
         run: php app/tests/portal_ticket_workflow_test.php
       - name: Test scheduled archived business reports
-        run: php app/tests/business_reports_test.php
+        run: |
+          bash -n app/cron/run_business_reports.sh
+          bash -n deploy/manage-business-report-scheduler.sh
+          php app/tests/business_reports_test.php
       - name: Test 8 West ID report-contact client contract
         run: php app/tests/id_report_contacts_test.php
       - name: Test Milepost customer-sync contract

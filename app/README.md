@@ -121,6 +121,9 @@ tests/                     CLI contract + scratch-MySQL integration tests —
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
 cron/business_reports.php  independently gated report generation + one-attempt
                            Graph submission; deliberately not mail_queue
+cron/run_business_reports.sh
+                           exact www-data/PHP/workdir wrapper with journal/syslog
+                           evidence; scheduler installation remains separate
 cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
 cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
@@ -245,11 +248,12 @@ public/                    Apache docroot (page-per-file, like Milepost)
   exact weekly aggregate archives. Both generation and delivery default off;
   exact schedule/tenant/client/recipient allowlists and `canary_only` apply.
   A Graph 202 means provider-submitted, not recipient-delivered, and ambiguous
-  delivery is terminal without automatic retry. Production has migrations 013,
-  017, and 019 plus three controlled Lifestyle archives: two attempts are
-  terminal `uncertain`, while the third is Graph-accepted/submitted but has no
-  inbox confirmation. Every Lifestyle schedule is disabled, both execution
-  gates are off, `canary_only` is true, and no server scheduler exists.
+  delivery is terminal without automatic retry. The controlled Lifestyle
+  archive 3 now has separate recipient-inbox confirmation, while archives 1 and
+  2 remain terminal `uncertain`. Both execution gates and every Lifestyle
+  schedule remain off. A default-off scheduler wrapper/template/manager exists
+  in source but is not installed; the new dedicated report sender needs its own
+  canary before activation.
   See `docs/business-reports-contract.md`.
 - ID-backed report onboarding: no-write new-customer
   `plan-customer-from-id`, `prepare-from-id`, historical

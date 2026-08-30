@@ -585,24 +585,39 @@ Deploy code only after the migration and grant postflight. Keep the protected
 fresh environment. The current controlled 8 West IT canary is the explicit
 exception: its schedule/tenant/client/recipient allowlists each contain one
 exact value while generation and delivery remain false. The deploy script does
-not install a scheduler. After one explicitly chosen recipient canary has
-passed dry-run, archive, provider-submission, and separate recipient-
-confirmation gates, install the reviewed cron entry for
-`app/cron/business_reports.php`; observe one scheduled weekly period before
-expanding any allowlist. The exact contract, commands, failure semantics, and
-rollback are in `docs/business-reports-contract.md`.
+not install a scheduler. The scheduler bundle is intentionally separate:
+`app/cron/run_business_reports.sh` pins the `www-data` runtime and records every
+outcome through `logger`; `deploy/safeharbor-business-reports.cron` is the one
+reviewed entry; and `deploy/manage-business-report-scheduler.sh` installs it
+disabled, verifies exact root ownership/content, and provides narrow enable,
+disable, and uninstall operations. A normal deploy cannot activate it.
 
-The controlled 8 West Lifestyle canary did not pass provider submission or
-recipient confirmation. Schedule key `8west-lifestyle-weekly-canary-v1` has
-versions 1 disabled, 2 active, and latest version 3 disabled. One archive was
-verified at SHA-256
-`93bbdab3ac0d42e1da95fa93f8c393123749d7d1548f4a2afa62e95317a8b0ce`.
-Its only recipient value in release evidence is SHA-256
-`4f57f85e0af372af6b3b09bf48be8961a23fa0fc371f36a9b2d3a54ee4998ef8`.
-The single attempt is terminal `uncertain` with outcome
-`graph_not_trustworthy` and no provider HTTP status; never retry it. Generation
-and delivery are off, both contact endpoints are off, and no cron or systemd
-report scheduler is installed.
+The controlled 8 West Lifestyle history now has three archives. Attempts 1
+and 2 are terminal `uncertain` and must never be retried. Archive 3 returned
+Graph HTTP 202 / `graph_accepted`, and Frankie separately confirmed the report
+reached the recipient inbox on 2026-08-29. Its content covered
+`2026-08-17T07:00:00Z` through `2026-08-24T07:00:00Z` (end exclusive) and was
+generated at `2026-08-29T03:27:01Z`. Every Lifestyle schedule remains stopped;
+generation and delivery are off, both contact endpoints are off, and no report
+scheduler is installed.
+
+The new `reports@8westit.com` mailbox exists without human members. That is
+compatible with application-only Graph sending, but archive 3 does not prove
+that the new mailbox was the sender. Do not activate the scheduler until a new
+dedicated-sender canary has its own Graph-acceptance and recipient-confirmation
+evidence. After that separately authorized canary, stage and verify the
+scheduler without enabling it:
+
+```bash
+sudo bash manage-business-report-scheduler.sh preflight
+sudo bash manage-business-report-scheduler.sh install-disabled
+sudo bash manage-business-report-scheduler.sh verify disabled
+```
+
+Activation additionally requires the three explicit attestations documented
+in `docs/business-reports-contract.md`; observe one scheduled weekly period
+before expanding any allowlist. The exact contract, commands, failure
+semantics, and rollback are there.
 
 Root-only canary evidence is at
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`;

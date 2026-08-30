@@ -1983,6 +1983,81 @@ report_check(
     !str_contains($cronSource, '$now = time()')
         && substr_count($cronSource, 'time()') >= 4,
 );
+report_check(
+    'scheduled runner retains the database advisory lock',
+    str_contains($cronSource, "GET_LOCK('safeharbor_business_reports_v1', 0)")
+        && str_contains($cronSource, "RELEASE_LOCK('safeharbor_business_reports_v1')"),
+);
+
+$schedulerWrapper = file_get_contents(__DIR__ . '/../cron/run_business_reports.sh') ?: '';
+$schedulerTemplate = file_get_contents(__DIR__ . '/../../deploy/safeharbor-business-reports.cron') ?: '';
+$schedulerManager = file_get_contents(__DIR__ . '/../../deploy/manage-business-report-scheduler.sh') ?: '';
+$deploySource = file_get_contents(__DIR__ . '/../../deploy/deploy.sh') ?: '';
+report_check(
+    'scheduler template has one exact www-data wrapper invocation',
+    substr_count(
+        $schedulerTemplate,
+        '*/5 * * * * www-data /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh',
+    ) === 1
+        && !str_contains($schedulerTemplate, 'business_reports.php'),
+);
+report_check(
+    'scheduler wrapper pins the runtime identity executable workdir and protected config metadata',
+    str_contains($schedulerWrapper, "readonly EXPECTED_USER='www-data'")
+        && str_contains($schedulerWrapper, "readonly APP_ROOT='/srv/8west/apps/safeharbor/current'")
+        && str_contains($schedulerWrapper, "readonly PHP_BIN='/usr/bin/php'")
+        && str_contains($schedulerWrapper, '[[ "$(/usr/bin/id -un)" == "$EXPECTED_USER" ]]')
+        && str_contains($schedulerWrapper, '[[ "$(pwd -P)" == "$APP_ROOT" ]]')
+        && str_contains($schedulerWrapper, '[[ ! -w "$PROTECTED_CONFIG" ]]'),
+);
+report_check(
+    'scheduler wrapper preserves PHP failure status and emits journal or syslog evidence',
+    str_contains($schedulerWrapper, 'pipeline_status=("${PIPESTATUS[@]}")')
+        && str_contains($schedulerWrapper, '--tag "$LOG_TAG" --priority user.notice')
+        && str_contains($schedulerWrapper, '--tag "$LOG_TAG" --priority user.err')
+        && str_contains($schedulerWrapper, 'exit "$php_status"'),
+);
+report_check(
+    'scheduler operations install disabled and require all activation attestations',
+    str_contains($schedulerManager, "readonly CRON_ACTIVE='/etc/cron.d/safeharbor-business-reports'")
+        && str_contains($schedulerManager, "readonly CRON_DISABLED='/etc/cron.d/safeharbor-business-reports.disabled'")
+        && str_contains($schedulerManager, '/usr/bin/install -o root -g root -m 0644 -- "$CRON_SOURCE" "$CRON_DISABLED"')
+        && str_contains($schedulerManager, "reviewed-cron-source-has-unexpected-line")
+        && str_contains($schedulerManager, "reviewed-cron-source-schedule-count-invalid")
+        && str_contains($schedulerManager, '--confirm-recipient-canary-passed')
+        && str_contains($schedulerManager, '--confirm-dedicated-sender-canary-passed')
+        && str_contains($schedulerManager, '--confirm-protected-gates-reviewed'),
+);
+report_check(
+    'scheduler operations verify exact content and remove only exact scheduler files',
+    str_contains($schedulerManager, '/usr/bin/cmp -s -- "$CRON_SOURCE" "$target"')
+        && substr_count($schedulerManager, '/usr/bin/unlink -- "$CRON_ACTIVE"') === 1
+        && substr_count($schedulerManager, '/usr/bin/unlink -- "$CRON_DISABLED"') === 1
+        && !preg_match('/(?:^|[\s\/])rm(?:\s|$)/m', $schedulerManager)
+        && !str_contains($schedulerManager, '--recursive'),
+);
+report_check(
+    'scheduler emergency disable preserves a drifted active file outside cron',
+    str_contains($schedulerManager, "SCHEDULER_STATE=disabled-unverified-preserved")
+        && str_contains($schedulerManager, '/usr/bin/mv -- "$CRON_ACTIVE" "$CRON_DISABLED"')
+        && str_contains($schedulerManager, '[[ -e "$CRON_ACTIVE" || -L "$CRON_ACTIVE" ]]'),
+);
+report_check(
+    'scheduler operations never read config bytes or run report work',
+    !str_contains($schedulerWrapper, 'source "$PROTECTED_CONFIG"')
+        && !str_contains($schedulerManager, 'source "$PROTECTED_CONFIG"')
+        && !str_contains($schedulerManager, '/usr/bin/php "$REPORT_RUNNER"')
+        && str_contains($schedulerManager, '/usr/bin/php -l "$REPORT_RUNNER"')
+        && !str_contains($schedulerManager, '/usr/bin/curl')
+        && !str_contains($schedulerManager, '/usr/bin/wget')
+        && !str_contains($schedulerManager, '/usr/bin/mail')
+        && !str_contains($schedulerManager, '/usr/sbin/sendmail'),
+);
+report_check(
+    'normal application deploy does not install or activate the scheduler',
+    !str_contains($deploySource, '/etc/cron.d/safeharbor-business-reports')
+        && !str_contains($deploySource, 'manage-business-report-scheduler.sh'),
+);
 
 $deleteTables = [];
 $appRoot = dirname(__DIR__);

@@ -34,10 +34,21 @@ with outcome `graph_send_rejected`. Neither uncertain attempt may be retried.
 Archive 3, for key `8west-lifestyle-weekly-canary-v3`, has SHA-256
 `d404de18f59d1546f77fd38ec0ff5071b3194124184f8c903c3d8f989381a909`.
 Its one attempt returned Microsoft Graph HTTP 202 with outcome
-`graph_accepted` and is recorded as `submitted`. This proves only that
-Microsoft accepted the request; it is not inbox-delivery proof. Report
-generation and delivery remain off, `canary_only` remains true, and no cron or
-systemd report scheduler is installed.
+`graph_accepted` and is recorded as `submitted`. Frankie separately confirmed
+the report reached the recipient inbox on 2026-08-29. The received content was
+for 8 West Lifestyle, covered `2026-08-17T07:00:00Z` through
+`2026-08-24T07:00:00Z` (end exclusive), and was generated at
+`2026-08-29T03:27:01Z`. That closes recipient confirmation for archive 3; it
+does not authorize another send, reopen the disabled schedule, or prove which
+mailbox submitted it.
+
+The dedicated `reports@8westit.com` mailbox now exists and has no human
+members. Human membership is not required for Safeharbor's app-only Microsoft
+Graph submission, but this new sender still needs its own controlled canary:
+archive 3 receipt does not by itself prove that `reports@8westit.com` was the
+sender. Report generation and delivery remain off, `canary_only` remains true,
+and no cron or systemd report scheduler is installed. The reviewed scheduler
+bundle described below is source-only and default-off.
 
 Root-only Lifestyle canary evidence is at
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`.
@@ -442,6 +453,62 @@ archive created while delivery is off can be handled after an explicit
 delivery gate change. Installing a cron entry is a separate production action;
 the repository deploy does not edit crontab.
 
+The release-ready operations bundle is also deliberately separate from normal
+deployment:
+
+- `app/cron/run_business_reports.sh` refuses any user except `www-data`, pins
+  `/usr/bin/php` and the exact application working directory, checks only
+  protected-config metadata/readability, preserves the PHP exit status, and
+  records output in the host journal/syslog under
+  `safeharbor-business-reports`;
+- `deploy/safeharbor-business-reports.cron` invokes only that wrapper every
+  five minutes. The PHP schedule still decides whether a weekly period is due;
+- `deploy/manage-business-report-scheduler.sh install-disabled` installs the
+  reviewed root-owned file at a dot-containing Ubuntu cron filename, so no job
+  is scheduled; and
+- activation is a separate command that refuses unless the operator supplies
+  the exact recipient-canary, dedicated-sender-canary, and protected-gate
+  attestations. Disable and uninstall touch only the two exact scheduler paths.
+
+From an exact clean reviewed release, copy only the two `deploy/` scheduler
+files to one private temporary directory on the host, then run:
+
+```bash
+sudo bash manage-business-report-scheduler.sh preflight
+sudo bash manage-business-report-scheduler.sh install-disabled
+sudo bash manage-business-report-scheduler.sh verify disabled
+```
+
+Those commands are production writes and still require the normal release
+authorization. They do not run a report or read protected config bytes. Only
+after a new `reports@8westit.com` sender canary has separately passed provider
+submission and recipient confirmation may an authorized operator run:
+
+```bash
+sudo bash manage-business-report-scheduler.sh enable \
+  --confirm-recipient-canary-passed \
+  --confirm-dedicated-sender-canary-passed \
+  --confirm-protected-gates-reviewed
+sudo bash manage-business-report-scheduler.sh verify active
+sudo journalctl -t safeharbor-business-reports --since '15 minutes ago'
+```
+
+The fastest scheduler stop does not depend on application or database health:
+
+```bash
+sudo bash manage-business-report-scheduler.sh disable
+sudo bash manage-business-report-scheduler.sh verify disabled
+```
+
+After the disabled file has been preserved and reviewed, remove only the exact
+reviewed scheduler files with:
+
+```bash
+sudo bash manage-business-report-scheduler.sh uninstall \
+  --confirm-remove-exact-scheduler-files
+sudo bash manage-business-report-scheduler.sh verify absent
+```
+
 Controlled rollout order:
 
 1. deploy migration and code with both gates false and empty allowlists;
@@ -462,17 +529,19 @@ Controlled rollout order:
 ## Current controlled-canary checkpoint
 
 The earlier 8 West IT preparation remains immutable historical evidence. The
-separate 8 West Lifestyle customer lane has three controlled archives, and the
-latest version of every schedule key is disabled. Attempt 1 is terminal
-`uncertain` with `graph_not_trustworthy` and no provider HTTP status. Attempt 2
-is terminal `uncertain` with Graph HTTP 404 / `graph_send_rejected`. Neither
-may ever be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted` and
-is `submitted`; that is provider acceptance only, not inbox-delivery proof.
+separate 8 West Lifestyle customer canaries completed migration, contact,
+archive, one-attempt delivery, provider-acceptance, and archive-3 recipient
+confirmation checks described above. Attempts 1 and 2 remain terminal
+`uncertain` and must never be retried. Archive 3 remains terminal `submitted`;
+the inbox confirmation is acceptance evidence, not permission to resubmit it.
+The logical schedules are stopped, both report gates and the contact endpoints
+are off, and no scheduler is installed.
 
-Both report gates and the contact endpoints are off, `canary_only` is true,
-and no scheduler exists. A future canary requires a new archive and a
-separately reviewed authorization window. Scheduler installation or allowlist
-widening still requires recipient confirmation independent of Graph's 202.
+A future dedicated-sender canary requires a new archive and a separately
+reviewed authorization window. Its evidence must show both Graph acceptance
+and recipient confirmation while pinning `reports@8westit.com` as the exact
+sender. Only then may the source-only scheduler bundle be installed and
+activated under the sequence above.
 
 ## Rollback and retention
 
