@@ -221,6 +221,7 @@ function report_mysql_config(): array
         'schedule_keys' => [
             'weekly-one',
             'weekly-runtime',
+            'weekly-v2',
             'weekly-race-report',
             'weekly-race-adjustment',
         ],
@@ -576,6 +577,174 @@ report_mysql_throws('terminal delivery cannot be rewritten', PDOException::class
 report_mysql_throws('delivery evidence cannot be deleted', PDOException::class,
     fn() => $pdo->exec("DELETE FROM business_report_deliveries WHERE archive_id={$archiveId}"));
 
+// Publish the reviewed v2 bytes after v1 and prove the correction-aware
+// aggregate through native MySQL. Controlled session timestamps let the same
+// immutable history be viewed at two exact report cutoffs.
+$definitionV2 = business_report_publish_definition(
+    $pdo,
+    'one',
+    101,
+    'correction-aware definition',
+    BUSINESS_REPORT_CONTRACT_VERSION_V2,
+);
+report_mysql_check(
+    'native MySQL preserves immutable v1 and appends distinct v2 definition bytes',
+    (int) $definitionV2['definition']['version_no'] === 2
+        && business_report_definition_supported($definition['definition'])
+        && business_report_definition_supported($definitionV2['definition'])
+        && (int) $pdo->query(
+            "SELECT COUNT(*) FROM business_report_definition_versions
+              WHERE tenant_id=1 AND definition_key='weekly-client-service-summary'",
+        )->fetchColumn() === 2,
+);
+$v2Prepared = business_report_prepare_schedule(
+    $pdo,
+    'one',
+    'weekly-v2',
+    11,
+    (int) $definitionV2['definition']['id'],
+    'reports@example.test',
+    'UTC',
+    7,
+    '23:59:59',
+    true,
+    101,
+    'prepare v2 fixture',
+);
+business_report_transition_schedule(
+    $pdo,
+    'one',
+    'weekly-v2',
+    (int) $v2Prepared['schedule']['version_no'],
+    'active',
+    101,
+    'enable v2 fixture',
+    report_mysql_config(),
+);
+$v2Schedule = business_report_active_schedule($pdo, 'one', 'weekly-v2');
+$v2Window = business_report_next_window($pdo, $v2Schedule);
+$v2WorkedAt = (new DateTimeImmutable(
+    $v2Window['period_start'],
+    new DateTimeZone('UTC'),
+))->modify('+2 days')->format('Y-m-d\TH:i:s\Z');
+$v2WorkedAtDb = str_replace(['T', 'Z'], [' ', ''], $v2WorkedAt);
+$pdo->prepare("INSERT INTO tickets
+    (id,tenant_id,client_id,subject,status,priority,channel,sla_due_at,
+     service_goal_target_id,created_at,updated_at)
+    VALUES (1002,1,12,'Other client fixture','open','normal','phone',?,NULL,?,?)")
+    ->execute([$v2WorkedAtDb, $v2WorkedAtDb, $v2WorkedAtDb]);
+$v2Clock = time();
+$pdo->exec('SET timestamp = ' . $v2Clock);
+$v2EntryA = report_mysql_create_approved_time(
+    $pdo,
+    1001,
+    'suggestion.report-v2.entry-a.0001',
+    $v2WorkedAt,
+    60,
+);
+$v2EntryB = report_mysql_create_approved_time(
+    $pdo,
+    1001,
+    'suggestion.report-v2.entry-b.0001',
+    $v2WorkedAt,
+    30,
+);
+$v2EntryC = report_mysql_create_approved_time(
+    $pdo,
+    1001,
+    'suggestion.report-v2.entry-c.0001',
+    $v2WorkedAt,
+    20,
+);
+$otherClientEntry = report_mysql_create_approved_time(
+    $pdo,
+    1002,
+    'suggestion.report-v2.other-client.0001',
+    $v2WorkedAt,
+    999,
+);
+$pdo->exec('SET timestamp = ' . ($v2Clock + 10));
+time_entry_adjustment_create($pdo, 1, 101, 'owner', [
+    'entry_id' => (int) $v2EntryA['id'],
+    'adjustment_key' => 'adjustment.report-v2.entry-a.0001',
+    'expected_version' => 0,
+    'effective_minutes' => 50,
+    'effective_billable' => true,
+    'reason' => 'First private v2 fixture reason',
+]);
+time_entry_adjustment_create($pdo, 1, 101, 'owner', [
+    'entry_id' => (int) $v2EntryC['id'],
+    'adjustment_key' => 'adjustment.report-v2.entry-c.0001',
+    'expected_version' => 0,
+    'effective_minutes' => 20,
+    'effective_billable' => false,
+    'reason' => 'Private billable removal reason',
+]);
+time_entry_adjustment_create($pdo, 1, 101, 'owner', [
+    'entry_id' => (int) $otherClientEntry['id'],
+    'adjustment_key' => 'adjustment.report-v2.other-client.0001',
+    'expected_version' => 0,
+    'effective_minutes' => 1,
+    'effective_billable' => true,
+    'reason' => 'Other client reason',
+]);
+$pdo->exec('SET timestamp = ' . ($v2Clock + 20));
+time_entry_adjustment_create($pdo, 1, 102, 'admin', [
+    'entry_id' => (int) $v2EntryA['id'],
+    'adjustment_key' => 'adjustment.report-v2.entry-a.0002',
+    'expected_version' => 1,
+    'effective_minutes' => 40,
+    'effective_billable' => true,
+    'reason' => 'Second private v2 fixture reason',
+]);
+$v2AtFirstSlip = business_report_metrics(
+    $pdo,
+    $v2Schedule,
+    $v2Window['period_start'],
+    $v2Window['period_end'],
+    gmdate('Y-m-d H:i:s', $v2Clock + 15),
+);
+$v2AtSecondSlip = business_report_metrics(
+    $pdo,
+    $v2Schedule,
+    $v2Window['period_start'],
+    $v2Window['period_end'],
+    gmdate('Y-m-d H:i:s', $v2Clock + 30),
+);
+report_mysql_check(
+    'native MySQL v2 honors as-of cutoff client scope and one-row-per-entry totals',
+    $v2AtFirstSlip['approved_billable_time']['minutes'] === 80
+        && $v2AtFirstSlip['approved_billable_time']['original_approved_billable_minutes'] === 110
+        && $v2AtFirstSlip['approved_billable_time']['net_adjustment_minutes'] === -30
+        && $v2AtFirstSlip['approved_billable_time']['entries_with_adjustments_applied'] === 2
+        && $v2AtFirstSlip['approved_billable_time']['adjustment_slips_applied'] === 2
+        && $v2AtSecondSlip['approved_billable_time']['minutes'] === 70
+        && $v2AtSecondSlip['approved_billable_time']['net_adjustment_minutes'] === -40
+        && $v2AtSecondSlip['approved_billable_time']['entries_with_adjustments_applied'] === 2
+        && $v2AtSecondSlip['approved_billable_time']['adjustment_slips_applied'] === 3,
+);
+$v2Generated = business_report_generate(
+    $pdo,
+    'one',
+    'weekly-v2',
+    report_mysql_config(),
+    $testNow,
+    false,
+    true,
+);
+$v2Archive = $pdo->query(
+    'SELECT * FROM business_report_archives WHERE id=' . (int) $v2Generated['archive']['id'],
+)->fetch(PDO::FETCH_ASSOC);
+report_mysql_check(
+    'native MySQL archives v2 adjustment totals without exposing reasons',
+    is_array($v2Archive)
+        && $v2Generated['metrics']['approved_billable_time']['minutes'] === 70
+        && business_report_archived_content($v2Archive)['metrics'] === $v2Generated['metrics']
+        && !str_contains((string) $v2Archive['report_text'], 'private v2 fixture reason')
+        && !str_contains((string) $v2Archive['metrics_json'], 'private v2 fixture reason'),
+);
+$pdo->exec('SET timestamp = 0');
+
 // The app-like identity gets reads plus only the inserts/transition updates the
 // report runtime needs. It receives no DELETE or DDL privilege.
 $runtimeUser = 'report_runtime_ci';
@@ -735,6 +904,7 @@ $adjustmentQueuedOnTenant = $adjustmentAfterReportWorker['ready']
     && report_mysql_waiters($server, $database, 'tenants', 1);
 $adjustmentAbsentBeforeReportCommit = (int) $pdo->query(
     'SELECT COUNT(*) FROM time_entry_approval_adjustments WHERE tenant_id=1'
+        . ' AND time_entry_id=' . $reportFirstFixture['entry_id']
 )->fetchColumn() === 0;
 $scheduleHolder->commit();
 $reportFirstResult = report_mysql_finish_race_worker($reportFirstWorker);

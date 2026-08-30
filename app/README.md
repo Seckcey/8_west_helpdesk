@@ -55,8 +55,9 @@ lib/portal_auth.php        separate <=8h OIDC session, exact client roles,
 lib/portal_data.php        explicit binding lifecycle + tenant/client-bound,
                            ticket summaries, public conversation, create/reply
 lib/portal_render.php      independent dark customer chrome (no staff session)
-lib/business_reports.php   versioned weekly aggregates, oldest-period catch-up,
-                           immutable archive hashes, and one-attempt delivery truth
+lib/business_reports.php   immutable v1 plus correction-aware v2 weekly aggregates,
+                           oldest-period catch-up, exact archive hashes, and
+                           one-attempt delivery truth
 lib/id_report_contacts.php operator-only exact-host/HMAC 8 West ID contact
                            snapshot client with explicit tenant/client maps;
                            never loaded by cron or report runs

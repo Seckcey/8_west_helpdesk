@@ -50,6 +50,12 @@ sender. Report generation and delivery remain off, `canary_only` remains true,
 and no cron or systemd report scheduler is installed. The reviewed scheduler
 bundle described below is source-only and default-off.
 
+Definition version 2 is also source-only. It adds a reviewed, distinct contract
+for append-only approved-time adjustments; it has not been published, scheduled,
+generated, delivered, merged, migrated, configured, or deployed in production.
+Existing definition-v1 rows, schedules, archives, and delivery evidence remain
+immutable.
+
 Root-only Lifestyle canary evidence is at
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`.
 The canary receipt SHA-256 is
@@ -199,9 +205,9 @@ tenant/client window contains an adjustment created by `generated_at` for an
 otherwise applicable approved entry. Tenant, client, period, review-time, and
 generated-time cutoffs are all exact. Existing archives remain byte-frozen.
 A copied v1 contract stored under a later definition ordinal is unsupported
-and is refused during both schedule preparation and active reads. A future
-definition v2 must publish new reviewed contract bytes before archived reports
-may count effective adjusted facts.
+and is refused during both schedule preparation and active reads. Definition v2
+below supplies distinct reviewed bytes; only a schedule pinned to that exact v2
+row may count effective adjusted facts.
 
 Persisted generation locks the exact tenant row before any schedule row or
 metric read. Adjustment creation uses that same tenant-first serialization
@@ -219,6 +225,42 @@ encoded once, stored as exact `LONGTEXT` bytes under `JSON_VALID`, and hashed
 together with the exact text report. MySQL triggers verify the hash, report
 scope, definition, client snapshot, period, and generated timestamp before an
 archive can be inserted. Definitions, schedules, and archives are insert-only.
+
+## Definition version 2
+
+Version 2 retains every version-1 ticket, first-response, service-goal, CSAT,
+window, isolation, archive, and delivery rule. It changes only the approved
+billable operational-time interpretation:
+
+- applicable entries are still limited to the exact tenant/client, worked-at
+  window, `approval_status='approved'`, and `reviewed_at <= generated_at`;
+- for each applicable entry, the report selects the highest append-only
+  adjustment version whose `created_at <= generated_at`; when none exists it
+  uses the immutable approved parent facts;
+- each approved entry contributes at most once. Older slips remain evidence but
+  never add their minutes to the total;
+- the effective billable total is accompanied by original approved billable
+  minutes, the signed net billable-minute change, the number of entries whose
+  adjusted interpretation was used, and the number of applicable slips; and
+- adjustment reasons, actor identity, notes, rates, tax, invoice/export state,
+  ticket content, and other private detail are not selected or rendered.
+
+The generated-at cutoff makes a report reproducible: a later slip cannot rewrite
+an existing archive, while a later archive may truthfully use that newer slip.
+Persisted generation retains the same tenant-first lock shared with adjustment
+creation, so the report and a concurrent slip cannot pass each other invisibly.
+The archive envelope remains schema version 1, which preserves migration 013's
+existing database guard. Definition version 2 binds the additive correction
+summary arithmetic and exact definition hash
+(`79006660420a6f541e2eaf62f07a61147c751a163992690807580bec18ae05bc`).
+Definition-v1 JSON/text bytes and archive validation remain
+supported unchanged.
+
+Definitions must be published in order. Re-publishing the exact same version is
+idempotent; skipping v1, copying v1 bytes into ordinal 2, or using an unknown
+ordinal fails closed. Existing v1 logical schedule keys cannot change their
+definition, so every new correction-aware schedule uses a new key pinned
+explicitly to v2.
 
 ## Delivery truth and state machine
 
@@ -382,7 +424,12 @@ Plan and prepare without sending:
 
 ```bash
 php app/db/manage_business_reports.php publish-definition \
-  --tenant-slug=TENANT --actor-user-id=USER --reason='Publish reviewed v1'
+  --tenant-slug=TENANT --definition-version=1 \
+  --actor-user-id=USER --reason='Publish reviewed v1'
+
+php app/db/manage_business_reports.php publish-definition \
+  --tenant-slug=TENANT --definition-version=2 \
+  --actor-user-id=USER --reason='Publish correction-aware reviewed v2'
 
 php app/db/manage_business_reports.php prepare-from-id \
   --tenant-slug=TENANT --schedule-key=KEY --client-id=CLIENT \

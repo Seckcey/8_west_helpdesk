@@ -570,6 +570,8 @@ $definition = business_report_publish_definition($pdo, 'one', 101, 'initial cont
 report_check('definition v1 publishes exact immutable bytes',
     $definition['action'] === 'created'
     && (int)$definition['definition']['version_no'] === 1
+    && business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V1)
+        === '04a3293766fadb0f665e20c68703d3378a71feba828b9f82c4e73181dbb3afd5'
     && hash_equals(
         (string)$definition['definition']['contract_sha256'],
         hash('sha256', (string)$definition['definition']['contract_json']),
@@ -622,6 +624,47 @@ $pdo->exec("DELETE FROM business_report_schedule_versions
   WHERE tenant_id=1 AND schedule_key='unsupported-definition-v2'");
 $pdo->exec("DELETE FROM business_report_definition_versions
   WHERE tenant_id=1 AND id={$copiedDefinitionId}");
+
+report_throws(
+    'definition v2 cannot skip an absent v1 predecessor',
+    BusinessReportConflictException::class,
+    fn() => business_report_publish_definition($pdo, 'two', 201, 'out of order v2', 2),
+    'exact version order',
+);
+$definitionV2 = business_report_publish_definition(
+    $pdo,
+    'one',
+    101,
+    'correction-aware contract',
+    BUSINESS_REPORT_CONTRACT_VERSION_V2,
+);
+report_check(
+    'definition v2 publishes distinct reviewed bytes after immutable v1',
+    $definitionV2['action'] === 'created'
+        && (int) $definitionV2['definition']['version_no'] === 2
+        && business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V2)
+            === '79006660420a6f541e2eaf62f07a61147c751a163992690807580bec18ae05bc'
+        && !hash_equals(
+            (string) $definition['definition']['contract_sha256'],
+            (string) $definitionV2['definition']['contract_sha256'],
+        )
+        && business_report_definition_supported($definition['definition'])
+        && business_report_definition_supported($definitionV2['definition']),
+);
+report_check(
+    'definition v2 publication is idempotent without replacing v1',
+    business_report_publish_definition($pdo, 'one', 102, 'same v2', 2)['action'] === 'ignored'
+        && (int) $pdo->query(
+            "SELECT COUNT(*) FROM business_report_definition_versions
+              WHERE tenant_id=1 AND definition_key='weekly-client-service-summary'",
+        )->fetchColumn() === 2,
+);
+report_throws(
+    'unknown definition version is refused before publication',
+    BusinessReportValidationException::class,
+    fn() => business_report_publish_definition($pdo, 'one', 101, 'bad v3', 3),
+    'unsupported',
+);
 
 $prepared = business_report_prepare_schedule(
     $pdo, 'one', 'client-one-weekly', 11, (int)$definition['definition']['id'],
@@ -1652,6 +1695,137 @@ report_check(
         && hash_equals((string)$reloaded['content_sha256'], (string)$generated['archive']['content_sha256']),
 );
 
+// Definition v2 uses one effective row per approved entry. Multiple immutable
+// slips are evidence, not additional time, and only slips visible at the exact
+// generated-at cutoff may affect the total.
+$time->execute([8,1,12,500,'other client adjusted note',1,'approved','2026-08-12 15:00:00','2026-08-12 16:00:00']);
+$time->execute([9,1,11,40,'multi-adjusted private note',1,'approved','2026-08-12 16:00:00','2026-08-12 17:00:00']);
+$pdo->exec("INSERT INTO time_entry_approval_adjustments VALUES
+    (4,1,9,'adjustment:multi-one',1,30,1,'First private reason',101,'2026-08-24 00:00:00'),
+    (5,1,9,'adjustment:multi-two',2,20,1,'Second private reason',102,'2026-08-25 00:00:00'),
+    (6,1,8,'adjustment:other-client',1,1,1,'Other client reason',101,'2026-08-25 00:00:00'),
+    (7,1,7,'adjustment:after-cutoff',2,0,0,'After cutoff reason',102,'2026-08-26 13:00:00')");
+$v2Config = report_config([
+    'schedule_keys' => ['client-one-weekly', 'client-one-weekly-v2'],
+]);
+$preparedV2 = business_report_prepare_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v2',
+    11,
+    (int) $definitionV2['definition']['id'],
+    'reports@example.test',
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'prepare correction-aware schedule',
+);
+$enabledV2 = business_report_transition_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v2',
+    (int) $preparedV2['schedule']['version_no'],
+    'active',
+    101,
+    'enable correction-aware schedule',
+    $v2Config,
+);
+$pdo->exec("UPDATE business_report_schedule_versions
+              SET created_at='2026-08-19 00:00:00' WHERE id=" . (int) $enabledV2['schedule']['id']);
+$v2Schedule = business_report_active_schedule($pdo, 'one', 'client-one-weekly-v2');
+$v2CutoffMetrics = business_report_metrics(
+    $pdo,
+    $v2Schedule,
+    '2026-08-10 00:00:00',
+    '2026-08-17 00:00:00',
+    '2026-08-26 12:00:00',
+);
+report_check(
+    'definition v2 selects the latest visible slip and counts every approved entry once',
+    $v2CutoffMetrics['schema_version'] === 1
+        && $v2CutoffMetrics['approved_billable_time'] === [
+            'minutes' => 105,
+            'original_approved_billable_minutes' => 130,
+            'net_adjustment_minutes' => -25,
+            'entries_with_adjustments_applied' => 2,
+            'adjustment_slips_applied' => 3,
+            'calculation' => 'each_approved_entry_once_using_latest_adjustment_at_generated_at_else_original',
+            'classification' => 'operational_approval_evidence_not_financial_status',
+        ],
+);
+$v2LaterMetrics = business_report_metrics(
+    $pdo,
+    $v2Schedule,
+    '2026-08-10 00:00:00',
+    '2026-08-17 00:00:00',
+    '2026-08-26 14:00:00',
+);
+report_check(
+    'definition v2 generated-at cutoff advances to the later zeroing slip without double counting',
+    $v2LaterMetrics['approved_billable_time']['minutes'] === 100
+        && $v2LaterMetrics['approved_billable_time']['original_approved_billable_minutes'] === 130
+        && $v2LaterMetrics['approved_billable_time']['net_adjustment_minutes'] === -30
+        && $v2LaterMetrics['approved_billable_time']['entries_with_adjustments_applied'] === 2
+        && $v2LaterMetrics['approved_billable_time']['adjustment_slips_applied'] === 4,
+);
+$v2Text = business_report_text($v2CutoffMetrics);
+report_check(
+    'definition v2 text clearly presents correction totals without reasons or financial claims',
+    str_contains($v2Text, 'after adjustments: 105 minutes (1.75 hours)')
+        && str_contains($v2Text, 'Original approved billable operational time: 130 minutes')
+        && str_contains($v2Text, 'Billable time net adjustment: -25 minutes')
+        && str_contains($v2Text, 'Approved-time entries adjusted: 2')
+        && str_contains($v2Text, 'Append-only adjustment slips applied: 3')
+        && str_contains($v2Text, 'Each approved time entry is counted once')
+        && !str_contains($v2Text, 'private reason')
+        && !str_contains($v2Text, '$')
+        && str_contains($v2Text, 'not a statement of export or invoice status'),
+);
+$v2Generated = business_report_generate(
+    $pdo,
+    'one',
+    'client-one-weekly-v2',
+    $v2Config,
+    $now,
+    false,
+    true,
+);
+$v2Archive = $pdo->query(
+    'SELECT * FROM business_report_archives WHERE id=' . (int) $v2Generated['archive']['id'],
+)->fetch(PDO::FETCH_ASSOC);
+report_check(
+    'definition v2 archives an adjusted period with immutable exact content',
+    is_array($v2Archive)
+        && $v2Generated['action'] === 'created'
+        && $v2Generated['metrics']['approved_billable_time']['minutes'] === 105
+        && business_report_archived_content($v2Archive)['metrics'] === $v2Generated['metrics'],
+);
+$invalidV2Metrics = $v2Generated['metrics'];
+$invalidV2Metrics['approved_billable_time']['net_adjustment_minutes'] = 999;
+$invalidV2Archive = $v2Archive;
+$invalidV2Archive['metrics_json'] = business_report_metrics_json($invalidV2Metrics);
+$invalidV2Archive['content_sha256'] = business_report_content_sha256_from_json(
+    $invalidV2Archive['metrics_json'],
+    (string) $invalidV2Archive['report_text'],
+);
+report_throws(
+    'archive reload refuses an internally inconsistent v2 correction summary',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content($invalidV2Archive),
+    'v2 adjustment summary',
+);
+business_report_transition_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v2',
+    (int) $enabledV2['schedule']['version_no'],
+    'disabled',
+    101,
+    'stop v2 fixture',
+);
+
 report_throws(
     'missing dedicated report sender is refused before the send boundary',
     BusinessReportGateException::class,
@@ -1983,6 +2157,16 @@ $source = file_get_contents(__DIR__ . '/../lib/business_reports.php') ?: '';
 foreach (['t.subject', 'm.body', 'time_entries.note', 'review_note', 'contacts ', 'attachments '] as $forbidden) {
     report_check("report query source excludes {$forbidden}", !str_contains($source, $forbidden));
 }
+$managerSource = file_get_contents(__DIR__ . '/../db/manage_business_reports.php') ?: '';
+report_check(
+    'operator publication requires an explicit supported definition version',
+    str_contains($managerSource, '--definition-version=1|2')
+        && str_contains(
+            $managerSource,
+            "report_cli_expect(\$options, ['tenant-slug', 'definition-version', 'actor-user-id', 'reason'])",
+        )
+        && str_contains($managerSource, "in_array(\$options['definition-version'], ['1', '2'], true)"),
+);
 
 $planStart = strpos($source, 'function business_report_plan_customer_schedule_from_id(');
 $prepareStart = strpos($source, 'function business_report_prepare_schedule(');

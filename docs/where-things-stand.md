@@ -41,7 +41,7 @@ If you change what is live, change this page in the same PR.
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark v2 sender/receiver remain default-off; correction-safe v3 is source-only and both new claim/send gates default off. The portal is enabled only for the Lifestyle canary; basic authenticated access passed, but the deployed experience remains summary-only. Report generation/delivery are off; a default-off full-artifact-bound scheduler bundle now exists in source but is not installed. Existing service-intake gates remain live. |
 | Customer portal (Phase 5A live; Phase 5B source-only) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing and a fresh authenticated Lifestyle session passed; `support.8westit.com/portal` is 404. Frankie rejected the read-only summary experience as not useful. Phase 5B create/detail/reply work is isolated on `codex/customer-portal-useful-20260829` and is not merged or deployed. It fails closed on all merged history, and staff merge now refuses cross-customer tickets; a Lifestyle data audit/reset remains a release gate. |
-| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie confirmed the exact archive-3 report reached the recipient inbox. Generation/delivery are off, `canary_only` is true, and the new default-off scheduler operations bundle is source-only, not installed. Its enable path binds the clean release, complete deployed app, immutable release marker, protected config, and exact canary tuple. The new `reports@8westit.com` sender still needs its own canary. |
+| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie confirmed the exact archive-3 report reached the recipient inbox. Generation/delivery are off, `canary_only` is true, and the new default-off scheduler operations bundle is source-only, not installed. A separate source-only definition v2 safely reports append-only approved-time adjustments once per entry; v1 and its archives remain immutable. Neither source-only addition is published or deployed. The new `reports@8westit.com` sender still needs its own canary. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Client-scoped 8 West ID report contacts | **Live through PR #68 / merge `7bf63ed` and migration 019**: client 14 has one exact 8 West ID binding and immutable contact snapshot. Both contact endpoints are back off after preparation; only the recipient digest is recorded. |
 | Lifestyle identity replacement | **Enabled safely**: replacement subject `t4u10` is active; predecessor `t4u7` is permanently inactive, revoked, and quarantined. Deployed Coastmark merge `c9f4409` fails closed on a fresh signed revocation feed before any SSO write/reactivation. |
@@ -478,6 +478,15 @@ versioned service-goal outcomes, approved billable operational minutes, and
 CSAT. They do not select ticket subjects, message bodies, contacts,
 attachments, technician/review notes, billing facts, endpoint controls, or AI
 output.
+
+A later source-only definition-v2 slice leaves all of that v1 history unchanged.
+It uses one latest adjustment visible at `generated_at` for each approved entry,
+counts the entry once, and separately shows original billable minutes, effective
+billable minutes, net change, adjusted-entry count, and applied-slip count. It
+does not select adjustment reasons or add billing, invoice, AI, or endpoint
+actions. New correction-aware schedules require a new key explicitly pinned to
+published v2 bytes. This code has not been merged, published, scheduled,
+generated, delivered, configured, migrated, or deployed in production.
 
 The source-only onboarding planner `plan-customer-from-id` proves one exact
 active Milepost customer UUID, its configured and authenticated 8 West ID
