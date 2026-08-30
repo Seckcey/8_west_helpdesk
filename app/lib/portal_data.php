@@ -434,11 +434,18 @@ function portal_report_archive_select_sql(): string
                    a.period_start, a.period_end, a.generated_at,
                    a.metrics_json, a.report_text, a.content_sha256,
                    t.slug AS tenant_slug,
+                   s.schedule_timezone,
                    d.definition_key, d.version_no AS definition_version_no,
                    d.report_type, d.contract_json, d.contract_sha256
               FROM business_report_archives a
               JOIN tenants t ON t.id = a.tenant_id
               JOIN clients c ON c.tenant_id = a.tenant_id AND c.id = a.client_id
+              JOIN business_report_schedule_versions s
+                ON s.tenant_id = a.tenant_id
+               AND s.id = a.schedule_version_id
+               AND s.schedule_key = a.schedule_key
+               AND s.client_id = a.client_id
+               AND s.definition_version_id = a.definition_version_id
               JOIN business_report_definition_versions d
                 ON d.tenant_id = a.tenant_id AND d.id = a.definition_version_id";
 }
@@ -466,6 +473,7 @@ function portal_report_archive_verified(array $row, int $tenantId, int $clientId
         business_report_archived_source_for_scope($metrics, [
             'tenant_slug' => (string)$row['tenant_slug'],
             'client_id' => $clientId,
+            'schedule_timezone' => (string)$row['schedule_timezone'],
         ]);
     } catch (BusinessReportException $error) {
         throw new PortalDataConflictException(

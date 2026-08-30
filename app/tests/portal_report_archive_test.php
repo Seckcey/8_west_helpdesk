@@ -126,6 +126,20 @@ function portal_report_insert_archive(
     $metrics = portal_report_metrics_fixture($tenantSlug, $clientId, $clientName, $start, $end);
     $json = business_report_metrics_json($metrics);
     $text = business_report_text($metrics);
+    $scheduleVersionId = ($tenantId * 1000) + $clientId;
+    $schedule = $pdo->prepare(
+        'INSERT INTO business_report_schedule_versions
+            (id,tenant_id,schedule_key,client_id,definition_version_id,schedule_timezone)
+         VALUES (?,?,?,?,?,?)'
+    );
+    $schedule->execute([
+        $scheduleVersionId,
+        $tenantId,
+        $scheduleKey,
+        $clientId,
+        $definitionId,
+        'America/Los_Angeles',
+    ]);
     $insert = $pdo->prepare(
         'INSERT INTO business_report_archives
             (tenant_id,client_id,schedule_key,schedule_version_id,definition_version_id,
@@ -136,7 +150,7 @@ function portal_report_insert_archive(
         $tenantId,
         $clientId,
         $scheduleKey,
-        $definitionId,
+        $scheduleVersionId,
         $definitionId,
         $start,
         $end,
@@ -158,6 +172,10 @@ $pdo->exec('CREATE TABLE business_report_definition_versions (
     id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, definition_key TEXT NOT NULL,
     version_no INTEGER NOT NULL, report_type TEXT NOT NULL, contract_json TEXT NOT NULL,
     contract_sha256 TEXT NOT NULL, UNIQUE(tenant_id,id))');
+$pdo->exec('CREATE TABLE business_report_schedule_versions (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, schedule_key TEXT NOT NULL,
+    client_id INTEGER NOT NULL, definition_version_id INTEGER NOT NULL,
+    schedule_timezone TEXT NOT NULL, UNIQUE(tenant_id,id))');
 $pdo->exec('CREATE TABLE business_report_archives (
     id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
     schedule_key TEXT NOT NULL, schedule_version_id INTEGER NOT NULL, definition_version_id INTEGER NOT NULL,
@@ -216,6 +234,15 @@ portal_report_expect('same provider cannot read another customer archive', Porta
     fn() => portal_report_archive($pdo, 1, 11, $otherClientArchiveId));
 portal_report_expect('different provider cannot read another tenant archive', PortalDataNotFoundException::class,
     fn() => portal_report_archive($pdo, 1, 11, $otherTenantArchiveId));
+$pdo->exec("UPDATE business_report_schedule_versions
+              SET schedule_timezone='UTC' WHERE id=1011");
+portal_report_expect(
+    'archive timezone that differs from its immutable schedule fails closed',
+    PortalDataConflictException::class,
+    fn() => portal_report_archive($pdo, 1, 11, $ownArchiveId),
+);
+$pdo->exec("UPDATE business_report_schedule_versions
+              SET schedule_timezone='America/Los_Angeles' WHERE id=1011");
 
 $context = [
     'identity' => ['display_name' => 'Customer User', 'role' => 'client_viewer'],
