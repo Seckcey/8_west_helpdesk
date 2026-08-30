@@ -58,7 +58,7 @@ if (getenv('SAFEHARBOR_COASTMARK_V3_RACE_WORKER') === '1') {
     if (!is_string($database)
         || preg_match('/\Asafeharbor_coastmark_v3_test_[0-9a-f]{12}\z/D', $database) !== 1
         || !is_string($entry) || !ctype_digit($entry)
-        || !is_string($suffix) || !in_array($suffix, ['a', 'b'], true)
+        || !is_string($suffix) || !in_array($suffix, ['a', 'b', 'c'], true)
     ) {
         fwrite(STDERR, "Race worker target refused.\n");
         exit(2);
@@ -210,7 +210,8 @@ try {
       is_active TINYINT NOT NULL,UNIQUE KEY uq_users_tenant_id(tenant_id,id)) ENGINE=InnoDB');
     $pdo->exec('CREATE TABLE suite_customer_sync_bindings(
       id BIGINT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED NOT NULL,client_id INT UNSIGNED NOT NULL,
-      customer_id CHAR(36) NOT NULL,status VARCHAR(16) NOT NULL) ENGINE=InnoDB');
+      customer_id CHAR(36) NOT NULL,status VARCHAR(16) NOT NULL,
+      UNIQUE KEY uq_binding_client(tenant_id,client_id)) ENGINE=InnoDB');
     $pdo->exec('CREATE TABLE time_entries(
       id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED NOT NULL,client_id INT UNSIGNED NOT NULL,
       ticket_id INT UNSIGNED NOT NULL,entry_key VARCHAR(64) NOT NULL,source VARCHAR(24) NOT NULL,
@@ -232,6 +233,8 @@ try {
       (501,1,11,901,'timer:mysql:000001','timer','2026-08-26 20:00:00',30,'note',1,
        'approved',101,102,'2026-08-26 20:05:00'),
       (502,1,11,902,'timer:race:0000001','timer','2026-08-26 20:00:00',45,'race',1,
+       'approved',101,102,'2026-08-26 20:05:00'),
+      (503,1,11,903,'timer:race:0000001','timer','2026-08-26 20:00:00',25,'binding race',1,
        'approved',101,102,'2026-08-26 20:05:00'),
       (504,1,11,904,'timer:internal:0004','timer','2026-08-26 20:00:00',20,'internal',0,
        'approved',101,102,'2026-08-26 20:05:00')");
@@ -285,6 +288,52 @@ try {
         && trim($resultA['stderr']) === '' && trim($resultB['stderr']) === ''
         && $ids[0] === $ids[1] && $replays === [false, true]
         && (int) $pdo->query('SELECT COUNT(*) FROM coastmark_time_export_claims WHERE time_entry_id=502')->fetchColumn() === 1);
+    $raceClaimId = (int) $pdo->query(
+        'SELECT id FROM coastmark_time_export_claims WHERE time_entry_id=502',
+    )->fetchColumn();
+    $statusLockName = 'safeharbor:cm-status:' . $raceClaimId;
+    $statusLock = $pdo->prepare('SELECT GET_LOCK(?,0)');
+    $statusLock->execute([$statusLockName]);
+    cm_v3_check('status owner acquires the cross-process MySQL advisory lock',
+        (int) $statusLock->fetchColumn() === 1);
+    $pdo->exec("INSERT INTO coastmark_time_export_receipts
+      (tenant_id,claim_id,operation_key,operation_kind,outcome,detail_code)
+      VALUES (1,{$raceClaimId},'safeharbor-op:11111111111111111111111111111111',
+              'status_started','checking','mysql_status_serialization')");
+    $statusContender = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
+    $contenderLock = $statusContender->prepare('SELECT GET_LOCK(?,0)');
+    $contenderLock->execute([$statusLockName]);
+    cm_v3_check('a second MySQL connection cannot overlap the active status check',
+        (int) $contenderLock->fetchColumn() === 0);
+    cm_v3_expect('database trigger rejects a second concurrent status check',
+        fn() => $pdo->exec("INSERT INTO coastmark_time_export_receipts
+          (tenant_id,claim_id,operation_key,operation_kind,outcome,detail_code)
+          VALUES (1,{$raceClaimId},'safeharbor-op:22222222222222222222222222222222',
+                  'status_started','checking','mysql_status_overlap')"),
+        'status transition is not permitted');
+    $statusUnlock = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+    $statusUnlock->execute([$statusLockName]);
+    $statusUnlock->fetchColumn();
+
+    // The worker's normal read sees the previously committed active binding.
+    // The DEFINER trigger then waits on this update and must reject the claim
+    // after the deactivation commits, closing the read-to-insert race without
+    // granting UPDATE or locking-read privileges to the runtime identity.
+    $bindingLocker = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
+    $bindingLocker->beginTransaction();
+    $bindingLocker->exec("UPDATE suite_customer_sync_bindings
+      SET status='inactive' WHERE tenant_id=1 AND client_id=11");
+    $bindingWorker = cm_v3_worker($database, 503, 'c');
+    usleep(250_000);
+    $bindingLocker->commit();
+    $bindingRace = cm_v3_finish($bindingWorker);
+    cm_v3_check('claim trigger closes an active-customer-binding deactivation race',
+        $bindingRace['exit'] !== 0
+        && str_contains($bindingRace['stderr'], 'active matching customer binding')
+        && (int) $pdo->query('SELECT COUNT(*) FROM coastmark_time_export_claims WHERE time_entry_id=503')
+            ->fetchColumn() === 0);
+    $pdo->exec("UPDATE suite_customer_sync_bindings
+      SET status='active' WHERE tenant_id=1 AND client_id=11");
 
     $server->exec("CREATE USER '{$runtimeUser}'@'%' IDENTIFIED BY '{$runtimePass}'");
     $runtimeCreated = true;
@@ -294,10 +343,19 @@ try {
     $server->exec("GRANT SELECT,INSERT ON {$quotedDatabase}.coastmark_time_export_claims TO '{$runtimeUser}'@'%'");
     $server->exec("GRANT SELECT,INSERT ON {$quotedDatabase}.coastmark_time_export_receipts TO '{$runtimeUser}'@'%'");
     $runtime = new PDO($serverDsn . ';dbname=' . $database, $runtimeUser, $runtimePass, $options);
-    $runtimeClaim = coastmark_time_export_claim(
+    $runtimeReplay = coastmark_time_export_claim(
         $runtime, '8west', 501, 'timer:mysql:000001', 102, cm_v3_config(),
     );
-    cm_v3_check('least-privilege runtime can read and exactly replay claims', $runtimeClaim['replayed']);
+    cm_v3_check('least-privilege runtime can read and exactly replay claims', $runtimeReplay['replayed']);
+    $runtimeClaim = coastmark_time_export_claim(
+        $runtime, '8west', 503, 'timer:race:0000001', 102, cm_v3_config(),
+        'safeharbor-time:dddddddddddddddddddddddddddddddd',
+    );
+    cm_v3_check('least-privilege runtime creates a brand-new claim through DEFINER guards',
+        !$runtimeClaim['replayed']
+        && (int) $runtimeClaim['claim']['time_entry_id'] === 503
+        && (int) $runtime->query('SELECT COUNT(*) FROM coastmark_time_export_claims WHERE time_entry_id=503')
+            ->fetchColumn() === 1);
     $runtimeAck = coastmark_time_export_send_claim(
         $runtime,
         (int) $runtimeClaim['claim']['id'],
@@ -319,8 +377,21 @@ try {
     );
     cm_v3_check('least-privilege runtime can append dispatch receipts',
         $runtimeAck['outcome'] === 'accepted'
-        && (int) $runtime->query('SELECT COUNT(*) FROM coastmark_time_export_receipts')
+        && (int) $runtime->query('SELECT COUNT(*) FROM coastmark_time_export_receipts WHERE claim_id=' .
+            (int) $runtimeClaim['claim']['id'])
             ->fetchColumn() === 2);
+    $runtimeStatusTransportCalls = 0;
+    $runtimeStatus = coastmark_time_export_status_claim(
+        $runtime,
+        (int) $runtimeClaim['claim']['id'],
+        cm_v3_config(),
+        function () use (&$runtimeStatusTransportCalls): array {
+            $runtimeStatusTransportCalls++;
+            return ['status' => 500, 'body' => 'must not run'];
+        },
+    );
+    cm_v3_check('least-privilege runtime can serialize and replay terminal status',
+        $runtimeStatus['outcome'] === 'accepted' && $runtimeStatusTransportCalls === 0);
     cm_v3_expect('least-privilege runtime cannot update claims',
         fn() => $runtime->exec("UPDATE coastmark_time_export_claims SET payload_sha256='"
             . str_repeat('0', 64) . "'"),

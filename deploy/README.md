@@ -741,9 +741,13 @@ INSERT: coastmark_time_export_claims, coastmark_time_export_receipts
 It must have no schema-wide grants and no `UPDATE`, `DELETE`, `CREATE`, `ALTER`,
 `DROP`, `INDEX`, `REFERENCES`, `TRIGGER`, or `GRANT OPTION`. Prove the dedicated
 identity can read one exact approved entry, insert and exactly replay a claim,
-and append a valid receipt. Prove the migration-owned triggers serialize the
-tenant/entry/claim race while claim/receipt update/delete and migration execution
-are denied. Do not
+and append a valid receipt. The proof must create a brand-new claim as the
+limited identity through the DEFINER trigger, not only replay a root-created
+row. It must also prove an in-flight customer-binding deactivation is rejected
+at trigger time and that the identity can use the per-claim status advisory
+lock without receiving broader table privileges. Prove the migration-owned
+triggers serialize the tenant/entry/binding/claim race while claim/receipt
+update/delete and migration execution are denied. Do not
 broaden privileges to make a failed proof pass.
 
 The controlled Lifestyle canary may create only a draft that remains unposted,

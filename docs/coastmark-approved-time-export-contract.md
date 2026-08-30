@@ -74,10 +74,13 @@ Migration `021_coastmark_time_export_v3.sql` adds two append-only tables:
 
 Claim creation is a short MySQL transaction. The least-privilege CLI performs
 ordinary reads; migration-owned triggers take the consistent exclusive lock
-order immediately before insert: tenant, time entry, actor, then
-claim/adjustment evidence. Adjustment creation uses that same prefix, so an
-adjustment and a claim cannot pass each other without granting the CLI update,
-delete, or table-lock authority.
+order immediately before insert: tenant, time entry, active customer binding,
+actor, then claim/adjustment evidence. The trigger rechecks that the locked
+binding is still active and exactly matches the payload's customer key.
+Adjustment creation uses the same tenant/time-entry prefix, so an
+adjustment, customer deactivation, and claim cannot pass each other without
+the database resolving their order. The CLI still needs no update, delete,
+locking-read, or table-lock authority.
 The claim captures only the next exact source version. An exact repeat returns
 the existing claim; changed facts or a broken predecessor chain fail closed.
 Database keys enforce one claim per tenant/entry/version and one event key.
@@ -132,7 +135,13 @@ php app/db/export_approved_time.php --status --claim-id=<claim id>
 Status sends only the service/version/tenant/event key/payload hash. Exact
 status is terminal success. Conflict requires a human. A signed 404 records
 `absent` and permits a later **explicit** resend; it does not retry by itself.
-An ambiguous status remains blocked.
+An ambiguous status remains blocked. One per-claim MySQL advisory lock spans
+the status HTTP request without holding a business-row transaction. A second
+worker cannot overlap it or append a newer `checking` receipt. If the worker
+connection dies, MySQL releases the advisory lock; after the fixed 35-second
+maximum request lease, another explicit status check may safely recover.
+The receipt trigger requires the inserting connection to own that exact lock
+and refuses a fresh `dispatching` or `checking` takeover.
 
 ## Coastmark correction behavior
 
