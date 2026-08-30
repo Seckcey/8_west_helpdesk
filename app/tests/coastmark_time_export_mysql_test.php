@@ -192,6 +192,14 @@ function cm_v3_guard_snapshot(PDO $pdo): string
                 ('coastmark_time_export_claims','coastmark_time_export_receipts')"
     )->fetchColumn();
 }
+function cm_v3_migration_lock_name(PDO $pdo): string
+{
+    $database = $pdo->query('SELECT DATABASE()')->fetchColumn();
+    if (!is_string($database) || $database === '') {
+        throw new RuntimeException('Migration lock test requires a selected database.');
+    }
+    return 'safeharbor:m021:' . substr(hash('sha256', $database), 0, 48);
+}
 /** @return array{process:resource,pipes:array<int,resource>} */
 function cm_v3_worker(string $database, int $entry, string $suffix): array
 {
@@ -291,12 +299,51 @@ try {
        'approved',101,102,'2026-08-26 20:05:00')");
 
     $migration = __DIR__ . '/../db/migrations/021_coastmark_time_export_v3.sql';
+
+    // A same-named unrelated table must survive untouched. The failed attempt
+    // may create the missing exact claims reference, producing the meaningful
+    // one-table interruption state that the following retry must recover.
+    $pdo->exec('CREATE TABLE safeharbor_m021_reference_receipts(
+      id INT PRIMARY KEY, sentinel VARCHAR(32) NOT NULL
+    ) ENGINE=InnoDB');
+    $pdo->exec("INSERT INTO safeharbor_m021_reference_receipts VALUES(7,'unrelated-preserve')");
+    cm_v3_expect(
+        'migration refuses an unowned populated same-name reference table',
+        fn() => cm_v3_apply($pdo, $migration),
+        'migration_021_reference_owner_failed',
+    );
+    cm_v3_check('unowned same-name reference bytes are preserved after refusal',
+        $pdo->query('SELECT sentinel FROM safeharbor_m021_reference_receipts WHERE id=7')
+            ->fetchColumn() === 'unrelated-preserve');
+    $pdo->exec('DROP TABLE safeharbor_m021_reference_receipts');
+
+    $pdo->exec("CREATE TABLE safeharbor_m021_reference_receipts(
+      id INT PRIMARY KEY, sentinel VARCHAR(32) NOT NULL
+    ) ENGINE=InnoDB COMMENT='safeharbor:migration:021:reference:receipts:v1'");
+    $pdo->exec("INSERT INTO safeharbor_m021_reference_receipts VALUES(8,'owned-nonempty')");
+    cm_v3_expect(
+        'migration refuses an owned but nonempty reference table',
+        fn() => cm_v3_apply($pdo, $migration),
+        'migration_021_reference_rows_not_empty',
+    );
+    cm_v3_check('owned nonempty reference evidence is preserved after refusal',
+        $pdo->query('SELECT sentinel FROM safeharbor_m021_reference_receipts WHERE id=8')
+            ->fetchColumn() === 'owned-nonempty');
+    $pdo->exec('DROP TABLE safeharbor_m021_reference_receipts');
+
     cm_v3_apply($pdo, $migration);
-    cm_v3_check('fresh migration creates two empty tables and six permanent triggers',
+    $migrationLockName = cm_v3_migration_lock_name($pdo);
+    $migrationConnectionId = (int) $pdo->query('SELECT CONNECTION_ID()')->fetchColumn();
+    cm_v3_check('fresh migration recovers one exact owned leftover and leaves only six permanent triggers',
         (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
           WHERE table_schema=DATABASE() AND table_name LIKE 'coastmark_time_export_%'")->fetchColumn() === 2
         && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.triggers
-          WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_cm_export_%'")->fetchColumn() === 6);
+          WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_cm_export_%'")->fetchColumn() === 6
+        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+          WHERE table_schema=DATABASE()
+            AND table_name LIKE 'safeharbor_m021_reference_%'")->fetchColumn() === 0
+        && (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName) . ") <=> {$migrationConnectionId}")
+            ->fetchColumn() === 0);
     $guardSnapshot = cm_v3_guard_snapshot($pdo);
     cm_v3_apply($pdo, $migration);
     $replayedGuardSnapshot = cm_v3_guard_snapshot($pdo);
@@ -317,15 +364,88 @@ try {
         fn() => cm_v3_apply($pdo, $migration));
     cm_v3_check('index drift is refused before any permanent guard is replaced',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    cm_v3_check('failed migration retains one owned lock and exact empty reference evidence',
+        (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName) . ") <=> CONNECTION_ID()")
+            ->fetchColumn() === 1
+        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+          WHERE table_schema=DATABASE()
+            AND table_name IN
+                ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+            AND table_comment LIKE 'safeharbor:migration:021:reference:%:v1'")->fetchColumn() === 2
+        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND event_object_table IN
+                ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')")->fetchColumn() === 12);
+
+    $pdo->exec('DROP TRIGGER trg_cm_ref_021_receipt_no_delete');
+    cm_v3_expect('exact owned partial reference-trigger state is restored before later drift refusal',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('same-connection failure retry does not reenter its advisory lock',
+        (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName) . ") <=> CONNECTION_ID()")
+            ->fetchColumn() === 1
+        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND event_object_table IN
+                ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')")->fetchColumn() === 12);
+
+    $pdo->exec('CREATE TABLE cm_v3_reference_dependent(
+      tenant_id INT UNSIGNED NOT NULL, claim_id BIGINT UNSIGNED NOT NULL,
+      CONSTRAINT fk_cm_v3_unexpected_reference FOREIGN KEY (tenant_id,claim_id)
+        REFERENCES safeharbor_m021_reference_claims(tenant_id,id)
+    ) ENGINE=InnoDB');
+    cm_v3_expect(
+        'migration refuses an unexpected dependent of its owned empty reference',
+        fn() => cm_v3_apply($pdo, $migration),
+        'migration_021_reference_dependency_failed',
+    );
+    cm_v3_check('unexpected dependent and referenced evidence survive refusal',
+        (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+          WHERE table_schema=DATABASE()
+            AND table_name IN
+                ('cm_v3_reference_dependent','safeharbor_m021_reference_claims')")->fetchColumn() === 2);
+    $pdo->exec('DROP TABLE cm_v3_reference_dependent');
+
+    $migrationContender = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
+    cm_v3_expect(
+        'a concurrent migration runner cannot enter while failed owner retains the lock',
+        fn() => cm_v3_apply($migrationContender, $migration),
+        'migration_021_advisory_lock_failed',
+    );
+    cm_v3_expect('a concurrent reference write is blocked during failed migration evidence retention',
+        fn() => $migrationContender->exec("INSERT INTO safeharbor_m021_reference_claims
+          (tenant_id,time_entry_id,source_version,event_key,predecessor_claim_id,
+           payload_sha256,payload_json,created_by_user_id)
+          VALUES (1,501,0,'safeharbor-time:99999999999999999999999999999999',NULL,'"
+            . str_repeat('9', 64)
+            . "','{\"client_key\":\"milepost-customer:11111111-1111-4111-8111-111111111111\"}',102)"));
     $pdo->exec('ALTER TABLE coastmark_time_export_claims
         ADD UNIQUE KEY uq_cm_export_claim_event (tenant_id,event_key)');
+    cm_v3_apply($pdo, $migration);
+    cm_v3_check('same-connection exact repair releases its single migration lock after postflight',
+        (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName) . ") <=> CONNECTION_ID()")
+            ->fetchColumn() === 0);
 
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         MODIFY response_status INT UNSIGNED NULL');
+    $failedRunner = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
     cm_v3_expect('migration refuses a receipt table with the wrong column type',
-        fn() => cm_v3_apply($pdo, $migration));
+        fn() => cm_v3_apply($failedRunner, $migration));
+    $failedRunnerId = (int) $failedRunner->query('SELECT CONNECTION_ID()')->fetchColumn();
     cm_v3_check('column drift is refused before any permanent guard is replaced',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    cm_v3_check('failed dedicated runner retains the connection-scoped migration lock',
+        (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName) . ")")
+            ->fetchColumn() === $failedRunnerId);
+    $failedRunner = null;
+    gc_collect_cycles();
+    $closeProbe = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
+    $closeProbeLock = $closeProbe->prepare('SELECT GET_LOCK(?,0)');
+    $closeProbeLock->execute([$migrationLockName]);
+    cm_v3_check('closing an aborted dedicated runner releases its retained migration lock',
+        (int) $closeProbeLock->fetchColumn() === 1);
+    $closeProbeUnlock = $closeProbe->prepare('SELECT RELEASE_LOCK(?)');
+    $closeProbeUnlock->execute([$migrationLockName]);
+    $closeProbeUnlock->fetchColumn();
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         MODIFY response_status SMALLINT UNSIGNED NULL');
 

@@ -3607,6 +3607,40 @@ DEALLOCATE PREPARE time_adjustment_schema_statement;
 -- --------------------------------------------------------
 -- Receipt-backed Coastmark v3 approved-time export.
 -- --------------------------------------------------------
+-- CREATE TABLE IF NOT EXISTS is only a convenience for a fresh install. It
+-- must never bless a same-named object whose columns, constraints, or storage
+-- engine have drifted. Serialize the complete migration before its first DDL.
+-- A failed statement intentionally retains this one connection-scoped lock;
+-- the migration runner must use a dedicated connection and close it on abort.
+-- A retry on the same connection recognizes (and never re-enters) its lock.
+SET @cm_m021_lock_name = CONCAT(
+  'safeharbor:m021:',
+  LEFT(SHA2(COALESCE(DATABASE(),''),256),48)
+);
+SET @cm_m021_lock_owner_before = IS_USED_LOCK(@cm_m021_lock_name);
+SET @cm_m021_lock_acquired = NULL;
+SET @cm_m021_lock_acquire_sql = IF(
+  @cm_m021_lock_owner_before <=> CONNECTION_ID(),
+  'SET @cm_m021_lock_acquired=1',
+  'SET @cm_m021_lock_acquired=GET_LOCK(@cm_m021_lock_name,0)'
+);
+PREPARE cm_export_statement FROM @cm_m021_lock_acquire_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+SET @cm_m021_lock_owned = (
+  DATABASE() IS NOT NULL
+  AND @cm_m021_lock_acquired=1
+  AND (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID())
+);
+SET @cm_m021_lock_sql = IF(
+  @cm_m021_lock_owned=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_021_advisory_lock_failed'
+);
+PREPARE cm_export_statement FROM @cm_m021_lock_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+
 CREATE TABLE IF NOT EXISTS coastmark_time_export_claims (
   id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   tenant_id            INT UNSIGNED NOT NULL,
@@ -3626,7 +3660,8 @@ CREATE TABLE IF NOT EXISTS coastmark_time_export_claims (
   UNIQUE KEY uq_cm_export_claim_version (tenant_id, time_entry_id, source_version),
   UNIQUE KEY uq_cm_export_claim_predecessor (tenant_id, predecessor_claim_id),
   KEY ix_cm_export_claim_actor (tenant_id, created_by_user_id, created_at, id),
-  CONSTRAINT fk_cm_export_claim_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_cm_export_claim_tenant FOREIGN KEY (tenant_id)
+    REFERENCES tenants (id),
   CONSTRAINT fk_cm_export_claim_entry FOREIGN KEY (tenant_id, time_entry_id)
     REFERENCES time_entries (tenant_id, id),
   CONSTRAINT fk_cm_export_claim_actor FOREIGN KEY (tenant_id, created_by_user_id)
@@ -3635,12 +3670,14 @@ CREATE TABLE IF NOT EXISTS coastmark_time_export_claims (
     REFERENCES coastmark_time_export_claims (tenant_id, id),
   CONSTRAINT ck_cm_export_claim_event_key
     CHECK (event_key REGEXP '^safeharbor-time:[0-9a-f]{32}$'),
-  CONSTRAINT ck_cm_export_claim_hash CHECK (payload_sha256 REGEXP '^[0-9a-f]{64}$'),
+  CONSTRAINT ck_cm_export_claim_hash
+    CHECK (payload_sha256 REGEXP '^[0-9a-f]{64}$'),
   CONSTRAINT ck_cm_export_claim_payload CHECK (JSON_VALID(payload_json)),
   CONSTRAINT ck_cm_export_claim_predecessor_shape
-    CHECK ((source_version=0 AND predecessor_claim_id IS NULL)
-        OR (source_version>0 AND predecessor_claim_id IS NOT NULL)),
-  CONSTRAINT ck_cm_export_claim_install_lock CHECK (0=1)
+    CHECK ((source_version = 0 AND predecessor_claim_id IS NULL)
+        OR (source_version > 0 AND predecessor_claim_id IS NOT NULL)),
+  -- Removed only after all three permanent guards are installed.
+  CONSTRAINT ck_cm_export_claim_install_lock CHECK (0 = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS coastmark_time_export_receipts (
@@ -3661,7 +3698,8 @@ CREATE TABLE IF NOT EXISTS coastmark_time_export_receipts (
   UNIQUE KEY uq_cm_export_receipt_operation (tenant_id, operation_key),
   KEY ix_cm_export_receipt_claim (tenant_id, claim_id, id),
   KEY ix_cm_export_receipt_outcome (tenant_id, outcome, created_at, id),
-  CONSTRAINT fk_cm_export_receipt_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  CONSTRAINT fk_cm_export_receipt_tenant FOREIGN KEY (tenant_id)
+    REFERENCES tenants (id),
   CONSTRAINT fk_cm_export_receipt_claim FOREIGN KEY (tenant_id, claim_id)
     REFERENCES coastmark_time_export_claims (tenant_id, id),
   CONSTRAINT ck_cm_export_receipt_operation_key
@@ -3673,26 +3711,23 @@ CREATE TABLE IF NOT EXISTS coastmark_time_export_receipts (
   CONSTRAINT ck_cm_export_receipt_detail
     CHECK (detail_code REGEXP '^[a-z][a-z0-9_]{2,63}$'),
   CONSTRAINT ck_cm_export_receipt_ack_shape CHECK (
-       (outcome='accepted' AND coastmark_event_id IS NOT NULL
-        AND invoice_id IS NOT NULL AND invoice_line_id IS NOT NULL)
-    OR (outcome='replayed' AND coastmark_event_id IS NOT NULL
-        AND invoice_id IS NOT NULL)
-    OR (outcome='manual_exception' AND coastmark_event_id IS NOT NULL
-        AND invoice_id IS NOT NULL AND invoice_line_id IS NULL)
+       (outcome = 'accepted'
+        AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL AND invoice_line_id IS NOT NULL)
+    OR (outcome = 'replayed'
+        AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL)
+    OR (outcome = 'manual_exception'
+        AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL AND invoice_line_id IS NULL)
     OR (outcome NOT IN ('accepted','replayed','manual_exception')
         AND coastmark_event_id IS NULL AND invoice_id IS NULL AND invoice_line_id IS NULL)
   ),
-  CONSTRAINT ck_cm_export_receipt_install_lock CHECK (0=1)
+  CONSTRAINT ck_cm_export_receipt_install_lock CHECK (0 = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- CREATE TABLE IF NOT EXISTS is only a convenience for a fresh install. It
--- must never bless a same-named object whose columns, constraints, or storage
--- engine have drifted. Prove the exact durable shape before replacing any
--- write guard.
-DROP TABLE IF EXISTS safeharbor_m021_reference_receipts;
-DROP TABLE IF EXISTS safeharbor_m021_reference_claims;
-
-CREATE TABLE safeharbor_m021_reference_claims (
+-- Reference objects are durable only so an interrupted statement-by-statement
+-- migration can be inspected and safely resumed. Their exact owner marker,
+-- empty state, dependencies, shape, and triggers are re-proved before either
+-- object is ever dropped.
+CREATE TABLE IF NOT EXISTS safeharbor_m021_reference_claims (
   id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   tenant_id            INT UNSIGNED NOT NULL,
   time_entry_id        INT UNSIGNED NOT NULL,
@@ -3726,9 +3761,10 @@ CREATE TABLE safeharbor_m021_reference_claims (
     CHECK ((source_version = 0 AND predecessor_claim_id IS NULL)
         OR (source_version > 0 AND predecessor_claim_id IS NOT NULL)),
   CONSTRAINT rc21_claim_install_lock CHECK (0 = 1)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='safeharbor:migration:021:reference:claims:v1';
 
-CREATE TABLE safeharbor_m021_reference_receipts (
+CREATE TABLE IF NOT EXISTS safeharbor_m021_reference_receipts (
   id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   tenant_id          INT UNSIGNED NOT NULL,
   claim_id           BIGINT UNSIGNED NOT NULL,
@@ -3769,44 +3805,166 @@ CREATE TABLE safeharbor_m021_reference_receipts (
         AND coastmark_event_id IS NULL AND invoice_id IS NULL AND invoice_line_id IS NULL)
   ),
   CONSTRAINT rc21_receipt_install_lock CHECK (0 = 1)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='safeharbor:migration:021:reference:receipts:v1';
+
+DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_reference_trigger_allowlist;
+CREATE TEMPORARY TABLE safeharbor_m021_reference_trigger_allowlist (
+  trigger_name       VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  event_object_table VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  event_manipulation VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  PRIMARY KEY (trigger_name)
+) ENGINE=MEMORY;
+INSERT INTO safeharbor_m021_reference_trigger_allowlist
+  (trigger_name,event_object_table,event_manipulation)
+VALUES
+  ('trg_cm_ref_021_claim_insert_swap','safeharbor_m021_reference_claims','INSERT'),
+  ('trg_cm_ref_021_claim_update_swap','safeharbor_m021_reference_claims','UPDATE'),
+  ('trg_cm_ref_021_claim_delete_swap','safeharbor_m021_reference_claims','DELETE'),
+  ('trg_cm_ref_021_receipt_insert_swap','safeharbor_m021_reference_receipts','INSERT'),
+  ('trg_cm_ref_021_receipt_update_swap','safeharbor_m021_reference_receipts','UPDATE'),
+  ('trg_cm_ref_021_receipt_delete_swap','safeharbor_m021_reference_receipts','DELETE'),
+  ('trg_cm_ref_021_claim_before_insert','safeharbor_m021_reference_claims','INSERT'),
+  ('trg_cm_ref_021_claim_no_update','safeharbor_m021_reference_claims','UPDATE'),
+  ('trg_cm_ref_021_claim_no_delete','safeharbor_m021_reference_claims','DELETE'),
+  ('trg_cm_ref_021_receipt_before_insert','safeharbor_m021_reference_receipts','INSERT'),
+  ('trg_cm_ref_021_receipt_no_update','safeharbor_m021_reference_receipts','UPDATE'),
+  ('trg_cm_ref_021_receipt_no_delete','safeharbor_m021_reference_receipts','DELETE');
+
+SET @cm_reference_entry_owned = (
+  SELECT COUNT(*)=2
+     AND COALESCE(SUM(
+       table_name='safeharbor_m021_reference_claims'
+       AND CAST(table_comment AS BINARY)=
+           CAST('safeharbor:migration:021:reference:claims:v1' AS BINARY)
+     ),0)=1
+     AND COALESCE(SUM(
+       table_name='safeharbor_m021_reference_receipts'
+       AND CAST(table_comment AS BINARY)=
+           CAST('safeharbor:migration:021:reference:receipts:v1' AS BINARY)
+     ),0)=1
+    FROM information_schema.tables
+   WHERE table_schema=DATABASE()
+     AND table_type='BASE TABLE'
+     AND table_name IN
+         ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+);
+SET @cm_reference_entry_empty = (
+  (SELECT COUNT(*) FROM safeharbor_m021_reference_claims)=0
+  AND (SELECT COUNT(*) FROM safeharbor_m021_reference_receipts)=0
+);
+SET @cm_reference_entry_dependencies_ok = (
+  (SELECT COUNT(*)
+     FROM information_schema.key_column_usage dependent
+    WHERE dependent.referenced_table_schema=DATABASE()
+      AND dependent.referenced_table_name IN
+          ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+      AND NOT (
+        dependent.table_schema=DATABASE()
+        AND (
+          (dependent.table_name='safeharbor_m021_reference_claims'
+           AND dependent.constraint_name='rf21_claim_predecessor'
+           AND ((dependent.ordinal_position=1
+                 AND dependent.column_name='tenant_id'
+                 AND dependent.referenced_column_name='tenant_id')
+             OR (dependent.ordinal_position=2
+                 AND dependent.column_name='predecessor_claim_id'
+                 AND dependent.referenced_column_name='id')))
+          OR
+          (dependent.table_name='safeharbor_m021_reference_receipts'
+           AND dependent.constraint_name='rf21_receipt_claim'
+           AND ((dependent.ordinal_position=1
+                 AND dependent.column_name='tenant_id'
+                 AND dependent.referenced_column_name='tenant_id')
+             OR (dependent.ordinal_position=2
+                 AND dependent.column_name='claim_id'
+                 AND dependent.referenced_column_name='id')))
+        )
+      ))=0
+  AND (SELECT COUNT(*)
+         FROM information_schema.view_table_usage
+        WHERE table_schema=DATABASE()
+          AND table_name IN
+              ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+  AND (SELECT COUNT(*)
+         FROM information_schema.routine_table_usage
+        WHERE table_schema=DATABASE()
+          AND table_name IN
+              ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+);
+SET @cm_reference_entry_triggers_ok = (
+  SELECT COUNT(*)=0
+    FROM information_schema.triggers live
+    LEFT JOIN safeharbor_m021_reference_trigger_allowlist allowed
+      ON CAST(allowed.trigger_name AS BINARY)=CAST(live.trigger_name AS BINARY)
+     AND CAST(allowed.event_object_table AS BINARY)=CAST(live.event_object_table AS BINARY)
+     AND CAST(allowed.event_manipulation AS BINARY)=CAST(live.event_manipulation AS BINARY)
+   WHERE live.trigger_schema=DATABASE()
+     AND (live.event_object_table IN
+             ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+          OR EXISTS (
+               SELECT 1
+                 FROM safeharbor_m021_reference_trigger_allowlist reserved
+                WHERE LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+          ))
+     AND (allowed.trigger_name IS NULL
+          OR live.action_timing<>'BEFORE'
+          OR live.action_orientation<>'ROW'
+          OR live.action_condition IS NOT NULL)
+);
+SET @cm_reference_entry_failure = CASE
+  WHEN NOT (@cm_m021_lock_owned <=> 1) THEN 'migration_021_advisory_lock_lost'
+  WHEN NOT (@cm_reference_entry_owned <=> 1) THEN 'migration_021_reference_owner_failed'
+  WHEN NOT (@cm_reference_entry_empty <=> 1) THEN 'migration_021_reference_rows_not_empty'
+  WHEN NOT (@cm_reference_entry_dependencies_ok <=> 1) THEN 'migration_021_reference_dependency_failed'
+  WHEN NOT (@cm_reference_entry_triggers_ok <=> 1) THEN 'migration_021_reference_trigger_state_failed'
+  ELSE NULL
+END;
+SET @cm_reference_entry_sql = IF(
+  @cm_reference_entry_failure IS NULL,
+  'DO 0',
+  CONCAT('SELECT * FROM information_schema.',@cm_reference_entry_failure)
+);
+PREPARE cm_export_statement FROM @cm_reference_entry_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
 
 DELIMITER $$
 -- Build the exact trigger answer key on migration-owned reference tables.
 -- MySQL serializes both the reference and live bodies on this same server;
 -- binary ACTION_STATEMENT hashes therefore preserve every quoted byte
 -- without depending on formatting differences between MySQL versions.
-CREATE TRIGGER trg_cm_ref_021_claim_insert_swap
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_insert_swap
 BEFORE INSERT ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
 END$$
-CREATE TRIGGER trg_cm_ref_021_claim_update_swap
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_update_swap
 BEFORE UPDATE ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
 END$$
-CREATE TRIGGER trg_cm_ref_021_claim_delete_swap
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_delete_swap
 BEFORE DELETE ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
 END$$
-CREATE TRIGGER trg_cm_ref_021_receipt_insert_swap
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_insert_swap
 BEFORE INSERT ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
 END$$
-CREATE TRIGGER trg_cm_ref_021_receipt_update_swap
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_update_swap
 BEFORE UPDATE ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
 END$$
-CREATE TRIGGER trg_cm_ref_021_receipt_delete_swap
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_delete_swap
 BEFORE DELETE ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
 END$$
-CREATE TRIGGER trg_cm_ref_021_claim_before_insert
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_before_insert
 BEFORE INSERT ON safeharbor_m021_reference_claims
 FOR EACH ROW
 BEGIN
@@ -3899,17 +4057,17 @@ BEGIN
   END IF;
   SET NEW.created_at=UTC_TIMESTAMP();
 END$$
-CREATE TRIGGER trg_cm_ref_021_claim_no_update
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_no_update
 BEFORE UPDATE ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export claims are immutable';
 END$$
-CREATE TRIGGER trg_cm_ref_021_claim_no_delete
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_no_delete
 BEFORE DELETE ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export claims cannot be deleted';
 END$$
-CREATE TRIGGER trg_cm_ref_021_receipt_before_insert
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_before_insert
 BEFORE INSERT ON safeharbor_m021_reference_receipts
 FOR EACH ROW
 BEGIN
@@ -3981,12 +4139,12 @@ BEGIN
   END IF;
   SET NEW.created_at=UTC_TIMESTAMP();
 END$$
-CREATE TRIGGER trg_cm_ref_021_receipt_no_update
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_no_update
 BEFORE UPDATE ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export receipts are immutable';
 END$$
-CREATE TRIGGER trg_cm_ref_021_receipt_no_delete
+CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_no_delete
 BEFORE DELETE ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export receipts cannot be deleted';
@@ -4480,7 +4638,221 @@ PREPARE cm_export_statement FROM @cm_export_preflight_sql;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
+-- Prove the receipt reference is individually disposable while the migration
+-- lock is still owned. This repeats the ownership/zero/dependency evidence at
+-- the destructive boundary instead of trusting an earlier observation.
+SET @cm_reference_cleanup_locked =
+  (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID());
+SET @cm_reference_cleanup_owned = (
+  SELECT COUNT(*)=2
+     AND COALESCE(SUM(
+       table_name='safeharbor_m021_reference_claims'
+       AND CAST(table_comment AS BINARY)=
+           CAST('safeharbor:migration:021:reference:claims:v1' AS BINARY)
+     ),0)=1
+     AND COALESCE(SUM(
+       table_name='safeharbor_m021_reference_receipts'
+       AND CAST(table_comment AS BINARY)=
+           CAST('safeharbor:migration:021:reference:receipts:v1' AS BINARY)
+     ),0)=1
+    FROM information_schema.tables
+   WHERE table_schema=DATABASE()
+     AND table_type='BASE TABLE'
+     AND table_name IN
+         ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+);
+SET @cm_reference_cleanup_empty = (
+  (SELECT COUNT(*) FROM safeharbor_m021_reference_claims)=0
+  AND (SELECT COUNT(*) FROM safeharbor_m021_reference_receipts)=0
+);
+SET @cm_reference_cleanup_shape = (
+  @cm_claim_table_ok=1
+  AND @cm_receipt_table_ok=1
+  AND @cm_claim_columns_ok=1
+  AND @cm_receipt_columns_ok=1
+  AND @cm_claim_indexes_ok=1
+  AND @cm_receipt_indexes_ok=1
+  AND @cm_claim_fks_ok=1
+  AND @cm_receipt_fks_ok=1
+  AND @cm_claim_checks_ok=1
+  AND @cm_receipt_checks_ok=1
+);
+SET @cm_reference_cleanup_triggers = (
+  (SELECT COUNT(*)=12
+       AND COALESCE(SUM(
+         reference.action_timing='BEFORE'
+         AND reference.action_orientation='ROW'
+         AND reference.action_condition IS NULL
+         AND CAST(reference.event_object_table AS BINARY)=
+             CAST(expected.reference_object_table AS BINARY)
+         AND CAST(reference.event_manipulation AS BINARY)=
+             CAST(expected.event_manipulation AS BINARY)
+         AND SHA2(CAST(reference.action_statement AS BINARY),256)=expected.action_sha256
+       ),0)=12
+     FROM safeharbor_m021_trigger_manifest expected
+     LEFT JOIN information_schema.triggers reference
+       ON reference.trigger_schema=DATABASE()
+      AND CAST(reference.trigger_name AS BINARY)=
+          CAST(expected.reference_trigger_name AS BINARY))
+  AND (SELECT COUNT(*)
+         FROM information_schema.triggers live
+        WHERE live.trigger_schema=DATABASE()
+          AND (live.event_object_table IN
+                  ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+               OR EXISTS (
+                    SELECT 1
+                      FROM safeharbor_m021_reference_trigger_allowlist reserved
+                     WHERE LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+               )))=12
+);
+SET @cm_reference_cleanup_dependencies = (
+  (SELECT COUNT(*)
+     FROM information_schema.key_column_usage dependent
+    WHERE dependent.referenced_table_schema=DATABASE()
+      AND dependent.referenced_table_name IN
+          ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+      AND NOT (
+        dependent.table_schema=DATABASE()
+        AND (
+          (dependent.table_name='safeharbor_m021_reference_claims'
+           AND dependent.constraint_name='rf21_claim_predecessor'
+           AND ((dependent.ordinal_position=1
+                 AND dependent.column_name='tenant_id'
+                 AND dependent.referenced_column_name='tenant_id')
+             OR (dependent.ordinal_position=2
+                 AND dependent.column_name='predecessor_claim_id'
+                 AND dependent.referenced_column_name='id')))
+          OR
+          (dependent.table_name='safeharbor_m021_reference_receipts'
+           AND dependent.constraint_name='rf21_receipt_claim'
+           AND ((dependent.ordinal_position=1
+                 AND dependent.column_name='tenant_id'
+                 AND dependent.referenced_column_name='tenant_id')
+             OR (dependent.ordinal_position=2
+                 AND dependent.column_name='claim_id'
+                 AND dependent.referenced_column_name='id')))
+        )
+      ))=0
+  AND (SELECT COUNT(*)
+         FROM information_schema.view_table_usage
+        WHERE table_schema=DATABASE()
+          AND table_name IN
+              ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+  AND (SELECT COUNT(*)
+         FROM information_schema.routine_table_usage
+        WHERE table_schema=DATABASE()
+          AND table_name IN
+              ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+);
+SET @cm_reference_receipt_disposable = (
+  @cm_reference_cleanup_locked=1
+  AND @cm_reference_cleanup_owned=1
+  AND @cm_reference_cleanup_empty=1
+  AND @cm_reference_cleanup_shape=1
+  AND @cm_reference_cleanup_triggers=1
+  AND @cm_reference_cleanup_dependencies=1
+);
+SET @cm_reference_receipt_cleanup_sql = IF(
+  @cm_reference_receipt_disposable=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_021_reference_receipt_cleanup_refused'
+);
+PREPARE cm_export_statement FROM @cm_reference_receipt_cleanup_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+
 DROP TABLE safeharbor_m021_reference_receipts;
+
+-- Receipt removal eliminates the only allowed cross-table dependency. Re-prove
+-- the claim reference on its own before deleting the final evidence object.
+SET @cm_reference_claim_cleanup_owned = (
+  SELECT COUNT(*)=1
+     AND COALESCE(SUM(
+       CAST(table_comment AS BINARY)=
+         CAST('safeharbor:migration:021:reference:claims:v1' AS BINARY)
+     ),0)=1
+    FROM information_schema.tables
+   WHERE table_schema=DATABASE()
+     AND table_type='BASE TABLE'
+     AND table_name='safeharbor_m021_reference_claims'
+);
+SET @cm_reference_claim_cleanup_empty =
+  ((SELECT COUNT(*) FROM safeharbor_m021_reference_claims)=0);
+SET @cm_reference_claim_cleanup_triggers = (
+  (SELECT COUNT(*)=6
+       AND COALESCE(SUM(
+         reference.action_timing='BEFORE'
+         AND reference.action_orientation='ROW'
+         AND reference.action_condition IS NULL
+         AND CAST(reference.event_object_table AS BINARY)=
+             CAST(expected.reference_object_table AS BINARY)
+         AND CAST(reference.event_manipulation AS BINARY)=
+             CAST(expected.event_manipulation AS BINARY)
+         AND SHA2(CAST(reference.action_statement AS BINARY),256)=expected.action_sha256
+       ),0)=6
+     FROM safeharbor_m021_trigger_manifest expected
+     LEFT JOIN information_schema.triggers reference
+       ON reference.trigger_schema=DATABASE()
+      AND CAST(reference.trigger_name AS BINARY)=
+          CAST(expected.reference_trigger_name AS BINARY)
+    WHERE expected.reference_object_table='safeharbor_m021_reference_claims')
+  AND (SELECT COUNT(*)
+         FROM information_schema.triggers live
+        WHERE live.trigger_schema=DATABASE()
+          AND (live.event_object_table='safeharbor_m021_reference_claims'
+               OR EXISTS (
+                    SELECT 1
+                      FROM safeharbor_m021_reference_trigger_allowlist reserved
+                     WHERE reserved.event_object_table='safeharbor_m021_reference_claims'
+                       AND LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+               )))=6
+);
+SET @cm_reference_claim_cleanup_dependencies = (
+  (SELECT COUNT(*)
+     FROM information_schema.key_column_usage dependent
+    WHERE dependent.referenced_table_schema=DATABASE()
+      AND dependent.referenced_table_name='safeharbor_m021_reference_claims'
+      AND NOT (
+        dependent.table_schema=DATABASE()
+        AND dependent.table_name='safeharbor_m021_reference_claims'
+        AND dependent.constraint_name='rf21_claim_predecessor'
+        AND ((dependent.ordinal_position=1
+              AND dependent.column_name='tenant_id'
+              AND dependent.referenced_column_name='tenant_id')
+          OR (dependent.ordinal_position=2
+              AND dependent.column_name='predecessor_claim_id'
+              AND dependent.referenced_column_name='id'))
+      ))=0
+  AND (SELECT COUNT(*)
+         FROM information_schema.view_table_usage
+        WHERE table_schema=DATABASE()
+          AND table_name='safeharbor_m021_reference_claims')=0
+  AND (SELECT COUNT(*)
+         FROM information_schema.routine_table_usage
+        WHERE table_schema=DATABASE()
+          AND table_name='safeharbor_m021_reference_claims')=0
+);
+SET @cm_reference_claim_disposable = (
+  (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID())
+  AND @cm_reference_claim_cleanup_owned=1
+  AND @cm_reference_claim_cleanup_empty=1
+  AND @cm_claim_table_ok=1
+  AND @cm_claim_columns_ok=1
+  AND @cm_claim_indexes_ok=1
+  AND @cm_claim_fks_ok=1
+  AND @cm_claim_checks_ok=1
+  AND @cm_reference_claim_cleanup_triggers=1
+  AND @cm_reference_claim_cleanup_dependencies=1
+);
+SET @cm_reference_claim_cleanup_sql = IF(
+  @cm_reference_claim_disposable=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_021_reference_claim_cleanup_refused'
+);
+PREPARE cm_export_statement FROM @cm_reference_claim_cleanup_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+
 DROP TABLE safeharbor_m021_reference_claims;
 
 DELIMITER $$
@@ -4876,6 +5248,34 @@ DEALLOCATE PREPARE cm_export_statement;
 
 DROP TEMPORARY TABLE safeharbor_m021_validated_triggers;
 DROP TEMPORARY TABLE safeharbor_m021_trigger_manifest;
+DROP TEMPORARY TABLE safeharbor_m021_reference_trigger_allowlist;
+
+-- Release only after every durable-table, trigger, install-lock, and cleanup
+-- postcondition has passed. If any earlier statement aborts, the dedicated
+-- runner connection retains the single lock until exact retry or close.
+SET @cm_m021_lock_release_owned =
+  (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID());
+SET @cm_m021_lock_release_guard_sql = IF(
+  @cm_m021_lock_release_owned=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_021_advisory_lock_release_owner_failed'
+);
+PREPARE cm_export_statement FROM @cm_m021_lock_release_guard_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+SET @cm_m021_lock_release_result = RELEASE_LOCK(@cm_m021_lock_name);
+SET @cm_m021_lock_released = (
+  @cm_m021_lock_release_result=1
+  AND NOT (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID())
+);
+SET @cm_m021_lock_release_sql = IF(
+  @cm_m021_lock_released=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_021_advisory_lock_release_failed'
+);
+PREPARE cm_export_statement FROM @cm_m021_lock_release_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
 
 -- Migration-only postflight result; canonical schema stops before this marker.
 -- --------------------------------------------------------

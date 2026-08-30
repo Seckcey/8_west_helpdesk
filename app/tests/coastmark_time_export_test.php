@@ -674,6 +674,21 @@ export_check('migration and canonical schema share the complete exact financial-
     && str_contains($migrationOperational, '@cm_export_final_guards_ok'));
 export_check('all twelve reference triggers byte-bind the executable guard bodies',
     $triggerPairsExact);
+export_check('migration owns, empties, serializes, and individually proves reference cleanup',
+    is_string($migrationOperational)
+    && str_contains($migrationOperational, "'safeharbor:m021:'")
+    && str_contains($migrationOperational, 'IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID()')
+    && str_contains($migrationOperational, 'GET_LOCK(@cm_m021_lock_name,0)')
+    && str_contains($migrationOperational, 'RELEASE_LOCK(@cm_m021_lock_name)')
+    && str_contains($migrationOperational, 'safeharbor:migration:021:reference:claims:v1')
+    && str_contains($migrationOperational, 'safeharbor:migration:021:reference:receipts:v1')
+    && str_contains($migrationOperational, '@cm_reference_entry_empty')
+    && str_contains($migrationOperational, '@cm_reference_cleanup_dependencies')
+    && str_contains($migrationOperational, '@cm_reference_receipt_disposable')
+    && str_contains($migrationOperational, '@cm_reference_claim_disposable')
+    && str_contains($migrationOperational, 'DROP TABLE safeharbor_m021_reference_receipts;')
+    && str_contains($migrationOperational, 'DROP TABLE safeharbor_m021_reference_claims;')
+    && !str_contains($migrationOperational, 'DROP TABLE IF EXISTS safeharbor_m021_reference_'));
 export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',
     is_string($cli)
     && str_contains($cli, "['claim', 'send', 'status', 'inspect-claim']")
