@@ -185,7 +185,7 @@ SET @mc_lifecycle_indexes_ok = (
 );
 SET @mc_lifecycle_fks_ok = (
   SELECT COUNT(*) = 11
-     AND SUM(update_rule='RESTRICT' AND delete_rule='RESTRICT') = 11
+     AND SUM(update_rule='NO ACTION' AND delete_rule='NO ACTION') = 11
      AND SUM(constraint_name='fk_mc_lifecycle_client'
              AND referenced_table_name='clients'
              AND columns_csv='tenant_id=tenant_id,client_id=id') = 1
@@ -635,10 +635,794 @@ PREPARE mc_lifecycle_final_statement FROM @mc_lifecycle_final_sql;
 EXECUTE mc_lifecycle_final_statement;
 DEALLOCATE PREPARE mc_lifecycle_final_statement;
 
-SELECT
-  (SELECT COUNT(*) FROM information_schema.tables
-    WHERE table_schema=DATABASE() AND table_name='managed_customer_lifecycle_receipts') AS lifecycle_table_count,
+-- A separate receipt keeps restored-only ID evidence isolated from source
+-- containment facts. Nothing in this table grants report-send, ticket,
+-- billing, AI, or endpoint-control authority.
+CREATE TABLE IF NOT EXISTS managed_customer_lifecycle_restore_receipts (
+  id                            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id                     INT UNSIGNED NOT NULL,
+  client_id                     INT UNSIGNED NOT NULL,
+  source_binding_id             BIGINT UNSIGNED NOT NULL,
+  customer_id                   CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  source_event_receipt_id       BIGINT UNSIGNED NOT NULL,
+  source_event_id               CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  source_version                BIGINT UNSIGNED NOT NULL,
+  source_request_sha256         CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  id_customer_receipt_id        CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  id_customer_status            ENUM('active') NOT NULL,
+  id_lifecycle_version          SMALLINT UNSIGNED NOT NULL,
+  id_lifecycle_transition_id    BIGINT UNSIGNED NOT NULL,
+  id_lifecycle_action           ENUM('restored') NOT NULL,
+  id_lifecycle_evidence_sha256  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  id_identity_tenant_status     ENUM('active') NOT NULL,
+  id_oauth_session_version      BIGINT UNSIGNED NOT NULL,
+  id_lifecycle_owned            TINYINT(1) NOT NULL,
+  id_tenant_key                 VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  identity_tenant_slug          VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  contact_version               BIGINT UNSIGNED NOT NULL,
+  recipient_sha256              CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  id_response_generated_at      DATETIME NOT NULL,
+  id_request_nonce_sha256       CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  id_response_sha256            CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  portal_owner_receipt_id       BIGINT UNSIGNED NULL,
+  portal_binding_id             INT UNSIGNED NULL,
+  portal_before_event_id        BIGINT UNSIGNED NULL,
+  portal_active_event_id        BIGINT UNSIGNED NULL,
+  portal_restored               TINYINT(1) NOT NULL,
+  portal_state_sha256           CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  schedule_owner_receipt_id     BIGINT UNSIGNED NULL,
+  schedule_key                  VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  schedule_before_version_id    INT UNSIGNED NULL,
+  schedule_prepared_version_id  INT UNSIGNED NULL,
+  contact_snapshot_id           BIGINT UNSIGNED NULL,
+  schedule_active_version_id    INT UNSIGNED NULL,
+  schedule_restored             TINYINT(1) NOT NULL,
+  schedule_state_sha256         CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  actor_user_id                 INT UNSIGNED NOT NULL,
+  evidence_sha256               CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_at                    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_mc_restore_customer_version (customer_id, source_version),
+  UNIQUE KEY uq_mc_restore_source_event (source_event_receipt_id),
+  UNIQUE KEY uq_mc_restore_tenant_id (tenant_id, id),
+  KEY ix_mc_restore_scope (tenant_id, client_id, id),
+  KEY ix_mc_restore_source (tenant_id, source_binding_id, source_version),
+  KEY ix_mc_restore_source_event (tenant_id, source_event_receipt_id),
+  KEY ix_mc_restore_id_binding (tenant_id, client_id, id_tenant_key),
+  KEY ix_mc_restore_actor (tenant_id, actor_user_id, created_at),
+  KEY ix_mc_restore_portal_owner (portal_owner_receipt_id),
+  KEY ix_mc_restore_portal_binding (tenant_id, client_id, portal_binding_id),
+  KEY ix_mc_restore_portal_before (portal_before_event_id),
+  KEY ix_mc_restore_portal_active (portal_active_event_id),
+  KEY ix_mc_restore_schedule_owner (schedule_owner_receipt_id),
+  KEY ix_mc_restore_schedule_before (tenant_id, schedule_before_version_id),
+  KEY ix_mc_restore_schedule_prepared (tenant_id, schedule_prepared_version_id),
+  KEY ix_mc_restore_contact_snapshot (tenant_id, contact_snapshot_id),
+  KEY ix_mc_restore_schedule_active (tenant_id, schedule_active_version_id),
+  CONSTRAINT fk_mc_restore_client FOREIGN KEY (tenant_id, client_id)
+    REFERENCES clients (tenant_id, id),
+  CONSTRAINT fk_mc_restore_source_binding FOREIGN KEY (tenant_id, source_binding_id)
+    REFERENCES suite_customer_sync_bindings (tenant_id, id),
+  CONSTRAINT fk_mc_restore_source_event FOREIGN KEY (tenant_id, source_event_receipt_id)
+    REFERENCES suite_customer_sync_events (tenant_id, id),
+  CONSTRAINT fk_mc_restore_id_binding FOREIGN KEY (tenant_id, client_id, id_tenant_key)
+    REFERENCES business_report_id_client_bindings (tenant_id, client_id, id_tenant_key),
+  CONSTRAINT fk_mc_restore_portal_owner FOREIGN KEY (portal_owner_receipt_id)
+    REFERENCES managed_customer_lifecycle_receipts (id),
+  CONSTRAINT fk_mc_restore_portal_binding FOREIGN KEY (tenant_id, client_id, portal_binding_id)
+    REFERENCES customer_portal_bindings (tenant_id, client_id, id),
+  CONSTRAINT fk_mc_restore_portal_before FOREIGN KEY (portal_before_event_id)
+    REFERENCES customer_portal_binding_events (id),
+  CONSTRAINT fk_mc_restore_portal_active FOREIGN KEY (portal_active_event_id)
+    REFERENCES customer_portal_binding_events (id),
+  CONSTRAINT fk_mc_restore_schedule_owner FOREIGN KEY (schedule_owner_receipt_id)
+    REFERENCES managed_customer_lifecycle_receipts (id),
+  CONSTRAINT fk_mc_restore_schedule_before FOREIGN KEY (tenant_id, schedule_before_version_id)
+    REFERENCES business_report_schedule_versions (tenant_id, id),
+  CONSTRAINT fk_mc_restore_schedule_prepared FOREIGN KEY (tenant_id, schedule_prepared_version_id)
+    REFERENCES business_report_schedule_versions (tenant_id, id),
+  CONSTRAINT fk_mc_restore_contact_snapshot FOREIGN KEY (tenant_id, contact_snapshot_id)
+    REFERENCES business_report_id_client_contact_snapshots (tenant_id, id),
+  CONSTRAINT fk_mc_restore_schedule_active FOREIGN KEY (tenant_id, schedule_active_version_id)
+    REFERENCES business_report_schedule_versions (tenant_id, id),
+  CONSTRAINT fk_mc_restore_actor FOREIGN KEY (tenant_id, actor_user_id)
+    REFERENCES users (tenant_id, id),
+  CONSTRAINT ck_mc_restore_customer CHECK (
+    REGEXP_LIKE(customer_id, _ascii'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+    AND BINARY customer_id <> BINARY _ascii'4ebaeefa-b101-47f8-ac76-e49ab309d272'
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_source_event CHECK (
+    REGEXP_LIKE(source_event_id, _ascii'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_source_version CHECK (source_version >= 1) ENFORCED,
+  CONSTRAINT ck_mc_restore_source_hash CHECK (
+    REGEXP_LIKE(source_request_sha256, _ascii'^[0-9a-f]{64}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_id_receipt CHECK (
+    REGEXP_LIKE(id_customer_receipt_id, _ascii'^[0-9a-f]{64}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_lifecycle CHECK (
+    id_lifecycle_version=1 AND id_lifecycle_transition_id>=1 AND id_lifecycle_owned=0
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_lifecycle_hash CHECK (
+    REGEXP_LIKE(id_lifecycle_evidence_sha256, _ascii'^[0-9a-f]{64}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_oauth_version CHECK (id_oauth_session_version>=1) ENFORCED,
+  CONSTRAINT ck_mc_restore_tenant_key CHECK (
+    REGEXP_LIKE(id_tenant_key, _ascii'^ewid-t[1-9][0-9]{0,9}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_tenant_slug CHECK (
+    REGEXP_LIKE(identity_tenant_slug, _ascii'^[a-z0-9][a-z0-9-]{0,63}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_contact_version CHECK (contact_version>=1) ENFORCED,
+  CONSTRAINT ck_mc_restore_transport_hashes CHECK (
+    REGEXP_LIKE(recipient_sha256, _ascii'^[0-9a-f]{64}$')
+    AND REGEXP_LIKE(id_request_nonce_sha256, _ascii'^[0-9a-f]{64}$')
+    AND REGEXP_LIKE(id_response_sha256, _ascii'^[0-9a-f]{64}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_portal_shape CHECK (
+    portal_restored IN (0,1)
+    AND ((portal_binding_id IS NULL AND portal_owner_receipt_id IS NULL
+          AND portal_before_event_id IS NULL AND portal_active_event_id IS NULL
+          AND portal_restored=0 AND portal_state_sha256 IS NULL)
+      OR (portal_binding_id IS NOT NULL AND portal_before_event_id IS NOT NULL
+          AND portal_state_sha256 IS NOT NULL
+          AND ((portal_restored=0 AND portal_active_event_id IS NULL)
+            OR (portal_restored=1 AND portal_owner_receipt_id IS NOT NULL
+                AND portal_active_event_id IS NOT NULL))))
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_portal_hash CHECK (
+    portal_state_sha256 IS NULL
+    OR REGEXP_LIKE(portal_state_sha256, _ascii'^[0-9a-f]{64}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_schedule_key CHECK (
+    BINARY schedule_key=BINARY CONCAT(_ascii'managed-weekly-v3:',customer_id)
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_schedule_shape CHECK (
+    schedule_restored IN (0,1)
+    AND ((schedule_before_version_id IS NULL AND schedule_owner_receipt_id IS NULL
+          AND schedule_prepared_version_id IS NULL AND contact_snapshot_id IS NULL
+          AND schedule_active_version_id IS NULL AND schedule_restored=0
+          AND schedule_state_sha256 IS NULL)
+      OR (schedule_before_version_id IS NOT NULL AND schedule_state_sha256 IS NOT NULL
+          AND ((schedule_restored=0 AND schedule_prepared_version_id IS NULL
+                AND contact_snapshot_id IS NULL AND schedule_active_version_id IS NULL)
+            OR (schedule_restored=1 AND schedule_owner_receipt_id IS NOT NULL
+                AND schedule_prepared_version_id IS NOT NULL
+                AND contact_snapshot_id IS NOT NULL
+                AND schedule_active_version_id IS NOT NULL))))
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_schedule_hash CHECK (
+    schedule_state_sha256 IS NULL
+    OR REGEXP_LIKE(schedule_state_sha256, _ascii'^[0-9a-f]{64}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_evidence_hash CHECK (
+    REGEXP_LIKE(evidence_sha256, _ascii'^[0-9a-f]{64}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_install_lock CHECK (0=1) ENFORCED
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET @mc_restore_table_ok=(
+  SELECT COUNT(*)=1 FROM information_schema.tables
+   WHERE table_schema=DATABASE()
+     AND table_name='managed_customer_lifecycle_restore_receipts'
+     AND engine='InnoDB'
+);
+SET @mc_restore_columns_ok=(
+  SELECT COUNT(*)=42
+     AND SUM(column_name='id' AND column_type='bigint unsigned'
+             AND is_nullable='NO' AND extra='auto_increment')=1
+     AND SUM(column_name IN ('tenant_id','client_id','actor_user_id')
+             AND column_type='int unsigned' AND is_nullable='NO')=3
+     AND SUM(column_name IN ('source_binding_id','source_event_receipt_id','source_version',
+                             'id_lifecycle_transition_id','id_oauth_session_version',
+                             'contact_version')
+             AND column_type='bigint unsigned' AND is_nullable='NO')=6
+     AND SUM(column_name IN ('portal_owner_receipt_id','schedule_owner_receipt_id','contact_snapshot_id')
+             AND column_type='bigint unsigned' AND is_nullable='YES')=3
+     AND SUM(column_name='portal_binding_id' AND column_type='int unsigned'
+             AND is_nullable='YES')=1
+     AND SUM(column_name IN ('portal_before_event_id','portal_active_event_id')
+             AND column_type='bigint unsigned' AND is_nullable='YES')=2
+     AND SUM(column_name IN ('schedule_before_version_id',
+                             'schedule_prepared_version_id','schedule_active_version_id')
+             AND column_type='int unsigned' AND is_nullable='YES')=3
+     AND SUM(column_name IN ('customer_id','source_event_id') AND column_type='char(36)'
+             AND character_set_name='ascii' AND collation_name='ascii_bin'
+             AND is_nullable='NO')=2
+     AND SUM(column_name IN ('source_request_sha256','id_customer_receipt_id',
+                             'id_lifecycle_evidence_sha256','recipient_sha256',
+                             'id_request_nonce_sha256','id_response_sha256','evidence_sha256')
+             AND column_type='char(64)' AND character_set_name='ascii'
+             AND collation_name='ascii_bin' AND is_nullable='NO')=7
+     AND SUM(column_name IN ('portal_state_sha256','schedule_state_sha256')
+             AND column_type='char(64)' AND character_set_name='ascii'
+             AND collation_name='ascii_bin' AND is_nullable='YES')=2
+     AND SUM(column_name='schedule_key' AND column_type='varchar(64)'
+             AND character_set_name='ascii' AND collation_name='ascii_bin'
+             AND is_nullable='NO')=1
+     AND SUM(column_name='id_tenant_key' AND column_type='varchar(32)'
+             AND character_set_name='ascii' AND collation_name='ascii_bin'
+             AND is_nullable='NO')=1
+     AND SUM(column_name='identity_tenant_slug' AND column_type='varchar(64)'
+             AND character_set_name='ascii' AND collation_name='ascii_bin'
+             AND is_nullable='NO')=1
+     AND SUM(column_name IN ('portal_restored','schedule_restored','id_lifecycle_owned')
+             AND column_type='tinyint(1)' AND is_nullable='NO')=3
+     AND SUM(column_name='id_lifecycle_version' AND column_type='smallint unsigned'
+             AND is_nullable='NO')=1
+     AND SUM(column_name IN ('id_customer_status','id_identity_tenant_status')
+             AND column_type="enum('active')" AND is_nullable='NO')=2
+     AND SUM(column_name='id_lifecycle_action' AND column_type="enum('restored')"
+             AND is_nullable='NO')=1
+     AND SUM(column_name IN ('id_response_generated_at','created_at')
+             AND column_type='datetime' AND is_nullable='NO')=2
+    FROM information_schema.columns
+   WHERE table_schema=DATABASE()
+     AND table_name='managed_customer_lifecycle_restore_receipts'
+);
+SET @mc_restore_indexes_ok=(
+  SELECT COUNT(*)=18
+     AND SUM(index_name='PRIMARY' AND non_unique=0 AND columns_csv='id')=1
+     AND SUM(index_name='uq_mc_restore_customer_version' AND non_unique=0
+             AND columns_csv='customer_id,source_version')=1
+     AND SUM(index_name='uq_mc_restore_source_event' AND non_unique=0
+             AND columns_csv='source_event_receipt_id')=1
+     AND SUM(index_name='uq_mc_restore_tenant_id' AND non_unique=0
+             AND columns_csv='tenant_id,id')=1
+     AND SUM(index_name='ix_mc_restore_scope' AND non_unique=1
+             AND columns_csv='tenant_id,client_id,id')=1
+     AND SUM(index_name='ix_mc_restore_source' AND non_unique=1
+             AND columns_csv='tenant_id,source_binding_id,source_version')=1
+     AND SUM(index_name='ix_mc_restore_source_event' AND non_unique=1
+             AND columns_csv='tenant_id,source_event_receipt_id')=1
+     AND SUM(index_name='ix_mc_restore_id_binding' AND non_unique=1
+             AND columns_csv='tenant_id,client_id,id_tenant_key')=1
+     AND SUM(index_name='ix_mc_restore_actor' AND non_unique=1
+             AND columns_csv='tenant_id,actor_user_id,created_at')=1
+     AND SUM(index_name='ix_mc_restore_portal_owner' AND non_unique=1
+             AND columns_csv='portal_owner_receipt_id')=1
+     AND SUM(index_name='ix_mc_restore_portal_binding' AND non_unique=1
+             AND columns_csv='tenant_id,client_id,portal_binding_id')=1
+     AND SUM(index_name='ix_mc_restore_portal_before' AND non_unique=1
+             AND columns_csv='portal_before_event_id')=1
+     AND SUM(index_name='ix_mc_restore_portal_active' AND non_unique=1
+             AND columns_csv='portal_active_event_id')=1
+     AND SUM(index_name='ix_mc_restore_schedule_owner' AND non_unique=1
+             AND columns_csv='schedule_owner_receipt_id')=1
+     AND SUM(index_name='ix_mc_restore_schedule_before' AND non_unique=1
+             AND columns_csv='tenant_id,schedule_before_version_id')=1
+     AND SUM(index_name='ix_mc_restore_schedule_prepared' AND non_unique=1
+             AND columns_csv='tenant_id,schedule_prepared_version_id')=1
+     AND SUM(index_name='ix_mc_restore_contact_snapshot' AND non_unique=1
+             AND columns_csv='tenant_id,contact_snapshot_id')=1
+     AND SUM(index_name='ix_mc_restore_schedule_active' AND non_unique=1
+             AND columns_csv='tenant_id,schedule_active_version_id')=1
+    FROM (
+      SELECT index_name,MIN(non_unique) AS non_unique,
+             GROUP_CONCAT(column_name ORDER BY seq_in_index) AS columns_csv
+        FROM information_schema.statistics
+       WHERE table_schema=DATABASE()
+         AND table_name='managed_customer_lifecycle_restore_receipts'
+       GROUP BY index_name
+    ) exact_indexes
+);
+SET @mc_restore_fks_ok=(
+  SELECT COUNT(*)=14
+     AND SUM(update_rule='NO ACTION' AND delete_rule='NO ACTION')=14
+     AND SUM(constraint_name='fk_mc_restore_client' AND referenced_table_name='clients'
+             AND columns_csv='tenant_id=tenant_id,client_id=id')=1
+     AND SUM(constraint_name='fk_mc_restore_source_binding'
+             AND referenced_table_name='suite_customer_sync_bindings'
+             AND columns_csv='tenant_id=tenant_id,source_binding_id=id')=1
+     AND SUM(constraint_name='fk_mc_restore_source_event'
+             AND referenced_table_name='suite_customer_sync_events'
+             AND columns_csv='tenant_id=tenant_id,source_event_receipt_id=id')=1
+     AND SUM(constraint_name='fk_mc_restore_id_binding'
+             AND referenced_table_name='business_report_id_client_bindings'
+             AND columns_csv='tenant_id=tenant_id,client_id=client_id,id_tenant_key=id_tenant_key')=1
+     AND SUM(constraint_name IN ('fk_mc_restore_portal_owner','fk_mc_restore_schedule_owner')
+             AND referenced_table_name='managed_customer_lifecycle_receipts')=2
+     AND SUM(constraint_name='fk_mc_restore_portal_binding'
+             AND referenced_table_name='customer_portal_bindings'
+             AND columns_csv='tenant_id=tenant_id,client_id=client_id,portal_binding_id=id')=1
+     AND SUM(constraint_name IN ('fk_mc_restore_portal_before','fk_mc_restore_portal_active')
+             AND referenced_table_name='customer_portal_binding_events')=2
+     AND SUM(constraint_name IN ('fk_mc_restore_schedule_before',
+                                 'fk_mc_restore_schedule_prepared',
+                                 'fk_mc_restore_schedule_active')
+             AND referenced_table_name='business_report_schedule_versions')=3
+     AND SUM(constraint_name='fk_mc_restore_contact_snapshot'
+             AND referenced_table_name='business_report_id_client_contact_snapshots'
+             AND columns_csv='tenant_id=tenant_id,contact_snapshot_id=id')=1
+     AND SUM(constraint_name='fk_mc_restore_actor' AND referenced_table_name='users'
+             AND columns_csv='tenant_id=tenant_id,actor_user_id=id')=1
+    FROM (
+      SELECT key_column.constraint_name,
+             MIN(key_column.referenced_table_name) AS referenced_table_name,
+             MIN(referential.update_rule) AS update_rule,
+             MIN(referential.delete_rule) AS delete_rule,
+             GROUP_CONCAT(CONCAT(column_name,'=',referenced_column_name)
+                          ORDER BY ordinal_position) AS columns_csv
+        FROM information_schema.key_column_usage key_column
+        JOIN information_schema.referential_constraints referential
+          ON referential.constraint_schema=key_column.constraint_schema
+         AND referential.constraint_name=key_column.constraint_name
+       WHERE key_column.table_schema=DATABASE()
+         AND key_column.table_name='managed_customer_lifecycle_restore_receipts'
+         AND key_column.referenced_table_name IS NOT NULL
+       GROUP BY key_column.constraint_name
+    ) exact_fks
+);
+SET @mc_restore_checks_ok=(
+  SELECT COUNT(*) IN (18,19)
+     AND SUM(enforced='YES')=COUNT(*)
+     AND SUM(constraint_name IN (
+       'ck_mc_restore_customer','ck_mc_restore_source_event',
+       'ck_mc_restore_source_version','ck_mc_restore_source_hash',
+       'ck_mc_restore_id_receipt','ck_mc_restore_lifecycle',
+       'ck_mc_restore_lifecycle_hash','ck_mc_restore_oauth_version',
+       'ck_mc_restore_tenant_key','ck_mc_restore_tenant_slug',
+       'ck_mc_restore_contact_version','ck_mc_restore_transport_hashes',
+       'ck_mc_restore_portal_shape','ck_mc_restore_portal_hash',
+       'ck_mc_restore_schedule_key','ck_mc_restore_schedule_shape',
+       'ck_mc_restore_schedule_hash','ck_mc_restore_evidence_hash'
+     ))=18
+     AND SUM(constraint_name='ck_mc_restore_install_lock')=COUNT(*)-18
+    FROM information_schema.table_constraints
+   WHERE constraint_schema=DATABASE()
+     AND table_name='managed_customer_lifecycle_restore_receipts'
+     AND constraint_type='CHECK'
+);
+SET @mc_restore_preflight_sql=IF(
+  @mc_restore_table_ok=1 AND @mc_restore_columns_ok=1
+  AND @mc_restore_indexes_ok=1 AND @mc_restore_fks_ok=1
+  AND @mc_restore_checks_ok=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_024_managed_customer_restore_preflight_failed'
+);
+PREPARE mc_restore_preflight FROM @mc_restore_preflight_sql;
+EXECUTE mc_restore_preflight;
+DEALLOCATE PREPARE mc_restore_preflight;
+
+DROP TRIGGER IF EXISTS trg_mc_restore_privilege_preflight;
+CREATE TRIGGER trg_mc_restore_privilege_preflight
+BEFORE INSERT ON managed_customer_lifecycle_restore_receipts
+FOR EACH ROW SET @mc_restore_trigger_privilege_preflight=1;
+DROP TRIGGER trg_mc_restore_privilege_preflight;
+
+DELIMITER $$
+CREATE TRIGGER IF NOT EXISTS trg_mc_restore_swap_insert
+BEFORE INSERT ON managed_customer_lifecycle_restore_receipts
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT='Managed-customer restoration migration is incomplete';
+END$$
+CREATE TRIGGER IF NOT EXISTS trg_mc_restore_swap_update
+BEFORE UPDATE ON managed_customer_lifecycle_restore_receipts
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT='Managed-customer restoration migration is incomplete';
+END$$
+CREATE TRIGGER IF NOT EXISTS trg_mc_restore_swap_delete
+BEFORE DELETE ON managed_customer_lifecycle_restore_receipts
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT='Managed-customer restoration migration is incomplete';
+END$$
+DELIMITER ;
+
+SET @mc_restore_swaps_ok=(
+  SELECT COUNT(*)=3 FROM information_schema.triggers
+   WHERE trigger_schema=DATABASE()
+     AND event_object_table='managed_customer_lifecycle_restore_receipts'
+     AND action_timing='BEFORE'
+     AND trigger_name IN ('trg_mc_restore_swap_insert','trg_mc_restore_swap_update',
+                          'trg_mc_restore_swap_delete')
+     AND action_statement LIKE '%Managed-customer restoration migration is incomplete%'
+);
+SET @mc_restore_swap_sql=IF(
+  @mc_restore_swaps_ok=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_024_managed_customer_restore_swap_failed'
+);
+PREPARE mc_restore_swap_statement FROM @mc_restore_swap_sql;
+EXECUTE mc_restore_swap_statement;
+DEALLOCATE PREPARE mc_restore_swap_statement;
+
+DROP TRIGGER IF EXISTS trg_mc_restore_before_insert;
+DROP TRIGGER IF EXISTS trg_mc_restore_no_update;
+DROP TRIGGER IF EXISTS trg_mc_restore_no_delete;
+
+DELIMITER $$
+CREATE TRIGGER trg_mc_restore_before_insert
+BEFORE INSERT ON managed_customer_lifecycle_restore_receipts
+FOR EACH ROW
+BEGIN
+  DECLARE guard_version VARCHAR(64) DEFAULT 'safeharbor-managed-customer-lifecycle-restore-receipt-v1';
+  DECLARE actor_matches INT DEFAULT 0;
+  DECLARE source_matches INT DEFAULT 0;
+  DECLARE inactive_history INT DEFAULT 0;
+  DECLARE id_binding_matches INT DEFAULT 0;
+  DECLARE portal_owner_matches INT DEFAULT 0;
+  DECLARE portal_state_matches INT DEFAULT 0;
+  DECLARE schedule_owner_matches INT DEFAULT 0;
+  DECLARE schedule_state_matches INT DEFAULT 0;
+  DECLARE expected_portal_hash CHAR(64) DEFAULT NULL;
+  DECLARE expected_schedule_hash CHAR(64) DEFAULT NULL;
+  DECLARE expected_evidence_hash CHAR(64) DEFAULT NULL;
+
+  IF NEW.id_customer_status<>'active' OR NEW.id_lifecycle_version<>1
+     OR NEW.id_lifecycle_action<>'restored'
+     OR NEW.id_identity_tenant_status<>'active' OR NEW.id_lifecycle_owned<>0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Restore receipt requires exact active restored-only ID evidence';
+  END IF;
+  SELECT COUNT(*) INTO actor_matches
+    FROM users
+   WHERE tenant_id=NEW.tenant_id AND id=NEW.actor_user_id
+     AND is_active=1 AND role IN ('owner','admin');
+  IF actor_matches<>1 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Restore actor must be an active owner or admin';
+  END IF;
+  SELECT COUNT(*) INTO source_matches
+    FROM suite_customer_sync_bindings binding
+    JOIN suite_customer_sync_events receipt
+      ON receipt.tenant_id=binding.tenant_id
+     AND receipt.id=NEW.source_event_receipt_id
+     AND receipt.binding_id=binding.id
+   WHERE binding.tenant_id=NEW.tenant_id AND binding.id=NEW.source_binding_id
+     AND binding.client_id=NEW.client_id
+     AND BINARY binding.customer_id=BINARY NEW.customer_id
+     AND binding.source_version=NEW.source_version AND binding.status='active'
+     AND BINARY binding.last_event_id=BINARY NEW.source_event_id
+     AND BINARY binding.last_request_sha256=BINARY NEW.source_request_sha256
+     AND BINARY receipt.event_id=BINARY NEW.source_event_id
+     AND receipt.source_version=NEW.source_version AND receipt.status='active'
+     AND BINARY receipt.request_sha256=BINARY NEW.source_request_sha256;
+  SELECT COUNT(*) INTO inactive_history
+    FROM suite_customer_sync_events
+   WHERE tenant_id=NEW.tenant_id AND binding_id=NEW.source_binding_id
+     AND status='inactive';
+  IF source_matches<>1 OR inactive_history<1 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Restore receipt must match the current active source after inactive history';
+  END IF;
+  SELECT COUNT(*) INTO id_binding_matches
+    FROM business_report_id_client_bindings
+   WHERE tenant_id=NEW.tenant_id AND client_id=NEW.client_id
+     AND BINARY id_tenant_key=BINARY NEW.id_tenant_key
+     AND BINARY id_tenant_slug=BINARY NEW.identity_tenant_slug;
+  IF id_binding_matches<>1 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Restore receipt ID mapping is not exact';
+  END IF;
+
+  IF NEW.portal_owner_receipt_id IS NOT NULL THEN
+    SELECT COUNT(*) INTO portal_owner_matches
+      FROM managed_customer_lifecycle_receipts owner_receipt
+     WHERE owner_receipt.id=NEW.portal_owner_receipt_id
+       AND owner_receipt.tenant_id=NEW.tenant_id
+       AND owner_receipt.client_id=NEW.client_id
+       AND owner_receipt.source_binding_id=NEW.source_binding_id
+       AND BINARY owner_receipt.customer_id=BINARY NEW.customer_id
+       AND owner_receipt.portal_was_active=1
+       AND owner_receipt.portal_binding_id=NEW.portal_binding_id;
+    IF portal_owner_matches<>1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore portal ownership evidence is not exact';
+    END IF;
+  END IF;
+  IF NEW.portal_binding_id IS NULL THEN
+    SELECT COUNT(*) INTO portal_state_matches
+      FROM customer_portal_bindings
+     WHERE tenant_id=NEW.tenant_id AND client_id=NEW.client_id;
+    IF portal_state_matches<>0 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore portal absence is not exact';
+    END IF;
+  ELSE
+    SELECT COUNT(*),MAX(SHA2(CAST(before_event.snapshot_json AS CHAR),256))
+      INTO portal_state_matches,expected_portal_hash
+      FROM customer_portal_bindings portal
+      JOIN customer_portal_binding_events before_event
+        ON before_event.id=NEW.portal_before_event_id
+       AND before_event.tenant_id=portal.tenant_id
+       AND before_event.client_id=portal.client_id
+       AND before_event.binding_id=portal.id
+     WHERE portal.tenant_id=NEW.tenant_id AND portal.client_id=NEW.client_id
+       AND portal.id=NEW.portal_binding_id
+       AND BINARY portal.identity_tenant_slug=BINARY NEW.identity_tenant_slug;
+    IF portal_state_matches<>1
+       OR BINARY expected_portal_hash<>BINARY NEW.portal_state_sha256 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore portal state evidence is not exact';
+    END IF;
+    IF NEW.portal_restored=1 THEN
+      SELECT COUNT(*) INTO portal_state_matches
+        FROM customer_portal_bindings portal
+        JOIN customer_portal_binding_events active_event
+          ON active_event.id=NEW.portal_active_event_id
+         AND active_event.tenant_id=portal.tenant_id
+         AND active_event.client_id=portal.client_id
+         AND active_event.binding_id=portal.id
+       WHERE portal.tenant_id=NEW.tenant_id AND portal.client_id=NEW.client_id
+         AND portal.id=NEW.portal_binding_id AND portal.status='active'
+         AND active_event.event_kind='enabled'
+         AND active_event.from_status='disabled' AND active_event.to_status='active'
+         AND active_event.actor_user_id=NEW.actor_user_id
+         AND active_event.id=(SELECT MAX(latest.id)
+                                FROM customer_portal_binding_events latest
+                               WHERE latest.tenant_id=portal.tenant_id
+                                 AND latest.client_id=portal.client_id
+                                 AND latest.binding_id=portal.id)
+         AND EXISTS (
+           SELECT 1 FROM managed_customer_lifecycle_receipts owner_receipt
+            WHERE owner_receipt.id=NEW.portal_owner_receipt_id
+              AND owner_receipt.portal_state_event_id=NEW.portal_before_event_id
+              AND BINARY owner_receipt.portal_state_sha256=BINARY NEW.portal_state_sha256
+         );
+    ELSE
+      SELECT COUNT(*) INTO portal_state_matches
+        FROM customer_portal_bindings portal
+       WHERE portal.tenant_id=NEW.tenant_id AND portal.client_id=NEW.client_id
+         AND portal.id=NEW.portal_binding_id AND portal.status='disabled'
+         AND NEW.portal_before_event_id=(SELECT MAX(latest.id)
+                                          FROM customer_portal_binding_events latest
+                                         WHERE latest.tenant_id=portal.tenant_id
+                                           AND latest.client_id=portal.client_id
+                                           AND latest.binding_id=portal.id);
+    END IF;
+    IF portal_state_matches<>1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore portal transition or preserved hold is not exact';
+    END IF;
+  END IF;
+
+  IF NEW.schedule_owner_receipt_id IS NOT NULL THEN
+    SELECT COUNT(*) INTO schedule_owner_matches
+      FROM managed_customer_lifecycle_receipts owner_receipt
+     WHERE owner_receipt.id=NEW.schedule_owner_receipt_id
+       AND owner_receipt.tenant_id=NEW.tenant_id
+       AND owner_receipt.client_id=NEW.client_id
+       AND owner_receipt.source_binding_id=NEW.source_binding_id
+       AND BINARY owner_receipt.customer_id=BINARY NEW.customer_id
+       AND owner_receipt.schedule_was_active=1
+       AND BINARY owner_receipt.schedule_key=BINARY NEW.schedule_key;
+    IF schedule_owner_matches<>1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore schedule ownership evidence is not exact';
+    END IF;
+  END IF;
+  IF NEW.schedule_before_version_id IS NULL THEN
+    SELECT COUNT(*) INTO schedule_state_matches
+      FROM business_report_schedule_versions
+     WHERE tenant_id=NEW.tenant_id
+       AND BINARY schedule_key=BINARY NEW.schedule_key;
+    IF schedule_state_matches<>0 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore schedule absence is not exact';
+    END IF;
+  ELSE
+    SELECT COUNT(*),MAX(SHA2(CONCAT(
+             'safeharbor-managed-customer-schedule-state-v1','\n',schedule.id,
+             '\n',schedule.tenant_id,'\n',schedule.schedule_key,'\n',schedule.version_no,
+             '\n',schedule.definition_version_id,'\n',schedule.client_id,
+             '\n',schedule.recipient_email,'\n',schedule.schedule_timezone,
+             '\n',schedule.delivery_weekday,'\n',schedule.delivery_local_time,
+             '\n',schedule.canary,'\n',schedule.status,'\n',schedule.created_by_user_id,
+             '\n',schedule.reason
+           ),256))
+      INTO schedule_state_matches,expected_schedule_hash
+      FROM business_report_schedule_versions schedule
+     WHERE schedule.tenant_id=NEW.tenant_id AND schedule.id=NEW.schedule_before_version_id
+       AND schedule.client_id=NEW.client_id
+       AND BINARY schedule.schedule_key=BINARY NEW.schedule_key
+       AND schedule.status='disabled';
+    IF schedule_state_matches<>1
+       OR BINARY expected_schedule_hash<>BINARY NEW.schedule_state_sha256 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore schedule state evidence is not exact';
+    END IF;
+    IF NEW.schedule_restored=1 THEN
+      SELECT COUNT(*) INTO schedule_state_matches
+        FROM business_report_schedule_versions before_schedule
+        JOIN business_report_schedule_versions prepared
+          ON prepared.tenant_id=before_schedule.tenant_id
+         AND prepared.id=NEW.schedule_prepared_version_id
+         AND BINARY prepared.schedule_key=BINARY before_schedule.schedule_key
+         AND prepared.version_no=before_schedule.version_no+1
+         AND prepared.definition_version_id=before_schedule.definition_version_id
+         AND prepared.client_id=before_schedule.client_id
+         AND prepared.schedule_timezone=before_schedule.schedule_timezone
+         AND prepared.delivery_weekday=before_schedule.delivery_weekday
+         AND prepared.delivery_local_time=before_schedule.delivery_local_time
+         AND prepared.canary=before_schedule.canary AND prepared.status='disabled'
+         AND prepared.created_by_user_id=NEW.actor_user_id
+        JOIN business_report_id_client_contact_snapshots contact
+          ON contact.tenant_id=prepared.tenant_id
+         AND contact.id=NEW.contact_snapshot_id
+         AND contact.schedule_version_id=prepared.id
+         AND contact.client_id=NEW.client_id
+         AND BINARY contact.id_tenant_key=BINARY NEW.id_tenant_key
+         AND contact.contact_version=NEW.contact_version
+         AND SHA2(contact.recipient_email,256)=NEW.recipient_sha256
+         AND contact.response_generated_at=NEW.id_response_generated_at
+         AND BINARY contact.request_nonce_sha256=BINARY NEW.id_request_nonce_sha256
+         AND BINARY contact.response_sha256=BINARY NEW.id_response_sha256
+         AND contact.created_by_user_id=NEW.actor_user_id
+        JOIN business_report_schedule_versions active_schedule
+          ON active_schedule.tenant_id=prepared.tenant_id
+         AND active_schedule.id=NEW.schedule_active_version_id
+         AND BINARY active_schedule.schedule_key=BINARY prepared.schedule_key
+         AND active_schedule.version_no=prepared.version_no+1
+         AND active_schedule.definition_version_id=prepared.definition_version_id
+         AND active_schedule.client_id=prepared.client_id
+         AND BINARY active_schedule.recipient_email=BINARY prepared.recipient_email
+         AND active_schedule.schedule_timezone=prepared.schedule_timezone
+         AND active_schedule.delivery_weekday=prepared.delivery_weekday
+         AND active_schedule.delivery_local_time=prepared.delivery_local_time
+         AND active_schedule.canary=prepared.canary AND active_schedule.status='active'
+         AND active_schedule.created_by_user_id=NEW.actor_user_id
+       WHERE before_schedule.tenant_id=NEW.tenant_id
+         AND before_schedule.id=NEW.schedule_before_version_id
+         AND before_schedule.status='disabled'
+         AND active_schedule.version_no=(SELECT MAX(latest.version_no)
+                                           FROM business_report_schedule_versions latest
+                                          WHERE latest.tenant_id=NEW.tenant_id
+                                            AND BINARY latest.schedule_key=BINARY NEW.schedule_key)
+         AND EXISTS (
+           SELECT 1 FROM managed_customer_lifecycle_receipts owner_receipt
+            WHERE owner_receipt.id=NEW.schedule_owner_receipt_id
+              AND owner_receipt.schedule_state_version_id=NEW.schedule_before_version_id
+              AND BINARY owner_receipt.schedule_state_sha256=BINARY NEW.schedule_state_sha256
+         );
+    ELSE
+      SELECT COUNT(*) INTO schedule_state_matches
+        FROM business_report_schedule_versions schedule
+       WHERE schedule.tenant_id=NEW.tenant_id
+         AND schedule.id=NEW.schedule_before_version_id
+         AND schedule.status='disabled'
+         AND schedule.version_no=(SELECT MAX(latest.version_no)
+                                    FROM business_report_schedule_versions latest
+                                   WHERE latest.tenant_id=NEW.tenant_id
+                                     AND BINARY latest.schedule_key=BINARY NEW.schedule_key);
+    END IF;
+    IF schedule_state_matches<>1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore schedule transition or preserved hold is not exact';
+    END IF;
+  END IF;
+
+  SET expected_evidence_hash=SHA2(CONCAT(
+    'safeharbor-managed-customer-lifecycle-restore-v1','\n',NEW.tenant_id,
+    '\n',NEW.client_id,'\n',NEW.source_binding_id,'\n',NEW.customer_id,
+    '\n',NEW.source_event_receipt_id,'\n',NEW.source_event_id,'\n',NEW.source_version,
+    '\n',NEW.source_request_sha256,'\n',NEW.id_customer_receipt_id,
+    '\n',NEW.id_customer_status,'\n',NEW.id_lifecycle_version,
+    '\n',NEW.id_lifecycle_transition_id,'\n',NEW.id_lifecycle_action,
+    '\n',NEW.id_lifecycle_evidence_sha256,'\n',NEW.id_identity_tenant_status,
+    '\n',NEW.id_oauth_session_version,'\n',NEW.id_lifecycle_owned,
+    '\n',NEW.id_tenant_key,'\n',NEW.identity_tenant_slug,'\n',NEW.contact_version,
+    '\n',NEW.recipient_sha256,'\n',CAST(NEW.id_response_generated_at AS CHAR),
+    '\n',NEW.id_request_nonce_sha256,'\n',NEW.id_response_sha256,
+    '\n',COALESCE(CAST(NEW.portal_owner_receipt_id AS CHAR),'-'),
+    '\n',COALESCE(CAST(NEW.portal_binding_id AS CHAR),'-'),
+    '\n',COALESCE(CAST(NEW.portal_before_event_id AS CHAR),'-'),
+    '\n',COALESCE(CAST(NEW.portal_active_event_id AS CHAR),'-'),
+    '\n',NEW.portal_restored,'\n',COALESCE(NEW.portal_state_sha256,'-'),
+    '\n',COALESCE(CAST(NEW.schedule_owner_receipt_id AS CHAR),'-'),
+    '\n',NEW.schedule_key,
+    '\n',COALESCE(CAST(NEW.schedule_before_version_id AS CHAR),'-'),
+    '\n',COALESCE(CAST(NEW.schedule_prepared_version_id AS CHAR),'-'),
+    '\n',COALESCE(CAST(NEW.contact_snapshot_id AS CHAR),'-'),
+    '\n',COALESCE(CAST(NEW.schedule_active_version_id AS CHAR),'-'),
+    '\n',NEW.schedule_restored,'\n',COALESCE(NEW.schedule_state_sha256,'-'),
+    '\n',NEW.actor_user_id
+  ),256);
+  IF BINARY expected_evidence_hash<>BINARY NEW.evidence_sha256 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Restore evidence digest does not match exact facts';
+  END IF;
+  SET NEW.created_at=UTC_TIMESTAMP();
+END$$
+
+CREATE TRIGGER trg_mc_restore_no_update
+BEFORE UPDATE ON managed_customer_lifecycle_restore_receipts
+FOR EACH ROW
+BEGIN
+  DECLARE guard_version VARCHAR(64) DEFAULT 'safeharbor-managed-customer-lifecycle-restore-immutable-v1';
+  SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT='Managed-customer lifecycle restore receipts are immutable';
+END$$
+
+CREATE TRIGGER trg_mc_restore_no_delete
+BEFORE DELETE ON managed_customer_lifecycle_restore_receipts
+FOR EACH ROW
+BEGIN
+  DECLARE guard_version VARCHAR(64) DEFAULT 'safeharbor-managed-customer-lifecycle-restore-immutable-v1';
+  SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT='Managed-customer lifecycle restore receipts are immutable';
+END$$
+DELIMITER ;
+
+SET @mc_restore_trigger_ok=(
+  SELECT COUNT(*)=3 FROM information_schema.triggers
+   WHERE trigger_schema=DATABASE()
+     AND event_object_table='managed_customer_lifecycle_restore_receipts'
+     AND action_timing='BEFORE'
+     AND (
+       (trigger_name='trg_mc_restore_before_insert' AND event_manipulation='INSERT'
+        AND action_statement LIKE '%safeharbor-managed-customer-lifecycle-restore-receipt-v1%'
+        AND action_statement LIKE '%suite_customer_sync_events%'
+        AND action_statement LIKE '%business_report_id_client_contact_snapshots%')
+       OR (trigger_name='trg_mc_restore_no_update' AND event_manipulation='UPDATE'
+        AND action_statement LIKE '%safeharbor-managed-customer-lifecycle-restore-immutable-v1%')
+       OR (trigger_name='trg_mc_restore_no_delete' AND event_manipulation='DELETE'
+        AND action_statement LIKE '%safeharbor-managed-customer-lifecycle-restore-immutable-v1%')
+     )
+) AND (
+  SELECT COUNT(*)=6 FROM information_schema.triggers
+   WHERE trigger_schema=DATABASE()
+     AND event_object_table='managed_customer_lifecycle_restore_receipts'
+     AND action_timing='BEFORE'
+);
+SET @mc_restore_postflight_sql=IF(
+  @mc_restore_trigger_ok=1,
+  'SELECT 1',
+  'SELECT * FROM information_schema.migration_024_managed_customer_restore_postflight_failed'
+);
+PREPARE mc_restore_postflight FROM @mc_restore_postflight_sql;
+EXECUTE mc_restore_postflight;
+DEALLOCATE PREPARE mc_restore_postflight;
+
+DROP TRIGGER trg_mc_restore_swap_insert;
+DROP TRIGGER trg_mc_restore_swap_update;
+DROP TRIGGER trg_mc_restore_swap_delete;
+
+SET @mc_restore_install_lock_ddl=IF(
+  (SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema=DATABASE()
+      AND table_name='managed_customer_lifecycle_restore_receipts'
+      AND constraint_name='ck_mc_restore_install_lock'
+      AND constraint_type='CHECK')=1,
+  'ALTER TABLE managed_customer_lifecycle_restore_receipts DROP CHECK ck_mc_restore_install_lock',
+  'DO 0'
+);
+PREPARE mc_restore_install_statement FROM @mc_restore_install_lock_ddl;
+EXECUTE mc_restore_install_statement;
+DEALLOCATE PREPARE mc_restore_install_statement;
+
+SET @mc_restore_final_ok=(
   (SELECT COUNT(*) FROM information_schema.triggers
     WHERE trigger_schema=DATABASE()
-      AND event_object_table='managed_customer_lifecycle_receipts') AS lifecycle_trigger_count,
-  (SELECT COUNT(*) FROM managed_customer_lifecycle_receipts) AS lifecycle_receipt_count;
+      AND event_object_table='managed_customer_lifecycle_restore_receipts')=3
+  AND (SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema=DATABASE()
+      AND table_name='managed_customer_lifecycle_restore_receipts'
+      AND constraint_name='ck_mc_restore_install_lock')=0
+);
+SET @mc_restore_final_sql=IF(
+  @mc_restore_final_ok=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_024_managed_customer_restore_final_failed'
+);
+PREPARE mc_restore_final_statement FROM @mc_restore_final_sql;
+EXECUTE mc_restore_final_statement;
+DEALLOCATE PREPARE mc_restore_final_statement;
+
+SELECT
+  (SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema=DATABASE()
+      AND table_name IN ('managed_customer_lifecycle_receipts',
+                         'managed_customer_lifecycle_restore_receipts')) AS lifecycle_table_count,
+  (SELECT COUNT(*) FROM information_schema.triggers
+    WHERE trigger_schema=DATABASE()
+      AND event_object_table IN ('managed_customer_lifecycle_receipts',
+                                 'managed_customer_lifecycle_restore_receipts')) AS lifecycle_trigger_count,
+  (SELECT COUNT(*) FROM managed_customer_lifecycle_receipts) AS lifecycle_receipt_count,
+  (SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts) AS lifecycle_restore_receipt_count;

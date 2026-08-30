@@ -80,38 +80,45 @@ function lifecycle_mysql_execute_file(PDO $pdo, string $path): void
 function lifecycle_mysql_schema_contract(PDO $pdo): array
 {
     $queries = [
-        'columns' => "SELECT ordinal_position,column_name,column_type,is_nullable,
+        'columns' => "SELECT table_name,ordinal_position,column_name,column_type,is_nullable,
                              character_set_name,collation_name,column_default,extra
                         FROM information_schema.columns
                        WHERE table_schema=DATABASE()
-                         AND table_name='managed_customer_lifecycle_receipts'
-                       ORDER BY ordinal_position",
-        'indexes' => "SELECT index_name,non_unique,seq_in_index,column_name,sub_part
+                         AND table_name IN ('managed_customer_lifecycle_receipts',
+                                            'managed_customer_lifecycle_restore_receipts')
+                       ORDER BY table_name,ordinal_position",
+        'indexes' => "SELECT table_name,index_name,non_unique,seq_in_index,column_name,sub_part
                         FROM information_schema.statistics
                        WHERE table_schema=DATABASE()
-                         AND table_name='managed_customer_lifecycle_receipts'
-                       ORDER BY index_name,seq_in_index",
-        'foreign_keys' => "SELECT constraint_name,ordinal_position,column_name,
+                         AND table_name IN ('managed_customer_lifecycle_receipts',
+                                            'managed_customer_lifecycle_restore_receipts')
+                       ORDER BY table_name,index_name,seq_in_index",
+        'foreign_keys' => "SELECT table_name,constraint_name,ordinal_position,column_name,
                                   referenced_table_name,referenced_column_name
                              FROM information_schema.key_column_usage
                             WHERE table_schema=DATABASE()
-                              AND table_name='managed_customer_lifecycle_receipts'
+                              AND table_name IN ('managed_customer_lifecycle_receipts',
+                                                 'managed_customer_lifecycle_restore_receipts')
                               AND referenced_table_name IS NOT NULL
-                            ORDER BY constraint_name,ordinal_position",
-        'checks' => "SELECT constraints_table.constraint_name,checks_table.check_clause,
+                            ORDER BY table_name,constraint_name,ordinal_position",
+        'checks' => "SELECT constraints_table.table_name,
+                            constraints_table.constraint_name,checks_table.check_clause,
                             constraints_table.enforced
                        FROM information_schema.check_constraints checks_table
                        JOIN information_schema.table_constraints constraints_table
                          ON constraints_table.constraint_schema=checks_table.constraint_schema
                         AND constraints_table.constraint_name=checks_table.constraint_name
                       WHERE constraints_table.constraint_schema=DATABASE()
-                        AND constraints_table.table_name='managed_customer_lifecycle_receipts'
-                      ORDER BY constraints_table.constraint_name",
-        'triggers' => "SELECT trigger_name,event_manipulation,action_timing,action_statement
+                        AND constraints_table.table_name IN ('managed_customer_lifecycle_receipts',
+                                                             'managed_customer_lifecycle_restore_receipts')
+                      ORDER BY constraints_table.table_name,constraints_table.constraint_name",
+        'triggers' => "SELECT event_object_table,trigger_name,event_manipulation,
+                              action_timing,action_statement
                          FROM information_schema.triggers
                         WHERE trigger_schema=DATABASE()
-                          AND event_object_table='managed_customer_lifecycle_receipts'
-                        ORDER BY trigger_name",
+                          AND event_object_table IN ('managed_customer_lifecycle_receipts',
+                                                     'managed_customer_lifecycle_restore_receipts')
+                        ORDER BY event_object_table,trigger_name",
     ];
     $contract = [];
     foreach ($queries as $key => $sql) {
@@ -172,6 +179,15 @@ function lifecycle_mysql_config(string $customerId): array
 }
 
 /** @return array<string,mixed> */
+function lifecycle_mysql_restore_config(string $customerId): array
+{
+    return array_replace(
+        lifecycle_mysql_config($customerId),
+        ['restoration_enabled' => true],
+    );
+}
+
+/** @return array<string,mixed> */
 function lifecycle_mysql_activation_config(string $customerId): array
 {
     return [
@@ -183,11 +199,17 @@ function lifecycle_mysql_activation_config(string $customerId): array
 }
 
 /** @return array<string,mixed> */
-function lifecycle_mysql_activation_evidence(string $customerId, string $tenantKey, string $slug): array
+function lifecycle_mysql_activation_evidence(
+    string $customerId,
+    string $tenantKey,
+    string $slug,
+    string $eventId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+): array
 {
     return [
         'schema_version' => 2, 'customer_id' => $customerId, 'source_version' => 1,
         'customer_receipt_id' => hash('sha256', 'receipt:' . $customerId),
+        'customer_event_id' => $eventId,
         'customer_status' => 'active', 'lifecycle_version' => 1,
         'lifecycle_transition_id' => 1, 'lifecycle_action' => 'observed_active',
         'lifecycle_evidence_sha256' => hash('sha256', 'lifecycle:' . $customerId),
@@ -198,6 +220,32 @@ function lifecycle_mysql_activation_evidence(string $customerId, string $tenantK
         'request_nonce_sha256' => str_repeat('a', 64),
         'response_sha256' => hash('sha256', 'response:' . $customerId),
     ];
+}
+
+/** @return array<string,mixed> */
+function lifecycle_mysql_restore_evidence(
+    string $customerId,
+    int $sourceVersion,
+    string $eventId,
+    string $tenantKey,
+    string $slug,
+): array {
+    $evidence = lifecycle_mysql_activation_evidence($customerId, $tenantKey, $slug);
+    $evidence['source_version'] = $sourceVersion;
+    $evidence['customer_event_id'] = $eventId;
+    $evidence['customer_receipt_id'] = hash('sha256', 'restored-receipt:' . $customerId . ':' . $sourceVersion);
+    $evidence['lifecycle_transition_id'] = $sourceVersion + 10;
+    $evidence['lifecycle_action'] = 'restored';
+    $evidence['lifecycle_evidence_sha256'] = hash(
+        'sha256',
+        'restored-lifecycle:' . $customerId . ':' . $sourceVersion,
+    );
+    $evidence['identity_oauth_session_version'] = $sourceVersion + 20;
+    $evidence['contact_version'] = 2;
+    $evidence['generated_at_db'] = '2026-08-30 17:00:00';
+    $evidence['request_nonce_sha256'] = hash('sha256', 'restore-nonce:' . $customerId);
+    $evidence['response_sha256'] = hash('sha256', 'restore-response:' . $customerId);
+    return $evidence;
 }
 
 /** @return array<string,mixed> */
@@ -236,7 +284,7 @@ function lifecycle_mysql_seed_active(PDO $pdo, string $customerId, int $clientId
     managed_customer_activation_apply(
         $pdo,
         $candidate,
-        lifecycle_mysql_activation_evidence($customerId, $key, $slug),
+        lifecycle_mysql_activation_evidence($customerId, $key, $slug, $eventId),
         101,
         lifecycle_mysql_activation_config($customerId),
         lifecycle_mysql_report_config($customerId, $clientId, $slug . '@example.test'),
@@ -255,6 +303,18 @@ function lifecycle_mysql_mark_inactive(PDO $pdo, int $bindingId, string $eventId
     if ($update->rowCount() !== 1) throw new RuntimeException('Inactive transition fixture failed.');
 }
 
+function lifecycle_mysql_mark_active(PDO $pdo, int $bindingId, string $eventId, string $hash): void
+{
+    $update = $pdo->prepare(
+        "UPDATE suite_customer_sync_bindings
+            SET source_version=source_version+1, status='active', last_event_id=?,
+                last_occurred_at=UTC_TIMESTAMP(), last_request_sha256=?
+          WHERE id=? AND status='inactive'"
+    );
+    $update->execute([$eventId, $hash, $bindingId]);
+    if ($update->rowCount() !== 1) throw new RuntimeException('Active transition fixture failed.');
+}
+
 if (($argv[1] ?? '') === 'race-child') {
     $database = (string)($argv[2] ?? '');
     $delay = (string)($argv[3] ?? '0') === '1';
@@ -268,6 +328,44 @@ if (($argv[1] ?? '') === 'race-child') {
             lifecycle_mysql_config($customerId),
             $delay ? static function (string $stage): void {
                 if ($stage === 'after_portal') usleep(700_000);
+            } : null,
+        );
+        echo json_encode($result, JSON_THROW_ON_ERROR) . "\n";
+        exit(0);
+    } catch (Throwable $error) {
+        fwrite(STDERR, $error::class . ':' . $error->getMessage() . "\n");
+        exit(1);
+    }
+}
+
+if (($argv[1] ?? '') === 'restore-race-child') {
+    $database = (string)($argv[2] ?? '');
+    $delay = (string)($argv[3] ?? '0') === '1';
+    $customerId = '11111111-1111-4111-8111-111111111111';
+    $eventId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    try {
+        $pdo = lifecycle_mysql_connection($database);
+        $evidence = lifecycle_mysql_restore_evidence(
+            $customerId,
+            3,
+            $eventId,
+            'ewid-t91',
+            'managed-one',
+        );
+        if (!$delay) {
+            $evidence['generated_at_db'] = '2026-08-30 17:00:01';
+            $evidence['request_nonce_sha256'] = hash('sha256', 'second-restore-nonce');
+            $evidence['response_sha256'] = hash('sha256', 'second-restore-response');
+        }
+        $result = managed_customer_lifecycle_restore(
+            $pdo,
+            lifecycle_mysql_candidate($pdo, $customerId),
+            $evidence,
+            101,
+            lifecycle_mysql_restore_config($customerId),
+            lifecycle_mysql_report_config($customerId, 11, 'managed-one@example.test'),
+            $delay ? static function (string $stage): void {
+                if ($stage === 'after_restore_portal') usleep(700_000);
             } : null,
         );
         echo json_encode($result, JSON_THROW_ON_ERROR) . "\n";
@@ -302,23 +400,29 @@ try {
     lifecycle_mysql_execute_sql($pdo, lifecycle_mysql_pre024_schema());
     lifecycle_mysql_check(
         (int)$pdo->query("SELECT COUNT(*) FROM information_schema.tables
-          WHERE table_schema=DATABASE() AND table_name='managed_customer_lifecycle_receipts'")->fetchColumn() === 0,
-        'pre-024 fixture has no lifecycle receipt table',
+          WHERE table_schema=DATABASE()
+            AND table_name IN ('managed_customer_lifecycle_receipts',
+                               'managed_customer_lifecycle_restore_receipts')")->fetchColumn() === 0,
+        'pre-024 fixture has no lifecycle or restore receipt table',
     );
     $migration = __DIR__ . '/../db/migrations/024_managed_customer_lifecycle.sql';
     lifecycle_mysql_execute_file($pdo, $migration);
     lifecycle_mysql_execute_file($pdo, $migration);
     lifecycle_mysql_check(
         (int)$pdo->query("SELECT COUNT(*) FROM information_schema.triggers
-          WHERE trigger_schema=DATABASE() AND event_object_table='managed_customer_lifecycle_receipts'
-            AND trigger_name IN ('trg_mc_lifecycle_before_insert','trg_mc_lifecycle_no_update','trg_mc_lifecycle_no_delete')")->fetchColumn() === 3
+          WHERE trigger_schema=DATABASE()
+            AND event_object_table IN ('managed_customer_lifecycle_receipts',
+                                       'managed_customer_lifecycle_restore_receipts')
+            AND trigger_name IN ('trg_mc_lifecycle_before_insert','trg_mc_lifecycle_no_update',
+                                 'trg_mc_lifecycle_no_delete','trg_mc_restore_before_insert',
+                                 'trg_mc_restore_no_update','trg_mc_restore_no_delete')")->fetchColumn() === 6
         && (int)$pdo->query("SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE()
             AND trigger_name IN ('trg_mc_lifecycle_swap_insert','trg_mc_lifecycle_swap_update','trg_mc_lifecycle_swap_delete')")->fetchColumn() === 0
         && (int)$pdo->query("SELECT COUNT(*) FROM information_schema.table_constraints
           WHERE constraint_schema=DATABASE() AND table_name='managed_customer_lifecycle_receipts'
             AND constraint_name='ck_mc_lifecycle_install_lock'")->fetchColumn() === 0,
-        'migration 024 replays with three permanent guards and no swap or install blocker',
+        'migration 024 replays with six permanent guards and no swap or install blocker',
     );
 
     $pdo->exec('ALTER TABLE managed_customer_lifecycle_receipts
@@ -349,7 +453,9 @@ try {
     $admin->exec("GRANT SELECT ON {$quotedDatabase}.* TO '{$runtimeUser}'@'%'");
     $admin->exec("GRANT UPDATE ON {$quotedDatabase}.`customer_portal_bindings` TO '{$runtimeUser}'@'%'");
     $admin->exec("GRANT INSERT ON {$quotedDatabase}.`business_report_schedule_versions` TO '{$runtimeUser}'@'%'");
+    $admin->exec("GRANT INSERT ON {$quotedDatabase}.`business_report_id_client_contact_snapshots` TO '{$runtimeUser}'@'%'");
     $admin->exec("GRANT INSERT ON {$quotedDatabase}.`managed_customer_lifecycle_receipts` TO '{$runtimeUser}'@'%'");
+    $admin->exec("GRANT INSERT ON {$quotedDatabase}.`managed_customer_lifecycle_restore_receipts` TO '{$runtimeUser}'@'%'");
     $runtime = lifecycle_mysql_connection($database, $runtimeUser, $runtimePass);
     lifecycle_mysql_refuses(
         PDOException::class,
@@ -399,6 +505,37 @@ try {
           WHERE trigger_schema=DATABASE()
             AND trigger_name IN ('trg_mc_lifecycle_swap_insert','trg_mc_lifecycle_swap_update','trg_mc_lifecycle_swap_delete')")->fetchColumn() === 0,
         'exact replay restores interrupted permanent guards',
+    );
+
+    $pdo->exec("CREATE TRIGGER trg_mc_restore_swap_insert
+        BEFORE INSERT ON managed_customer_lifecycle_restore_receipts FOR EACH ROW
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Managed-customer restoration migration is incomplete'");
+    $pdo->exec("CREATE TRIGGER trg_mc_restore_swap_update
+        BEFORE UPDATE ON managed_customer_lifecycle_restore_receipts FOR EACH ROW
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Managed-customer restoration migration is incomplete'");
+    $pdo->exec("CREATE TRIGGER trg_mc_restore_swap_delete
+        BEFORE DELETE ON managed_customer_lifecycle_restore_receipts FOR EACH ROW
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Managed-customer restoration migration is incomplete'");
+    $pdo->exec('DROP TRIGGER trg_mc_restore_before_insert');
+    $pdo->exec('DROP TRIGGER trg_mc_restore_no_update');
+    $pdo->exec('DROP TRIGGER trg_mc_restore_no_delete');
+    lifecycle_mysql_refuses(
+        PDOException::class,
+        static fn() => $pdo->exec(
+            'INSERT INTO managed_customer_lifecycle_restore_receipts (tenant_id) VALUES (1)'
+        ),
+        'interrupted restoration migration blocker refuses receipt inserts',
+    );
+    lifecycle_mysql_execute_file($pdo, $migration);
+    lifecycle_mysql_check(
+        (int)$pdo->query("SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND event_object_table='managed_customer_lifecycle_restore_receipts'")->fetchColumn() === 3
+        && (int)$pdo->query("SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND trigger_name IN ('trg_mc_restore_swap_insert','trg_mc_restore_swap_update',
+                                 'trg_mc_restore_swap_delete')")->fetchColumn() === 0,
+        'exact replay restores interrupted restoration guards',
     );
 
     $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (1,'Provider One','provider-one')");
@@ -476,6 +613,96 @@ try {
         'database guard rejects lifecycle receipt delete',
     );
 
+    lifecycle_mysql_mark_active(
+        $pdo,
+        501,
+        'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        str_repeat('e', 64),
+    );
+    lifecycle_mysql_check(
+        !managed_customer_operational($pdo, 1, 11),
+        'a later active source event remains latched closed before restored ID evidence',
+    );
+    $blockedActive = managed_customer_lifecycle_apply(
+        $runtime,
+        lifecycle_mysql_candidate($pdo, $customerOne),
+        101,
+        lifecycle_mysql_config($customerOne),
+    );
+    lifecycle_mysql_check(
+        ($blockedActive['action'] ?? null)==='reactivation_blocked'
+            && !managed_customer_operational($pdo, 1, 11),
+        'active-after-inactive source is physically and logically blocked before restore',
+    );
+
+    $restoreCommandA = [PHP_BINARY, __FILE__, 'restore-race-child', $database, '1'];
+    $restoreCommandB = [PHP_BINARY, __FILE__, 'restore-race-child', $database, '0'];
+    $restorePipesA = []; $restorePipesB = [];
+    $restoreProcessA = proc_open(
+        $restoreCommandA,
+        [1=>['pipe','w'],2=>['pipe','w']],
+        $restorePipesA,
+    );
+    usleep(100_000);
+    $restoreProcessB = proc_open(
+        $restoreCommandB,
+        [1=>['pipe','w'],2=>['pipe','w']],
+        $restorePipesB,
+    );
+    if (!is_resource($restoreProcessA) || !is_resource($restoreProcessB)) {
+        throw new RuntimeException('Could not start lifecycle restoration race workers.');
+    }
+    $restoreStdoutA = stream_get_contents($restorePipesA[1]);
+    $restoreStderrA = stream_get_contents($restorePipesA[2]);
+    $restoreStdoutB = stream_get_contents($restorePipesB[1]);
+    $restoreStderrB = stream_get_contents($restorePipesB[2]);
+    fclose($restorePipesA[1]); fclose($restorePipesA[2]);
+    fclose($restorePipesB[1]); fclose($restorePipesB[2]);
+    $restoreExitA = proc_close($restoreProcessA);
+    $restoreExitB = proc_close($restoreProcessB);
+    $restoreRaceA = json_decode(trim((string)$restoreStdoutA), true);
+    $restoreRaceB = json_decode(trim((string)$restoreStdoutB), true);
+    $restoreActions = is_array($restoreRaceA) && is_array($restoreRaceB)
+        ? [
+            (string)($restoreRaceA['action'] ?? ''),
+            (string)($restoreRaceB['action'] ?? ''),
+        ]
+        : [];
+    sort($restoreActions);
+    lifecycle_mysql_check(
+        $restoreExitA===0 && $restoreExitB===0
+            && $restoreActions===['restore_replayed','restored'],
+        'two real restore workers serialize to one restored receipt and one lost-ack replay'
+            . (($restoreStderrA.$restoreStderrB)==='' ? '' : ' (worker error)'),
+    );
+    lifecycle_mysql_check(
+        managed_customer_operational($pdo, 1, 11)
+            && (int)$pdo->query(
+                'SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts WHERE client_id=11'
+            )->fetchColumn()===1
+            && (string)$pdo->query(
+                'SELECT status FROM customer_portal_bindings WHERE client_id=11'
+            )->fetchColumn()==='active'
+            && (string)$pdo->query("SELECT status FROM business_report_schedule_versions
+                WHERE client_id=11 ORDER BY version_no DESC LIMIT 1")->fetchColumn()==='active'
+            && (int)$pdo->query(
+                'SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE client_id=11'
+            )->fetchColumn()===2,
+        'restored-only receipt reopens exact owned surfaces with one fresh contact snapshot',
+    );
+    lifecycle_mysql_refuses(
+        PDOException::class,
+        static fn() => $pdo->exec(
+            'UPDATE managed_customer_lifecycle_restore_receipts SET portal_restored=0'
+        ),
+        'database guard rejects restore receipt update',
+    );
+    lifecycle_mysql_refuses(
+        PDOException::class,
+        static fn() => $pdo->exec('DELETE FROM managed_customer_lifecycle_restore_receipts'),
+        'database guard rejects restore receipt delete',
+    );
+
     $customerTwo = '22222222-2222-4222-8222-222222222222';
     lifecycle_mysql_seed_active(
         $pdo, $customerTwo, 12, 502, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'ewid-t92', 'managed-two',
@@ -513,6 +740,80 @@ try {
             'SELECT COUNT(*) FROM managed_customer_lifecycle_receipts WHERE client_id=12'
         )->fetchColumn() === 1,
         'least-privilege runtime exactly replays containment after interruption',
+    );
+
+    lifecycle_mysql_mark_active(
+        $pdo,
+        502,
+        'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        str_repeat('f', 64),
+    );
+    $customerTwoActive = lifecycle_mysql_candidate($pdo, $customerTwo);
+    managed_customer_lifecycle_apply(
+        $runtime,
+        $customerTwoActive,
+        101,
+        lifecycle_mysql_config($customerTwo),
+    );
+    lifecycle_mysql_refuses(
+        RuntimeException::class,
+        static fn() => managed_customer_lifecycle_restore(
+            $runtime,
+            $customerTwoActive,
+            lifecycle_mysql_restore_evidence(
+                $customerTwo,
+                3,
+                'ffffffff-ffff-4fff-8fff-ffffffffffff',
+                'ewid-t92',
+                'managed-two',
+            ),
+            101,
+            lifecycle_mysql_restore_config($customerTwo),
+            lifecycle_mysql_report_config($customerTwo, 12, 'managed-two@example.test'),
+            static function (string $stage): void {
+                if ($stage==='after_restore_contact') {
+                    throw new RuntimeException('fixture restore crash');
+                }
+            },
+        ),
+        'injected MySQL restoration interruption is observed',
+    );
+    lifecycle_mysql_check(
+        !managed_customer_operational($pdo, 1, 12)
+            && (string)$pdo->query(
+                'SELECT status FROM customer_portal_bindings WHERE client_id=12'
+            )->fetchColumn()==='disabled'
+            && (string)$pdo->query("SELECT status FROM business_report_schedule_versions
+                WHERE client_id=12 ORDER BY version_no DESC LIMIT 1")->fetchColumn()==='disabled'
+            && (int)$pdo->query(
+                'SELECT COUNT(*) FROM business_report_id_client_contact_snapshots WHERE client_id=12'
+            )->fetchColumn()===1
+            && (int)$pdo->query(
+                'SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts WHERE client_id=12'
+            )->fetchColumn()===0,
+        'restoration interruption rolls back portal schedule contact and receipt together',
+    );
+    $afterRestoreCrash = managed_customer_lifecycle_restore(
+        $runtime,
+        $customerTwoActive,
+        lifecycle_mysql_restore_evidence(
+            $customerTwo,
+            3,
+            'ffffffff-ffff-4fff-8fff-ffffffffffff',
+            'ewid-t92',
+            'managed-two',
+        ),
+        101,
+        lifecycle_mysql_restore_config($customerTwo),
+        lifecycle_mysql_report_config($customerTwo, 12, 'managed-two@example.test'),
+    );
+    lifecycle_mysql_check(
+        ($afterRestoreCrash['action'] ?? null)==='restored'
+            && managed_customer_operational($pdo, 1, 12)
+            && (int)$pdo->query(
+                'SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts WHERE client_id=12'
+            )->fetchColumn()===1,
+        'least-privilege runtime exactly restores after interruption',
     );
 
     $admin->exec("CREATE DATABASE {$quotedFreshDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");

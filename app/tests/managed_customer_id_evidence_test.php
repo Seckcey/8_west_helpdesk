@@ -42,6 +42,7 @@ function evidence_document(array $changes = []): array
         'customer_id' => $evidenceCustomer,
         'customer_source_version' => 7,
         'customer_receipt_id' => str_repeat('b', 64),
+        'customer_event_id' => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
         'customer_status' => 'active',
         'lifecycle_version' => 1,
         'lifecycle_transition_id' => 19,
@@ -179,6 +180,7 @@ $decoded = managed_customer_id_evidence_decode_response(
 evidence_check(
     array_keys($decoded) === [
         'schema_version', 'customer_id', 'source_version', 'customer_receipt_id',
+        'customer_event_id',
         'customer_status', 'lifecycle_version', 'lifecycle_transition_id',
         'lifecycle_action', 'lifecycle_evidence_sha256', 'identity_tenant_status',
         'identity_oauth_session_version', 'lifecycle_owned',
@@ -192,6 +194,7 @@ evidence_check(
         && $decoded['customer_id'] === $evidenceCustomer
         && $decoded['source_version'] === 7
         && $decoded['customer_receipt_id'] === str_repeat('b', 64)
+        && $decoded['customer_event_id'] === 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
         && $decoded['customer_status'] === 'active'
         && $decoded['lifecycle_version'] === 1
         && $decoded['lifecycle_transition_id'] === 19
@@ -253,6 +256,7 @@ evidence_decode_refuses(['customer_id' => '33333333-3333-4333-8333-333333333333'
 evidence_decode_refuses(['customer_source_version' => '7'], 'schema-2 decoder accepted a non-integer source version');
 evidence_decode_refuses(['customer_source_version' => 0], 'schema-2 decoder accepted source version zero');
 evidence_decode_refuses(['customer_receipt_id' => str_repeat('B', 64)], 'schema-2 decoder accepted a noncanonical receipt id');
+evidence_decode_refuses(['customer_event_id' => 'DDDDDDDD-dddd-4ddd-8ddd-dddddddddddd'], 'schema-2 decoder accepted a noncanonical source event UUID');
 evidence_decode_refuses(['customer_status' => 'inactive'], 'schema-2 decoder accepted an inactive customer');
 evidence_decode_refuses(['lifecycle_version' => 2], 'schema-2 decoder accepted another lifecycle version');
 evidence_decode_refuses(['lifecycle_transition_id' => 0], 'schema-2 decoder accepted a nonpositive lifecycle transition');

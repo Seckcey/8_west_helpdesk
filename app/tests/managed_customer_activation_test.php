@@ -28,6 +28,22 @@ function activation_refuses(string $class, callable $operation, string $message)
     }
 }
 
+function activation_seed_source_event(
+    PDO $pdo,
+    int $bindingId,
+    string $customerId,
+    int $clientId,
+    string $eventId,
+    string $requestHash,
+): void {
+    $insert = $pdo->prepare(
+        "INSERT INTO suite_customer_sync_events
+            (tenant_id,event_id,binding_id,customer_id,client_id,source_version,status,request_sha256)
+         VALUES (1,?,?,?, ?,1,'active',?)"
+    );
+    $insert->execute([$eventId, $bindingId, $customerId, $clientId, $requestHash]);
+}
+
 function activation_sqlite(): PDO
 {
     $pdo = new PDO('sqlite::memory:');
@@ -44,7 +60,9 @@ function activation_sqlite(): PDO
             id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
             customer_id TEXT NOT NULL UNIQUE, client_id INTEGER NOT NULL,
             source_version INTEGER NOT NULL, display_name TEXT NOT NULL,
-            status TEXT NOT NULL, UNIQUE(tenant_id,client_id), UNIQUE(tenant_id,id))',
+            status TEXT NOT NULL, last_event_id TEXT NOT NULL,
+            last_request_sha256 TEXT NOT NULL,
+            UNIQUE(tenant_id,client_id), UNIQUE(tenant_id,id))',
         'CREATE TABLE suite_customer_sync_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
             event_id TEXT NOT NULL, binding_id INTEGER NOT NULL, customer_id TEXT NOT NULL,
@@ -131,8 +149,18 @@ function activation_sqlite(): PDO
     $pdo->exec("INSERT INTO users (id,tenant_id,role,is_active) VALUES
         (101,1,'owner',1),(102,1,'admin',1),(103,1,'tech',1),(201,2,'owner',1)");
     $pdo->exec("INSERT INTO suite_customer_sync_bindings
-        (id,tenant_id,customer_id,client_id,source_version,display_name,status) VALUES
-        (501,1,'11111111-1111-4111-8111-111111111111',11,1,'Managed One','active')");
+        (id,tenant_id,customer_id,client_id,source_version,display_name,status,
+         last_event_id,last_request_sha256) VALUES
+        (501,1,'11111111-1111-4111-8111-111111111111',11,1,'Managed One','active',
+         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','" . str_repeat('a', 64) . "')");
+    activation_seed_source_event(
+        $pdo,
+        501,
+        '11111111-1111-4111-8111-111111111111',
+        11,
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        str_repeat('a', 64),
+    );
     $definition = $pdo->prepare(
         'INSERT INTO business_report_definition_versions
             (id,tenant_id,definition_key,version_no,report_type,contract_json,
@@ -180,6 +208,7 @@ function activation_evidence(array $changes = []): array
         'customer_id' => '11111111-1111-4111-8111-111111111111',
         'source_version' => 1,
         'customer_receipt_id' => str_repeat('9', 64),
+        'customer_event_id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         'customer_status' => 'active',
         'lifecycle_version' => 1,
         'lifecycle_transition_id' => 7,
@@ -285,10 +314,20 @@ $queuePdo = activation_sqlite();
 $queuePdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
     (13,1,'Managed Three'),(14,1,'Managed Four')");
 $queuePdo->exec("INSERT INTO suite_customer_sync_bindings
-    (id,tenant_id,customer_id,client_id,source_version,display_name,status) VALUES
-    (502,1,'22222222-2222-4222-8222-222222222222',12,1,'Managed Two','active'),
-    (503,1,'33333333-3333-4333-8333-333333333333',13,1,'Managed Three','active'),
-    (504,1,'44444444-4444-4444-8444-444444444444',14,1,'Managed Four','active')");
+    (id,tenant_id,customer_id,client_id,source_version,display_name,status,
+     last_event_id,last_request_sha256) VALUES
+    (502,1,'22222222-2222-4222-8222-222222222222',12,1,'Managed Two','active',
+     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','" . str_repeat('b', 64) . "'),
+    (503,1,'33333333-3333-4333-8333-333333333333',13,1,'Managed Three','active',
+     'cccccccc-cccc-4ccc-8ccc-cccccccccccc','" . str_repeat('c', 64) . "'),
+    (504,1,'44444444-4444-4444-8444-444444444444',14,1,'Managed Four','active',
+     'dddddddd-dddd-4ddd-8ddd-dddddddddddd','" . str_repeat('d', 64) . "')");
+activation_seed_source_event($queuePdo, 502, '22222222-2222-4222-8222-222222222222', 12,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', str_repeat('b', 64));
+activation_seed_source_event($queuePdo, 503, '33333333-3333-4333-8333-333333333333', 13,
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc', str_repeat('c', 64));
+activation_seed_source_event($queuePdo, 504, '44444444-4444-4444-8444-444444444444', 14,
+    'dddddddd-dddd-4ddd-8ddd-dddddddddddd', str_repeat('d', 64));
 $queueConfig = activation_config([
     'customer_ids' => [
         '11111111-1111-4111-8111-111111111111',
@@ -341,10 +380,20 @@ $fairPdo = activation_sqlite();
 $fairPdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
     (13,1,'Managed Three'),(14,1,'Managed Four')");
 $fairPdo->exec("INSERT INTO suite_customer_sync_bindings
-    (id,tenant_id,customer_id,client_id,source_version,display_name,status) VALUES
-    (502,1,'22222222-2222-4222-8222-222222222222',12,1,'Managed Two','active'),
-    (503,1,'33333333-3333-4333-8333-333333333333',13,1,'Managed Three','active'),
-    (504,1,'44444444-4444-4444-8444-444444444444',14,1,'Managed Four','active')");
+    (id,tenant_id,customer_id,client_id,source_version,display_name,status,
+     last_event_id,last_request_sha256) VALUES
+    (502,1,'22222222-2222-4222-8222-222222222222',12,1,'Managed Two','active',
+     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','" . str_repeat('b', 64) . "'),
+    (503,1,'33333333-3333-4333-8333-333333333333',13,1,'Managed Three','active',
+     'cccccccc-cccc-4ccc-8ccc-cccccccccccc','" . str_repeat('c', 64) . "'),
+    (504,1,'44444444-4444-4444-8444-444444444444',14,1,'Managed Four','active',
+     'dddddddd-dddd-4ddd-8ddd-dddddddddddd','" . str_repeat('d', 64) . "')");
+activation_seed_source_event($fairPdo, 502, '22222222-2222-4222-8222-222222222222', 12,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', str_repeat('b', 64));
+activation_seed_source_event($fairPdo, 503, '33333333-3333-4333-8333-333333333333', 13,
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc', str_repeat('c', 64));
+activation_seed_source_event($fairPdo, 504, '44444444-4444-4444-8444-444444444444', 14,
+    'dddddddd-dddd-4ddd-8ddd-dddddddddddd', str_repeat('d', 64));
 $fairConfig = $queueConfig;
 $fairConfig['batch_size'] = 1;
 $fairReportConfig = [
@@ -378,6 +427,7 @@ $fairResults = managed_customer_activation_run(
         return activation_evidence([
             'customer_id' => $customerId,
             'customer_receipt_id' => str_repeat('3', 64),
+            'customer_event_id' => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
             'tenant_key' => 'ewid-t93',
             'tenant_slug' => 'managed-three',
             'recipient_email' => 'managed-three@example.test',
@@ -395,6 +445,22 @@ activation_check(
             "SELECT COUNT(*) FROM managed_customer_activation_receipts WHERE client_id=13",
         )->fetchColumn() === 1,
     'persistent early refusals consumed the successful batch cap or starved a later customer',
+);
+
+$wrongEventPdo = activation_sqlite();
+activation_refuses(
+    ManagedCustomerActivationGateException::class,
+    static fn() => managed_customer_activation_apply(
+        $wrongEventPdo,
+        activation_candidate($wrongEventPdo),
+        activation_evidence([
+            'customer_event_id' => 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        ]),
+        101,
+        activation_config(),
+        activation_report_config(),
+    ),
+    'signed evidence for a different immutable source event activated a customer',
 );
 
 $pdo = activation_sqlite();

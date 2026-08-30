@@ -279,10 +279,12 @@ return [
     // The read boundary blocks portal access and report generation/delivery as
     // soon as an inactive source event is visible. This default-off worker
     // additionally disables the portal binding and appends a disabled report
-    // schedule version with immutable evidence. The expanded signed 8 West ID
-    // lifecycle fields are consumed, but restoration deliberately remains
-    // unsupported until the ID receipt can be mapped to Safeharbor's exact
-    // current source receipt; schema-2 contact evidence alone is never enough.
+    // schedule version with immutable evidence. Restoration has a separate
+    // default-off gate. It accepts only a fresh nonce-bound signed schema-2
+    // `restored` document whose customer UUID, source version, and Milepost
+    // event UUID match Safeharbor's exact current immutable source receipt.
+    // Only surfaces owned by the exact containment receipt can be reopened;
+    // pre-existing or later human disables/holds remain unchanged.
     'managed_customer_lifecycle' => [
         'enabled' => false,
         'restoration_enabled' => false,

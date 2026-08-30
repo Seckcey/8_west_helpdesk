@@ -130,13 +130,19 @@ function activation_mysql_config(string $customerId): array
 }
 
 /** @return array<string,mixed> */
-function activation_mysql_evidence(string $customerId, string $tenantKey, string $tenantSlug): array
+function activation_mysql_evidence(
+    string $customerId,
+    string $tenantKey,
+    string $tenantSlug,
+    string $eventId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+): array
 {
     return [
         'schema_version' => 2,
         'customer_id' => $customerId,
         'source_version' => 1,
         'customer_receipt_id' => hash('sha256', 'receipt:' . $customerId),
+        'customer_event_id' => $eventId,
         'customer_status' => 'active',
         'lifecycle_version' => 1,
         'lifecycle_transition_id' => 7,
@@ -429,7 +435,12 @@ try {
     );
     $candidateTwo = activation_mysql_candidate($pdo, $customerTwo);
     $configTwo = activation_mysql_config($customerTwo);
-    $evidenceTwo = activation_mysql_evidence($customerTwo, 'ewid-t92', 'managed-two');
+    $evidenceTwo = activation_mysql_evidence(
+        $customerTwo,
+        'ewid-t92',
+        'managed-two',
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    );
     $reportTwo = activation_mysql_report_config($customerTwo, 12, 'managed-two@example.test');
     activation_mysql_refuses(
         RuntimeException::class,

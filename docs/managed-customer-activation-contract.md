@@ -82,12 +82,13 @@ POST
 <sha256(raw request body)>
 ```
 
-The authenticated 200 response has the exact 20-member order pinned in
+The authenticated 200 response has the exact 21-member order pinned in
 `managed-customer-lifecycle-contract.md`. In addition to the original
-customer/source/receipt/contact facts, it requires active customer and identity
-tenant status, lifecycle version 1, positive transition and OAuth session
-versions, `observed_active` or `restored`, a lowercase lifecycle evidence hash,
-and `lifecycle_owned=false`. Its signature preimage is
+customer/source/receipt/contact facts, it includes the exact original Milepost
+event UUID and requires active customer and identity tenant status, lifecycle
+version 1, positive transition and OAuth session versions, `observed_active` or
+`restored`, a lowercase lifecycle evidence hash, and `lifecycle_owned=false`.
+Its signature preimage is
 `8west-id-report-contact-response-v1`, newline, nonce, newline, and the raw
 response-body SHA-256. Duplicate members, reordered members, redirects,
 alternate endpoints, non-200 responses, signature mismatches, or generated
@@ -101,8 +102,9 @@ post-inactive restoration belongs to the separately latched lifecycle contract.
 The transaction then rechecks all of these local facts:
 
 1. one exact tenant/client/source-binding ID still names the same UUID,
-   authenticated source version, and `active` status, with no local inactive
-   event anywhere in its immutable history;
+   authenticated source version, original Milepost event UUID, and `active`
+   status, with an exact immutable current receipt and no local inactive event
+   anywhere in its history;
 2. the configured actor is still an active owner/admin in that tenant;
 3. the ID tenant key/slug is absent or already bound to that exact client,
    never another tenant/client or the older tenant-wide contact lane;

@@ -114,6 +114,7 @@ function managed_customer_id_evidence_request(
  * @param array<string,list<string>> $headers
  * @return array{
  *   schema_version:int,customer_id:string,source_version:int,customer_receipt_id:string,
+ *   customer_event_id:string,
  *   customer_status:string,lifecycle_version:int,lifecycle_transition_id:int,
  *   lifecycle_action:string,lifecycle_evidence_sha256:string,
  *   identity_tenant_status:string,identity_oauth_session_version:int,lifecycle_owned:bool,
@@ -172,7 +173,7 @@ function managed_customer_id_evidence_decode_response(
     }
     $expectedKeys = [
         'ok', 'schema_version', 'customer_id', 'customer_source_version',
-        'customer_receipt_id', 'customer_status', 'lifecycle_version',
+        'customer_receipt_id', 'customer_event_id', 'customer_status', 'lifecycle_version',
         'lifecycle_transition_id', 'lifecycle_action', 'lifecycle_evidence_sha256',
         'identity_tenant_status', 'identity_oauth_session_version', 'lifecycle_owned',
         'identity_tenant_key', 'identity_tenant_slug', 'contact_version',
@@ -190,6 +191,8 @@ function managed_customer_id_evidence_decode_response(
         || $document['customer_source_version'] < 1
         || !is_string($document['customer_receipt_id'] ?? null)
         || preg_match('/\A[0-9a-f]{64}\z/D', $document['customer_receipt_id']) !== 1
+        || !is_string($document['customer_event_id'] ?? null)
+        || preg_match(MANAGED_CUSTOMER_EVENT_UUID_V4, $document['customer_event_id']) !== 1
         || ($document['customer_status'] ?? null) !== 'active'
         || ($document['lifecycle_version'] ?? null) !== 1
         || !is_int($document['lifecycle_transition_id'] ?? null)
@@ -236,6 +239,7 @@ function managed_customer_id_evidence_decode_response(
         'customer_id' => $expectedCustomerId,
         'source_version' => $document['customer_source_version'],
         'customer_receipt_id' => $document['customer_receipt_id'],
+        'customer_event_id' => $document['customer_event_id'],
         'customer_status' => $document['customer_status'],
         'lifecycle_version' => $document['lifecycle_version'],
         'lifecycle_transition_id' => $document['lifecycle_transition_id'],

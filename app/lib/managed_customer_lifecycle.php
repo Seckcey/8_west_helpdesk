@@ -14,25 +14,24 @@ require_once __DIR__ . '/managed_customer_activation.php';
 require_once __DIR__ . '/managed_customer_status.php';
 
 const MANAGED_CUSTOMER_LIFECYCLE_CONTEXT = 'safeharbor-managed-customer-lifecycle-v1';
+const MANAGED_CUSTOMER_LIFECYCLE_RESTORE_CONTEXT = 'safeharbor-managed-customer-lifecycle-restore-v1';
 const MANAGED_CUSTOMER_LIFECYCLE_MAX_CUSTOMERS = 25;
 const MANAGED_CUSTOMER_LIFECYCLE_MAX_BATCH = 25;
 const MANAGED_CUSTOMER_LIFECYCLE_WRITE_TABLES = [
     'customer_portal_bindings',
     'business_report_schedule_versions',
+    'business_report_id_client_contact_snapshots',
     'managed_customer_lifecycle_receipts',
+    'managed_customer_lifecycle_restore_receipts',
 ];
 
 class ManagedCustomerLifecycleException extends RuntimeException {}
 final class ManagedCustomerLifecycleValidationException extends ManagedCustomerLifecycleException {}
 final class ManagedCustomerLifecycleGateException extends ManagedCustomerLifecycleException {}
 final class ManagedCustomerLifecycleConflictException extends ManagedCustomerLifecycleException {}
-final class ManagedCustomerLifecycleRestoreUnavailableException extends ManagedCustomerLifecycleException {}
 
 /**
- * Keep the current ID schema-2 parser isolated from lifecycle restoration.
- * Schema 2 proves the customer projection/contact facts used by activation,
- * but it does not yet prove a post-inactive lifecycle restoration. A follow-on
- * can add its signed fields here without weakening activation parsing.
+ * Keep the shared strict ID parser isolated from restored-only semantics.
  *
  * @return array<string,mixed>
  */
@@ -49,13 +48,16 @@ function managed_customer_lifecycle_base_evidence(array $source): array
     }
 }
 
-/** @return never */
-function managed_customer_lifecycle_restore_evidence(array $source): never
+/** @return array<string,mixed> */
+function managed_customer_lifecycle_restore_evidence(array $source): array
 {
-    managed_customer_lifecycle_base_evidence($source);
-    throw new ManagedCustomerLifecycleRestoreUnavailableException(
-        'Schema-2 contact evidence alone cannot restore a customer after an inactive event.',
-    );
+    $evidence = managed_customer_lifecycle_base_evidence($source);
+    if (($evidence['lifecycle_action'] ?? null) !== 'restored') {
+        throw new ManagedCustomerLifecycleGateException(
+            'A post-inactive customer requires exact signed restored lifecycle evidence.',
+        );
+    }
+    return $evidence;
 }
 
 /**
@@ -81,7 +83,7 @@ function managed_customer_lifecycle_config(?array $source = null): array
     $batchSize = $source['batch_size'] ?? 5;
     if (!is_bool($enabled)
         || !is_bool($restorationEnabled)
-        || $restorationEnabled !== false
+        || ($restorationEnabled && !$enabled)
         || !is_array($customerIds)
         || !array_is_list($customerIds)
         || count($customerIds) > MANAGED_CUSTOMER_LIFECYCLE_MAX_CUSTOMERS
@@ -92,7 +94,7 @@ function managed_customer_lifecycle_config(?array $source = null): array
         || $batchSize > MANAGED_CUSTOMER_LIFECYCLE_MAX_BATCH
     ) {
         throw new ManagedCustomerLifecycleValidationException(
-            'Managed-customer lifecycle configuration is invalid or restoration is unsupported.',
+            'Managed-customer lifecycle configuration is invalid.',
         );
     }
 
@@ -141,7 +143,7 @@ function managed_customer_lifecycle_config(?array $source = null): array
     }
     return [
         'enabled' => $enabled,
-        'restoration_enabled' => false,
+        'restoration_enabled' => $restorationEnabled,
         'customer_ids' => $normalizedCustomers,
         'tenant_actors' => $normalizedActors,
         'batch_size' => $batchSize,
@@ -202,10 +204,9 @@ function managed_customer_lifecycle_candidates(PDO $pdo, array $rawConfig): arra
                           AND inactive_event.status = 'inactive'
                      )
                      AND NOT EXISTS (
-                       SELECT 1 FROM managed_customer_lifecycle_receipts receipt
-                        WHERE receipt.customer_id = binding.customer_id
-                          AND receipt.source_version = binding.source_version
-                          AND receipt.action = 'reactivation_blocked'
+                       SELECT 1 FROM managed_customer_lifecycle_restore_receipts restored
+                        WHERE restored.customer_id = binding.customer_id
+                          AND restored.source_version = binding.source_version
                      ))
                )
              ORDER BY {$binary}binding.customer_id";
@@ -307,7 +308,7 @@ function managed_customer_lifecycle_apply(
     ?callable $fault = null,
 ): array {
     $config = managed_customer_lifecycle_config($rawConfig);
-    if ($config['enabled'] !== true || $config['restoration_enabled'] !== false) {
+    if ($config['enabled'] !== true) {
         throw new ManagedCustomerLifecycleGateException('Managed-customer lifecycle is disabled.');
     }
     if ($pdo->inTransaction()) {
@@ -623,8 +624,615 @@ function managed_customer_lifecycle_apply(
     }
 }
 
+/** @param array<string,mixed> $facts */
+function managed_customer_lifecycle_restore_receipt_sha256(array $facts): string
+{
+    $keys = [
+        'tenant_id', 'client_id', 'source_binding_id', 'customer_id',
+        'source_event_receipt_id', 'source_event_id', 'source_version',
+        'source_request_sha256', 'id_customer_receipt_id',
+        'id_customer_status', 'id_lifecycle_version', 'id_lifecycle_transition_id',
+        'id_lifecycle_action', 'id_lifecycle_evidence_sha256',
+        'id_identity_tenant_status', 'id_oauth_session_version',
+        'id_lifecycle_owned', 'id_tenant_key', 'identity_tenant_slug',
+        'contact_version', 'recipient_sha256', 'id_response_generated_at',
+        'id_request_nonce_sha256', 'id_response_sha256',
+        'portal_owner_receipt_id', 'portal_binding_id', 'portal_before_event_id',
+        'portal_active_event_id', 'portal_restored', 'portal_state_sha256',
+        'schedule_owner_receipt_id', 'schedule_key', 'schedule_before_version_id',
+        'schedule_prepared_version_id', 'contact_snapshot_id',
+        'schedule_active_version_id', 'schedule_restored', 'schedule_state_sha256',
+        'actor_user_id',
+    ];
+    $lines = [MANAGED_CUSTOMER_LIFECYCLE_RESTORE_CONTEXT];
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $facts)) {
+            throw new ManagedCustomerLifecycleValidationException(
+                'Lifecycle restoration receipt facts are incomplete.',
+            );
+        }
+        $value = $facts[$key];
+        if ($value === null) {
+            $lines[] = '-';
+        } elseif (is_int($value) || is_string($value)) {
+            $lines[] = (string)$value;
+        } else {
+            throw new ManagedCustomerLifecycleValidationException(
+                'Lifecycle restoration receipt facts are invalid.',
+            );
+        }
+    }
+    return hash('sha256', implode("\n", $lines));
+}
+
+/** @param array<string,mixed> $receipt */
+function managed_customer_lifecycle_restore_receipt_valid(array $receipt): bool
+{
+    $facts = $receipt;
+    unset($facts['id'], $facts['evidence_sha256'], $facts['created_at']);
+    try {
+        $expected = managed_customer_lifecycle_restore_receipt_sha256($facts);
+    } catch (Throwable) {
+        return false;
+    }
+    return is_string($receipt['evidence_sha256'] ?? null)
+        && hash_equals($expected, (string)$receipt['evidence_sha256']);
+}
+
+/** @return array<string,mixed>|null */
+function managed_customer_lifecycle_existing_restore_receipt(
+    PDO $pdo,
+    string $customerId,
+    int $sourceVersion,
+): ?array {
+    $query = $pdo->prepare(
+        'SELECT * FROM managed_customer_lifecycle_restore_receipts
+          WHERE customer_id = ? AND source_version = ?'
+        . managed_customer_lifecycle_lock_suffix($pdo)
+    );
+    $query->execute([$customerId, $sourceVersion]);
+    $row = $query->fetch(PDO::FETCH_ASSOC);
+    return is_array($row) ? $row : null;
+}
+
+/** @return array<string,mixed>|null */
+function managed_customer_lifecycle_surface_owner(
+    PDO $pdo,
+    int $tenantId,
+    int $clientId,
+    string $customerId,
+    string $surface,
+    int|string $surfaceId,
+): ?array {
+    if ($surface === 'portal') {
+        $where = 'portal_was_active = 1 AND portal_binding_id = ?
+                  AND portal_disabled_event_id IS NOT NULL';
+    } elseif ($surface === 'schedule') {
+        $where = 'schedule_was_active = 1 AND schedule_key = ?
+                  AND schedule_disabled_version_id IS NOT NULL';
+    } else {
+        throw new ManagedCustomerLifecycleValidationException(
+            'Lifecycle restoration surface is invalid.',
+        );
+    }
+    $query = $pdo->prepare(
+        "SELECT * FROM managed_customer_lifecycle_receipts
+          WHERE tenant_id = ? AND client_id = ? AND customer_id = ? AND {$where}
+          ORDER BY id DESC LIMIT 1" . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+    );
+    $query->execute([$tenantId, $clientId, $customerId, $surfaceId]);
+    $row = $query->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($row)) return null;
+    if (!managed_customer_lifecycle_receipt_valid($row)) {
+        throw new ManagedCustomerLifecycleConflictException(
+            'Lifecycle surface ownership evidence is invalid.',
+        );
+    }
+    return $row;
+}
+
+/**
+ * Clear one exact post-inactive source latch using signed restored-only ID
+ * evidence. Human/pre-existing holds remain unchanged.
+ *
+ * @return array<string,mixed>
+ */
+function managed_customer_lifecycle_restore(
+    PDO $pdo,
+    array $candidate,
+    array $rawEvidence,
+    int $actorUserId,
+    array $rawLifecycleConfig,
+    array $rawBusinessReportConfig,
+    ?callable $fault = null,
+): array {
+    $config = managed_customer_lifecycle_config($rawLifecycleConfig);
+    if ($config['enabled'] !== true || $config['restoration_enabled'] !== true) {
+        throw new ManagedCustomerLifecycleGateException(
+            'Managed-customer lifecycle restoration is disabled.',
+        );
+    }
+    if ($pdo->inTransaction()) {
+        throw new ManagedCustomerLifecycleGateException(
+            'Lifecycle restoration requires its own transaction.',
+        );
+    }
+    $evidence = managed_customer_lifecycle_restore_evidence($rawEvidence);
+    $reportConfig = business_report_config($rawBusinessReportConfig);
+    $customerId = (string)$evidence['customer_id'];
+    $scheduleKey = managed_customer_activation_schedule_key($customerId);
+    $candidateBindingId = (int)($candidate['binding_id'] ?? 0);
+    $candidateTenantId = (int)($candidate['tenant_id'] ?? 0);
+    $candidateClientId = (int)($candidate['client_id'] ?? 0);
+    $candidateSourceVersion = (int)($candidate['source_version'] ?? 0);
+    $candidateTenantSlug = (string)($candidate['provider_tenant_slug'] ?? '');
+    if (!in_array($customerId, $config['customer_ids'], true)
+        || $candidateBindingId < 1
+        || $candidateTenantId < 1
+        || $candidateClientId < 1
+        || $candidateSourceVersion < 1
+        || ($candidate['status'] ?? null) !== 'active'
+        || !is_string($candidate['customer_id'] ?? null)
+        || !hash_equals($customerId, (string)$candidate['customer_id'])
+        || $candidateSourceVersion !== (int)$evidence['source_version']
+        || !is_string($candidate['last_event_id'] ?? null)
+        || !hash_equals((string)$evidence['customer_event_id'], (string)$candidate['last_event_id'])
+        || ($config['tenant_actors'][$candidateTenantSlug] ?? null) !== $actorUserId
+    ) {
+        throw new ManagedCustomerLifecycleGateException(
+            'Lifecycle restoration candidate, event, or allowlist does not match.',
+        );
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $tenant = $pdo->prepare(
+            'SELECT id FROM tenants WHERE id = ? AND slug = ?'
+            . managed_customer_lifecycle_lock_suffix($pdo)
+        );
+        $tenant->execute([$candidateTenantId, $candidateTenantSlug]);
+        if ((int)$tenant->fetchColumn() !== $candidateTenantId) {
+            throw new ManagedCustomerLifecycleGateException(
+                'The exact lifecycle restoration tenant changed.',
+            );
+        }
+        $actor = $pdo->prepare(
+            "SELECT id FROM users
+              WHERE tenant_id = ? AND id = ? AND is_active = 1
+                AND role IN ('owner','admin')"
+            . managed_customer_lifecycle_lock_suffix($pdo)
+        );
+        $actor->execute([$candidateTenantId, $actorUserId]);
+        if ((int)$actor->fetchColumn() !== $actorUserId) {
+            throw new ManagedCustomerLifecycleGateException(
+                'Lifecycle restoration actor is not an active owner/admin.',
+            );
+        }
+
+        $source = $pdo->prepare(
+            "SELECT binding.id AS binding_id, binding.tenant_id, binding.client_id,
+                    binding.customer_id, binding.source_version, binding.status,
+                    binding.last_event_id, binding.last_request_sha256,
+                    receipt.id AS source_event_receipt_id,
+                    receipt.event_id AS source_event_id,
+                    receipt.request_sha256 AS source_request_sha256
+               FROM suite_customer_sync_bindings binding
+               JOIN suite_customer_sync_events receipt
+                 ON receipt.tenant_id = binding.tenant_id
+                AND receipt.binding_id = binding.id
+                AND receipt.event_id = binding.last_event_id
+                AND receipt.customer_id = binding.customer_id
+                AND receipt.client_id = binding.client_id
+                AND receipt.source_version = binding.source_version
+                AND receipt.status = binding.status
+                AND receipt.request_sha256 = binding.last_request_sha256
+              WHERE binding.id = ? AND binding.tenant_id = ?
+                AND binding.client_id = ? AND binding.customer_id = ?"
+            . managed_customer_lifecycle_lock_suffix($pdo)
+        );
+        $source->execute([
+            $candidateBindingId, $candidateTenantId, $candidateClientId, $customerId,
+        ]);
+        $current = $source->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($current)
+            || (string)$current['status'] !== 'active'
+            || (int)$current['source_version'] !== $candidateSourceVersion
+            || !hash_equals((string)$current['source_event_id'], (string)$evidence['customer_event_id'])
+            || !hash_equals((string)$current['last_event_id'], (string)$evidence['customer_event_id'])
+        ) {
+            throw new ManagedCustomerLifecycleGateException(
+                'Signed lifecycle restoration does not match the exact current source event.',
+            );
+        }
+        $inactive = $pdo->prepare(
+            "SELECT COUNT(*) FROM suite_customer_sync_events
+              WHERE tenant_id = ? AND binding_id = ? AND status = 'inactive'"
+        );
+        $inactive->execute([$candidateTenantId, $candidateBindingId]);
+        if ((int)$inactive->fetchColumn() < 1) {
+            throw new ManagedCustomerLifecycleGateException(
+                'Lifecycle restoration requires immutable inactive history.',
+            );
+        }
+
+        $existing = managed_customer_lifecycle_existing_restore_receipt(
+            $pdo,
+            $customerId,
+            $candidateSourceVersion,
+        );
+        if (is_array($existing)) {
+            if (!managed_customer_lifecycle_restore_receipt_valid($existing)
+                || !hash_equals((string)$existing['source_event_id'], (string)$evidence['customer_event_id'])
+                || !hash_equals((string)$existing['id_customer_receipt_id'], (string)$evidence['customer_receipt_id'])
+                || !hash_equals((string)$existing['id_customer_status'], (string)$evidence['customer_status'])
+                || (int)$existing['id_lifecycle_version'] !== (int)$evidence['lifecycle_version']
+                || (int)$existing['id_lifecycle_transition_id'] !== (int)$evidence['lifecycle_transition_id']
+                || !hash_equals((string)$existing['id_lifecycle_action'], (string)$evidence['lifecycle_action'])
+                || !hash_equals((string)$existing['id_lifecycle_evidence_sha256'], (string)$evidence['lifecycle_evidence_sha256'])
+                || !hash_equals((string)$existing['id_identity_tenant_status'], (string)$evidence['identity_tenant_status'])
+                || (int)$existing['id_oauth_session_version'] !== (int)$evidence['identity_oauth_session_version']
+                || (int)$existing['id_lifecycle_owned'] !== (int)$evidence['lifecycle_owned']
+                || !hash_equals((string)$existing['id_tenant_key'], (string)$evidence['tenant_key'])
+                || !hash_equals((string)$existing['identity_tenant_slug'], (string)$evidence['tenant_slug'])
+                || (int)$existing['contact_version'] !== (int)$evidence['contact_version']
+                || !hash_equals((string)$existing['recipient_sha256'], hash('sha256', (string)$evidence['recipient_email']))
+            ) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Existing restoration evidence conflicts with the signed current event.',
+                );
+            }
+            // A retry uses a fresh nonce/timestamp and therefore a fresh
+            // transport digest. Replay compares the immutable lifecycle,
+            // source, tenant, and contact semantics above and retains the
+            // originally committed signed transport receipt.
+            $pdo->commit();
+            return [
+                'action' => 'restore_replayed',
+                'customer_id_sha256' => hash('sha256', $customerId),
+                'source_version' => $candidateSourceVersion,
+                'portal_restored' => (int)$existing['portal_restored'],
+                'report_schedule_restored' => (int)$existing['schedule_restored'],
+                'evidence_sha256' => (string)$existing['evidence_sha256'],
+            ];
+        }
+
+        $idBinding = $pdo->prepare(
+            'SELECT * FROM business_report_id_client_bindings
+              WHERE tenant_id = ? AND client_id = ?'
+            . managed_customer_lifecycle_lock_suffix($pdo)
+        );
+        $idBinding->execute([$candidateTenantId, $candidateClientId]);
+        $idBindingRow = $idBinding->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($idBindingRow)
+            || !hash_equals((string)$idBindingRow['id_tenant_key'], (string)$evidence['tenant_key'])
+            || !hash_equals((string)$idBindingRow['id_tenant_slug'], (string)$evidence['tenant_slug'])
+        ) {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Lifecycle restoration ID tenant mapping is not exact.',
+            );
+        }
+
+        $reason = 'Restore exact managed customer ' . hash('sha256', $customerId)
+            . ' source-version=' . $candidateSourceVersion
+            . ' lifecycle-transition=' . (int)$evidence['lifecycle_transition_id'];
+
+        $portalQuery = $pdo->prepare(
+            'SELECT * FROM customer_portal_bindings
+              WHERE tenant_id = ? AND client_id = ?'
+            . managed_customer_lifecycle_lock_suffix($pdo)
+        );
+        $portalQuery->execute([$candidateTenantId, $candidateClientId]);
+        $portal = $portalQuery->fetch(PDO::FETCH_ASSOC);
+        if (is_array($portal)
+            && !hash_equals((string)$portal['identity_tenant_slug'], (string)$evidence['tenant_slug'])
+        ) {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Lifecycle restoration portal identity mapping changed.',
+            );
+        }
+        if (is_array($portal) && (string)$portal['status'] === 'active') {
+            throw new ManagedCustomerLifecycleConflictException(
+                'An unowned active portal cannot clear the inactive latch.',
+            );
+        }
+        if (is_array($portal) && (string)$portal['status'] !== 'disabled') {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Lifecycle restoration portal state is invalid.',
+            );
+        }
+        $portalBindingId = is_array($portal) ? (int)$portal['id'] : null;
+        $portalBeforeEventId = null;
+        $portalStateSha256 = null;
+        $portalOwner = null;
+        $portalCanRestore = false;
+        if ($portalBindingId !== null) {
+            $portalEventQuery = $pdo->prepare(
+                'SELECT id, snapshot_json FROM customer_portal_binding_events
+                  WHERE tenant_id = ? AND client_id = ? AND binding_id = ?
+                  ORDER BY id DESC LIMIT 1'
+                . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+            );
+            $portalEventQuery->execute([$candidateTenantId, $candidateClientId, $portalBindingId]);
+            $portalEvent = $portalEventQuery->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($portalEvent) || !is_string($portalEvent['snapshot_json'] ?? null)) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration portal audit is missing.',
+                );
+            }
+            $portalBeforeEventId = (int)$portalEvent['id'];
+            $portalStateSha256 = hash('sha256', (string)$portalEvent['snapshot_json']);
+            $portalOwner = managed_customer_lifecycle_surface_owner(
+                $pdo,
+                $candidateTenantId,
+                $candidateClientId,
+                $customerId,
+                'portal',
+                $portalBindingId,
+            );
+            $portalCanRestore = is_array($portalOwner)
+                && (int)$portalOwner['portal_state_event_id'] === $portalBeforeEventId
+                && hash_equals((string)$portalOwner['portal_state_sha256'], $portalStateSha256);
+        }
+
+        $latestSchedule = business_report_latest_schedule(
+            $pdo,
+            $candidateTenantId,
+            $scheduleKey,
+            true,
+        );
+        if (is_array($latestSchedule) && (string)$latestSchedule['status'] === 'active') {
+            throw new ManagedCustomerLifecycleConflictException(
+                'An unowned active report schedule cannot clear the inactive latch.',
+            );
+        }
+        if (is_array($latestSchedule) && (string)$latestSchedule['status'] !== 'disabled') {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Lifecycle restoration report schedule state is invalid.',
+            );
+        }
+        $scheduleBeforeId = is_array($latestSchedule) ? (int)$latestSchedule['id'] : null;
+        $scheduleStateSha256 = is_array($latestSchedule)
+            ? managed_customer_lifecycle_schedule_sha256($latestSchedule)
+            : null;
+        $scheduleOwner = is_array($latestSchedule)
+            ? managed_customer_lifecycle_surface_owner(
+                $pdo,
+                $candidateTenantId,
+                $candidateClientId,
+                $customerId,
+                'schedule',
+                $scheduleKey,
+            )
+            : null;
+        $scheduleCanRestore = is_array($scheduleOwner)
+            && (int)$scheduleOwner['schedule_state_version_id'] === $scheduleBeforeId
+            && hash_equals((string)$scheduleOwner['schedule_state_sha256'], (string)$scheduleStateSha256);
+
+        $portalActiveEventId = null;
+        if ($portalCanRestore) {
+            $portalUpdate = managed_customer_lifecycle_write(
+                $pdo,
+                "UPDATE customer_portal_bindings
+                    SET status='active', last_changed_by_user_id=?, status_reason=?
+                  WHERE id=? AND tenant_id=? AND client_id=?
+                    AND identity_tenant_slug=? AND status='disabled'",
+                [
+                    $actorUserId, $reason, $portalBindingId, $candidateTenantId,
+                    $candidateClientId, $evidence['tenant_slug'],
+                ],
+            );
+            if ($portalUpdate->rowCount() !== 1) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration portal transition was not exact.',
+                );
+            }
+            $portalActive = $pdo->prepare(
+                'SELECT id FROM customer_portal_binding_events
+                  WHERE tenant_id=? AND client_id=? AND binding_id=?
+                  ORDER BY id DESC LIMIT 1'
+            );
+            $portalActive->execute([$candidateTenantId, $candidateClientId, $portalBindingId]);
+            $portalActiveEventId = (int)$portalActive->fetchColumn();
+        }
+        if ($fault !== null) $fault('after_restore_portal');
+
+        $schedulePreparedId = null;
+        $contactSnapshotId = null;
+        $scheduleActiveId = null;
+        if ($scheduleCanRestore && is_array($latestSchedule)) {
+            $scope = business_report_contact_scope_for_key(
+                $pdo,
+                $candidateTenantId,
+                $scheduleKey,
+            );
+            if (!is_array($scope)
+                || !hash_equals(BUSINESS_REPORT_CONTACT_SCOPE_CLIENT, (string)$scope['scope'])
+            ) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration report contact scope is not client ID.',
+                );
+            }
+            $contactHistory = $pdo->prepare(
+                'SELECT contact_version, recipient_email
+                   FROM business_report_id_client_contact_snapshots
+                  WHERE tenant_id=? AND client_id=? AND id_tenant_key=?
+                  ORDER BY contact_version DESC, id DESC LIMIT 1'
+                . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+            );
+            $contactHistory->execute([
+                $candidateTenantId, $candidateClientId, $evidence['tenant_key'],
+            ]);
+            $history = $contactHistory->fetch(PDO::FETCH_ASSOC);
+            if (is_array($history)
+                && (int)$history['contact_version'] > (int)$evidence['contact_version']
+            ) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration report contact evidence is stale.',
+                );
+            }
+            if (is_array($history)
+                && (int)$history['contact_version'] === (int)$evidence['contact_version']
+                && !hash_equals((string)$history['recipient_email'], (string)$evidence['recipient_email'])
+            ) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration contact version conflicts.',
+                );
+            }
+            $gateSchedule = $latestSchedule;
+            $gateSchedule['tenant_slug'] = $candidateTenantSlug;
+            $gateSchedule['recipient_email'] = $evidence['recipient_email'];
+            business_report_assert_schedule_gate($gateSchedule, $reportConfig, 'dry_run');
+
+            managed_customer_lifecycle_write(
+                $pdo,
+                "INSERT INTO business_report_schedule_versions
+                    (tenant_id,schedule_key,version_no,definition_version_id,
+                     client_id,recipient_email,schedule_timezone,delivery_weekday,
+                     delivery_local_time,canary,status,created_by_user_id,reason)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,'disabled',?,?)",
+                [
+                    $candidateTenantId, $scheduleKey, (int)$latestSchedule['version_no'] + 1,
+                    (int)$latestSchedule['definition_version_id'], $candidateClientId,
+                    $evidence['recipient_email'], $latestSchedule['schedule_timezone'],
+                    (int)$latestSchedule['delivery_weekday'], $latestSchedule['delivery_local_time'],
+                    (int)$latestSchedule['canary'], $actorUserId, $reason,
+                ],
+            );
+            $schedulePreparedId = (int)$pdo->lastInsertId();
+            managed_customer_lifecycle_write(
+                $pdo,
+                'INSERT INTO business_report_id_client_contact_snapshots
+                    (tenant_id,client_id,schedule_version_id,id_tenant_key,
+                     contact_version,recipient_email,response_generated_at,
+                     request_nonce_sha256,response_sha256,created_by_user_id,reason)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                [
+                    $candidateTenantId, $candidateClientId, $schedulePreparedId,
+                    $evidence['tenant_key'], (int)$evidence['contact_version'],
+                    $evidence['recipient_email'], $evidence['generated_at_db'],
+                    $evidence['request_nonce_sha256'], $evidence['response_sha256'],
+                    $actorUserId, $reason,
+                ],
+            );
+            $contactSnapshotId = (int)$pdo->lastInsertId();
+            if ($fault !== null) $fault('after_restore_contact');
+            managed_customer_lifecycle_write(
+                $pdo,
+                "INSERT INTO business_report_schedule_versions
+                    (tenant_id,schedule_key,version_no,definition_version_id,
+                     client_id,recipient_email,schedule_timezone,delivery_weekday,
+                     delivery_local_time,canary,status,created_by_user_id,reason)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,'active',?,?)",
+                [
+                    $candidateTenantId, $scheduleKey, (int)$latestSchedule['version_no'] + 2,
+                    (int)$latestSchedule['definition_version_id'], $candidateClientId,
+                    $evidence['recipient_email'], $latestSchedule['schedule_timezone'],
+                    (int)$latestSchedule['delivery_weekday'], $latestSchedule['delivery_local_time'],
+                    (int)$latestSchedule['canary'], $actorUserId, $reason,
+                ],
+            );
+            $scheduleActiveId = (int)$pdo->lastInsertId();
+        }
+        if ($fault !== null) $fault('after_restore_schedule');
+
+        $facts = [
+            'tenant_id' => $candidateTenantId,
+            'client_id' => $candidateClientId,
+            'source_binding_id' => $candidateBindingId,
+            'customer_id' => $customerId,
+            'source_event_receipt_id' => (int)$current['source_event_receipt_id'],
+            'source_event_id' => (string)$current['source_event_id'],
+            'source_version' => $candidateSourceVersion,
+            'source_request_sha256' => (string)$current['source_request_sha256'],
+            'id_customer_receipt_id' => (string)$evidence['customer_receipt_id'],
+            'id_customer_status' => (string)$evidence['customer_status'],
+            'id_lifecycle_version' => (int)$evidence['lifecycle_version'],
+            'id_lifecycle_transition_id' => (int)$evidence['lifecycle_transition_id'],
+            'id_lifecycle_action' => (string)$evidence['lifecycle_action'],
+            'id_lifecycle_evidence_sha256' => (string)$evidence['lifecycle_evidence_sha256'],
+            'id_identity_tenant_status' => (string)$evidence['identity_tenant_status'],
+            'id_oauth_session_version' => (int)$evidence['identity_oauth_session_version'],
+            'id_lifecycle_owned' => (int)$evidence['lifecycle_owned'],
+            'id_tenant_key' => (string)$evidence['tenant_key'],
+            'identity_tenant_slug' => (string)$evidence['tenant_slug'],
+            'contact_version' => (int)$evidence['contact_version'],
+            'recipient_sha256' => hash('sha256', (string)$evidence['recipient_email']),
+            'id_response_generated_at' => (string)$evidence['generated_at_db'],
+            'id_request_nonce_sha256' => (string)$evidence['request_nonce_sha256'],
+            'id_response_sha256' => (string)$evidence['response_sha256'],
+            'portal_owner_receipt_id' => is_array($portalOwner) ? (int)$portalOwner['id'] : null,
+            'portal_binding_id' => $portalBindingId,
+            'portal_before_event_id' => $portalBeforeEventId,
+            'portal_active_event_id' => $portalActiveEventId,
+            'portal_restored' => $portalCanRestore ? 1 : 0,
+            'portal_state_sha256' => $portalStateSha256,
+            'schedule_owner_receipt_id' => is_array($scheduleOwner) ? (int)$scheduleOwner['id'] : null,
+            'schedule_key' => $scheduleKey,
+            'schedule_before_version_id' => $scheduleBeforeId,
+            'schedule_prepared_version_id' => $schedulePreparedId,
+            'contact_snapshot_id' => $contactSnapshotId,
+            'schedule_active_version_id' => $scheduleActiveId,
+            'schedule_restored' => $scheduleCanRestore ? 1 : 0,
+            'schedule_state_sha256' => $scheduleStateSha256,
+            'actor_user_id' => $actorUserId,
+        ];
+        $digest = managed_customer_lifecycle_restore_receipt_sha256($facts);
+        if ($fault !== null) $fault('before_restore_receipt');
+        managed_customer_lifecycle_write(
+            $pdo,
+            'INSERT INTO managed_customer_lifecycle_restore_receipts
+                (tenant_id,client_id,source_binding_id,customer_id,
+                 source_event_receipt_id,source_event_id,source_version,source_request_sha256,
+                 id_customer_receipt_id,id_customer_status,id_lifecycle_version,
+                 id_lifecycle_transition_id,id_lifecycle_action,
+                 id_lifecycle_evidence_sha256,id_identity_tenant_status,
+                 id_oauth_session_version,id_lifecycle_owned,id_tenant_key,
+                 identity_tenant_slug,contact_version,recipient_sha256,
+                 id_response_generated_at,id_request_nonce_sha256,id_response_sha256,
+                 portal_owner_receipt_id,portal_binding_id,portal_before_event_id,
+                 portal_active_event_id,portal_restored,portal_state_sha256,
+                 schedule_owner_receipt_id,schedule_key,schedule_before_version_id,
+                 schedule_prepared_version_id,contact_snapshot_id,schedule_active_version_id,
+                 schedule_restored,schedule_state_sha256,actor_user_id,evidence_sha256)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [...array_values($facts), $digest],
+        );
+        if ($fault !== null) $fault('after_restore_receipt');
+        $pdo->commit();
+        return [
+            'action' => 'restored',
+            'customer_id_sha256' => hash('sha256', $customerId),
+            'source_version' => $candidateSourceVersion,
+            'portal_restored' => $portalCanRestore ? 1 : 0,
+            'report_schedule_restored' => $scheduleCanRestore ? 1 : 0,
+            'evidence_sha256' => $digest,
+        ];
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($error instanceof ManagedCustomerLifecycleException
+            || $error instanceof BusinessReportException
+        ) {
+            throw $error;
+        }
+        if ($error instanceof PDOException && (string)$error->getCode() === '23000') {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Concurrent lifecycle restoration committed conflicting evidence.',
+                0,
+                $error,
+            );
+        }
+        throw $error;
+    }
+}
+
 /** @return list<array<string,mixed>> */
-function managed_customer_lifecycle_run(PDO $pdo, array $rawConfig): array
+function managed_customer_lifecycle_run(
+    PDO $pdo,
+    array $rawConfig,
+    array $businessReportConfig = [],
+    array $idConfig = [],
+    ?callable $fetchEvidence = null,
+): array
 {
     $config = managed_customer_lifecycle_config($rawConfig);
     if ($config['enabled'] !== true) {
@@ -645,12 +1253,40 @@ function managed_customer_lifecycle_run(PDO $pdo, array $rawConfig): array
                     'No exact owner/admin actor is allowlisted for the provider tenant.',
                 );
             }
-            $results[] = managed_customer_lifecycle_apply(
+            $contained = managed_customer_lifecycle_apply(
                 $pdo,
                 $candidate,
                 $actorId,
                 $config,
             );
+            if (($candidate['status'] ?? null) === 'active'
+                && $config['restoration_enabled'] === true
+            ) {
+                if ($fetchEvidence === null) {
+                    if (!function_exists('managed_customer_id_evidence_fetch')) {
+                        throw new ManagedCustomerLifecycleGateException(
+                            'Authenticated ID restoration evidence adapter is unavailable.',
+                        );
+                    }
+                    $fetchEvidence = 'managed_customer_id_evidence_fetch';
+                }
+                $evidence = $fetchEvidence($customerId, $idConfig);
+                if (!is_array($evidence)) {
+                    throw new ManagedCustomerLifecycleGateException(
+                        'Authenticated ID restoration evidence is invalid.',
+                    );
+                }
+                $results[] = managed_customer_lifecycle_restore(
+                    $pdo,
+                    $candidate,
+                    $evidence,
+                    $actorId,
+                    $config,
+                    $businessReportConfig,
+                );
+            } else {
+                $results[] = $contained;
+            }
             $completed++;
             if ($completed >= $config['batch_size']) break;
         } catch (Throwable $error) {

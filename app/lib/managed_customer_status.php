@@ -6,14 +6,15 @@
  * unchanged. A managed client is operational only while its current source
  * status is active and its immutable source history contains no inactive
  * event. The latter rule prevents a later Milepost active event from silently
- * undoing containment before fresh 8 West ID lifecycle evidence is supported.
+ * undoing containment without an immutable restored-only receipt bound to the
+ * exact current source event.
  */
 declare(strict_types=1);
 
 final class ManagedCustomerStatusException extends RuntimeException {}
 
 /**
- * @return array{managed:bool,operational:bool,status:string,source_version:int,has_inactive_history:bool}
+ * @return array{managed:bool,operational:bool,status:string,source_version:int,has_inactive_history:bool,restored_current_event:bool}
  */
 function managed_customer_status(
     PDO $pdo,
@@ -48,6 +49,7 @@ function managed_customer_status(
                 return [
                     'managed' => false, 'operational' => true, 'status' => 'legacy',
                     'source_version' => 0, 'has_inactive_history' => false,
+                    'restored_current_event' => false,
                 ];
             }
             if (!in_array($status, ['active', 'inactive'], true)) {
@@ -59,9 +61,31 @@ function managed_customer_status(
                 'status' => (string)$status,
                 'source_version' => 1,
                 'has_inactive_history' => false,
+                'restored_current_event' => false,
             ];
         }
     }
+
+    $restoreTableAvailable = true;
+    if ($driver === 'sqlite') {
+        $restoreTable = $pdo->query(
+            "SELECT COUNT(*) FROM sqlite_master
+              WHERE type='table' AND name='managed_customer_lifecycle_restore_receipts'"
+        );
+        $restoreTableAvailable = (int)$restoreTable->fetchColumn() === 1;
+    }
+    $restoreProjection = $restoreTableAvailable
+        ? "EXISTS (
+             SELECT 1
+               FROM managed_customer_lifecycle_restore_receipts restored
+              WHERE restored.tenant_id = binding.tenant_id
+                AND restored.source_binding_id = binding.id
+                AND restored.client_id = binding.client_id
+                AND restored.customer_id = binding.customer_id
+                AND restored.source_version = binding.source_version
+                AND restored.source_event_id = binding.last_event_id
+           )"
+        : '0';
 
     $sql = "SELECT binding.status, binding.source_version,
                    EXISTS (
@@ -70,7 +94,8 @@ function managed_customer_status(
                       WHERE inactive_event.tenant_id = binding.tenant_id
                         AND inactive_event.binding_id = binding.id
                         AND inactive_event.status = 'inactive'
-                   ) AS has_inactive_history
+                   ) AS has_inactive_history,
+                   {$restoreProjection} AS restored_current_event
               FROM suite_customer_sync_bindings binding
              WHERE binding.tenant_id = ? AND binding.client_id = ?
              LIMIT 1";
@@ -87,20 +112,23 @@ function managed_customer_status(
             'status' => 'legacy',
             'source_version' => 0,
             'has_inactive_history' => false,
+            'restored_current_event' => false,
         ];
     }
     $status = (string)($row['status'] ?? '');
     $sourceVersion = (int)($row['source_version'] ?? 0);
     $hasInactive = (int)($row['has_inactive_history'] ?? 0) === 1;
+    $restored = (int)($row['restored_current_event'] ?? 0) === 1;
     if (!in_array($status, ['active', 'inactive'], true) || $sourceVersion < 1) {
         throw new ManagedCustomerStatusException('Managed-customer source state is invalid.');
     }
     return [
         'managed' => true,
-        'operational' => $status === 'active' && !$hasInactive,
+        'operational' => $status === 'active' && (!$hasInactive || $restored),
         'status' => $status,
         'source_version' => $sourceVersion,
         'has_inactive_history' => $hasInactive,
+        'restored_current_event' => $restored,
     ];
 }
 

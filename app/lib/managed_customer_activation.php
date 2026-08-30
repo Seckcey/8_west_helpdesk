@@ -21,6 +21,7 @@ const MANAGED_CUSTOMER_ACTIVATION_WEEKDAY = 3;
 const MANAGED_CUSTOMER_ACTIVATION_LOCAL_TIME = '09:00:00';
 const MANAGED_CUSTOMER_ACTIVATION_MAX_CUSTOMERS = 25;
 const MANAGED_CUSTOMER_ACTIVATION_MAX_BATCH = 25;
+const MANAGED_CUSTOMER_EVENT_UUID_V4 = '/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D';
 
 const MANAGED_CUSTOMER_ACTIVATION_WRITE_TABLES = [
     'customer_portal_bindings',
@@ -53,6 +54,16 @@ function managed_customer_activation_schedule_key(string $customerId): string
     return business_report_schedule_key(
         MANAGED_CUSTOMER_ACTIVATION_PREFIX . managed_customer_activation_uuid($customerId),
     );
+}
+
+function managed_customer_event_uuid(string $value): string
+{
+    if (preg_match(MANAGED_CUSTOMER_EVENT_UUID_V4, $value) !== 1) {
+        throw new ManagedCustomerActivationValidationException(
+            'Managed-customer evidence requires an exact source event UUID.',
+        );
+    }
+    return $value;
 }
 
 /**
@@ -156,6 +167,7 @@ function managed_customer_activation_evidence(array $source): array
 {
     $expectedKeys = [
         'schema_version', 'customer_id', 'source_version', 'customer_receipt_id',
+        'customer_event_id',
         'customer_status', 'lifecycle_version', 'lifecycle_transition_id',
         'lifecycle_action', 'lifecycle_evidence_sha256', 'identity_tenant_status',
         'identity_oauth_session_version', 'lifecycle_owned',
@@ -169,6 +181,8 @@ function managed_customer_activation_evidence(array $source): array
         || $source['source_version'] < 1
         || !is_string($source['customer_receipt_id'] ?? null)
         || preg_match('/\A[0-9a-f]{64}\z/D', $source['customer_receipt_id']) !== 1
+        || !is_string($source['customer_event_id'] ?? null)
+        || preg_match(MANAGED_CUSTOMER_EVENT_UUID_V4, $source['customer_event_id']) !== 1
         || ($source['customer_status'] ?? null) !== 'active'
         || ($source['lifecycle_version'] ?? null) !== 1
         || !is_int($source['lifecycle_transition_id'] ?? null)
@@ -199,6 +213,7 @@ function managed_customer_activation_evidence(array $source): array
         );
     }
     $customerId = managed_customer_activation_uuid($source['customer_id']);
+    $source['customer_event_id'] = managed_customer_event_uuid($source['customer_event_id']);
     $recipient = business_report_email($source['recipient_email']);
     if (!hash_equals($recipient, $source['recipient_email'])) {
         throw new ManagedCustomerActivationValidationException(
@@ -266,7 +281,8 @@ function managed_customer_activation_candidates(PDO $pdo, array $config): array
     $placeholders = implode(',', array_fill(0, count($config['customer_ids']), '?'));
     $sql = "SELECT binding.id AS binding_id, binding.tenant_id, binding.client_id,
                    binding.customer_id, binding.source_version, binding.display_name,
-                   binding.status, tenant.slug AS provider_tenant_slug
+                   binding.status, binding.last_event_id,
+                   binding.last_request_sha256, tenant.slug AS provider_tenant_slug
               FROM suite_customer_sync_bindings binding
               JOIN tenants tenant ON tenant.id = binding.tenant_id
               JOIN clients client
@@ -405,6 +421,8 @@ function managed_customer_activation_apply(
         || ($candidate['status'] ?? null) !== 'active'
         || !is_string($candidate['customer_id'] ?? null)
         || !hash_equals($customerId, $candidate['customer_id'])
+        || !is_string($candidate['last_event_id'] ?? null)
+        || !hash_equals((string)$evidence['customer_event_id'], (string)$candidate['last_event_id'])
         || !isset($config['tenant_actors'][$candidateTenantSlug])
         || $config['tenant_actors'][$candidateTenantSlug] !== $actorUserId
     ) {
@@ -440,11 +458,22 @@ function managed_customer_activation_apply(
         }
         $binding = $pdo->prepare(
             "SELECT binding.id, binding.tenant_id, binding.client_id, binding.customer_id,
-                    binding.source_version, binding.display_name, binding.status
+                    binding.source_version, binding.display_name, binding.status,
+                    binding.last_event_id, binding.last_request_sha256,
+                    receipt.id AS source_event_receipt_id
                FROM suite_customer_sync_bindings binding
                JOIN clients client
                  ON client.tenant_id = binding.tenant_id
                 AND client.id = binding.client_id
+               JOIN suite_customer_sync_events receipt
+                 ON receipt.tenant_id = binding.tenant_id
+                AND receipt.binding_id = binding.id
+                AND receipt.event_id = binding.last_event_id
+                AND receipt.customer_id = binding.customer_id
+                AND receipt.client_id = binding.client_id
+                AND receipt.source_version = binding.source_version
+                AND receipt.status = binding.status
+                AND receipt.request_sha256 = binding.last_request_sha256
               WHERE binding.id = ? AND binding.tenant_id = ? AND binding.client_id = ?" . $suffix
         );
         $binding->execute([$candidateBindingId, $candidateTenantId, $candidateClientId]);
@@ -456,6 +485,12 @@ function managed_customer_activation_apply(
             || !hash_equals($customerId, $current['customer_id'])
             || (int)$current['source_version'] !== $candidateSourceVersion
             || !hash_equals('active', (string)$current['status'])
+            || !hash_equals((string)$evidence['customer_event_id'], (string)$current['last_event_id'])
+            || !hash_equals((string)($candidate['last_event_id'] ?? ''), (string)$current['last_event_id'])
+            || !hash_equals(
+                (string)($candidate['last_request_sha256'] ?? ''),
+                (string)$current['last_request_sha256'],
+            )
         ) {
             throw new ManagedCustomerActivationGateException(
                 'The exact active Milepost customer binding changed before activation.',
