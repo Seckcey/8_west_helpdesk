@@ -233,6 +233,17 @@ activation_refuses(
 );
 activation_refuses(
     ManagedCustomerActivationValidationException::class,
+    static fn() => managed_customer_activation_config([
+        'customer_ids' => array_fill(
+            0,
+            MANAGED_CUSTOMER_ACTIVATION_MAX_CUSTOMERS + 1,
+            '11111111-1111-4111-8111-111111111111',
+        ),
+    ]),
+    'activation scan accepted more than the bounded customer cap',
+);
+activation_refuses(
+    ManagedCustomerActivationValidationException::class,
     static fn() => managed_customer_activation_evidence(
         activation_evidence(['source_version' => 0]),
     ),
