@@ -274,14 +274,17 @@ $queueConfig = activation_config([
     ],
     'batch_size' => 2,
 ]);
-$firstBatch = managed_customer_activation_candidates($queuePdo, $queueConfig);
+$pendingQueue = managed_customer_activation_candidates($queuePdo, $queueConfig);
 activation_check(
-    array_column($firstBatch, 'customer_id') === [
+    array_column($pendingQueue, 'customer_id') === [
         '11111111-1111-4111-8111-111111111111',
         '22222222-2222-4222-8222-222222222222',
+        '33333333-3333-4333-8333-333333333333',
+        '44444444-4444-4444-8444-444444444444',
     ],
-    'activation queue did not select the deterministic first batch',
+    'activation queue did not scan the deterministic allowlisted candidates',
 );
+$firstBatch = array_slice($pendingQueue, 0, 2);
 $queueReceipt = $queuePdo->prepare(
     'INSERT INTO managed_customer_activation_receipts
         (tenant_id,client_id,source_binding_id,customer_id,source_version,
@@ -308,6 +311,66 @@ activation_check(
         '44444444-4444-4444-8444-444444444444',
     ],
     'completed first-batch customers starved later activation candidates',
+);
+
+$fairPdo = activation_sqlite();
+$fairPdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
+    (13,1,'Managed Three'),(14,1,'Managed Four')");
+$fairPdo->exec("INSERT INTO suite_customer_sync_bindings
+    (id,tenant_id,customer_id,client_id,source_version,display_name,status) VALUES
+    (502,1,'22222222-2222-4222-8222-222222222222',12,1,'Managed Two','active'),
+    (503,1,'33333333-3333-4333-8333-333333333333',13,1,'Managed Three','active'),
+    (504,1,'44444444-4444-4444-8444-444444444444',14,1,'Managed Four','active')");
+$fairConfig = $queueConfig;
+$fairConfig['batch_size'] = 1;
+$fairReportConfig = [
+    'generation_enabled' => false,
+    'delivery_enabled' => false,
+    'canary_only' => true,
+    'graph_sender' => '',
+    'schedule_keys' => ['managed-weekly-v3:33333333-3333-4333-8333-333333333333'],
+    'tenant_slugs' => ['provider-one'],
+    'client_keys' => ['safeharbor-client:13'],
+    'recipient_emails' => ['managed-three@example.test'],
+    'lease_seconds' => 120,
+];
+$fairFetches = [];
+$fairResults = managed_customer_activation_run(
+    $fairPdo,
+    $fairConfig,
+    $fairReportConfig,
+    [],
+    static function (string $customerId) use (&$fairFetches): array {
+        $fairFetches[] = $customerId;
+        if (in_array($customerId, [
+            '11111111-1111-4111-8111-111111111111',
+            '22222222-2222-4222-8222-222222222222',
+        ], true)) {
+            throw new ManagedCustomerActivationGateException('fixture refusal');
+        }
+        if ($customerId !== '33333333-3333-4333-8333-333333333333') {
+            throw new RuntimeException('successful batch cap did not stop the fourth fetch');
+        }
+        return activation_evidence([
+            'customer_id' => $customerId,
+            'customer_receipt_id' => str_repeat('3', 64),
+            'tenant_key' => 'ewid-t93',
+            'tenant_slug' => 'managed-three',
+            'recipient_email' => 'managed-three@example.test',
+        ]);
+    },
+);
+activation_check(
+    array_column($fairResults, 'action') === ['refused', 'refused', 'activated']
+        && $fairFetches === [
+            '11111111-1111-4111-8111-111111111111',
+            '22222222-2222-4222-8222-222222222222',
+            '33333333-3333-4333-8333-333333333333',
+        ]
+        && (int)$fairPdo->query(
+            "SELECT COUNT(*) FROM managed_customer_activation_receipts WHERE client_id=13",
+        )->fetchColumn() === 1,
+    'persistent early refusals consumed the successful batch cap or starved a later customer',
 );
 
 $pdo = activation_sqlite();

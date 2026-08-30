@@ -59,6 +59,12 @@ The 8 West IT master customer UUID
 selection, evidence validation, application code, the receipt check, and the
 database table check.
 
+`batch_size` caps successful activations, not attempted candidates. Each run
+scans the deterministic allowlist of at most 25 pending customers, records
+redacted refusals, and continues until the success cap is reached or the scan
+ends. A persistently refused early customer therefore cannot starve a later
+valid customer.
+
 ## Exact evidence and refusal rules
 
 The isolated adapter posts canonical bytes

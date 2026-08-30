@@ -270,9 +270,7 @@ function managed_customer_activation_candidates(PDO $pdo, array $config): array
              ORDER BY "
         . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
             ? 'binding.customer_id'
-            : 'BINARY binding.customer_id')
-        . "
-             LIMIT " . (int)$config['batch_size'];
+            : 'BINARY binding.customer_id');
     $statement = $pdo->prepare($sql);
     $statement->execute($config['customer_ids']);
     $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
@@ -842,6 +840,7 @@ function managed_customer_activation_run(
         $fetchEvidence = 'managed_customer_id_evidence_fetch';
     }
     $results = [];
+    $completed = 0;
     foreach (managed_customer_activation_candidates($pdo, $config) as $candidate) {
         $tenantSlug = (string)($candidate['provider_tenant_slug'] ?? '');
         $customerId = (string)($candidate['customer_id'] ?? '');
@@ -869,6 +868,8 @@ function managed_customer_activation_run(
                 $config,
                 $businessReportConfig,
             );
+            $completed++;
+            if ($completed >= $config['batch_size']) break;
         } catch (Throwable $error) {
             $results[] = [
                 'action' => 'refused',
