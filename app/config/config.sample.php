@@ -195,12 +195,12 @@ return [
         'tenant_slug' => '8west',
     ],
 
-    // Approved Safeharbor time -> Coastmark v2 inspection only.
-    // The old one-entry sender is hard-retired in code: `--send` refuses before
-    // endpoint validation, signing, or network transport even if `enabled` is
-    // accidentally true. Keep the legacy setting false. Sending requires a new
-    // v3 with a durable Safeharbor claim/receipt and an append-only Coastmark
-    // adjustment/reversal acknowledgement.
+    // Approved Safeharbor time -> Coastmark v3 draft-only seam.
+    // Both gates default off. `claim_enabled` permits only a human-run, local,
+    // one-entry immutable claim; it makes no network request. `enabled` permits
+    // one explicit send/status call for a claim. There is no batch, scheduler,
+    // queue, or automatic retry. An ambiguous send must be resolved through the
+    // signed status endpoint before the operator can explicitly resend it.
     // Client keys come only from active Milepost customer bindings as
     // `milepost-customer:<uuid>`. Local Safeharbor row ids are never billing
     // identities, and the reserved 8 West IT master customer is hard-blocked.
@@ -208,8 +208,15 @@ return [
     // sending, Checkout, payments, and ledger behavior. Never put those facts
     // in this config or sender payload.
     'coastmark_time_export' => [
-        'enabled' => false, // legacy v2 setting; cannot enable network sending
+        'claim_enabled' => false,
+        'enabled' => false,
+        // Dedicated local MySQL identity. It is not the web/cron runtime user.
+        // Grant source tables SELECT and claim/receipt tables SELECT,INSERT
+        // only; never UPDATE, DELETE, DDL, TRIGGER, or GRANT OPTION.
+        'database_user' => '',
+        'database_password' => '',
         'endpoint' => 'https://coastmark.8westit.com/api/integrations/safeharbor/time-entries',
+        'status_endpoint' => 'https://coastmark.8westit.com/api/integrations/safeharbor/time-events/status',
         'service' => 'safeharbor-time',
         'secret' => '',
         'tenant_slugs' => [],

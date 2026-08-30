@@ -460,10 +460,12 @@ adjustment_check(
         && str_contains($reportsExport, "time_entry_csv_safe_cell((string)(\$r['adjustment_reason'] ?? ''))"),
 );
 adjustment_check(
-    'Coastmark v2 is inspection-only and has no network transport function',
+    'Coastmark v2 stays closed while v3 transport requires a durable claim operation',
     is_string($coastmarkExport)
         && str_contains($coastmarkExport, 'receipt/reversal-aware v3 is required before any send')
-        && !str_contains($coastmarkExport, 'curl_init('),
+        && str_contains($coastmarkExport, 'function coastmark_time_export_send_claim(')
+        && str_contains($coastmarkExport, "coastmark_time_export_begin_operation(\$pdo, \$claimId, 'dispatch')")
+        && str_contains($coastmarkExport, 'curl_init('),
 );
 
 echo "\n{$checks} checks, {$failures} failures\n";
