@@ -659,10 +659,37 @@ report_check(
               WHERE tenant_id=1 AND definition_key='weekly-client-service-summary'",
         )->fetchColumn() === 2,
 );
+$definitionV3 = business_report_publish_definition(
+    $pdo,
+    'one',
+    101,
+    'plain-language completed-week contract',
+    BUSINESS_REPORT_CONTRACT_VERSION_V3,
+);
+report_check(
+    'definition v3 publishes distinct reviewed presentation bytes after immutable v1 and v2',
+    $definitionV3['action'] === 'created'
+        && (int) $definitionV3['definition']['version_no'] === 3
+        && business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V3)
+            === 'e561c7674d01bfc21890bce8dbb7d59795610a02d1234fce235b68bbb3847f92'
+        && !hash_equals(
+            (string) $definitionV2['definition']['contract_sha256'],
+            (string) $definitionV3['definition']['contract_sha256'],
+        )
+        && business_report_definition_supported($definitionV3['definition']),
+);
+report_check(
+    'definition v3 publication is idempotent without replacing earlier definitions',
+    business_report_publish_definition($pdo, 'one', 102, 'same v3', 3)['action'] === 'ignored'
+        && (int) $pdo->query(
+            "SELECT COUNT(*) FROM business_report_definition_versions
+              WHERE tenant_id=1 AND definition_key='weekly-client-service-summary'",
+        )->fetchColumn() === 3,
+);
 report_throws(
     'unknown definition version is refused before publication',
     BusinessReportValidationException::class,
-    fn() => business_report_publish_definition($pdo, 'one', 101, 'bad v3', 3),
+    fn() => business_report_publish_definition($pdo, 'one', 101, 'bad v4', 4),
     'unsupported',
 );
 
@@ -1914,6 +1941,141 @@ report_check(
         && !str_contains($v2Text, '$')
         && str_contains($v2Text, 'not a statement of export or invoice status'),
 );
+
+$v3Config = report_config([
+    'schedule_keys' => ['client-one-weekly-v3'],
+]);
+$preparedV3 = business_report_prepare_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v3',
+    11,
+    (int) $definitionV3['definition']['id'],
+    'reports@example.test',
+    'America/Los_Angeles',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'prepare plain-language completed-week schedule',
+);
+$enabledV3 = business_report_transition_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v3',
+    (int) $preparedV3['schedule']['version_no'],
+    'active',
+    101,
+    'enable plain-language completed-week schedule',
+    $v3Config,
+);
+$pdo->exec("UPDATE business_report_schedule_versions
+              SET created_at='2026-08-20 00:00:00' WHERE id=" . (int) $enabledV3['schedule']['id']);
+$v3Now = strtotime('2026-08-29 03:27:01 UTC');
+$v3DryRun = business_report_generate(
+    $pdo,
+    'one',
+    'client-one-weekly-v3',
+    $v3Config,
+    $v3Now,
+    true,
+    true,
+);
+report_check(
+    'definition v3 keeps the exact last-completed Pacific calendar window',
+    $v3DryRun['archive']['period_start'] === '2026-08-17 07:00:00'
+        && $v3DryRun['archive']['period_end'] === '2026-08-24 07:00:00'
+        && $v3DryRun['metrics']['period']['schedule_timezone'] === 'America/Los_Angeles',
+);
+$v3ReadableMetrics = $v2CutoffMetrics;
+$v3ReadableMetrics['definition'] = [
+    'key' => BUSINESS_REPORT_DEFINITION_KEY,
+    'version' => BUSINESS_REPORT_CONTRACT_VERSION_V3,
+    'sha256' => business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V3),
+];
+$v3ReadableMetrics['period'] = [
+    'start_utc' => '2026-08-17T07:00:00Z',
+    'end_utc_exclusive' => '2026-08-24T07:00:00Z',
+    'schedule_timezone' => 'America/Los_Angeles',
+];
+$v3ReadableMetrics['generated_at'] = '2026-08-29T03:27:01Z';
+$v3ReadableText = business_report_text($v3ReadableMetrics);
+report_check(
+    'definition v3 explains the completed week with human Pacific dates instead of an ISO-only header',
+    str_contains(
+        $v3ReadableText,
+        'Week covered: Monday, August 17, 2026 through Sunday, August 23, 2026 (Pacific Time)',
+    )
+        && str_contains(
+            $v3ReadableText,
+            'This is the last fully completed Monday-through-Sunday week.',
+        )
+        && str_contains(
+            $v3ReadableText,
+            'Prepared: Friday, August 28, 2026 at 8:27 PM Pacific Time',
+        )
+        && !str_contains($v3ReadableText, '2026-08-17T07:00:00Z')
+        && !str_contains($v3ReadableText, '(end exclusive)')
+        && !str_contains($v3ReadableText, 'Generated:'),
+);
+report_check(
+    'definition v3 gives a plain quick summary and a specific follow-up',
+    str_contains($v3ReadableText, 'Quick summary')
+        && str_contains($v3ReadableText, 'New support tickets: 5')
+        && str_contains($v3ReadableText, 'Tickets fixed: 1')
+        && str_contains($v3ReadableText, 'Average first reply: 38 minutes (2 tickets measured)')
+        && str_contains($v3ReadableText, 'First-response goal: 67% met (2 of 3 decided tickets)')
+        && str_contains(
+            $v3ReadableText,
+            '- Review 1 ticket that missed its first-response goal.',
+        )
+        && str_contains(
+            $v3ReadableText,
+            'Approved billable technician time (not an invoice): 1.75 hours (105 minutes)',
+        ),
+);
+report_check(
+    'definition v3 keeps archive, privacy, financial, and delivery truth explicit',
+    str_contains($v3ReadableText, 'Older tickets without a saved goal, not scored: 1')
+        && str_contains($v3ReadableText, 'Merged ticket histories left out of response math: 2')
+        && str_contains($v3ReadableText, 'Approved-time change: -25 minutes across 2 entries using 3 saved adjustments.')
+        && str_contains($v3ReadableText, 'It does not mean an invoice was created, sent, or posted.')
+        && str_contains($v3ReadableText, 'Inbox receipt is checked separately.')
+        && !str_contains($v3ReadableText, 'private reason')
+        && !str_contains($v3ReadableText, '$'),
+);
+$v3CatchUpMetrics = $v3ReadableMetrics;
+$v3CatchUpMetrics['generated_at'] = '2026-09-05T03:27:01Z';
+report_check(
+    'definition v3 labels an older oldest-missing period as catch-up instead of calling it current',
+    str_contains(
+        business_report_text($v3CatchUpMetrics),
+        'This is a catch-up report for a fully completed Monday-through-Sunday week.',
+    ),
+);
+$v3QuietMetrics = $v3ReadableMetrics;
+$v3QuietMetrics['tickets'] = [
+    'opened' => 0,
+    'resolved' => 0,
+    'merged_histories_excluded_from_response_metrics' => 0,
+];
+$v3QuietMetrics['first_response'] = ['answered' => 0, 'average_minutes' => null];
+$v3QuietMetrics['service_goal'] = [
+    'eligible_versioned' => 0,
+    'legacy_unversioned_excluded' => 0,
+    'decided' => 0,
+    'met' => 0,
+    'attainment_percent' => null,
+    'undecided' => 0,
+];
+report_check(
+    'definition v3 says plainly when the weekly response results need no follow-up',
+    str_contains(
+        business_report_text($v3QuietMetrics),
+        "- No first-response follow-up is needed from this week's results.",
+    ),
+);
+
 $v2Generated = business_report_generate(
     $pdo,
     'one',
@@ -2714,12 +2876,12 @@ foreach (['t.subject', 'm.body', 'time_entries.note', 'review_note', 'contacts '
 $managerSource = file_get_contents(__DIR__ . '/../db/manage_business_reports.php') ?: '';
 report_check(
     'operator publication requires an explicit supported definition version',
-    str_contains($managerSource, '--definition-version=1|2')
+    str_contains($managerSource, '--definition-version=1|2|3')
         && str_contains(
             $managerSource,
             "report_cli_expect(\$options, ['tenant-slug', 'definition-version', 'actor-user-id', 'reason'])",
         )
-        && str_contains($managerSource, "in_array(\$options['definition-version'], ['1', '2'], true)"),
+        && str_contains($managerSource, "in_array(\$options['definition-version'], ['1', '2', '3'], true)"),
 );
 
 $planStart = strpos($source, 'function business_report_plan_customer_schedule_from_id(');

@@ -41,7 +41,7 @@ If you change what is live, change this page in the same PR.
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
 | Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark v2 sender/receiver remain default-off; correction-safe v3 is source-only and both new claim/send gates default off. The portal is enabled only for the Lifestyle canary; basic authenticated access passed, but the deployed experience remains summary-only. Report generation/delivery are off; a default-off full-artifact-bound scheduler bundle now exists in source but is not installed. Existing service-intake gates remain live. |
 | Customer portal (Phase 5A live; Phase 5B source-only) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing and a fresh authenticated Lifestyle session passed; `support.8westit.com/portal` is 404. Frankie rejected the read-only summary experience as not useful. Phase 5B create/detail/reply work is isolated on `codex/customer-portal-useful-20260829` and is not merged or deployed. It fails closed on all merged history, and staff merge now refuses cross-customer tickets; a Lifestyle data audit/reset remains a release gate. |
-| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie confirmed the exact archive-3 report reached the recipient inbox. Generation/delivery are off, `canary_only` is true, and the new default-off scheduler operations bundle is source-only, not installed. A separate source-only definition v2 safely reports append-only approved-time adjustments once per entry; v1 and its archives remain immutable. Neither source-only addition is published or deployed. The new `reports@8westit.com` sender still needs its own canary. |
+| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie confirmed the exact archive-3 report reached the recipient inbox. Generation/delivery are off, `canary_only` is true, and the new default-off scheduler operations bundle is source-only, not installed. Separate source-only definitions v2 and v3 add correction-aware time and a plain-language completed-week report while keeping v1 archives immutable. None of those source-only additions is published or deployed. The new `reports@8westit.com` sender still needs its own canary. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Client-scoped 8 West ID report contacts | **Live through PR #68 / merge `7bf63ed` and migration 019**: client 14 has one exact 8 West ID binding and immutable contact snapshot. Both contact endpoints are back off after preparation; only the recipient digest is recorded. |
 | Lifestyle identity replacement | **Enabled safely**: replacement subject `t4u10` is active; predecessor `t4u7` is permanently inactive, revoked, and quarantined. Deployed Coastmark merge `c9f4409` fails closed on a fresh signed revocation feed before any SSO write/reactivation. |
@@ -492,6 +492,17 @@ reasons or add billing, invoice, AI, or endpoint actions. New correction-aware
 schedules require a new key explicitly pinned to published v2 bytes. This code
 has not been merged, published, scheduled, generated, delivered, configured,
 migrated, or deployed in production.
+
+A child source-only definition-v3 slice keeps the v2 metrics and immutable
+archive/delivery rules but replaces the UTC-only customer heading with full
+local dates, a plain explanation of the last completed week, a catch-up label
+when the oldest missing week is older, a quick summary, and specific
+first-response follow-up. The received Lifestyle canary's `2026-08-17T07:00Z`
+through `2026-08-24T07:00Z` window was the correct Monday, August 17 through
+Sunday, August 23 Pacific week when generated Friday, August 28 at 8:27 PM
+Pacific; it looked stale because definition v1 exposed database-style times.
+Version 3 is not merged, published, scheduled, generated, delivered,
+configured, migrated, or deployed in production.
 
 The source-only onboarding planner `plan-customer-from-id` proves one exact
 active Milepost customer UUID, its configured and authenticated 8 West ID

@@ -42,6 +42,12 @@ for 8 West Lifestyle, covered `2026-08-17T07:00:00Z` through
 does not authorize another send, reopen the disabled schedule, or prove which
 mailbox submitted it.
 
+Those archive-3 timestamps were not stale. In Pacific Time they mean Monday,
+August 17 through Sunday, August 23, and the report was prepared Friday,
+August 28 at 8:27 PM. That was the last fully completed Monday-through-Sunday
+week at generation time. Definition v1's database-style UTC-only heading made
+the correct window look old and unclear.
+
 The dedicated `reports@8westit.com` mailbox now exists and has no human
 members. Human membership is not required for Safeharbor's app-only Microsoft
 Graph submission, but this new sender still needs its own controlled canary:
@@ -50,11 +56,14 @@ sender. Report generation and delivery remain off, `canary_only` remains true,
 and no cron or systemd report scheduler is installed. The reviewed scheduler
 bundle described below is source-only and default-off.
 
-Definition version 2 is also source-only. It adds a reviewed, distinct contract
-for append-only approved-time adjustments; it has not been published, scheduled,
-generated, delivered, merged, migrated, configured, or deployed in production.
-Existing definition-v1 rows, schedules, archives, and delivery evidence remain
-immutable.
+Definition versions 2 and 3 are source-only. Version 2 adds a reviewed,
+distinct contract for append-only approved-time adjustments; it has not been
+published, scheduled, generated, delivered, merged, migrated, configured, or
+deployed in production. Version 3 keeps those correction-aware facts and adds
+a distinct plain-language presentation contract. It also has not been
+published, scheduled, generated, delivered, merged, migrated, configured, or
+deployed in production. Existing definition-v1 rows, schedules, archives, and
+delivery evidence remain immutable.
 
 Root-only Lifestyle canary evidence is at
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`.
@@ -274,6 +283,46 @@ idempotent; skipping v1, copying v1 bytes into ordinal 2, or using an unknown
 ordinal fails closed. Existing v1 logical schedule keys cannot change their
 definition, so every new correction-aware schedule uses a new key pinned
 explicitly to v2.
+
+## Definition version 3
+
+Version 3 retains every version-2 metric, lock, adjustment cutoff, archive,
+privacy, and delivery rule. It changes only the canonical customer-facing text
+under a new immutable contract. Its exact contract SHA-256 is
+`e561c7674d01bfc21890bce8dbb7d59795610a02d1234fce235b68bbb3847f92`.
+
+The version-3 report:
+
+- translates the archived UTC boundaries into full human dates in the
+  schedule's reporting timezone; `America/Los_Angeles` is labeled `Pacific
+  Time`;
+- says plainly that the normal report is the last fully completed
+  Monday-through-Sunday week, so a partial current week is never mixed into
+  the totals;
+- labels an older oldest-missing period as a `catch-up report` instead of
+  pretending that historical period is current;
+- shows the prepared date and time in the same local timezone rather than an
+  ISO-only `Generated:` value;
+- leads with new tickets, fixed tickets, average first reply, response-goal
+  result, approved technician time, and survey score;
+- identifies missed or still-undecided first-response results for 8 West IT to
+  review, or says explicitly when no response-goal follow-up is needed; and
+- keeps older unversioned tickets, merged histories, approved-time adjustments,
+  no-invoice truth, and provider-versus-inbox delivery truth visible in plain
+  language.
+
+The underlying metrics JSON remains the exact canonical schema-1 envelope.
+Version 3 does not add ticket text, notes, contacts, rates, prices, taxes,
+invoice state, endpoint controls, or AI output. It needs no schema migration.
+Definitions still publish in exact ordinal order, and a version-3 schedule must
+use a new logical key explicitly pinned to published v3 bytes. Existing v1 and
+v2 canonical report text remains byte-for-byte unchanged and reloadable.
+
+Normal scheduled computation does not lag: it selects the oldest missing due
+complete week. With uninterrupted runs, that is the immediately preceding
+Monday-through-Sunday week. After an outage, the one-period-per-invocation
+catch-up rule intentionally repairs the gap without silently skipping history;
+the new label makes that exceptional older period obvious.
 
 ## Delivery truth and state machine
 

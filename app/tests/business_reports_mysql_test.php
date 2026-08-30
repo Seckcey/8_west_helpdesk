@@ -234,6 +234,7 @@ function report_mysql_config(): array
             'weekly-one',
             'weekly-runtime',
             'weekly-v2',
+            'weekly-v3',
             'weekly-race-report',
             'weekly-race-adjustment',
             'weekly-race-v2-report',
@@ -776,6 +777,73 @@ report_mysql_check(
         && !str_contains((string) $v2Archive['report_text'], 'private v2 fixture reason')
         && !str_contains((string) $v2Archive['metrics_json'], 'private v2 fixture reason'),
 );
+
+$definitionV3 = business_report_publish_definition(
+    $pdo,
+    'one',
+    101,
+    'plain-language completed-week definition',
+    BUSINESS_REPORT_CONTRACT_VERSION_V3,
+);
+report_mysql_check(
+    'native MySQL appends distinct v3 presentation bytes after immutable v1 and v2',
+    (int) $definitionV3['definition']['version_no'] === 3
+        && business_report_definition_supported($definitionV3['definition'])
+        && (int) $pdo->query(
+            "SELECT COUNT(*) FROM business_report_definition_versions
+              WHERE tenant_id=1 AND definition_key='weekly-client-service-summary'",
+        )->fetchColumn() === 3,
+);
+$v3Prepared = business_report_prepare_schedule(
+    $pdo,
+    'one',
+    'weekly-v3',
+    14,
+    (int) $definitionV3['definition']['id'],
+    'reports@example.test',
+    'America/Los_Angeles',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'prepare v3 fixture',
+);
+business_report_transition_schedule(
+    $pdo,
+    'one',
+    'weekly-v3',
+    (int) $v3Prepared['schedule']['version_no'],
+    'active',
+    101,
+    'enable v3 fixture',
+    report_mysql_config(),
+);
+$v3Generated = business_report_generate(
+    $pdo,
+    'one',
+    'weekly-v3',
+    report_mysql_config(),
+    $testNow,
+    false,
+    true,
+);
+$v3Archive = $pdo->query(
+    'SELECT * FROM business_report_archives WHERE id=' . (int) $v3Generated['archive']['id'],
+)->fetch(PDO::FETCH_ASSOC);
+report_mysql_check(
+    'native MySQL archives and reloads canonical v3 human report bytes',
+    is_array($v3Archive)
+        && business_report_archived_content($v3Archive)['metrics'] === $v3Generated['metrics']
+        && str_contains((string) $v3Archive['report_text'], 'Week covered: ')
+        && str_contains((string) $v3Archive['report_text'], '(Pacific Time)')
+        && str_contains((string) $v3Archive['report_text'], 'Quick summary')
+        && !str_contains((string) $v3Archive['report_text'], '(end exclusive)')
+        && (int) $pdo->query(
+            'SELECT COUNT(*) FROM business_report_deliveries WHERE archive_id='
+            . (int) $v3Generated['archive']['id'] . " AND status='pending'",
+        )->fetchColumn() === 1,
+);
+
 $forgedPeriodStart = (new DateTimeImmutable(
     $v2Window['period_start'],
     new DateTimeZone('UTC'),

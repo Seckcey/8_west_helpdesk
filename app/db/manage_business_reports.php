@@ -116,7 +116,7 @@ function report_cli_emit_id_contact(?array $evidence, string $scope): void
 
 $command = $argv[1] ?? '';
 $usage = "Usage:\n"
-    . "  php db/manage_business_reports.php publish-definition --tenant-slug=SLUG --definition-version=1|2 --actor-user-id=ID --reason=TEXT\n"
+    . "  php db/manage_business_reports.php publish-definition --tenant-slug=SLUG --definition-version=1|2|3 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --recipient-email=EMAIL --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare-client-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
@@ -134,9 +134,9 @@ try {
 
     if ($command === 'publish-definition') {
         report_cli_expect($options, ['tenant-slug', 'definition-version', 'actor-user-id', 'reason']);
-        if (!in_array($options['definition-version'], ['1', '2'], true)) {
+        if (!in_array($options['definition-version'], ['1', '2', '3'], true)) {
             throw new BusinessReportValidationException(
-                'Definition version must be exactly 1 or 2.',
+                'Definition version must be exactly 1, 2, or 3.',
             );
         }
         $result = business_report_publish_definition(

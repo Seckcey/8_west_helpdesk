@@ -13,7 +13,8 @@ const BUSINESS_REPORT_TYPE = 'weekly_client_service_summary';
 const BUSINESS_REPORT_DEFINITION_KEY = 'weekly-client-service-summary';
 const BUSINESS_REPORT_CONTRACT_VERSION_V1 = 1;
 const BUSINESS_REPORT_CONTRACT_VERSION_V2 = 2;
-const BUSINESS_REPORT_LATEST_CONTRACT_VERSION = BUSINESS_REPORT_CONTRACT_VERSION_V2;
+const BUSINESS_REPORT_CONTRACT_VERSION_V3 = 3;
+const BUSINESS_REPORT_LATEST_CONTRACT_VERSION = BUSINESS_REPORT_CONTRACT_VERSION_V3;
 // Retained for callers that explicitly mean the original immutable contract.
 const BUSINESS_REPORT_CONTRACT_VERSION = BUSINESS_REPORT_CONTRACT_VERSION_V1;
 const BUSINESS_REPORT_MAX_DUE_SCHEDULES = 100;
@@ -85,11 +86,40 @@ function business_report_contract_v2(): array
 }
 
 /** @return array<string,mixed> */
+function business_report_contract_v3(): array
+{
+    return [
+        'contract_version' => 3,
+        'report_type' => BUSINESS_REPORT_TYPE,
+        'window' => 'previous_complete_monday_sunday',
+        'ticket_opened' => 'created_at_in_window_excluding_merged_sources',
+        'ticket_resolved' => 'resolved_at_in_window_excluding_merged_sources',
+        'first_response' => 'opened_cohort_first_tech_message_excluding_all_merged_histories',
+        'service_goal' => 'versioned_opened_cohort_decided_by_generated_at_excluding_all_merged_histories',
+        'service_goal_legacy' => 'unversioned_opened_cohort_reported_as_excluded_not_counted_as_attainment',
+        'approved_billable_time' => 'worked_at_in_window_approved_by_generated_at_latest_adjustment_with_id_at_or_below_tenant_lock_cutoff_and_created_by_generated_at_else_original_counted_once',
+        'approved_time_adjustments' => 'tenant_lock_captured_adjustment_id_cutoff_original_effective_net_minutes_adjusted_entries_and_applied_slips_without_reasons',
+        'csat' => 'survey_created_in_window_answered_by_generated_at',
+        'presentation' => 'plain_language_local_calendar_dates_last_completed_week_and_actionable_follow_up',
+        'delivery_truth' => 'provider_accepted_is_submitted_not_delivered',
+    ];
+}
+
+function business_report_contract_uses_adjustments(int $version): bool
+{
+    return in_array($version, [
+        BUSINESS_REPORT_CONTRACT_VERSION_V2,
+        BUSINESS_REPORT_CONTRACT_VERSION_V3,
+    ], true);
+}
+
+/** @return array<string,mixed> */
 function business_report_contract(int $version = BUSINESS_REPORT_CONTRACT_VERSION_V1): array
 {
     return match ($version) {
         BUSINESS_REPORT_CONTRACT_VERSION_V1 => business_report_contract_v1(),
         BUSINESS_REPORT_CONTRACT_VERSION_V2 => business_report_contract_v2(),
+        BUSINESS_REPORT_CONTRACT_VERSION_V3 => business_report_contract_v3(),
         default => throw new BusinessReportValidationException(
             'Business report definition version is unsupported.',
         ),
@@ -120,6 +150,7 @@ function business_report_definition_supported(array $definition): bool
     if (!in_array($version, [
         BUSINESS_REPORT_CONTRACT_VERSION_V1,
         BUSINESS_REPORT_CONTRACT_VERSION_V2,
+        BUSINESS_REPORT_CONTRACT_VERSION_V3,
     ], true)) {
         return false;
     }
@@ -1962,16 +1993,17 @@ function business_report_metrics(
     if (!in_array($definitionVersion, [
         BUSINESS_REPORT_CONTRACT_VERSION_V1,
         BUSINESS_REPORT_CONTRACT_VERSION_V2,
+        BUSINESS_REPORT_CONTRACT_VERSION_V3,
     ], true)) {
         throw new BusinessReportGateException(
             'Business report metrics require an exact supported definition version.',
         );
     }
-    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2
+    if (business_report_contract_uses_adjustments($definitionVersion)
         && ($adjustmentIdCutoff === null || $adjustmentIdCutoff < 0)
     ) {
         throw new BusinessReportGateException(
-            'Business report definition v2 requires an exact adjustment id cutoff.',
+            'Correction-aware business report definitions require an exact adjustment id cutoff.',
         );
     }
     business_report_assert_v1_adjustment_free(
@@ -2189,7 +2221,7 @@ function business_report_archive_iso_utc(mixed $value): bool
 }
 
 /**
- * Refuse any archive metric that is not exactly one of the immutable v1/v2
+ * Refuse any archive metric that is not exactly one of the immutable v1/v2/v3
  * public contracts. This deliberately validates every nested key and scalar
  * before rendering so a self-hashed direct insert cannot turn a metric into
  * report text or use an ignored field as private/financial storage.
@@ -2235,6 +2267,7 @@ function business_report_assert_archive_metric_schema(array $metrics): void
         || !in_array($definitionVersion, [
             BUSINESS_REPORT_CONTRACT_VERSION_V1,
             BUSINESS_REPORT_CONTRACT_VERSION_V2,
+            BUSINESS_REPORT_CONTRACT_VERSION_V3,
         ], true)
         || ($definition['key'] ?? null) !== BUSINESS_REPORT_DEFINITION_KEY
         || !is_string($definition['sha256'] ?? null)
@@ -2383,7 +2416,7 @@ function business_report_assert_archive_metric_schema(array $metrics): void
     ) {
         $invalid();
     }
-    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2) {
+    if (business_report_contract_uses_adjustments($definitionVersion)) {
         if (!business_report_archive_integer_between(
             $approvedTime['original_approved_billable_minutes'] ?? null,
             0,
@@ -2460,15 +2493,163 @@ function business_report_assert_archive_metric_schema(array $metrics): void
     }
 }
 
+function business_report_human_timezone_label(string $timezone): string
+{
+    return match ($timezone) {
+        'America/Los_Angeles' => 'Pacific Time',
+        'UTC' => 'UTC',
+        default => $timezone,
+    };
+}
+
+function business_report_human_count(
+    int $count,
+    string $singular,
+    string $plural,
+): string {
+    return $count . ' ' . ($count === 1 ? $singular : $plural);
+}
+
+/** @param array<string,mixed> $metrics */
+function business_report_text_v3(array $metrics): string
+{
+    $timezone = (string) $metrics['period']['schedule_timezone'];
+    $zone = new DateTimeZone($timezone);
+    $periodStart = (new DateTimeImmutable(
+        (string) $metrics['period']['start_utc'],
+        new DateTimeZone('UTC'),
+    ))->setTimezone($zone);
+    $periodEndExclusive = (new DateTimeImmutable(
+        (string) $metrics['period']['end_utc_exclusive'],
+        new DateTimeZone('UTC'),
+    ))->setTimezone($zone);
+    $periodEnd = $periodEndExclusive->modify('-1 second');
+    $generated = (new DateTimeImmutable(
+        (string) $metrics['generated_at'],
+        new DateTimeZone('UTC'),
+    ))->setTimezone($zone);
+    $currentMonday = $generated->modify('monday this week')->setTime(0, 0, 0);
+    $isLastCompletedWeek = $periodStart == $currentMonday->modify('-7 days')
+        && $periodEndExclusive == $currentMonday;
+    $timezoneLabel = business_report_human_timezone_label($timezone);
+
+    $ticketsOpened = (int) $metrics['tickets']['opened'];
+    $ticketsResolved = (int) $metrics['tickets']['resolved'];
+    $responsesMeasured = (int) $metrics['first_response']['answered'];
+    $averageResponse = $metrics['first_response']['average_minutes'];
+    $eligibleGoals = (int) $metrics['service_goal']['eligible_versioned'];
+    $decidedGoals = (int) $metrics['service_goal']['decided'];
+    $metGoals = (int) $metrics['service_goal']['met'];
+    $missedGoals = $decidedGoals - $metGoals;
+    $undecidedGoals = (int) $metrics['service_goal']['undecided'];
+    $legacyExcluded = (int) $metrics['service_goal']['legacy_unversioned_excluded'];
+    $mergedExcluded = (int) $metrics['tickets']['merged_histories_excluded_from_response_metrics'];
+    $approvedMinutes = (int) $metrics['approved_billable_time']['minutes'];
+    $approvedHours = number_format($approvedMinutes / 60, 2, '.', '');
+    $surveysSent = (int) $metrics['csat']['surveys_sent'];
+    $surveysAnswered = (int) $metrics['csat']['responses_received_by_generated_at'];
+    $surveyAverage = $metrics['csat']['average_score_out_of_3'];
+
+    $averageResponseText = $averageResponse === null
+        ? 'No first replies to measure'
+        : (int) $averageResponse . ' minutes ('
+            . business_report_human_count($responsesMeasured, 'ticket', 'tickets')
+            . ' measured)';
+    $serviceGoalText = $decidedGoals === 0
+        ? 'No decided ticket results yet'
+        : (int) $metrics['service_goal']['attainment_percent'] . '% met ('
+            . $metGoals . ' of ' . $decidedGoals . ' decided tickets)';
+    $surveyText = $surveyAverage === null
+        ? 'No survey responses yet (' . $surveysAnswered . ' of ' . $surveysSent . ' answered)'
+        : number_format((float) $surveyAverage, 2, '.', '') . ' out of 3 ('
+            . $surveysAnswered . ' of ' . $surveysSent . ' answered)';
+
+    $followUp = [];
+    if ($missedGoals > 0) {
+        $followUp[] = '- Review ' . business_report_human_count(
+            $missedGoals,
+            'ticket that missed',
+            'tickets that missed',
+        ) . ($missedGoals === 1 ? ' its' : ' their') . ' first-response goal.';
+    }
+    if ($undecidedGoals > 0) {
+        $followUp[] = '- Check ' . business_report_human_count(
+            $undecidedGoals,
+            'ticket from this week that does',
+            'tickets from this week that do',
+        ) . ' not have a final first-response result yet.';
+    }
+    if ($followUp === []) {
+        $followUp[] = "- No first-response follow-up is needed from this week's results.";
+    }
+
+    $adjustmentLines = [];
+    $adjustedEntries = (int) $metrics['approved_billable_time']['entries_with_adjustments_applied'];
+    $adjustmentSlips = (int) $metrics['approved_billable_time']['adjustment_slips_applied'];
+    $netAdjustment = (int) $metrics['approved_billable_time']['net_adjustment_minutes'];
+    if ($adjustedEntries > 0) {
+        $adjustmentLines[] = 'Approved-time change: ' . sprintf('%+d', $netAdjustment)
+            . ' minutes across ' . business_report_human_count(
+                $adjustedEntries,
+                'entry',
+                'entries',
+            ) . ' using ' . business_report_human_count(
+                $adjustmentSlips,
+                'saved adjustment',
+                'saved adjustments',
+            ) . '.';
+    } else {
+        $adjustmentLines[] = 'Approved-time changes: none.';
+    }
+
+    $lines = [
+        'Safeharbor weekly client service summary',
+        'Client: ' . $metrics['source']['client_name'],
+        'Week covered: ' . $periodStart->format('l, F j, Y')
+            . ' through ' . $periodEnd->format('l, F j, Y')
+            . ' (' . $timezoneLabel . ')',
+        $isLastCompletedWeek
+            ? 'This is the last fully completed Monday-through-Sunday week.'
+            : 'This is a catch-up report for a fully completed Monday-through-Sunday week.',
+        'Prepared: ' . $generated->format('l, F j, Y \a\t g:i A') . ' ' . $timezoneLabel,
+        '',
+        'Quick summary',
+        'New support tickets: ' . $ticketsOpened,
+        'Tickets fixed: ' . $ticketsResolved,
+        'Average first reply: ' . $averageResponseText,
+        'First-response goal: ' . $serviceGoalText,
+        'Approved billable technician time (not an invoice): '
+            . $approvedHours . ' hours (' . $approvedMinutes . ' minutes)',
+        'Customer survey score: ' . $surveyText,
+        '',
+        '8 West IT follow-up',
+        ...$followUp,
+        '',
+        'How the numbers were counted',
+        'Tickets with a saved first-response goal: ' . $eligibleGoals,
+        'First-response results still waiting: ' . $undecidedGoals,
+        'Older tickets without a saved goal, not scored: ' . $legacyExcluded,
+        'Merged ticket histories left out of response math: ' . $mergedExcluded,
+        ...$adjustmentLines,
+        '',
+        'Approved technician time is work evidence only. It does not mean an invoice was created, sent, or posted.',
+        'Sending to Microsoft means Microsoft accepted the message. Inbox receipt is checked separately.',
+    ];
+    return implode("\n", $lines) . "\n";
+}
+
 /** @param array<string,mixed> $metrics */
 function business_report_text(array $metrics): string
 {
     business_report_assert_archive_metric_schema($metrics);
+    $definitionVersion = (int) ($metrics['definition']['version'] ?? 0);
+    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V3) {
+        return business_report_text_v3($metrics);
+    }
     $value = static fn(mixed $item): string => $item === null ? 'Not enough decided data' : (string)$item;
     $minutes = (int)$metrics['approved_billable_time']['minutes'];
     $hours = number_format($minutes / 60, 2, '.', '');
-    $definitionVersion = (int) ($metrics['definition']['version'] ?? 0);
-    $approvedTimeLines = $definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2
+    $approvedTimeLines = business_report_contract_uses_adjustments($definitionVersion)
         ? [
             'Approved billable operational time after adjustments: ' . $minutes . ' minutes (' . $hours . ' hours)',
             'Original approved billable operational time: '
@@ -2502,7 +2683,7 @@ function business_report_text(array $metrics): string
         'CSAT responses: ' . $metrics['csat']['responses_received_by_generated_at'] . ' of ' . $metrics['csat']['surveys_sent'],
         'CSAT average: ' . $value($metrics['csat']['average_score_out_of_3']) . ($metrics['csat']['average_score_out_of_3'] === null ? '' : ' / 3'),
         '',
-        ...($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2
+        ...(business_report_contract_uses_adjustments($definitionVersion)
             ? ['Each approved time entry is counted once using its latest adjustment inside the archived adjustment-id and generation-time cutoffs. Adjustment reasons are not included.']
             : []),
         'Approved billable time above is operational evidence only, not a statement of export or invoice status. This report does not invoice or post anything.',
@@ -2649,8 +2830,9 @@ function business_report_generate(
         if ($requireDue && $generatedAt < $window['due_at']) {
             throw new BusinessReportGateException('The report schedule is not due yet.');
         }
-        $adjustmentIdCutoff = (int) ($schedule['definition_version_no'] ?? 0)
-            === BUSINESS_REPORT_CONTRACT_VERSION_V2
+        $adjustmentIdCutoff = business_report_contract_uses_adjustments(
+            (int) ($schedule['definition_version_no'] ?? 0),
+        )
             ? business_report_adjustment_id_cutoff($pdo, (int) $schedule['tenant_id'])
             : null;
         $metrics = business_report_metrics(
@@ -2685,9 +2867,10 @@ function business_report_generate(
         // preserving the report runtime's SELECT-only tenant privilege. That
         // fixed order makes the winner visible before report metrics are read:
         // an adjustment that wins makes v1 fail closed, while a report that
-        // wins archives before the later adjustment can be appended. V2 also
-        // captures the committed adjustment-id prefix under this lock, making
-        // that order durable when both operations share a timestamp second.
+        // wins archives before the later adjustment can be appended. V2 and
+        // V3 capture the committed adjustment-id prefix under this lock,
+        // making that order durable when both operations share a timestamp
+        // second.
         $tenantLockSql = 'SELECT id FROM tenants WHERE id = ? AND slug = ?';
         if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
             $tenantLockSql .= ' FOR SHARE';
@@ -2699,8 +2882,9 @@ function business_report_generate(
                 'The report tenant changed before archive generation completed.',
             );
         }
-        $adjustmentIdCutoff = (int) ($schedule['definition_version_no'] ?? 0)
-            === BUSINESS_REPORT_CONTRACT_VERSION_V2
+        $adjustmentIdCutoff = business_report_contract_uses_adjustments(
+            (int) ($schedule['definition_version_no'] ?? 0),
+        )
             ? business_report_adjustment_id_cutoff($pdo, $tenantId, true)
             : null;
         $generatedAt = business_report_persisted_generated_at($pdo, $requestedNow);
