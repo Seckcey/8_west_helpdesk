@@ -3919,29 +3919,41 @@ CREATE TEMPORARY TABLE safeharbor_m021_source_checks (
   table_name        VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   constraint_name   VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   normalized_clause VARCHAR(1000) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  failure_code      VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   install_lock      TINYINT UNSIGNED NOT NULL,
   PRIMARY KEY (table_name,constraint_name)
 ) ENGINE=MEMORY;
 INSERT INTO safeharbor_m021_source_checks VALUES
   ('safeharbor_m021_reference_claims','rc21_claim_event_key',
-   'regexp_like(event_key,''^safeharbor-time:[0-9a-f]{32}$'')',0),
+   'regexp_like(event_key,''^safeharbor-time:[0-9a-f]{32}$'')',
+   'migration_021_refcheck_claim_event_key_failed',0),
   ('safeharbor_m021_reference_claims','rc21_claim_hash',
-   'regexp_like(payload_sha256,''^[0-9a-f]{64}$'')',0),
-  ('safeharbor_m021_reference_claims','rc21_claim_payload','json_valid(payload_json)',0),
+   'regexp_like(payload_sha256,''^[0-9a-f]{64}$'')',
+   'migration_021_refcheck_claim_hash_failed',0),
+  ('safeharbor_m021_reference_claims','rc21_claim_payload','json_valid(payload_json)',
+   'migration_021_refcheck_claim_payload_failed',0),
   ('safeharbor_m021_reference_claims','rc21_claim_predecessor_shape',
-   'source_version=0andpredecessor_claim_idisnullorsource_version>0andpredecessor_claim_idisnotnull',0),
-  ('safeharbor_m021_reference_claims','rc21_claim_install_lock','0=1',1),
+   'source_version=0andpredecessor_claim_idisnullorsource_version>0andpredecessor_claim_idisnotnull',
+   'migration_021_refcheck_claim_predecessor_failed',0),
+  ('safeharbor_m021_reference_claims','rc21_claim_install_lock','0=1',
+   'migration_021_refcheck_claim_install_lock_failed',1),
   ('safeharbor_m021_reference_receipts','rc21_receipt_operation_key',
-   'regexp_like(operation_key,''^safeharbor-op:[0-9a-f]{32}$'')',0),
+   'regexp_like(operation_key,''^safeharbor-op:[0-9a-f]{32}$'')',
+   'migration_021_refcheck_receipt_operation_key_failed',0),
   ('safeharbor_m021_reference_receipts','rc21_receipt_response_status',
-   'response_statusisnullorresponse_statusbetween100and599',0),
+   'response_statusisnullorresponse_statusbetween100and599',
+   'migration_021_refcheck_receipt_status_failed',0),
   ('safeharbor_m021_reference_receipts','rc21_receipt_response_hash',
-   'response_sha256isnullorregexp_like(response_sha256,''^[0-9a-f]{64}$'')',0),
+   'response_sha256isnullorregexp_like(response_sha256,''^[0-9a-f]{64}$'')',
+   'migration_021_refcheck_receipt_hash_failed',0),
   ('safeharbor_m021_reference_receipts','rc21_receipt_detail',
-   'regexp_like(detail_code,''^[a-z][a-z0-9_]{2,63}$'')',0),
+   'regexp_like(detail_code,''^[a-z][a-z0-9_]{2,63}$'')',
+   'migration_021_refcheck_receipt_detail_failed',0),
   ('safeharbor_m021_reference_receipts','rc21_receipt_ack_shape',
-   'outcome=''accepted''andcoastmark_event_idisnotnullandinvoice_idisnotnullandinvoice_line_idisnotnulloroutcome=''replayed''andcoastmark_event_idisnotnullandinvoice_idisnotnulloroutcome=''manual_exception''andcoastmark_event_idisnotnullandinvoice_idisnotnullandinvoice_line_idisnulloroutcomenotin(''accepted'',''replayed'',''manual_exception'')andcoastmark_event_idisnullandinvoice_idisnullandinvoice_line_idisnull',0),
-  ('safeharbor_m021_reference_receipts','rc21_receipt_install_lock','0=1',1);
+   'outcome=''accepted''andcoastmark_event_idisnotnullandinvoice_idisnotnullandinvoice_line_idisnotnulloroutcome=''replayed''andcoastmark_event_idisnotnullandinvoice_idisnotnulloroutcome=''manual_exception''andcoastmark_event_idisnotnullandinvoice_idisnotnullandinvoice_line_idisnulloroutcomenotin(''accepted'',''replayed'',''manual_exception'')andcoastmark_event_idisnullandinvoice_idisnullandinvoice_line_idisnull',
+   'migration_021_refcheck_receipt_ack_failed',0),
+  ('safeharbor_m021_reference_receipts','rc21_receipt_install_lock','0=1',
+   'migration_021_refcheck_receipt_install_lock_failed',1);
 
 DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_reference_trigger_allowlist;
 CREATE TEMPORARY TABLE safeharbor_m021_reference_trigger_allowlist (
@@ -4073,8 +4085,9 @@ SET @cm_reference_source_fks_ok = (
      AND rule.table_name=live.table_name
      AND rule.constraint_name=live.constraint_name
 );
-SET @cm_reference_source_check_definitions_ok = (
-  SELECT COUNT(*)=0
+SET @cm_reference_source_check_definition_failure = (
+  SELECT MIN(COALESCE(expected.failure_code,
+                      'migration_021_refcheck_unexpected_failed'))
      FROM information_schema.table_constraints live_constraint
      JOIN information_schema.check_constraints live_check
        ON live_check.constraint_schema=live_constraint.constraint_schema
@@ -4095,32 +4108,43 @@ SET @cm_reference_source_check_definitions_ok = (
               <> CAST(REGEXP_REPLACE(expected.normalized_clause,
                                      '[[:space:]()]','') AS BINARY))
 );
-SET @cm_reference_source_required_checks_ok = (
-  SELECT COUNT(*)=9
+SET @cm_reference_source_check_definitions_ok = (
+  @cm_reference_source_check_definition_failure IS NULL
+);
+SET @cm_reference_source_required_check_failure = (
+  SELECT MIN(expected.failure_code)
      FROM safeharbor_m021_source_checks expected
-     JOIN information_schema.table_constraints live_constraint
+     LEFT JOIN information_schema.table_constraints live_constraint
        ON live_constraint.constraint_schema=DATABASE()
       AND live_constraint.table_name=expected.table_name
       AND live_constraint.constraint_name=expected.constraint_name
       AND live_constraint.constraint_type='CHECK'
       AND live_constraint.enforced='YES'
     WHERE expected.install_lock=0
+      AND live_constraint.constraint_name IS NULL
+);
+SET @cm_reference_source_required_checks_ok = (
+  @cm_reference_source_required_check_failure IS NULL
+);
+SET @cm_reference_source_claim_install_lock_count = (
+  SELECT COUNT(*) FROM information_schema.table_constraints
+   WHERE constraint_schema=DATABASE()
+     AND table_name='safeharbor_m021_reference_claims'
+     AND constraint_type='CHECK'
+     AND constraint_name='rc21_claim_install_lock'
+);
+SET @cm_reference_source_receipt_install_lock_count = (
+  SELECT COUNT(*) FROM information_schema.table_constraints
+   WHERE constraint_schema=DATABASE()
+     AND table_name='safeharbor_m021_reference_receipts'
+     AND constraint_type='CHECK'
+     AND constraint_name='rc21_receipt_install_lock'
 );
 SET @cm_reference_source_checks_ok = (
   @cm_reference_source_check_definitions_ok=1
   AND @cm_reference_source_required_checks_ok=1
-  AND
-  (SELECT COUNT(*)<=1 FROM information_schema.table_constraints
-    WHERE constraint_schema=DATABASE()
-      AND table_name='safeharbor_m021_reference_claims'
-      AND constraint_type='CHECK'
-      AND constraint_name='rc21_claim_install_lock')
-  AND
-  (SELECT COUNT(*)<=1 FROM information_schema.table_constraints
-    WHERE constraint_schema=DATABASE()
-      AND table_name='safeharbor_m021_reference_receipts'
-      AND constraint_type='CHECK'
-      AND constraint_name='rc21_receipt_install_lock')
+  AND @cm_reference_source_claim_install_lock_count<=1
+  AND @cm_reference_source_receipt_install_lock_count<=1
 );
 SET @cm_reference_entry_source_shape_ok = (
   @cm_reference_source_tables_ok=1
@@ -4240,7 +4264,14 @@ SET @cm_reference_entry_failure = CASE
   WHEN NOT (@cm_reference_source_columns_ok <=> 1) THEN 'migration_021_reference_source_columns_failed'
   WHEN NOT (@cm_reference_source_indexes_ok <=> 1) THEN 'migration_021_reference_source_indexes_failed'
   WHEN NOT (@cm_reference_source_fks_ok <=> 1) THEN 'migration_021_reference_source_fks_failed'
-  WHEN NOT (@cm_reference_source_checks_ok <=> 1) THEN 'migration_021_reference_source_checks_failed'
+  WHEN @cm_reference_source_check_definition_failure IS NOT NULL
+    THEN @cm_reference_source_check_definition_failure
+  WHEN @cm_reference_source_required_check_failure IS NOT NULL
+    THEN @cm_reference_source_required_check_failure
+  WHEN NOT (@cm_reference_source_claim_install_lock_count<=1)
+    THEN 'migration_021_refcheck_claim_install_lifecycle_failed'
+  WHEN NOT (@cm_reference_source_receipt_install_lock_count<=1)
+    THEN 'migration_021_refcheck_receipt_install_lifecycle_failed'
   WHEN NOT (@cm_reference_entry_triggers_ok <=> 1) THEN 'migration_021_reference_trigger_state_failed'
   ELSE NULL
 END;

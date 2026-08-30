@@ -536,7 +536,7 @@ try {
     cm_v3_expect(
         'migration refuses coordinated case-only binary check-literal drift',
         fn() => cm_v3_apply($pdo, $migration),
-        'migration_021_reference_source_checks_failed',
+        'migration_021_refcheck_receipt_operation_key_failed',
     );
     cm_v3_check('case-only source drift refusal preserves permanent live guards',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
