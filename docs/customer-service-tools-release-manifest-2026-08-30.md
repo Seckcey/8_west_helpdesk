@@ -79,6 +79,21 @@ These are overlap rules, not merge authorization:
 After either coordinated rebase, replace the affected table row with the new
 exact head, CI run, and independent review. Never release a superseded head.
 
+## Read-only production database preflight
+
+At `2026-08-30T19:25:57Z`, a no-write check through the saved `milepost-ec2`
+host alias reported Safeharbor MySQL `8.0.46-0ubuntu0.24.04.3` with server and
+connection character set `utf8mb4`, collation `utf8mb4_0900_ai_ci`, and SQL mode
+`ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION`.
+
+The protected local socket operator has the required DDL, trigger, and
+`LOCK TABLES` privileges. The ordinary `safeharbor@localhost` runtime has no
+global privilege and no DDL or table-lock grant. The two version-3 export tables
+are absent, as expected before migration. Because proving their exact serialized
+CHECK hashes requires creating the trusted fixture, the hash-only admission test
+remains an authorized scratch-write release gate. No production table, account,
+grant, configuration value, or row was changed by this preflight.
+
 ## Non-negotiable boundaries
 
 - Safeharbor is the system of record for help-desk and service-delivery facts.
