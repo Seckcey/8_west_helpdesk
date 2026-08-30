@@ -82,7 +82,7 @@ POST
 <sha256(raw request body)>
 ```
 
-The authenticated 200 response has the exact 21-member order pinned in
+The authenticated 200 response has the exact 20-member order pinned in
 `managed-customer-lifecycle-contract.md`. In addition to the original
 customer/source/receipt/contact facts, it includes the exact original Milepost
 event UUID and requires active customer and identity tenant status, lifecycle

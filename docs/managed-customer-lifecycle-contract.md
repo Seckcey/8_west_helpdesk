@@ -64,7 +64,7 @@ replay.
 
 ## Identity proof and restoration latch
 
-The shared schema-2 adapter now requires the exact signed 21-member success
+The shared schema-2 adapter now requires the exact signed 20-member success
 object in this order:
 
 ```text
@@ -125,7 +125,7 @@ Focused coverage:
   no-starvation refusal handling, restored-only owner-aware release, human-hold
   preservation, restore interruption/replay, forbidden tables, and exact ID
   evidence refusal;
-- `managed_customer_id_evidence_test.php`: exact 21-member signed wire shape and
+- `managed_customer_id_evidence_test.php`: exact 20-member signed wire shape and
   every new status/action/type/hash refusal;
 - `managed_customer_activation_test.php`: continuously active activation cannot
   consume a customer with inactive history; and
