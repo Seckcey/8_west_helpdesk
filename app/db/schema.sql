@@ -3895,7 +3895,10 @@ SET @cm_reference_entry_dependencies_ok = (
                OR LOCATE('safeharbor_m021_reference_receipts',
                          LOWER(routine_definition))>0))=0
 );
-SET @cm_reference_entry_triggers_ok = (
+-- MySQL cannot reopen one temporary table twice in a statement. Validate
+-- reference-table attachments and schema-reserved names in separate exact
+-- statements, then combine the two fail-closed answers.
+SET @cm_reference_entry_object_triggers_ok = (
   SELECT COUNT(*)=0
     FROM information_schema.triggers live
     LEFT JOIN safeharbor_m021_reference_trigger_allowlist allowed
@@ -3903,17 +3906,31 @@ SET @cm_reference_entry_triggers_ok = (
      AND CAST(allowed.event_object_table AS BINARY)=CAST(live.event_object_table AS BINARY)
      AND CAST(allowed.event_manipulation AS BINARY)=CAST(live.event_manipulation AS BINARY)
    WHERE live.trigger_schema=DATABASE()
-     AND (live.event_object_table IN
-             ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
-          OR EXISTS (
-               SELECT 1
-                 FROM safeharbor_m021_reference_trigger_allowlist reserved
-                WHERE LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
-          ))
+     AND live.event_object_table IN
+         ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
      AND (allowed.trigger_name IS NULL
           OR live.action_timing<>'BEFORE'
           OR live.action_orientation<>'ROW'
           OR live.action_condition IS NOT NULL)
+);
+SET @cm_reference_entry_reserved_triggers_ok = (
+  SELECT COUNT(*)=0
+    FROM information_schema.triggers live
+    JOIN safeharbor_m021_reference_trigger_allowlist reserved
+      ON LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+   WHERE live.trigger_schema=DATABASE()
+     AND (CAST(reserved.trigger_name AS BINARY)<>CAST(live.trigger_name AS BINARY)
+          OR CAST(reserved.event_object_table AS BINARY)<>
+             CAST(live.event_object_table AS BINARY)
+          OR CAST(reserved.event_manipulation AS BINARY)<>
+             CAST(live.event_manipulation AS BINARY)
+          OR live.action_timing<>'BEFORE'
+          OR live.action_orientation<>'ROW'
+          OR live.action_condition IS NOT NULL)
+);
+SET @cm_reference_entry_triggers_ok = (
+  @cm_reference_entry_object_triggers_ok=1
+  AND @cm_reference_entry_reserved_triggers_ok=1
 );
 SET @cm_reference_entry_failure = CASE
   WHEN NOT (@cm_m021_lock_owned <=> 1) THEN 'migration_021_advisory_lock_lost'
