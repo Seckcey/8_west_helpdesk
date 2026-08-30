@@ -671,7 +671,9 @@ export_check('migration and canonical schema share the complete exact financial-
     && !str_contains($migrationOperational, 'LOWER(REGEXP_REPLACE(REPLACE(live.action_statement')
     && str_contains($migrationOperational, '@cm_swaps_ready')
     && str_contains($migrationOperational, '@cm_permanent_guards_ok')
-    && str_contains($migrationOperational, '@cm_export_final_guards_ok'));
+    && str_contains($migrationOperational, '@cm_final_live_trigger_hashes_ok')
+    && str_contains($migrationOperational, '@cm_final_live_postflight_ok')
+    && str_contains($migrationOperational, '@cm_final_completion_ok'));
 export_check('all twelve reference triggers byte-bind the executable guard bodies',
     $triggerPairsExact);
 export_check('migration owns, empties, serializes, and individually proves reference cleanup',
@@ -696,8 +698,19 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, 'migration_021_refcheck_claim_event_key_failed')
     && str_contains($migrationOperational, 'migration_021_refcheck_receipt_operation_key_failed')
     && str_contains($migrationOperational, '@cm_reference_source_check_definition_failure')
-    && substr_count($migrationOperational, 'CONCAT(CHAR(92),CHAR(39))') === 5
+    && str_contains($migrationOperational, 'source_clause')
+    && str_contains($migrationOperational, 'locked_clause_sha256')
+    && str_contains($migrationOperational, 'unlocked_clause_sha256')
+    && str_contains($migrationOperational,
+        "event_key REGEXP ''^safeharbor-time:[0-9a-f]{32}$''")
+    && str_contains($migrationOperational,
+        'b0ff62ea39436a737b7ac4a46104b0ac9de4c6ed6c973585288514fa96f81d6a')
+    && str_contains($migrationOperational,
+        '1ab6e193b53d31e5319bcd7c0a1a0a5c5577ffd0eda5626982239b8df942774a')
+    && !str_contains($migrationOperational, 'CONCAT(CHAR(92),CHAR(39))')
     && !str_contains($migrationOperational, "live_check.check_clause,CHAR(92),''")
+    && !str_contains($migrationOperational, 'normalized_clause')
+    && !str_contains($migrationOperational, 'REGEXP_REPLACE(expected')
     && str_contains($migrationOperational, '@cm_reference_source_required_check_failure')
     && str_contains($migrationOperational, '@cm_reference_source_claim_install_lock_count')
     && str_contains($migrationOperational, '@cm_reference_source_receipt_install_lock_count')
@@ -708,7 +721,6 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, '@cm_reference_claim_source_shape_ok')
     && str_contains($migrationOperational, '@cm_reference_claim_disposable')
     && !str_contains($migrationOperational, 'LOWER(live_check.check_clause)')
-    && substr_count($migrationOperational, 'REGEXP_REPLACE(expected.normalized_clause') === 5
     && substr_count($migrationOperational, 'DROP TRIGGER IF EXISTS trg_cm_ref_021_') === 12
     && substr_count($migrationOperational, 'CREATE TRIGGER trg_cm_ref_021_') === 12
     && !str_contains($migrationOperational, 'CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_')
@@ -717,8 +729,17 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, 'FROM information_schema.routines')
     && str_contains($migrationOperational, 'routine_definition IS NULL')
     && !str_contains($migrationOperational, 'routine_table_usage')
-    && str_contains($migrationOperational, 'DROP TABLE safeharbor_m021_reference_receipts;')
-    && str_contains($migrationOperational, 'DROP TABLE safeharbor_m021_reference_claims;')
+    && str_contains($migrationOperational, "'DROP TABLE safeharbor_m021_reference_receipts'")
+    && str_contains($migrationOperational, "'DROP TABLE safeharbor_m021_reference_claims'")
+    && substr_count($migrationOperational, "\nLOCK TABLES\n") === 2
+    && substr_count($migrationOperational, 'UNLOCK TABLES;') === 2
+    && substr_count($migrationOperational, 'SET SESSION lock_wait_timeout=10;') === 2
+    && str_contains($migrationOperational, 'migration_021_reference_cleanup_boundary_failed')
+    && str_contains($migrationOperational, 'migration_021_final_locked_postcondition_failed')
+    && str_contains($migrationOperational, '@cm_boundary_receipt_drop_ok')
+    && str_contains($migrationOperational, '@cm_final_reference_absent')
+    && strrpos($migrationOperational, 'RELEASE_LOCK(@cm_m021_lock_name)')
+        < strrpos($migrationOperational, 'UNLOCK TABLES;')
     && !str_contains($migrationOperational, 'DROP TABLE IF EXISTS safeharbor_m021_reference_'));
 export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',
     is_string($cli)

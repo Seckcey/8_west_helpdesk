@@ -134,12 +134,13 @@ function cm_v3_statements(string $sql): array
     if (trim($buffer) !== '') throw new RuntimeException('Unterminated SQL statement.');
     return $statements;
 }
-function cm_v3_apply(PDO $pdo, string $path): void
+function cm_v3_apply(PDO $pdo, string $path, ?callable $boundary = null): void
 {
     $sql = file_get_contents($path);
     if (!is_string($sql)) throw new RuntimeException('Cannot read migration.');
     foreach (cm_v3_statements($sql) as $statement) {
         $plain = preg_replace('/\A(?:\s*--[^\n]*(?:\n|\z))+/', '', $statement) ?? $statement;
+        if ($boundary !== null) $boundary('before', $plain);
         if (preg_match('/^\s*SELECT\b/i', $plain) === 1) {
             $result = $pdo->query($statement);
             $result->fetchAll();
@@ -147,6 +148,7 @@ function cm_v3_apply(PDO $pdo, string $path): void
         } else {
             $pdo->exec($statement);
         }
+        if ($boundary !== null) $boundary('after', $plain);
     }
 }
 function cm_v3_install_swap_guards(PDO $pdo, string $path): void
@@ -264,6 +266,7 @@ try {
     $server->exec("CREATE DATABASE {$quotedDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
     $created = true;
     $pdo = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
+    $initialLockWaitTimeout = (int) $pdo->query('SELECT @@SESSION.lock_wait_timeout')->fetchColumn();
     $pdo->exec("SET time_zone='+00:00'");
     $pdo->exec('CREATE TABLE tenants(id INT UNSIGNED PRIMARY KEY,slug VARCHAR(64) NOT NULL UNIQUE) ENGINE=InnoDB');
     $pdo->exec('CREATE TABLE clients(
@@ -305,9 +308,8 @@ try {
 
     $migration = __DIR__ . '/../db/migrations/021_coastmark_time_export_v3.sql';
 
-    // Temporary trusted-source serializer probe. This table contains only the
-    // literal CHECK expressions below; its metadata output is safe to inspect
-    // while replacing the migration's historical whole-clause normalizer.
+    // Reproduce MySQL's two exact, source-owned CHECK serializations without
+    // normalizing any bytes inside quoted literals.
     $pdo->exec("CREATE TABLE cm_v3_trusted_check_serializer(
       event_key VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
       payload_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -343,20 +345,43 @@ try {
       ),
       CONSTRAINT tf_lock CHECK (0=1)
     ) ENGINE=InnoDB");
-    $trustedSerializer = static function (PDO $pdo, string $phase): void {
-        $rows = $pdo->query("SELECT constraint_name,check_clause
+    $trustedSerializer = static function (PDO $pdo): array {
+        $rows = $pdo->query("SELECT constraint_name,
+                    SHA2(CAST(check_clause AS BINARY),256) AS clause_sha256
             FROM information_schema.check_constraints
             WHERE constraint_schema=DATABASE() AND constraint_name LIKE 'tf\\_%'
-            ORDER BY constraint_name")->fetchAll(PDO::FETCH_NUM);
+            ORDER BY constraint_name")->fetchAll(PDO::FETCH_ASSOC);
+        $hashes = [];
         foreach ($rows as $row) {
-            fwrite(STDOUT, '# trusted-check-' . $phase . ' '
-                . $row[0] . ' '
-                . base64_encode((string) $row[1]) . "\n");
+            $hashes[(string) $row['constraint_name']] = (string) $row['clause_sha256'];
         }
+        return $hashes;
     };
-    $trustedSerializer($pdo, 'locked');
+    $trustedLocked = [
+        'tf_ack' => 'e8e6bb3ba683e341ad1e5215ef718b7bbc2b28480173fc5b628546f997990ccb',
+        'tf_detail' => '752d32cd375870edce405dd5e0bf7e6090fb4ab4fc3480d72665f913424a5dcf',
+        'tf_event' => 'b0ff62ea39436a737b7ac4a46104b0ac9de4c6ed6c973585288514fa96f81d6a',
+        'tf_hash' => 'e41382c12829cc003743061b7b98e1ffa2874ff693d40fa58d98edf47112b50e',
+        'tf_lock' => 'eead36e44ca02fb5bb86f314e618a18c9655c8f768fc947bde4e2c62ae81ed34',
+        'tf_operation' => '6a57f35e63aebc7e443fb1232f1342aedfde2ab967ae742e08ec264c9ea23122',
+        'tf_payload' => '6cb5f6e924903937bfbf7d1babec06a276dfa7113254caf211c67eb34bce1bee',
+        'tf_predecessor' => '6cbec1772ed27db3294e3c8f3e37861f7019b91cf963bb49f1e9a6460bb06354',
+        'tf_response_hash' => '2f15defae536cb4bcbe22e1011303a8b3fd5763f712a9203d3cc619873e9e2fa',
+        'tf_status' => 'f5979ef55263fbd6b1467a8f0f4ce8dc2b7d2b534e0fc8dd8a04e6ad3516694a',
+    ];
+    cm_v3_check('trusted source fixture reproduces every locked CHECK hash',
+        $trustedSerializer($pdo) === $trustedLocked);
     $pdo->exec('ALTER TABLE cm_v3_trusted_check_serializer DROP CHECK tf_lock');
-    $trustedSerializer($pdo, 'unlocked');
+    $trustedUnlocked = $trustedLocked;
+    unset($trustedUnlocked['tf_lock']);
+    $trustedUnlocked['tf_detail'] = 'e03ddc4b91e807cdfcf60b8ca00776b09544a78db5c61212cb0f196bfd7939e1';
+    $trustedUnlocked['tf_event'] = '1ab6e193b53d31e5319bcd7c0a1a0a5c5577ffd0eda5626982239b8df942774a';
+    $trustedUnlocked['tf_hash'] = '3945f0cbf0db8bde8cc0d151a21d25b856766a4c08394a58d67b4f89a74b4754';
+    $trustedUnlocked['tf_operation'] = '22c934a8902ae4ef0b7cbe51fc44bad948cbf7f0eebf40a849860901f6320143';
+    $trustedUnlocked['tf_response_hash'] = '0786410651b6a286a6e81946abe037804b6a831bc86504efed64adeb1a04ccd9';
+    ksort($trustedUnlocked);
+    cm_v3_check('trusted source fixture reproduces every unlocked CHECK hash',
+        $trustedSerializer($pdo) === $trustedUnlocked);
     $pdo->exec('DROP TABLE cm_v3_trusted_check_serializer');
 
     // A same-named unrelated table must survive untouched. The failed attempt
@@ -605,6 +630,37 @@ try {
         ADD CONSTRAINT rc21_claim_hash
         CHECK (payload_sha256 REGEXP '^[0-9a-f]{64}$')");
 
+    $setCoordinatedDetailPattern = static function (PDO $pdo, string $pattern): void {
+        foreach ([
+            'coastmark_time_export_receipts' => 'ck_cm_export_receipt_detail',
+            'safeharbor_m021_reference_receipts' => 'rc21_receipt_detail',
+        ] as $table => $constraint) {
+            $pdo->exec("ALTER TABLE {$table} DROP CHECK {$constraint}");
+            $pdo->exec("ALTER TABLE {$table} ADD CONSTRAINT {$constraint} CHECK "
+                . '(detail_code REGEXP ' . $pdo->quote($pattern) . ')');
+        }
+    };
+    foreach ([
+        'literal whitespace in a character class' => '^[a-z ][a-z0-9_]{2,63}$',
+        'literal backtick' => '^[a-z]`[a-z0-9_]{1,62}$',
+        'literal charset token text' => '^_utf8mb4[a-z0-9_]{2,55}$',
+    ] as $literalCase => $driftPattern) {
+        $setCoordinatedDetailPattern($pdo, $driftPattern);
+        cm_v3_expect(
+            "migration refuses coordinated {$literalCase} CHECK drift",
+            fn() => cm_v3_apply($pdo, $migration),
+            'migration_021_refcheck_receipt_detail_failed',
+        );
+        cm_v3_check("{$literalCase} refusal retains both exact reference tables",
+            (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+              WHERE table_schema=DATABASE()
+                AND table_name IN
+                    ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')")
+                ->fetchColumn() === 2
+            && cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+        $setCoordinatedDetailPattern($pdo, '^[a-z][a-z0-9_]{2,63}$');
+    }
+
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         DROP CHECK ck_cm_export_receipt_detail');
     cm_v3_expect('migration refuses a receipt table with a missing validation check',
@@ -705,6 +761,150 @@ try {
     cm_v3_apply($pdo, $migration);
     cm_v3_check('exactly repaired schema replays and retains the same canonical guards',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+
+    $boundaryContender = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
+    $boundaryContender->exec('SET SESSION lock_wait_timeout=1');
+    $injectedBoundaryDrift = false;
+    cm_v3_expect(
+        'fresh four-table proof refuses coordinated drift injected at its exact boundary',
+        fn() => cm_v3_apply(
+            $pdo,
+            $migration,
+            function (string $phase, string $statement) use (
+                &$injectedBoundaryDrift,
+                $boundaryContender,
+                $setCoordinatedDetailPattern,
+            ): void {
+                if ($phase !== 'before'
+                    || $injectedBoundaryDrift
+                    || !str_starts_with(ltrim($statement), 'LOCK TABLES')
+                    || !str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
+                    return;
+                }
+                $setCoordinatedDetailPattern(
+                    $boundaryContender,
+                    '^[a-z ][a-z0-9_]{2,63}$',
+                );
+                $injectedBoundaryDrift = true;
+            },
+        ),
+        'migration_021_reference_cleanup_boundary_failed',
+    );
+    cm_v3_check('boundary drift refusal keeps both reference evidence tables and the advisory lock',
+        $injectedBoundaryDrift
+        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+          WHERE table_schema=DATABASE()
+            AND table_name IN
+                ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')")
+            ->fetchColumn() === 2
+        && (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName)
+            . ') <=> CONNECTION_ID()')->fetchColumn() === 1);
+    $setCoordinatedDetailPattern($boundaryContender, '^[a-z][a-z0-9_]{2,63}$');
+    cm_v3_apply($pdo, $migration);
+
+    $fourTableLockHeld = false;
+    $liveOnlyLockHeld = false;
+    cm_v3_apply(
+        $pdo,
+        $migration,
+        function (string $phase, string $statement) use (
+            &$fourTableLockHeld,
+            &$liveOnlyLockHeld,
+            $boundaryContender,
+        ): void {
+            if ($phase !== 'after' || !str_starts_with(ltrim($statement), 'LOCK TABLES')) {
+                return;
+            }
+            $isFourTable = str_contains($statement, 'safeharbor_m021_reference_claims WRITE');
+            try {
+                $boundaryContender->exec('ALTER TABLE coastmark_time_export_claims COMMENT='
+                    . $boundaryContender->quote($isFourTable ? 'blocked-four' : 'blocked-live'));
+            } catch (PDOException $error) {
+                $timedOut = (int) ($error->errorInfo[1] ?? 0) === 1205
+                    || str_contains(strtolower($error->getMessage()), 'timeout');
+                if ($isFourTable) $fourTableLockHeld = $timedOut;
+                else $liveOnlyLockHeld = $timedOut;
+            }
+        },
+    );
+    cm_v3_check('both destructive and completion WRITE locks reject concurrent DDL',
+        $fourTableLockHeld && $liveOnlyLockHeld);
+
+    $injectedFinalDrift = false;
+    cm_v3_expect(
+        'live-only completion proof rejects same-run drift after reference cleanup',
+        fn() => cm_v3_apply(
+            $pdo,
+            $migration,
+            function (string $phase, string $statement) use (
+                &$injectedFinalDrift,
+                $boundaryContender,
+            ): void {
+                if ($phase !== 'before'
+                    || $injectedFinalDrift
+                    || !str_starts_with(ltrim($statement), 'LOCK TABLES')
+                    || str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
+                    return;
+                }
+                $boundaryContender->exec("ALTER TABLE coastmark_time_export_receipts
+                    COMMENT='same-run-live-drift'");
+                $injectedFinalDrift = true;
+            },
+        ),
+        'migration_021_final_locked_postcondition_failed',
+    );
+    cm_v3_check('same-run final drift retains the advisory lock and exact drift evidence',
+        $injectedFinalDrift
+        && (string) $pdo->query("SELECT table_comment FROM information_schema.tables
+          WHERE table_schema=DATABASE()
+            AND table_name='coastmark_time_export_receipts'")->fetchColumn()
+            === 'same-run-live-drift'
+        && (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName)
+            . ') <=> CONNECTION_ID()')->fetchColumn() === 1);
+    $boundaryContender->exec("ALTER TABLE coastmark_time_export_receipts COMMENT=''");
+    cm_v3_apply($pdo, $migration);
+
+    $mdlBlocker = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
+    $timeoutRunner = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
+    $metadataLockInstalled = false;
+    cm_v3_expect(
+        'four-table cleanup lock has a bounded wait behind incompatible metadata ownership',
+        fn() => cm_v3_apply(
+            $timeoutRunner,
+            $migration,
+            function (string $phase, string $statement) use (
+                &$metadataLockInstalled,
+                $mdlBlocker,
+            ): void {
+                if ($phase !== 'before'
+                    || $metadataLockInstalled
+                    || !str_starts_with(ltrim($statement), 'LOCK TABLES')
+                    || !str_contains($statement, 'safeharbor_m021_reference_claims WRITE')) {
+                    return;
+                }
+                $mdlBlocker->exec('LOCK TABLES coastmark_time_export_claims READ');
+                $metadataLockInstalled = true;
+            },
+        ),
+        'timeout',
+    );
+    cm_v3_check('metadata-lock timeout preserves both references before either destructive DROP',
+        $metadataLockInstalled
+        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+          WHERE table_schema=DATABASE()
+            AND table_name IN
+                ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')")
+            ->fetchColumn() === 2);
+    $mdlBlocker->exec('UNLOCK TABLES');
+    $mdlBlocker = null;
+    $timeoutRunner = null;
+    gc_collect_cycles();
+    cm_v3_apply($pdo, $migration);
+    cm_v3_check('successful retry restores the runner lock timeout and releases migration ownership',
+        (int) $pdo->query('SELECT @@SESSION.lock_wait_timeout')->fetchColumn()
+            === $initialLockWaitTimeout
+        && (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName)
+            . ') <=> CONNECTION_ID()')->fetchColumn() === 0);
 
     cm_v3_install_swap_guards($pdo, $migration);
     $pdo->exec('DROP TRIGGER trg_cm_export_claim_before_insert');
@@ -949,6 +1149,17 @@ try {
     cm_v3_expect('least-privilege runtime cannot execute migration DDL',
         fn() => $runtime->exec('CREATE TABLE forbidden_runtime_ddl(id INT)'),
         'denied');
+    cm_v3_expect(
+        'least-privilege runtime cannot acquire migration table locks',
+        function () use ($runtime): void {
+            try {
+                $runtime->exec('LOCK TABLES coastmark_time_export_claims READ');
+            } finally {
+                try { $runtime->exec('UNLOCK TABLES'); } catch (Throwable) {}
+            }
+        },
+        'denied',
+    );
 } catch (Throwable $error) {
     $fatal = $error;
 } finally {

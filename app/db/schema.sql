@@ -3618,6 +3618,11 @@ SET @cm_m021_lock_name = CONCAT(
   LEFT(SHA2(COALESCE(DATABASE(),''),256),48)
 );
 SET @cm_m021_lock_owner_before = IS_USED_LOCK(@cm_m021_lock_name);
+SET @cm_m021_previous_lock_wait_timeout=IF(
+  @cm_m021_lock_owner_before <=> CONNECTION_ID(),
+  COALESCE(@cm_m021_previous_lock_wait_timeout,@@SESSION.lock_wait_timeout),
+  @@SESSION.lock_wait_timeout
+);
 SET @cm_m021_lock_acquired = NULL;
 SET @cm_m021_lock_acquire_sql = IF(
   @cm_m021_lock_owner_before <=> CONNECTION_ID(),
@@ -3916,44 +3921,78 @@ INSERT INTO safeharbor_m021_source_fks VALUES
 
 DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_source_checks;
 CREATE TEMPORARY TABLE safeharbor_m021_source_checks (
-  table_name        VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  constraint_name   VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  normalized_clause VARCHAR(1000) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  failure_code      VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  install_lock      TINYINT UNSIGNED NOT NULL,
+  table_name              VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  constraint_name         VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  source_clause           VARCHAR(1000) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  locked_clause_sha256    CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  unlocked_clause_sha256  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  failure_code            VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  install_lock            TINYINT UNSIGNED NOT NULL,
   PRIMARY KEY (table_name,constraint_name)
 ) ENGINE=MEMORY;
 INSERT INTO safeharbor_m021_source_checks VALUES
   ('safeharbor_m021_reference_claims','rc21_claim_event_key',
-   'regexp_like(event_key,''^safeharbor-time:[0-9a-f]{32}$'')',
+   'event_key REGEXP ''^safeharbor-time:[0-9a-f]{32}$''',
+   'b0ff62ea39436a737b7ac4a46104b0ac9de4c6ed6c973585288514fa96f81d6a',
+   '1ab6e193b53d31e5319bcd7c0a1a0a5c5577ffd0eda5626982239b8df942774a',
    'migration_021_refcheck_claim_event_key_failed',0),
   ('safeharbor_m021_reference_claims','rc21_claim_hash',
-   'regexp_like(payload_sha256,''^[0-9a-f]{64}$'')',
+   'payload_sha256 REGEXP ''^[0-9a-f]{64}$''',
+   'e41382c12829cc003743061b7b98e1ffa2874ff693d40fa58d98edf47112b50e',
+   '3945f0cbf0db8bde8cc0d151a21d25b856766a4c08394a58d67b4f89a74b4754',
    'migration_021_refcheck_claim_hash_failed',0),
-  ('safeharbor_m021_reference_claims','rc21_claim_payload','json_valid(payload_json)',
+  ('safeharbor_m021_reference_claims','rc21_claim_payload','JSON_VALID(payload_json)',
+   '6cb5f6e924903937bfbf7d1babec06a276dfa7113254caf211c67eb34bce1bee',
+   '6cb5f6e924903937bfbf7d1babec06a276dfa7113254caf211c67eb34bce1bee',
    'migration_021_refcheck_claim_payload_failed',0),
   ('safeharbor_m021_reference_claims','rc21_claim_predecessor_shape',
-   'source_version=0andpredecessor_claim_idisnullorsource_version>0andpredecessor_claim_idisnotnull',
+   '(source_version = 0 AND predecessor_claim_id IS NULL) OR (source_version > 0 AND predecessor_claim_id IS NOT NULL)',
+   '6cbec1772ed27db3294e3c8f3e37861f7019b91cf963bb49f1e9a6460bb06354',
+   '6cbec1772ed27db3294e3c8f3e37861f7019b91cf963bb49f1e9a6460bb06354',
    'migration_021_refcheck_claim_predecessor_failed',0),
-  ('safeharbor_m021_reference_claims','rc21_claim_install_lock','0=1',
+  ('safeharbor_m021_reference_claims','rc21_claim_install_lock','0 = 1',
+   'eead36e44ca02fb5bb86f314e618a18c9655c8f768fc947bde4e2c62ae81ed34',
+   'eead36e44ca02fb5bb86f314e618a18c9655c8f768fc947bde4e2c62ae81ed34',
    'migration_021_refcheck_claim_install_lock_failed',1),
   ('safeharbor_m021_reference_receipts','rc21_receipt_operation_key',
-   'regexp_like(operation_key,''^safeharbor-op:[0-9a-f]{32}$'')',
+   'operation_key REGEXP ''^safeharbor-op:[0-9a-f]{32}$''',
+   '6a57f35e63aebc7e443fb1232f1342aedfde2ab967ae742e08ec264c9ea23122',
+   '22c934a8902ae4ef0b7cbe51fc44bad948cbf7f0eebf40a849860901f6320143',
    'migration_021_refcheck_receipt_operation_key_failed',0),
   ('safeharbor_m021_reference_receipts','rc21_receipt_response_status',
-   'response_statusisnullorresponse_statusbetween100and599',
+   'response_status IS NULL OR response_status BETWEEN 100 AND 599',
+   'f5979ef55263fbd6b1467a8f0f4ce8dc2b7d2b534e0fc8dd8a04e6ad3516694a',
+   'f5979ef55263fbd6b1467a8f0f4ce8dc2b7d2b534e0fc8dd8a04e6ad3516694a',
    'migration_021_refcheck_receipt_status_failed',0),
   ('safeharbor_m021_reference_receipts','rc21_receipt_response_hash',
-   'response_sha256isnullorregexp_like(response_sha256,''^[0-9a-f]{64}$'')',
+   'response_sha256 IS NULL OR response_sha256 REGEXP ''^[0-9a-f]{64}$''',
+   '2f15defae536cb4bcbe22e1011303a8b3fd5763f712a9203d3cc619873e9e2fa',
+   '0786410651b6a286a6e81946abe037804b6a831bc86504efed64adeb1a04ccd9',
    'migration_021_refcheck_receipt_hash_failed',0),
   ('safeharbor_m021_reference_receipts','rc21_receipt_detail',
-   'regexp_like(detail_code,''^[a-z][a-z0-9_]{2,63}$'')',
+   'detail_code REGEXP ''^[a-z][a-z0-9_]{2,63}$''',
+   '752d32cd375870edce405dd5e0bf7e6090fb4ab4fc3480d72665f913424a5dcf',
+   'e03ddc4b91e807cdfcf60b8ca00776b09544a78db5c61212cb0f196bfd7939e1',
    'migration_021_refcheck_receipt_detail_failed',0),
   ('safeharbor_m021_reference_receipts','rc21_receipt_ack_shape',
-   'outcome=''accepted''andcoastmark_event_idisnotnullandinvoice_idisnotnullandinvoice_line_idisnotnulloroutcome=''replayed''andcoastmark_event_idisnotnullandinvoice_idisnotnulloroutcome=''manual_exception''andcoastmark_event_idisnotnullandinvoice_idisnotnullandinvoice_line_idisnulloroutcomenotin(''accepted'',''replayed'',''manual_exception'')andcoastmark_event_idisnullandinvoice_idisnullandinvoice_line_idisnull',
+   '(outcome = ''accepted'' AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL AND invoice_line_id IS NOT NULL) OR (outcome = ''replayed'' AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL) OR (outcome = ''manual_exception'' AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL AND invoice_line_id IS NULL) OR (outcome NOT IN (''accepted'',''replayed'',''manual_exception'') AND coastmark_event_id IS NULL AND invoice_id IS NULL AND invoice_line_id IS NULL)',
+   'e8e6bb3ba683e341ad1e5215ef718b7bbc2b28480173fc5b628546f997990ccb',
+   'e8e6bb3ba683e341ad1e5215ef718b7bbc2b28480173fc5b628546f997990ccb',
    'migration_021_refcheck_receipt_ack_failed',0),
-  ('safeharbor_m021_reference_receipts','rc21_receipt_install_lock','0=1',
+  ('safeharbor_m021_reference_receipts','rc21_receipt_install_lock','0 = 1',
+   'eead36e44ca02fb5bb86f314e618a18c9655c8f768fc947bde4e2c62ae81ed34',
+   'eead36e44ca02fb5bb86f314e618a18c9655c8f768fc947bde4e2c62ae81ed34',
    'migration_021_refcheck_receipt_install_lock_failed',1);
+
+DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_boundary_objects;
+CREATE TEMPORARY TABLE safeharbor_m021_boundary_objects (
+  source_table_name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  actual_table_name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  object_kind       ENUM('reference','live') NOT NULL,
+  expected_comment  VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  PRIMARY KEY (actual_table_name),
+  KEY ix_m021_boundary_source (source_table_name)
+) ENGINE=MEMORY;
 
 DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_reference_trigger_allowlist;
 CREATE TEMPORARY TABLE safeharbor_m021_reference_trigger_allowlist (
@@ -4101,14 +4140,12 @@ SET @cm_reference_source_check_definition_failure = (
       AND live_constraint.constraint_type='CHECK'
       AND (expected.constraint_name IS NULL
            OR live_constraint.enforced<>'YES'
-           OR CAST(REGEXP_REPLACE(
-                REPLACE(REPLACE(REPLACE(REPLACE(
-                  live_check.check_clause,
-                  CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
-                  '`',''),'_utf8mb4',''),'_ascii',''),
-                '[[:space:]()]','') AS BINARY)
-              <> CAST(REGEXP_REPLACE(expected.normalized_clause,
-                                     '[[:space:]()]','') AS BINARY))
+           OR NOT (
+             SHA2(CAST(live_check.check_clause AS BINARY),256)
+               <=> expected.locked_clause_sha256
+             OR SHA2(CAST(live_check.check_clause AS BINARY),256)
+               <=> expected.unlocked_clause_sha256
+           ))
 );
 SET @cm_reference_source_check_definitions_ok = (
   @cm_reference_source_check_definition_failure IS NULL
@@ -4825,14 +4862,12 @@ SET @cm_claim_checks_ok = (
            live_constraint.constraint_name
              <=> CONCAT('ck_cm_export_',SUBSTRING(expected.constraint_name,6))
        AND live_constraint.enforced='YES'
-       AND CAST(REGEXP_REPLACE(
-             REPLACE(REPLACE(REPLACE(REPLACE(
-               live_check.check_clause,
-               CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
-               '`',''),'_utf8mb4',''),'_ascii',''),
-             '[[:space:]()]','') AS BINARY)
-             <=> CAST(REGEXP_REPLACE(expected.normalized_clause,
-                                    '[[:space:]()]','') AS BINARY)
+       AND (
+         SHA2(CAST(live_check.check_clause AS BINARY),256)
+           <=> expected.locked_clause_sha256
+         OR SHA2(CAST(live_check.check_clause AS BINARY),256)
+           <=> expected.unlocked_clause_sha256
+       )
      ),0) = COUNT(*)
     FROM safeharbor_m021_source_checks expected
     LEFT JOIN information_schema.table_constraints live_constraint
@@ -4856,14 +4891,12 @@ SET @cm_receipt_checks_ok = (
            live_constraint.constraint_name
              <=> CONCAT('ck_cm_export_',SUBSTRING(expected.constraint_name,6))
        AND live_constraint.enforced='YES'
-       AND CAST(REGEXP_REPLACE(
-             REPLACE(REPLACE(REPLACE(REPLACE(
-               live_check.check_clause,
-               CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
-               '`',''),'_utf8mb4',''),'_ascii',''),
-             '[[:space:]()]','') AS BINARY)
-             <=> CAST(REGEXP_REPLACE(expected.normalized_clause,
-                                    '[[:space:]()]','') AS BINARY)
+       AND (
+         SHA2(CAST(live_check.check_clause AS BINARY),256)
+           <=> expected.locked_clause_sha256
+         OR SHA2(CAST(live_check.check_clause AS BINARY),256)
+           <=> expected.unlocked_clause_sha256
+       )
      ),0) = COUNT(*)
     FROM safeharbor_m021_source_checks expected
     LEFT JOIN information_schema.table_constraints live_constraint
@@ -5254,14 +5287,12 @@ SET @cm_reference_cleanup_source_check_definitions_ok = (
       AND live_constraint.constraint_type='CHECK'
       AND (expected.constraint_name IS NULL
            OR live_constraint.enforced<>'YES'
-           OR CAST(REGEXP_REPLACE(
-                REPLACE(REPLACE(REPLACE(REPLACE(
-                  live_check.check_clause,
-                  CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
-                  '`',''),'_utf8mb4',''),'_ascii',''),
-                '[[:space:]()]','') AS BINARY)
-              <> CAST(REGEXP_REPLACE(expected.normalized_clause,
-                                     '[[:space:]()]','') AS BINARY))
+           OR NOT (
+             SHA2(CAST(live_check.check_clause AS BINARY),256)
+               <=> expected.locked_clause_sha256
+             OR SHA2(CAST(live_check.check_clause AS BINARY),256)
+               <=> expected.unlocked_clause_sha256
+           ))
 );
 SET @cm_reference_cleanup_source_required_checks_ok = (
   SELECT COUNT(*)=9
@@ -5303,7 +5334,9 @@ PREPARE cm_export_statement FROM @cm_reference_receipt_cleanup_sql;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
-DROP TABLE safeharbor_m021_reference_receipts;
+-- Retain both source-anchored evidence tables until the permanent guards and
+-- install-lock removals have passed a fresh, explicitly locked postflight.
+DO 0;
 
 -- Receipt removal eliminates the only allowed cross-table dependency. Re-prove
 -- the claim reference on its own before deleting the final evidence object.
@@ -5354,17 +5387,28 @@ SET @cm_reference_claim_cleanup_dependencies = (
      FROM information_schema.key_column_usage dependent
     WHERE dependent.referenced_table_schema=DATABASE()
       AND dependent.referenced_table_name='safeharbor_m021_reference_claims'
-      AND NOT (
-        dependent.table_schema=DATABASE()
-        AND dependent.table_name='safeharbor_m021_reference_claims'
-        AND dependent.constraint_name='rf21_claim_predecessor'
-        AND ((dependent.ordinal_position=1
-              AND dependent.column_name='tenant_id'
-              AND dependent.referenced_column_name='tenant_id')
-          OR (dependent.ordinal_position=2
-              AND dependent.column_name='predecessor_claim_id'
-              AND dependent.referenced_column_name='id'))
-      ))=0
+       AND NOT (
+         dependent.table_schema=DATABASE()
+         AND (
+           (dependent.table_name='safeharbor_m021_reference_claims'
+            AND dependent.constraint_name='rf21_claim_predecessor'
+            AND ((dependent.ordinal_position=1
+                  AND dependent.column_name='tenant_id'
+                  AND dependent.referenced_column_name='tenant_id')
+              OR (dependent.ordinal_position=2
+                  AND dependent.column_name='predecessor_claim_id'
+                  AND dependent.referenced_column_name='id')))
+           OR
+           (dependent.table_name='safeharbor_m021_reference_receipts'
+            AND dependent.constraint_name='rf21_receipt_claim'
+            AND ((dependent.ordinal_position=1
+                  AND dependent.column_name='tenant_id'
+                  AND dependent.referenced_column_name='tenant_id')
+              OR (dependent.ordinal_position=2
+                  AND dependent.column_name='claim_id'
+                  AND dependent.referenced_column_name='id')))
+         )
+       ))=0
   AND (SELECT COUNT(*)
          FROM information_schema.view_table_usage
         WHERE table_schema=DATABASE()
@@ -5492,14 +5536,12 @@ SET @cm_reference_claim_source_check_definitions_ok = (
       AND live_constraint.constraint_type='CHECK'
       AND (expected.constraint_name IS NULL
            OR live_constraint.enforced<>'YES'
-           OR CAST(REGEXP_REPLACE(
-                REPLACE(REPLACE(REPLACE(REPLACE(
-                  live_check.check_clause,
-                  CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
-                  '`',''),'_utf8mb4',''),'_ascii',''),
-                '[[:space:]()]','') AS BINARY)
-              <> CAST(REGEXP_REPLACE(expected.normalized_clause,
-                                     '[[:space:]()]','') AS BINARY))
+           OR NOT (
+             SHA2(CAST(live_check.check_clause AS BINARY),256)
+               <=> expected.locked_clause_sha256
+             OR SHA2(CAST(live_check.check_clause AS BINARY),256)
+               <=> expected.unlocked_clause_sha256
+           ))
 );
 SET @cm_reference_claim_source_required_checks_ok = (
   SELECT COUNT(*)=4
@@ -5546,7 +5588,7 @@ PREPARE cm_export_statement FROM @cm_reference_claim_cleanup_sql;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
-DROP TABLE safeharbor_m021_reference_claims;
+DO 0;
 
 DELIMITER $$
 -- Fail closed while permanent triggers are installed or replaced on replay.
@@ -5889,88 +5931,565 @@ PREPARE cm_export_statement FROM @cm_receipt_lock_ddl;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
-DELETE FROM safeharbor_m021_validated_triggers;
-INSERT INTO safeharbor_m021_validated_triggers
-  (trigger_name,guard_kind,event_object_table,event_manipulation)
-SELECT expected.trigger_name,expected.guard_kind,expected.event_object_table,
-       expected.event_manipulation
-  FROM safeharbor_m021_trigger_manifest expected
-  JOIN information_schema.triggers live
-    ON live.trigger_schema=DATABASE()
-   AND CAST(live.trigger_name AS BINARY)=CAST(expected.trigger_name AS BINARY)
- WHERE live.action_timing='BEFORE'
-   AND live.action_orientation='ROW'
-   AND live.action_condition IS NULL
-   AND CAST(live.event_object_table AS BINARY)=CAST(expected.event_object_table AS BINARY)
-   AND CAST(live.event_manipulation AS BINARY)=CAST(expected.event_manipulation AS BINARY)
-   AND SHA2(CAST(live.action_statement AS BINARY),256)=expected.action_sha256;
+-- Put both retained reference tables through the same unlocked CHECK lifecycle
+-- before their final proof. The exact reference triggers still protect every
+-- write, and the four-table WRITE lock below closes the final cleanup window.
+SET @cm_reference_claim_lock_ddl=IF(
+  (SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema=DATABASE()
+      AND table_name='safeharbor_m021_reference_claims'
+      AND constraint_name='rc21_claim_install_lock'
+      AND constraint_type='CHECK')=1,
+  'ALTER TABLE safeharbor_m021_reference_claims DROP CHECK rc21_claim_install_lock','DO 0');
+PREPARE cm_export_statement FROM @cm_reference_claim_lock_ddl;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+SET @cm_reference_receipt_lock_ddl=IF(
+  (SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema=DATABASE()
+      AND table_name='safeharbor_m021_reference_receipts'
+      AND constraint_name='rc21_receipt_install_lock'
+      AND constraint_type='CHECK')=1,
+  'ALTER TABLE safeharbor_m021_reference_receipts DROP CHECK rc21_receipt_install_lock','DO 0');
+PREPARE cm_export_statement FROM @cm_reference_receipt_lock_ddl;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
 
-SET @cm_validated_trigger_count =
-  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers);
-SET @cm_validated_permanent_count =
-  (SELECT COUNT(*) FROM safeharbor_m021_validated_triggers WHERE guard_kind='permanent');
+-- The reference evidence remains present through permanent-trigger install and
+-- both install-lock ALTERs. Acquire explicit table locks before the fresh
+-- source-manifest proof so unrelated DDL cannot win a check-to-DROP race.
+DELETE FROM safeharbor_m021_boundary_objects;
+INSERT INTO safeharbor_m021_boundary_objects VALUES
+  ('safeharbor_m021_reference_claims','safeharbor_m021_reference_claims',
+   'reference','safeharbor:migration:021:reference:claims:v1'),
+  ('safeharbor_m021_reference_receipts','safeharbor_m021_reference_receipts',
+   'reference','safeharbor:migration:021:reference:receipts:v1'),
+  ('safeharbor_m021_reference_claims','coastmark_time_export_claims','live',''),
+  ('safeharbor_m021_reference_receipts','coastmark_time_export_receipts','live','');
+SET SESSION lock_wait_timeout=10;
+LOCK TABLES
+  safeharbor_m021_reference_claims WRITE,
+  safeharbor_m021_reference_receipts WRITE,
+  coastmark_time_export_claims WRITE,
+  coastmark_time_export_receipts WRITE;
 
-SET @cm_export_final_guards_ok = (
+SET @cm_boundary_tables_ok = (
+  SELECT COUNT(live.table_name)=COUNT(*)
+     AND COALESCE(SUM(
+       live.table_type='BASE TABLE'
+       AND live.engine='InnoDB'
+       AND charset_map.character_set_name='utf8mb4'
+       AND CAST(live.table_comment AS BINARY)=CAST(expected.expected_comment AS BINARY)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    LEFT JOIN information_schema.tables live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+    LEFT JOIN information_schema.collation_character_set_applicability charset_map
+      ON charset_map.collation_name=live.table_collation
+);
+SET @cm_boundary_actual_column_count = (
+  SELECT COUNT(*)
+    FROM information_schema.columns live
+    JOIN safeharbor_m021_boundary_objects expected
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+);
+SET @cm_boundary_columns_ok = (
+  SELECT @cm_boundary_actual_column_count=COUNT(*)
+     AND COALESCE(SUM(
+           live.column_name <=> source.column_name
+       AND CAST(live.column_type AS BINARY) <=> CAST(source.column_type AS BINARY)
+       AND live.is_nullable <=> source.is_nullable
+       AND CAST(live.column_default AS BINARY) <=> CAST(source.column_default AS BINARY)
+       AND CAST(live.extra AS BINARY) <=> CAST(source.extra AS BINARY)
+       AND CAST(live.generation_expression AS BINARY)
+             <=> CAST(source.generation_expression AS BINARY)
+       AND live.character_set_name <=> source.character_set_name
+       AND live.collation_name <=> IF(source.collation_name='@table',
+             actual_table.table_collation,source.collation_name)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    JOIN safeharbor_m021_source_columns source
+      ON source.table_name=expected.source_table_name
+    JOIN information_schema.tables actual_table
+      ON actual_table.table_schema=DATABASE()
+     AND actual_table.table_name=expected.actual_table_name
+    LEFT JOIN information_schema.columns live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+     AND live.ordinal_position=source.ordinal_position
+);
+SET @cm_boundary_actual_index_count = (
+  SELECT COUNT(*)
+    FROM information_schema.statistics live
+    JOIN safeharbor_m021_boundary_objects expected
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+);
+SET @cm_boundary_indexes_ok = (
+  SELECT @cm_boundary_actual_index_count=COUNT(*)
+     AND COALESCE(SUM(
+           live.index_name <=> source.index_name
+       AND live.non_unique <=> source.non_unique
+       AND live.seq_in_index <=> source.seq_in_index
+       AND live.column_name <=> source.column_name
+       AND live.collation='A'
+       AND live.sub_part IS NULL
+       AND live.packed IS NULL
+       AND live.nullable <=> IF(source_column.is_nullable='YES','YES','')
+       AND live.index_type='BTREE'
+       AND live.comment=''
+       AND live.index_comment=''
+       AND live.is_visible='YES'
+       AND live.expression IS NULL
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    JOIN safeharbor_m021_source_indexes source
+      ON source.table_name=expected.source_table_name
+    JOIN safeharbor_m021_source_columns source_column
+      ON source_column.table_name=source.table_name
+     AND source_column.column_name=source.column_name
+    LEFT JOIN information_schema.statistics live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+     AND live.index_name=source.index_name
+     AND live.seq_in_index=source.seq_in_index
+);
+SET @cm_boundary_actual_fk_count = (
+  SELECT COUNT(*)
+    FROM information_schema.key_column_usage live
+    JOIN safeharbor_m021_boundary_objects expected
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+   WHERE live.referenced_table_name IS NOT NULL
+);
+SET @cm_boundary_fks_ok = (
+  SELECT @cm_boundary_actual_fk_count=COUNT(*)
+     AND COALESCE(SUM(
+           live.constraint_name <=> IF(expected.object_kind='reference',
+             source.constraint_name,
+             CONCAT('fk_cm_export_',SUBSTRING(source.constraint_name,6)))
+       AND live.ordinal_position <=> source.ordinal_position
+       AND live.position_in_unique_constraint <=> source.unique_position
+       AND live.column_name <=> source.column_name
+       AND live.referenced_table_schema=DATABASE()
+       AND live.referenced_table_name <=> IF(
+             source.referenced_table_name='safeharbor_m021_reference_claims',
+             IF(expected.object_kind='reference',
+                'safeharbor_m021_reference_claims','coastmark_time_export_claims'),
+             source.referenced_table_name)
+       AND live.referenced_column_name <=> source.referenced_column_name
+       AND rule.unique_constraint_schema=DATABASE()
+       AND rule.unique_constraint_name <=> source.unique_constraint_name
+       AND rule.match_option='NONE'
+       AND rule.update_rule='NO ACTION'
+       AND rule.delete_rule='NO ACTION'
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    JOIN safeharbor_m021_source_fks source
+      ON source.table_name=expected.source_table_name
+    LEFT JOIN information_schema.key_column_usage live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+     AND live.constraint_name=IF(expected.object_kind='reference',
+           source.constraint_name,
+           CONCAT('fk_cm_export_',SUBSTRING(source.constraint_name,6)))
+     AND live.ordinal_position=source.ordinal_position
+    LEFT JOIN information_schema.referential_constraints rule
+      ON rule.constraint_schema=live.constraint_schema
+     AND rule.table_name=live.table_name
+     AND rule.constraint_name=live.constraint_name
+);
+SET @cm_boundary_actual_check_count = (
+  SELECT COUNT(*)
+    FROM information_schema.table_constraints live
+    JOIN safeharbor_m021_boundary_objects expected
+      ON live.constraint_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+   WHERE live.constraint_type='CHECK'
+);
+SET @cm_boundary_checks_ok = (
+  SELECT @cm_boundary_actual_check_count=COUNT(*)
+     AND COALESCE(SUM(
+           live_constraint.constraint_name <=> IF(expected.object_kind='reference',
+             source.constraint_name,
+             CONCAT('ck_cm_export_',SUBSTRING(source.constraint_name,6)))
+       AND live_constraint.enforced='YES'
+       AND (SHA2(CAST(live_check.check_clause AS BINARY),256)
+              <=> source.locked_clause_sha256
+            OR SHA2(CAST(live_check.check_clause AS BINARY),256)
+              <=> source.unlocked_clause_sha256)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    JOIN safeharbor_m021_source_checks source
+      ON source.table_name=expected.source_table_name
+     AND source.install_lock=0
+    LEFT JOIN information_schema.table_constraints live_constraint
+      ON live_constraint.constraint_schema=DATABASE()
+     AND live_constraint.table_name=expected.actual_table_name
+     AND live_constraint.constraint_name=IF(expected.object_kind='reference',
+           source.constraint_name,
+           CONCAT('ck_cm_export_',SUBSTRING(source.constraint_name,6)))
+     AND live_constraint.constraint_type='CHECK'
+    LEFT JOIN information_schema.check_constraints live_check
+      ON live_check.constraint_schema=live_constraint.constraint_schema
+     AND live_check.constraint_name=live_constraint.constraint_name
+);
+SET @cm_boundary_reference_empty = (
+  (SELECT COUNT(*) FROM safeharbor_m021_reference_claims)=0
+  AND (SELECT COUNT(*) FROM safeharbor_m021_reference_receipts)=0
+);
+SET @cm_boundary_reference_triggers_ok = (
+  (SELECT COUNT(*)=12
+       AND COALESCE(SUM(
+         reference.action_timing='BEFORE'
+         AND reference.action_orientation='ROW'
+         AND reference.action_condition IS NULL
+         AND CAST(reference.event_object_table AS BINARY)=
+             CAST(source.reference_object_table AS BINARY)
+         AND CAST(reference.event_manipulation AS BINARY)=
+             CAST(source.event_manipulation AS BINARY)
+         AND SHA2(CAST(reference.action_statement AS BINARY),256)=source.action_sha256
+       ),0)=12
+     FROM safeharbor_m021_trigger_manifest source
+     LEFT JOIN information_schema.triggers reference
+       ON reference.trigger_schema=DATABASE()
+      AND CAST(reference.trigger_name AS BINARY)=
+          CAST(source.reference_trigger_name AS BINARY))
+  AND (SELECT COUNT(*) FROM information_schema.triggers reference
+        WHERE reference.trigger_schema=DATABASE()
+          AND reference.event_object_table IN
+              ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=12
+);
+SET @cm_boundary_live_triggers_ok = (
+  (SELECT COUNT(*)=6
+       AND COALESCE(SUM(
+         live.action_timing='BEFORE'
+         AND live.action_orientation='ROW'
+         AND live.action_condition IS NULL
+         AND CAST(live.event_object_table AS BINARY)=CAST(source.event_object_table AS BINARY)
+         AND CAST(live.event_manipulation AS BINARY)=CAST(source.event_manipulation AS BINARY)
+         AND SHA2(CAST(live.action_statement AS BINARY),256)=source.action_sha256
+       ),0)=6
+     FROM safeharbor_m021_trigger_manifest source
+     LEFT JOIN information_schema.triggers live
+       ON live.trigger_schema=DATABASE()
+      AND CAST(live.trigger_name AS BINARY)=CAST(source.trigger_name AS BINARY)
+    WHERE source.guard_kind='permanent')
+  AND (SELECT COUNT(*) FROM information_schema.triggers live
+        WHERE live.trigger_schema=DATABASE()
+          AND live.event_object_table IN
+              ('coastmark_time_export_claims','coastmark_time_export_receipts'))=6
+);
+SET @cm_boundary_reference_dependencies_ok = (
+  (SELECT COUNT(*) FROM information_schema.key_column_usage dependent
+    WHERE dependent.referenced_table_schema=DATABASE()
+      AND dependent.referenced_table_name IN
+          ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+      AND dependent.table_name NOT IN
+          ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+  AND (SELECT COUNT(*) FROM information_schema.view_table_usage dependent
+        WHERE dependent.table_schema=DATABASE()
+          AND dependent.table_name IN
+              ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+  AND (SELECT COUNT(*) FROM information_schema.routines dependent
+        WHERE dependent.routine_schema=DATABASE()
+          AND (dependent.routine_definition IS NULL
+               OR LOCATE('safeharbor_m021_reference_claims',LOWER(dependent.routine_definition))>0
+               OR LOCATE('safeharbor_m021_reference_receipts',LOWER(dependent.routine_definition))>0))=0
+);
+SET @cm_boundary_receipt_drop_ok = (
+  (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID())
+  AND @cm_boundary_tables_ok=1
+  AND @cm_boundary_columns_ok=1
+  AND @cm_boundary_indexes_ok=1
+  AND @cm_boundary_fks_ok=1
+  AND @cm_boundary_checks_ok=1
+  AND @cm_boundary_reference_empty=1
+  AND @cm_boundary_reference_triggers_ok=1
+  AND @cm_boundary_live_triggers_ok=1
+  AND @cm_boundary_reference_dependencies_ok=1
+);
+SET @cm_boundary_receipt_drop_sql=IF(
+  @cm_boundary_receipt_drop_ok=1,
+  'DROP TABLE safeharbor_m021_reference_receipts',
+  'DO 0'
+);
+PREPARE cm_export_statement FROM @cm_boundary_receipt_drop_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+SET @cm_boundary_claim_drop_sql=IF(
+  @cm_boundary_receipt_drop_ok=1,
+  'DROP TABLE safeharbor_m021_reference_claims',
+  'DO 0'
+);
+PREPARE cm_export_statement FROM @cm_boundary_claim_drop_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+UNLOCK TABLES;
+SET @cm_boundary_receipt_guard_sql=IF(
+  @cm_boundary_receipt_drop_ok=1,
+  'DO 0',
+  'SELECT * FROM information_schema.migration_021_reference_cleanup_boundary_failed'
+);
+PREPARE cm_export_statement FROM @cm_boundary_receipt_guard_sql;
+EXECUTE cm_export_statement;
+DEALLOCATE PREPARE cm_export_statement;
+
+-- DROP TABLE may release explicit table locks. Reacquire live-only WRITE locks
+-- and recompute every source-owned shape and permanent-trigger postcondition so
+-- a same-run DDL race cannot be mistaken for a completed migration.
+DELETE FROM safeharbor_m021_boundary_objects;
+INSERT INTO safeharbor_m021_boundary_objects VALUES
+  ('safeharbor_m021_reference_claims','coastmark_time_export_claims','live',''),
+  ('safeharbor_m021_reference_receipts','coastmark_time_export_receipts','live','');
+SET SESSION lock_wait_timeout=10;
+LOCK TABLES
+  coastmark_time_export_claims WRITE,
+  coastmark_time_export_receipts WRITE;
+
+SET @cm_final_tables_ok = (
+  SELECT COUNT(live.table_name)=COUNT(*)
+     AND COALESCE(SUM(
+       live.table_type='BASE TABLE'
+       AND live.engine='InnoDB'
+       AND charset_map.character_set_name='utf8mb4'
+       AND CAST(live.table_comment AS BINARY)=CAST(expected.expected_comment AS BINARY)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    LEFT JOIN information_schema.tables live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+    LEFT JOIN information_schema.collation_character_set_applicability charset_map
+      ON charset_map.collation_name=live.table_collation
+);
+SET @cm_final_actual_column_count = (
+  SELECT COUNT(*)
+    FROM information_schema.columns live
+    JOIN safeharbor_m021_boundary_objects expected
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+);
+SET @cm_final_columns_ok = (
+  SELECT @cm_final_actual_column_count=COUNT(*)
+     AND COALESCE(SUM(
+           live.column_name <=> source.column_name
+       AND CAST(live.column_type AS BINARY) <=> CAST(source.column_type AS BINARY)
+       AND live.is_nullable <=> source.is_nullable
+       AND CAST(live.column_default AS BINARY) <=> CAST(source.column_default AS BINARY)
+       AND CAST(live.extra AS BINARY) <=> CAST(source.extra AS BINARY)
+       AND CAST(live.generation_expression AS BINARY)
+             <=> CAST(source.generation_expression AS BINARY)
+       AND live.character_set_name <=> source.character_set_name
+       AND live.collation_name <=> IF(source.collation_name='@table',
+             actual_table.table_collation,source.collation_name)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    JOIN safeharbor_m021_source_columns source
+      ON source.table_name=expected.source_table_name
+    JOIN information_schema.tables actual_table
+      ON actual_table.table_schema=DATABASE()
+     AND actual_table.table_name=expected.actual_table_name
+    LEFT JOIN information_schema.columns live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+     AND live.ordinal_position=source.ordinal_position
+);
+SET @cm_final_actual_index_count = (
+  SELECT COUNT(*)
+    FROM information_schema.statistics live
+    JOIN safeharbor_m021_boundary_objects expected
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+);
+SET @cm_final_indexes_ok = (
+  SELECT @cm_final_actual_index_count=COUNT(*)
+     AND COALESCE(SUM(
+           live.index_name <=> source.index_name
+       AND live.non_unique <=> source.non_unique
+       AND live.seq_in_index <=> source.seq_in_index
+       AND live.column_name <=> source.column_name
+       AND live.collation='A'
+       AND live.sub_part IS NULL
+       AND live.packed IS NULL
+       AND live.nullable <=> IF(source_column.is_nullable='YES','YES','')
+       AND live.index_type='BTREE'
+       AND live.comment=''
+       AND live.index_comment=''
+       AND live.is_visible='YES'
+       AND live.expression IS NULL
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    JOIN safeharbor_m021_source_indexes source
+      ON source.table_name=expected.source_table_name
+    JOIN safeharbor_m021_source_columns source_column
+      ON source_column.table_name=source.table_name
+     AND source_column.column_name=source.column_name
+    LEFT JOIN information_schema.statistics live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+     AND live.index_name=source.index_name
+     AND live.seq_in_index=source.seq_in_index
+);
+SET @cm_final_actual_fk_count = (
+  SELECT COUNT(*)
+    FROM information_schema.key_column_usage live
+    JOIN safeharbor_m021_boundary_objects expected
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+   WHERE live.referenced_table_name IS NOT NULL
+);
+SET @cm_final_fks_ok = (
+  SELECT @cm_final_actual_fk_count=COUNT(*)
+     AND COALESCE(SUM(
+           live.constraint_name
+             <=> CONCAT('fk_cm_export_',SUBSTRING(source.constraint_name,6))
+       AND live.ordinal_position <=> source.ordinal_position
+       AND live.position_in_unique_constraint <=> source.unique_position
+       AND live.column_name <=> source.column_name
+       AND live.referenced_table_schema=DATABASE()
+       AND live.referenced_table_name <=> IF(
+             source.referenced_table_name='safeharbor_m021_reference_claims',
+             'coastmark_time_export_claims',source.referenced_table_name)
+       AND live.referenced_column_name <=> source.referenced_column_name
+       AND rule.unique_constraint_schema=DATABASE()
+       AND rule.unique_constraint_name <=> source.unique_constraint_name
+       AND rule.match_option='NONE'
+       AND rule.update_rule='NO ACTION'
+       AND rule.delete_rule='NO ACTION'
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    JOIN safeharbor_m021_source_fks source
+      ON source.table_name=expected.source_table_name
+    LEFT JOIN information_schema.key_column_usage live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+     AND live.constraint_name=CONCAT('fk_cm_export_',SUBSTRING(source.constraint_name,6))
+     AND live.ordinal_position=source.ordinal_position
+    LEFT JOIN information_schema.referential_constraints rule
+      ON rule.constraint_schema=live.constraint_schema
+     AND rule.table_name=live.table_name
+     AND rule.constraint_name=live.constraint_name
+);
+SET @cm_final_actual_check_count = (
+  SELECT COUNT(*)
+    FROM information_schema.table_constraints live
+    JOIN safeharbor_m021_boundary_objects expected
+      ON live.constraint_schema=DATABASE()
+     AND live.table_name=expected.actual_table_name
+   WHERE live.constraint_type='CHECK'
+);
+SET @cm_final_checks_ok = (
+  SELECT @cm_final_actual_check_count=COUNT(*)
+     AND COALESCE(SUM(
+           live_constraint.constraint_name
+             <=> CONCAT('ck_cm_export_',SUBSTRING(source.constraint_name,6))
+       AND live_constraint.enforced='YES'
+       AND (SHA2(CAST(live_check.check_clause AS BINARY),256)
+              <=> source.locked_clause_sha256
+            OR SHA2(CAST(live_check.check_clause AS BINARY),256)
+              <=> source.unlocked_clause_sha256)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_boundary_objects expected
+    JOIN safeharbor_m021_source_checks source
+      ON source.table_name=expected.source_table_name
+     AND source.install_lock=0
+    LEFT JOIN information_schema.table_constraints live_constraint
+      ON live_constraint.constraint_schema=DATABASE()
+     AND live_constraint.table_name=expected.actual_table_name
+     AND live_constraint.constraint_name=
+           CONCAT('ck_cm_export_',SUBSTRING(source.constraint_name,6))
+     AND live_constraint.constraint_type='CHECK'
+    LEFT JOIN information_schema.check_constraints live_check
+      ON live_check.constraint_schema=live_constraint.constraint_schema
+     AND live_check.constraint_name=live_constraint.constraint_name
+);
+SET @cm_final_live_trigger_hashes_ok = (
   SELECT COUNT(*)=6
-     AND COUNT(*)=@cm_validated_trigger_count
-     AND @cm_validated_permanent_count=6
+     AND COALESCE(SUM(
+       live.action_timing='BEFORE'
+       AND live.action_orientation='ROW'
+       AND live.action_condition IS NULL
+       AND CAST(live.event_object_table AS BINARY)=CAST(source.event_object_table AS BINARY)
+       AND CAST(live.event_manipulation AS BINARY)=CAST(source.event_manipulation AS BINARY)
+       AND SHA2(CAST(live.action_statement AS BINARY),256)=source.action_sha256
+     ),0)=6
+    FROM safeharbor_m021_trigger_manifest source
+    LEFT JOIN information_schema.triggers live
+      ON live.trigger_schema=DATABASE()
+     AND CAST(live.trigger_name AS BINARY)=CAST(source.trigger_name AS BINARY)
+   WHERE source.guard_kind='permanent'
+);
+SET @cm_final_live_trigger_names_ok = (
+  SELECT COUNT(*)=6
     FROM information_schema.triggers live
    WHERE live.trigger_schema=DATABASE()
      AND (live.event_object_table IN
              ('coastmark_time_export_claims','coastmark_time_export_receipts')
           OR EXISTS (
-               SELECT 1 FROM safeharbor_m021_trigger_manifest reserved
-                WHERE LOWER(reserved.trigger_name)=LOWER(live.trigger_name)
+               SELECT 1 FROM safeharbor_m021_trigger_manifest source
+                WHERE LOWER(source.trigger_name)=LOWER(live.trigger_name)
           ))
 );
-SET @cm_export_install_locks_gone = (
-  SELECT COUNT(*) = 0
-    FROM information_schema.table_constraints
-   WHERE constraint_schema = DATABASE()
-     AND table_name IN ('coastmark_time_export_claims','coastmark_time_export_receipts')
-     AND constraint_name IN ('ck_cm_export_claim_install_lock','ck_cm_export_receipt_install_lock')
+SET @cm_final_reference_absent = (
+  (SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema=DATABASE()
+      AND table_name IN
+          ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+  AND (SELECT COUNT(*) FROM information_schema.triggers live
+        WHERE live.trigger_schema=DATABASE()
+          AND (live.event_object_table IN
+                  ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+               OR EXISTS (
+                    SELECT 1 FROM safeharbor_m021_trigger_manifest source
+                     WHERE CAST(source.reference_trigger_name AS BINARY)=
+                           CAST(live.trigger_name AS BINARY)
+               )))=0
 );
-SET @cm_export_final_sql = IF(
-  @cm_export_final_guards_ok = 1 AND @cm_export_install_locks_gone = 1,
-  'DO 0',
-  'SELECT * FROM information_schema.migration_021_coastmark_export_postcondition_failed'
+SET @cm_final_live_postflight_ok = (
+  (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID())
+  AND @cm_final_tables_ok=1
+  AND @cm_final_columns_ok=1
+  AND @cm_final_indexes_ok=1
+  AND @cm_final_fks_ok=1
+  AND @cm_final_checks_ok=1
+  AND @cm_final_live_trigger_hashes_ok=1
+  AND @cm_final_live_trigger_names_ok=1
+  AND @cm_final_reference_absent=1
 );
-PREPARE cm_export_statement FROM @cm_export_final_sql;
-EXECUTE cm_export_statement;
-DEALLOCATE PREPARE cm_export_statement;
-
+-- Success is committed only while both live tables remain WRITE locked. A
+-- refusal keeps the advisory lock owned by the dedicated runner connection.
+SET SESSION lock_wait_timeout=IF(
+  @cm_final_live_postflight_ok=1,
+  @cm_m021_previous_lock_wait_timeout,
+  @@SESSION.lock_wait_timeout
+);
 DROP TEMPORARY TABLE safeharbor_m021_validated_triggers;
 DROP TEMPORARY TABLE safeharbor_m021_trigger_manifest;
 DROP TEMPORARY TABLE safeharbor_m021_reference_trigger_allowlist;
+DROP TEMPORARY TABLE safeharbor_m021_boundary_objects;
 DROP TEMPORARY TABLE safeharbor_m021_source_checks;
 DROP TEMPORARY TABLE safeharbor_m021_source_fks;
 DROP TEMPORARY TABLE safeharbor_m021_source_indexes;
 DROP TEMPORARY TABLE safeharbor_m021_source_columns;
-
--- Release only after every durable-table, trigger, install-lock, and cleanup
--- postcondition has passed. If any earlier statement aborts, the dedicated
--- runner connection retains the single lock until exact retry or close.
-SET @cm_m021_lock_release_owned =
-  (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID());
-SET @cm_m021_lock_release_guard_sql = IF(
-  @cm_m021_lock_release_owned=1,
-  'DO 0',
-  'SELECT * FROM information_schema.migration_021_advisory_lock_release_owner_failed'
+SET @cm_m021_lock_release_result=IF(
+  @cm_final_live_postflight_ok=1,
+  RELEASE_LOCK(@cm_m021_lock_name),
+  NULL
 );
-PREPARE cm_export_statement FROM @cm_m021_lock_release_guard_sql;
-EXECUTE cm_export_statement;
-DEALLOCATE PREPARE cm_export_statement;
-SET @cm_m021_lock_release_result = RELEASE_LOCK(@cm_m021_lock_name);
-SET @cm_m021_lock_released = (
-  @cm_m021_lock_release_result=1
+SET @cm_final_completion_ok = (
+  @cm_final_live_postflight_ok=1
+  AND @cm_m021_lock_release_result=1
   AND NOT (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID())
 );
-SET @cm_m021_lock_release_sql = IF(
-  @cm_m021_lock_released=1,
+UNLOCK TABLES;
+SET @cm_final_completion_guard_sql=IF(
+  @cm_final_completion_ok=1,
   'DO 0',
-  'SELECT * FROM information_schema.migration_021_advisory_lock_release_failed'
+  'SELECT * FROM information_schema.migration_021_final_locked_postcondition_failed'
 );
-PREPARE cm_export_statement FROM @cm_m021_lock_release_sql;
+PREPARE cm_export_statement FROM @cm_final_completion_guard_sql;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
