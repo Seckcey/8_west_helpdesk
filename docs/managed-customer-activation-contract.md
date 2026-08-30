@@ -105,7 +105,7 @@ The transaction then rechecks all of these local facts:
 5. contact evidence cannot move backward, and the same contact version cannot
    name a different recipient;
 6. the deterministic schedule is absent or already has the exact client,
-   v2 definition, recipient, Pacific Wednesday 09:00 shape, and canary flag;
+   v3 definition, recipient, Pacific Wednesday 09:00 shape, and canary flag;
    an existing different schedule is never rewritten; and
 7. the active schedule inherits the exact evidence-bearing disabled version.
 
