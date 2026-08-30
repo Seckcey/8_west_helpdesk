@@ -643,7 +643,7 @@ report_check(
     $definitionV2['action'] === 'created'
         && (int) $definitionV2['definition']['version_no'] === 2
         && business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V2)
-            === '79006660420a6f541e2eaf62f07a61147c751a163992690807580bec18ae05bc'
+            === '012b07fa3c82832044c0aaf23e4e4cd62e99b09e31d85288e3e0959741cc3d70'
         && !hash_equals(
             (string) $definition['definition']['contract_sha256'],
             (string) $definitionV2['definition']['contract_sha256'],
@@ -1696,8 +1696,8 @@ report_check(
 );
 
 // Definition v2 uses one effective row per approved entry. Multiple immutable
-// slips are evidence, not additional time, and only slips visible at the exact
-// generated-at cutoff may affect the total.
+// slips are evidence, not additional time, and only slips inside both the
+// durable adjustment-id prefix and generated-at cutoff may affect the total.
 $time->execute([8,1,12,500,'other client adjusted note',1,'approved','2026-08-12 15:00:00','2026-08-12 16:00:00']);
 $time->execute([9,1,11,40,'multi-adjusted private note',1,'approved','2026-08-12 16:00:00','2026-08-12 17:00:00']);
 $pdo->exec("INSERT INTO time_entry_approval_adjustments VALUES
@@ -1741,17 +1741,19 @@ $v2CutoffMetrics = business_report_metrics(
     '2026-08-10 00:00:00',
     '2026-08-17 00:00:00',
     '2026-08-26 12:00:00',
+    6,
 );
 report_check(
-    'definition v2 selects the latest visible slip and counts every approved entry once',
+    'definition v2 selects the latest slip inside the captured prefix and counts every approved entry once',
     $v2CutoffMetrics['schema_version'] === 1
         && $v2CutoffMetrics['approved_billable_time'] === [
+            'adjustment_id_cutoff' => 6,
             'minutes' => 105,
             'original_approved_billable_minutes' => 130,
             'net_adjustment_minutes' => -25,
             'entries_with_adjustments_applied' => 2,
             'adjustment_slips_applied' => 3,
-            'calculation' => 'each_approved_entry_once_using_latest_adjustment_at_generated_at_else_original',
+            'calculation' => 'each_approved_entry_once_using_latest_adjustment_at_id_cutoff_and_generated_at_else_original',
             'classification' => 'operational_approval_evidence_not_financial_status',
         ],
 );
@@ -1761,10 +1763,12 @@ $v2LaterMetrics = business_report_metrics(
     '2026-08-10 00:00:00',
     '2026-08-17 00:00:00',
     '2026-08-26 14:00:00',
+    7,
 );
 report_check(
-    'definition v2 generated-at cutoff advances to the later zeroing slip without double counting',
+    'definition v2 durable cutoff advances to the later zeroing slip without double counting',
     $v2LaterMetrics['approved_billable_time']['minutes'] === 100
+        && $v2LaterMetrics['approved_billable_time']['adjustment_id_cutoff'] === 7
         && $v2LaterMetrics['approved_billable_time']['original_approved_billable_minutes'] === 130
         && $v2LaterMetrics['approved_billable_time']['net_adjustment_minutes'] === -30
         && $v2LaterMetrics['approved_billable_time']['entries_with_adjustments_applied'] === 2
@@ -1816,6 +1820,47 @@ report_throws(
     fn() => business_report_archived_content($invalidV2Archive),
     'v2 adjustment summary',
 );
+$canonicalV2Text = (string) $v2Archive['report_text'];
+$canonicalV2Hash = (string) $v2Archive['content_sha256'];
+$forgedV2Text = "Private adjustment reason: secret\nInvoice has been posted\n";
+$forgedV2Hash = business_report_content_sha256_from_json(
+    (string) $v2Archive['metrics_json'],
+    $forgedV2Text,
+);
+$forgeV2 = $pdo->prepare(
+    'UPDATE business_report_archives SET report_text=?,content_sha256=? WHERE id=?'
+);
+$forgeV2->execute([$forgedV2Text, $forgedV2Hash, (int) $v2Archive['id']]);
+$forgedV2TransportCalls = 0;
+$forgedV2Delivery = function () use (
+    $pdo,
+    $v2Archive,
+    $v2Config,
+    $now,
+    &$forgedV2TransportCalls,
+): array {
+    return business_report_deliver(
+        $pdo,
+        (int) $v2Archive['id'],
+        $v2Config,
+        function () use (&$forgedV2TransportCalls): array {
+            $forgedV2TransportCalls++;
+            return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+        },
+        $now,
+    );
+};
+report_throws(
+    'self-hashed noncanonical v2 archive is refused before transport',
+    BusinessReportConflictException::class,
+    $forgedV2Delivery,
+    'not canonical',
+);
+report_check(
+    'noncanonical private and financial text never reaches transport',
+    $forgedV2TransportCalls === 0,
+);
+$forgeV2->execute([$canonicalV2Text, $canonicalV2Hash, (int) $v2Archive['id']]);
 business_report_transition_schedule(
     $pdo,
     'one',

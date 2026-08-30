@@ -75,8 +75,8 @@ function business_report_contract_v2(): array
         'first_response' => 'opened_cohort_first_tech_message_excluding_all_merged_histories',
         'service_goal' => 'versioned_opened_cohort_decided_by_generated_at_excluding_all_merged_histories',
         'service_goal_legacy' => 'unversioned_opened_cohort_reported_as_excluded_not_counted_as_attainment',
-        'approved_billable_time' => 'worked_at_in_window_approved_by_generated_at_latest_adjustment_created_by_generated_at_else_original_counted_once',
-        'approved_time_adjustments' => 'original_effective_net_minutes_adjusted_entries_and_applied_slips_without_reasons',
+        'approved_billable_time' => 'worked_at_in_window_approved_by_generated_at_latest_adjustment_with_id_at_or_below_tenant_lock_cutoff_and_created_by_generated_at_else_original_counted_once',
+        'approved_time_adjustments' => 'tenant_lock_captured_adjustment_id_cutoff_original_effective_net_minutes_adjusted_entries_and_applied_slips_without_reasons',
         'csat' => 'survey_created_in_window_answered_by_generated_at',
         'delivery_truth' => 'provider_accepted_is_submitted_not_delivered',
     ];
@@ -360,6 +360,48 @@ function business_report_persisted_generated_at(PDO $pdo, ?int $requestedNow): s
         'Generated at',
     );
     return $requestedAt > $databaseNow ? $requestedAt : $databaseNow;
+}
+
+/**
+ * Capture the committed tenant adjustment prefix. Persisted generation requests
+ * a current locking read while holding the tenant row lock shared with writers,
+ * so a same-second later adjustment cannot move into the archived prefix. A dry
+ * run uses the default unlocked read as best-effort preview evidence only.
+ */
+function business_report_adjustment_id_cutoff(
+    PDO $pdo,
+    int $tenantId,
+    bool $currentLockingRead = false,
+): int
+{
+    if ($tenantId < 1) {
+        throw new BusinessReportValidationException('Adjustment cutoff tenant id must be positive.');
+    }
+    $sql = 'SELECT id FROM time_entry_approval_adjustments
+             WHERE tenant_id = ? ORDER BY id DESC LIMIT 1';
+    if ($currentLockingRead && $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+        $sql .= ' FOR SHARE';
+    }
+    $query = $pdo->prepare($sql);
+    $query->execute([$tenantId]);
+    $value = $query->fetchColumn();
+    if ($value === false) return 0;
+    if (!is_int($value) && !is_string($value)) {
+        throw new BusinessReportGateException('The approved-time adjustment cutoff is unavailable.');
+    }
+    $text = (string) $value;
+    if (preg_match('/\A[0-9]+\z/D', $text) !== 1) {
+        throw new BusinessReportGateException('The approved-time adjustment cutoff is invalid.');
+    }
+    $normalized = ltrim($text, '0');
+    if ($normalized === '') $normalized = '0';
+    $maximum = (string) PHP_INT_MAX;
+    if (strlen($normalized) > strlen($maximum)
+        || (strlen($normalized) === strlen($maximum) && strcmp($normalized, $maximum) > 0)
+    ) {
+        throw new BusinessReportGateException('The approved-time adjustment cutoff exceeds runtime capacity.');
+    }
+    return (int) $normalized;
 }
 
 /** @return array{period_start:string,period_end:string,due_at:string,timezone:string} */
@@ -1838,7 +1880,11 @@ function business_report_approved_billable_time_v2(
     string $periodStart,
     string $periodEnd,
     string $generatedAt,
+    int $adjustmentIdCutoff,
 ): array {
+    if ($adjustmentIdCutoff < 0) {
+        throw new BusinessReportValidationException('Adjustment id cutoff cannot be negative.');
+    }
     $time = $pdo->prepare(
         "SELECT
             COALESCE(SUM(CASE
@@ -1861,24 +1907,34 @@ function business_report_approved_billable_time_v2(
                   FROM time_entry_approval_adjustments candidate
                  WHERE candidate.tenant_id = entry.tenant_id
                    AND candidate.time_entry_id = entry.id
+                   AND candidate.id <= ?
                    AND candidate.created_at <= ?
-            )
+             )
           WHERE entry.tenant_id = ? AND entry.client_id = ?
             AND entry.approval_status = 'approved'
             AND entry.worked_at >= ? AND entry.worked_at < ?
             AND entry.reviewed_at IS NOT NULL AND entry.reviewed_at <= ?"
     );
-    $time->execute([$generatedAt, $tenantId, $clientId, $periodStart, $periodEnd, $generatedAt]);
+    $time->execute([
+        $adjustmentIdCutoff,
+        $generatedAt,
+        $tenantId,
+        $clientId,
+        $periodStart,
+        $periodEnd,
+        $generatedAt,
+    ]);
     $row = $time->fetch(PDO::FETCH_ASSOC) ?: [];
     $effectiveMinutes = (int) ($row['effective_billable_minutes'] ?? 0);
     $originalMinutes = (int) ($row['original_billable_minutes'] ?? 0);
     return [
+        'adjustment_id_cutoff' => $adjustmentIdCutoff,
         'minutes' => $effectiveMinutes,
         'original_approved_billable_minutes' => $originalMinutes,
         'net_adjustment_minutes' => $effectiveMinutes - $originalMinutes,
         'entries_with_adjustments_applied' => (int) ($row['adjusted_entries'] ?? 0),
         'adjustment_slips_applied' => (int) ($row['adjustment_slips'] ?? 0),
-        'calculation' => 'each_approved_entry_once_using_latest_adjustment_at_generated_at_else_original',
+        'calculation' => 'each_approved_entry_once_using_latest_adjustment_at_id_cutoff_and_generated_at_else_original',
         'classification' => 'operational_approval_evidence_not_financial_status',
     ];
 }
@@ -1890,6 +1946,7 @@ function business_report_metrics(
     string $periodStart,
     string $periodEnd,
     string $generatedAt,
+    ?int $adjustmentIdCutoff = null,
 ): array {
     $periodStart = business_report_utc($periodStart, 'Period start');
     $periodEnd = business_report_utc($periodEnd, 'Period end');
@@ -1906,6 +1963,13 @@ function business_report_metrics(
     ], true)) {
         throw new BusinessReportGateException(
             'Business report metrics require an exact supported definition version.',
+        );
+    }
+    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2
+        && ($adjustmentIdCutoff === null || $adjustmentIdCutoff < 0)
+    ) {
+        throw new BusinessReportGateException(
+            'Business report definition v2 requires an exact adjustment id cutoff.',
         );
     }
     business_report_assert_v1_adjustment_free(
@@ -2008,6 +2072,7 @@ function business_report_metrics(
             $periodStart,
             $periodEnd,
             $generatedAt,
+            $adjustmentIdCutoff,
         );
     }
     $csat = $pdo->prepare(
@@ -2116,7 +2181,7 @@ function business_report_text(array $metrics): string
         'CSAT average: ' . $value($metrics['csat']['average_score_out_of_3']) . ($metrics['csat']['average_score_out_of_3'] === null ? '' : ' / 3'),
         '',
         ...($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2
-            ? ['Each approved time entry is counted once using its latest adjustment at the report generation cutoff. Adjustment reasons are not included.']
+            ? ['Each approved time entry is counted once using its latest adjustment inside the archived adjustment-id and generation-time cutoffs. Adjustment reasons are not included.']
             : []),
         'Approved billable time above is operational evidence only, not a statement of export or invoice status. This report does not invoice or post anything.',
         'Merged ticket histories are excluded from response metrics because their original response provenance is not retained.',
@@ -2189,15 +2254,17 @@ function business_report_archived_content(array $archive): array
     if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2) {
         $approvedTime = $metrics['approved_billable_time'] ?? null;
         if (!is_array($approvedTime)
+            || !is_int($approvedTime['adjustment_id_cutoff'] ?? null)
             || !is_int($approvedTime['minutes'] ?? null)
             || !is_int($approvedTime['original_approved_billable_minutes'] ?? null)
             || !is_int($approvedTime['net_adjustment_minutes'] ?? null)
             || !is_int($approvedTime['entries_with_adjustments_applied'] ?? null)
             || !is_int($approvedTime['adjustment_slips_applied'] ?? null)
             || ($approvedTime['calculation'] ?? null)
-                !== 'each_approved_entry_once_using_latest_adjustment_at_generated_at_else_original'
+                !== 'each_approved_entry_once_using_latest_adjustment_at_id_cutoff_and_generated_at_else_original'
             || ($approvedTime['classification'] ?? null)
                 !== 'operational_approval_evidence_not_financial_status'
+            || $approvedTime['adjustment_id_cutoff'] < 0
             || $approvedTime['minutes'] < 0
             || $approvedTime['original_approved_billable_minutes'] < 0
             || $approvedTime['entries_with_adjustments_applied'] < 0
@@ -2207,6 +2274,25 @@ function business_report_archived_content(array $archive): array
         ) {
             throw new BusinessReportConflictException('The archived report v2 adjustment summary is invalid.');
         }
+    }
+    try {
+        set_error_handler(
+            static function (int $severity, string $message, string $file, int $line): never {
+                throw new ErrorException($message, 0, $severity, $file, $line);
+            },
+        );
+        $canonicalText = business_report_text($metrics);
+    } catch (Throwable $error) {
+        throw new BusinessReportConflictException(
+            'The archived report cannot be rendered from its exact metrics.',
+            0,
+            $error,
+        );
+    } finally {
+        restore_error_handler();
+    }
+    if (!hash_equals($canonicalText, $text)) {
+        throw new BusinessReportConflictException('The archived report text is not canonical.');
     }
     return ['metrics' => $metrics, 'text' => $text];
 }
@@ -2238,12 +2324,17 @@ function business_report_generate(
         if ($requireDue && $generatedAt < $window['due_at']) {
             throw new BusinessReportGateException('The report schedule is not due yet.');
         }
+        $adjustmentIdCutoff = (int) ($schedule['definition_version_no'] ?? 0)
+            === BUSINESS_REPORT_CONTRACT_VERSION_V2
+            ? business_report_adjustment_id_cutoff($pdo, (int) $schedule['tenant_id'])
+            : null;
         $metrics = business_report_metrics(
             $pdo,
             $schedule,
             $window['period_start'],
             $window['period_end'],
             $generatedAt,
+            $adjustmentIdCutoff,
         );
         $text = business_report_text($metrics);
         $sha256 = business_report_content_sha256($metrics, $text);
@@ -2269,7 +2360,9 @@ function business_report_generate(
         // preserving the report runtime's SELECT-only tenant privilege. That
         // fixed order makes the winner visible before report metrics are read:
         // an adjustment that wins makes v1 fail closed, while a report that
-        // wins archives before the later adjustment can be appended.
+        // wins archives before the later adjustment can be appended. V2 also
+        // captures the committed adjustment-id prefix under this lock, making
+        // that order durable when both operations share a timestamp second.
         $tenantLockSql = 'SELECT id FROM tenants WHERE id = ? AND slug = ?';
         if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
             $tenantLockSql .= ' FOR SHARE';
@@ -2281,6 +2374,10 @@ function business_report_generate(
                 'The report tenant changed before archive generation completed.',
             );
         }
+        $adjustmentIdCutoff = (int) ($schedule['definition_version_no'] ?? 0)
+            === BUSINESS_REPORT_CONTRACT_VERSION_V2
+            ? business_report_adjustment_id_cutoff($pdo, $tenantId, true)
+            : null;
         $generatedAt = business_report_persisted_generated_at($pdo, $requestedNow);
         if ($requireDue && $generatedAt < $window['due_at']) {
             throw new BusinessReportGateException('The report schedule is not due yet.');
@@ -2327,6 +2424,7 @@ function business_report_generate(
             $window['period_start'],
             $window['period_end'],
             $generatedAt,
+            $adjustmentIdCutoff,
         );
         $text = business_report_text($metrics);
         $metricsJson = business_report_metrics_json($metrics);

@@ -35,7 +35,12 @@ if (getenv('SAFEHARBOR_REPORT_RACE_WORKER') === '1') {
     if (!is_string($raceToken) || preg_match('/\A[a-f0-9]{64}\z/D', $raceToken) !== 1
         || !is_string($raceMode) || !in_array($raceMode, ['report', 'adjustment'], true)
         || !is_string($raceSchedule)
-        || !in_array($raceSchedule, ['weekly-race-report', 'weekly-race-adjustment'], true)
+        || !in_array($raceSchedule, [
+            'weekly-race-report',
+            'weekly-race-adjustment',
+            'weekly-race-v2-report',
+            'weekly-race-v2-adjustment',
+        ], true)
         || !is_string($raceEntryText) || preg_match('/\A[1-9][0-9]{0,9}\z/D', $raceEntryText) !== 1
         || !is_string($raceNowText) || preg_match('/\A[1-9][0-9]{0,10}\z/D', $raceNowText) !== 1
         || !is_string($raceRequireDue) || !in_array($raceRequireDue, ['0', '1'], true)
@@ -55,6 +60,9 @@ if (getenv('SAFEHARBOR_REPORT_RACE_WORKER') === '1') {
         if (!hash_equals($raceToken, (string) $marker->fetchColumn())) {
             throw new RuntimeException('Business-report race worker marker did not match.');
         }
+        // Pin both competing sessions to the same database second. The durable
+        // v2 adjustment-id cutoff, not clock precision, must preserve order.
+        $worker->exec('SET timestamp = ' . (int) $raceNowText);
 
         echo "ready\n";
         fflush(STDOUT);
@@ -89,7 +97,7 @@ if (getenv('SAFEHARBOR_REPORT_RACE_WORKER') === '1') {
         try {
             $result = time_entry_adjustment_create($worker, 1, 101, 'owner', [
                 'entry_id' => (int) $raceEntryText,
-                'adjustment_key' => 'adjustment.report-race.report.0001',
+                'adjustment_key' => 'adjustment.report-race.' . $raceSchedule . '.0001',
                 'expected_version' => 0,
                 'effective_minutes' => 20,
                 'effective_billable' => true,
@@ -224,9 +232,16 @@ function report_mysql_config(): array
             'weekly-v2',
             'weekly-race-report',
             'weekly-race-adjustment',
+            'weekly-race-v2-report',
+            'weekly-race-v2-adjustment',
         ],
         'tenant_slugs' => ['one'],
-        'client_keys' => ['safeharbor-client:11', 'safeharbor-client:13'],
+        'client_keys' => [
+            'safeharbor-client:11',
+            'safeharbor-client:13',
+            'safeharbor-client:14',
+            'safeharbor-client:15',
+        ],
         'recipient_emails' => ['reports@example.test'],
         'lease_seconds' => 120,
     ];
@@ -443,7 +458,8 @@ report_mysql_check('exact JSON bytes use LONGTEXT rather than native JSON normal
 
 $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (1,'Tenant One','one'),(2,'Tenant Two','two')");
 $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
-    (11,1,'Client One'),(12,1,'Client Twelve'),(13,1,'Client Thirteen'),(22,2,'Client Two')");
+    (11,1,'Client One'),(12,1,'Client Twelve'),(13,1,'Client Thirteen'),
+    (14,1,'Client Fourteen'),(15,1,'Client Fifteen'),(22,2,'Client Two')");
 $pdo->exec("INSERT INTO users
     (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
     (101,1,'owner1@example.test','','Owner One','O1','owner',1),
@@ -693,6 +709,7 @@ time_entry_adjustment_create($pdo, 1, 101, 'owner', [
     'effective_billable' => true,
     'reason' => 'Other client reason',
 ]);
+$v2FirstAdjustmentIdCutoff = business_report_adjustment_id_cutoff($pdo, 1);
 $pdo->exec('SET timestamp = ' . ($v2Clock + 20));
 time_entry_adjustment_create($pdo, 1, 102, 'admin', [
     'entry_id' => (int) $v2EntryA['id'],
@@ -702,12 +719,14 @@ time_entry_adjustment_create($pdo, 1, 102, 'admin', [
     'effective_billable' => true,
     'reason' => 'Second private v2 fixture reason',
 ]);
+$v2SecondAdjustmentIdCutoff = business_report_adjustment_id_cutoff($pdo, 1);
 $v2AtFirstSlip = business_report_metrics(
     $pdo,
     $v2Schedule,
     $v2Window['period_start'],
     $v2Window['period_end'],
     gmdate('Y-m-d H:i:s', $v2Clock + 15),
+    $v2FirstAdjustmentIdCutoff,
 );
 $v2AtSecondSlip = business_report_metrics(
     $pdo,
@@ -715,14 +734,19 @@ $v2AtSecondSlip = business_report_metrics(
     $v2Window['period_start'],
     $v2Window['period_end'],
     gmdate('Y-m-d H:i:s', $v2Clock + 30),
+    $v2SecondAdjustmentIdCutoff,
 );
 report_mysql_check(
     'native MySQL v2 honors as-of cutoff client scope and one-row-per-entry totals',
-    $v2AtFirstSlip['approved_billable_time']['minutes'] === 80
+    $v2AtFirstSlip['approved_billable_time']['adjustment_id_cutoff']
+            === $v2FirstAdjustmentIdCutoff
+        && $v2AtFirstSlip['approved_billable_time']['minutes'] === 80
         && $v2AtFirstSlip['approved_billable_time']['original_approved_billable_minutes'] === 110
         && $v2AtFirstSlip['approved_billable_time']['net_adjustment_minutes'] === -30
         && $v2AtFirstSlip['approved_billable_time']['entries_with_adjustments_applied'] === 2
         && $v2AtFirstSlip['approved_billable_time']['adjustment_slips_applied'] === 2
+        && $v2AtSecondSlip['approved_billable_time']['adjustment_id_cutoff']
+            === $v2SecondAdjustmentIdCutoff
         && $v2AtSecondSlip['approved_billable_time']['minutes'] === 70
         && $v2AtSecondSlip['approved_billable_time']['net_adjustment_minutes'] === -40
         && $v2AtSecondSlip['approved_billable_time']['entries_with_adjustments_applied'] === 2
@@ -747,6 +771,80 @@ report_mysql_check(
         && business_report_archived_content($v2Archive)['metrics'] === $v2Generated['metrics']
         && !str_contains((string) $v2Archive['report_text'], 'private v2 fixture reason')
         && !str_contains((string) $v2Archive['metrics_json'], 'private v2 fixture reason'),
+);
+$forgedPeriodStart = (new DateTimeImmutable(
+    $v2Window['period_start'],
+    new DateTimeZone('UTC'),
+))->modify('-14 days')->format('Y-m-d H:i:s');
+$forgedPeriodEnd = (new DateTimeImmutable(
+    $v2Window['period_end'],
+    new DateTimeZone('UTC'),
+))->modify('-14 days')->format('Y-m-d H:i:s');
+$forgedGeneratedAt = gmdate('Y-m-d H:i:s', $v2Clock + 30);
+$forgedV2Metrics = $v2AtSecondSlip;
+$forgedV2Metrics['period']['start_utc'] = str_replace(' ', 'T', $forgedPeriodStart) . 'Z';
+$forgedV2Metrics['period']['end_utc_exclusive'] = str_replace(' ', 'T', $forgedPeriodEnd) . 'Z';
+$forgedV2Metrics['generated_at'] = str_replace(' ', 'T', $forgedGeneratedAt) . 'Z';
+$forgedV2MetricsJson = business_report_metrics_json($forgedV2Metrics);
+$forgedV2Text = "Private adjustment reason: secret\nInvoice has been posted\n";
+$forgedV2Hash = business_report_content_sha256_from_json($forgedV2MetricsJson, $forgedV2Text);
+$forgedArchiveInsert = $pdo->prepare(
+    'INSERT INTO business_report_archives
+        (tenant_id,client_id,schedule_key,schedule_version_id,definition_version_id,
+         period_start,period_end,generated_at,metrics_json,report_text,content_sha256)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+);
+$forgedArchiveInsert->execute([
+    1,
+    13,
+    'weekly-v2',
+    (int) $v2Schedule['id'],
+    (int) $v2Schedule['definition_version_id'],
+    $forgedPeriodStart,
+    $forgedPeriodEnd,
+    $forgedGeneratedAt,
+    $forgedV2MetricsJson,
+    $forgedV2Text,
+    $forgedV2Hash,
+]);
+$forgedArchiveId = (int) $pdo->lastInsertId();
+$forgedDeliveryInsert = $pdo->prepare(
+    "INSERT INTO business_report_deliveries
+        (tenant_id,archive_id,schedule_version_id,recipient_email,status)
+     VALUES (1,?,?,?,'pending')"
+);
+$forgedDeliveryInsert->execute([
+    $forgedArchiveId,
+    (int) $v2Schedule['id'],
+    'reports@example.test',
+]);
+$forgedTransportCalls = 0;
+$forgedDelivery = function () use (
+    $pdo,
+    $forgedArchiveId,
+    $testNow,
+    &$forgedTransportCalls,
+): array {
+    return business_report_deliver(
+        $pdo,
+        $forgedArchiveId,
+        report_mysql_config(),
+        function () use (&$forgedTransportCalls): array {
+            $forgedTransportCalls++;
+            return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+        },
+        $testNow,
+    );
+};
+report_mysql_throws(
+    'native MySQL self-hashed noncanonical archive is refused before transport',
+    BusinessReportConflictException::class,
+    $forgedDelivery,
+    'not canonical',
+);
+report_mysql_check(
+    'native MySQL private and financial forged text never reaches transport',
+    $forgedTransportCalls === 0,
 );
 $pdo->exec('SET timestamp = 0');
 
@@ -857,6 +955,71 @@ foreach ([
     $raceFixtures[$raceScheduleKey] = [
         'schedule_id' => (int) $raceSchedule['id'],
         'entry_id' => (int) $raceEntry['id'],
+        'period_end' => $raceWindow['period_end'],
+    ];
+}
+
+// Two isolated v2 clients prove that the monotonic cutoff records the lock
+// winner even when the report and adjustment share the exact database second.
+$raceV2Fixtures = [];
+foreach ([
+    'weekly-race-v2-report' => [1103, 14, 'suggestion.report-race.v2-report.0001'],
+    'weekly-race-v2-adjustment' => [1104, 15, 'suggestion.report-race.v2-adjustment.0001'],
+] as $raceScheduleKey => [$raceTicketId, $raceClientId, $raceEntryKey]) {
+    $racePrepared = business_report_prepare_schedule(
+        $pdo,
+        'one',
+        $raceScheduleKey,
+        $raceClientId,
+        (int) $definitionV2['definition']['id'],
+        'reports@example.test',
+        'UTC',
+        7,
+        '23:59:59',
+        true,
+        101,
+        'Prepare v2 report-adjustment serialization fixture',
+    );
+    business_report_transition_schedule(
+        $pdo,
+        'one',
+        $raceScheduleKey,
+        (int) $racePrepared['schedule']['version_no'],
+        'active',
+        101,
+        'Enable v2 report-adjustment serialization fixture',
+        report_mysql_config(),
+    );
+    $raceSchedule = business_report_active_schedule($pdo, 'one', $raceScheduleKey);
+    $raceWindow = business_report_next_window($pdo, $raceSchedule);
+    $raceWorkedAtInstant = (new DateTimeImmutable(
+        $raceWindow['period_start'],
+        new DateTimeZone('UTC'),
+    ))->modify('+2 days');
+    $raceWorkedAt = $raceWorkedAtInstant->format('Y-m-d\TH:i:s\Z');
+    $raceDatabaseAt = $raceWorkedAtInstant->format('Y-m-d H:i:s');
+    $pdo->prepare("INSERT INTO tickets
+        (id,tenant_id,client_id,subject,status,priority,channel,sla_due_at,
+         service_goal_target_id,created_at,updated_at)
+        VALUES (?,1,?,'V2 report serialization fixture','open','normal','phone',?,NULL,?,?)")
+        ->execute([
+            $raceTicketId,
+            $raceClientId,
+            $raceDatabaseAt,
+            $raceDatabaseAt,
+            $raceDatabaseAt,
+        ]);
+    $raceEntry = report_mysql_create_approved_time(
+        $pdo,
+        $raceTicketId,
+        $raceEntryKey,
+        $raceWorkedAt,
+        30,
+    );
+    $raceV2Fixtures[$raceScheduleKey] = [
+        'schedule_id' => (int) $raceSchedule['id'],
+        'entry_id' => (int) $raceEntry['id'],
+        'period_start' => $raceWindow['period_start'],
         'period_end' => $raceWindow['period_end'],
     ];
 }
@@ -989,6 +1152,174 @@ report_mysql_check('adjustment-first race makes definition v1 refuse the archive
           WHERE tenant_id=1 AND schedule_key='weekly-race-adjustment'")->fetchColumn() === 0
     && (int) $pdo->query("SELECT COUNT(*) FROM time_entry_approval_adjustments
           WHERE tenant_id=1 AND time_entry_id={$adjustmentFirstFixture['entry_id']}")->fetchColumn() === 1);
+
+// V2 report-first at one fixed database second: the report captures its
+// monotonic prefix before the waiting adjustment receives a higher id.
+$v2ReportFirstFixture = $raceV2Fixtures['weekly-race-v2-report'];
+$v2ScheduleHolder = new PDO($serverDsn . ";dbname={$database}", $user, $pass, $options);
+$v2ScheduleHolder->exec("SET time_zone = '+00:00'");
+$v2ScheduleHolder->beginTransaction();
+$v2HeldSchedule = $v2ScheduleHolder->prepare(
+    'SELECT id FROM business_report_schedule_versions WHERE tenant_id=1 AND id=? FOR UPDATE'
+);
+$v2HeldSchedule->execute([$v2ReportFirstFixture['schedule_id']]);
+if ((int) $v2HeldSchedule->fetchColumn() !== $v2ReportFirstFixture['schedule_id']) {
+    throw new RuntimeException('V2 report-first schedule lock target was not found.');
+}
+$v2ReportFirstWorker = report_mysql_start_race_worker(
+    $raceToken,
+    'report',
+    'weekly-race-v2-report',
+    $v2ReportFirstFixture['entry_id'],
+    $testNow,
+    true,
+);
+$v2ReportQueuedOnSchedule = $v2ReportFirstWorker['ready']
+    && report_mysql_waiters($server, $database, 'business_report_schedule_versions', 1);
+$v2AdjustmentAfterReportWorker = report_mysql_start_race_worker(
+    $raceToken,
+    'adjustment',
+    'weekly-race-v2-report',
+    $v2ReportFirstFixture['entry_id'],
+    $testNow,
+    true,
+);
+$v2AdjustmentQueuedOnTenant = $v2AdjustmentAfterReportWorker['ready']
+    && report_mysql_waiters($server, $database, 'tenants', 1);
+$v2ScheduleHolder->commit();
+$v2ReportFirstResult = report_mysql_finish_race_worker($v2ReportFirstWorker);
+$v2AdjustmentAfterReportResult = report_mysql_finish_race_worker($v2AdjustmentAfterReportWorker);
+report_mysql_check(
+    'v2 report-first workers serialize at the tenant inside one database second',
+    $v2ReportQueuedOnSchedule
+        && $v2AdjustmentQueuedOnTenant
+        && $v2ReportFirstResult['ready']
+        && $v2AdjustmentAfterReportResult['ready']
+        && !$v2ReportFirstResult['timed_out']
+        && !$v2AdjustmentAfterReportResult['timed_out']
+        && $v2ReportFirstResult['exit'] === 0
+        && $v2AdjustmentAfterReportResult['exit'] === 0
+        && trim($v2ReportFirstResult['stderr']) === ''
+        && trim($v2AdjustmentAfterReportResult['stderr']) === ''
+        && (int) ($v2ReportFirstResult['payload']['status'] ?? 0) === 201
+        && (int) ($v2AdjustmentAfterReportResult['payload']['status'] ?? 0) === 201,
+);
+$v2ReportFirstArchiveId = (int) ($v2ReportFirstResult['payload']['archive_id'] ?? 0);
+$v2ReportFirstArchive = $pdo->query(
+    "SELECT * FROM business_report_archives WHERE tenant_id=1 AND id={$v2ReportFirstArchiveId}"
+)->fetch(PDO::FETCH_ASSOC);
+$v2ReportFirstContent = is_array($v2ReportFirstArchive)
+    ? business_report_archived_content($v2ReportFirstArchive)
+    : ['metrics' => []];
+$v2ReportFirstMetrics = $v2ReportFirstContent['metrics'];
+$v2ReportFirstAdjustment = $pdo->query(
+    'SELECT id,created_at FROM time_entry_approval_adjustments WHERE tenant_id=1'
+        . ' AND time_entry_id=' . $v2ReportFirstFixture['entry_id']
+)->fetch(PDO::FETCH_ASSOC);
+report_mysql_check(
+    'v2 report-first archive excludes the same-second later adjustment by durable id cutoff',
+    is_array($v2ReportFirstArchive)
+        && is_array($v2ReportFirstAdjustment)
+        && (string) $v2ReportFirstArchive['generated_at'] === (string) $v2ReportFirstAdjustment['created_at']
+        && (int) ($v2ReportFirstMetrics['approved_billable_time']['adjustment_id_cutoff'] ?? -1)
+            < (int) $v2ReportFirstAdjustment['id']
+        && (int) ($v2ReportFirstMetrics['approved_billable_time']['minutes'] ?? -1) === 30
+        && (int) ($v2ReportFirstMetrics['approved_billable_time']['entries_with_adjustments_applied'] ?? -1) === 0,
+);
+$v2ReportFirstSchedule = business_report_active_schedule($pdo, 'one', 'weekly-race-v2-report');
+$v2ReportFirstRecomputed = business_report_metrics(
+    $pdo,
+    $v2ReportFirstSchedule,
+    $v2ReportFirstFixture['period_start'],
+    $v2ReportFirstFixture['period_end'],
+    (string) $v2ReportFirstArchive['generated_at'],
+    (int) $v2ReportFirstMetrics['approved_billable_time']['adjustment_id_cutoff'],
+);
+report_mysql_check(
+    'v2 report-first archived cutoff reproduces exact metrics after the later slip exists',
+    $v2ReportFirstRecomputed === $v2ReportFirstMetrics,
+);
+
+// V2 adjustment-first at that same fixed second: the report waits, then its
+// captured prefix includes the committed adjustment even though timestamps tie.
+$v2AdjustmentFirstFixture = $raceV2Fixtures['weekly-race-v2-adjustment'];
+$v2AdjustmentHolder = new PDO($serverDsn . ";dbname={$database}", $user, $pass, $options);
+$v2AdjustmentHolder->exec("SET time_zone = '+00:00'");
+$v2AdjustmentHolder->exec('SET timestamp = ' . $testNow);
+$v2AdjustmentHolder->beginTransaction();
+$v2HeldTenant = $v2AdjustmentHolder->query('SELECT id FROM tenants WHERE id=1 FOR UPDATE');
+if ((int) $v2HeldTenant->fetchColumn() !== 1) {
+    throw new RuntimeException('V2 adjustment-first tenant lock target was not found.');
+}
+$v2AdjustmentFirstReportWorker = report_mysql_start_race_worker(
+    $raceToken,
+    'report',
+    'weekly-race-v2-adjustment',
+    $v2AdjustmentFirstFixture['entry_id'],
+    $testNow,
+    true,
+);
+$v2ReportQueuedOnTenant = $v2AdjustmentFirstReportWorker['ready']
+    && report_mysql_waiters($server, $database, 'tenants', 1);
+$v2AdjustmentFirst = time_entry_adjustment_create($v2AdjustmentHolder, 1, 101, 'owner', [
+    'entry_id' => $v2AdjustmentFirstFixture['entry_id'],
+    'adjustment_key' => 'adjustment.report-race.v2-adjustment.0001',
+    'expected_version' => 0,
+    'effective_minutes' => 20,
+    'effective_billable' => true,
+    'reason' => 'V2 adjustment wins same-second serialization proof',
+]);
+$v2AdjustmentHolder->commit();
+$v2AdjustmentFirstReportResult = report_mysql_finish_race_worker($v2AdjustmentFirstReportWorker);
+report_mysql_check(
+    'v2 adjustment-first report waits and completes inside the same database second',
+    $v2ReportQueuedOnTenant
+        && $v2AdjustmentFirstReportResult['ready']
+        && !$v2AdjustmentFirstReportResult['timed_out']
+        && $v2AdjustmentFirstReportResult['exit'] === 0
+        && trim($v2AdjustmentFirstReportResult['stderr']) === ''
+        && (int) ($v2AdjustmentFirstReportResult['payload']['status'] ?? 0) === 201,
+);
+$v2AdjustmentFirstArchiveId = (int) ($v2AdjustmentFirstReportResult['payload']['archive_id'] ?? 0);
+$v2AdjustmentFirstArchive = $pdo->query(
+    "SELECT * FROM business_report_archives WHERE tenant_id=1 AND id={$v2AdjustmentFirstArchiveId}"
+)->fetch(PDO::FETCH_ASSOC);
+$v2AdjustmentFirstContent = is_array($v2AdjustmentFirstArchive)
+    ? business_report_archived_content($v2AdjustmentFirstArchive)
+    : ['metrics' => []];
+$v2AdjustmentFirstMetrics = $v2AdjustmentFirstContent['metrics'];
+$v2AdjustmentFirstRow = $pdo->query(
+    'SELECT id,created_at FROM time_entry_approval_adjustments WHERE tenant_id=1'
+        . ' AND time_entry_id=' . $v2AdjustmentFirstFixture['entry_id']
+)->fetch(PDO::FETCH_ASSOC);
+report_mysql_check(
+    'v2 adjustment-first archive includes the same-second winner inside its durable id cutoff',
+    is_array($v2AdjustmentFirstArchive)
+        && is_array($v2AdjustmentFirstRow)
+        && (int) $v2AdjustmentFirst['id'] === (int) $v2AdjustmentFirstRow['id']
+        && (string) $v2AdjustmentFirstArchive['generated_at'] === (string) $v2AdjustmentFirstRow['created_at']
+        && (int) ($v2AdjustmentFirstMetrics['approved_billable_time']['adjustment_id_cutoff'] ?? -1)
+            >= (int) $v2AdjustmentFirstRow['id']
+        && (int) ($v2AdjustmentFirstMetrics['approved_billable_time']['minutes'] ?? -1) === 20
+        && (int) ($v2AdjustmentFirstMetrics['approved_billable_time']['entries_with_adjustments_applied'] ?? -1) === 1,
+);
+$v2AdjustmentFirstSchedule = business_report_active_schedule(
+    $pdo,
+    'one',
+    'weekly-race-v2-adjustment',
+);
+$v2AdjustmentFirstRecomputed = business_report_metrics(
+    $pdo,
+    $v2AdjustmentFirstSchedule,
+    $v2AdjustmentFirstFixture['period_start'],
+    $v2AdjustmentFirstFixture['period_end'],
+    (string) $v2AdjustmentFirstArchive['generated_at'],
+    (int) $v2AdjustmentFirstMetrics['approved_billable_time']['adjustment_id_cutoff'],
+);
+report_mysql_check(
+    'v2 adjustment-first archived cutoff reproduces exact included-adjustment metrics',
+    $v2AdjustmentFirstRecomputed === $v2AdjustmentFirstMetrics,
+);
 
 $countsBeforeReplay = $pdo->query(
     "SELECT CONCAT(

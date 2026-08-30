@@ -224,7 +224,11 @@ Every query binds the exact Safeharbor tenant and client. Metrics JSON is
 encoded once, stored as exact `LONGTEXT` bytes under `JSON_VALID`, and hashed
 together with the exact text report. MySQL triggers verify the hash, report
 scope, definition, client snapshot, period, and generated timestamp before an
-archive can be inserted. Definitions, schedules, and archives are insert-only.
+archive can be inserted. Reload additionally regenerates the canonical report
+text from the exact archived metrics and requires a byte-for-byte match before
+idempotent generation or delivery may use it. A caller cannot bless private or
+financial text by merely recomputing the unkeyed content checksum. Definitions,
+schedules, and archives are insert-only.
 
 ## Definition version 2
 
@@ -234,9 +238,13 @@ billable operational-time interpretation:
 
 - applicable entries are still limited to the exact tenant/client, worked-at
   window, `approval_status='approved'`, and `reviewed_at <= generated_at`;
+- immediately after taking the tenant serialization lock, persisted generation
+  captures the greatest committed adjustment id for that tenant. This
+  monotonic `adjustment_id_cutoff` is archived inside the approved-time summary;
 - for each applicable entry, the report selects the highest append-only
-  adjustment version whose `created_at <= generated_at`; when none exists it
-  uses the immutable approved parent facts;
+  adjustment version whose id is at or below that captured tenant cutoff and
+  whose `created_at <= generated_at`; when none exists it uses the immutable
+  approved parent facts;
 - each approved entry contributes at most once. Older slips remain evidence but
   never add their minutes to the total;
 - the effective billable total is accompanied by original approved billable
@@ -245,16 +253,21 @@ billable operational-time interpretation:
 - adjustment reasons, actor identity, notes, rates, tax, invoice/export state,
   ticket content, and other private detail are not selected or rendered.
 
-The generated-at cutoff makes a report reproducible: a later slip cannot rewrite
-an existing archive, while a later archive may truthfully use that newer slip.
-Persisted generation retains the same tenant-first lock shared with adjustment
-creation, so the report and a concurrent slip cannot pass each other invisibly.
+The archived adjustment-id cutoff makes the serialization winner durable even
+when a report and a waiting adjustment receive the same second-precision
+timestamp. If the report wins, the later slip has an id above its cutoff; if the
+adjustment wins, the report waits and captures an inclusive cutoff. Combining
+that monotonic prefix with `generated_at` makes the correction interpretation
+reproducible after later slips exist. Persisted generation retains the same
+tenant-first lock shared with adjustment creation, so the two operations cannot
+pass each other invisibly.
 The archive envelope remains schema version 1, which preserves migration 013's
 existing database guard. Definition version 2 binds the additive correction
 summary arithmetic and exact definition hash
-(`79006660420a6f541e2eaf62f07a61147c751a163992690807580bec18ae05bc`).
-Definition-v1 JSON/text bytes and archive validation remain
-supported unchanged.
+(`012b07fa3c82832044c0aaf23e4e4cd62e99b09e31d85288e3e0959741cc3d70`).
+Definition-v1 contract JSON and rendered text bytes remain unchanged. Every
+valid v1 archive remains supported; the canonical reload check also protects it
+from a self-hashed replacement body.
 
 Definitions must be published in order. Re-publishing the exact same version is
 idempotent; skipping v1, copying v1 bytes into ordinal 2, or using an unknown
@@ -305,10 +318,12 @@ archive hash and tenant/client scope are reverified, then it is row-locked and
 terminalized as `uncertain` without a network request even if current
 allowlists or the schedule version were removed afterward.
 
-Before acquiring a lease, delivery re-verifies the exact archive hash and that
+Before acquiring a lease, delivery re-verifies the exact archive hash, requires
+the exact canonical text regenerated from archived metrics, and verifies that
 the archived schedule version is still the latest active version. Appending a
 disable or reconfiguration therefore revokes any old pending delivery. The
-email subject and body come from archived facts, not a later client rename.
+email subject and body come from canonical archived facts, not a later client
+rename or caller-supplied text.
 
 ## Default-off gates
 
@@ -702,8 +717,8 @@ Controlled rollout order:
 4. publish, run the no-write customer plan, prepare from ID, inspect the pinned
    key/version/digest, allowlist that exact schedule/tenant/client/recipient
    tuple, enable, and dry-run;
-5. enable generation only, create one archive, inspect its exact hash and
-   aggregate content, then leave delivery off;
+5. enable generation only, create one archive, inspect its exact hash,
+   adjustment-id cutoff, and aggregate content, then leave delivery off;
 6. enable delivery for that exact canary, run one pinned delivery, record
    provider submission evidence, and obtain separate recipient confirmation;
 7. disable the schedule immediately on mismatch or uncertainty; and

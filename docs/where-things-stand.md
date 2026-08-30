@@ -480,13 +480,18 @@ attachments, technician/review notes, billing facts, endpoint controls, or AI
 output.
 
 A later source-only definition-v2 slice leaves all of that v1 history unchanged.
-It uses one latest adjustment visible at `generated_at` for each approved entry,
-counts the entry once, and separately shows original billable minutes, effective
-billable minutes, net change, adjusted-entry count, and applied-slip count. It
-does not select adjustment reasons or add billing, invoice, AI, or endpoint
-actions. New correction-aware schedules require a new key explicitly pinned to
-published v2 bytes. This code has not been merged, published, scheduled,
-generated, delivered, configured, migrated, or deployed in production.
+Under the tenant serialization lock it captures a monotonic adjustment-id
+cutoff, then uses one latest adjustment inside that durable prefix and
+`generated_at` for each approved entry. Same-second report/adjustment races are
+therefore reproducible after both commit. It counts the entry once and separately
+shows original billable minutes, effective billable minutes, net change,
+adjusted-entry count, and applied-slip count. Archive reload regenerates and
+requires exact canonical text before delivery, so a recomputed checksum cannot
+bless private or financial wording. The report does not select adjustment
+reasons or add billing, invoice, AI, or endpoint actions. New correction-aware
+schedules require a new key explicitly pinned to published v2 bytes. This code
+has not been merged, published, scheduled, generated, delivered, configured,
+migrated, or deployed in production.
 
 The source-only onboarding planner `plan-customer-from-id` proves one exact
 active Milepost customer UUID, its configured and authenticated 8 West ID
