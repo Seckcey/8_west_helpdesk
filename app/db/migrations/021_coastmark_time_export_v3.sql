@@ -608,8 +608,8 @@ DEALLOCATE PREPARE cm_export_statement;
 DROP TABLE safeharbor_m021_reference_receipts;
 DROP TABLE safeharbor_m021_reference_claims;
 
--- Fail closed while permanent triggers are installed or replaced on replay.
 DELIMITER $$
+-- Fail closed while permanent triggers are installed or replaced on replay.
 CREATE TRIGGER IF NOT EXISTS trg_cm_claim_021_insert_swap
 BEFORE INSERT ON coastmark_time_export_claims FOR EACH ROW
 BEGIN
