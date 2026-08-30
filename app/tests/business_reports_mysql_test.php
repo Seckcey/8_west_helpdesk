@@ -850,6 +850,122 @@ report_mysql_check(
     'native MySQL private and financial forged text never reaches transport',
     $forgedTransportCalls === 0,
 );
+
+$mysqlAdversarialMetricKinds = [
+    'newline text injection',
+    'unknown nested adjustment_reason',
+    'unknown secret and financial fields',
+    'integer string type confusion',
+    'out-of-range integer',
+];
+foreach ($mysqlAdversarialMetricKinds as $index => $kind) {
+    $daysBefore = 21 + ($index * 7);
+    $periodStart = (new DateTimeImmutable(
+        $v2Window['period_start'],
+        new DateTimeZone('UTC'),
+    ))->modify("-{$daysBefore} days")->format('Y-m-d H:i:s');
+    $periodEnd = (new DateTimeImmutable(
+        $v2Window['period_end'],
+        new DateTimeZone('UTC'),
+    ))->modify("-{$daysBefore} days")->format('Y-m-d H:i:s');
+    $generatedAt = gmdate('Y-m-d H:i:s', $v2Clock + 30);
+    $metrics = $v2AtSecondSlip;
+    $metrics['period']['start_utc'] = str_replace(' ', 'T', $periodStart) . 'Z';
+    $metrics['period']['end_utc_exclusive'] = str_replace(' ', 'T', $periodEnd) . 'Z';
+    $metrics['generated_at'] = str_replace(' ', 'T', $generatedAt) . 'Z';
+    $text = business_report_text($metrics);
+
+    if ($kind === 'newline text injection') {
+        $opened = (string) $metrics['tickets']['opened'];
+        $metrics['tickets']['opened'] = $opened . "\nInvoice has been posted";
+        $text = str_replace(
+            "Tickets opened: {$opened}",
+            'Tickets opened: ' . $metrics['tickets']['opened'],
+            $text,
+        );
+    } elseif ($kind === 'unknown nested adjustment_reason') {
+        $metrics['approved_billable_time']['adjustment_reason'] =
+            'private native MySQL reason';
+    } elseif ($kind === 'unknown secret and financial fields') {
+        $metrics['invoice_status'] = 'posted';
+        $metrics['graph_client_secret'] = 'must never be archived';
+    } elseif ($kind === 'integer string type confusion') {
+        $metrics['tickets']['resolved'] = (string) $metrics['tickets']['resolved'];
+    } elseif ($kind === 'out-of-range integer') {
+        $oldOpened = (string) $metrics['tickets']['opened'];
+        $metrics['tickets']['opened'] = BUSINESS_REPORT_ARCHIVE_MAX_COUNT + 1;
+        $text = str_replace(
+            "Tickets opened: {$oldOpened}",
+            'Tickets opened: ' . $metrics['tickets']['opened'],
+            $text,
+        );
+    }
+
+    $metricsJson = business_report_metrics_json($metrics);
+    $hash = business_report_content_sha256_from_json($metricsJson, $text);
+    $forgedArchiveInsert->execute([
+        1,
+        13,
+        'weekly-v2',
+        (int) $v2Schedule['id'],
+        (int) $v2Schedule['definition_version_id'],
+        $periodStart,
+        $periodEnd,
+        $generatedAt,
+        $metricsJson,
+        $text,
+        $hash,
+    ]);
+    $archiveId = (int) $pdo->lastInsertId();
+    $archive = $pdo->query(
+        'SELECT * FROM business_report_archives WHERE id=' . $archiveId,
+    )->fetch(PDO::FETCH_ASSOC);
+    report_mysql_throws(
+        "native MySQL direct-insert reload refuses {$kind}",
+        BusinessReportConflictException::class,
+        fn() => business_report_archived_content(is_array($archive) ? $archive : []),
+        'metric schema',
+    );
+
+    $forgedDeliveryInsert->execute([
+        $archiveId,
+        (int) $v2Schedule['id'],
+        'reports@example.test',
+    ]);
+    $transportCalls = 0;
+    $attemptsBefore = (int) $pdo->query(
+        'SELECT COUNT(*) FROM business_report_delivery_attempts',
+    )->fetchColumn();
+    report_mysql_throws(
+        "native MySQL direct-insert delivery refuses {$kind}",
+        BusinessReportConflictException::class,
+        fn() => business_report_deliver(
+            $pdo,
+            $archiveId,
+            report_mysql_config(),
+            function () use (&$transportCalls): array {
+                $transportCalls++;
+                return [
+                    'outcome' => 'submitted',
+                    'provider_http' => 202,
+                    'outcome_code' => 'graph_accepted',
+                ];
+            },
+            $testNow,
+        ),
+        'metric schema',
+    );
+    report_mysql_check(
+        "native MySQL {$kind} makes zero transport or delivery-attempt calls",
+        $transportCalls === 0
+            && (int) $pdo->query(
+                'SELECT COUNT(*) FROM business_report_delivery_attempts',
+            )->fetchColumn() === $attemptsBefore
+            && (string) $pdo->query(
+                'SELECT status FROM business_report_deliveries WHERE archive_id=' . $archiveId,
+            )->fetchColumn() === 'pending',
+    );
+}
 $pdo->exec('SET timestamp = 0');
 
 // The app-like identity gets reads plus only the inserts/transition updates the

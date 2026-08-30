@@ -20,6 +20,8 @@ const BUSINESS_REPORT_MAX_DUE_SCHEDULES = 100;
 const BUSINESS_REPORT_CONTACT_SCOPE_MANUAL = 'MANUAL';
 const BUSINESS_REPORT_CONTACT_SCOPE_TENANT = 'TENANT';
 const BUSINESS_REPORT_CONTACT_SCOPE_CLIENT = 'CLIENT';
+const BUSINESS_REPORT_ARCHIVE_MAX_COUNT = 4294967295;
+const BUSINESS_REPORT_ARCHIVE_MAX_MINUTES = 4294967295;
 const BUSINESS_REPORT_MILEPOST_CUSTOMER_UUID =
     '/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D';
 const BUSINESS_REPORT_MASTER_CUSTOMER_ID = '4ebaeefa-b101-47f8-ac76-e49ab309d272';
@@ -2139,9 +2141,331 @@ function business_report_metrics(
     ];
 }
 
+/** @param list<string> $expected */
+function business_report_archive_has_exact_keys(mixed $value, array $expected): bool
+{
+    if (!is_array($value) || array_is_list($value)) return false;
+    $actual = array_keys($value);
+    sort($actual);
+    sort($expected);
+    return $actual === $expected;
+}
+
+function business_report_archive_strings_are_safe(mixed $value): bool
+{
+    if (is_string($value)) {
+        return mb_check_encoding($value, 'UTF-8')
+            && preg_match('/[\p{Cc}\x{2028}\x{2029}]/u', $value) === 0;
+    }
+    if (!is_array($value)) return true;
+    foreach ($value as $item) {
+        if (!business_report_archive_strings_are_safe($item)) return false;
+    }
+    return true;
+}
+
+function business_report_archive_integer_between(mixed $value, int $minimum, int $maximum): bool
+{
+    return is_int($value) && $value >= $minimum && $value <= $maximum;
+}
+
+function business_report_archive_iso_utc(mixed $value): bool
+{
+    if (!is_string($value)
+        || preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\z/D', $value) !== 1
+    ) {
+        return false;
+    }
+    $databaseValue = substr($value, 0, -1);
+    $databaseValue[10] = ' ';
+    $date = DateTimeImmutable::createFromFormat(
+        '!Y-m-d H:i:s',
+        $databaseValue,
+        new DateTimeZone('UTC'),
+    );
+    $errors = DateTimeImmutable::getLastErrors();
+    return $date !== false
+        && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))
+        && $date->format('Y-m-d\TH:i:s\Z') === $value
+        && (int) substr($value, 0, 4) >= 1000;
+}
+
+/**
+ * Refuse any archive metric that is not exactly one of the immutable v1/v2
+ * public contracts. This deliberately validates every nested key and scalar
+ * before rendering so a self-hashed direct insert cannot turn a metric into
+ * report text or use an ignored field as private/financial storage.
+ *
+ * @param array<string,mixed> $metrics
+ */
+function business_report_assert_archive_metric_schema(array $metrics): void
+{
+    $invalid = static function (): never {
+        throw new BusinessReportConflictException(
+            'The archived report metric schema is invalid.',
+        );
+    };
+    if (!business_report_archive_strings_are_safe($metrics)
+        || !business_report_archive_has_exact_keys($metrics, [
+            'schema_version',
+            'report_type',
+            'definition',
+            'source',
+            'period',
+            'generated_at',
+            'tickets',
+            'first_response',
+            'service_goal',
+            'approved_billable_time',
+            'csat',
+            'delivery_truth',
+        ])
+        || ($metrics['schema_version'] ?? null) !== 1
+        || ($metrics['report_type'] ?? null) !== BUSINESS_REPORT_TYPE
+        || ($metrics['delivery_truth'] ?? null)
+            !== 'A provider acceptance is submission evidence, not inbox delivery proof.'
+    ) {
+        $invalid();
+    }
+
+    $definition = $metrics['definition'] ?? null;
+    if (!business_report_archive_has_exact_keys($definition, ['key', 'version', 'sha256'])) {
+        $invalid();
+    }
+    $definitionVersion = $definition['version'] ?? null;
+    if (!is_int($definitionVersion)
+        || !in_array($definitionVersion, [
+            BUSINESS_REPORT_CONTRACT_VERSION_V1,
+            BUSINESS_REPORT_CONTRACT_VERSION_V2,
+        ], true)
+        || ($definition['key'] ?? null) !== BUSINESS_REPORT_DEFINITION_KEY
+        || !is_string($definition['sha256'] ?? null)
+        || preg_match('/\A[0-9a-f]{64}\z/D', $definition['sha256']) !== 1
+        || !hash_equals(business_report_contract_sha256($definitionVersion), $definition['sha256'])
+    ) {
+        $invalid();
+    }
+
+    $source = $metrics['source'] ?? null;
+    if (!business_report_archive_has_exact_keys($source, [
+        'tenant_key',
+        'client_key',
+        'client_name',
+    ])
+        || !is_string($source['tenant_key'] ?? null)
+        || preg_match('/\A[a-z0-9][a-z0-9-]{0,63}\z/D', $source['tenant_key']) !== 1
+        || !is_string($source['client_key'] ?? null)
+        || preg_match('/\Asafeharbor-client:[1-9][0-9]{0,9}\z/D', $source['client_key']) !== 1
+        || (int) substr($source['client_key'], strlen('safeharbor-client:'))
+            > BUSINESS_REPORT_ARCHIVE_MAX_COUNT
+        || !is_string($source['client_name'] ?? null)
+        || $source['client_name'] === ''
+        || $source['client_name'] !== trim($source['client_name'])
+        || mb_strlen($source['client_name'], 'UTF-8') > 128
+    ) {
+        $invalid();
+    }
+
+    $period = $metrics['period'] ?? null;
+    if (!business_report_archive_has_exact_keys($period, [
+        'start_utc',
+        'end_utc_exclusive',
+        'schedule_timezone',
+    ])
+        || !business_report_archive_iso_utc($period['start_utc'] ?? null)
+        || !business_report_archive_iso_utc($period['end_utc_exclusive'] ?? null)
+        || !business_report_archive_iso_utc($metrics['generated_at'] ?? null)
+        || $period['start_utc'] >= $period['end_utc_exclusive']
+        || $period['end_utc_exclusive'] > $metrics['generated_at']
+        || !is_string($period['schedule_timezone'] ?? null)
+        || strlen($period['schedule_timezone']) > 64
+        || !in_array($period['schedule_timezone'], timezone_identifiers_list(), true)
+    ) {
+        $invalid();
+    }
+
+    $tickets = $metrics['tickets'] ?? null;
+    if (!business_report_archive_has_exact_keys($tickets, [
+        'opened',
+        'resolved',
+        'merged_histories_excluded_from_response_metrics',
+    ])) {
+        $invalid();
+    }
+    foreach (['opened', 'resolved', 'merged_histories_excluded_from_response_metrics'] as $key) {
+        if (!business_report_archive_integer_between(
+            $tickets[$key] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )) {
+            $invalid();
+        }
+    }
+
+    $firstResponse = $metrics['first_response'] ?? null;
+    if (!business_report_archive_has_exact_keys($firstResponse, ['answered', 'average_minutes'])
+        || !business_report_archive_integer_between(
+            $firstResponse['answered'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )
+        || $firstResponse['answered'] > $tickets['opened']
+        || ($firstResponse['answered'] === 0 && $firstResponse['average_minutes'] !== null)
+        || ($firstResponse['answered'] > 0
+            && !business_report_archive_integer_between(
+                $firstResponse['average_minutes'] ?? null,
+                0,
+                BUSINESS_REPORT_ARCHIVE_MAX_MINUTES,
+            ))
+    ) {
+        $invalid();
+    }
+
+    $serviceGoal = $metrics['service_goal'] ?? null;
+    if (!business_report_archive_has_exact_keys($serviceGoal, [
+        'eligible_versioned',
+        'legacy_unversioned_excluded',
+        'decided',
+        'met',
+        'attainment_percent',
+        'undecided',
+    ])) {
+        $invalid();
+    }
+    foreach ([
+        'eligible_versioned',
+        'legacy_unversioned_excluded',
+        'decided',
+        'met',
+        'undecided',
+    ] as $key) {
+        if (!business_report_archive_integer_between(
+            $serviceGoal[$key] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )) {
+            $invalid();
+        }
+    }
+    $expectedAttainment = $serviceGoal['decided'] === 0
+        ? null
+        : (int) round(100 * $serviceGoal['met'] / $serviceGoal['decided']);
+    if ($serviceGoal['eligible_versioned'] + $serviceGoal['legacy_unversioned_excluded']
+            > $tickets['opened']
+        || $serviceGoal['decided'] > $serviceGoal['eligible_versioned']
+        || $serviceGoal['met'] > $serviceGoal['decided']
+        || $serviceGoal['undecided']
+            !== $serviceGoal['eligible_versioned'] - $serviceGoal['decided']
+        || $serviceGoal['attainment_percent'] !== $expectedAttainment
+    ) {
+        $invalid();
+    }
+
+    $approvedTime = $metrics['approved_billable_time'] ?? null;
+    $approvedKeys = $definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V1
+        ? ['minutes', 'classification']
+        : [
+            'adjustment_id_cutoff',
+            'minutes',
+            'original_approved_billable_minutes',
+            'net_adjustment_minutes',
+            'entries_with_adjustments_applied',
+            'adjustment_slips_applied',
+            'calculation',
+            'classification',
+        ];
+    if (!business_report_archive_has_exact_keys($approvedTime, $approvedKeys)
+        || !business_report_archive_integer_between(
+            $approvedTime['minutes'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_MINUTES,
+        )
+        || ($approvedTime['classification'] ?? null)
+            !== 'operational_approval_evidence_not_financial_status'
+    ) {
+        $invalid();
+    }
+    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2) {
+        if (!business_report_archive_integer_between(
+            $approvedTime['original_approved_billable_minutes'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_MINUTES,
+        )) {
+            $invalid();
+        }
+        foreach (['entries_with_adjustments_applied', 'adjustment_slips_applied'] as $key) {
+            if (!business_report_archive_integer_between(
+                $approvedTime[$key] ?? null,
+                0,
+                BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+            )) {
+                $invalid();
+            }
+        }
+        if (!business_report_archive_integer_between(
+                $approvedTime['adjustment_id_cutoff'] ?? null,
+                0,
+                PHP_INT_MAX,
+            )
+            || !business_report_archive_integer_between(
+                $approvedTime['net_adjustment_minutes'] ?? null,
+                -BUSINESS_REPORT_ARCHIVE_MAX_MINUTES,
+                0,
+            )
+            || ($approvedTime['calculation'] ?? null)
+                !== 'each_approved_entry_once_using_latest_adjustment_at_id_cutoff_and_generated_at_else_original'
+            || $approvedTime['minutes'] > $approvedTime['original_approved_billable_minutes']
+            || $approvedTime['net_adjustment_minutes']
+                !== $approvedTime['minutes'] - $approvedTime['original_approved_billable_minutes']
+            || $approvedTime['adjustment_slips_applied']
+                < $approvedTime['entries_with_adjustments_applied']
+            || (($approvedTime['entries_with_adjustments_applied'] === 0)
+                !== ($approvedTime['adjustment_slips_applied'] === 0))
+            || ($approvedTime['entries_with_adjustments_applied'] === 0
+                && $approvedTime['minutes'] !== $approvedTime['original_approved_billable_minutes'])
+        ) {
+            throw new BusinessReportConflictException(
+                'The archived report metric schema and v2 adjustment summary are invalid.',
+            );
+        }
+    }
+
+    $csat = $metrics['csat'] ?? null;
+    if (!business_report_archive_has_exact_keys($csat, [
+        'surveys_sent',
+        'responses_received_by_generated_at',
+        'average_score_out_of_3',
+    ])
+        || !business_report_archive_integer_between(
+            $csat['surveys_sent'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )
+        || !business_report_archive_integer_between(
+            $csat['responses_received_by_generated_at'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )
+        || $csat['responses_received_by_generated_at'] > $csat['surveys_sent']
+    ) {
+        $invalid();
+    }
+    $averageScore = $csat['average_score_out_of_3'];
+    if (($csat['responses_received_by_generated_at'] === 0 && $averageScore !== null)
+        || ($csat['responses_received_by_generated_at'] > 0
+            && (!is_float($averageScore)
+                || !is_finite($averageScore)
+                || $averageScore < 1.0
+                || $averageScore > 3.0))
+    ) {
+        $invalid();
+    }
+}
+
 /** @param array<string,mixed> $metrics */
 function business_report_text(array $metrics): string
 {
+    business_report_assert_archive_metric_schema($metrics);
     $value = static fn(mixed $item): string => $item === null ? 'Not enough decided data' : (string)$item;
     $minutes = (int)$metrics['approved_billable_time']['minutes'];
     $hours = number_format($minutes / 60, 2, '.', '');
@@ -2230,51 +2554,7 @@ function business_report_archived_content(array $archive): array
     ) {
         throw new BusinessReportConflictException('The archived report content hash does not match.');
     }
-    $schemaVersion = $metrics['schema_version'] ?? null;
-    $definition = $metrics['definition'] ?? null;
-    $definitionVersion = is_array($definition) ? ($definition['version'] ?? null) : null;
-    if ($schemaVersion !== 1
-        || !is_int($definitionVersion)
-        || !in_array($definitionVersion, [
-            BUSINESS_REPORT_CONTRACT_VERSION_V1,
-            BUSINESS_REPORT_CONTRACT_VERSION_V2,
-        ], true)
-        || !is_string($definition['key'] ?? null)
-        || !hash_equals(BUSINESS_REPORT_DEFINITION_KEY, $definition['key'])
-        || !is_string($definition['sha256'] ?? null)
-        || !hash_equals(business_report_contract_sha256($definitionVersion), $definition['sha256'])
-        || ($metrics['report_type'] ?? null) !== BUSINESS_REPORT_TYPE
-        || !is_array($metrics['source'] ?? null)
-        || !is_string($metrics['source']['tenant_key'] ?? null)
-        || !is_string($metrics['source']['client_key'] ?? null)
-        || !is_string($metrics['source']['client_name'] ?? null)
-    ) {
-        throw new BusinessReportConflictException('The archived report contract is invalid.');
-    }
-    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V2) {
-        $approvedTime = $metrics['approved_billable_time'] ?? null;
-        if (!is_array($approvedTime)
-            || !is_int($approvedTime['adjustment_id_cutoff'] ?? null)
-            || !is_int($approvedTime['minutes'] ?? null)
-            || !is_int($approvedTime['original_approved_billable_minutes'] ?? null)
-            || !is_int($approvedTime['net_adjustment_minutes'] ?? null)
-            || !is_int($approvedTime['entries_with_adjustments_applied'] ?? null)
-            || !is_int($approvedTime['adjustment_slips_applied'] ?? null)
-            || ($approvedTime['calculation'] ?? null)
-                !== 'each_approved_entry_once_using_latest_adjustment_at_id_cutoff_and_generated_at_else_original'
-            || ($approvedTime['classification'] ?? null)
-                !== 'operational_approval_evidence_not_financial_status'
-            || $approvedTime['adjustment_id_cutoff'] < 0
-            || $approvedTime['minutes'] < 0
-            || $approvedTime['original_approved_billable_minutes'] < 0
-            || $approvedTime['entries_with_adjustments_applied'] < 0
-            || $approvedTime['adjustment_slips_applied'] < $approvedTime['entries_with_adjustments_applied']
-            || $approvedTime['net_adjustment_minutes']
-                !== $approvedTime['minutes'] - $approvedTime['original_approved_billable_minutes']
-        ) {
-            throw new BusinessReportConflictException('The archived report v2 adjustment summary is invalid.');
-        }
-    }
+    business_report_assert_archive_metric_schema($metrics);
     try {
         set_error_handler(
             static function (int $severity, string $message, string $file, int $line): never {

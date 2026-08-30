@@ -1694,6 +1694,26 @@ report_check(
     $unchangedArchivedContent['metrics'] === $generated['metrics']
         && hash_equals((string)$reloaded['content_sha256'], (string)$generated['archive']['content_sha256']),
 );
+$unknownV1Metrics = $generated['metrics'];
+$unknownV1Metrics['approved_billable_time']['adjustment_reason'] = 'not part of v1';
+$unknownV1Archive = $reloaded;
+$unknownV1Archive['metrics_json'] = business_report_metrics_json($unknownV1Metrics);
+$unknownV1Archive['content_sha256'] = business_report_content_sha256_from_json(
+    $unknownV1Archive['metrics_json'],
+    (string) $unknownV1Archive['report_text'],
+);
+report_throws(
+    'definition v1 archive reload refuses an unknown nested private field',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content($unknownV1Archive),
+    'metric schema',
+);
+report_check(
+    'definition v1 valid archived JSON and report bytes remain exact',
+    (string) $reloaded['metrics_json'] === business_report_metrics_json($generated['metrics'])
+        && (string) $reloaded['report_text'] === $generated['text']
+        && business_report_archived_content($reloaded) === $unchangedArchivedContent,
+);
 
 // Definition v2 uses one effective row per approved entry. Multiple immutable
 // slips are evidence, not additional time, and only slips inside both the
@@ -1861,6 +1881,148 @@ report_check(
     $forgedV2TransportCalls === 0,
 );
 $forgeV2->execute([$canonicalV2Text, $canonicalV2Hash, (int) $v2Archive['id']]);
+
+$newlineMetrics = $v2Generated['metrics'];
+$newlineClientName = (string) $newlineMetrics['source']['client_name']
+    . "\nInvoice has been posted";
+$newlineMetrics['source']['client_name'] = $newlineClientName;
+$newlineText = str_replace(
+    'Client: ' . $v2Generated['metrics']['source']['client_name'],
+    'Client: ' . $newlineClientName,
+    $canonicalV2Text,
+);
+report_throws(
+    'renderer refuses newline-bearing metrics before producing report text',
+    BusinessReportConflictException::class,
+    fn() => business_report_text($newlineMetrics),
+    'metric schema',
+);
+$unknownAdjustmentMetrics = $v2Generated['metrics'];
+$unknownAdjustmentMetrics['approved_billable_time']['adjustment_reason'] =
+    'private correction reason';
+$unknownFinancialMetrics = $v2Generated['metrics'];
+$unknownFinancialMetrics['invoice_status'] = 'posted';
+$unknownFinancialMetrics['graph_client_secret'] = 'must never be archived';
+$typeConfusedMetrics = $v2Generated['metrics'];
+$typeConfusedMetrics['tickets']['resolved'] =
+    (string) $typeConfusedMetrics['tickets']['resolved'];
+$outOfRangeMetrics = $v2Generated['metrics'];
+$outOfRangeMetrics['tickets']['opened'] = BUSINESS_REPORT_ARCHIVE_MAX_COUNT + 1;
+$outOfRangeText = str_replace(
+    'Tickets opened: ' . $v2Generated['metrics']['tickets']['opened'],
+    'Tickets opened: ' . $outOfRangeMetrics['tickets']['opened'],
+    $canonicalV2Text,
+);
+$nonfiniteMetricsJsonCount = 0;
+$nonfiniteMetricsJson = preg_replace_callback(
+    '/("average_score_out_of_3":)(?:null|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/',
+    static fn(array $match): string => $match[1] . '1e309',
+    (string) $v2Archive['metrics_json'],
+    1,
+    $nonfiniteMetricsJsonCount,
+);
+if (!is_string($nonfiniteMetricsJson) || $nonfiniteMetricsJsonCount !== 1) {
+    throw new RuntimeException('Nonfinite archive fixture could not be built exactly.');
+}
+$nonfiniteText = preg_replace(
+    '/^CSAT average: .*$/m',
+    'CSAT average: INF / 3',
+    $canonicalV2Text,
+    1,
+);
+if (!is_string($nonfiniteText)) {
+    throw new RuntimeException('Nonfinite archive text fixture could not be built exactly.');
+}
+$adversarialV2Archives = [
+    'newline client text injection' => [
+        business_report_metrics_json($newlineMetrics),
+        $newlineText,
+    ],
+    'unknown nested adjustment_reason' => [
+        business_report_metrics_json($unknownAdjustmentMetrics),
+        $canonicalV2Text,
+    ],
+    'unknown secret and financial fields' => [
+        business_report_metrics_json($unknownFinancialMetrics),
+        $canonicalV2Text,
+    ],
+    'integer string type confusion' => [
+        business_report_metrics_json($typeConfusedMetrics),
+        $canonicalV2Text,
+    ],
+    'out-of-range integer' => [
+        business_report_metrics_json($outOfRangeMetrics),
+        $outOfRangeText,
+    ],
+    'nonfinite JSON number' => [
+        $nonfiniteMetricsJson,
+        $nonfiniteText,
+    ],
+];
+$forgeV2Metrics = $pdo->prepare(
+    'UPDATE business_report_archives
+        SET metrics_json=?,report_text=?,content_sha256=? WHERE id=?'
+);
+foreach ($adversarialV2Archives as $name => [$forgedMetricsJson, $forgedText]) {
+    $forgedHash = business_report_content_sha256_from_json($forgedMetricsJson, $forgedText);
+    $forgedArchive = $v2Archive;
+    $forgedArchive['metrics_json'] = $forgedMetricsJson;
+    $forgedArchive['report_text'] = $forgedText;
+    $forgedArchive['content_sha256'] = $forgedHash;
+    report_throws(
+        "archive reload refuses {$name}",
+        BusinessReportConflictException::class,
+        fn() => business_report_archived_content($forgedArchive),
+        'metric schema',
+    );
+
+    $forgeV2Metrics->execute([
+        $forgedMetricsJson,
+        $forgedText,
+        $forgedHash,
+        (int) $v2Archive['id'],
+    ]);
+    $schemaTransportCalls = 0;
+    $attemptsBeforeSchemaRefusal = (int) $pdo->query(
+        'SELECT COUNT(*) FROM business_report_delivery_attempts',
+    )->fetchColumn();
+    report_throws(
+        "delivery refuses {$name} before transport",
+        BusinessReportConflictException::class,
+        fn() => business_report_deliver(
+            $pdo,
+            (int) $v2Archive['id'],
+            $v2Config,
+            function () use (&$schemaTransportCalls): array {
+                $schemaTransportCalls++;
+                return [
+                    'outcome' => 'submitted',
+                    'provider_http' => 202,
+                    'outcome_code' => 'graph_accepted',
+                ];
+            },
+            $now,
+        ),
+        'metric schema',
+    );
+    report_check(
+        "{$name} makes zero transport or delivery-attempt calls",
+        $schemaTransportCalls === 0
+            && (int) $pdo->query(
+                'SELECT COUNT(*) FROM business_report_delivery_attempts',
+            )->fetchColumn() === $attemptsBeforeSchemaRefusal
+            && (string) $pdo->query(
+                'SELECT status FROM business_report_deliveries WHERE archive_id='
+                . (int) $v2Archive['id'],
+            )->fetchColumn() === 'pending',
+    );
+}
+$forgeV2Metrics->execute([
+    (string) $v2Archive['metrics_json'],
+    $canonicalV2Text,
+    $canonicalV2Hash,
+    (int) $v2Archive['id'],
+]);
 business_report_transition_schedule(
     $pdo,
     'one',
