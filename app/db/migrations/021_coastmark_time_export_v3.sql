@@ -246,7 +246,7 @@ INSERT INTO safeharbor_m021_source_columns VALUES
   ('safeharbor_m021_reference_receipts',9,'coastmark_event_id','bigint unsigned','YES',NULL,'','',NULL,NULL),
   ('safeharbor_m021_reference_receipts',10,'invoice_id','bigint unsigned','YES',NULL,'','',NULL,NULL),
   ('safeharbor_m021_reference_receipts',11,'invoice_line_id','bigint unsigned','YES',NULL,'','',NULL,NULL),
-  ('safeharbor_m021_reference_receipts',12,'detail_code','varchar(64)','NO',NULL,'','','utf8mb4','@table'),
+  ('safeharbor_m021_reference_receipts',12,'detail_code','varchar(64)','NO',NULL,'','','ascii','ascii_bin'),
   ('safeharbor_m021_reference_receipts',13,'created_at','datetime','NO','CURRENT_TIMESTAMP','DEFAULT_GENERATED','',NULL,NULL);
 
 DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_source_indexes;

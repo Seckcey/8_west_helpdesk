@@ -687,6 +687,8 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, 'safeharbor_m021_source_indexes')
     && str_contains($migrationOperational, 'safeharbor_m021_source_fks')
     && str_contains($migrationOperational, 'safeharbor_m021_source_checks')
+    && str_contains($migrationOperational,
+        "'safeharbor_m021_reference_receipts',12,'detail_code','varchar(64)','NO',NULL,'','','ascii','ascii_bin'")
     && str_contains($migrationOperational, 'migration_021_reference_source_tables_failed')
     && str_contains($migrationOperational, 'migration_021_reference_source_columns_failed')
     && str_contains($migrationOperational, 'migration_021_reference_source_indexes_failed')
