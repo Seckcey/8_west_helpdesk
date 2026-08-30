@@ -305,6 +305,60 @@ try {
 
     $migration = __DIR__ . '/../db/migrations/021_coastmark_time_export_v3.sql';
 
+    // Temporary trusted-source serializer probe. This table contains only the
+    // literal CHECK expressions below; its metadata output is safe to inspect
+    // while replacing the migration's historical whole-clause normalizer.
+    $pdo->exec("CREATE TABLE cm_v3_trusted_check_serializer(
+      event_key VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      payload_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      payload_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+      source_version INT UNSIGNED NOT NULL,
+      predecessor_claim_id BIGINT UNSIGNED NULL,
+      operation_key VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      response_status SMALLINT UNSIGNED NULL,
+      response_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+      detail_code VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      outcome ENUM('dispatching','checking','accepted','replayed','absent','ambiguous','conflict','manual_exception') NOT NULL,
+      coastmark_event_id BIGINT UNSIGNED NULL,
+      invoice_id BIGINT UNSIGNED NULL,
+      invoice_line_id BIGINT UNSIGNED NULL,
+      CONSTRAINT tf_event CHECK (REGEXP_LIKE(event_key,'^safeharbor-time:[0-9a-f]{32}$')),
+      CONSTRAINT tf_hash CHECK (REGEXP_LIKE(payload_sha256,'^[0-9a-f]{64}$')),
+      CONSTRAINT tf_payload CHECK (JSON_VALID(payload_json)),
+      CONSTRAINT tf_predecessor CHECK (
+        (source_version=0 AND predecessor_claim_id IS NULL)
+        OR (source_version>0 AND predecessor_claim_id IS NOT NULL)
+      ),
+      CONSTRAINT tf_operation CHECK (REGEXP_LIKE(operation_key,'^safeharbor-op:[0-9a-f]{32}$')),
+      CONSTRAINT tf_status CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599),
+      CONSTRAINT tf_response_hash CHECK (
+        response_sha256 IS NULL OR REGEXP_LIKE(response_sha256,'^[0-9a-f]{64}$')
+      ),
+      CONSTRAINT tf_detail CHECK (REGEXP_LIKE(detail_code,'^[a-z][a-z0-9_]{2,63}$')),
+      CONSTRAINT tf_ack CHECK (
+        (outcome='accepted' AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL AND invoice_line_id IS NOT NULL)
+        OR (outcome='replayed' AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL)
+        OR (outcome='manual_exception' AND coastmark_event_id IS NOT NULL AND invoice_id IS NOT NULL AND invoice_line_id IS NULL)
+        OR (outcome NOT IN ('accepted','replayed','manual_exception') AND coastmark_event_id IS NULL AND invoice_id IS NULL AND invoice_line_id IS NULL)
+      ),
+      CONSTRAINT tf_lock CHECK (0=1)
+    ) ENGINE=InnoDB");
+    $trustedSerializer = static function (PDO $pdo, string $phase): void {
+        $rows = $pdo->query("SELECT constraint_name,check_clause
+            FROM information_schema.check_constraints
+            WHERE constraint_schema=DATABASE() AND constraint_name LIKE 'tf\\_%'
+            ORDER BY constraint_name")->fetchAll();
+        foreach ($rows as $row) {
+            fwrite(STDOUT, '# trusted-check-' . $phase . ' '
+                . $row['constraint_name'] . ' '
+                . base64_encode((string) $row['check_clause']) . "\n");
+        }
+    };
+    $trustedSerializer($pdo, 'locked');
+    $pdo->exec('ALTER TABLE cm_v3_trusted_check_serializer DROP CHECK tf_lock');
+    $trustedSerializer($pdo, 'unlocked');
+    $pdo->exec('DROP TABLE cm_v3_trusted_check_serializer');
+
     // A same-named unrelated table must survive untouched. The failed attempt
     // may create the missing exact claims reference, producing the meaningful
     // one-table interruption state that the following retry must recover.
