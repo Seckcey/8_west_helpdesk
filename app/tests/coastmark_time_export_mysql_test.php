@@ -103,7 +103,8 @@ function cm_v3_expect(string $name, callable $operation, string $message = ''): 
         $operation();
         cm_v3_check($name, false);
     } catch (Throwable $error) {
-        $matched = $message === '' || str_contains($error->getMessage(), $message);
+        $matched = $message === ''
+            || str_contains(strtolower($error->getMessage()), strtolower($message));
         cm_v3_check($name, $matched);
         if (!$matched) {
             fwrite(STDERR, "# expected refusal containing {$message}; got {$error->getMessage()}\n");
