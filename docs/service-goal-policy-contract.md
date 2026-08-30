@@ -194,8 +194,19 @@ was written. The root-only receipt is
 `/srv/8west/backups/safeharbor/20260827T154017Z-pre-service-goal-history-b02a7a6/service-goal-signed-in-acceptance-20260829T062933Z.txt`
 at SHA-256
 `74912b7f39cc9a78ec597a1266ce57525f0f0cc8c95e3efdd473797da6a77f45`.
-Version 2 remains intentionally absent pending real target values, an exact
-future effective UTC time, an authorized actor, and an immutable reason.
+On 2026-08-29, Frankie supplied and approved the real `8west` values. Standard
+v2 is Low 480, Normal 240, High 120, and Urgent 60 elapsed minutes; Premium v2
+is Low 240, Normal 120, High 60, and Urgent 30 elapsed minutes. Both were
+published through the digest-bound operator path by actor 1 with reason
+`Frankie approved 8 West IT response promises on 2026-08-29` and the shared
+future effective boundary `2026-08-31 07:00:00Z` (Monday midnight Pacific).
+Both retain UTC elapsed clocks, no waiting pause, and no resolution goal.
+
+A read-only production `inspect` recheck on 2026-08-29 returned Standard
+latest version 2 (policy row 7, target rows 32-35) and Premium latest version 2
+(policy row 8, target rows 36-39) with those exact values, attribution, reason,
+and boundary. Existing tickets keep their immutable creation-time snapshots;
+only tickets opened on or after the effective boundary select v2.
 
 No step in this contract authorizes merge, deployment, policy publication, or
 production mutation by itself.
