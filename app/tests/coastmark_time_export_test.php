@@ -686,6 +686,9 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, '@cm_reference_cleanup_dependencies')
     && str_contains($migrationOperational, '@cm_reference_receipt_disposable')
     && str_contains($migrationOperational, '@cm_reference_claim_disposable')
+    && str_contains($migrationOperational, 'FROM information_schema.routines')
+    && str_contains($migrationOperational, 'routine_definition IS NULL')
+    && !str_contains($migrationOperational, 'routine_table_usage')
     && str_contains($migrationOperational, 'DROP TABLE safeharbor_m021_reference_receipts;')
     && str_contains($migrationOperational, 'DROP TABLE safeharbor_m021_reference_claims;')
     && !str_contains($migrationOperational, 'DROP TABLE IF EXISTS safeharbor_m021_reference_'));

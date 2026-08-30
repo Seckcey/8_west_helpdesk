@@ -3887,10 +3887,13 @@ SET @cm_reference_entry_dependencies_ok = (
           AND table_name IN
               ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
   AND (SELECT COUNT(*)
-         FROM information_schema.routine_table_usage
-        WHERE table_schema=DATABASE()
-          AND table_name IN
-              ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+         FROM information_schema.routines
+        WHERE routine_schema=DATABASE()
+          AND (routine_definition IS NULL
+               OR LOCATE('safeharbor_m021_reference_claims',
+                         LOWER(routine_definition))>0
+               OR LOCATE('safeharbor_m021_reference_receipts',
+                         LOWER(routine_definition))>0))=0
 );
 SET @cm_reference_entry_triggers_ok = (
   SELECT COUNT(*)=0
@@ -4739,10 +4742,13 @@ SET @cm_reference_cleanup_dependencies = (
           AND table_name IN
               ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
   AND (SELECT COUNT(*)
-         FROM information_schema.routine_table_usage
-        WHERE table_schema=DATABASE()
-          AND table_name IN
-              ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))=0
+         FROM information_schema.routines
+        WHERE routine_schema=DATABASE()
+          AND (routine_definition IS NULL
+               OR LOCATE('safeharbor_m021_reference_claims',
+                         LOWER(routine_definition))>0
+               OR LOCATE('safeharbor_m021_reference_receipts',
+                         LOWER(routine_definition))>0))=0
 );
 SET @cm_reference_receipt_disposable = (
   @cm_reference_cleanup_locked=1
@@ -4828,9 +4834,11 @@ SET @cm_reference_claim_cleanup_dependencies = (
         WHERE table_schema=DATABASE()
           AND table_name='safeharbor_m021_reference_claims')=0
   AND (SELECT COUNT(*)
-         FROM information_schema.routine_table_usage
-        WHERE table_schema=DATABASE()
-          AND table_name='safeharbor_m021_reference_claims')=0
+         FROM information_schema.routines
+        WHERE routine_schema=DATABASE()
+          AND (routine_definition IS NULL
+               OR LOCATE('safeharbor_m021_reference_claims',
+                         LOWER(routine_definition))>0))=0
 );
 SET @cm_reference_claim_disposable = (
   (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID())

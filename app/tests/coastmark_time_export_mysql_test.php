@@ -405,6 +405,19 @@ try {
                 ('cm_v3_reference_dependent','safeharbor_m021_reference_claims')")->fetchColumn() === 2);
     $pdo->exec('DROP TABLE cm_v3_reference_dependent');
 
+    $pdo->exec('CREATE PROCEDURE cm_v3_reference_reader()
+      READS SQL DATA SELECT COUNT(*) FROM safeharbor_m021_reference_claims');
+    cm_v3_expect(
+        'migration refuses a stored routine that references owned cleanup evidence',
+        fn() => cm_v3_apply($pdo, $migration),
+        'migration_021_reference_dependency_failed',
+    );
+    cm_v3_check('unexpected stored routine survives cleanup refusal',
+        (int) $pdo->query("SELECT COUNT(*) FROM information_schema.routines
+          WHERE routine_schema=DATABASE()
+            AND routine_name='cm_v3_reference_reader'")->fetchColumn() === 1);
+    $pdo->exec('DROP PROCEDURE cm_v3_reference_reader');
+
     $migrationContender = new PDO($serverDsn . ';dbname=' . $database, $user, $pass, $options);
     cm_v3_expect(
         'a concurrent migration runner cannot enter while failed owner retains the lock',
