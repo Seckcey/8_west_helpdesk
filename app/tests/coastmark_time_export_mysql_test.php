@@ -350,10 +350,10 @@ try {
                     SHA2(CAST(check_clause AS BINARY),256) AS clause_sha256
             FROM information_schema.check_constraints
             WHERE constraint_schema=DATABASE() AND constraint_name LIKE 'tf\\_%'
-            ORDER BY constraint_name")->fetchAll(PDO::FETCH_ASSOC);
+            ORDER BY constraint_name")->fetchAll(PDO::FETCH_NUM);
         $hashes = [];
         foreach ($rows as $row) {
-            $hashes[(string) $row['constraint_name']] = (string) $row['clause_sha256'];
+            $hashes[(string) $row[0]] = (string) $row[1];
         }
         return $hashes;
     };
@@ -790,15 +790,19 @@ try {
         ),
         'migration_021_reference_cleanup_boundary_failed',
     );
-    cm_v3_check('boundary drift refusal keeps both reference evidence tables and the advisory lock',
-        $injectedBoundaryDrift
-        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+    $boundaryReferenceCount = (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
           WHERE table_schema=DATABASE()
             AND table_name IN
                 ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')")
-            ->fetchColumn() === 2
-        && (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName)
-            . ') <=> CONNECTION_ID()')->fetchColumn() === 1);
+            ->fetchColumn();
+    $boundaryLockOwned = (int) $pdo->query("SELECT IS_USED_LOCK("
+        . $pdo->quote($migrationLockName) . ') <=> CONNECTION_ID()')->fetchColumn();
+    cm_v3_check('boundary drift refusal keeps both reference evidence tables and the advisory lock',
+        $injectedBoundaryDrift && $boundaryReferenceCount === 2 && $boundaryLockOwned === 1);
+    if (!$injectedBoundaryDrift || $boundaryReferenceCount !== 2 || $boundaryLockOwned !== 1) {
+        fwrite(STDERR, "# boundary-state injected=" . (int) $injectedBoundaryDrift
+            . " references={$boundaryReferenceCount} advisory_owned={$boundaryLockOwned}\n");
+    }
     $setCoordinatedDetailPattern($boundaryContender, '^[a-z][a-z0-9_]{2,63}$');
     cm_v3_apply($pdo, $migration);
 
@@ -853,14 +857,23 @@ try {
         ),
         'migration_021_final_locked_postcondition_failed',
     );
+    $finalDriftComment = (string) $pdo->query("SELECT table_comment FROM information_schema.tables
+          WHERE table_schema=DATABASE()
+            AND table_name='coastmark_time_export_receipts'")->fetchColumn();
+    $finalDriftLockOwned = (int) $pdo->query("SELECT IS_USED_LOCK("
+        . $pdo->quote($migrationLockName) . ') <=> CONNECTION_ID()')->fetchColumn();
     cm_v3_check('same-run final drift retains the advisory lock and exact drift evidence',
         $injectedFinalDrift
-        && (string) $pdo->query("SELECT table_comment FROM information_schema.tables
-          WHERE table_schema=DATABASE()
-            AND table_name='coastmark_time_export_receipts'")->fetchColumn()
-            === 'same-run-live-drift'
-        && (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName)
-            . ') <=> CONNECTION_ID()')->fetchColumn() === 1);
+        && $finalDriftComment === 'same-run-live-drift'
+        && $finalDriftLockOwned === 1);
+    if (!$injectedFinalDrift
+        || $finalDriftComment !== 'same-run-live-drift'
+        || $finalDriftLockOwned !== 1
+    ) {
+        fwrite(STDERR, '# final-drift-state injected=' . (int) $injectedFinalDrift
+            . ' comment_match=' . (int) ($finalDriftComment === 'same-run-live-drift')
+            . " advisory_owned={$finalDriftLockOwned}\n");
+    }
     $boundaryContender->exec("ALTER TABLE coastmark_time_export_receipts COMMENT=''");
     cm_v3_apply($pdo, $migration);
 
@@ -888,13 +901,17 @@ try {
         ),
         'timeout',
     );
-    cm_v3_check('metadata-lock timeout preserves both references before either destructive DROP',
-        $metadataLockInstalled
-        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+    $metadataTimeoutReferenceCount = (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
           WHERE table_schema=DATABASE()
             AND table_name IN
                 ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')")
-            ->fetchColumn() === 2);
+            ->fetchColumn();
+    cm_v3_check('metadata-lock timeout preserves both references before either destructive DROP',
+        $metadataLockInstalled && $metadataTimeoutReferenceCount === 2);
+    if (!$metadataLockInstalled || $metadataTimeoutReferenceCount !== 2) {
+        fwrite(STDERR, '# metadata-timeout-state blocker=' . (int) $metadataLockInstalled
+            . " references={$metadataTimeoutReferenceCount}\n");
+    }
     $mdlBlocker->exec('UNLOCK TABLES');
     $mdlBlocker = null;
     $timeoutRunner = null;
