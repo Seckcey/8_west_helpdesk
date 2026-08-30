@@ -2061,6 +2061,14 @@ if (!is_string($duplicateV2Json) || $duplicateV2JsonCount !== 1) {
     throw new RuntimeException('Duplicate v2 JSON fixture could not be built exactly.');
 }
 $hiddenRawV2Json = (string) $v2Archive['metrics_json'] . " \t\r\n";
+$reorderedTopLevelMetrics = $v2Generated['metrics'];
+$schemaVersionForReorder = $reorderedTopLevelMetrics['schema_version'];
+unset($reorderedTopLevelMetrics['schema_version']);
+$reorderedTopLevelMetrics['schema_version'] = $schemaVersionForReorder;
+$reorderedNestedMetrics = $v2Generated['metrics'];
+$tenantKeyForReorder = $reorderedNestedMetrics['source']['tenant_key'];
+unset($reorderedNestedMetrics['source']['tenant_key']);
+$reorderedNestedMetrics['source']['tenant_key'] = $tenantKeyForReorder;
 $adversarialV2Archives = [
     'newline client text injection' => [
         business_report_metrics_json($newlineMetrics),
@@ -2096,6 +2104,14 @@ $adversarialV2Archives = [
     ],
     'hidden raw JSON whitespace bytes' => [
         $hiddenRawV2Json,
+        $canonicalV2Text,
+    ],
+    'reordered top-level JSON members' => [
+        business_report_metrics_json($reorderedTopLevelMetrics),
+        $canonicalV2Text,
+    ],
+    'reordered nested JSON members' => [
+        business_report_metrics_json($reorderedNestedMetrics),
         $canonicalV2Text,
     ],
 ];
@@ -2359,6 +2375,197 @@ report_throws(
     'hash',
 );
 report_check('tampered archive made no transport call', $tamperCalls === 0);
+
+$markExpiredSendBoundary = static function (
+    array $archive,
+    string $token,
+) use ($pdo): int {
+    $deliveryId = (int) $pdo->query(
+        'SELECT id FROM business_report_deliveries WHERE archive_id=' . (int) $archive['id'],
+    )->fetchColumn();
+    $pdo->prepare(
+        "UPDATE business_report_deliveries
+            SET status='sending',lease_token_hash=?,lease_expires_at='2026-08-26 11:00:00',
+                last_attempt_at='2026-08-26 10:58:00'
+          WHERE id=?",
+    )->execute([hash('sha256', $token), $deliveryId]);
+    $pdo->prepare(
+        "INSERT INTO business_report_delivery_attempts
+            (tenant_id,delivery_id,attempt_key,provider,status,started_at)
+         VALUES (?,?,?,'microsoft_graph','started','2026-08-26 10:58:00')",
+    )->execute([1, $deliveryId, hash('sha256', $token . ':attempt')]);
+    return $deliveryId;
+};
+
+$legacyInvalidExpired = report_archive_fixture(
+    $pdo,
+    (int) $enabled['schedule']['id'],
+    'client-one-weekly',
+    '2026-05-18 00:00:00',
+);
+$legacyInvalidMetrics = json_decode(
+    (string) $legacyInvalidExpired['metrics_json'],
+    true,
+    512,
+    JSON_THROW_ON_ERROR,
+);
+$legacyInvalidMetrics['approved_billable_time']['legacy_private_field'] = 'old schema';
+$legacyInvalidJson = business_report_metrics_json($legacyInvalidMetrics);
+$legacyInvalidHash = business_report_content_sha256_from_json(
+    $legacyInvalidJson,
+    (string) $legacyInvalidExpired['report_text'],
+);
+$pdo->prepare(
+    'UPDATE business_report_archives SET metrics_json=?,content_sha256=? WHERE id=?',
+)->execute([
+    $legacyInvalidJson,
+    $legacyInvalidHash,
+    (int) $legacyInvalidExpired['id'],
+]);
+$legacyInvalidDeliveryId = $markExpiredSendBoundary(
+    $legacyInvalidExpired,
+    'legacy-invalid-expired',
+);
+$legacyInvalidRecoveryCalls = 0;
+$legacyInvalidRecovered = business_report_deliver(
+    $pdo,
+    (int) $legacyInvalidExpired['id'],
+    report_config(),
+    function () use (&$legacyInvalidRecoveryCalls): array {
+        $legacyInvalidRecoveryCalls++;
+        return [
+            'outcome' => 'submitted',
+            'provider_http' => 202,
+            'outcome_code' => 'graph_accepted',
+        ];
+    },
+    $now,
+);
+$legacyInvalidDelivery = $pdo->query(
+    'SELECT status FROM business_report_deliveries WHERE id=' . $legacyInvalidDeliveryId,
+)->fetchColumn();
+$legacyInvalidAttempt = $pdo->query(
+    'SELECT status,outcome_code FROM business_report_delivery_attempts WHERE delivery_id='
+    . $legacyInvalidDeliveryId,
+)->fetch(PDO::FETCH_ASSOC);
+report_check(
+    'expired crossed-boundary legacy-invalid archive becomes terminal uncertain',
+    $legacyInvalidRecovered['action'] === 'recovered_uncertain'
+        && $legacyInvalidRecoveryCalls === 0
+        && $legacyInvalidDelivery === 'uncertain'
+        && is_array($legacyInvalidAttempt)
+        && $legacyInvalidAttempt['status'] === 'uncertain'
+        && $legacyInvalidAttempt['outcome_code'] === 'lease_expired_after_send_boundary',
+);
+
+$unverifiableExpired = report_archive_fixture(
+    $pdo,
+    (int) $enabled['schedule']['id'],
+    'client-one-weekly',
+    '2026-05-11 00:00:00',
+);
+$pdo->prepare('UPDATE business_report_archives SET report_text=? WHERE id=?')->execute([
+    'unverifiable raw bytes',
+    (int) $unverifiableExpired['id'],
+]);
+$unverifiableDeliveryId = $markExpiredSendBoundary($unverifiableExpired, 'bad-hash-expired');
+$unverifiableCalls = 0;
+report_throws(
+    'expired crossed boundary with an unverifiable hash fails closed',
+    BusinessReportConflictException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        (int) $unverifiableExpired['id'],
+        report_config(),
+        function () use (&$unverifiableCalls): array {
+            $unverifiableCalls++;
+            return [
+                'outcome' => 'submitted',
+                'provider_http' => 202,
+                'outcome_code' => 'graph_accepted',
+            ];
+        },
+        $now,
+    ),
+    'hash',
+);
+report_check(
+    'unverifiable crossed boundary remains untouched with zero transport',
+    $unverifiableCalls === 0
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_deliveries WHERE id=' . $unverifiableDeliveryId,
+        )->fetchColumn() === 'sending'
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_delivery_attempts WHERE delivery_id='
+            . $unverifiableDeliveryId,
+        )->fetchColumn() === 'started',
+);
+$unverifiableCleanup = $pdo->query(
+    'SELECT * FROM business_report_deliveries WHERE id=' . $unverifiableDeliveryId,
+)->fetch(PDO::FETCH_ASSOC);
+if (is_array($unverifiableCleanup)) {
+    business_report_recover_expired_delivery($pdo, $unverifiableCleanup, gmdate('Y-m-d H:i:s', $now));
+}
+
+$wrongScopeExpired = report_archive_fixture(
+    $pdo,
+    (int) $enabled['schedule']['id'],
+    'client-one-weekly',
+    '2026-05-04 00:00:00',
+);
+$wrongScopeMetrics = json_decode(
+    (string) $wrongScopeExpired['metrics_json'],
+    true,
+    512,
+    JSON_THROW_ON_ERROR,
+);
+$wrongScopeMetrics['source']['client_key'] = 'safeharbor-client:12';
+$wrongScopeJson = business_report_metrics_json($wrongScopeMetrics);
+$wrongScopeHash = business_report_content_sha256_from_json(
+    $wrongScopeJson,
+    (string) $wrongScopeExpired['report_text'],
+);
+$pdo->prepare(
+    'UPDATE business_report_archives SET metrics_json=?,content_sha256=? WHERE id=?',
+)->execute([$wrongScopeJson, $wrongScopeHash, (int) $wrongScopeExpired['id']]);
+$wrongScopeDeliveryId = $markExpiredSendBoundary($wrongScopeExpired, 'wrong-scope-expired');
+$wrongScopeCalls = 0;
+report_throws(
+    'expired crossed boundary with unverifiable source scope fails closed',
+    BusinessReportConflictException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        (int) $wrongScopeExpired['id'],
+        report_config(),
+        function () use (&$wrongScopeCalls): array {
+            $wrongScopeCalls++;
+            return [
+                'outcome' => 'submitted',
+                'provider_http' => 202,
+                'outcome_code' => 'graph_accepted',
+            ];
+        },
+        $now,
+    ),
+    'source',
+);
+report_check(
+    'wrong-scope crossed boundary remains untouched with zero transport',
+    $wrongScopeCalls === 0
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_deliveries WHERE id=' . $wrongScopeDeliveryId,
+        )->fetchColumn() === 'sending'
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_delivery_attempts WHERE delivery_id='
+            . $wrongScopeDeliveryId,
+        )->fetchColumn() === 'started',
+);
+$wrongScopeCleanup = $pdo->query(
+    'SELECT * FROM business_report_deliveries WHERE id=' . $wrongScopeDeliveryId,
+)->fetch(PDO::FETCH_ASSOC);
+if (is_array($wrongScopeCleanup)) {
+    business_report_recover_expired_delivery($pdo, $wrongScopeCleanup, gmdate('Y-m-d H:i:s', $now));
+}
 
 $expired = report_archive_fixture($pdo, (int)$enabled['schedule']['id'], 'client-one-weekly', '2026-06-08 00:00:00');
 $expiredDelivery = $pdo->query(

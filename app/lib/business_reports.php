@@ -2144,11 +2144,9 @@ function business_report_metrics(
 /** @param list<string> $expected */
 function business_report_archive_has_exact_keys(mixed $value, array $expected): bool
 {
-    if (!is_array($value) || array_is_list($value)) return false;
-    $actual = array_keys($value);
-    sort($actual);
-    sort($expected);
-    return $actual === $expected;
+    return is_array($value)
+        && !array_is_list($value)
+        && array_keys($value) === $expected;
 }
 
 function business_report_archive_strings_are_safe(mixed $value): bool
@@ -2537,8 +2535,14 @@ function business_report_content_sha256(array $metrics, string $text): string
     return business_report_content_sha256_from_json(business_report_metrics_json($metrics), $text);
 }
 
-/** @return array{metrics:array<string,mixed>,text:string} */
-function business_report_archived_content(array $archive): array
+/**
+ * Verify only the immutable raw bytes needed to identify an archive before a
+ * crossed send boundary is recovered. Current semantic/canonical rules may be
+ * newer than an already-sent legacy archive, so they deliberately run later.
+ *
+ * @return array{metrics:array<string,mixed>,text:string}
+ */
+function business_report_minimally_verified_archived_content(array $archive): array
 {
     $metricsJson = (string)($archive['metrics_json'] ?? '');
     $text = (string)($archive['report_text'] ?? '');
@@ -2554,6 +2558,33 @@ function business_report_archived_content(array $archive): array
     ) {
         throw new BusinessReportConflictException('The archived report content hash does not match.');
     }
+    return ['metrics' => $metrics, 'text' => $text];
+}
+
+/** @return array<string,mixed> */
+function business_report_archived_source_for_scope(array $metrics, array $context): array
+{
+    $source = $metrics['source'] ?? null;
+    if (!is_array($source)
+        || !is_string($source['tenant_key'] ?? null)
+        || !is_string($source['client_key'] ?? null)
+        || !hash_equals((string)$context['tenant_slug'], $source['tenant_key'])
+        || !hash_equals('safeharbor-client:' . (int)$context['client_id'], $source['client_key'])
+    ) {
+        throw new BusinessReportConflictException(
+            'The archived report source does not match its database scope.',
+        );
+    }
+    return $source;
+}
+
+/** @return array{metrics:array<string,mixed>,text:string} */
+function business_report_archived_content(array $archive): array
+{
+    $content = business_report_minimally_verified_archived_content($archive);
+    $metrics = $content['metrics'];
+    $metricsJson = (string)($archive['metrics_json'] ?? '');
+    $text = $content['text'];
     business_report_assert_archive_metric_schema($metrics);
     try {
         $canonicalMetricsJson = business_report_metrics_json($metrics);
@@ -2909,19 +2940,16 @@ function business_report_deliver(
     $nowUtc = gmdate('Y-m-d H:i:s', $now);
     $config = business_report_config($rawConfig);
     $context = business_report_delivery_context($pdo, $archiveId);
-    $archivedContent = business_report_archived_content($context);
-    $archivedSource = $archivedContent['metrics']['source'];
-    if ((string)$archivedSource['tenant_key'] !== (string)$context['tenant_slug']
-        || (string)$archivedSource['client_key'] !== 'safeharbor-client:' . (int)$context['client_id']
-    ) {
-        throw new BusinessReportConflictException('The archived report source does not match its database scope.');
-    }
+    $minimalContent = business_report_minimally_verified_archived_content($context);
+    business_report_archived_source_for_scope($minimalContent['metrics'], $context);
+    $deliveryStatus = (string)$context['status'];
 
     // A crossed send boundary must always converge to terminal uncertainty when
     // its lease expires, even if the schedule or protected allowlists changed
-    // afterward. Recovery verifies archive scope/hash, performs no network
-    // request, row-locks the delivery, and precedes current send gates.
-    if ((string)$context['status'] === 'sending') {
+    // afterward. Recovery verifies only immutable raw hash and decoded source
+    // scope, performs no network request, row-locks the delivery, and precedes
+    // current semantic/canonical archive rules and send gates.
+    if ($deliveryStatus === 'sending') {
         $pdo->beginTransaction();
         try {
             $lockSql = 'SELECT * FROM business_report_deliveries WHERE tenant_id = ? AND id = ?';
@@ -2934,15 +2962,21 @@ function business_report_deliver(
                 $pdo->commit();
                 return ['action' => 'recovered_uncertain', 'status' => 'uncertain', 'archive_id' => $archiveId, 'attempt_id' => null];
             }
+            $deliveryStatus = (string)$delivery['status'];
             $pdo->commit();
-            return ['action' => 'ignored', 'status' => (string)$delivery['status'], 'archive_id' => $archiveId, 'attempt_id' => null];
         } catch (Throwable $error) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             throw $error;
         }
     }
-    if ((string)$context['status'] !== 'pending') {
-        return ['action' => 'ignored', 'status' => (string)$context['status'], 'archive_id' => $archiveId, 'attempt_id' => null];
+
+    $archivedContent = business_report_archived_content($context);
+    $archivedSource = business_report_archived_source_for_scope(
+        $archivedContent['metrics'],
+        $context,
+    );
+    if ($deliveryStatus !== 'pending') {
+        return ['action' => 'ignored', 'status' => $deliveryStatus, 'archive_id' => $archiveId, 'attempt_id' => null];
     }
 
     $archivedClientName = business_report_key(

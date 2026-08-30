@@ -860,6 +860,8 @@ $mysqlAdversarialMetricKinds = [
     'Unicode display-direction control',
     'duplicate JSON member names',
     'hidden raw JSON whitespace bytes',
+    'reordered top-level JSON members',
+    'reordered nested JSON members',
 ];
 foreach ($mysqlAdversarialMetricKinds as $index => $kind) {
     $daysBefore = 21 + ($index * 7);
@@ -910,6 +912,14 @@ foreach ($mysqlAdversarialMetricKinds as $index => $kind) {
             'Tickets opened: ' . $metrics['tickets']['opened'],
             $text,
         );
+    } elseif ($kind === 'reordered top-level JSON members') {
+        $schemaVersion = $metrics['schema_version'];
+        unset($metrics['schema_version']);
+        $metrics['schema_version'] = $schemaVersion;
+    } elseif ($kind === 'reordered nested JSON members') {
+        $tenantKey = $metrics['source']['tenant_key'];
+        unset($metrics['source']['tenant_key']);
+        $metrics['source']['tenant_key'] = $tenantKey;
     }
 
     $metricsJson = business_report_metrics_json($metrics);
@@ -992,6 +1002,62 @@ foreach ($mysqlAdversarialMetricKinds as $index => $kind) {
             )->fetchColumn() === 'pending',
     );
 }
+$expiredInvalidDeliveryId = (int) $pdo->query(
+    'SELECT id FROM business_report_deliveries WHERE archive_id=' . $archiveId,
+)->fetchColumn();
+$expiredInvalidStartedAt = gmdate('Y-m-d H:i:s', $testNow - 120);
+$expiredInvalidLeaseEnd = gmdate('Y-m-d H:i:s', $testNow - 60);
+$expiredInvalidToken = 'native-mysql-expired-invalid';
+$pdo->prepare(
+    "UPDATE business_report_deliveries
+        SET status='sending',lease_token_hash=?,lease_expires_at=?,last_attempt_at=?
+      WHERE id=?",
+)->execute([
+    hash('sha256', $expiredInvalidToken),
+    $expiredInvalidLeaseEnd,
+    $expiredInvalidStartedAt,
+    $expiredInvalidDeliveryId,
+]);
+$pdo->prepare(
+    "INSERT INTO business_report_delivery_attempts
+        (tenant_id,delivery_id,attempt_key,provider,status,started_at)
+     VALUES (1,?,?,'microsoft_graph','started',?)",
+)->execute([
+    $expiredInvalidDeliveryId,
+    hash('sha256', $expiredInvalidToken . ':attempt'),
+    $expiredInvalidStartedAt,
+]);
+$expiredInvalidTransportCalls = 0;
+$expiredInvalidRecovery = business_report_deliver(
+    $pdo,
+    $archiveId,
+    report_mysql_config(),
+    function () use (&$expiredInvalidTransportCalls): array {
+        $expiredInvalidTransportCalls++;
+        return [
+            'outcome' => 'submitted',
+            'provider_http' => 202,
+            'outcome_code' => 'graph_accepted',
+        ];
+    },
+    $testNow,
+);
+$expiredInvalidDelivery = $pdo->query(
+    'SELECT status FROM business_report_deliveries WHERE id=' . $expiredInvalidDeliveryId,
+)->fetchColumn();
+$expiredInvalidAttempt = $pdo->query(
+    'SELECT status,outcome_code FROM business_report_delivery_attempts WHERE delivery_id='
+    . $expiredInvalidDeliveryId,
+)->fetch(PDO::FETCH_ASSOC);
+report_mysql_check(
+    'native MySQL expired crossed-boundary semantically invalid archive becomes uncertain without transport',
+    $expiredInvalidRecovery['action'] === 'recovered_uncertain'
+        && $expiredInvalidTransportCalls === 0
+        && $expiredInvalidDelivery === 'uncertain'
+        && is_array($expiredInvalidAttempt)
+        && $expiredInvalidAttempt['status'] === 'uncertain'
+        && $expiredInvalidAttempt['outcome_code'] === 'lease_expired_after_send_boundary',
+);
 $pdo->exec('SET timestamp = 0');
 
 // The app-like identity gets reads plus only the inserts/transition updates the
