@@ -407,6 +407,18 @@ try {
     );
 
     $customerTwo = '22222222-2222-4222-8222-222222222222';
+    $queueConfig = activation_mysql_config($customerTwo);
+    $queueConfig['customer_ids'] = [
+        '11111111-1111-4111-8111-111111111111',
+        $customerTwo,
+    ];
+    $queueConfig['batch_size'] = 1;
+    $nextBatch = managed_customer_activation_candidates($pdo, $queueConfig);
+    activation_mysql_check(
+        count($nextBatch) === 1
+            && ($nextBatch[0]['customer_id'] ?? null) === $customerTwo,
+        'real MySQL candidate queue skips the completed customer',
+    );
     $candidateTwo = activation_mysql_candidate($pdo, $customerTwo);
     $configTwo = activation_mysql_config($customerTwo);
     $evidenceTwo = activation_mysql_evidence($customerTwo, 'ewid-t92', 'managed-two');

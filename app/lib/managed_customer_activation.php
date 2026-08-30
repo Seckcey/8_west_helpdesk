@@ -260,6 +260,13 @@ function managed_customer_activation_candidates(PDO $pdo, array $config): array
                AND client.id = binding.client_id
              WHERE binding.status = 'active'
                AND binding.customer_id IN ({$placeholders})
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM managed_customer_activation_receipts receipt
+                    WHERE receipt.customer_id = binding.customer_id
+                       OR (receipt.tenant_id = binding.tenant_id
+                           AND receipt.client_id = binding.client_id)
+               )
              ORDER BY "
         . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
             ? 'binding.customer_id'

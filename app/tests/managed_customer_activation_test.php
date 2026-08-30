@@ -257,15 +257,69 @@ activation_refuses(
     'ticket write escaped the exact write-table allowlist',
 );
 
+$queuePdo = activation_sqlite();
+$queuePdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
+    (13,1,'Managed Three'),(14,1,'Managed Four')");
+$queuePdo->exec("INSERT INTO suite_customer_sync_bindings
+    (id,tenant_id,customer_id,client_id,source_version,display_name,status) VALUES
+    (502,1,'22222222-2222-4222-8222-222222222222',12,1,'Managed Two','active'),
+    (503,1,'33333333-3333-4333-8333-333333333333',13,1,'Managed Three','active'),
+    (504,1,'44444444-4444-4444-8444-444444444444',14,1,'Managed Four','active')");
+$queueConfig = activation_config([
+    'customer_ids' => [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+        '33333333-3333-4333-8333-333333333333',
+        '44444444-4444-4444-8444-444444444444',
+    ],
+    'batch_size' => 2,
+]);
+$firstBatch = managed_customer_activation_candidates($queuePdo, $queueConfig);
+activation_check(
+    array_column($firstBatch, 'customer_id') === [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+    ],
+    'activation queue did not select the deterministic first batch',
+);
+$queueReceipt = $queuePdo->prepare(
+    'INSERT INTO managed_customer_activation_receipts
+        (tenant_id,client_id,source_binding_id,customer_id,source_version,
+         customer_receipt_id,id_tenant_key,identity_tenant_slug,contact_version,
+         portal_binding_id,schedule_key,prepared_schedule_version_id,
+         active_schedule_version_id,actor_user_id,id_response_sha256,
+         recipient_sha256,evidence_sha256)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+);
+foreach ($firstBatch as $index => $candidate) {
+    $queueReceipt->execute([
+        1, (int)$candidate['client_id'], (int)$candidate['binding_id'],
+        (string)$candidate['customer_id'], 1, str_repeat((string)($index + 1), 64),
+        'ewid-t' . (91 + $index), 'managed-' . ($index + 1), 1,
+        900 + $index, managed_customer_activation_schedule_key((string)$candidate['customer_id']),
+        700 + ($index * 2), 701 + ($index * 2), 101,
+        str_repeat('a', 64), str_repeat('b', 64), str_repeat('c', 64),
+    ]);
+}
+$secondBatch = managed_customer_activation_candidates($queuePdo, $queueConfig);
+activation_check(
+    array_column($secondBatch, 'customer_id') === [
+        '33333333-3333-4333-8333-333333333333',
+        '44444444-4444-4444-8444-444444444444',
+    ],
+    'completed first-batch customers starved later activation candidates',
+);
+
 $pdo = activation_sqlite();
 $sentinelBefore = [];
 foreach (['tickets','time_entries','coastmark_export_sentinel',
           'endpoint_control_sentinel','ai_write_sentinel'] as $table) {
     $sentinelBefore[$table] = $pdo->query("SELECT * FROM {$table}")->fetchAll(PDO::FETCH_ASSOC);
 }
+$initialCandidate = activation_candidate($pdo);
 $result = managed_customer_activation_apply(
     $pdo,
-    activation_candidate($pdo),
+    $initialCandidate,
     activation_evidence(),
     101,
     activation_config(),
@@ -290,6 +344,10 @@ activation_check(
     (int)$pdo->query('SELECT COUNT(*) FROM managed_customer_activation_receipts')->fetchColumn() === 1,
     'durable activation receipt was not recorded',
 );
+activation_check(
+    managed_customer_activation_candidates($pdo, activation_config()) === [],
+    'completed activation remained in the worker candidate queue',
+);
 foreach ($sentinelBefore as $table => $rows) {
     activation_check(
         $pdo->query("SELECT * FROM {$table}")->fetchAll(PDO::FETCH_ASSOC) === $rows,
@@ -304,7 +362,7 @@ $replayEvidence = activation_evidence([
 ]);
 $replay = managed_customer_activation_apply(
     $pdo,
-    activation_candidate($pdo),
+    $initialCandidate,
     $replayEvidence,
     101,
     activation_config(),
@@ -320,7 +378,7 @@ activation_refuses(
     ManagedCustomerActivationConflictException::class,
     static fn() => managed_customer_activation_apply(
         $pdo,
-        activation_candidate($pdo),
+        $initialCandidate,
         activation_evidence(['customer_receipt_id' => str_repeat('8', 64)]),
         101,
         activation_config(),
