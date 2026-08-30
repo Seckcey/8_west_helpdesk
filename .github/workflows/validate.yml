@@ -110,6 +110,15 @@ jobs:
         run: php app/tests/time_entry_adjustments_mysql_test.php
       - name: Test Coastmark approved-time export contract
         run: php app/tests/coastmark_time_export_test.php
+      - name: Test Coastmark v3 export migration, locking, and least privilege
+        env:
+          SAFEHARBOR_COASTMARK_V3_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_COASTMARK_V3_TEST_DB: safeharbor_coastmark_v3_test
+          SAFEHARBOR_COASTMARK_V3_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_COASTMARK_V3_TEST_PORT: 3306
+          SAFEHARBOR_COASTMARK_V3_TEST_USER: root
+          SAFEHARBOR_COASTMARK_V3_TEST_PASS: safeharbor-test-root
+        run: php app/tests/coastmark_time_export_mysql_test.php
       - name: Test customer portal authentication and revocation
         run: php app/tests/portal_auth_test.php
       - name: Test customer portal read-only boundary and rendering

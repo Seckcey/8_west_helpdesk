@@ -707,21 +707,52 @@ account secret.
 
 ## Coastmark approved-time sender
 
-Safeharbor's version 2 half of the draft-line seam is now an inspection-only
-CLI and has no database migration, scheduler, batch, or automatic retry. Its
-retirement and replacement requirements are in
+Safeharbor's live version-2 half remains dark and cannot represent corrections.
+The local version-3 replacement adds migration 021 plus a one-claim operator
+CLI. It has no scheduler, queue, batch, loop, or automatic retry. Its release,
+status-recovery, and canary requirements are in
 [`docs/coastmark-approved-time-export-contract.md`](../docs/coastmark-approved-time-export-contract.md).
-Deploy it with `coastmark_time_export.enabled=false`. The legacy setting cannot
-enable sending: `--send` hard-refuses before endpoint validation, signing, or
-network transport. Do not prepare a version 2 mapping or canary.
+Deploy only after exact-main MySQL validation, and keep both
+`claim_enabled=false` and `enabled=false`. The detached version-2 send function
+remains permanently refused.
 
-The exact entry may be run as `--dry-run`; the output must contain no raw note
-or secret. Any future send requires a receipt/reversal-aware version 3 that
-serializes a durable Safeharbor export claim against adjustment creation and
-records an append-only Coastmark acknowledgement. Its controlled canary may
-create only a draft that remains unposted, unsent, and unrelated to Checkout,
-payment, or ledger records. Rollback is gate and mapping disablement, never
-deletion of accepted financial-side evidence.
+Migration 021 is privileged-operator-only and migration-first. Lock the
+Safeharbor runtime account, require zero runtime connections, stop concurrent
+time adjustments, take the trigger-inclusive database/config/grant backup, and
+apply plus replay the exact archived Git blob while the Safeharbor endpoint is
+denied. Require two empty tables, six permanent triggers, zero swap triggers,
+canonical foreign keys/checks, preserved existing time facts, and unchanged
+financial integration counts before deploying matching source. After any claim
+exists, never migrate down or delete claim/receipt evidence.
+
+The claim CLI must not use the web/cron database identity. Provision a separate
+local account through the protected operator mechanism and put its username and
+password only in the protected `coastmark_time_export` config. Resolve the exact
+account/host before granting; never print or record its secret. Its complete
+allowlist is:
+
+```text
+SELECT: tenants, clients, users, suite_customer_sync_bindings, time_entries,
+        time_entry_approval_adjustments, coastmark_time_export_claims,
+        coastmark_time_export_receipts
+INSERT: coastmark_time_export_claims, coastmark_time_export_receipts
+```
+
+It must have no schema-wide grants and no `UPDATE`, `DELETE`, `CREATE`, `ALTER`,
+`DROP`, `INDEX`, `REFERENCES`, `TRIGGER`, or `GRANT OPTION`. Prove the dedicated
+identity can read one exact approved entry, insert and exactly replay a claim,
+and append a valid receipt. Prove the migration-owned triggers serialize the
+tenant/entry/claim race while claim/receipt update/delete and migration execution
+are denied. Do not
+broaden privileges to make a failed proof pass.
+
+The controlled Lifestyle canary may create only a draft that remains unposted,
+unsent, and unrelated to Checkout, payment, credit, or ledger records. Rollback
+is gate and mapping disablement, never deletion of accepted evidence. Its
+approved test-only input is `$145.00/hour`, exact approved minutes with no
+minimum or round-up, `Net 30`, and `0%` only for a separately itemized pure
+technician-labor line. Hardware, software, licenses, parts, and bundles stay
+separate/manual. Do not infer or install a production mapping from this text.
 
 `002_svc_intake.sql` collides on 002 with `002_westy_onboarding.sql`, so the
 numbering does not order it and its live state is not established by the list

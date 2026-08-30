@@ -1,195 +1,189 @@
 # Safeharbor approved time to Coastmark draft lines
 
-**Status:** version 2 was deployed dark on 2026-08-29; both global gates remain
-off and no production mapping, import, draft-line canary, or financial action
-occurred. Version 2 replaces the wipe-sensitive local client key with
-Milepost's durable customer UUID and adds a permanent 8 West IT master
-exclusion. The approved-time-adjustment development slice permanently retires
-the Safeharbor v2 send path: even an accidentally enabled configuration stops
-before signing or transport. Dry-run inspection remains available. A new v3
-with durable Safeharbor export claims/receipts and Coastmark reversal
-acknowledgements must replace v2; this is not a feature flag to flip.
+**Status:** version 2 is deployed dark and empty. The correction-safe version-3
+sender is a local, isolated development slice based on reviewed Safeharbor PR
+#84 head `6eba809d54c0e6f9cf647bbc0967ed7368fb8abc`. It has not been pushed,
+merged, migrated, deployed, enabled, mapped, or called in production.
+That stack is a hard merge-order dependency: land and revalidate PR #84 before
+the version-3 commit. Do not transplant only the version-3 files onto `main`,
+because correction claims depend on PR #84's append-only adjustment evidence.
 
-## Verified 2026-08-29 production closeout
+This is the suite's only planned financial seam. Safeharbor owns approved time,
+correction history, export claims, and delivery receipts. Coastmark owns the
+customer/agreement mapping, rate, tax, payment terms, draft invoice, and every
+later financial decision. Safeharbor can request a **draft line only**. It can
+never approve, post, send, collect payment, create Checkout, create a credit,
+or write a journal or ledger entry.
 
-Safeharbor commit `a42872be1f9cd76ebb0a3b2bad91c16f2c0bb0ff` was deployed to
-`milepost-ec2` / `AWS-MILEPOST` at `2026-08-29T03:56:19Z`. Exact-main CI run
-[`33232316449`](https://github.com/Seckcey/8_west_helpdesk/actions/runs/33232316449)
-passed, and the release artifact SHA-256 is
-`65bb61852ee44639465d8d3cabf4b79c97ad2180c86785c6d41bcd1ecb87d15d`.
+## Live version-2 boundary remains dark
 
-The verified pre-release backup is
-`/srv/8west/backups/safeharbor/20260829T035454Z-pre-approved-time-v2-a42872b`.
-Its application, database, protected-config, and grants SHA-256 values are,
-respectively:
+Safeharbor version 2 is live at
+`a42872be1f9cd76ebb0a3b2bad91c16f2c0bb0ff`; Coastmark version 2 is live at
+`c3c553b437563dc7af00212215f532ee1518ba94`. Both global gates are false.
+Production has zero Coastmark mappings, imports, or Safeharbor source lines.
+The protected handshake prerequisites exist, but no time entry was approved or
+sent and no financial action occurred. The permanent 8 West IT master customer
+`4ebaeefa-b101-47f8-ac76-e49ab309d272` remains forbidden.
 
-- `ed2cde4733b605fb34d95dd9282a8c994e65c63a2913426dd858df973c4708bc`;
-- `d2fb72683e1f886658630d0a1412721c03bdfa7c445bcf05149f6c5a5e241b3e`;
-- `e272ccc44f8200774530fabda634b3d65032805ef360d6f73da3a91afc3fb0f4`;
-  and
-- `35673b03b5ac36996f9902f7b40a1581486437a6f2a31f5d849b961c4612def0`.
+Version 2 cannot describe an approved-time correction and is not a canary path.
+The detached `coastmark_time_export_send()` compatibility boundary remains
+permanently refused. Version 3 uses only a durable claim ID.
 
-The restore-shape check was `38:4:16:2:4:69`. The retained release receipt is
-`/srv/8west/backups/safeharbor/20260829T035454Z-pre-approved-time-v2-a42872b/approved-time-v2-release-receipt-20260829T0356Z.txt`
-with SHA-256
-`c52e4b13959ccb7d6a4c2df75900fc86ff087b6d54a624a564e01a92b2bf9b73`.
+## Version-3 source event
 
-At `2026-08-29T04:12:53Z`, the protected server-only handshake prerequisites
-were configured while the sender remained false. Safeharbor now has the
-canonical HTTPS receiver endpoint and service identity, tenant allowlist
-`[8west]`, and a client allowlist containing only 8 West Lifestyle customer
-`f22fc65c-70ca-439e-b703-f85c82da885d`. The 8 West IT master UUID is absent
-from the allowlist and remains hard-blocked. The permanent master key and legacy
-local-id key were rejected; the canonical Lifestyle key was structurally valid.
-
-The pre-change protected configuration backup is
-`/srv/8west/backups/safeharbor/20260829T041253Z-pre-approved-time-handshake/config.php`
-with SHA-256
-`e272ccc44f8200774530fabda634b3d65032805ef360d6f73da3a91afc3fb0f4`.
-The post-change protected configuration SHA-256 is
-`e652fef2c69b981e31b571b08408ba0b6a9381d7e746859ae052d531fa053891`.
-The retained handshake receipt is
-`/srv/8west/backups/safeharbor/20260829T041253Z-pre-approved-time-handshake/approved-time-handshake-receipt-20260829T0413Z.txt`
-with SHA-256
-`4c30da1b32bd94ba80e7155e070040354c31bac5788484fcb009fe51f99a9238`.
-
-Coastmark's matching service identity, fixed `8west` organization, 300-second
-clock-skew limit, and protected secret are configured while its receiver remains
-false and returns HTTP 404. The two protected secrets match; neither value was
-printed, and no reusable secret digest was recorded. The live Milepost bindings
-remain active for 8 West IT customer
-`4ebaeefa-b101-47f8-ac76-e49ab309d272` to Safeharbor client 13 and 8 West
-Lifestyle customer `f22fc65c-70ca-439e-b703-f85c82da885d` to client 14.
-
-Safeharbor has four pending time entries, including the one-minute billable
-canary-preparation entry 10 created through the normal UI on 8 West Lifestyle
-ticket 434 and client 14, plus one rejected entry. Entry 10 remains
-`approval_status=pending`; no human approval was performed. The retained
-canary-preparation receipt is
-`/srv/8west/backups/safeharbor/20260829T035454Z-pre-approved-time-v2-a42872b/lifestyle-time-canary-preparation-20260829T0407Z.txt`
-with SHA-256
-`b10d78db10cacf6a8dda1b4fd3e0828b8b16e20535c4cb494d29744a69ffd59a`.
-
-No time entry was approved, exported, or retried during the release or canary
-preparation. Login
-returned 200, the root returned 302, the portal returned 200, the scheduler had
-zero failures, and the fatal-error scan was clean. Coastmark separately
-reverified zero mappings, imports, and Safeharbor source lines; its eight
-existing invoices and fourteen journals were unchanged. **This was a
-code-and-schema release plus non-financial canary preparation only: it did not
-create a draft invoice line, approve or send an invoice, post a journal, open
-Checkout, record payment, or perform any other financial action.**
-
-This is the only planned financial seam between Safeharbor and Coastmark.
-Safeharbor supplies one immutable operational fact: a specific technician time
-entry is approved and billable. Coastmark owns the client/agreement mapping,
-rate, quantity pricing, tax, integer cents, draft invoice, approval, posting,
-sending, Checkout, payment, and ledger behavior.
-
-The first slice is deliberately operator-run and one-entry-at-a-time. It has no
-timer, queue, cron, batch selection, or automatic retry. A dry run proves the
-exact source fact and semantic payload digest without making a network request.
-Version 2 can no longer send. Keeping its exact dry-run payload makes the
-deferred v3 boundary reviewable without allowing a stale financial draft.
-
-## Version 2 payload
-
-`POST /api/integrations/safeharbor/time-entries` receives JSON with these exact
-fields in canonical order:
+The canonical event fields, in order, are:
 
 ```text
-version, event, tenant_key, client_key, entry_key, entry_id, ticket_id,
-entry_source, technician_key, worked_at, minutes, note_sha256, billable,
-approval_status, approved_at, reviewer_key
+version, event, event_key, predecessor_event_key, source_version,
+tenant_key, client_key, entry_key, entry_id, ticket_id, entry_source,
+technician_key, worked_at, minutes, note_sha256, billable,
+approval_status, approved_at, reviewer_key, adjusted_at,
+adjusted_by_key, adjustment_reason_sha256
 ```
 
-Load-bearing rules:
+Rules:
 
-- `version=2` and `event=safeharbor.time_entry.approved`. Version 1 is refused;
-  production is empty, so there is no legacy import or mapping to preserve.
-- `billable=true` and `approval_status=approved`; pending or rejected work is
-  refused before any network request.
-- Any entry with an append-only Safeharbor approval adjustment is refused.
-  Version 2 has one immutable source key, changed facts conflict, and neither
-  side yet owns a durable adjustment/reversal acknowledgement. Sending the raw
-  original would knowingly create a stale draft fact.
-- `tenant_key` is the immutable Safeharbor tenant slug. `client_key` is
-  `milepost-customer:<canonical UUIDv4>`, read from the active
-  `suite_customer_sync_bindings` row for the exact time-entry client. Both must
-  appear on exact protected config allowlists; no local row id, mutable source
-  key, name, email, domain, or fuzzy matching is permitted. A missing or
-  inactive Milepost binding is refused before signing.
-- Milepost customer `4ebaeefa-b101-47f8-ac76-e49ab309d272` is the reserved
-  8 West IT master MSP. The sender, Coastmark mapping command, receiver, and
-  database constraint all refuse that exact customer. An allowlist or direct
-  database write cannot turn the master MSP into a bill-to customer.
-- `entry_key` is Safeharbor's immutable idempotency key. The operator must
-  supply the same key alongside the entry id, preventing an id-only mistake.
-- Technician and reviewer are non-PII Safeharbor-local keys such as
-  `safeharbor-user:123`.
-- `note_sha256` is the lowercase digest of the note. Raw notes, review notes,
-  ticket subjects, message text, contact data, rates, tax, and invoice commands
-  never cross this seam.
-- Timestamps are whole-second UTC. Minutes remain the approved integer in the
-  range 1 through 1440.
+- `version=3`. Source version `0` uses
+  `event=safeharbor.time_entry.approved` and has no predecessor or adjustment
+  fields. A later version uses `event=safeharbor.time_entry.adjusted`, names the
+  exact previous event key, and includes the exact immutable adjustment facts.
+- `event_key` is a random 128-bit lowercase hexadecimal identifier with the
+  `safeharbor-time:` prefix. It identifies one immutable payload; reusing it
+  with changed facts is a conflict.
+- `tenant_key` is the immutable Safeharbor tenant slug. `client_key` is the
+  active Milepost binding's canonical
+  `milepost-customer:<UUIDv4>`, never a local row ID, name, email, domain, or
+  fuzzy match.
+- The exact 8 West IT master customer is hard-blocked in claim code, sender
+  validation, Coastmark receiver code, and Coastmark's PostgreSQL constraint.
+- Raw time notes, correction reasons, customer contacts, rates, tax, payment
+  terms, invoice commands, and secrets never cross the seam. Only lowercase
+  SHA-256 digests represent note and reason text.
+- Approved facts use whole-second UTC and exact persisted Safeharbor IDs. A
+  pending/rejected entry, inactive customer binding, missing reviewer, malformed
+  chain, or unapproved correction cannot be claimed.
 
-The raw JSON body is signed as lowercase hex
-`HMAC-SHA256(timestamp + "\n" + body)` with headers `X-8W-Service`,
-`X-8W-Timestamp`, and `X-8W-Signature`. The secret is server-only and at least
-32 bytes. Safeharbor accepts only a direct HTTPS URL at the canonical receiver
-path and never follows redirects.
+## Durable claim
 
-## Retired send boundary
+Migration `021_coastmark_time_export_v3.sql` adds two append-only tables:
 
-The historical v2 transport expected all of these gates:
+- `coastmark_time_export_claims` stores one canonical payload and digest for one
+  source entry/version; and
+- `coastmark_time_export_receipts` records every explicit dispatch or status
+  attempt and its bounded acknowledgement evidence.
 
-1. `coastmark_time_export.enabled=true` in Safeharbor's protected host config;
-2. exact tenant and deterministic client-key allowlists;
-3. the canonical HTTPS endpoint, service identity, and secret;
-4. a row matching the operator's exact tenant + id + entry key;
-5. approved, billable, reviewer-backed, never-adjusted time facts tied to an
-   active non-master Milepost customer binding; and
-6. an enabled Coastmark-owned mapping to an active client, monthly agreement,
-   and time agreement line.
+Claim creation is a short MySQL transaction. The least-privilege CLI performs
+ordinary reads; migration-owned triggers take the consistent exclusive lock
+order immediately before insert: tenant, time entry, actor, then
+claim/adjustment evidence. Adjustment creation uses that same prefix, so an
+adjustment and a claim cannot pass each other without granting the CLI update,
+delete, or table-lock authority.
+The claim captures only the next exact source version. An exact repeat returns
+the existing claim; changed facts or a broken predecessor chain fail closed.
+Database keys enforce one claim per tenant/entry/version and one event key.
+Triggers make claims and receipts immutable and permanent. The runtime role
+is not used. This operator CLI requires a separate local MySQL identity: source
+tables are `SELECT` only and claim/receipt tables are `SELECT, INSERT` only.
+It receives no update, delete, DDL, trigger, reference, or grant authority.
+Code refuses a dedicated username that matches the configured web/cron user.
 
-Those gates are no longer sufficient because a correction can be appended
-after payload construction or after Coastmark accepts the original. The
-Safeharbor `coastmark_time_export_send()` boundary now throws unconditionally
-before endpoint validation, signing, or transport. Setting the old protected
-`enabled` value cannot bypass that code gate.
-
-The existing Coastmark receiver's 201/200/409 behavior remains historical v2
-contract evidence, not permission to call it. Production has zero imports, so
-retirement needs no reversal or cleanup.
-
-The receiver returns 409 when an existing source key arrives with changed
-facts. It never approves, posts, sends, opens Checkout, records payment, or
-touches the ledger. The imported draft remains an ordinary Coastmark operator
-decision except that its source-managed evidence and lines are immutable.
-
-## Operator flow
+Claiming and sending are two separate operator actions and two separate gates.
+Both `claim_enabled` and `enabled` default to false.
 
 ```bash
 php app/db/export_approved_time.php \
+  --claim \
   --tenant-slug=8west \
-  --entry-id=<approved entry id> \
+  --entry-id=<exact approved entry id> \
   --entry-key=<exact immutable entry key> \
-  --dry-run
+  --actor-user-id=<active owner/admin id>
+
+php app/db/export_approved_time.php --inspect-claim --claim-id=<claim id>
 ```
 
-The dry run prints identifiers and the payload digest, never the note or
-secret. `--send` intentionally exits with the v2-retired error and makes no
-network request, even if the old sender gate is true.
+Output contains identifiers, version, state, and digests only. It never prints
+notes, reasons, signatures, or secrets.
 
-## Release and rollback
+## Explicit delivery and acknowledgement
 
-Keep both applications' old global gates false and all Coastmark mappings
-disabled. A future v3 release must first add a durable Safeharbor claim/receipt
-that serializes against adjustment creation, an append-only Coastmark
-adjustment/reversal acknowledgement, ambiguous-delivery recovery rules, and
-real two-connection race tests. Only then may a controlled non-master canary be
-planned.
+The operator sends one exact claim ID. There is no list selection, queue, cron,
+batch, scheduler, loop, or automatic retry.
 
-Rollback disables both feature gates and the mapping. Never delete an accepted
-import, source line, draft, audit event, or later accounting history merely to
-roll back transport code.
+```bash
+php app/db/export_approved_time.php --send --claim-id=<claim id>
+```
+
+Before transport, Safeharbor appends a `dispatching` receipt. A matching 201
+acknowledges a new Coastmark event. A matching 200 is an exact replay and is
+also terminal success. An acknowledgement is trusted only when its event key,
+payload hash, Coastmark event ID, disposition, and draft identifiers match the
+claim's rules. Coastmark's `manual_exception` acknowledgement deliberately has
+no line ID.
+
+A changed-fact 409 is terminal conflict and requires a human. A timeout,
+connection error, server error, malformed response, or mismatched
+acknowledgement is `ambiguous`: Coastmark may have committed, so Safeharbor
+blocks another send until an explicit signed status check resolves it.
+
+```bash
+php app/db/export_approved_time.php --status --claim-id=<claim id>
+```
+
+Status sends only the service/version/tenant/event key/payload hash. Exact
+status is terminal success. Conflict requires a human. A signed 404 records
+`absent` and permits a later **explicit** resend; it does not retry by itself.
+An ambiguous status remains blocked.
+
+## Coastmark correction behavior
+
+Coastmark stores every accepted source version as an immutable event. It
+prices the original from its enabled customer/agreement/time-line mapping and
+snapshots its own minutes-per-unit, rate, and tax facts.
+
+- The original approval creates one positive `safeharbor_time` line on a
+  dedicated draft.
+- A correction must be the next exact version on the same mapping, customer,
+  entry, and predecessor chain. Coastmark prices it from the original snapshot,
+  never today's mutable rate.
+- While that invoice is still draft, Coastmark creates one immutable signed
+  `safeharbor_time_adjustment` line for only the difference. A full reversal is
+  a negative line; no prior event or line is deleted or rewritten.
+- If the invoice is approved, sent, void, or otherwise non-draft, Coastmark
+  records an immutable `manual_exception` event and changes no line or total.
+  A human decides the later accounting treatment.
+
+Exact replay is a no-op; changed facts conflict. No receiver path posts, sends,
+pays, creates Checkout, creates a credit, writes a ledger/journal, or invokes a
+billing batch.
+
+## Release and canary gates
+
+Keep both version-3 gates false and every Coastmark mapping disabled until all
+of these are true:
+
+1. Exact Safeharbor and Coastmark commits pass their complete repository suites,
+   including disposable MySQL and PostgreSQL fresh/upgrade/replay, locking/race,
+   timeout-after-commit recovery, immutable evidence, reserved-master,
+   signed-negative-line, and least-privilege tests.
+   Safeharbor PR #84 must land and be revalidated before its stacked version-3
+   commit is considered for merge.
+2. Both repositories have reviewed migrations, verified backups/rollback
+   evidence, protected configuration, and exact release authorization.
+3. The approved test-only 8 West Lifestyle rule is `$145.00/hour`, exact
+   approved minutes with no minimum or round-up, `Net 30`, and `0%` tax only for
+   a separately itemized pure technician-labor line. Hardware, software,
+   licenses, parts, and bundled items remain excluded and manual. Coastmark must
+   own and display these facts before the disabled mapping is enabled; this
+   Safeharbor branch stores none of them.
+4. Only the exact Lifestyle UUID
+   `f22fc65c-70ca-439e-b703-f85c82da885d` is used for the controlled canary.
+   The master MSP UUID remains forbidden.
+
+Canary proof must cover original delivery, exact replay, changed-fact conflict,
+one correction, full reversal, ambiguous-delivery status recovery, and a
+non-draft manual exception. Financial aggregates must prove no invoice approval,
+send, posting, journal, payment, Checkout, credit, or batch action.
+
+If any check fails, turn off both gates and the mapping. Preserve every claim,
+receipt, Coastmark event, and draft line. Use a forward fix; do not delete
+evidence or run either migration down after evidence exists.
