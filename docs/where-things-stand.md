@@ -1,8 +1,8 @@
 # Where things stand
 
 **Last focused production verification: 2026-08-29** for approved-time
-version 2, service-goal history, the Lifestyle report canaries, and portal
-activation. Safeharbor is exact PR #72 merge
+version 2, the scheduled Standard/Premium service-goal v2 policies, the
+Lifestyle report canaries, and portal activation. Safeharbor is exact PR #72 merge
 `a42872be1f9cd76ebb0a3b2bad91c16f2c0bb0ff`; exact-main Validate run
 `33232316449` passed. The broader 2026-08-09 inventory and the separately
 verified 2026-08-24 suite SSO history remain below; unrelated surfaces were not
@@ -31,7 +31,7 @@ If you change what is live, change this page in the same PR.
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
 | Migrations 001–019 | **All applied** to production |
-| Versioned service goals | **Live**: v1 baseline through PR #37 / merge `1796f57`; guarded later-version publication through PR #50 / merge `12abd36`; no v2 published. The GET-only staff history view is deployed through PR #65 / release `b02a7a6`; signed-out routing and the 2026-08-29 authenticated Frankie/`8west` production acceptance both passed. |
+| Versioned service goals | **Live with v2 scheduled**: v1 baseline through PR #37 / merge `1796f57`; guarded publication through PR #50 / merge `12abd36`; GET-only history through PR #65 / release `b02a7a6`. For tenant `8west`, Standard v2 and Premium v2 were published by actor 1 with Frankie's approved reason and become effective together at `2026-08-31 07:00:00Z` (Monday midnight Pacific). A read-only production recheck on 2026-08-29 returned both complete four-target versions. |
 | Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
 | Approved time → Coastmark draft lines | **Version 2 deployed dark** through Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`. The permanent 8 West IT master UUID is hard-blocked. Both time gates are off and there are zero mappings/imports/draft lines. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
@@ -134,9 +134,14 @@ INSERT guards while retaining the four migration-010 immutability guards. Its
 fresh/upgrade/replay suite probes weakened and `NOT ENFORCED` checks,
 noncanonical foreign-key actions, no-op triggers, overlapping publishers, both
 actor demotion lock orders, rollback, and DML-only migration refusal. The
-deployment was migration-first and created zero policy versions. Production still has only
-the four v1 rows and sixteen targets; the real four target values and effective
-time for any v2 remain an explicit business decision and must not be invented.
+deployment was migration-first and created zero policy versions. On 2026-08-29,
+Frankie approved and published the real `8west` Standard v2 and Premium v2
+values for the shared future boundary `2026-08-31 07:00:00Z` (Monday midnight
+Pacific). Standard v2 is Low 480, Normal 240, High 120, and Urgent 60 elapsed
+minutes. Premium v2 is Low 240, Normal 120, High 60, and Urgent 30 elapsed
+minutes. Both retain UTC elapsed clocks, no waiting pause, and no resolution
+goal. Existing tickets keep their immutable creation-time target snapshots;
+only tickets opened on or after the effective boundary select v2.
 
 The follow-up history surface is a signed-in, tenant-scoped GET page. It shows
 Standard and Premium versions, exact effective UTC times, four first-response
@@ -160,8 +165,13 @@ was written. The root-only acceptance receipt is
 `/srv/8west/backups/safeharbor/20260827T154017Z-pre-service-goal-history-b02a7a6/service-goal-signed-in-acceptance-20260829T062933Z.txt`
 at SHA-256
 `74912b7f39cc9a78ec597a1266ce57525f0f0cc8c95e3efdd473797da6a77f45`.
-Version 2 remains intentionally absent until the real targets, effective UTC
-time, authorized actor, and reason are supplied and approved.
+The later publication gate is now closed for this exact decision. A read-only
+production `inspect` recheck on 2026-08-29 returned Standard latest version 2
+(policy row 7, target rows 32-35) and Premium latest version 2 (policy row 8,
+target rows 36-39), both attributed to actor 1 with reason `Frankie approved 8
+West IT response promises on 2026-08-29` and effective at the shared future
+boundary. This publication changed policy/target history only; it did not
+rebase an existing ticket or add a resolution target.
 
 The code-only release used the root-only backup and receipt at
 `/srv/8west/backups/safeharbor/20260827T154017Z-pre-service-goal-history-b02a7a6`.
