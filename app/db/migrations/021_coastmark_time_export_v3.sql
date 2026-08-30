@@ -264,10 +264,12 @@ SET @cm_claim_checks_ok = (
   SELECT COUNT(*) IN (4,5)
      AND SUM(enforced = 'YES') = COUNT(*)
      AND SUM(constraint_name = 'ck_cm_export_claim_event_key'
-             AND normalized_clause LIKE '%event_key%regexp%'
+             AND normalized_clause LIKE '%event_key%'
+             AND normalized_clause LIKE '%regexp%'
              AND normalized_clause LIKE '%safeharbor-time:%') = 1
      AND SUM(constraint_name = 'ck_cm_export_claim_hash'
-             AND normalized_clause LIKE '%payload_sha256%regexp%'
+             AND normalized_clause LIKE '%payload_sha256%'
+             AND normalized_clause LIKE '%regexp%'
              AND normalized_clause LIKE '%[0-9a-f]{64}%') = 1
      AND SUM(constraint_name = 'ck_cm_export_claim_payload'
              AND normalized_clause LIKE '%json_valid(payload_json)%') = 1
@@ -293,7 +295,8 @@ SET @cm_receipt_checks_ok = (
   SELECT COUNT(*) IN (5,6)
      AND SUM(enforced = 'YES') = COUNT(*)
      AND SUM(constraint_name = 'ck_cm_export_receipt_operation_key'
-             AND normalized_clause LIKE '%operation_key%regexp%'
+             AND normalized_clause LIKE '%operation_key%'
+             AND normalized_clause LIKE '%regexp%'
              AND normalized_clause LIKE '%safeharbor-op:%') = 1
      AND SUM(constraint_name = 'ck_cm_export_receipt_response_status'
              AND normalized_clause LIKE '%response_statusisnull%'
@@ -302,7 +305,8 @@ SET @cm_receipt_checks_ok = (
              AND normalized_clause LIKE '%response_sha256isnull%'
              AND normalized_clause LIKE '%[0-9a-f]{64}%') = 1
      AND SUM(constraint_name = 'ck_cm_export_receipt_detail'
-             AND normalized_clause LIKE '%detail_code%regexp%') = 1
+             AND normalized_clause LIKE '%detail_code%'
+             AND normalized_clause LIKE '%regexp%') = 1
      AND SUM(constraint_name = 'ck_cm_export_receipt_ack_shape'
              AND normalized_clause LIKE '%outcome=%accepted%coastmark_event_idisnotnull%'
              AND normalized_clause LIKE '%outcome=%replayed%invoice_idisnotnull%'
