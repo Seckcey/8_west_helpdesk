@@ -687,7 +687,11 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, 'safeharbor_m021_source_indexes')
     && str_contains($migrationOperational, 'safeharbor_m021_source_fks')
     && str_contains($migrationOperational, 'safeharbor_m021_source_checks')
-    && str_contains($migrationOperational, 'migration_021_reference_source_shape_failed')
+    && str_contains($migrationOperational, 'migration_021_reference_source_tables_failed')
+    && str_contains($migrationOperational, 'migration_021_reference_source_columns_failed')
+    && str_contains($migrationOperational, 'migration_021_reference_source_indexes_failed')
+    && str_contains($migrationOperational, 'migration_021_reference_source_fks_failed')
+    && str_contains($migrationOperational, 'migration_021_reference_source_checks_failed')
     && str_contains($migrationOperational, '@cm_reference_entry_source_shape_ok')
     && str_contains($migrationOperational, '@cm_reference_cleanup_dependencies')
     && str_contains($migrationOperational, '@cm_reference_cleanup_source_shape_ok')
@@ -695,6 +699,7 @@ export_check('migration owns, empties, serializes, and individually proves refer
     && str_contains($migrationOperational, '@cm_reference_claim_source_shape_ok')
     && str_contains($migrationOperational, '@cm_reference_claim_disposable')
     && !str_contains($migrationOperational, 'LOWER(live_check.check_clause)')
+    && substr_count($migrationOperational, 'REGEXP_REPLACE(expected.normalized_clause') === 3
     && substr_count($migrationOperational, 'DROP TRIGGER IF EXISTS trg_cm_ref_021_') === 12
     && substr_count($migrationOperational, 'CREATE TRIGGER trg_cm_ref_021_') === 12
     && !str_contains($migrationOperational, 'CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_')

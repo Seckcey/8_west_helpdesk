@@ -486,7 +486,8 @@ SET @cm_reference_source_check_definitions_ok = (
                 REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
                                 '_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
-              <> CAST(expected.normalized_clause AS BINARY))
+              <> CAST(REGEXP_REPLACE(expected.normalized_clause,
+                                     '[[:space:]()]','') AS BINARY))
 );
 SET @cm_reference_source_required_checks_ok = (
   SELECT COUNT(*)=9
@@ -629,7 +630,11 @@ SET @cm_reference_entry_failure = CASE
   WHEN NOT (@cm_reference_entry_owned <=> 1) THEN 'migration_021_reference_owner_failed'
   WHEN NOT (@cm_reference_entry_empty <=> 1) THEN 'migration_021_reference_rows_not_empty'
   WHEN NOT (@cm_reference_entry_dependencies_ok <=> 1) THEN 'migration_021_reference_dependency_failed'
-  WHEN NOT (@cm_reference_entry_source_shape_ok <=> 1) THEN 'migration_021_reference_source_shape_failed'
+  WHEN NOT (@cm_reference_source_tables_ok <=> 1) THEN 'migration_021_reference_source_tables_failed'
+  WHEN NOT (@cm_reference_source_columns_ok <=> 1) THEN 'migration_021_reference_source_columns_failed'
+  WHEN NOT (@cm_reference_source_indexes_ok <=> 1) THEN 'migration_021_reference_source_indexes_failed'
+  WHEN NOT (@cm_reference_source_fks_ok <=> 1) THEN 'migration_021_reference_source_fks_failed'
+  WHEN NOT (@cm_reference_source_checks_ok <=> 1) THEN 'migration_021_reference_source_checks_failed'
   WHEN NOT (@cm_reference_entry_triggers_ok <=> 1) THEN 'migration_021_reference_trigger_state_failed'
   ELSE NULL
 END;
@@ -1612,7 +1617,8 @@ SET @cm_reference_cleanup_source_check_definitions_ok = (
                 REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
                                 '_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
-              <> CAST(expected.normalized_clause AS BINARY))
+              <> CAST(REGEXP_REPLACE(expected.normalized_clause,
+                                     '[[:space:]()]','') AS BINARY))
 );
 SET @cm_reference_cleanup_source_required_checks_ok = (
   SELECT COUNT(*)=9
@@ -1847,7 +1853,8 @@ SET @cm_reference_claim_source_check_definitions_ok = (
                 REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
                                 '_utf8mb4',''),'_ascii',''),
                 '[[:space:]()]','') AS BINARY)
-              <> CAST(expected.normalized_clause AS BINARY))
+              <> CAST(REGEXP_REPLACE(expected.normalized_clause,
+                                     '[[:space:]()]','') AS BINARY))
 );
 SET @cm_reference_claim_source_required_checks_ok = (
   SELECT COUNT(*)=4

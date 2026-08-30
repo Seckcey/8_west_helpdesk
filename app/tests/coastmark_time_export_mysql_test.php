@@ -374,7 +374,7 @@ try {
     cm_v3_expect(
         'migration refuses coordinated live and owner-marked reference index drift',
         fn() => cm_v3_apply($pdo, $migration),
-        'migration_021_reference_source_shape_failed',
+        'migration_021_reference_source_indexes_failed',
     );
     cm_v3_check('coordinated drift refusal preserves both reference evidence tables',
         (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
@@ -536,7 +536,7 @@ try {
     cm_v3_expect(
         'migration refuses coordinated case-only binary check-literal drift',
         fn() => cm_v3_apply($pdo, $migration),
-        'migration_021_reference_source_shape_failed',
+        'migration_021_reference_source_checks_failed',
     );
     cm_v3_check('case-only source drift refusal preserves permanent live guards',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
