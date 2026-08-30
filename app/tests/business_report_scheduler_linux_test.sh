@@ -293,7 +293,7 @@ expect_manager_failure 'digest mismatch rejects root-owned source tampering' \
 
 /usr/bin/chown www-data:www-data -- "$APP_ROOT/cron/business_reports.php"
 expect_manager_failure 'runtime-owned deployment file is rejected' \
-    'deployment-file-owner-or-mode-mismatch' preflight
+    'report-runner-owner-or-mode-mismatch' preflight
 /usr/bin/chown root:www-data -- "$APP_ROOT/cron/business_reports.php"
 
 /usr/bin/chown www-data:www-data -- "$APP_ROOT/cron"
