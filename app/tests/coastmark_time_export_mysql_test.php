@@ -282,6 +282,17 @@ try {
         && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_cm_export_%'")->fetchColumn() === 6);
     $guardSnapshot = cm_v3_guard_snapshot($pdo);
+    cm_v3_apply($pdo, $migration);
+    cm_v3_check('canonical migration replays after both install locks are removed',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot
+        && (int) $pdo->query("SELECT COUNT(*)
+          FROM information_schema.table_constraints
+          WHERE constraint_schema=DATABASE()
+            AND table_name IN
+                ('coastmark_time_export_claims','coastmark_time_export_receipts')
+            AND constraint_name IN
+                ('ck_cm_export_claim_install_lock','ck_cm_export_receipt_install_lock')")
+            ->fetchColumn() === 0);
 
     $pdo->exec('ALTER TABLE coastmark_time_export_claims DROP INDEX uq_cm_export_claim_event');
     cm_v3_expect('migration refuses a claim table with weakened event uniqueness',
