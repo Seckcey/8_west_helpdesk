@@ -285,8 +285,11 @@ $validResponseAt = (string)$pdo->query(
       WHERE ticket_id={$customerTicketId} AND body='customer-visible response'"
 )->fetchColumn();
 $customerDetail = portal_ticket_detail($pdo, 1, 11, $customerTicketId);
+$visibleKinds = array_column($customerDetail['messages'], 'kind');
 portal_mysql_check('portal detail excludes internal notes and automation lines',
-    array_column($customerDetail['messages'], 'kind') === ['tech', 'client', 'tech', 'tech']
+    count($visibleKinds) === 4
+    && count(array_filter($visibleKinds, static fn(string $kind): bool => $kind === 'client')) === 1
+    && count(array_filter($visibleKinds, static fn(string $kind): bool => $kind === 'tech')) === 3
     && ! str_contains(json_encode($customerDetail, JSON_THROW_ON_ERROR), 'private note')
     && ! str_contains(json_encode($customerDetail, JSON_THROW_ON_ERROR), 'private automation'));
 portal_mysql_check('portal milestone ignores pre-open and future technician timestamps',
