@@ -347,11 +347,11 @@ try {
         $rows = $pdo->query("SELECT constraint_name,check_clause
             FROM information_schema.check_constraints
             WHERE constraint_schema=DATABASE() AND constraint_name LIKE 'tf\\_%'
-            ORDER BY constraint_name")->fetchAll();
+            ORDER BY constraint_name")->fetchAll(PDO::FETCH_NUM);
         foreach ($rows as $row) {
             fwrite(STDOUT, '# trusted-check-' . $phase . ' '
-                . $row['constraint_name'] . ' '
-                . base64_encode((string) $row['check_clause']) . "\n");
+                . $row[0] . ' '
+                . base64_encode((string) $row[1]) . "\n");
         }
     };
     $trustedSerializer($pdo, 'locked');
