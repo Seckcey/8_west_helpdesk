@@ -91,8 +91,9 @@ The protected local socket operator has the required DDL, trigger, and
 global privilege and no DDL or table-lock grant. The two version-3 export tables
 are absent, as expected before migration. Because proving their exact serialized
 CHECK hashes requires creating the trusted fixture, the hash-only admission test
-remains an authorized scratch-write release gate. No production table, account,
-grant, configuration value, or row was changed by this preflight.
+requires separately authorized scratch-only execution before release. No
+production table, account, grant, configuration value, or row was changed by
+this preflight.
 
 ## Non-negotiable boundaries
 
@@ -214,8 +215,11 @@ Do not use a display name, email address, or domain as identity.
 4. Prove one draft line, exact amount, tax, source hash, receipt, and replay.
    Prove zero approvals, sends, posts, journal entries, payments, checkout
    sessions, or billing-run absorption.
-5. Test one correction while the invoice is a draft. Test a non-draft
-   correction only as a `manual_exception` with no financial mutation.
+5. Test one correction while the invoice remains a draft. Do not approve, send,
+   post, void, or otherwise move the production canary invoice out of draft.
+   Rely on the green isolated PostgreSQL suite for the non-draft
+   `manual_exception` behavior; any additional fixture requires separate
+   authorization and must not mutate a production invoice lifecycle.
 6. Turn off both Safeharbor gates and disable the mapping. Preserve all claim,
    receipt, event, line, and exception evidence.
 
