@@ -136,6 +136,10 @@ jobs:
           sudo bash app/tests/business_report_scheduler_linux_test.sh
       - name: Test 8 West ID report-contact client contract
         run: php app/tests/id_report_contacts_test.php
+      - name: Test managed-customer activation contract
+        run: |
+          php app/tests/managed_customer_id_evidence_test.php
+          php app/tests/managed_customer_activation_test.php
       - name: Test Milepost customer-sync contract
         run: php app/tests/suite_customer_sync_test.php
       - name: Test signed Milepost alert intake handler
@@ -204,5 +208,14 @@ jobs:
           SAFEHARBOR_CUSTOMER_SYNC_TEST_USER: root
           SAFEHARBOR_CUSTOMER_SYNC_TEST_PASS: safeharbor-test-root
         run: php app/tests/suite_customer_sync_mysql_test.php
+      - name: Test managed-customer activation migration and worker race
+        env:
+          SAFEHARBOR_ACTIVATION_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_ACTIVATION_TEST_DB: safeharbor_activation_test
+          SAFEHARBOR_ACTIVATION_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_ACTIVATION_TEST_PORT: 3306
+          SAFEHARBOR_ACTIVATION_TEST_USER: root
+          SAFEHARBOR_ACTIVATION_TEST_PASS: safeharbor-test-root
+        run: php app/tests/managed_customer_activation_mysql_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php

@@ -234,14 +234,18 @@ return [
     // local-id compatibility lane for existing schedule histories. New MSP
     // customer onboarding uses
     // `customer_bindings`, keyed by Milepost's immutable
-    // `milepost-customer:<uuid>` identity. Never infer any mapping from a
-    // company name, domain, or email address. The reserved 8 West IT master
-    // customer UUID is refused here; its weekly report uses the tenant lane.
+    // `milepost-customer:<uuid>` identity. The managed-customer activation
+    // worker's isolated schema-2 lookup does not trust or require those local
+    // tenant-key mappings: it requests the allowlisted permanent UUID and
+    // authenticates the returned projection/tenant/contact evidence. Never
+    // infer any mapping from a company name, domain, or email address. The
+    // reserved 8 West IT master customer UUID is refused in both paths; its
+    // weekly report uses the tenant lane.
     //
-    // Default-off means no network request. Only the operator commands
+    // Default-off means no network request. The explicit operator commands
     // `prepare-from-id`, `prepare-client-from-id`, and
-    // `prepare-customer-from-id` read this block; cron/generation/delivery do
-    // not.
+    // `prepare-customer-from-id`, plus the separately default-off managed
+    // activation worker, read this block. Report generation/delivery do not.
     'id_report_contacts' => [
         'enabled' => false,
         'endpoint' => 'https://id.8westit.com/api/svc/report-contact.php',
@@ -250,6 +254,25 @@ return [
         'client_bindings' => [],
         'customer_bindings' => [],
         'timeout_seconds' => 10,
+    ],
+
+    // Default-off managed-customer activation. This worker reads only exact
+    // active Milepost bindings in customer_ids, authenticates one ID schema-2
+    // projection/contact snapshot by permanent UUID, and atomically reconciles
+    // the portal plus a canary v2 weekly report schedule. The business_reports
+    // schedule/tenant/client/recipient allowlists are an additional required
+    // gate. It never generates or sends a report and has no ticket, time,
+    // billing, endpoint-control, mail, or AI write path.
+    'managed_customer_activation' => [
+        'enabled' => false,
+        'canary_only' => true,
+        'customer_ids' => [],
+        // Exact provider tenant slug => active Safeharbor owner/admin user id.
+        'tenant_actors' => [],
+        'batch_size' => 5,
+        'schedule_timezone' => 'America/Los_Angeles',
+        'delivery_weekday' => 3,       // ISO Wednesday
+        'delivery_local_time' => '09:00:00',
     ],
 
     // Versioned weekly client service summaries. Definitions, schedules,
