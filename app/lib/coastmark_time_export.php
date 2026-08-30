@@ -81,8 +81,10 @@ function coastmark_time_export_database(array $database, array $config): PDO
 /**
  * Pin the next unclaimed source version for one exact approved entry.
  *
- * Lock order is tenant -> time entry -> actor -> prior claim/adjustment. Adjustment
- * creation uses the same tenant -> time entry -> actor prefix, so races serialize.
+ * Lock order is tenant -> time entry -> active customer binding -> actor ->
+ * prior claim/adjustment. The DEFINER trigger repeats that binding check while
+ * holding its row lock so the SELECT+INSERT-only operator identity cannot race
+ * a customer deactivation between payload construction and durable claiming.
  *
  * @param array<string,mixed> $config
  * @return array{claim:array<string,mixed>,payload:array<string,mixed>,replayed:bool}
@@ -490,11 +492,40 @@ function coastmark_time_export_status_claim(
     ?int $timestamp = null,
 ): array {
     $connection = coastmark_time_export_connection($config);
+    coastmark_time_export_acquire_status_lock($pdo, $claimId);
+    try {
+        return coastmark_time_export_status_claim_locked(
+            $pdo,
+            $claimId,
+            $connection,
+            $transport,
+            $timestamp,
+        );
+    } finally {
+        coastmark_time_export_release_status_lock($pdo, $claimId);
+    }
+}
+
+/**
+ * The caller owns the cross-process status advisory lock for this claim.
+ *
+ * @param array{endpoint:string,status_endpoint:string,service:string,secret:string,timeout_seconds:int} $connection
+ * @param null|callable(string,list<string>,string,int):array{status:int,body:string} $transport
+ * @return array<string,mixed>
+ */
+function coastmark_time_export_status_claim_locked(
+    PDO $pdo,
+    int $claimId,
+    array $connection,
+    ?callable $transport,
+    ?int $timestamp,
+): array {
+    coastmark_time_export_assert_status_lock($pdo, $claimId);
     $claim = coastmark_time_export_begin_operation(
         $pdo,
         $claimId,
         'status',
-        $connection['timeout_seconds'] + 5,
+        35,
     );
     if (isset($claim['terminal'])) {
         return $claim['terminal'];
@@ -693,6 +724,86 @@ function coastmark_time_export_curl(string $url, array $headers, string $body, i
     $status = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
     curl_close($handle);
     return ['status' => $status, 'body' => $responseBody];
+}
+
+/** @return array<string,string|null> */
+function &coastmark_time_export_status_lock_registry(): array
+{
+    static $locks = [];
+    return $locks;
+}
+
+function coastmark_time_export_status_lock_name(int $claimId): string
+{
+    if ($claimId < 1) {
+        throw new CoastmarkTimeExportValidationException('Export claim was not found.');
+    }
+    return 'safeharbor:cm-status:' . $claimId;
+}
+
+function coastmark_time_export_assert_status_lock(PDO $pdo, int $claimId): void
+{
+    $key = spl_object_id($pdo) . ':' . $claimId;
+    $locks =& coastmark_time_export_status_lock_registry();
+    if (!array_key_exists($key, $locks)) {
+        throw new LogicException('Status operation does not own its serialization lock.');
+    }
+}
+
+/**
+ * Hold one MySQL advisory lock across the status HTTP request. This is not a
+ * row transaction, so it does not pin business rows during network I/O. A
+ * dropped worker connection releases the lock, permitting a stale-checking
+ * recovery after the fixed maximum request deadline.
+ */
+function coastmark_time_export_acquire_status_lock(PDO $pdo, int $claimId): void
+{
+    $name = coastmark_time_export_status_lock_name($claimId);
+    $key = spl_object_id($pdo) . ':' . $claimId;
+    $locks =& coastmark_time_export_status_lock_registry();
+    if (array_key_exists($key, $locks)) {
+        throw new CoastmarkTimeExportAmbiguousException(
+            'A status check is already in flight. Its result must settle before another check.',
+        );
+    }
+    $driver = (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'mysql') {
+        $query = $pdo->prepare('SELECT GET_LOCK(?,0)');
+        $query->execute([$name]);
+        if ((int) $query->fetchColumn() !== 1) {
+            throw new CoastmarkTimeExportAmbiguousException(
+                'A status check is already in flight. Its result must settle before another check.',
+            );
+        }
+        $locks[$key] = $name;
+        return;
+    }
+    if ($driver !== 'sqlite') {
+        throw new CoastmarkTimeExportValidationException(
+            'Status serialization requires the Safeharbor MySQL runtime.',
+        );
+    }
+    // Hermetic contract tests use one in-process SQLite handle. Production is
+    // refused above unless it can use the cross-process MySQL advisory lock.
+    $locks[$key] = null;
+}
+
+function coastmark_time_export_release_status_lock(PDO $pdo, int $claimId): void
+{
+    $key = spl_object_id($pdo) . ':' . $claimId;
+    $locks =& coastmark_time_export_status_lock_registry();
+    if (!array_key_exists($key, $locks)) return;
+    $name = $locks[$key];
+    unset($locks[$key]);
+    if ($name === null) return;
+    try {
+        $query = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+        $query->execute([$name]);
+        $query->fetchColumn();
+    } catch (Throwable) {
+        // Never hide a durable recovery result with a cleanup error. MySQL
+        // releases the named lock when this connection is closed.
+    }
 }
 
 /** @return array<string,mixed> */

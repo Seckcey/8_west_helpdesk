@@ -188,6 +188,19 @@ $pdo->exec("INSERT INTO time_entry_approval_adjustments
   (tenant_id,time_entry_id,adjustment_key,version_no,effective_minutes,effective_billable,
    reason,actor_user_id,created_at) VALUES
   (1,501,'adjustment.coastmark.0001',1,15,1,'Corrected duration',103,'2026-08-26 20:10:00')");
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE tenant_id=1 AND client_id=11");
+export_expect(
+    'correction claims fail closed when the customer binding is disabled',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_claim(
+        $pdo, '8west', 501, 'timer:approved:0001', 102, $config,
+        'safeharbor-time:cccccccccccccccccccccccccccccccc',
+    ),
+    'not active',
+);
+export_check('disabled customer binding leaves the claim chain unchanged',
+    (int) $pdo->query('SELECT COUNT(*) FROM coastmark_time_export_claims')->fetchColumn() === 1);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE tenant_id=1 AND client_id=11");
 $correction = coastmark_time_export_claim(
     $pdo, '8west', 501, 'timer:approved:0001', 102, $config,
     'safeharbor-time:cccccccccccccccccccccccccccccccc',
@@ -252,6 +265,18 @@ export_expect(
         1_777_777_780,
     ),
     'Run status',
+);
+export_expect(
+    'status transport helper cannot bypass the serialization lock',
+    LogicException::class,
+    fn() => coastmark_time_export_status_claim_locked(
+        $pdo,
+        (int) $correction['claim']['id'],
+        coastmark_time_export_connection($config),
+        fn() => ['status' => 500, 'body' => 'must not run'],
+        null,
+    ),
+    'does not own',
 );
 $statusCalls = 0;
 $resolved = coastmark_time_export_status_claim(
@@ -341,6 +366,45 @@ export_expect(
     ),
     'still be in flight',
 );
+$pdo->exec("UPDATE coastmark_time_export_receipts
+  SET created_at='2000-01-01 00:00:00'
+  WHERE claim_id=" . (int) $inflight['claim']['id'] . " AND outcome='dispatching'");
+$nestedStatusTransportCalls = 0;
+$serializedStatus = coastmark_time_export_status_claim(
+    $pdo,
+    (int) $inflight['claim']['id'],
+    $config,
+    function () use ($pdo, $inflight, $config, &$nestedStatusTransportCalls): array {
+        $pdo->exec("UPDATE coastmark_time_export_receipts
+          SET created_at='2000-01-01 00:00:00'
+          WHERE claim_id=" . (int) $inflight['claim']['id'] . " AND outcome='checking'");
+        export_expect(
+            'a second status check cannot take over even when checking evidence looks stale',
+            CoastmarkTimeExportAmbiguousException::class,
+            fn() => coastmark_time_export_status_claim(
+                $pdo,
+                (int) $inflight['claim']['id'],
+                $config,
+                function () use (&$nestedStatusTransportCalls): array {
+                    $nestedStatusTransportCalls++;
+                    return ['status' => 500, 'body' => 'must not run'];
+                },
+            ),
+            'already in flight',
+        );
+        return ['status' => 200, 'body' => export_ack($inflight['claim'], 'created', 96)];
+    },
+);
+export_check('serialized status retains the first valid recovery acknowledgement',
+    $serializedStatus['outcome'] === 'accepted'
+    && $serializedStatus['coastmark_event_id'] === 96
+    && $nestedStatusTransportCalls === 0
+    && (int) $pdo->query("SELECT COUNT(*) FROM coastmark_time_export_receipts
+         WHERE claim_id=" . (int) $inflight['claim']['id'] . " AND operation_kind='status_started'")
+        ->fetchColumn() === 1
+    && (string) $pdo->query("SELECT outcome FROM coastmark_time_export_receipts
+         WHERE claim_id=" . (int) $inflight['claim']['id'] . ' ORDER BY id DESC LIMIT 1')
+        ->fetchColumn() === 'accepted');
 
 $absentClaim = coastmark_time_export_claim(
     $pdo, '8west', 503, 'timer:false404:0003', 102, $config,
@@ -390,6 +454,9 @@ export_check('migration and canonical schema carry both tables and six immutable
     && str_contains($migration, 'CREATE TABLE IF NOT EXISTS coastmark_time_export_receipts')
     && str_contains($migration, 'payload_json         LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL')
     && str_contains($migration, "parent_billable <> 1")
+    && str_contains($migration, 'Export claims require an active matching customer binding')
+    && str_contains($migration, "IS_USED_LOCK(CONCAT('safeharbor:cm-status:',NEW.claim_id))")
+    && str_contains($migration, 'INTERVAL 35 SECOND')
     && substr_count($schema, 'CREATE TRIGGER trg_cm_export_claim_') === 3
     && substr_count($schema, 'CREATE TRIGGER trg_cm_export_receipt_') === 3);
 export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',

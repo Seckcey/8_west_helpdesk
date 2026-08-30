@@ -2651,6 +2651,11 @@ BEGIN
   DECLARE parent_billable TINYINT DEFAULT NULL;
   DECLARE parent_reviewer INT UNSIGNED DEFAULT NULL;
   DECLARE parent_reviewed DATETIME DEFAULT NULL;
+  DECLARE parent_client_id INT UNSIGNED DEFAULT NULL;
+  DECLARE binding_found INT DEFAULT 0;
+  DECLARE binding_customer_id CHAR(36) DEFAULT NULL;
+  DECLARE binding_status VARCHAR(16) DEFAULT NULL;
+  DECLARE payload_client_key VARCHAR(128) DEFAULT NULL;
   DECLARE actor_found INT DEFAULT 0;
   DECLARE actor_role VARCHAR(32) DEFAULT NULL;
   DECLARE actor_active TINYINT DEFAULT NULL;
@@ -2665,13 +2670,34 @@ BEGIN
   END IF;
   BEGIN
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET parent_found=0;
-    SELECT 1,approval_status,billable,reviewed_by_user_id,reviewed_at
-      INTO parent_found,parent_status,parent_billable,parent_reviewer,parent_reviewed
+    SELECT 1,approval_status,billable,reviewed_by_user_id,reviewed_at,client_id
+      INTO parent_found,parent_status,parent_billable,parent_reviewer,parent_reviewed,
+           parent_client_id
       FROM time_entries WHERE tenant_id=NEW.tenant_id AND id=NEW.time_entry_id FOR UPDATE;
   END;
   IF parent_found<>1 OR BINARY parent_status<>BINARY 'approved' OR parent_billable<>1
      OR parent_reviewer IS NULL OR parent_reviewed IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Export claims require approved billable reviewed time';
+  END IF;
+  BEGIN
+    DECLARE CONTINUE HANDLER FOR NOT FOUND
+      BEGIN
+        SET binding_found=0;
+        SET binding_customer_id=NULL;
+        SET binding_status=NULL;
+      END;
+    SELECT 1,customer_id,status
+      INTO binding_found,binding_customer_id,binding_status
+      FROM suite_customer_sync_bindings
+     WHERE tenant_id=NEW.tenant_id AND client_id=parent_client_id
+     FOR UPDATE;
+  END;
+  SET payload_client_key=JSON_UNQUOTE(JSON_EXTRACT(NEW.payload_json,'$.client_key'));
+  IF binding_found<>1 OR BINARY binding_status<>BINARY 'active'
+     OR NOT (BINARY payload_client_key <=>
+             BINARY CONCAT('milepost-customer:',binding_customer_id)) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT='Export claims require an active matching customer binding';
   END IF;
   BEGIN
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET actor_found=0;
@@ -2712,6 +2738,7 @@ BEGIN
   DECLARE latest_found INT DEFAULT 0;
   DECLARE latest_kind VARCHAR(32) DEFAULT NULL;
   DECLARE latest_outcome VARCHAR(32) DEFAULT NULL;
+  DECLARE latest_created DATETIME DEFAULT NULL;
   BEGIN
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET tenant_found=0;
     SELECT 1 INTO tenant_found FROM tenants WHERE id=NEW.tenant_id FOR UPDATE;
@@ -2729,8 +2756,14 @@ BEGIN
   END IF;
   BEGIN
     DECLARE CONTINUE HANDLER FOR NOT FOUND
-      BEGIN SET latest_found=0; SET latest_kind=NULL; SET latest_outcome=NULL; END;
-    SELECT 1,operation_kind,outcome INTO latest_found,latest_kind,latest_outcome
+      BEGIN
+        SET latest_found=0;
+        SET latest_kind=NULL;
+        SET latest_outcome=NULL;
+        SET latest_created=NULL;
+      END;
+    SELECT 1,operation_kind,outcome,created_at
+      INTO latest_found,latest_kind,latest_outcome,latest_created
       FROM coastmark_time_export_receipts
      WHERE tenant_id=NEW.tenant_id AND claim_id=NEW.claim_id
      ORDER BY id DESC LIMIT 1;
@@ -2742,7 +2775,13 @@ BEGIN
     END IF;
   ELSEIF NEW.operation_kind='status_started' THEN
     IF NEW.outcome<>'checking'
-       OR (latest_found=1 AND latest_outcome IN ('accepted','replayed','manual_exception','conflict')) THEN
+       OR NOT (IS_USED_LOCK(CONCAT('safeharbor:cm-status:',NEW.claim_id))
+               <=> CONNECTION_ID())
+       OR (latest_found=1 AND latest_outcome IN
+           ('accepted','replayed','manual_exception','conflict'))
+       OR (latest_found=1
+           AND latest_outcome IN ('dispatching','checking')
+           AND latest_created>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 35 SECOND)) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Export status transition is not permitted';
     END IF;
   ELSEIF NEW.operation_kind='dispatch_result' THEN
