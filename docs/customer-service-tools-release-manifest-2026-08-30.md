@@ -68,6 +68,11 @@ These are overlap rules, not merge authorization:
    launch-handoff PR #80. PR #88 must then rebase onto that exact `master`, drop
    the already-landed #86 history, preserve its customer-service work, and
    combine both reviewed policy changes in `app/lib/product_policy.php`.
+   The reviewed PR #80 input is exact head
+   `8816e928bc712d904f0920b83579f20eb3915cfa`; exact-head CI run
+   `33331158806` passed and independent review found no P0/P1. It supersedes
+   former head `31e9ca9a803cc502f6bd6bccd4002644dc939698`, which must not be used.
+   Recording this evidence does not authorize a merge or rebase.
 2. In Milepost, standalone identity repair PR #428 may land before the full
    customer-service aggregate PR #427. PR #427 already contains component PR
    #422; after #428, rebase #427, drop the three patch-ID twins, remove stale
