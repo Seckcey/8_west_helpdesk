@@ -575,23 +575,47 @@ $migration = file_get_contents(__DIR__ . '/../db/migrations/021_coastmark_time_e
 $schema = file_get_contents(__DIR__ . '/../db/schema.sql');
 $cli = file_get_contents(__DIR__ . '/../db/export_approved_time.php');
 $preflightMarker = '-- CREATE TABLE IF NOT EXISTS is only a convenience for a fresh install.';
-$migrationPreflightStart = is_string($migration) ? strpos($migration, $preflightMarker) : false;
-$migrationPreflightEnd = is_string($migration)
-    ? strpos($migration, '-- Fail closed while permanent triggers', (int) $migrationPreflightStart)
+$schemaOperationalEndMarker = '-- --------------------------------------------------------';
+$migrationOperationalStart = is_string($migration) ? strpos($migration, $preflightMarker) : false;
+$schemaOperationalStart = is_string($schema) ? strpos($schema, $preflightMarker) : false;
+$schemaOperationalEnd = is_string($schema)
+    ? strpos($schema, $schemaOperationalEndMarker, (int) $schemaOperationalStart)
     : false;
-$schemaPreflightStart = is_string($schema) ? strpos($schema, $preflightMarker) : false;
-$schemaPreflightEnd = is_string($schema)
-    ? strpos($schema, 'DROP TRIGGER IF EXISTS trg_cm_export_claim_before_insert', (int) $schemaPreflightStart)
-    : false;
-$migrationPreflight = $migrationPreflightStart !== false && $migrationPreflightEnd !== false
-    ? substr($migration, $migrationPreflightStart, $migrationPreflightEnd - $migrationPreflightStart)
+$migrationOperational = $migrationOperationalStart !== false
+    ? substr($migration, $migrationOperationalStart)
     : null;
-$schemaPreflight = $schemaPreflightStart !== false && $schemaPreflightEnd !== false
-    ? substr($schema, $schemaPreflightStart, $schemaPreflightEnd - $schemaPreflightStart)
+$schemaOperational = $schemaOperationalStart !== false && $schemaOperationalEnd !== false
+    ? substr($schema, $schemaOperationalStart, $schemaOperationalEnd - $schemaOperationalStart)
     : null;
-$schemaPreflight = is_string($schemaPreflight)
-    ? str_replace('cm_export_schema_statement', 'cm_export_statement', $schemaPreflight)
+$migrationOperational = is_string($migrationOperational)
+    ? rtrim(str_replace("\r\n", "\n", $migrationOperational))
     : null;
+$schemaOperational = is_string($schemaOperational)
+    ? rtrim(str_replace("\r\n", "\n", $schemaOperational))
+    : null;
+$triggerManifest = [];
+$triggerDefinitions = [];
+if (is_string($migration)) {
+    preg_match_all(
+        "/\\('([^']+)','(?:swap|permanent)','[^']+','(?:INSERT|UPDATE|DELETE)',\\s*'([0-9a-f]{64})'\\)/",
+        $migration,
+        $manifestRows,
+        PREG_SET_ORDER,
+    );
+    foreach ($manifestRows as $row) $triggerManifest[$row[1]] = $row[2];
+    preg_match_all(
+        '/CREATE\\s+TRIGGER(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-z0-9_]+).*?FOR\\s+EACH\\s+ROW\\s*(BEGIN.*?END)\\$\\$/is',
+        $migration,
+        $definitionRows,
+        PREG_SET_ORDER,
+    );
+    foreach ($definitionRows as $row) {
+        $normalized = strtolower(preg_replace('/\\s+/', '', str_replace('`', '', $row[2])) ?? '');
+        $triggerDefinitions[$row[1]] = hash('sha256', $normalized);
+    }
+}
+ksort($triggerManifest);
+ksort($triggerDefinitions);
 export_check('migration and canonical schema carry both tables and six immutable guards',
     is_string($migration) && is_string($schema)
     && str_contains($migration, 'CREATE TABLE IF NOT EXISTS coastmark_time_export_claims')
@@ -601,21 +625,37 @@ export_check('migration and canonical schema carry both tables and six immutable
     && str_contains($migration, 'Export claims require an active matching customer binding')
     && str_contains($migration, "IS_USED_LOCK(CONCAT('safeharbor:cm-status:',NEW.claim_id))")
     && str_contains($migration, 'INTERVAL 35 SECOND')
-    && str_contains($schema, '@cm_export_claim_install_lock_ddl = IF(')
-    && str_contains($schema, '@cm_export_receipt_install_lock_ddl = IF(')
+    && str_contains($schema, '@cm_claim_lock_ddl=IF(')
+    && str_contains($schema, '@cm_receipt_lock_ddl=IF(')
     && substr_count($schema, "'DO 0'") >= 2
     && substr_count($schema, 'CREATE TRIGGER trg_cm_export_claim_') === 3
     && substr_count($schema, 'CREATE TRIGGER trg_cm_export_receipt_') === 3);
-export_check('migration and canonical schema share the exact financial-table preflight',
-    is_string($migrationPreflight)
-    && $migrationPreflight === $schemaPreflight
-    && str_contains($migrationPreflight, '@cm_claim_table_ok')
-    && str_contains($migrationPreflight, '@cm_receipt_columns_ok')
-    && str_contains($migrationPreflight, '@cm_claim_indexes_ok')
-    && str_contains($migrationPreflight, '@cm_receipt_fks_ok')
-    && str_contains($migrationPreflight, '@cm_claim_checks_ok')
-    && str_contains($migrationPreflight, 'migration_021_claim_table_failed')
-    && str_contains($migrationPreflight, '@cm_export_preflight_failure'));
+export_check('migration and canonical schema share the complete exact financial-table operation',
+    is_string($migrationOperational)
+    && $migrationOperational === $schemaOperational
+    && str_contains($migrationOperational, '@cm_claim_table_ok')
+    && str_contains($migrationOperational, '@cm_receipt_columns_ok')
+    && str_contains($migrationOperational, 'generation_expression')
+    && str_contains($migrationOperational, 'character_set_name')
+    && str_contains($migrationOperational, 'collation_name')
+    && str_contains($migrationOperational, 'sub_part')
+    && str_contains($migrationOperational, 'index_type')
+    && str_contains($migrationOperational, 'is_visible')
+    && str_contains($migrationOperational, 'expression')
+    && str_contains($migrationOperational, 'referenced_table_schema')
+    && str_contains($migrationOperational, 'position_in_unique_constraint')
+    && str_contains($migrationOperational, 'unique_constraint_schema')
+    && str_contains($migrationOperational, 'match_option')
+    && str_contains($migrationOperational, 'check_clause')
+    && str_contains($migrationOperational, 'enforced')
+    && str_contains($migrationOperational, 'migration_021_claim_table_failed')
+    && str_contains($migrationOperational, '@cm_export_preflight_failure')
+    && str_contains($migrationOperational, '@cm_swaps_ready')
+    && str_contains($migrationOperational, '@cm_permanent_guards_ok')
+    && str_contains($migrationOperational, '@cm_export_final_guards_ok'));
+export_check('all twelve trigger manifest hashes exactly bind the executable guard bodies',
+    count($triggerManifest) === 12
+    && $triggerManifest === $triggerDefinitions);
 export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',
     is_string($cli)
     && str_contains($cli, "['claim', 'send', 'status', 'inspect-claim']")

@@ -144,6 +144,25 @@ function cm_v3_apply(PDO $pdo, string $path): void
         }
     }
 }
+function cm_v3_install_swap_guards(PDO $pdo, string $path): void
+{
+    $sql = file_get_contents($path);
+    if (!is_string($sql)) throw new RuntimeException('Cannot read migration.');
+    $installed = 0;
+    foreach (cm_v3_statements($sql) as $statement) {
+        $plain = preg_replace('/\A(?:\s*--[^\n]*(?:\n|\z))+/', '', $statement) ?? $statement;
+        if (preg_match(
+            '/^\s*CREATE\s+TRIGGER\s+IF\s+NOT\s+EXISTS\s+'
+                . 'trg_cm_(?:claim|receipt)_021_(?:insert|update|delete)_swap\b/i',
+            $plain,
+        ) !== 1) {
+            continue;
+        }
+        $pdo->exec($statement);
+        $installed++;
+    }
+    if ($installed !== 6) throw new RuntimeException('Did not find all six migration swap guards.');
+}
 function cm_v3_guard_snapshot(PDO $pdo): string
 {
     return (string) $pdo->query(
@@ -201,11 +220,14 @@ function cm_v3_finish(array $worker): array
 $runId = bin2hex(random_bytes(6));
 $database = $databaseBase . '_' . $runId;
 $quotedDatabase = '`' . $database . '`';
+$foreignDatabase = $database . '_x';
+$quotedForeignDatabase = '`' . $foreignDatabase . '`';
 $runtimeUser = 'sh_cm_v3_' . $runId;
 $runtimePass = bin2hex(random_bytes(24));
 $server = null;
 $pdo = null;
 $created = false;
+$foreignCreated = false;
 $runtimeCreated = false;
 $fatal = null;
 try {
@@ -278,12 +300,36 @@ try {
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         MODIFY response_status SMALLINT UNSIGNED NULL');
 
+    $pdo->exec("ALTER TABLE coastmark_time_export_receipts
+        ALTER COLUMN operation_kind SET DEFAULT 'dispatch_started'");
+    cm_v3_expect('migration refuses a receipt column with an extra default',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('default drift is refused before any permanent guard is replaced',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ALTER COLUMN operation_kind DROP DEFAULT');
+
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         DROP CHECK ck_cm_export_receipt_detail');
     cm_v3_expect('migration refuses a receipt table with a missing validation check',
         fn() => cm_v3_apply($pdo, $migration));
     cm_v3_check('check drift is refused before any permanent guard is replaced',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec("ALTER TABLE coastmark_time_export_receipts
+        ADD CONSTRAINT ck_cm_export_receipt_detail
+        CHECK (detail_code REGEXP '^[a-z][a-z0-9_]{2,63}$')");
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP CHECK ck_cm_export_receipt_detail');
+    $pdo->exec("ALTER TABLE coastmark_time_export_receipts
+        ADD CONSTRAINT ck_cm_export_receipt_detail
+        CHECK ((detail_code REGEXP '^[a-z][a-z0-9_]{2,63}$') OR 1=1)");
+    cm_v3_expect('migration refuses a weakened check with the canonical constraint name',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('same-name permissive check drift is refused before guard replacement',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP CHECK ck_cm_export_receipt_detail');
     $pdo->exec("ALTER TABLE coastmark_time_export_receipts
         ADD CONSTRAINT ck_cm_export_receipt_detail
         CHECK (detail_code REGEXP '^[a-z][a-z0-9_]{2,63}$')");
@@ -297,9 +343,99 @@ try {
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         ADD CONSTRAINT fk_cm_export_receipt_claim FOREIGN KEY (tenant_id,claim_id)
         REFERENCES coastmark_time_export_claims (tenant_id,id)');
+
+    $server->exec("CREATE DATABASE {$quotedForeignDatabase}
+        CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
+    $foreignCreated = true;
+    $server->exec("CREATE TABLE {$quotedForeignDatabase}.tenants
+        (id INT UNSIGNED PRIMARY KEY) ENGINE=InnoDB");
+    $server->exec("INSERT INTO {$quotedForeignDatabase}.tenants VALUES (1)");
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP FOREIGN KEY fk_cm_export_receipt_tenant');
+    $pdo->exec("ALTER TABLE coastmark_time_export_receipts
+        ADD CONSTRAINT fk_cm_export_receipt_tenant FOREIGN KEY (tenant_id)
+        REFERENCES {$quotedForeignDatabase}.tenants (id)");
+    cm_v3_expect('migration refuses a same-named foreign key into another schema',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('referenced-schema drift is refused before permanent guard replacement',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP FOREIGN KEY fk_cm_export_receipt_tenant');
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ADD CONSTRAINT fk_cm_export_receipt_tenant FOREIGN KEY (tenant_id)
+        REFERENCES tenants (id)');
+    $server->exec("DROP DATABASE {$quotedForeignDatabase}");
+    $foreignCreated = false;
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP INDEX uq_cm_export_receipt_operation');
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ADD UNIQUE KEY uq_cm_export_receipt_operation (tenant_id,operation_key(32))');
+    cm_v3_expect('migration refuses a same-named prefix index',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('prefix-index drift is refused before permanent guard replacement',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP INDEX uq_cm_export_receipt_operation');
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ADD UNIQUE KEY uq_cm_export_receipt_operation (tenant_id,operation_key)');
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP INDEX ix_cm_export_receipt_outcome');
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ADD KEY ix_cm_export_receipt_outcome (tenant_id,created_at,outcome,id)');
+    cm_v3_expect('migration refuses a same-named index with reordered columns',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('index-order drift is refused before permanent guard replacement',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP INDEX ix_cm_export_receipt_outcome');
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ADD KEY ix_cm_export_receipt_outcome (tenant_id,outcome,created_at,id)');
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP INDEX ix_cm_export_receipt_outcome');
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ADD FULLTEXT KEY ix_cm_export_receipt_outcome (detail_code)');
+    cm_v3_expect('migration refuses a same-named index with the wrong index type',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('index-type drift is refused before permanent guard replacement',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        DROP INDEX ix_cm_export_receipt_outcome');
+    $pdo->exec('ALTER TABLE coastmark_time_export_receipts
+        ADD KEY ix_cm_export_receipt_outcome (tenant_id,outcome,created_at,id)');
+
     cm_v3_apply($pdo, $migration);
     cm_v3_check('exactly repaired schema replays and retains the same canonical guards',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+
+    cm_v3_install_swap_guards($pdo, $migration);
+    $pdo->exec('DROP TRIGGER trg_cm_export_claim_before_insert');
+    $pdo->exec('CREATE TRIGGER cm_v3_unexpected_claim_guard
+        BEFORE INSERT ON coastmark_time_export_claims FOR EACH ROW
+        SET @cm_v3_unexpected_claim_guard = 1');
+    $partialReplaySnapshot = cm_v3_guard_snapshot($pdo);
+    cm_v3_expect('partial replay refuses an unexpected trigger while all swap guards survive',
+        fn() => cm_v3_apply($pdo, $migration));
+    cm_v3_check('failed partial replay leaves every surviving guard byte unchanged',
+        cm_v3_guard_snapshot($pdo) === $partialReplaySnapshot);
+    cm_v3_expect('surviving claim swap blocks writes after partial replay refusal',
+        fn() => $pdo->exec("INSERT INTO coastmark_time_export_claims
+          (tenant_id,time_entry_id,source_version,event_key,predecessor_claim_id,
+           payload_sha256,payload_json,created_by_user_id)
+          VALUES (1,501,0,'safeharbor-time:77777777777777777777777777777777',NULL,'"
+            . str_repeat('7', 64)
+            . "','{\"client_key\":\"milepost-customer:11111111-1111-4111-8111-111111111111\"}',102)"),
+        'migration 021 claim trigger swap');
+    $pdo->exec('DROP TRIGGER cm_v3_unexpected_claim_guard');
+    cm_v3_apply($pdo, $migration);
+    cm_v3_check('exact repaired partial replay restores only the six canonical permanent guards',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot
+        && (int) $pdo->query("SELECT COUNT(*) FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND event_object_table IN
+                ('coastmark_time_export_claims','coastmark_time_export_receipts')")->fetchColumn() === 6);
 
     $claim = coastmark_time_export_claim(
         $pdo, '8west', 501, 'timer:mysql:000001', 102, cm_v3_config(),
@@ -465,6 +601,9 @@ try {
         }
         if ($created) {
             try { $server->exec("DROP DATABASE IF EXISTS {$quotedDatabase}"); } catch (Throwable) {}
+        }
+        if ($foreignCreated) {
+            try { $server->exec("DROP DATABASE IF EXISTS {$quotedForeignDatabase}"); } catch (Throwable) {}
         }
     }
 }
