@@ -3822,7 +3822,8 @@ SET @cm_claim_fks_ok = (
     FROM (
       SELECT usage_table.constraint_name,
              MIN(usage_table.referenced_table_name) AS referenced_table_name,
-             MIN(rules.update_rule) AS update_rule, MIN(rules.delete_rule) AS delete_rule,
+             MIN(IF(rules.update_rule = 'NO ACTION','RESTRICT',rules.update_rule)) AS update_rule,
+             MIN(IF(rules.delete_rule = 'NO ACTION','RESTRICT',rules.delete_rule)) AS delete_rule,
              GROUP_CONCAT(CONCAT(usage_table.column_name,'=',usage_table.referenced_column_name)
                           ORDER BY usage_table.ordinal_position) AS columns_csv
         FROM information_schema.key_column_usage usage_table
@@ -3848,7 +3849,8 @@ SET @cm_receipt_fks_ok = (
     FROM (
       SELECT usage_table.constraint_name,
              MIN(usage_table.referenced_table_name) AS referenced_table_name,
-             MIN(rules.update_rule) AS update_rule, MIN(rules.delete_rule) AS delete_rule,
+             MIN(IF(rules.update_rule = 'NO ACTION','RESTRICT',rules.update_rule)) AS update_rule,
+             MIN(IF(rules.delete_rule = 'NO ACTION','RESTRICT',rules.delete_rule)) AS delete_rule,
              GROUP_CONCAT(CONCAT(usage_table.column_name,'=',usage_table.referenced_column_name)
                           ORDER BY usage_table.ordinal_position) AS columns_csv
         FROM information_schema.key_column_usage usage_table
