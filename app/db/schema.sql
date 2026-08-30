@@ -1563,6 +1563,10 @@ BEFORE INSERT ON managed_customer_activation_receipts
 FOR EACH ROW SET @mc_activation_trigger_privilege_preflight = 1;
 DROP TRIGGER trg_mc_activation_privilege_preflight;
 
+DROP TRIGGER IF EXISTS trg_mc_activation_before_insert;
+DROP TRIGGER IF EXISTS trg_mc_activation_no_update;
+DROP TRIGGER IF EXISTS trg_mc_activation_no_delete;
+
 DELIMITER $$
 CREATE TRIGGER trg_mc_activation_before_insert
 BEFORE INSERT ON managed_customer_activation_receipts
@@ -1699,8 +1703,18 @@ BEGIN
 END$$
 DELIMITER ;
 
-ALTER TABLE managed_customer_activation_receipts
-  DROP CHECK ck_mc_activation_install_lock;
+SET @mc_activation_install_lock_ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema = DATABASE()
+      AND table_name = 'managed_customer_activation_receipts'
+      AND constraint_name = 'ck_mc_activation_install_lock'
+      AND constraint_type = 'CHECK') = 1,
+  'ALTER TABLE managed_customer_activation_receipts DROP CHECK ck_mc_activation_install_lock',
+  'DO 0'
+);
+PREPARE mc_activation_statement FROM @mc_activation_install_lock_ddl;
+EXECUTE mc_activation_statement;
+DEALLOCATE PREPARE mc_activation_statement;
 
 -- --------------------------------------------------------
 -- Versioned service-goal policies and immutable per-priority targets
