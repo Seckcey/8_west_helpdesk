@@ -3808,6 +3808,141 @@ CREATE TABLE IF NOT EXISTS safeharbor_m021_reference_receipts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   COMMENT='safeharbor:migration:021:reference:receipts:v1';
 
+-- These connection-local manifests are the source-owned answer key. Durable
+-- reference objects may survive a failed run, so neither their owner comment
+-- nor agreement with the live tables is enough to make their shape canonical.
+DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_source_columns;
+CREATE TEMPORARY TABLE safeharbor_m021_source_columns (
+  table_name            VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  ordinal_position      SMALLINT UNSIGNED NOT NULL,
+  column_name           VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  column_type           VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  is_nullable           VARCHAR(3) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  column_default        VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  extra                 VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  generation_expression VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  character_set_name    VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  collation_name        VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  PRIMARY KEY (table_name,ordinal_position),
+  UNIQUE KEY uq_m021_source_column (table_name,column_name)
+) ENGINE=MEMORY;
+INSERT INTO safeharbor_m021_source_columns VALUES
+  ('safeharbor_m021_reference_claims',1,'id','bigint unsigned','NO',NULL,'auto_increment','',NULL,NULL),
+  ('safeharbor_m021_reference_claims',2,'tenant_id','int unsigned','NO',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_claims',3,'time_entry_id','int unsigned','NO',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_claims',4,'source_version','int unsigned','NO',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_claims',5,'event_key','varchar(64)','NO',NULL,'','','ascii','ascii_bin'),
+  ('safeharbor_m021_reference_claims',6,'predecessor_claim_id','bigint unsigned','YES',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_claims',7,'payload_sha256','char(64)','NO',NULL,'','','ascii','ascii_bin'),
+  ('safeharbor_m021_reference_claims',8,'payload_json','longtext','NO',NULL,'','','utf8mb4','utf8mb4_bin'),
+  ('safeharbor_m021_reference_claims',9,'created_by_user_id','int unsigned','NO',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_claims',10,'created_at','datetime','NO','CURRENT_TIMESTAMP','DEFAULT_GENERATED','',NULL,NULL),
+  ('safeharbor_m021_reference_receipts',1,'id','bigint unsigned','NO',NULL,'auto_increment','',NULL,NULL),
+  ('safeharbor_m021_reference_receipts',2,'tenant_id','int unsigned','NO',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_receipts',3,'claim_id','bigint unsigned','NO',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_receipts',4,'operation_key','varchar(64)','NO',NULL,'','','ascii','ascii_bin'),
+  ('safeharbor_m021_reference_receipts',5,'operation_kind',
+   'enum(''dispatch_started'',''dispatch_result'',''status_started'',''status_result'')',
+   'NO',NULL,'','','utf8mb4','@table'),
+  ('safeharbor_m021_reference_receipts',6,'outcome',
+   'enum(''dispatching'',''checking'',''accepted'',''replayed'',''absent'',''ambiguous'',''conflict'',''manual_exception'')',
+   'NO',NULL,'','','utf8mb4','@table'),
+  ('safeharbor_m021_reference_receipts',7,'response_status','smallint unsigned','YES',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_receipts',8,'response_sha256','char(64)','YES',NULL,'','','ascii','ascii_bin'),
+  ('safeharbor_m021_reference_receipts',9,'coastmark_event_id','bigint unsigned','YES',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_receipts',10,'invoice_id','bigint unsigned','YES',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_receipts',11,'invoice_line_id','bigint unsigned','YES',NULL,'','',NULL,NULL),
+  ('safeharbor_m021_reference_receipts',12,'detail_code','varchar(64)','NO',NULL,'','','utf8mb4','@table'),
+  ('safeharbor_m021_reference_receipts',13,'created_at','datetime','NO','CURRENT_TIMESTAMP','DEFAULT_GENERATED','',NULL,NULL);
+
+DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_source_indexes;
+CREATE TEMPORARY TABLE safeharbor_m021_source_indexes (
+  table_name       VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  index_name       VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  non_unique       TINYINT UNSIGNED NOT NULL,
+  seq_in_index     SMALLINT UNSIGNED NOT NULL,
+  column_name      VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  PRIMARY KEY (table_name,index_name,seq_in_index)
+) ENGINE=MEMORY;
+INSERT INTO safeharbor_m021_source_indexes VALUES
+  ('safeharbor_m021_reference_claims','PRIMARY',0,1,'id'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_tenant_id',0,1,'tenant_id'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_tenant_id',0,2,'id'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_event',0,1,'tenant_id'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_event',0,2,'event_key'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_version',0,1,'tenant_id'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_version',0,2,'time_entry_id'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_version',0,3,'source_version'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_predecessor',0,1,'tenant_id'),
+  ('safeharbor_m021_reference_claims','uq_cm_export_claim_predecessor',0,2,'predecessor_claim_id'),
+  ('safeharbor_m021_reference_claims','ix_cm_export_claim_actor',1,1,'tenant_id'),
+  ('safeharbor_m021_reference_claims','ix_cm_export_claim_actor',1,2,'created_by_user_id'),
+  ('safeharbor_m021_reference_claims','ix_cm_export_claim_actor',1,3,'created_at'),
+  ('safeharbor_m021_reference_claims','ix_cm_export_claim_actor',1,4,'id'),
+  ('safeharbor_m021_reference_receipts','PRIMARY',0,1,'id'),
+  ('safeharbor_m021_reference_receipts','uq_cm_export_receipt_operation',0,1,'tenant_id'),
+  ('safeharbor_m021_reference_receipts','uq_cm_export_receipt_operation',0,2,'operation_key'),
+  ('safeharbor_m021_reference_receipts','ix_cm_export_receipt_claim',1,1,'tenant_id'),
+  ('safeharbor_m021_reference_receipts','ix_cm_export_receipt_claim',1,2,'claim_id'),
+  ('safeharbor_m021_reference_receipts','ix_cm_export_receipt_claim',1,3,'id'),
+  ('safeharbor_m021_reference_receipts','ix_cm_export_receipt_outcome',1,1,'tenant_id'),
+  ('safeharbor_m021_reference_receipts','ix_cm_export_receipt_outcome',1,2,'outcome'),
+  ('safeharbor_m021_reference_receipts','ix_cm_export_receipt_outcome',1,3,'created_at'),
+  ('safeharbor_m021_reference_receipts','ix_cm_export_receipt_outcome',1,4,'id');
+
+DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_source_fks;
+CREATE TEMPORARY TABLE safeharbor_m021_source_fks (
+  table_name             VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  constraint_name        VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  ordinal_position       SMALLINT UNSIGNED NOT NULL,
+  unique_position        SMALLINT UNSIGNED NOT NULL,
+  column_name            VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  referenced_table_name  VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  referenced_column_name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  unique_constraint_name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  PRIMARY KEY (table_name,constraint_name,ordinal_position)
+) ENGINE=MEMORY;
+INSERT INTO safeharbor_m021_source_fks VALUES
+  ('safeharbor_m021_reference_claims','rf21_claim_tenant',1,1,'tenant_id','tenants','id','PRIMARY'),
+  ('safeharbor_m021_reference_claims','rf21_claim_entry',1,1,'tenant_id','time_entries','tenant_id','uq_time_entries_tenant_id'),
+  ('safeharbor_m021_reference_claims','rf21_claim_entry',2,2,'time_entry_id','time_entries','id','uq_time_entries_tenant_id'),
+  ('safeharbor_m021_reference_claims','rf21_claim_actor',1,1,'tenant_id','users','tenant_id','uq_users_tenant_id'),
+  ('safeharbor_m021_reference_claims','rf21_claim_actor',2,2,'created_by_user_id','users','id','uq_users_tenant_id'),
+  ('safeharbor_m021_reference_claims','rf21_claim_predecessor',1,1,'tenant_id','safeharbor_m021_reference_claims','tenant_id','uq_cm_export_claim_tenant_id'),
+  ('safeharbor_m021_reference_claims','rf21_claim_predecessor',2,2,'predecessor_claim_id','safeharbor_m021_reference_claims','id','uq_cm_export_claim_tenant_id'),
+  ('safeharbor_m021_reference_receipts','rf21_receipt_tenant',1,1,'tenant_id','tenants','id','PRIMARY'),
+  ('safeharbor_m021_reference_receipts','rf21_receipt_claim',1,1,'tenant_id','safeharbor_m021_reference_claims','tenant_id','uq_cm_export_claim_tenant_id'),
+  ('safeharbor_m021_reference_receipts','rf21_receipt_claim',2,2,'claim_id','safeharbor_m021_reference_claims','id','uq_cm_export_claim_tenant_id');
+
+DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_source_checks;
+CREATE TEMPORARY TABLE safeharbor_m021_source_checks (
+  table_name        VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  constraint_name   VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  normalized_clause VARCHAR(1000) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  install_lock      TINYINT UNSIGNED NOT NULL,
+  PRIMARY KEY (table_name,constraint_name)
+) ENGINE=MEMORY;
+INSERT INTO safeharbor_m021_source_checks VALUES
+  ('safeharbor_m021_reference_claims','rc21_claim_event_key',
+   'regexp_like(event_key,''^safeharbor-time:[0-9a-f]{32}$'')',0),
+  ('safeharbor_m021_reference_claims','rc21_claim_hash',
+   'regexp_like(payload_sha256,''^[0-9a-f]{64}$'')',0),
+  ('safeharbor_m021_reference_claims','rc21_claim_payload','json_valid(payload_json)',0),
+  ('safeharbor_m021_reference_claims','rc21_claim_predecessor_shape',
+   'source_version=0andpredecessor_claim_idisnullorsource_version>0andpredecessor_claim_idisnotnull',0),
+  ('safeharbor_m021_reference_claims','rc21_claim_install_lock','0=1',1),
+  ('safeharbor_m021_reference_receipts','rc21_receipt_operation_key',
+   'regexp_like(operation_key,''^safeharbor-op:[0-9a-f]{32}$'')',0),
+  ('safeharbor_m021_reference_receipts','rc21_receipt_response_status',
+   'response_statusisnullorresponse_statusbetween100and599',0),
+  ('safeharbor_m021_reference_receipts','rc21_receipt_response_hash',
+   'response_sha256isnullorregexp_like(response_sha256,''^[0-9a-f]{64}$'')',0),
+  ('safeharbor_m021_reference_receipts','rc21_receipt_detail',
+   'regexp_like(detail_code,''^[a-z][a-z0-9_]{2,63}$'')',0),
+  ('safeharbor_m021_reference_receipts','rc21_receipt_ack_shape',
+   'outcome=''accepted''andcoastmark_event_idisnotnullandinvoice_idisnotnullandinvoice_line_idisnotnulloroutcome=''replayed''andcoastmark_event_idisnotnullandinvoice_idisnotnulloroutcome=''manual_exception''andcoastmark_event_idisnotnullandinvoice_idisnotnullandinvoice_line_idisnulloroutcomenotin(''accepted'',''replayed'',''manual_exception'')andcoastmark_event_idisnullandinvoice_idisnullandinvoice_line_idisnull',0),
+  ('safeharbor_m021_reference_receipts','rc21_receipt_install_lock','0=1',1);
+
 DROP TEMPORARY TABLE IF EXISTS safeharbor_m021_reference_trigger_allowlist;
 CREATE TEMPORARY TABLE safeharbor_m021_reference_trigger_allowlist (
   trigger_name       VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -3830,6 +3965,164 @@ VALUES
   ('trg_cm_ref_021_receipt_before_insert','safeharbor_m021_reference_receipts','INSERT'),
   ('trg_cm_ref_021_receipt_no_update','safeharbor_m021_reference_receipts','UPDATE'),
   ('trg_cm_ref_021_receipt_no_delete','safeharbor_m021_reference_receipts','DELETE');
+
+SET @cm_reference_source_tables_ok = (
+  SELECT COUNT(*)=2
+     AND COALESCE(SUM(
+       live.engine='InnoDB'
+       AND charset_map.character_set_name='utf8mb4'
+       AND CAST(live.table_comment AS BINARY)=CAST(
+         IF(live.table_name='safeharbor_m021_reference_claims',
+            'safeharbor:migration:021:reference:claims:v1',
+            'safeharbor:migration:021:reference:receipts:v1') AS BINARY)
+     ),0)=2
+    FROM information_schema.tables live
+    JOIN information_schema.collation_character_set_applicability charset_map
+      ON charset_map.collation_name=live.table_collation
+   WHERE live.table_schema=DATABASE()
+     AND live.table_type='BASE TABLE'
+     AND live.table_name IN
+         ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+);
+SET @cm_reference_source_columns_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.columns
+           WHERE table_schema=DATABASE()
+             AND table_name IN
+                 ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))
+           = COUNT(*)
+     AND COALESCE(SUM(
+           live.column_name <=> expected.column_name
+       AND CAST(live.column_type AS BINARY) <=> CAST(expected.column_type AS BINARY)
+       AND live.is_nullable <=> expected.is_nullable
+       AND CAST(live.column_default AS BINARY) <=> CAST(expected.column_default AS BINARY)
+       AND CAST(live.extra AS BINARY) <=> CAST(expected.extra AS BINARY)
+       AND CAST(live.generation_expression AS BINARY)
+             <=> CAST(expected.generation_expression AS BINARY)
+       AND live.character_set_name <=> expected.character_set_name
+       AND live.collation_name <=> IF(expected.collation_name='@table',
+             reference_table.table_collation,expected.collation_name)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_columns expected
+    JOIN information_schema.tables reference_table
+      ON reference_table.table_schema=DATABASE()
+     AND reference_table.table_name=expected.table_name
+    LEFT JOIN information_schema.columns live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.ordinal_position=expected.ordinal_position
+);
+SET @cm_reference_source_indexes_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.statistics
+           WHERE table_schema=DATABASE()
+             AND table_name IN
+                 ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))
+           = COUNT(*)
+     AND COALESCE(SUM(
+           live.index_name <=> expected.index_name
+       AND live.non_unique <=> expected.non_unique
+       AND live.seq_in_index <=> expected.seq_in_index
+       AND live.column_name <=> expected.column_name
+       AND live.collation='A'
+       AND live.sub_part IS NULL
+       AND live.packed IS NULL
+       AND live.nullable <=> IF(source_column.is_nullable='YES','YES','')
+       AND live.index_type='BTREE'
+       AND live.comment=''
+       AND live.index_comment=''
+       AND live.is_visible='YES'
+       AND live.expression IS NULL
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_indexes expected
+    JOIN safeharbor_m021_source_columns source_column
+      ON source_column.table_name=expected.table_name
+     AND source_column.column_name=expected.column_name
+    LEFT JOIN information_schema.statistics live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.index_name=expected.index_name
+     AND live.seq_in_index=expected.seq_in_index
+);
+SET @cm_reference_source_fks_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.key_column_usage
+           WHERE table_schema=DATABASE()
+             AND table_name IN
+                 ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+             AND referenced_table_name IS NOT NULL)=COUNT(*)
+     AND COALESCE(SUM(
+           live.constraint_name <=> expected.constraint_name
+       AND live.ordinal_position <=> expected.ordinal_position
+       AND live.position_in_unique_constraint <=> expected.unique_position
+       AND live.column_name <=> expected.column_name
+       AND live.referenced_table_schema=DATABASE()
+       AND live.referenced_table_name <=> expected.referenced_table_name
+       AND live.referenced_column_name <=> expected.referenced_column_name
+       AND rule.unique_constraint_schema=DATABASE()
+       AND rule.unique_constraint_name <=> expected.unique_constraint_name
+       AND rule.match_option='NONE'
+       AND rule.update_rule='NO ACTION'
+       AND rule.delete_rule='NO ACTION'
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_fks expected
+    LEFT JOIN information_schema.key_column_usage live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.constraint_name=expected.constraint_name
+     AND live.ordinal_position=expected.ordinal_position
+    LEFT JOIN information_schema.referential_constraints rule
+      ON rule.constraint_schema=live.constraint_schema
+     AND rule.table_name=live.table_name
+     AND rule.constraint_name=live.constraint_name
+);
+SET @cm_reference_source_checks_ok = (
+  (SELECT COUNT(*)=0
+     FROM information_schema.table_constraints live_constraint
+     JOIN information_schema.check_constraints live_check
+       ON live_check.constraint_schema=live_constraint.constraint_schema
+      AND live_check.constraint_name=live_constraint.constraint_name
+     LEFT JOIN safeharbor_m021_source_checks expected
+       ON expected.table_name=live_constraint.table_name
+      AND expected.constraint_name=live_constraint.constraint_name
+    WHERE live_constraint.constraint_schema=DATABASE()
+      AND live_constraint.table_name IN
+          ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+      AND live_constraint.constraint_type='CHECK'
+      AND (expected.constraint_name IS NULL
+           OR live_constraint.enforced<>'YES'
+           OR CAST(REGEXP_REPLACE(
+                REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
+                                '_utf8mb4',''),'_ascii',''),
+                '[[:space:]()]','') AS BINARY)
+              <> CAST(expected.normalized_clause AS BINARY)))
+  AND
+  (SELECT COUNT(*)=9
+     FROM safeharbor_m021_source_checks expected
+     JOIN information_schema.table_constraints live_constraint
+       ON live_constraint.constraint_schema=DATABASE()
+      AND live_constraint.table_name=expected.table_name
+      AND live_constraint.constraint_name=expected.constraint_name
+      AND live_constraint.constraint_type='CHECK'
+      AND live_constraint.enforced='YES'
+    WHERE expected.install_lock=0)
+  AND
+  (SELECT COUNT(*)<=1 FROM information_schema.table_constraints
+    WHERE constraint_schema=DATABASE()
+      AND table_name='safeharbor_m021_reference_claims'
+      AND constraint_type='CHECK'
+      AND constraint_name='rc21_claim_install_lock')
+  AND
+  (SELECT COUNT(*)<=1 FROM information_schema.table_constraints
+    WHERE constraint_schema=DATABASE()
+      AND table_name='safeharbor_m021_reference_receipts'
+      AND constraint_type='CHECK'
+      AND constraint_name='rc21_receipt_install_lock')
+);
+SET @cm_reference_entry_source_shape_ok = (
+  @cm_reference_source_tables_ok=1
+  AND @cm_reference_source_columns_ok=1
+  AND @cm_reference_source_indexes_ok=1
+  AND @cm_reference_source_fks_ok=1
+  AND @cm_reference_source_checks_ok=1
+);
 
 SET @cm_reference_entry_owned = (
   SELECT COUNT(*)=2
@@ -3937,6 +4230,7 @@ SET @cm_reference_entry_failure = CASE
   WHEN NOT (@cm_reference_entry_owned <=> 1) THEN 'migration_021_reference_owner_failed'
   WHEN NOT (@cm_reference_entry_empty <=> 1) THEN 'migration_021_reference_rows_not_empty'
   WHEN NOT (@cm_reference_entry_dependencies_ok <=> 1) THEN 'migration_021_reference_dependency_failed'
+  WHEN NOT (@cm_reference_entry_source_shape_ok <=> 1) THEN 'migration_021_reference_source_shape_failed'
   WHEN NOT (@cm_reference_entry_triggers_ok <=> 1) THEN 'migration_021_reference_trigger_state_failed'
   ELSE NULL
 END;
@@ -3949,42 +4243,55 @@ PREPARE cm_export_statement FROM @cm_reference_entry_sql;
 EXECUTE cm_export_statement;
 DEALLOCATE PREPARE cm_export_statement;
 
+DROP TRIGGER IF EXISTS trg_cm_ref_021_claim_insert_swap;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_claim_update_swap;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_claim_delete_swap;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_receipt_insert_swap;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_receipt_update_swap;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_receipt_delete_swap;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_claim_before_insert;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_claim_no_update;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_claim_no_delete;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_receipt_before_insert;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_receipt_no_update;
+DROP TRIGGER IF EXISTS trg_cm_ref_021_receipt_no_delete;
+
 DELIMITER $$
 -- Build the exact trigger answer key on migration-owned reference tables.
 -- MySQL serializes both the reference and live bodies on this same server;
 -- binary ACTION_STATEMENT hashes therefore preserve every quoted byte
 -- without depending on formatting differences between MySQL versions.
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_insert_swap
+CREATE TRIGGER trg_cm_ref_021_claim_insert_swap
 BEFORE INSERT ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_update_swap
+CREATE TRIGGER trg_cm_ref_021_claim_update_swap
 BEFORE UPDATE ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_delete_swap
+CREATE TRIGGER trg_cm_ref_021_claim_delete_swap
 BEFORE DELETE ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 claim trigger swap';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_insert_swap
+CREATE TRIGGER trg_cm_ref_021_receipt_insert_swap
 BEFORE INSERT ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_update_swap
+CREATE TRIGGER trg_cm_ref_021_receipt_update_swap
 BEFORE UPDATE ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_delete_swap
+CREATE TRIGGER trg_cm_ref_021_receipt_delete_swap
 BEFORE DELETE ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migration 021 receipt trigger swap';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_before_insert
+CREATE TRIGGER trg_cm_ref_021_claim_before_insert
 BEFORE INSERT ON safeharbor_m021_reference_claims
 FOR EACH ROW
 BEGIN
@@ -4077,17 +4384,17 @@ BEGIN
   END IF;
   SET NEW.created_at=UTC_TIMESTAMP();
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_no_update
+CREATE TRIGGER trg_cm_ref_021_claim_no_update
 BEFORE UPDATE ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export claims are immutable';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_claim_no_delete
+CREATE TRIGGER trg_cm_ref_021_claim_no_delete
 BEFORE DELETE ON safeharbor_m021_reference_claims FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export claims cannot be deleted';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_before_insert
+CREATE TRIGGER trg_cm_ref_021_receipt_before_insert
 BEFORE INSERT ON safeharbor_m021_reference_receipts
 FOR EACH ROW
 BEGIN
@@ -4159,12 +4466,12 @@ BEGIN
   END IF;
   SET NEW.created_at=UTC_TIMESTAMP();
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_no_update
+CREATE TRIGGER trg_cm_ref_021_receipt_no_update
 BEFORE UPDATE ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export receipts are immutable';
 END$$
-CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_receipt_no_delete
+CREATE TRIGGER trg_cm_ref_021_receipt_no_delete
 BEFORE DELETE ON safeharbor_m021_reference_receipts FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Coastmark export receipts cannot be deleted';
@@ -4775,13 +5082,162 @@ SET @cm_reference_cleanup_dependencies = (
                OR LOCATE('safeharbor_m021_reference_claims',
                          LOWER(routine_definition))>0
                OR LOCATE('safeharbor_m021_reference_receipts',
-                         LOWER(routine_definition))>0))=0
+                          LOWER(routine_definition))>0))=0
+);
+-- Re-read every source-anchored shape at the destructive boundary. The named
+-- advisory lock serializes migration runners, but it does not stop an
+-- unrelated DDL-capable connection from changing these evidence objects.
+SET @cm_reference_cleanup_source_tables_ok = (
+  SELECT COUNT(*)=2
+     AND COALESCE(SUM(
+       live.engine='InnoDB'
+       AND charset_map.character_set_name='utf8mb4'
+       AND CAST(live.table_comment AS BINARY)=CAST(
+         IF(live.table_name='safeharbor_m021_reference_claims',
+            'safeharbor:migration:021:reference:claims:v1',
+            'safeharbor:migration:021:reference:receipts:v1') AS BINARY)
+     ),0)=2
+    FROM information_schema.tables live
+    JOIN information_schema.collation_character_set_applicability charset_map
+      ON charset_map.collation_name=live.table_collation
+   WHERE live.table_schema=DATABASE()
+     AND live.table_type='BASE TABLE'
+     AND live.table_name IN
+         ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+);
+SET @cm_reference_cleanup_source_columns_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.columns
+           WHERE table_schema=DATABASE()
+             AND table_name IN
+                 ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))
+           = COUNT(*)
+     AND COALESCE(SUM(
+           live.column_name <=> expected.column_name
+       AND CAST(live.column_type AS BINARY) <=> CAST(expected.column_type AS BINARY)
+       AND live.is_nullable <=> expected.is_nullable
+       AND CAST(live.column_default AS BINARY) <=> CAST(expected.column_default AS BINARY)
+       AND CAST(live.extra AS BINARY) <=> CAST(expected.extra AS BINARY)
+       AND CAST(live.generation_expression AS BINARY)
+             <=> CAST(expected.generation_expression AS BINARY)
+       AND live.character_set_name <=> expected.character_set_name
+       AND live.collation_name <=> IF(expected.collation_name='@table',
+             reference_table.table_collation,expected.collation_name)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_columns expected
+    JOIN information_schema.tables reference_table
+      ON reference_table.table_schema=DATABASE()
+     AND reference_table.table_name=expected.table_name
+    LEFT JOIN information_schema.columns live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.ordinal_position=expected.ordinal_position
+);
+SET @cm_reference_cleanup_source_indexes_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.statistics
+           WHERE table_schema=DATABASE()
+             AND table_name IN
+                 ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts'))
+           = COUNT(*)
+     AND COALESCE(SUM(
+           live.index_name <=> expected.index_name
+       AND live.non_unique <=> expected.non_unique
+       AND live.seq_in_index <=> expected.seq_in_index
+       AND live.column_name <=> expected.column_name
+       AND live.collation='A'
+       AND live.sub_part IS NULL
+       AND live.packed IS NULL
+       AND live.nullable <=> IF(source_column.is_nullable='YES','YES','')
+       AND live.index_type='BTREE'
+       AND live.comment=''
+       AND live.index_comment=''
+       AND live.is_visible='YES'
+       AND live.expression IS NULL
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_indexes expected
+    JOIN safeharbor_m021_source_columns source_column
+      ON source_column.table_name=expected.table_name
+     AND source_column.column_name=expected.column_name
+    LEFT JOIN information_schema.statistics live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.index_name=expected.index_name
+     AND live.seq_in_index=expected.seq_in_index
+);
+SET @cm_reference_cleanup_source_fks_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.key_column_usage
+           WHERE table_schema=DATABASE()
+             AND table_name IN
+                 ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+             AND referenced_table_name IS NOT NULL)=COUNT(*)
+     AND COALESCE(SUM(
+           live.constraint_name <=> expected.constraint_name
+       AND live.ordinal_position <=> expected.ordinal_position
+       AND live.position_in_unique_constraint <=> expected.unique_position
+       AND live.column_name <=> expected.column_name
+       AND live.referenced_table_schema=DATABASE()
+       AND live.referenced_table_name <=> expected.referenced_table_name
+       AND live.referenced_column_name <=> expected.referenced_column_name
+       AND rule.unique_constraint_schema=DATABASE()
+       AND rule.unique_constraint_name <=> expected.unique_constraint_name
+       AND rule.match_option='NONE'
+       AND rule.update_rule='NO ACTION'
+       AND rule.delete_rule='NO ACTION'
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_fks expected
+    LEFT JOIN information_schema.key_column_usage live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.constraint_name=expected.constraint_name
+     AND live.ordinal_position=expected.ordinal_position
+    LEFT JOIN information_schema.referential_constraints rule
+      ON rule.constraint_schema=live.constraint_schema
+     AND rule.table_name=live.table_name
+     AND rule.constraint_name=live.constraint_name
+);
+SET @cm_reference_cleanup_source_checks_ok = (
+  (SELECT COUNT(*)=0
+     FROM information_schema.table_constraints live_constraint
+     JOIN information_schema.check_constraints live_check
+       ON live_check.constraint_schema=live_constraint.constraint_schema
+      AND live_check.constraint_name=live_constraint.constraint_name
+     LEFT JOIN safeharbor_m021_source_checks expected
+       ON expected.table_name=live_constraint.table_name
+      AND expected.constraint_name=live_constraint.constraint_name
+    WHERE live_constraint.constraint_schema=DATABASE()
+      AND live_constraint.table_name IN
+          ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')
+      AND live_constraint.constraint_type='CHECK'
+      AND (expected.constraint_name IS NULL
+           OR live_constraint.enforced<>'YES'
+           OR CAST(REGEXP_REPLACE(
+                REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
+                                '_utf8mb4',''),'_ascii',''),
+                '[[:space:]()]','') AS BINARY)
+              <> CAST(expected.normalized_clause AS BINARY)))
+  AND
+  (SELECT COUNT(*)=9
+     FROM safeharbor_m021_source_checks expected
+     JOIN information_schema.table_constraints live_constraint
+       ON live_constraint.constraint_schema=DATABASE()
+      AND live_constraint.table_name=expected.table_name
+      AND live_constraint.constraint_name=expected.constraint_name
+      AND live_constraint.constraint_type='CHECK'
+      AND live_constraint.enforced='YES'
+    WHERE expected.install_lock=0)
+);
+SET @cm_reference_cleanup_source_shape_ok = (
+  @cm_reference_cleanup_source_tables_ok=1
+  AND @cm_reference_cleanup_source_columns_ok=1
+  AND @cm_reference_cleanup_source_indexes_ok=1
+  AND @cm_reference_cleanup_source_fks_ok=1
+  AND @cm_reference_cleanup_source_checks_ok=1
 );
 SET @cm_reference_receipt_disposable = (
   @cm_reference_cleanup_locked=1
   AND @cm_reference_cleanup_owned=1
   AND @cm_reference_cleanup_empty=1
   AND @cm_reference_cleanup_shape=1
+  AND @cm_reference_cleanup_source_shape_ok=1
   AND @cm_reference_cleanup_triggers=1
   AND @cm_reference_cleanup_dependencies=1
 );
@@ -4865,7 +5321,147 @@ SET @cm_reference_claim_cleanup_dependencies = (
         WHERE routine_schema=DATABASE()
           AND (routine_definition IS NULL
                OR LOCATE('safeharbor_m021_reference_claims',
-                         LOWER(routine_definition))>0))=0
+                          LOWER(routine_definition))>0))=0
+);
+SET @cm_reference_claim_source_table_ok = (
+  SELECT COUNT(*)=1
+     AND COALESCE(SUM(
+       live.engine='InnoDB'
+       AND charset_map.character_set_name='utf8mb4'
+       AND CAST(live.table_comment AS BINARY)=
+           CAST('safeharbor:migration:021:reference:claims:v1' AS BINARY)
+     ),0)=1
+    FROM information_schema.tables live
+    JOIN information_schema.collation_character_set_applicability charset_map
+      ON charset_map.collation_name=live.table_collation
+   WHERE live.table_schema=DATABASE()
+     AND live.table_type='BASE TABLE'
+     AND live.table_name='safeharbor_m021_reference_claims'
+);
+SET @cm_reference_claim_source_columns_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.columns
+           WHERE table_schema=DATABASE()
+             AND table_name='safeharbor_m021_reference_claims')=COUNT(*)
+     AND COALESCE(SUM(
+           live.column_name <=> expected.column_name
+       AND CAST(live.column_type AS BINARY) <=> CAST(expected.column_type AS BINARY)
+       AND live.is_nullable <=> expected.is_nullable
+       AND CAST(live.column_default AS BINARY) <=> CAST(expected.column_default AS BINARY)
+       AND CAST(live.extra AS BINARY) <=> CAST(expected.extra AS BINARY)
+       AND CAST(live.generation_expression AS BINARY)
+             <=> CAST(expected.generation_expression AS BINARY)
+       AND live.character_set_name <=> expected.character_set_name
+       AND live.collation_name <=> IF(expected.collation_name='@table',
+             reference_table.table_collation,expected.collation_name)
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_columns expected
+    JOIN information_schema.tables reference_table
+      ON reference_table.table_schema=DATABASE()
+     AND reference_table.table_name=expected.table_name
+    LEFT JOIN information_schema.columns live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.ordinal_position=expected.ordinal_position
+   WHERE expected.table_name='safeharbor_m021_reference_claims'
+);
+SET @cm_reference_claim_source_indexes_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.statistics
+           WHERE table_schema=DATABASE()
+             AND table_name='safeharbor_m021_reference_claims')=COUNT(*)
+     AND COALESCE(SUM(
+           live.index_name <=> expected.index_name
+       AND live.non_unique <=> expected.non_unique
+       AND live.seq_in_index <=> expected.seq_in_index
+       AND live.column_name <=> expected.column_name
+       AND live.collation='A'
+       AND live.sub_part IS NULL
+       AND live.packed IS NULL
+       AND live.nullable <=> IF(source_column.is_nullable='YES','YES','')
+       AND live.index_type='BTREE'
+       AND live.comment=''
+       AND live.index_comment=''
+       AND live.is_visible='YES'
+       AND live.expression IS NULL
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_indexes expected
+    JOIN safeharbor_m021_source_columns source_column
+      ON source_column.table_name=expected.table_name
+     AND source_column.column_name=expected.column_name
+    LEFT JOIN information_schema.statistics live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.index_name=expected.index_name
+     AND live.seq_in_index=expected.seq_in_index
+   WHERE expected.table_name='safeharbor_m021_reference_claims'
+);
+SET @cm_reference_claim_source_fks_ok = (
+  SELECT (SELECT COUNT(*) FROM information_schema.key_column_usage
+           WHERE table_schema=DATABASE()
+             AND table_name='safeharbor_m021_reference_claims'
+             AND referenced_table_name IS NOT NULL)=COUNT(*)
+     AND COALESCE(SUM(
+           live.constraint_name <=> expected.constraint_name
+       AND live.ordinal_position <=> expected.ordinal_position
+       AND live.position_in_unique_constraint <=> expected.unique_position
+       AND live.column_name <=> expected.column_name
+       AND live.referenced_table_schema=DATABASE()
+       AND live.referenced_table_name <=> expected.referenced_table_name
+       AND live.referenced_column_name <=> expected.referenced_column_name
+       AND rule.unique_constraint_schema=DATABASE()
+       AND rule.unique_constraint_name <=> expected.unique_constraint_name
+       AND rule.match_option='NONE'
+       AND rule.update_rule='NO ACTION'
+       AND rule.delete_rule='NO ACTION'
+     ),0)=COUNT(*)
+    FROM safeharbor_m021_source_fks expected
+    LEFT JOIN information_schema.key_column_usage live
+      ON live.table_schema=DATABASE()
+     AND live.table_name=expected.table_name
+     AND live.constraint_name=expected.constraint_name
+     AND live.ordinal_position=expected.ordinal_position
+    LEFT JOIN information_schema.referential_constraints rule
+      ON rule.constraint_schema=live.constraint_schema
+     AND rule.table_name=live.table_name
+     AND rule.constraint_name=live.constraint_name
+   WHERE expected.table_name='safeharbor_m021_reference_claims'
+);
+SET @cm_reference_claim_source_checks_ok = (
+  (SELECT COUNT(*)=0
+     FROM information_schema.table_constraints live_constraint
+     JOIN information_schema.check_constraints live_check
+       ON live_check.constraint_schema=live_constraint.constraint_schema
+      AND live_check.constraint_name=live_constraint.constraint_name
+     LEFT JOIN safeharbor_m021_source_checks expected
+       ON expected.table_name=live_constraint.table_name
+      AND expected.constraint_name=live_constraint.constraint_name
+    WHERE live_constraint.constraint_schema=DATABASE()
+      AND live_constraint.table_name='safeharbor_m021_reference_claims'
+      AND live_constraint.constraint_type='CHECK'
+      AND (expected.constraint_name IS NULL
+           OR live_constraint.enforced<>'YES'
+           OR CAST(REGEXP_REPLACE(
+                REPLACE(REPLACE(REPLACE(live_check.check_clause,'`',''),
+                                '_utf8mb4',''),'_ascii',''),
+                '[[:space:]()]','') AS BINARY)
+              <> CAST(expected.normalized_clause AS BINARY)))
+  AND
+  (SELECT COUNT(*)=4
+     FROM safeharbor_m021_source_checks expected
+     JOIN information_schema.table_constraints live_constraint
+       ON live_constraint.constraint_schema=DATABASE()
+      AND live_constraint.table_name=expected.table_name
+      AND live_constraint.constraint_name=expected.constraint_name
+      AND live_constraint.constraint_type='CHECK'
+      AND live_constraint.enforced='YES'
+    WHERE expected.table_name='safeharbor_m021_reference_claims'
+      AND expected.install_lock=0)
+);
+SET @cm_reference_claim_source_shape_ok = (
+  @cm_reference_claim_source_table_ok=1
+  AND @cm_reference_claim_source_columns_ok=1
+  AND @cm_reference_claim_source_indexes_ok=1
+  AND @cm_reference_claim_source_fks_ok=1
+  AND @cm_reference_claim_source_checks_ok=1
 );
 SET @cm_reference_claim_disposable = (
   (IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID())
@@ -4876,6 +5472,7 @@ SET @cm_reference_claim_disposable = (
   AND @cm_claim_indexes_ok=1
   AND @cm_claim_fks_ok=1
   AND @cm_claim_checks_ok=1
+  AND @cm_reference_claim_source_shape_ok=1
   AND @cm_reference_claim_cleanup_triggers=1
   AND @cm_reference_claim_cleanup_dependencies=1
 );
@@ -5284,6 +5881,10 @@ DEALLOCATE PREPARE cm_export_statement;
 DROP TEMPORARY TABLE safeharbor_m021_validated_triggers;
 DROP TEMPORARY TABLE safeharbor_m021_trigger_manifest;
 DROP TEMPORARY TABLE safeharbor_m021_reference_trigger_allowlist;
+DROP TEMPORARY TABLE safeharbor_m021_source_checks;
+DROP TEMPORARY TABLE safeharbor_m021_source_fks;
+DROP TEMPORARY TABLE safeharbor_m021_source_indexes;
+DROP TEMPORARY TABLE safeharbor_m021_source_columns;
 
 -- Release only after every durable-table, trigger, install-lock, and cleanup
 -- postcondition has passed. If any earlier statement aborts, the dedicated

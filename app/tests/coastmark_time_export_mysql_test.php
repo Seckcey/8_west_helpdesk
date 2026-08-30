@@ -369,6 +369,22 @@ try {
         fn() => cm_v3_apply($pdo, $migration));
     cm_v3_check('index drift is refused before any permanent guard is replaced',
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE safeharbor_m021_reference_claims
+        DROP INDEX uq_cm_export_claim_event');
+    cm_v3_expect(
+        'migration refuses coordinated live and owner-marked reference index drift',
+        fn() => cm_v3_apply($pdo, $migration),
+        'migration_021_reference_source_shape_failed',
+    );
+    cm_v3_check('coordinated drift refusal preserves both reference evidence tables',
+        (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables
+          WHERE table_schema=DATABASE()
+            AND table_name IN
+                ('safeharbor_m021_reference_claims','safeharbor_m021_reference_receipts')")
+            ->fetchColumn() === 2
+        && cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE safeharbor_m021_reference_claims
+        ADD UNIQUE KEY uq_cm_export_claim_event (tenant_id,event_key)');
     cm_v3_check('failed migration retains one owned lock and exact empty reference evidence',
         (int) $pdo->query("SELECT IS_USED_LOCK(" . $pdo->quote($migrationLockName) . ") <=> CONNECTION_ID()")
             ->fetchColumn() === 1
@@ -467,6 +483,37 @@ try {
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         MODIFY response_status SMALLINT UNSIGNED NULL');
 
+    cm_v3_install_swap_guards($pdo, $migration);
+    $pdo->exec('DROP TRIGGER trg_cm_ref_021_claim_insert_swap');
+    $pdo->exec('CREATE TRIGGER trg_cm_ref_021_claim_insert_swap
+        BEFORE INSERT ON safeharbor_m021_reference_claims FOR EACH ROW
+        SET @cm_v3_weak_swap = 1');
+    $pdo->exec('DROP TRIGGER trg_cm_claim_021_insert_swap');
+    $pdo->exec('CREATE TRIGGER trg_cm_claim_021_insert_swap
+        BEFORE INSERT ON coastmark_time_export_claims FOR EACH ROW
+        SET @cm_v3_weak_swap = 1');
+    cm_v3_expect(
+        'migration refuses matching weak reference and live swap trigger bodies',
+        fn() => cm_v3_apply($pdo, $migration),
+        'migration_021_initial_triggers_failed',
+    );
+    $referenceSwapBody = (string) $pdo->query("SELECT action_statement
+        FROM information_schema.triggers
+        WHERE trigger_schema=DATABASE()
+          AND trigger_name='trg_cm_ref_021_claim_insert_swap'")->fetchColumn();
+    $liveWeakSwapBody = (string) $pdo->query("SELECT action_statement
+        FROM information_schema.triggers
+        WHERE trigger_schema=DATABASE()
+          AND trigger_name='trg_cm_claim_021_insert_swap'")->fetchColumn();
+    cm_v3_check('retry rebuilds the reference body from source but preserves the refused live weak swap',
+        str_contains($referenceSwapBody, 'migration 021 claim trigger swap')
+        && str_contains($liveWeakSwapBody, '@cm_v3_weak_swap'));
+    $pdo->exec('DROP TRIGGER trg_cm_claim_021_insert_swap');
+    cm_v3_install_swap_guards($pdo, $migration);
+    cm_v3_apply($pdo, $migration);
+    cm_v3_check('exact weak-swap repair restores the six canonical permanent guards',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+
     $pdo->exec("ALTER TABLE coastmark_time_export_receipts
         ALTER COLUMN operation_kind SET DEFAULT 'dispatch_started'");
     cm_v3_expect('migration refuses a receipt column with an extra default',
@@ -475,6 +522,34 @@ try {
         cm_v3_guard_snapshot($pdo) === $guardSnapshot);
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         ALTER COLUMN operation_kind DROP DEFAULT');
+
+    $pdo->exec('ALTER TABLE coastmark_time_export_claims
+        DROP CHECK ck_cm_export_claim_hash');
+    $pdo->exec("ALTER TABLE coastmark_time_export_claims
+        ADD CONSTRAINT ck_cm_export_claim_hash
+        CHECK (payload_sha256 REGEXP '^[0-9A-F]{64}$')");
+    $pdo->exec('ALTER TABLE safeharbor_m021_reference_claims
+        DROP CHECK rc21_claim_hash');
+    $pdo->exec("ALTER TABLE safeharbor_m021_reference_claims
+        ADD CONSTRAINT rc21_claim_hash
+        CHECK (payload_sha256 REGEXP '^[0-9A-F]{64}$')");
+    cm_v3_expect(
+        'migration refuses coordinated case-only binary check-literal drift',
+        fn() => cm_v3_apply($pdo, $migration),
+        'migration_021_reference_source_shape_failed',
+    );
+    cm_v3_check('case-only source drift refusal preserves permanent live guards',
+        cm_v3_guard_snapshot($pdo) === $guardSnapshot);
+    $pdo->exec('ALTER TABLE coastmark_time_export_claims
+        DROP CHECK ck_cm_export_claim_hash');
+    $pdo->exec("ALTER TABLE coastmark_time_export_claims
+        ADD CONSTRAINT ck_cm_export_claim_hash
+        CHECK (payload_sha256 REGEXP '^[0-9a-f]{64}$')");
+    $pdo->exec('ALTER TABLE safeharbor_m021_reference_claims
+        DROP CHECK rc21_claim_hash');
+    $pdo->exec("ALTER TABLE safeharbor_m021_reference_claims
+        ADD CONSTRAINT rc21_claim_hash
+        CHECK (payload_sha256 REGEXP '^[0-9a-f]{64}$')");
 
     $pdo->exec('ALTER TABLE coastmark_time_export_receipts
         DROP CHECK ck_cm_export_receipt_detail');
