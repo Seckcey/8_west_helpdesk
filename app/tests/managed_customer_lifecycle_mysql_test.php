@@ -126,7 +126,9 @@ function lifecycle_mysql_schema_contract(PDO $pdo): array
         if (!is_array($rows)) throw new RuntimeException('Schema contract query failed.');
         foreach ($rows as &$row) {
             foreach ($row as $column => $value) {
-                if ($value !== null && in_array($column, ['check_clause','action_statement'], true)) {
+                if ($value !== null
+                    && in_array(strtolower((string)$column), ['check_clause','action_statement'], true)
+                ) {
                     $row[$column] = preg_replace('/\s+/', '', strtolower(str_replace('`', '', (string)$value)));
                 }
             }
