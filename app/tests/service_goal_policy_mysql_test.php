@@ -949,7 +949,11 @@ try {
     ]);
     $lateDemoterThread = goal_mysql_wait_worker_ready($lateDemoterWorker);
     goal_mysql_check('actor deactivation cannot commit ahead of the in-flight publisher',
-        goal_mysql_wait_transactions($pdo, [$lateDemoterThread], 1, 'LOCK WAIT'));
+        goal_mysql_wait_data_lock_edge(
+            $pdo,
+            $lateDemoterThread,
+            $publisherFirstThread,
+        ));
     if ((int) $publicationGate->query(
         "SELECT RELEASE_LOCK({$quotedGateName})",
     )->fetchColumn() !== 1) {
