@@ -259,7 +259,7 @@ return [
     // Default-off managed-customer activation. This worker reads only exact
     // active Milepost bindings in customer_ids, authenticates one ID schema-2
     // projection/contact snapshot by permanent UUID, and atomically reconciles
-    // the portal plus a canary v2 weekly report schedule. The business_reports
+    // the portal plus a canary v3 weekly report schedule. The business_reports
     // schedule/tenant/client/recipient allowlists are an additional required
     // gate. It never generates or sends a report and has no ticket, time,
     // billing, endpoint-control, mail, or AI write path.

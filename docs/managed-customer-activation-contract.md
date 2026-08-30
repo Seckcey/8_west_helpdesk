@@ -13,7 +13,7 @@ One successful Safeharbor transaction may write only:
 - an exact customer portal binding and the existing trigger-owned portal
   events;
 - an exact client-scoped ID report-contact binding/snapshot;
-- the deterministic version-2 report schedule pair; and
+- the deterministic version-3 report schedule pair; and
 - one immutable redacted activation receipt.
 
 It has no ticket close/status path, technician-time path, invoice/billing
@@ -109,7 +109,7 @@ The transaction then rechecks all of these local facts:
    an existing different schedule is never rewritten; and
 7. the active schedule inherits the exact evidence-bearing disabled version.
 
-Inactive, master, stale, cross-tenant, cross-client, missing-v2-definition,
+Inactive, master, stale, cross-tenant, cross-client, missing-v3-definition,
 unallowlisted, conflicting portal/schedule, or malformed evidence is refused.
 Errors emitted by the cron runner are hashes; the address and raw response are
 not written to its output.
@@ -123,23 +123,24 @@ prepared schedule/contact snapshot, active schedule, and receipt inside the
 same transaction. The receipt is inserted last.
 
 - A crash or exception before commit rolls every activation write back.
-- A lost acknowledgement after commit causes a later worker to validate the
-  immutable receipt and current active portal/schedule, then return `replayed`
-  without a new row.
+- A lost acknowledgement after commit is recovered from the immutable receipt.
+  Later candidate scans skip that completed customer, make no new ID request or
+  write, and let later customers advance through the batch. The operator
+  inspects the redacted receipt, active portal binding, and schedule pair.
 - A fresh authenticated response has a new nonce and transport digest. Replay
   requires the same UUID, binding/source version and customer receipt ID, ID
   tenant, contact version, actor, and recipient digest; it retains the first committed
   response digest as the durable transport receipt.
-- A competing worker blocks on the same tenant row. After the winner commits,
-  the loser returns the exact replay. Unique keys and migration-022 guards are
-  a second database boundary.
+- A competing worker that selected the customer before the winner committed
+  blocks on the same tenant row, then returns the exact `replayed` result.
+  Unique keys and migration-022 guards are a second database boundary.
 
 Migration `022_managed_customer_activation.sql` creates only the immutable
 redacted receipt table. It stores the customer UUID because that is the stable
 ownership key, and stores the producer's immutable 64-hex customer receipt ID,
 but stores only a SHA-256 for the recipient and response-body bytes. Its insert
 trigger independently proves the exact active Milepost
-binding, owner/admin actor, ID binding, active portal, v2 disabled/active
+binding, owner/admin actor, ID binding, active portal, v3 disabled/active
 schedule pair, contact snapshot, and canonical evidence digest. Update and
 delete are permanently refused. A fresh-table install check refuses every
 insert through the DDL implicit-commit window and is removed only after the
@@ -156,8 +157,9 @@ refusal, redirect refusal, and unchanged schema-1 request bytes.
 
 `managed_customer_activation_test.php` uses hermetic SQLite to prove default
 off, master/inactive/cross-tenant/stale refusal, portal conflict, crash rollback
-and replay, semantic exact replay with a fresh authenticated nonce, forbidden
-write sentinels, and the Wednesday 09:00 Pacific schedule.
+and concurrent replay, semantic exact replay with a fresh authenticated nonce,
+completed-customer queue advancement, forbidden write sentinels, and the
+Wednesday 09:00 Pacific schedule.
 
 `managed_customer_activation_mysql_test.php` requires an explicitly
 acknowledged disposable MySQL server and creates a random database named under
