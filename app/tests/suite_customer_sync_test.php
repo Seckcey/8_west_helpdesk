@@ -229,6 +229,15 @@ sync_throws('control byte in name rejected', SuiteCustomerSyncValidationExceptio
     fn() => sync_request(['display_name' => "8 West\nIT"]));
 sync_throws('Unicode C1 control character in name rejected', SuiteCustomerSyncValidationException::class,
     fn() => sync_request(['display_name' => "8 West\u{0085}IT"]));
+sync_throws('Unicode right-to-left override in name rejected', SuiteCustomerSyncValidationException::class,
+    fn() => sync_request(['display_name' => "8 West\u{202E}IT"]), 'display_name_invalid');
+sync_throws('Unicode directional isolate in name rejected', SuiteCustomerSyncValidationException::class,
+    fn() => sync_request(['display_name' => "8 West\u{2068}IT\u{2069}"]), 'display_name_invalid');
+sync_check(
+    'ordinary international customer name remains accepted',
+    sync_request(['display_name' => 'Café München 東京'])['payload']['display_name']
+        === 'Café München 東京',
+);
 sync_throws('unknown status rejected', SuiteCustomerSyncValidationException::class,
     fn() => sync_request(['status' => 'deleted']));
 sync_throws('noncanonical event time rejected', SuiteCustomerSyncValidationException::class,

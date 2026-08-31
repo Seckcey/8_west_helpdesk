@@ -371,6 +371,45 @@ function service_goal_ticket_policy_label(array $ticket): string
 }
 
 /**
+ * Return the first technician response only when it belongs to the ticket's
+ * real lifetime and has happened by the caller's as-of clock.
+ *
+ * Stored message timestamps can be imported, moved, or malformed. Treating a
+ * pre-open or future timestamp as a completed response would make a live lamp
+ * and an attainment report claim work that had not actually happened.
+ */
+function service_goal_valid_first_response_timestamp(array $ticket, int $asOf): ?int
+{
+    $createdAt = service_goal_timestamp($ticket['created_at'] ?? null);
+    $firstResponseAt = service_goal_timestamp($ticket['first_response_at'] ?? null);
+    if ($createdAt === null
+        || $firstResponseAt === null
+        || $firstResponseAt < $createdAt
+        || $firstResponseAt > $asOf
+    ) {
+        return null;
+    }
+
+    return $firstResponseAt;
+}
+
+/** Return a resolution only when it belongs to the ticket and exists as of the caller's clock. */
+function service_goal_valid_resolution_timestamp(array $ticket, int $asOf): ?int
+{
+    $createdAt = service_goal_timestamp($ticket['created_at'] ?? null);
+    $resolvedAt = service_goal_timestamp($ticket['resolved_at'] ?? null);
+    if ($createdAt === null
+        || $resolvedAt === null
+        || $resolvedAt < $createdAt
+        || $resolvedAt > $asOf
+    ) {
+        return null;
+    }
+
+    return $resolvedAt;
+}
+
+/**
  * Decide a ticket's current first-response outcome.
  *
  * true  = first technician response met the target
@@ -384,21 +423,24 @@ function service_goal_response_outcome(array $ticket, ?int $now = null): ?bool
         return null;
     }
 
+    $now ??= time();
     $dueAt = service_goal_timestamp($ticket['sla_due_at'] ?? null);
     if ($dueAt === null) {
         return false;
     }
 
-    $firstResponseAt = service_goal_timestamp($ticket['first_response_at'] ?? null);
+    $firstResponseAt = service_goal_valid_first_response_timestamp($ticket, $now);
     if ($firstResponseAt !== null) {
         return $firstResponseAt <= $dueAt;
     }
 
-    if (($ticket['status'] ?? '') === 'resolved') {
+    if (($ticket['status'] ?? '') === 'resolved'
+        && service_goal_valid_resolution_timestamp($ticket, $now) !== null
+    ) {
         return false;
     }
 
-    return ($now ?? time()) >= $dueAt ? false : null;
+    return $now >= $dueAt ? false : null;
 }
 
 /**
@@ -424,7 +466,8 @@ function sla_info(array $ticket, ?int $now = null): array
 
     $now ??= time();
     $dueAt = service_goal_timestamp($ticket['sla_due_at'] ?? null);
-    $firstResponseAt = service_goal_timestamp($ticket['first_response_at'] ?? null);
+    $firstResponseAt = service_goal_valid_first_response_timestamp($ticket, $now);
+    $resolvedAt = service_goal_valid_resolution_timestamp($ticket, $now);
     $outcome = service_goal_response_outcome($ticket, $now);
 
     if ($outcome === true) {
@@ -438,7 +481,7 @@ function sla_info(array $ticket, ?int $now = null): array
         ];
     }
 
-    if (($ticket['status'] ?? '') === 'resolved') {
+    if (($ticket['status'] ?? '') === 'resolved' && $resolvedAt !== null) {
         return ['state' => 'breached', 'label' => 'No response'];
     }
 
@@ -488,6 +531,8 @@ function service_goal_response_attainment(
            FROM (
                 SELECT t.id,
                        t.status,
+                       t.created_at,
+                       t.resolved_at,
                        t.sla_due_at,
                        t.merged_into_id,
                        EXISTS (
@@ -498,15 +543,22 @@ function service_goal_response_attainment(
                        ) AS has_merged_sources,
                        MIN(m.created_at) AS first_response_at
                   FROM tickets t
-                  LEFT JOIN messages m ON m.ticket_id = t.id AND m.kind = 'tech'
+                  LEFT JOIN messages m
+                    ON m.ticket_id = t.id
+                   AND m.kind = 'tech'
+                   AND m.created_at >= t.created_at
+                   AND m.created_at <= ?
                  WHERE t.tenant_id = ? AND t.created_at >= ?
-                 GROUP BY t.id, t.status, t.sla_due_at, t.merged_into_id
+                 GROUP BY t.id, t.status, t.created_at, t.resolved_at,
+                          t.sla_due_at, t.merged_into_id
            ) outcomes
           WHERE merged_into_id IS NULL
             AND has_merged_sources = 0
-            AND (first_response_at IS NOT NULL OR status = 'resolved' OR sla_due_at <= ?)"
+            AND (first_response_at IS NOT NULL
+                 OR (status = 'resolved' AND resolved_at >= created_at AND resolved_at <= ?)
+                 OR sla_due_at <= ?)"
     );
-    $query->execute([$tenantId, $cutoffUtc, $nowUtc]);
+    $query->execute([$nowUtc, $tenantId, $cutoffUtc, $nowUtc, $nowUtc]);
     $row = $query->fetch(PDO::FETCH_ASSOC) ?: [];
     $count = (int) ($row['n'] ?? 0);
     $met = (int) ($row['met'] ?? 0);

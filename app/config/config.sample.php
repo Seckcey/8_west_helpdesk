@@ -195,10 +195,12 @@ return [
         'tenant_slug' => '8west',
     ],
 
-    // Approved Safeharbor time -> Coastmark draft invoice lines only.
-    // This is an operator-run, one-entry-at-a-time sender. It has no scheduler
-    // and stays inert until the global gate, exact tenant/client allowlists,
-    // HTTPS endpoint, service identity, and server-only secret are all set.
+    // Approved Safeharbor time -> Coastmark v3 draft-only seam.
+    // Both gates default off. `claim_enabled` permits only a human-run, local,
+    // one-entry immutable claim; it makes no network request. `enabled` permits
+    // one explicit send/status call for a claim. There is no batch, scheduler,
+    // queue, or automatic retry. An ambiguous send must be resolved through the
+    // signed status endpoint before the operator can explicitly resend it.
     // Client keys come only from active Milepost customer bindings as
     // `milepost-customer:<uuid>`. Local Safeharbor row ids are never billing
     // identities, and the reserved 8 West IT master customer is hard-blocked.
@@ -206,8 +208,15 @@ return [
     // sending, Checkout, payments, and ledger behavior. Never put those facts
     // in this config or sender payload.
     'coastmark_time_export' => [
+        'claim_enabled' => false,
         'enabled' => false,
+        // Dedicated local MySQL identity. It is not the web/cron runtime user.
+        // Grant source tables SELECT and claim/receipt tables SELECT,INSERT
+        // only; never UPDATE, DELETE, DDL, TRIGGER, or GRANT OPTION.
+        'database_user' => '',
+        'database_password' => '',
         'endpoint' => 'https://coastmark.8westit.com/api/integrations/safeharbor/time-entries',
+        'status_endpoint' => 'https://coastmark.8westit.com/api/integrations/safeharbor/time-events/status',
         'service' => 'safeharbor-time',
         'secret' => '',
         'tenant_slugs' => [],
@@ -225,14 +234,18 @@ return [
     // local-id compatibility lane for existing schedule histories. New MSP
     // customer onboarding uses
     // `customer_bindings`, keyed by Milepost's immutable
-    // `milepost-customer:<uuid>` identity. Never infer any mapping from a
-    // company name, domain, or email address. The reserved 8 West IT master
-    // customer UUID is refused here; its weekly report uses the tenant lane.
+    // `milepost-customer:<uuid>` identity. The managed-customer activation
+    // worker's isolated schema-2 lookup does not trust or require those local
+    // tenant-key mappings: it requests the allowlisted permanent UUID and
+    // authenticates the returned projection/tenant/contact evidence. Never
+    // infer any mapping from a company name, domain, or email address. The
+    // reserved 8 West IT master customer UUID is refused in both paths; its
+    // weekly report uses the tenant lane.
     //
-    // Default-off means no network request. Only the operator commands
+    // Default-off means no network request. The explicit operator commands
     // `prepare-from-id`, `prepare-client-from-id`, and
-    // `prepare-customer-from-id` read this block; cron/generation/delivery do
-    // not.
+    // `prepare-customer-from-id`, plus the separately default-off managed
+    // activation worker, read this block. Report generation/delivery do not.
     'id_report_contacts' => [
         'enabled' => false,
         'endpoint' => 'https://id.8westit.com/api/svc/report-contact.php',
@@ -241,6 +254,44 @@ return [
         'client_bindings' => [],
         'customer_bindings' => [],
         'timeout_seconds' => 10,
+    ],
+
+    // Default-off managed-customer activation. This worker reads only exact
+    // active Milepost bindings in customer_ids, authenticates one ID schema-2
+    // projection/contact snapshot by permanent UUID, and atomically reconciles
+    // the portal plus a canary v3 weekly report schedule. The business_reports
+    // schedule/tenant/client/recipient allowlists are an additional required
+    // gate. It never generates or sends a report and has no ticket, time,
+    // billing, endpoint-control, mail, or AI write path.
+    'managed_customer_activation' => [
+        'enabled' => false,
+        'canary_only' => true,
+        'customer_ids' => [],
+        // Exact provider tenant slug => active Safeharbor owner/admin user id.
+        'tenant_actors' => [],
+        'batch_size' => 5,
+        'schedule_timezone' => 'America/Los_Angeles',
+        'delivery_weekday' => 3,       // ISO Wednesday
+        'delivery_local_time' => '09:00:00',
+    ],
+
+    // Immediate fail-closed containment for exact Milepost-managed customers.
+    // The read boundary blocks portal access and report generation/delivery as
+    // soon as an inactive source event is visible. This default-off worker
+    // additionally disables the portal binding and appends a disabled report
+    // schedule version with immutable evidence. Restoration has a separate
+    // default-off gate. It accepts only a fresh nonce-bound signed schema-2
+    // `restored` document whose customer UUID, source version, and Milepost
+    // event UUID match Safeharbor's exact current immutable source receipt.
+    // Only surfaces owned by the exact containment receipt can be reopened;
+    // pre-existing or later human disables/holds remain unchanged.
+    'managed_customer_lifecycle' => [
+        'enabled' => false,
+        'restoration_enabled' => false,
+        'customer_ids' => [],
+        // Exact provider tenant slug => active Safeharbor owner/admin user id.
+        'tenant_actors' => [],
+        'batch_size' => 5,
     ],
 
     // Versioned weekly client service summaries. Definitions, schedules,

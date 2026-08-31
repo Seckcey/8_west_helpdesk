@@ -231,8 +231,27 @@ function time_entry_correct(
     return time_entry_create($pdo, $tenantId, $actorUserId, $replacementInput);
 }
 
+/** @param array<string, mixed> $entry @return array<string, mixed> */
+function time_entry_review_replay_or_conflict(
+    array $entry,
+    int $reviewerUserId,
+    string $decision,
+    string $note,
+): array {
+    $sameTerminalReview = (string) ($entry['approval_status'] ?? '') === $decision
+        && isset($entry['reviewed_by_user_id'])
+        && (int) $entry['reviewed_by_user_id'] === $reviewerUserId
+        && is_string($entry['reviewed_at'] ?? null)
+        && (string) $entry['reviewed_at'] !== ''
+        && (string) ($entry['review_note'] ?? '') === $note;
+    if (!$sameTerminalReview) {
+        throw new TimeEntryConflictException('Time entry has already been reviewed.');
+    }
+    return time_entry_result($entry, true);
+}
+
 /**
- * Apply one approval decision to a pending entry.
+ * Apply one approval decision to a pending entry, or acknowledge the exact terminal review.
  *
  * @return array<string, mixed>
  */
@@ -273,7 +292,12 @@ function time_entry_review(
         throw new TimeEntryNotFoundException('Time entry not found for this tenant.');
     }
     if ((string) $current['approval_status'] !== 'pending') {
-        throw new TimeEntryConflictException('Time entry has already been reviewed.');
+        return time_entry_review_replay_or_conflict(
+            $current,
+            $reviewerUserId,
+            $decision,
+            $note,
+        );
     }
 
     // reviewed_at and time_entry_events are deliberately absent: migration
@@ -290,7 +314,12 @@ function time_entry_review(
         if ($latest === null) {
             throw new TimeEntryNotFoundException('Time entry not found for this tenant.');
         }
-        throw new TimeEntryConflictException('Time entry was reviewed by someone else.');
+        return time_entry_review_replay_or_conflict(
+            $latest,
+            $reviewerUserId,
+            $decision,
+            $note,
+        );
     }
 
     $reviewed = time_entry_find_by_id($pdo, $tenantId, $entryId);

@@ -9,13 +9,22 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/managed_customer_status.php';
+
 const BUSINESS_REPORT_TYPE = 'weekly_client_service_summary';
 const BUSINESS_REPORT_DEFINITION_KEY = 'weekly-client-service-summary';
-const BUSINESS_REPORT_CONTRACT_VERSION = 1;
+const BUSINESS_REPORT_CONTRACT_VERSION_V1 = 1;
+const BUSINESS_REPORT_CONTRACT_VERSION_V2 = 2;
+const BUSINESS_REPORT_CONTRACT_VERSION_V3 = 3;
+const BUSINESS_REPORT_LATEST_CONTRACT_VERSION = BUSINESS_REPORT_CONTRACT_VERSION_V3;
+// Retained for callers that explicitly mean the original immutable contract.
+const BUSINESS_REPORT_CONTRACT_VERSION = BUSINESS_REPORT_CONTRACT_VERSION_V1;
 const BUSINESS_REPORT_MAX_DUE_SCHEDULES = 100;
 const BUSINESS_REPORT_CONTACT_SCOPE_MANUAL = 'MANUAL';
 const BUSINESS_REPORT_CONTACT_SCOPE_TENANT = 'TENANT';
 const BUSINESS_REPORT_CONTACT_SCOPE_CLIENT = 'CLIENT';
+const BUSINESS_REPORT_ARCHIVE_MAX_COUNT = 4294967295;
+const BUSINESS_REPORT_ARCHIVE_MAX_MINUTES = 4294967295;
 const BUSINESS_REPORT_MILEPOST_CUSTOMER_UUID =
     '/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D';
 const BUSINESS_REPORT_MASTER_CUSTOMER_ID = '4ebaeefa-b101-47f8-ac76-e49ab309d272';
@@ -25,6 +34,34 @@ final class BusinessReportValidationException extends BusinessReportException {}
 final class BusinessReportGateException extends BusinessReportException {}
 final class BusinessReportConflictException extends BusinessReportException {}
 final class BusinessReportTransportException extends BusinessReportException {}
+
+function business_report_assert_managed_customer_operational(
+    PDO $pdo,
+    int $tenantId,
+    int $clientId,
+    bool $forShare = false,
+): void {
+    if (!managed_customer_operational($pdo, $tenantId, $clientId, $forShare)) {
+        throw new BusinessReportGateException(
+            'The managed customer is inactive or awaits fresh identity restoration evidence.',
+        );
+    }
+}
+
+/** @return 'acquired'|'contended' */
+function business_report_advisory_lock_state(mixed $result): string
+{
+    if ($result === 1 || $result === '1') return 'acquired';
+    if ($result === 0 || $result === '0') return 'contended';
+    throw new BusinessReportGateException('Business report advisory lock failed.');
+}
+
+function business_report_advisory_lock_release(mixed $result): void
+{
+    if ($result !== 1 && $result !== '1') {
+        throw new BusinessReportGateException('Business report advisory lock release failed.');
+    }
+}
 
 /** @return array<string,mixed> */
 function business_report_contract_v1(): array
@@ -44,17 +81,103 @@ function business_report_contract_v1(): array
     ];
 }
 
-function business_report_contract_json(): string
+/** @return array<string,mixed> */
+function business_report_contract_v2(): array
+{
+    return [
+        'contract_version' => 2,
+        'report_type' => BUSINESS_REPORT_TYPE,
+        'window' => 'previous_complete_monday_sunday',
+        'ticket_opened' => 'created_at_in_window_excluding_merged_sources',
+        'ticket_resolved' => 'resolved_at_in_window_excluding_merged_sources',
+        'first_response' => 'opened_cohort_first_tech_message_excluding_all_merged_histories',
+        'service_goal' => 'versioned_opened_cohort_decided_by_generated_at_excluding_all_merged_histories',
+        'service_goal_legacy' => 'unversioned_opened_cohort_reported_as_excluded_not_counted_as_attainment',
+        'approved_billable_time' => 'worked_at_in_window_approved_by_generated_at_latest_adjustment_with_id_at_or_below_tenant_lock_cutoff_and_created_by_generated_at_else_original_counted_once',
+        'approved_time_adjustments' => 'tenant_lock_captured_adjustment_id_cutoff_original_effective_net_minutes_adjusted_entries_and_applied_slips_without_reasons',
+        'csat' => 'survey_created_in_window_answered_by_generated_at',
+        'delivery_truth' => 'provider_accepted_is_submitted_not_delivered',
+    ];
+}
+
+/** @return array<string,mixed> */
+function business_report_contract_v3(): array
+{
+    return [
+        'contract_version' => 3,
+        'report_type' => BUSINESS_REPORT_TYPE,
+        'window' => 'previous_complete_monday_sunday',
+        'ticket_opened' => 'created_at_in_window_excluding_merged_sources',
+        'ticket_resolved' => 'resolved_at_in_window_excluding_merged_sources',
+        'first_response' => 'opened_cohort_first_tech_message_excluding_all_merged_histories',
+        'service_goal' => 'versioned_opened_cohort_decided_by_generated_at_excluding_all_merged_histories',
+        'service_goal_legacy' => 'unversioned_opened_cohort_reported_as_excluded_not_counted_as_attainment',
+        'approved_billable_time' => 'worked_at_in_window_approved_by_generated_at_latest_adjustment_with_id_at_or_below_tenant_lock_cutoff_and_created_by_generated_at_else_original_counted_once',
+        'approved_time_adjustments' => 'tenant_lock_captured_adjustment_id_cutoff_original_effective_net_minutes_adjusted_entries_and_applied_slips_without_reasons',
+        'csat' => 'survey_created_in_window_answered_by_generated_at',
+        'presentation' => 'plain_language_local_calendar_dates_last_completed_week_and_actionable_follow_up',
+        'delivery_truth' => 'provider_accepted_is_submitted_not_delivered',
+    ];
+}
+
+function business_report_contract_uses_adjustments(int $version): bool
+{
+    return in_array($version, [
+        BUSINESS_REPORT_CONTRACT_VERSION_V2,
+        BUSINESS_REPORT_CONTRACT_VERSION_V3,
+    ], true);
+}
+
+/** @return array<string,mixed> */
+function business_report_contract(int $version = BUSINESS_REPORT_CONTRACT_VERSION_V1): array
+{
+    return match ($version) {
+        BUSINESS_REPORT_CONTRACT_VERSION_V1 => business_report_contract_v1(),
+        BUSINESS_REPORT_CONTRACT_VERSION_V2 => business_report_contract_v2(),
+        BUSINESS_REPORT_CONTRACT_VERSION_V3 => business_report_contract_v3(),
+        default => throw new BusinessReportValidationException(
+            'Business report definition version is unsupported.',
+        ),
+    };
+}
+
+function business_report_contract_json(
+    int $version = BUSINESS_REPORT_CONTRACT_VERSION_V1,
+): string
 {
     return json_encode(
-        business_report_contract_v1(),
+        business_report_contract($version),
         JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
     );
 }
 
-function business_report_contract_sha256(): string
+function business_report_contract_sha256(
+    int $version = BUSINESS_REPORT_CONTRACT_VERSION_V1,
+): string
 {
-    return hash('sha256', business_report_contract_json());
+    return hash('sha256', business_report_contract_json($version));
+}
+
+/** @param array<string,mixed> $definition */
+function business_report_definition_supported(array $definition): bool
+{
+    $version = (int) ($definition['definition_version_no'] ?? $definition['version_no'] ?? 0);
+    if (!in_array($version, [
+        BUSINESS_REPORT_CONTRACT_VERSION_V1,
+        BUSINESS_REPORT_CONTRACT_VERSION_V2,
+        BUSINESS_REPORT_CONTRACT_VERSION_V3,
+    ], true)) {
+        return false;
+    }
+    $expectedHash = business_report_contract_sha256($version);
+    $contractJson = $definition['contract_json'] ?? null;
+    $contractHash = $definition['contract_sha256'] ?? null;
+    return ($definition['definition_key'] ?? null) === BUSINESS_REPORT_DEFINITION_KEY
+        && ($definition['report_type'] ?? null) === BUSINESS_REPORT_TYPE
+        && is_string($contractJson)
+        && is_string($contractHash)
+        && hash_equals($expectedHash, $contractHash)
+        && hash_equals($expectedHash, hash('sha256', $contractJson));
 }
 
 /** @return array<string,mixed> */
@@ -246,6 +369,89 @@ function business_report_utc(string $value, string $label): string
     return $value;
 }
 
+/**
+ * Choose the persisted archive cutoff only after the tenant lock is held.
+ *
+ * Live MySQL generation is anchored to the database UTC clock. An explicit
+ * later clock remains available for deterministic future-window integration
+ * tests, but an earlier caller value can never backdate the archive. SQLite is
+ * the hermetic contract-test driver and retains its explicit deterministic
+ * clock because it has no production concurrency role.
+ */
+function business_report_persisted_generated_at(PDO $pdo, ?int $requestedNow): string
+{
+    $driver = (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'mysql') {
+        $databaseNow = $pdo->query('SELECT UTC_TIMESTAMP()')->fetchColumn();
+    } elseif ($driver === 'sqlite') {
+        if ($requestedNow !== null) {
+            return business_report_utc(
+                gmdate('Y-m-d H:i:s', $requestedNow),
+                'Generated at',
+            );
+        }
+        $databaseNow = $pdo->query("SELECT strftime('%Y-%m-%d %H:%M:%S','now')")
+            ->fetchColumn();
+    } else {
+        throw new BusinessReportGateException('Business report database clock is unsupported.');
+    }
+
+    if (!is_string($databaseNow)) {
+        throw new BusinessReportGateException('Business report database UTC clock is unavailable.');
+    }
+    $databaseNow = business_report_utc($databaseNow, 'Database UTC clock');
+    if ($requestedNow === null) {
+        return $databaseNow;
+    }
+    $requestedAt = business_report_utc(
+        gmdate('Y-m-d H:i:s', $requestedNow),
+        'Generated at',
+    );
+    return $requestedAt > $databaseNow ? $requestedAt : $databaseNow;
+}
+
+/**
+ * Capture the committed tenant adjustment prefix. Persisted generation requests
+ * a current locking read while holding the tenant row lock shared with writers,
+ * so a same-second later adjustment cannot move into the archived prefix. A dry
+ * run uses the default unlocked read as best-effort preview evidence only.
+ */
+function business_report_adjustment_id_cutoff(
+    PDO $pdo,
+    int $tenantId,
+    bool $currentLockingRead = false,
+): int
+{
+    if ($tenantId < 1) {
+        throw new BusinessReportValidationException('Adjustment cutoff tenant id must be positive.');
+    }
+    $sql = 'SELECT id FROM time_entry_approval_adjustments
+             WHERE tenant_id = ? ORDER BY id DESC LIMIT 1';
+    if ($currentLockingRead && $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+        $sql .= ' FOR SHARE';
+    }
+    $query = $pdo->prepare($sql);
+    $query->execute([$tenantId]);
+    $value = $query->fetchColumn();
+    if ($value === false) return 0;
+    if (!is_int($value) && !is_string($value)) {
+        throw new BusinessReportGateException('The approved-time adjustment cutoff is unavailable.');
+    }
+    $text = (string) $value;
+    if (preg_match('/\A[0-9]+\z/D', $text) !== 1) {
+        throw new BusinessReportGateException('The approved-time adjustment cutoff is invalid.');
+    }
+    $normalized = ltrim($text, '0');
+    if ($normalized === '') $normalized = '0';
+    $maximum = (string) PHP_INT_MAX;
+    if (strlen($normalized) > strlen($maximum)
+        || (strlen($normalized) === strlen($maximum) && strcmp($normalized, $maximum) > 0)
+    ) {
+        throw new BusinessReportGateException('The approved-time adjustment cutoff exceeds runtime capacity.');
+    }
+    return (int) $normalized;
+}
+
 /** @return array{period_start:string,period_end:string,due_at:string,timezone:string} */
 function business_report_previous_week_window(
     int $now,
@@ -378,27 +584,38 @@ function business_report_publish_definition(
     string $tenantSlug,
     int $actorUserId,
     string $reason,
+    int $definitionVersion = BUSINESS_REPORT_CONTRACT_VERSION_V1,
 ): array {
     $actor = business_report_actor($pdo, $tenantSlug, $actorUserId);
     $reason = business_report_key($reason, 500, 'Definition reason');
+    business_report_contract($definitionVersion);
     $tenantId = (int)$actor['tenant_id'];
-    $hash = business_report_contract_sha256();
+    $hash = business_report_contract_sha256($definitionVersion);
     $existing = $pdo->prepare(
         'SELECT * FROM business_report_definition_versions
-          WHERE tenant_id = ? AND definition_key = ?
-          ORDER BY version_no DESC LIMIT 1'
+          WHERE tenant_id = ? AND definition_key = ? AND version_no = ?'
     );
-    $existing->execute([$tenantId, BUSINESS_REPORT_DEFINITION_KEY]);
+    $existing->execute([$tenantId, BUSINESS_REPORT_DEFINITION_KEY, $definitionVersion]);
     $row = $existing->fetch(PDO::FETCH_ASSOC);
     if (is_array($row)) {
-        if ((int)$row['version_no'] === 1
-            && (string)$row['contract_sha256'] === $hash
-            && (string)$row['report_type'] === BUSINESS_REPORT_TYPE
-            && hash_equals($hash, hash('sha256', (string)$row['contract_json']))
-        ) {
+        if (business_report_definition_supported($row)) {
             return ['action' => 'ignored', 'definition' => $row];
         }
         throw new BusinessReportConflictException('A different report definition version already exists.');
+    }
+
+    $latest = $pdo->prepare(
+        'SELECT version_no FROM business_report_definition_versions
+          WHERE tenant_id = ? AND definition_key = ?
+          ORDER BY version_no DESC LIMIT 1'
+    );
+    $latest->execute([$tenantId, BUSINESS_REPORT_DEFINITION_KEY]);
+    $latestVersion = $latest->fetchColumn();
+    $expectedVersion = $latestVersion === false ? 1 : (int) $latestVersion + 1;
+    if ($definitionVersion !== $expectedVersion) {
+        throw new BusinessReportConflictException(
+            'Business report definitions must be published in exact version order.',
+        );
     }
 
     $insert = $pdo->prepare(
@@ -410,9 +627,9 @@ function business_report_publish_definition(
     $insert->execute([
         $tenantId,
         BUSINESS_REPORT_DEFINITION_KEY,
-        1,
+        $definitionVersion,
         BUSINESS_REPORT_TYPE,
-        business_report_contract_json(),
+        business_report_contract_json($definitionVersion),
         $hash,
         $actorUserId,
         $reason,
@@ -447,12 +664,7 @@ function business_report_schedule_target(
     );
     $query->execute([$clientId, $definitionId, (int)$actor['tenant_id']]);
     $row = $query->fetch(PDO::FETCH_ASSOC);
-    if (!is_array($row)
-        || (string)$row['definition_key'] !== BUSINESS_REPORT_DEFINITION_KEY
-        || (string)$row['report_type'] !== BUSINESS_REPORT_TYPE
-        || (string)$row['contract_sha256'] !== business_report_contract_sha256()
-        || !hash_equals((string)$row['contract_sha256'], hash('sha256', (string)$row['contract_json']))
-    ) {
+    if (!is_array($row) || !business_report_definition_supported($row)) {
         throw new BusinessReportGateException('The client and supported report definition must belong to the exact tenant.');
     }
     return $row;
@@ -791,6 +1003,225 @@ function business_report_same_prepared_schedule(
         && (int)$schedule['delivery_weekday'] === $deliveryWeekday
         && (string)$schedule['delivery_local_time'] === $deliveryLocalTime
         && (int)$schedule['canary'] === ($canary ? 1 : 0);
+}
+
+/**
+ * Prove one managed-customer report preparation without writing report state.
+ *
+ * The 8 West ID contact is fetched by the operator CLI before this function is
+ * called. This read-only plan then rechecks the exact Safeharbor actor, report
+ * target, active Milepost customer UUID, existing contact binding/history, and
+ * immutable schedule identity. A later prepare still locks and rechecks every
+ * fact because this preview deliberately acquires no write lock.
+ *
+ * @return array{
+ *   action:string,
+ *   schedule:array<string,mixed>,
+ *   id_contact:array<string,mixed>,
+ *   customer_id_sha256:string
+ * }
+ */
+function business_report_plan_customer_schedule_from_id(
+    PDO $pdo,
+    string $tenantSlug,
+    string $scheduleKey,
+    int $clientId,
+    int $definitionId,
+    string $expectedCustomerId,
+    array $idContact,
+    string $timezone,
+    int $deliveryWeekday,
+    string $deliveryLocalTime,
+    bool $canary,
+    int $actorUserId,
+    string $reason,
+): array {
+    $scheduleKey = business_report_schedule_key($scheduleKey);
+    $timezone = business_report_timezone($timezone);
+    $deliveryLocalTime = business_report_time($deliveryLocalTime);
+    if ($deliveryWeekday < 1 || $deliveryWeekday > 7) {
+        throw new BusinessReportValidationException('Report delivery weekday is invalid.');
+    }
+    business_report_key($reason, 500, 'Schedule reason');
+    if (preg_match(BUSINESS_REPORT_MILEPOST_CUSTOMER_UUID, $expectedCustomerId) !== 1
+        || hash_equals(BUSINESS_REPORT_MASTER_CUSTOMER_ID, $expectedCustomerId)
+    ) {
+        throw new BusinessReportValidationException(
+            'A managed customer report scope requires an exact non-master Milepost customer id.',
+        );
+    }
+
+    $validated = business_report_id_contact_validate($idContact, null);
+    $target = business_report_schedule_target(
+        $pdo,
+        $tenantSlug,
+        $clientId,
+        $definitionId,
+        $actorUserId,
+    );
+    $tenantId = (int)$target['tenant_id'];
+
+    $customerBindingQuery = $pdo->prepare(
+        'SELECT customer_id, status FROM suite_customer_sync_bindings
+          WHERE tenant_id = ? AND client_id = ?'
+    );
+    $customerBindingQuery->execute([$tenantId, $clientId]);
+    $customerBindings = $customerBindingQuery->fetchAll(PDO::FETCH_ASSOC);
+    if (count($customerBindings) !== 1
+        || !is_string($customerBindings[0]['customer_id'] ?? null)
+        || !hash_equals($expectedCustomerId, $customerBindings[0]['customer_id'])
+        || !hash_equals('active', (string)($customerBindings[0]['status'] ?? ''))
+    ) {
+        throw new BusinessReportGateException(
+            'The active Milepost customer binding changed before report planning.',
+        );
+    }
+
+    $contactScope = business_report_contact_scope_for_key($pdo, $tenantId, $scheduleKey);
+    if (is_array($contactScope)
+        && !hash_equals(BUSINESS_REPORT_CONTACT_SCOPE_CLIENT, (string)$contactScope['scope'])
+    ) {
+        throw new BusinessReportConflictException(
+            'A report schedule key cannot change its contact scope.',
+        );
+    }
+
+    $bindingQuery = $pdo->prepare(
+        'SELECT * FROM business_report_id_client_bindings
+          WHERE tenant_id = ? AND client_id = ?'
+    );
+    $bindingQuery->execute([$tenantId, $clientId]);
+    $binding = $bindingQuery->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($binding)) {
+        $clientKeyQuery = $pdo->prepare(
+            'SELECT tenant_id, client_id FROM business_report_id_client_bindings
+              WHERE id_tenant_key = ?'
+        );
+        $clientKeyQuery->execute([$validated['tenant_key']]);
+        if ($clientKeyQuery->fetch(PDO::FETCH_ASSOC) !== false) {
+            throw new BusinessReportConflictException(
+                'The 8 West ID tenant is already bound to a different Safeharbor client.',
+            );
+        }
+        $tenantBindingQuery = $pdo->prepare(
+            'SELECT tenant_id FROM business_report_id_tenant_bindings WHERE id_tenant_key = ?'
+        );
+        $tenantBindingQuery->execute([$validated['tenant_key']]);
+        if ($tenantBindingQuery->fetchColumn() !== false) {
+            throw new BusinessReportConflictException(
+                'The 8 West ID tenant is already bound at Safeharbor tenant scope.',
+            );
+        }
+    } elseif (!hash_equals((string)$binding['id_tenant_key'], $validated['tenant_key'])
+        || !hash_equals((string)$binding['id_tenant_slug'], $validated['tenant_slug'])
+    ) {
+        throw new BusinessReportConflictException(
+            'The Safeharbor client is already bound to a different 8 West ID tenant.',
+        );
+    }
+
+    $contactHistoryQuery = $pdo->prepare(
+        'SELECT contact_version, recipient_email
+           FROM business_report_id_client_contact_snapshots
+          WHERE tenant_id = ? AND client_id = ? AND id_tenant_key = ?
+          ORDER BY contact_version DESC, id DESC LIMIT 1'
+    );
+    $contactHistoryQuery->execute([$tenantId, $clientId, $validated['tenant_key']]);
+    $contactHistory = $contactHistoryQuery->fetch(PDO::FETCH_ASSOC);
+    if (is_array($contactHistory)
+        && (int)$validated['contact_version'] < (int)$contactHistory['contact_version']
+    ) {
+        throw new BusinessReportConflictException(
+            'The 8 West ID report-contact version moved backward.',
+        );
+    }
+    if (is_array($contactHistory)
+        && (int)$validated['contact_version'] === (int)$contactHistory['contact_version']
+        && !hash_equals((string)$contactHistory['recipient_email'], $validated['recipient_email'])
+    ) {
+        throw new BusinessReportConflictException(
+            'The same 8 West ID report-contact version named a different recipient.',
+        );
+    }
+
+    $latest = business_report_latest_schedule($pdo, $tenantId, $scheduleKey);
+    if (is_array($latest)
+        && (!is_array($contactScope) || !is_array($binding) || !is_array($contactHistory))
+    ) {
+        throw new BusinessReportGateException(
+            'The existing managed-customer report schedule has incomplete contact evidence.',
+        );
+    }
+    if (is_array($latest) && (string)$latest['status'] === 'active') {
+        throw new BusinessReportConflictException(
+            'Disable the active report schedule before reconfiguring it.',
+        );
+    }
+    if (is_array($latest)
+        && ((int)$latest['client_id'] !== $clientId
+            || (int)$latest['definition_version_id'] !== $definitionId
+            || (string)$latest['schedule_timezone'] !== $timezone)
+    ) {
+        throw new BusinessReportConflictException(
+            'A report schedule key cannot change client, definition, or timezone.',
+        );
+    }
+
+    $action = 'planned';
+    $version = is_array($latest) ? (int)$latest['version_no'] + 1 : 1;
+    $scheduleId = null;
+    if (is_array($latest)
+        && business_report_same_prepared_schedule(
+            $latest,
+            $clientId,
+            $definitionId,
+            $validated['recipient_email'],
+            $timezone,
+            $deliveryWeekday,
+            $deliveryLocalTime,
+            $canary,
+        )
+    ) {
+        $latestEvidence = business_report_id_client_contact_for_schedule(
+            $pdo,
+            $tenantId,
+            (int)$latest['id'],
+        );
+        if (is_array($latestEvidence)
+            && hash_equals((string)$latestEvidence['id_tenant_key'], $validated['tenant_key'])
+            && (int)$latestEvidence['contact_version'] === (int)$validated['contact_version']
+            && hash_equals((string)$latestEvidence['recipient_email'], $validated['recipient_email'])
+        ) {
+            $action = 'ignored';
+            $version = (int)$latest['version_no'];
+            $scheduleId = (int)$latest['id'];
+        }
+    }
+
+    return [
+        'action' => $action,
+        'schedule' => [
+            'id' => $scheduleId,
+            'tenant_id' => $tenantId,
+            'schedule_key' => $scheduleKey,
+            'version_no' => $version,
+            'status' => 'disabled',
+            'client_id' => $clientId,
+            'definition_version_id' => $definitionId,
+            'schedule_timezone' => $timezone,
+            'delivery_weekday' => $deliveryWeekday,
+            'delivery_local_time' => $deliveryLocalTime,
+            'canary' => $canary ? 1 : 0,
+            'recipient_sha256' => hash('sha256', $validated['recipient_email']),
+        ],
+        'id_contact' => [
+            'client_id' => $clientId,
+            'id_tenant_key' => $validated['tenant_key'],
+            'contact_version' => (int)$validated['contact_version'],
+            'response_sha256' => $validated['response_sha256'],
+        ],
+        'customer_id_sha256' => hash('sha256', $expectedCustomerId),
+    ];
 }
 
 /** @return array{action:string,schedule:array<string,mixed>} */
@@ -1391,7 +1822,7 @@ function business_report_active_schedule(PDO $pdo, string $tenantSlug, string $s
     business_report_schedule_key($scheduleKey);
     $query = $pdo->prepare(
         "SELECT s.*, t.slug AS tenant_slug, c.name AS client_name,
-                d.definition_key, d.report_type, d.contract_sha256,
+                d.definition_key, d.report_type, d.contract_json, d.contract_sha256,
                 d.version_no AS definition_version_no
            FROM business_report_schedule_versions s
            JOIN tenants t ON t.id = s.tenant_id
@@ -1411,10 +1842,7 @@ function business_report_active_schedule(PDO $pdo, string $tenantSlug, string $s
     if (!is_array($row) || (string)$row['status'] !== 'active') {
         throw new BusinessReportGateException('No active report schedule matched the exact tenant and key.');
     }
-    if ((string)$row['definition_key'] !== BUSINESS_REPORT_DEFINITION_KEY
-        || (string)$row['report_type'] !== BUSINESS_REPORT_TYPE
-        || (string)$row['contract_sha256'] !== business_report_contract_sha256()
-    ) {
+    if (!business_report_definition_supported($row)) {
         throw new BusinessReportGateException('The active report schedule uses an unsupported definition.');
     }
     business_report_assert_schedule_contact_evidence($pdo, $row);
@@ -1451,6 +1879,114 @@ function business_report_assert_schedule_gate(array $schedule, array $config, st
     }
 }
 
+/**
+ * Definition v1 promised raw approved-time facts. It cannot silently reinterpret
+ * an entry after an append-only approval adjustment becomes applicable.
+ */
+function business_report_assert_v1_adjustment_free(
+    PDO $pdo,
+    array $schedule,
+    string $periodStart,
+    string $periodEnd,
+    string $generatedAt,
+): void {
+    if ((int) ($schedule['definition_version_no'] ?? 0) !== BUSINESS_REPORT_CONTRACT_VERSION_V1) return;
+
+    $adjusted = $pdo->prepare(
+        "SELECT 1
+           FROM time_entry_approval_adjustments adjustment
+           JOIN time_entries entry
+             ON entry.tenant_id = adjustment.tenant_id
+            AND entry.id = adjustment.time_entry_id
+          WHERE entry.tenant_id = ? AND entry.client_id = ?
+            AND entry.approval_status = 'approved'
+            AND entry.worked_at >= ? AND entry.worked_at < ?
+            AND entry.reviewed_at IS NOT NULL AND entry.reviewed_at <= ?
+            AND adjustment.created_at <= ?
+          LIMIT 1"
+    );
+    $adjusted->execute([
+        (int) $schedule['tenant_id'],
+        (int) $schedule['client_id'],
+        $periodStart,
+        $periodEnd,
+        $generatedAt,
+        $generatedAt,
+    ]);
+    if ($adjusted->fetchColumn() !== false) {
+        throw new BusinessReportConflictException(
+            'Business report definition v1 cannot archive adjusted approved time.',
+        );
+    }
+}
+
+/** @return array<string,int|string> */
+function business_report_approved_billable_time_v2(
+    PDO $pdo,
+    int $tenantId,
+    int $clientId,
+    string $periodStart,
+    string $periodEnd,
+    string $generatedAt,
+    int $adjustmentIdCutoff,
+): array {
+    if ($adjustmentIdCutoff < 0) {
+        throw new BusinessReportValidationException('Adjustment id cutoff cannot be negative.');
+    }
+    $time = $pdo->prepare(
+        "SELECT
+            COALESCE(SUM(CASE
+                WHEN COALESCE(adjustment.effective_billable, entry.billable) = 1
+                THEN COALESCE(adjustment.effective_minutes, entry.minutes)
+                ELSE 0
+            END), 0) AS effective_billable_minutes,
+            COALESCE(SUM(CASE WHEN entry.billable = 1 THEN entry.minutes ELSE 0 END), 0)
+                AS original_billable_minutes,
+            COALESCE(SUM(CASE WHEN adjustment.id IS NULL THEN 0 ELSE 1 END), 0)
+                AS adjusted_entries,
+            COALESCE(SUM(COALESCE(adjustment.version_no, 0)), 0)
+                AS adjustment_slips
+           FROM time_entries entry
+           LEFT JOIN time_entry_approval_adjustments adjustment
+             ON adjustment.tenant_id = entry.tenant_id
+            AND adjustment.time_entry_id = entry.id
+            AND adjustment.version_no = (
+                SELECT MAX(candidate.version_no)
+                  FROM time_entry_approval_adjustments candidate
+                 WHERE candidate.tenant_id = entry.tenant_id
+                   AND candidate.time_entry_id = entry.id
+                   AND candidate.id <= ?
+                   AND candidate.created_at <= ?
+             )
+          WHERE entry.tenant_id = ? AND entry.client_id = ?
+            AND entry.approval_status = 'approved'
+            AND entry.worked_at >= ? AND entry.worked_at < ?
+            AND entry.reviewed_at IS NOT NULL AND entry.reviewed_at <= ?"
+    );
+    $time->execute([
+        $adjustmentIdCutoff,
+        $generatedAt,
+        $tenantId,
+        $clientId,
+        $periodStart,
+        $periodEnd,
+        $generatedAt,
+    ]);
+    $row = $time->fetch(PDO::FETCH_ASSOC) ?: [];
+    $effectiveMinutes = (int) ($row['effective_billable_minutes'] ?? 0);
+    $originalMinutes = (int) ($row['original_billable_minutes'] ?? 0);
+    return [
+        'adjustment_id_cutoff' => $adjustmentIdCutoff,
+        'minutes' => $effectiveMinutes,
+        'original_approved_billable_minutes' => $originalMinutes,
+        'net_adjustment_minutes' => $effectiveMinutes - $originalMinutes,
+        'entries_with_adjustments_applied' => (int) ($row['adjusted_entries'] ?? 0),
+        'adjustment_slips_applied' => (int) ($row['adjustment_slips'] ?? 0),
+        'calculation' => 'each_approved_entry_once_using_latest_adjustment_at_id_cutoff_and_generated_at_else_original',
+        'classification' => 'operational_approval_evidence_not_financial_status',
+    ];
+}
+
 /** @return array<string,mixed> */
 function business_report_metrics(
     PDO $pdo,
@@ -1458,6 +1994,7 @@ function business_report_metrics(
     string $periodStart,
     string $periodEnd,
     string $generatedAt,
+    ?int $adjustmentIdCutoff = null,
 ): array {
     $periodStart = business_report_utc($periodStart, 'Period start');
     $periodEnd = business_report_utc($periodEnd, 'Period end');
@@ -1467,6 +2004,30 @@ function business_report_metrics(
     }
     $tenantId = (int)$schedule['tenant_id'];
     $clientId = (int)$schedule['client_id'];
+    $definitionVersion = (int) ($schedule['definition_version_no'] ?? 0);
+    if (!in_array($definitionVersion, [
+        BUSINESS_REPORT_CONTRACT_VERSION_V1,
+        BUSINESS_REPORT_CONTRACT_VERSION_V2,
+        BUSINESS_REPORT_CONTRACT_VERSION_V3,
+    ], true)) {
+        throw new BusinessReportGateException(
+            'Business report metrics require an exact supported definition version.',
+        );
+    }
+    if (business_report_contract_uses_adjustments($definitionVersion)
+        && ($adjustmentIdCutoff === null || $adjustmentIdCutoff < 0)
+    ) {
+        throw new BusinessReportGateException(
+            'Correction-aware business report definitions require an exact adjustment id cutoff.',
+        );
+    }
+    business_report_assert_v1_adjustment_free(
+        $pdo,
+        $schedule,
+        $periodStart,
+        $periodEnd,
+        $generatedAt,
+    );
 
     $opened = $pdo->prepare(
         'SELECT COUNT(*) FROM tickets
@@ -1539,14 +2100,30 @@ function business_report_metrics(
         }
     }
 
-    $time = $pdo->prepare(
-        "SELECT COALESCE(SUM(minutes), 0) FROM time_entries
-          WHERE tenant_id = ? AND client_id = ?
-            AND approval_status = 'approved' AND billable = 1
-            AND worked_at >= ? AND worked_at < ?
-            AND reviewed_at IS NOT NULL AND reviewed_at <= ?"
-    );
-    $time->execute([$tenantId, $clientId, $periodStart, $periodEnd, $generatedAt]);
+    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V1) {
+        $time = $pdo->prepare(
+            "SELECT COALESCE(SUM(minutes), 0) FROM time_entries
+              WHERE tenant_id = ? AND client_id = ?
+                AND approval_status = 'approved' AND billable = 1
+                AND worked_at >= ? AND worked_at < ?
+                AND reviewed_at IS NOT NULL AND reviewed_at <= ?"
+        );
+        $time->execute([$tenantId, $clientId, $periodStart, $periodEnd, $generatedAt]);
+        $approvedTime = [
+            'minutes' => (int)$time->fetchColumn(),
+            'classification' => 'operational_approval_evidence_not_financial_status',
+        ];
+    } else {
+        $approvedTime = business_report_approved_billable_time_v2(
+            $pdo,
+            $tenantId,
+            $clientId,
+            $periodStart,
+            $periodEnd,
+            $generatedAt,
+            $adjustmentIdCutoff,
+        );
+    }
     $csat = $pdo->prepare(
         'SELECT COUNT(*) AS sent,
                 COALESCE(SUM(CASE WHEN s.score IS NOT NULL AND s.responded_at <= ? THEN 1 ELSE 0 END), 0) AS answered,
@@ -1561,6 +2138,9 @@ function business_report_metrics(
 
     $answered = count($responseMinutes);
     return [
+        // The archive envelope stays on schema 1 so migration 013's immutable
+        // database guard remains valid. Definition version, not envelope
+        // version, selects the report semantics and any additive fields.
         'schema_version' => 1,
         'report_type' => BUSINESS_REPORT_TYPE,
         'definition' => [
@@ -1596,10 +2176,7 @@ function business_report_metrics(
             'attainment_percent' => $slaDecided > 0 ? (int)round(100 * $slaMet / $slaDecided) : null,
             'undecided' => $slaEligible - $slaDecided,
         ],
-        'approved_billable_time' => [
-            'minutes' => (int)$time->fetchColumn(),
-            'classification' => 'operational_approval_evidence_not_financial_status',
-        ],
+        'approved_billable_time' => $approvedTime,
         'csat' => [
             'surveys_sent' => (int)($csatRow['sent'] ?? 0),
             'responses_received_by_generated_at' => (int)($csatRow['answered'] ?? 0),
@@ -1611,12 +2188,520 @@ function business_report_metrics(
     ];
 }
 
+/** @param list<string> $expected */
+function business_report_archive_has_exact_keys(mixed $value, array $expected): bool
+{
+    return is_array($value)
+        && !array_is_list($value)
+        && array_keys($value) === $expected;
+}
+
+function business_report_archive_strings_are_safe(mixed $value): bool
+{
+    if (is_string($value)) {
+        return mb_check_encoding($value, 'UTF-8')
+            && preg_match('/[\p{Cc}\p{Cf}\x{2028}\x{2029}]/u', $value) === 0;
+    }
+    if (!is_array($value)) return true;
+    foreach ($value as $item) {
+        if (!business_report_archive_strings_are_safe($item)) return false;
+    }
+    return true;
+}
+
+function business_report_archive_integer_between(mixed $value, int $minimum, int $maximum): bool
+{
+    return is_int($value) && $value >= $minimum && $value <= $maximum;
+}
+
+function business_report_archive_iso_utc(mixed $value): bool
+{
+    if (!is_string($value)
+        || preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\z/D', $value) !== 1
+    ) {
+        return false;
+    }
+    $databaseValue = substr($value, 0, -1);
+    $databaseValue[10] = ' ';
+    $date = DateTimeImmutable::createFromFormat(
+        '!Y-m-d H:i:s',
+        $databaseValue,
+        new DateTimeZone('UTC'),
+    );
+    $errors = DateTimeImmutable::getLastErrors();
+    return $date !== false
+        && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))
+        && $date->format('Y-m-d\TH:i:s\Z') === $value
+        && (int) substr($value, 0, 4) >= 1000;
+}
+
+/** @param array<string,mixed> $period */
+function business_report_archive_v3_is_complete_local_week(array $period): bool
+{
+    try {
+        $timezone = new DateTimeZone((string)($period['schedule_timezone'] ?? ''));
+        $startUtc = new DateTimeImmutable((string)($period['start_utc'] ?? ''));
+        $endUtc = new DateTimeImmutable((string)($period['end_utc_exclusive'] ?? ''));
+        $startLocal = $startUtc->setTimezone($timezone);
+        $endLocal = $endUtc->setTimezone($timezone);
+        $expectedEndLocal = $startLocal->modify('+7 days');
+    } catch (Throwable) {
+        return false;
+    }
+    return $startLocal->format('N H:i:s') === '1 00:00:00'
+        && $endLocal->format('N H:i:s') === '1 00:00:00'
+        && $endUtc->getTimestamp() === $expectedEndLocal->getTimestamp();
+}
+
+/**
+ * Refuse any archive metric that is not exactly one of the immutable v1/v2/v3
+ * public contracts. This deliberately validates every nested key and scalar
+ * before rendering so a self-hashed direct insert cannot turn a metric into
+ * report text or use an ignored field as private/financial storage.
+ *
+ * @param array<string,mixed> $metrics
+ */
+function business_report_assert_archive_metric_schema(array $metrics): void
+{
+    $invalid = static function (): never {
+        throw new BusinessReportConflictException(
+            'The archived report metric schema is invalid.',
+        );
+    };
+    if (!business_report_archive_strings_are_safe($metrics)
+        || !business_report_archive_has_exact_keys($metrics, [
+            'schema_version',
+            'report_type',
+            'definition',
+            'source',
+            'period',
+            'generated_at',
+            'tickets',
+            'first_response',
+            'service_goal',
+            'approved_billable_time',
+            'csat',
+            'delivery_truth',
+        ])
+        || ($metrics['schema_version'] ?? null) !== 1
+        || ($metrics['report_type'] ?? null) !== BUSINESS_REPORT_TYPE
+        || ($metrics['delivery_truth'] ?? null)
+            !== 'A provider acceptance is submission evidence, not inbox delivery proof.'
+    ) {
+        $invalid();
+    }
+
+    $definition = $metrics['definition'] ?? null;
+    if (!business_report_archive_has_exact_keys($definition, ['key', 'version', 'sha256'])) {
+        $invalid();
+    }
+    $definitionVersion = $definition['version'] ?? null;
+    if (!is_int($definitionVersion)
+        || !in_array($definitionVersion, [
+            BUSINESS_REPORT_CONTRACT_VERSION_V1,
+            BUSINESS_REPORT_CONTRACT_VERSION_V2,
+            BUSINESS_REPORT_CONTRACT_VERSION_V3,
+        ], true)
+        || ($definition['key'] ?? null) !== BUSINESS_REPORT_DEFINITION_KEY
+        || !is_string($definition['sha256'] ?? null)
+        || preg_match('/\A[0-9a-f]{64}\z/D', $definition['sha256']) !== 1
+        || !hash_equals(business_report_contract_sha256($definitionVersion), $definition['sha256'])
+    ) {
+        $invalid();
+    }
+
+    $source = $metrics['source'] ?? null;
+    if (!business_report_archive_has_exact_keys($source, [
+        'tenant_key',
+        'client_key',
+        'client_name',
+    ])
+        || !is_string($source['tenant_key'] ?? null)
+        || preg_match('/\A[a-z0-9][a-z0-9-]{0,63}\z/D', $source['tenant_key']) !== 1
+        || !is_string($source['client_key'] ?? null)
+        || preg_match('/\Asafeharbor-client:[1-9][0-9]{0,9}\z/D', $source['client_key']) !== 1
+        || (int) substr($source['client_key'], strlen('safeharbor-client:'))
+            > BUSINESS_REPORT_ARCHIVE_MAX_COUNT
+        || !is_string($source['client_name'] ?? null)
+        || $source['client_name'] === ''
+        || $source['client_name'] !== trim($source['client_name'])
+        || mb_strlen($source['client_name'], 'UTF-8') > 128
+    ) {
+        $invalid();
+    }
+
+    $period = $metrics['period'] ?? null;
+    if (!business_report_archive_has_exact_keys($period, [
+        'start_utc',
+        'end_utc_exclusive',
+        'schedule_timezone',
+    ])
+        || !business_report_archive_iso_utc($period['start_utc'] ?? null)
+        || !business_report_archive_iso_utc($period['end_utc_exclusive'] ?? null)
+        || !business_report_archive_iso_utc($metrics['generated_at'] ?? null)
+        || $period['start_utc'] >= $period['end_utc_exclusive']
+        || $period['end_utc_exclusive'] > $metrics['generated_at']
+        || !is_string($period['schedule_timezone'] ?? null)
+        || strlen($period['schedule_timezone']) > 64
+        || !in_array($period['schedule_timezone'], timezone_identifiers_list(), true)
+    ) {
+        $invalid();
+    }
+    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V3
+        && !business_report_archive_v3_is_complete_local_week($period)
+    ) {
+        $invalid();
+    }
+
+    $tickets = $metrics['tickets'] ?? null;
+    if (!business_report_archive_has_exact_keys($tickets, [
+        'opened',
+        'resolved',
+        'merged_histories_excluded_from_response_metrics',
+    ])) {
+        $invalid();
+    }
+    foreach (['opened', 'resolved', 'merged_histories_excluded_from_response_metrics'] as $key) {
+        if (!business_report_archive_integer_between(
+            $tickets[$key] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )) {
+            $invalid();
+        }
+    }
+
+    $firstResponse = $metrics['first_response'] ?? null;
+    if (!business_report_archive_has_exact_keys($firstResponse, ['answered', 'average_minutes'])
+        || !business_report_archive_integer_between(
+            $firstResponse['answered'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )
+        || $firstResponse['answered'] > $tickets['opened']
+        || ($firstResponse['answered'] === 0 && $firstResponse['average_minutes'] !== null)
+        || ($firstResponse['answered'] > 0
+            && !business_report_archive_integer_between(
+                $firstResponse['average_minutes'] ?? null,
+                0,
+                BUSINESS_REPORT_ARCHIVE_MAX_MINUTES,
+            ))
+    ) {
+        $invalid();
+    }
+
+    $serviceGoal = $metrics['service_goal'] ?? null;
+    if (!business_report_archive_has_exact_keys($serviceGoal, [
+        'eligible_versioned',
+        'legacy_unversioned_excluded',
+        'decided',
+        'met',
+        'attainment_percent',
+        'undecided',
+    ])) {
+        $invalid();
+    }
+    foreach ([
+        'eligible_versioned',
+        'legacy_unversioned_excluded',
+        'decided',
+        'met',
+        'undecided',
+    ] as $key) {
+        if (!business_report_archive_integer_between(
+            $serviceGoal[$key] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )) {
+            $invalid();
+        }
+    }
+    $expectedAttainment = $serviceGoal['decided'] === 0
+        ? null
+        : (int) round(100 * $serviceGoal['met'] / $serviceGoal['decided']);
+    if ($serviceGoal['eligible_versioned'] + $serviceGoal['legacy_unversioned_excluded']
+            > $tickets['opened']
+        || $serviceGoal['decided'] > $serviceGoal['eligible_versioned']
+        || $serviceGoal['met'] > $serviceGoal['decided']
+        || $serviceGoal['undecided']
+            !== $serviceGoal['eligible_versioned'] - $serviceGoal['decided']
+        || $serviceGoal['attainment_percent'] !== $expectedAttainment
+    ) {
+        $invalid();
+    }
+
+    $approvedTime = $metrics['approved_billable_time'] ?? null;
+    $approvedKeys = $definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V1
+        ? ['minutes', 'classification']
+        : [
+            'adjustment_id_cutoff',
+            'minutes',
+            'original_approved_billable_minutes',
+            'net_adjustment_minutes',
+            'entries_with_adjustments_applied',
+            'adjustment_slips_applied',
+            'calculation',
+            'classification',
+        ];
+    if (!business_report_archive_has_exact_keys($approvedTime, $approvedKeys)
+        || !business_report_archive_integer_between(
+            $approvedTime['minutes'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_MINUTES,
+        )
+        || ($approvedTime['classification'] ?? null)
+            !== 'operational_approval_evidence_not_financial_status'
+    ) {
+        $invalid();
+    }
+    if (business_report_contract_uses_adjustments($definitionVersion)) {
+        if (!business_report_archive_integer_between(
+            $approvedTime['original_approved_billable_minutes'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_MINUTES,
+        )) {
+            $invalid();
+        }
+        foreach (['entries_with_adjustments_applied', 'adjustment_slips_applied'] as $key) {
+            if (!business_report_archive_integer_between(
+                $approvedTime[$key] ?? null,
+                0,
+                BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+            )) {
+                $invalid();
+            }
+        }
+        if (!business_report_archive_integer_between(
+                $approvedTime['adjustment_id_cutoff'] ?? null,
+                0,
+                PHP_INT_MAX,
+            )
+            || !business_report_archive_integer_between(
+                $approvedTime['net_adjustment_minutes'] ?? null,
+                -BUSINESS_REPORT_ARCHIVE_MAX_MINUTES,
+                0,
+            )
+            || ($approvedTime['calculation'] ?? null)
+                !== 'each_approved_entry_once_using_latest_adjustment_at_id_cutoff_and_generated_at_else_original'
+            || $approvedTime['minutes'] > $approvedTime['original_approved_billable_minutes']
+            || $approvedTime['net_adjustment_minutes']
+                !== $approvedTime['minutes'] - $approvedTime['original_approved_billable_minutes']
+            || $approvedTime['adjustment_slips_applied']
+                < $approvedTime['entries_with_adjustments_applied']
+            || (($approvedTime['entries_with_adjustments_applied'] === 0)
+                !== ($approvedTime['adjustment_slips_applied'] === 0))
+            || ($approvedTime['entries_with_adjustments_applied'] === 0
+                && $approvedTime['minutes'] !== $approvedTime['original_approved_billable_minutes'])
+        ) {
+            throw new BusinessReportConflictException(
+                'The archived report metric schema and v2 adjustment summary are invalid.',
+            );
+        }
+    }
+
+    $csat = $metrics['csat'] ?? null;
+    if (!business_report_archive_has_exact_keys($csat, [
+        'surveys_sent',
+        'responses_received_by_generated_at',
+        'average_score_out_of_3',
+    ])
+        || !business_report_archive_integer_between(
+            $csat['surveys_sent'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )
+        || !business_report_archive_integer_between(
+            $csat['responses_received_by_generated_at'] ?? null,
+            0,
+            BUSINESS_REPORT_ARCHIVE_MAX_COUNT,
+        )
+        || $csat['responses_received_by_generated_at'] > $csat['surveys_sent']
+    ) {
+        $invalid();
+    }
+    $averageScore = $csat['average_score_out_of_3'];
+    if (($csat['responses_received_by_generated_at'] === 0 && $averageScore !== null)
+        || ($csat['responses_received_by_generated_at'] > 0
+            && (!is_float($averageScore)
+                || !is_finite($averageScore)
+                || $averageScore < 1.0
+                || $averageScore > 3.0))
+    ) {
+        $invalid();
+    }
+}
+
+function business_report_human_timezone_label(string $timezone): string
+{
+    return match ($timezone) {
+        'America/Los_Angeles' => 'Pacific Time',
+        'UTC' => 'UTC',
+        default => $timezone,
+    };
+}
+
+function business_report_human_count(
+    int $count,
+    string $singular,
+    string $plural,
+): string {
+    return $count . ' ' . ($count === 1 ? $singular : $plural);
+}
+
+/** @param array<string,mixed> $metrics */
+function business_report_text_v3(array $metrics): string
+{
+    $timezone = (string) $metrics['period']['schedule_timezone'];
+    $zone = new DateTimeZone($timezone);
+    $periodStart = (new DateTimeImmutable(
+        (string) $metrics['period']['start_utc'],
+        new DateTimeZone('UTC'),
+    ))->setTimezone($zone);
+    $periodEndExclusive = (new DateTimeImmutable(
+        (string) $metrics['period']['end_utc_exclusive'],
+        new DateTimeZone('UTC'),
+    ))->setTimezone($zone);
+    $periodEnd = $periodEndExclusive->modify('-1 second');
+    $generated = (new DateTimeImmutable(
+        (string) $metrics['generated_at'],
+        new DateTimeZone('UTC'),
+    ))->setTimezone($zone);
+    $currentMonday = $generated->modify('monday this week')->setTime(0, 0, 0);
+    $isLastCompletedWeek = $periodStart == $currentMonday->modify('-7 days')
+        && $periodEndExclusive == $currentMonday;
+    $timezoneLabel = business_report_human_timezone_label($timezone);
+
+    $ticketsOpened = (int) $metrics['tickets']['opened'];
+    $ticketsResolved = (int) $metrics['tickets']['resolved'];
+    $responsesMeasured = (int) $metrics['first_response']['answered'];
+    $averageResponse = $metrics['first_response']['average_minutes'];
+    $eligibleGoals = (int) $metrics['service_goal']['eligible_versioned'];
+    $decidedGoals = (int) $metrics['service_goal']['decided'];
+    $metGoals = (int) $metrics['service_goal']['met'];
+    $missedGoals = $decidedGoals - $metGoals;
+    $undecidedGoals = (int) $metrics['service_goal']['undecided'];
+    $legacyExcluded = (int) $metrics['service_goal']['legacy_unversioned_excluded'];
+    $mergedExcluded = (int) $metrics['tickets']['merged_histories_excluded_from_response_metrics'];
+    $approvedMinutes = (int) $metrics['approved_billable_time']['minutes'];
+    $approvedHours = number_format($approvedMinutes / 60, 2, '.', '');
+    $surveysSent = (int) $metrics['csat']['surveys_sent'];
+    $surveysAnswered = (int) $metrics['csat']['responses_received_by_generated_at'];
+    $surveyAverage = $metrics['csat']['average_score_out_of_3'];
+
+    $averageResponseText = $averageResponse === null
+        ? 'No first replies to measure'
+        : (int) $averageResponse . ' minutes ('
+            . business_report_human_count($responsesMeasured, 'ticket', 'tickets')
+            . ' measured)';
+    $serviceGoalText = $decidedGoals === 0
+        ? 'No decided ticket results yet'
+        : (int) $metrics['service_goal']['attainment_percent'] . '% met ('
+            . $metGoals . ' of ' . $decidedGoals . ' decided tickets)';
+    $surveyText = $surveyAverage === null
+        ? 'No survey responses yet (' . $surveysAnswered . ' of ' . $surveysSent . ' answered)'
+        : number_format((float) $surveyAverage, 2, '.', '') . ' out of 3 ('
+            . $surveysAnswered . ' of ' . $surveysSent . ' answered)';
+
+    $followUp = [];
+    if ($missedGoals > 0) {
+        $followUp[] = '- Review ' . business_report_human_count(
+            $missedGoals,
+            'ticket that missed',
+            'tickets that missed',
+        ) . ($missedGoals === 1 ? ' its' : ' their') . ' first-response goal.';
+    }
+    if ($undecidedGoals > 0) {
+        $followUp[] = '- Check ' . business_report_human_count(
+            $undecidedGoals,
+            'ticket from this week that does',
+            'tickets from this week that do',
+        ) . ' not have a final first-response result yet.';
+    }
+    if ($followUp === []) {
+        $followUp[] = "- No first-response follow-up is needed from this week's results.";
+    }
+
+    $adjustmentLines = [];
+    $adjustedEntries = (int) $metrics['approved_billable_time']['entries_with_adjustments_applied'];
+    $adjustmentSlips = (int) $metrics['approved_billable_time']['adjustment_slips_applied'];
+    $netAdjustment = (int) $metrics['approved_billable_time']['net_adjustment_minutes'];
+    if ($adjustedEntries > 0) {
+        $adjustmentLines[] = 'Approved-time change: ' . sprintf('%+d', $netAdjustment)
+            . ' minutes across ' . business_report_human_count(
+                $adjustedEntries,
+                'entry',
+                'entries',
+            ) . ' using ' . business_report_human_count(
+                $adjustmentSlips,
+                'saved adjustment',
+                'saved adjustments',
+            ) . '.';
+    } else {
+        $adjustmentLines[] = 'Approved-time changes: none.';
+    }
+
+    $lines = [
+        'Safeharbor weekly client service summary',
+        'Client: ' . $metrics['source']['client_name'],
+        'Week covered: ' . $periodStart->format('l, F j, Y')
+            . ' through ' . $periodEnd->format('l, F j, Y')
+            . ' (' . $timezoneLabel . ')',
+        $isLastCompletedWeek
+            ? 'This is the last fully completed Monday-through-Sunday week.'
+            : 'This is a catch-up report for a fully completed Monday-through-Sunday week.',
+        'Prepared: ' . $generated->format('l, F j, Y \a\t g:i A') . ' ' . $timezoneLabel,
+        '',
+        'Quick summary',
+        'New support tickets: ' . $ticketsOpened,
+        'Tickets fixed: ' . $ticketsResolved,
+        'Average first reply: ' . $averageResponseText,
+        'First-response goal: ' . $serviceGoalText,
+        'Approved billable technician time (not an invoice): '
+            . $approvedHours . ' hours (' . $approvedMinutes . ' minutes)',
+        'Customer survey score: ' . $surveyText,
+        '',
+        '8 West IT follow-up',
+        ...$followUp,
+        '',
+        'How the numbers were counted',
+        'Tickets with a saved first-response goal: ' . $eligibleGoals,
+        'First-response results still waiting: ' . $undecidedGoals,
+        'Older tickets without a saved goal, not scored: ' . $legacyExcluded,
+        'Merged ticket histories left out of response math: ' . $mergedExcluded,
+        ...$adjustmentLines,
+        '',
+        'Approved technician time is work evidence only. It does not mean an invoice was created, sent, or posted.',
+        'Sending to Microsoft means Microsoft accepted the message. Inbox receipt is checked separately.',
+    ];
+    return implode("\n", $lines) . "\n";
+}
+
 /** @param array<string,mixed> $metrics */
 function business_report_text(array $metrics): string
 {
+    business_report_assert_archive_metric_schema($metrics);
+    $definitionVersion = (int) ($metrics['definition']['version'] ?? 0);
+    if ($definitionVersion === BUSINESS_REPORT_CONTRACT_VERSION_V3) {
+        return business_report_text_v3($metrics);
+    }
     $value = static fn(mixed $item): string => $item === null ? 'Not enough decided data' : (string)$item;
     $minutes = (int)$metrics['approved_billable_time']['minutes'];
     $hours = number_format($minutes / 60, 2, '.', '');
+    $approvedTimeLines = business_report_contract_uses_adjustments($definitionVersion)
+        ? [
+            'Approved billable operational time after adjustments: ' . $minutes . ' minutes (' . $hours . ' hours)',
+            'Original approved billable operational time: '
+                . (int) $metrics['approved_billable_time']['original_approved_billable_minutes'] . ' minutes',
+            'Billable time net adjustment: '
+                . sprintf('%+d', (int) $metrics['approved_billable_time']['net_adjustment_minutes']) . ' minutes',
+            'Approved-time entries adjusted: '
+                . (int) $metrics['approved_billable_time']['entries_with_adjustments_applied'],
+            'Append-only adjustment slips applied: '
+                . (int) $metrics['approved_billable_time']['adjustment_slips_applied'],
+        ]
+        : [
+            'Approved billable operational time: ' . $minutes . ' minutes (' . $hours . ' hours)',
+        ];
     $lines = [
         'Safeharbor weekly client service summary',
         'Client: ' . $metrics['source']['client_name'],
@@ -1632,10 +2717,13 @@ function business_report_text(array $metrics): string
         'Versioned service-goal attainment: ' . $value($metrics['service_goal']['attainment_percent']) . ($metrics['service_goal']['attainment_percent'] === null ? '' : '%'),
         'Versioned service-goal outcomes still undecided: ' . $metrics['service_goal']['undecided'],
         'Legacy tickets without a versioned goal excluded: ' . $metrics['service_goal']['legacy_unversioned_excluded'],
-        'Approved billable operational time: ' . $minutes . ' minutes (' . $hours . ' hours)',
+        ...$approvedTimeLines,
         'CSAT responses: ' . $metrics['csat']['responses_received_by_generated_at'] . ' of ' . $metrics['csat']['surveys_sent'],
         'CSAT average: ' . $value($metrics['csat']['average_score_out_of_3']) . ($metrics['csat']['average_score_out_of_3'] === null ? '' : ' / 3'),
         '',
+        ...(business_report_contract_uses_adjustments($definitionVersion)
+            ? ['Each approved time entry is counted once using its latest adjustment inside the archived adjustment-id and generation-time cutoffs. Adjustment reasons are not included.']
+            : []),
         'Approved billable time above is operational evidence only, not a statement of export or invoice status. This report does not invoice or post anything.',
         'Merged ticket histories are excluded from response metrics because their original response provenance is not retained.',
         'Microsoft Graph acceptance, when recorded, means submitted to the provider; it does not prove inbox delivery.',
@@ -1666,8 +2754,14 @@ function business_report_content_sha256(array $metrics, string $text): string
     return business_report_content_sha256_from_json(business_report_metrics_json($metrics), $text);
 }
 
-/** @return array{metrics:array<string,mixed>,text:string} */
-function business_report_archived_content(array $archive): array
+/**
+ * Verify only the immutable raw bytes needed to identify an archive before a
+ * crossed send boundary is recovered. Current semantic/canonical rules may be
+ * newer than an already-sent legacy archive, so they deliberately run later.
+ *
+ * @return array{metrics:array<string,mixed>,text:string}
+ */
+function business_report_minimally_verified_archived_content(array $archive): array
 {
     $metricsJson = (string)($archive['metrics_json'] ?? '');
     $text = (string)($archive['report_text'] ?? '');
@@ -1683,14 +2777,71 @@ function business_report_archived_content(array $archive): array
     ) {
         throw new BusinessReportConflictException('The archived report content hash does not match.');
     }
-    if (($metrics['schema_version'] ?? null) !== 1
-        || ($metrics['report_type'] ?? null) !== BUSINESS_REPORT_TYPE
-        || !is_array($metrics['source'] ?? null)
-        || !is_string($metrics['source']['tenant_key'] ?? null)
-        || !is_string($metrics['source']['client_key'] ?? null)
-        || !is_string($metrics['source']['client_name'] ?? null)
+    return ['metrics' => $metrics, 'text' => $text];
+}
+
+/** @return array<string,mixed> */
+function business_report_archived_source_for_scope(array $metrics, array $context): array
+{
+    $source = $metrics['source'] ?? null;
+    $period = $metrics['period'] ?? null;
+    if (!is_array($source)
+        || !is_array($period)
+        || !is_string($source['tenant_key'] ?? null)
+        || !is_string($source['client_key'] ?? null)
+        || !is_string($period['schedule_timezone'] ?? null)
+        || !is_string($context['schedule_timezone'] ?? null)
+        || !hash_equals((string)$context['tenant_slug'], $source['tenant_key'])
+        || !hash_equals('safeharbor-client:' . (int)$context['client_id'], $source['client_key'])
+        || !hash_equals($context['schedule_timezone'], $period['schedule_timezone'])
     ) {
-        throw new BusinessReportConflictException('The archived report contract is invalid.');
+        throw new BusinessReportConflictException(
+            'The archived report source or timezone does not match its database scope.',
+        );
+    }
+    return $source;
+}
+
+/** @return array{metrics:array<string,mixed>,text:string} */
+function business_report_archived_content(array $archive): array
+{
+    $content = business_report_minimally_verified_archived_content($archive);
+    $metrics = $content['metrics'];
+    $metricsJson = (string)($archive['metrics_json'] ?? '');
+    $text = $content['text'];
+    business_report_assert_archive_metric_schema($metrics);
+    try {
+        $canonicalMetricsJson = business_report_metrics_json($metrics);
+    } catch (JsonException $error) {
+        throw new BusinessReportConflictException(
+            'The archived report metric schema JSON cannot be encoded canonically.',
+            0,
+            $error,
+        );
+    }
+    if (!hash_equals($canonicalMetricsJson, $metricsJson)) {
+        throw new BusinessReportConflictException(
+            'The archived report metric schema JSON is not canonical.',
+        );
+    }
+    try {
+        set_error_handler(
+            static function (int $severity, string $message, string $file, int $line): never {
+                throw new ErrorException($message, 0, $severity, $file, $line);
+            },
+        );
+        $canonicalText = business_report_text($metrics);
+    } catch (Throwable $error) {
+        throw new BusinessReportConflictException(
+            'The archived report cannot be rendered from its exact metrics.',
+            0,
+            $error,
+        );
+    } finally {
+        restore_error_handler();
+    }
+    if (!hash_equals($canonicalText, $text)) {
+        throw new BusinessReportConflictException('The archived report text is not canonical.');
     }
     return ['metrics' => $metrics, 'text' => $text];
 }
@@ -1705,22 +2856,40 @@ function business_report_generate(
     bool $dryRun = false,
     bool $requireDue = true,
 ): array {
-    $now ??= time();
+    $requestedNow = $now;
+    $previewNow = $now ?? time();
     $config = business_report_config($rawConfig);
     $schedule = business_report_active_schedule($pdo, $tenantSlug, $scheduleKey);
+    business_report_assert_managed_customer_operational(
+        $pdo,
+        (int)$schedule['tenant_id'],
+        (int)$schedule['client_id'],
+    );
     business_report_assert_schedule_gate($schedule, $config, $dryRun ? 'dry_run' : 'generation');
     $window = business_report_next_window($pdo, $schedule);
-    $generatedAt = gmdate('Y-m-d H:i:s', $now);
-    if ($requireDue && $generatedAt < $window['due_at']) {
-        throw new BusinessReportGateException('The report schedule is not due yet.');
-    }
     if ($dryRun) {
+        // A dry run is deliberately read-only and does not take the tenant
+        // serialization lock. It is a best-effort preview, never evidence of
+        // the exact facts a later persisted archive will capture.
+        $generatedAt = business_report_utc(
+            gmdate('Y-m-d H:i:s', $previewNow),
+            'Generated at',
+        );
+        if ($requireDue && $generatedAt < $window['due_at']) {
+            throw new BusinessReportGateException('The report schedule is not due yet.');
+        }
+        $adjustmentIdCutoff = business_report_contract_uses_adjustments(
+            (int) ($schedule['definition_version_no'] ?? 0),
+        )
+            ? business_report_adjustment_id_cutoff($pdo, (int) $schedule['tenant_id'])
+            : null;
         $metrics = business_report_metrics(
             $pdo,
             $schedule,
             $window['period_start'],
             $window['period_end'],
             $generatedAt,
+            $adjustmentIdCutoff,
         );
         $text = business_report_text($metrics);
         $sha256 = business_report_content_sha256($metrics, $text);
@@ -1740,6 +2909,43 @@ function business_report_generate(
     $tenantId = (int)$schedule['tenant_id'];
     $pdo->beginTransaction();
     try {
+        // Persisted reports and append-only approved-time adjustments share
+        // this tenant row as their first lock. Reports need only a shared
+        // lock: it still excludes an adjustment's exclusive lock while
+        // preserving the report runtime's SELECT-only tenant privilege. That
+        // fixed order makes the winner visible before report metrics are read:
+        // an adjustment that wins makes v1 fail closed, while a report that
+        // wins archives before the later adjustment can be appended. V2 and
+        // V3 capture the committed adjustment-id prefix under this lock,
+        // making that order durable when both operations share a timestamp
+        // second.
+        $tenantLockSql = 'SELECT id FROM tenants WHERE id = ? AND slug = ?';
+        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+            $tenantLockSql .= ' FOR SHARE';
+        }
+        $tenantLock = $pdo->prepare($tenantLockSql);
+        $tenantLock->execute([$tenantId, $tenantSlug]);
+        if ((int) $tenantLock->fetchColumn() !== $tenantId) {
+            throw new BusinessReportConflictException(
+                'The report tenant changed before archive generation completed.',
+            );
+        }
+        business_report_assert_managed_customer_operational(
+            $pdo,
+            $tenantId,
+            (int)$schedule['client_id'],
+            true,
+        );
+        $adjustmentIdCutoff = business_report_contract_uses_adjustments(
+            (int) ($schedule['definition_version_no'] ?? 0),
+        )
+            ? business_report_adjustment_id_cutoff($pdo, $tenantId, true)
+            : null;
+        $generatedAt = business_report_persisted_generated_at($pdo, $requestedNow);
+        if ($requireDue && $generatedAt < $window['due_at']) {
+            throw new BusinessReportGateException('The report schedule is not due yet.');
+        }
+
         if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
             $scheduleLock = $pdo->prepare(
                 'SELECT id FROM business_report_schedule_versions
@@ -1767,6 +2973,7 @@ function business_report_generate(
         $archive = $existing->fetch(PDO::FETCH_ASSOC);
         if (is_array($archive)) {
             $archivedContent = business_report_archived_content($archive);
+            business_report_archived_source_for_scope($archivedContent['metrics'], $schedule);
             $pdo->commit();
             return [
                 'action' => 'ignored',
@@ -1781,6 +2988,7 @@ function business_report_generate(
             $window['period_start'],
             $window['period_end'],
             $generatedAt,
+            $adjustmentIdCutoff,
         );
         $text = business_report_text($metrics);
         $metricsJson = business_report_metrics_json($metrics);
@@ -1830,7 +3038,7 @@ function business_report_delivery_context(PDO $pdo, int $archiveId): array
     $query = $pdo->prepare(
         'SELECT d.*, a.schedule_key, a.client_id, a.metrics_json, a.report_text,
                 a.content_sha256, a.period_start, a.period_end,
-                s.canary, s.status AS schedule_status,
+                s.canary, s.status AS schedule_status, s.schedule_timezone,
                 t.slug AS tenant_slug
            FROM business_report_deliveries d
            JOIN business_report_archives a ON a.tenant_id = d.tenant_id AND a.id = d.archive_id
@@ -1971,19 +3179,16 @@ function business_report_deliver(
     $nowUtc = gmdate('Y-m-d H:i:s', $now);
     $config = business_report_config($rawConfig);
     $context = business_report_delivery_context($pdo, $archiveId);
-    $archivedContent = business_report_archived_content($context);
-    $archivedSource = $archivedContent['metrics']['source'];
-    if ((string)$archivedSource['tenant_key'] !== (string)$context['tenant_slug']
-        || (string)$archivedSource['client_key'] !== 'safeharbor-client:' . (int)$context['client_id']
-    ) {
-        throw new BusinessReportConflictException('The archived report source does not match its database scope.');
-    }
+    $minimalContent = business_report_minimally_verified_archived_content($context);
+    business_report_archived_source_for_scope($minimalContent['metrics'], $context);
+    $deliveryStatus = (string)$context['status'];
 
     // A crossed send boundary must always converge to terminal uncertainty when
     // its lease expires, even if the schedule or protected allowlists changed
-    // afterward. Recovery verifies archive scope/hash, performs no network
-    // request, row-locks the delivery, and precedes current send gates.
-    if ((string)$context['status'] === 'sending') {
+    // afterward. Recovery verifies only immutable raw hash and decoded source
+    // scope, performs no network request, row-locks the delivery, and precedes
+    // current semantic/canonical archive rules and send gates.
+    if ($deliveryStatus === 'sending') {
         $pdo->beginTransaction();
         try {
             $lockSql = 'SELECT * FROM business_report_deliveries WHERE tenant_id = ? AND id = ?';
@@ -1996,16 +3201,28 @@ function business_report_deliver(
                 $pdo->commit();
                 return ['action' => 'recovered_uncertain', 'status' => 'uncertain', 'archive_id' => $archiveId, 'attempt_id' => null];
             }
+            $deliveryStatus = (string)$delivery['status'];
             $pdo->commit();
-            return ['action' => 'ignored', 'status' => (string)$delivery['status'], 'archive_id' => $archiveId, 'attempt_id' => null];
         } catch (Throwable $error) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             throw $error;
         }
     }
-    if ((string)$context['status'] !== 'pending') {
-        return ['action' => 'ignored', 'status' => (string)$context['status'], 'archive_id' => $archiveId, 'attempt_id' => null];
+
+    $archivedContent = business_report_archived_content($context);
+    $archivedSource = business_report_archived_source_for_scope(
+        $archivedContent['metrics'],
+        $context,
+    );
+    if ($deliveryStatus !== 'pending') {
+        return ['action' => 'ignored', 'status' => $deliveryStatus, 'archive_id' => $archiveId, 'attempt_id' => null];
     }
+
+    business_report_assert_managed_customer_operational(
+        $pdo,
+        (int)$context['tenant_id'],
+        (int)$context['client_id'],
+    );
 
     $archivedClientName = business_report_key(
         (string)$archivedSource['client_name'],
@@ -2042,6 +3259,12 @@ function business_report_deliver(
             $pdo->commit();
             return ['action' => 'recovered_uncertain', 'status' => 'uncertain', 'archive_id' => $archiveId, 'attempt_id' => null];
         }
+        business_report_assert_managed_customer_operational(
+            $pdo,
+            (int)$context['tenant_id'],
+            (int)$context['client_id'],
+            true,
+        );
         $latestSchedule = business_report_latest_schedule(
             $pdo,
             (int)$context['tenant_id'],
@@ -2086,13 +3309,32 @@ function business_report_deliver(
     }
 
     $subject = 'Safeharbor weekly service summary — ' . $archivedClientName;
+    // This is the final boundary before bytes leave Safeharbor. Keep a shared
+    // lock on the managed source row across the network call: an already-
+    // committed inactive event is refused, while a concurrent inactive event
+    // waits and is therefore ordered after this exact send attempt.
+    $managedBoundaryTransaction = false;
     try {
+        $pdo->beginTransaction();
+        $managedBoundaryTransaction = true;
+        business_report_assert_managed_customer_operational(
+            $pdo,
+            (int)$context['tenant_id'],
+            (int)$context['client_id'],
+            true,
+        );
         $outcome = $transport(
             (string)$context['recipient_email'],
             $subject,
             $archivedContent['text'],
         );
+        $pdo->commit();
+        $managedBoundaryTransaction = false;
+    } catch (BusinessReportGateException $error) {
+        if ($managedBoundaryTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
     } catch (Throwable) {
+        if ($managedBoundaryTransaction && $pdo->inTransaction()) $pdo->rollBack();
         $outcome = ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'transport_exception'];
     }
     $outcome = business_report_transport_outcome($outcome);
@@ -2224,6 +3466,11 @@ function business_report_pending_archive_ids(
             continue;
         }
         try {
+            business_report_assert_managed_customer_operational(
+                $pdo,
+                (int)$delivery['tenant_id'],
+                (int)$delivery['client_id'],
+            );
             business_report_assert_schedule_gate($delivery, $config, 'delivery');
         } catch (BusinessReportGateException) {
             continue;

@@ -1,24 +1,23 @@
 <?php
-/** Hermetic contract tests for the operator-controlled Coastmark sender. */
+/** Hermetic v3 claim, receipt, ambiguity, and correction contract tests. */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/coastmark_time_export.php';
 
 $checks = 0;
 $failures = 0;
-
 function export_check(string $name, bool $condition): void
 {
     global $checks, $failures;
     $checks++;
     if (!$condition) {
         $failures++;
-        fwrite(STDERR, "FAIL {$checks}: {$name}\n");
+        echo "FAIL {$checks} - {$name}\n";
+    } else {
+        echo "ok {$checks} - {$name}\n";
     }
 }
-
-/** @param class-string<Throwable> $expected */
-function export_throws(string $name, string $expected, callable $operation, string $fragment = ''): void
+function export_expect(string $name, string $class, callable $operation, string $message = ''): void
 {
     try {
         $operation();
@@ -26,422 +25,729 @@ function export_throws(string $name, string $expected, callable $operation, stri
     } catch (Throwable $error) {
         export_check(
             $name,
-            $error instanceof $expected
-                && ($fragment === '' || str_contains($error->getMessage(), $fragment)),
+            $error instanceof $class && ($message === '' || str_contains($error->getMessage(), $message)),
         );
     }
 }
-
-/** @return array<string, mixed> */
-function export_config(array $changes = []): array
+function export_config(array $overrides = []): array
 {
     return array_replace([
+        'claim_enabled' => true,
         'enabled' => true,
-        'endpoint' => 'https://coastmark.example/api/integrations/safeharbor/time-entries',
+        'endpoint' => 'https://coastmark.example.test/api/integrations/safeharbor/time-entries',
+        'status_endpoint' => 'https://coastmark.example.test/api/integrations/safeharbor/time-events/status',
         'service' => 'safeharbor-time',
         'secret' => str_repeat('s', 32),
         'tenant_slugs' => ['8west'],
         'client_keys' => ['milepost-customer:11111111-1111-4111-8111-111111111111'],
-        'timeout_seconds' => 15,
-    ], $changes);
+        'timeout_seconds' => 5,
+    ], $overrides);
+}
+function export_ack(
+    array $claim,
+    string $action = 'created',
+    int $eventId = 91,
+    ?int $lineId = 71,
+): string
+{
+    return json_encode([
+        'ok' => true,
+        'action' => $action,
+        'event' => [
+            'event_key' => $claim['event_key'],
+            'payload_sha256' => $claim['payload_sha256'],
+            'coastmark_event_id' => $eventId,
+        ],
+        'draft' => [
+            'invoice_id' => 81,
+            'invoice_line_id' => $action === 'manual_exception' ? null : $lineId,
+        ],
+    ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
 }
 
 $pdo = new PDO('sqlite::memory:');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-$pdo->exec('CREATE TABLE tenants (id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE)');
-$pdo->exec('CREATE TABLE clients (
-    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, source_key TEXT NULL
-)');
-$pdo->exec('CREATE TABLE users (
-    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL
-)');
-$pdo->exec('CREATE TABLE suite_customer_sync_bindings (
-    id INTEGER PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
-    customer_id TEXT NOT NULL UNIQUE,
-    client_id INTEGER NOT NULL,
-    status TEXT NOT NULL
-)');
-$pdo->exec('CREATE TABLE time_entries (
-    id INTEGER PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
-    client_id INTEGER NOT NULL,
-    ticket_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    entry_key TEXT NOT NULL,
-    source TEXT NOT NULL,
-    worked_at TEXT NOT NULL,
-    minutes INTEGER NOT NULL,
-    note TEXT NOT NULL,
-    billable INTEGER NOT NULL,
-    approval_status TEXT NOT NULL,
-    reviewed_by_user_id INTEGER NULL,
-    reviewed_at TEXT NULL
-)');
-$pdo->exec("INSERT INTO tenants VALUES (1,'8west'),(2,'customer')");
-$pdo->exec("INSERT INTO clients VALUES
-    (11,1,'coastmark:acme'),
-    (12,1,NULL),
-    (13,1,NULL),
-    (14,1,NULL),
-    (21,2,'coastmark:other')");
-$pdo->exec('INSERT INTO users VALUES (101,1),(102,1),(201,2)');
+$pdo->exec('CREATE TABLE tenants(id INTEGER PRIMARY KEY,slug TEXT NOT NULL UNIQUE)');
+$pdo->exec('CREATE TABLE clients(id INTEGER PRIMARY KEY,tenant_id INTEGER NOT NULL,name TEXT NOT NULL)');
+$pdo->exec('CREATE TABLE users(
+  id INTEGER PRIMARY KEY,tenant_id INTEGER NOT NULL,role TEXT NOT NULL,is_active INTEGER NOT NULL)');
+$pdo->exec('CREATE TABLE suite_customer_sync_bindings(
+  id INTEGER PRIMARY KEY,tenant_id INTEGER NOT NULL,client_id INTEGER NOT NULL,
+  customer_id TEXT NOT NULL,status TEXT NOT NULL)');
+$pdo->exec('CREATE TABLE time_entries(
+  id INTEGER PRIMARY KEY,tenant_id INTEGER NOT NULL,client_id INTEGER NOT NULL,ticket_id INTEGER NOT NULL,
+  entry_key TEXT NOT NULL,source TEXT NOT NULL,worked_at TEXT NOT NULL,minutes INTEGER NOT NULL,
+  note TEXT NOT NULL,billable INTEGER NOT NULL,approval_status TEXT NOT NULL,user_id INTEGER NOT NULL,
+  reviewed_by_user_id INTEGER,reviewed_at TEXT)');
+$pdo->exec('CREATE TABLE time_entry_approval_adjustments(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER NOT NULL,time_entry_id INTEGER NOT NULL,
+  adjustment_key TEXT NOT NULL,version_no INTEGER NOT NULL,effective_minutes INTEGER NOT NULL,
+  effective_billable INTEGER NOT NULL,reason TEXT NOT NULL,actor_user_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL)');
+$pdo->exec('CREATE TABLE coastmark_time_export_claims(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER NOT NULL,time_entry_id INTEGER NOT NULL,
+  source_version INTEGER NOT NULL,event_key TEXT NOT NULL,predecessor_claim_id INTEGER,
+  payload_sha256 TEXT NOT NULL,payload_json TEXT NOT NULL,created_by_user_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL,UNIQUE(tenant_id,time_entry_id,source_version),UNIQUE(tenant_id,event_key))');
+$pdo->exec('CREATE TABLE coastmark_time_export_receipts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER NOT NULL,claim_id INTEGER NOT NULL,
+  operation_key TEXT NOT NULL,operation_kind TEXT NOT NULL,outcome TEXT NOT NULL,response_status INTEGER,
+  response_sha256 TEXT,coastmark_event_id INTEGER,invoice_id INTEGER,invoice_line_id INTEGER,
+  detail_code TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(tenant_id,operation_key))');
+
+$pdo->exec("INSERT INTO tenants VALUES(1,'8west'),(2,'other')");
+$pdo->exec("INSERT INTO clients VALUES(11,1,'Lifestyle'),(12,1,'Master'),(21,2,'Other')");
+$pdo->exec("INSERT INTO users VALUES
+  (101,1,'tech',1),(102,1,'owner',1),(103,1,'admin',1),(104,1,'owner',0),(201,2,'owner',1)");
 $pdo->exec("INSERT INTO suite_customer_sync_bindings VALUES
-    (1,1,'11111111-1111-4111-8111-111111111111',11,'active'),
-    (2,1,'4ebaeefa-b101-47f8-ac76-e49ab309d272',13,'active'),
-    (3,1,'33333333-3333-4333-8333-333333333333',14,'inactive'),
-    (4,2,'22222222-2222-4222-8222-222222222222',21,'active')");
-$insert = $pdo->prepare('INSERT INTO time_entries VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+  (1,1,11,'11111111-1111-4111-8111-111111111111','active'),
+  (2,1,12,'4ebaeefa-b101-47f8-ac76-e49ab309d272','active')");
+$insert = $pdo->prepare('INSERT INTO time_entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
 $insert->execute([
-    501, 1, 11, 901, 101, 'timer:approved:0001', 'timer',
-    '2026-08-26 20:00:00', 30, '=private technician note', 1,
-    'approved', 102, '2026-08-26 20:05:00',
+    501,1,11,901,'timer:approved:0001','timer','2026-08-26 20:00:00',30,
+    '=private technician note',1,'approved',101,102,'2026-08-26 20:05:00',
 ]);
 $insert->execute([
-    502, 1, 11, 902, 101, 'timer:pending:00002', 'timer',
-    '2026-08-26 20:00:00', 15, 'pending note', 1,
-    'pending', null, null,
+    505,1,12,905,'timer:master:00005','timer','2026-08-26 20:00:00',15,
+    'master time',1,'approved',101,102,'2026-08-26 20:05:00',
 ]);
 $insert->execute([
-    503, 1, 12, 903, 101, 'timer:no-source:003', 'timer',
-    '2026-08-26 20:00:00', 15, 'no source key', 1,
-    'approved', 102, '2026-08-26 20:05:00',
+    502,1,11,902,'timer:inflight:0002','timer','2026-08-26 20:00:00',10,
+    'in-flight proof',1,'approved',101,102,'2026-08-26 20:05:00',
 ]);
 $insert->execute([
-    504, 2, 21, 904, 201, 'timer:other:000004', 'timer',
-    '2026-08-26 20:00:00', 15, 'other tenant', 1,
-    'approved', 201, '2026-08-26 20:05:00',
+    503,1,11,903,'timer:false404:0003','timer','2026-08-26 20:00:00',20,
+    'status proof',1,'approved',101,102,'2026-08-26 20:05:00',
 ]);
 $insert->execute([
-    505, 1, 13, 905, 101, 'timer:master:00005', 'timer',
-    '2026-08-26 20:00:00', 15, 'master tenant work', 1,
-    'approved', 102, '2026-08-26 20:05:00',
-]);
-$insert->execute([
-    506, 1, 14, 906, 101, 'timer:inactive:006', 'timer',
-    '2026-08-26 20:00:00', 15, 'inactive customer work', 1,
-    'approved', 102, '2026-08-26 20:05:00',
+    504,1,11,904,'timer:wrongack:0004','timer','2026-08-26 20:00:00',20,
+    'ack mismatch proof',1,'approved',101,102,'2026-08-26 20:05:00',
 ]);
 
-$payload = coastmark_time_export_payload(
+$config = export_config();
+export_expect(
+    'dedicated export database identity cannot reuse the web runtime user',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_database([
+        'host' => '127.0.0.1',
+        'port' => 3306,
+        'name' => 'safeharbor',
+        'charset' => 'utf8mb4',
+        'user' => 'safeharbor',
+    ], [
+        'database_user' => 'safeharbor',
+        'database_password' => str_repeat('p', 24),
+    ]),
+    'Dedicated Coastmark export database configuration is incomplete',
+);
+export_expect(
+    'claim gate defaults closed before any database write',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_claim(
+        $pdo, '8west', 501, 'timer:approved:0001', 102,
+        export_config(['claim_enabled' => false]),
+    ),
+    'claiming is disabled',
+);
+export_check('closed claim gate leaves zero durable claims',
+    (int) $pdo->query('SELECT COUNT(*) FROM coastmark_time_export_claims')->fetchColumn() === 0);
+
+$base = coastmark_time_export_claim(
+    $pdo, '8west', 501, 'timer:approved:0001', 102, $config,
+    'safeharbor-time:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+);
+export_check('original approval is claimed once with exact v3 field order',
+    !$base['replayed']
+    && (int) $base['claim']['source_version'] === 0
+    && array_keys($base['payload']) === COASTMARK_TIME_EXPORT_FIELDS
+    && $base['payload']['event'] === 'safeharbor.time_entry.approved'
+    && $base['payload']['predecessor_event_key'] === null);
+export_check('claim excludes raw notes and hard-pins their digest',
+    !in_array('=private technician note', $base['payload'], true)
+    && $base['payload']['note_sha256'] === hash('sha256', '=private technician note'));
+$baseReplay = coastmark_time_export_claim(
+    $pdo, '8west', 501, 'timer:approved:0001', 103, $config,
+    'safeharbor-time:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+);
+export_check('exact claim replay is a no-op with the original event key',
+    $baseReplay['replayed']
+    && (int) $baseReplay['claim']['id'] === (int) $base['claim']['id']
+    && $baseReplay['claim']['event_key'] === $base['claim']['event_key']
+    && (int) $pdo->query('SELECT COUNT(*) FROM coastmark_time_export_claims')->fetchColumn() === 1);
+
+export_expect(
+    '8 West IT master is hard-blocked even when allowlisted',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_claim(
+        $pdo, '8west', 505, 'timer:master:00005', 102,
+        export_config(['client_keys' => [
+            'milepost-customer:4ebaeefa-b101-47f8-ac76-e49ab309d272',
+        ]]),
+    ),
+    'never a billable Coastmark customer',
+);
+
+$pdo->exec("INSERT INTO time_entry_approval_adjustments
+  (tenant_id,time_entry_id,adjustment_key,version_no,effective_minutes,effective_billable,
+   reason,actor_user_id,created_at) VALUES
+  (1,501,'adjustment.coastmark.0001',1,15,1,'Corrected duration',103,'2026-08-26 20:10:00')");
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE tenant_id=1 AND client_id=11");
+export_expect(
+    'correction claims fail closed when the customer binding is disabled',
+    CoastmarkTimeExportValidationException::class,
+    fn() => coastmark_time_export_claim(
+        $pdo, '8west', 501, 'timer:approved:0001', 102, $config,
+        'safeharbor-time:cccccccccccccccccccccccccccccccc',
+    ),
+    'not active',
+);
+export_check('disabled customer binding leaves the claim chain unchanged',
+    (int) $pdo->query('SELECT COUNT(*) FROM coastmark_time_export_claims')->fetchColumn() === 1);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE tenant_id=1 AND client_id=11");
+$correction = coastmark_time_export_claim(
+    $pdo, '8west', 501, 'timer:approved:0001', 102, $config,
+    'safeharbor-time:cccccccccccccccccccccccccccccccc',
+);
+export_check('correction claim forms the exact next immutable chain link',
+    !$correction['replayed']
+    && $correction['payload']['event'] === 'safeharbor.time_entry.adjusted'
+    && $correction['payload']['source_version'] === 1
+    && $correction['payload']['predecessor_event_key'] === $base['claim']['event_key']
+    && $correction['payload']['minutes'] === 15
+    && $correction['payload']['adjusted_by_key'] === 'safeharbor-user:103'
+    && $correction['payload']['adjustment_reason_sha256'] === hash('sha256', 'Corrected duration'));
+
+$baseCreatedAck = json_decode(export_ack($base['claim']), true, flags: JSON_THROW_ON_ERROR);
+$baseReplayAck = json_decode(export_ack($base['claim'], 'ignored'), true, flags: JSON_THROW_ON_ERROR);
+$correctionAck = json_decode(
+    export_ack($correction['claim'], 'corrected'),
+    true,
+    flags: JSON_THROW_ON_ERROR,
+);
+$correctionReplayAck = json_decode(
+    export_ack($correction['claim'], 'ignored'),
+    true,
+    flags: JSON_THROW_ON_ERROR,
+);
+export_check('acknowledgements bind new, replay, and status actions to the claim version',
+    coastmark_time_export_validate_ack($base['claim'], $baseCreatedAck, 201, false)['action'] === 'created'
+    && coastmark_time_export_validate_ack($base['claim'], $baseReplayAck, 200, false)['action'] === 'ignored'
+    && coastmark_time_export_validate_ack($base['claim'], $baseCreatedAck, 200, true)['action'] === 'created'
+    && coastmark_time_export_validate_ack($correction['claim'], $correctionAck, 201, false)['action'] === 'corrected'
+    && coastmark_time_export_validate_ack($correction['claim'], $correctionReplayAck, 200, false)['action'] === 'ignored'
+    && coastmark_time_export_validate_ack($correction['claim'], $correctionAck, 200, true)['action'] === 'corrected');
+export_expect(
+    'an original claim cannot accept a correction-only manual exception',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $base['claim'],
+        json_decode(export_ack($base['claim'], 'manual_exception'), true, flags: JSON_THROW_ON_ERROR),
+        201,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'a correction claim cannot accept an original created action',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $correction['claim'],
+        json_decode(export_ack($correction['claim'], 'created'), true, flags: JSON_THROW_ON_ERROR),
+        201,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'a new-event response cannot call itself an exact replay',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $correction['claim'],
+        $correctionReplayAck,
+        201,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'a replay response cannot call itself a newly created event',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $base['claim'],
+        $baseCreatedAck,
+        200,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'an original approval replay must retain its draft line identifier',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $base['claim'],
+        json_decode(export_ack($base['claim'], 'ignored', 91, null), true, flags: JSON_THROW_ON_ERROR),
+        200,
+        false,
+    ),
+    'does not match',
+);
+export_expect(
+    'status accepts only the exact recovered disposition at HTTP 200',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $correction['claim'],
+        $correctionReplayAck,
+        200,
+        true,
+    ),
+    'does not match',
+);
+export_expect(
+    'status refuses a success body delivered with a new-event status code',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_validate_ack(
+        $correction['claim'],
+        $correctionAck,
+        201,
+        true,
+    ),
+    'does not match',
+);
+$wrongAckClaim = coastmark_time_export_claim(
+    $pdo, '8west', 504, 'timer:wrongack:0004', 102, $config,
+    'safeharbor-time:11111111111111111111111111111111',
+);
+export_expect(
+    'a mismatched receiver disposition becomes recoverable ambiguity, not terminal success',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_send_claim(
+        $pdo,
+        (int) $wrongAckClaim['claim']['id'],
+        $config,
+        fn() => [
+            'status' => 201,
+            'body' => export_ack($wrongAckClaim['claim'], 'manual_exception'),
+        ],
+        1_777_777_776,
+    ),
+    'does not match',
+);
+export_check('mismatched receiver disposition is recorded as explicit ambiguous evidence',
+    (string) $pdo->query('SELECT outcome FROM coastmark_time_export_receipts WHERE claim_id=' .
+        (int) $wrongAckClaim['claim']['id'] . ' ORDER BY id DESC LIMIT 1')->fetchColumn() === 'ambiguous'
+    && (string) $pdo->query('SELECT detail_code FROM coastmark_time_export_receipts WHERE claim_id=' .
+        (int) $wrongAckClaim['claim']['id'] . ' ORDER BY id DESC LIMIT 1')->fetchColumn()
+        === 'ack_did_not_match_claim');
+
+$sendCalls = 0;
+$send = coastmark_time_export_send_claim(
     $pdo,
-    '8west',
-    501,
-    'timer:approved:0001',
-    export_config(),
+    (int) $base['claim']['id'],
+    $config,
+    function (string $url, array $headers, string $body, int $timeout) use (&$sendCalls, $base): array {
+        $sendCalls++;
+        return ['status' => 201, 'body' => export_ack($base['claim'])];
+    },
+    1_777_777_777,
 );
-export_check('payload has exact versioned field order', array_keys($payload) === COASTMARK_TIME_EXPORT_FIELDS);
-export_check('payload identifies approved billable event',
-    $payload['version'] === COASTMARK_TIME_EXPORT_VERSION
-    && $payload['event'] === 'safeharbor.time_entry.approved'
-    && $payload['billable'] === true
-    && $payload['approval_status'] === 'approved');
-export_check('tenant and client facts use the stable Milepost customer binding',
-    $payload['tenant_key'] === '8west'
-    && $payload['client_key'] === 'milepost-customer:11111111-1111-4111-8111-111111111111');
-export_check('time and source facts are exact',
-    $payload['entry_key'] === 'timer:approved:0001'
-    && $payload['entry_id'] === 501
-    && $payload['ticket_id'] === 901
-    && $payload['entry_source'] === 'timer'
-    && $payload['minutes'] === 30
-    && $payload['worked_at'] === '2026-08-26T20:00:00Z'
-    && $payload['approved_at'] === '2026-08-26T20:05:00Z');
-export_check('people are non-PII Safeharbor-local keys',
-    $payload['technician_key'] === 'safeharbor-user:101'
-    && $payload['reviewer_key'] === 'safeharbor-user:102');
-export_check('raw note is excluded and only its digest crosses the seam',
-    !in_array('=private technician note', $payload, true)
-    && $payload['note_sha256'] === hash('sha256', '=private technician note'));
+export_check('accepted base event records a durable acknowledgement only once',
+    $send['outcome'] === 'accepted' && $send['coastmark_event_id'] === 91 && $sendCalls === 1);
+$sendReplay = coastmark_time_export_send_claim(
+    $pdo,
+    (int) $base['claim']['id'],
+    $config,
+    function () use (&$sendCalls): array {
+        $sendCalls++;
+        return ['status' => 500, 'body' => 'must not run'];
+    },
+    1_777_777_778,
+);
+export_check('accepted claim replay makes no second network request',
+    $sendReplay['outcome'] === 'accepted' && $sendCalls === 1);
 
-export_throws(
-    'pending time is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload($pdo, '8west', 502, 'timer:pending:00002', export_config()),
-    'approved billable',
-);
-export_throws(
-    'entry key must match the explicit operator fact',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload($pdo, '8west', 501, 'timer:different:0001', export_config()),
-    'explicit tenant, id, and entry key',
-);
-export_throws(
-    'tenant allowlist fails closed',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload(
+$remoteCommittedAck = export_ack($correction['claim'], 'corrected', 92);
+export_expect(
+    'timeout after remote commit becomes ambiguous without automatic retry',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_send_claim(
         $pdo,
-        '8west',
-        501,
-        'timer:approved:0001',
-        export_config(['tenant_slugs' => []]),
+        (int) $correction['claim']['id'],
+        $config,
+        function () use ($remoteCommittedAck): array {
+            // The remote acknowledgement exists, but the response is lost.
+            throw new RuntimeException('simulated timeout after commit');
+        },
+        1_777_777_779,
     ),
-    'not allowlisted',
+    'Run status',
 );
-export_throws(
-    'client allowlist fails closed',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload(
+export_expect(
+    'ambiguous claim cannot be explicitly resent before status',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_send_claim(
+        $pdo, (int) $correction['claim']['id'], $config,
+        fn() => ['status' => 500, 'body' => 'must not run'],
+        1_777_777_780,
+    ),
+    'Run status',
+);
+export_expect(
+    'status transport helper cannot bypass the serialization lock',
+    LogicException::class,
+    fn() => coastmark_time_export_status_claim_locked(
         $pdo,
-        '8west',
-        501,
-        'timer:approved:0001',
-        export_config(['client_keys' => []]),
+        (int) $correction['claim']['id'],
+        coastmark_time_export_connection($config),
+        fn() => ['status' => 500, 'body' => 'must not run'],
+        null,
     ),
-    'not allowlisted',
+    'does not own',
 );
-export_throws(
-    'a client without a Milepost binding is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload(
-        $pdo,
-        '8west',
-        503,
-        'timer:no-source:003',
-        export_config(),
-    ),
-    'no Milepost customer binding',
+$statusCalls = 0;
+$resolved = coastmark_time_export_status_claim(
+    $pdo,
+    (int) $correction['claim']['id'],
+    $config,
+    function (string $url, array $headers, string $body, int $timeout) use (
+        &$statusCalls, $remoteCommittedAck,
+    ): array {
+        $statusCalls++;
+        export_check('status uses its dedicated endpoint without event replay',
+            str_ends_with($url, '/api/integrations/safeharbor/time-events/status')
+            && str_contains($body, 'safeharbor.time_entry.status'));
+        return ['status' => 200, 'body' => $remoteCommittedAck];
+    },
+    1_777_777_781,
 );
-export_throws(
-    'wipe-sensitive local client keys cannot satisfy the allowlist',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload(
-        $pdo,
-        '8west',
-        501,
-        'timer:approved:0001',
-        export_config(['client_keys' => ['safeharbor-client:11']]),
-    ),
-    'not allowlisted',
-);
-export_throws(
-    '8 West IT master is refused even when an operator allowlists it',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload(
-        $pdo,
-        '8west',
-        505,
-        'timer:master:00005',
-        export_config(['client_keys' => [
-            'milepost-customer:' . COASTMARK_TIME_EXPORT_MASTER_CUSTOMER_ID,
-        ]]),
-    ),
-    'never a billable Coastmark customer',
-);
-export_throws(
-    'inactive Milepost customer binding is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload(
-        $pdo,
-        '8west',
-        506,
-        'timer:inactive:006',
-        export_config(['client_keys' => [
-            'milepost-customer:33333333-3333-4333-8333-333333333333',
-        ]]),
-    ),
-    'active Milepost customer binding',
-);
-export_throws(
-    'cross-tenant entry cannot be selected through an allowlisted tenant',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload($pdo, '8west', 504, 'timer:other:000004', export_config()),
-    'explicit tenant, id, and entry key',
-);
-export_throws(
-    'duplicate allowlist values are rejected',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_payload(
-        $pdo,
-        '8west',
-        501,
-        'timer:approved:0001',
-        export_config(['tenant_slugs' => ['8west', '8west']]),
-    ),
-    'duplicate',
-);
+export_check('status resolves timeout-after-commit to the immutable Coastmark event',
+    $resolved['outcome'] === 'accepted'
+    && $resolved['coastmark_event_id'] === 92
+    && $statusCalls === 1);
 
-$timestamp = 1_777_777_777;
-$request = coastmark_time_export_request($payload, 'safeharbor-time', str_repeat('s', 32), $timestamp);
-$expectedSignature = hash_hmac('sha256', $timestamp . "\n" . $request['body'], str_repeat('s', 32));
-export_check('request uses exact raw-body HMAC contract',
-    in_array('X-8W-Timestamp: ' . $timestamp, $request['headers'], true)
-    && in_array('X-8W-Signature: ' . $expectedSignature, $request['headers'], true));
-export_check('semantic payload digest matches fixed-order JSON',
-    $request['payload_sha256'] === hash('sha256', $request['body']));
-export_throws(
-    'short secret is refused before transport',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_request($payload, 'safeharbor-time', 'short', $timestamp),
-    'not configured',
+$pdo->exec("INSERT INTO time_entry_approval_adjustments
+  (tenant_id,time_entry_id,adjustment_key,version_no,effective_minutes,effective_billable,
+   reason,actor_user_id,created_at) VALUES
+  (1,501,'adjustment.coastmark.0002',2,0,0,'Remove from billing',102,'2026-08-26 20:15:00')");
+$reversal = coastmark_time_export_claim(
+    $pdo, '8west', 501, 'timer:approved:0001', 102, $config,
+    'safeharbor-time:dddddddddddddddddddddddddddddddd',
 );
-$notApproved = $payload;
-$notApproved['approval_status'] = 'pending';
-export_throws(
-    'manually constructed non-approved payload is refused before signing',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_request($notApproved, 'safeharbor-time', str_repeat('s', 32), $timestamp),
-    'approval contract',
-);
-$legacyContract = $payload;
-$legacyContract['version'] = 1;
-export_throws(
-    'legacy local-id contract is refused before signing',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_request($legacyContract, 'safeharbor-time', str_repeat('s', 32), $timestamp),
-    'approval contract',
-);
-$masterPayload = $payload;
-$masterPayload['client_key'] = 'milepost-customer:' . COASTMARK_TIME_EXPORT_MASTER_CUSTOMER_ID;
-export_throws(
-    'manually constructed master payload is refused before signing',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_request($masterPayload, 'safeharbor-time', str_repeat('s', 32), $timestamp),
-    'never a billable Coastmark customer',
-);
-
-$ack = static function (string $endpoint, array $headers, string $body, int $timeout) use ($payload): array {
-    $hash = hash('sha256', $body);
-    return [
+export_check('nonbillable correction is represented as an explicit reversal event',
+    $reversal['payload']['source_version'] === 2
+    && $reversal['payload']['minutes'] === 0
+    && $reversal['payload']['billable'] === false
+    && $reversal['payload']['predecessor_event_key'] === $correction['claim']['event_key']);
+$manual = coastmark_time_export_send_claim(
+    $pdo,
+    (int) $reversal['claim']['id'],
+    $config,
+    fn() => [
         'status' => 201,
-        'body' => json_encode([
-            'ok' => true,
-            'action' => 'created',
-            'source' => ['tenant_key' => $payload['tenant_key'], 'entry_key' => $payload['entry_key']],
-            'coastmark' => ['import_id' => 1, 'invoice_id' => 2, 'invoice_line_id' => 3],
-            'payload_sha256' => $hash,
-        ], JSON_THROW_ON_ERROR),
-    ];
-};
-$created = coastmark_time_export_send($payload, export_config(), $ack, $timestamp);
-export_check('201 acknowledgement returns only draft import identifiers',
-    $created['action'] === 'created'
-    && $created['import_id'] === 1
-    && $created['invoice_id'] === 2
-    && $created['invoice_line_id'] === 3);
+        'body' => export_ack($reversal['claim'], 'manual_exception', 93),
+    ],
+    1_777_777_782,
+);
+export_check('posted-invoice response records manual exception with no draft line',
+    $manual['outcome'] === 'manual_exception'
+    && $manual['invoice_id'] === 81
+    && $manual['invoice_line_id'] === null);
 
-$replay = static function (string $endpoint, array $headers, string $body, int $timeout) use ($payload): array {
-    return [
+$pdo->exec("INSERT INTO time_entry_approval_adjustments
+  (tenant_id,time_entry_id,adjustment_key,version_no,effective_minutes,effective_billable,
+   reason,actor_user_id,created_at) VALUES
+  (1,501,'adjustment.coastmark.0003',3,5,0,'Keep internal only',103,'2026-08-26 20:20:00')");
+$manualReplayClaim = coastmark_time_export_claim(
+    $pdo, '8west', 501, 'timer:approved:0001', 102, $config,
+    'safeharbor-time:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+);
+$manualReplay = coastmark_time_export_send_claim(
+    $pdo,
+    (int) $manualReplayClaim['claim']['id'],
+    $config,
+    fn() => [
         'status' => 200,
-        'body' => json_encode([
-            'ok' => true,
-            'action' => 'ignored',
-            'source' => ['tenant_key' => $payload['tenant_key'], 'entry_key' => $payload['entry_key']],
-            'coastmark' => ['import_id' => 1, 'invoice_id' => 2, 'invoice_line_id' => 3],
-            'payload_sha256' => hash('sha256', $body),
-        ], JSON_THROW_ON_ERROR),
-    ];
-};
-export_check('200 exact replay is a truthful ignored acknowledgement',
-    coastmark_time_export_send($payload, export_config(), $replay, $timestamp)['action'] === 'ignored');
+        'body' => export_ack($manualReplayClaim['claim'], 'ignored', 94, null),
+    ],
+    1_777_777_783,
+);
+export_check('exact replay of a manual exception accepts a null line id',
+    $manualReplay['outcome'] === 'replayed'
+    && $manualReplay['coastmark_event_id'] === 94
+    && $manualReplay['invoice_line_id'] === null);
 
-export_throws(
-    'global feature gate blocks all network transport',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_send($payload, export_config(['enabled' => false]), $ack, $timestamp),
-    'disabled',
+$inflight = coastmark_time_export_claim(
+    $pdo, '8west', 502, 'timer:inflight:0002', 102, $config,
+    'safeharbor-time:ffffffffffffffffffffffffffffffff',
 );
-export_throws(
-    'non-HTTPS endpoint is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(['endpoint' => 'http://coastmark.example/api/integrations/safeharbor/time-entries']),
-        $ack,
-        $timestamp,
+coastmark_time_export_begin_operation($pdo, (int) $inflight['claim']['id'], 'dispatch');
+export_expect(
+    'status waits until a potentially in-flight dispatch has settled',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_status_claim(
+        $pdo,
+        (int) $inflight['claim']['id'],
+        $config,
+        fn() => throw new LogicException('Status transport must not run yet.'),
     ),
-    'HTTPS',
+    'still be in flight',
 );
-export_throws(
-    'non-canonical HTTPS path is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(['endpoint' => 'https://coastmark.example/api/other']),
-        $ack,
-        $timestamp,
-    ),
-    'HTTPS',
+$pdo->exec("UPDATE coastmark_time_export_receipts
+  SET created_at='2000-01-01 00:00:00'
+  WHERE claim_id=" . (int) $inflight['claim']['id'] . " AND outcome='dispatching'");
+$nestedStatusTransportCalls = 0;
+$serializedStatus = coastmark_time_export_status_claim(
+    $pdo,
+    (int) $inflight['claim']['id'],
+    $config,
+    function () use ($pdo, $inflight, $config, &$nestedStatusTransportCalls): array {
+        $pdo->exec("UPDATE coastmark_time_export_receipts
+          SET created_at='2000-01-01 00:00:00'
+          WHERE claim_id=" . (int) $inflight['claim']['id'] . " AND outcome='checking'");
+        export_expect(
+            'a second status check cannot take over even when checking evidence looks stale',
+            CoastmarkTimeExportAmbiguousException::class,
+            fn() => coastmark_time_export_status_claim(
+                $pdo,
+                (int) $inflight['claim']['id'],
+                $config,
+                function () use (&$nestedStatusTransportCalls): array {
+                    $nestedStatusTransportCalls++;
+                    return ['status' => 500, 'body' => 'must not run'];
+                },
+            ),
+            'already in flight',
+        );
+        return ['status' => 200, 'body' => export_ack($inflight['claim'], 'created', 96)];
+    },
 );
-export_throws(
-    'non-canonical HTTPS port is refused',
-    CoastmarkTimeExportValidationException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(['endpoint' => 'https://coastmark.example:8443/api/integrations/safeharbor/time-entries']),
-        $ack,
-        $timestamp,
-    ),
-    'HTTPS',
-);
-export_throws(
-    'HTTP failure remains retryable only with same key',
-    CoastmarkTimeExportTransportException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(),
-        fn() => ['status' => 503, 'body' => '{}'],
-        $timestamp,
-    ),
-    'same entry key',
-);
-export_throws(
-    'mismatched source acknowledgement is refused',
-    CoastmarkTimeExportTransportException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(),
-        fn(string $endpoint, array $headers, string $body, int $timeout) => [
-            'status' => 201,
-            'body' => json_encode([
-                'ok' => true,
-                'action' => 'created',
-                'source' => ['tenant_key' => 'wrong', 'entry_key' => $payload['entry_key']],
-                'coastmark' => ['import_id' => 1, 'invoice_id' => 2, 'invoice_line_id' => 3],
-                'payload_sha256' => hash('sha256', $body),
-            ], JSON_THROW_ON_ERROR),
-        ],
-        $timestamp,
-    ),
-    'did not match',
-);
-export_throws(
-    'acknowledgement cannot add invoice numbers or other unreviewed fields',
-    CoastmarkTimeExportTransportException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(),
-        fn(string $endpoint, array $headers, string $body, int $timeout) => [
-            'status' => 201,
-            'body' => json_encode([
-                'ok' => true,
-                'action' => 'created',
-                'source' => ['tenant_key' => $payload['tenant_key'], 'entry_key' => $payload['entry_key']],
-                'coastmark' => [
-                    'import_id' => 1,
-                    'invoice_id' => 2,
-                    'invoice_line_id' => 3,
-                    'invoice_number' => 'SH-UNREVIEWED',
-                ],
-                'payload_sha256' => hash('sha256', $body),
-            ], JSON_THROW_ON_ERROR),
-        ],
-        $timestamp,
-    ),
-    'did not match',
-);
-export_throws(
-    'oversized acknowledgement is refused',
-    CoastmarkTimeExportTransportException::class,
-    fn() => coastmark_time_export_send(
-        $payload,
-        export_config(),
-        fn() => ['status' => 201, 'body' => str_repeat('x', 16_385)],
-        $timestamp,
-    ),
-    'safe limit',
-);
+export_check('serialized status retains the first valid recovery acknowledgement',
+    $serializedStatus['outcome'] === 'accepted'
+    && $serializedStatus['coastmark_event_id'] === 96
+    && $nestedStatusTransportCalls === 0
+    && (int) $pdo->query("SELECT COUNT(*) FROM coastmark_time_export_receipts
+         WHERE claim_id=" . (int) $inflight['claim']['id'] . " AND operation_kind='status_started'")
+        ->fetchColumn() === 1
+    && (string) $pdo->query("SELECT outcome FROM coastmark_time_export_receipts
+         WHERE claim_id=" . (int) $inflight['claim']['id'] . ' ORDER BY id DESC LIMIT 1')
+        ->fetchColumn() === 'accepted');
 
-echo "Coastmark approved-time export: {$checks} checks, {$failures} failures\n";
+$absentClaim = coastmark_time_export_claim(
+    $pdo, '8west', 503, 'timer:false404:0003', 102, $config,
+    'safeharbor-time:0123456789abcdef0123456789abcdef',
+);
+export_expect(
+    'an arbitrary 404 cannot unlock an explicit resend',
+    CoastmarkTimeExportAmbiguousException::class,
+    fn() => coastmark_time_export_status_claim(
+        $pdo,
+        (int) $absentClaim['claim']['id'],
+        $config,
+        fn() => ['status' => 404, 'body' => '<h1>route unavailable</h1>'],
+    ),
+    'did not prove',
+);
+$absent = coastmark_time_export_status_claim(
+    $pdo,
+    (int) $absentClaim['claim']['id'],
+    $config,
+    fn() => [
+        'status' => 404,
+        'body' => json_encode(['ok' => false, 'action' => 'absent'], JSON_THROW_ON_ERROR),
+    ],
+);
+export_check('only the exact signed-status absence shape permits a later resend',
+    $absent['outcome'] === 'absent');
+$afterAbsent = coastmark_time_export_send_claim(
+    $pdo,
+    (int) $absentClaim['claim']['id'],
+    $config,
+    fn() => ['status' => 201, 'body' => export_ack($absentClaim['claim'], 'created', 95)],
+);
+export_check('an explicit send is possible after exact absence evidence',
+    $afterAbsent['outcome'] === 'accepted' && $afterAbsent['coastmark_event_id'] === 95);
+
+export_check('receipt history is append-only evidence for starts and outcomes',
+    (int) $pdo->query('SELECT COUNT(*) FROM coastmark_time_export_receipts')->fetchColumn() >= 8
+    && (int) $pdo->query("SELECT COUNT(*) FROM coastmark_time_export_receipts WHERE outcome='ambiguous'")->fetchColumn() === 3);
+
+$migration = file_get_contents(__DIR__ . '/../db/migrations/021_coastmark_time_export_v3.sql');
+$schema = file_get_contents(__DIR__ . '/../db/schema.sql');
+$cli = file_get_contents(__DIR__ . '/../db/export_approved_time.php');
+$preflightMarker = '-- CREATE TABLE IF NOT EXISTS is only a convenience for a fresh install.';
+$postflightMarker = '-- Migration-only postflight result; canonical schema stops before this marker.';
+$migrationOperationalStart = is_string($migration) ? strpos($migration, $preflightMarker) : false;
+$schemaOperationalStart = is_string($schema) ? strpos($schema, $preflightMarker) : false;
+$migrationOperationalEnd = is_string($migration)
+    ? strpos($migration, $postflightMarker, (int) $migrationOperationalStart)
+    : false;
+$schemaOperationalEnd = is_string($schema)
+    ? strpos($schema, $postflightMarker, (int) $schemaOperationalStart)
+    : false;
+$migrationOperational = $migrationOperationalStart !== false && $migrationOperationalEnd !== false
+    ? substr($migration, $migrationOperationalStart, $migrationOperationalEnd - $migrationOperationalStart)
+    : null;
+$schemaOperational = $schemaOperationalStart !== false && $schemaOperationalEnd !== false
+    ? substr($schema, $schemaOperationalStart, $schemaOperationalEnd - $schemaOperationalStart)
+    : null;
+$migrationOperational = is_string($migrationOperational)
+    ? rtrim(str_replace("\r\n", "\n", $migrationOperational))
+    : null;
+$schemaOperational = is_string($schemaOperational)
+    ? rtrim(str_replace("\r\n", "\n", $schemaOperational))
+    : null;
+$triggerManifest = [];
+$triggerDefinitions = [];
+if (is_string($migration)) {
+    preg_match_all(
+        "/\\('([^']+)','([^']+)','(?:swap|permanent)',\\s*'[^']+','[^']+',"
+            . "'(?:INSERT|UPDATE|DELETE)'\\)/",
+        $migration,
+        $manifestRows,
+        PREG_SET_ORDER,
+    );
+    foreach ($manifestRows as $row) $triggerManifest[$row[1]] = $row[2];
+    preg_match_all(
+        '/CREATE\\s+TRIGGER(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-z0-9_]+).*?FOR\\s+EACH\\s+ROW\\s*(BEGIN.*?END)\\$\\$/is',
+        $migration,
+        $definitionRows,
+        PREG_SET_ORDER,
+    );
+    foreach ($definitionRows as $row) {
+        $triggerDefinitions[$row[1]] = hash(
+            'sha256',
+            str_replace("\r\n", "\n", $row[2]),
+        );
+    }
+}
+ksort($triggerManifest);
+ksort($triggerDefinitions);
+$triggerPairsExact = count($triggerManifest) === 12;
+foreach ($triggerManifest as $triggerName => $referenceTriggerName) {
+    $triggerPairsExact = $triggerPairsExact
+        && isset($triggerDefinitions[$triggerName], $triggerDefinitions[$referenceTriggerName])
+        && $triggerDefinitions[$triggerName] === $triggerDefinitions[$referenceTriggerName];
+}
+export_check('migration and canonical schema carry both tables and six immutable guards',
+    is_string($migration) && is_string($schema)
+    && str_contains($migration, 'CREATE TABLE IF NOT EXISTS coastmark_time_export_claims')
+    && str_contains($migration, 'CREATE TABLE IF NOT EXISTS coastmark_time_export_receipts')
+    && str_contains($migration, 'payload_json         LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL')
+    && str_contains($migration, "parent_billable <> 1")
+    && str_contains($migration, 'Export claims require an active matching customer binding')
+    && str_contains($migration, "IS_USED_LOCK(CONCAT('safeharbor:cm-status:',NEW.claim_id))")
+    && str_contains($migration, 'INTERVAL 35 SECOND')
+    && str_contains($schema, '@cm_claim_lock_ddl=IF(')
+    && str_contains($schema, '@cm_receipt_lock_ddl=IF(')
+    && substr_count($schema, "'DO 0'") >= 2
+    && substr_count($schema, 'CREATE TRIGGER trg_cm_export_claim_') === 3
+    && substr_count($schema, 'CREATE TRIGGER trg_cm_export_receipt_') === 3);
+export_check('migration and canonical schema share the complete exact financial-table operation',
+    is_string($migrationOperational)
+    && $migrationOperational === $schemaOperational
+    && str_contains((string) $migration, 'AS claim_columns')
+    && !str_contains((string) $schema, 'AS claim_columns')
+    && str_contains($migrationOperational, '@cm_claim_table_ok')
+    && str_contains($migrationOperational, '@cm_receipt_columns_ok')
+    && str_contains($migrationOperational, 'generation_expression')
+    && str_contains($migrationOperational, 'character_set_name')
+    && str_contains($migrationOperational, 'collation_name')
+    && str_contains($migrationOperational, 'sub_part')
+    && str_contains($migrationOperational, 'index_type')
+    && str_contains($migrationOperational, 'is_visible')
+    && str_contains($migrationOperational, 'expression')
+    && str_contains($migrationOperational, 'referenced_table_schema')
+    && str_contains($migrationOperational, 'position_in_unique_constraint')
+    && str_contains($migrationOperational, 'unique_constraint_schema')
+    && str_contains($migrationOperational, 'match_option')
+    && str_contains($migrationOperational, 'check_clause')
+    && str_contains($migrationOperational, 'enforced')
+    && str_contains($migrationOperational, 'migration_021_claim_table_failed')
+    && str_contains($migrationOperational, '@cm_export_preflight_failure')
+    && str_contains($migrationOperational, '@cm_reference_triggers_ok')
+    && str_contains($migrationOperational, 'safeharbor_m021_validated_triggers')
+    && str_contains($migrationOperational, 'SHA2(CAST(reference.action_statement AS BINARY),256)')
+    && str_contains($migrationOperational, 'SHA2(CAST(live.action_statement AS BINARY),256)')
+    && !str_contains($migrationOperational, 'LOWER(REGEXP_REPLACE(REPLACE(live.action_statement')
+    && str_contains($migrationOperational, '@cm_swaps_ready')
+    && str_contains($migrationOperational, '@cm_permanent_guards_ok')
+    && str_contains($migrationOperational, '@cm_final_live_trigger_hashes_ok')
+    && str_contains($migrationOperational, '@cm_final_live_postflight_ok')
+    && str_contains($migrationOperational, '@cm_final_completion_ok'));
+export_check('all twelve reference triggers byte-bind the executable guard bodies',
+    $triggerPairsExact);
+export_check('migration owns, empties, serializes, and individually proves reference cleanup',
+    is_string($migrationOperational)
+    && str_contains($migrationOperational, "'safeharbor:m021:'")
+    && str_contains($migrationOperational, 'IS_USED_LOCK(@cm_m021_lock_name) <=> CONNECTION_ID()')
+    && str_contains($migrationOperational, 'GET_LOCK(@cm_m021_lock_name,0)')
+    && str_contains($migrationOperational, 'RELEASE_LOCK(@cm_m021_lock_name)')
+    && str_contains($migrationOperational, 'safeharbor:migration:021:reference:claims:v1')
+    && str_contains($migrationOperational, 'safeharbor:migration:021:reference:receipts:v1')
+    && str_contains($migrationOperational, '@cm_reference_entry_empty')
+    && str_contains($migrationOperational, 'safeharbor_m021_source_columns')
+    && str_contains($migrationOperational, 'safeharbor_m021_source_indexes')
+    && str_contains($migrationOperational, 'safeharbor_m021_source_fks')
+    && str_contains($migrationOperational, 'safeharbor_m021_source_checks')
+    && str_contains($migrationOperational,
+        "'safeharbor_m021_reference_receipts',12,'detail_code','varchar(64)','NO',NULL,'','','ascii','ascii_bin'")
+    && str_contains($migrationOperational, 'migration_021_reference_source_tables_failed')
+    && str_contains($migrationOperational, 'migration_021_reference_source_columns_failed')
+    && str_contains($migrationOperational, 'migration_021_reference_source_indexes_failed')
+    && str_contains($migrationOperational, 'migration_021_reference_source_fks_failed')
+    && str_contains($migrationOperational, 'migration_021_refcheck_claim_event_key_failed')
+    && str_contains($migrationOperational, 'migration_021_refcheck_receipt_operation_key_failed')
+    && str_contains($migrationOperational, '@cm_reference_source_check_definition_failure')
+    && str_contains($migrationOperational, 'source_clause')
+    && str_contains($migrationOperational, 'locked_clause_sha256')
+    && str_contains($migrationOperational, 'unlocked_clause_sha256')
+    && str_contains($migrationOperational,
+        "event_key REGEXP ''^safeharbor-time:[0-9a-f]{32}$''")
+    && str_contains($migrationOperational,
+        'b0ff62ea39436a737b7ac4a46104b0ac9de4c6ed6c973585288514fa96f81d6a')
+    && str_contains($migrationOperational,
+        '1ab6e193b53d31e5319bcd7c0a1a0a5c5577ffd0eda5626982239b8df942774a')
+    && !str_contains($migrationOperational, 'CONCAT(CHAR(92),CHAR(39))')
+    && !str_contains($migrationOperational, "live_check.check_clause,CHAR(92),''")
+    && !str_contains($migrationOperational, 'normalized_clause')
+    && !str_contains($migrationOperational, 'REGEXP_REPLACE(expected')
+    && str_contains($migrationOperational, '@cm_reference_source_required_check_failure')
+    && str_contains($migrationOperational, '@cm_reference_source_claim_install_lock_count')
+    && str_contains($migrationOperational, '@cm_reference_source_receipt_install_lock_count')
+    && str_contains($migrationOperational, '@cm_reference_entry_source_shape_ok')
+    && str_contains($migrationOperational, '@cm_reference_cleanup_dependencies')
+    && str_contains($migrationOperational, '@cm_reference_cleanup_source_shape_ok')
+    && str_contains($migrationOperational, '@cm_reference_receipt_disposable')
+    && str_contains($migrationOperational, '@cm_reference_claim_source_shape_ok')
+    && str_contains($migrationOperational, '@cm_reference_claim_disposable')
+    && !str_contains($migrationOperational, 'LOWER(live_check.check_clause)')
+    && substr_count($migrationOperational, 'DROP TRIGGER IF EXISTS trg_cm_ref_021_') === 12
+    && substr_count($migrationOperational, 'CREATE TRIGGER trg_cm_ref_021_') === 12
+    && !str_contains($migrationOperational, 'CREATE TRIGGER IF NOT EXISTS trg_cm_ref_021_')
+    && strpos($migrationOperational, 'DROP TRIGGER IF EXISTS trg_cm_ref_021_claim_insert_swap')
+        < strpos($migrationOperational, 'UPDATE safeharbor_m021_trigger_manifest expected')
+    && str_contains($migrationOperational, 'FROM information_schema.routines')
+    && str_contains($migrationOperational, 'routine_definition IS NULL')
+    && !str_contains($migrationOperational, 'routine_table_usage')
+    && str_contains($migrationOperational, "'DROP TABLE safeharbor_m021_reference_receipts'")
+    && str_contains($migrationOperational, "'DROP TABLE safeharbor_m021_reference_claims'")
+    && substr_count($migrationOperational, "\nLOCK TABLES\n") === 2
+    && substr_count($migrationOperational, 'UNLOCK TABLES;') === 2
+    && substr_count($migrationOperational, 'SET SESSION lock_wait_timeout=10;') === 2
+    && str_contains($migrationOperational, 'migration_021_reference_cleanup_boundary_failed')
+    && str_contains($migrationOperational, 'migration_021_final_locked_postcondition_failed')
+    && str_contains($migrationOperational, '@cm_boundary_receipt_drop_ok')
+    && str_contains($migrationOperational, '@cm_final_reference_absent')
+    && strrpos($migrationOperational, 'RELEASE_LOCK(@cm_m021_lock_name)')
+        < strrpos($migrationOperational, 'UNLOCK TABLES;')
+    && !str_contains($migrationOperational, 'DROP TABLE IF EXISTS safeharbor_m021_reference_'));
+export_check('operator CLI has one-entry claim/send/status only and no batch or retry mode',
+    is_string($cli)
+    && str_contains($cli, "['claim', 'send', 'status', 'inspect-claim']")
+    && str_contains($cli, 'coastmark_time_export_database')
+    && str_contains($cli, '$exportDb')
+    && !str_contains($cli, '--batch')
+    && !str_contains($cli, '--retry'));
+
+echo "Coastmark approved-time v3 export: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

@@ -34,10 +34,36 @@ with outcome `graph_send_rejected`. Neither uncertain attempt may be retried.
 Archive 3, for key `8west-lifestyle-weekly-canary-v3`, has SHA-256
 `d404de18f59d1546f77fd38ec0ff5071b3194124184f8c903c3d8f989381a909`.
 Its one attempt returned Microsoft Graph HTTP 202 with outcome
-`graph_accepted` and is recorded as `submitted`. This proves only that
-Microsoft accepted the request; it is not inbox-delivery proof. Report
-generation and delivery remain off, `canary_only` remains true, and no cron or
-systemd report scheduler is installed.
+`graph_accepted` and is recorded as `submitted`. Frankie separately confirmed
+the report reached the recipient inbox on 2026-08-29. The received content was
+for 8 West Lifestyle, covered `2026-08-17T07:00:00Z` through
+`2026-08-24T07:00:00Z` (end exclusive), and was generated at
+`2026-08-29T03:27:01Z`. That closes recipient confirmation for archive 3; it
+does not authorize another send, reopen the disabled schedule, or prove which
+mailbox submitted it.
+
+Those archive-3 timestamps were not stale. In Pacific Time they mean Monday,
+August 17 through Sunday, August 23, and the report was prepared Friday,
+August 28 at 8:27 PM. That was the last fully completed Monday-through-Sunday
+week at generation time. Definition v1's database-style UTC-only heading made
+the correct window look old and unclear.
+
+The dedicated `reports@8westit.com` mailbox now exists and has no human
+members. Human membership is not required for Safeharbor's app-only Microsoft
+Graph submission, but this new sender still needs its own controlled canary:
+archive 3 receipt does not by itself prove that `reports@8westit.com` was the
+sender. Report generation and delivery remain off, `canary_only` remains true,
+and no cron or systemd report scheduler is installed. The reviewed scheduler
+bundle described below is source-only and default-off.
+
+Definition versions 2 and 3 are source-only. Version 2 adds a reviewed,
+distinct contract for append-only approved-time adjustments; it has not been
+published, scheduled, generated, delivered, merged, migrated, configured, or
+deployed in production. Version 3 keeps those correction-aware facts and adds
+a distinct plain-language presentation contract. It also has not been
+published, scheduled, generated, delivered, merged, migrated, configured, or
+deployed in production. Existing definition-v1 rows, schedules, archives, and
+delivery evidence remain immutable.
 
 Root-only Lifestyle canary evidence is at
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`.
@@ -62,10 +88,11 @@ Names, domains, local database ids, and email addresses are never new-customer
 mapping inputs. Coastmark is not queried and no report action creates, changes,
 approves, posts, sends, or pays an invoice.
 
-The ID lookup is not part of cron, generation, or delivery. Only the explicit
-operator commands `prepare-from-id`, historical `prepare-client-from-id`, and
-new-customer `prepare-customer-from-id` load the client. They send an
-exact HMAC-authenticated POST to
+The ID lookup is not part of cron, generation, or delivery. Only four explicit
+operator commands load the client: no-write `plan-customer-from-id`,
+`prepare-from-id`, historical `prepare-client-from-id`, and new-customer
+`prepare-customer-from-id`. The client sends an exact
+HMAC-authenticated POST to
 `https://id.8westit.com/api/svc/report-contact.php`, refuses redirects and
 alternate hosts/paths/ports, bounds the response, verifies the response HMAC,
 and checks the request nonce, stable `ewid-t<id>` tenant key, exact tenant slug,
@@ -77,6 +104,16 @@ exact client, and report-definition reach in Safeharbor. It then resolves only
 the exact protected `safeharbor-client:<id> -> ewid-t<id>` entry. The returned
 ID tenant slug is authenticated output; Safeharbor does not guess it from its
 local tenant or client.
+
+`plan-customer-from-id` proves the active owner/admin, exact report target,
+active permanent Milepost customer UUID, protected customer-to-ID mapping,
+authenticated current contact, existing immutable contact scope/history, and
+next disabled schedule version using database reads only. It prints the
+customer and recipient SHA-256 digests, never either raw address or report
+body. It performs no Graph request and cannot create a definition, binding,
+contact snapshot, schedule, archive, delivery, or attempt. Because planning
+deliberately takes no write lock, `prepare-customer-from-id` must still lock
+and recheck every fact before committing immutable evidence.
 
 `prepare-customer-from-id` performs the same target proof, then requires one
 exact active `suite_customer_sync_bindings` row for that provider tenant and
@@ -171,11 +208,124 @@ Version 1 reports:
 - CSAT surveys created in the window, with only responses received by
   `generated_at` included in response count and average.
 
+Definition v1 predates append-only approved-time adjustments and must not
+silently change its meaning. New generation therefore fails closed when the
+tenant/client window contains an adjustment created by `generated_at` for an
+otherwise applicable approved entry. Tenant, client, period, review-time, and
+generated-time cutoffs are all exact. Existing archives remain byte-frozen.
+A copied v1 contract stored under a later definition ordinal is unsupported
+and is refused during both schedule preparation and active reads. Definition v2
+below supplies distinct reviewed bytes; only a schedule pinned to that exact v2
+row may count effective adjusted facts.
+
+Persisted generation locks the exact tenant row before any schedule row or
+metric read. Adjustment creation uses that same tenant-first serialization
+point. If an adjustment wins, definition v1 waits, sees it, and refuses the
+archive; if generation wins, the adjustment waits until the immutable archive
+commits. Only after obtaining that lock does persisted generation read the
+database UTC clock and establish `generated_at`. A supplied integration-test
+clock may move that cutoff forward for deterministic future windows, never
+backward before the lock. The no-write dry run intentionally takes no such
+lock: it is a best-effort read-only preview and is not proof of what a later
+archive will contain while operators are changing approved time.
+
 Every query binds the exact Safeharbor tenant and client. Metrics JSON is
 encoded once, stored as exact `LONGTEXT` bytes under `JSON_VALID`, and hashed
 together with the exact text report. MySQL triggers verify the hash, report
-scope, definition, client snapshot, period, and generated timestamp before an
-archive can be inserted. Definitions, schedules, and archives are insert-only.
+scope, definition, client snapshot, period, schedule timezone, and generated
+timestamp before an archive can be inserted. Reload additionally requires a
+version-3 period to be local Monday midnight through the next local Monday
+midnight, including 167- and 169-hour daylight-saving weeks, regenerates the
+canonical report text, and requires a byte-for-byte match before idempotent
+generation or delivery may use it. Delivery and customer-portal reads rebind
+the archived timezone to the immutable schedule. A caller cannot bless private
+or financial text by merely recomputing the unkeyed content checksum.
+Definitions, schedules, and archives are insert-only.
+
+## Definition version 2
+
+Version 2 retains every version-1 ticket, first-response, service-goal, CSAT,
+window, isolation, archive, and delivery rule. It changes only the approved
+billable operational-time interpretation:
+
+- applicable entries are still limited to the exact tenant/client, worked-at
+  window, `approval_status='approved'`, and `reviewed_at <= generated_at`;
+- immediately after taking the tenant serialization lock, persisted generation
+  captures the greatest committed adjustment id for that tenant. This
+  monotonic `adjustment_id_cutoff` is archived inside the approved-time summary;
+- for each applicable entry, the report selects the highest append-only
+  adjustment version whose id is at or below that captured tenant cutoff and
+  whose `created_at <= generated_at`; when none exists it uses the immutable
+  approved parent facts;
+- each approved entry contributes at most once. Older slips remain evidence but
+  never add their minutes to the total;
+- the effective billable total is accompanied by original approved billable
+  minutes, the signed net billable-minute change, the number of entries whose
+  adjusted interpretation was used, and the number of applicable slips; and
+- adjustment reasons, actor identity, notes, rates, tax, invoice/export state,
+  ticket content, and other private detail are not selected or rendered.
+
+The archived adjustment-id cutoff makes the serialization winner durable even
+when a report and a waiting adjustment receive the same second-precision
+timestamp. If the report wins, the later slip has an id above its cutoff; if the
+adjustment wins, the report waits and captures an inclusive cutoff. Combining
+that monotonic prefix with `generated_at` makes the correction interpretation
+reproducible after later slips exist. Persisted generation retains the same
+tenant-first lock shared with adjustment creation, so the two operations cannot
+pass each other invisibly.
+The archive envelope remains schema version 1, which preserves migration 013's
+existing database guard. Definition version 2 binds the additive correction
+summary arithmetic and exact definition hash
+(`012b07fa3c82832044c0aaf23e4e4cd62e99b09e31d85288e3e0959741cc3d70`).
+Definition-v1 contract JSON and rendered text bytes remain unchanged. Every
+valid v1 archive remains supported; the canonical reload check also protects it
+from a self-hashed replacement body.
+
+Definitions must be published in order. Re-publishing the exact same version is
+idempotent; skipping v1, copying v1 bytes into ordinal 2, or using an unknown
+ordinal fails closed. Existing v1 logical schedule keys cannot change their
+definition, so every new correction-aware schedule uses a new key pinned
+explicitly to v2.
+
+## Definition version 3
+
+Version 3 retains every version-2 metric, lock, adjustment cutoff, archive,
+privacy, and delivery rule. It changes only the canonical customer-facing text
+under a new immutable contract. Its exact contract SHA-256 is
+`e561c7674d01bfc21890bce8dbb7d59795610a02d1234fce235b68bbb3847f92`.
+
+The version-3 report:
+
+- translates the archived UTC boundaries into full human dates in the
+  schedule's reporting timezone; `America/Los_Angeles` is labeled `Pacific
+  Time`;
+- says plainly that the normal report is the last fully completed
+  Monday-through-Sunday week, so a partial current week is never mixed into
+  the totals;
+- labels an older oldest-missing period as a `catch-up report` instead of
+  pretending that historical period is current;
+- shows the prepared date and time in the same local timezone rather than an
+  ISO-only `Generated:` value;
+- leads with new tickets, fixed tickets, average first reply, response-goal
+  result, approved technician time, and survey score;
+- identifies missed or still-undecided first-response results for 8 West IT to
+  review, or says explicitly when no response-goal follow-up is needed; and
+- keeps older unversioned tickets, merged histories, approved-time adjustments,
+  no-invoice truth, and provider-versus-inbox delivery truth visible in plain
+  language.
+
+The underlying metrics JSON remains the exact canonical schema-1 envelope.
+Version 3 does not add ticket text, notes, contacts, rates, prices, taxes,
+invoice state, endpoint controls, or AI output. It needs no schema migration.
+Definitions still publish in exact ordinal order, and a version-3 schedule must
+use a new logical key explicitly pinned to published v3 bytes. Existing v1 and
+v2 canonical report text remains byte-for-byte unchanged and reloadable.
+
+Normal scheduled computation does not lag: it selects the oldest missing due
+complete week. With uninterrupted runs, that is the immediately preceding
+Monday-through-Sunday week. After an outage, the one-period-per-invocation
+catch-up rule intentionally repairs the gap without silently skipping history;
+the new label makes that exceptional older period obvious.
 
 ## Delivery truth and state machine
 
@@ -220,10 +370,12 @@ archive hash and tenant/client scope are reverified, then it is row-locked and
 terminalized as `uncertain` without a network request even if current
 allowlists or the schedule version were removed afterward.
 
-Before acquiring a lease, delivery re-verifies the exact archive hash and that
+Before acquiring a lease, delivery re-verifies the exact archive hash, requires
+the exact canonical text regenerated from archived metrics, and verifies that
 the archived schedule version is still the latest active version. Appending a
 disable or reconfiguration therefore revokes any old pending delivery. The
-email subject and body come from archived facts, not a later client rename.
+email subject and body come from canonical archived facts, not a later client
+rename or caller-supplied text.
 
 ## Default-off gates
 
@@ -300,6 +452,7 @@ verified backup:
 sudo mysql safeharbor < app/db/migrations/013_business_reports.sql
 sudo mysql safeharbor < app/db/migrations/017_id_report_contact_evidence.sql
 sudo mysql safeharbor < app/db/migrations/019_client_report_contact_evidence.sql
+sudo mysql safeharbor < app/db/migrations/023_business_report_archive_scope.sql
 ```
 
 Migration 017 validates the exact candidate column/default, visible-index,
@@ -319,6 +472,13 @@ replaced. Their exact names, tables, events, timing, and fail-closed signal are
 verified before replacement. An interrupted run stays fail-closed until an
 exact replay.
 
+Migration 023 leaves the already-applied migration-013 bytes unchanged. It
+installs and verifies one temporary fail-closed archive-insert blocker before
+replacing the permanent archive trigger, proves that the replacement binds
+`metrics.period.schedule_timezone` to the immutable schedule timezone, and
+removes the blocker only after exact postflight. An interrupted run continues
+to reject archive inserts until replay completes.
+
 The report subsystem needs `SELECT` on source and report tables; `INSERT` on
 definition, schedule, archive, ID tenant-binding, and ID contact-snapshot
 tables; `UPDATE` on the schedule, ID tenant-binding, and ID contact-snapshot
@@ -335,11 +495,16 @@ Client-scoped onboarding additionally needs `SELECT`, `INSERT`, and locking-
 read `UPDATE` on the two client evidence tables and the contact-scope registry;
 their permanent triggers still reject row updates and deletes.
 
-Publish and prepare without sending:
+Plan and prepare without sending:
 
 ```bash
 php app/db/manage_business_reports.php publish-definition \
-  --tenant-slug=TENANT --actor-user-id=USER --reason='Publish reviewed v1'
+  --tenant-slug=TENANT --definition-version=1 \
+  --actor-user-id=USER --reason='Publish reviewed v1'
+
+php app/db/manage_business_reports.php publish-definition \
+  --tenant-slug=TENANT --definition-version=2 \
+  --actor-user-id=USER --reason='Publish correction-aware reviewed v2'
 
 php app/db/manage_business_reports.php prepare-from-id \
   --tenant-slug=TENANT --schedule-key=KEY --client-id=CLIENT \
@@ -347,6 +512,13 @@ php app/db/manage_business_reports.php prepare-from-id \
   --timezone=America/Los_Angeles --delivery-weekday=3 \
   --delivery-local-time=09:00:00 --canary=1 \
   --actor-user-id=USER --reason='Prepare controlled canary'
+
+php app/db/manage_business_reports.php plan-customer-from-id \
+  --tenant-slug=PROVIDER --schedule-key=KEY --client-id=CLIENT \
+  --definition-id=DEFINITION \
+  --timezone=America/Los_Angeles --delivery-weekday=3 \
+  --delivery-local-time=09:00:00 --canary=1 \
+  --actor-user-id=USER --reason='Plan exact customer canary'
 
 php app/db/manage_business_reports.php prepare-customer-from-id \
   --tenant-slug=PROVIDER --schedule-key=KEY --client-id=CLIENT \
@@ -358,7 +530,8 @@ php app/db/manage_business_reports.php prepare-customer-from-id \
 
 After protected allowlists contain only the exact schedule key, tenant,
 client, and recipient, append the active version and perform a
-no-write/no-network dry run:
+no-write/no-network dry run. This preview is deliberately unlocked and
+best-effort; persisted generation rechecks under the tenant serialization lock:
 
 ```bash
 php app/db/manage_business_reports.php enable \
@@ -402,16 +575,210 @@ archive created while delivery is off can be handled after an explicit
 delivery gate change. Installing a cron entry is a separate production action;
 the repository deploy does not edit crontab.
 
+The release-ready operations bundle is deliberately separate from normal
+deployment:
+
+- `app/cron/run_business_reports.sh` refuses any user except `www-data`, pins
+  the exact `ubuntu:www-data` 2750/0640 deployment metadata, and takes a shared
+  persistent root-owned lock at
+  `/var/lib/safeharbor-report-scheduler/business-reports-deploy.lock` before it
+  reads runner code. It preserves PHP's failure status even if the final
+  error-log call fails and records output under
+  `safeharbor-business-reports`;
+- `deploy/remote-install-safeharbor-app.sh` is staged by `deploy/deploy.sh` as
+  an exact SHA-256-verified root-only file alongside the reviewed complete-app
+  hasher. The local half refuses a dirty Git release and builds the app plus
+  derived brand files from that exact commit's Git archive. The remote half refuses
+  while the active cron name exists, refuses an exact legacy runner that
+  predates locking, takes the exclusive side of the same persistent lock,
+  verifies the incoming app in root-only staging against the clean source
+  digest before live extraction, preserves the
+  protected config, then records the complete post-cache-stamp artifact in a
+  root-only current marker plus a uniquely named immutable record. It never
+  installs or enables cron. A normal release must therefore stop scheduling
+  before the existing non-atomic app extraction;
+- `deploy/safeharbor-business-reports.cron` invokes only the wrapper every five
+  minutes. The PHP schedule still decides whether a weekly period is due; and
+- `deploy/manage-business-report-scheduler.sh` trusts only a root:root 0700
+  control directory whose manager, cron template, complete-app hasher, and
+  manifest are root:root 0600. The manifest binds the exact release, manager,
+  template, hasher, clean source artifact, complete deployed artifact,
+  immutable release marker, wrapper, and runner hashes. The manager holds the
+  shared deployment lock while it re-hashes the whole app (excluding only the
+  separately bound protected config). It also verifies the entire deployed
+  tree is `ubuntu:www-data` with directories 2750 and ordinary files 0640,
+  contains no symlinks or special files, and is not writable by `www-data`.
+
+Do not run the manager from `/tmp`, a user-owned checkout, or a directory that
+the deployment/runtime users can alter. From an exact clean reviewed release,
+stage the three control files under `/root`, then create the manifest from the
+deploy-created immutable release record without
+copying or displaying protected config:
+
+```bash
+# Run locally from the exact clean reviewed release. Stream bytes directly into
+# root-owned host files; never execute a user-owned /tmp copy with sudo.
+RELEASE_SHA="$(git rev-parse HEAD)"
+test "$RELEASE_SHA" = EXACT_40_HEX_RELEASE_SHA
+CONTROL_DIR=/root/safeharbor-report-scheduler-$RELEASE_SHA
+MANAGER_SHA="$(sha256sum deploy/manage-business-report-scheduler.sh)"
+MANAGER_SHA="${MANAGER_SHA%% *}"
+CRON_SHA="$(sha256sum deploy/safeharbor-business-reports.cron)"
+CRON_SHA="${CRON_SHA%% *}"
+HASHER_SHA="$(sha256sum deploy/hash-safeharbor-app-artifact.sh)"
+HASHER_SHA="${HASHER_SHA%% *}"
+
+ssh milepost-ec2 \
+  "sudo install -d -o root -g root -m 0700 '$CONTROL_DIR'"
+ssh milepost-ec2 \
+  "sudo tee '$CONTROL_DIR/manage-business-report-scheduler.sh' >/dev/null \
+   && sudo chown root:root '$CONTROL_DIR/manage-business-report-scheduler.sh' \
+   && sudo chmod 0600 '$CONTROL_DIR/manage-business-report-scheduler.sh'" \
+  < deploy/manage-business-report-scheduler.sh
+ssh milepost-ec2 \
+  "sudo tee '$CONTROL_DIR/safeharbor-business-reports.cron' >/dev/null \
+   && sudo chown root:root '$CONTROL_DIR/safeharbor-business-reports.cron' \
+   && sudo chmod 0600 '$CONTROL_DIR/safeharbor-business-reports.cron'" \
+  < deploy/safeharbor-business-reports.cron
+ssh milepost-ec2 \
+  "sudo tee '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' >/dev/null \
+   && sudo chown root:root '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' \
+   && sudo chmod 0600 '$CONTROL_DIR/hash-safeharbor-app-artifact.sh'" \
+  < deploy/hash-safeharbor-app-artifact.sh
+ssh milepost-ec2 \
+  "printf '%s  %s\n' '$MANAGER_SHA' \
+      '$CONTROL_DIR/manage-business-report-scheduler.sh' \
+      '$CRON_SHA' '$CONTROL_DIR/safeharbor-business-reports.cron' \
+      '$HASHER_SHA' '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' \
+   | sudo sha256sum -c"
+
+ssh milepost-ec2 "sudo bash -s -- '$CONTROL_DIR' '$RELEASE_SHA'" <<'REMOTE'
+set -euo pipefail
+dir="$1"
+release="$2"
+manager_sha="$(sha256sum "$dir/manage-business-report-scheduler.sh")"
+cron_sha="$(sha256sum "$dir/safeharbor-business-reports.cron")"
+hasher_sha="$(sha256sum "$dir/hash-safeharbor-app-artifact.sh")"
+wrapper_sha="$(sha256sum /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh)"
+runner_sha="$(sha256sum /srv/8west/apps/safeharbor/current/cron/business_reports.php)"
+marker=/var/lib/safeharbor-report-scheduler/releases/current-app-artifact.manifest
+test "$(stat -c '%U:%G:%a' "$marker")" = root:root:600
+marker_release="$(sed -n 's/^release_sha=//p' "$marker")"
+source_artifact="$(sed -n 's/^source_artifact_sha256=//p' "$marker")"
+deployed_artifact="$(sed -n 's/^deployed_artifact_sha256=//p' "$marker")"
+marker_hasher="$(sed -n 's/^hasher_sha256=//p' "$marker")"
+marker_sha="$(sha256sum "$marker")"
+test "$marker_release" = "$release"
+test "$marker_hasher" = "${hasher_sha%% *}"
+unique="${marker%/*}/app-artifact.$marker_release.$deployed_artifact.manifest"
+test "$(stat -c '%U:%G:%a' "$unique")" = root:root:600
+cmp -s "$marker" "$unique"
+printf '%s\n' \
+  schema=safeharbor-business-report-scheduler-bundle-v2 \
+  release_sha="$release" \
+  manager_sha256="${manager_sha%% *}" \
+  cron_sha256="${cron_sha%% *}" \
+  hasher_sha256="${hasher_sha%% *}" \
+  source_artifact_sha256="$source_artifact" \
+  deployed_artifact_sha256="$deployed_artifact" \
+  release_marker_sha256="${marker_sha%% *}" \
+  wrapper_sha256="${wrapper_sha%% *}" \
+  runner_sha256="${runner_sha%% *}" \
+  > "$dir/scheduler-bundle.manifest"
+chown root:root "$dir/scheduler-bundle.manifest"
+chmod 0600 "$dir/scheduler-bundle.manifest"
+REMOTE
+
+ssh milepost-ec2 \
+  "sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' preflight \
+   && sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' install-disabled \
+   && sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' verify disabled"
+```
+
+These commands are production writes and still require normal release
+authorization. They do not run a report or expose/parse protected config. The
+manager hashes config only to bind evidence. Before activation, a new canary
+must prove that `reports@8westit.com` itself received Graph acceptance and that
+the separately addressed recipient confirmed the exact archive. The mailbox
+may have no human members because sending is application-only, but that does
+not substitute for the sender-specific canary.
+
+Store the canary receipt outside Git in one root:root 0700 directory. Its
+root:root 0600 activation file must contain exactly the following keys and real
+evidence values; never use placeholders at activation:
+
+```text
+schema=safeharbor-business-report-scheduler-activation-v2
+release_sha=EXACT_40_HEX_RELEASE_SHA
+bundle_manifest_sha256=SHA256_OF_SCHEDULER_BUNDLE_MANIFEST
+deployed_artifact_sha256=SHA256_OF_COMPLETE_DEPLOYED_APP_EXCLUDING_PROTECTED_CONFIG
+release_marker_sha256=SHA256_OF_CURRENT_IMMUTABLE_RELEASE_MARKER
+protected_config_sha256=SHA256_OF_CURRENT_PROTECTED_CONFIG
+sender=reports@8westit.com
+tenant_slug=EXACT_TENANT_SLUG
+client_id=EXACT_SAFEHARBOR_CLIENT_ID
+schedule_key=EXACT_SCHEDULE_KEY
+recipient=EXACT_CONFIRMED_RECIPIENT
+graph_status=202
+graph_accepted_at=YYYY-MM-DDTHH:MM:SSZ
+recipient_confirmation=confirmed
+recipient_confirmed_at=YYYY-MM-DDTHH:MM:SSZ
+archive_sha256=EXACT_CONFIRMED_ARCHIVE_SHA256
+protected_gates_reviewed_at=YYYY-MM-DDTHH:MM:SSZ
+```
+
+The enable command repeats the exact tuple as operator intent and refuses any
+artifact/config/release/tuple mismatch:
+
+```bash
+sudo bash manage-business-report-scheduler.sh enable \
+  --activation-evidence /root/ROOT_ONLY_CANARY_RECORD/activation.env \
+  --expect-tenant-slug EXACT_TENANT_SLUG \
+  --expect-client-id EXACT_SAFEHARBOR_CLIENT_ID \
+  --expect-schedule-key EXACT_SCHEDULE_KEY \
+  --expect-recipient EXACT_CONFIRMED_RECIPIENT
+sudo bash manage-business-report-scheduler.sh verify active
+sudo journalctl -t safeharbor-business-reports --since '15 minutes ago'
+```
+
+Emergency disable always moves the active cron name and activation record to
+unique root-only evidence paths, even if a dot-disabled file already exists.
+This prevents new launches; it does **not** kill or wait for an in-flight PHP
+process. Inspect the printed preservation paths and the deployment-lock holder
+before changing application files:
+
+```bash
+sudo bash manage-business-report-scheduler.sh disable
+sudo bash manage-business-report-scheduler.sh verify stopped
+```
+
+Every later code deploy must begin from `stopped`; the deploy helper then
+refuses an active name or shared-lock holder. A failed source-artifact check
+leaves the old marker in place and requires release recovery because extraction
+is still non-atomic. After a successful deployment, every old bundle and
+activation record is intentionally stale. Rebuild the root-only bundle manifest
+from the new immutable marker, rerun preflight, create a new artifact/config-
+bound canary record, install disabled, and only then consider a separately
+authorized activation. To remove the reviewed disabled control file after stop
+(quarantined evidence remains untouched):
+
+```bash
+sudo bash manage-business-report-scheduler.sh uninstall \
+  --confirm-remove-exact-scheduler-files
+sudo bash manage-business-report-scheduler.sh verify absent
+```
+
 Controlled rollout order:
 
 1. deploy migration and code with both gates false and empty allowlists;
 2. verify zero definitions, schedules, archives, deliveries, and attempts;
 3. choose one real tenant/client, verify its 8 West ID tenant contact and
    protected stable-key binding, and record approval outside Git;
-4. publish, prepare from ID, inspect the pinned key/version/digest, allowlist
-   that exact schedule/tenant/client/recipient tuple, enable, and dry-run;
-5. enable generation only, create one archive, inspect its exact hash and
-   aggregate content, then leave delivery off;
+4. publish, run the no-write customer plan, prepare from ID, inspect the pinned
+   key/version/digest, allowlist that exact schedule/tenant/client/recipient
+   tuple, enable, and dry-run;
+5. enable generation only, create one archive, inspect its exact hash,
+   adjustment-id cutoff, and aggregate content, then leave delivery off;
 6. enable delivery for that exact canary, run one pinned delivery, record
    provider submission evidence, and obtain separate recipient confirmation;
 7. disable the schedule immediately on mismatch or uncertainty; and
@@ -421,19 +788,19 @@ Controlled rollout order:
 ## Current controlled-canary checkpoint
 
 The earlier 8 West IT preparation remains immutable historical evidence. The
-separate 8 West Lifestyle customer canary completed the migration, contact,
-archive, and one-attempt delivery safety checks described in the status above.
-Its logical schedule is stopped by latest version 3, both report gates and the
-contact endpoints are off, and no scheduler exists.
+separate 8 West Lifestyle customer canaries completed migration, contact,
+archive, one-attempt delivery, provider-acceptance, and archive-3 recipient
+confirmation checks described above. Attempts 1 and 2 remain terminal
+`uncertain` and must never be retried. Archive 3 remains terminal `submitted`;
+the inbox confirmation is acceptance evidence, not permission to resubmit it.
+The logical schedules are stopped, both report gates and the contact endpoints
+are off, and no scheduler is installed.
 
-The terminal delivery record is deliberate evidence, not a retry queue. The
-send boundary was crossed, but there is no trustworthy Graph result and no
-provider HTTP status, so the record is `uncertain` with outcome
-`graph_not_trustworthy`. Never resubmit that archive automatically or manually
-as though the first attempt were known not to have happened. A future canary
-requires a new archive and a separately reviewed authorization window. Even an
-exact Graph 202 would prove provider acceptance only; this closeout has neither
-provider acceptance nor recipient confirmation.
+A future dedicated-sender canary requires a new archive and a separately
+reviewed authorization window. Its evidence must show both Graph acceptance
+and recipient confirmation while pinning `reports@8westit.com` as the exact
+sender. Only then may the source-only scheduler bundle be installed and
+activated under the sequence above.
 
 ## Rollback and retention
 

@@ -103,7 +103,9 @@ test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 test -z "$(git status --porcelain)"
 
 # Run the reviewed tests, verified backup, and migration-specific ordering first.
-# Deploy only after every required migration postflight passes.
+# If the report scheduler is active, use its root-owned control bundle to
+# disable it and verify `stopped` before deployment. The deploy helper refuses
+# an active cron name or in-flight report lock; it never re-enables scheduling.
 SERVER=milepost-ec2 DEST=/srv/8west/apps/safeharbor/current bash deploy/deploy.sh
 ```
 
@@ -113,11 +115,24 @@ script's `IdentitiesOnly` option. Never rely on the script's Cloudflare-hostname
 default. Record the exact SHA, CI run, backup record, migration output, and
 postdeploy hashes in a root-only release record.
 
-No build step — the script lints the PHP, syncs brand assets, and streams
-`app/` to the server (never overwriting `config/config.php`), then fixes
-ownership (`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets
-are cache-busted Milepost-style with `?v=` in `lib/render.php`,
-`lib/westy.php`, and `public/login.php`.
+No application build step — the script refuses a dirty Git checkout, creates
+the app and its six derived brand files from the exact Git release archive,
+lints that isolated artifact, stages exact SHA-256-verified root-only installer
+and full-app hasher controls, and streams only staged `app/` to the server
+without overwriting
+`config/config.php`. The remote installer requires the report scheduler's
+active cron name to be absent, takes the exclusive side of the persistent
+root-owned report/deploy lock, verifies the incoming clean-source artifact in
+root-only staging before it touches the live tree,
+preserves the config hash, then fixes ownership
+(`ubuntu:www-data`) and perms (dirs 2750, files 640). Static assets are
+cache-busted Milepost-style with `?v=` in `lib/render.php`, `lib/westy.php`,
+and `public/login.php`. Before releasing the lock it writes a root-only current
+record and a uniquely named immutable record that bind the release, source
+artifact, complete deployed artifact, and exact hasher. The complete digest
+excludes only protected `config/config.php`, whose digest remains a separate
+activation fact. This closes the scheduler-versus-extraction race; it does not
+claim to make ordinary web requests atomic during extraction.
 
 ### Protected backup and Safeharbor-only write freeze
 
@@ -585,24 +600,50 @@ Deploy code only after the migration and grant postflight. Keep the protected
 fresh environment. The current controlled 8 West IT canary is the explicit
 exception: its schedule/tenant/client/recipient allowlists each contain one
 exact value while generation and delivery remain false. The deploy script does
-not install a scheduler. After one explicitly chosen recipient canary has
-passed dry-run, archive, provider-submission, and separate recipient-
-confirmation gates, install the reviewed cron entry for
-`app/cron/business_reports.php`; observe one scheduled weekly period before
-expanding any allowlist. The exact contract, commands, failure semantics, and
-rollback are in `docs/business-reports-contract.md`.
+not install or activate a scheduler. It refuses an active scheduler and shares
+a lock protocol with `app/cron/run_business_reports.sh`, so a report cannot
+read the app during extraction. The manager must run only from a root:root 0700
+control directory with root:root 0600 manager/template/full-artifact-hasher/
+manifest files. The manifest binds the exact release, clean source artifact,
+complete deployed artifact, unique/current root-only release marker, and
+deployed wrapper/runner hashes. Preflight holds the shared deployment lock while
+it re-hashes the full app tree, excluding only the separately bound protected
+config, and also requires `ubuntu:www-data` with 2750 directories and 0640
+ordinary files.
 
-The controlled 8 West Lifestyle canary did not pass provider submission or
-recipient confirmation. Schedule key `8west-lifestyle-weekly-canary-v1` has
-versions 1 disabled, 2 active, and latest version 3 disabled. One archive was
-verified at SHA-256
-`93bbdab3ac0d42e1da95fa93f8c393123749d7d1548f4a2afa62e95317a8b0ce`.
-Its only recipient value in release evidence is SHA-256
-`4f57f85e0af372af6b3b09bf48be8961a23fa0fc371f36a9b2d3a54ee4998ef8`.
-The single attempt is terminal `uncertain` with outcome
-`graph_not_trustworthy` and no provider HTTP status; never retry it. Generation
-and delivery are off, both contact endpoints are off, and no cron or systemd
-report scheduler is installed.
+The controlled 8 West Lifestyle history now has three archives. Attempts 1
+and 2 are terminal `uncertain` and must never be retried. Archive 3 returned
+Graph HTTP 202 / `graph_accepted`, and Frankie separately confirmed the report
+reached the recipient inbox on 2026-08-29. Its content covered
+`2026-08-17T07:00:00Z` through `2026-08-24T07:00:00Z` (end exclusive) and was
+generated at `2026-08-29T03:27:01Z`. Every Lifestyle schedule remains stopped;
+generation and delivery are off, both contact endpoints are off, and no report
+scheduler is installed.
+
+The new `reports@8westit.com` mailbox exists without human members. That is
+compatible with application-only Graph sending, but archive 3 does not prove
+that the new mailbox was the sender. Do not activate the scheduler until a new
+dedicated-sender canary has its own Graph-acceptance and recipient-confirmation
+evidence. After that separately authorized canary, follow the root-only control
+bundle and activation-record procedure in `docs/business-reports-contract.md`,
+then stage and verify the scheduler without enabling it:
+
+```bash
+sudo bash manage-business-report-scheduler.sh preflight
+sudo bash manage-business-report-scheduler.sh install-disabled
+sudo bash manage-business-report-scheduler.sh verify disabled
+```
+
+Activation requires the exact root-only evidence artifact documented in
+`docs/business-reports-contract.md`. It binds the release/manifest/full-app
+artifact/release-marker/config hashes, the exact `reports@8westit.com` sender,
+tenant/client/schedule/recipient tuple,
+Graph acceptance, recipient confirmation, archive hash, and protected-gate
+review time. Literal checkbox flags are not accepted. Observe one scheduled
+weekly period before expanding any allowlist. Emergency disable always removes
+the active cron name to unique root-only quarantine, even when a dot-disabled
+copy already exists, but does not terminate an in-flight PHP process; inspect
+the report/deploy lock before deploying.
 
 Root-only canary evidence is at
 `/srv/8west/backups/safeharbor/20260829T020451Z-pre-lifestyle-report-canary`;
@@ -707,20 +748,56 @@ account secret.
 
 ## Coastmark approved-time sender
 
-Safeharbor's half of the draft-line seam is an operator-only CLI and has no
-database migration, scheduler, batch, or automatic retry. Its contract and
-canary procedure are in
+Safeharbor's live version-2 half remains dark and cannot represent corrections.
+The local version-3 replacement adds migration 021 plus a one-claim operator
+CLI. It has no scheduler, queue, batch, loop, or automatic retry. Its release,
+status-recovery, and canary requirements are in
 [`docs/coastmark-approved-time-export-contract.md`](../docs/coastmark-approved-time-export-contract.md).
-Deploy it with `coastmark_time_export.enabled=false`, empty tenant/client
-allowlists, and no secret. Do not enable it until Coastmark's separately
-reviewed receiver migration, forced-RLS/immutability tests, global gate, and one
-explicit mapping are ready.
+Deploy only after exact-main MySQL validation, and keep both
+`claim_enabled=false` and `enabled=false`. The detached version-2 send function
+remains permanently refused.
 
-Before any send, run the exact entry as `--dry-run`; the output must contain no
-raw note or secret. A canary must prove a 201 create followed by a 200 exact
-replay, one immutable Coastmark import/line, and a draft that remains unposted,
-unsent, and unrelated to Checkout, payment, or ledger records. Rollback is gate
-and mapping disablement, never deletion of accepted financial-side evidence.
+Migration 021 is privileged-operator-only and migration-first. Lock the
+Safeharbor runtime account, require zero runtime connections, stop concurrent
+time adjustments, take the trigger-inclusive database/config/grant backup, and
+apply plus replay the exact archived Git blob while the Safeharbor endpoint is
+denied. Require two empty tables, six permanent triggers, zero swap triggers,
+canonical foreign keys/checks, preserved existing time facts, and unchanged
+financial integration counts before deploying matching source. After any claim
+exists, never migrate down or delete claim/receipt evidence.
+
+The claim CLI must not use the web/cron database identity. Provision a separate
+local account through the protected operator mechanism and put its username and
+password only in the protected `coastmark_time_export` config. Resolve the exact
+account/host before granting; never print or record its secret. Its complete
+allowlist is:
+
+```text
+SELECT: tenants, clients, users, suite_customer_sync_bindings, time_entries,
+        time_entry_approval_adjustments, coastmark_time_export_claims,
+        coastmark_time_export_receipts
+INSERT: coastmark_time_export_claims, coastmark_time_export_receipts
+```
+
+It must have no schema-wide grants and no `UPDATE`, `DELETE`, `CREATE`, `ALTER`,
+`DROP`, `INDEX`, `REFERENCES`, `TRIGGER`, or `GRANT OPTION`. Prove the dedicated
+identity can read one exact approved entry, insert and exactly replay a claim,
+and append a valid receipt. The proof must create a brand-new claim as the
+limited identity through the DEFINER trigger, not only replay a root-created
+row. It must also prove an in-flight customer-binding deactivation is rejected
+at trigger time and that the identity can use the per-claim status advisory
+lock without receiving broader table privileges. Prove the migration-owned
+triggers serialize the tenant/entry/binding/claim race while claim/receipt
+update/delete and migration execution are denied. Do not
+broaden privileges to make a failed proof pass.
+
+The controlled Lifestyle canary may create only a draft that remains unposted,
+unsent, and unrelated to Checkout, payment, credit, or ledger records. Rollback
+is gate and mapping disablement, never deletion of accepted evidence. Its
+approved test-only input is `$145.00/hour`, exact approved minutes with no
+minimum or round-up, `Net 30`, and `0%` only for a separately itemized pure
+technician-labor line. Hardware, software, licenses, parts, and bundles stay
+separate/manual. Do not infer or install a production mapping from this text.
 
 `002_svc_intake.sql` collides on 002 with `002_westy_onboarding.sql`, so the
 numbering does not order it and its live state is not established by the list

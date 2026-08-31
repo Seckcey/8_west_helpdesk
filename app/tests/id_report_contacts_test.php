@@ -394,6 +394,25 @@ $manager = (string)file_get_contents(__DIR__ . '/../db/manage_business_reports.p
 $runner = (string)file_get_contents(__DIR__ . '/../db/run_business_report.php');
 $cron = (string)file_get_contents(__DIR__ . '/../cron/business_reports.php');
 $contactLibrary = (string)file_get_contents(__DIR__ . '/../lib/id_report_contacts.php');
+$customerPlanEmitterStart = strpos($manager, 'function report_cli_emit_customer_plan(');
+$idContactEmitterStart = strpos($manager, 'function report_cli_emit_id_contact(');
+$customerPlanEmitter = is_int($customerPlanEmitterStart)
+    && is_int($idContactEmitterStart)
+    && $idContactEmitterStart > $customerPlanEmitterStart
+    ? substr(
+        $manager,
+        $customerPlanEmitterStart,
+        $idContactEmitterStart - $customerPlanEmitterStart,
+    )
+    : '';
+id_report_check(
+    str_contains($customerPlanEmitter, "echo 'SCHEDULE_TIMEZONE=' . (string)\$schedule['schedule_timezone']")
+        && str_contains($customerPlanEmitter, "echo 'DELIVERY_WEEKDAY=' . (int)\$schedule['delivery_weekday']")
+        && str_contains($customerPlanEmitter, "echo 'DELIVERY_LOCAL_TIME=' . (string)\$schedule['delivery_local_time']")
+        && str_contains($customerPlanEmitter, "echo 'RECIPIENT_SHA256=' . \$schedule['recipient_sha256']")
+        && !str_contains($customerPlanEmitter, 'recipient_email'),
+    'customer plan receipt omits exact schedule fields or exposes the address',
+);
 $customerFetchFunctionStart = strpos(
     $contactLibrary,
     'function id_report_contact_fetch_customer(',
@@ -421,18 +440,17 @@ id_report_check(
 id_report_check(
     substr_count($manager, 'id_report_contact_fetch(') === 1
         && substr_count($manager, 'id_report_contact_fetch_client(') === 1
-        && substr_count($manager, 'id_report_contact_fetch_customer(') === 1
+        && substr_count($manager, 'id_report_contact_fetch_customer(') === 2
         && str_contains($manager, "if (\$command === 'prepare-from-id')")
         && str_contains($manager, "if (\$command === 'prepare-client-from-id')")
+        && str_contains($manager, "if (\$command === 'plan-customer-from-id')")
         && str_contains($manager, "if (\$command === 'prepare-customer-from-id')")
         && str_contains($manager, 'business_report_legacy_client_refresh_target(')
         && str_contains($manager, 'business_report_contact_scope_for_key(')
         && str_contains($manager, 'CONTACT_SCOPE=MANUAL')
         && strpos($manager, 'business_report_legacy_client_refresh_target(')
-            < strpos($manager, 'id_report_contact_fetch_client(')
-        && strrpos($manager, 'business_report_schedule_target(')
-            < strpos($manager, 'id_report_contact_fetch_customer('),
-    'operator prepare commands are not the only three network-call boundaries',
+            < strpos($manager, 'id_report_contact_fetch_client('),
+    'operator plan/prepare commands are not the only four network-call boundaries',
 );
 id_report_check(
     !str_contains($runner, 'id_report_contact')
@@ -447,15 +465,20 @@ id_report_check(
 );
 $tenantPrepareStart = strpos($manager, "if (\$command === 'prepare-from-id')");
 $clientPrepareStart = strpos($manager, "if (\$command === 'prepare-client-from-id')");
+$customerPlanStart = strpos($manager, "if (\$command === 'plan-customer-from-id')");
 $customerPrepareStart = strpos($manager, "if (\$command === 'prepare-customer-from-id')");
 $transitionStart = strpos($manager, "if (\$command === 'enable' || \$command === 'disable')");
 $tenantPrepareBlock = is_int($tenantPrepareStart) && is_int($clientPrepareStart)
     && $clientPrepareStart > $tenantPrepareStart
     ? substr($manager, $tenantPrepareStart, $clientPrepareStart - $tenantPrepareStart)
     : '';
-$clientPrepareBlock = is_int($clientPrepareStart) && is_int($customerPrepareStart)
-    && $customerPrepareStart > $clientPrepareStart
-    ? substr($manager, $clientPrepareStart, $customerPrepareStart - $clientPrepareStart)
+$clientPrepareBlock = is_int($clientPrepareStart) && is_int($customerPlanStart)
+    && $customerPlanStart > $clientPrepareStart
+    ? substr($manager, $clientPrepareStart, $customerPlanStart - $clientPrepareStart)
+    : '';
+$customerPlanBlock = is_int($customerPlanStart) && is_int($customerPrepareStart)
+    && $customerPrepareStart > $customerPlanStart
+    ? substr($manager, $customerPlanStart, $customerPrepareStart - $customerPlanStart)
     : '';
 $customerPrepareBlock = is_int($customerPrepareStart) && is_int($transitionStart)
     && $transitionStart > $customerPrepareStart
@@ -472,6 +495,19 @@ $customerFetchCall = is_int($customerFetchCallStart)
         $customerPrepareBlock,
         $customerFetchCallStart,
         $customerFetchCallEnd - $customerFetchCallStart + 2,
+    )
+    : '';
+$customerPlanFetchCallStart = strpos($customerPlanBlock, 'id_report_contact_fetch_customer(');
+$customerPlanFetchCallEnd = is_int($customerPlanFetchCallStart)
+    ? strpos($customerPlanBlock, ');', $customerPlanFetchCallStart)
+    : false;
+$customerPlanFetchCall = is_int($customerPlanFetchCallStart)
+    && is_int($customerPlanFetchCallEnd)
+    && $customerPlanFetchCallEnd > $customerPlanFetchCallStart
+    ? substr(
+        $customerPlanBlock,
+        $customerPlanFetchCallStart,
+        $customerPlanFetchCallEnd - $customerPlanFetchCallStart + 2,
     )
     : '';
 id_report_check(
@@ -494,6 +530,29 @@ id_report_check(
     strpos($clientPrepareBlock, 'business_report_legacy_client_refresh_target(')
         < strpos($clientPrepareBlock, 'id_report_contact_fetch_client('),
     'legacy client-id command can make a network request before proving existing schedule history',
+);
+id_report_check(
+    substr_count(
+        $customerPlanBlock,
+        "report_cli_emit_id_contact(\$result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);",
+    ) === 1
+        && !str_contains($customerPlanBlock, 'BUSINESS_REPORT_CONTACT_SCOPE_TENANT')
+        && strpos($customerPlanBlock, 'business_report_schedule_target(')
+            < strpos($customerPlanBlock, 'id_report_contact_active_customer_id(')
+        && strpos($customerPlanBlock, 'id_report_contact_active_customer_id(')
+            < strpos($customerPlanBlock, 'id_report_contact_fetch_customer(')
+        && strpos($customerPlanBlock, 'id_report_contact_fetch_customer(')
+            < strpos($customerPlanBlock, 'business_report_plan_customer_schedule_from_id(')
+        && substr_count($customerPlanBlock, 'id_report_contact_active_customer_id(') === 1
+        && str_contains($customerPlanFetchCall, '$customerId')
+        && !str_contains($customerPlanFetchCall, '$pdo')
+        && !str_contains($customerPlanBlock, 'business_report_prepare_customer_schedule_from_id(')
+        && !str_contains($customerPlanBlock, 'business_report_generate(')
+        && !str_contains($customerPlanBlock, 'business_report_deliver(')
+        && str_contains($customerPlanBlock, 'NO_DB_WRITE=1')
+        && str_contains($customerPlanBlock, 'NO_GRAPH_REQUEST=1')
+        && !str_contains($customerPlanBlock, 'recipient_email'),
+    'plan-customer-from-id can write, send, expose the address, or skip exact binding rechecks',
 );
 id_report_check(
     substr_count(

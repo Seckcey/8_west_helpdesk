@@ -26,6 +26,24 @@ function report_check(string $name, bool $condition): void
     }
 }
 
+/** Digest every fixture table so a read-only operation cannot hide a write. */
+function report_database_digest(PDO $pdo): string
+{
+    $tables = $pdo->query(
+        "SELECT name FROM sqlite_master
+          WHERE type='table' AND name NOT LIKE 'sqlite_%'
+          ORDER BY name"
+    )->fetchAll(PDO::FETCH_COLUMN);
+    $state = [];
+    foreach ($tables as $table) {
+        if (!is_string($table) || preg_match('/\A[a-z_][a-z0-9_]*\z/D', $table) !== 1) {
+            throw new RuntimeException('Unexpected fixture table name.');
+        }
+        $state[$table] = $pdo->query('SELECT * FROM "' . $table . '" ORDER BY rowid')->fetchAll(PDO::FETCH_ASSOC);
+    }
+    return hash('sha256', json_encode($state, JSON_THROW_ON_ERROR));
+}
+
 /** @param class-string<Throwable> $expected */
 function report_throws(string $name, string $expected, callable $operation, string $fragment = ''): void
 {
@@ -246,6 +264,11 @@ $schema = [
         id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
         minutes INTEGER NOT NULL, note TEXT NOT NULL, billable INTEGER NOT NULL,
         approval_status TEXT NOT NULL, worked_at TEXT NOT NULL, reviewed_at TEXT NULL)',
+    'CREATE TABLE time_entry_approval_adjustments (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, time_entry_id INTEGER NOT NULL,
+        adjustment_key TEXT NOT NULL, version_no INTEGER NOT NULL,
+        effective_minutes INTEGER NOT NULL, effective_billable INTEGER NOT NULL,
+        reason TEXT NOT NULL, actor_user_id INTEGER NOT NULL, created_at TEXT NOT NULL)',
     'CREATE TABLE csat (
         id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, score INTEGER NULL,
         comment TEXT NOT NULL, created_at TEXT NOT NULL, responded_at TEXT NULL)',
@@ -479,6 +502,32 @@ report_check('legacy mail_queue Graph contract stays boolean with a sanitized er
     && $legacyError === 'Microsoft Graph token request was rejected (HTTP 401).'
     && !str_contains($legacyError, 'private credential detail'));
 
+report_check(
+    'advisory lock helper distinguishes acquired and contended states',
+    business_report_advisory_lock_state(1) === 'acquired'
+        && business_report_advisory_lock_state('1') === 'acquired'
+        && business_report_advisory_lock_state(0) === 'contended'
+        && business_report_advisory_lock_state('0') === 'contended',
+);
+foreach ([null, false, true, '', 'unexpected'] as $invalidLockState) {
+    report_throws(
+        'advisory lock helper fails on operational or malformed state',
+        BusinessReportGateException::class,
+        fn() => business_report_advisory_lock_state($invalidLockState),
+        'lock failed',
+    );
+}
+business_report_advisory_lock_release(1);
+business_report_advisory_lock_release('1');
+foreach ([null, false, 0, '0', 'unexpected'] as $invalidReleaseState) {
+    report_throws(
+        'advisory lock release helper fails on unsuccessful state',
+        BusinessReportGateException::class,
+        fn() => business_report_advisory_lock_release($invalidReleaseState),
+        'release failed',
+    );
+}
+
 report_throws(
     'duplicate allowlist values fail closed',
     BusinessReportValidationException::class,
@@ -521,12 +570,128 @@ $definition = business_report_publish_definition($pdo, 'one', 101, 'initial cont
 report_check('definition v1 publishes exact immutable bytes',
     $definition['action'] === 'created'
     && (int)$definition['definition']['version_no'] === 1
+    && business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V1)
+        === '04a3293766fadb0f665e20c68703d3378a71feba828b9f82c4e73181dbb3afd5'
     && hash_equals(
         (string)$definition['definition']['contract_sha256'],
         hash('sha256', (string)$definition['definition']['contract_json']),
     ));
 report_check('definition publication is idempotent',
     business_report_publish_definition($pdo, 'one', 102, 'same contract')['action'] === 'ignored');
+
+// A new ordinal carrying copied v1 bytes is not a supported v2 definition.
+// Both schedule preparation and active reads must fail closed before metrics.
+$copiedDefinition = $pdo->prepare(
+    'INSERT INTO business_report_definition_versions
+        (tenant_id,definition_key,version_no,report_type,contract_json,
+         contract_sha256,created_by_user_id,reason)
+     SELECT tenant_id,definition_key,2,report_type,contract_json,
+            contract_sha256,created_by_user_id,?
+       FROM business_report_definition_versions
+      WHERE tenant_id=1 AND id=?'
+);
+$copiedDefinition->execute(['unsupported copied v1 bytes', (int)$definition['definition']['id']]);
+$copiedDefinitionId = (int)$pdo->lastInsertId();
+report_throws(
+    'schedule preparation refuses a copied contract under unsupported definition v2',
+    BusinessReportGateException::class,
+    fn() => business_report_prepare_schedule(
+        $pdo, 'one', 'unsupported-definition-v2', 11, $copiedDefinitionId,
+        'reports@example.test', 'UTC', 3, '09:00:00', true, 101, 'must refuse',
+    ),
+    'supported report definition',
+);
+$unsupportedActive = $pdo->prepare(
+    'INSERT INTO business_report_schedule_versions
+        (tenant_id,schedule_key,version_no,definition_version_id,client_id,
+         recipient_email,schedule_timezone,delivery_weekday,delivery_local_time,
+         canary,status,created_by_user_id,reason)
+     VALUES (1,?,1,?,11,?,\'UTC\',3,\'09:00:00\',1,\'active\',101,?)'
+);
+$unsupportedActive->execute([
+    'unsupported-definition-v2',
+    $copiedDefinitionId,
+    'reports@example.test',
+    'direct fixture must fail closed',
+]);
+report_throws(
+    'active schedule read refuses a copied contract under unsupported definition v2',
+    BusinessReportGateException::class,
+    fn() => business_report_active_schedule($pdo, 'one', 'unsupported-definition-v2'),
+    'unsupported definition',
+);
+$pdo->exec("DELETE FROM business_report_schedule_versions
+  WHERE tenant_id=1 AND schedule_key='unsupported-definition-v2'");
+$pdo->exec("DELETE FROM business_report_definition_versions
+  WHERE tenant_id=1 AND id={$copiedDefinitionId}");
+
+report_throws(
+    'definition v2 cannot skip an absent v1 predecessor',
+    BusinessReportConflictException::class,
+    fn() => business_report_publish_definition($pdo, 'two', 201, 'out of order v2', 2),
+    'exact version order',
+);
+$definitionV2 = business_report_publish_definition(
+    $pdo,
+    'one',
+    101,
+    'correction-aware contract',
+    BUSINESS_REPORT_CONTRACT_VERSION_V2,
+);
+report_check(
+    'definition v2 publishes distinct reviewed bytes after immutable v1',
+    $definitionV2['action'] === 'created'
+        && (int) $definitionV2['definition']['version_no'] === 2
+        && business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V2)
+            === '012b07fa3c82832044c0aaf23e4e4cd62e99b09e31d85288e3e0959741cc3d70'
+        && !hash_equals(
+            (string) $definition['definition']['contract_sha256'],
+            (string) $definitionV2['definition']['contract_sha256'],
+        )
+        && business_report_definition_supported($definition['definition'])
+        && business_report_definition_supported($definitionV2['definition']),
+);
+report_check(
+    'definition v2 publication is idempotent without replacing v1',
+    business_report_publish_definition($pdo, 'one', 102, 'same v2', 2)['action'] === 'ignored'
+        && (int) $pdo->query(
+            "SELECT COUNT(*) FROM business_report_definition_versions
+              WHERE tenant_id=1 AND definition_key='weekly-client-service-summary'",
+        )->fetchColumn() === 2,
+);
+$definitionV3 = business_report_publish_definition(
+    $pdo,
+    'one',
+    101,
+    'plain-language completed-week contract',
+    BUSINESS_REPORT_CONTRACT_VERSION_V3,
+);
+report_check(
+    'definition v3 publishes distinct reviewed presentation bytes after immutable v1 and v2',
+    $definitionV3['action'] === 'created'
+        && (int) $definitionV3['definition']['version_no'] === 3
+        && business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V3)
+            === 'e561c7674d01bfc21890bce8dbb7d59795610a02d1234fce235b68bbb3847f92'
+        && !hash_equals(
+            (string) $definitionV2['definition']['contract_sha256'],
+            (string) $definitionV3['definition']['contract_sha256'],
+        )
+        && business_report_definition_supported($definitionV3['definition']),
+);
+report_check(
+    'definition v3 publication is idempotent without replacing earlier definitions',
+    business_report_publish_definition($pdo, 'one', 102, 'same v3', 3)['action'] === 'ignored'
+        && (int) $pdo->query(
+            "SELECT COUNT(*) FROM business_report_definition_versions
+              WHERE tenant_id=1 AND definition_key='weekly-client-service-summary'",
+        )->fetchColumn() === 3,
+);
+report_throws(
+    'unknown definition version is refused before publication',
+    BusinessReportValidationException::class,
+    fn() => business_report_publish_definition($pdo, 'one', 101, 'bad v4', 4),
+    'unsupported',
+);
 
 $prepared = business_report_prepare_schedule(
     $pdo, 'one', 'client-one-weekly', 11, (int)$definition['definition']['id'],
@@ -851,6 +1016,67 @@ $managedCustomerContact = array_replace($clientIdContact, [
     'request_nonce_sha256' => str_repeat('7', 64),
     'response_sha256' => str_repeat('8', 64),
 ]);
+$managedPlanBefore = report_database_digest($pdo);
+$managedPlan = business_report_plan_customer_schedule_from_id(
+    $pdo,
+    'one',
+    'managed-customer-id-weekly',
+    12,
+    (int)$definition['definition']['id'],
+    $managedCustomerId,
+    $managedCustomerContact,
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'stable customer ID plan',
+);
+report_check(
+    'managed-customer plan proves the exact disabled version without exposing its address',
+    $managedPlan['action'] === 'planned'
+        && $managedPlan['schedule']['id'] === null
+        && (int)$managedPlan['schedule']['version_no'] === 1
+        && $managedPlan['schedule']['status'] === 'disabled'
+        && (int)$managedPlan['schedule']['client_id'] === 12
+        && $managedPlan['schedule']['schedule_timezone'] === 'UTC'
+        && (int)$managedPlan['schedule']['delivery_weekday'] === 3
+        && $managedPlan['schedule']['delivery_local_time'] === '09:00:00'
+        && hash_equals(
+            hash('sha256', 'managed-admin@example.test'),
+            (string)$managedPlan['schedule']['recipient_sha256'],
+        )
+        && !array_key_exists('recipient_email', $managedPlan['schedule'])
+        && !array_key_exists('recipient_email', $managedPlan['id_contact']),
+);
+report_check(
+    'managed-customer plan performs zero database mutations',
+    hash_equals($managedPlanBefore, report_database_digest($pdo)),
+);
+report_throws(
+    'managed-customer plan refuses a different permanent UUID without writing',
+    BusinessReportGateException::class,
+    fn() => business_report_plan_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-wrong-plan',
+        12,
+        (int)$definition['definition']['id'],
+        '11234567-89ab-4def-8abc-0123456789ab',
+        $managedCustomerContact,
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'wrong customer plan refusal',
+    ),
+    'binding changed',
+);
+report_check(
+    'refused managed-customer plan performs zero database mutations',
+    hash_equals($managedPlanBefore, report_database_digest($pdo)),
+);
 $managedPrepared = business_report_prepare_customer_schedule_from_id(
     $pdo,
     'one',
@@ -872,6 +1098,82 @@ report_check(
         && (int)$managedPrepared['schedule']['client_id'] === 12
         && (int)$managedPrepared['id_contact']['client_id'] === 12
         && (string)$managedPrepared['id_contact']['id_tenant_key'] === 'ewid-t50',
+);
+$managedReplayPlanBefore = report_database_digest($pdo);
+$managedReplayPlan = business_report_plan_customer_schedule_from_id(
+    $pdo,
+    'one',
+    'managed-customer-id-weekly',
+    12,
+    (int)$definition['definition']['id'],
+    $managedCustomerId,
+    array_replace($managedCustomerContact, [
+        'request_nonce_sha256' => str_repeat('9', 64),
+        'response_sha256' => str_repeat('a', 64),
+    ]),
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'stable customer replay plan',
+);
+report_check(
+    'managed-customer plan recognizes an exact prepared replay without writing',
+    $managedReplayPlan['action'] === 'ignored'
+        && (int)$managedReplayPlan['schedule']['id'] === (int)$managedPrepared['schedule']['id']
+        && (int)$managedReplayPlan['schedule']['version_no'] === 1
+        && hash_equals($managedReplayPlanBefore, report_database_digest($pdo)),
+);
+$managedContactUpdatePlan = business_report_plan_customer_schedule_from_id(
+    $pdo,
+    'one',
+    'managed-customer-id-weekly',
+    12,
+    (int)$definition['definition']['id'],
+    $managedCustomerId,
+    array_replace($managedCustomerContact, [
+        'contact_version' => 2,
+        'request_nonce_sha256' => str_repeat('b', 64),
+        'response_sha256' => str_repeat('c', 64),
+    ]),
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'stable customer update plan',
+);
+report_check(
+    'new ID contact version plans the next disabled schedule without writing',
+    $managedContactUpdatePlan['action'] === 'planned'
+        && $managedContactUpdatePlan['schedule']['id'] === null
+        && (int)$managedContactUpdatePlan['schedule']['version_no'] === 2
+        && hash_equals($managedReplayPlanBefore, report_database_digest($pdo)),
+);
+report_throws(
+    'same ID contact version cannot plan a different recipient',
+    BusinessReportConflictException::class,
+    fn() => business_report_plan_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-id-weekly',
+        12,
+        (int)$definition['definition']['id'],
+        $managedCustomerId,
+        array_replace($managedCustomerContact, ['recipient_email' => 'changed@example.test']),
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'same version recipient conflict',
+    ),
+    'same 8 West ID report-contact version',
+);
+report_check(
+    'conflicting ID contact plan performs zero database mutations',
+    hash_equals($managedReplayPlanBefore, report_database_digest($pdo)),
 );
 $managedReplay = business_report_prepare_customer_schedule_from_id(
     $pdo,
@@ -897,6 +1199,31 @@ report_check(
         && (int)$managedReplay['schedule']['id'] === (int)$managedPrepared['schedule']['id'],
 );
 $pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=12");
+$inactivePlanBefore = report_database_digest($pdo);
+report_throws(
+    'managed-customer plan refuses an inactivated source binding without writing',
+    BusinessReportGateException::class,
+    fn() => business_report_plan_customer_schedule_from_id(
+        $pdo,
+        'one',
+        'managed-customer-id-weekly',
+        12,
+        (int)$definition['definition']['id'],
+        $managedCustomerId,
+        $managedCustomerContact,
+        'UTC',
+        3,
+        '09:00:00',
+        true,
+        101,
+        'inactive customer plan refusal',
+    ),
+    'binding changed',
+);
+report_check(
+    'inactive managed-customer plan performs zero database mutations',
+    hash_equals($inactivePlanBefore, report_database_digest($pdo)),
+);
 report_throws(
     'managed-customer preparation refuses an inactivated source binding before writing',
     BusinessReportGateException::class,
@@ -1283,11 +1610,63 @@ $pdo->exec("INSERT INTO csat VALUES
     (3,200,1,'other tenant','2026-08-14 10:00:00','2026-08-15 10:00:00')");
 
 $now = strtotime('2026-08-26 12:00:00 UTC');
+$pdo->exec("INSERT INTO suite_customer_sync_bindings VALUES
+    (1,11,'11111111-1111-4111-8111-111111111111','active')");
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=11");
+report_throws(
+    'inactive managed customer refuses report preview before metrics or archive work',
+    BusinessReportGateException::class,
+    fn() => business_report_generate($pdo, 'one', 'client-one-weekly', report_config(), $now, true, false),
+    'inactive',
+);
+report_check(
+    'inactive preview refusal writes no archive or delivery',
+    (int)$pdo->query('SELECT COUNT(*) FROM business_report_archives')->fetchColumn() === 0
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_deliveries')->fetchColumn() === 0,
+);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE client_id=11");
 $dryRun = business_report_generate($pdo, 'one', 'client-one-weekly', report_config(), $now, true, false);
 report_check('dry run writes no archive or delivery',
     $dryRun['action'] === 'dry_run'
     && (int)$pdo->query('SELECT COUNT(*) FROM business_report_archives')->fetchColumn() === 0
     && (int)$pdo->query('SELECT COUNT(*) FROM business_report_deliveries')->fetchColumn() === 0);
+$clientNameUpdate = $pdo->prepare('UPDATE clients SET name=? WHERE tenant_id=1 AND id=11');
+$clientNameUpdate->execute(["Client \u{202E}One"]);
+report_throws(
+    'generation refuses a display-direction control in the customer name',
+    BusinessReportConflictException::class,
+    fn() => business_report_generate(
+        $pdo,
+        'one',
+        'client-one-weekly',
+        report_config(),
+        $now,
+        true,
+        false,
+    ),
+    'metric schema',
+);
+report_check(
+    'display-direction generation refusal archives and delivers nothing',
+    (int) $pdo->query('SELECT COUNT(*) FROM business_report_archives')->fetchColumn() === 0
+        && (int) $pdo->query('SELECT COUNT(*) FROM business_report_deliveries')->fetchColumn() === 0,
+);
+$clientNameUpdate->execute(['Café München 東京']);
+$internationalNameDryRun = business_report_generate(
+    $pdo,
+    'one',
+    'client-one-weekly',
+    report_config(),
+    $now,
+    true,
+    false,
+);
+report_check(
+    'generation preserves an ordinary international customer name',
+    $internationalNameDryRun['metrics']['source']['client_name'] === 'Café München 東京'
+        && str_contains($internationalNameDryRun['text'], 'Client: Café München 東京'),
+);
+$clientNameUpdate->execute(['Client One']);
 report_check('report window is exact start-inclusive end-exclusive UTC',
     $dryRun['archive']['period_start'] === '2026-08-10 00:00:00'
     && $dryRun['archive']['period_end'] === '2026-08-17 00:00:00');
@@ -1353,6 +1732,805 @@ report_check('archive reload preserves exact JSON bytes and content hash',
     ));
 report_check('archive creates exactly one pending tracked delivery',
     (int)$pdo->query("SELECT COUNT(*) FROM business_report_deliveries WHERE archive_id={$archiveId} AND status='pending'")->fetchColumn() === 1);
+
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=11");
+report_check(
+    'inactive managed customer is omitted from pending delivery selection',
+    business_report_pending_archive_ids($pdo, $now, 10, report_config()) === [],
+);
+$inactiveDeliveryCalls = 0;
+report_throws(
+    'inactive managed customer refuses direct pending delivery before claiming a lease',
+    BusinessReportGateException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        $archiveId,
+        report_config(),
+        function () use (&$inactiveDeliveryCalls): array {
+            $inactiveDeliveryCalls++;
+            return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+        },
+        $now,
+    ),
+    'inactive',
+);
+report_check(
+    'inactive direct-delivery refusal makes no transport or attempt and stays pending',
+    $inactiveDeliveryCalls === 0
+        && (int)$pdo->query('SELECT COUNT(*) FROM business_report_delivery_attempts')->fetchColumn() === 0
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_deliveries WHERE archive_id={$archiveId}",
+        )->fetchColumn() === 'pending',
+);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE client_id=11");
+
+$raceArchive = report_archive_fixture(
+    $pdo,
+    (int)$enabled['schedule']['id'],
+    'client-one-weekly',
+    '2025-01-06 00:00:00',
+);
+$raceDeliveryId = (int)$pdo->query(
+    'SELECT id FROM business_report_deliveries WHERE archive_id=' . (int)$raceArchive['id'],
+)->fetchColumn();
+$pdo->exec("CREATE TRIGGER report_inactivate_after_claim
+    AFTER INSERT ON business_report_delivery_attempts
+    WHEN NEW.delivery_id={$raceDeliveryId}
+    BEGIN
+      UPDATE suite_customer_sync_bindings SET status='inactive' WHERE client_id=11;
+    END");
+$finalBoundaryCalls = 0;
+report_throws(
+    'final pre-send recheck refuses an inactive event committed after lease claim',
+    BusinessReportGateException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        (int)$raceArchive['id'],
+        report_config(),
+        function () use (&$finalBoundaryCalls): array {
+            $finalBoundaryCalls++;
+            return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+        },
+        $now,
+    ),
+    'inactive',
+);
+report_check(
+    'final inactive recheck crosses no transport boundary and retains conservative lease evidence',
+    $finalBoundaryCalls === 0
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_deliveries WHERE id={$raceDeliveryId}",
+        )->fetchColumn() === 'sending'
+        && (string)$pdo->query(
+            "SELECT status FROM business_report_delivery_attempts WHERE delivery_id={$raceDeliveryId}",
+        )->fetchColumn() === 'started',
+);
+$pdo->exec('DROP TRIGGER report_inactivate_after_claim');
+$pdo->exec("DELETE FROM business_report_delivery_attempts WHERE delivery_id={$raceDeliveryId}");
+$pdo->exec("DELETE FROM business_report_deliveries WHERE id={$raceDeliveryId}");
+$pdo->exec('DELETE FROM business_report_archives WHERE id=' . (int)$raceArchive['id']);
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE client_id=11");
+$pdo->exec("DELETE FROM suite_customer_sync_bindings WHERE client_id=11");
+
+// Definition v1 promised the original approved-time model. It may honor the
+// generated-at cutoff and tenant/client scope, but it must never silently
+// reinterpret an applicable append-only adjustment.
+$time->execute([6,1,11,20,'future-adjusted note',1,'approved','2026-08-12 12:00:00','2026-08-12 13:00:00']);
+$time->execute([7,1,11,10,'applicable-adjusted note',1,'approved','2026-08-12 14:00:00','2026-08-12 15:00:00']);
+$pdo->exec("INSERT INTO time_entry_approval_adjustments VALUES
+    (1,1,6,'adjustment:future',1,5,1,'Created after report cutoff',101,'2026-08-27 00:00:00'),
+    (2,2,5,'adjustment:other-tenant',1,1,1,'Other tenant only',201,'2026-08-25 00:00:00')");
+$adjustmentSchedule = business_report_active_schedule($pdo, 'one', 'client-one-weekly');
+$cutoffMetrics = business_report_metrics(
+    $pdo,
+    $adjustmentSchedule,
+    '2026-08-10 00:00:00',
+    '2026-08-17 00:00:00',
+    '2026-08-26 12:00:00',
+);
+report_check(
+    'definition v1 adjustment guard honors generated-at cutoff and tenant isolation',
+    $cutoffMetrics['approved_billable_time']['minutes'] === 90,
+);
+$pdo->exec("INSERT INTO time_entry_approval_adjustments VALUES
+    (3,1,7,'adjustment:applicable',1,5,1,'Applicable before report cutoff',101,'2026-08-25 00:00:00')");
+report_throws(
+    'definition v1 refuses applicable adjusted approved time',
+    BusinessReportConflictException::class,
+    fn() => business_report_metrics(
+        $pdo,
+        $adjustmentSchedule,
+        '2026-08-10 00:00:00',
+        '2026-08-17 00:00:00',
+        '2026-08-26 12:00:00',
+    ),
+    'definition v1',
+);
+$unchangedArchivedContent = business_report_archived_content($reloaded);
+report_check(
+    'later adjustments do not rewrite an existing archive',
+    $unchangedArchivedContent['metrics'] === $generated['metrics']
+        && hash_equals((string)$reloaded['content_sha256'], (string)$generated['archive']['content_sha256']),
+);
+$unknownV1Metrics = $generated['metrics'];
+$unknownV1Metrics['approved_billable_time']['adjustment_reason'] = 'not part of v1';
+$unknownV1Archive = $reloaded;
+$unknownV1Archive['metrics_json'] = business_report_metrics_json($unknownV1Metrics);
+$unknownV1Archive['content_sha256'] = business_report_content_sha256_from_json(
+    $unknownV1Archive['metrics_json'],
+    (string) $unknownV1Archive['report_text'],
+);
+report_throws(
+    'definition v1 archive reload refuses an unknown nested private field',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content($unknownV1Archive),
+    'metric schema',
+);
+report_check(
+    'definition v1 valid archived JSON and report bytes remain exact',
+    (string) $reloaded['metrics_json'] === business_report_metrics_json($generated['metrics'])
+        && (string) $reloaded['report_text'] === $generated['text']
+        && business_report_archived_content($reloaded) === $unchangedArchivedContent,
+);
+$duplicateV1Archive = report_archive_fixture(
+    $pdo,
+    (int) $enabled['schedule']['id'],
+    'client-one-weekly',
+    '2026-07-13 00:00:00',
+);
+$duplicateV1JsonCount = 0;
+$duplicateV1Json = preg_replace(
+    '/\A\{"schema_version":1,/',
+    '{"schema_version":1,"schema_version":1,',
+    (string) $duplicateV1Archive['metrics_json'],
+    1,
+    $duplicateV1JsonCount,
+);
+if (!is_string($duplicateV1Json) || $duplicateV1JsonCount !== 1) {
+    throw new RuntimeException('Duplicate v1 JSON fixture could not be built exactly.');
+}
+$duplicateV1Hash = business_report_content_sha256_from_json(
+    $duplicateV1Json,
+    (string) $duplicateV1Archive['report_text'],
+);
+$pdo->prepare(
+    'UPDATE business_report_archives SET metrics_json=?,content_sha256=? WHERE id=?',
+)->execute([
+    $duplicateV1Json,
+    $duplicateV1Hash,
+    (int) $duplicateV1Archive['id'],
+]);
+$duplicateV1Archive['metrics_json'] = $duplicateV1Json;
+$duplicateV1Archive['content_sha256'] = $duplicateV1Hash;
+report_throws(
+    'definition v1 reload refuses duplicate JSON member names',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content($duplicateV1Archive),
+    'metric schema',
+);
+$duplicateV1TransportCalls = 0;
+$duplicateV1AttemptsBefore = (int) $pdo->query(
+    'SELECT COUNT(*) FROM business_report_delivery_attempts',
+)->fetchColumn();
+report_throws(
+    'definition v1 delivery refuses duplicate JSON member names',
+    BusinessReportConflictException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        (int) $duplicateV1Archive['id'],
+        report_config(),
+        function () use (&$duplicateV1TransportCalls): array {
+            $duplicateV1TransportCalls++;
+            return [
+                'outcome' => 'submitted',
+                'provider_http' => 202,
+                'outcome_code' => 'graph_accepted',
+            ];
+        },
+        $now,
+    ),
+    'metric schema',
+);
+report_check(
+    'definition v1 duplicate JSON makes zero transport or delivery-attempt calls',
+    $duplicateV1TransportCalls === 0
+        && (int) $pdo->query(
+            'SELECT COUNT(*) FROM business_report_delivery_attempts',
+        )->fetchColumn() === $duplicateV1AttemptsBefore
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_deliveries WHERE archive_id='
+            . (int) $duplicateV1Archive['id'],
+        )->fetchColumn() === 'pending',
+);
+
+// Definition v2 uses one effective row per approved entry. Multiple immutable
+// slips are evidence, not additional time, and only slips inside both the
+// durable adjustment-id prefix and generated-at cutoff may affect the total.
+$time->execute([8,1,12,500,'other client adjusted note',1,'approved','2026-08-12 15:00:00','2026-08-12 16:00:00']);
+$time->execute([9,1,11,40,'multi-adjusted private note',1,'approved','2026-08-12 16:00:00','2026-08-12 17:00:00']);
+$pdo->exec("INSERT INTO time_entry_approval_adjustments VALUES
+    (4,1,9,'adjustment:multi-one',1,30,1,'First private reason',101,'2026-08-24 00:00:00'),
+    (5,1,9,'adjustment:multi-two',2,20,1,'Second private reason',102,'2026-08-25 00:00:00'),
+    (6,1,8,'adjustment:other-client',1,1,1,'Other client reason',101,'2026-08-25 00:00:00'),
+    (7,1,7,'adjustment:after-cutoff',2,0,0,'After cutoff reason',102,'2026-08-26 13:00:00')");
+$v2Config = report_config([
+    'schedule_keys' => ['client-one-weekly', 'client-one-weekly-v2'],
+]);
+$preparedV2 = business_report_prepare_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v2',
+    11,
+    (int) $definitionV2['definition']['id'],
+    'reports@example.test',
+    'UTC',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'prepare correction-aware schedule',
+);
+$enabledV2 = business_report_transition_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v2',
+    (int) $preparedV2['schedule']['version_no'],
+    'active',
+    101,
+    'enable correction-aware schedule',
+    $v2Config,
+);
+$pdo->exec("UPDATE business_report_schedule_versions
+              SET created_at='2026-08-19 00:00:00' WHERE id=" . (int) $enabledV2['schedule']['id']);
+$v2Schedule = business_report_active_schedule($pdo, 'one', 'client-one-weekly-v2');
+$v2CutoffMetrics = business_report_metrics(
+    $pdo,
+    $v2Schedule,
+    '2026-08-10 00:00:00',
+    '2026-08-17 00:00:00',
+    '2026-08-26 12:00:00',
+    6,
+);
+report_check(
+    'definition v2 selects the latest slip inside the captured prefix and counts every approved entry once',
+    $v2CutoffMetrics['schema_version'] === 1
+        && $v2CutoffMetrics['approved_billable_time'] === [
+            'adjustment_id_cutoff' => 6,
+            'minutes' => 105,
+            'original_approved_billable_minutes' => 130,
+            'net_adjustment_minutes' => -25,
+            'entries_with_adjustments_applied' => 2,
+            'adjustment_slips_applied' => 3,
+            'calculation' => 'each_approved_entry_once_using_latest_adjustment_at_id_cutoff_and_generated_at_else_original',
+            'classification' => 'operational_approval_evidence_not_financial_status',
+        ],
+);
+$v2LaterMetrics = business_report_metrics(
+    $pdo,
+    $v2Schedule,
+    '2026-08-10 00:00:00',
+    '2026-08-17 00:00:00',
+    '2026-08-26 14:00:00',
+    7,
+);
+report_check(
+    'definition v2 durable cutoff advances to the later zeroing slip without double counting',
+    $v2LaterMetrics['approved_billable_time']['minutes'] === 100
+        && $v2LaterMetrics['approved_billable_time']['adjustment_id_cutoff'] === 7
+        && $v2LaterMetrics['approved_billable_time']['original_approved_billable_minutes'] === 130
+        && $v2LaterMetrics['approved_billable_time']['net_adjustment_minutes'] === -30
+        && $v2LaterMetrics['approved_billable_time']['entries_with_adjustments_applied'] === 2
+        && $v2LaterMetrics['approved_billable_time']['adjustment_slips_applied'] === 4,
+);
+$v2Text = business_report_text($v2CutoffMetrics);
+report_check(
+    'definition v2 text clearly presents correction totals without reasons or financial claims',
+    str_contains($v2Text, 'after adjustments: 105 minutes (1.75 hours)')
+        && str_contains($v2Text, 'Original approved billable operational time: 130 minutes')
+        && str_contains($v2Text, 'Billable time net adjustment: -25 minutes')
+        && str_contains($v2Text, 'Approved-time entries adjusted: 2')
+        && str_contains($v2Text, 'Append-only adjustment slips applied: 3')
+        && str_contains($v2Text, 'Each approved time entry is counted once')
+        && !str_contains($v2Text, 'private reason')
+        && !str_contains($v2Text, '$')
+        && str_contains($v2Text, 'not a statement of export or invoice status'),
+);
+
+$v3Config = report_config([
+    'schedule_keys' => ['client-one-weekly-v3'],
+]);
+$preparedV3 = business_report_prepare_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v3',
+    11,
+    (int) $definitionV3['definition']['id'],
+    'reports@example.test',
+    'America/Los_Angeles',
+    3,
+    '09:00:00',
+    true,
+    101,
+    'prepare plain-language completed-week schedule',
+);
+$enabledV3 = business_report_transition_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v3',
+    (int) $preparedV3['schedule']['version_no'],
+    'active',
+    101,
+    'enable plain-language completed-week schedule',
+    $v3Config,
+);
+$pdo->exec("UPDATE business_report_schedule_versions
+              SET created_at='2026-08-20 00:00:00' WHERE id=" . (int) $enabledV3['schedule']['id']);
+$v3Now = strtotime('2026-08-29 03:27:01 UTC');
+$v3DryRun = business_report_generate(
+    $pdo,
+    'one',
+    'client-one-weekly-v3',
+    $v3Config,
+    $v3Now,
+    true,
+    true,
+);
+report_check(
+    'definition v3 keeps the exact last-completed Pacific calendar window',
+    $v3DryRun['archive']['period_start'] === '2026-08-17 07:00:00'
+        && $v3DryRun['archive']['period_end'] === '2026-08-24 07:00:00'
+        && $v3DryRun['metrics']['period']['schedule_timezone'] === 'America/Los_Angeles',
+);
+$v3ReadableMetrics = $v2CutoffMetrics;
+$v3ReadableMetrics['definition'] = [
+    'key' => BUSINESS_REPORT_DEFINITION_KEY,
+    'version' => BUSINESS_REPORT_CONTRACT_VERSION_V3,
+    'sha256' => business_report_contract_sha256(BUSINESS_REPORT_CONTRACT_VERSION_V3),
+];
+$v3ReadableMetrics['period'] = [
+    'start_utc' => '2026-08-17T07:00:00Z',
+    'end_utc_exclusive' => '2026-08-24T07:00:00Z',
+    'schedule_timezone' => 'America/Los_Angeles',
+];
+$v3ReadableMetrics['generated_at'] = '2026-08-29T03:27:01Z';
+$v3ReadableText = business_report_text($v3ReadableMetrics);
+report_check(
+    'definition v3 explains the completed week with human Pacific dates instead of an ISO-only header',
+    str_contains(
+        $v3ReadableText,
+        'Week covered: Monday, August 17, 2026 through Sunday, August 23, 2026 (Pacific Time)',
+    )
+        && str_contains(
+            $v3ReadableText,
+            'This is the last fully completed Monday-through-Sunday week.',
+        )
+        && str_contains(
+            $v3ReadableText,
+            'Prepared: Friday, August 28, 2026 at 8:27 PM Pacific Time',
+        )
+        && !str_contains($v3ReadableText, '2026-08-17T07:00:00Z')
+        && !str_contains($v3ReadableText, '(end exclusive)')
+        && !str_contains($v3ReadableText, 'Generated:'),
+);
+report_check(
+    'definition v3 gives a plain quick summary and a specific follow-up',
+    str_contains($v3ReadableText, 'Quick summary')
+        && str_contains($v3ReadableText, 'New support tickets: 5')
+        && str_contains($v3ReadableText, 'Tickets fixed: 1')
+        && str_contains($v3ReadableText, 'Average first reply: 38 minutes (2 tickets measured)')
+        && str_contains($v3ReadableText, 'First-response goal: 67% met (2 of 3 decided tickets)')
+        && str_contains(
+            $v3ReadableText,
+            '- Review 1 ticket that missed its first-response goal.',
+        )
+        && str_contains(
+            $v3ReadableText,
+            'Approved billable technician time (not an invoice): 1.75 hours (105 minutes)',
+        ),
+);
+report_check(
+    'definition v3 keeps archive, privacy, financial, and delivery truth explicit',
+    str_contains($v3ReadableText, 'Older tickets without a saved goal, not scored: 1')
+        && str_contains($v3ReadableText, 'Merged ticket histories left out of response math: 2')
+        && str_contains($v3ReadableText, 'Approved-time change: -25 minutes across 2 entries using 3 saved adjustments.')
+        && str_contains($v3ReadableText, 'It does not mean an invoice was created, sent, or posted.')
+        && str_contains($v3ReadableText, 'Inbox receipt is checked separately.')
+        && !str_contains($v3ReadableText, 'private reason')
+        && !str_contains($v3ReadableText, '$'),
+);
+$v3Scope = business_report_archived_source_for_scope($v3ReadableMetrics, [
+    'tenant_slug' => 'one',
+    'client_id' => 11,
+    'schedule_timezone' => 'America/Los_Angeles',
+]);
+report_check(
+    'definition v3 archive scope binds the immutable schedule timezone',
+    ($v3Scope['client_key'] ?? null) === 'safeharbor-client:11',
+);
+report_throws(
+    'definition v3 archive scope refuses a timezone that differs from its schedule',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_source_for_scope($v3ReadableMetrics, [
+        'tenant_slug' => 'one',
+        'client_id' => 11,
+        'schedule_timezone' => 'UTC',
+    ]),
+    'timezone',
+);
+$v3TuesdayMetrics = $v3ReadableMetrics;
+$v3TuesdayMetrics['period'] = [
+    'start_utc' => '2026-08-18T07:00:00Z',
+    'end_utc_exclusive' => '2026-08-25T07:00:00Z',
+    'schedule_timezone' => 'America/Los_Angeles',
+];
+$v3TuesdayText = $v3ReadableText;
+$v3TuesdayJson = business_report_metrics_json($v3TuesdayMetrics);
+report_throws(
+    'self-hashed v3 Tuesday-through-Tuesday archive cannot claim a completed Monday week',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content([
+        'metrics_json' => $v3TuesdayJson,
+        'report_text' => $v3TuesdayText,
+        'content_sha256' => business_report_content_sha256_from_json(
+            $v3TuesdayJson,
+            $v3TuesdayText,
+        ),
+    ]),
+    'metric schema',
+);
+$v3DstPeriods = [
+    'spring 167-hour week' => [
+        'start_utc' => '2026-03-02T08:00:00Z',
+        'end_utc_exclusive' => '2026-03-09T07:00:00Z',
+        'schedule_timezone' => 'America/Los_Angeles',
+    ],
+    'fall 169-hour week' => [
+        'start_utc' => '2026-10-26T07:00:00Z',
+        'end_utc_exclusive' => '2026-11-02T08:00:00Z',
+        'schedule_timezone' => 'America/Los_Angeles',
+    ],
+];
+foreach ($v3DstPeriods as $name => $period) {
+    $dstMetrics = $v3ReadableMetrics;
+    $dstMetrics['period'] = $period;
+    $dstMetrics['generated_at'] = str_starts_with($name, 'spring')
+        ? '2026-03-10T12:00:00Z'
+        : '2026-11-03T12:00:00Z';
+    business_report_assert_archive_metric_schema($dstMetrics);
+    report_check("definition v3 accepts the exact {$name}", true);
+}
+$v3BadSpringMetrics = $v3ReadableMetrics;
+$v3BadSpringMetrics['period'] = [
+    'start_utc' => '2026-03-02T08:00:00Z',
+    'end_utc_exclusive' => '2026-03-09T08:00:00Z',
+    'schedule_timezone' => 'America/Los_Angeles',
+];
+$v3BadSpringMetrics['generated_at'] = '2026-03-10T12:00:00Z';
+report_throws(
+    'definition v3 refuses a fixed 168-hour spring period that ends at 1 AM local',
+    BusinessReportConflictException::class,
+    fn() => business_report_assert_archive_metric_schema($v3BadSpringMetrics),
+    'metric schema',
+);
+$v3BadFallMetrics = $v3ReadableMetrics;
+$v3BadFallMetrics['period'] = [
+    'start_utc' => '2026-10-26T07:00:00Z',
+    'end_utc_exclusive' => '2026-11-02T07:00:00Z',
+    'schedule_timezone' => 'America/Los_Angeles',
+];
+$v3BadFallMetrics['generated_at'] = '2026-11-03T12:00:00Z';
+report_throws(
+    'definition v3 refuses a fixed 168-hour fall period that ends Sunday local',
+    BusinessReportConflictException::class,
+    fn() => business_report_assert_archive_metric_schema($v3BadFallMetrics),
+    'metric schema',
+);
+$v3CatchUpMetrics = $v3ReadableMetrics;
+$v3CatchUpMetrics['generated_at'] = '2026-09-05T03:27:01Z';
+report_check(
+    'definition v3 labels an older oldest-missing period as catch-up instead of calling it current',
+    str_contains(
+        business_report_text($v3CatchUpMetrics),
+        'This is a catch-up report for a fully completed Monday-through-Sunday week.',
+    ),
+);
+$v3QuietMetrics = $v3ReadableMetrics;
+$v3QuietMetrics['tickets'] = [
+    'opened' => 0,
+    'resolved' => 0,
+    'merged_histories_excluded_from_response_metrics' => 0,
+];
+$v3QuietMetrics['first_response'] = ['answered' => 0, 'average_minutes' => null];
+$v3QuietMetrics['service_goal'] = [
+    'eligible_versioned' => 0,
+    'legacy_unversioned_excluded' => 0,
+    'decided' => 0,
+    'met' => 0,
+    'attainment_percent' => null,
+    'undecided' => 0,
+];
+report_check(
+    'definition v3 says plainly when the weekly response results need no follow-up',
+    str_contains(
+        business_report_text($v3QuietMetrics),
+        "- No first-response follow-up is needed from this week's results.",
+    ),
+);
+
+$v2Generated = business_report_generate(
+    $pdo,
+    'one',
+    'client-one-weekly-v2',
+    $v2Config,
+    $now,
+    false,
+    true,
+);
+$v2Archive = $pdo->query(
+    'SELECT * FROM business_report_archives WHERE id=' . (int) $v2Generated['archive']['id'],
+)->fetch(PDO::FETCH_ASSOC);
+report_check(
+    'definition v2 archives an adjusted period with immutable exact content',
+    is_array($v2Archive)
+        && $v2Generated['action'] === 'created'
+        && $v2Generated['metrics']['approved_billable_time']['minutes'] === 105
+        && business_report_archived_content($v2Archive)['metrics'] === $v2Generated['metrics'],
+);
+$invalidV2Metrics = $v2Generated['metrics'];
+$invalidV2Metrics['approved_billable_time']['net_adjustment_minutes'] = 999;
+$invalidV2Archive = $v2Archive;
+$invalidV2Archive['metrics_json'] = business_report_metrics_json($invalidV2Metrics);
+$invalidV2Archive['content_sha256'] = business_report_content_sha256_from_json(
+    $invalidV2Archive['metrics_json'],
+    (string) $invalidV2Archive['report_text'],
+);
+report_throws(
+    'archive reload refuses an internally inconsistent v2 correction summary',
+    BusinessReportConflictException::class,
+    fn() => business_report_archived_content($invalidV2Archive),
+    'v2 adjustment summary',
+);
+$canonicalV2Text = (string) $v2Archive['report_text'];
+$canonicalV2Hash = (string) $v2Archive['content_sha256'];
+$forgedV2Text = "Private adjustment reason: secret\nInvoice has been posted\n";
+$forgedV2Hash = business_report_content_sha256_from_json(
+    (string) $v2Archive['metrics_json'],
+    $forgedV2Text,
+);
+$forgeV2 = $pdo->prepare(
+    'UPDATE business_report_archives SET report_text=?,content_sha256=? WHERE id=?'
+);
+$forgeV2->execute([$forgedV2Text, $forgedV2Hash, (int) $v2Archive['id']]);
+$forgedV2TransportCalls = 0;
+$forgedV2Delivery = function () use (
+    $pdo,
+    $v2Archive,
+    $v2Config,
+    $now,
+    &$forgedV2TransportCalls,
+): array {
+    return business_report_deliver(
+        $pdo,
+        (int) $v2Archive['id'],
+        $v2Config,
+        function () use (&$forgedV2TransportCalls): array {
+            $forgedV2TransportCalls++;
+            return ['outcome' => 'submitted', 'provider_http' => 202, 'outcome_code' => 'graph_accepted'];
+        },
+        $now,
+    );
+};
+report_throws(
+    'self-hashed noncanonical v2 archive is refused before transport',
+    BusinessReportConflictException::class,
+    $forgedV2Delivery,
+    'not canonical',
+);
+report_check(
+    'noncanonical private and financial text never reaches transport',
+    $forgedV2TransportCalls === 0,
+);
+$forgeV2->execute([$canonicalV2Text, $canonicalV2Hash, (int) $v2Archive['id']]);
+
+$newlineMetrics = $v2Generated['metrics'];
+$newlineClientName = (string) $newlineMetrics['source']['client_name']
+    . "\nInvoice has been posted";
+$newlineMetrics['source']['client_name'] = $newlineClientName;
+$newlineText = str_replace(
+    'Client: ' . $v2Generated['metrics']['source']['client_name'],
+    'Client: ' . $newlineClientName,
+    $canonicalV2Text,
+);
+report_throws(
+    'renderer refuses newline-bearing metrics before producing report text',
+    BusinessReportConflictException::class,
+    fn() => business_report_text($newlineMetrics),
+    'metric schema',
+);
+$unknownAdjustmentMetrics = $v2Generated['metrics'];
+$unknownAdjustmentMetrics['approved_billable_time']['adjustment_reason'] =
+    'private correction reason';
+$unknownFinancialMetrics = $v2Generated['metrics'];
+$unknownFinancialMetrics['invoice_status'] = 'posted';
+$unknownFinancialMetrics['graph_client_secret'] = 'must never be archived';
+$typeConfusedMetrics = $v2Generated['metrics'];
+$typeConfusedMetrics['tickets']['resolved'] =
+    (string) $typeConfusedMetrics['tickets']['resolved'];
+$outOfRangeMetrics = $v2Generated['metrics'];
+$outOfRangeMetrics['tickets']['opened'] = BUSINESS_REPORT_ARCHIVE_MAX_COUNT + 1;
+$outOfRangeText = str_replace(
+    'Tickets opened: ' . $v2Generated['metrics']['tickets']['opened'],
+    'Tickets opened: ' . $outOfRangeMetrics['tickets']['opened'],
+    $canonicalV2Text,
+);
+$nonfiniteMetricsJsonCount = 0;
+$nonfiniteMetricsJson = preg_replace_callback(
+    '/("average_score_out_of_3":)(?:null|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/',
+    static fn(array $match): string => $match[1] . '1e309',
+    (string) $v2Archive['metrics_json'],
+    1,
+    $nonfiniteMetricsJsonCount,
+);
+if (!is_string($nonfiniteMetricsJson) || $nonfiniteMetricsJsonCount !== 1) {
+    throw new RuntimeException('Nonfinite archive fixture could not be built exactly.');
+}
+$nonfiniteText = preg_replace(
+    '/^CSAT average: .*$/m',
+    'CSAT average: INF / 3',
+    $canonicalV2Text,
+    1,
+);
+if (!is_string($nonfiniteText)) {
+    throw new RuntimeException('Nonfinite archive text fixture could not be built exactly.');
+}
+$formatControlMetrics = $v2Generated['metrics'];
+$formatControlClientName = (string) $formatControlMetrics['source']['client_name']
+    . "\u{202E}hidden";
+$formatControlMetrics['source']['client_name'] = $formatControlClientName;
+$formatControlText = str_replace(
+    'Client: ' . $v2Generated['metrics']['source']['client_name'],
+    'Client: ' . $formatControlClientName,
+    $canonicalV2Text,
+);
+$duplicateV2JsonCount = 0;
+$duplicateV2Json = preg_replace(
+    '/\A\{"schema_version":1,/',
+    '{"schema_version":1,"schema_version":1,',
+    (string) $v2Archive['metrics_json'],
+    1,
+    $duplicateV2JsonCount,
+);
+if (!is_string($duplicateV2Json) || $duplicateV2JsonCount !== 1) {
+    throw new RuntimeException('Duplicate v2 JSON fixture could not be built exactly.');
+}
+$hiddenRawV2Json = (string) $v2Archive['metrics_json'] . " \t\r\n";
+$reorderedTopLevelMetrics = $v2Generated['metrics'];
+$schemaVersionForReorder = $reorderedTopLevelMetrics['schema_version'];
+unset($reorderedTopLevelMetrics['schema_version']);
+$reorderedTopLevelMetrics['schema_version'] = $schemaVersionForReorder;
+$reorderedNestedMetrics = $v2Generated['metrics'];
+$tenantKeyForReorder = $reorderedNestedMetrics['source']['tenant_key'];
+unset($reorderedNestedMetrics['source']['tenant_key']);
+$reorderedNestedMetrics['source']['tenant_key'] = $tenantKeyForReorder;
+$adversarialV2Archives = [
+    'newline client text injection' => [
+        business_report_metrics_json($newlineMetrics),
+        $newlineText,
+    ],
+    'unknown nested adjustment_reason' => [
+        business_report_metrics_json($unknownAdjustmentMetrics),
+        $canonicalV2Text,
+    ],
+    'unknown secret and financial fields' => [
+        business_report_metrics_json($unknownFinancialMetrics),
+        $canonicalV2Text,
+    ],
+    'integer string type confusion' => [
+        business_report_metrics_json($typeConfusedMetrics),
+        $canonicalV2Text,
+    ],
+    'out-of-range integer' => [
+        business_report_metrics_json($outOfRangeMetrics),
+        $outOfRangeText,
+    ],
+    'nonfinite JSON number' => [
+        $nonfiniteMetricsJson,
+        $nonfiniteText,
+    ],
+    'Unicode display-direction control' => [
+        business_report_metrics_json($formatControlMetrics),
+        $formatControlText,
+    ],
+    'duplicate JSON member names' => [
+        $duplicateV2Json,
+        $canonicalV2Text,
+    ],
+    'hidden raw JSON whitespace bytes' => [
+        $hiddenRawV2Json,
+        $canonicalV2Text,
+    ],
+    'reordered top-level JSON members' => [
+        business_report_metrics_json($reorderedTopLevelMetrics),
+        $canonicalV2Text,
+    ],
+    'reordered nested JSON members' => [
+        business_report_metrics_json($reorderedNestedMetrics),
+        $canonicalV2Text,
+    ],
+];
+$forgeV2Metrics = $pdo->prepare(
+    'UPDATE business_report_archives
+        SET metrics_json=?,report_text=?,content_sha256=? WHERE id=?'
+);
+foreach ($adversarialV2Archives as $name => [$forgedMetricsJson, $forgedText]) {
+    $forgedHash = business_report_content_sha256_from_json($forgedMetricsJson, $forgedText);
+    $forgedArchive = $v2Archive;
+    $forgedArchive['metrics_json'] = $forgedMetricsJson;
+    $forgedArchive['report_text'] = $forgedText;
+    $forgedArchive['content_sha256'] = $forgedHash;
+    report_throws(
+        "archive reload refuses {$name}",
+        BusinessReportConflictException::class,
+        fn() => business_report_archived_content($forgedArchive),
+        'metric schema',
+    );
+
+    $forgeV2Metrics->execute([
+        $forgedMetricsJson,
+        $forgedText,
+        $forgedHash,
+        (int) $v2Archive['id'],
+    ]);
+    $schemaTransportCalls = 0;
+    $attemptsBeforeSchemaRefusal = (int) $pdo->query(
+        'SELECT COUNT(*) FROM business_report_delivery_attempts',
+    )->fetchColumn();
+    report_throws(
+        "delivery refuses {$name} before transport",
+        BusinessReportConflictException::class,
+        fn() => business_report_deliver(
+            $pdo,
+            (int) $v2Archive['id'],
+            $v2Config,
+            function () use (&$schemaTransportCalls): array {
+                $schemaTransportCalls++;
+                return [
+                    'outcome' => 'submitted',
+                    'provider_http' => 202,
+                    'outcome_code' => 'graph_accepted',
+                ];
+            },
+            $now,
+        ),
+        'metric schema',
+    );
+    report_check(
+        "{$name} makes zero transport or delivery-attempt calls",
+        $schemaTransportCalls === 0
+            && (int) $pdo->query(
+                'SELECT COUNT(*) FROM business_report_delivery_attempts',
+            )->fetchColumn() === $attemptsBeforeSchemaRefusal
+            && (string) $pdo->query(
+                'SELECT status FROM business_report_deliveries WHERE archive_id='
+                . (int) $v2Archive['id'],
+            )->fetchColumn() === 'pending',
+    );
+}
+$forgeV2Metrics->execute([
+    (string) $v2Archive['metrics_json'],
+    $canonicalV2Text,
+    $canonicalV2Hash,
+    (int) $v2Archive['id'],
+]);
+business_report_transition_schedule(
+    $pdo,
+    'one',
+    'client-one-weekly-v2',
+    (int) $enabledV2['schedule']['version_no'],
+    'disabled',
+    101,
+    'stop v2 fixture',
+);
 
 report_throws(
     'missing dedicated report sender is refused before the send boundary',
@@ -1541,6 +2719,197 @@ report_throws(
 );
 report_check('tampered archive made no transport call', $tamperCalls === 0);
 
+$markExpiredSendBoundary = static function (
+    array $archive,
+    string $token,
+) use ($pdo): int {
+    $deliveryId = (int) $pdo->query(
+        'SELECT id FROM business_report_deliveries WHERE archive_id=' . (int) $archive['id'],
+    )->fetchColumn();
+    $pdo->prepare(
+        "UPDATE business_report_deliveries
+            SET status='sending',lease_token_hash=?,lease_expires_at='2026-08-26 11:00:00',
+                last_attempt_at='2026-08-26 10:58:00'
+          WHERE id=?",
+    )->execute([hash('sha256', $token), $deliveryId]);
+    $pdo->prepare(
+        "INSERT INTO business_report_delivery_attempts
+            (tenant_id,delivery_id,attempt_key,provider,status,started_at)
+         VALUES (?,?,?,'microsoft_graph','started','2026-08-26 10:58:00')",
+    )->execute([1, $deliveryId, hash('sha256', $token . ':attempt')]);
+    return $deliveryId;
+};
+
+$legacyInvalidExpired = report_archive_fixture(
+    $pdo,
+    (int) $enabled['schedule']['id'],
+    'client-one-weekly',
+    '2026-05-18 00:00:00',
+);
+$legacyInvalidMetrics = json_decode(
+    (string) $legacyInvalidExpired['metrics_json'],
+    true,
+    512,
+    JSON_THROW_ON_ERROR,
+);
+$legacyInvalidMetrics['approved_billable_time']['legacy_private_field'] = 'old schema';
+$legacyInvalidJson = business_report_metrics_json($legacyInvalidMetrics);
+$legacyInvalidHash = business_report_content_sha256_from_json(
+    $legacyInvalidJson,
+    (string) $legacyInvalidExpired['report_text'],
+);
+$pdo->prepare(
+    'UPDATE business_report_archives SET metrics_json=?,content_sha256=? WHERE id=?',
+)->execute([
+    $legacyInvalidJson,
+    $legacyInvalidHash,
+    (int) $legacyInvalidExpired['id'],
+]);
+$legacyInvalidDeliveryId = $markExpiredSendBoundary(
+    $legacyInvalidExpired,
+    'legacy-invalid-expired',
+);
+$legacyInvalidRecoveryCalls = 0;
+$legacyInvalidRecovered = business_report_deliver(
+    $pdo,
+    (int) $legacyInvalidExpired['id'],
+    report_config(),
+    function () use (&$legacyInvalidRecoveryCalls): array {
+        $legacyInvalidRecoveryCalls++;
+        return [
+            'outcome' => 'submitted',
+            'provider_http' => 202,
+            'outcome_code' => 'graph_accepted',
+        ];
+    },
+    $now,
+);
+$legacyInvalidDelivery = $pdo->query(
+    'SELECT status FROM business_report_deliveries WHERE id=' . $legacyInvalidDeliveryId,
+)->fetchColumn();
+$legacyInvalidAttempt = $pdo->query(
+    'SELECT status,outcome_code FROM business_report_delivery_attempts WHERE delivery_id='
+    . $legacyInvalidDeliveryId,
+)->fetch(PDO::FETCH_ASSOC);
+report_check(
+    'expired crossed-boundary legacy-invalid archive becomes terminal uncertain',
+    $legacyInvalidRecovered['action'] === 'recovered_uncertain'
+        && $legacyInvalidRecoveryCalls === 0
+        && $legacyInvalidDelivery === 'uncertain'
+        && is_array($legacyInvalidAttempt)
+        && $legacyInvalidAttempt['status'] === 'uncertain'
+        && $legacyInvalidAttempt['outcome_code'] === 'lease_expired_after_send_boundary',
+);
+
+$unverifiableExpired = report_archive_fixture(
+    $pdo,
+    (int) $enabled['schedule']['id'],
+    'client-one-weekly',
+    '2026-05-11 00:00:00',
+);
+$pdo->prepare('UPDATE business_report_archives SET report_text=? WHERE id=?')->execute([
+    'unverifiable raw bytes',
+    (int) $unverifiableExpired['id'],
+]);
+$unverifiableDeliveryId = $markExpiredSendBoundary($unverifiableExpired, 'bad-hash-expired');
+$unverifiableCalls = 0;
+report_throws(
+    'expired crossed boundary with an unverifiable hash fails closed',
+    BusinessReportConflictException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        (int) $unverifiableExpired['id'],
+        report_config(),
+        function () use (&$unverifiableCalls): array {
+            $unverifiableCalls++;
+            return [
+                'outcome' => 'submitted',
+                'provider_http' => 202,
+                'outcome_code' => 'graph_accepted',
+            ];
+        },
+        $now,
+    ),
+    'hash',
+);
+report_check(
+    'unverifiable crossed boundary remains untouched with zero transport',
+    $unverifiableCalls === 0
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_deliveries WHERE id=' . $unverifiableDeliveryId,
+        )->fetchColumn() === 'sending'
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_delivery_attempts WHERE delivery_id='
+            . $unverifiableDeliveryId,
+        )->fetchColumn() === 'started',
+);
+$unverifiableCleanup = $pdo->query(
+    'SELECT * FROM business_report_deliveries WHERE id=' . $unverifiableDeliveryId,
+)->fetch(PDO::FETCH_ASSOC);
+if (is_array($unverifiableCleanup)) {
+    business_report_recover_expired_delivery($pdo, $unverifiableCleanup, gmdate('Y-m-d H:i:s', $now));
+}
+
+$wrongScopeExpired = report_archive_fixture(
+    $pdo,
+    (int) $enabled['schedule']['id'],
+    'client-one-weekly',
+    '2026-05-04 00:00:00',
+);
+$wrongScopeMetrics = json_decode(
+    (string) $wrongScopeExpired['metrics_json'],
+    true,
+    512,
+    JSON_THROW_ON_ERROR,
+);
+$wrongScopeMetrics['source']['client_key'] = 'safeharbor-client:12';
+$wrongScopeJson = business_report_metrics_json($wrongScopeMetrics);
+$wrongScopeHash = business_report_content_sha256_from_json(
+    $wrongScopeJson,
+    (string) $wrongScopeExpired['report_text'],
+);
+$pdo->prepare(
+    'UPDATE business_report_archives SET metrics_json=?,content_sha256=? WHERE id=?',
+)->execute([$wrongScopeJson, $wrongScopeHash, (int) $wrongScopeExpired['id']]);
+$wrongScopeDeliveryId = $markExpiredSendBoundary($wrongScopeExpired, 'wrong-scope-expired');
+$wrongScopeCalls = 0;
+report_throws(
+    'expired crossed boundary with unverifiable source scope fails closed',
+    BusinessReportConflictException::class,
+    fn() => business_report_deliver(
+        $pdo,
+        (int) $wrongScopeExpired['id'],
+        report_config(),
+        function () use (&$wrongScopeCalls): array {
+            $wrongScopeCalls++;
+            return [
+                'outcome' => 'submitted',
+                'provider_http' => 202,
+                'outcome_code' => 'graph_accepted',
+            ];
+        },
+        $now,
+    ),
+    'source',
+);
+report_check(
+    'wrong-scope crossed boundary remains untouched with zero transport',
+    $wrongScopeCalls === 0
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_deliveries WHERE id=' . $wrongScopeDeliveryId,
+        )->fetchColumn() === 'sending'
+        && (string) $pdo->query(
+            'SELECT status FROM business_report_delivery_attempts WHERE delivery_id='
+            . $wrongScopeDeliveryId,
+        )->fetchColumn() === 'started',
+);
+$wrongScopeCleanup = $pdo->query(
+    'SELECT * FROM business_report_deliveries WHERE id=' . $wrongScopeDeliveryId,
+)->fetch(PDO::FETCH_ASSOC);
+if (is_array($wrongScopeCleanup)) {
+    business_report_recover_expired_delivery($pdo, $wrongScopeCleanup, gmdate('Y-m-d H:i:s', $now));
+}
+
 $expired = report_archive_fixture($pdo, (int)$enabled['schedule']['id'], 'client-one-weekly', '2026-06-08 00:00:00');
 $expiredDelivery = $pdo->query(
     'SELECT * FROM business_report_deliveries WHERE archive_id=' . (int)$expired['id']
@@ -1685,12 +3054,180 @@ $source = file_get_contents(__DIR__ . '/../lib/business_reports.php') ?: '';
 foreach (['t.subject', 'm.body', 'time_entries.note', 'review_note', 'contacts ', 'attachments '] as $forbidden) {
     report_check("report query source excludes {$forbidden}", !str_contains($source, $forbidden));
 }
+$managerSource = file_get_contents(__DIR__ . '/../db/manage_business_reports.php') ?: '';
+report_check(
+    'operator publication requires an explicit supported definition version',
+    str_contains($managerSource, '--definition-version=1|2|3')
+        && str_contains(
+            $managerSource,
+            "report_cli_expect(\$options, ['tenant-slug', 'definition-version', 'actor-user-id', 'reason'])",
+        )
+        && str_contains($managerSource, "in_array(\$options['definition-version'], ['1', '2', '3'], true)"),
+);
+
+$planStart = strpos($source, 'function business_report_plan_customer_schedule_from_id(');
+$prepareStart = strpos($source, 'function business_report_prepare_schedule(');
+$planSource = is_int($planStart) && is_int($prepareStart) && $prepareStart > $planStart
+    ? substr($source, $planStart, $prepareStart - $planStart)
+    : '';
+report_check(
+    'managed-customer planning source contains no database mutation or delivery boundary',
+    $planSource !== ''
+        && preg_match('/\b(?:INSERT|UPDATE|DELETE|REPLACE)\b/i', $planSource) !== 1
+        && !str_contains($planSource, 'beginTransaction')
+        && !str_contains($planSource, '->commit(')
+        && !str_contains($planSource, '->rollBack(')
+        && !str_contains($planSource, 'business_report_prepare_')
+        && !str_contains($planSource, 'business_report_generate(')
+        && !str_contains($planSource, 'business_report_deliver(')
+        && !str_contains($planSource, 'mailer_')
+        && !str_contains($planSource, 'graph_'),
+);
 
 $cronSource = file_get_contents(__DIR__ . '/../cron/business_reports.php') ?: '';
 report_check(
     'scheduled runner refreshes its clock for enumeration and each operation',
     !str_contains($cronSource, '$now = time()')
         && substr_count($cronSource, 'time()') >= 4,
+);
+report_check(
+    'scheduled runner retains the database advisory lock',
+    str_contains($cronSource, "GET_LOCK('safeharbor_business_reports_v1', 0)")
+        && str_contains($cronSource, "RELEASE_LOCK('safeharbor_business_reports_v1')"),
+);
+report_check(
+    'scheduled runner distinguishes overlap from advisory-lock failure',
+    str_contains($cronSource, 'business_report_advisory_lock_state($lock)')
+        && str_contains($cronSource, "\$lockState === 'contended'")
+        && str_contains($cronSource, 'Business report advisory lock failed.')
+        && str_contains($cronSource, 'business_report_advisory_lock_release($released)')
+        && str_contains($cronSource, 'Business report advisory lock release failed.'),
+);
+
+$schedulerWrapper = file_get_contents(__DIR__ . '/../cron/run_business_reports.sh') ?: '';
+$schedulerTemplate = file_get_contents(__DIR__ . '/../../deploy/safeharbor-business-reports.cron') ?: '';
+$schedulerManager = file_get_contents(__DIR__ . '/../../deploy/manage-business-report-scheduler.sh') ?: '';
+$artifactHasher = file_get_contents(__DIR__ . '/../../deploy/hash-safeharbor-app-artifact.sh') ?: '';
+$deploySource = file_get_contents(__DIR__ . '/../../deploy/deploy.sh') ?: '';
+$remoteDeployer = file_get_contents(__DIR__ . '/../../deploy/remote-install-safeharbor-app.sh') ?: '';
+$schedulerBehaviorTest = file_get_contents(__DIR__ . '/business_report_scheduler_linux_test.sh') ?: '';
+report_check(
+    'scheduler template has one exact www-data wrapper invocation',
+    substr_count(
+        $schedulerTemplate,
+        '*/5 * * * * www-data /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh',
+    ) === 1
+        && !str_contains($schedulerTemplate, 'business_reports.php'),
+);
+report_check(
+    'scheduler wrapper pins runtime deployment metadata and holds the shared deploy lock',
+    str_contains($schedulerWrapper, "readonly EXPECTED_USER='www-data'")
+        && str_contains($schedulerWrapper, "readonly PHP_BIN='/usr/bin/php'")
+        && str_contains($schedulerWrapper, '[[ "$(/usr/bin/id -un)" == "$EXPECTED_USER" ]]')
+        && str_contains($schedulerWrapper, '[[ "$(pwd -P)" == "$APP_ROOT" ]]')
+        && str_contains($schedulerWrapper, "readonly DEPLOY_LOCK=\"\$DEPLOY_LOCK_DIR/business-reports-deploy.lock\"")
+        && str_contains($schedulerWrapper, '/usr/bin/flock --shared --nonblock 9')
+        && str_contains($schedulerWrapper, "require_metadata \"\$PROTECTED_CONFIG\" \"\$DEPLOY_OWNER\" www-data 640"),
+);
+report_check(
+    'scheduler wrapper preserves PHP failure status even when its final logger call fails',
+    str_contains($schedulerWrapper, 'mktemp /tmp/safeharbor-business-reports.')
+        && str_contains($schedulerWrapper, '"$PHP_BIN" "$REPORT_RUNNER" >"$report_output" 2>&1')
+        && str_contains($schedulerWrapper, '<"$report_output"')
+        && !str_contains($schedulerWrapper, '| "$LOGGER_BIN"')
+        && str_contains($schedulerWrapper, '--tag "$LOG_TAG" --priority user.notice')
+        && str_contains($schedulerWrapper, '--tag "$LOG_TAG" --priority user.err')
+        && str_contains($schedulerWrapper, 'unable to log runner status')
+        && str_contains($schedulerWrapper, 'If both sides fail, preserve that primary')
+        && str_contains($schedulerWrapper, 'exit "$php_status"'),
+);
+report_check(
+    'scheduler operations install disabled from a root-only full-artifact bundle',
+    str_contains($schedulerManager, 'readonly CRON_ACTIVE="$ROOT_PREFIX/etc/cron.d/safeharbor-business-reports"')
+        && str_contains($schedulerManager, 'readonly CRON_DISABLED="$ROOT_PREFIX/etc/cron.d/safeharbor-business-reports.disabled"')
+        && str_contains($schedulerManager, '/usr/bin/install -o root -g root -m 0644 -- "$CRON_SOURCE" "$CRON_DISABLED"')
+        && str_contains($schedulerManager, "verify_metadata \"\$SCRIPT_DIR\" root root 700")
+        && str_contains($schedulerManager, 'hasher_sha256,source_artifact_sha256,deployed_artifact_sha256,release_marker_sha256')
+        && str_contains($schedulerManager, 'safeharbor-business-report-scheduler-bundle-v2')
+        && str_contains($schedulerManager, "reviewed-cron-source-has-unexpected-line")
+        && str_contains($schedulerManager, "reviewed-cron-source-schedule-count-invalid"),
+);
+report_check(
+    'artifact hasher binds every deployed file and directory except protected config',
+    str_contains($artifactHasher, "! -path \"\$APP_ROOT/config/config.php\"")
+        && str_contains($artifactHasher, "printf 'D\\0%s\\0'")
+        && str_contains($artifactHasher, "printf 'F\\0%s\\0%s\\0'")
+        && str_contains($artifactHasher, '/usr/bin/sort -z')
+        && !str_contains($artifactHasher, 'cat "$APP_ROOT/config/config.php"'),
+);
+report_check(
+    'scheduler activation binds exact artifact config sender and canary tuple evidence',
+    str_contains($schedulerManager, "safeharbor-business-report-scheduler-activation-v2")
+        && str_contains($schedulerManager, "'reports@8westit.com'")
+        && str_contains($schedulerManager, 'protected_config_sha256')
+        && str_contains($schedulerManager, 'deployed_artifact_sha256')
+        && str_contains($schedulerManager, 'release_marker_sha256')
+        && str_contains($schedulerManager, 'bundle_manifest_sha256')
+        && str_contains($schedulerManager, '--activation-evidence')
+        && str_contains($schedulerManager, '--expect-tenant-slug')
+        && str_contains($schedulerManager, '--expect-client-id')
+        && str_contains($schedulerManager, '--expect-schedule-key')
+        && str_contains($schedulerManager, '--expect-recipient'),
+);
+report_check(
+    'scheduler operations verify exact content and remove only the disabled live-control file',
+    str_contains($schedulerManager, '/usr/bin/cmp -s -- "$CRON_SOURCE" "$target"')
+        && substr_count($schedulerManager, '/usr/bin/unlink -- "$CRON_DISABLED"') === 1
+        && !preg_match('/(?:^|[\s\/])rm(?:\s|$)/m', $schedulerManager)
+        && !str_contains($schedulerManager, '--recursive'),
+);
+report_check(
+    'scheduler emergency disable always quarantines active and activation evidence',
+    str_contains($schedulerManager, "quarantine_exact_path \"\$CRON_ACTIVE\" 'cron-active'")
+        && str_contains($schedulerManager, "quarantine_exact_path \"\$ACTIVATION_RECORD\" 'activation-record'")
+        && str_contains($schedulerManager, 'SCHEDULER_IN_FLIGHT=not-stopped-check-deploy-lock')
+        && str_contains($schedulerManager, 'deliberately does not kill or wait'),
+);
+report_check(
+    'scheduler operations hash but never parse print or execute protected config',
+    !str_contains($schedulerWrapper, 'source "$PROTECTED_CONFIG"')
+        && !str_contains($schedulerManager, 'source "$PROTECTED_CONFIG"')
+        && !str_contains($schedulerManager, '/usr/bin/php "$REPORT_RUNNER"')
+        && str_contains($schedulerManager, '/usr/bin/php -l "$REPORT_RUNNER"')
+        && str_contains($schedulerManager, 'config_hash="$(sha256_file "$PROTECTED_CONFIG")"')
+        && !str_contains($schedulerManager, '/usr/bin/curl')
+        && !str_contains($schedulerManager, '/usr/bin/wget')
+        && !str_contains($schedulerManager, '/usr/bin/mail')
+        && !str_contains($schedulerManager, '/usr/sbin/sendmail'),
+);
+report_check(
+    'normal application deploy is serialized and records a clean full artifact without activating cron',
+    str_contains($deploySource, 'remote-install-safeharbor-app.sh')
+        && str_contains($deploySource, 'require_clean_release')
+        && str_contains($deploySource, 'archive --format=tar "$RELEASE_SHA" app brand')
+        && str_contains($deploySource, '-C "$RELEASE_STAGING"')
+        && str_contains($deploySource, '--expect-source-artifact-sha256')
+        && str_contains($remoteDeployer, 'active-report-scheduler-present')
+        && str_contains($remoteDeployer, 'legacy-report-runner-in-flight')
+        && str_contains($remoteDeployer, '/usr/bin/flock --exclusive --nonblock 9')
+        && str_contains($remoteDeployer, 'staged-source-artifact-digest-mismatch')
+        && str_contains($remoteDeployer, 'source-artifact-digest-mismatch')
+        && str_contains($remoteDeployer, 'current-app-artifact.manifest')
+        && str_contains($remoteDeployer, 'SAFEHARBOR_DEPLOY=installed-under-exclusive-report-lock')
+        && !str_contains($deploySource, 'manage-business-report-scheduler.sh')
+        && !str_contains($remoteDeployer, '/usr/bin/install -o root -g root -m 0644 -- "$CRON_SOURCE"'),
+);
+report_check(
+    'CI executes Linux scheduler lifecycle artifact logger and deploy-quiescence tests',
+    str_contains($schedulerBehaviorTest, 'both-path emergency disable always removes active cron')
+        && str_contains($schedulerBehaviorTest, 'runtime-owned deployment file is rejected')
+        && str_contains($schedulerBehaviorTest, 'final logger failure preserves the PHP runner status')
+        && str_contains($schedulerBehaviorTest, 'simultaneous PHP and main logger failure preserves PHP status')
+        && str_contains($schedulerBehaviorTest, 'early-closing logger cannot contaminate PHP status')
+        && str_contains($schedulerBehaviorTest, 'mid-stream logger failure cannot contaminate PHP status')
+        && str_contains($schedulerBehaviorTest, 'preflight rejects loaded-library content drift')
+        && str_contains($schedulerBehaviorTest, 'old activation evidence cannot reactivate after locked deployment')
+        && str_contains($schedulerBehaviorTest, 'deploy refuses while a report run still holds the shared lock'),
 );
 
 $deleteTables = [];

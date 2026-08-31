@@ -61,7 +61,7 @@ function westy_chat_system_prompt(): string
          . 'minutes (with a billable toggle) — time captures itself. The right rail has Status (S), '
          . 'Priority (P), Assigned to (A — assigning a teammate emails them), the response-target lamp plus the exact captured policy version, Start timer '
          . '(E), and "Merge into another ticket" which folds this ticket\'s messages and files '
-         . 'into a survivor while immutable time keeps its original ticket, leaving a linked stub. A banner offers a one-click merge when the same '
+         . 'into another ticket for the SAME customer while immutable time keeps its original ticket, leaving a linked stub. Cross-customer merges are refused. A banner offers a one-click merge when the same '
          . 'contact opens a near-duplicate within 48 hours. '
          . 'SEARCH: the Ctrl+K palette fuzzy-finds open tickets, clients, and actions instantly, and for '
          . 'queries of 3+ characters it ALSO deep-searches every message body including resolved tickets '

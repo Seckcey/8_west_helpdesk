@@ -21,6 +21,7 @@ $CONFIG = require $configPath;
 require_once __DIR__ . '/service_goals.php';
 require_once __DIR__ . '/ticket_lifecycle.php';
 require_once __DIR__ . '/time_entries.php';
+require_once __DIR__ . '/time_entry_adjustments.php';
 
 if (($CONFIG['app_env'] ?? 'production') === 'dev') {
     error_reporting(E_ALL);

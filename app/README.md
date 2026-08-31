@@ -18,8 +18,9 @@ db/migrations/             numbered SQL migrations (010 versioned service
                            013 business reports, 014 guarded policy publication,
                            015 default-off Milepost customer sync, and 016 time
                            corrections/overlap guards, 017 ID report contact,
-                           and 018 ticket auto-close are applied; 019 client-
-                           scoped report contact is a release candidate)
+                           018 ticket auto-close, and 019 client-scoped report
+                           contact are applied; 020 append-only approved-time
+                           adjustments is a not-applied release candidate)
 db/manage_service_goals.php
                            operator-only inspect/plan/publish for one exact
                            tenant + Standard/Premium policy; reviewed digest
@@ -27,9 +28,10 @@ db/manage_service_goals.php
 db/manage_portal_client.php CLI prepare/inspect/enable/disable for one exact
                            identity tenant slug → provider tenant/client binding
 db/manage_business_reports.php
-                           owner/admin definition + schedule lifecycle; canonical
-                           prepare reads a versioned tenant or exact-client
-                           admin contact from 8 West ID but never echoes it
+                           owner/admin definition + schedule lifecycle; the
+                           customer plan performs no writes, while plan/prepare
+                           read a versioned tenant or exact-client admin contact
+                           from 8 West ID but never echo it
 db/run_business_report.php exact dry-run/generate/deliver for one pinned schedule
                            or archive; no batch or automatic retry
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
@@ -40,17 +42,25 @@ lib/service_goal_policy_admin.php
                            publication, exact-four target write, and tier RBAC
 lib/time_entries.php       single writer for idempotent pending time + guarded
                            owner/admin approval decisions
+lib/time_entry_adjustments.php
+                           append-only owner/admin correction slips for approved
+                           time; original approval facts remain immutable
 lib/coastmark_time_export.php
-                           default-off, operator-controlled export of one
-                           approved billable time fact to Coastmark drafts
+                           v2 dry-run inspector for one approved billable time
+                           fact; send is hard-retired pending receipt-aware v3
 lib/eightwestid/           blob-pinned reviewed 8 West ID oidc_v1 PHP client
 lib/portal_auth.php        separate <=8h OIDC session, exact client roles,
-                           bounded fail-closed revocation, active binding recheck
+                           bounded fail-closed revocation, active binding recheck,
+                           CSRF + one-use mutation nonces
 lib/portal_data.php        explicit binding lifecycle + tenant/client-bound,
-                           read-only ticket-summary queries
-lib/portal_render.php      independent dark customer chrome (no staff session)
-lib/business_reports.php   versioned weekly aggregates, oldest-period catch-up,
-                           immutable archive hashes, and one-attempt delivery truth
+                           ticket summaries, public conversation, create/reply,
+                           and verified weekly archive reads
+lib/portal_render.php      independent dark customer chrome, clear work groups,
+                           reply flow, and readable archives (no staff session)
+lib/business_reports.php   immutable v1 plus correction-aware v2 weekly aggregates,
+                           lock-captured adjustment cutoffs, canonical archive
+                           reload, oldest-period catch-up, exact hashes, and
+                           one-attempt delivery truth
 lib/id_report_contacts.php operator-only exact-host/HMAC 8 West ID contact
                            snapshot client with explicit tenant/client maps;
                            never loaded by cron or report runs
@@ -84,8 +94,8 @@ lib/suite_customer_sync.php
 lib/westy_report.php       Westy defects → 8 West IT's OWN queue (one ticket per
                            problem; stored text re-scrubbed on arrival)
 db/export_approved_time.php
-                           dry-run/send CLI requiring exact tenant + id + key;
-                           never supplies financial facts or posts an invoice
+                           v2 dry-run inspector requiring exact tenant + id +
+                           key; --send is a no-network retirement refusal
 lib/svc_support.php        Coastmark + Waypoint support requests → 8 West IT's
                            own queue (one ticket per submission; text stored
                            VERBATIM — deliberately none of westy_report's
@@ -99,10 +109,14 @@ tests/                     CLI contract + scratch-MySQL integration tests —
                            westy_report_test.php, svc_support_test.php,
                            intake_service_goal_test.php, time_entries_test.php,
                            time_entries_mysql_test.php,
+                           time_entry_adjustments_test.php,
+                           time_entry_adjustments_mysql_test.php,
                            service_goal_policy_admin_test.php,
                            service_goal_policy_mysql_test.php,
                            coastmark_time_export_test.php, portal_auth_test.php,
-                           portal_data_test.php, portal_mysql_test.php,
+                           portal_data_test.php, portal_ticket_workflow_test.php,
+                           portal_report_archive_test.php,
+                           portal_mysql_test.php,
                            business_reports_test.php,
                            business_reports_mysql_test.php,
                            id_report_contacts_test.php,
@@ -112,6 +126,9 @@ tests/                     CLI contract + scratch-MySQL integration tests —
 cron/mail_dispatch.php     1-min outbound sender (backoff retries)
 cron/business_reports.php  independently gated report generation + one-attempt
                            Graph submission; deliberately not mail_queue
+cron/run_business_reports.sh
+                           exact www-data/PHP/workdir wrapper with journal/syslog
+                           evidence; scheduler installation remains separate
 cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
 cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
@@ -130,8 +147,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   csat.php                 One-tap resolution survey (token-authed, public)
   attachment.php           Forced-download attachment serving
   login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
-  portal/                  Default-off customer OIDC surface: read-only ticket
-                           summaries + POST/CSRF logout; no detail or mutation API
+  portal/                  Default-off customer OIDC surface: tenant-scoped help
+                           dashboard, ticket create/detail/reply, verified
+                           weekly archives + safe logout
   api/ticket_action.php    Optimistic field updates (strict whitelists)
   api/timer.php            Idempotent pending timer/suggestion submission
   api/time_entry_review.php Owner/admin approve/reject transition
@@ -182,7 +200,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   and timer.
 - Collision detection: 20s presence heartbeats paint "viewing/typing…"
   chips in the ticket header (api/presence.php).
-- Merge: rail button or the duplicate banner (same contact, 48h) —
+- Merge: rail button or the duplicate banner (same contact, 48h) — only
+  tickets for the same customer may be merged. The two ticket rows are locked
+  and rechecked before any conversation is moved. Then
   messages/files move to the survivor and the source becomes a linked resolved
   stub (`merged_into_id`). Time remains on that source so its captured
   ticket/client provenance cannot change.
@@ -223,31 +243,43 @@ public/                    Apache docroot (page-per-file, like Milepost)
   through an explicit active CLI binding, and binds every ticket read to both
   provider tenant and client. See `docs/customer-portal-contract.md`; never
   infer a mapping from email/domain/name or enable a live business as a test.
-  Production has an explicit disabled portal block with the fixed issuer and
-  callback, empty client ID/secret, a private empty revocation-cache directory,
-  zero bindings/events, and no authenticated customer canary. The 8 West ID
-  prerequisite is deployed dark but has zero registered Safeharbor OIDC
-  clients. Every portal route, including GET and POST logout, remains
-  cookie-free 404 while disabled. This surface shows ticket summaries only; it
-  has no billing, ticket detail, mutation, or customer endpoint control.
+  `client_owner`, `client_admin`, and `client_staff` may open and reply to an
+  exact customer ticket; `client_viewer` remains read-only. Detail exposes only
+  customer and technician messages, never notes or system evidence. Every
+  mutation uses CSRF plus a one-use action nonce. Customers cannot resolve a
+  ticket, upload attachments, access billing, or control an endpoint. The live
+  Lifestyle canary still runs the Phase 5A summary-only source until this
+  stacked Phase 5B/usefulness source is reviewed, released, and accepted. The
+  stacked portal groups waiting/open/recent work and offers GET-only access to
+  canonical tenant/client-bound weekly archives; it exposes no individual
+  technician facts, recipients, delivery attempts, or financial status.
 - Business reports: independent versioned definitions and schedules produce
   exact weekly aggregate archives. Both generation and delivery default off;
   exact schedule/tenant/client/recipient allowlists and `canary_only` apply.
   A Graph 202 means provider-submitted, not recipient-delivered, and ambiguous
-  delivery is terminal without automatic retry. Production has migration 013,
-  one prepared 8 West IT definition/schedule canary, both execution gates off,
-  zero archives, deliveries, or attempts, and no server scheduler.
+  delivery is terminal without automatic retry. The controlled Lifestyle
+  archive 3 now has separate recipient-inbox confirmation, while archives 1 and
+  2 remain terminal `uncertain`. Both execution gates and every Lifestyle
+  schedule remain off. A default-off scheduler wrapper/template/manager and
+  deterministic complete-app hasher exist in source but are not installed.
+  Activation additionally requires the deploy-created immutable release marker
+  and exact deployed-artifact digest; the new dedicated report sender needs its
+  own canary and root-only artifact/config/tuple evidence before activation.
   See `docs/business-reports-contract.md`.
-- ID-backed report onboarding: `prepare-from-id`, historical
+- ID-backed report onboarding: no-write new-customer
+  `plan-customer-from-id`, `prepare-from-id`, historical
   `prepare-client-from-id`, and new-customer `prepare-customer-from-id` are the
   only network call sites and use a dedicated
-  default-off HMAC config. Migration 017 is live and stores
+  default-off HMAC config. Migrations 017 and 019 are live and store
   an immutable local-tenant/stable-ID binding plus append-only contact-version
   evidence in the same transaction as the disabled schedule. One redacted
-  8 West IT contact canary was stored; both contact gates are off. This path
-  cannot generate or send a report. Migration 019 is a not-applied release
-  candidate adding an independent exact-client binding/evidence lane and one
-  immutable manual/tenant-ID/client-ID scope per logical schedule. Inspect
+  8 West IT contact canary and the exact Lifestyle client binding/contact
+  snapshot were stored; both contact gates are off. This path cannot generate
+  or send a report. The plan command performs only bounded reads after the
+  authenticated contact lookup, prints digests rather than the address, and
+  requires the later prepare command to lock and recheck every fact. Migration
+  019 adds an independent exact-client binding/evidence lane and one immutable
+  manual/tenant-ID/client-ID scope per logical schedule. Inspect
   reports the exact pinned scope and latest inherited evidence even after
   enable/disable versions. ID-scoped activation and active/due reads fail closed
   unless the current recipient (and client for client scope) matches that latest
@@ -279,6 +311,9 @@ php app/tests/service_goal_policy_admin_test.php
 # destructive only in safeharbor_service_goal_test*: php app/tests/service_goal_policy_mysql_test.php
 php app/tests/portal_auth_test.php
 php app/tests/portal_data_test.php
+php app/tests/portal_ticket_workflow_test.php
+php app/tests/portal_report_archive_test.php
+node tools/shots/portal-contract.test.mjs
 # destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php
 php app/tests/business_reports_test.php
 # destructive only in safeharbor_report_test*: php app/tests/business_reports_mysql_test.php

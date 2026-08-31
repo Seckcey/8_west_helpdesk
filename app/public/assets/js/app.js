@@ -161,6 +161,23 @@
     return "correction:" + Date.now().toString(36) + ":" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   }
 
+  function newAdjustmentKey() {
+    const cryptoApi = window.crypto;
+    if (!cryptoApi || typeof cryptoApi.getRandomValues !== "function") return null;
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    // UUID v4 formatting, using only cryptographically random browser bytes.
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0"));
+    return "adjustment:" + [
+      hex.slice(0, 4).join(""),
+      hex.slice(4, 6).join(""),
+      hex.slice(6, 8).join(""),
+      hex.slice(8, 10).join(""),
+      hex.slice(10, 16).join(""),
+    ].join("-");
+  }
+
   function parseCorrectionUtc(value) {
     const text = typeof value === "string" ? value.trim() : "";
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(text)) return null;
@@ -986,36 +1003,222 @@
   });
 
   /* owner/admin review queue (time page) */
-  $$(".time-review").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const row = button.closest(".review-row");
-      if (!row) return;
-      const decision = button.dataset.decision;
-      let note = "";
-      if (decision === "rejected") {
-        const answer = prompt("Why is this time entry being rejected? The technician will see this note.");
-        if (answer === null) return;
-        note = answer.trim();
-        if (!note) { toast("A rejection note is required."); return; }
-      }
-      const controls = $$(".time-review", row);
-      controls.forEach((control) => { control.disabled = true; });
-      try {
-        const r = await api("/api/time_entry_review.php", {
-          entry_id: Number(row.dataset.timeEntryId),
-          decision,
-          note,
-        });
-        if (!r.ok) throw new Error("review rejected");
-        toast(r.toast || (decision === "approved" ? "Time approved." : "Time rejected."));
-        row.remove();
-        const queue = $("#time-review-queue");
-        if (queue && !$(".review-row", queue)) {
-          queue.innerHTML = '<div class="empty"><p>No technician time is waiting for review.</p></div>';
+  function reviewAckMatches(response, payload) {
+    const ack = response && response.review_ack && typeof response.review_ack === "object"
+      && !Array.isArray(response.review_ack)
+      ? response.review_ack
+      : null;
+    if (response?.ok !== true || !ack || typeof ack.replayed !== "boolean") return false;
+    if (!Number.isInteger(ack.entry_id) || ack.entry_id !== payload.entry_id) return false;
+    if (typeof ack.decision !== "string" || ack.decision !== payload.decision) return false;
+    if (typeof ack.note !== "string" || ack.note !== payload.note) return false;
+    return Number.isInteger(ack.reviewer_user_id)
+      && ack.reviewer_user_id === Number(timerUserId);
+  }
+
+  $$(".review-row").forEach((row) => {
+    const controls = $$(".time-review", row);
+    let frozenPayload = null;
+    controls.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const selectedDecision = String(button.dataset.decision || "");
+        if (frozenPayload && selectedDecision !== frozenPayload.decision) {
+          toast("Retry the same review decision, or refresh to reconcile it.");
+          return;
         }
-      } catch {
-        toast("Review was not saved — refresh and try again.");
-        controls.forEach((control) => { control.disabled = false; });
+
+        if (!frozenPayload) {
+          let note = "";
+          if (selectedDecision === "rejected") {
+            const answer = prompt("Why is this time entry being rejected? The technician will see this note.");
+            if (answer === null) return;
+            note = answer.trim();
+            if (!note) { toast("A rejection note is required."); return; }
+            if (Array.from(note).length > 500) {
+              toast("A rejection note cannot exceed 500 characters.");
+              return;
+            }
+          }
+          // Once sent, uncertain failures must replay these exact normalized
+          // facts. A different decision is unsafe until the server reconciles.
+          frozenPayload = Object.freeze({
+            entry_id: Number(row.dataset.timeEntryId),
+            decision: selectedDecision,
+            note,
+          });
+        }
+
+        controls.forEach((control) => { control.disabled = true; });
+        try {
+          const r = await api("/api/time_entry_review.php", frozenPayload);
+          if (!reviewAckMatches(r, frozenPayload)) {
+            throw new Error("Review acknowledgement did not match.");
+          }
+          toast(r.toast || (frozenPayload.decision === "approved" ? "Time approved." : "Time rejected."));
+          row.remove();
+          const queue = $("#time-review-queue");
+          if (queue && !$(".review-row", queue)) {
+            queue.innerHTML = '<div class="empty"><p>No technician time is waiting for review.</p></div>';
+          }
+        } catch (error) {
+          const status = error instanceof Error ? Number(error.status || 0) : 0;
+          if (status === 409) {
+            toast("Review state changed on the server — refreshing.");
+            setTimeout(() => location.reload(), 250);
+            return;
+          }
+          if (status === 400 || status === 422) {
+            const message = error instanceof Error && error.message
+              ? error.message
+              : "Review was not saved.";
+            frozenPayload = null;
+            controls.forEach((control) => { control.disabled = false; });
+            toast(message + " Review was not saved; edit and try again.");
+            return;
+          }
+          if (status === 401 || status === 403 || status === 404) {
+            const message = error instanceof Error && error.message
+              ? error.message
+              : "Review access or entry changed.";
+            toast(message + " Refreshing to reconcile.");
+            setTimeout(() => location.reload(), 250);
+            return;
+          }
+          toast("Review was not confirmed — retry the same decision, or refresh.");
+          controls.forEach((control) => {
+            control.disabled = control.dataset.decision !== frozenPayload.decision;
+          });
+        }
+      });
+    });
+  });
+
+  /* approved entries stay immutable; owner/admin changes append a version */
+  function adjustmentAckMatches(response, payload) {
+    const ack = response && response.adjustment_ack && typeof response.adjustment_ack === "object"
+      && !Array.isArray(response.adjustment_ack)
+      ? response.adjustment_ack
+      : null;
+    if (response?.ok !== true || !ack || typeof ack.replayed !== "boolean") return false;
+    if (typeof ack.adjustment_key !== "string" || ack.adjustment_key !== payload.adjustment_key) return false;
+    if (!Number.isInteger(ack.entry_id) || ack.entry_id !== payload.entry_id) return false;
+    if (!Number.isInteger(ack.version_no) || ack.version_no !== payload.expected_version + 1) return false;
+    if (!Number.isInteger(ack.effective_minutes) || ack.effective_minutes !== payload.effective_minutes) return false;
+    if (typeof ack.effective_billable !== "boolean"
+        || ack.effective_billable !== payload.effective_billable) return false;
+    if (!Number.isInteger(ack.adjusted_by_user_id)
+        || ack.adjusted_by_user_id !== Number(timerUserId)) return false;
+    if (typeof ack.reason !== "string" || ack.reason !== payload.reason) return false;
+    return true;
+  }
+
+  $$(".time-adjust").forEach((button) => {
+    let frozenPayload = null;
+    button.addEventListener("click", async () => {
+      if (!frozenPayload) {
+        const entryId = Number(button.dataset.entryId);
+        const originalMinutes = Number(button.dataset.originalMinutes);
+        const expectedVersion = Number(button.dataset.version);
+        const currentMinutes = Number(button.dataset.effectiveMinutes);
+        const originalBillable = button.dataset.originalBillable === "1";
+        const currentBillable = button.dataset.effectiveBillable === "1";
+        if (!Number.isInteger(entryId) || entryId < 1
+            || !Number.isInteger(originalMinutes) || originalMinutes < 1 || originalMinutes > 1440
+            || !Number.isInteger(expectedVersion) || expectedVersion < 0
+            || !Number.isInteger(currentMinutes) || currentMinutes < 0 || currentMinutes > originalMinutes) {
+          button.disabled = true;
+          toast("Approved-time evidence changed unexpectedly. Refresh to reconcile it.");
+          return;
+        }
+
+        const minutesAnswer = prompt(
+          "Effective minutes (0 voids this approval; extra time must use a new pending entry)",
+          String(currentMinutes)
+        );
+        if (minutesAnswer === null) return;
+        const normalizedMinutes = minutesAnswer.trim();
+        if (!/^(?:0|[1-9][0-9]*)$/.test(normalizedMinutes)) {
+          toast("Effective minutes must be a whole number from 0 through the original approval.");
+          return;
+        }
+        const effectiveMinutes = Number(normalizedMinutes);
+        if (!Number.isInteger(effectiveMinutes) || effectiveMinutes > originalMinutes) {
+          toast("An adjustment cannot add time. Log extra work as a new pending entry.");
+          return;
+        }
+
+        let effectiveBillable = false;
+        if (effectiveMinutes > 0 && originalBillable) {
+          const billingAnswer = prompt(
+            "Effective billing: type B for billable or I for internal",
+            currentBillable ? "B" : "I"
+          );
+          if (billingAnswer === null) return;
+          const billingChoice = billingAnswer.trim().toUpperCase();
+          if (billingChoice !== "B" && billingChoice !== "I") {
+            toast("Type B for billable or I for internal.");
+            return;
+          }
+          effectiveBillable = billingChoice === "B";
+        }
+
+        const reasonAnswer = prompt("Why is this approved value being adjusted?");
+        if (reasonAnswer === null) return;
+        const reason = reasonAnswer.trim();
+        if (!reason) {
+          toast("An adjustment reason is required.");
+          return;
+        }
+        if (Array.from(reason).length > 500) {
+          toast("An adjustment reason cannot exceed 500 characters.");
+          return;
+        }
+
+        const adjustmentKey = newAdjustmentKey();
+        if (!adjustmentKey) {
+          toast("This browser cannot safely create an adjustment key. Refresh or use a current browser.");
+          return;
+        }
+        frozenPayload = Object.freeze({
+          entry_id: entryId,
+          adjustment_key: adjustmentKey,
+          expected_version: expectedVersion,
+          effective_minutes: effectiveMinutes,
+          effective_billable: effectiveBillable,
+          reason,
+        });
+        // Freeze the exact cryptographic key, prior version, and effective
+        // facts before sending. A lost success can only retry this payload.
+        button.dataset.adjustmentPayload = JSON.stringify(frozenPayload);
+      }
+
+      button.disabled = true;
+      try {
+        const response = await api("/api/time_entry_adjustment.php", frozenPayload);
+        if (!adjustmentAckMatches(response, frozenPayload)) {
+          throw new Error("Adjustment acknowledgement did not match.");
+        }
+        toast(response.toast || "Approved time adjustment saved.");
+        setTimeout(() => location.reload(), 600);
+      } catch (error) {
+        const status = error instanceof Error ? Number(error.status || 0) : 0;
+        const message = error instanceof Error && error.message
+          ? error.message
+          : "Approved time adjustment was not saved.";
+        if (status === 400 || status === 422) {
+          frozenPayload = null;
+          button.dataset.adjustmentPayload = "";
+          button.disabled = false;
+          toast(message + " Original approval is unchanged; edit and try again.");
+          return;
+        }
+        if (status === 401 || status === 403 || status === 404 || status === 409) {
+          toast(message + " Refreshing to reconcile the approved entry.");
+          setTimeout(() => location.reload(), 250);
+          return;
+        }
+        button.disabled = false;
+        toast("Adjustment was not confirmed — retry this exact adjustment, or refresh.");
       }
     });
   });

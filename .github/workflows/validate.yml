@@ -9,6 +9,26 @@ permissions:
   contents: read
 
 jobs:
+  browser-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/shots/package-lock.json
+      - name: Install browser contract dependencies
+        working-directory: tools/shots
+        run: npm ci --ignore-scripts
+      - name: Install Chromium for browser contracts
+        working-directory: tools/shots
+        run: npx playwright install --with-deps chromium
+      - name: Test technician-time retry contracts in a real browser
+        run: node tools/shots/time-contract.test.mjs
+      - name: Test customer portal usefulness in a real browser
+        run: node tools/shots/portal-contract.test.mjs
+
   php:
     runs-on: ubuntu-latest
     services:
@@ -61,6 +81,8 @@ jobs:
         run: php app/tests/time_provenance_bridge_test.php
       - name: Test approval-grade technician time
         run: php app/tests/time_entries_test.php
+      - name: Test append-only approved-time adjustments
+        run: php app/tests/time_entry_adjustments_test.php
       - name: Test approval-grade time migration and database guards
         env:
           SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'
@@ -79,16 +101,50 @@ jobs:
           SAFEHARBOR_TIME_TEST_USER: root
           SAFEHARBOR_TIME_TEST_PASS: safeharbor-test-root
         run: php app/tests/time_corrections_mysql_test.php
+      - name: Test approved-time adjustment migration, guards, and version race
+        env:
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_DB: safeharbor_time_adjustment_test
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_PORT: 3306
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_USER: root
+          SAFEHARBOR_TIME_ADJUSTMENT_TEST_PASS: safeharbor-test-root
+        run: php app/tests/time_entry_adjustments_mysql_test.php
       - name: Test Coastmark approved-time export contract
         run: php app/tests/coastmark_time_export_test.php
+      - name: Test Coastmark v3 export migration, locking, and least privilege
+        env:
+          SAFEHARBOR_COASTMARK_V3_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_COASTMARK_V3_TEST_DB: safeharbor_coastmark_v3_test
+          SAFEHARBOR_COASTMARK_V3_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_COASTMARK_V3_TEST_PORT: 3306
+          SAFEHARBOR_COASTMARK_V3_TEST_USER: root
+          SAFEHARBOR_COASTMARK_V3_TEST_PASS: safeharbor-test-root
+        run: php app/tests/coastmark_time_export_mysql_test.php
       - name: Test customer portal authentication and revocation
         run: php app/tests/portal_auth_test.php
-      - name: Test customer portal read-only boundary and rendering
+      - name: Test customer portal boundary and rendering
         run: php app/tests/portal_data_test.php
+      - name: Test customer portal ticket workflow
+        run: php app/tests/portal_ticket_workflow_test.php
+      - name: Test customer portal weekly archive access
+        run: php app/tests/portal_report_archive_test.php
       - name: Test scheduled archived business reports
-        run: php app/tests/business_reports_test.php
+        run: |
+          bash -n app/cron/run_business_reports.sh
+          bash -n deploy/manage-business-report-scheduler.sh
+          bash -n deploy/hash-safeharbor-app-artifact.sh
+          bash -n deploy/remote-install-safeharbor-app.sh
+          bash -n deploy/deploy.sh
+          php app/tests/business_reports_test.php
+          sudo bash app/tests/business_report_scheduler_linux_test.sh
       - name: Test 8 West ID report-contact client contract
         run: php app/tests/id_report_contacts_test.php
+      - name: Test managed-customer activation contract
+        run: |
+          php app/tests/managed_customer_id_evidence_test.php
+          php app/tests/managed_customer_activation_test.php
+          php app/tests/managed_customer_lifecycle_test.php
       - name: Test Milepost customer-sync contract
         run: php app/tests/suite_customer_sync_test.php
       - name: Test signed Milepost alert intake handler
@@ -157,5 +213,23 @@ jobs:
           SAFEHARBOR_CUSTOMER_SYNC_TEST_USER: root
           SAFEHARBOR_CUSTOMER_SYNC_TEST_PASS: safeharbor-test-root
         run: php app/tests/suite_customer_sync_mysql_test.php
+      - name: Test managed-customer activation migration and worker race
+        env:
+          SAFEHARBOR_ACTIVATION_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_ACTIVATION_TEST_DB: safeharbor_activation_test
+          SAFEHARBOR_ACTIVATION_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_ACTIVATION_TEST_PORT: 3306
+          SAFEHARBOR_ACTIVATION_TEST_USER: root
+          SAFEHARBOR_ACTIVATION_TEST_PASS: safeharbor-test-root
+        run: php app/tests/managed_customer_activation_mysql_test.php
+      - name: Test managed-customer lifecycle migration, rollback, and worker race
+        env:
+          SAFEHARBOR_LIFECYCLE_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_LIFECYCLE_TEST_DB: safeharbor_lifecycle_test
+          SAFEHARBOR_LIFECYCLE_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_LIFECYCLE_TEST_PORT: 3306
+          SAFEHARBOR_LIFECYCLE_TEST_USER: root
+          SAFEHARBOR_LIFECYCLE_TEST_PASS: safeharbor-test-root
+        run: php app/tests/managed_customer_lifecycle_mysql_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php

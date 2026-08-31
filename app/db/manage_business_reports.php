@@ -59,6 +59,31 @@ function report_cli_emit_schedule(array $schedule, string $action): void
     echo 'RECIPIENT_SHA256=' . hash('sha256', (string)$schedule['recipient_email']) . "\n";
 }
 
+function report_cli_emit_customer_plan(array $plan): void
+{
+    $schedule = $plan['schedule'] ?? null;
+    if (!is_array($schedule)
+        || !is_string($plan['action'] ?? null)
+        || !is_string($plan['customer_id_sha256'] ?? null)
+        || !is_string($schedule['recipient_sha256'] ?? null)
+    ) {
+        throw new BusinessReportGateException('The customer report plan is invalid.');
+    }
+    echo 'ACTION=' . $plan['action'] . "\n";
+    echo 'SCHEDULE_ID=' . ($schedule['id'] === null ? 'NONE' : (int)$schedule['id']) . "\n";
+    echo 'SCHEDULE_KEY=' . (string)$schedule['schedule_key'] . "\n";
+    echo 'VERSION=' . (int)$schedule['version_no'] . "\n";
+    echo 'STATUS=' . (string)$schedule['status'] . "\n";
+    echo 'CLIENT_KEY=safeharbor-client:' . (int)$schedule['client_id'] . "\n";
+    echo 'DEFINITION_ID=' . (int)$schedule['definition_version_id'] . "\n";
+    echo 'CANARY=' . ((int)$schedule['canary'] === 1 ? '1' : '0') . "\n";
+    echo 'SCHEDULE_TIMEZONE=' . (string)$schedule['schedule_timezone'] . "\n";
+    echo 'DELIVERY_WEEKDAY=' . (int)$schedule['delivery_weekday'] . "\n";
+    echo 'DELIVERY_LOCAL_TIME=' . (string)$schedule['delivery_local_time'] . "\n";
+    echo 'CUSTOMER_ID_SHA256=' . $plan['customer_id_sha256'] . "\n";
+    echo 'RECIPIENT_SHA256=' . $schedule['recipient_sha256'] . "\n";
+}
+
 function report_cli_emit_id_contact(?array $evidence, string $scope): void
 {
     if (!in_array($scope, [
@@ -91,28 +116,35 @@ function report_cli_emit_id_contact(?array $evidence, string $scope): void
 
 $command = $argv[1] ?? '';
 $usage = "Usage:\n"
-    . "  php db/manage_business_reports.php publish-definition --tenant-slug=SLUG --actor-user-id=ID --reason=TEXT\n"
+    . "  php db/manage_business_reports.php publish-definition --tenant-slug=SLUG --definition-version=1|2|3 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --recipient-email=EMAIL --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare-client-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
+    . "  php db/manage_business_reports.php plan-customer-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php prepare-customer-from-id --tenant-slug=SLUG --schedule-key=KEY --client-id=ID --definition-id=ID --timezone=ZONE --delivery-weekday=1..7 --delivery-local-time=HH:MM:SS --canary=0|1 --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php enable|disable --tenant-slug=SLUG --schedule-key=KEY --expected-version=N --actor-user-id=ID --reason=TEXT\n"
     . "  php db/manage_business_reports.php inspect --tenant-slug=SLUG --schedule-key=KEY\n";
 
 try {
-    if (!in_array($command, ['publish-definition', 'prepare', 'prepare-from-id', 'prepare-client-from-id', 'prepare-customer-from-id', 'enable', 'disable', 'inspect'], true)) {
+    if (!in_array($command, ['publish-definition', 'prepare', 'prepare-from-id', 'prepare-client-from-id', 'plan-customer-from-id', 'prepare-customer-from-id', 'enable', 'disable', 'inspect'], true)) {
         throw new BusinessReportValidationException('Command is invalid.');
     }
     $options = report_cli_options(array_slice($argv, 2));
     $pdo = db();
 
     if ($command === 'publish-definition') {
-        report_cli_expect($options, ['tenant-slug', 'actor-user-id', 'reason']);
+        report_cli_expect($options, ['tenant-slug', 'definition-version', 'actor-user-id', 'reason']);
+        if (!in_array($options['definition-version'], ['1', '2', '3'], true)) {
+            throw new BusinessReportValidationException(
+                'Definition version must be exactly 1, 2, or 3.',
+            );
+        }
         $result = business_report_publish_definition(
             $pdo,
             $options['tenant-slug'],
             report_cli_positive_int($options['actor-user-id'], 'Actor user id'),
             $options['reason'],
+            (int) $options['definition-version'],
         );
         echo 'ACTION=' . $result['action'] . "\n";
         echo 'DEFINITION_ID=' . (int)$result['definition']['id'] . "\n";
@@ -221,6 +253,56 @@ try {
         );
         report_cli_emit_schedule($result['schedule'], $result['action']);
         report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
+        exit(0);
+    }
+
+    if ($command === 'plan-customer-from-id') {
+        report_cli_expect($options, [
+            'tenant-slug', 'schedule-key', 'client-id', 'definition-id',
+            'timezone', 'delivery-weekday', 'delivery-local-time',
+            'canary', 'actor-user-id', 'reason',
+        ]);
+        if (!in_array($options['canary'], ['0', '1'], true)) {
+            throw new BusinessReportValidationException('Canary must be exactly 0 or 1.');
+        }
+        $clientId = report_cli_positive_int($options['client-id'], 'Client id');
+        $definitionId = report_cli_positive_int($options['definition-id'], 'Definition id');
+        $actorUserId = report_cli_positive_int($options['actor-user-id'], 'Actor user id');
+        // Prove the local target before the only read-only network request,
+        // resolve one active stable UUID, then recheck it after the response.
+        // The plan function uses SELECT only; prepare later locks and rechecks.
+        business_report_schedule_target(
+            $pdo,
+            $options['tenant-slug'],
+            $clientId,
+            $definitionId,
+            $actorUserId,
+        );
+        $customerId = id_report_contact_active_customer_id(
+            $pdo,
+            $options['tenant-slug'],
+            $clientId,
+        );
+        $contact = id_report_contact_fetch_customer($customerId);
+        $result = business_report_plan_customer_schedule_from_id(
+            $pdo,
+            $options['tenant-slug'],
+            $options['schedule-key'],
+            $clientId,
+            $definitionId,
+            $customerId,
+            $contact,
+            $options['timezone'],
+            report_cli_positive_int($options['delivery-weekday'], 'Delivery weekday'),
+            $options['delivery-local-time'],
+            $options['canary'] === '1',
+            $actorUserId,
+            $options['reason'],
+        );
+        report_cli_emit_customer_plan($result);
+        report_cli_emit_id_contact($result['id_contact'], BUSINESS_REPORT_CONTACT_SCOPE_CLIENT);
+        echo "NO_DB_WRITE=1\n";
+        echo "NO_GRAPH_REQUEST=1\n";
         exit(0);
     }
 
