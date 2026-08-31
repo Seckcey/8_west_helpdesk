@@ -1,10 +1,10 @@
 # Customer Service Tools release manifest
 
-**Status:** reviewed, default-off release-candidate checklist. All four current
-candidate heads have green immutable-head CI and no open review P0/P1. Do not
-merge, migrate, configure, deploy, or run a canary from this document. A later
-dependency merge, rebase, or commit invalidates the affected row and requires
-fresh exact-head CI and review.
+**Status:** reviewed, default-off release checklist. All four feature inputs
+have merged with signed receipts, green post-merge CI, and no open review
+P0/P1. Do not migrate, configure, deploy, or run a canary from this document.
+A later default-branch commit invalidates the affected row and requires fresh
+exact-head CI and review.
 
 This document is the one cross-application checklist for the Customer Service
 Tools release. It does not contain secrets and it is not production
@@ -45,44 +45,46 @@ created on or after the boundary select version 2.
 
 ## Immutable release inputs
 
-Record all four candidate heads again immediately before any merge. A later
-commit invalidates the corresponding CI and review row.
+Record all four signed default-branch receipts again immediately before any
+migration or deployment. A later commit invalidates the corresponding CI and
+review row.
 
-| Application | Default branch and audited base | Candidate | Exact head | Exact CI | Review |
+| Application | Audited feature base | Reviewed feature input | Signed merged/current default | Exact post-merge CI | Review |
 |---|---|---|---|---|---|
-| Safeharbor | `main` at `7d4035d90e3ac5783ea47a68fd10ba2c7fdd4da7` | draft PR #94 | `044177007ba4d8a1a6db610ef7d68419057fecec` | run `33330270824` passed | GO, no P0/P1 |
-| Milepost | `main` at `a9321e824ee3a95b94540f06e0b64191e9c065b1` | draft PR #427 | `930abd4aa2240e8e0f09f845b6427270c33808ac` | run `33316156001` passed | GO, no P0/P1; refresh after any #428 integration |
-| 8 West ID | `master` at `28d54b6756433af86c87ae36f1e9f71db56a4f49` | integrated draft PR #88 | `613f7f2dd7e6bd31fb2d3530b7a3c5c87ad8da01` | run `33327718777` passed | GO, no P0/P1; refresh after any #86/#80 integration |
-| Coastmark 365 | `main` at `6f8bc25d207bd22e20ca064c0ded12f1a8108240` | draft PR #62 | `c288b5798394da7184370a04516e5f1e894cc6a0` | run `33330450457` passed | GO, no P0/P1 |
+| Safeharbor | `main` `7d4035d90e3ac5783ea47a68fd10ba2c7fdd4da7` | PR #94 head `044177007ba4d8a1a6db610ef7d68419057fecec` | `main` `6bc549a7e9fa8c6e1cb95e842711bf585f0c2187` | run `33446699510` passed | GO, no P0/P1; ordered parents and tree verified |
+| Milepost | `main` `9115c7d2bc6295b28f05da82688586abb01d9113` | PR #427 head `a42592bc9cbba5cc1946b62a46a14f3602d781d3` | `main` `949210df5bf0e15249de84e6ab0b4423443ef05b` | run `33447918441` passed | GO, no P0/P1; all ten primary jobs and `ci-gate` passed |
+| 8 West ID | `master` `cfebf1d19e61764a55b32cbb2d7054182a9ff1f0` | PR #88 head `bb356d75c50050d235baa92ab6ddca23497913a7` | `master` `46b24d13f835a3df863a871c48462be27075756b` | run `33446349650` passed | GO, no P0/P1; PHP migration/identity and Go lanes passed |
+| Coastmark 365 | `main` `6f8bc25d207bd22e20ca064c0ded12f1a8108240` | PR #62 head `c288b5798394da7184370a04516e5f1e894cc6a0`; boundary-fix PR #63 head `f45f0122002c584eb597fc284d5f0f3212249001` | `main` `3066d7e488174d0e1ce4c6fb770f1d11f00b4027` | run `33447775315` passed | both heads GO, no P0/P1; quality and PostgreSQL passed |
 
-The current 8 West ID PR #88 contains independently approved atomic head
-`aaefcc53bce56d8dfe4892c0810e9168c9cbb35a` and the customer feature stack
-ending at `e117c48e0ac5a5e77e7ec1c61aaee3a38bd5e690`. Green historical heads are
-not substitutes for the exact integrated row above.
+Coastmark PR #62 first merged as signed `main`
+`2fc4f547b1c3168c19a825c6664fb07976732c82`. Its post-merge run exposed a
+pre-existing deterministic August-31 SQLite boundary defect while PostgreSQL
+passed. The reviewed four-file PR #63 corrected only that boundary and produced
+the final Coastmark receipt above. Historical green heads are not substitutes
+for the exact signed default-branch rows.
 
-## Coordinated dependency order before release
+## Completed dependency reconciliation
 
-These are overlap rules, not merge authorization:
+These are recorded provenance, not migration or deployment authorization:
 
-1. In 8 West ID, standalone atomic-safety PR #86 must land before Milepost
-   launch-handoff PR #80. PR #88 must then rebase onto that exact `master`, drop
-   the already-landed #86 history, preserve its customer-service work, and
-   combine both reviewed policy changes in `app/lib/product_policy.php`.
-   The reviewed PR #80 input is exact head
-   `8816e928bc712d904f0920b83579f20eb3915cfa`; exact-head CI run
-   `33331158806` passed and independent review found no P0/P1. It supersedes
-   former head `31e9ca9a803cc502f6bd6bccd4002644dc939698`, which must not be used.
-   Recording this evidence does not authorize a merge or rebase.
-2. In Milepost, standalone identity repair PR #428 may land before the full
-   customer-service aggregate PR #427. PR #427 already contains component PR
-   #422; after #428, rebase #427, drop the three patch-ID twins, remove stale
-   release-vehicle wording, and preserve the customer-owned CI, config, and
-   documentation context.
+1. In 8 West ID, the standalone release-safety, launch-handoff, sign-in, and
+   physical-deploy prerequisites landed before the final customer-service
+   reconciliation. PR #88 was then rebuilt on exact `master`
+   `cfebf1d19e61764a55b32cbb2d7054182a9ff1f0`; all 34 customer-service patches
+   mapped exactly, duplicate historical safety history stayed out, and the
+   guarded Milepost launcher remained intact. The signed merge and post-merge
+   run are the ID row above.
+2. In Milepost, the standalone identity handoff and later closeout updates
+   landed before the final customer-service reconciliation. PR #427 was rebuilt
+   on exact `main` `9115c7d2bc6295b28f05da82688586abb01d9113`, dropped the three
+   patch-ID twins, preserved the customer-owned CI/config/docs context, and did
+   not restore the obsolete repair tooling or artifact. The signed merge and
+   post-merge run are the Milepost row above.
 3. Milepost PR #429 has no path or functional overlap and is not a Customer
    Service Tools release input.
 
-After either coordinated rebase, replace the affected table row with the new
-exact head, CI run, and independent review. Never release a superseded head.
+Never migrate or deploy a superseded feature head in place of the signed
+default-branch receipt recorded above.
 
 ## Read-only production database preflight
 
@@ -125,10 +127,11 @@ worker, sender, receiver, mapping, schedule, invitation, or report.
 
 ### 0. Freeze and prove the inputs
 
-1. Fetch each remote and verify the default branch still equals the audited
-   base or rebase/re-review the candidate.
-2. Require a clean checkout, exact candidate SHA, green CI for that SHA, and an
-   independent review with no open P0/P1.
+1. Fetch each remote and verify the default branch still equals its signed
+   merged/current receipt in the table above. Any advance requires refreshed
+   exact-head CI and review before this release continues.
+2. Require a clean checkout at that exact signed default-branch SHA, its green
+   post-merge CI, and an independent review with no open P0/P1.
 3. Verify the four repository remotes independently. Coastmark and Waypoint
    remain separate; Waypoint is not a release target.
 4. Archive exact source artifacts and checksums. Never release from an
@@ -179,8 +182,9 @@ application, and postflight evidence. Shared Apache is never stopped.
 
 1. Apply the managed-customer identity outbox migration through Milepost's
    protected migration mechanism and replay its verifier.
-2. Deploy exact PR #427 source with both delivery workers off and all customer
-   and tenant allowlists empty.
+2. Deploy signed Milepost `main`
+   `949210df5bf0e15249de84e6ab0b4423443ef05b` with both delivery workers off
+   and all customer and tenant allowlists empty.
 3. Confirm ordinary customer creation requires an admin. A technician must be
    unable to delete a managed customer or emit an inactive suite event.
 4. Confirm creating no customer produces no Safeharbor or ID network call while
