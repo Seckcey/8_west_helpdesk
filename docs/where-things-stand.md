@@ -1,15 +1,20 @@
 # Where things stand
 
-**Current default branch verified 2026-08-29:** `main` is exact PR #79 merge
-`7d4035d90e3ac5783ea47a68fd10ba2c7fdd4da7`. **Last focused production
-verification: 2026-08-29** for approved-time version 2, the scheduled
-Standard/Premium service-goal v2 policies, the Lifestyle report canaries, and
-portal activation was exact PR #72 merge
-`a42872be1f9cd76ebb0a3b2bad91c16f2c0bb0ff`; exact-main Validate run
-`33232316449` passed. Reverify the deployed commit before the next release.
-The broader 2026-08-09 inventory and the separately
-verified 2026-08-24 suite SSO history remain below; unrelated surfaces were not
-re-audited during this focused closeout.
+**Current default branch and production verified 2026-08-31:** both are exact
+`7ab6b3adbad6e19aafa3923f48021528bd6c8c63`; post-merge Validate run
+`33449326978` passed. Migrations 020–024 and the matching application release
+are installed. The controlled 8 West Lifestyle path proved automatic
+onboarding without a duplicate client, the useful portal, one approved-time
+transfer to Coastmark draft invoice 9, one immutable weekly report archive,
+and confirmed inbox delivery. Invoice 9 remains draft and unposted.
+
+The portal is intentionally enabled. The root-owned report runner is installed
+at `/etc/cron.d/safeharbor-business-reports`, runs every five minutes, and the
+Lifestyle Wednesday 9:00 AM Pacific schedule is active. Report generation and
+delivery are enabled for scheduled operation. Broad managed-customer workers,
+Safeharbor-to-Coastmark claim/send, and the Coastmark receiver/mapping are off
+after their controlled tests. Archive 4 / delivery attempt 4 is terminal and
+must never be retried.
 
 One page for anyone — human or agent — picking this repo up. It answers "is
 this thing actually on?" for every moving part, and every claim comes with the
@@ -33,21 +38,21 @@ If you change what is live, change this page in the same PR.
 | Westy thumbs up/down (`assets/js/westy.js`) | **Shipped 2026-08-09** — down files a ticket, up files nothing |
 | Partner support intake (`api/svc/support.php`) | **Live** since 2026-08-09, Coastmark and Waypoint both emitting |
 | 8 West ID suite SSO | **Live**; canonical first-tenant roles plus RS256 verification deployed through PR #34 |
-| Migrations 001–019 | **All applied** to production |
-| Versioned service goals | **Live with v2 scheduled**: v1 baseline through PR #37 / merge `1796f57`; guarded publication through PR #50 / merge `12abd36`; GET-only history through PR #65 / release `b02a7a6`. For tenant `8west`, Standard v2 and Premium v2 were published by actor 1 with Frankie's approved reason and become effective together at `2026-08-31 07:00:00Z` (Monday midnight Pacific). A read-only production recheck on 2026-08-29 returned both complete four-target versions. |
-| Approval-grade technician time | **Live** through base PR #40 / merge `b0a6760` and correction/overlap hardening PR #55 / merge `bb580a2`; migration 016 is applied, while the fresh signed-in 8 West IT correction canary remains open |
-| Append-only approved-time adjustment slips | **Development candidate only on `codex/time-approval-adjustments-20260829`; not merged, migrated, or deployed.** Owners/admins add numbered correction slips while original approvals remain immutable. Migration 020 is not applied. |
-| Approved time → Coastmark draft lines | **Version 2 is deployed dark; correction-safe version 3 is local review work only.** The live releases are Safeharbor PR #72 / merge `a42872b` and Coastmark PR #57 / merge `c3c553b`; both gates are off and production has zero mappings/imports/draft lines. This isolated branch adds durable Safeharbor claims/receipts, explicit status recovery, and chained correction/reversal facts. It is not pushed, merged, migrated, deployed, configured, or enabled. The permanent 8 West IT master UUID stays hard-blocked. |
+| Migrations 001–024 | **All applied** to production |
+| Versioned service goals | **Live on v2**: the 2026-08-31 boundary passed correctly. All older tickets kept their original promise; all three checked post-boundary tickets selected v2. Standard is 480/240/120/60 minutes and Premium is 240/120/60/30, with elapsed UTC time and no waiting pause or resolution target. |
+| Approval-grade technician time | **Live and canary-complete.** Frankie approved Lifestyle entry 10, preserving the required human approval boundary. |
+| Append-only approved-time adjustment slips | **Live through the aggregate release; migration 020 is applied.** Owners/admins add numbered correction slips while original approvals remain immutable. |
+| Approved time → Coastmark draft lines | **Correction-safe version 3 is installed and the one-time Lifestyle test passed.** Exactly one source-managed line reached Coastmark invoice 9, which remains draft, unsent, unposted, and unpaid. Replay was safe. Claim/send, receiver, and mapping execution are back off. The permanent 8 West IT master UUID remains hard-blocked. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Phase 4's Safeharbor-to-Coastmark v2 sender/receiver remain default-off; correction-safe v3 is source-only and both new claim/send gates default off. The portal is enabled only for the Lifestyle canary; basic authenticated access passed, but the deployed experience remains summary-only. Report generation/delivery are off; a default-off full-artifact-bound scheduler bundle now exists in source but is not installed. Existing service-intake gates remain live. |
-| Customer portal (Phase 5A live; useful portal source-only) | **Enabled only for the approved Lifestyle canary**: global config is on and binding id 1 maps the Lifestyle identity tenant to provider tenant 1/client 14. Canonical signed-out routing and a fresh authenticated Lifestyle session passed; `support.8westit.com/portal` is 404. Frankie rejected the deployed read-only summary experience as not useful. Draft PR #88 adds exact-scope create/detail/reply; the stacked `codex/customer-portal-usefulness-v2-20260830` source groups waiting/open/recent work, makes new help obvious, and opens only reverified tenant/client weekly archives from draft PR #89. Nothing in those draft layers is merged or deployed. Merged history remains fail-closed, staff merge refuses cross-customer tickets, and a Lifestyle data audit/reset remains a release gate. |
-| Scheduled archived business reports (Phase 6) | **Three controlled Lifestyle archives; all three schedules are stopped.** Attempts 1 and 2 are terminal `uncertain` and must never be retried. Attempt 3 returned Graph HTTP 202 / `graph_accepted`, and Frankie confirmed the exact archive-3 report reached the recipient inbox. Generation/delivery are off, `canary_only` is true, and the new default-off scheduler operations bundle is source-only, not installed. Separate source-only definitions v2 and v3 add correction-aware time and a plain-language completed-week report while keeping v1 archives immutable. None of those source-only additions is published or deployed. The new `reports@8westit.com` sender still needs its own canary. |
+| Anything "shipping dark" | Broad onboarding/lifecycle workers and Safeharbor-to-Coastmark claim/send remain off after their tests. The useful Lifestyle portal and recurring Lifestyle weekly report are intentionally on. Established service-intake gates remain live. |
+| Customer portal | **Useful portal live for the approved Lifestyle binding.** Fresh 8 West ID acceptance proved ticket groups, detail, reply, new request, archive access, and cross-client refusal. The portal remains intentionally enabled. |
+| Scheduled archived business reports (Phase 6) | **Live for the Lifestyle schedule.** Archive 4 rendered correctly and delivery attempt 4 was confirmed in Frankie's inbox. The root-owned runner is installed every five minutes; the managed schedule is active for Wednesday 9:00 AM Pacific. Attempt 4 is terminal and must never be retried. |
 | 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
 | Client-scoped 8 West ID report contacts | **Live through PR #68 / merge `7bf63ed` and migration 019**: client 14 has one exact 8 West ID binding and immutable contact snapshot. Both contact endpoints are back off after preparation; only the recipient digest is recorded. |
 | Lifestyle identity replacement | **Enabled safely**: replacement subject `t4u10` is active; predecessor `t4u7` is permanently inactive, revoked, and quarantined. Deployed Coastmark merge `c9f4409` fails closed on a fresh signed revocation feed before any SSO write/reactivation. |
-| Customer propagation | **Partly live, not suite-wide**: Milepost→Safeharbor and Milepost→Logbook receivers are live. Lifestyle still has a historical peer-tenant conflict to reconcile. Coastmark and Control Panel do not auto-provision Milepost customers. |
-| Managed-customer Safeharbor activation | **Source-only on `codex/managed-customer-activation-v2-20260830`; not merged, migrated, deployed, configured, or run.** The default-off worker atomically reconciles one exact non-master active Milepost binding into an ID-backed portal binding plus a canary v3 weekly schedule and immutable redacted receipt. Completed receipts are excluded from later candidate batches so every allowlisted customer advances. Its isolated ID schema-2 wire adapter pins a dependent producer contract that still requires final restack/review before this consumer can ship. Schema-1 behavior is unchanged. |
-| Managed-customer inactive containment | **Source-only on `codex/managed-customer-lifecycle-v1-20260830`; not merged, migrated, deployed, configured, or run.** Managed inactive state immediately closes portal/report access without deleting history. A default-off bounded worker physically disables only active portal/report surfaces and records immutable ownership evidence. A separate default-off restore gate accepts only fresh signed `restored` ID schema-2 evidence whose UUID, source version, and original Milepost event UUID match Safeharbor's exact current receipt. It reopens only unchanged surfaces owned by that containment, appends a fresh report contact/schedule snapshot, and preserves human holds. Migration 024 is not applied. |
+| Customer propagation | **Live for the controlled Lifestyle path:** Milepost → 8 West ID → Safeharbor completed without a duplicate client. Milepost→Logbook remains its separate existing directory channel. Coastmark and Control Panel do not auto-provision Milepost customers. |
+| Managed-customer Safeharbor activation | **Installed and canary-complete.** Lifestyle UUID `f22fc65c-70ca-439e-b703-f85c82da885d` binds to existing Safeharbor client 14, portal binding 1, and the managed report schedule. The broad worker is off after the canary. |
+| Managed-customer inactive containment | **Installed; migration 024 is applied.** The default-off lifecycle and restoration workers remain closed when not running an approved exact-customer operation. |
 
 ## Customer Service Tools development
 

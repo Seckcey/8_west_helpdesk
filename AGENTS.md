@@ -16,15 +16,18 @@ https://safeharbor.8westit.com**. Production credentials are not published;
 use an authorized 8 West ID or local account.
 Remaining before the v1.0 stamp: the Phase 1 dogfood gate (4 weeks on
 8 West's real desk, zero data loss, p95 < 300ms).
-The follow-on Customer Service Tools foundation is also in production:
-versioned service goals and approval-grade technician time are live, while the
-approved-time draft-line seam, read-only customer portal, and archived business
-reports are deployed dark behind explicit gates. Safeharbor owns all help-desk
-records and workflows; Milepost supplies tenant/asset/telemetry context only;
-Coastmark alone owns financial facts and may receive approved Safeharbor time
-as draft invoice lines only, never automatic posting; the current portal shows
-ticket summaries only and exposes no customer endpoint control. Verify the
-exact live/dark state in `docs/where-things-stand.md` before changing a gate.
+The Customer Service Tools release is also in production. Versioned service
+goals, approval-grade technician time, correction history, the useful customer
+portal, managed-customer activation/lifecycle, approved-time draft lines, and
+archived weekly reports are installed. The controlled 8 West Lifestyle tests
+passed, including inbox delivery and one Coastmark draft line. The portal and
+recurring Lifestyle report are intentionally on; broad onboarding and
+Coastmark transfer gates are off after their one-time tests. Safeharbor owns all
+help-desk records and workflows; Milepost supplies tenant/asset/telemetry
+context only; Coastmark alone owns financial facts. A transferred time entry
+can create only a draft invoice line, never automatic approval, posting,
+sending, payment, or ledger activity. Verify the exact state in
+`docs/where-things-stand.md` before changing a gate.
 
 **`svc.enabled` is already `true` in production** (verified 2026-08-08):
 Milepost's alert emitter shipped, and alert tickets have been arriving since

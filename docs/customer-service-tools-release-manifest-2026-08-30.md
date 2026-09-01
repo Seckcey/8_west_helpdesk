@@ -1,10 +1,14 @@
 # Customer Service Tools release manifest
 
-**Status:** reviewed, default-off release checklist. All four feature inputs
-have merged with signed receipts, green post-merge CI, and no open review
-P0/P1. Do not migrate, configure, deploy, or run a canary from this document.
-A later default-branch commit invalidates the affected row and requires fresh
-exact-head CI and review.
+**Status:** completed production release and controlled canary closeout. All
+four feature inputs merged with signed receipts and green post-merge CI. The
+matching applications and migrations were installed. The 8 West Lifestyle
+path proved onboarding, the useful portal, one draft-only Coastmark line, and
+one weekly report received in Frankie's inbox. Invoice 9 remains draft and
+unposted. Broad customer workers and the Coastmark transfer gates are off; the
+Lifestyle portal and recurring Wednesday 9:00 AM Pacific report are
+intentionally active. This document is a record, not authorization to rerun a
+canary or change a gate.
 
 This document is the one cross-application checklist for the Customer Service
 Tools release. It does not contain secrets and it is not production
