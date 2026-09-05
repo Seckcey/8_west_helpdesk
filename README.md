@@ -37,9 +37,10 @@ and the **8 West IT 365 Control Panel**. Four products, four
 > replies, and verified report archives. Its recurring Wednesday 9 AM Pacific
 > report is active; the September 2 scheduled run produced archive 5 and
 > Microsoft Graph accepted delivery. Provider acceptance does not prove inbox
-> receipt. The correction-safe Coastmark transfer produced one draft line in
-> the controlled test; its claim/send, receiver, and mapping gates were returned
-> off. Broad customer activation remains off. Safeharbor owns operational
+> receipt. The Lifestyle time-billing connection is enabled: staff send approved
+> time from the Time page and open its Coastmark draft through the existing ID
+> session. Reports retain exact minutes, including one-minute approvals.
+> Broad customer activation remains off. Safeharbor owns operational
 > facts; Coastmark owns prices and every later invoice decision. There is no
 > automatic invoice approval, sending, posting, charging, or ledger entry.
 > See [current status](docs/where-things-stand.md) and the

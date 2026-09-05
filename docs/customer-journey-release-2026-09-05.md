@@ -1,9 +1,10 @@
 # Safeharbor customer journey release — September 5, 2026
 
 Safeharbor's approved-time billing buttons, mobile suite navigation and Logbook
-knowledge source are live. The existing Lifestyle billing connection stays
-enabled for normal staff use, and its weekly report scheduler was restored at
-`2026-09-05T09:44:37Z`. This receipt records a release and connection restoration;
+knowledge source are live. Reports now retain exact approved minutes, including
+one-minute entries. The existing Lifestyle billing connection stays enabled for
+normal staff use, and its weekly report scheduler was restored at
+`2026-09-05T10:15:57Z`. This receipt records a release and connection restoration;
 it did not create a test invoice, send a new report email or exercise payments.
 
 ## Exact release and the packaging correction
@@ -11,12 +12,13 @@ it did not create a test invoice, send a new report email or exercise payments.
 | Evidence | Verified value |
 |---|---|
 | Application changes | [PR #100](https://github.com/Seckcey/8_west_helpdesk/pull/100), initial live source `5c6ca350e4e5f1dcc84d56204b09e9f127da48f6` |
-| Follow-up packaging correction | [PR #101](https://github.com/Seckcey/8_west_helpdesk/pull/101), current live source `dbdb92a6a36a4820a0f6d77211f75d4ffc17d943` |
-| Exact-main validation | [Run 33958596962](https://github.com/Seckcey/8_west_helpdesk/actions/runs/33958596962), success; PHP and browser contracts passed |
+| Follow-up packaging correction | [PR #101](https://github.com/Seckcey/8_west_helpdesk/pull/101), previous live source `dbdb92a6a36a4820a0f6d77211f75d4ffc17d943` |
+| Exact-minute Reports correction | [PR #103](https://github.com/Seckcey/8_west_helpdesk/pull/103), current live source `e8f9a812d53e30cf150eb1615d58be8b2756dd64` |
+| Exact-main validation | [Run 33960009702](https://github.com/Seckcey/8_west_helpdesk/actions/runs/33960009702), success; PHP and browser contracts passed |
 | Deployed application | `/srv/8west/apps/safeharbor/current` on the established Milepost EC2 host |
-| Source artifact SHA-256 | `d9e53bdd1781b7005c2ccee9d6fd50d6cd9fa53b7fdff7558befcaf5c0df08c4` |
-| Deployed artifact SHA-256 | `2029d5615050ffd8809d5ea8ca84ec2cd71167ea70ca5d761f4db9cc3075401e` |
-| Immutable release marker SHA-256 | `14405e29ffa0003a8fb0458ca5d0f3f29e17fc2d0b391058b029632f6c0d419d` |
+| Source artifact SHA-256 | `facb605aafa604cc678cf92375027f5792a632d894700b495858b13ba452ecca` |
+| Deployed artifact SHA-256 | `74ab2c282340d71e529e1d01538a641c49611e9f9c57d03efcb6bed3092c88d1` |
+| Immutable release marker SHA-256 | `2608b054959f578550f63aa3582bd0bdc395d4da2953d1fe4e7db635635a62ae` |
 | Protected config SHA-256 | `8ba44c0862a9f9183626961010e6429e8fef93a106952c6602a8e9f8a2c9463f` |
 | Public check after restoration | `https://safeharbor.8westit.com/login.php` returned HTTP 200 |
 
@@ -30,7 +32,8 @@ reproduced 151 CRLF wrapper lines and 10 CRLF cron-template lines in the old
 Windows archive; the corrected archive has zero and passes Linux Bash syntax.
 
 The current release was deployed from an isolated clean LF checkout through
-`deploy/deploy.sh`, with `core.autocrlf=false` scoped to that process. The live
+`deploy/deploy.sh`, with `core.autocrlf=false` and `core.eol=lf` scoped to that
+process, including Git archive. The live
 wrapper and PHP runner now exactly match the previously reviewed report code:
 
 - Wrapper SHA-256: `3df5c26b60bd81e64fbc5091fc2230ab68d7191cd9ec5d74179b6902656b14b3`.
@@ -43,6 +46,18 @@ database, protected config, prior release marker and prior scheduler evidence.
 The line-ending redeploy additionally preserved the immediately preceding
 config/marker in `/srv/8west/backups/safeharbor/20260905-scheduler-lf-redeploy`.
 These are protected operator backups; their contents are not public artifacts.
+
+The Reports follow-up took a fresh verified application/config/database and
+scheduler-evidence backup at
+`/srv/8west/backups/safeharbor/20260905T101253Z-pre-report-minutes` before the
+50-second scheduler pause. Only the Reports page and its existing tests differ
+under `app/` from the prior release. The actual query now aggregates and filters
+integer minutes, then uses the existing hours/minutes formatter. Local checks
+passed all 59 MySQL and 44 adjustment contract cases, including one/two-minute
+approvals, the latest complete reversal and excluded rows. A complete live
+application rehash matched the new marker; PHP lint, unchanged config and
+public login HTTP 200 were verified at 10:16 UTC. No migration or billing write
+was needed.
 
 ## Existing connections and practical use
 
@@ -81,20 +96,21 @@ real binding and agreement setup.
 
 ## Weekly reporting restoration
 
-The scheduler was stopped at approximately `09:19Z` for the application release
-and restored at `09:44:37Z`. The existing manager completed **preflight →
+The scheduler was initially stopped at approximately `09:19Z` for the application
+release and restored at `09:44:37Z`. For the Reports follow-up it was stopped at
+`10:15:07Z` and restored at `10:15:57Z`. The existing manager completed **preflight →
 install-disabled → verify disabled → enable exact existing tuple → verify
 active**. The `cron` service is active. No report command or canary delivery was
 invoked; the restored cron entry resumes normal scheduled operation.
 
 The reviewed controls live in
-`/root/safeharbor-report-scheduler-dbdb92a6a36a4820a0f6d77211f75d4ffc17d943`.
+`/root/safeharbor-report-scheduler-e8f9a812d53e30cf150eb1615d58be8b2756dd64`.
 Its bundle manifest SHA-256 is
-`63e61f60dc1671381c5f572d3c347c79d201b24cdebd295ba2dfcae9cf8f1cd7`.
+`e2e613674301b5cb511092be61791dd394982d86c429566b4d0a826b7f0c6573`.
 The new root-only activation evidence is in the corresponding
-`/root/safeharbor-report-scheduler-activation-dbdb92a6a36a4820a0f6d77211f75d4ffc17d943`
+`/root/safeharbor-report-scheduler-activation-e8f9a812d53e30cf150eb1615d58be8b2756dd64`
 directory, with SHA-256
-`3c0ccc75851665bb1b2110b96d1ada188ad7750a2f549acf061bb2f6819c4e2e`.
+`e6326188a4ea769d89f60ed7df1f74df4aed229cc64be21f55a1006eae9ff175`.
 
 The release/artifact/config binding and actual review time were refreshed.
 The sender, customer, recipient, schedule and original real delivery evidence
@@ -119,10 +135,18 @@ passed its Linux archive regression and both GitHub validation jobs. These
 isolated checks, signed production service verification and public HTTP checks
 are separate from fresh signed-in production acceptance. That acceptance
 confirmed the Time page showed entry 10, version 0 and the correct invoice link.
-It also exposed a separate Coastmark problem: a fresh app session reached
-Microsoft-only login instead of using the existing ID session and returning to
-invoice 9. Its login handoff fix is a separate follow-up; this Safeharbor receipt
-does not claim the complete app-to-app navigation already passed.
+It first exposed a separate Coastmark login handoff defect. After Coastmark's
+`7809988` correction, the same link used the existing ID session and opened
+Lifestyle draft invoice 9 in a fresh Coastmark session, with Safeharbor ticket
+434 shown as matched. This completed app-to-app acceptance without a separate
+login workaround or a financial action.
+
+Fresh production Reports acceptance also passed on the final `e8f9a812` release:
+the Lifestyle row displayed **1m** under **Effective approved billable time by
+client (30d)**. The seven-day technician section correctly stayed empty because
+the existing entry was dated August 29. The desktop screenshot was inspected
+and the browser console had no errors or warnings. No billing or report action
+was submitted during this check.
 
 If a release needs recovery, use the existing deployment and scheduler manager
 with the retained application/config/database backups and exact recorded

@@ -5,12 +5,17 @@ minutes or hours and minutes, matching the technician totals. A one-minute
 approval previously rounded to zero hours and disappeared from the 30-day list.
 The query still uses the latest correction and retains original time after a
 complete reversal. This display correction requires no migration or billing write.
+Fresh signed-in production acceptance on the final release showed Lifestyle's
+existing one-minute approval as **1m** in the 30-day client list. Its August 29
+entry correctly remains outside the seven-day technician view; the browser
+console was clear and no billing or report action was submitted.
 
 **Live release verified 2026-09-05 UTC:** Safeharbor runs
-`dbdb92a6a36a4820a0f6d77211f75d4ffc17d943`, including the staff billing and
+`e8f9a812d53e30cf150eb1615d58be8b2756dd64`, including the staff billing and
 mobile navigation release from PR #100 and the Linux artifact correction from
-PR #101. Exact-main Validate run `33958596962` passed. The deployed artifact is
-`2029d5615050ffd8809d5ea8ca84ec2cd71167ea70ca5d761f4db9cc3075401e`.
+PR #101 plus the exact-minute Reports correction in PR #103. Exact-main
+Validate run `33960009702` passed. The deployed artifact is
+`74ab2c282340d71e529e1d01538a641c49611e9f9c57d03efcb6bed3092c88d1`.
 See the [September 5 release receipt](customer-journey-release-2026-09-05.md)
 for the backup, deployment, connection and scheduler evidence.
 
@@ -29,16 +34,16 @@ The sidebar links to live suite apps and works as a menu on phones. Local
 PHP/MySQL and desktop/mobile browser checks passed. The read-only Logbook
 export is enabled for its registered service identity 6; it exposes only the
 configured tenant's explicitly linked customers and eligible resolved-ticket
-knowledge. Fresh signed-in production acceptance showed the correct entry 10 / version 0
-and **Open in Coastmark** link on the Time page. Opening that invoice from a
-fresh Coastmark app session exposed a separate login handoff bug: it reached
-Microsoft-only login despite an existing ID session. That Coastmark repair is
-a follow-up; a successful complete app-to-app handoff is not claimed here.
+knowledge. Fresh signed-in production acceptance showed the correct entry 10 /
+version 0 and **Open in Coastmark** link on the Time page. After Coastmark's
+separate `7809988` login correction, that link used the existing ID session and
+opened draft invoice 9 in a fresh Coastmark session. The draft showed the
+matched Safeharbor ticket 434; no financial action was submitted.
 
 The Lifestyle portal remains enabled. Its existing Wednesday 9:00 AM Pacific
-report schedule was restored at `09:44:37Z` after deploying the corrected Linux
-runner. The root-owned cron entry runs every five minutes and the application
-selects due schedules. Report settings, sender, recipient and scope are
+report schedule was restored at `10:15:57Z` after the Reports deployment,
+retaining the corrected Linux runner. The root-owned cron entry runs every five
+minutes and the application selects due schedules. Report settings, sender, recipient and scope are
 unchanged. The activation record binds the new release/config while retaining
 archive 4's actual September 1 Graph acceptance and human inbox confirmation;
 no new canary email was sent. Archive 4 / delivery attempt 4 remains terminal.
@@ -1085,8 +1090,8 @@ or checks must not be satisfied by inventing customer or financial facts.
 7. **Use the approved-time billing controls for normal work.** The existing
    Lifestyle connection is live. Approve time in Safeharbor, select **Send to
    billing**, then **Open in Coastmark** to review the draft and its price.
-   Signed-in Safeharbor rendering passed; the fresh-session Coastmark invoice
-   handoff needs the separately owned login redirect correction.
+   Signed-in Safeharbor rendering and the fresh-session Coastmark invoice
+   handoff both passed using the existing ID session.
    Invoice approval, sending, posting and payment remain deliberate Coastmark
    operations; this connection does not perform them automatically.
 8. **Customer creation is not yet broadly enabled across the suite.** The
