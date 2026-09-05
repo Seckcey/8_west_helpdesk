@@ -1,0 +1,3 @@
+# These files execute on Linux, including artifacts assembled on Windows.
+*.sh text eol=lf
+*.cron text eol=lf

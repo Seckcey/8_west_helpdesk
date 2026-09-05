@@ -117,6 +117,7 @@ echo "==> Linting PHP"
 find "$RELEASE_STAGING/app" -name "*.php" -print0 | xargs -0 -n1 php -l > /dev/null
 bash -n "$REMOTE_INSTALLER"
 bash -n "$ARTIFACT_HASHER"
+bash -n "$RELEASE_STAGING/app/cron/run_business_reports.sh"
 if find "$RELEASE_STAGING/app" -type l -print -quit | grep -q .; then
   printf 'Refusing an application artifact containing symlinks.\n' >&2
   exit 65
