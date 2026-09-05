@@ -102,6 +102,8 @@ jobs:
           php app/tests/suite_sso_test.php
       - name: Test central suite logout
         run: php app/tests/suite_logout_test.php
+      - name: Test read-only Logbook knowledge export
+        run: php app/tests/logbook_export_test.php
       - name: Test suite token algorithms
         run: php app/tests/suite_rs256_test.php
       - name: Test suite roles

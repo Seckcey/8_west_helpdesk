@@ -4,6 +4,15 @@
  * config.php is server-specific and is NEVER committed (see .gitignore).
  */
 return [
+    // Logbook's read-only solved-ticket export; dedicated key and existing svc identity.
+    // Register service 'logbook-export' under tenant_id; customer_ids are exact Milepost UUIDs.
+    'logbook_export' => [
+        'enabled' => false,
+        'secret' => '',
+        'tenant_id' => 0,
+        'suite_tenant_id' => 0,
+        'customer_ids' => [],
+    ],
     'db' => [
         'host'    => '127.0.0.1',
         'port'    => 3306,
