@@ -9,6 +9,22 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const page = document.body.dataset.active || "";
 
+  const navToggle = $("#mobile-nav-toggle");
+  if (navToggle) {
+    const setNavigation = open => {
+      document.body.classList.toggle("sidebar-open", open);
+      navToggle.setAttribute("aria-expanded", String(open));
+    };
+    navToggle.addEventListener("click", () => setNavigation(!document.body.classList.contains("sidebar-open")));
+    $$(".mobile-nav-close, .mobile-nav-backdrop, #suite-sidebar a").forEach(control =>
+      control.addEventListener("click", () => setNavigation(false)));
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && document.body.classList.contains("sidebar-open")) {
+        setNavigation(false); navToggle.focus();
+      }
+    });
+  }
+
   /* ------------------------------------------------------------------ */
   /* Theme (dark / light / system)                                       */
   /* ------------------------------------------------------------------ */
@@ -1224,6 +1240,30 @@
   });
 
   /* ------------------------------------------------------------------ */
+  /* The existing approved-time connection, operated from the Time page. */
+  $$(".time-billing").forEach(button => {
+    button.addEventListener("click", async () => {
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = button.dataset.billingAction === "status" ? "Checking…" : "Sending…";
+      try {
+        const result = await api("/api/time_entry_billing.php", {
+          entry_id: Number(button.dataset.entryId),
+          action: button.dataset.billingAction,
+        });
+        toast(result.toast || "Billing updated.");
+        location.reload();
+      } catch (error) {
+        toast(error.message || "Billing could not be confirmed. Refresh to check its status.");
+        button.textContent = originalLabel;
+        button.disabled = false;
+        // Reload after any failed request so an interrupted delivery offers status,
+        // rather than a second send based on the previous page state.
+        setTimeout(() => location.reload(), 1500);
+      }
+    });
+  });
+
   /* Composer (ticket page): reply/note tabs, / saved replies, time chip  */
   /* ------------------------------------------------------------------ */
   const composer = (() => {

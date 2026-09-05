@@ -75,6 +75,8 @@ function westy_chat_system_prompt(): string
          . 'under "Email Intake". Bounces and auto-replies are dropped automatically. '
          . 'CLIENTS: one page per client — open tickets, real avg first response, contacts, domain, SLA '
          . 'plan, Edit. TIME: running timer, one-click suggested entries, today\'s list, owner/admin review, '
+         . 'and Approved time & billing. An owner/admin uses Send to billing for a connected customer to create a Coastmark draft, '
+         . 'Check billing status for an unconfirmed delivery, and Open in Coastmark to review the invoice. These controls never send or charge the invoice. '
          . 'and Correct & resubmit on your rejected entries; corrections are new pending rows and never erase the rejection. REPORTS: open '
          . 'now, new/resolved this week, avg first response, response-target attainment, CSAT, open-ticket aging, '
          . 'time by tech, billable hours by client, and a Billable CSV (30d) export button. TEAM: '

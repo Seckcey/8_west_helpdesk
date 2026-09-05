@@ -127,7 +127,8 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
 <div class="shell">
-  <aside class="sidebar">
+  <aside class="sidebar" id="suite-sidebar">
+    <button type="button" class="mobile-nav-close" aria-label="Close navigation">Close menu ×</button>
     <a class="brand" href="/">
       <img src="/assets/brand/favicon.svg" alt="Safeharbor" class="brand-mark">
       <span class="brand-text">
@@ -146,10 +147,10 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
     </nav>
     <div class="suite-label">8 West Suite</div>
     <div class="suite">
-      <?php foreach (['Milepost', 'Coastmark'] as $name): ?>
-      <div class="suite-item" title="<?= $name ?> integration arrives in Phase 2">
-        <span class="suite-box"></span><span class="suite-name"><?= $name ?></span><span class="suite-tag">P2</span>
-      </div>
+      <?php foreach (['Milepost' => 'https://support.8westit.com/', 'Coastmark' => 'https://coastmark.8westit.com/auth/suite', 'All apps' => 'https://id.8westit.com/'] as $name => $url): ?>
+      <a class="suite-item suite-item-live" href="<?= h($url) ?>" target="_blank" rel="noopener">
+        <span class="suite-box"></span><span class="suite-name"><?= h($name) ?></span><span class="suite-tag" aria-hidden="true">↗</span>
+      </a>
       <?php endforeach; ?>
     </div>
     <div class="usermenu-wrap">
@@ -179,8 +180,10 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
       </button>
     </div>
   </aside>
+  <button type="button" class="mobile-nav-backdrop" aria-label="Close navigation" tabindex="-1"></button>
   <div class="main">
     <header class="topbar">
+      <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-controls="suite-sidebar" aria-expanded="false">☰ Menu</button>
       <button id="palette-trigger" class="search-trigger" type="button">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
         <span class="search-label">Search or command…</span>

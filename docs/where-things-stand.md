@@ -1,5 +1,15 @@
 # Where things stand
 
+**September 5 usability release:** owners/admins can now send an approved time
+entry to the existing Coastmark draft connection from **Time → Approved time &
+billing**, see the recorded version, open the invoice, and send subsequent
+adjustments. Interrupted deliveries offer **Check billing status**. This reuses
+the existing v3 exporter and dedicated database account; there is no migration,
+automatic billing run, invoice approval or payment. The sidebar now links to
+the live suite apps and becomes a usable menu on phones. Local PHP, MySQL and
+desktop/mobile browser checks passed. Production deployment and connection
+activation must be recorded below before treating these controls as live.
+
 **Production rechecked read-only 2026-09-05 UTC:** the immutable release marker
 is `7ab6b3adbad6e19aafa3923f48021528bd6c8c63`; key portal, time-export, and
 customer-activation hashes match that source. The later `0cfab321` default

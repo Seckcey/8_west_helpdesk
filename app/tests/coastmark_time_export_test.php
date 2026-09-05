@@ -750,4 +750,5 @@ export_check('operator CLI has one-entry claim/send/status only and no batch or 
     && !str_contains($cli, '--retry'));
 
 echo "Coastmark approved-time v3 export: {$checks} checks, {$failures} failures\n";
-exit($failures === 0 ? 0 : 1);
+passthru(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/coastmark_time_billing_test.php'), $billingExit);
+exit($failures === 0 && $billingExit === 0 ? 0 : 1);

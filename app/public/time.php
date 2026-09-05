@@ -6,6 +6,7 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/coastmark_time_billing.php';
 enforce_https();
 $user = require_login();
 $tenantId = (int)$user['tenant_id'];
@@ -170,6 +171,19 @@ if ($canReview) {
         if ($history !== []) {
             $approvedAdjustments[$entryId] = $history[array_key_last($history)];
         }
+    }
+}
+
+$billingConfig = (array)cfg('coastmark_time_export', []);
+$billingEntries = [];
+$billingUnavailable = false;
+if ($canReview && $approvedEntries !== []) {
+    try {
+        $billingDb = coastmark_time_export_database((array)cfg('db', []), $billingConfig);
+        $billingEntries = coastmark_time_billing_entries($billingDb, $tenantId, $approvedEntryIds);
+    } catch (Throwable $error) {
+        $billingUnavailable = true;
+        error_log('time billing display: ' . get_class($error));
     }
 }
 
@@ -382,7 +396,8 @@ page_top($user, 'Time', 'time');
   <?php endif; ?>
 
   <?php if ($canReview): ?>
-  <div class="rail-label">Approved evidence &amp; effective adjustments</div>
+  <div class="rail-label">Approved time &amp; billing</div>
+  <p class="page-note">Send reviewed time to a Coastmark draft here, then review its price and invoice in Coastmark.</p>
   <form class="card form-card" method="get" action="/time.php" id="approved-entry-lookup">
     <div class="form-grid">
       <label class="field">
@@ -418,6 +433,8 @@ page_top($user, 'Time', 'time');
           ? $originalBillable
           : (bool)$latestAdjustment['effective_billable'];
       $adjustmentVersion = $latestAdjustment === null ? 0 : (int)$latestAdjustment['version'];
+      $billingState = coastmark_time_billing_state($e, $billingEntries[(int)$e['id']] ?? null, $adjustmentVersion, $billingConfig);
+      if ($billingUnavailable) $billingState = ['label' => 'Billing connection unavailable', 'action' => null, 'button' => '', 'invoice_url' => null];
     ?>
     <div class="entry-row adjustment-row" data-time-entry-id="<?= (int)$e['id'] ?>">
       <span class="entry-min"><?= $originalMinutes ?>m</span>
@@ -474,7 +491,15 @@ page_top($user, 'Time', 'time');
       <span class="entry-badge <?= $effectiveBillable ? 'badge-billable' : '' ?>">
         <?= $effectiveBillable ? 'effective billable' : 'effective internal' ?>
       </span>
-      <div class="review-actions">
+      <div class="review-actions billing-actions">
+        <span class="entry-evidence" data-billing-label><?= h($billingState['label']) ?></span>
+        <?php if ($billingState['action'] !== null): ?>
+          <button type="button" class="btn-chip time-billing"
+            data-entry-id="<?= (int)$e['id'] ?>" data-billing-action="<?= h($billingState['action']) ?>"><?= h($billingState['button']) ?></button>
+        <?php endif; ?>
+        <?php if ($billingState['invoice_url'] !== null): ?>
+          <a class="btn-chip" href="<?= h($billingState['invoice_url']) ?>" target="_blank" rel="noopener">Open in Coastmark</a>
+        <?php endif; ?>
         <button type="button" class="btn-chip time-adjust"
           data-entry-id="<?= (int)$e['id'] ?>"
           data-original-minutes="<?= $originalMinutes ?>"
