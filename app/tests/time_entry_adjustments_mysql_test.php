@@ -664,6 +664,46 @@ try {
     adjustment_mysql_seed($pdo);
     adjustment_mysql_verify_structure($pdo, 'fresh schema', $schemaPath);
 
+    // Execute the real Reports query against small fixtures in this disposable
+    // database. Only table names change; all filtering and aggregation stay intact.
+    $reportSource = file_get_contents(__DIR__ . '/../public/reports.php');
+    if (!is_string($reportSource)
+        || preg_match('/\$bc = db\(\)->prepare\(\s*"([^"]+)"\s*\)/s', $reportSource, $reportSql) !== 1
+    ) throw new RuntimeException('Cannot locate client-time report query');
+    $pdo->exec('CREATE TABLE report_fixture_clients (id INT PRIMARY KEY, tenant_id INT, name VARCHAR(80))');
+    $pdo->exec('CREATE TABLE report_fixture_entries
+      (id INT PRIMARY KEY, tenant_id INT, client_id INT, minutes INT, billable INT,
+       approval_status VARCHAR(20), worked_at DATETIME)');
+    $pdo->exec('CREATE TABLE report_fixture_adjustments
+      (id INT PRIMARY KEY, tenant_id INT, time_entry_id INT, version_no INT,
+       effective_billable INT, effective_minutes INT)');
+    $pdo->exec("INSERT INTO report_fixture_clients VALUES (1,1,'One minute'),(2,1,'Two minutes'),
+      (3,1,'Reversed'),(4,1,'Excluded'),(5,2,'Other tenant')");
+    $pdo->exec("INSERT INTO report_fixture_entries VALUES
+      (1,1,1,1,1,'approved',UTC_TIMESTAMP()),(2,1,2,2,1,'approved',UTC_TIMESTAMP()),
+      (3,1,3,1,1,'approved',UTC_TIMESTAMP()),(4,1,4,60,1,'pending',UTC_TIMESTAMP()),
+      (5,1,4,60,0,'approved',UTC_TIMESTAMP()),(6,2,5,60,1,'approved',UTC_TIMESTAMP()),
+      (7,1,4,60,1,'approved',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 31 DAY))");
+    $pdo->exec('INSERT INTO report_fixture_adjustments VALUES (1,1,3,1,1,1),(2,1,3,2,0,0)');
+    $report = $pdo->prepare(strtr($reportSql[1], [
+        'time_entry_approval_adjustments' => 'report_fixture_adjustments',
+        'time_entries' => 'report_fixture_entries', 'clients' => 'report_fixture_clients',
+    ]));
+    $report->execute([1]);
+    $reportRows = $report->fetchAll();
+    adjustment_mysql_check('client report retains one and two approved minutes in descending order',
+        array_column($reportRows, 'name') === ['Two minutes', 'One minute', 'Reversed']
+        && (int) $reportRows[0]['min_total'] === 2
+        && (int) $reportRows[1]['min_total'] === 1);
+    adjustment_mysql_check('client report retains original time after its latest complete reversal',
+        count($reportRows) === 3 && (int) $reportRows[2]['min_total'] === 0
+        && (int) $reportRows[2]['original_min_total'] === 1
+        && (int) $reportRows[2]['adjusted_count'] === 1);
+    adjustment_mysql_check('client report excludes pending, internal, expired and other-tenant time',
+        !in_array('Excluded', array_column($reportRows, 'name'), true)
+        && !in_array('Other tenant', array_column($reportRows, 'name'), true));
+    $pdo->exec('DROP TABLE report_fixture_adjustments, report_fixture_entries, report_fixture_clients');
+
     // Manufacture one impossible legacy corruption only inside this disposable
     // fixture, then immediately restore every canonical trigger from schema.
     // Both the service and migration-020 trigger must still fail closed when

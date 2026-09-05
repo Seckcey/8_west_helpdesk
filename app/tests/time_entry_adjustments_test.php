@@ -448,8 +448,7 @@ adjustment_check(
     'live reports compare raw billable facts with latest effective totals',
     is_string($reportsPage)
         && substr_count($reportsPage, 'SUM(CASE WHEN e.billable = 1 THEN e.minutes ELSE 0 END)') === 2
-        && str_contains($reportsPage, 'HAVING min_total > 0 OR original_min_total > 0')
-        && str_contains($reportsPage, 'HAVING hours > 0 OR original_hours > 0')
+        && substr_count($reportsPage, 'HAVING min_total > 0 OR original_min_total > 0') === 2
         && substr_count($reportsPage, 'SELECT MAX(latest.version_no)') === 2,
 );
 adjustment_check(

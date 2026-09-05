@@ -2,7 +2,7 @@
 /**
  * Reports — the owner's honest weekly view. Every number is computed from
  * real rows (nothing hardcoded, ever): first response, response-target attainment,
- * aging, time by tech, billable hours by client, CSAT.
+ * aging, time by tech, billable time by client, CSAT.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
@@ -81,15 +81,16 @@ $tt = db()->prepare(
 $tt->execute([$tid]);
 $timeByTech = $tt->fetchAll();
 
-// Approved billable hours by captured client, 30d.
+// Approved billable time by captured client, 30d. Keep exact minutes so small
+// approved entries remain visible, using the same display as time by tech.
 $bc = db()->prepare(
     "SELECT c.id, c.name,
-            ROUND(SUM(CASE WHEN e.billable = 1 THEN e.minutes ELSE 0 END) / 60, 1) AS original_hours,
-            ROUND(SUM(CASE
+            SUM(CASE WHEN e.billable = 1 THEN e.minutes ELSE 0 END) AS original_min_total,
+            SUM(CASE
                   WHEN COALESCE(adjustment.effective_billable, e.billable) = 1
                   THEN COALESCE(adjustment.effective_minutes, e.minutes)
                   ELSE 0
-                END) / 60, 1) AS hours,
+                END) AS min_total,
             SUM(CASE WHEN adjustment.id IS NOT NULL AND e.billable = 1 THEN 1 ELSE 0 END) AS adjusted_count
        FROM time_entries e
        JOIN clients c ON c.id = e.client_id AND c.tenant_id = e.tenant_id
@@ -104,8 +105,8 @@ $bc = db()->prepare(
       WHERE e.tenant_id = ? AND e.approval_status = 'approved'
         AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)
       GROUP BY c.id
-      HAVING hours > 0 OR original_hours > 0
-      ORDER BY hours DESC"
+      HAVING min_total > 0 OR original_min_total > 0
+      ORDER BY min_total DESC"
 );
 $bc->execute([$tid]);
 $billByClient = $bc->fetchAll();
@@ -185,15 +186,15 @@ page_top($user, 'Reports', 'reports');
     </div>
 
     <div>
-      <div class="rail-label">Effective approved billable hours by client (30d)</div>
+      <div class="rail-label">Effective approved billable time by client (30d)</div>
       <div class="card rail-list">
         <?php if (!$billByClient): ?><div class="empty"><p>No approved billable time in the last 30 days.</p></div><?php endif; ?>
         <?php foreach ($billByClient as $b): ?>
         <div class="entry-row">
           <div class="entry-main"><div class="entry-note"><a class="link" href="/client.php?id=<?= (int)$b['id'] ?>"><?= h($b['name']) ?></a></div></div>
-          <span class="entry-min"><?= h((string)$b['hours']) ?>h</span>
+          <span class="entry-min"><?= $fmtMin((int)$b['min_total']) ?></span>
           <?php if ((int)$b['adjusted_count'] > 0): ?>
-            <span class="entry-badge">raw <?= h((string)$b['original_hours']) ?>h · <?= (int)$b['adjusted_count'] ?> corrected</span>
+            <span class="entry-badge">raw <?= $fmtMin((int)$b['original_min_total']) ?> · <?= (int)$b['adjusted_count'] ?> corrected</span>
           <?php endif; ?>
         </div>
         <?php endforeach; ?>
