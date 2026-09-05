@@ -1,5 +1,10 @@
 # Solved-ticket knowledge export to Logbook
 
+The September 5 release is live with the dedicated source enabled and service
+identity 6 registered. Its first scoped Logbook import found no eligible
+Safeharbor candidates; zero is a valid source result, not a failed connection.
+See the [release receipt](customer-journey-release-2026-09-05.md).
+
 `POST /api/svc/logbook_export.php` implements Logbook's existing schema-1
 `solved_tickets` importer. It reads tickets and messages only; it never creates
 knowledge, sends mail, changes a ticket or touches billing. Logbook makes the
@@ -35,7 +40,7 @@ ticket IDs; the final cursor is null. Missing source infrastructure is 503,
 invalid authentication is 401, invalid requests are 400 and the disabled route
 is 404. No source error is converted to an empty successful page.
 
-For the existing Lifestyle trial, coordinate the dedicated key and stable suite
+For an additional approved customer, coordinate the dedicated key and stable suite
 tenant with Logbook, use only the already-recorded customer binding, then enable
 the source and Logbook's matching allowlist together. Verify a quoted existing
 resolved ticket in Logbook and review the draft there. Do not create or send a
