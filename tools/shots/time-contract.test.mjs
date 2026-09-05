@@ -19,6 +19,9 @@ const OTHER_SCOPE_KEY = 'safeharbor.timer.v2.8:11';
 const PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Safeharbor time contract</title></head>
 <body data-active="time" data-tenant-id="7" data-user-id="11" data-csrf="test-csrf">
+  <button id="mobile-nav-toggle" aria-expanded="false">Menu</button>
+  <aside id="suite-sidebar"><button class="mobile-nav-close">Close navigation</button><a href="/time.php">Time</a></aside>
+  <button class="mobile-nav-backdrop">Close menu backdrop</button>
   <div id="toasts" aria-live="polite"></div>
   <div id="timer-widget"></div>
   <section id="timer-card">
@@ -53,6 +56,7 @@ const PAGE = `<!doctype html>
       <button class="time-adjust" type="button"
               data-entry-id="88" data-original-minutes="60" data-original-billable="1"
               data-effective-minutes="45" data-effective-billable="0" data-version="2">Adjust effective value</button>
+      <button class="time-billing" type="button" data-entry-id="88" data-billing-action="send">Send to billing</button>
     </div>
     <div class="adjustment-row" data-time-entry-id="89">
       <div class="adjustment-original">Original approval: 20m internal</div>
@@ -97,7 +101,8 @@ async function openPage({ timer, responder }) {
     if (url.pathname === '/api/timer.php'
         || url.pathname === '/api/time_entry_correction.php'
         || url.pathname === '/api/time_entry_review.php'
-        || url.pathname === '/api/time_entry_adjustment.php') {
+        || url.pathname === '/api/time_entry_adjustment.php'
+        || url.pathname === '/api/time_entry_billing.php') {
       return responder(route, url.pathname);
     }
     return route.fulfill({ status: 404, body: '' });
@@ -122,6 +127,42 @@ function adjustmentSuccess(body, overrides = {}) {
     },
   };
 }
+
+test('mobile navigation opens, closes and returns focus with Escape', async () => {
+  const session = await openPage({ responder: () => assert.fail('navigation must not call an API') });
+  try {
+    const { page } = session;
+    const menu = page.getByRole('button', { name: 'Menu', exact: true });
+    await menu.click();
+    assert.equal(await menu.getAttribute('aria-expanded'), 'true');
+    await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
+    assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+    await menu.click();
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+    assert.equal(await menu.evaluate(el => el === document.activeElement), true);
+    await menu.click();
+    await page.getByRole('button', { name: 'Close menu backdrop' }).click();
+    assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(session.errors, []);
+  } finally { await session.browser.close(); }
+});
+
+test('billing sends only the selected entry and reloads its acknowledged status', async () => {
+  const requests = [];
+  const session = await openPage({ responder: async (route, pathname) => {
+    assert.equal(pathname, '/api/time_entry_billing.php');
+    requests.push(route.request().postDataJSON());
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, label: 'In Coastmark · version 2' }) });
+  } });
+  try {
+    const navigation = session.page.waitForEvent('framenavigated');
+    await session.page.getByRole('button', { name: 'Send to billing', exact: true }).click();
+    await navigation;
+    assert.deepEqual(requests, [{ entry_id: 88, action: 'send' }]);
+    assert.deepEqual(session.errors, []);
+  } finally { await session.browser.close(); }
+});
 
 test('stopped timer survives failure and mismatched acknowledgement, then clears only on its exact key', async () => {
   const frozenTimer = {

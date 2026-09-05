@@ -114,6 +114,37 @@ time; do not republish v2 or rewrite older tickets while repeating the journey.
 
 ## 3. Transfer one approved entry to one draft
 
+### Normal staff workflow
+
+The September 5 release adds the existing billing connection to **Time →
+Approved time & billing**. After the customer connection is configured once,
+an owner/admin uses these controls:
+
+1. Review and approve the technician's time in Safeharbor.
+2. Select **Send to billing** on the approved entry. The source identity and
+   current approved version are loaded by the server.
+3. **In Coastmark · version N** confirms the recorded receipt. Select
+   **Open in Coastmark** to review the draft invoice and its price.
+4. After an adjustment, select **Send next adjustment** until the displayed
+   billing version matches the effective version. If an invoice is already
+   finalized, Coastmark records the correction for manual review.
+5. If a request is interrupted, select **Check billing status** to discover
+   its outcome before another send.
+
+There is no need to run a server command or change configuration for each
+entry. Configuration is a one-time operator setup for the exact existing
+customer/agreement mapping. Leave that approved connection enabled for normal
+use. **Customer billing connection needed** means the mapping is missing;
+**Billing connection is not enabled** means the operator configuration still
+needs activation. The master provider remains excluded from customer billing.
+
+The implementation sends time only to a draft or correction review. Prices,
+invoice approval, sending and payment stay in Coastmark. The CLI sequence below
+is retained for operator diagnosis and historical canary evidence; the temporary
+on/off test windows described there are not the normal staff workflow.
+
+### Existing operator contract and historical controlled test
+
 This path is separate from Coastmark's agreement/device-usage billing runs and
 from any subscription charged for use of the suite. Safeharbor supplies exact
 approved minutes and source identity; it supplies no rate, tax, payment terms,
