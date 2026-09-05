@@ -10,22 +10,29 @@ Milepost, and Coastmark retain their own repositories and ownership.
 ## Current operating state
 
 Safeharbor's immutable production marker names
-`dbdb92a6a36a4820a0f6d77211f75d4ffc17d943`. The September 5 release deployed
+`e8f9a812d53e30cf150eb1615d58be8b2756dd64`. The September 5 release deployed
 staff billing controls, mobile suite navigation and the read-only Logbook
 source; the follow-up corrected Windows archive line endings in the Linux
-report runner. Exact-main Validate run `33958596962` passed. The existing
+report runner. The latest correction retains exact approved minutes in Reports,
+so a one-minute entry stays visible. Exact-main Validate run `33960009702`
+passed. The existing
 Lifestyle time-billing connection is enabled for ordinary staff use, and its
-weekly report scheduler was restored at `09:44:37Z` with unchanged delivery
+weekly report scheduler was restored at `10:15:57Z` with unchanged delivery
 settings and original confirmed archive evidence. See the
 [release receipt](customer-journey-release-2026-09-05.md) for exact artifacts.
 
 At `09:34:49Z`, the new live helper and signed receiver status confirmed existing
 entry 10 / claim 1 as **In Coastmark · version 0**, invoice 9 / line 17. This
 read-only check created no claim or receipt and made no financial send. It is
-separate from fresh signed-in user acceptance: the Time page showed the correct
-version and invoice link, but following it into a fresh Coastmark app session
-reached Microsoft-only login despite the existing ID session. The Coastmark
-login handoff correction remains a separate follow-up at this checkpoint.
+separate from fresh signed-in user acceptance, which subsequently passed:
+the Time page showed the correct version and invoice link, and Coastmark's
+`7809988` login correction let that link use the existing ID session and open
+draft invoice 9 in a fresh app session. Its Safeharbor ticket 434 was matched.
+No invoice action or payment was submitted.
+Fresh signed-in Reports acceptance on the final release showed the existing
+Lifestyle approval as **1m** in the 30-day client list. The seven-day technician
+list correctly excludes its August 29 date. No report or billing action was
+submitted, and the browser console was clear.
 
 | Step | Existing evidence | Current scope |
 |---|---|---|
