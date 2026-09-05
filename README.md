@@ -31,21 +31,19 @@ and the **8 West IT 365 Control Panel**. Four products, four
 > card · Reports with real numbers + billable CSV · one-click CSAT · versioned
 > service-goal snapshots · approval-reviewed technician time.
 >
-> Customer Service Tools follow-on: service goals and approval-grade time are
-> live. Guarded later-version service-goal publication is deployed with no v2
-> policy published; real targets and their effective time remain an explicit
-> business decision. The operator-only approved-time seam to Coastmark draft
-> invoice lines,
-> the 8 West ID customer ticket-summary portal, and archived weekly business
-> reports are deployed dark behind explicit allowlists and canary gates.
-> Safeharbor owns the operational records; Milepost supplies context only;
-> Coastmark never auto-posts through this seam; and the current portal exposes
-> no billing, ticket detail, or endpoint control. The isolated Phase 5B source
-> adds customer create/detail/reply, and a stacked usefulness slice groups
-> waiting/open/recent work and opens only verified aggregate weekly archives.
-> Neither layer exposes billing details, internal notes, individual technician
-> facts, AI actions, or endpoint control; neither is merged or deployed. See
-> [docs/where-things-stand.md](docs/where-things-stand.md).
+> Customer Service Tools: service-goal v2, approval-grade time, correction
+> history, the useful customer portal, and archived weekly reports are live.
+> The approved Lifestyle portal supports ticket groups, detail, new requests,
+> replies, and verified report archives. Its recurring Wednesday 9 AM Pacific
+> report is active; the September 2 scheduled run produced archive 5 and
+> Microsoft Graph accepted delivery. Provider acceptance does not prove inbox
+> receipt. The correction-safe Coastmark transfer produced one draft line in
+> the controlled test; its claim/send, receiver, and mapping gates were returned
+> off. Broad customer activation remains off. Safeharbor owns operational
+> facts; Coastmark owns prices and every later invoice decision. There is no
+> automatic invoice approval, sending, posting, charging, or ledger entry.
+> See [current status](docs/where-things-stand.md) and the
+> [repeatable customer journey](docs/customer-journey-operations.md).
 
 ## What's here
 

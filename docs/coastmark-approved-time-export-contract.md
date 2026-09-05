@@ -1,12 +1,16 @@
 # Safeharbor approved time to Coastmark draft lines
 
-**Status:** version 2 is deployed dark and empty. The correction-safe version-3
-sender is a local, isolated development slice based on reviewed Safeharbor PR
-#84 head `6eba809d54c0e6f9cf647bbc0967ed7368fb8abc`. It has not been pushed,
-merged, migrated, deployed, enabled, mapped, or called in production.
-That stack is a hard merge-order dependency: land and revalidate PR #84 before
-the version-3 commit. Do not transplant only the version-3 files onto `main`,
-because correction claims depend on PR #84's append-only adjustment evidence.
+**Current status, rechecked 2026-09-05 UTC:** correction-safe version 3 is
+merged, migration 021 is installed, and the controlled Lifestyle transfer
+passed. Claim 1 / approved entry 10 has an accepted receipt for Coastmark
+event 1, invoice 9, line 17. The invoice remained draft in the release
+closeout. Both Safeharbor export gates and the Coastmark receiver/mapping
+returned off. See [current status](where-things-stand.md) and the
+[repeatable operator sequence](customer-journey-operations.md).
+
+The original version-3 stack depended on the append-only adjustment slice
+reviewed as PR #84. That dependency landed in the aggregate release; do not
+reapply its migration or transplant a former feature head over current main.
 
 This is the suite's only planned financial seam. Safeharbor owns approved time,
 correction history, export claims, and delivery receipts. Coastmark owns the
@@ -15,12 +19,12 @@ later financial decision. Safeharbor can request a **draft line only**. It can
 never approve, post, send, collect payment, create Checkout, create a credit,
 or write a journal or ledger entry.
 
-## Live version-2 boundary remains dark
+## Historical version-2 checkpoint
 
-Safeharbor version 2 is live at
+Before the version-3 release, Safeharbor version 2 was live at
 `a42872be1f9cd76ebb0a3b2bad91c16f2c0bb0ff`; Coastmark version 2 is live at
-`c3c553b437563dc7af00212215f532ee1518ba94`. Both global gates are false.
-Production has zero Coastmark mappings, imports, or Safeharbor source lines.
+`c3c553b437563dc7af00212215f532ee1518ba94`. Both global gates were false.
+That checkpoint had zero Coastmark mappings, imports, or Safeharbor source lines.
 The protected handshake prerequisites exist, but no time entry was approved or
 sent and no financial action occurred. The permanent 8 West IT master customer
 `4ebaeefa-b101-47f8-ac76-e49ab309d272` remains forbidden.
@@ -182,8 +186,8 @@ of these are true:
    including disposable MySQL and PostgreSQL fresh/upgrade/replay, locking/race,
    timeout-after-commit recovery, immutable evidence, reserved-master,
    signed-negative-line, and least-privilege tests.
-   Safeharbor PR #84 must land and be revalidated before its stacked version-3
-   commit is considered for merge.
+   The append-only adjustment prerequisite is already in the deployed aggregate;
+   future releases must preserve and revalidate it.
 2. Both repositories have reviewed migrations, verified backups/rollback
    evidence, protected configuration, and exact release authorization.
 3. The approved test-only 8 West Lifestyle rule is `$145.00/hour`, exact

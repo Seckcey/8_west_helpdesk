@@ -1,5 +1,23 @@
 # Safeharbor business-report contract
 
+**Current status, rechecked 2026-09-05 UTC:** the Lifestyle v3 managed schedule
+is active for Wednesday 9 AM Pacific. The guarded five-minute runner is
+installed, and generation/delivery are enabled with exact Lifestyle allowlists
+and `canary_only=true`. Archive 4 has recorded inbox confirmation; recurring
+archive 5 was generated September 2 at `16:00:02Z` and submitted to Graph at
+`16:00:03Z`. Inbox receipt for archive 5 is not independently verified. Earlier
+canary schedules and terminal attempts stay closed. See
+[current status](where-things-stand.md) and
+[customer journey operations](customer-journey-operations.md).
+
+## Historical pre-aggregate checkpoint
+
+The following dated evidence predates the completed aggregate release.
+Statements that definitions v2/v3 are source-only, the dedicated sender canary
+is unfinished, or no scheduler is installed are historical and are superseded
+by the current status above. They are not instructions to disable the active
+Lifestyle schedule or repeat a sent report.
+
 Status: Phase 6's base and tenant-scoped 8 West IT evidence remain live through
 the earlier releases described below. The client-scoped lane is now also live
 through Safeharbor PR #68 / exact merge
