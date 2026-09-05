@@ -1,6 +1,6 @@
 # Customer journey operations
 
-**Verified read-only: 2026-09-05 UTC.** This runbook describes the implemented
+**Updated after the 2026-09-05 release.** This runbook describes the live
 8 West Lifestyle path and how an operator repeats its bounded steps. It does
 not replace the cross-application release manifest or authorize a new customer,
 recipient, invitation, financial decision, or production configuration change.
@@ -10,20 +10,31 @@ Milepost, and Coastmark retain their own repositories and ownership.
 ## Current operating state
 
 Safeharbor's immutable production marker names
-`7ab6b3adbad6e19aafa3923f48021528bd6c8c63`. The portal home, approved-time
-export library, and managed-customer activation library hashes matched that
-GitHub release during this check. GitHub `main` at `0cfab321` differs by
-documentation only. No release, gate change, report generation, email send,
-invitation, ticket write, time claim, or Coastmark request was performed by
-this verification.
+`dbdb92a6a36a4820a0f6d77211f75d4ffc17d943`. The September 5 release deployed
+staff billing controls, mobile suite navigation and the read-only Logbook
+source; the follow-up corrected Windows archive line endings in the Linux
+report runner. Exact-main Validate run `33958596962` passed. The existing
+Lifestyle time-billing connection is enabled for ordinary staff use, and its
+weekly report scheduler was restored at `09:44:37Z` with unchanged delivery
+settings and original confirmed archive evidence. See the
+[release receipt](customer-journey-release-2026-09-05.md) for exact artifacts.
+
+At `09:34:49Z`, the new live helper and signed receiver status confirmed existing
+entry 10 / claim 1 as **In Coastmark · version 0**, invoice 9 / line 17. This
+read-only check created no claim or receipt and made no financial send. It is
+separate from fresh signed-in user acceptance: the Time page showed the correct
+version and invoice link, but following it into a fresh Coastmark app session
+reached Microsoft-only login despite the existing ID session. The Coastmark
+login handoff correction remains a separate follow-up at this checkpoint.
 
 | Step | Existing evidence | Current scope |
 |---|---|---|
 | Customer setup | Milepost customer UUID `f22fc65c-70ca-439e-b703-f85c82da885d` reaches the ID projection and existing Safeharbor client 14 without a duplicate | Provider tenant 1 / `8west`; broad activation worker and customer receipt intake are off |
 | Customer access | Active portal binding 1 maps ID tenant `8-west-lifestyle` to provider tenant 1 / client 14 | Portal enabled; ticket details, new requests, replies, and archives passed the recorded signed-in canary |
 | Support work | Versioned first-response promises, technician time, human approval, and append-only adjustment slips are installed | Normal Safeharbor permissions and exact client scope apply |
-| Draft billing | Claim 1 represents approved time entry 10, source version 0; its accepted receipt names Coastmark event 1, draft invoice 9, line 17 | Both Safeharbor export gates and the Coastmark receiver/mapping are off after the controlled test |
-| Weekly report | Managed schedule version 2 / row 17 is active for Wednesday 09:00 Pacific | Only the approved Lifestyle schedule; `canary_only=true` |
+| Draft billing | Claim 1 represents approved time entry 10, source version 0; its accepted receipt names Coastmark event 1, draft invoice 9, line 17 | Both Safeharbor export gates and the existing Coastmark receiver/mapping 3 are enabled; use the Time page controls |
+| Weekly report | Managed schedule version 2 / row 17 is active for Wednesday 09:00 Pacific; runner restored September 5 | Only the approved Lifestyle schedule; `canary_only=true` |
+| Knowledge source | Logbook schema-1 resolved-ticket export is enabled with service identity 6 | Only explicitly linked customers in the configured tenant; eligible technician text becomes a reviewable Logbook draft |
 | Scheduled delivery | Archive 5 covers August 24–31, generated `2026-09-02 16:00:02Z`, submitted `16:00:03Z` | Graph acceptance verified; inbox receipt for archive 5 was not independently verified |
 
 The active schedule key is
@@ -156,7 +167,8 @@ rate/tax/payment-term snapshot, and v3 receiver configuration. Reuse verified
 objects; do not recreate the customer, agreement, or mapping from an old test
 description. Existing invoice 9 is evidence, not permission to change it.
 
-The read-only September 5 Coastmark lookup followed only the existing exact
+The early September 5 Coastmark lookup, before the later connection activation,
+followed only the existing exact
 `source_tenant_key=8west` plus Lifestyle `source_client_key`, then joined the
 mapping's organization/client foreign keys. It found mapping 3, organization
 1 (`8west`), Coastmark client 7, agreement 1, and time agreement line 1. The
@@ -167,7 +179,9 @@ price line. An explicit device-customer link must be owned by Coastmark and
 must refuse overwriting another external identity. Do not infer it from names
 or copy a Safeharbor local client ID into Coastmark.
 
-For an operation already authorized to create a draft, the bounded sequence is:
+The following sequence records the earlier controlled rollout. The September 5
+release leaves the reviewed Lifestyle connection enabled; do not repeat its
+configuration windows for each entry. For historical comparison, that sequence was:
 
 1. Verify the permanent Lifestyle UUID is the only export client key and the
    master UUID remains refused. Retain the dedicated least-privilege export
@@ -233,10 +247,17 @@ adjustments 44, portal authentication 73, portal data 44, portal ticket workflow
 tests use isolated fixtures; this run did not execute production database
 tests or fresh browser mutations.
 
-No missing Safeharbor implementation was found in this bounded Lifestyle path.
-The current follow-up work is to choose the next exact draft-transfer operation
-and approved operating cadence, preserve the existing reporting schedule,
-and expand customer allowlists only under a concrete rollout decision.
+The September 5 change additionally passed 42 export checks, 16 staff billing
+checks, 14 browser checks and local desktop/mobile inspection. The archive
+regression reproduced CRLF breakage in a Windows-built old release, then verified
+zero CRLF and valid Linux Bash syntax in the corrected artifact. Production
+verification confirmed the exact release/config, existing signed billing status
+and active scheduler; it did not create a new billable entry or send test mail.
+
+Signed-in Safeharbor Time rendering passed. The immediate follow-up is the
+Coastmark fresh-session invoice login handoff found during that acceptance,
+then normal use of the existing customer connection. Keep the weekly schedule
+running and expand customer scope when the next real customer is chosen.
 General device-usage billing belongs to Coastmark/Milepost; unrelated payment
 connection or live-payment tests are outside this journey verification.
 

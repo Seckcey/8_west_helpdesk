@@ -715,9 +715,15 @@ ssh milepost-ec2 \
 
 These commands are production writes and still require normal release
 authorization. They do not run a report or expose/parse protected config. The
-manager hashes config only to bind evidence. Before activation, a new canary
-must prove that `reports@8westit.com` itself received Graph acceptance and that
-the separately addressed recipient confirmed the exact archive. The mailbox
+manager hashes config only to bind evidence. Before first activation or a change
+to the sender/recipient/customer/schedule tuple, a canary must prove that
+`reports@8westit.com` itself received Graph acceptance and that the separately
+addressed recipient confirmed the exact archive. For an authorized release-only
+restoration with verified unchanged report configuration and delivery code,
+retain the original real canary timestamps, recipient and archive hash while
+rebinding the release/artifact/config fields and recording the actual review
+time. The [September 5 restoration](customer-journey-release-2026-09-05.md)
+records that case; it did not send a replacement test email. The mailbox
 may have no human members because sending is application-only, but that does
 not substitute for the sender-specific canary.
 
@@ -775,9 +781,10 @@ refuses an active name or shared-lock holder. A failed source-artifact check
 leaves the old marker in place and requires release recovery because extraction
 is still non-atomic. After a successful deployment, every old bundle and
 activation record is intentionally stale. Rebuild the root-only bundle manifest
-from the new immutable marker, rerun preflight, create a new artifact/config-
-bound canary record, install disabled, and only then consider a separately
-authorized activation. To remove the reviewed disabled control file after stop
+from the new immutable marker, rerun preflight, and create a new artifact/config-
+bound activation record using the applicable real delivery evidence above.
+Install disabled and restore the authorized exact schedule. This does not run
+a report itself. To remove the reviewed disabled control file after stop
 (quarantined evidence remains untouched):
 
 ```bash

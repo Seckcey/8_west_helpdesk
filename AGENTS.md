@@ -21,8 +21,9 @@ goals, approval-grade technician time, correction history, the useful customer
 portal, managed-customer activation/lifecycle, approved-time draft lines, and
 archived weekly reports are installed. The controlled 8 West Lifestyle tests
 passed, including inbox delivery and one Coastmark draft line. The portal and
-recurring Lifestyle report are intentionally on; broad onboarding and
-Coastmark transfer gates are off after their one-time tests. Safeharbor owns all
+recurring Lifestyle report are intentionally on. The existing Lifestyle
+Coastmark transfer connection and staff billing controls are live as of
+2026-09-05; broad onboarding workers remain off. Safeharbor owns all
 help-desk records and workflows; Milepost supplies tenant/asset/telemetry
 context only; Coastmark alone owns financial facts. A transferred time entry
 can create only a draft invoice line, never automatic approval, posting,
