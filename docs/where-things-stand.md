@@ -1,5 +1,11 @@
 # Where things stand
 
+The client-time report now retains exact approved minutes and displays them as
+minutes or hours and minutes, matching the technician totals. A one-minute
+approval previously rounded to zero hours and disappeared from the 30-day list.
+The query still uses the latest correction and retains original time after a
+complete reversal. This display correction requires no migration or billing write.
+
 **Live release verified 2026-09-05 UTC:** Safeharbor runs
 `dbdb92a6a36a4820a0f6d77211f75d4ffc17d943`, including the staff billing and
 mobile navigation release from PR #100 and the Linux artifact correction from
