@@ -1,5 +1,18 @@
 # Safeharbor customer portal contract
 
+**Current status, rechecked 2026-09-05 UTC:** the useful portal is deployed and
+enabled for active binding 1, ID tenant `8-west-lifestyle`, provider tenant 1 /
+client 14. Recorded fresh signed-in acceptance proved ticket groups, details,
+new request, reply, archived-report access, and cross-client refusal. The
+Phase 5B/usefulness stack described below has merged in the aggregate release.
+See [current status](where-things-stand.md) and
+[customer journey operations](customer-journey-operations.md).
+
+## Historical pre-aggregate checkpoint
+
+The next paragraphs preserve the earlier summary-only portal checkpoint;
+their unmerged/source-only statements do not describe the current deployment.
+
 **Status:** migration 012 and the reviewed Phase 5A source are live through
 PR #68 merge `7bf63edb9bc0583cf865124b45f002d0717dcab9` after exact-main
 Validate run `33226867525`. A confidential Safeharbor OIDC client is installed through the
