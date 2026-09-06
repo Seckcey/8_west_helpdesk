@@ -1,6 +1,6 @@
 # Customer journey operations
 
-**Updated after the 2026-09-05 release.** This runbook describes the live
+**Updated through the 2026-09-06 UTC release records.** This runbook describes the live
 8 West Lifestyle path and how an operator repeats its bounded steps. It does
 not replace the cross-application release manifest or authorize a new customer,
 recipient, invitation, financial decision, or production configuration change.
@@ -9,17 +9,20 @@ Milepost, and Coastmark retain their own repositories and ownership.
 
 ## Current operating state
 
-Safeharbor's immutable production marker names
-`e8f9a812d53e30cf150eb1615d58be8b2756dd64`. The September 5 release deployed
+Safeharbor's latest [production and scheduler record](where-things-stand.md)
+names `8c1769a7251e3f0dfb19677bb35b3413d4d2bc50` after the September 6 UTC UX
+release. It supersedes the earlier `e8f9a812d53e30cf150eb1615d58be8b2756dd64`
+application marker. The September 5 release deployed
 staff billing controls, mobile suite navigation and the read-only Logbook
 source; the follow-up corrected Windows archive line endings in the Linux
 report runner. The latest correction retains exact approved minutes in Reports,
-so a one-minute entry stays visible. Exact-main Validate run `33960009702`
-passed. The existing
+so a one-minute entry stays visible. Its historical Validate run `33960009702`
+passed; the later UX release passed `34008894778`. The existing
 Lifestyle time-billing connection is enabled for ordinary staff use, and its
-weekly report scheduler was restored at `10:15:57Z` with unchanged delivery
-settings and original confirmed archive evidence. See the
-[release receipt](customer-journey-release-2026-09-05.md) for exact artifacts.
+weekly report scheduler was most recently recorded restored at
+`2026-09-06T03:28:11Z` with unchanged delivery settings and original confirmed
+archive evidence. See [current status](where-things-stand.md) for final artifacts
+and the [earlier release receipt](customer-journey-release-2026-09-05.md) for history.
 
 At `09:34:49Z`, the new live helper and signed receiver status confirmed existing
 entry 10 / claim 1 as **In Coastmark · version 0**, invoice 9 / line 17. This
@@ -40,8 +43,9 @@ submitted, and the browser console was clear.
 | Customer access | Active portal binding 1 maps ID tenant `8-west-lifestyle` to provider tenant 1 / client 14 | Portal enabled; ticket details, new requests, replies, and archives passed the recorded signed-in canary |
 | Support work | Versioned first-response promises, technician time, human approval, and append-only adjustment slips are installed | Normal Safeharbor permissions and exact client scope apply |
 | Draft billing | Claim 1 represents approved time entry 10, source version 0; its accepted receipt names Coastmark event 1, draft invoice 9, line 17 | Both Safeharbor export gates and the existing Coastmark receiver/mapping 3 are enabled; use the Time page controls |
-| Weekly report | Managed schedule version 2 / row 17 is active for Wednesday 09:00 Pacific; runner restored September 5 | Only the approved Lifestyle schedule; `canary_only=true` |
+| Weekly report | Managed schedule version 2 / row 17 is active for Wednesday 09:00 Pacific; runner restoration recorded September 6 UTC | Only the approved Lifestyle schedule; `canary_only=true` |
 | Knowledge source | Logbook schema-1 resolved-ticket export is enabled with service identity 6 | Only explicitly linked customers in the configured tenant; eligible technician text becomes a reviewable Logbook draft |
+| Workflow documentation | Logbook's visual network/workflow editor is live at `053c0ab`; [guide](https://github.com/Seckcey/8_west_logbook/blob/main/docs/operations/diagram-editor-guide.md) | Diagrams describe work; they do not execute Safeharbor approvals, ticket changes, report sends or billing |
 | Scheduled delivery | Archive 5 covers August 24–31, generated `2026-09-02 16:00:02Z`, submitted `16:00:03Z` | Graph acceptance verified; inbox receipt for archive 5 was not independently verified |
 
 The active schedule key is
