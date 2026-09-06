@@ -147,7 +147,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
     </nav>
     <div class="suite-label">8 West Suite</div>
     <div class="suite">
-      <?php foreach (['Milepost' => 'https://support.8westit.com/', 'Coastmark' => 'https://coastmark.8westit.com/auth/suite', 'All apps' => 'https://id.8westit.com/'] as $name => $url): ?>
+      <?php foreach (['Milepost' => 'https://support.8westit.com/', 'Coastmark' => 'https://coastmark.8westit.com/auth/suite', 'All apps' => 'https://id.8westit.com/?apps=1'] as $name => $url): ?>
       <a class="suite-item suite-item-live" href="<?= h($url) ?>" target="_blank" rel="noopener">
         <span class="suite-box"></span><span class="suite-name"><?= h($name) ?></span><span class="suite-tag" aria-hidden="true">↗</span>
       </a>
