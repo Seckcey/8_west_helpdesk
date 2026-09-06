@@ -12,6 +12,37 @@ machine. A Windows Git setting previously changed PHP line endings inside the
 archive, preventing the unchanged weekly-report runner from matching its release
 record. This packaging correction changes no reporting or delivery behavior.
 
+**Current live release verified 2026-09-06 UTC (September 5 Pacific):**
+`8c1769a7251e3f0dfb19677bb35b3413d4d2bc50` includes phone ticket cards
+([PR #105](https://github.com/Seckcey/8_west_helpdesk/pull/105)), canonical
+archive bytes ([PR #106](https://github.com/Seckcey/8_west_helpdesk/pull/106)),
+and the ticket guidance/launcher correction
+([PR #107](https://github.com/Seckcey/8_west_helpdesk/pull/107)).
+[Exact-main Validate run 34008894778](https://github.com/Seckcey/8_west_helpdesk/actions/runs/34008894778)
+passed, including PHP and browser contracts. The deployed artifact is
+`04c847cb1af9e64ee84531b04c7b24a31105411e37f0a95a74304161a919be28`;
+the protected config hash remains
+`8ba44c0862a9f9183626961010e6429e8fef93a106952c6602a8e9f8a2c9463f`.
+The final application/config/database/scheduler backup is
+`/srv/8west/backups/safeharbor/20260906T032541Z-pre-navigation-ux`.
+
+Signed-in production acceptance checked desktop ticket details, the 390px phone
+Queue, Open filtering and existing ticket 141 without changing it. Phone subjects,
+client names, status, assignment, SLA and age remain readable. The obsolete
+integration claims are absent, and All apps opened the signed-in ID launcher.
+No console errors were observed. No ticket, billing or reporting action was
+submitted and no migration was needed.
+
+The existing Lifestyle Wednesday 9:00 AM Pacific report schedule was restored
+at `2026-09-06T03:28:11Z` and the installed manager verified it active. Its
+recipient, scope, report code, archive 4 Graph acceptance and actual human inbox
+confirmation are preserved; no new canary or report email was sent. The new
+bundle hash is `e173ac0b726192ebe575bce20748f9748c8f07dfe758f3a1e3936e8612249398`
+and activation-record hash is
+`34f7e9f45db714bc14dda4be0c4d9d9f110619f10541e88e4dcc5c433f76ff24`.
+The unchanged wrapper and runner hashes remain recorded in the historical
+[September 5 receipt](customer-journey-release-2026-09-05.md).
+
 The client-time report now retains exact approved minutes and displays them as
 minutes or hours and minutes, matching the technician totals. A one-minute
 approval previously rounded to zero hours and disappeared from the 30-day list.
@@ -22,7 +53,7 @@ existing one-minute approval as **1m** in the 30-day client list. Its August 29
 entry correctly remains outside the seven-day technician view; the browser
 console was clear and no billing or report action was submitted.
 
-**Live release verified 2026-09-05 UTC:** Safeharbor runs
+**Previous Reports release verified 2026-09-05 UTC:** Safeharbor ran
 `e8f9a812d53e30cf150eb1615d58be8b2756dd64`, including the staff billing and
 mobile navigation release from PR #100 and the Linux artifact correction from
 PR #101 plus the exact-minute Reports correction in PR #103. Exact-main
@@ -53,7 +84,7 @@ opened draft invoice 9 in a fresh Coastmark session. The draft showed the
 matched Safeharbor ticket 434; no financial action was submitted.
 
 The Lifestyle portal remains enabled. Its existing Wednesday 9:00 AM Pacific
-report schedule was restored at `10:15:57Z` after the Reports deployment,
+report schedule was restored again at `2026-09-06T03:28:11Z` after the UX deployment,
 retaining the corrected Linux runner. The root-owned cron entry runs every five
 minutes and the application selects due schedules. Report settings, sender, recipient and scope are
 unchanged. The activation record binds the new release/config while retaining

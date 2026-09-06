@@ -1,5 +1,10 @@
 # Safeharbor customer journey release — September 5, 2026
 
+This is the historical customer-journey and exact-minute Reports receipt. The
+subsequent UX release `8c1769a7251e3f0dfb19677bb35b3413d4d2bc50` and its
+`2026-09-06T03:28:11Z` restoration of the same Lifestyle schedule are recorded
+in [current status](where-things-stand.md). The original evidence below is retained.
+
 Safeharbor's approved-time billing buttons, mobile suite navigation and Logbook
 knowledge source are live. Reports now retain exact approved minutes, including
 one-minute entries. The existing Lifestyle billing connection stays enabled for
