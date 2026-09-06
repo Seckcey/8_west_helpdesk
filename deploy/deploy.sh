@@ -101,7 +101,8 @@ cleanup_release_staging() {
 trap cleanup_release_staging EXIT
 
 echo "==> Building exact Git release artifact and derived brand assets"
-git -C "$ROOT" archive --format=tar "$RELEASE_SHA" app brand \
+# Produce the same bytes on Windows and Linux without changing checkout settings.
+git -C "$ROOT" -c core.autocrlf=false -c core.eol=lf archive --format=tar "$RELEASE_SHA" app brand \
   | tar -xf - -C "$RELEASE_STAGING"
 mkdir -p "$RELEASE_STAGING/app/public/assets/brand"
 cp "$RELEASE_STAGING/brand/svg/favicon.svg" \

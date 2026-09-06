@@ -5,6 +5,10 @@ subject and client get a full row, with status, technician, SLA and age retained
 It applies to the Queue and client ticket lists. Desktop rows keep their layout.
 The CSS version is advanced so returning browsers receive the update.
 Deployment acceptance for this update is recorded after the release below.
+The deploy archive now explicitly uses canonical LF bytes on every operator
+machine. A Windows Git setting previously changed PHP line endings inside the
+archive, preventing the unchanged weekly-report runner from matching its release
+record. This packaging correction changes no reporting or delivery behavior.
 
 The client-time report now retains exact approved minutes and displays them as
 minutes or hours and minutes, matching the technician totals. A one-minute
