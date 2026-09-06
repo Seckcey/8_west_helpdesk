@@ -1,5 +1,13 @@
 # Where things stand
 
+**Logbook consumer update — 2026-09-06 UTC:** Logbook's visual network/workflow
+editor is live in its separate application release `053c0ab`. See the
+[editor guide](https://github.com/Seckcey/8_west_logbook/blob/main/docs/operations/diagram-editor-guide.md)
+and [release evidence](https://github.com/Seckcey/8_west_logbook/blob/main/docs/evidence/diagram-editor-release-2026-09-06.md).
+Its drawings do not execute Safeharbor workflows or publish imported knowledge.
+Safeharbor's [resolved-ticket export contract](logbook-export-contract.md),
+dedicated source scope and application release below remain unchanged.
+
 The September UX update changes phone queue rows into readable ticket cards:
 subject and client get a full row, with status, technician, SLA and age retained.
 It applies to the Queue and client ticket lists. Desktop rows keep their layout.

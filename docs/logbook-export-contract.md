@@ -10,6 +10,14 @@ See the [release receipt](customer-journey-release-2026-09-05.md).
 knowledge, sends mail, changes a ticket or touches billing. Logbook makes the
 quoted text into a draft for a person to review.
 
+Logbook's [network/workflow diagram editor](https://github.com/Seckcey/8_west_logbook/blob/main/docs/operations/diagram-editor-guide.md)
+is live in release `053c0ab`; see its [acceptance record](https://github.com/Seckcey/8_west_logbook/blob/main/docs/evidence/diagram-editor-release-2026-09-06.md).
+A workflow drawing describes a process. It does not execute Safeharbor ticket
+transitions, approve technician time, publish knowledge, send a message or
+trigger billing. The editor uses Logbook's existing customer permissions;
+it adds no source customer, service identity, mapping or export permission here.
+This schema-1 source contract remains unchanged.
+
 Safeharbor has no separate resolution field. The export uses the latest public
 technician reply at or before `resolved_at`, with `confidence=low`. It is a
 resolution candidate, not an assertion that the technician wrote an explicit
