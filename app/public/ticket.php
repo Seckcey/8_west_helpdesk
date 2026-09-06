@@ -337,12 +337,6 @@ page_top($user, '#' . $id, 'queue');
       <button class="rail-btn" id="merge-btn" data-id="<?= (int)$ticket['id'] ?>">⇄ Merge into another ticket…</button>
       <?php endif; ?>
 
-      <div class="rail-label">Suite</div>
-      <div class="card rail-card rail-suite">
-        <p><span class="suite-dot"></span>Milepost device context — arrives in Phase 2</p>
-        <p><span class="suite-dot"></span>Coastmark draft-line handoff — not enabled</p>
-      </div>
-
       <div class="rail-label">Team</div>
       <div class="team-row"><?php foreach ($team as $mate): ?><?= avatar($mate, 24) ?><?php endforeach; ?></div>
     </div>

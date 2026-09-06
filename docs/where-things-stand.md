@@ -4,7 +4,9 @@ The September UX update changes phone queue rows into readable ticket cards:
 subject and client get a full row, with status, technician, SLA and age retained.
 It applies to the Queue and client ticket lists. Desktop rows keep their layout.
 The CSS version is advanced so returning browsers receive the update.
-Deployment acceptance for this update is recorded after the release below.
+Ticket details no longer show obsolete future-phase integration claims. The
+existing sidebar provides the suite links, and All apps explicitly opens the
+ID launcher even when a user has chosen a default app.
 The deploy archive now explicitly uses canonical LF bytes on every operator
 machine. A Windows Git setting previously changed PHP line endings inside the
 archive, preventing the unchanged weekly-report runner from matching its release
