@@ -425,6 +425,23 @@ img { display: block; }
 }
 .trow-num { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .trow-main { min-width: 0; display: flex; flex-direction: column; }
+@media (max-width: 700px) {
+  .trow {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    grid-template-areas: "priority number status" "main main main" "tech sla age";
+    gap: 9px 10px;
+    padding: 14px 16px;
+  }
+  .trow-head { display: none; }
+  .trow-pri { grid-area: priority; }
+  .trow-num { grid-area: number; }
+  .trow-main { grid-area: main; gap: 4px; }
+  .trow-status { grid-area: status; }
+  .trow-tech { grid-area: tech; }
+  .trow-sla { grid-area: sla; }
+  .trow-age { grid-area: age; }
+  .trow .trow-subject, .trow .trow-sub { white-space: normal; overflow-wrap: anywhere; }
+}
 .trow-subject { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trow-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trow-age { text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
