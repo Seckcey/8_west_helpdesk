@@ -1,5 +1,11 @@
 # Where things stand
 
+The September UX update changes phone queue rows into readable ticket cards:
+subject and client get a full row, with status, technician, SLA and age retained.
+It applies to the Queue and client ticket lists. Desktop rows keep their layout.
+The CSS version is advanced so returning browsers receive the update.
+Deployment acceptance for this update is recorded after the release below.
+
 The client-time report now retains exact approved minutes and displays them as
 minutes or hours and minutes, matching the technician totals. A one-minute
 approval previously rounded to zero hours and disappeared from the 30-day list.
