@@ -47,9 +47,11 @@ try {
     ww_sql($pdo,$migration);
     westy_workflow_schema_ready($pdo);
     $runtimePassword = bin2hex(random_bytes(24));
-    $pdo->exec("CREATE USER '$runtimeName'@'localhost' IDENTIFIED BY '$runtimePassword'");
+    // The disposable CI service sees the loopback client through its Docker bridge.
+    // This random short-lived account has rights only on the random test database.
+    $pdo->exec("CREATE USER '$runtimeName'@'%' IDENTIFIED BY '$runtimePassword'");
     $runtimeCreated = true;
-    $pdo->exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `$database`.* TO '$runtimeName'@'localhost'");
+    $pdo->exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `$database`.* TO '$runtimeName'@'%'");
     $runtime = new PDO("mysql:host=$host;port=$port;dbname=$database;charset=utf8mb4",$runtimeName,$runtimePassword,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
     westy_workflow_schema_ready($runtime);
     ww_check((int)$runtime->query("SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema=DATABASE()")->fetchColumn()===0,'runtime has no trigger metadata privilege');
@@ -101,5 +103,5 @@ try {
     if ($server->inTransaction()) $server->rollBack();
     if ($server->query('SELECT DATABASE()')->fetchColumn()!==$database) throw new RuntimeException('Cleanup scope changed');
     $server->exec("DROP DATABASE `$database`");
-    if ($runtimeCreated) $server->exec("DROP USER '$runtimeName'@'localhost'");
+    if ($runtimeCreated) $server->exec("DROP USER '$runtimeName'@'%'");
 }

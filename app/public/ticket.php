@@ -51,7 +51,8 @@ $stmt = db()->prepare(
 $stmt->execute([$id, tenant_id()]);
 $ticket = $stmt->fetch();
 $westyWorkflow = null;
-if ($ticket && cfg('westy_workflow.enabled', false) === true) {
+// Disabling new automation must leave existing ownership and receipts visible.
+if ($ticket) {
     try {
         $westyWorkflow = westy_workflow_ticket(db(), (int)$user['tenant_id'], $id);
         if ($westyWorkflow) $westyWorkflow['ticket_id'] = $id;
