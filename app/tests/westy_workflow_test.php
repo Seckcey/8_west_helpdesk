@@ -10,6 +10,7 @@ function service_goal_snapshot_for_new_ticket(PDO $pdo, int $tenant, int $client
 function ww_key(int $id): string { return sprintf('%08x-aaaa-4aaa-8aaa-aaaaaaaaaaaa',$id); }
 $customer = ww_key(100); $otherCustomer = ww_key(200);
 $settings = westy_workflow_settings(['enabled'=>true,'hmac_secret'=>str_repeat('test-only-',6),'tenant_slugs'=>['msp-one'],'customer_ids'=>[$customer]]);
+ww_check(westy_workflow_ticket(new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]),1,1)===null,'pre-migration ticket rendering omits the new card without failing');
 $p = ['schema_version'=>1,'event_key'=>ww_key(1),'workflow_key'=>ww_key(2),'tenant_slug'=>'msp-one','customer_id'=>$customer,'alert_key'=>'alert:42','action'=>'claim','expected_version'=>0,'summary'=>'Investigating disk alert; no command has run.','occurred_at'=>gmdate('Y-m-d\TH:i:s\Z'),'evidence_sha256'=>null,'verification_method'=>null,'job_id'=>null,'job_completed_at'=>null,'alert_resolved_at'=>null,'assignee_id'=>null];
 $raw = json_encode($p,JSON_THROW_ON_ERROR);
 ww_check(westy_workflow_request($raw)===$p,'valid flat controller request');

@@ -200,7 +200,15 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
 /** Read-only ticket card. Absence before migration is normal while gated off. */
 function westy_workflow_ticket(PDO $pdo, int $tenantId, int $ticketId): ?array
 {
-    return westy_workflow_row($pdo, 'SELECT workflow.*,billing.state AS billing_state,billing.detail_code AS billing_detail,billing.response_json AS billing_response FROM westy_workflows workflow LEFT JOIN westy_billing_outbox billing ON billing.tenant_id=workflow.tenant_id AND billing.workflow_id=workflow.id WHERE workflow.tenant_id = ? AND workflow.ticket_id = ?', [$tenantId,$ticketId]);
+    try {
+        return westy_workflow_row($pdo, 'SELECT workflow.*,billing.state AS billing_state,billing.detail_code AS billing_detail,billing.response_json AS billing_response FROM westy_workflows workflow LEFT JOIN westy_billing_outbox billing ON billing.tenant_id=workflow.tenant_id AND billing.workflow_id=workflow.id WHERE workflow.tenant_id = ? AND workflow.ticket_id = ?', [$tenantId,$ticketId]);
+    } catch (PDOException $error) {
+        // Historical evidence stays visible when automation is disabled. Before
+        // migration, the ordinary ticket page remains quiet and fully usable.
+        if (($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql' && (int)($error->errorInfo[1]??0)===1146)
+            || ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='sqlite' && str_contains($error->getMessage(),'no such table:'))) return null;
+        throw $error;
+    }
 }
 
 function westy_workflow_card(array $run): string
