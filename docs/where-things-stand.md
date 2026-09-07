@@ -1,8 +1,11 @@
 # Where things stand
 
-**Current live source release — 2026-09-07 UTC:** PR #114 is deployed as
-`3df85419cc5bf48b846b25717071d57a3547048e`; exact-main Validate run
-`34112074770` passed. Queue, client ticket lists and ticket detail now share
+**Current live source release — 2026-09-07 UTC:** PR #116 is deployed as
+`70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e`; exact-main Validate run
+`34113633329` passed. The client overview replaces phase placeholders with
+clear unavailable states and canonical Milepost/Coastmark app links; it does
+not claim a retrieved device count or balance. [Release evidence](CLIENT_OVERVIEW_LINKS_2026_09_07.md).
+Queue, client ticket lists and ticket detail from PR #114 share
 Westy's service-owner avatar, with current scoped ownership and a tested
 pre-migration fallback. [Release evidence](WESTY_QUEUE_OWNER_2026_09_07.md).
 The no-contact reply guidance from PR #112 is live and verified after
