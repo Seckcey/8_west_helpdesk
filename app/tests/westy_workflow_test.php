@@ -42,6 +42,7 @@ CREATE TABLE messages(id INTEGER PRIMARY KEY,ticket_id INTEGER,author_name TEXT,
 CREATE TABLE time_entries(id INTEGER PRIMARY KEY,tenant_id INTEGER,ticket_id INTEGER);
 CREATE TABLE westy_workflows(id INTEGER PRIMARY KEY,tenant_id INTEGER,client_id INTEGER,customer_id TEXT,ticket_id INTEGER,workflow_key TEXT,alert_key TEXT,state TEXT,version INTEGER,summary TEXT,evidence_sha256 TEXT,job_id INTEGER,job_completed_at TEXT,alert_resolved_at TEXT,closed_at TEXT,started_at TEXT,updated_at TEXT,UNIQUE(tenant_id,workflow_key),UNIQUE(tenant_id,ticket_id));
 CREATE TABLE westy_workflow_receipts(id INTEGER PRIMARY KEY,tenant_id INTEGER,workflow_id INTEGER,event_key TEXT,request_sha256 TEXT,action TEXT,version INTEGER,response_json TEXT,received_at TEXT,UNIQUE(tenant_id,event_key),UNIQUE(tenant_id,workflow_id,version));
+CREATE TABLE westy_billing_outbox(id INTEGER PRIMARY KEY,tenant_id INTEGER,workflow_id INTEGER,event_key TEXT,state TEXT DEFAULT 'waiting_for_time',payload_json TEXT,payload_sha256 TEXT,attempts INTEGER DEFAULT 0,detail_code TEXT DEFAULT 'approved_time_required',response_json TEXT,next_attempt_at TEXT,last_attempt_at TEXT,created_at TEXT,updated_at TEXT,UNIQUE(tenant_id,workflow_id));
 CREATE TRIGGER receipt_update BEFORE UPDATE ON westy_workflow_receipts BEGIN SELECT RAISE(ABORT,'immutable'); END;
 CREATE TRIGGER receipt_delete BEFORE DELETE ON westy_workflow_receipts BEGIN SELECT RAISE(ABORT,'immutable'); END;
 CREATE TRIGGER ticket_takeover AFTER UPDATE ON tickets BEGIN UPDATE westy_workflows SET state='human_owned',version=version+1 WHERE tenant_id=OLD.tenant_id AND ticket_id=OLD.id AND state<>'human_owned'; END;
@@ -69,6 +70,7 @@ ww_check(ww_send($pdo,$settings,$status)['version']===2 && (int)$pdo->query('SEL
 $resolve=array_replace($resolve,['event_key'=>ww_key(6),'expected_version'=>2,'summary'=>'Successful agent job and original-alert recovery verified.','occurred_at'=>gmdate('Y-m-d\TH:i:s\Z'),'job_completed_at'=>gmdate('Y-m-d\TH:i:s\Z'),'alert_resolved_at'=>gmdate('Y-m-d\TH:i:s\Z')]);
 ww_check(ww_send($pdo,$settings,$resolve)['state']==='resolved','verified controller evidence closes owned ticket');
 ww_check($pdo->query("SELECT status FROM tickets WHERE id=$ticketId")->fetchColumn()==='resolved','ticket and receipt close atomically');
+ww_check((int)$pdo->query('SELECT COUNT(*) FROM westy_billing_outbox')->fetchColumn()===1,'verified close atomically queues billing review without sending');
 ww_refuses(fn()=> $pdo->exec("UPDATE westy_workflow_receipts SET action='progress'"),'receipts cannot be rewritten');
 ww_refuses(fn()=> $pdo->exec('DELETE FROM westy_workflow_receipts'),'receipts cannot be deleted');
 

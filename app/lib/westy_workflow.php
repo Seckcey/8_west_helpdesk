@@ -102,26 +102,7 @@ function westy_workflow_row(PDO $pdo, string $sql, array $args): ?array
 function westy_workflow_schema_ready(PDO $pdo): void
 {
     if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
-    $guards = [
-        'trg_westy_receipt_immutable_update'=>'Westy receipts are immutable',
-        'trg_westy_receipt_immutable_delete'=>'Westy receipts are immutable',
-        'trg_westy_workflow_identity_update'=>'Westy workflow identity is immutable',
-        'trg_westy_workflow_immutable_delete'=>'Westy workflow history cannot be deleted',
-        'trg_westy_ticket_takeover'=>'human_owned',
-        'trg_westy_message_insert_takeover'=>'human_owned',
-        'trg_westy_message_update_takeover'=>'human_owned',
-        'trg_westy_message_delete_takeover'=>'human_owned',
-        'trg_westy_time_insert_takeover'=>'human_owned',
-        'trg_westy_time_update_takeover'=>'human_owned',
-        'trg_westy_time_delete_takeover'=>'human_owned',
-    ];
-    $query = $pdo->query("SELECT TRIGGER_NAME,ACTION_STATEMENT FROM information_schema.triggers WHERE trigger_schema = DATABASE() AND trigger_name LIKE 'trg_westy_%'");
-    $found = $query->fetchAll(PDO::FETCH_KEY_PAIR);
-    foreach ($guards as $name=>$proof) {
-        if (!isset($found[$name]) || !str_contains($found[$name], $proof)) throw new RuntimeException('workflow_schema_unavailable');
-    }
-    $constraints = $pdo->query("SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema = DATABASE() AND table_name = 'westy_workflows' AND constraint_name IN ('ck_westy_workflow_version','ck_westy_workflow_resolution') AND enforced = 'YES'");
-    if ((int)$constraints->fetchColumn() !== 2) throw new RuntimeException('workflow_schema_unavailable');
+    if ((int)$pdo->query('SELECT ready FROM westy_workflow_schema_health')->fetchColumn() !== 1) throw new RuntimeException('workflow_schema_unavailable');
 }
 
 function westy_workflow_result(array $run, string $action, ?string $receiptId, bool $replayed = false): array
@@ -202,6 +183,11 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
         $result = westy_workflow_result($run, $p['action'], $p['event_key']) + array_intersect_key($p, array_flip(['event_key','tenant_slug','customer_id','alert_key']));
         $pdo->prepare('INSERT INTO westy_workflow_receipts (tenant_id,workflow_id,event_key,request_sha256,action,version,response_json,received_at) VALUES (?,?,?,?,?,?,?,?)')
             ->execute([$tid,$run['id'],$p['event_key'],$requestHash,$p['action'],$run['version'],json_encode($result,JSON_THROW_ON_ERROR),$now]);
+        if ($p['action'] === 'resolve') {
+            $billingEvent = 'safeharbor-billing:' . substr(hash('sha256',$p['tenant_slug'] . ':' . $p['workflow_key']),0,32);
+            $pdo->prepare('INSERT INTO westy_billing_outbox (tenant_id,workflow_id,event_key,created_at,updated_at) VALUES (?,?,?,?,?)')
+                ->execute([$tid,$run['id'],$billingEvent,$now,$now]);
+        }
         // The stable event UUID is also the public receipt ID; database IDs
         // remain internal, and an exact replay returns identical source facts.
         $pdo->commit(); return $result;
@@ -214,7 +200,7 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
 /** Read-only ticket card. Absence before migration is normal while gated off. */
 function westy_workflow_ticket(PDO $pdo, int $tenantId, int $ticketId): ?array
 {
-    return westy_workflow_row($pdo, 'SELECT workflow_key,state,version,summary,job_id,evidence_sha256,closed_at,updated_at FROM westy_workflows WHERE tenant_id = ? AND ticket_id = ?', [$tenantId,$ticketId]);
+    return westy_workflow_row($pdo, 'SELECT workflow.*,billing.state AS billing_state,billing.detail_code AS billing_detail,billing.response_json AS billing_response FROM westy_workflows workflow LEFT JOIN westy_billing_outbox billing ON billing.tenant_id=workflow.tenant_id AND billing.workflow_id=workflow.id WHERE workflow.tenant_id = ? AND workflow.ticket_id = ?', [$tenantId,$ticketId]);
 }
 
 function westy_workflow_card(array $run): string
@@ -235,8 +221,20 @@ function westy_workflow_card(array $run): string
     if ($state === 'working') {
         $html .= '<button type="button" class="btn-ghost btn-sm" data-action="assignee" data-id="' . (int)$run['ticket_id'] . '">Take over ticket</button>';
     }
-    if ($state === 'resolved') $html .= '<a class="btn-ghost btn-sm" href="/time.php">Review time &amp; billing</a>';
+    if ($state === 'resolved' || !empty($run['closed_at'])) $html .= '<a class="btn-ghost btn-sm" href="/time.php">Review time &amp; billing</a>';
     $html .= '</div>';
+    if (isset($run['billing_state'])) {
+        $billingLabels = ['waiting_for_time'=>'Billing is waiting for approved time and its Coastmark export.', 'ready'=>'Billing handoff is ready.',
+            'sending'=>'Checking the billing handoff.', 'uncertain'=>'Billing receipt is being reconciled. No invoice email has been sent by Safeharbor.',
+            'accepted'=>'Coastmark received the handoff. Review the invoice before sending.', 'blocked'=>'Billing needs a technician review before it can continue.'];
+        $html .= '<p class="rail-note">' . $escape($billingLabels[$run['billing_state']] ?? 'Billing status unavailable.') . '</p>';
+        if ($run['billing_state'] === 'accepted' && is_string($run['billing_response'] ?? null)) {
+            $receipt = json_decode($run['billing_response'], true);
+            foreach (array_slice(is_array($receipt['invoices'] ?? null) ? $receipt['invoices'] : [], 0, 10) as $invoice) {
+                if (is_int($invoice['invoice_id'] ?? null) && $invoice['invoice_id'] > 0) $html .= '<a class="link" href="https://coastmark.8westit.com/invoices/' . $invoice['invoice_id'] . '">Open invoice ' . $invoice['invoice_id'] . ' for review</a> ';
+            }
+        }
+    }
     if (!empty($run['evidence_sha256'])) {
         $html .= '<details class="westy-workflow-evidence"><summary>Recovery evidence</summary><p>Agent job ' . (int)$run['job_id'] . '</p><code>' . $escape($run['evidence_sha256']) . '</code><p>Closed ' . $escape($run['closed_at']) . ' UTC</p></details>';
     }

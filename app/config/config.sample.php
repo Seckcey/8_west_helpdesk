@@ -341,6 +341,17 @@ return [
         'tenant_slugs' => [],
         'customer_ids' => [],
     ],
+    // Closure outbox sends existing approved-time references for Coastmark
+    // invoice REVIEW only. It cannot send an invoice email. Install the
+    // dedicated CLI schedule only after an exact configured-customer canary.
+    'westy_billing_handoff' => [
+        'enabled' => false,
+        'endpoint' => 'https://coastmark.8westit.com/api/integrations/safeharbor/billing-handoffs',
+        'service' => 'safeharbor-billing',
+        'secret' => '',
+        'tenant_slugs' => [],
+        'customer_ids' => [],
+    ],
 
     // Westy — the suite AI helper (advise-only chat bubble + onboarding).
     // Milepost's ai-layer pattern: keys live ONLY here on the server, never

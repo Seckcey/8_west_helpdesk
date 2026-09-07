@@ -24,6 +24,8 @@ function ww_sql(PDO $pdo,string $file): void {
     if (trim($buffer)!=='') throw new RuntimeException('Unterminated SQL');
 }
 $server->exec("CREATE DATABASE `$database` CHARACTER SET utf8mb4");
+$runtimeName = 'westy_rt_' . bin2hex(random_bytes(5));
+$runtimeCreated = false;
 try {
     $server->exec("USE `$database`"); $pdo=$server;
     if ($pdo->query('SELECT DATABASE()')->fetchColumn()!==$database) throw new RuntimeException('Wrong database');
@@ -44,6 +46,34 @@ try {
     $receiptCount=(int)$pdo->query('SELECT COUNT(*) FROM westy_workflow_receipts')->fetchColumn();
     ww_sql($pdo,$migration);
     westy_workflow_schema_ready($pdo);
+    $runtimePassword = bin2hex(random_bytes(24));
+    $pdo->exec("CREATE USER '$runtimeName'@'localhost' IDENTIFIED BY '$runtimePassword'");
+    $runtimeCreated = true;
+    $pdo->exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `$database`.* TO '$runtimeName'@'localhost'");
+    $runtime = new PDO("mysql:host=$host;port=$port;dbname=$database;charset=utf8mb4",$runtimeName,$runtimePassword,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+    westy_workflow_schema_ready($runtime);
+    ww_check((int)$runtime->query("SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema=DATABASE()")->fetchColumn()===0,'runtime has no trigger metadata privilege');
+    ww_check(ww_send($runtime,$settings,array_replace($p,['action'=>'status','event_key'=>ww_key(9900)]))['state']==='resolved','DML-only runtime reads guarded status through definer health view');
+    ww_refuses(fn()=> $runtime->exec('CREATE TABLE privilege_probe(id INT)'),'runtime still cannot create tables');
+    ww_refuses(fn()=> $pdo->exec("UPDATE westy_billing_outbox SET event_key='changed'"),'billing identity is immutable');
+    ww_refuses(fn()=> $pdo->exec('DELETE FROM westy_billing_outbox'),'billing history cannot be deleted');
+    require_once __DIR__.'/../lib/westy_billing.php';
+    $pdo->exec("ALTER TABLE time_entries ADD client_id INT UNSIGNED NULL, ADD approval_status VARCHAR(16) NOT NULL DEFAULT 'pending', ADD billable INT NOT NULL DEFAULT 0");
+    $pdo->exec('CREATE TABLE time_entry_approval_adjustments(tenant_id INT UNSIGNED,time_entry_id INT UNSIGNED,version_no INT UNSIGNED)');
+    $pdo->exec('CREATE TABLE coastmark_time_export_claims(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,time_entry_id INT UNSIGNED,source_version INT UNSIGNED,event_key VARCHAR(64),payload_json LONGTEXT,payload_sha256 CHAR(64))');
+    $pdo->exec('CREATE TABLE coastmark_time_export_receipts(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,claim_id INT UNSIGNED,outcome VARCHAR(32),invoice_id INT UNSIGNED)');
+    $pdo->prepare('INSERT INTO time_entries(id,tenant_id,ticket_id,client_id,approval_status,billable) VALUES(9900,1,?,1,?,1)')->execute([$ticketId,'approved']);
+    $closed=$pdo->query('SELECT closed_at FROM westy_workflows WHERE id=1')->fetchColumn();
+    $timeEvent='safeharbor-time:'.str_repeat('f',32);
+    $timeBody=json_encode(['version'=>3,'tenant_key'=>'msp-one','client_key'=>'milepost-customer:'.$customer,'ticket_id'=>$ticketId,'entry_id'=>9900,'source_version'=>0,'approval_status'=>'approved','event_key'=>$timeEvent,'worked_at'=>str_replace(' ','T',$closed).'Z']);
+    $pdo->prepare('INSERT INTO coastmark_time_export_claims VALUES(1,1,9900,0,?,?,?)')->execute([$timeEvent,$timeBody,hash('sha256',$timeBody)]);
+    $pdo->exec("INSERT INTO coastmark_time_export_receipts VALUES(1,1,1,'accepted',9)");
+    $billingEvent=$pdo->query('SELECT event_key FROM westy_billing_outbox WHERE id=1')->fetchColumn();
+    $billingConfig=['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('test-only-',6),'tenant_slugs'=>['msp-one'],'customer_ids'=>[$customer]];
+    $delivered=westy_billing_dispatch($runtime,1,$billingConfig,static fn()=>['status'=>200,'body'=>json_encode(['ok'=>true,'action'=>'created','handoff'=>['id'=>1,'event_key'=>$billingEvent,'state'=>'review_required'],'invoices'=>[['invoice_id'=>9,'review_url'=>'https://coastmark.8westit.com/invoices/9','status'=>'draft']]])]);
+    ww_check($delivered==='accepted','DML-only worker freezes approved-time payload and records injected Coastmark review receipt');
+    ww_refuses(fn()=> $runtime->exec("UPDATE westy_billing_outbox SET payload_json='{}' WHERE id=1"),'frozen handoff body cannot change');
+    ww_refuses(fn()=> $runtime->exec("UPDATE westy_billing_outbox SET state='uncertain' WHERE id=1"),'accepted handoff cannot be retried');
     ww_check((int)$pdo->query('SELECT COUNT(*) FROM westy_workflow_receipts')->fetchColumn()===$receiptCount,'migration replay retains receipts');
     ww_refuses(fn()=> $pdo->exec('UPDATE westy_workflows SET tenant_id=2 WHERE id=1'),'identity cannot be moved to another tenant');
     ww_refuses(fn()=> $pdo->exec('DELETE FROM westy_workflows WHERE id=1'),'workflow history cannot be deleted');
@@ -62,6 +92,7 @@ try {
     }
     $pdo->exec('DROP TRIGGER trg_westy_ticket_takeover');
     ww_refuses(fn()=>westy_workflow_schema_ready($pdo),'partial migration fails closed');
+    ww_refuses(fn()=>westy_workflow_schema_ready($runtime),'DML-only runtime sees missing guard through health view');
     ww_sql($pdo,$migration);
     $pdo->exec('ALTER TABLE westy_workflows ALTER CHECK ck_westy_workflow_resolution NOT ENFORCED');
     ww_refuses(fn()=>westy_workflow_schema_ready($pdo),'unenforced resolution check fails closed');
@@ -70,4 +101,5 @@ try {
     if ($server->inTransaction()) $server->rollBack();
     if ($server->query('SELECT DATABASE()')->fetchColumn()!==$database) throw new RuntimeException('Cleanup scope changed');
     $server->exec("DROP DATABASE `$database`");
+    if ($runtimeCreated) $server->exec("DROP USER '$runtimeName'@'localhost'");
 }

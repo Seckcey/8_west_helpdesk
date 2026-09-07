@@ -98,21 +98,51 @@ truth when switching between Reply and Internal note.
 ## Billing boundary
 
 Existing approved-time v3 claim/send/status remains the supported billing
-source. Workflow completion creates neither time nor money and sends no mail.
-The signed closure digest can support Coastmark's separate billing handoff,
-but an actual handoff must reference current approved, imported time events
-for this exact customer and ticket. Missing approved time must remain an
-actionable billing review; do not invent duration, technician, agreement, rate,
-recipient or delivery acceptance. Closing a ticket never implies an invoice
-was sent.
+source. Verified closure atomically creates one `westy_billing_outbox` row in
+`waiting_for_time`. It creates neither time nor money and sends no mail.
+The separate default-off `westy_billing_handoff` configuration controls the
+actual CLI worker `app/cron/westy_billing_dispatch.php`.
+
+The worker selects the oldest due rows, at most ten per invocation. It requires
+the exact still-closed ticket/customer, approved original billable time and
+each entry's latest adjustment version with an accepted or replayed Coastmark
+v3 import receipt. Pending time, missing exports and ambiguous deliveries wait
+for review. Reopened tickets, changed customer lineage or source facts changed
+after a payload was frozen become blocked exceptions. Post-closure time review
+may transfer workflow ownership to a technician without erasing the original
+closure evidence; billing still requires the ticket's exact unchanged closure
+timestamp. Never invent duration, technician, agreement, rate or recipient.
+
+The payload is pinned once, with deterministic `safeharbor-billing:<32hex>`
+event key for that tenant/run, before any network request. It posts the agreed
+`safeharbor.ticket.billing_requested` v1 contract to the exact HTTPS
+`https://coastmark.8westit.com/api/integrations/safeharbor/billing-handoffs`,
+using dedicated `safeharbor-billing` identity/key and HMAC-SHA256 of
+`timestamp + "\n" + exact_body`. This is not the time exporter secret. The
+body references current accepted `time_event_keys`, UUID `run_key`, closure
+timestamps and verification digest, and contains no financial amounts or
+client message text.
+
+Timeouts, lost responses and server failures retain the exact body for replay
+with bounded exponential backoff and an eight-attempt ceiling. A two-minute
+lease contains overlapping/crashed workers. A new source version after a frozen
+claim blocks delivery rather than replacing its body. Exact receiver replay
+reconciles a lost acknowledgment. Accepted receipts cannot be changed or sent
+again. An accepted handoff means **Coastmark invoice review is ready**; it is
+not posting, mail acceptance, or inbox delivery. The ticket card shows billing
+state and links to the canonical invoice review after verified acknowledgment.
 
 ## Migration and release gate
 
-Migration **025 is migration-first** and adds two tables and eleven guards.
+Migration **025 is migration-first** and adds three tables, thirteen guards
+and a read-only definer health view.
 It creates no user, service identity, ticket, customer, configuration or invoice.
 The canonical schema includes the same SQL. Replay preserves rows and receipts.
-Before activation, the receiver checks that the eleven guards and enforced
+Before activation, the receiver checks that the thirteen guards and enforced
 resolution/version constraints are present; a partial migration fails closed.
+The view exposes one readiness bit under the operator definer so the runtime
+keeps only DML grants. Direct trigger metadata inspection would require
+[MySQL TRIGGER privilege](https://dev.mysql.com/doc/mysql-infoschema-excerpt/8.0/en/information-schema-triggers-table.html).
 
 Use the existing Safeharbor runbook: exact green default-branch SHA; verified
 root-only application/config/trigger-inclusive database/grants backup and scratch
@@ -134,3 +164,10 @@ tenant/customer isolation, exact retries, version races, recovery boundaries,
 human takeover including same-second revert, escalation, immutable history,
 migration replay and missing guards. Existing full PHP/MySQL and browser
 contracts remain required before release.
+
+`php app/tests/westy_billing_test.php` proves that pending/missing/ambiguous
+time never leaves Safeharbor, an uncertain handoff retries identical bytes,
+changed source versions become exceptions, reopened/inactive customers fail
+closed, and only the exact Coastmark invoice review destination is accepted.
+The MySQL suite also runs the actual sender under a DML-only identity using
+an injected response and proves payload/accepted-receipt immutability.

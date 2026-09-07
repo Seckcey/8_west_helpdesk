@@ -107,7 +107,9 @@ jobs:
       - name: Test read-only Logbook knowledge export
         run: php app/tests/logbook_export_test.php
       - name: Test Westy controller workflow contract
-        run: php app/tests/westy_workflow_test.php
+        run: |
+          php app/tests/westy_workflow_test.php
+          php app/tests/westy_billing_test.php
       - name: Test Westy workflow migration, replay, and human ownership
         env:
           SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'

@@ -67,8 +67,9 @@ auto_close_contract_check(
     'Westy can neither close a ticket nor mint machine-close eligibility',
 );
 
-// Every other ticket creator omits the capability and therefore receives the
-// database default 0. This scans executable PHP, not a hand-maintained list.
+// Other creators omit the capability or explicitly write literal zero. Inspect
+// each INSERT's column/value tuple rather than unrelated reads/UPDATEs in the
+// same module: the guarded workflow checks eligibility before consuming it.
 $otherEligibleCreators = [];
 foreach ([__DIR__ . '/../lib', __DIR__ . '/../public', __DIR__ . '/../cron'] as $root) {
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
@@ -80,8 +81,14 @@ foreach ([__DIR__ . '/../lib', __DIR__ . '/../public', __DIR__ . '/../cron'] as 
         $path = $file->getPathname();
         $source = file_get_contents($path);
         if (!is_string($source) || !str_contains($source, 'INSERT INTO tickets')) continue;
-        if (str_contains($source, 'auto_close_eligible')) {
-            $otherEligibleCreators[] = str_replace('\\', '/', $path);
+        preg_match_all('/INSERT\s+INTO\s+tickets\s*\(([^)]*)\)\s*VALUES\s*\(([^)]*)\)/is', $source, $inserts, PREG_SET_ORDER);
+        foreach ($inserts as $insert) {
+            $columns = array_map('trim', explode(',', $insert[1]));
+            $values = array_map('trim', explode(',', $insert[2]));
+            $index = array_search('auto_close_eligible', $columns, true);
+            if ($index !== false && ($values[$index] ?? '') !== '0') {
+                $otherEligibleCreators[] = str_replace('\\', '/', $path);
+            }
         }
     }
 }

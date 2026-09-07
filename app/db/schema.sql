@@ -6580,6 +6580,30 @@ CREATE TABLE IF NOT EXISTS westy_workflow_receipts (
   CONSTRAINT fk_westy_receipt_workflow FOREIGN KEY (tenant_id,workflow_id) REFERENCES westy_workflows (tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS westy_billing_outbox (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id INT UNSIGNED NOT NULL,
+  workflow_id BIGINT UNSIGNED NOT NULL,
+  event_key VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  state ENUM('waiting_for_time','ready','sending','uncertain','accepted','blocked') NOT NULL DEFAULT 'waiting_for_time',
+  payload_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
+  payload_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  detail_code VARCHAR(64) NOT NULL DEFAULT 'approved_time_required',
+  response_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
+  next_attempt_at DATETIME NULL,
+  last_attempt_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_westy_billing_workflow (tenant_id,workflow_id),
+  UNIQUE KEY uq_westy_billing_event (tenant_id,event_key),
+  KEY ix_westy_billing_due (state,next_attempt_at,id),
+  CONSTRAINT fk_westy_billing_workflow FOREIGN KEY (tenant_id,workflow_id) REFERENCES westy_workflows (tenant_id,id),
+  CONSTRAINT ck_westy_billing_payload CHECK ((payload_json IS NULL AND payload_sha256 IS NULL)
+    OR (JSON_VALID(payload_json) AND payload_sha256 REGEXP '^[0-9a-f]{64}$'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 DELIMITER $$
 DROP TRIGGER IF EXISTS trg_westy_receipt_immutable_update$$
 CREATE TRIGGER trg_westy_receipt_immutable_update BEFORE UPDATE ON westy_workflow_receipts
@@ -6600,6 +6624,20 @@ END$$
 DROP TRIGGER IF EXISTS trg_westy_workflow_immutable_delete$$
 CREATE TRIGGER trg_westy_workflow_immutable_delete BEFORE DELETE ON westy_workflows
 FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Westy workflow history cannot be deleted'$$
+DROP TRIGGER IF EXISTS trg_westy_billing_identity_update$$
+CREATE TRIGGER trg_westy_billing_identity_update BEFORE UPDATE ON westy_billing_outbox
+FOR EACH ROW BEGIN
+  IF NOT (NEW.tenant_id <=> OLD.tenant_id) OR NOT (NEW.workflow_id <=> OLD.workflow_id)
+    OR NOT (NEW.event_key <=> OLD.event_key) OR NOT (NEW.created_at <=> OLD.created_at)
+    OR (OLD.payload_json IS NOT NULL AND (NOT (NEW.payload_json <=> OLD.payload_json)
+      OR NOT (NEW.payload_sha256 <=> OLD.payload_sha256)))
+    OR (OLD.state = 'accepted' AND (NEW.state <> 'accepted' OR NOT (NEW.response_json <=> OLD.response_json))) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Westy billing handoff facts are immutable';
+  END IF;
+END$$
+DROP TRIGGER IF EXISTS trg_westy_billing_immutable_delete$$
+CREATE TRIGGER trg_westy_billing_immutable_delete BEFORE DELETE ON westy_billing_outbox
+FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Westy billing handoff history cannot be deleted'$$
 
 -- Every ticket write transfers ownership, including change-and-revert. The
 -- controller holds the ticket lock and writes its own final run state in the
@@ -6648,3 +6686,29 @@ FOR EACH ROW UPDATE westy_workflows SET state = 'human_owned',version = version 
   updated_at = UTC_TIMESTAMP() WHERE tenant_id = OLD.tenant_id AND ticket_id = OLD.ticket_id AND state <> 'human_owned'$$
 DELIMITER ;
 
+-- Runtime keeps DML-only grants. A definer view reveals one readiness bit;
+-- querying INFORMATION_SCHEMA.TRIGGERS directly would require TRIGGER rights.
+CREATE OR REPLACE SQL SECURITY DEFINER VIEW westy_workflow_schema_health AS
+SELECT CASE WHEN
+  (SELECT COUNT(*) FROM information_schema.triggers
+   WHERE trigger_schema = DATABASE() AND (
+     (trigger_name IN ('trg_westy_ticket_takeover','trg_westy_message_insert_takeover',
+       'trg_westy_message_update_takeover','trg_westy_message_delete_takeover',
+       'trg_westy_time_insert_takeover','trg_westy_time_update_takeover','trg_westy_time_delete_takeover')
+      AND action_statement LIKE '%human_owned%')
+     OR (trigger_name IN ('trg_westy_receipt_immutable_update','trg_westy_receipt_immutable_delete')
+      AND action_statement LIKE '%Westy receipts are immutable%')
+     OR (trigger_name = 'trg_westy_workflow_identity_update'
+      AND action_statement LIKE '%Westy workflow identity is immutable%')
+     OR (trigger_name = 'trg_westy_workflow_immutable_delete'
+      AND action_statement LIKE '%Westy workflow history cannot be deleted%')
+     OR (trigger_name = 'trg_westy_billing_identity_update'
+      AND action_statement LIKE '%Westy billing handoff facts are immutable%')
+     OR (trigger_name = 'trg_westy_billing_immutable_delete'
+      AND action_statement LIKE '%Westy billing handoff history cannot be deleted%')
+   )) = 13
+  AND (SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema = DATABASE() AND table_name = 'westy_workflows'
+      AND constraint_name IN ('ck_westy_workflow_version','ck_westy_workflow_resolution')
+      AND enforced = 'YES') = 2
+THEN 1 ELSE 0 END AS ready;
