@@ -60,6 +60,8 @@ jobs:
         run: node tools/shots/time-contract.test.mjs
       - name: Test customer portal usefulness in a real browser
         run: node tools/shots/portal-contract.test.mjs
+      - name: Test Westy ownership and reply guidance in a real browser
+        run: node tools/shots/westy-workflow-contract.test.mjs
 
   php:
     needs: changes

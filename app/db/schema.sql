@@ -6648,7 +6648,3 @@ FOR EACH ROW UPDATE westy_workflows SET state = 'human_owned',version = version 
   updated_at = UTC_TIMESTAMP() WHERE tenant_id = OLD.tenant_id AND ticket_id = OLD.ticket_id AND state <> 'human_owned'$$
 DELIMITER ;
 
-SELECT COUNT(*) AS westy_workflow_tables FROM information_schema.tables
-WHERE table_schema = DATABASE() AND table_name IN ('westy_workflows','westy_workflow_receipts');
-SELECT COUNT(*) AS westy_workflow_guards FROM information_schema.triggers
-WHERE trigger_schema = DATABASE() AND trigger_name LIKE 'trg_westy_%' AND trigger_name NOT LIKE '%preflight%';
