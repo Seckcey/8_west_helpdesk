@@ -1,10 +1,11 @@
-**Queue ownership refinement — source under review, 2026-09-07:** Queue, client ticket lists and ticket detail now share Westy’s service-owner avatar. Current tenant/client/ticket ownership is read in bounded batches, with a tested pre-migration fallback. [Validation and release record](WESTY_QUEUE_OWNER_2026_09_07.md). This change does not activate the workflow or assign a real ticket.
-
 # Where things stand
 
-**Current live source release — 2026-09-07 UTC:** PR #112 is deployed as
-`8e8cff9cc3c2d0ef29090b2cf761246b7c7f3891`; exact-main Validate run
-`34107323212` passed. The no-contact reply guidance is live and verified after
+**Current live source release — 2026-09-07 UTC:** PR #114 is deployed as
+`3df85419cc5bf48b846b25717071d57a3547048e`; exact-main Validate run
+`34112074770` passed. Queue, client ticket lists and ticket detail now share
+Westy's service-owner avatar, with current scoped ownership and a tested
+pre-migration fallback. [Release evidence](WESTY_QUEUE_OWNER_2026_09_07.md).
+The no-contact reply guidance from PR #112 is live and verified after
 switching between Reply and Internal note on desktop and phone. The signed
 Milepost controller, ownership/evidence card and durable Coastmark handoff
 worker are deployed **default-off**. Migration 025 is **not applied**: production
