@@ -119,3 +119,14 @@ MySQL migration/least-privilege/immutability coverage and three new Chromium
 workflow tests, alongside all existing PHP/MySQL/browser checks. The retained
 89-check interoperability run predates the extra pre-migration card regression;
 its signed request bytes and Coastmark receipt remain unchanged.
+
+## Queue ownership source refinement
+
+The subsequent [PR 114 source release](WESTY_QUEUE_OWNER_2026_09_07.md) is
+deployed as `3df85419cc5bf48b846b25717071d57a3547048e`, after exact-main
+Validate `34112074770` passed. Its shared owner avatar has 15 additional
+SQLite/real-renderer checks and five real-browser workflow checks. Fresh
+signed-in Chrome Queue/client/ticket acceptance passed at 1440px and 390px.
+The existing report schedule was restored and verified active; schema,
+config, runtime grants, cron bytes, scope and vhosts remain unchanged.
+Migration 025 and both workflow gates remain unapplied/off.
