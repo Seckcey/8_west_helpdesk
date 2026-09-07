@@ -1,6 +1,6 @@
 # Customer journey operations
 
-**Updated through the 2026-09-06 UTC release records.** This runbook describes the live
+**Updated through the 2026-09-07 UTC release records.** This runbook describes the live
 8 West Lifestyle path and how an operator repeats its bounded steps. It does
 not replace the cross-application release manifest or authorize a new customer,
 recipient, invitation, financial decision, or production configuration change.
@@ -10,8 +10,9 @@ Milepost, and Coastmark retain their own repositories and ownership.
 ## Current operating state
 
 Safeharbor's latest [production and scheduler record](where-things-stand.md)
-names `8c1769a7251e3f0dfb19677bb35b3413d4d2bc50` after the September 6 UTC UX
-release. It supersedes the earlier `e8f9a812d53e30cf150eb1615d58be8b2756dd64`
+names `56fced51319875e60041cf51655fde5208981a58` after the September 7 UTC
+branding release, validated by exact-main run `34089879825`. It supersedes
+the UX release `8c1769a` and earlier `e8f9a812d53e30cf150eb1615d58be8b2756dd64`
 application marker. The September 5 release deployed
 staff billing controls, mobile suite navigation and the read-only Logbook
 source; the follow-up corrected Windows archive line endings in the Linux
@@ -20,7 +21,7 @@ so a one-minute entry stays visible. Its historical Validate run `33960009702`
 passed; the later UX release passed `34008894778`. The existing
 Lifestyle time-billing connection is enabled for ordinary staff use, and its
 weekly report scheduler was most recently recorded restored at
-`2026-09-06T03:28:11Z` with unchanged delivery settings and original confirmed
+`2026-09-07T06:20:54Z` with unchanged delivery settings and original confirmed
 archive evidence. See [current status](where-things-stand.md) for final artifacts
 and the [earlier release receipt](customer-journey-release-2026-09-05.md) for history.
 

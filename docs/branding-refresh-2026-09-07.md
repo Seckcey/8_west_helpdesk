@@ -40,4 +40,20 @@ The artwork replaces product branding in the existing application layouts.
 Responsive CSS preserves image proportions and trims only outer navy space
 where a short header requires it. Accessible image/link names identify the app.
 No product permissions, customer records or workflow behavior change.
-Production acceptance is recorded separately after the release.
+Production acceptance follows below.
+
+## Production acceptance — 2026-09-07 UTC
+
+Frankie's suite branding and cursive typography requests authorized implementation
+and release. [PR #110](https://github.com/Seckcey/8_west_helpdesk/pull/110) merged
+as `56fced51319875e60041cf51655fde5208981a58`. [Exact default-branch CI](https://github.com/Seckcey/8_west_helpdesk/actions/runs/34089879825) passed before deployment.
+
+The standard canonical-LF deployment recorded deployed artifact `7ed18347efe8234a926c55b3aa922cf58298cf14f0099f51bbc63c55a31d76f7`. The protected config was unchanged. Database backup SHA-256: `354b6c62c35a481d1b80665cae3cb86bee21d15a3010265bb3d1e6cefdd56bfd`. The existing Lifestyle weekly report schedule was rebound to this artifact and verified active at `2026-09-07T06:20:54Z`, preserving the recipient, schedule, report code and original delivery evidence. No report was sent during acceptance.
+
+Protected rollback/backup: `/srv/8west/backups/safeharbor/20260907T061610Z-pre-suite-branding`.
+
+ID tile opened the signed-in Queue. Desktop sidebar and 390 x 844 phone menu displayed the complete cursive logo. Opening and closing the phone menu worked; no console errors were observed.
+
+The live public PNG responses matched the committed files byte for byte.
+Artwork review covered lettering, margins and header fit. This was branding
+acceptance, not a full regression of unrelated business workflows.

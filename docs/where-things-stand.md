@@ -1,5 +1,12 @@
 # Where things stand
 
+**Current live release — 2026-09-07 UTC:** Cursive suite branding from PR #110
+is deployed as `56fced51319875e60041cf51655fde5208981a58`. Exact-main Validate
+`34089879825` passed. Desktop and phone menu acceptance passed. The existing
+Lifestyle report schedule was restored and verified active at `06:20:54Z`.
+See [branding acceptance](branding-refresh-2026-09-07.md) for the deployed
+artifact, backup checksum and unchanged protected runtime evidence.
+
 **Logbook consumer update — 2026-09-06 UTC:** Logbook's visual network/workflow
 editor is live in its separate application release `053c0ab`. See the
 [editor guide](https://github.com/Seckcey/8_west_logbook/blob/main/docs/operations/diagram-editor-guide.md)
@@ -20,7 +27,7 @@ machine. A Windows Git setting previously changed PHP line endings inside the
 archive, preventing the unchanged weekly-report runner from matching its release
 record. This packaging correction changes no reporting or delivery behavior.
 
-**Current live release verified 2026-09-06 UTC (September 5 Pacific):**
+**Previous live release verified 2026-09-06 UTC (September 5 Pacific):**
 `8c1769a7251e3f0dfb19677bb35b3413d4d2bc50` includes phone ticket cards
 ([PR #105](https://github.com/Seckcey/8_west_helpdesk/pull/105)), canonical
 archive bytes ([PR #106](https://github.com/Seckcey/8_west_helpdesk/pull/106)),
