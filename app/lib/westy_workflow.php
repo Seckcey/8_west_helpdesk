@@ -102,7 +102,7 @@ function westy_workflow_row(PDO $pdo, string $sql, array $args): ?array
 function westy_workflow_schema_ready(PDO $pdo): void
 {
     if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
-    if ((int)$pdo->query('SELECT ready FROM westy_workflow_schema_health')->fetchColumn() !== 1) throw new RuntimeException('workflow_schema_unavailable');
+    if ((int)$pdo->query('SELECT westy_workflow_schema_health()')->fetchColumn() !== 1) throw new RuntimeException('workflow_schema_unavailable');
 }
 
 function westy_workflow_result(array $run, string $action, ?string $receiptId, bool $replayed = false): array

@@ -164,10 +164,14 @@ FOR EACH ROW UPDATE westy_workflows SET state = 'human_owned',version = version 
   updated_at = UTC_TIMESTAMP() WHERE tenant_id = OLD.tenant_id AND ticket_id = OLD.ticket_id AND state <> 'human_owned'$$
 DELIMITER ;
 
--- Runtime keeps DML-only grants. A definer view reveals one readiness bit;
--- querying INFORMATION_SCHEMA.TRIGGERS directly would require TRIGGER rights.
-CREATE OR REPLACE SQL SECURITY DEFINER VIEW westy_workflow_schema_health AS
-SELECT CASE WHEN
+-- Runtime receives EXECUTE only on this read-only definer function.
+-- Direct trigger metadata inspection would require dangerous TRIGGER rights.
+DELIMITER $$
+DROP FUNCTION IF EXISTS westy_workflow_schema_health$$
+CREATE FUNCTION westy_workflow_schema_health() RETURNS TINYINT
+READS SQL DATA SQL SECURITY DEFINER
+BEGIN
+RETURN CASE WHEN
   (SELECT COUNT(*) FROM information_schema.triggers
    WHERE trigger_schema = DATABASE() AND (
      (trigger_name IN ('trg_westy_ticket_takeover','trg_westy_message_insert_takeover',
@@ -189,7 +193,9 @@ SELECT CASE WHEN
     WHERE constraint_schema = DATABASE() AND table_name = 'westy_workflows'
       AND constraint_name IN ('ck_westy_workflow_version','ck_westy_workflow_resolution')
       AND enforced = 'YES') = 2
-THEN 1 ELSE 0 END AS ready;
+THEN 1 ELSE 0 END;
+END$$
+DELIMITER ;
 
 SELECT COUNT(*) AS westy_workflow_tables FROM information_schema.tables
 WHERE table_schema = DATABASE() AND table_name IN ('westy_workflows','westy_workflow_receipts','westy_billing_outbox');

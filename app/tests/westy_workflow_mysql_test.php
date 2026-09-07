@@ -53,9 +53,11 @@ try {
     $runtimeCreated = true;
     $pdo->exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `$database`.* TO '$runtimeName'@'%'");
     $runtime = new PDO("mysql:host=$host;port=$port;dbname=$database;charset=utf8mb4",$runtimeName,$runtimePassword,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+    ww_refuses(fn()=>westy_workflow_schema_ready($runtime),'runtime requires only explicit health-function execution');
+    $pdo->exec("GRANT EXECUTE ON FUNCTION `$database`.westy_workflow_schema_health TO '$runtimeName'@'%'");
     westy_workflow_schema_ready($runtime);
     ww_check((int)$runtime->query("SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema=DATABASE()")->fetchColumn()===0,'runtime has no trigger metadata privilege');
-    ww_check(ww_send($runtime,$settings,array_replace($p,['action'=>'status','event_key'=>ww_key(9900)]))['state']==='resolved','DML-only runtime reads guarded status through definer health view');
+    ww_check(ww_send($runtime,$settings,array_replace($p,['action'=>'status','event_key'=>ww_key(9900)]))['state']==='resolved','DML-only runtime reads guarded status through definer health function');
     ww_refuses(fn()=> $runtime->exec('CREATE TABLE privilege_probe(id INT)'),'runtime still cannot create tables');
     ww_refuses(fn()=> $pdo->exec("UPDATE westy_billing_outbox SET event_key='changed'"),'billing identity is immutable');
     ww_refuses(fn()=> $pdo->exec('DELETE FROM westy_billing_outbox'),'billing history cannot be deleted');
@@ -94,7 +96,7 @@ try {
     }
     $pdo->exec('DROP TRIGGER trg_westy_ticket_takeover');
     ww_refuses(fn()=>westy_workflow_schema_ready($pdo),'partial migration fails closed');
-    ww_refuses(fn()=>westy_workflow_schema_ready($runtime),'DML-only runtime sees missing guard through health view');
+    ww_refuses(fn()=>westy_workflow_schema_ready($runtime),'DML-only runtime sees missing guard through health function');
     ww_sql($pdo,$migration);
     $pdo->exec('ALTER TABLE westy_workflows ALTER CHECK ck_westy_workflow_resolution NOT ENFORCED');
     ww_refuses(fn()=>westy_workflow_schema_ready($pdo),'unenforced resolution check fails closed');

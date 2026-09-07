@@ -135,13 +135,14 @@ state and links to the canonical invoice review after verified acknowledgment.
 ## Migration and release gate
 
 Migration **025 is migration-first** and adds three tables, thirteen guards
-and a read-only definer health view.
+and a read-only definer health function.
 It creates no user, service identity, ticket, customer, configuration or invoice.
 The canonical schema includes the same SQL. Replay preserves rows and receipts.
 Before activation, the receiver checks that the thirteen guards and enforced
 resolution/version constraints are present; a partial migration fails closed.
-The view exposes one readiness bit under the operator definer so the runtime
-keeps only DML grants. Direct trigger metadata inspection would require
+The function exposes one readiness bit under the operator definer. The runtime
+keeps its DML grants plus EXECUTE on this one function (not database-wide EXECUTE).
+The operator must grant this specific permission after installing migration 025. Direct trigger metadata inspection would require
 [MySQL TRIGGER privilege](https://dev.mysql.com/doc/mysql-infoschema-excerpt/8.0/en/information-schema-triggers-table.html).
 
 Use the existing Safeharbor runbook: exact green default-branch SHA; verified
