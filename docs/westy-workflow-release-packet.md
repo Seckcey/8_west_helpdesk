@@ -2,18 +2,19 @@
 
 Prepared September 7, 2026. This packet authorizes nothing by itself. No
 production migration, new workflow schedule, gate activation, ticket mutation
-or billing delivery has occurred. Application source from merged [PR 112](https://github.com/Seckcey/8_west_helpdesk/pull/112).
+or billing delivery has occurred. Application source from merged [PR 112](https://github.com/Seckcey/8_west_helpdesk/pull/112)
 was separately deployed as `8e8cff9cc3c2d0ef29090b2cf761246b7c7f3891` after
 exact-main Validate run `34107323212` passed. This packet now covers the
 remaining migration/activation; refresh the execution baseline before applying it.
 
 ## Verified source and live baseline
 
-Candidate application and integration receipt fixes at
-`ff1fe6bd68c0589b12e73e42c1c582308a8682f6` passed the full
-[Validate run 34106424046](https://github.com/Seckcey/8_west_helpdesk/actions/runs/34106424046).
-The final candidate additionally makes the pre-migration card read quietly
-return no card and adds its regression test. Require the final PR-head checks.
+Deployed source `8e8cff9cc3c2d0ef29090b2cf761246b7c7f3891` passed the full
+[Validate run 34107323212](https://github.com/Seckcey/8_west_helpdesk/actions/runs/34107323212).
+This includes 63 workflow and 29 billing checks, disposable MySQL migration,
+replay, ownership and least-privilege proof, and the existing PHP/browser suite.
+The pre-migration card fallback and the actual Coastmark HTTP 201 receipt
+regression are included in this deployed source.
 
 Read-only production inventory after the source release on `milepost-ec2` verified:
 
