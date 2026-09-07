@@ -1,17 +1,22 @@
 # Where things stand
 
-**Westy workflow release candidate â€” 2026-09-07:** The separate signed
-Milepost controller API, ticket ownership/evidence card and migration 025 are
-implemented behind the new default-off `westy_workflow` gate. This is not a
-deployment or activation record. See the [workflow contract](westy-workflow-contract.md)
-for exact customer scoping, independent recovery proof, human takeover,
-idempotent receipts and the migration-first canary gate. Verified closure queues
-a durable billing handoff; the separate default-off worker waits for current
-approved v3 time receipts, then links Coastmark invoice review. Existing v3
-approved time remains the financial source. No time, price or recipient is
-invented, and Safeharbor never sends an invoice. The [acceptance record](westy-workflow-acceptance-2026-09-07.md)
-distinguishes signed synthetic integration proof from read-only live UI checks.
-Existing production facts follow below.
+**Current live source release — 2026-09-07 UTC:** PR #112 is deployed as
+`8e8cff9cc3c2d0ef29090b2cf761246b7c7f3891`; exact-main Validate run
+`34107323212` passed. The no-contact reply guidance is live and verified after
+switching between Reply and Internal note on desktop and phone. The signed
+Milepost controller, ownership/evidence card and durable Coastmark handoff
+worker are deployed **default-off**. Migration 025 is **not applied**: production
+still has 44 base tables, 87 triggers, and none of its new objects. No new
+workflow key, service identity, customer gate or worker schedule was installed.
+
+The existing report schedule was preserved and restored against the new
+artifact; configuration, runtime grants, cron bytes and recipient/customer
+scope are unchanged. Signed-in ticket/queue checks passed at 1440×900 and
+390×844, with no console errors. The [acceptance record](westy-workflow-acceptance-2026-09-07.md)
+contains source-release evidence and actual synthetic cross-app receipts. The
+[release packet](westy-workflow-release-packet.md) covers the still-unapplied
+migration and controlled first-customer activation. Existing approved v3 time
+remains the financial source; Safeharbor never sends invoices.
 
 **Current live release â€” 2026-09-07 UTC:** Cursive suite branding from PR #110
 is deployed as `56fced51319875e60041cf51655fde5208981a58`. Exact-main Validate

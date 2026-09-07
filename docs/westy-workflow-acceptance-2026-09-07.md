@@ -80,3 +80,42 @@ between Reply and Internal note. Older catchall alert tickets and historical
 overdue work remain visible. They require an operator's business decision,
 not automated cleanup. The new ownership/billing card was tested with local
 fixtures because the new workflow is not active in production.
+
+## Source release completed, workflow activation remains off
+
+PR #112 merged and its exact-main Validate run
+[34107323212](https://github.com/Seckcey/8_west_helpdesk/actions/runs/34107323212)
+passed. Clean detached release `8e8cff9cc3c2d0ef29090b2cf761246b7c7f3891`
+was deployed with the documented source installer. Its source artifact is
+`623b5b815785e51f351d34cb1c72469248486f8aa1e23638cf0a384f08585806`;
+its stamped deployed artifact is
+`ee42c04d1df3192c44d6c6a228bd8028fe0fd9555a350568c0b28ab31666b022`.
+
+The fresh root-only source backup and retained postflight are under
+`/srv/8west/backups/safeharbor/20260907T094124Z-pre-westy-source-8e8cff9cc3c2`.
+The existing report schedule was stopped through its reviewed control bundle,
+then restored and verified active through the bundle matching the new artifact.
+Original sender/recipient confirmation, report scope, config bytes, runtime
+grants and cron bytes were preserved. Report manager/cron/hasher/runner bytes
+were verified unchanged from the prior live release. Both shared-host vhost
+hashes are unchanged; no Apache restart/reload was needed.
+
+Postflight confirmed 44 base tables, 87 triggers, zero migration-025 tables,
+zero migration-025 triggers, no new health function, both new gates absent/off,
+and no new workflow scheduler. The public workflow route returns 404 and the
+actual disabled worker exits quietly as the runtime user. No database mutation,
+new service key, customer binding, command, business record or invoice delivery
+was performed for this source release.
+
+A new hidden browser tab remained signed in and verified deployed ticket and
+Queue navigation. Desktop 1440×900 and stable phone 390×844 layouts passed;
+the phone document and viewport both measured 390 pixels. The no-contact reply
+hint is now accurate and survives note/reply switching. There were no console
+warnings/errors, no form submissions or timers. Owned tabs were closed,
+viewport overrides reset, and the local fixture server stopped.
+
+Final source checks include 63 workflow checks, 29 billing checks, disposable
+MySQL migration/least-privilege/immutability coverage and three new Chromium
+workflow tests, alongside all existing PHP/MySQL/browser checks. The retained
+89-check interoperability run predates the extra pre-migration card regression;
+its signed request bytes and Coastmark receipt remain unchanged.
