@@ -61,7 +61,7 @@ page_top($user, 'Queue', 'queue');
     </div>
     <?php if (!$rows): ?>
       <div class="empty">
-        <img src="/assets/brand/safeharbor-mark.svg" alt="" class="empty-mark">
+        <img src="/assets/brand/safeharbor-logo-square-20260907.png" alt="" class="empty-mark">
         <p>Nothing here. The harbor is calm.</p>
       </div>
     <?php endif; ?>

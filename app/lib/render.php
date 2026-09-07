@@ -129,12 +129,8 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
 <div class="shell">
   <aside class="sidebar" id="suite-sidebar">
     <button type="button" class="mobile-nav-close" aria-label="Close navigation">Close menu ×</button>
-    <a class="brand" href="/">
-      <img src="/assets/brand/favicon.svg" alt="Safeharbor" class="brand-mark">
-      <span class="brand-text">
-        <span class="brand-name">Safeharbor</span>
-        <span class="brand-sub">by 8 West IT, LLC</span>
-      </span>
+    <a class="brand" href="/" aria-label="Safeharbor home">
+      <img src="/assets/brand/safeharbor-logo-horizontal-20260907.png" alt="Safeharbor — 8 West IT 365" class="suite-brand-logo" width="1942" height="809">
     </a>
     <nav class="nav">
       <?php foreach ($nav as [$href, $label, $key, $kbd, $icon]): ?>

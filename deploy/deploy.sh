@@ -112,6 +112,8 @@ cp "$RELEASE_STAGING/brand/png/favicon.ico" \
    "$RELEASE_STAGING/brand/png/apple-touch-icon.png" \
    "$RELEASE_STAGING/brand/png/app-tile-192.png" \
    "$RELEASE_STAGING/brand/png/app-tile-512.png" \
+   "$RELEASE_STAGING/brand/png/safeharbor-logo-horizontal-20260907.png" \
+   "$RELEASE_STAGING/brand/png/safeharbor-logo-square-20260907.png" \
    "$RELEASE_STAGING/app/public/assets/brand/"
 
 echo "==> Linting PHP"
