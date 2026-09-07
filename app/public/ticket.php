@@ -56,6 +56,7 @@ if ($ticket) {
     try {
         $westyWorkflow = westy_workflow_ticket(db(), (int)$user['tenant_id'], $id);
         if ($westyWorkflow) $westyWorkflow['ticket_id'] = $id;
+        $ticket['westy_owned'] = ($westyWorkflow['state'] ?? '') === 'working';
     } catch (Throwable $error) {
         error_log('Westy workflow card unavailable: ' . $error::class);
     }
@@ -333,7 +334,7 @@ page_top($user, '#' . $id, 'queue');
         </button>
         <button class="rail-btn" data-action="assignee" data-id="<?= (int)$ticket['id'] ?>">
           <span><span class="rail-k">Assigned to</span><span class="rail-v" data-assignee>
-            <span class="assignee-cell"><?= avatar($ticket['assignee_id'] ? ['full_name' => $ticket['assignee_name'], 'initials' => $ticket['assignee_initials'], 'color' => $ticket['assignee_color']] : null, 22) ?><span class="assignee-name"><?= h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) ?></span></span>
+            <span class="assignee-cell"><?= ticket_owner_avatar($ticket, 22) ?><span class="assignee-name"><?= h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) ?></span></span>
           </span></span><kbd class="kbd">A</kbd>
         </button>
       </div>

@@ -2,6 +2,7 @@
 /** Client — the "answer the phone smart" screen. */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/westy_workflow.php';
 enforce_https();
 $user = require_login();
 
@@ -49,7 +50,7 @@ $tq = db()->prepare(
       ORDER BY (t.status = "resolved") ASC, FIELD(t.priority, "urgent","high","normal","low"), t.sla_due_at ASC'
 );
 $tq->execute([$id, tenant_id()]);
-$tickets = $tq->fetchAll();
+$tickets = westy_workflow_ticket_owners(db(), tenant_id(), $tq->fetchAll());
 $open = array_filter($tickets, static fn($t) => $t['status'] !== 'resolved');
 
 $kq = db()->prepare('SELECT * FROM contacts WHERE client_id = ? ORDER BY name');

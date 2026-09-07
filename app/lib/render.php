@@ -63,6 +63,16 @@ function avatar(?array $user, int $size = 26): string
          . h($user['initials']) . '</span>';
 }
 
+/** Westy is a service owner, never a fabricated human account. */
+function ticket_owner_avatar(array $ticket, int $size = 26): string
+{
+    if (($ticket['westy_owned'] ?? false) === true && ($ticket['status'] ?? '') === 'in_progress' && empty($ticket['assignee_id'])) {
+        $size = max(16, min(64, $size));
+        return '<span class="avatar" style="width:' . $size . 'px;height:' . $size . 'px;background:var(--gold);color:var(--bg)" title="Westy" aria-label="Assigned to Westy">W</span>';
+    }
+    return avatar(!empty($ticket['assignee_id']) ? ['full_name'=>$ticket['assignee_name'], 'initials'=>$ticket['assignee_initials'], 'color'=>$ticket['assignee_color']] : null, $size);
+}
+
 /** One queue row (also used on the client page). */
 function ticket_row(array $t, bool $linkWrap = true): string
 {
@@ -73,7 +83,7 @@ function ticket_row(array $t, bool $linkWrap = true): string
         . '<span class="trow-main"><span class="trow-subject">' . h($t['subject']) . '</span>'
         . '<span class="trow-sub">' . h($t['client_name']) . ' · ' . h($t['channel']) . '</span></span>'
         . '<span class="trow-status">' . status_chip($t['status']) . '</span>'
-        . '<span class="trow-tech">' . avatar($t['assignee_id'] ? ['full_name' => $t['assignee_name'], 'initials' => $t['assignee_initials'], 'color' => $t['assignee_color']] : null) . '</span>'
+        . '<span class="trow-tech">' . ticket_owner_avatar($t) . '</span>'
         . '<span class="trow-sla">' . sla_lamp($t) . '</span>'
         . '<span class="trow-age" title="Opened">' . rel_time($t['created_at']) . '</span>'
         . '</a>';
