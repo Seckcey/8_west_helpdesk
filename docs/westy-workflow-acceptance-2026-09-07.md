@@ -130,3 +130,14 @@ signed-in Chrome Queue/client/ticket acceptance passed at 1440px and 390px.
 The existing report schedule was restored and verified active; schema,
 config, runtime grants, cron bytes, scope and vhosts remain unchanged.
 Migration 025 and both workflow gates remain unapplied/off.
+
+## Client overview source refinement
+
+[PR 116](CLIENT_OVERVIEW_LINKS_2026_09_07.md) subsequently deployed release
+`70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e` after exact-main Validate
+`34113633329` passed. The client overview now states that device counts and
+balances are not shown here and links to the existing suite app entry routes.
+Fresh signed-in desktop/phone client → ticket → Queue acceptance passed, with
+all four phase placeholders removed, no horizontal overflow and no console
+errors. The report scheduler is active; schema/config/grants/cron/scope/vhosts
+match the protected preflight. The workflow activation boundary is unchanged.

@@ -3,15 +3,16 @@
 Prepared September 7, 2026. This packet authorizes nothing by itself. No
 production migration, new workflow schedule, gate activation, ticket mutation
 or billing delivery has occurred. Application source from merged [PR 112](https://github.com/Seckcey/8_west_helpdesk/pull/112)
-and the queue ownership refinement [PR 114](https://github.com/Seckcey/8_west_helpdesk/pull/114)
-was separately deployed as `3df85419cc5bf48b846b25717071d57a3547048e` after
-exact-main Validate run `34112074770` passed. This packet now covers the
+and the queue/client refinements [PR 114](https://github.com/Seckcey/8_west_helpdesk/pull/114)
+and [PR 116](https://github.com/Seckcey/8_west_helpdesk/pull/116)
+was separately deployed as `70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e` after
+exact-main Validate run `34113633329` passed. This packet now covers the
 remaining migration/activation; refresh the execution baseline before applying it.
 
 ## Verified source and live baseline
 
-Deployed source `3df85419cc5bf48b846b25717071d57a3547048e` passed the full
-[Validate run 34112074770](https://github.com/Seckcey/8_west_helpdesk/actions/runs/34112074770).
+Deployed source `70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e` passed the full
+[Validate run 34113633329](https://github.com/Seckcey/8_west_helpdesk/actions/runs/34113633329).
 This includes 63 workflow, 29 billing and 15 queue-owner checks, disposable MySQL migration,
 replay, ownership and least-privilege proof, and the existing PHP/browser suite.
 The pre-migration card fallback and the actual Coastmark HTTP 201 receipt
@@ -23,9 +24,9 @@ Read-only production inventory after the source release on `milepost-ec2` verifi
 | --- | --- |
 | Host | `ip-172-31-31-195` |
 | App path | `/srv/8west/apps/safeharbor/current` |
-| Live release | `3df85419cc5bf48b846b25717071d57a3547048e` |
-| Source artifact SHA-256 | `e056ee0089180c001a79855146e20ced5042960a2d0e15d97a727e20d4ed65cd` |
-| Deployed artifact SHA-256 | `4f57b4f691f19674fa5877a6f8be91feeaebd90bb59446d058448f8ec2d368f3` |
+| Live release | `70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e` |
+| Source artifact SHA-256 | `5032a2c2d97e4d98761f0a7a66b4ec04fc2a0b7510b641f737d5d12b33289639` |
+| Deployed artifact SHA-256 | `78df23e9495e10a5f0ecfd42477b519466d348fafc885b327c34b7061b235de2` |
 | Protected config metadata | `ubuntu:www-data`, mode `640` |
 | Database | `safeharbor`: 44 base tables, 87 triggers |
 | New workflow objects | All three tables, thirteen triggers and health function absent |
