@@ -58,12 +58,18 @@ function westy_billing_payload(PDO $pdo, array $run, array $outbox, array $confi
         'verification_sha256'=>$run['evidence_sha256'],'time_event_keys'=>$keys];
 }
 
+/** Shared by the transport and the independent suite interoperability harness. */
+function westy_billing_headers(array $config,string $body,?int $now=null): array
+{
+    $timestamp=(string)($now??time());
+    return ['Content-Type: application/json','X-8W-Service: safeharbor-billing','X-8W-Timestamp: '.$timestamp,
+        'X-8W-Signature: '.hash_hmac('sha256',$timestamp."\n".$body,$config['secret'])];
+}
+
 /** Bounded transport; redirects/other destinations cannot receive the key. */
 function westy_billing_transport(array $config,string $body): array
 {
-    $timestamp=(string)time();
-    $headers=['Content-Type: application/json','X-8W-Service: safeharbor-billing','X-8W-Timestamp: '.$timestamp,
-        'X-8W-Signature: '.hash_hmac('sha256',$timestamp."\n".$body,$config['secret'])];
+    $headers=westy_billing_headers($config,$body);
     $response=''; $curl=curl_init(WESTY_BILLING_ENDPOINT);
     curl_setopt_array($curl,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$body,CURLOPT_HTTPHEADER=>$headers,
         CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>15,

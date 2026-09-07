@@ -164,9 +164,9 @@ FOR EACH ROW UPDATE westy_workflows SET state = 'human_owned',version = version 
   updated_at = UTC_TIMESTAMP() WHERE tenant_id = OLD.tenant_id AND ticket_id = OLD.ticket_id AND state <> 'human_owned'$$
 DELIMITER ;
 
+DELIMITER $$
 -- Runtime receives EXECUTE only on this read-only definer function.
 -- Direct trigger metadata inspection would require dangerous TRIGGER rights.
-DELIMITER $$
 DROP FUNCTION IF EXISTS westy_workflow_schema_health$$
 CREATE FUNCTION westy_workflow_schema_health() RETURNS TINYINT
 READS SQL DATA SQL SECURITY DEFINER

@@ -36,7 +36,7 @@ if (!$mysql) {
 CREATE TABLE clients(id INTEGER PRIMARY KEY,tenant_id INTEGER,UNIQUE(tenant_id,id));
 CREATE TABLE svc_identities(id INTEGER PRIMARY KEY,tenant_id INTEGER,service TEXT,is_active INTEGER);
 CREATE TABLE suite_customer_sync_bindings(tenant_id INTEGER,client_id INTEGER,customer_id TEXT,status TEXT);
-CREATE TABLE users(id INTEGER PRIMARY KEY,tenant_id INTEGER,is_active INTEGER);
+CREATE TABLE users(id INTEGER PRIMARY KEY,tenant_id INTEGER,is_active INTEGER,role TEXT DEFAULT 'tech');
 CREATE TABLE tickets(id INTEGER PRIMARY KEY,tenant_id INTEGER,client_id INTEGER,subject TEXT,priority TEXT,status TEXT DEFAULT 'open',assignee_id INTEGER,merged_into_id INTEGER,channel TEXT,external_key TEXT,auto_close_eligible INTEGER,sla_due_at TEXT,service_goal_target_id INTEGER,created_at TEXT,updated_at TEXT,resolved_at TEXT,UNIQUE(tenant_id,id),UNIQUE(tenant_id,external_key));
 CREATE TABLE messages(id INTEGER PRIMARY KEY,ticket_id INTEGER,author_name TEXT,kind TEXT,body TEXT,created_at TEXT);
 CREATE TABLE time_entries(id INTEGER PRIMARY KEY,tenant_id INTEGER,ticket_id INTEGER);
@@ -49,7 +49,7 @@ CREATE TRIGGER ticket_takeover AFTER UPDATE ON tickets BEGIN UPDATE westy_workfl
 CREATE TRIGGER message_takeover AFTER INSERT ON messages WHEN NEW.kind<>'system' BEGIN UPDATE westy_workflows SET state='human_owned',version=version+1 WHERE ticket_id=NEW.ticket_id AND state<>'human_owned'; END;
 CREATE TRIGGER time_takeover AFTER INSERT ON time_entries BEGIN UPDATE westy_workflows SET state='human_owned',version=version+1 WHERE tenant_id=NEW.tenant_id AND ticket_id=NEW.ticket_id AND state<>'human_owned'; END;");
 }
-$pdo->exec("INSERT INTO tenants VALUES (1,'msp-one'),(2,'msp-two'); INSERT INTO clients VALUES (1,1),(2,2); INSERT INTO users VALUES (1,1,1),(2,2,1),(3,1,0); INSERT INTO svc_identities VALUES (1,1,'milepost-workflow',1),(2,2,'milepost-workflow',1);");
+$pdo->exec("INSERT INTO tenants VALUES (1,'msp-one'),(2,'msp-two'); INSERT INTO clients VALUES (1,1),(2,2); INSERT INTO users(id,tenant_id,is_active) VALUES (1,1,1),(2,2,1),(3,1,0); INSERT INTO svc_identities VALUES (1,1,'milepost-workflow',1),(2,2,'milepost-workflow',1);");
 $pdo->prepare('INSERT INTO suite_customer_sync_bindings VALUES (?,?,?,?)')->execute([1,1,$customer,'active']);
 $pdo->prepare('INSERT INTO suite_customer_sync_bindings VALUES (?,?,?,?)')->execute([2,2,$otherCustomer,'active']);
 function ww_send(PDO $pdo,array $settings,array $p): array { $raw=json_encode($p,JSON_THROW_ON_ERROR); return westy_workflow_receive($pdo,$settings,westy_workflow_request($raw),hash('sha256',$raw)); }
@@ -86,6 +86,8 @@ foreach (['ticket','message','time','escalate'] as $i=>$kind) {
         $escalate=array_replace($next,['action'=>'escalate','assignee_id'=>2]);
         ww_refuses(fn()=>ww_send($pdo,$settings,$escalate),'cross-tenant assignee refused');
         ww_refuses(fn()=>ww_send($pdo,$settings,array_replace($escalate,['assignee_id'=>3])),'inactive assignee refused');
+        $pdo->exec("INSERT INTO users(id,tenant_id,is_active,role) VALUES(4,1,1,'viewer')");
+        ww_refuses(fn()=>ww_send($pdo,$settings,array_replace($escalate,['assignee_id'=>4])),'non-staff role refused');
         $escalated=ww_send($pdo,$settings,array_replace($escalate,['assignee_id'=>1]));
         ww_check($escalated['state']==='needs_human' && (int)$pdo->query("SELECT assignee_id FROM tickets WHERE id=$id")->fetchColumn()===1,'escalation assigns exact active tenant technician');
     } else {

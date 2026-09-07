@@ -169,7 +169,7 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
             if ($p['action'] === 'resolve' && str_replace(' ', 'T', $run['started_at']) . 'Z' > $p['job_completed_at']) throw new WestyWorkflowConflict('job_predates_workflow');
             $state = match ($p['action']) { 'resolve'=>'resolved', 'escalate'=>'needs_human', default=>'working' };
             if ($p['action'] === 'escalate') {
-                if ($p['assignee_id'] !== null && !westy_workflow_row($pdo, 'SELECT id FROM users WHERE tenant_id = ? AND id = ? AND is_active = 1' . $lock, [$tid,$p['assignee_id']])) throw new WestyWorkflowConflict('assignee_unavailable');
+                if ($p['assignee_id'] !== null && !westy_workflow_row($pdo, "SELECT id FROM users WHERE tenant_id = ? AND id = ? AND is_active = 1 AND role IN ('owner','admin','tech')" . $lock, [$tid,$p['assignee_id']])) throw new WestyWorkflowConflict('assignee_unavailable');
                 $pdo->prepare("UPDATE tickets SET status = 'open',assignee_id = ?,auto_close_eligible = 0 WHERE tenant_id = ? AND id = ?")->execute([$p['assignee_id'],$tid,$ticket['id']]);
             } elseif ($p['action'] === 'resolve') {
                 $pdo->prepare("UPDATE tickets SET status = 'resolved',resolved_at = ?,auto_close_eligible = 0 WHERE tenant_id = ? AND id = ?")->execute([$now,$tid,$ticket['id']]);
@@ -207,7 +207,7 @@ function westy_workflow_card(array $run): string
 {
     $labels = ['working'=>'Westy is troubleshooting','needs_human'=>'A technician is needed','human_owned'=>'A technician owns this ticket','resolved'=>'Recovery verified'];
     $explanations = ['working'=>'Review progress and approve commands in Milepost. Taking over here pauses Westy before his next action.',
-        'needs_human'=>'Westy stopped and left the findings below. Assign a technician to continue.',
+        'needs_human'=>'Westy stopped and left the findings below. Review the assigned technician or assign one to continue.',
         'human_owned'=>'Someone changed the ticket or added work. Westy cannot close it automatically.',
         'resolved'=>'Milepost recorded a completed agent job and fresh recovery of the original alert. Billing still needs review.'];
     $state = (string)$run['state'];
