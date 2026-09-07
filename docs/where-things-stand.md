@@ -1,5 +1,14 @@
 # Where things stand
 
+**Westy workflow release candidate — 2026-09-07:** The separate signed
+Milepost controller API, ticket ownership/evidence card and migration 025 are
+implemented behind the new default-off `westy_workflow` gate. This is not a
+deployment or activation record. See the [workflow contract](westy-workflow-contract.md)
+for exact customer scoping, independent recovery proof, human takeover,
+idempotent receipts and the migration-first canary gate. Ticket closure creates
+no time entry, invoice or outbound message; existing v3 approved-time billing
+remains the financial source. Existing production facts follow below.
+
 **Current live release — 2026-09-07 UTC:** Cursive suite branding from PR #110
 is deployed as `56fced51319875e60041cf51655fde5208981a58`. Exact-main Validate
 `34089879825` passed. Desktop and phone menu acceptance passed. The existing

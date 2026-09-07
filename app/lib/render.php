@@ -122,7 +122,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
 (function(){var t=<?= json_encode($_SESSION['suite_theme']) ?>;localStorage.setItem("safeharbor.theme",t);document.documentElement.dataset.theme=t;})();
 <?php endif; ?>
 </script>
-<link rel="stylesheet" href="/assets/css/app.css?v=5">
+<link rel="stylesheet" href="/assets/css/app.css?v=6">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -203,7 +203,7 @@ function page_bottom(array $paletteData = []): void
 <div id="toasts" class="toasts"></div>
 <?php westy_bubble_render(); ?>
 <script id="palette-data" type="application/json"><?= json_encode($paletteData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
-<script src="/assets/js/app.js?v=3" defer></script>
+<script src="/assets/js/app.js?v=4" defer></script>
 </body>
 </html>
     <?php

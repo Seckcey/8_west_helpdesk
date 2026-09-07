@@ -4,6 +4,24 @@
    via semantic tokens — components only ever reference the semantic layer.
    ========================================================================== */
 
+.westy-workflow-card { padding: 20px; margin-bottom: 20px; border-color: var(--line); }
+.westy-workflow-heading { display: flex; align-items: center; gap: 12px; }
+.westy-workflow-heading h2 { font-size: 18px; margin: 3px 0 0; }
+.westy-workflow-mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; background: var(--bg-raised); color: var(--gold); font-weight: 800; flex-shrink: 0; }
+.westy-workflow-card p { line-height: 1.6; overflow-wrap: anywhere; }
+.westy-workflow-summary { border-left: 3px solid var(--line); padding-left: 12px; white-space: pre-wrap; }
+.westy-workflow-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.westy-workflow-evidence { margin-top: 16px; }
+.westy-workflow-evidence summary { cursor: pointer; }
+.westy-workflow-evidence code { overflow-wrap: anywhere; font-size: 12px; }
+.westy-workflow-card[data-workflow-state="resolved"] { border-color: var(--mint); }
+.westy-workflow-card[data-workflow-state="needs_human"],
+.westy-workflow-card[data-workflow-state="human_owned"] { border-color: var(--gold); }
+@media (max-width: 560px) {
+  .westy-workflow-card { padding: 16px; }
+  .westy-workflow-actions > * { min-height: 44px; }
+}
+
 /* ---- brand palette constants (theme-independent) ---- */
 :root {
   --p-navy-950: #031022;

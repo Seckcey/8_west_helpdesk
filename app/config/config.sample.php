@@ -332,6 +332,16 @@ return [
         'attachments_dir' => '/srv/8west/apps/safeharbor/shared/attachments',
     ],
 
+    // Separate signed Milepost controller workflow. Keep disabled until
+    // migration 025, exact tenant/customer canary and dedicated identity/key
+    // are reviewed. The chat bubble cannot call or authorize this service.
+    'westy_workflow' => [
+        'enabled' => false,
+        'hmac_secret' => '',
+        'tenant_slugs' => [],
+        'customer_ids' => [],
+    ],
+
     // Westy — the suite AI helper (advise-only chat bubble + onboarding).
     // Milepost's ai-layer pattern: keys live ONLY here on the server, never
     // in git or the browser. Unconfigured = Westy renders nothing (fails

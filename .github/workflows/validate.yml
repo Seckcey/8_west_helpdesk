@@ -104,6 +104,17 @@ jobs:
         run: php app/tests/suite_logout_test.php
       - name: Test read-only Logbook knowledge export
         run: php app/tests/logbook_export_test.php
+      - name: Test Westy controller workflow contract
+        run: php app/tests/westy_workflow_test.php
+      - name: Test Westy workflow migration, replay, and human ownership
+        env:
+          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
+          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_WESTY_TEST_PORT: 3306
+          SAFEHARBOR_WESTY_TEST_USER: root
+          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
+        run: php app/tests/westy_workflow_mysql_test.php
       - name: Test suite token algorithms
         run: php app/tests/suite_rs256_test.php
       - name: Test suite roles
