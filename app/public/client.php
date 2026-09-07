@@ -86,8 +86,8 @@ page_top($user, $client['name'], 'clients');
   <div class="stats">
     <div class="card stat"><div class="stat-k">Open tickets</div><div class="stat-v <?= count($open) > 2 ? 'stat-warn' : '' ?>"><?= count($open) ?></div></div>
     <div class="card stat"><div class="stat-k">Avg first response</div><div class="stat-v <?= $avgFirstResponse !== '—' ? 'stat-good' : 'stat-dim' ?>"><?= h($avgFirstResponse) ?></div></div>
-    <div class="card stat"><div class="stat-k">Devices</div><div class="stat-v stat-dim">Phase 2</div><div class="stat-hint">via Milepost</div></div>
-    <div class="card stat"><div class="stat-k">Balance</div><div class="stat-v stat-dim">Phase 2</div><div class="stat-hint">via Coastmark</div></div>
+    <div class="card stat"><div class="stat-k">Devices</div><div class="stat-v stat-dim" style="font-size:15px">Not shown here</div><a class="link" href="https://support.8westit.com/" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:12px">View in Milepost ↗</a></div>
+    <div class="card stat"><div class="stat-k">Balance</div><div class="stat-v stat-dim" style="font-size:15px">Not shown here</div><a class="link" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:12px">View in Coastmark ↗</a></div>
   </div>
 
   <div class="ticket-grid">
@@ -127,8 +127,9 @@ page_top($user, $client['name'], 'clients');
       </div>
       <div class="rail-label">Suite</div>
       <div class="card rail-card rail-suite">
-        <p><span class="suite-dot"></span>Device list arrives with Milepost (Phase 2)</p>
-        <p><span class="suite-dot"></span>Invoices &amp; agreement arrive with Coastmark (Phase 2)</p>
+        <p><span class="suite-dot"></span><a class="link" href="https://support.8westit.com/" target="_blank" rel="noopener">Find devices in Milepost ↗</a></p>
+        <p><span class="suite-dot"></span><a class="link" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener">Review invoices in Coastmark ↗</a></p>
+        <p>Open the app, then select the client.</p>
       </div>
     </div>
   </div>
