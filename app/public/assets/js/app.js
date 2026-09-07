@@ -146,8 +146,17 @@
         row.dataset.status = r.status;
         row.dataset.priority = r.priority;
       }
+      const workflow = $(".westy-workflow-card");
+      if (workflow) {
+        workflow.dataset.workflowState = "human_owned";
+        $("#westy-workflow-title", workflow).textContent = "A technician owns this ticket";
+        $("p", workflow).textContent = "The ticket was changed by a technician. Westy cannot close it automatically.";
+        $(".westy-workflow-actions [data-action]", workflow)?.remove();
+      }
+      return true;
     } catch (e) {
       toast("Couldn't save — check your connection.");
+      return false;
     }
   }
 
@@ -832,11 +841,15 @@
   })();
 
   /* rail buttons (ticket page) */
-  $$(".rail-btn[data-action]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+  $$(".rail-btn[data-action], .westy-workflow-actions [data-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
       const action = btn.dataset.action;
       const id = btn.dataset.id;
-      if (action === "assignee") ticketAction(id, "assignee", "me");
+      if (action === "assignee") {
+        btn.disabled = true;
+        await ticketAction(id, "assignee", "me");
+        btn.disabled = false;
+      }
       else {
         const field = action;
         const order = field === "status" ? STATUS_ORDER : PRIORITY_ORDER;
@@ -1276,7 +1289,7 @@
     const send = $("#composer-send");
     const tabs = $$(".composer-tab");
     const HINTS = {
-      reply: "Replying emails the client and moves Open → In Progress",
+      reply: hint?.textContent || "Replies are saved on this ticket.",
       note: "Internal note — the client never sees this",
     };
     const PLACEHOLDERS = {

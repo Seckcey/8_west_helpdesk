@@ -1,5 +1,18 @@
 # Where things stand
 
+**Westy workflow release candidate — 2026-09-07:** The separate signed
+Milepost controller API, ticket ownership/evidence card and migration 025 are
+implemented behind the new default-off `westy_workflow` gate. This is not a
+deployment or activation record. See the [workflow contract](westy-workflow-contract.md)
+for exact customer scoping, independent recovery proof, human takeover,
+idempotent receipts and the migration-first canary gate. Verified closure queues
+a durable billing handoff; the separate default-off worker waits for current
+approved v3 time receipts, then links Coastmark invoice review. Existing v3
+approved time remains the financial source. No time, price or recipient is
+invented, and Safeharbor never sends an invoice. The [acceptance record](westy-workflow-acceptance-2026-09-07.md)
+distinguishes signed synthetic integration proof from read-only live UI checks.
+Existing production facts follow below.
+
 **Current live release — 2026-09-07 UTC:** Cursive suite branding from PR #110
 is deployed as `56fced51319875e60041cf51655fde5208981a58`. Exact-main Validate
 `34089879825` passed. Desktop and phone menu acceptance passed. The existing

@@ -60,6 +60,8 @@ jobs:
         run: node tools/shots/time-contract.test.mjs
       - name: Test customer portal usefulness in a real browser
         run: node tools/shots/portal-contract.test.mjs
+      - name: Test Westy ownership and reply guidance in a real browser
+        run: node tools/shots/westy-workflow-contract.test.mjs
 
   php:
     needs: changes
@@ -104,6 +106,19 @@ jobs:
         run: php app/tests/suite_logout_test.php
       - name: Test read-only Logbook knowledge export
         run: php app/tests/logbook_export_test.php
+      - name: Test Westy controller workflow contract
+        run: |
+          php app/tests/westy_workflow_test.php
+          php app/tests/westy_billing_test.php
+      - name: Test Westy workflow migration, replay, and human ownership
+        env:
+          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
+          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_WESTY_TEST_PORT: 3306
+          SAFEHARBOR_WESTY_TEST_USER: root
+          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
+        run: php app/tests/westy_workflow_mysql_test.php
       - name: Test suite token algorithms
         run: php app/tests/suite_rs256_test.php
       - name: Test suite roles

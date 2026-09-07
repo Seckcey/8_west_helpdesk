@@ -1,0 +1,15 @@
+{
+    "ok": true,
+    "action": "progress",
+    "ticket_id": 6,
+    "workflow_key": "f7a2b75b-a2bc-4913-b0f3-4418c7dd5283",
+    "version": 2,
+    "state": "working",
+    "ticket_url": "https://safeharbor.8westit.com/ticket.php?id=6",
+    "receipt_id": "96277083-2854-4255-8264-16c4b6b5cf04",
+    "replayed": false,
+    "event_key": "96277083-2854-4255-8264-16c4b6b5cf04",
+    "tenant_slug": "msp-one",
+    "customer_id": "00000064-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "alert_key": "alert:90001"
+}

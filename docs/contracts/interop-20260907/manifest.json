@@ -1,0 +1,94 @@
+{
+    "synthetic_only": true,
+    "network_requests": 0,
+    "public_test_secret": "public-synthetic-fixture-key-not-a-production-secret",
+    "created_at": "2026-09-07T09:26:43+00:00",
+    "milepost_workflow_sha256": "1f42f54732303c3fd998b47088a2eb2860ca82b3e1ff6fad0953591fe7ab9c78",
+    "safeharbor_workflow_sha256": "afdec123edbbc5d44be33ffaf28df0483d0f4932bbace24591a51373ef78e839",
+    "exchanges": [
+        {
+            "name": "1-claim",
+            "headers": [
+                "Content-Type: application/json",
+                "X-8W-Service: milepost-workflow",
+                "X-8W-Timestamp: 1788773203",
+                "X-8W-Signature: 3f5be666c09b4d1c1433750663c0cfdbac4d8722bec87d20064385fe3d02bf41"
+            ],
+            "request_sha256": "c1b59c5f246fe6eaec219417dd11b6cfb7758f2f91ff56f45703775081ba4ee9",
+            "state": "working",
+            "version": 1
+        },
+        {
+            "name": "2-status",
+            "headers": [
+                "Content-Type: application/json",
+                "X-8W-Service: milepost-workflow",
+                "X-8W-Timestamp: 1788773203",
+                "X-8W-Signature: b08a28768ed27fc7b1881eb8a3419957e402915f05e2bd7bdd7c94d5a90fa256"
+            ],
+            "request_sha256": "d385765b2bba69d0fdef6443905a01b0a18faee9d482671cf19ac05d93426c5c",
+            "state": "working",
+            "version": 1
+        },
+        {
+            "name": "3-progress",
+            "headers": [
+                "Content-Type: application/json",
+                "X-8W-Service: milepost-workflow",
+                "X-8W-Timestamp: 1788773203",
+                "X-8W-Signature: 4c43990c657d0c2d3743476c078eeb26f4ff63f801e33011b8c77043871c27ae"
+            ],
+            "request_sha256": "3be394814aab8ddd845e73d13540a6879a0878ef812f89366afad55cfbb2e1a0",
+            "state": "working",
+            "version": 2
+        },
+        {
+            "name": "4-resolve",
+            "headers": [
+                "Content-Type: application/json",
+                "X-8W-Service: milepost-workflow",
+                "X-8W-Timestamp: 1788773204",
+                "X-8W-Signature: 400f8d707c00134e7ce968abc03025f1dfe4761af3bd64fa4e74bc842ed9f9c3"
+            ],
+            "request_sha256": "44f2a5aebd1e94131b0727b6faa45bfb68be2f9820ad0e884f67cf345d1d8a27",
+            "state": "resolved",
+            "version": 3
+        },
+        {
+            "name": "5-claim",
+            "headers": [
+                "Content-Type: application/json",
+                "X-8W-Service: milepost-workflow",
+                "X-8W-Timestamp: 1788773204",
+                "X-8W-Signature: c80fbf5cad5702cf407c750879cc28df7e84560672b3b17596f67df7bd7f209e"
+            ],
+            "request_sha256": "d32f88644f9bb29353e590462e8363cf636e776a2281dffb40e3a4c177bfd598",
+            "state": "working",
+            "version": 1
+        },
+        {
+            "name": "6-escalate",
+            "headers": [
+                "Content-Type: application/json",
+                "X-8W-Service: milepost-workflow",
+                "X-8W-Timestamp: 1788773204",
+                "X-8W-Signature: 8b3fec33012d0a55fc75bae8c81312f48790f16fdda7fdf59d01cba89127162c"
+            ],
+            "request_sha256": "f5bc103f44e6588baedd12d40f2039b37d93e5bf3493ff58355d69b6132ac97e",
+            "state": "needs_human",
+            "version": 2
+        }
+    ],
+    "billing": {
+        "headers": [
+            "Content-Type: application/json",
+            "X-8W-Service: safeharbor-billing",
+            "X-8W-Timestamp: 1788773204",
+            "X-8W-Signature: de3d697584da00e4a14ed5ab62231f5a13651f8af4b2fc533e42e73199de38c7"
+        ],
+        "request_sha256": "40a6f4d9d3e8bfbf575f0c76b7300341393c1c327ded5833ff5a644a2ddcb076",
+        "time_sha256": "c4dc3560b7293a5b549535883b275873f80b88520042c5c934ee29d33862aa1a",
+        "source_receipt": "fixture prerequisite; import approved-time-v3.json in isolated Coastmark test before handoff"
+    },
+    "checks": 89
+}

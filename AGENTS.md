@@ -107,7 +107,12 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    `api/westy_chat.php` + `assets/js/westy.js`. He ADVISES, never acts; his
    prompt names only REAL UI (update it when the UI changes); AI keys live
    ONLY in server `config/config.php` (`ai` block) and the bubble fails closed
-   without them. Shared drag/resize layout is centrally owned in
+   without them. The separately authorized September 7 controller workflow is
+   a default-off service, not a chat permission: `docs/westy-workflow-contract.md`
+   owns its migration 025, dedicated `milepost-workflow` identity, exact
+   tenant/customer gates, independent recovery proof and human takeover.
+   Never route command approval or invoice sending through the chat bubble.
+   Shared drag/resize layout is centrally owned in
    `Seckcey/8_west_westy` and consumed from
    `https://westy.8westit.com/v1/westy-layout.js`. A commit to that repo does
    **not** publish: only a reviewed tag published as a GitHub Release may move

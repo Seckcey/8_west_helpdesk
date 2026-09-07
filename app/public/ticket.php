@@ -7,6 +7,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/mailer.php';
 require_once __DIR__ . '/../lib/attachments.php';
+require_once __DIR__ . '/../lib/westy_workflow.php';
 enforce_https();
 $user = require_login();
 
@@ -49,6 +50,16 @@ $stmt = db()->prepare(
 );
 $stmt->execute([$id, tenant_id()]);
 $ticket = $stmt->fetch();
+$westyWorkflow = null;
+// Disabling new automation must leave existing ownership and receipts visible.
+if ($ticket) {
+    try {
+        $westyWorkflow = westy_workflow_ticket(db(), (int)$user['tenant_id'], $id);
+        if ($westyWorkflow) $westyWorkflow['ticket_id'] = $id;
+    } catch (Throwable $error) {
+        error_log('Westy workflow card unavailable: ' . $error::class);
+    }
+}
 
 if (!$ticket) {
     page_top($user, 'Not found', 'queue');
@@ -248,6 +259,7 @@ page_top($user, '#' . $id, 'queue');
 
   <div class="ticket-grid">
     <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>">
+      <?php if ($westyWorkflow): ?><?= westy_workflow_card($westyWorkflow) ?><?php endif; ?>
       <?php if (!$thread): ?>
         <div class="card empty"><p>No replies yet. <span class="accent">Press R</span> to answer first.</p></div>
       <?php endif; ?>
@@ -298,7 +310,7 @@ page_top($user, '#' . $id, 'queue');
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 7.5 8.6 12a3.1 3.1 0 0 1-4.5-4.4l5-5a2.1 2.1 0 0 1 3 3l-5 5a1.1 1.1 0 0 1-1.6-1.5l4.5-4.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span id="att-count"></span>
             </label>
-            <span class="reply-hint" id="composer-hint">Replying emails the client and moves Open → In Progress</span>
+            <span class="reply-hint" id="composer-hint"><?= !empty($ticket['contact_id']) ? 'Replying emails the client and moves Open → In Progress' : 'No client contact is attached. Replies are saved on this ticket.' ?></span>
             <label class="timer-log-chip" id="timer-log-chip" hidden>
               <input type="checkbox" id="f-billable" name="billable" value="1" checked>
               <span id="timer-log-text">log time</span>
@@ -321,7 +333,7 @@ page_top($user, '#' . $id, 'queue');
         </button>
         <button class="rail-btn" data-action="assignee" data-id="<?= (int)$ticket['id'] ?>">
           <span><span class="rail-k">Assigned to</span><span class="rail-v" data-assignee>
-            <span class="assignee-cell"><?= avatar($ticket['assignee_id'] ? ['full_name' => $ticket['assignee_name'], 'initials' => $ticket['assignee_initials'], 'color' => $ticket['assignee_color']] : null, 22) ?><span class="assignee-name"><?= h($ticket['assignee_name'] ?? 'Unassigned') ?></span></span>
+            <span class="assignee-cell"><?= avatar($ticket['assignee_id'] ? ['full_name' => $ticket['assignee_name'], 'initials' => $ticket['assignee_initials'], 'color' => $ticket['assignee_color']] : null, 22) ?><span class="assignee-name"><?= h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) ?></span></span>
           </span></span><kbd class="kbd">A</kbd>
         </button>
       </div>
