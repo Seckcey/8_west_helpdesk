@@ -83,9 +83,10 @@ function westy_billing_transport(array $config,string $body): array
 
 function westy_billing_response(array $response,string $eventKey): bool
 {
-    if (($response['status']??0)!==200 || !is_string($response['body']??null) || strlen($response['body'])>65536) return false;
+    if (!in_array($response['status']??0,[200,201],true) || !is_string($response['body']??null) || strlen($response['body'])>65536) return false;
     try { $body=json_decode($response['body'],true,16,JSON_THROW_ON_ERROR); } catch (JsonException) { return false; }
     if (($body['ok']??false)!==true || !in_array($body['action']??'',['created','ignored'],true)
+        || (($response['status']??0)===201 && ($body['action']??'')!=='created')
         || ($body['handoff']['event_key']??'')!==$eventKey || ($body['handoff']['state']??'')!=='review_required'
         || !is_int($body['handoff']['id']??null) || $body['handoff']['id']<1 || !is_array($body['invoices']??null) || !$body['invoices']) return false;
     foreach ($body['invoices'] as $invoice) {

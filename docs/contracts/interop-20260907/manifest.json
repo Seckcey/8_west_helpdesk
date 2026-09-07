@@ -2,19 +2,19 @@
     "synthetic_only": true,
     "network_requests": 0,
     "public_test_secret": "public-synthetic-fixture-key-not-a-production-secret",
-    "created_at": "2026-09-07T09:24:11+00:00",
-    "milepost_workflow_sha256": "ec884abb862bcf5cffce74d168b2ed602808697f2dd6c39668cfd3eafb0b8900",
-    "safeharbor_workflow_sha256": "84bc8ba52f3c5ef650e7dfbe9605a7b675e81f86acdb475c0eeca58218eb3f8b",
+    "created_at": "2026-09-07T09:26:43+00:00",
+    "milepost_workflow_sha256": "1f42f54732303c3fd998b47088a2eb2860ca82b3e1ff6fad0953591fe7ab9c78",
+    "safeharbor_workflow_sha256": "afdec123edbbc5d44be33ffaf28df0483d0f4932bbace24591a51373ef78e839",
     "exchanges": [
         {
             "name": "1-claim",
             "headers": [
                 "Content-Type: application/json",
                 "X-8W-Service: milepost-workflow",
-                "X-8W-Timestamp: 1788773051",
-                "X-8W-Signature: 76548e5083265339f9889c485cf490a05ca788aa9e6f5d2b861697018a310317"
+                "X-8W-Timestamp: 1788773203",
+                "X-8W-Signature: 3f5be666c09b4d1c1433750663c0cfdbac4d8722bec87d20064385fe3d02bf41"
             ],
-            "request_sha256": "6dc6380c348124c99ac7c6f9051889d0461933ccfd109b39a5ea31b5be58e0a2",
+            "request_sha256": "c1b59c5f246fe6eaec219417dd11b6cfb7758f2f91ff56f45703775081ba4ee9",
             "state": "working",
             "version": 1
         },
@@ -23,10 +23,10 @@
             "headers": [
                 "Content-Type: application/json",
                 "X-8W-Service: milepost-workflow",
-                "X-8W-Timestamp: 1788773051",
-                "X-8W-Signature: 25077e8a6c4bb5cb03e930963ce1f04e1b435b788d733723636e8fa533cea59b"
+                "X-8W-Timestamp: 1788773203",
+                "X-8W-Signature: b08a28768ed27fc7b1881eb8a3419957e402915f05e2bd7bdd7c94d5a90fa256"
             ],
-            "request_sha256": "27b9ad6cf2edb1e4d4d446093c26b93057661b6e3527ef5b205e38117aaf5052",
+            "request_sha256": "d385765b2bba69d0fdef6443905a01b0a18faee9d482671cf19ac05d93426c5c",
             "state": "working",
             "version": 1
         },
@@ -35,10 +35,10 @@
             "headers": [
                 "Content-Type: application/json",
                 "X-8W-Service: milepost-workflow",
-                "X-8W-Timestamp: 1788773051",
-                "X-8W-Signature: e34aa825476a2c66b7fd8fde8a594b8bbcc04ecd6759076485fc3399fff827db"
+                "X-8W-Timestamp: 1788773203",
+                "X-8W-Signature: 4c43990c657d0c2d3743476c078eeb26f4ff63f801e33011b8c77043871c27ae"
             ],
-            "request_sha256": "5c16413d553b0222068e9bdca6bea1b3818bd050f18aaf63460bd7bc901654ac",
+            "request_sha256": "3be394814aab8ddd845e73d13540a6879a0878ef812f89366afad55cfbb2e1a0",
             "state": "working",
             "version": 2
         },
@@ -47,10 +47,10 @@
             "headers": [
                 "Content-Type: application/json",
                 "X-8W-Service: milepost-workflow",
-                "X-8W-Timestamp: 1788773052",
-                "X-8W-Signature: 0ae2d44c10db514db00a94733872a4bdc4905f7afd4e2b7a1c146e5044e5be2a"
+                "X-8W-Timestamp: 1788773204",
+                "X-8W-Signature: 400f8d707c00134e7ce968abc03025f1dfe4761af3bd64fa4e74bc842ed9f9c3"
             ],
-            "request_sha256": "5626b97932530b8709999641ab99eca64b3a1a8cd02fd2bf35b25fbf81987799",
+            "request_sha256": "44f2a5aebd1e94131b0727b6faa45bfb68be2f9820ad0e884f67cf345d1d8a27",
             "state": "resolved",
             "version": 3
         },
@@ -59,10 +59,10 @@
             "headers": [
                 "Content-Type: application/json",
                 "X-8W-Service: milepost-workflow",
-                "X-8W-Timestamp: 1788773052",
-                "X-8W-Signature: 875d4908212c3e4665c88dc46329530c51498feaf5c761f7ce75f1ca055979f6"
+                "X-8W-Timestamp: 1788773204",
+                "X-8W-Signature: c80fbf5cad5702cf407c750879cc28df7e84560672b3b17596f67df7bd7f209e"
             ],
-            "request_sha256": "53d856a092f74c726317f365080fa669ec16e9992f10f9fe94dc69d9a8f39811",
+            "request_sha256": "d32f88644f9bb29353e590462e8363cf636e776a2281dffb40e3a4c177bfd598",
             "state": "working",
             "version": 1
         },
@@ -71,10 +71,10 @@
             "headers": [
                 "Content-Type: application/json",
                 "X-8W-Service: milepost-workflow",
-                "X-8W-Timestamp: 1788773052",
-                "X-8W-Signature: f9c691f169798a50ee8f208388915330614181aa8ddbdb07be897056bb8fa258"
+                "X-8W-Timestamp: 1788773204",
+                "X-8W-Signature: 8b3fec33012d0a55fc75bae8c81312f48790f16fdda7fdf59d01cba89127162c"
             ],
-            "request_sha256": "0a9d5954a2d21a2c9a18546afce538de9d87cfe8eafb890bb6ffaf22a5ae0763",
+            "request_sha256": "f5bc103f44e6588baedd12d40f2039b37d93e5bf3493ff58355d69b6132ac97e",
             "state": "needs_human",
             "version": 2
         }
@@ -83,12 +83,12 @@
         "headers": [
             "Content-Type: application/json",
             "X-8W-Service: safeharbor-billing",
-            "X-8W-Timestamp: 1788773052",
-            "X-8W-Signature: ed499f9ebfdad96f08d12a7eec8fd737175f783c62be05f0c3653e8a1a2f8e6b"
+            "X-8W-Timestamp: 1788773204",
+            "X-8W-Signature: de3d697584da00e4a14ed5ab62231f5a13651f8af4b2fc533e42e73199de38c7"
         ],
-        "request_sha256": "6f3147bc67087c5206c688168a14d6654441bb3a2a66528c3a8909dfc1b491bd",
-        "time_sha256": "356e7243e323d5966aa1b5093610b0e85001df8010ff364c06d075e73b673791",
+        "request_sha256": "40a6f4d9d3e8bfbf575f0c76b7300341393c1c327ded5833ff5a644a2ddcb076",
+        "time_sha256": "c4dc3560b7293a5b549535883b275873f80b88520042c5c934ee29d33862aa1a",
         "source_receipt": "fixture prerequisite; import approved-time-v3.json in isolated Coastmark test before handoff"
     },
-    "checks": 87
+    "checks": 89
 }

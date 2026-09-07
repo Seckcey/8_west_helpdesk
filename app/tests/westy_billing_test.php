@@ -26,7 +26,7 @@ $pdo->prepare('INSERT INTO westy_billing_outbox(id,tenant_id,workflow_id,event_k
 $calls=[];
 $transport=static function(array $config,string $body) use (&$calls,$billingEvent): array {
     $calls[]=$body;
-    return ['status'=>200,'body'=>json_encode(['ok'=>true,'action'=>'created','handoff'=>['id'=>4,'event_key'=>$billingEvent,'state'=>'review_required'],
+    return ['status'=>201,'body'=>json_encode(['ok'=>true,'action'=>'created','handoff'=>['id'=>4,'event_key'=>$billingEvent,'state'=>'review_required'],
         'invoices'=>[['invoice_id'=>9,'review_url'=>'https://coastmark.8westit.com/invoices/9','status'=>'draft']]])];
 };
 function wb_due(PDO $pdo): void { $pdo->exec('UPDATE westy_billing_outbox SET next_attempt_at=NULL'); }
@@ -55,7 +55,13 @@ wb_check($calls[0]===$calls[1] && $calls[1]===$frozen,'uncertain retry uses byte
 wb_check(westy_billing_dispatch($pdo,1,$config,$transport)==='accepted' && count($calls)===2,'accepted handoff never sends again');
 wb_check((int)$pdo->query('SELECT attempts FROM westy_billing_outbox')->fetchColumn()===2,'attempt count reflects actual sends');
 $good=$transport($config,$frozen);
-wb_check(westy_billing_response($good,$billingEvent),'exact scoped receipt validates');
+wb_check(westy_billing_response($good,$billingEvent),'HTTP 201 created exact scoped receipt validates');
+$ignored=json_decode($good['body'],true); $ignored['action']='ignored';
+wb_check(westy_billing_response(['status'=>200,'body'=>json_encode($ignored)],$billingEvent),'HTTP 200 ignored receipt reconciles exact replay');
+wb_check(!westy_billing_response(['status'=>201,'body'=>json_encode($ignored)],$billingEvent),'201 cannot masquerade as replay');
+$fixture=__DIR__.'/../../docs/contracts/interop-20260907/';
+$realRequest=json_decode(file_get_contents($fixture.'billing-handoff-v1.json'),true,16,JSON_THROW_ON_ERROR);
+wb_check(westy_billing_response(['status'=>201,'body'=>file_get_contents($fixture.'coastmark-created-receipt.json')],$realRequest['event_key']),'actual Coastmark receiver fixture agrees with real frozen producer payload');
 wb_check(!westy_billing_response($good,'safeharbor-billing:'.str_repeat('c',32)),'wrong receipt event refused');
 $bad=json_decode($good['body'],true); $bad['invoices'][0]['review_url']='https://evil.example/invoice';
 wb_check(!westy_billing_response(['status'=>200,'body'=>json_encode($bad)],$billingEvent),'untrusted invoice destination refused');

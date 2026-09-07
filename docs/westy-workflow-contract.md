@@ -128,7 +128,8 @@ with bounded exponential backoff and an eight-attempt ceiling. A two-minute
 lease contains overlapping/crashed workers. A new source version after a frozen
 claim blocks delivery rather than replacing its body. Exact receiver replay
 reconciles a lost acknowledgment. Accepted receipts cannot be changed or sent
-again. An accepted handoff means **Coastmark invoice review is ready**; it is
+again. The receiver returns HTTP 201 for creation and HTTP 200 for an exact replay.
+An accepted handoff means **Coastmark invoice review is ready**; it is
 not posting, mail acceptance, or inbox delivery. The ticket card shows billing
 state and links to the canonical invoice review after verified acknowledgment.
 
@@ -146,14 +147,14 @@ The operator must grant this specific permission after installing migration 025.
 [MySQL TRIGGER privilege](https://dev.mysql.com/doc/mysql-infoschema-excerpt/8.0/en/information-schema-triggers-table.html).
 
 Use the existing Safeharbor runbook: exact green default-branch SHA; verified
-root-only application/config/trigger-inclusive database/grants backup and scratch
+root-only application/config/trigger-and-routine-inclusive database/grants backup and scratch
 restore; Safeharbor-only endpoint/database write freeze; migration replay and
 postflight; matching source deploy; restore existing report scheduler and
 protected gates. Do not run this migration with the shared web runtime account.
 It needs the operator's reviewed database privileges. Leave both producer and
 receiver disabled until the exact customer and device canary is approved.
 
-Rollback disables the producer and receiver first, preserves both tables and
+Rollback disables the producer and receiver first, preserves all three tables and
 all receipts, and restores the prior application. Never re-enable legacy
 auto-close eligibility for any ticket consumed by this workflow. No shared
 Apache restart, source migration, mail send, invoice send, or production canary
@@ -170,5 +171,6 @@ contracts remain required before release.
 time never leaves Safeharbor, an uncertain handoff retries identical bytes,
 changed source versions become exceptions, reopened/inactive customers fail
 closed, and only the exact Coastmark invoice review destination is accepted.
-The MySQL suite also runs the actual sender under a DML-only identity using
+The MySQL suite also runs the actual sender under a DML identity with only
+health-function EXECUTE added, using
 an injected response and proves payload/accepted-receipt immutability.

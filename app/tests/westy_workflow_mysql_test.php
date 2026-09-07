@@ -74,7 +74,7 @@ try {
     $pdo->exec("INSERT INTO coastmark_time_export_receipts VALUES(1,1,1,'accepted',9)");
     $billingEvent=$pdo->query('SELECT event_key FROM westy_billing_outbox WHERE id=1')->fetchColumn();
     $billingConfig=['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('test-only-',6),'tenant_slugs'=>['msp-one'],'customer_ids'=>[$customer]];
-    $delivered=westy_billing_dispatch($runtime,1,$billingConfig,static fn()=>['status'=>200,'body'=>json_encode(['ok'=>true,'action'=>'created','handoff'=>['id'=>1,'event_key'=>$billingEvent,'state'=>'review_required'],'invoices'=>[['invoice_id'=>9,'review_url'=>'https://coastmark.8westit.com/invoices/9','status'=>'draft']]])]);
+    $delivered=westy_billing_dispatch($runtime,1,$billingConfig,static fn()=>['status'=>201,'body'=>json_encode(['ok'=>true,'action'=>'created','handoff'=>['id'=>1,'event_key'=>$billingEvent,'state'=>'review_required'],'invoices'=>[['invoice_id'=>9,'review_url'=>'https://coastmark.8westit.com/invoices/9','status'=>'draft']]])]);
     ww_check($delivered==='accepted','DML-only worker freezes approved-time payload and records injected Coastmark review receipt');
     ww_refuses(fn()=> $runtime->exec("UPDATE westy_billing_outbox SET payload_json='{}' WHERE id=1"),'frozen handoff body cannot change');
     ww_refuses(fn()=> $runtime->exec("UPDATE westy_billing_outbox SET state='uncertain' WHERE id=1"),'accepted handoff cannot be retried');

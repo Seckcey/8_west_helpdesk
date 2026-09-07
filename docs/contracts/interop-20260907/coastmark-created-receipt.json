@@ -1,0 +1,1 @@
+{"ok":true,"action":"created","handoff":{"id":1,"event_key":"safeharbor-billing:41eb50a55666192de5d543b5fbb6a2fe","state":"review_required"},"invoices":[{"invoice_id":1,"review_url":"https://coastmark.8westit.com/invoices/1","status":"draft"}]}

@@ -10,7 +10,7 @@ $temp=sys_get_temp_dir().'/safeharbor-interop-'.bin2hex(random_bytes(8));
 mkdir($temp.'/lib',0700,true); mkdir($temp.'/config',0700,true);
 foreach ($files as $file) copy($milepost.'/portal/lib/'.$file,$temp.'/lib/'.$file);
 $secret='public-synthetic-fixture-key-not-a-production-secret';
-file_put_contents($temp.'/config/config.php','<?php return '.var_export(['tenancy'=>['mode'=>'pool'],'westy_workflow'=>['enabled'=>true,'hmac_secret'=>$secret]],true).';');
+file_put_contents($temp.'/config/config.php','<?php return '.var_export(['tenancy'=>['mode'=>'pool'],'westy_workflow'=>['enabled'=>true,'hmac_secret'=>$secret,'escalation_assignees'=>['msp-one'=>1]]],true).';');
 register_shutdown_function(static function() use($temp,$files): void {
     $resolved=realpath($temp); $base=realpath(sys_get_temp_dir());
     if (!$resolved || !$base || !str_starts_with($resolved,$base.DIRECTORY_SEPARATOR) || !str_starts_with(basename($resolved),'safeharbor-interop-')) return;
@@ -57,7 +57,8 @@ $proof=westy_workflow_recovery(['lineage_valid'=>true,'job_id'=>900,'job_status'
 ww_check($proof!==null,'real Milepost policy produces fresh synthetic proof');
 $r=$send($w,'resolve',$proof); $closedTicket=$r['ticket_id'];
 $escalation=array_replace($w,['id'=>westy_workflow_uuid(),'alert_id'=>90002,'remote_version'=>0]);
-$r=$send($escalation,'claim'); $escalation['remote_version']=$r['version']; $send($escalation,'escalate');
+$r=$send($escalation,'claim'); $escalation['remote_version']=$r['version']; $assigned=$send($escalation,'escalate');
+ww_check((int)$pdo->query('SELECT assignee_id FROM tickets WHERE id='.(int)$assigned['ticket_id'])->fetchColumn()===1,'configured Milepost escalation assigns actual permitted Safeharbor technician');
 
 // The second handoff uses the existing real v3 approved-time serializer.
 $run=westy_workflow_row($pdo,'SELECT * FROM westy_workflows WHERE tenant_id=1 AND workflow_key=?',[$w['id']]);
