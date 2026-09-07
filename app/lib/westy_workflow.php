@@ -211,6 +211,43 @@ function westy_workflow_ticket(PDO $pdo, int $tenantId, int $ticketId): ?array
     }
 }
 
+/** One bounded read per batch, including when the integration is later disabled. */
+function westy_workflow_ticket_owners(PDO $pdo, int $tenantId, array $tickets): array
+{
+    $ids = [];
+    foreach ($tickets as &$ticket) {
+        $ticket['westy_owned'] = false;
+        if ((int)($ticket['tenant_id'] ?? 0) === $tenantId && (int)($ticket['id'] ?? 0) > 0
+            && ($ticket['status'] ?? '') === 'in_progress' && empty($ticket['assignee_id'])) {
+            $ids[(int)$ticket['id']] = (int)$ticket['id'];
+        }
+    }
+    unset($ticket);
+    $owned = [];
+    try {
+        foreach (array_chunk(array_values($ids), 500) as $batch) {
+            $s = $pdo->prepare("SELECT w.ticket_id,w.client_id FROM westy_workflows w
+                JOIN tickets t ON t.id=w.ticket_id AND t.tenant_id=w.tenant_id AND t.client_id=w.client_id
+                WHERE w.tenant_id=? AND t.tenant_id=? AND w.state='working'
+                AND t.status='in_progress' AND t.assignee_id IS NULL
+                AND t.id IN (" . implode(',', array_fill(0, count($batch), '?')) . ")");
+            $s->execute(array_merge([$tenantId,$tenantId], $batch));
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $row) $owned[(int)$row['ticket_id']] = (int)$row['client_id'];
+        }
+    } catch (PDOException $error) {
+        if (!(($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql' && (int)($error->errorInfo[1]??0)===1146)
+            || ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='sqlite' && str_contains($error->getMessage(),'no such table:')))) throw $error;
+    }
+    foreach ($tickets as &$ticket) {
+        $ticket['westy_owned'] = (int)($ticket['tenant_id'] ?? 0) === $tenantId
+            && isset($owned[(int)($ticket['id'] ?? 0)])
+            && $owned[(int)$ticket['id']] === (int)$ticket['client_id']
+            && ($ticket['status'] ?? '') === 'in_progress' && empty($ticket['assignee_id']);
+    }
+    unset($ticket);
+    return $tickets;
+}
+
 function westy_workflow_card(array $run): string
 {
     $labels = ['working'=>'Westy is troubleshooting','needs_human'=>'A technician is needed','human_owned'=>'A technician owns this ticket','resolved'=>'Recovery verified'];

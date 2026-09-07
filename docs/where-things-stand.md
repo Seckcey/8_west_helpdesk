@@ -1,6 +1,8 @@
+**Queue ownership refinement — source under review, 2026-09-07:** Queue, client ticket lists and ticket detail now share Westy’s service-owner avatar. Current tenant/client/ticket ownership is read in bounded batches, with a tested pre-migration fallback. [Validation and release record](WESTY_QUEUE_OWNER_2026_09_07.md). This change does not activate the workflow or assign a real ticket.
+
 # Where things stand
 
-**Current live source release � 2026-09-07 UTC:** PR #112 is deployed as
+**Current live source release — 2026-09-07 UTC:** PR #112 is deployed as
 `8e8cff9cc3c2d0ef29090b2cf761246b7c7f3891`; exact-main Validate run
 `34107323212` passed. The no-contact reply guidance is live and verified after
 switching between Reply and Internal note on desktop and phone. The signed
@@ -11,14 +13,14 @@ workflow key, service identity, customer gate or worker schedule was installed.
 
 The existing report schedule was preserved and restored against the new
 artifact; configuration, runtime grants, cron bytes and recipient/customer
-scope are unchanged. Signed-in ticket/queue checks passed at 1440�900 and
-390�844, with no console errors. The [acceptance record](westy-workflow-acceptance-2026-09-07.md)
+scope are unchanged. Signed-in ticket/queue checks passed at 1440×900 and
+390×844, with no console errors. The [acceptance record](westy-workflow-acceptance-2026-09-07.md)
 contains source-release evidence and actual synthetic cross-app receipts. The
 [release packet](westy-workflow-release-packet.md) covers the still-unapplied
 migration and controlled first-customer activation. Existing approved v3 time
 remains the financial source; Safeharbor never sends invoices.
 
-**Current live release — 2026-09-07 UTC:** Cursive suite branding from PR #110
+**Previous live release — 2026-09-07 UTC:** Cursive suite branding from PR #110
 is deployed as `56fced51319875e60041cf51655fde5208981a58`. Exact-main Validate
 `34089879825` passed. Desktop and phone menu acceptance passed. The existing
 Lifestyle report schedule was restored and verified active at `06:20:54Z`.

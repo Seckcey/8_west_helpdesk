@@ -108,7 +108,7 @@ new service key, customer binding, command, business record or invoice delivery
 was performed for this source release.
 
 A new hidden browser tab remained signed in and verified deployed ticket and
-Queue navigation. Desktop 1440×900 and stable phone 390×844 layouts passed;
+Queue navigation. Desktop 1440Ã—900 and stable phone 390Ã—844 layouts passed;
 the phone document and viewport both measured 390 pixels. The no-contact reply
 hint is now accurate and survives note/reply switching. There were no console
 warnings/errors, no form submissions or timers. Owned tabs were closed,

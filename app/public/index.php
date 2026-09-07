@@ -5,6 +5,7 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/westy_workflow.php';
 enforce_https();
 $user = require_login();
 
@@ -28,7 +29,7 @@ $stmt = db()->prepare(
                t.sla_due_at ASC"
 );
 $stmt->execute($filter === 'all' ? [tenant_id()] : [tenant_id(), $filter]);
-$rows = $stmt->fetchAll();
+$rows = westy_workflow_ticket_owners(db(), tenant_id(), $stmt->fetchAll());
 
 $counts = ['all' => 0];
 $cq = db()->prepare('SELECT status, COUNT(*) n FROM tickets WHERE tenant_id = ? GROUP BY status');
@@ -56,7 +57,7 @@ page_top($user, 'Queue', 'queue');
   <div class="card list">
     <div class="trow trow-head" role="row">
       <span class="trow-pri">Pri</span><span class="trow-num">#</span><span class="trow-main">Ticket</span>
-      <span class="trow-status">Status</span><span class="trow-tech">Tech</span><span class="trow-sla">SLA</span>
+      <span class="trow-status">Status</span><span class="trow-tech">Owner</span><span class="trow-sla">SLA</span>
       <span class="trow-age">Age</span>
     </div>
     <?php if (!$rows): ?>

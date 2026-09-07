@@ -110,6 +110,7 @@ jobs:
         run: |
           php app/tests/westy_workflow_test.php
           php app/tests/westy_billing_test.php
+          php app/tests/westy_queue_owner_test.php
       - name: Test Westy workflow migration, replay, and human ownership
         env:
           SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
