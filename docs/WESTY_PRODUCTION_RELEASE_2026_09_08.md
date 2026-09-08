@@ -1,0 +1,13 @@
+# Approved Westy production release — 2026-09-08 UTC
+
+The founder explicitly approved the reviewed Safeharbor database/application release to Milepost EC2, with new automation disabled pending pilot review. Migration 025 and source `d32d66ea50c9bc6a807d947e51213db7604c8cb2` are now live. Exact-main Validate `34114408471` passed; the runtime tree matches the previously reviewed application `70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e`.
+
+Fresh root-only recovery evidence is `/srv/8west/backups/safeharbor/20260908T005028Z-pre-westy-025`. It contains application/config/grants, a trigger/routine/event-inclusive database dump, scheduler evidence, exact migration bytes and checksums. The actual backup restored into the exact temporary database `safeharbor_westy_release_20260908`; migration and replay passed there before that temporary database was removed.
+
+Only Safeharbor's report scheduler, SSL directory permission and runtime database account were paused. Shared Apache was reloaded, never stopped or restarted. The live migration and replay preserved all existing business row counts/checksums and all 87 existing trigger definitions. Postflight found 47 tables and 100 triggers, three empty new tables and a successful health function. Only EXECUTE on that single function was added to the existing runtime account. Health returned 1 as the actual www-data/runtime identity.
+
+The matching clean-source deployment recorded deployed artifact `932e7509176b0eb38625fb550b89e28c406cb34a64068bcab57f2915f8276ab3`. Both vhosts and protected configuration matched their starting bytes. The runtime account and endpoint were restored. The existing report schedule is active with unchanged cron bytes, sender, recipient, customer and schedule; its protected control bundle is `/root/safeharbor-report-scheduler-d32d66ea50c9bc6a807d947e51213db7604c8cb2`. Existing delivery evidence was retained rather than manufacturing another email canary.
+
+Signed-in Queue and Team navigation passed after deployment. Team fit a 390px viewport without page overflow; no browser console errors were captured. This is owner acceptance, not restricted-role pilot acceptance.
+
+`westy_workflow.enabled` and `westy_billing_handoff.enabled` remain false/absent. No new service identity, key, customer activation, worker schedule, ticket claim/closure, approved-time export or billing delivery was created. The named pilot still needs a reviewed approver mapping and billing settings. Existing legacy intake tickets cannot silently be claimed under a different customer binding; preserve `ticket_customer_conflict` and reconcile history before live workflow acceptance.

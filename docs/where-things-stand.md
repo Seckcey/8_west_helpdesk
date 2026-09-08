@@ -1,28 +1,10 @@
 # Where things stand
 
-**Current live source release — 2026-09-07 UTC:** PR #116 is deployed as
-`70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e`; exact-main Validate run
-`34113633329` passed. The client overview replaces phase placeholders with
-clear unavailable states and canonical Milepost/Coastmark app links; it does
-not claim a retrieved device count or balance. [Release evidence](CLIENT_OVERVIEW_LINKS_2026_09_07.md).
-Queue, client ticket lists and ticket detail from PR #114 share
-Westy's service-owner avatar, with current scoped ownership and a tested
-pre-migration fallback. [Release evidence](WESTY_QUEUE_OWNER_2026_09_07.md).
-The no-contact reply guidance from PR #112 is live and verified after
-switching between Reply and Internal note on desktop and phone. The signed
-Milepost controller, ownership/evidence card and durable Coastmark handoff
-worker are deployed **default-off**. Migration 025 is **not applied**: production
-still has 44 base tables, 87 triggers, and none of its new objects. No new
-workflow key, service identity, customer gate or worker schedule was installed.
+**Current live release � 2026-09-08 UTC:** migration 025 and source `d32d66ea50c9bc6a807d947e51213db7604c8cb2` are deployed on Milepost EC2 after explicit founder approval. The actual backup restore, scratch/live migration replay, unchanged business records, narrow runtime grant and matching source all passed. The database now has 47 tables and 100 triggers; all three new tables are empty. The actual runtime health function returns 1.
 
-The existing report schedule was preserved and restored against the new
-artifact; configuration, runtime grants, cron bytes and recipient/customer
-scope are unchanged. Signed-in ticket/queue checks passed at 1440×900 and
-390×844, with no console errors. The [acceptance record](westy-workflow-acceptance-2026-09-07.md)
-contains source-release evidence and actual synthetic cross-app receipts. The
-[release packet](westy-workflow-release-packet.md) covers the still-unapplied
-migration and controlled first-customer activation. Existing approved v3 time
-remains the financial source; Safeharbor never sends invoices.
+Both new workflow/billing gates remain off and no new worker is scheduled. The existing report scheduler is active with unchanged scope and cron bytes. Protected configuration and both application vhosts were preserved. Signed-in Queue/Team and 390px Team acceptance passed without captured console errors. [Release and recovery evidence](WESTY_PRODUCTION_RELEASE_2026_09_08.md).
+
+The September 7 queue-owner avatars, no-contact guidance and truthful client overview remain live. [Reviewed workflow packet](westy-workflow-release-packet.md) and [prior source acceptance](westy-workflow-acceptance-2026-09-07.md) retain their historical evidence. Pilot activation remains separate: no live incident was claimed, repaired, closed or billed by this release.
 
 **Previous live release — 2026-09-07 UTC:** Cursive suite branding from PR #110
 is deployed as `56fced51319875e60041cf51655fde5208981a58`. Exact-main Validate

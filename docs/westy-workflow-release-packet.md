@@ -1,15 +1,12 @@
 # Safeharbor Westy release packet
 
-Prepared September 7, 2026. This packet authorizes nothing by itself. No
-production migration, new workflow schedule, gate activation, ticket mutation
-or billing delivery has occurred. Application source from merged [PR 112](https://github.com/Seckcey/8_west_helpdesk/pull/112)
+Updated September 8, 2026 UTC: the founder approved and production completed migration 025 plus matching source, with all new gates off. [Execution evidence](WESTY_PRODUCTION_RELEASE_2026_09_08.md) is the current status. The baseline and execution procedure below preserve the pre-release review; they are not a request to apply the migration again. No new schedule, gate activation, ticket mutation or billing delivery occurred. Application source from merged [PR 112](https://github.com/Seckcey/8_west_helpdesk/pull/112)
 and the queue/client refinements [PR 114](https://github.com/Seckcey/8_west_helpdesk/pull/114)
 and [PR 116](https://github.com/Seckcey/8_west_helpdesk/pull/116)
 was separately deployed as `70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e` after
-exact-main Validate run `34113633329` passed. This packet now covers the
-remaining migration/activation; refresh the execution baseline before applying it.
+exact-main Validate run `34113633329` passed. The migration is now complete; only customer activation remains subject to the pilot review.
 
-## Verified source and live baseline
+## Historical pre-migration source and baseline
 
 Deployed source `70cb283f922ea6ab82c8f6f52fdcb97ac4a9f49e` passed the full
 [Validate run 34113633329](https://github.com/Seckcey/8_west_helpdesk/actions/runs/34113633329).
