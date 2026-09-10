@@ -48,7 +48,7 @@ function portal_render_login(?string $message = null): void
     ?>
 <main class="login-wrap">
   <header class="login-head">
-    <img class="suite-login-logo" src="/assets/brand/safeharbor-logo-horizontal-20260907.png" alt="Safeharbor — 8 West IT 365" width="1942" height="809">
+    <img class="suite-login-logo" src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" width="1851" height="513">
     <h1 class="login-name">Safeharbor</h1>
     <p class="login-tag">Ask for help and follow every customer-visible update</p>
   </header>
@@ -75,7 +75,7 @@ function portal_render_error(int $status, string $title, string $message): void
     ?>
 <main class="login-wrap">
   <header class="login-head">
-    <img class="suite-login-logo" src="/assets/brand/safeharbor-logo-horizontal-20260907.png" alt="Safeharbor — 8 West IT 365" width="1942" height="809">
+    <img class="suite-login-logo" src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" width="1851" height="513">
     <h1 class="login-name">Safeharbor</h1>
   </header>
   <section class="card login-card">

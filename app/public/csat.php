@@ -65,7 +65,7 @@ header('Content-Type: text/html; charset=utf-8');
 <body class="login-body">
 <div class="login-wrap">
   <div class="login-head">
-    <img src="/assets/brand/safeharbor-logo-horizontal-20260907.png" alt="Safeharbor — 8 West IT 365" class="suite-login-logo" width="1942" height="809">
+    <img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-login-logo" width="1851" height="513">
     <h1 class="login-name"><?= h($title) ?></h1>
     <p class="login-tag"><?= $lead ?></p>
   </div>
