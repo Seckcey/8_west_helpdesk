@@ -1236,5 +1236,5 @@ html[data-motion="reduce"] *,html[data-motion="reduce"] *::before,html[data-moti
 @media (prefers-reduced-motion:reduce){html[data-motion="system"] *,html[data-motion="system"] *::before,html[data-motion="system"] *::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 
 /* Shared 2026 suite identity, sized separately from small interface icons. */
-.brand .suite-brand-logo { display:block; width:100%; height:72px; object-fit:cover; border-radius:8px; }
+.brand .suite-brand-logo { display:block; width:100%; height:72px; object-fit:contain; border-radius:8px; }
 .suite-login-logo { display:block; width:min(100%, 360px); height:auto; margin:0 auto 16px; border-radius:10px; }

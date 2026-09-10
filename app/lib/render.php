@@ -140,7 +140,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
   <aside class="sidebar" id="suite-sidebar">
     <button type="button" class="mobile-nav-close" aria-label="Close navigation">Close menu ×</button>
     <a class="brand" href="/" aria-label="Safeharbor home">
-      <img src="/assets/brand/safeharbor-logo-horizontal-20260907.png" alt="Safeharbor — 8 West IT 365" class="suite-brand-logo" width="1942" height="809">
+      <img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-brand-logo" width="1851" height="513">
     </a>
     <nav class="nav">
       <?php foreach ($nav as [$href, $label, $key, $kbd, $icon]): ?>
