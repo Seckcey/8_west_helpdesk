@@ -58,26 +58,10 @@
 
   paintThemeSwitch();
 
-  /* ------------------------------------------------------------------ */
-  /* User menu (lower-left identity + preferences)                       */
-  /* ------------------------------------------------------------------ */
-  (() => {
-    const btn = $("#usermenu-btn");
-    const menu = $("#usermenu");
-    if (!btn || !menu) return;
-    const open = () => { menu.hidden = false; btn.setAttribute("aria-expanded", "true"); };
-    const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      menu.hidden ? open() : close();
-    });
-    document.addEventListener("click", (e) => {
-      if (!menu.hidden && !e.target.closest(".usermenu-wrap")) close();
-    });
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !menu.hidden) { e.stopPropagation(); close(); btn.focus(); }
-    }, true);
-  })();
+  /* The lower-left user menu lived here. Identity, suite settings and Sign out moved to the
+     account menu inside the shared suite cluster at the right end of the topbar, and the vendored
+     launcher (/assets/w365/w365-launcher.js) owns opening and closing both of its panels — click,
+     Escape, outside click, focus return and the arrow keys. Nothing to re-implement here. */
 
   /* ------------------------------------------------------------------ */
   /* Toasts                                                              */

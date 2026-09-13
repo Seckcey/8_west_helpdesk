@@ -89,6 +89,121 @@ function ticket_row(array $t, bool $linkWrap = true): string
         . '</a>';
 }
 
+/**
+ * The 8 West IT 365 app drawer — the 3x3 squares, in the shared w365 markup that every suite app
+ * renders in the same place (the right end of the page header, before the account menu).
+ *
+ * Always rendered for a signed-in technician, but its CONTENTS are only ever what Safeharbor
+ * honestly knows. The three states come from suite_apps_drawer(); there is no fourth state that
+ * guesses. It replaced a hard-coded sidebar list of two sister apps plus "All apps", which
+ * advertised Milepost and Coastmark to people who may not be licensed for either.
+ *
+ * Tiles carry the product's SAME-ORIGIN mark from the vendored package, so no page load reaches
+ * another host for artwork; the shared launcher swaps in the product's initial if a mark ever
+ * fails to load. Presentation only — read-only links, no new permission, nothing executable.
+ */
+function suite_chrome_drawer(): void
+{
+    require_once __DIR__ . '/suite_apps.php';
+
+    // The presence of the entitlement list is what makes this a suite session: auth.php writes it
+    // from the VERIFIED token on every refresh (including as []) and removes it the moment the
+    // token is gone, so a local password login never has one.
+    $hasSuite = array_key_exists('suite_products', $_SESSION ?? []);
+    $drawer = suite_apps_drawer($hasSuite, $_SESSION['suite_products'] ?? null, suite_app_registry());
+    ?>
+    <div class="w365-anchor" data-w365-drawer>
+      <button type="button" class="w365-waffle" data-w365-drawer-button
+              aria-label="Open 8 West IT 365 apps" aria-haspopup="true" aria-expanded="false"
+              aria-controls="w365-app-drawer" title="8 West IT 365 apps">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><g fill="currentColor">
+          <rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9.5" y="2" width="5" height="5" rx="1"/><rect x="17" y="2" width="5" height="5" rx="1"/>
+          <rect x="2" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="17" y="9.5" width="5" height="5" rx="1"/>
+          <rect x="2" y="17" width="5" height="5" rx="1"/><rect x="9.5" y="17" width="5" height="5" rx="1"/><rect x="17" y="17" width="5" height="5" rx="1"/>
+        </g></svg>
+      </button>
+      <div class="w365-drawer" id="w365-app-drawer" data-w365-drawer-panel hidden>
+        <div class="w365-drawer-head"><strong>8 West IT 365</strong><span>Your apps</span></div>
+        <?php if ($drawer['state'] === 'apps'): ?>
+          <nav class="w365-drawer-grid" aria-label="8 West IT 365 apps">
+            <?php foreach ($drawer['apps'] as $app): ?>
+              <a class="w365-tile" href="<?= h($app['url']) ?>" target="_blank" rel="noopener noreferrer"
+                 title="<?= h($app['desc']) ?>">
+                <span class="w365-tile-mark"><?php if (($app['mark'] ?? '') !== ''): ?><img src="/assets/w365/marks/<?= h($app['mark']) ?>?v=20260913a" alt="" width="48" height="48" loading="lazy" data-initial="<?= h(suite_app_initial($app['name'])) ?>"><?php else: ?><?= h(suite_app_initial($app['name'])) ?><?php endif; ?></span>
+                <span class="w365-tile-name"><?= h($app['name']) ?></span>
+              </a>
+            <?php endforeach; ?>
+          </nav>
+        <?php elseif ($drawer['state'] === 'none'): ?>
+          <p class="w365-drawer-note">No other 8 West IT 365 apps are licensed for your account.</p>
+        <?php else: ?>
+          <p class="w365-drawer-note">Sign in with 8 West ID to see the apps licensed for your account.</p>
+          <a class="w365-drawer-link" href="https://id.8westit.com/" target="_blank" rel="noopener noreferrer">Go to 8 West ID</a>
+        <?php endif; ?>
+        <?php if ($drawer['state'] !== 'no_suite'): ?>
+          <div class="w365-drawer-foot"><a href="https://id.8westit.com/?apps=1" target="_blank" rel="noopener noreferrer">8 West IT 365 home</a></div>
+        <?php endif; ?>
+      </div>
+    </div>
+    <?php
+}
+
+/**
+ * The account menu beside the app drawer (the shared w365 placement contract): who you are, Suite
+ * settings when a suite session exists, Safeharbor's own profile page, and Sign out. It replaces
+ * the identity block and the Sign out item that used to sit at the bottom of the sidebar, so
+ * identity lives in the same place in every 8 West IT 365 app: top right, after the squares.
+ *
+ * WHO. With a suite session the menu shows the 8 West ID identity — the token's `name`, `email`
+ * and the `8west:avatar` picture — so a person sees the same name and picture in every suite app.
+ * A local Safeharbor password login shows the Safeharbor account name and a letter mark.
+ *
+ * THE PICTURE. Only the person's OWN picture, and only from 8 West ID: the avatar is rendered when
+ * the session's avatar subject matches this user's `suite_subject` (the same subject binding
+ * avatar() uses, so one technician's photo can never appear on another's account) AND the URL is
+ * on https://id.8westit.com/ or same-origin. Anything else falls back to the initials circle.
+ */
+function suite_chrome_account_menu(array $user): void
+{
+    require_once __DIR__ . '/suite_apps.php';
+
+    $hasSuite = array_key_exists('suite_products', $_SESSION ?? []);
+    $suiteName = $hasSuite ? trim((string)($_SESSION['suite_name'] ?? '')) : '';
+    $suiteEmail = $hasSuite ? trim((string)($_SESSION['suite_email'] ?? '')) : '';
+    $name = $suiteName !== '' ? $suiteName : trim((string)($user['full_name'] ?? ''));
+    $secondary = $suiteEmail !== '' ? $suiteEmail : (string)($user['email'] ?? '');
+    $role = (string)($user['role'] ?? '');
+    $roleLabel = ['owner' => 'Owner', 'admin' => 'Administrator', 'tech' => 'Technician'][$role]
+        ?? ($role === '' ? '' : ucfirst($role));
+    $initials = suite_name_initials($name);
+
+    $avatar = (string)($_SESSION['suite_avatar'] ?? '');
+    $subject = (string)($user['suite_subject'] ?? '');
+    $avatarUsable = $avatar !== '' && $subject !== ''
+        && hash_equals($subject, (string)($_SESSION['suite_avatar_subject'] ?? ''))
+        && (str_starts_with($avatar, 'https://id.8westit.com/')
+            || preg_match('~^(?![a-z][a-z0-9+.-]*:)(?!//)~i', $avatar) === 1);
+    ?>
+    <div class="w365-anchor" data-w365-account>
+      <button type="button" class="w365-account-btn" data-w365-account-button aria-haspopup="menu" aria-expanded="false"
+              aria-controls="w365-account-menu" aria-label="Account menu for <?= h($name) ?>">
+        <?php if ($avatarUsable): ?><img class="w365-avatar" src="<?= h($avatar) ?>" alt="" width="32" height="32" referrerpolicy="no-referrer"><?php else: ?><span class="w365-avatar" aria-hidden="true"><?= h($initials) ?></span><?php endif; ?>
+        <span class="w365-account-name"><?= h($name) ?></span>
+        <svg viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+      <div class="w365-menu" id="w365-account-menu" data-w365-account-menu role="menu" hidden>
+        <div class="w365-menu-who"><strong><?= h($name) ?></strong><span><?= h($secondary) ?><?= $roleLabel !== '' ? ' · ' . h($roleLabel) : '' ?></span></div>
+        <?php if ($hasSuite): ?>
+          <a class="w365-menu-item" role="menuitem" href="https://id.8westit.com/settings.php" target="_blank" rel="noopener noreferrer">Suite settings</a>
+        <?php endif; ?>
+        <a class="w365-menu-item" role="menuitem" href="/profile.php">Settings</a>
+        <hr class="w365-menu-sep">
+        <a class="w365-menu-item" role="menuitem" href="/logout.php">Sign out</a>
+      </div>
+    </div>
+    <?php
+}
+
 /** Full chrome: head + sidebar + topbar. */
 function page_top(array $user, string $title, string $active): void
 {
@@ -132,7 +247,14 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
 (function(){var t=<?= json_encode($_SESSION['suite_theme']) ?>;localStorage.setItem("safeharbor.theme",t);document.documentElement.dataset.theme=t;})();
 <?php endif; ?>
 </script>
-<link rel="stylesheet" href="/assets/css/app.css?v=6">
+<?php /* The shared 8 West IT 365 suite chrome (w365), vendored under /assets/w365/ and served from
+         THIS origin — nothing is hot-loaded from another host, so no Content-Security-Policy
+         directive changes. It loads BEFORE app.css so Safeharbor's own stylesheet always wins, and
+         the --w365-* hooks it reads are mapped to Safeharbor's semantic tokens there, which is how
+         the two panels follow the dark / light / system themes without the package shipping a
+         palette of its own. */ ?>
+<link rel="stylesheet" href="/assets/w365/w365.css?v=20260913a">
+<link rel="stylesheet" href="/assets/css/app.css?v=20260913a">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -151,40 +273,10 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
       </a>
       <?php endforeach; ?>
     </nav>
-    <div class="suite-label">8 West Suite</div>
-    <div class="suite">
-      <?php foreach (['Milepost' => 'https://support.8westit.com/', 'Coastmark' => 'https://coastmark.8westit.com/auth/suite', 'All apps' => 'https://id.8westit.com/?apps=1'] as $name => $url): ?>
-      <a class="suite-item suite-item-live" href="<?= h($url) ?>" target="_blank" rel="noopener">
-        <span class="suite-box"></span><span class="suite-name"><?= h($name) ?></span><span class="suite-tag" aria-hidden="true">↗</span>
-      </a>
-      <?php endforeach; ?>
-    </div>
-    <div class="usermenu-wrap">
-      <div class="usermenu" id="usermenu" role="menu" hidden>
-        <div class="um-head">
-          <?= avatar($user, 34) ?>
-          <span class="um-head-text">
-            <span class="um-name"><?= h($user['full_name']) ?></span>
-            <span class="um-email"><?= h($user['email']) ?></span>
-          </span>
-          <span class="role-badge role-<?= h($user['role']) ?>"><?= h($user['role']) ?></span>
-        </div>
-        <div class="um-label">Suite preferences</div>
-        <a class="um-item" href="https://id.8westit.com/settings.php" role="menuitem">Manage global settings</a>
-        <div class="um-sep"></div>
-        <a class="um-item" href="/profile.php" role="menuitem">My profile</a>
-        <a class="um-item" href="/users.php" role="menuitem">Team</a>
-        <a class="um-item um-danger" href="/logout.php" role="menuitem">Sign out</a>
-      </div>
-      <button type="button" class="sidebar-foot usermenu-btn" id="usermenu-btn" aria-haspopup="true" aria-expanded="false">
-        <?= avatar($user, 30) ?>
-        <span class="foot-text">
-          <span class="foot-name"><?= h($user['full_name']) ?></span>
-          <span class="foot-tenant">8 West IT, LLC</span>
-        </span>
-        <svg class="foot-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m4 10 4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-    </div>
+    <?php /* The hard-coded "8 West Suite" list (Milepost, Coastmark, All apps) and the lower-left
+             identity menu used to sit here. Both moved to the shared cluster at the right end of the
+             topbar below: the drawer now lists the apps this person is actually licensed for, and
+             the account menu is the single home for identity, suite settings and Sign out. */ ?>
   </aside>
   <button type="button" class="mobile-nav-backdrop" aria-label="Close navigation" tabindex="-1"></button>
   <div class="main">
@@ -197,6 +289,12 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
       </button>
       <span class="topbar-flex"></span>
       <a href="/time.php" id="timer-widget" class="timer-widget timer-idle" title="Time tracking">No timer running</a>
+      <?php /* The shared suite cluster (w365): Safeharbor's own controls, then the app drawer, then
+               the account menu — the same place, in the same order, in every 8 West IT 365 app. */ ?>
+      <div class="w365-cluster">
+        <?php suite_chrome_drawer(); ?>
+        <?php suite_chrome_account_menu($user); ?>
+      </div>
     </header>
     <main class="content">
     <?php
@@ -213,7 +311,10 @@ function page_bottom(array $paletteData = []): void
 <div id="toasts" class="toasts"></div>
 <?php westy_bubble_render(); ?>
 <script id="palette-data" type="application/json"><?= json_encode($paletteData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
-<script src="/assets/js/app.js?v=4" defer></script>
+<?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
+         injects no markup, fetches nothing and reads no storage. */ ?>
+<script src="/assets/w365/w365-launcher.js?v=20260913a" defer></script>
+<script src="/assets/js/app.js?v=20260913a" defer></script>
 </body>
 </html>
     <?php

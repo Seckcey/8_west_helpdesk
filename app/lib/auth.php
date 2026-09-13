@@ -61,19 +61,69 @@ function suite_sso_claims(): ?array
 }
 
 /**
+ * Forget the copied 8 West ID identity: the name and address shown in the
+ * account menu, and the entitlement list the app drawer reads.
+ *
+ * `suite_products` doubles as the "this session has a suite identity" flag the
+ * chrome tests, so its ABSENCE is meaningful — it is what makes the drawer
+ * render its honest "sign in with 8 West ID" state instead of a guessed list.
+ * A lingering list would keep offering app tiles to somebody whose suite
+ * access has ended, which is exactly the lie the drawer exists to prevent.
+ *
+ * The theme, preferences and avatar copies are deliberately NOT touched here:
+ * they are presentation, they carry their own subject check where it matters
+ * (avatar()), and they behave exactly as they did before the suite chrome
+ * landed.
+ */
+function suite_session_identity_forget(): void
+{
+    unset($_SESSION['suite_products'], $_SESSION['suite_name'], $_SESSION['suite_email']);
+}
+
+/**
  * Suite-wide settings sync: when the 8 West ID token changes (theme/avatar
  * updated at id.8westit.com), refresh the session copies. Render uses them
- * to apply the theme and show the central avatar. Cheap: one HMAC per request.
+ * to apply the theme, show the central avatar, name the person in the account
+ * menu and fill the app drawer. Cheap: one HMAC per request.
+ *
+ * Nothing here re-verifies or fetches anything: every value written is copied
+ * from the claims suite_sso_claims() has already verified on THIS request.
+ *
+ * The identity and the entitlement list are adopted ONLY when this Safeharbor
+ * account IS the person the token describes — the account's `suite_subject`
+ * matching the token's `sub`. A local password account (which by definition
+ * has no subject: suite_local_password_allowed()) therefore never borrows the
+ * name, address or app list out of whatever 8 West ID cookie happens to be in
+ * the browser, even though the token itself is perfectly valid.
  */
 function suite_sso_refresh_claims(?string $expectedSubject = null): void
 {
     $claims = suite_sso_claims();
-    if ($claims === null) return;
-    $claimSubject = (string)($claims['sub'] ?? '');
-    if ($expectedSubject !== null
-        && $expectedSubject !== ''
-        && ! hash_equals($expectedSubject, $claimSubject)) {
+    if ($claims === null) {
+        suite_session_identity_forget();
         return;
+    }
+    $claimSubject = (string)($claims['sub'] ?? '');
+    $isThisPerson = $expectedSubject !== null && $expectedSubject !== ''
+        && hash_equals($expectedSubject, $claimSubject);
+    if ($expectedSubject !== null && $expectedSubject !== '' && ! $isThisPerson) {
+        // The cookie describes somebody else entirely.
+        suite_session_identity_forget();
+        return;
+    }
+    if ($isThisPerson) {
+        // Stored verbatim from the VERIFIED token; suite_apps.php filters the
+        // list closed-world at render time, so an unknown product key shows
+        // nothing. Written on EVERY request — including as [] — so a revoked
+        // entitlement reaches the drawer with the next token, not eventually.
+        $_SESSION['suite_products'] = is_array($claims['8west:products'] ?? null) ? $claims['8west:products'] : [];
+        // The 8 West ID identity as the person sees it in every suite app: the
+        // token's `name` and `email`, shown in the account menu instead of the
+        // Safeharbor account row.
+        $_SESSION['suite_name'] = trim((string)($claims['name'] ?? ''));
+        $_SESSION['suite_email'] = trim((string)($claims['email'] ?? ''));
+    } else {
+        suite_session_identity_forget();
     }
     $preferencesSig = json_encode($claims['8west:preferences'] ?? null);
     $etag = $claimSubject . '|' . ($claims['8west:theme'] ?? '') . '|'
@@ -304,7 +354,18 @@ function attempt_login(string $email, string $password): bool
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];
     $_SESSION['tenant_id'] = (int)$user['tenant_id'];
-    unset($_SESSION['suite_session_version']);
+    // A local password login is not a suite session: drop every copied claim so
+    // the chrome cannot show a previous 8 West ID identity, picture or app list
+    // to somebody who signed in with a Safeharbor password. The drawer then
+    // renders its honest "sign in with 8 West ID" state instead of guessing.
+    suite_session_identity_forget();
+    unset(
+        $_SESSION['suite_session_version'],
+        $_SESSION['suite_claims_etag'],
+        $_SESSION['suite_avatar'],
+        $_SESSION['suite_avatar_subject'],
+        $_SESSION['suite_avatar_email'],
+    );
     db()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([(int)$user['id']]);
     return true;
 }
