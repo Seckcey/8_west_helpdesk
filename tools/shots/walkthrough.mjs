@@ -43,11 +43,11 @@ await page.keyboard.press("j");
 await page.keyboard.press("p");
 await shot("03-queue-keyboard");
 
-// 3b. light theme (theme switch lives in the user menu)
-await page.click("#usermenu-btn");
-await page.click('[data-theme-opt="light"]');
-await shot("03b-queue-light");
-await page.click('[data-theme-opt="dark"]');
+// 3b. the shared suite cluster: the app drawer at the right end of the topbar.
+// (The theme is a central 8 West ID preference now — it is changed at id.8westit.com,
+// not by a switch in this app, so there is no theme control here to photograph.)
+await page.click("[data-w365-drawer-button]");
+await shot("03b-app-drawer");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(200);
 
@@ -90,10 +90,10 @@ await page.keyboard.press("Escape");
 await page.goto(`${BASE}/users.php`);
 await shot("11-team");
 
-// 9b. user menu + profile
-await page.click("#usermenu-btn");
-await shot("11b-usermenu");
-await page.click("#usermenu-btn");
+// 9b. account menu (right end of the topbar, beside the app drawer) + profile
+await page.click("[data-w365-account-button]");
+await shot("11b-account-menu");
+await page.keyboard.press("Escape");
 await page.goto(`${BASE}/profile.php`);
 await shot("11c-profile");
 
@@ -105,13 +105,11 @@ await shot("12-client-new");
 await page.goto(`${BASE}/ticket_new.php`);
 await shot("13-ticket-new");
 
-// 12. light-theme ticket (proof theming holds on detail pages)
-await page.click("#usermenu-btn");
-await page.click('[data-theme-opt="light"]');
+// 12. a detail page with the suite cluster open (proof the chrome holds off the queue)
 await page.goto(`${BASE}/ticket.php?id=102`);
-await shot("14-ticket-light");
-await page.click("#usermenu-btn");
-await page.click('[data-theme-opt="system"]');
+await page.click("[data-w365-drawer-button]");
+await shot("14-ticket-app-drawer");
+await page.keyboard.press("Escape");
 
 await browser.close();
 console.log("done");

@@ -87,6 +87,10 @@ jobs:
         run: find app -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Test suite authentication policy
         run: php app/tests/suite_auth_policy_test.php
+      - name: Test the vendored 8 West IT 365 chrome is exactly the pinned release
+        run: php app/tests/w365_vendored_test.php
+      - name: Test the suite app drawer and account menu
+        run: php app/tests/suite_chrome_test.php
       - name: Test suite authorization-session revocation
         run: php app/tests/suite_revocation_test.php
       - name: Test suite admission before database writes

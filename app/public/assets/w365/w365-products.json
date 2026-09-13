@@ -1,0 +1,59 @@
+{
+    "source": "8_west_id/app/config/products.php",
+    "products": [
+        {
+            "key": "milepost",
+            "name": "Milepost",
+            "short_name": "Milepost",
+            "url": "https://support.8westit.com",
+            "desc": "Client operations & remote management",
+            "mark": "marks/milepost.png",
+            "release_stage": "live"
+        },
+        {
+            "key": "safeharbor",
+            "name": "Safeharbor",
+            "short_name": "Safeharbor",
+            "url": "https://safeharbor.8westit.com",
+            "desc": "Ticketing & helpdesk for MSPs",
+            "mark": "marks/safeharbor.png",
+            "release_stage": "live"
+        },
+        {
+            "key": "coastmark",
+            "name": "Coastmark",
+            "short_name": "Coastmark",
+            "url": "https://coastmark.8westit.com/auth/suite",
+            "desc": "Billing & accounting for MSPs",
+            "mark": "marks/coastmark.png",
+            "release_stage": "live"
+        },
+        {
+            "key": "logbook",
+            "name": "Logbook",
+            "short_name": "Logbook",
+            "url": "https://logbook.8westit.com/auth/login",
+            "desc": "Living customer documentation, relationships, and governed credentials",
+            "mark": "marks/logbook.png",
+            "release_stage": "pilot"
+        },
+        {
+            "key": "missioncontrol",
+            "name": "Cloudline",
+            "short_name": "Cloudline",
+            "url": "https://cloudline.8westit.com/auth/suite",
+            "desc": "Microsoft cloud management for every customer",
+            "mark": "marks/cloudline.png",
+            "release_stage": "pilot"
+        },
+        {
+            "key": "coastline_control_panel",
+            "name": "8 West IT 365 Control Panel",
+            "short_name": "Control Panel",
+            "url": "https://cp.8westit.com",
+            "desc": "Tenant-isolated server monitoring and advisory operations",
+            "mark": "marks/controlpanel.png",
+            "release_stage": "live"
+        }
+    ]
+}

@@ -223,16 +223,29 @@ public/                    Apache docroot (page-per-file, like Milepost)
   positioned inside the root. The script stamps `data-westy-version` for
   verification; a bad shared release affects every `/v1/` consumer and is
   rolled back centrally to a frozen version.
-- Themes: dark / light / system — inside the user menu (and on login),
-  persisted in localStorage; CSS semantic tokens per theme, dark mode lifted
-  one notch brighter than the original abyss-navy.
-- User menu: ONE home for identity + preferences — the lower-left sidebar
-  card (opens upward: theme, My profile, Team, sign out). No duplicate
-  topbar avatar. profile.php: own name + password change. 8 West ID SSO is
-  implemented in lib/auth.php (legacy suite cookie, now RS256 with bounded
-  HS256 overlap; separate from OIDC — see
-  docs/suite-sso-contract.md); the menu shows the central 8 West ID avatar
-  and theme, both refreshed from the token on every request. Established suite
+- Themes: dark / light / system — CSS semantic tokens per theme, dark mode
+  lifted one notch brighter than the original abyss-navy. The theme is a
+  central 8 West ID preference: it arrives on the token, is applied from
+  `$_SESSION['suite_theme']`, and is changed at id.8westit.com, not by a
+  switch in this app.
+- Suite chrome (w365): the app drawer (3x3 squares) and the account menu sit
+  together at the RIGHT END of the topbar, after Safeharbor's own controls —
+  the same place, in the same order, in every 8 West IT 365 app. Markup,
+  styling and behaviour are the shared package vendored, unedited, under
+  `public/assets/w365/` (pinned by `tests/w365_vendored_test.php`; bump with
+  `tools/w365/sync-suite-ui.sh`). The drawer lists only the apps the viewer is
+  licensed for, from the verified `8west:products` claim filtered through the
+  package registry, with Safeharbor left out of its own drawer; a local
+  password login gets a sign-in prompt, never a guessed list. The account menu
+  is the ONE home for identity — the 8 West ID name, email and avatar,
+  refreshed from the token on every request — plus Suite settings, this app's
+  profile page and Sign out. Renderers: `suite_chrome_drawer()` and
+  `suite_chrome_account_menu()` in lib/render.php, entitlement filtering in
+  lib/suite_apps.php, both exercised by `tests/suite_chrome_test.php`. There
+  is deliberately no second app switcher or sign-out anywhere in the chrome.
+  profile.php: own name + password change. 8 West ID SSO is implemented in
+  lib/auth.php (legacy suite cookie, now RS256 with bounded HS256 overlap;
+  separate from OIDC — see docs/suite-sso-contract.md). Established suite
   sessions are checked against 8 West ID's signed revocation list on every
   authenticated request through a 60-second cache.
 - CSRF: every POST form carries `csrf_field()`, every API checks the

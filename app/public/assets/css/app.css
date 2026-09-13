@@ -280,62 +280,40 @@ img { display: block; }
 .nav-kbd { opacity: 0; transition: opacity .1s; }
 .nav-item:hover .nav-kbd { opacity: 1; }
 
-.suite-label {
-  padding: 24px 16px 4px;
-  font-size: 10.5px; font-weight: 600; letter-spacing: .14em;
-  text-transform: uppercase; color: var(--dim);
-}
-.suite { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
-.suite-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 12px; border-radius: var(--radius-sm);
-  font-size: 13px; color: var(--faint); cursor: not-allowed;
-}
-.suite-box { width: 14px; height: 14px; border: 1px solid var(--line); border-radius: 4px; }
-.suite-name { flex: 1; }
-.suite-tag { font-size: 10px; }
+/* ==========================================================================
+   The shared 8 West IT 365 suite chrome (w365) — hooks only
+   --------------------------------------------------------------------------
+   The vendored package under /assets/w365/ ships no palette, no typeface and
+   no header rules; it reads these custom properties instead. Mapping them to
+   Safeharbor's SEMANTIC tokens (never to a raw brand constant) is what makes
+   the drawer and the account menu follow the dark, light and system themes:
+   the tokens on the right already switch per theme, and the indirection is
+   resolved at use time, so one mapping covers all three.
 
-/* user menu (single home for identity + preferences — lower left) */
-.usermenu-wrap { margin-top: auto; position: relative; }
-.usermenu {
-  position: absolute; bottom: calc(100% + 8px); left: 8px; right: 8px; z-index: 30;
-  background: var(--bg-solid); border: 1px solid var(--line);
-  border-radius: var(--radius-md); box-shadow: var(--shadow-card);
-  padding: 8px; animation: row-in 140ms ease-out;
+   This block replaced the hard-coded ".suite" sidebar list of sister apps and
+   the ".usermenu" lower-left identity menu; both now live in the cluster at
+   the right end of the topbar. Never restyle a .w365-* class here — the
+   placement is uniform across the suite on purpose.
+   ========================================================================== */
+:root {
+  --w365-icon: var(--muted);
+  --w365-icon-hover: var(--hover);
+  --w365-avatar-bg: var(--accent);
+  --w365-avatar-text: #FFFFFF;
+  --w365-surface: var(--bg-solid);
+  --w365-text: var(--text);
+  --w365-text-muted: var(--muted);
+  --w365-border: var(--line);
+  --w365-hover: var(--hover);
+  --w365-accent: var(--accent);
+  --w365-shadow: var(--shadow-card);
+  --w365-mark-bg: var(--bg-raised);
+  --w365-mark-text: var(--text-strong);
+  --w365-focus: var(--sel-ring);
+  --w365-font: inherit;
 }
-.um-head { display: flex; align-items: center; gap: 10px; padding: 8px; }
-.um-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
-.um-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.um-email { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.um-label {
-  padding: 4px 8px 6px; font-size: 10.5px; font-weight: 600;
-  letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
-}
-.um-theme { margin: 0 4px; }
-.um-sep { height: 1px; background: var(--line-soft); margin: 8px 4px; }
-.um-item {
-  display: block; width: 100%; padding: 8px 10px;
-  border-radius: var(--radius-sm); font-size: 13px; color: var(--muted-strong);
-  transition: background .1s, color .1s;
-}
-.um-item:hover { background: var(--hover); color: var(--text); }
-.um-danger { color: var(--rose); }
-.um-danger:hover { background: var(--error-bg); color: var(--rose); }
 
-.sidebar-foot {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 12px; border-top: 1px solid var(--line);
-  cursor: pointer; transition: background .1s;
-}
-.sidebar-foot:hover { background: var(--hover); }
-.sidebar-foot[aria-expanded="true"] { background: var(--sel); }
-.foot-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; text-align: left; }
-.foot-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.foot-tenant { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.foot-chevron { color: var(--muted); flex: none; transition: transform .15s; }
-.sidebar-foot[aria-expanded="true"] .foot-chevron { transform: rotate(180deg); }
-
-/* theme switcher (lives inside the user menu; also on the login page) */
+/* theme switcher (login page) */
 .theme-switch {
   display: flex; gap: 2px; margin: 0; padding: 3px;
   border: 1px solid var(--line); border-radius: 999px;
@@ -769,8 +747,6 @@ img { display: block; }
 .review-actions { display: inline-flex; align-items: center; gap: 4px; }
 .billing-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 22rem; }
 .billing-actions [data-billing-label] { width: 100%; text-align: right; }
-.suite-item-live { color: var(--muted-strong); opacity: 1; text-decoration: none; cursor: pointer; }
-.suite-item-live:hover, .suite-item-live:focus-visible { color: var(--cyan); background: var(--hover); }
 .time-review:disabled { opacity: .5; cursor: default; }
 .sugg-accept:disabled { opacity: .5; cursor: default; }
 @media (max-width: 700px) {
@@ -783,6 +759,9 @@ img { display: block; }
   .search-trigger { min-width: 0; }
   .search-trigger .kbd { display: none; }
   .search-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The suite cluster is a fixed size and must never be squeezed off the header, so the two
+     flexible controls beside it give way first. Safeharbor's own classes only. */
+  .timer-widget { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .page { padding: 14px; }
   .timer-card { align-items: flex-start; flex-wrap: wrap; }
   .timer-info { min-width: calc(100% - 30px); }

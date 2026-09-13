@@ -1,0 +1,257 @@
+/*! w365.css — 8 West IT 365 suite chrome (placement package), version 0.2.0.
+ *  This is a VENDORED copy published from Seckcey/8_west_suite_ui. Do not edit it inside a product
+ *  repo: change the package, tag a release, and re-run the sync script. The consumer's guard test
+ *  fails if this file drifts from the pinned release.
+ *
+ *  SCOPE. Only two things, in the one place every suite app puts them — the right end of the page
+ *  header, in this order: [the app's own controls] [app drawer] [account menu].
+ *    - the app drawer (the 3x3 "waffle") listing the suite apps the viewer is licensed for;
+ *    - the account menu (avatar or initials, name, a small dropdown with settings and sign out).
+ *  Nothing here sets a palette, a typeface, a header or a page style. The cluster inherits the host
+ *  app's look through the hooks below, so each app keeps its own colours, logo and layout.
+ *
+ *  HOOKS. Set these on :root from the app's OWN tokens. Every hook has a neutral fallback, so the
+ *  cluster renders acceptably before an app maps anything.
+ *    --w365-icon          colour of the waffle and account buttons on the header   (currentColor)
+ *    --w365-icon-hover    fill behind those buttons on hover / open                (rgba(127,127,127,.18))
+ *    --w365-avatar-bg     initials circle background                               (#1a6fe0)
+ *    --w365-avatar-text   initials circle text                                     (#ffffff)
+ *    --w365-surface       panel background                                          (#ffffff)
+ *    --w365-text          panel text                                                (#0b1a33)
+ *    --w365-text-muted    secondary text in the panels                              (#5b6b85)
+ *    --w365-border        panel border and separators                               (#d9e0ec)
+ *    --w365-hover         tile and menu-item hover fill                             (#eef2f8)
+ *    --w365-accent        links inside the panels                                   (#1a6fe0)
+ *    --w365-shadow        panel shadow                                              (0 16px 40px rgba(6,17,39,.16))
+ *    --w365-mark-bg       letter-mark tile background (when artwork is missing)     (#0b1a33)
+ *    --w365-mark-text     letter-mark tile text                                     (#ffffff)
+ *    --w365-focus         focus ring                                                (#2d8cff)
+ *    --w365-font          font-family inside the panels                             (inherit)
+ *
+ *  Rules: every class is .w365-*; single-class specificity; no !important except the [hidden] reset;
+ *  colours appear only as hook fallbacks; the only width in @media is 640. A lint in the package
+ *  repo enforces this.
+ */
+
+/* The HTML hidden attribute must always win, whatever display an app rule sets: the drawer and the
+   menu toggle `hidden`. This is the one !important. */
+[hidden] { display: none !important; }
+
+/* ---- the cluster: [waffle] [account], inline, at the right end of the host header ---- */
+.w365-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-family: var(--w365-font, inherit);
+  line-height: 1.2;
+}
+.w365-cluster *, .w365-cluster *::before, .w365-cluster *::after { box-sizing: border-box; }
+.w365-cluster a { color: inherit; }
+.w365-cluster button {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.w365-cluster :focus-visible,
+.w365-drawer :focus-visible,
+.w365-menu :focus-visible {
+  outline: 2px solid var(--w365-focus, #2d8cff);
+  outline-offset: 2px;
+}
+
+.w365-anchor { position: relative; }
+
+.w365-waffle {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  color: var(--w365-icon, currentColor);
+  transition: background 0.12s ease;
+}
+.w365-waffle:hover, .w365-waffle[aria-expanded="true"] { background: var(--w365-icon-hover, rgba(127, 127, 127, 0.18)); }
+.w365-waffle svg { width: 22px; height: 22px; }
+
+.w365-account-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px 0 4px;
+  border-radius: 8px;
+  color: var(--w365-icon, currentColor);
+  transition: background 0.12s ease;
+}
+.w365-account-btn:hover, .w365-account-btn[aria-expanded="true"] { background: var(--w365-icon-hover, rgba(127, 127, 127, 0.18)); }
+.w365-account-btn > svg { width: 10px; height: 10px; flex: 0 0 auto; }
+.w365-account-name {
+  display: none;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.w365-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--w365-avatar-bg, #1a6fe0);
+  color: var(--w365-avatar-text, #ffffff);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+img.w365-avatar { object-fit: cover; }
+
+/* ---- the two panels ---- */
+.w365-drawer, .w365-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 120;
+  box-sizing: border-box;
+  background: var(--w365-surface, #ffffff);
+  color: var(--w365-text, #0b1a33);
+  border: 1px solid var(--w365-border, #d9e0ec);
+  box-shadow: var(--w365-shadow, 0 16px 40px rgba(6, 17, 39, 0.16));
+  font-family: var(--w365-font, inherit);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.w365-drawer *, .w365-menu * { box-sizing: border-box; }
+.w365-drawer a, .w365-menu a { text-decoration: none; }
+
+.w365-drawer {
+  width: 344px;
+  padding: 12px;
+  border-radius: 16px;
+}
+.w365-drawer-static { position: static; display: block; }
+@media (max-width: 639px) {
+  .w365-drawer:not(.w365-drawer-static) {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    top: 8px;
+    width: auto;
+    max-height: calc(100dvh - 16px);
+    overflow: auto;
+  }
+}
+.w365-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px 12px;
+}
+.w365-drawer-head strong { font-size: 14px; font-weight: 600; color: var(--w365-text, #0b1a33); }
+.w365-drawer-head span { font-size: 13px; color: var(--w365-text-muted, #5b6b85); }
+.w365-drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+}
+.w365-tile {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 8px;
+  min-height: 96px;
+  padding: 10px 6px 8px;
+  border-radius: 8px;
+  color: var(--w365-text, #0b1a33);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: center;
+  transition: background 0.12s ease;
+}
+.w365-tile:hover { background: var(--w365-hover, #eef2f8); color: var(--w365-text, #0b1a33); text-decoration: none; }
+.w365-tile-mark {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 11px;
+  overflow: hidden;
+  background: var(--w365-mark-bg, #0b1a33);
+  color: var(--w365-mark-text, #ffffff);
+  font-size: 18px;
+  font-weight: 700;
+}
+.w365-tile-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.w365-tile-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.w365-drawer-note { margin: 0; padding: 8px; color: var(--w365-text-muted, #5b6b85); }
+.w365-drawer-link { display: inline-block; margin: 0 8px 8px; color: var(--w365-accent, #1a6fe0); font-weight: 600; }
+.w365-drawer-foot { margin-top: 8px; padding: 12px 8px 4px; border-top: 1px solid var(--w365-border, #d9e0ec); }
+.w365-drawer-foot a { color: var(--w365-accent, #1a6fe0); font-weight: 500; }
+
+.w365-menu {
+  width: 240px;
+  padding: 4px;
+  border-radius: 12px;
+}
+.w365-menu form { margin: 0; }
+.w365-menu-who { padding: 12px 12px 8px; border-bottom: 1px solid var(--w365-border, #d9e0ec); margin-bottom: 4px; }
+.w365-menu-who strong { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; color: var(--w365-text, #0b1a33); }
+.w365-menu-who span { display: block; font-size: 12px; color: var(--w365-text-muted, #5b6b85); overflow-wrap: anywhere; }
+.w365-menu-item {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--w365-text, #0b1a33);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.w365-menu-item:hover { background: var(--w365-hover, #eef2f8); color: var(--w365-text, #0b1a33); text-decoration: none; }
+.w365-menu-sep { border: 0; border-top: 1px solid var(--w365-border, #d9e0ec); margin: 4px 0; }
+
+@media (min-width: 640px) {
+  .w365-account-name { display: inline; }
+}
+
+/* Host-proofing: a host rule like `.header nav { display: none }` (element selector inside a class)
+   outranks a single class, so the display of the parts that must render is asserted at two classes. */
+.w365-cluster .w365-waffle { display: grid; }
+.w365-cluster .w365-account-btn { display: inline-flex; }
+.w365-cluster .w365-avatar { display: grid; }
+.w365-drawer .w365-drawer-grid { display: grid; }
+.w365-drawer .w365-tile { display: grid; }
+.w365-drawer .w365-drawer-note { display: block; }
+.w365-menu .w365-menu-item { display: block; }
+.w365-menu .w365-menu-who { display: block; }
+@media print {
+  .w365-cluster, .w365-drawer, .w365-menu { display: none; }
+}

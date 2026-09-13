@@ -1,0 +1,42 @@
+{
+  "name": "w365",
+  "version": "0.2.0",
+  "files": {
+    "marks/cloudline.png": {
+      "sha256": "665a288b808361c20a2ec80e5201bf3a722692d166fc9fa40bc39bac70595f08",
+      "bytes": 21188
+    },
+    "marks/coastmark.png": {
+      "sha256": "a30b02082719a1c500b0a5fd91e2c4069d852d374170011eb882d689eb715748",
+      "bytes": 21636
+    },
+    "marks/controlpanel.png": {
+      "sha256": "4da9d37e36f0ce2187532a7abbff2b855782f49567c0261e67b0bd9f95d9d281",
+      "bytes": 20376
+    },
+    "marks/logbook.png": {
+      "sha256": "eaf001565eb1a210961ef6fd0725cdfd7c929d3df198712bfbadd21c7582a7e8",
+      "bytes": 23565
+    },
+    "marks/milepost.png": {
+      "sha256": "ca62e900e9caf811d0e5bbc3962cc2520d9aeae9a3641c3d535f165a74b71238",
+      "bytes": 22128
+    },
+    "marks/safeharbor.png": {
+      "sha256": "e32617a3ca659e463dc2cad9b9216c6f294c466874958f5cd8b282f070748a88",
+      "bytes": 22439
+    },
+    "w365-launcher.js": {
+      "sha256": "4ff5a8f6d1cbe29b060980f0d2049f1d7933d4e89bab2d2c3eebd98317ab1431",
+      "bytes": 5236
+    },
+    "w365-products.json": {
+      "sha256": "ee689cfb69b4c206b00cd3c6a910c09c305aaee5c4b7e72aaaf4de72719a6ca9",
+      "bytes": 2086
+    },
+    "w365.css": {
+      "sha256": "af9de3195519602d3c82f525306933e7c3c6d26c61b2aa562f51e5c57ae68bc9",
+      "bytes": 9468
+    }
+  }
+}

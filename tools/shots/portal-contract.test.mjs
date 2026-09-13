@@ -15,6 +15,37 @@ const PORTAL_RENDER_SOURCE = await readFile(path.join(ROOT, 'app/lib/portal_rend
 const ORIGIN = 'http://safeharbor.test';
 const SERVE_MODE = process.argv.includes('--serve');
 
+/**
+ * The shared 8 West IT 365 suite chrome is vendored under app/public/assets/w365/ and served from
+ * the app's own origin. The customer portal is a separate, stricter surface and deliberately does
+ * NOT render the cluster, so nothing here should ask for these files — but this fixture stands in
+ * for the whole origin, and a request it cannot answer becomes a 404 that the clean-console
+ * assertion below would report as a mystery. Serving them from disk means the assertion keeps
+ * measuring the portal's own behaviour, and an accidental import of the staff chrome into a portal
+ * page shows up as a visible change rather than a broken asset.
+ */
+const W365_DIR = path.join(ROOT, 'app/public/assets/w365');
+const W365_TYPES = {
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+};
+async function w365Asset(pathname) {
+  const relative = pathname.slice('/assets/w365/'.length);
+  // Same-origin, inside the vendored directory only: no traversal, no absolute paths.
+  if (!/^[a-z0-9][a-z0-9./-]*$/i.test(relative) || relative.includes('..')) return null;
+  const file = path.join(W365_DIR, relative);
+  if (!file.startsWith(W365_DIR + path.sep)) return null;
+  const contentType = W365_TYPES[path.extname(file).toLowerCase()];
+  if (!contentType) return null;
+  try {
+    return { contentType, body: await readFile(file) };
+  } catch {
+    return null;
+  }
+}
+
 const FIXTURE_PHP = String.raw`<?php
 declare(strict_types=1);
 function portal_csrf_token(): string { return str_repeat('c', 64); }
@@ -138,6 +169,12 @@ async function openPortalPage(browser, pages, viewport) {
     if (url.pathname === '/assets/brand/favicon.svg') {
       return route.fulfill({ contentType: 'image/svg+xml', body: FAVICON });
     }
+    if (url.pathname.startsWith('/assets/w365/')) {
+      const asset = await w365Asset(url.pathname);
+      return asset === null
+        ? route.fulfill({ status: 404, body: '' })
+        : route.fulfill({ contentType: asset.contentType, body: asset.body });
+    }
     const body = url.pathname === '/portal/' ? pages.dashboard
       : url.pathname === '/portal/new.php' ? pages.new
       : url.pathname === '/portal/ticket.php' ? pages.ticket
@@ -172,6 +209,18 @@ if (SERVE_MODE) {
     if (url.pathname === '/assets/brand/favicon.svg') {
       response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
       response.end(FAVICON);
+      return;
+    }
+    if (url.pathname.startsWith('/assets/w365/')) {
+      w365Asset(url.pathname).then((asset) => {
+        if (asset === null) {
+          response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          response.end('Not found.');
+          return;
+        }
+        response.writeHead(200, { 'Content-Type': asset.contentType });
+        response.end(asset.body);
+      });
       return;
     }
     const body = fixtureForUrl(pages, url);
