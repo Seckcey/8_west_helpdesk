@@ -1,6 +1,16 @@
 # Where things stand
 
-**Current live release � 2026-09-08 UTC:** migration 025 and source `d32d66ea50c9bc6a807d947e51213db7604c8cb2` are deployed on Milepost EC2 after explicit founder approval. The actual backup restore, scratch/live migration replay, unchanged business records, narrow runtime grant and matching source all passed. The database now has 47 tables and 100 triggers; all three new tables are empty. The actual runtime health function returns 1.
+**Current live release — 2026-09-13 UTC:** the shared 8 West IT 365 placement
+from PR #121 is deployed as `67ea9e36941b5ac913edf11eed197bbf1f5e2715`: the app drawer and
+the account menu sit at the right end of the topbar, the hard-coded sidebar
+suite list and the lower-left identity menu are gone, and the account menu shows
+the 8 West ID name, email and picture. Exact-main Validate `34763944114` passed.
+The report scheduler was stopped for the deploy and restored to `active` with a
+rebound activation record at `17:23:54Z`, unchanged in scope. See the
+[w365 placement release](w365-placement-release-2026-09-13.md) for the deployed
+artifact, backup checksums and scheduler evidence. Signed-in acceptance is Frank's.
+
+**Previous live release — 2026-09-08 UTC:** migration 025 and source `d32d66ea50c9bc6a807d947e51213db7604c8cb2` are deployed on Milepost EC2 after explicit founder approval. The actual backup restore, scratch/live migration replay, unchanged business records, narrow runtime grant and matching source all passed. The database now has 47 tables and 100 triggers; all three new tables are empty. The actual runtime health function returns 1.
 
 Both new workflow/billing gates remain off and no new worker is scheduled. The existing report scheduler is active with unchanged scope and cron bytes. Protected configuration and both application vhosts were preserved. Signed-in Queue/Team and 390px Team acceptance passed without captured console errors. [Release and recovery evidence](WESTY_PRODUCTION_RELEASE_2026_09_08.md).
 
