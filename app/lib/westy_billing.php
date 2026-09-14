@@ -1,5 +1,5 @@
 <?php
-/** Closed workflow -> existing approved-time invoice review. Never sends mail. */
+/** Verified closure -> covered-service receipt or existing approved-time invoice review. */
 declare(strict_types=1);
 require_once __DIR__ . '/westy_workflow.php';
 const WESTY_BILLING_ENDPOINT = 'https://coastmark.8westit.com/api/integrations/safeharbor/billing-handoffs';
@@ -49,7 +49,24 @@ function westy_billing_payload(PDO $pdo, array $run, array $outbox, array $confi
             || !westy_workflow_date($source['worked_at']??null) || $source['worked_at']>str_replace(' ','T',$run['closed_at']).'Z') throw new RuntimeException('time_source_scope_conflict');
         $keys[]=$claim['event_key'];
     }
-    if (!$keys) throw new RuntimeException('approved_billable_time_required');
+    if (!$keys) {
+        // Human time, even nonbillable/rejected time, needs a human billing decision.
+        // Coverage comes from an explicit policy in both apps; never from model text.
+        $coverage=$config['included_service']['policies'][$run['tenant_slug']][$run['customer_id']]??null;
+        if (($config['included_service']['enabled']??false)!==true || !is_array($coverage)) throw new RuntimeException('approved_billable_time_required');
+        if (($run['state']??null)!=='resolved') throw new RuntimeException('included_service_workflow_changed');
+        if ($entries) throw new RuntimeException('included_service_has_human_time');
+        if (($coverage['enabled']??false)!==true || !is_string($coverage['coverage_key']??null)
+            || preg_match(WESTY_WORKFLOW_UUID,$coverage['coverage_key'])!==1
+            || !is_int($coverage['coverage_revision']??null) || $coverage['coverage_revision']<1
+            || ($coverage['service_code']??null)!=='routine_support') throw new RuntimeException('included_service_policy_required');
+        return ['version'=>2,'event'=>'safeharbor.ticket.service_completed','event_key'=>$outbox['event_key'],
+            'tenant_key'=>$run['tenant_slug'],'client_key'=>'milepost-customer:'.$run['customer_id'],
+            'ticket_id'=>(int)$run['ticket_id'],'run_key'=>$run['workflow_key'],
+            'resolved_at'=>str_replace(' ','T',$run['closed_at']).'Z','closed_at'=>str_replace(' ','T',$run['closed_at']).'Z',
+            'verification_sha256'=>$run['evidence_sha256'],'coverage_key'=>$coverage['coverage_key'],
+            'coverage_revision'=>$coverage['coverage_revision'],'service_code'=>$coverage['service_code']];
+    }
     sort($keys,SORT_STRING);
     return ['version'=>1,'event'=>'safeharbor.ticket.billing_requested','event_key'=>$outbox['event_key'],
         'tenant_key'=>$run['tenant_slug'],'client_key'=>'milepost-customer:'.$run['customer_id'],
@@ -81,10 +98,22 @@ function westy_billing_transport(array $config,string $body): array
     return ['status'=>$ok===false?0:$status,'body'=>$response];
 }
 
-function westy_billing_response(array $response,string $eventKey): bool
+function westy_billing_response(array $response,string $eventKey,?array $payload=null): bool
 {
     if (!in_array($response['status']??0,[200,201],true) || !is_string($response['body']??null) || strlen($response['body'])>65536) return false;
     try { $body=json_decode($response['body'],true,16,JSON_THROW_ON_ERROR); } catch (JsonException) { return false; }
+    if (($payload['version']??null)===2) {
+        $receipt=$body['completion']??null;
+        if (($body['ok']??false)!==true || !in_array($body['action']??'',['created','ignored'],true)
+            || ($response['status']===201 && $body['action']!=='created')
+            || !is_array($receipt) || !is_int($receipt['id']??null) || $receipt['id']<1
+            || ($receipt['state']??null)!=='included' || ($receipt['additional_amount_cents']??null)!==0
+            || !array_key_exists('invoice_id',$receipt) || $receipt['invoice_id']!==null
+            || !is_array($receipt['source']??null) || count($receipt['source'])!==count($payload)
+            || ($payload['event_key']??null)!==$eventKey) return false;
+        foreach ($payload as $key=>$value) if (!array_key_exists($key,$receipt['source']) || $receipt['source'][$key]!==$value) return false;
+        return true;
+    }
     if (($body['ok']??false)!==true || !in_array($body['action']??'',['created','ignored'],true)
         || (($response['status']??0)===201 && ($body['action']??'')!=='created')
         || ($body['handoff']['event_key']??'')!==$eventKey || ($body['handoff']['state']??'')!=='review_required'
@@ -133,9 +162,9 @@ function westy_billing_dispatch(PDO $pdo,int $outboxId,array $config,?callable $
     } catch (Throwable $error) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $error; }
     try { $response=($transport??'westy_billing_transport')($config,$body); }
     catch (Throwable) { $response=['status'=>0,'body'=>'']; }
-    $accepted=westy_billing_response($response,$outbox['event_key']);
+    $accepted=westy_billing_response($response,$outbox['event_key'],$payload);
     $state=$accepted?'accepted':(in_array((int)($response['status']??0),[400,401,403,404,409,422],true)?'blocked':'uncertain');
     $pdo->prepare('UPDATE westy_billing_outbox SET state=?,detail_code=?,response_json=?,next_attempt_at=?,updated_at=? WHERE id=? AND state=? AND attempts=?')
-        ->execute([$state,$accepted?'coastmark_review_required':($state==='blocked'?'receiver_refused':'delivery_uncertain'),$accepted?$response['body']:null,$state==='uncertain'?gmdate('Y-m-d H:i:s',time()+min(3600,60*(2**min($attempt,6)))):null,gmdate('Y-m-d H:i:s'),$outboxId,'sending',$attempt]);
+        ->execute([$state,$accepted?($payload['version']===2?'included_service_recorded':'coastmark_review_required'):($state==='blocked'?'receiver_refused':'delivery_uncertain'),$accepted?$response['body']:null,$state==='uncertain'?gmdate('Y-m-d H:i:s',time()+min(3600,60*(2**min($attempt,6)))):null,gmdate('Y-m-d H:i:s'),$outboxId,'sending',$attempt]);
     return $state;
 }

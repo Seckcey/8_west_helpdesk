@@ -250,11 +250,15 @@ function westy_workflow_ticket_owners(PDO $pdo, int $tenantId, array $tickets): 
 
 function westy_workflow_card(array $run): string
 {
+    $billingReceipt=is_string($run['billing_response']??null)?json_decode($run['billing_response'],true):null;
+    $included=($run['state']??null)==='resolved' && ($run['billing_state']??null)==='accepted' && ($billingReceipt['completion']['state']??null)==='included'
+        && ($billingReceipt['completion']['additional_amount_cents']??null)===0
+        && ($billingReceipt['completion']['source']['run_key']??null)===($run['workflow_key']??null);
     $labels = ['working'=>'Westy is troubleshooting','needs_human'=>'A technician is needed','human_owned'=>'A technician owns this ticket','resolved'=>'Recovery verified'];
     $explanations = ['working'=>'Review progress and approve commands in Milepost. Taking over here pauses Westy before his next action.',
         'needs_human'=>'Westy stopped and left the findings below. Review the assigned technician or assign one to continue.',
         'human_owned'=>'Someone changed the ticket or added work. Westy cannot close it automatically.',
-        'resolved'=>'Milepost recorded a completed agent job and fresh recovery of the original alert. Billing still needs review.'];
+        'resolved'=>'Milepost recorded a completed agent job and fresh recovery of the original alert.'];
     $state = (string)$run['state'];
     $escape = static fn(mixed $value): string => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
     $html = '<section class="card westy-workflow-card" aria-labelledby="westy-workflow-title" data-workflow-state="' . $escape($state) . '">'
@@ -266,12 +270,13 @@ function westy_workflow_card(array $run): string
     if ($state === 'working') {
         $html .= '<button type="button" class="btn-ghost btn-sm" data-action="assignee" data-id="' . (int)$run['ticket_id'] . '">Take over ticket</button>';
     }
-    if ($state === 'resolved' || !empty($run['closed_at'])) $html .= '<a class="btn-ghost btn-sm" href="/time.php">Review time &amp; billing</a>';
+    if (!$included && ($state === 'resolved' || !empty($run['closed_at']))) $html .= '<a class="btn-ghost btn-sm" href="/time.php">Review time &amp; billing</a>';
     $html .= '</div>';
     if (isset($run['billing_state'])) {
         $billingLabels = ['waiting_for_time'=>'Billing is waiting for approved time and its Coastmark export.', 'ready'=>'Billing handoff is ready.',
             'sending'=>'Checking the billing handoff.', 'uncertain'=>'Billing receipt is being reconciled. No invoice email has been sent by Safeharbor.',
             'accepted'=>'Coastmark received the handoff. Review the invoice before sending.', 'blocked'=>'Billing needs a technician review before it can continue.'];
+        if ($included) $billingLabels['accepted']='Service complete. Coastmark confirmed this work is covered by the customer plan. No extra charge.';
         $html .= '<p class="rail-note">' . $escape($billingLabels[$run['billing_state']] ?? 'Billing status unavailable.') . '</p>';
         if ($run['billing_state'] === 'accepted' && is_string($run['billing_response'] ?? null)) {
             $receipt = json_decode($run['billing_response'], true);

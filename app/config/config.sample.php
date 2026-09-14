@@ -351,6 +351,8 @@ return [
         'secret' => '',
         'tenant_slugs' => [],
         'customer_ids' => [],
+        // Exact tenant/customer coverage references; Coastmark independently verifies its agreement policy.
+        'included_service' => ['enabled' => false, 'policies' => []],
     ],
 
     // Westy — the suite AI helper (advise-only chat bubble + onboarding).
