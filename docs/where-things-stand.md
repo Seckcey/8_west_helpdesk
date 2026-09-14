@@ -1,5 +1,11 @@
 # Where things stand
 
+**September 14 source candidate, not deployed:** verified autonomous closures
+with no human time can request a separately approved covered-service receipt
+from Coastmark. Exact receipt matching and the final ticket message are tested;
+the new coverage gate defaults off. See [the contract and rollout order](westy-included-service-contract.md).
+Production configuration, customer agreements and schedules are unchanged.
+
 **Current live release — 2026-09-13 UTC:** the shared 8 West IT 365 placement
 from PR #121 is deployed as `67ea9e36941b5ac913edf11eed197bbf1f5e2715`: the app drawer and
 the account menu sit at the right end of the topbar, the hard-coded sidebar

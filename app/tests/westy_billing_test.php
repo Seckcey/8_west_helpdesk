@@ -79,4 +79,45 @@ $run=$pdo->query('SELECT * FROM westy_workflows')->fetch(); $run['tenant_slug']=
 $pdo->exec("UPDATE tickets SET status='open'"); wb_refuses(fn()=>westy_billing_payload($pdo,$run,$outbox,$config),'reopened ticket refuses billing');
 $pdo->exec("UPDATE tickets SET status='resolved'"); $pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive'");
 wb_refuses(fn()=>westy_billing_payload($pdo,$run,$outbox,$config),'inactive customer refuses billing');
+// Autonomous work with no human time can complete under matching protected coverage.
+$pdo->exec("ALTER TABLE westy_workflows ADD COLUMN state TEXT DEFAULT 'resolved'");
+$run['state']='resolved';
+$pdo->exec("UPDATE suite_customer_sync_bindings SET status='active'; DELETE FROM time_entries;
+UPDATE westy_billing_outbox SET state='waiting_for_time',payload_json=NULL,payload_sha256=NULL,response_json=NULL,attempts=0,next_attempt_at=NULL");
+$coverage=['enabled'=>true,'coverage_key'=>'44444444-4444-4444-8444-444444444444','coverage_revision'=>1,'service_code'=>'routine_support'];
+$includedConfig=$config;
+$includedConfig['included_service']=['enabled'=>true,'policies'=>['fixture-msp'=>[$customer=>$coverage]]];
+$makeReceipt=static fn(array $payload):array=>['status'=>201,'body'=>json_encode(['ok'=>true,'action'=>'created','completion'=>[
+    'id'=>17,'state'=>'included','additional_amount_cents'=>0,'invoice_id'=>null,'source'=>$payload]])];
+$includedCalls=[];
+$lost=static function(array $config,string $body) use (&$includedCalls):array {$includedCalls[]=$body;return ['status'=>0,'body'=>''];};
+wb_check(westy_billing_dispatch($pdo,1,$includedConfig,$lost)==='uncertain','covered service keeps lost receipt uncertain');
+$includedPayload=json_decode($includedCalls[0],true);
+wb_check($includedPayload['version']===2 && !isset($includedPayload['time_event_keys']),'covered service invents neither time nor invoice');
+wb_due($pdo);
+$delivered=static function(array $config,string $body) use (&$includedCalls,$makeReceipt):array {$includedCalls[]=$body;return $makeReceipt(json_decode($body,true));};
+wb_check(westy_billing_dispatch($pdo,1,$includedConfig,$delivered)==='accepted','covered service completes without manual time approval');
+wb_check(count($includedCalls)===2 && $includedCalls[0]===$includedCalls[1],'covered service replays exact frozen bytes');
+wb_check($pdo->query('SELECT detail_code FROM westy_billing_outbox')->fetchColumn()==='included_service_recorded','completion has a distinct durable outcome');
+wb_check(westy_billing_dispatch($pdo,1,$includedConfig,$delivered)==='accepted' && count($includedCalls)===2,'completed service cannot double-send');
+foreach (['tenant_key'=>'other','ticket_id'=>43,'run_key'=>'55555555-5555-4555-8555-555555555555','coverage_revision'=>2,'verification_sha256'=>str_repeat('b',64)] as $key=>$value) {
+    wb_check(!westy_billing_response($makeReceipt(array_replace($includedPayload,[$key=>$value])),$billingEvent,$includedPayload),'wrong covered receipt rejected: '.$key);
+}
+$badReceipt=$makeReceipt($includedPayload); $body=json_decode($badReceipt['body'],true); $body['completion']['additional_amount_cents']=1;
+wb_check(!westy_billing_response(['status'=>201,'body'=>json_encode($body)],$billingEvent,$includedPayload),'covered receipt cannot charge money');
+wb_check(!westy_billing_response($good,$billingEvent,$includedPayload),'invoice review cannot masquerade as covered completion');
+wb_check(westy_billing_response(['status'=>201,'body'=>file_get_contents(__DIR__.'/../../docs/contracts/interop-20260914/coastmark-included-receipt.json')],$billingEvent,$includedPayload),'actual Coastmark v2 receiver receipt matches actual Safeharbor producer facts');
+$card=westy_workflow_card(array_merge($run,['state'=>'resolved','summary'=>'Recovery verified','job_id'=>99,'billing_state'=>'accepted','billing_response'=>$makeReceipt($includedPayload)['body']]));
+wb_check(str_contains($card,'No extra charge.') && !str_contains($card,'Review time &amp; billing'),'covered completion removes the unnecessary invoice-review step');
+$pdo->exec("INSERT INTO time_entries VALUES(50,1,7,42,'approved',0)");
+wb_refuses(fn()=>westy_billing_payload($pdo,$run,$outbox,$includedConfig),'human time cannot be silently marked covered');
+$pdo->exec('DELETE FROM time_entries');
+wb_refuses(fn()=>westy_billing_payload($pdo,array_replace($run,['state'=>'human_owned']),$outbox,$includedConfig),'human takeover prevents a new included-service claim');
+$configWrong=$includedConfig; $configWrong['included_service']['policies']=['other'=>[$customer=>$coverage]];
+wb_refuses(fn()=>westy_billing_payload($pdo,$run,$outbox,$configWrong),'another tenant coverage cannot authorize work');
+if (getenv('WESTY_INCLUDED_FIXTURE_DIR')) {
+    $fixtureDir=getenv('WESTY_INCLUDED_FIXTURE_DIR');
+    file_put_contents($fixtureDir.'/included-service-v2.json',$includedCalls[0]);
+    file_put_contents($fixtureDir.'/included-card.html',$card);
+}
 echo "PASS $checks Westy billing handoff checks.\n";
