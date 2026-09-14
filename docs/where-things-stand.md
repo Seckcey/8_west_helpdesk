@@ -1,12 +1,14 @@
 # Where things stand
 
-**September 14 source candidate, not deployed:** verified autonomous closures
-with no human time can request a separately approved covered-service receipt
-from Coastmark. Exact receipt matching and the final ticket message are tested;
-the new coverage gate defaults off. See [the contract and rollout order](westy-included-service-contract.md).
-Production configuration, customer agreements and schedules are unchanged.
+**Current live release — September 14 UTC:** source
+`d011ae0c67cf6c5fb3f418d2e70ad489c4b8c7ca` is deployed, with the dedicated
+workflow identity and covered-service handoff active for one internal computer's
+customer. The billing worker runs each minute. The existing report schedule is
+restored and active with unchanged scope. No real pilot incident or covered
+receipt has completed. [Release and activation evidence](WESTY_INTERNAL_PILOT_RELEASE_2026_09_14.md)
+and [the contract](westy-included-service-contract.md).
 
-**Current live release — 2026-09-13 UTC:** the shared 8 West IT 365 placement
+**Previous live release — 2026-09-13 UTC:** the shared 8 West IT 365 placement
 from PR #121 is deployed as `67ea9e36941b5ac913edf11eed197bbf1f5e2715`: the app drawer and
 the account menu sit at the right end of the topbar, the hard-coded sidebar
 suite list and the lower-left identity menu are gone, and the account menu shows
