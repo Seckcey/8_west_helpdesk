@@ -82,6 +82,9 @@ synthetic preview. Desktop/390px phone review, fallback selection, draft save,
 unchecked refusal, missing-provider refusal and retained unsent draft passed.
 No test email left the isolated environment and desktop Docker was not used.
 
-At implementation time production remains `d011ae0`; the new migration, source
-release and approved internal email are pending. Frankie explicitly named
-`frank@8westit.com` for case 614. No new laptop command is authorized here.
+PR #125 is live as `3d9f080` after exact-main CI, protected backup/restore,
+migration/replay and signed-in desktop/phone acceptance. The internal customer
+scope is enabled. Case 614 uses the explicitly authorized endpoint contact
+`frank@8westit.com`; saved Draft #1 awaits exact-wording approval with no send
+attempt. No laptop command is authorized here. See the
+[September 17 release record](WESTY_APPROVED_EMAIL_RELEASE_2026_09_17.md).
