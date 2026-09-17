@@ -4,6 +4,8 @@
  * config.php is server-specific and is NEVER committed (see .gitignore).
  */
 return [
+    // Human-reviewed advice email. No background sends or permission from chat.
+    'westy_email' => ['enabled' => false, 'tenant_ids' => [], 'customer_ids' => []],
     // Logbook's read-only solved-ticket export; dedicated key and existing svc identity.
     // Register service 'logbook-export' under tenant_id; customer_ids are exact Milepost UUIDs.
     'logbook_export' => [

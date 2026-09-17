@@ -123,7 +123,9 @@ jobs:
           SAFEHARBOR_WESTY_TEST_PORT: 3306
           SAFEHARBOR_WESTY_TEST_USER: root
           SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
-        run: php app/tests/westy_workflow_mysql_test.php
+        run: |
+          php app/tests/westy_workflow_mysql_test.php
+          php app/tests/westy_email_mysql_test.php
       - name: Test suite token algorithms
         run: php app/tests/suite_rs256_test.php
       - name: Test suite roles

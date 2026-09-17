@@ -1,5 +1,18 @@
 # Where things stand
 
+**September 17 approved-email slice — implementation, not yet live:** case 614 now
+contains Frankie's evidence-based hardware-capacity review disposition and remains
+open/human-owned. The laptop was not changed. The reviewed email path adds an
+endpoint POC for the case, explicit client-POC fallback, editable memory advice,
+owner/admin approval of exact content, and a durable single send with no uncertain
+retry. Microsoft acceptance remains distinct from inbox receipt. Migration 026,
+source deployment and activation are pending. See [scope and verification](westy-approved-email.md).
+
+Fresh September 17 pilot evidence supersedes the earlier “no real incident” line:
+memory case 614 remains a human exception; CPU case 618 recovered after diagnostics
+and has one accepted covered-service completion with zero additional charge and
+no invoice. Neither proves a software repair or customer inbox delivery.
+
 **Current live release — September 14 UTC:** source
 `d011ae0c67cf6c5fb3f418d2e70ad489c4b8c7ca` is deployed, with the dedicated
 workflow identity and covered-service handoff active for one internal computer's
