@@ -1,24 +1,26 @@
 # Where things stand
 
-**September 17 approved-email slice — implementation, not yet live:** case 614 now
-contains Frankie's evidence-based hardware-capacity review disposition and remains
-open/human-owned. The laptop was not changed. The reviewed email path adds an
-endpoint POC for the case, explicit client-POC fallback, editable memory advice,
-owner/admin approval of exact content, and a durable single send with no uncertain
-retry. Microsoft acceptance remains distinct from inbox receipt. Migration 026,
-source deployment and activation are pending. See [scope and verification](westy-approved-email.md).
+**Current live release — September 17 UTC:** approved-email PR #125 is deployed
+as `3d9f080c4d7b86c90347fcf97926473484866630`; exact-main Validate `35282265375`
+passed. Migration 026/replay, the protected backup restore, unchanged existing
+business records and signed-in desktop/phone acceptance passed. The new email
+scope is enabled only for the internal customer. The report scheduler is active
+with unchanged scope. Case 614 remains open/human-owned, laptop unchanged, with
+Draft #1 to frank@8westit.com awaiting exact-wording approval; no send attempted.
+See [release evidence](WESTY_APPROVED_EMAIL_RELEASE_2026_09_17.md) and
+[the email contract](westy-approved-email.md).
 
 Fresh September 17 pilot evidence supersedes the earlier “no real incident” line:
 memory case 614 remains a human exception; CPU case 618 recovered after diagnostics
 and has one accepted covered-service completion with zero additional charge and
 no invoice. Neither proves a software repair or customer inbox delivery.
 
-**Current live release — September 14 UTC:** source
+**Historical release — September 14 UTC:** source
 `d011ae0c67cf6c5fb3f418d2e70ad489c4b8c7ca` is deployed, with the dedicated
 workflow identity and covered-service handoff active for one internal computer's
 customer. The billing worker runs each minute. The existing report schedule is
-restored and active with unchanged scope. No real pilot incident or covered
-receipt has completed. [Release and activation evidence](WESTY_INTERNAL_PILOT_RELEASE_2026_09_14.md)
+restored and active with unchanged scope. At that historical checkpoint, no real pilot incident or covered
+receipt had completed. [Release and activation evidence](WESTY_INTERNAL_PILOT_RELEASE_2026_09_14.md)
 and [the contract](westy-included-service-contract.md).
 
 **Previous live release — 2026-09-13 UTC:** the shared 8 West IT 365 placement
