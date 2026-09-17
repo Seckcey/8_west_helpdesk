@@ -25,7 +25,11 @@ $pdoOptions = [
 try {
     $server = new PDO($serverDsn, $user, $pass, $pdoOptions);
     $quotedDatabase = '`' . str_replace('`', '``', $database) . '`';
-    $server->exec("CREATE DATABASE IF NOT EXISTS {$quotedDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    // Race children connect to the parent-created fixture. Repeating schema DDL
+    // waits behind the parent transaction once cross-table email guards are present.
+    if (($argv[1] ?? '') !== 'worker') {
+        $server->exec("CREATE DATABASE IF NOT EXISTS {$quotedDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    }
     $pdo = new PDO($serverDsn . ";dbname={$database}", $user, $pass, $pdoOptions);
     $pdo->exec("SET time_zone = '+00:00'");
 } catch (Throwable $error) {
