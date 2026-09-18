@@ -2,9 +2,9 @@
 
 The internal email path is live: approved advice from `westy@8westit.com`, a
 real reply recorded on the original case, and one approved acknowledgment
-accepted by Microsoft. Recipient confirmation of that acknowledgment remains
-pending. This release does not claim general autonomous advice or external
-customer reply support.
+accepted by Microsoft and separately confirmed received by Frankie on
+September 18. The real internal round trip is complete. This release does not
+claim general autonomous advice or external customer reply support.
 
 ## Deployed release
 
@@ -47,6 +47,7 @@ remains the schema/release foundation:
 | Actual recipient reply | Arrived in Westy's Inbox at `08:41:21`; Frankie independently said he replied |
 | Verified case intake | Receipt 1 accepted at `09:05:55`; client message 336198 on case 614 |
 | Approved acknowledgment | Attempt 1, receipt 1, submitted at `09:05:55`, Microsoft HTTP 202 |
+| Recipient confirmation | Frankie answered "yes I got it" in the implementation task on September 18; confirmation also recorded as an internal note on case 614 |
 | Scheduled reader | Successful cron execution at `09:07:01`: processed 0, held none, no uncertain send matches |
 | Duplicate check | Post-cron state still exactly one receipt, one client message and one acknowledgment attempt; no attention event |
 
@@ -62,8 +63,11 @@ shows the real test reply, and the email page shows the accepted receipt and
 single acknowledgment attempt.
 
 The actual reply proves the initial advice reached Frankie. HTTP 202 for the
-acknowledgment proves Microsoft accepted it, not inbox receipt. Inbox
-confirmation was requested separately and is still pending at this checkpoint.
+acknowledgment proves Microsoft accepted it, not inbox receipt. Frankie then
+separately confirmed "yes I got it" when asked whether that acknowledgment
+arrived in his inbox. That human confirmation completes the real round trip;
+it is also preserved in an internal note on case 614. No delivery timestamp
+is inferred from the later confirmation, and the original provider result is unchanged.
 No original message was resent. Case 614 remains open, assigned to Frankie,
 contact 13, workflow `human_owned` version 3. The laptop was not changed, no
 repair was claimed, and no purchase or financial action was taken.
@@ -114,5 +118,6 @@ This pilot sends one frozen acknowledgment approved through
 `2026-09-25 08:18:33`; that one-send budget is now consumed. Later verified
 replies can still be recorded, while new advice/action belongs to Frankie.
 External-customer reply authentication and open-ended AI correspondence remain
-unfinished. Inbox receipt of the acknowledgment is the remaining real-round-trip
-confirmation; do not resend it just to obtain proof.
+unfinished. The internal round trip, including recipient-confirmed acknowledgment
+delivery, is complete. The memory issue remains open for human review; email
+delivery is not evidence of a repair.
