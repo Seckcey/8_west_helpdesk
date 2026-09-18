@@ -1,0 +1,4 @@
+# Read the dedicated Westy mailbox; per-case approvals and one-attempt claims live in Safeharbor.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * www-data /usr/bin/php /srv/8west/apps/safeharbor/current/cron/westy_mail_poll.php --run 2>&1 | /usr/bin/logger -t safeharbor-westy-mail

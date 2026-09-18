@@ -1,35 +1,39 @@
 # Where things stand
 
-**Current live release — September 18 UTC:** the Westy reply-reader fix from
-PR #129 is deployed from source `f750815be0f18be4a5cc34faab3dbed56092e567`
-on Milepost EC2 at `/srv/8west/apps/safeharbor/current`; exact-main CI
-`35324367063` passed, including full CI. The deployed artifact is
-`fa0008a19f31bc820b26eb7b9d13f24b2aa5be8bbb6f6255535b6b6f2635e94e`.
-This code-only fix changed no database or vhost state. Its 28 Coastline poll
-checks passed against the real URL boundary, including the three raw-space
-ordering cases (Inbox, window and Sent Items). The code-only backup is
-`/srv/8west/backups/safeharbor/20260918T082953Z-pre-westy-reply-url`.
+**Current live release — September 18 UTC:** Westy sent the approved advice,
+received Frankie's real reply and recorded it on Case 614, then submitted the
+one approved acknowledgment. The internal reply reader is enabled and scheduled
+every minute. The acknowledgment was accepted by Microsoft; recipient inbox
+confirmation is still pending. This is the bounded internal email pilot, not
+general autonomous advice or external-customer reply support.
 
-The certificate is registered by Frankie with SHA-1
-`E88A4327F9B88F7CE487E07DC3C73666A92C8238`. The application read Westy's
-inbox (`200`) and was denied access to Frank's mailbox (`403`). Sending was enabled at
-`08:17:45Z` with config hash
-`c837d8e1287064b4bcbf5c06aa7385209ec0283b1af3447b0775196222a4d8af`.
-Old Draft #3's uncertain row is preserved. A separate HTTP 404 reconciliation
-was appended at `08:17:57Z`. A new Case 614 conversation from
-Westy to `frank@8westit.com` was sent once at `08:18:33Z` and accepted by
-Microsoft with `202`; inbox delivery is not proved. The existing one-ack
-template is approved through `2026-09-25 08:18:33Z`.
+[PR #131](https://github.com/Seckcey/8_west_helpdesk/pull/131) is deployed from
+source `e67915b26051e7c54290f8eb8faadc17326a1714` on Milepost EC2 at
+`/srv/8west/apps/safeharbor/current`. Exact-main Validate `35327015156` passed
+on attempt 2; attempt 1 failed an unchanged service-goal race timing check.
+The deployed artifact is
+`1d499fe5f9b046ceaf283ee7a84c108266ec9aaa7959b700a1b2b25a6e9974c5`.
+The actual hosted internal reply does not carry Internet compauth; the reader
+now requires unambiguous Exchange internal/hosted headers bound to the exact
+application tenant. The initial connector audit remains recorded without an
+unnecessary daily setup expiry. The 37 poll tests and 115 MySQL tests passed on
+Coastline, followed by full CI. No database or vhost change was needed for this fix.
 
-Reports were restored active with the exact prior scope and protected config.
-Poll/auto-ack remain off and no new worker is scheduled. Case 614 remains open,
-human-owned and the laptop is untouched. No reply was present in the Westy
-Inbox as of `08:31Z`. The deployed window URL GET works and returns zero case
-replies, matching the live mailbox state. Remaining work is only to receive an
-actual reply, configure the existing reader from its actual headers, and verify
-the acknowledgment/case intake. This release does not claim fully finished or
-autonomous general reply. See [release evidence](WESTY_MAIL_RELEASE_2026_09_18.md)
-and [the conversation contract](westy-mail-conversations.md).
+The original advice was sent once at `08:18:33Z`. Frankie's real reply arrived
+in Westy's mailbox at `08:41:21Z`; verified receipt 1 and case message 336198
+were recorded at `09:05:55Z`. The approved acknowledgment has one attempt,
+accepted with HTTP 202 at `09:05:55Z`. Old Draft #3 remains uncertain/404 with
+its separate append-only rejection reconciliation. No original message was resent.
+
+Reply polling and the approved one-ack path were enabled at `09:05:49Z` with
+protected config hash
+`c4dd3ca4ed4a35199be7a2e0f579d1c7ff65e2fdd1b8f4fef717ce962ee5c928`.
+The existing report scheduler remains active with unchanged sender, recipient,
+customer and schedule. Case 614 remains open, human-owned and unchanged in
+ownership version; the laptop was not modified. The certificate application
+can read Westy's mailbox (HTTP 200) and cannot read Frank's mailbox (HTTP 403).
+See [the complete release evidence](WESTY_MAIL_RELEASE_2026_09_18.md) and
+[the conversation contract](westy-mail-conversations.md).
 
 **Historical release — September 17 UTC:** approved-email PR #125 was deployed
 as `3d9f080c4d7b86c90347fcf97926473484866630`; exact-main Validate `35282265375`
