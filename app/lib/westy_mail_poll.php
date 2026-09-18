@@ -17,7 +17,7 @@ function westy_mail_poll_config(?array $raw = null): ?array
     $auditedAt=$raw['connector_audited_at'] ?? null;
     if (!is_string($auditedAt) || strlen($auditedAt)>64) return null;
     try { $auditTime=(new DateTimeImmutable($auditedAt))->getTimestamp(); } catch (Throwable) { return null; }
-    if ($auditTime < time()-86400 || $auditTime > time()+300) return null;
+    if ($auditTime > time()+300) return null;
     $approved = $raw['internal_senders'] ?? [];
     if (!is_array($approved) || count($approved) < 1 || count($approved) > 5) return null;
     $senders = [];
