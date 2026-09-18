@@ -25,13 +25,11 @@ function westy_mail_poll_config(?array $raw = null): ?array
         try { $address = westy_mail_poll_address((string)$address); } catch (Throwable) { return null; }
         $senders[$address] = true;
     }
-    $authority=$raw['auth_results_authority'] ?? null;
-    if (!is_string($authority) || preg_match('/\A[a-z0-9.-]{3,190}\z/D',strtolower($authority))!==1) return null;
     $activated=$raw['activated_at'] ?? null;
     if (!is_string($activated) || strlen($activated)>64) return null;
     try { $activatedAt=(new DateTimeImmutable($activated))->setTimezone(new DateTimeZone('UTC')); } catch(Throwable) { return null; }
     if ($activatedAt->getTimestamp()>time()) return null;
-    return ['tenant_id'=>$tenant, 'internal_senders' => array_keys($senders), 'lookback_seconds' => WESTY_MAIL_POLL_LOOKBACK_SECONDS, 'auth_results_authority'=>strtolower($authority), 'activated_at'=>$activatedAt->format('Y-m-d H:i:s'), 'auto_ack_enabled'=>($raw['auto_ack_enabled']??false)===true];
+    return ['tenant_id'=>$tenant, 'internal_senders' => array_keys($senders), 'lookback_seconds' => WESTY_MAIL_POLL_LOOKBACK_SECONDS, 'activated_at'=>$activatedAt->format('Y-m-d H:i:s'), 'auto_ack_enabled'=>($raw['auto_ack_enabled']??false)===true];
 }
 
 /** Pure conversion.  Raw Graph header data never becomes authenticated by itself. */
@@ -57,7 +55,12 @@ function westy_mail_poll_candidate(array $message, array $poll): array
     $authAs = $headers['x-ms-exchange-organization-authas'] ?? [];
     if (count($authAs) !== 1 || !hash_equals('internal', strtolower(trim($authAs[0])))) return ['state'=>'held','reason'=>'exchange_internal_unverified'];
     $ar = $headers['authentication-results'] ?? [];
-    if (count($ar) !== 1 || !westy_mail_poll_compauth_pass($ar[0],$poll['auth_results_authority']??'')) return ['state'=>'held','reason'=>'compauth_unverified'];
+    if (count($ar)>1) return ['state'=>'held','reason'=>'compauth_unverified'];
+    if (count($ar)===1) {
+        preg_match_all('/\bcompauth\s*=\s*([a-z]+)/i',$ar[0],$composite);
+        if (count($composite[1])>1 || (count($composite[1])===1 && strtolower($composite[1][0])!=='pass') || preg_match('/\breason\s*=\s*130\b/i',$ar[0])===1) return ['state'=>'held','reason'=>'compauth_unverified'];
+    }
+    if (!westy_mail_poll_same_tenant_internal($headers,(string)($poll['exchange_tenant_id']??''))) return ['state'=>'held','reason'=>'exchange_tenant_unverified'];
     $body = (string)($message['body']['content'] ?? '');
     if (strlen($body) > 12000) return ['state'=>'held','reason'=>'body_oversize'];
     if (strtolower((string)($message['body']['contentType'] ?? 'text')) === 'html') $body = trim(html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
@@ -74,7 +77,7 @@ function westy_mail_poll_candidate(array $message, array $poll): array
         // Core currently names the recipient-side correlation field reply_to;
         // preserve the sender-side value separately until that API is renamed.
         'from'=>$from, 'reply_to'=>$destination, 'source_reply_to'=>$replyAddress, 'destination'=>$destination, 'subject'=>$subject, 'body'=>$body,
-        'auto'=>$auto, 'auth_verified'=>true, 'auth_reason'=>'exchange_internal_compauth_pass',
+        'auto'=>$auto, 'auth_verified'=>true, 'auth_reason'=>'exchange_same_tenant_internal',
     ]];
 }
 
@@ -114,12 +117,18 @@ function westy_mail_poll_headers(mixed $headers): ?array
     return $out;
 }
 
-function westy_mail_poll_compauth_pass(string $value,string $authority): bool
+/** Exchange stamps these on hosted internal mail; Internet compauth may be absent.
+ * The driver binds the expected tenant to the dedicated Graph application.
+ * The existing connector audit excludes external-as-internal mail routing.
+ */
+function westy_mail_poll_same_tenant_internal(array $headers,string $tenant): bool
 {
-    $value=strtolower($value);
-    return $authority!=='' && preg_match('/\A\s*'.preg_quote($authority,'/').'\s*;/', $value)===1
-        && preg_match('/(?:^|;)\s*compauth\s*=\s*pass\b/', $value)===1
-        && preg_match('/\breason\s*=\s*130\b/', $value)!==1;
+    if (preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/Di',$tenant)!==1) return false;
+    foreach (['x-ms-exchange-crosstenant-authas'=>'internal','x-ms-exchange-crosstenant-id'=>strtolower($tenant),'x-ms-exchange-crosstenant-fromentityheader'=>'hosted'] as $name=>$expected) {
+        $values=$headers[$name]??[];
+        if (count($values)!==1 || !hash_equals($expected,strtolower(trim($values[0])))) return false;
+    }
+    return true;
 }
 
 function westy_mail_poll_inbox_path(int $lookbackSeconds): string
@@ -166,6 +175,8 @@ function westy_mail_poll_cursor_commit(PDO $p,array $cursor,?string $next): void
 /** Actual bounded intake sequencing. Callers must hold westy_mail_poll_lock(). */
 function westy_mail_poll_run(PDO $p,array $poll,array $snapshot,callable $get,callable $accept,callable $hold,callable $ack): array
 {
+    // Never take the Exchange tenant from a message or independently configured allowlist.
+    $poll['exchange_tenant_id']=$snapshot['graph']['tenant_id']??'';
     $cursor=westy_mail_poll_cursor($p,$poll,$snapshot);$page=$cursor['next_path']?:westy_mail_poll_window_path($cursor['window_start_at'],$cursor['window_end_at']);$seen=0;$held=[];
     for($pageNo=0;$pageNo<WESTY_MAIL_POLL_MAX_PAGES && $page!==null;$pageNo++) {
         $r=$get($snapshot['graph'],$page);if(($r['outcome']??'')!=='ok')throw new RuntimeException('graph_page_unavailable');$items=$r['data']['value']??null;if(!is_array($items)||count($items)>WESTY_MAIL_POLL_PAGE_SIZE)throw new RuntimeException('graph_page_bound_invalid');

@@ -242,7 +242,7 @@ try{
  for($pageIndex=0;$pageIndex<5;$pageIndex++){
   $items=[];for($offset=0;$offset<5;$offset++){
    $index=$pageIndex*5+$offset;$sourceCase=$index===0?$killedCase:$driverCase;$input=wminput($sourceCase);
-   $items[]=['id'=>'driver-graph-'.$index,'internetMessageId'=>'driver-internet-'.$index,'subject'=>$input['subject'],'from'=>['emailAddress'=>['address'=>$input['from']]],'sender'=>['emailAddress'=>['address'=>$input['from']]],'replyTo'=>[],'toRecipients'=>[['emailAddress'=>['address'=>'westy@8westit.com']]],'body'=>['contentType'=>'text','content'=>'Durable driver reply '.$index],'internetMessageHeaders'=>[['name'=>'X-MS-Exchange-Organization-AuthAs','value'=>'Internal'],['name'=>'Authentication-Results','value'=>'mx.microsoft.com; compauth=pass reason=000']]];
+   $items[]=['id'=>'driver-graph-'.$index,'internetMessageId'=>'driver-internet-'.$index,'subject'=>$input['subject'],'from'=>['emailAddress'=>['address'=>$input['from']]],'sender'=>['emailAddress'=>['address'=>$input['from']]],'replyTo'=>[],'toRecipients'=>[['emailAddress'=>['address'=>'westy@8westit.com']]],'body'=>['contentType'=>'text','content'=>'Durable driver reply '.$index],'internetMessageHeaders'=>[['name'=>'X-MS-Exchange-Organization-AuthAs','value'=>'Internal'],['name'=>'Authentication-Results','value'=>'dkim=none (message not signed) header.d=none;dmarc=none action=none header.from=example.test;'],['name'=>'X-MS-Exchange-CrossTenant-AuthAs','value'=>'Internal'],['name'=>'X-MS-Exchange-CrossTenant-Id','value'=>$snapshot['graph']['tenant_id']],['name'=>'X-MS-Exchange-CrossTenant-FromEntityHeader','value'=>'Hosted']]];
   }
   $pages[$paths[$pageIndex]]=['outcome'=>'ok','data'=>['value'=>$items],'next_path'=>$paths[$pageIndex+1]??null];
  }
