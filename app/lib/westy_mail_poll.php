@@ -128,7 +128,7 @@ function westy_mail_poll_inbox_path(int $lookbackSeconds): string
     $since=gmdate('Y-m-d\\TH:i:s\\Z', time()-$lookback);
     return 'mailFolders/inbox/messages?$top='.WESTY_MAIL_POLL_PAGE_SIZE
         .'&$select=id,internetMessageId,subject,from,sender,replyTo,toRecipients,body,receivedDateTime,internetMessageHeaders'
-        .'&$filter='.rawurlencode('receivedDateTime ge '.$since).'&$orderby=receivedDateTime desc';
+        .'&$filter='.rawurlencode('receivedDateTime ge '.$since).'&$orderby=receivedDateTime%20desc';
 }
 
 function westy_mail_poll_window_path(string $start,string $end): string
@@ -137,7 +137,7 @@ function westy_mail_poll_window_path(string $start,string $end): string
     $filter='receivedDateTime ge '.str_replace(' ','T',$start).'Z and receivedDateTime lt '.str_replace(' ','T',$end).'Z';
     return 'mailFolders/inbox/messages?$top='.WESTY_MAIL_POLL_PAGE_SIZE
         .'&$select=id,internetMessageId,subject,from,sender,replyTo,toRecipients,body,receivedDateTime,internetMessageHeaders'
-        .'&$filter='.rawurlencode($filter).'&$orderby=receivedDateTime asc';
+        .'&$filter='.rawurlencode($filter).'&$orderby=receivedDateTime%20asc';
 }
 
 function westy_mail_poll_lock(PDO $p,int $tenant,string $identity): bool
@@ -183,7 +183,7 @@ function westy_mail_poll_sent_path(): string
 {
     return 'mailFolders/sentitems/messages?$top='.WESTY_MAIL_POLL_MAX_MESSAGES
         .'&$select=id,internetMessageId,subject,toRecipients,internetMessageHeaders,sentDateTime'
-        .'&$orderby=sentDateTime desc';
+        .'&$orderby=sentDateTime%20desc';
 }
 
 /** Bounded page collector; Graph transport already validates every nextLink. */
