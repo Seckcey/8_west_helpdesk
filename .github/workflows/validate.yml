@@ -126,6 +126,12 @@ jobs:
         run: |
           php app/tests/westy_workflow_mysql_test.php
           php app/tests/westy_email_mysql_test.php
+          php app/tests/westy_mail_mysql_test.php
+          php app/tests/westy_mail_poll_mysql_test.php
+      - name: Test dedicated Westy Graph transport and reply intake
+        run: |
+          php app/tests/westy_mail_graph_test.php
+          php app/tests/westy_mail_poll_test.php
       - name: Test suite token algorithms
         run: php app/tests/suite_rs256_test.php
       - name: Test suite roles

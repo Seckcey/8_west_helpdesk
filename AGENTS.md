@@ -200,6 +200,12 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    `config/config.php`, synced server-side from Milepost's config (never
    chat/git). Do not reuse those credentials for an unrelated application or
    assume another registration covers this mail pipeline.
+   The separately authorized Westy conversation feature is an explicit exception:
+   `lib/westy_mail*.php` uses its own certificate application under
+   `westy_email.graph` and mailbox-only Exchange RBAC. It must never repoint the
+   general mail or business-report sender. Migration 027 owns exact approvals,
+   receipts and revocations; 028 owns durable mailbox progression. See
+   `docs/westy-mail-conversations.md`. The chat bubble cannot grant email authority.
 
 ## Ops lessons written in blood (2026-08-01/02)
 
