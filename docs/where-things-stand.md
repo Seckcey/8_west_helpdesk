@@ -3,9 +3,9 @@
 **Current live release — September 18 UTC:** Westy sent the approved advice,
 received Frankie's real reply and recorded it on Case 614, then submitted the
 one approved acknowledgment. The internal reply reader is enabled and scheduled
-every minute. The acknowledgment was accepted by Microsoft; recipient inbox
-confirmation is still pending. This is the bounded internal email pilot, not
-general autonomous advice or external-customer reply support.
+every minute. Frankie separately confirmed receipt of the acknowledgment on
+September 18, completing the real internal round trip. This is the bounded
+internal email pilot, not general autonomous advice or external-customer reply support.
 
 [PR #131](https://github.com/Seckcey/8_west_helpdesk/pull/131) is deployed from
 source `e67915b26051e7c54290f8eb8faadc17326a1714` on Milepost EC2 at
