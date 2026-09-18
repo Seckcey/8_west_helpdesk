@@ -262,7 +262,7 @@ page_top($user, '#' . $id, 'queue');
     <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>">
       <?php if ($westyWorkflow): ?><?= westy_workflow_card($westyWorkflow) ?><?php endif; ?>
       <?php if ($westyWorkflow && cfg('westy_email.enabled', false) === true): ?>
-        <p><a class="btn-chip" href="/westy_email.php?ticket_id=<?= (int)$ticket['id'] ?>">Review Westy advice email</a></p>
+        <p><a class="btn-chip" href="/<?= cfg('westy_mail.enabled',false)===true?'westy_mail':'westy_email' ?>.php?ticket_id=<?= (int)$ticket['id'] ?>">Review Westy advice email</a></p>
       <?php endif; ?>
       <?php if (!$thread): ?>
         <div class="card empty"><p>No replies yet. <span class="accent">Press R</span> to answer first.</p></div>

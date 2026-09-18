@@ -46,6 +46,7 @@ page_top($user,'Westy advice email','queue');
  <a class="backlink" href="/ticket.php?id=<?= $ticketId ?>">← Case #<?= $ticketId ?></a>
  <h1 class="page-title">Westy advice email</h1>
  <p>Review practical options for the customer. This sends no computer command, closes no case and creates no charge.</p>
+ <p><a class="btn-chip" href="/westy_mail.php?ticket_id=<?= $ticketId ?>">Open Westy mailbox conversation</a></p>
  <?php if($error): ?><div class="banner banner-warn" role="alert"><?= h($error) ?></div><?php endif; ?>
  <?php if($notice): ?><div class="banner" role="status"><?= h($notice) ?></div><?php endif; ?>
  <?php if(!westy_email_enabled()): ?><p>Sending and new drafts are disabled. Existing history remains visible.</p><?php endif; ?>
@@ -65,7 +66,7 @@ page_top($user,'Westy advice email','queue');
  </form><?php endif; ?>
  </section>
  <?php $attempted=(bool)array_filter($drafts,static fn($d)=>$d['attempted_at']!==null); ?>
- <?php if($template && !$attempted && westy_email_enabled()): ?>
+ <?php if($template && !$attempted && westy_email_enabled() && cfg('westy_mail.enabled',false)!==true): ?>
  <section class="card" style="padding:20px;margin:16px 0"><h2>Prepare advice</h2>
  <p>Westy’s starting draft does not diagnose a hardware fault. Review it against the case evidence and edit the options before saving. Saving does not send.</p>
  <form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="draft"><input type="hidden" name="context" value="<?= h($context['fingerprint']) ?>"><input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>">
@@ -75,11 +76,11 @@ page_top($user,'Westy advice email','queue');
  <?php endif; ?>
  <?php foreach($drafts as $d): ?>
  <section class="card" style="padding:20px;margin:16px 0"><h2>Draft #<?= (int)$d['id'] ?> · <?= h($labels[$d['state']]) ?></h2>
- <p>From: <?= h(trim((string)cfg('mail.graph.sender','')) ?: 'Not configured') ?></p>
+ <p>Original sender: not retained in this legacy draft. The current mail setting is not evidence of the sender used for an earlier attempt.</p>
  <p>To: <?= h($d['recipient']) ?></p><p>Subject: <?= h($d['subject']) ?></p>
  <div style="white-space:pre-wrap;overflow-wrap:anywhere"><?= h($d['body_text']) ?></div>
  <?php if($d['attempted_at']): ?><p>Approved by staff #<?= (int)$d['approved_by'] ?> at <?= h($d['approved_at']) ?> UTC. Submission attempted once at <?= h($d['attempted_at']) ?> UTC.</p><p>This is the existing send record. A refresh never sends it again. Unknown results need provider investigation; there is no automatic resend.</p><?php endif; ?>
- <?php if($admin && $d['state']==='draft'): ?>
+ <?php if($admin && $d['state']==='draft' && cfg('westy_mail.enabled',false)!==true): ?>
  <?php $nonce=bin2hex(random_bytes(16));$_SESSION['westy_email_review'][(int)$d['id']]=['ticket'=>$ticketId,'hash'=>westy_email_review_hash($d),'nonce'=>$nonce,'expires'=>time()+900]; ?>
  <form method="post"><?= csrf_field() ?><input type="hidden" name="draft_id" value="<?= (int)$d['id'] ?>"><input type="hidden" name="review" value="<?= $nonce ?>">
  <label style="display:block;margin:12px 0"><input type="checkbox" name="confirm_send" value="yes"> I approve this exact recipient and message for one email.</label>

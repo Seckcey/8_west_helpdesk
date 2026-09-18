@@ -5,7 +5,29 @@
  */
 return [
     // Human-reviewed advice email. No background sends or permission from chat.
-    'westy_email' => ['enabled' => false, 'tenant_ids' => [], 'customer_ids' => []],
+    'westy_email' => [
+        'enabled' => false, 'tenant_ids' => [], 'customer_ids' => [],
+        // Dedicated Westy application. Never replace mail.graph or reports' sender.
+        'graph' => [
+            'enabled' => false,
+            'tenant_id' => '', 'client_id' => '',
+            'mailbox' => 'westy@8westit.com', 'sender' => 'westy@8westit.com',
+            'certificate_path' => '', 'private_key_path' => '',
+        ],
+    ],
+    // Reviewed conversations and one explicitly approved acknowledgment.
+    'westy_mail' => [
+        'enabled' => false, 'tenant_ids' => [], 'customer_ids' => [],
+        'poll' => [
+            'enabled' => false, 'tenant_id' => 0,
+            'connector_audited' => false, 'connector_audited_at' => '',
+            // Freeze activation time; do not reset it to skip an interrupted inbox scan.
+            'activated_at' => '',
+            // Set only after a retained real Exchange header fixture is reviewed.
+            'auth_results_authority' => '', 'auto_ack_enabled' => false,
+            'internal_senders' => [],
+        ],
+    ],
     // Logbook's read-only solved-ticket export; dedicated key and existing svc identity.
     // Register service 'logbook-export' under tenant_id; customer_ids are exact Milepost UUIDs.
     'logbook_export' => [

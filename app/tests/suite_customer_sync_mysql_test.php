@@ -253,8 +253,28 @@ sync_mysql_check('fresh schema installs all eight lifecycle guards',
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_suite_customer_sync_%'
             AND trigger_name <> 'trg_suite_customer_sync_privilege_preflight'"
     )->fetchColumn() === 8);
-sync_mysql_check('fresh schema installs exact full trigger fingerprints',
-    sync_mysql_trigger_fingerprints($pdo) === $expectedTriggerFingerprints);
+// Migration 027 adds one reviewed consumer on bindings. Preserve the exact
+// migration-015 contract and verify that single addition independently; every
+// other trigger still participates in the strict legacy inventory comparison.
+$freshTriggerFingerprints = sync_mysql_trigger_fingerprints($pdo);
+$legacyTriggerFingerprints = static fn (array $fingerprints): array => array_values(array_filter(
+    $fingerprints,
+    static fn (string $fingerprint): bool => !str_starts_with($fingerprint, 'trg_wm_binding_revoke:'),
+));
+sync_mysql_check('fresh schema installs exact eight legacy trigger fingerprints',
+    $legacyTriggerFingerprints($freshTriggerFingerprints) === $expectedTriggerFingerprints);
+sync_mysql_check('fresh schema installs the exact reviewed Westy binding revocation trigger',
+    array_values(array_filter(
+        $freshTriggerFingerprints,
+        static fn (string $fingerprint): bool => str_starts_with($fingerprint, 'trg_wm_binding_revoke:'),
+    )) === [
+        'trg_wm_binding_revoke:suite_customer_sync_bindings:UPDATE:AFTER:ROW:'
+            . '3ed3be73cf38941a79dbcf148f38e0c8133e52f21caf63d51409c8a969852ca6',
+    ]);
+$pdo->exec('CREATE TRIGGER trg_sync_test_unexpected AFTER INSERT ON suite_customer_sync_bindings FOR EACH ROW SET @sync_test_unexpected = 1');
+sync_mysql_check('fresh schema inventory still detects any unreviewed additive trigger',
+    $legacyTriggerFingerprints(sync_mysql_trigger_fingerprints($pdo)) !== $expectedTriggerFingerprints);
+$pdo->exec('DROP TRIGGER trg_sync_test_unexpected');
 // Run the same important inactive-name/receipt boundary through the canonical
 // fresh schema before rebuilding it through migration 015.
 $pdo->exec("INSERT INTO tenants(id,name,slug) VALUES(901,'Fresh Schema MSP','fresh-schema')");

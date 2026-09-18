@@ -59,6 +59,7 @@ function westy_email_template(array $c): array {
     return ['subject'=>$subject,'body'=>$body];
 }
 function westy_email_save(PDO $p,int $tenant,int $ticket,int $actor,string $subject,string $body,string $key,string $expected): int {
+    if (cfg('westy_mail.enabled',false)===true) throw new RuntimeException('Use the dedicated Westy mailbox conversation for new email.');
     if (!westy_email_enabled()) throw new RuntimeException('Westy email is not enabled.');
     if (!preg_match('/\A[0-9a-f]{32}\z/D',$key) || trim($subject)==='' || strlen($subject)>190 || preg_match('/[\r\n]/',$subject) || trim($body)==='' || strlen($body)>12000) throw new RuntimeException('Review the message fields.');
     preg_match_all('/\[#([0-9]+)\]/',$subject,$refs);
@@ -86,6 +87,7 @@ function westy_email_identity(array $u): bool {
 function westy_email_review_hash(array $d): string {return westy_email_hash([$d['id'],$d['recipient'],$d['subject'],$d['body_text'],$d['context_sha256']]);}
 /** Commit intent BEFORE the network call. A crash or uncertain reply never permits another send. */
 function westy_email_send(PDO $p,int $tenant,int $ticket,int $actor,int $id,string $review,?callable $transport=null,?callable $identity=null): string {
+    if (cfg('westy_mail.enabled',false)===true) throw new RuntimeException('Use the dedicated Westy mailbox conversation. Earlier attempts remain recorded.');
     $identity??='westy_email_identity';
     $p->beginTransaction();try {
         $c=westy_email_context($p,$tenant,$ticket,$actor,true);

@@ -6,9 +6,21 @@ passed. Migration 026/replay, the protected backup restore, unchanged existing
 business records and signed-in desktop/phone acceptance passed. The new email
 scope is enabled only for the internal customer. The report scheduler is active
 with unchanged scope. Case 614 remains open/human-owned, laptop unchanged, with
-Draft #1 to frank@8westit.com awaiting exact-wording approval; no send attempted.
+Draft #3 to frank@8westit.com attempted once on September 18 at 06:29:58 UTC.
+Its saved result is uncertain with provider HTTP 404; it must not be retried.
+The old general sender's mailbox probe returned `MailboxNotEnabledForRESTAPI`.
+No recipient inbox delivery has been proved. Earlier Drafts #1 and #2 were
+revoked after contact changes; their historical records remain intact.
 See [release evidence](WESTY_APPROVED_EMAIL_RELEASE_2026_09_17.md) and
 [the email contract](westy-approved-email.md).
+
+**September 18 release candidate:** the dedicated Westy mailbox conversation
+path adds separate certificate-based transport, exact-message approval, durable
+one-attempt sending, verified case-bound replies, and one optional approved
+acknowledgment. New gates default off. The dedicated Westy shared mailbox and
+mailbox-only Exchange access exist; certificate registration, production
+migrations/deployment, and a real send/reply/acknowledgment acceptance remain
+separate release gates. See [the conversation contract](westy-mail-conversations.md).
 
 Fresh September 17 pilot evidence supersedes the earlier “no real incident” line:
 memory case 614 remains a human exception; CPU case 618 recovered after diagnostics
