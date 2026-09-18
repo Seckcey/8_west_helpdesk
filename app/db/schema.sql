@@ -6817,12 +6817,12 @@ SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 
 SET @wm_has_receipt_column := (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='messages' AND column_name='westy_mail_receipt_id');
-SET @wm_receipt_column_sql := IF(@wm_has_receipt_column=0,'ALTER TABLE messages ADD COLUMN westy_mail_receipt_id BIGINT UNSIGNED NULL','SELECT 1');
+SET @wm_receipt_column_sql := IF(@wm_has_receipt_column=0,'ALTER TABLE messages ADD COLUMN westy_mail_receipt_id BIGINT UNSIGNED NULL','SET @wm_noop = 1');
 PREPARE wm_receipt_column_stmt FROM @wm_receipt_column_sql;
 EXECUTE wm_receipt_column_stmt;
 DEALLOCATE PREPARE wm_receipt_column_stmt;
 SET @wm_has_receipt_index := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='messages' AND index_name='uq_messages_westy_mail_receipt');
-SET @wm_receipt_index_sql := IF(@wm_has_receipt_index=0,'ALTER TABLE messages ADD UNIQUE INDEX uq_messages_westy_mail_receipt (westy_mail_receipt_id)','SELECT 1');
+SET @wm_receipt_index_sql := IF(@wm_has_receipt_index=0,'ALTER TABLE messages ADD UNIQUE INDEX uq_messages_westy_mail_receipt (westy_mail_receipt_id)','SET @wm_noop = 1');
 PREPARE wm_receipt_index_stmt FROM @wm_receipt_index_sql;
 EXECUTE wm_receipt_index_stmt;
 DEALLOCATE PREPARE wm_receipt_index_stmt;
@@ -6830,12 +6830,12 @@ DEALLOCATE PREPARE wm_receipt_index_stmt;
 -- A replay after an interrupted early 027 deployment must upgrade the
 -- already-created table as well as a newly-created one.
 SET @wm_has_authority_column := (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='westy_mail_conversations' AND column_name='authority_sha256');
-SET @wm_authority_column_sql := IF((SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='westy_mail_conversations')=1 AND @wm_has_authority_column=0,'ALTER TABLE westy_mail_conversations ADD COLUMN authority_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER context_sha256','SELECT 1');
+SET @wm_authority_column_sql := IF((SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='westy_mail_conversations')=1 AND @wm_has_authority_column=0,'ALTER TABLE westy_mail_conversations ADD COLUMN authority_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER context_sha256','SET @wm_noop = 1');
 PREPARE wm_authority_column_stmt FROM @wm_authority_column_sql;
 EXECUTE wm_authority_column_stmt;
 DEALLOCATE PREPARE wm_authority_column_stmt;
 SET @wm_has_approval_session_column := (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='westy_mail_conversations' AND column_name='approval_session_version');
-SET @wm_approval_session_column_sql := IF((SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='westy_mail_conversations')=1 AND @wm_has_approval_session_column=0,'ALTER TABLE westy_mail_conversations ADD COLUMN approval_session_version VARCHAR(41) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER approved_at','SELECT 1');
+SET @wm_approval_session_column_sql := IF((SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='westy_mail_conversations')=1 AND @wm_has_approval_session_column=0,'ALTER TABLE westy_mail_conversations ADD COLUMN approval_session_version VARCHAR(41) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER approved_at','SET @wm_noop = 1');
 PREPARE wm_approval_session_column_stmt FROM @wm_approval_session_column_sql;
 EXECUTE wm_approval_session_column_stmt;
 DEALLOCATE PREPARE wm_approval_session_column_stmt;
