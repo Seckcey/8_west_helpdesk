@@ -52,12 +52,21 @@ Reply-To must agree. Bounces, automatic responses, ambiguous headers, cross-case
 references, unverified senders and permission mismatches are held for staff.
 Email text is untrusted and cannot approve additional actions.
 
-The pilot's Exchange authentication check is internal-only. Enable automatic
-acknowledgment only after a real header fixture validates the configured
-authentication authority and the operator has verified no inbound connector
-treats external mail as internal. The connector proof expires after 24 hours;
-expiration stops polling until the operator renews it. This bounded pilot does
-not claim external-customer automatic reply support.
+The pilot's Exchange authentication check is internal-only. The actual internal
+reply had `AuthAs: Internal`, a hosted origin and the same Exchange tenant as
+the dedicated application, without Internet `compauth`. The reader requires
+those unambiguous Exchange assertions and binds the expected tenant to the
+Graph application, not message text or a separately entered tenant. Explicit
+authentication failures remain held. Enable automatic acknowledgment only after
+a real header fixture validates this path and the operator has verified no inbound connector
+treats external mail as internal. Connector verification is part of setup and
+must be revisited when mail routing changes; elapsed time alone does not stop
+the reply reader. Each message still needs the exact tenant, sender, recipient,
+case and current reply authority. This bounded pilot does not claim
+external-customer automatic reply support.
+
+Microsoft documents [Exchange internal-message classification](https://techcommunity.microsoft.com/blog/exchange/demystifying-and-troubleshooting-hybrid-mail-flow-when-is-a-message-internal/1420838/)
+and the [header firewall](https://learn.microsoft.com/en-us/exchange/header-firewall-exchange-2013-help).
 
 Mailbox reads do not mark messages read or delete them. The durable cursor keeps
 a fixed time window and continuation position. A page advances only after all
