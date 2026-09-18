@@ -1,26 +1,48 @@
 # Where things stand
 
-**Current live release — September 17 UTC:** approved-email PR #125 is deployed
+**Current live release — September 18 UTC:** Westy mailbox conversations from
+PR #127 are deployed from source `0ac42798d295d460b20c7019febf664db84111ea`
+on Milepost EC2 at `/srv/8west/apps/safeharbor/current`; exact-main Validate
+`35322076683` passed. Migrations 027 and 028 were applied and replayed. The
+protected backup `/srv/8west/backups/safeharbor/20260918T074717Z-pre-westy-mail-roundtrip`
+was scratch-restored; all 49 existing tables' existing-column data hashes are
+unchanged. Production now has 60 tables, 143 triggers and two new mail-health
+functions. The source artifact hash is
+`6d2ae878b4ee30ba5fc794e21bdcc99ab2e52bb569877b595e4bd8de5919355c` and the
+deployed artifact hash is
+`706541117e6ae9c43d70bf99e1d6b6f1141e4720afa691dd01c85773ed4343a3`.
+
+The dedicated Westy configuration is installed, but sending and poll/auto-ack
+are off and no new worker is scheduled. The existing report scheduler is active
+again at `08:04:39Z` with the same scope and configuration; unrelated apps,
+finance and the laptop were untouched. New mail tables are empty. Case 614 is
+still open, human-owned and associated with contact 13. Old Draft #3 remains
+unchanged after its uncertain provider HTTP 404 at `06:29:58Z`; it must not be
+retried or treated as delivered. The signed-in live email page shows From
+`westy@8westit.com` to Frankie (`frank@8westit.com`), with new actions disabled
+and the old uncertain history visible.
+
+The shared unlicensed mailbox is `westy@8westit.com`. The Entra app
+`7c96b56b-23d6-4028-8fe9-67b52e955d50` is in verified 8 West tenant
+`1ab02053-6433-44d9-b030-73e4dfb39577`; Exchange `Mail.Read` and `Mail.Send` are
+scoped to Westy only, with Westy verified true and Frank/reports false. The
+certificate public file is ready but not registered. No Graph positive or
+negative result and no real send/reply/approved-acknowledgment roundtrip have
+been proved. The remaining release work is the browser certificate handoff,
+mailbox connection and one actual approved acknowledgment test, including
+reading the inbound headers. See [release evidence](WESTY_MAIL_RELEASE_2026_09_18.md)
+and [the conversation contract](westy-mail-conversations.md).
+
+**Historical release — September 17 UTC:** approved-email PR #125 was deployed
 as `3d9f080c4d7b86c90347fcf97926473484866630`; exact-main Validate `35282265375`
 passed. Migration 026/replay, the protected backup restore, unchanged existing
 business records and signed-in desktop/phone acceptance passed. The new email
-scope is enabled only for the internal customer. The report scheduler is active
-with unchanged scope. Case 614 remains open/human-owned, laptop unchanged, with
-Draft #3 to frank@8westit.com attempted once on September 18 at 06:29:58 UTC.
-Its saved result is uncertain with provider HTTP 404; it must not be retried.
-The old general sender's mailbox probe returned `MailboxNotEnabledForRESTAPI`.
-No recipient inbox delivery has been proved. Earlier Drafts #1 and #2 were
-revoked after contact changes; their historical records remain intact.
-See [release evidence](WESTY_APPROVED_EMAIL_RELEASE_2026_09_17.md) and
-[the email contract](westy-approved-email.md).
-
-**September 18 release candidate:** the dedicated Westy mailbox conversation
-path adds separate certificate-based transport, exact-message approval, durable
-one-attempt sending, verified case-bound replies, and one optional approved
-acknowledgment. New gates default off. The dedicated Westy shared mailbox and
-mailbox-only Exchange access exist; certificate registration, production
-migrations/deployment, and a real send/reply/acknowledgment acceptance remain
-separate release gates. See [the conversation contract](westy-mail-conversations.md).
+scope was enabled only for the internal customer. Case 614 remained
+open/human-owned, with Draft #3 attempted once at `06:29:58Z` and saved as
+uncertain after provider HTTP 404; it was not retried. Earlier Drafts #1 and #2
+were revoked after contact changes; their historical records remain intact.
+See [the approved-email release evidence](WESTY_APPROVED_EMAIL_RELEASE_2026_09_17.md)
+and [the email contract](westy-approved-email.md).
 
 Fresh September 17 pilot evidence supersedes the earlier “no real incident” line:
 memory case 614 remains a human exception; CPU case 618 recovered after diagnostics
