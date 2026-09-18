@@ -1,36 +1,34 @@
 # Where things stand
 
-**Current live release — September 18 UTC:** Westy mailbox conversations from
-PR #127 are deployed from source `0ac42798d295d460b20c7019febf664db84111ea`
-on Milepost EC2 at `/srv/8west/apps/safeharbor/current`; exact-main Validate
-`35322076683` passed. Migrations 027 and 028 were applied and replayed. The
-protected backup `/srv/8west/backups/safeharbor/20260918T074717Z-pre-westy-mail-roundtrip`
-was scratch-restored; all 49 existing tables' existing-column data hashes are
-unchanged. Production now has 60 tables, 143 triggers and two new mail-health
-functions. The source artifact hash is
-`6d2ae878b4ee30ba5fc794e21bdcc99ab2e52bb569877b595e4bd8de5919355c` and the
-deployed artifact hash is
-`706541117e6ae9c43d70bf99e1d6b6f1141e4720afa691dd01c85773ed4343a3`.
+**Current live release — September 18 UTC:** the Westy reply-reader fix from
+PR #129 is deployed from source `f750815be0f18be4a5cc34faab3dbed56092e567`
+on Milepost EC2 at `/srv/8west/apps/safeharbor/current`; exact-main CI
+`35324367063` passed, including full CI. The deployed artifact is
+`fa0008a19f31bc820b26eb7b9d13f24b2aa5be8bbb6f6255535b6b6f2635e94e`.
+This code-only fix changed no database or vhost state. Its 28 Coastline poll
+checks passed against the real URL boundary, including the three raw-space
+ordering cases (Inbox, window and Sent Items). The code-only backup is
+`/srv/8west/backups/safeharbor/20260918T082953Z-pre-westy-reply-url`.
 
-The dedicated Westy configuration is installed, but sending and poll/auto-ack
-are off and no new worker is scheduled. The existing report scheduler is active
-again at `08:04:39Z` with the same scope and configuration; unrelated apps,
-finance and the laptop were untouched. New mail tables are empty. Case 614 is
-still open, human-owned and associated with contact 13. Old Draft #3 remains
-unchanged after its uncertain provider HTTP 404 at `06:29:58Z`; it must not be
-retried or treated as delivered. The signed-in live email page shows From
-`westy@8westit.com` to Frankie (`frank@8westit.com`), with new actions disabled
-and the old uncertain history visible.
+The certificate is registered by Frankie with SHA-1
+`E88A4327F9B88F7CE487E07DC3C73666A92C8238`. The application read Westy's
+inbox (`200`) and was denied access to Frank's mailbox (`403`). Sending was enabled at
+`08:17:45Z` with config hash
+`c837d8e1287064b4bcbf5c06aa7385209ec0283b1af3447b0775196222a4d8af`.
+Old Draft #3's uncertain row is preserved. A separate HTTP 404 reconciliation
+was appended at `08:17:57Z`. A new Case 614 conversation from
+Westy to `frank@8westit.com` was sent once at `08:18:33Z` and accepted by
+Microsoft with `202`; inbox delivery is not proved. The existing one-ack
+template is approved through `2026-09-25 08:18:33Z`.
 
-The shared unlicensed mailbox is `westy@8westit.com`. The Entra app
-`7c96b56b-23d6-4028-8fe9-67b52e955d50` is in verified 8 West tenant
-`1ab02053-6433-44d9-b030-73e4dfb39577`; Exchange `Mail.Read` and `Mail.Send` are
-scoped to Westy only, with Westy verified true and Frank/reports false. The
-certificate public file is ready but not registered. No Graph positive or
-negative result and no real send/reply/approved-acknowledgment roundtrip have
-been proved. The remaining release work is the browser certificate handoff,
-mailbox connection and one actual approved acknowledgment test, including
-reading the inbound headers. See [release evidence](WESTY_MAIL_RELEASE_2026_09_18.md)
+Reports were restored active with the exact prior scope and protected config.
+Poll/auto-ack remain off and no new worker is scheduled. Case 614 remains open,
+human-owned and the laptop is untouched. No reply was present in the Westy
+Inbox as of `08:31Z`. The deployed window URL GET works and returns zero case
+replies, matching the live mailbox state. Remaining work is only to receive an
+actual reply, configure the existing reader from its actual headers, and verify
+the acknowledgment/case intake. This release does not claim fully finished or
+autonomous general reply. See [release evidence](WESTY_MAIL_RELEASE_2026_09_18.md)
 and [the conversation contract](westy-mail-conversations.md).
 
 **Historical release — September 17 UTC:** approved-email PR #125 was deployed
