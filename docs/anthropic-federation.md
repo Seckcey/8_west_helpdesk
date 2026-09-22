@@ -26,3 +26,5 @@ together for rollback and inventory other key consumers before revocation.
 Native PHP and the AWS role share the host trust boundary. Different app
 accounts provide attribution/revocation, not sibling isolation. A code merge
 does not prove production federation activation.
+
+Production release: [22 September 2026](anthropic-federation-release-2026-09-22.md).

@@ -1,6 +1,12 @@
 # Where things stand
 
-**Current live release — September 18 UTC:** Westy sent the approved advice,
+**Current live release — September 22 UTC:** shared Anthropic federation is
+active on `38d93740675a9838c9e353f32d70bb674e04c075`. Live provider and signed-in
+Westy checks passed. Reports are active with unchanged scope; no report, mail,
+repair or billing action was triggered for acceptance.
+[Release and recovery evidence](anthropic-federation-release-2026-09-22.md).
+
+**Previous live release — September 18 UTC:** Westy sent the approved advice,
 received Frankie's real reply and recorded it on Case 614, then submitted the
 one approved acknowledgment. The internal reply reader is enabled and scheduled
 every minute. Frankie separately confirmed receipt of the acknowledgment on
