@@ -386,6 +386,11 @@ return [
     // OpenAI — sync provider/model/key from Milepost's config). 'stub' is
     // DEV-ONLY and inert unless allow_stub is set.
     'ai' => [
+        // See docs/anthropic-federation.md before enabling this mode.
+        'auth_mode' => 'api_key',
+        'credential_file' => '/run/8west-westy/safeharbor/credential.json',
+        'credential_app' => 'safeharbor',
+        'credential_environment' => 'production',
         'provider'        => 'anthropic',
         'api_key'         => '',
         'model'           => 'claude-opus-5',
