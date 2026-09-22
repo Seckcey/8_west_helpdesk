@@ -15,6 +15,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/westy_credentials.php';
 
 function ai_config(): array
 {
@@ -28,7 +29,8 @@ function ai_enabled(): bool
     $c = ai_config();
     $provider = (string)($c['provider'] ?? 'anthropic');
     if ($provider === 'stub') return !empty($c['allow_stub']);
-    return in_array($provider, ['anthropic', 'openai'], true)
+    if ($provider === 'anthropic') return westy_anthropic_auth($c, trim((string)($c['api_key'] ?? '')), 'https://api.anthropic.com/v1/messages') !== null;
+    return $provider === 'openai' && ($c['auth_mode'] ?? 'api_key') === 'api_key'
         && trim((string)($c['api_key'] ?? '')) !== '';
 }
 
@@ -49,7 +51,7 @@ function ai_provider_complete(string $system, string $user, array $schema): arra
     }
 
     $key = trim((string)($c['api_key'] ?? ''));
-    if ($key === '') return ['ok' => false, 'error' => 'No AI provider is configured (ai.api_key is empty).'];
+    if (!ai_enabled()) return ['ok' => false, 'error' => 'AI credentials are unavailable.'];
 
     $provider = (string)($c['provider'] ?? 'anthropic');
     if ($provider === 'openai') {
@@ -61,6 +63,9 @@ function ai_provider_complete(string $system, string $user, array $schema): arra
         if (isset($r['error'])) return ['ok' => false, 'error' => $r['error']];
         return ai_parse_openai($r['http'], json_decode((string)$r['body'], true));
     }
+
+    $auth = westy_anthropic_auth($c, $key, 'https://api.anthropic.com/v1/messages');
+    if ($auth === null) return ['ok' => false, 'error' => 'Anthropic credentials are unavailable.'];
 
     // Anthropic. NOTE: no `thinking` param on purpose — current models
     // (claude-opus-5) default to adaptive thinking, and omitting it stays
@@ -74,7 +79,7 @@ function ai_provider_complete(string $system, string $user, array $schema): arra
     ];
     $r = ai_http_post('https://api.anthropic.com/v1/messages', [
         'Content-Type: application/json',
-        'x-api-key: ' . $key,
+        $auth,
         'anthropic-version: 2023-06-01',
     ], $body, (int)($c['timeout'] ?? 60));
     if (isset($r['error'])) return ['ok' => false, 'error' => $r['error']];
@@ -144,7 +149,7 @@ function ai_parse_anthropic(int $http, $j): array
 {
     if (!is_array($j)) return ['ok' => false, 'error' => 'AI provider returned an unreadable response (HTTP ' . $http . ').'];
     if ($http !== 200 || ($j['type'] ?? '') === 'error') {
-        return ['ok' => false, 'error' => 'AI provider error: ' . (string)($j['error']['message'] ?? ('HTTP ' . $http))];
+        return ['ok' => false, 'error' => 'AI provider error (HTTP ' . $http . ').'];
     }
     if (($j['stop_reason'] ?? '') === 'refusal') {
         return ['ok' => false, 'refusal' => true, 'error' => 'The assistant declined this request.'];
