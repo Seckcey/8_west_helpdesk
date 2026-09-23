@@ -5,11 +5,18 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/support_addresses.php';
 enforce_https();
 $user = require_login();
 
 $error = '';
 $ok = '';
+$supportConfig = (array)cfg('support_addresses', []);
+$supportAddress = null;
+if (($supportConfig['transport_verified'] ?? null) === true
+    && in_array((int)$user['tenant_id'], support_enabled_tenants(db(), $supportConfig), true)) {
+    $supportAddress = support_address((int)$user['tenant_id'], (string)($supportConfig['mailbox'] ?? ''));
+}
 
 // initials_of() lives in lib/bootstrap.php (shared with Team + SSO provisioning)
 
@@ -61,6 +68,17 @@ page_top($user, 'My profile', '');
 
   <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
   <?php if ($ok): ?><div class="form-ok"><?= h($ok) ?></div><?php endif; ?>
+
+  <?php if ($supportAddress !== null): ?>
+  <div class="rail-label">Your support inbox</div>
+  <div class="card form-card" style="margin-bottom:20px">
+    <p>Email <a href="mailto:<?= h($supportAddress) ?>"><?= h($supportAddress) ?></a> to open a ticket in this workspace.</p>
+    <p>Replies keep the ticket number in the subject. Add client contacts so incoming messages reach the right client.</p>
+    <?php if (isset($supportConfig['client_ids_by_tenant'][(int)$user['tenant_id']])): ?>
+      <p>This workspace is in a limited rollout. Intake accepts contacts of its enrolled clients.</p>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
   <div class="rail-label">Display name</div>
   <div class="card form-card">

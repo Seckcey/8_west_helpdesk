@@ -87,6 +87,21 @@ jobs:
         run: find app -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Test suite authentication policy
         run: php app/tests/suite_auth_policy_test.php
+      - name: Test automatic workspace and isolated support intake
+        env:
+          SUPPORT_MAIL_TEST_DSN: mysql:host=127.0.0.1;dbname=support_mail_test
+          SUPPORT_MAIL_TEST_PASS: safeharbor-test-root
+          SUPPORT_INTAKE_DISPOSABLE: '1'
+        run: |
+          mysql --protocol=tcp -h 127.0.0.1 -uroot -psafeharbor-test-root -e 'CREATE DATABASE support_mail_test'
+          php app/tests/suite_workspace_provisioning_test.php
+          php app/tests/support_addresses_test.php
+          php app/tests/support_mail_poll_test.php
+          php app/tests/support_mailer_test.php
+          test ! -e app/config/config.php
+          cp app/config/config.sample.php app/config/config.php
+          trap 'rm -f app/config/config.php' EXIT
+          php app/tests/support_intake_scope_test.php
       - name: Test the vendored 8 West IT 365 chrome is exactly the pinned release
         run: php app/tests/w365_vendored_test.php
       - name: Test the suite app drawer and account menu

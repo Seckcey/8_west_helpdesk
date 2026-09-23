@@ -9,6 +9,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit('CLI only.');
 
 require_once __DIR__ . '/../lib/mailer.php';
+require_once __DIR__ . '/../lib/support_addresses.php';
 
 $due = db()->query(
     'SELECT * FROM mail_queue
@@ -20,7 +21,18 @@ $sent = 0;
 $failed = 0;
 foreach ($due as $mail) {
     $error = null;
-    if (mail_send($mail['to_addr'], $mail['subject'], $mail['body_text'], $error)) {
+    $supportConfig = (array)cfg('support_addresses', []);
+    $replyTo = support_ticket_reply_address(db(), (int)($mail['ticket_id'] ?? 0),
+        $supportConfig, (string)($supportConfig['mailbox'] ?? ''));
+    if ($replyTo !== null) {
+        $supportGraph = support_graph_config($supportConfig, mailer_graph_config());
+        $error = 'Support transport unavailable';
+        $ok = $supportGraph !== null && mailer_send_graph($supportGraph, $mail['to_addr'],
+            $mail['subject'], $mail['body_text'], $error, null, $replyTo);
+    } else {
+        $ok = mail_send($mail['to_addr'], $mail['subject'], $mail['body_text'], $error);
+    }
+    if ($ok) {
         db()->prepare('UPDATE mail_queue SET sent_at = UTC_TIMESTAMP(), last_error = "" WHERE id = ?')
             ->execute([(int)$mail['id']]);
         $sent++;
