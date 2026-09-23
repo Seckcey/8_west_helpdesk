@@ -26,6 +26,15 @@ function managed_customer_status(
         throw new ManagedCustomerStatusException('Managed-customer scope must be positive.');
     }
     $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    require_once __DIR__ . '/suite_managed_provider.php';
+    $q = $pdo->prepare('SELECT slug FROM tenants WHERE id = ?');
+    $q->execute([$tenantId]);
+    $providerSlug = $q->fetchColumn();
+    if (is_string($providerSlug) && suite_managed_provider_enrolled($pdo, $tenantId)) {
+        $provider = suite_managed_provider($pdo, $providerSlug, $forShare);
+        if ($provider === null) return ['managed'=>true,'operational'=>false,'status'=>'provider_unavailable',
+            'source_version'=>0,'has_inactive_history'=>false,'restored_current_event'=>false];
+    }
     // Hermetic SQLite suites predating migration 015 intentionally model only
     // the old four-column binding lookup. Production is MySQL and must always
     // use the complete immutable-event boundary below.

@@ -1,0 +1,122 @@
+[
+    {
+        "tables": {
+            "suite_managed_providers": null
+        },
+        "triggers": [],
+        "routines": []
+    },
+    {
+        "tables": {
+            "suite_managed_providers": null
+        },
+        "triggers": [],
+        "routines": []
+    },
+    {
+        "tables": {
+            "suite_managed_providers": null
+        },
+        "triggers": [],
+        "routines": []
+    },
+    {
+        "tables": {
+            "suite_managed_providers": "b4503f738b69a58c28757c80b7e68b783b04b861391fa0d949e13ac81607704b"
+        },
+        "triggers": [],
+        "routines": []
+    },
+    {
+        "tables": {
+            "suite_managed_providers": "b4503f738b69a58c28757c80b7e68b783b04b861391fa0d949e13ac81607704b"
+        },
+        "triggers": {
+            "suite_managed_provider_immutable": [
+                "suite_managed_providers",
+                "BEFORE",
+                "UPDATE",
+                "bed5f8635ba0191a6f1fcbb3635c389f65e28eefb82c304890591410ec4bd268"
+            ]
+        },
+        "routines": []
+    },
+    {
+        "tables": {
+            "suite_managed_providers": "b4503f738b69a58c28757c80b7e68b783b04b861391fa0d949e13ac81607704b"
+        },
+        "triggers": {
+            "suite_managed_provider_immutable": [
+                "suite_managed_providers",
+                "BEFORE",
+                "UPDATE",
+                "bed5f8635ba0191a6f1fcbb3635c389f65e28eefb82c304890591410ec4bd268"
+            ],
+            "suite_managed_provider_no_delete": [
+                "suite_managed_providers",
+                "BEFORE",
+                "DELETE",
+                "53f5a386a12564878f3785691ef3c6691f1d00f349bee50d172e648a1951ddef"
+            ]
+        },
+        "routines": []
+    },
+    {
+        "tables": {
+            "suite_managed_providers": "b4503f738b69a58c28757c80b7e68b783b04b861391fa0d949e13ac81607704b"
+        },
+        "triggers": {
+            "suite_managed_provider_immutable": [
+                "suite_managed_providers",
+                "BEFORE",
+                "UPDATE",
+                "bed5f8635ba0191a6f1fcbb3635c389f65e28eefb82c304890591410ec4bd268"
+            ],
+            "suite_managed_provider_insert_guard": [
+                "suite_managed_providers",
+                "BEFORE",
+                "INSERT",
+                "ecc187a00f4ca50f0dfff69bbdd54beac588998d1620d5cfc6945c9fe775e9b9"
+            ],
+            "suite_managed_provider_no_delete": [
+                "suite_managed_providers",
+                "BEFORE",
+                "DELETE",
+                "53f5a386a12564878f3785691ef3c6691f1d00f349bee50d172e648a1951ddef"
+            ]
+        },
+        "routines": []
+    },
+    {
+        "tables": {
+            "suite_managed_providers": "b4503f738b69a58c28757c80b7e68b783b04b861391fa0d949e13ac81607704b"
+        },
+        "triggers": {
+            "suite_managed_provider_immutable": [
+                "suite_managed_providers",
+                "BEFORE",
+                "UPDATE",
+                "bed5f8635ba0191a6f1fcbb3635c389f65e28eefb82c304890591410ec4bd268"
+            ],
+            "suite_managed_provider_insert_guard": [
+                "suite_managed_providers",
+                "BEFORE",
+                "INSERT",
+                "ecc187a00f4ca50f0dfff69bbdd54beac588998d1620d5cfc6945c9fe775e9b9"
+            ],
+            "suite_managed_provider_lease_guard": [
+                "suite_managed_providers",
+                "BEFORE",
+                "UPDATE",
+                "44b3026b9706c991a70d1690805f0eba5f9c81b22f7e83ebf1810c16916d1894"
+            ],
+            "suite_managed_provider_no_delete": [
+                "suite_managed_providers",
+                "BEFORE",
+                "DELETE",
+                "53f5a386a12564878f3785691ef3c6691f1d00f349bee50d172e648a1951ddef"
+            ]
+        },
+        "routines": []
+    }
+]
