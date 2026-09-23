@@ -296,5 +296,14 @@ jobs:
           SAFEHARBOR_LIFECYCLE_TEST_USER: root
           SAFEHARBOR_LIFECYCLE_TEST_PASS: safeharbor-test-root
         run: php app/tests/managed_customer_lifecycle_mysql_test.php
+      - name: Test Central private history, isolation, replay and erasure
+        env:
+          SAFEHARBOR_CENTRAL_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_CENTRAL_TEST_DB: safeharbor_central_test
+          SAFEHARBOR_CENTRAL_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_CENTRAL_TEST_PORT: 3306
+          SAFEHARBOR_CENTRAL_TEST_USER: root
+          SAFEHARBOR_CENTRAL_TEST_PASS: safeharbor-test-root
+        run: php app/tests/central_issues_mysql_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php

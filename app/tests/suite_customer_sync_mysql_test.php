@@ -303,6 +303,13 @@ sync_mysql_check('fresh schema records changed-name inactive receipt without ren
 // Later activation and lifecycle receipts are intentional downstream
 // foreign-key consumers of the source binding. Remove those empty downstream
 // fixtures in dependency order before isolating migration 015 itself.
+foreach (['central_issue_events','central_issues','central_issue_accounts'] as $table) {
+    if ((int)$pdo->query("SELECT COUNT(*) FROM `$table`")->fetchColumn() !== 0) {
+        throw new RuntimeException('Expected an empty downstream Central fixture');
+    }
+    $pdo->exec("DROP TABLE `$table`");
+}
+$pdo->exec('DROP FUNCTION central_issue_schema_health');
 $pdo->exec('DROP TABLE managed_customer_lifecycle_restore_receipts');
 $pdo->exec('DROP TABLE managed_customer_lifecycle_receipts');
 $pdo->exec('DROP TABLE managed_customer_activation_receipts');

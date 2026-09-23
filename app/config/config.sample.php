@@ -4,6 +4,13 @@
  * config.php is server-specific and is NEVER committed (see .gitignore).
  */
 return [
+    // Private Central history; independent of technician tickets and mail.
+    'central_issues' => [
+        'enabled' => false, 'tenant_id' => 0, 'provider_tenant_id' => 0,
+        'secret' => '', 'digest_key' => '',
+        // Separate future AI writer; blank disables assistant turns.
+        'assistant_secret' => '',
+    ],
     // Human-reviewed advice email. No background sends or permission from chat.
     'westy_email' => [
         'enabled' => false, 'tenant_ids' => [], 'customer_ids' => [],
