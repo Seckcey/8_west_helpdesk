@@ -550,6 +550,8 @@ sync_mysql_check('later active version reactivates and renames the same client w
     && (int)$pdo->query("SELECT COUNT(*) FROM tickets WHERE id={$ticketId}")->fetchColumn() === 1
     && (int)$pdo->query("SELECT COUNT(*) FROM time_entries WHERE ticket_id={$ticketId}")->fetchColumn() === 1);
 
+// Both destination fixtures are admitted; immutable ownership must still refuse.
+$SYNC_MYSQL_CONFIG['suite_customer_sync']['tenant_slugs'] = ['8west', 'other'];
 sync_mysql_throws('a source customer cannot move across Safeharbor tenants',
     SuiteCustomerSyncConflictException::class,
     function () use ($runtime): void {

@@ -422,6 +422,8 @@ sync_check('later active version reactivates and renames the same retained clien
         === '8 West IT Reactivated'
     && (int)$pdo->query('SELECT COUNT(*) FROM suite_customer_sync_events')->fetchColumn() === 4);
 
+// Admit both legacy fixture tenants so this tests ownership after admission.
+$SYNC_TEST_CONFIG['suite_customer_sync']['tenant_slugs'] = ['8west', 'other'];
 sync_throws('customer UUID cannot move across tenants', SuiteCustomerSyncConflictException::class,
     function () use ($pdo): void {
         $request = sync_request([

@@ -1873,6 +1873,8 @@ function business_report_assert_schedule_gate(array $schedule, array $config, st
         || !in_array($clientKey, $config['client_keys'], true)
         || !in_array($recipient, $config['recipient_emails'], true)
     ) {
+        if (function_exists('db') && function_exists('suite_managed_report_schedule_allowed')
+            && suite_managed_report_schedule_allowed(db(), $schedule)) return;
         throw new BusinessReportGateException(
             'Report schedule, tenant, client, and recipient must be exactly allowlisted.',
         );

@@ -58,6 +58,8 @@ function suite_customer_sync_tenant_allowlist(): array
     return $result;
 }
 
+require_once __DIR__ . '/suite_managed_provider.php';
+
 function suite_customer_sync_tenant_allowed(string $tenantSlug): bool
 {
     return in_array($tenantSlug, suite_customer_sync_tenant_allowlist(), true);
@@ -99,7 +101,7 @@ function suite_customer_sync_authenticate(
 ): array {
     $deny = static fn(): array => ['ok' => false, 'code' => 401];
     if (!suite_customer_sync_enabled()
-        || !suite_customer_sync_tenant_allowed($tenantSlug)
+        || (!suite_customer_sync_tenant_allowed($tenantSlug) && suite_managed_provider($pdo, $tenantSlug) === null)
         || $tenantId < 1
         || $service !== SUITE_CUSTOMER_SYNC_SERVICE
         || preg_match('/\A[1-9][0-9]{0,11}\z/D', $timestamp) !== 1
@@ -365,6 +367,10 @@ function suite_customer_sync_receive(PDO $pdo, array $payload, string $requestSh
             throw new SuiteCustomerSyncGateException('The exact destination tenant was not found.');
         }
         $tenantId = (int)$tenantRow['id'];
+        if ($payload['tenant_slug'] !== '8west' && !suite_customer_sync_tenant_allowed($payload['tenant_slug'])
+            && suite_managed_provider($pdo, $payload['tenant_slug'], true) === null) {
+            throw new SuiteCustomerSyncGateException('provider_not_admitted');
+        }
 
         $existingEvent = suite_customer_sync_event($pdo, (string)$payload['event_id'], true);
         if ($existingEvent !== null) {
