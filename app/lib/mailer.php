@@ -194,7 +194,11 @@ function mailer_send_graph_result(
     string $subject,
     string $body,
     ?callable $httpPost = null,
+    ?string $replyTo = null,
 ): array {
+    if ($replyTo !== null && !filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+        return ['outcome' => 'uncertain', 'provider_http' => null, 'outcome_code' => 'graph_payload_invalid'];
+    }
     $tokenResult = graph_token_result($g, $httpPost);
     $token = $tokenResult['token'];
     if ($token === null) {
@@ -212,6 +216,7 @@ function mailer_send_graph_result(
         ],
         'saveToSentItems' => false,
     ];
+    if ($replyTo !== null) $msg['message']['replyTo'] = [['emailAddress' => ['address' => $replyTo]]];
 
     try {
         $payload = json_encode(
@@ -257,8 +262,9 @@ function mailer_send_graph(
     string $body,
     ?string &$err = null,
     ?callable $httpPost = null,
+    ?string $replyTo = null,
 ): bool {
-    $result = mailer_send_graph_result($g, $to, $subject, $body, $httpPost);
+    $result = mailer_send_graph_result($g, $to, $subject, $body, $httpPost, $replyTo);
     $accepted = $result['outcome'] === 'submitted'
         && $result['provider_http'] === 202
         && $result['outcome_code'] === 'graph_accepted';
@@ -267,17 +273,19 @@ function mailer_send_graph(
 }
 
 /** Send one email NOW (used by the dispatch cron). Returns true on success. */
-function mail_send(string $to, string $subject, string $bodyText, ?string &$error = null): bool
+function mail_send(string $to, string $subject, string $bodyText, ?string &$error = null, ?string $replyTo = null): bool
 {
+    if ($replyTo !== null && !filter_var($replyTo, FILTER_VALIDATE_EMAIL)) { $error = 'Invalid reply address'; return false; }
     // Transport order (Milepost parity): Graph → SMTP → PHP mail()
     $g = mailer_graph_config();
-    if ($g !== null) return mailer_send_graph($g, $to, $subject, $bodyText, $error);
+    if ($g !== null) return mailer_send_graph($g, $to, $subject, $bodyText, $error, null, $replyTo);
 
     $smtp = cfg('mail.smtp') ?? [];
     $host = trim((string)($smtp['host'] ?? ''));
     if ($host === '') {
         // PHP mail() fallback — fine for a quick start, like Milepost.
         $headers = 'From: ' . mail_from_header() . "\r\n" . 'Content-Type: text/plain; charset=utf-8';
+        if ($replyTo !== null) $headers .= "\r\nReply-To: <" . $replyTo . '>';
         $ok = mail($to, mail_subject($subject), $bodyText, $headers);
         if (!$ok) $error = 'PHP mail() rejected the message';
         return $ok;
@@ -341,6 +349,7 @@ function mail_send(string $to, string $subject, string $bodyText, ?string &$erro
         'Content-Type: text/plain; charset=utf-8',
         'Content-Transfer-Encoding: 8bit',
     ]);
+    if ($replyTo !== null) $headers .= "\r\nReply-To: <" . $replyTo . '>';
     // dot-stuff + CRLF-normalize
     $body = preg_replace('/\r?\n/', "\r\n", $bodyText);
     $body = preg_replace('/^\./m', '..', $body);

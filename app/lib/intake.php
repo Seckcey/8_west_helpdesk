@@ -31,14 +31,30 @@ function intake_is_auto_mail(string $fromEmail, string $subjectText): bool
 }
 
 function intake_message(string $fromEmail, string $fromName, string $subjectText, string $bodyText,
-                        array $attachments = [], ?string $conversationId = null): string
+                        array $attachments = [], ?string $conversationId = null, ?int $intakeTenantId = null,
+                        ?array $allowedClientIds = null): string
 {
+    $scopeTenantId = $intakeTenantId ?? tenant_id();
+    if ($scopeTenantId < 1) throw new InvalidArgumentException('Intake tenant required');
     $fromEmail = mb_strtolower(trim(utf8_clean($fromEmail)));
     $fromName = utf8_clean($fromName);
     $subjectText = utf8_clean($subjectText);
     $bodyText = utf8_clean($bodyText);
     if ($fromName === '') $fromName = ucfirst(strtok($fromEmail, '@'));
     $isAuto = intake_is_auto_mail($fromEmail, $subjectText);
+    if (!filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) return 'held:invalid-sender';
+    if ($intakeTenantId !== null && $isAuto) return 'dropped:auto-mail';
+    // A scoped pilot may accept mail only from contacts of its named clients.
+    // Unknown senders must not create catch-all clients outside that scope.
+    $senderClients = [];
+    if ($intakeTenantId !== null) {
+        $sq = db()->prepare('SELECT DISTINCT k.client_id FROM contacts k JOIN clients c ON c.id=k.client_id WHERE c.tenant_id=? AND LOWER(k.email)=?');
+        $sq->execute([$scopeTenantId, $fromEmail]);
+        $senderClients = array_map('intval', $sq->fetchAll(PDO::FETCH_COLUMN));
+        if ($allowedClientIds !== null && array_intersect($senderClients, $allowedClientIds) === []) {
+            return 'held:client-outside-scope';
+        }
+    }
     $bodyText = trim(mb_substr(strip_quoted_reply($bodyText), 0, 8000));
     if ($bodyText === '') $bodyText = '(no text body)';
 
@@ -46,8 +62,8 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
     // conversationId survives subject edits), then the [#123] subject token.
     $tid = 0;
     if ($conversationId !== null && $conversationId !== '') {
-        $cq = db()->prepare('SELECT ticket_id FROM email_threads WHERE conversation_id = ?');
-        $cq->execute([mb_substr($conversationId, 0, 190)]);
+        $cq = db()->prepare('SELECT e.ticket_id FROM email_threads e JOIN tickets t ON t.id=e.ticket_id WHERE e.conversation_id = ? AND t.tenant_id = ?');
+        $cq->execute([mb_substr($conversationId, 0, 190), $scopeTenantId]);
         $tid = (int)($cq->fetchColumn() ?: 0);
     }
     if ($tid === 0 && preg_match('/\[#(\d+)\]/', $subjectText, $m)) {
@@ -55,8 +71,12 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
     }
     if ($tid > 0) {
         $tq = db()->prepare('SELECT t.*, c.sla_tier FROM tickets t JOIN clients c ON c.id = t.client_id WHERE t.id = ? AND t.tenant_id = ?');
-        $tq->execute([$tid, tenant_id()]);
+        $tq->execute([$tid, $scopeTenantId]);
         if ($ticket = $tq->fetch()) {
+            if ($intakeTenantId !== null && (!in_array((int)$ticket['client_id'], $senderClients, true)
+                || ($allowedClientIds !== null && !in_array((int)$ticket['client_id'], $allowedClientIds, true)))) {
+                return 'held:thread-sender-mismatch';
+            }
             db()->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
                 ->execute([$tid, $fromName, 'client', $bodyText]);
             $mid = (int)db()->lastInsertId();
@@ -66,8 +86,8 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
                 db()->prepare("UPDATE tickets SET status = 'open', resurface_at = NULL WHERE id = ?")->execute([$tid]);
             }
             if (!empty($ticket['assignee_id'])) {
-                $aq = db()->prepare('SELECT email FROM users WHERE id = ?');
-                $aq->execute([(int)$ticket['assignee_id']]);
+                $aq = db()->prepare('SELECT email FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1');
+                $aq->execute([(int)$ticket['assignee_id'], $scopeTenantId]);
                 if ($tech = $aq->fetch()) {
                     mail_queue(
                         $tech['email'],
@@ -80,7 +100,8 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
             }
             return "appended:#{$tid}";
         }
-        // unknown ticket id / stale conversation → fall through to a fresh ticket
+        if ($intakeTenantId !== null) return 'held:thread-outside-scope';
+        // Legacy unscoped intake retains its historical fresh-ticket fallback.
     }
 
     // Bounces/auto-replies that don't belong to an existing ticket are pure
@@ -93,16 +114,20 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
         'SELECT k.id, k.client_id FROM contacts k JOIN clients c ON c.id = k.client_id
           WHERE c.tenant_id = ? AND k.email = ?'
     );
-    $kq->execute([tenant_id(), $fromEmail]);
-    if ($row = $kq->fetch()) {
+    $kq->execute([$scopeTenantId, $fromEmail]);
+    $matches = $kq->fetchAll();
+    if ($allowedClientIds !== null) $matches = array_values(array_filter($matches,
+        static fn(array $row): bool => in_array((int)$row['client_id'], $allowedClientIds, true)));
+    if ($intakeTenantId !== null && count(array_unique(array_column($matches, 'client_id'))) > 1) return 'held:ambiguous-contact';
+    if ($row = ($matches[0] ?? null)) {
         $contactId = (int)$row['id'];
         $clientId  = (int)$row['client_id'];
     } else {
         $domain = mb_substr((string)strrchr($fromEmail, '@'), 1);
         $cq = db()->prepare('SELECT id FROM clients WHERE tenant_id = ? AND domain = ? AND domain != ""');
-        $cq->execute([tenant_id(), $domain]);
+        $cq->execute([$scopeTenantId, $domain]);
         $clientId = $cq->fetch()['id'] ?? null;
-        if (!$clientId) $clientId = intake_client_id();
+        if (!$clientId) $clientId = intake_client_id($scopeTenantId);
         $clientId = (int)$clientId;
         db()->prepare('INSERT INTO contacts (client_id, name, email) VALUES (?,?,?)')
             ->execute([$clientId, $fromName, $fromEmail]);
@@ -112,7 +137,7 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
     $subjectClean = trim(preg_replace('/\s*(re|fwd?):\s*/i', '', $subjectText)) ?: '(no subject)';
     $goal = service_goal_snapshot_for_new_ticket(
         db(),
-        tenant_id(),
+        $scopeTenantId,
         $clientId,
         'normal',
     );
@@ -124,7 +149,7 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
              sla_due_at, service_goal_target_id, created_at, updated_at)
          VALUES (?,?,?,?,?,"email",?,?,?,?)'
     )->execute([
-        tenant_id(),
+        $scopeTenantId,
         $clientId,
         $contactId,
         mb_substr($subjectClean, 0, 190),
@@ -202,13 +227,14 @@ function strip_quoted_reply(string $body): string
 }
 
 /** The catch-all client for unknown senders (created once). */
-function intake_client_id(): int
+function intake_client_id(?int $intakeTenantId = null): int
 {
+    $scopeTenantId = $intakeTenantId ?? tenant_id();
     $q = db()->prepare('SELECT id FROM clients WHERE tenant_id = ? AND name = "Email Intake"');
-    $q->execute([tenant_id()]);
+    $q->execute([$scopeTenantId]);
     if ($row = $q->fetch()) return (int)$row['id'];
     db()->prepare('INSERT INTO clients (tenant_id, name, domain, sla_tier, notes) VALUES (?,?,"","standard",?)')
-        ->execute([tenant_id(), 'Email Intake', 'Catch-all for tickets emailed by unknown senders. Reassign to the right client and it will learn their domain next time.']);
+        ->execute([$scopeTenantId, 'Email Intake', 'Catch-all for tickets emailed by unknown senders. Reassign to the right client and it will learn their domain next time.']);
     return (int)db()->lastInsertId();
 }
 

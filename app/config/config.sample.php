@@ -11,6 +11,16 @@ return [
         // Separate future AI writer; blank disables assistant turns.
         'assistant_secret' => '',
     ],
+    // Platform-owned support intake. Enable only after a delivery/recipient canary.
+    'support_addresses' => [
+        'enabled' => false,
+        'mailbox' => '',
+        'transport_verified' => false,
+        'state_directory' => '/srv/8west/apps/safeharbor/shared/support-mail',
+        'tenant_ids' => [],
+        'new_tenants_after' => null,
+        'client_ids_by_tenant' => [],
+    ],
     // Human-reviewed advice email. No background sends or permission from chat.
     'westy_email' => [
         'enabled' => false, 'tenant_ids' => [], 'customer_ids' => [],
