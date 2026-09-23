@@ -1,6 +1,15 @@
 # Where things stand
 
-**Current live release — September 22 UTC:** shared Anthropic federation is
+**Current live release — September 23 UTC:** Central private issue history is
+active for Frankie's explicitly approved 8 West Ventures, LLC account on
+`5342996c2e12b6ba225c30032f7ffa5212f5e47f`. Migration 029, replay, protected
+backup restore, exact-main CI and live signed-service checks passed. The owner
+can save notes, outcomes and exports in Central; assistant writing is disabled.
+Existing tickets, mail, controller, time and billing workflows retain their
+prior scope. The report scheduler is restored and verified active with unchanged
+cron, customer and delivery scope. [Release and recovery evidence](central-history-release-2026-09-23.md).
+
+**Previous live release — September 22 UTC:** shared Anthropic federation is
 active on `38d93740675a9838c9e353f32d70bb674e04c075`. Live provider and signed-in
 Westy checks passed. Reports are active with unchanged scope; no report, mail,
 repair or billing action was triggered for acceptance.
