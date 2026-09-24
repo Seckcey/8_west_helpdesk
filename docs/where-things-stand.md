@@ -1,6 +1,8 @@
 # Where things stand
 
-**Current live release — September 24, 00:07 UTC (September 23 Pacific):**
+**Current live release — September 24, 03:59 UTC:** per-MSP Logbook source registration is deployed at `d90a608886deed9f8d3768750cd8029f41427fa5` (PR #141). Future eligible MSP enrollment and integration registration are enabled. Report/portal evidence and Lifestyle settings are preserved; the report scheduler is active. [Release, acceptance and recovery](SUITE_INTEGRATION_ACTIVATION_2026_09_23.md).
+
+**Previous live release — September 24, 00:07 UTC (September 23 Pacific):**
 provider-owned managed-client onboarding is deployed at
 `266cd496710568328977ceab2d6052a70bbd05f1` from PR #139, following exact-main
 Validate `35933818574`. Migration 030, exact replay, protected application/config/
