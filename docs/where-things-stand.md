@@ -1,5 +1,9 @@
 # Where things stand
 
+> **September 24 IT 365 closeout:** [current stopping point](IT_365_STOPPING_POINT_2026_09_24.md)
+> records enabled onboarding, accepted releases and remaining work. Earlier dated
+> checkpoints below retain their original evidence; they do not override this activation.
+
 **Current live release — September 24, 03:59 UTC:** per-MSP Logbook source registration is deployed at `d90a608886deed9f8d3768750cd8029f41427fa5` (PR #141). Future eligible MSP enrollment and integration registration are enabled. Report/portal evidence and Lifestyle settings are preserved; the report scheduler is active. [Release, acceptance and recovery](SUITE_INTEGRATION_ACTIVATION_2026_09_23.md).
 
 **Previous live release — September 24, 00:07 UTC (September 23 Pacific):**
@@ -249,16 +253,16 @@ If you change what is live, change this page in the same PR.
 | Append-only approved-time adjustment slips | **Live through the aggregate release; migration 020 is applied.** Owners/admins add numbered correction slips while original approvals remain immutable. |
 | Approved time → Coastmark draft lines | **Live for the existing Lifestyle connection, including staff buttons.** Safeharbor claim/send, Coastmark receiver and mapping 3 are enabled. The signed September 5 status check confirmed existing claim 1 → invoice 9 / line 17; no new financial write was needed. The permanent master UUID remains excluded. |
 | Time-provenance bridge | **Live** through PR #38 / merge `ceba5a4` |
-| Anything "shipping dark" | Broad onboarding/lifecycle workers remain off. The Lifestyle portal, recurring weekly report and approved-time billing connection are intentionally on. Established service intake and the scoped Logbook knowledge export are live. |
+| Anything "shipping dark" | Eligible new-MSP onboarding, managed-client lifecycle and per-MSP integration registration are **on**. Existing-client activation remains Ventures-only; the existing Lifestyle portal, report and billing connection are preserved. |
 | Logbook resolved-ticket knowledge | **Live through PR #99 and the September 5 aggregate release.** Dedicated service identity 6 reads schema-1 exports for explicitly bound customers in the configured tenant; source material becomes reviewable Logbook drafts. |
 | Customer portal | **Useful portal live for the approved Lifestyle binding.** Fresh 8 West ID acceptance proved ticket groups, detail, reply, new request, archive access, and cross-client refusal. The portal remains intentionally enabled. |
 | Scheduled archived business reports (Phase 6) | **Live for the Lifestyle schedule.** Archive 4 has confirmed inbox receipt. The root-owned runner is installed every five minutes; the Wednesday 9:00 AM Pacific schedule generated archive 5 on September 2 and Graph accepted it. Inbox receipt for archive 5 is not independently verified. Historical attempts remain terminal. |
-| 8 West ID-backed report contact onboarding | **Live through PR #57 / merge `cef39dd` and migration 017**: dedicated protected configs were installed, stable tenant key `ewid-t1` returned one redacted contact-v1 probe, and Safeharbor stored one immutable tenant binding/contact snapshot. Both contact gates are now off after preparation. |
-| Client-scoped 8 West ID report contacts | **Live through PR #68 / merge `7bf63ed` and migration 019**: client 14 has one exact 8 West ID binding and immutable contact snapshot. Both contact endpoints are back off after preparation; only the recipient digest is recorded. |
+| 8 West ID-backed report contact onboarding | Installed and active for the approved Ventures and eligible provider-owned onboarding paths. The earlier one-off tenant contact canary is historical; do not broaden legacy contact scope. |
+| Client-scoped 8 West ID report contacts | Client-specific identity/contact evidence is preserved; Ventures and eligible provider-owned onboarding are active. The historical Lifestyle preparation records remain evidence of that earlier canary. |
 | Lifestyle identity replacement | **Enabled safely**: replacement subject `t4u10` is active; predecessor `t4u7` is permanently inactive, revoked, and quarantined. Deployed Coastmark merge `c9f4409` fails closed on a fresh signed revocation feed before any SSO write/reactivation. |
-| Customer propagation | **Live for the controlled Lifestyle path:** Milepost → 8 West ID → Safeharbor completed without a duplicate client. Milepost→Logbook remains its separate existing directory channel. Coastmark and Control Panel do not auto-provision Milepost customers. |
-| Managed-customer Safeharbor activation | **Installed and canary-complete.** Lifestyle UUID `f22fc65c-70ca-439e-b703-f85c82da885d` binds to existing Safeharbor client 14, portal binding 1, and the managed report schedule. The broad worker is off after the canary. |
-| Managed-customer inactive containment | **Installed; migration 024 is applied.** The default-off lifecycle and restoration workers remain closed when not running an approved exact-customer operation. |
+| Customer propagation | Milepost → ID → Safeharbor and canonical Cloudline/Logbook client registration are deployed for eligible MSPs. Coastmark and Control Panel workspace provisioning does not claim automatic customer invoices or infrastructure enrollment. |
+| Managed-customer Safeharbor activation | Provider-owned activation is enabled for eligible new MSPs. The historical Lifestyle binding and the approved Ventures client 16/portal binding 2 remain preserved. |
+| Managed-customer inactive containment | Provider-owned lifecycle and restoration are enabled with leases, revoked-user denial and human holds. Exact historical client scope is preserved. |
 
 ## Customer Service Tools development
 

@@ -1,5 +1,7 @@
 # Safeharbor — repo guide for agents
 
+Current suite handoff: [IT 365 stopping point](docs/IT_365_STOPPING_POINT_2026_09_24.md). Dated migration and canary notes below preserve history; their off-gate observations are not current production instructions.
+
 **Safeharbor** is the help desk app in the **8 West IT Total Business Suite**,
 alongside **Milepost** (RMM), **Coastmark** (accounting), and the **8 West IT
 365 Control Panel**. The product keys are the exact strings in the
@@ -23,7 +25,7 @@ archived weekly reports are installed. The controlled 8 West Lifestyle tests
 passed, including inbox delivery and one Coastmark draft line. The portal and
 recurring Lifestyle report are intentionally on. The existing Lifestyle
 Coastmark transfer connection and staff billing controls are live as of
-2026-09-05; broad onboarding workers remain off. Safeharbor owns all
+2026-09-05; eligible new-MSP onboarding is enabled as of September 24; historical existing-client activation remains Ventures-only. See `docs/IT_365_STOPPING_POINT_2026_09_24.md`. Safeharbor owns all
 help-desk records and workflows; Milepost supplies tenant/asset/telemetry
 context only; Coastmark alone owns financial facts. A transferred time entry
 can create only a draft invoice line, never automatic approval, posting,

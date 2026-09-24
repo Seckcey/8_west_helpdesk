@@ -1,5 +1,9 @@
 # Safeharbor
 
+> **IT 365 checkpoint — September 24, 2026 UTC:** automatic MSP onboarding is enabled.
+> Read the [suite stopping point](docs/IT_365_STOPPING_POINT_2026_09_24.md) for current scope,
+> accepted releases, remaining customer inputs and separate follow-up work.
+
 **Every client issue, safely ashore.**
 
 Safeharbor is the help desk app in the **8 West IT Total Business Suite** —

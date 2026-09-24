@@ -1,12 +1,13 @@
 # Automatic managed-client onboarding — September 23, 2026
 
+**Activation update:** this implementation contract is deployed; [September 24 closeout](IT_365_STOPPING_POINT_2026_09_24.md) supersedes the earlier future-enrollment-off gate. Conservative code defaults remain documented below.
+
 This slice connects Milepost client entry to ID identity and Safeharbor client,
 portal, report-contact and lifecycle records for newly entitled MSP workspaces.
-It does not complete the eight-app onboarding project. Production future-signup
-enrollment remains off (`include_new_tenants=false`, ID `setup_tenant_ids=[1]`),
-and existing-client automation remains pinned to Ventures customer
-`d2cd5603-512e-46ab-b4c4-469563695b2e`. Never repurpose master customer
-`4ebaeefa-b101-47f8-ac76-e49ab309d272`. Logbook external enrollment remains off.
+This slice does not complete the entire eight-app product. The later approved
+Cloudline/Logbook activation enables future eligible MSPs, managed clients and
+per-MSP integrations. Existing-client activation remains Ventures-only and the
+master customer identity stays reserved. See the [current stopping point](IT_365_STOPPING_POINT_2026_09_24.md).
 
 ## Ownership and execution
 
@@ -85,9 +86,9 @@ without operator canary configuration. All 34 DDL prefixes are tested for recove
 with replay and deliberate schema/trigger drift refusal. Browser QA covers the new
 setup states using synthetic receipts; live sign-in acceptance is read-only.
 
-Logbook and Cloudline per-MSP integration registration and complete eight-app signup
-acceptance are the next bounded slice. Future signup enrollment stays disabled until
-that broader workflow passes. Release hashes, deployed evidence, backups and exact
+Logbook and Cloudline per-MSP integration registration are now deployed and enabled.
+The remaining separate acceptance work is the first real MSP journey, actual portal
+invitation acceptance and human support/report delivery. Release hashes, deployed evidence, backups and exact
 worker scope belong in the release closeout record, not inferred from CI alone.
 
 Safeharbor uses `deploy/managed_provider_migration.php` with

@@ -1,5 +1,7 @@
 # Automatic MSP integration registration — 23 September 2026
 
+Current development handoff: [IT 365 stopping point](IT_365_STOPPING_POINT_2026_09_24.md). This file retains the exact activation release evidence.
+
 An eligible external MSP enters its client and contact in Milepost. The local
 ID coordinator reconciles canonical identity and Safeharbor admission before
 creating Cloudline customers and Logbook source registrations. No operator
