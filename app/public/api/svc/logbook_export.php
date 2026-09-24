@@ -5,14 +5,19 @@ require_once __DIR__.'/../../../lib/bootstrap.php';
 require_once __DIR__.'/../../../lib/logbook_export.php';
 
 header('Cache-Control: no-store');
-if (cfg('logbook_export.enabled', false) !== true) {
+require_once __DIR__.'/../../../lib/suite_logbook_registration.php';
+try {
+    $configured = suite_logbook_registration(db(), (string)($_SERVER['HTTP_X_SAFEHARBOR_LOGBOOK'] ?? ''))
+        ?? (array)cfg('logbook_export', []);
+} catch (Throwable) { json_out(['ok'=>false,'error'=>'unauthorized'],401); }
+if (($configured['enabled'] ?? false) !== true) {
     json_out(['ok' => false, 'error' => 'not found'], 404);
 }
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     json_out(['ok' => false, 'error' => 'method not allowed'], 405);
 }
 try {
-    $settings = logbook_export_settings((array)cfg('logbook_export', []));
+    $settings = logbook_export_settings($configured);
     $body = (string)file_get_contents('php://input', false, null, 0, 16385);
     if (!logbook_export_authenticated($settings, [
         'secret' => $_SERVER['HTTP_X_SAFEHARBOR_LOGBOOK'] ?? '',

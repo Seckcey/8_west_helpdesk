@@ -12,7 +12,8 @@ function logbook_export_settings(array $settings): array
         || !is_string($settings['secret'] ?? null)
         || preg_match('/\A[0-9a-fA-F]{64}\z/D', $settings['secret']) !== 1
         || $settings['secret'] === str_repeat('0', 64)
-        || !is_array($settings['customer_ids'] ?? null) || $settings['customer_ids'] === []) {
+        || !is_array($settings['customer_ids'] ?? null)
+        || ($settings['customer_ids'] === [] && ($settings['managed'] ?? false) !== true)) {
         throw new RuntimeException('Logbook export is not configured.');
     }
     foreach ($settings['customer_ids'] as $id) {
@@ -72,6 +73,10 @@ function logbook_export_page(PDO $pdo, array $settings, array $request): array
     $slug = $tenant->fetchColumn();
     if (!is_string($slug) || $slug === '') {
         throw new RuntimeException('Logbook service identity is unavailable.');
+    }
+    if ($settings['customer_ids'] === []) {
+        return ['ok'=>true,'schema_version'=>1,'suite_tenant_id'=>$settings['suite_tenant_id'],
+            'tenant_slug'=>$slug,'kind'=>'solved_tickets','items'=>[],'next_cursor'=>null];
     }
     $placeholders = implode(',', array_fill(0, count($settings['customer_ids']), '?'));
     $query = $pdo->prepare(
