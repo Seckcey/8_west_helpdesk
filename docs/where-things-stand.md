@@ -1,6 +1,21 @@
 # Where things stand
 
-**Current live release — September 23 UTC:** Central private issue history is
+**Current live release — September 24, 00:07 UTC (September 23 Pacific):**
+provider-owned managed-client onboarding is deployed at
+`266cd496710568328977ceab2d6052a70bbd05f1` from PR #139, following exact-main
+Validate `35933818574`. Migration 030, exact replay, protected application/config/
+database/grant backup and actual scratch restore passed. Future production MSP
+enrollment remains disabled and the provider registry is empty. Existing-client
+activation remains Ventures-only; Lifestyle report configuration and delivery
+evidence are unchanged. All 15 report/portal evidence tables matched the backup.
+The report scheduler and existing scoped workers are restored, protected config
+is byte-identical, and signed-in Clients/Ventures acceptance passed. ID and
+Milepost counterpart releases are also deployed; Logbook/Cloudline registration
+and full eight-app signup acceptance remain outstanding. See the
+[slice contract](managed-client-onboarding-2026-09-23.md) and
+[complete cross-app release and recovery record](https://github.com/Seckcey/8westit_webapp/blob/main/docs/deployment/MANAGED_CLIENT_ONBOARDING_2026_09_23.md).
+
+**Previous live release — September 23 UTC:** Central private issue history is
 active for Frankie's explicitly approved 8 West Ventures, LLC account on
 `5342996c2e12b6ba225c30032f7ffa5212f5e47f`. Migration 029, replay, protected
 backup restore, exact-main CI and live signed-service checks passed. The owner
