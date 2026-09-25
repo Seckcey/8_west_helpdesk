@@ -4,7 +4,9 @@
 > records enabled onboarding, accepted releases and remaining work. Earlier dated
 > checkpoints below retain their original evidence; they do not override this activation.
 
-**Current live release — September 24, 03:59 UTC:** per-MSP Logbook source registration is deployed at `d90a608886deed9f8d3768750cd8029f41427fa5` (PR #141). Future eligible MSP enrollment and integration registration are enabled. Report/portal evidence and Lifestyle settings are preserved; the report scheduler is active. [Release, acceptance and recovery](SUITE_INTEGRATION_ACTIVATION_2026_09_23.md).
+**Current live release — September 25, 03:52 UTC:** SSO authorization-feed date parsing is repaired at `fa75a3abbb89752527d7021eca6fbdfbd1a1db7f` (PR #144). The actual ID tile now enters Queue as Frankie. Protected config and report cron remain identical, and the report scheduler is active with unchanged scope. [Incident, deployment and acceptance](SSO_RECOVERY_2026_09_25.md).
+
+**Previous live release — September 24, 03:59 UTC:** per-MSP Logbook source registration is deployed at `d90a608886deed9f8d3768750cd8029f41427fa5` (PR #141). Future eligible MSP enrollment and integration registration are enabled. Report/portal evidence and Lifestyle settings are preserved; the report scheduler is active. [Release, acceptance and recovery](SUITE_INTEGRATION_ACTIVATION_2026_09_23.md).
 
 **Previous live release — September 24, 00:07 UTC (September 23 Pacific):**
 provider-owned managed-client onboarding is deployed at
