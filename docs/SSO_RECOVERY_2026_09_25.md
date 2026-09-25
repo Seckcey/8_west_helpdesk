@@ -41,4 +41,3 @@ Preserve protected runtime and the versioned-feed latch. Use the application's
 established backup/release process. A source rollback reintroduces this parser
 failure while the date-only feed entry remains; do not clear all caches or alter
 roles/subscriptions to work around it.
-
