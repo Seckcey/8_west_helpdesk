@@ -107,6 +107,43 @@ $versionedPayload = [
         ['sub' => 't9u5', 'session_version' => '4.9'],
     ],
 ];
+
+// Regression: an unrelated subscription's date-only metadata must not lock out
+// an authorized subject, and the expired subject must remain revoked.
+$datePayload = $versionedPayload;
+$datePayload['count'] = 1;
+$datePayload['revoked'] = [['sub' => 't90u90', 'since' => '2024-02-29', 'reason' => 'subscription_lapsed']];
+$dateBody = json_encode($datePayload, JSON_THROW_ON_ERROR);
+$dateVerified = suite_revocation_verify_signed_body(
+    $dateBody, hash_hmac('sha256', $dateBody, $secret), $secret, $now,
+);
+suite_revocation_check($dateVerified['status'] === 'ok', 'signed date-only subscription metadata is accepted');
+$dateSnapshot = $dateVerified['snapshot'] ?? [];
+suite_revocation_check(($dateVerified['status'] === 'ok') && suite_revocation_decision($dateSnapshot, 't9u4', '2.7')['action'] === 'allow', 'unrelated expired subscription preserves authorized access');
+suite_revocation_check(($dateVerified['status'] === 'ok') && suite_revocation_decision($dateSnapshot, 't90u90', '1.1')['action'] === 'revoked', 'date-only subscription subject remains revoked');
+suite_revocation_check(($dateVerified['status'] === 'ok') && suite_revocation_decision($dateSnapshot, 't9u4', '99.99')['action'] === 'reauth', 'date-only feed still requires the exact session version');
+suite_revocation_check(suite_revocation_verify_signed_body($dateBody, str_repeat('0', 64), $secret, $now)['status'] !== 'ok', 'date-only feed still rejects a forged signature');
+foreach ([
+    ['2026-09-24', 'account_disabled'],
+    ['2026-09-24', 'business_suspended'],
+    ['2026-09-24', 'unknown_reason'],
+    ['2026-02-29', 'subscription_lapsed'],
+    ['2026-13-01', 'subscription_lapsed'],
+    ['2026-9-24', 'subscription_lapsed'],
+    ['2026-09-24T00:00:00Z', 'subscription_lapsed'],
+    ["2026-09-24\n", 'subscription_lapsed'],
+    ["2026-09-24\0", 'subscription_lapsed'],
+    ['2026-09-24 24:00:00', 'subscription_lapsed'],
+    [null, 'subscription_lapsed'],
+    [[], 'subscription_lapsed'],
+] as [$badDate, $dateReason]) {
+    $badDatePayload = $datePayload;
+    $badDatePayload['revoked'][0]['since'] = $badDate;
+    $badDatePayload['revoked'][0]['reason'] = $dateReason;
+    $badDateSnapshot = suite_revocation_snapshot_from_payload($badDatePayload, $now);
+    suite_revocation_check($badDateSnapshot === null || $badDateSnapshot['mode'] === 'invalid', 'invalid or administrative date-only metadata fails closed');
+}
+
 $versioned = suite_revocation_snapshot_from_payload($versionedPayload, $now);
 suite_revocation_check(
     is_array($versioned) && $versioned['mode'] === 'versioned',

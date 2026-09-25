@@ -63,14 +63,23 @@ function suite_revocation_generated_at(mixed $value): ?int
     return $parsed->getTimestamp();
 }
 
-function suite_revocation_since_valid(mixed $value): bool
+function suite_revocation_since_valid(mixed $value, mixed $reason = null): bool
 {
-    if (! is_string($value)
-        || preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/D', $value) !== 1) {
+    if (! is_string($value)) {
+        return false;
+    }
+    // Subscription metadata may be a calendar date; administrative revocations
+    // still require timestamps. This never changes whether a subject is revoked.
+    $format = $reason === 'subscription_lapsed' && strlen($value) === 10
+        ? 'Y-m-d' : 'Y-m-d H:i:s';
+    $pattern = $format === 'Y-m-d'
+        ? '/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/D'
+        : '/^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/D';
+    if (preg_match($pattern, $value) !== 1) {
         return false;
     }
     $parsed = DateTimeImmutable::createFromFormat(
-        '!Y-m-d H:i:s',
+        '!' . $format,
         $value,
         new DateTimeZone('UTC'),
     );
@@ -78,7 +87,7 @@ function suite_revocation_since_valid(mixed $value): bool
 
     return $parsed !== false
         && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))
-        && $parsed->format('Y-m-d H:i:s') === $value;
+        && $parsed->format($format) === $value;
 }
 
 /** @return array{generated_at:int,mode:'invalid',revoked:array,authorizations:array} */
@@ -146,7 +155,7 @@ function suite_revocation_snapshot_from_payload(
                 && ! (($wireShape->revoked[$index] ?? null) instanceof stdClass))
             || ! suite_revocation_exact_keys($entry, ['reason', 'since', 'sub'])
             || ! suite_revocation_subject_valid($entry['sub'] ?? null)
-            || ! suite_revocation_since_valid($entry['since'] ?? null)
+            || ! suite_revocation_since_valid($entry['since'] ?? null, $entry['reason'] ?? null)
             || ! is_string($entry['reason'] ?? null)
             || ! in_array($entry['reason'], [
                 'account_disabled',
