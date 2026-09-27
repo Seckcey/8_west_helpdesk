@@ -1,77 +1,52 @@
+<p align="center">
+  <img src="brand/png/safeharbor-logo-horizontal-20260907.png" alt="Safeharbor — 8 West IT 365" width="760">
+</p>
+
 # Safeharbor
 
-> **IT 365 checkpoint — September 24, 2026 UTC:** automatic MSP onboarding is enabled.
-> Read the [suite stopping point](docs/IT_365_STOPPING_POINT_2026_09_24.md) for current scope,
-> accepted releases, remaining customer inputs and separate follow-up work.
+**Every client issue, safely ashore.** Safeharbor is the help desk for the
+[8 West IT 365 suite](https://8westit.com/), built by 8 West IT, LLC. It gives
+technicians a place to manage client requests, conversations, service goals,
+approved time, and reports. It works alongside Milepost for device and alert
+context, Coastmark for draft invoice lines, and 8 West ID for suite sign-in.
 
-**Every client issue, safely ashore.**
+**Current state (September 24, 2026):** The service is live at
+[safeharbor.8westit.com](https://safeharbor.8westit.com/). The core desk is
+feature-complete, while the four-week dogfood gate for the v1.0 stamp remains
+open. Managed onboarding is enabled for eligible new MSP signups; the first real
+new-MSP customer journey is still unproved. See the
+[current operating status](docs/where-things-stand.md) and
+[IT 365 stopping point](docs/IT_365_STOPPING_POINT_2026_09_24.md) for the exact
+scope and verification evidence.
 
-Safeharbor is the help desk app in the **8 West IT Total Business Suite** —
-alongside **Milepost** (RMM / client operations), **Coastmark** (accounting),
-and the **8 West IT 365 Control Panel**. Four products, four
-`8west:products` keys: `safeharbor` · `milepost` · `coastmark` ·
-`coastline_control_panel`. by 8 West IT, LLC.
+## What Safeharbor does
 
-> Status: **v1.0 feature-complete (Sprints 1–5 shipped, 2026-08-02)** — **live at
-> [safeharbor.8westit.com](https://safeharbor.8westit.com)**. Production
-> credentials are not published; use an authorized 8 West ID or local account.
-> What remains before the
-> v1.0 stamp is the Phase 1 exit gate: 4 consecutive weeks running 8 West's
-> real desk, zero data loss, p95 interaction < 300ms.
->
-> Shipped: **Westy** (suite assistant — first-run onboarding tour + advise-only
-> how-to helper; shared move/resize layout comes from the centrally owned
-> `Seckcey/8_west_westy` release at `https://westy.8westit.com/v1/`) · **8 West
-> ID SSO** (RS256-only `ewid_token` suite cookie selected by exact JWKS `kid`;
-> users keyed by the
-> immutable `sub` claim, every deny audited; migration 007 was applied to
-> production on 2026-08-02 and `suite.sso_secret` is server-only — see
-> [docs/suite-sso-contract.md](docs/suite-sso-contract.md)) · **Milepost alert
-> intake** (live signed svc API with replay dedupe and guarded auto-close) · composer with
-> internal notes + `/` saved replies + time-at-reply · attachments both ways ·
-> conversation threading + inbound dedupe + bounce-loop protection · waiting
-> auto-resurface · collision detection with stale-send blocking · merge
-> tickets · deep search (message bodies, resolved included) · `?` shortcut
-> card · Reports with real numbers + billable CSV · one-click CSAT · versioned
-> service-goal snapshots · approval-reviewed technician time.
->
-> Customer Service Tools: service-goal v2, approval-grade time, correction
-> history, the useful customer portal, and archived weekly reports are live.
-> The approved Lifestyle portal supports ticket groups, detail, new requests,
-> replies, and verified report archives. Its recurring Wednesday 9 AM Pacific
-> report is active; the September 2 scheduled run produced archive 5 and
-> Microsoft Graph accepted delivery. Provider acceptance does not prove inbox
-> receipt. The Lifestyle time-billing connection is enabled: staff send approved
-> time from the Time page and open its Coastmark draft through the existing ID
-> session. Reports retain exact minutes, including one-minute approvals.
-> Broad customer activation remains off. Safeharbor owns operational
-> facts; Coastmark owns prices and every later invoice decision. There is no
-> automatic invoice approval, sending, posting, charging, or ledger entry.
-> See [current status](docs/where-things-stand.md) and the
-> [repeatable customer journey](docs/customer-journey-operations.md).
+- **Handle support requests:** A technician queue, ticket conversations,
+  internal notes, saved replies, attachments, search, and customer feedback.
+  Milepost alerts and supported suite apps can also create scoped tickets.
+- **Track service and work:** Versioned first-response service goals, technician
+  time with human approval and correction history, and operational reports.
+- **Give customers a place to follow up:** The approved Lifestyle customer
+  portal supports new requests, replies, ticket details, and report archives.
+  Broader customer acceptance remains a separate step.
+- **Connect the suite carefully:** Approved time can be sent to an existing
+  Coastmark connection as a *draft* invoice line. Coastmark owns pricing and
+  every later invoice decision. Westy offers help and guidance; it does not
+  approve time or send invoices.
 
-## What's here
+## Access and repository guide
 
-| Path | What |
+Safeharbor requires an authorized account; the live app is not a public demo.
+For product inquiries, visit [8 West IT](https://8westit.com/).
+
+| Location | Purpose |
 |---|---|
-| `brand/` | The Safeharbor brand package — logo masters (horizontal, square, app tile, favicon, mark), rasters, usage guide, canonical `tokens.json` |
-| `app/` | The live desk plus Customer Service Tools boundaries — plain PHP 8.3 + MySQL + Apache. Queue, Ticket, Clients, versioned Service Goals, approval-grade Time, Reports, ⌘K palette, and dark/default-off integration surfaces. See `app/README.md` |
-| `docs/` | **`where-things-stand.md` (current verifiable status)** · product plan (`8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx`) · `milepost-customer-sync-contract.md` · `customer-portal-contract.md` · `business-reports-contract.md` · `coastmark-approved-time-export-contract.md` · `suite-sso-contract.md` · historical and research records |
-| `tools/` | Generators: brand builder, rasterizer, token sync, doc builder |
+| [app/](app/) | PHP application; start with the [app guide](app/README.md) |
+| [brand/](brand/) | Approved logos and [brand usage guide](brand/README.md) |
+| [docs/](docs/) | Current status, product contracts, and release evidence |
+| [deploy/](deploy/) | Operator [deployment runbook](deploy/README.md) |
 
-## Quick start
-
-The app runs on the server (no local build). Develop = edit, lint, deploy:
-
-```bash
-find app -name "*.php" -print0 | xargs -0 -n1 php -l   # lint
-SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
-cd tools/shots && node walkthrough.mjs                 # visual verification
-```
-
-## Brand
-
-Deep-navy night palette, electric blue → cyan signal, gold harbor lamp —
-see `brand/README.md` and `brand/tokens.json`. Product family: wayfinding
-markers — **Milepost** marks where you are, **Coastmark** marks where the
-business stands, **Safeharbor** brings every issue safely in.
+The application uses PHP 8.3, MySQL, Apache, and plain JavaScript; there is no
+frontend build step. Authorized contributors should read
+[AGENTS.md](AGENTS.md) and the current status before making changes. The
+deployment runbook owns release and rollback steps.
