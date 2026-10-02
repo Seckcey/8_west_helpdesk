@@ -251,10 +251,12 @@ $context = [
 ob_start();
 portal_render_reports($context, $archives);
 $listHtml = (string)ob_get_clean();
-portal_report_check('archive list escapes the customer name and contains no mutation form',
+portal_report_check('archive list escapes the customer name and has only sign-out and private chat forms',
     !str_contains($listHtml, '<script>alert(1)</script>')
     && str_contains($listHtml, 'Acme &lt;script&gt;alert(1)&lt;/script&gt;')
-    && !str_contains($listHtml, '<form'));
+    && substr_count($listHtml, '<form')===2
+    && str_contains($listHtml, 'action="/portal/logout.php"')
+    && str_contains($listHtml, 'id="portal-chat-form"'));
 ob_start();
 portal_render_report($context, $archive);
 $detailHtml = (string)ob_get_clean();
@@ -269,7 +271,9 @@ portal_report_check('archive detail escapes exact archived text and omits privat
     && str_contains($detailHtml, 'Acme &lt;script&gt;alert(1)&lt;/script&gt;')
     && !str_contains($detailHtml, 'recipient_email')
     && !str_contains($detailHtml, 'delivery_attempt')
-    && !str_contains($detailHtml, '<form'));
+    && substr_count($detailHtml, '<form')===2
+    && !str_contains($detailHtml, 'href="/portal/new.php"')
+    && str_contains($detailHtml, 'id="portal-chat-form"'));
 
 $portalDataSource = file_get_contents(__DIR__ . '/../lib/portal_data.php');
 $routeSource = file_get_contents(__DIR__ . '/../public/portal/reports.php');

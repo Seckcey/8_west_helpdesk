@@ -1,6 +1,7 @@
 <?php
 /** Dark-by-default presentation for the customer help portal. */
 declare(strict_types=1);
+require_once __DIR__ . '/portal_shell.php';
 
 function portal_h(mixed $value): string
 {
@@ -12,15 +13,17 @@ function portal_security_headers(): void
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-store, private');
     header('Pragma: no-cache');
-    header("Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
     header('Referrer-Policy: no-referrer');
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
     header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()');
 }
 
-function portal_page_start(string $title, string $bodyClass = ''): void
+function portal_page_start(string $title, string $bodyClass = '', ?array $context = null): void
 {
+    $GLOBALS['portal_view_context'] = $context;
+    if ($context !== null) $bodyClass = trim('portal-app ' . $bodyClass);
     portal_security_headers();
     ?>
 <!doctype html>
@@ -32,13 +35,19 @@ function portal_page_start(string $title, string $bodyClass = ''): void
 <title><?= portal_h($title) ?> · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <link rel="stylesheet" href="/assets/css/app.css?v=5">
+<link rel="stylesheet" href="/assets/css/portal.css?v=1">
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
     <?php
+    if ($context !== null) portal_shell_start($context);
 }
 
 function portal_page_end(): void
 {
+    if (is_array($GLOBALS['portal_view_context'] ?? null)) {
+        echo '</div>';
+        portal_westy_widget($GLOBALS['portal_view_context']);
+    }
     echo "</body>\n</html>\n";
 }
 
@@ -230,104 +239,43 @@ function portal_render_report_preview(array $archive, bool $latest = false): voi
 function portal_render_dashboard(array $context, array $summary, ?array $reportArchives = []): void
 {
     $identity = $context['identity'];
-    $client = $summary['client'];
-    $counts = $summary['counts'];
-    $canWrite = portal_role_can_write_tickets((string)($identity['role'] ?? ''));
-    $waitingTickets = portal_tickets_with_status($summary['tickets'], ['waiting']);
-    $openTickets = portal_tickets_with_status($summary['tickets'], ['open', 'in_progress']);
-    $resolvedTickets = portal_tickets_with_status($summary['tickets'], ['resolved']);
-    portal_page_start('Help center');
+    $context['binding']['client_name'] = $summary['client']['name'];
+    $canWrite = portal_role_can_write_tickets((string)$identity['role']);
+    $waiting = portal_tickets_with_status($summary['tickets'], ['waiting']);
+    portal_page_start('Your support', '', $context);
     ?>
-<main class="page">
-  <header class="page-head">
-    <div>
-      <p class="page-sub">Safeharbor help center</p>
-      <h1 class="page-title"><?= portal_h($client['name']) ?></h1>
-      <p class="page-sub">Signed in as <?= portal_h($identity['display_name']) ?> · <?= portal_h(portal_role_label((string)$identity['role'])) ?> · secured by 8 West ID</p>
-    </div>
-    <div class="page-actions">
-      <?php if ($canWrite): ?><a class="btn-primary" href="/portal/new.php">Open support request</a><?php endif; ?>
-      <form method="post" action="/portal/logout.php">
-        <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>">
-        <button type="submit" class="btn-ghost">Sign out</button>
-      </form>
-    </div>
-  </header>
-
-  <?php if ($canWrite): ?>
-    <section class="card portal-help-callout" aria-labelledby="portal-help-heading">
-      <div>
-        <p class="portal-report-kicker">Need help?</p>
-        <h2 id="portal-help-heading">Tell us what is not working</h2>
-        <p class="page-sub">Open a request, follow the customer-visible conversation, and reply when the support team needs you.</p>
-      </div>
-      <a class="btn-primary" href="/portal/new.php">Open support request</a>
-    </section>
-  <?php endif; ?>
-
-  <section class="stats" aria-label="Ticket counts">
-    <?php foreach ([
-        'open' => ['Open', 'stat-warn'],
-        'in_progress' => ['In progress', 'stat-good'],
-        'waiting' => ['Waiting on you', 'stat-warn'],
-        'resolved' => ['Resolved', 'stat-good'],
-    ] as $status => [$label, $class]): ?>
-      <article class="card stat">
-        <div class="stat-k"><?= portal_h($label) ?></div>
-        <div class="stat-v <?= portal_h($class) ?>"><?= (int)($counts[$status] ?? 0) ?></div>
-      </article>
-    <?php endforeach; ?>
+<main class="portal-home">
+ <div class="portal-main-column">
+  <section class="portal-ask" aria-labelledby="portal-ask-heading">
+   <h1 id="portal-ask-heading">What do you need help with?</h1>
+   <div id="portal-chat-home-slot"><noscript><p>Westy needs JavaScript. <?php if($canWrite): ?>You can still <a href="/portal/new.php">write a request</a> and follow your support below.<?php else: ?>You can still read your business support requests below.<?php endif; ?></p></noscript></div>
+   <div class="portal-shortcuts">
+    <button type="button" data-portal-chat-prompt="Something is not working. Help me write a support request."><?= portal_icon('alert') ?>Something is not working</button>
+    <a href="/portal/guide.php"><?= portal_icon('guide') ?>How this portal works</a>
+    <?php if ($canWrite): ?><a href="/portal/new.php"><?= portal_icon('edit') ?>Write a request</a><?php endif; ?>
+   </div>
+   <p class="portal-hint">Do not include passwords or verification codes.</p>
   </section>
-
-  <div class="portal-dashboard-grid">
-    <section class="portal-ticket-groups" aria-labelledby="portal-ticket-heading">
-      <div class="portal-section-head">
-        <div>
-          <h2 id="portal-ticket-heading" class="page-title">Your support requests</h2>
-          <p class="page-sub">Choose a request to read the customer-visible conversation.</p>
-        </div>
-      </div>
-
-      <?php if ($waitingTickets !== []): ?>
-        <section class="portal-ticket-group" aria-labelledby="portal-waiting-heading">
-          <h3 id="portal-waiting-heading">Waiting for your reply</h3>
-          <p class="page-sub">The support team needs an answer or update from your business.</p>
-          <?php portal_render_ticket_list($waitingTickets, 'Nothing is waiting for your reply.'); ?>
-        </section>
-      <?php endif; ?>
-
-      <section class="portal-ticket-group" aria-labelledby="portal-open-heading">
-        <h3 id="portal-open-heading">Open requests</h3>
-        <p class="page-sub">These are new or being worked by the support team.</p>
-        <?php portal_render_ticket_list($openTickets, 'You have no open support requests.'); ?>
-      </section>
-
-      <section class="portal-ticket-group" aria-labelledby="portal-resolved-heading">
-        <h3 id="portal-resolved-heading">Recently resolved</h3>
-        <p class="page-sub">Finished requests remain readable for your records.</p>
-        <?php portal_render_ticket_list($resolvedTickets, 'No resolved requests are in the recent list.'); ?>
-      </section>
-      <p class="page-note">Only your business’s customer-visible messages appear here. Internal notes, attachments, individual technician time, billing details, AI controls, and endpoint controls remain private.</p>
-    </section>
-
-    <aside class="portal-report-rail" aria-labelledby="portal-report-heading">
-      <div class="portal-section-head">
-        <div>
-          <p class="portal-report-kicker">Weekly record</p>
-          <h2 id="portal-report-heading" class="page-title">Service summaries</h2>
-          <p class="page-sub">Verified, archived facts about your support week.</p>
-        </div>
-      </div>
-      <?php if ($reportArchives === null): ?>
-        <div class="card portal-report-empty">Service summaries are temporarily unavailable. Your tickets still work normally.</div>
-      <?php elseif ($reportArchives === []): ?>
-        <div class="card portal-report-empty">No weekly service summaries have been archived for this business yet.</div>
-      <?php else: ?>
-        <?php portal_render_report_preview($reportArchives[0], true); ?>
-        <a class="btn-ghost portal-report-all" href="/portal/reports.php">View all archived summaries</a>
-      <?php endif; ?>
-    </aside>
-  </div>
+  <section class="portal-attention" aria-labelledby="attention-heading"><h2 id="attention-heading">Needs your attention</h2>
+   <?php portal_render_ticket_list($waiting, 'Nothing needs a reply from your business right now.'); ?>
+  </section>
+  <section class="portal-requests" id="requests" aria-labelledby="requests-heading">
+   <div class="portal-section-title"><h2 id="requests-heading">Business support requests</h2><?php if ($canWrite): ?><a href="/portal/new.php">Open support request <?= portal_icon('arrow') ?></a><?php endif; ?></div>
+   <p class="portal-hint">Shared with your business and the support team. Showing up to 50 recent requests.</p>
+   <div class="portal-counts" aria-label="Ticket counts"><?php foreach (['open'=>'Open','in_progress'=>'In progress','waiting'=>'Waiting on you','resolved'=>'Resolved'] as $status=>$label): ?><span><?= portal_h($label) ?> <strong><?= (int)($summary['counts'][$status] ?? 0) ?></strong></span><?php endforeach; ?></div>
+   <?php portal_render_ticket_list($summary['tickets'], 'No support requests yet. When you need a hand, write a request and follow its progress here.'); ?>
+  </section>
+ </div>
+ <aside class="portal-context-rail">
+  <section id="contact"><h2>Need a person?</h2><p>Send a request directly to the support team.</p><a href="/portal/guide.php#contact">Contact support <?= portal_icon('arrow') ?></a></section>
+  <section><h2>Service summaries</h2>
+   <?php if ($reportArchives === null): ?><p>Service summaries are temporarily unavailable. Your tickets still work normally.</p>
+   <?php elseif ($reportArchives === []): ?><p>No weekly service summaries have been archived for this business yet.</p>
+   <?php else: portal_render_report_preview($reportArchives[0], true); endif; ?>
+   <a href="/portal/reports.php">View all archived summaries <?= portal_icon('arrow') ?></a>
+  </section>
+  <section><h2>Your privacy</h2><p>Support requests are shared with your business and the support team. Your Westy chat is private to you.</p><a href="/portal/guide.php#privacy">About your chat history</a></section>
+ </aside>
 </main>
     <?php
     portal_page_end();
@@ -337,7 +285,7 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
 function portal_render_reports(array $context, array $archives): void
 {
     $clientName = (string)($context['binding']['client_name'] ?? 'Your business');
-    portal_page_start('Weekly service summaries');
+    portal_page_start('Weekly service summaries', '', $context);
     ?>
 <main class="page page-narrow">
   <a href="/portal/" class="backlink">← Help center</a>
@@ -376,7 +324,7 @@ function portal_render_report(array $context, array $archive): void
     $responseAverage = $firstResponse['average_minutes'];
     $approvedMinutes = (int)$approvedTime['minutes'];
     $csatAverage = $csat['average_score_out_of_3'];
-    portal_page_start('Weekly service summary');
+    portal_page_start('Weekly service summary', '', $context);
     ?>
 <main class="page page-narrow">
   <a href="/portal/reports.php" class="backlink">← All service summaries</a>
@@ -427,7 +375,7 @@ function portal_render_new_ticket(array $context, ?string $error = null, array $
 {
     $clientName = (string)($context['binding']['client_name'] ?? 'Your business');
     $nonce = portal_action_nonce('ticket:create');
-    portal_page_start('Get help');
+    portal_page_start('Get help', '', $context);
     ?>
 <main class="page page-narrow">
   <a href="/portal/" class="backlink">← Help center</a>
@@ -463,6 +411,7 @@ function portal_render_new_ticket(array $context, ?string $error = null, array $
         <textarea name="body" maxlength="<?= PORTAL_TICKET_BODY_MAX_CHARACTERS ?>" required
                   placeholder="What were you trying to do, what happened instead, and who is affected?"><?= portal_h($values['body'] ?? '') ?></textarea>
       </label>
+      <p class="page-note span-2">This request will be visible to your business and the support team. Only the text in this form is sent. Do not include passwords, verification codes or secret keys.</p>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary">Send request</button>
         <a class="btn-link" href="/portal/">Cancel</a>
@@ -491,7 +440,7 @@ function portal_render_ticket(
     $canWrite = portal_role_can_write_tickets((string)($identity['role'] ?? ''));
     $canReply = $canWrite && ($ticket['status'] ?? '') !== 'resolved';
     $nonce = $canReply ? portal_action_nonce('ticket:reply:' . $ticketId) : '';
-    portal_page_start('Ticket #' . $ticketId);
+    portal_page_start('Ticket #' . $ticketId, '', $context);
     ?>
 <main class="page">
   <a href="/portal/" class="backlink">← Help center</a>

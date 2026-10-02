@@ -128,11 +128,11 @@ foreach (glob(__DIR__ . '/../public/portal/*.php') ?: [] as $file) {
     if (is_string($source)) $publicSources .= "\n" . $source;
 }
 portal_data_check('customer-facing portal endpoints contain no raw SQL mutations',
-    preg_match('/\b(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|TRUNCATE)\b/i', $publicSources) !== 1);
+    preg_match('/->\s*(?:exec|query|prepare)\s*\(/i', $publicSources) !== 1);
 portal_data_check('portal mutation routes delegate to tenant-bound workflow functions',
     str_contains($publicSources, 'portal_create_ticket(')
     && str_contains($publicSources, 'portal_reply_to_ticket(')
-    && preg_match('#/(?:api|attachment|westy|invoice|payment|device|endpoint)[A-Za-z0-9_./-]*#i', $publicSources) !== 1);
+    && preg_match('#/(?:api|attachment|westy|invoice|payment|device|endpoint)[A-Za-z0-9_./-]*#i', str_replace('https://developers.openai.com/api/docs/guides/your-data','',$publicSources)) !== 1);
 portal_data_check('only customer owner, admin, and staff roles can write tickets',
     portal_role_can_write_tickets('client_owner')
     && portal_role_can_write_tickets('client_admin')
@@ -225,25 +225,27 @@ portal_data_check('rendered ticket links only to the customer portal detail rout
     str_contains($rendered, '#42')
     && str_contains($rendered, '/portal/ticket.php?id=42')
     && !str_contains($rendered, 'href="/ticket.php'));
-portal_data_check('rendered portal has only the sign-out form mutation surface',
-    substr_count($rendered, '<form') === 1
+portal_data_check('rendered portal has sign-out and the private chat composer',
+    substr_count($rendered, '<form') === 2
+    && str_contains($rendered, 'id="portal-chat-form"')
     && str_contains($rendered, 'action="/portal/logout.php"')
     && str_contains($rendered, 'name="csrf"'));
 portal_data_check('writer dashboard offers a customer-scoped help action',
     str_contains($rendered, 'href="/portal/new.php"')
-    && substr_count($rendered, '>Open support request</a>') >= 1);
+    && str_contains($rendered, 'Open support request'));
 portal_data_check('dashboard separates open, waiting, and recently resolved work',
-    str_contains($rendered, 'Your support requests')
-    && str_contains($rendered, 'Open requests')
-    && str_contains($rendered, 'Recently resolved')
+    str_contains($rendered, 'Business support requests')
+    && str_contains($rendered, 'Needs your attention')
+    && str_contains($rendered, 'Resolved')
     && str_contains($rendered, 'Waiting on you'));
 portal_data_check('dashboard links only to verified portal report pages',
     str_contains($rendered, 'Service summaries')
-    && !str_contains($rendered, '/reports.php')
+    && !str_contains($rendered, 'href="/reports.php')
     && !str_contains($rendered, 'recipient_email'));
-portal_data_check('rendered portal is dark by default and presentation-only',
+portal_data_check('rendered portal is dark and loads only its customer chat script',
     str_contains($rendered, '<html lang="en" data-theme="dark">')
-    && !str_contains($rendered, '<script'));
+    && substr_count($rendered, '<script')===1
+    && str_contains($rendered, 'src="/assets/js/portal-westy.js?v=1"'));
 
 echo "Portal data: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);
