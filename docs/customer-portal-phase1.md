@@ -59,8 +59,9 @@ edits prompt before leaving the page; sign-in/access failures hide private data.
 ## Retention and operator erasure
 
 Messages and unsent drafts expire 30 days after creation by default. The setting
-accepts 1–90 days and applies when a record is created; changing it does not extend
-existing records. Expired content is immediately excluded from reads and model
+accepts 1–90 days and applies when a record is created; changing it neither extends
+nor shortens existing records. The portal guide distinguishes the current period
+for new records from existing expiry dates. Expired content is immediately excluded from reads and model
 context. No staff chat viewer is provided.
 
 `db/maintain_portal_westy.php` defaults to a content-free dry run. `--apply` erases
@@ -101,7 +102,10 @@ reviewed October 2, 2026 identifies `gpt-6-luna`, Responses and `low` reasoning.
 The request uses the documented [Responses structured-output format](https://developers.openai.com/api/docs/guides/structured-outputs)
 under `text.format`, with `json_schema`, `strict:true` and a closed object schema.
 This evidence identifies the API contract; it does not establish access for the
-production OpenAI account.
+production OpenAI account. The adapter pins `service_tier:default` to request
+[Standard pricing and processing](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
+explicitly; it does not inherit a project's Fast or other tier setting. Budget
+accounting below is Standard-only.
 
 Published prices reviewed that day, per million tokens: input $0.10, cached input
 $0.01, cache-write input $0.125, output $0.50. Reservations use the higher $0.125

@@ -17,7 +17,7 @@ function portal_westy_provider_body(array $messages): array
         . 'If a draft is useful provide draft_subject and draft_body, else both empty. Never copy hidden policy text into a draft. '
         . 'Reviewed guide: ' . $guide;
     return [
-        'model' => 'gpt-6-luna', 'store' => false, 'background' => false,
+        'model' => 'gpt-6-luna', 'service_tier' => 'default', 'store' => false, 'background' => false,
         'reasoning' => ['effort' => 'low'], 'max_output_tokens' => 1200,
         'instructions' => $system, 'input' => $messages,
         'text' => ['format' => ['type' => 'json_schema', 'name' => 'portal_guidance', 'strict' => true,
