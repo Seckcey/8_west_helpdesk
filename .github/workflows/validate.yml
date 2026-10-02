@@ -85,6 +85,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Lint PHP
         run: find app -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Test verified business signup portal binding with restricted database account
+        env:
+          CUSTOMER_SIGNUP_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=signup_test_portal;charset=utf8mb4
+          CUSTOMER_SIGNUP_TEST_PASS: safeharbor-test-root
+        run: |
+          mysql --protocol=tcp -h 127.0.0.1 -uroot -psafeharbor-test-root -e 'CREATE DATABASE signup_test_portal CHARACTER SET utf8mb4 COLLATE utf8mb4_bin'
+          php app/tests/customer_signup_portal_mysql_test.php
       - name: Test suite authentication policy
         run: php app/tests/suite_auth_policy_test.php
       - name: Test automatic workspace and isolated support intake
