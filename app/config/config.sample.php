@@ -4,6 +4,12 @@
  * config.php is server-specific and is NEVER committed (see .gitignore).
  */
 return [
+    // Root-run automatic portal binding for verified new ID business signups only.
+    'customer_signup_portal' => [
+        'enabled' => false, 'actor_user_id' => 0,
+        'database_config_path' => null, 'identity_database_config_path' => null,
+        'identity_root' => '/srv/8west/apps/ewid/current',
+    ],
     // Private Central history; independent of technician tickets and mail.
     'central_issues' => [
         'enabled' => false, 'tenant_id' => 0, 'provider_tenant_id' => 0,
