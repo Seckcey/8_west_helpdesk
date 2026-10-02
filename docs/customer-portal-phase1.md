@@ -1,7 +1,8 @@
 # Customer portal Phase 1
 
-Implementation under review. This document does not authorize activation or
-claim a production release, real model evaluation, or customer acceptance.
+The source implementation is complete and tested. Production rollout remains
+pending. This document records the release contract; it does not authorize
+activation or claim a real model evaluation or customer acceptance.
 
 The portal gives customers a clear place to ask for help, see requests needing
 a reply, follow business support requests, and reach the support team directly.
@@ -159,6 +160,15 @@ drop tables or restore an old database over newly accepted tickets. If migration
 or release is interrupted, hold activation and reconcile exact stored state.
 
 ## Validation and remaining acceptance
+
+Implementation revision `1de8b32031e8643df395feac369ef7d61dedce67` passed the
+complete [Validate run 37077143073](https://github.com/Seckcey/8_west_helpdesk/actions/runs/37077143073),
+including 59 new portal database checks and all 21 browser contracts (two portal,
+14 technician-time and five staff Westy tests). The final local portal suite
+also passed 59 checks with zero failures. The coordinator independently reviewed
+desktop/mobile rendering, conversation continuity, keyboard dismissal and the
+corrected avatar asset. Temporary preview containers, network, browser image,
+tab and tunnel were cleaned up; synthetic restart material and evidence remain.
 
 The isolated Coastline fixture uses MySQL and the actual customer service,
 existing ticket writer, session validation, CSRF and pages. Only the identity

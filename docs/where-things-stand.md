@@ -1,9 +1,11 @@
 # Where things stand
 
-**October 2 customer portal work in review:** the Phase 1 branch adds the
+**October 2 customer portal implementation:** the tested Phase 1 source adds the
 customer dashboard, private Westy conversation and reviewed ticket handoff.
 [Scope, privacy and release gates](customer-portal-phase1.md) separate synthetic
-checks from live Luna and customer acceptance. Production was read-only inspected
+checks from live Luna and customer acceptance. Full PHP and browser CI passed
+at `1de8b32031e8643df395feac369ef7d61dedce67`, including 59 new portal database
+checks and 21 browser contracts. Production was read-only inspected
 at `c1064992526b39e4c93c771b589d13e8ce11af59`; this implementation is not yet a
 production release. The older release checkpoints below retain their original dates.
 
