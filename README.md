@@ -29,6 +29,9 @@ scope and verification evidence.
 - **Give customers a place to follow up:** The approved Lifestyle customer
   portal supports new requests, replies, ticket details, and report archives.
   Broader customer acceptance remains a separate step.
+  The [Phase 1 portal update](docs/customer-portal-phase1.md) adds a private Westy
+  conversation and explicitly reviewed ticket handoff. It remains under review;
+  production AI activation and real-provider acceptance are separate gates.
 - **Connect the suite carefully:** Approved time can be sent to an existing
   Coastmark connection as a *draft* invoice line. Coastmark owns pricing and
   every later invoice decision. Westy offers help and guidance; it does not

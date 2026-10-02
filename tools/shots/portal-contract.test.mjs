@@ -11,6 +11,12 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APP_CSS = await readFile(path.join(ROOT, 'app/public/assets/css/app.css'), 'utf8');
 const FAVICON = await readFile(path.join(ROOT, 'brand/svg/favicon.svg'), 'utf8');
+const PORTAL_ASSETS = {
+  '/assets/css/portal.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal.css'))],
+  '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
+  '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
+  '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
+};
 const PORTAL_RENDER_SOURCE = await readFile(path.join(ROOT, 'app/lib/portal_render.php'), 'utf8');
 const ORIGIN = 'http://safeharbor.test';
 const SERVE_MODE = process.argv.includes('--serve');
@@ -153,7 +159,7 @@ async function renderedFixtures() {
   return { pages, scratch };
 }
 
-async function openPortalPage(browser, pages, viewport) {
+async function openPortalPage(browser, pages, viewport, apiHandler = null) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   const consoleProblems = [];
@@ -163,6 +169,13 @@ async function openPortalPage(browser, pages, viewport) {
   });
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
+    if (PORTAL_ASSETS[url.pathname]) {
+      const [contentType,body]=PORTAL_ASSETS[url.pathname];return route.fulfill({contentType,body});
+    }
+    if(url.pathname==='/portal/westy.php'){
+      if(apiHandler)return apiHandler(route);
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{enabled:false,ai_available:false,can_write:true,conversation:null,turns:[],draft:null}})});
+    }
     if (url.pathname === '/assets/css/app.css') {
       return route.fulfill({ contentType: 'text/css; charset=utf-8', body: APP_CSS });
     }
@@ -201,6 +214,12 @@ if (SERVE_MODE) {
   const { pages, scratch } = await renderedFixtures();
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1:8898');
+    if(PORTAL_ASSETS[url.pathname]){
+      const [contentType,body]=PORTAL_ASSETS[url.pathname];response.writeHead(200,{'Content-Type':contentType});response.end(body);return;
+    }
+    if(url.pathname==='/portal/westy.php'){
+      response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify({ok:true,state:{enabled:false,ai_available:false,can_write:true,conversation:null,turns:[],draft:null}}));return;
+    }
     if (url.pathname === '/assets/css/app.css') {
       response.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
       response.end(APP_CSS);
@@ -249,14 +268,15 @@ if (SERVE_MODE) {
   try {
     const desktop = await openPortalPage(browser, pages, { width: 1365, height: 850 });
     await desktop.page.goto(`${ORIGIN}/portal/`);
-    assert.equal(await desktop.page.title(), 'Help center · Safeharbor');
-    await desktop.page.getByRole('heading', { name: 'Your support requests' }).waitFor();
-    await desktop.page.getByRole('heading', { name: 'Waiting for your reply' }).waitFor();
+    assert.equal(await desktop.page.title(), 'Your support · Safeharbor');
+    await desktop.page.getByRole('heading', { name: 'Business support requests' }).waitFor();
+    await desktop.page.getByRole('heading', { name: 'Needs your attention' }).waitFor();
     await desktop.page.getByRole('link', { name: 'Open support request' }).first().waitFor();
     await desktop.page.getByRole('heading', { name: 'Service summaries' }).waitFor();
+    assert.equal(await desktop.page.locator('img').evaluateAll(images=>images.every(image=>image.complete&&image.naturalWidth>0)),true);
     assert.equal(await desktop.page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth), true);
 
-    await desktop.page.getByRole('link', { name: /#102.*Front desk printer is offline/ }).click();
+    await desktop.page.getByRole('link', { name: /#102.*Front desk printer is offline/ }).first().click();
     await desktop.page.getByText('The support team is waiting for your reply.').waitFor();
     await desktop.page.getByLabel('Send the update the support team needs').waitFor();
     assert.equal(await desktop.page.getByText('INTERNAL SECRET', { exact: true }).count(), 0);
@@ -281,4 +301,71 @@ if (SERVE_MODE) {
     await browser.close();
     await rm(scratch, { recursive: true, force: true });
   }
+});
+
+if (!SERVE_MODE) test('private composer preserves review, receipt recovery and mobile focus boundaries', async () => {
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  let saved=null,sends=0,deny=false,receiptRecovery=false;
+  const state={enabled:true,ai_available:true,can_write:true,conversation:'a'.repeat(32),turns:[],draft:null};
+  const handler=async route=>{
+    if(deny)return route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({ok:false,reason:'sign_in'})});
+    if(route.request().method()==='POST'){
+      assert.equal(route.request().headers()['x-portal-csrf'],'c'.repeat(64));
+      const request=route.request().postDataJSON();
+      if(request.action==='message')state.turns.push({operation_key:request.operation,state:'complete',input_text:request.message,reply:{reply:'Guidance <img src=x onerror=alert(1)> is text.',sources:['requests'],draft_subject:'Printer is offline',draft_body:'The printer is offline.'}});
+      if(request.action==='save_draft'){
+        saved=request;state.draft={...request,revision:1,state:'draft'};
+      }
+      if(request.action==='handoff'){
+        assert.equal(request.reviewed,true);assert.equal(request.revision,1);sends++;
+        state.draft={draft_key:state.draft.draft_key,revision:1,state:'sent',subject:null,body:null,ticket_id:102,ticket_url:'/portal/ticket.php?id=102'};
+        // The server committed but the response was lost. UI must GET, not resend.
+        receiptRecovery=true;return route.abort('failed');
+      }
+    }
+    if(receiptRecovery){
+      assert.equal(new URL(route.request().url()).searchParams.get('receipt'),state.draft.draft_key);
+      receiptRecovery=false;
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{...state,receipt:state.draft}})});
+    }
+    return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state})});
+  };
+  try{
+    const desktop=await openPortalPage(browser,pages,{width:1365,height:850},handler);
+    await desktop.page.goto(`${ORIGIN}/portal/`);
+    const input=desktop.page.getByRole('textbox',{name:'Tell Westy what is happening'});
+    await input.fill('Help me report the printer.');await desktop.page.getByRole('button',{name:'Ask Westy',exact:true}).click();
+    await desktop.page.getByText('Guidance <img src=x onerror=alert(1)> is text.',{exact:true}).waitFor();
+    assert.equal(await desktop.page.locator('#portal-chat-messages img').count(),0);
+    const box=await desktop.page.locator('#portal-chat-panel').boundingBox();
+    assert.ok(box.width>500,'large composer remains in the page, unaffected by staff widget IDs');
+    await desktop.page.getByRole('button',{name:'Westy Continue chat'}).click();
+    assert.equal(await desktop.page.getByRole('textbox',{name:'Tell Westy what is happening'}).count(),1);
+    await desktop.page.getByRole('button',{name:'Close Westy',exact:true}).click();
+    await desktop.page.getByRole('button',{name:'Edit suggested request'}).click();
+    await desktop.page.getByLabel('What happened and who is affected?').fill('Exact reviewed text, with no private transcript.');
+    await desktop.page.getByRole('button',{name:'Save & review request'}).click();
+    await desktop.page.getByRole('heading',{name:'Review before sending'}).waitFor();
+    assert.equal(await desktop.page.getByRole('button',{name:'Send request',exact:true}).isEnabled(),false);
+    await desktop.page.getByRole('checkbox').check();await desktop.page.getByRole('button',{name:'Send request',exact:true}).click();
+    await desktop.page.getByText('Request #102 received',{exact:true}).waitFor();
+    assert.equal(sends,1);assert.equal(saved.body,'Exact reviewed text, with no private transcript.');
+    await desktop.page.reload();await desktop.page.getByText('Request #102 received',{exact:true}).waitFor();
+    await desktop.page.goto(`${ORIGIN}/portal/ticket.php?id=102`);
+    await desktop.page.getByRole('button',{name:'Westy Continue chat'}).click();
+    await desktop.page.getByText('Guidance <img src=x onerror=alert(1)> is text.',{exact:true}).waitFor();
+    await desktop.context.close();
+    const mobile=await openPortalPage(browser,pages,{width:390,height:844},handler);
+    await mobile.page.goto(`${ORIGIN}/portal/ticket.php?id=102`);
+    await mobile.page.getByRole('button',{name:'Westy',exact:true}).click();
+    await mobile.page.getByRole('dialog',{name:'Private conversation with Westy'}).waitFor();
+    assert.equal(await mobile.page.locator('.portal-content').evaluate(e=>e.inert),true);
+    assert.equal(await mobile.page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+    await mobile.page.getByRole('textbox',{name:'Tell Westy what is happening'}).press('Escape');
+    assert.equal(await mobile.page.locator('#portal-chat-bubble').evaluate(e=>e===document.activeElement),true);
+    deny=true;await mobile.page.reload();await mobile.page.getByRole('button',{name:'Westy',exact:true}).click();
+    await mobile.page.getByText('Your sign-in has ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
+    assert.equal(await mobile.page.getByText('Request #102 received',{exact:true}).count(),0);
+    await mobile.context.close();
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });

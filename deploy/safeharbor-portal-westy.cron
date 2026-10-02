@@ -1,0 +1,5 @@
+# Install only after migration 031 and protected backup/expiry acceptance.
+# Use the existing app operator and its local protected config; no secrets here.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/10 * * * * www-data /usr/bin/php /srv/8west/apps/safeharbor/current/db/maintain_portal_westy.php --apply 2>&1 | /usr/bin/logger -t safeharbor-portal-westy-maintenance

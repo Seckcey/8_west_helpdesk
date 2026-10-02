@@ -1,5 +1,11 @@
 # Safeharbor customer portal contract
 
+**Phase 1 implementation under review (October 2, 2026):**
+[Private Westy and reviewed request handoff](customer-portal-phase1.md) documents
+the new customer shell, subject-scoped chat, additive migration 031, retention,
+budgets and activation gates. This does not change the production acceptance
+record below until a separately verified release is recorded.
+
 **Current status, rechecked 2026-09-05 UTC:** the useful portal is deployed and
 enabled for active binding 1, ID tenant `8-west-lifestyle`, provider tenant 1 /
 client 14. Recorded fresh signed-in acceptance proved ticket groups, details,

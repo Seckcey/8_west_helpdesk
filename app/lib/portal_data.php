@@ -752,7 +752,8 @@ function portal_create_ticket(
     $priority = portal_ticket_priority($priority);
     $body = portal_ticket_body($body);
 
-    $pdo->beginTransaction();
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
     try {
         $client = $pdo->prepare(
             'SELECT id FROM clients WHERE tenant_id = :tenant_id AND id = :client_id LIMIT 1'
@@ -790,10 +791,10 @@ function portal_create_ticket(
             'author_name' => $authorName,
             'body' => $body,
         ]);
-        $pdo->commit();
+        if ($ownsTransaction) $pdo->commit();
         return $ticketId;
     } catch (Throwable $error) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
         throw $error;
     }
 }

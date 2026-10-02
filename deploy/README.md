@@ -1,5 +1,10 @@
 # Deploying Safeharbor to safeharbor.8westit.com
 
+The [customer portal Phase 1 packet](../docs/customer-portal-phase1.md) describes
+migration 031, private-history maintenance, exact pilot gates and the dedicated
+OpenAI credential setup. It is under review and is not an activation record.
+Apply its additional privacy/schema gates alongside this deployment procedure.
+
 Public production hostname: **safeharbor.8westit.com** (AWS EC2, Ubuntu 24.04).
 Stack: **Apache 2.4 + mod_php (PHP 8.3) + MySQL 8** — identical to Milepost,
 which lives on the same box (`support.8westit.com`).

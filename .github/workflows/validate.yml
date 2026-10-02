@@ -150,6 +150,7 @@ jobs:
           php app/tests/westy_email_mysql_test.php
           php app/tests/westy_mail_mysql_test.php
           php app/tests/westy_mail_poll_mysql_test.php
+          php app/tests/portal_westy_mysql_test.php
       - name: Test dedicated Westy Graph transport and reply intake
         run: |
           php app/tests/westy_mail_graph_test.php

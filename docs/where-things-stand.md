@@ -1,5 +1,12 @@
 # Where things stand
 
+**October 2 customer portal work in review:** the Phase 1 branch adds the
+customer dashboard, private Westy conversation and reviewed ticket handoff.
+[Scope, privacy and release gates](customer-portal-phase1.md) separate synthetic
+checks from live Luna and customer acceptance. Production was read-only inspected
+at `c1064992526b39e4c93c771b589d13e8ce11af59`; this implementation is not yet a
+production release. The older release checkpoints below retain their original dates.
+
 > **September 24 IT 365 closeout:** [current stopping point](IT_365_STOPPING_POINT_2026_09_24.md)
 > records enabled onboarding, accepted releases and remaining work. Earlier dated
 > checkpoints below retain their original evidence; they do not override this activation.

@@ -119,7 +119,7 @@ return [
         'mfa_max_age' => 2592000,
     ],
 
-    // Read-only Safeharbor customer portal (docs/customer-portal-contract.md).
+    // Safeharbor customer portal (docs/customer-portal-contract.md).
     // This is a separate OIDC/session surface from the technician suite cookie.
     // It ships DARK: code, a registered confidential OIDC client, and even an
     // active CLI-reviewed tenant/client binding remain unavailable until this
@@ -127,6 +127,19 @@ return [
     //
     // Do not invent or commit client values. Register an exact HTTPS callback
     // with 8 West ID, then place the issued values only in server config.
+    // Customer-private Westy. Independent of staff AI. Exact provider:client
+    // pairs only; migration 031 and reviewed retention/expiry operation first.
+    'portal_westy' => [
+        'enabled' => false,
+        'ai_enabled' => false,
+        'allowed_clients' => [],
+        'api_key' => '', // Dedicated server-only OpenAI project credential.
+        'retention_days' => 30,
+        'hourly_limit' => 30,
+        'daily_limit' => 500,
+        'monthly_microusd' => 5000000, // $5, reserved before provider I/O.
+    ],
+
     'portal' => [
         'enabled'       => false,
         'issuer'        => 'https://id.8westit.com',
