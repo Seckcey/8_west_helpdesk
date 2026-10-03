@@ -34,6 +34,11 @@ scope and verification evidence.
   valid active customer bindings. Eight synthetic live Luna checks passed;
   authenticated customer acceptance and six legacy customer identity bindings
   remain open. See the [feature contract](docs/customer-portal-phase1.md).
+  [Device enrollment](docs/customer-device-enrollment-release-2026-10-03.md) and
+  [customer computer checks](docs/customer-device-checks-release-2026-10-03.md)
+  are also deployed and enabled. Genuine customer checks/repair acceptance is
+  pending; release verification issued no device command and preserved existing
+  staff-owned support holds.
 - **Connect the suite carefully:** Approved time can be sent to an existing
   Coastmark connection as a *draft* invoice line. Coastmark owns pricing and
   every later invoice decision. Westy offers help and guidance; it does not
