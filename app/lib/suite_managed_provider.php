@@ -78,6 +78,35 @@ function suite_managed_provider_owner_matches(array $row, array $owner): bool
     return $owner['suite_subject'] === $row['owner_subject'];
 }
 
+/** The trusted workspace adapter may add the controller identity, never restore a revoked one. */
+function suite_managed_provider_workflow_register(PDO $pdo, string $slug): void
+{
+    if (cfg('westy_workflow.managed_providers_enabled', false) !== true) return;
+    if ($pdo->inTransaction()) throw new RuntimeException('workflow registration owns transaction');
+    $pdo->beginTransaction();
+    try {
+        // Match receive lock order: tenant, current provider/owner, service identity.
+        $lock = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
+        $q = $pdo->prepare('SELECT id FROM tenants WHERE slug=?' . $lock);
+        $q->execute([$slug]);
+        $tid = (int)$q->fetchColumn();
+        $provider = suite_managed_provider($pdo, $slug, true);
+        if ($provider === null || (int)$provider['tenant_id'] !== $tid) throw new RuntimeException('provider unavailable');
+        $q = $pdo->prepare('SELECT is_active FROM svc_identities WHERE tenant_id=? AND service=?' . $lock);
+        $q->execute([$tid, 'milepost-workflow']);
+        $active = $q->fetchColumn();
+        if ($active !== false && (int)$active !== 1) throw new RuntimeException('workflow service access was revoked');
+        if ($active === false) {
+            $pdo->prepare('INSERT INTO svc_identities (tenant_id,service,display_name) VALUES (?,?,?)')
+                ->execute([$tid, 'milepost-workflow', 'Milepost customer troubleshooting']);
+        }
+        $pdo->commit();
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
+}
+
 function suite_managed_provider_enrolled(PDO $pdo, int $tenantId): bool
 {
     if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'

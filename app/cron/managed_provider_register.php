@@ -17,6 +17,7 @@ try {
     if (!is_array($owner)) throw new RuntimeException('owner missing');
     // Authority is carried only over the coordinator-owned local stdin transport.
     $provider = suite_managed_provider_register($pdo, $manifest, (int)$tenant['id'], (int)$owner['id']);
+    suite_managed_provider_workflow_register($pdo, $manifest['slug']);
     require_once __DIR__ . '/../lib/business_reports.php';
     $q = $pdo->prepare('SELECT is_active FROM svc_identities WHERE tenant_id = ? AND service = ?');
     $q->execute([(int)$tenant['id'], 'milepost-customers']);
