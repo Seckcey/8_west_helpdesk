@@ -396,6 +396,8 @@ return [
     // migration 025, exact tenant/customer canary and dedicated identity/key
     // are reviewed. The chat bubble cannot call or authorize this service.
     'westy_workflow' => [
+        // Global opt-in for currently registered independent MSPs; existing internal scope stays explicit.
+        'managed_providers_enabled' => false,
         'enabled' => false,
         'hmac_secret' => '',
         'tenant_slugs' => [],

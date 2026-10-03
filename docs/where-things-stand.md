@@ -1,6 +1,18 @@
 # Where things stand
 
-**Current live release — October 3, 2:19 AM Pacific (09:19 UTC):** customer computer checks are
+**Current live release — October 3, 5:07 AM Pacific (12:07 UTC):** customer mobile
+guidance is deployed at `d97c8f1488fa7ab010234e635f5dfe786529c5ac` (PR #155), with
+Milepost `df5bde839b1bac87ede7e53c7586407bf49f3596` (PR #571) and both mobile gates
+enabled. The 226-second maintenance window restored the original report scope;
+diagnostics, customer bindings and existing jobs are preserved. Signed invalid
+and exact-replay requests were refused without creating a device operation.
+Genuine customer navigation, provider connection and physical-device acceptance
+remain pending. Intune bindings and Android mappings/devices are empty; the
+tentative Jamf Now signup is not integrated. Six-customer activation and add-on/MSP
+work remain separate. See the [release and recovery record](customer-mobile-release-2026-10-03.md)
+and [mobile feature contract](customer-mobile-management.md).
+
+**Previous live release — October 3, 2:19 AM Pacific (09:19 UTC):** customer computer checks are
 deployed at `0adde180fe2bae2a9a699fa81085cc90f3e1621d` (PR #154), with the matching
 Milepost release and both diagnostics gates enabled. The 116-second maintenance
 and report restoration passed independent verification; reporting scope and
