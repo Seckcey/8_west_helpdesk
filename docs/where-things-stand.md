@@ -1,19 +1,22 @@
 # Where things stand
 
-**October 2 customer portal implementation:** the tested Phase 1 source adds the
-customer dashboard, private Westy conversation and reviewed ticket handoff.
-[Scope, privacy and release gates](customer-portal-phase1.md) separate synthetic
-checks from live Luna and customer acceptance. Full PHP and browser CI passed
-at `1de8b32031e8643df395feac369ef7d61dedce67`, including 59 new portal database
-checks and 21 browser contracts. Production was read-only inspected
-at `c1064992526b39e4c93c771b589d13e8ce11af59`; this implementation is not yet a
-production release. The older release checkpoints below retain their original dates.
+**Current live release — October 2, 6:03 PM Pacific:** the Phase 1 customer
+dashboard is deployed at `6413e7a1ba48b748d8e7e31c23423bca721076bc` (PR #148).
+Migration 031 and replay passed with existing data unchanged; the four new
+tables remain empty. The 77-second Safeharbor-only window ended with public
+routes healthy, configuration/grants preserved and the existing report
+schedule active. Exact-main CI passed 59 portal database checks and 21 browser
+contracts. Private Westy chat and AI remain disabled; live customer sign-in
+acceptance and model evaluation are still pending. See the
+[release and recovery record](customer-portal-release-2026-10-02.md) and
+[scope, privacy and activation gates](customer-portal-phase1.md). The older
+release checkpoints below retain their original dates.
 
 > **September 24 IT 365 closeout:** [current stopping point](IT_365_STOPPING_POINT_2026_09_24.md)
 > records enabled onboarding, accepted releases and remaining work. Earlier dated
 > checkpoints below retain their original evidence; they do not override this activation.
 
-**Current live release — September 25, 03:52 UTC:** SSO authorization-feed date parsing is repaired at `fa75a3abbb89752527d7021eca6fbdfbd1a1db7f` (PR #144). The actual ID tile now enters Queue as Frankie. Protected config and report cron remain identical, and the report scheduler is active with unchanged scope. [Incident, deployment and acceptance](SSO_RECOVERY_2026_09_25.md).
+**Previous live release — September 25, 03:52 UTC:** SSO authorization-feed date parsing is repaired at `fa75a3abbb89752527d7021eca6fbdfbd1a1db7f` (PR #144). The actual ID tile now enters Queue as Frankie. Protected config and report cron remain identical, and the report scheduler is active with unchanged scope. [Incident, deployment and acceptance](SSO_RECOVERY_2026_09_25.md).
 
 **Previous live release — September 24, 03:59 UTC:** per-MSP Logbook source registration is deployed at `d90a608886deed9f8d3768750cd8029f41427fa5` (PR #141). Future eligible MSP enrollment and integration registration are enabled. Report/portal evidence and Lifestyle settings are preserved; the report scheduler is active. [Release, acceptance and recovery](SUITE_INTEGRATION_ACTIVATION_2026_09_23.md).
 

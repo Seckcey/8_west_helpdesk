@@ -1,8 +1,10 @@
 # Customer portal Phase 1
 
-The source implementation is complete and tested. Production rollout remains
-pending. This document records the release contract; it does not authorize
-activation or claim a real model evaluation or customer acceptance.
+The source implementation is complete and tested. The dashboard and migration
+031 were deployed on October 2, with both private Westy switches disabled.
+See the [production release record](customer-portal-release-2026-10-02.md).
+Live customer sign-in acceptance and real model evaluation remain pending.
+This document records the feature and activation contract.
 
 The portal gives customers a clear place to ask for help, see requests needing
 a reply, follow business support requests, and reach the support team directly.
