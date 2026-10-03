@@ -1,13 +1,14 @@
 # Where things stand
 
-**Current live release — October 2, 6:03 PM Pacific:** the Phase 1 customer
-dashboard is deployed at `6413e7a1ba48b748d8e7e31c23423bca721076bc` (PR #148).
-Migration 031 and replay passed with existing data unchanged; the four new
-tables remain empty. The 77-second Safeharbor-only window ended with public
-routes healthy, configuration/grants preserved and the existing report
-schedule active. Exact-main CI passed 59 portal database checks and 21 browser
-contracts. Private Westy chat and AI remain disabled; live customer sign-in
-acceptance and model evaluation are still pending. See the
+**Current live release — October 2, 7:19 PM Pacific:** the customer dashboard
+and private Westy chat are deployed at
+`e210e7fe8060e9507cdfd73504b58d0f698ba0f2` (PR #150). Chat is enabled for
+every valid active customer binding, with usage limits and expiry maintenance.
+Eight synthetic live Luna checks passed. Exact-main CI and 65 focused portal
+checks passed; public and origin routes are healthy and reports remain active
+with unchanged scope. Live customer sign-in/reply acceptance and six legacy
+customer identity bindings remain open. Device enrollment, repair and add-on
+purchasing are separate implementation work. See the
 [release and recovery record](customer-portal-release-2026-10-02.md) and
 [scope, privacy and activation gates](customer-portal-phase1.md). The older
 release checkpoints below retain their original dates.

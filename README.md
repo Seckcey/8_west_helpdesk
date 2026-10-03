@@ -30,9 +30,10 @@ scope and verification evidence.
   portal supports new requests, replies, ticket details, and report archives.
   Broader customer acceptance remains a separate step.
   The [Phase 1 dashboard](docs/customer-portal-release-2026-10-02.md) is deployed.
-  Private Westy conversation and reviewed ticket handoff remain disabled;
-  customer sign-in acceptance, AI activation and real-provider evaluation are
-  separate gates in the [feature contract](docs/customer-portal-phase1.md).
+  Private Westy conversation and reviewed ticket handoff are enabled for all
+  valid active customer bindings. Eight synthetic live Luna checks passed;
+  authenticated customer acceptance and six legacy customer identity bindings
+  remain open. See the [feature contract](docs/customer-portal-phase1.md).
 - **Connect the suite carefully:** Approved time can be sent to an existing
   Coastmark connection as a *draft* invoice line. Coastmark owns pricing and
   every later invoice decision. Westy offers help and guidance; it does not
