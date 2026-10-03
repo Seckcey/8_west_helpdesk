@@ -13,6 +13,7 @@ const APP_CSS = await readFile(path.join(ROOT, 'app/public/assets/css/app.css'),
 const FAVICON = await readFile(path.join(ROOT, 'brand/svg/favicon.svg'), 'utf8');
 const PORTAL_ASSETS = {
   '/assets/css/portal.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal.css'))],
+  '/assets/css/portal-devices.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-devices.css'))],
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
   '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
@@ -61,6 +62,8 @@ function portal_action_nonce(string $purpose, ?int $now = null): string {
 require $argv[1];
 require dirname($argv[1]) . '/business_reports.php';
 require $argv[2];
+require dirname($argv[2]) . '/portal_devices_render.php';
+$_SERVER['REQUEST_URI'] = str_starts_with($argv[3], 'devices') ? '/portal/devices.php' : '/portal/';
 $context = [
     'identity' => ['display_name' => 'Frank at 8 West Lifestyle', 'role' => 'client_admin'],
     'binding' => ['client_name' => '8 West Lifestyle'],
@@ -103,6 +106,27 @@ $archive = [
     'metrics' => $metrics, 'text' => $reportText,
 ];
 switch ($argv[3]) {
+    case 'devices':
+    case 'devicesviewer':
+    case 'devicesempty':
+    case 'deviceserror':
+    case 'devicesdownload':
+    case 'devicesrevoked':
+        if($argv[3]==='devicesviewer')$context['identity']['role']='client_viewer';
+        $devices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11',
+            'connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in and inventory received.',
+            'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-60),'troubleshooting'=>'support_request'],
+            ['reference'=>'2:'.str_repeat('b',64),'label'=>'Warehouse laptop','platform'=>'Windows 11',
+            'connection'=>'stale','connection_label'=>'Not checking in','connection_help'=>'Keep this computer online so support can help.',
+            'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-86400),'troubleshooting'=>'support_request']], 'next_after'=>null];
+        $grant=['reference'=>str_repeat('1',32),'state'=>$argv[3]==='devicesrevoked'?'revoked':'ready',
+            'created_at'=>gmdate('Y-m-d\\TH:i:s\\Z'),'expires_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()+14400)];
+        if($argv[3]==='devicesempty')$devices['items']=[];
+        portal_render_devices($context,$argv[3]==='deviceserror'?null:$devices,[$grant],
+            $argv[3]==='deviceserror'?portal_devices_error('service_unavailable'):null,
+            $argv[3]==='devicesdownload'?$grant+['download_url'=>'https://support.8westit.com/download.php?t='.str_repeat('d',64)]:null,
+            $argv[3]==='devicesrevoked'?'The installation link is no longer available.':null);
+        break;
     case 'dashboard':
         portal_render_dashboard($context, [
             'client' => ['name' => '8 West Lifestyle'],
@@ -146,7 +170,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report']) {
+  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked']) {
     const result = spawnSync('php', [
       fixturePath,
       path.join(ROOT, 'app/lib/portal_data.php'),
@@ -176,6 +200,13 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
       if(apiHandler)return apiHandler(route);
       return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{enabled:false,ai_available:false,can_write:true,conversation:null,turns:[],draft:null}})});
     }
+    if (url.pathname === '/portal/devices.php' && route.request().method() === 'POST') {
+      const form = new URLSearchParams(route.request().postData());
+      assert.equal(form.get('csrf'), 'c'.repeat(64));
+      if (form.get('action') === 'enrollment_create') assert.equal(form.get('consent'), 'yes');
+      const body = form.get('action') === 'enrollment_revoke' ? pages.devicesrevoked : pages.devicesdownload;
+      return route.fulfill({contentType:'text/html',body});
+    }
     if (url.pathname === '/assets/css/app.css') {
       return route.fulfill({ contentType: 'text/css; charset=utf-8', body: APP_CSS });
     }
@@ -189,6 +220,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
         : route.fulfill({ contentType: asset.contentType, body: asset.body });
     }
     const body = url.pathname === '/portal/' ? pages.dashboard
+      : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
       : url.pathname === '/portal/new.php' ? pages.new
       : url.pathname === '/portal/ticket.php' ? pages.ticket
       : url.pathname === '/portal/reports.php' && url.searchParams.has('id') ? pages.report
@@ -203,6 +235,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
 
 function fixtureForUrl(pages, url) {
   return url.pathname === '/portal/' ? pages.dashboard
+    : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
     : url.pathname === '/portal/new.php' ? pages.new
     : url.pathname === '/portal/ticket.php' ? pages.ticket
     : url.pathname === '/portal/reports.php' && url.searchParams.has('id') ? pages.report
@@ -368,4 +401,44 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
     assert.equal(await mobile.page.getByText('Request #102 received',{exact:true}).count(),0);
     await mobile.context.close();
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and responsive states', async () => {
+  const {pages,scratch}=await renderedFixtures();
+  const browser=await chromium.launch();
+  const evidence=process.env.PORTAL_DEVICE_EVIDENCE;
+  try {
+    for (const viewport of [{width:1365,height:900},{width:390,height:844}]) {
+      const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport);
+      await page.goto(`${ORIGIN}/portal/devices.php`);
+      assert.equal(await page.title(),'Your devices · Safeharbor');
+      assert.equal(await page.getByRole('navigation',{name:'Customer portal'}).getByRole('link',{name:'Your devices',exact:true}).getAttribute('aria-current'),'page');
+      await page.getByRole('heading',{name:'Connected computers'}).waitFor();
+      await page.getByText('Front desk computer',{exact:true}).waitFor();
+      assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+      assert.equal(await page.locator('img').evaluateAll(images=>images.every(i=>i.complete&&i.naturalWidth>0)),true);
+      if(evidence)await page.screenshot({path:path.join(evidence,`devices-${viewport.width}.png`),fullPage:true});
+      await page.getByRole('button',{name:'Create Windows setup link',exact:true}).click();
+      assert.equal(await page.getByRole('heading',{name:'Install on your Windows computer'}).count(),0);
+      await page.getByRole('checkbox',{name:/I am authorized to add this computer/}).check();
+      await page.getByRole('button',{name:'Create Windows setup link',exact:true}).click();
+      await page.getByRole('heading',{name:'Install on your Windows computer'}).waitFor();
+      assert.match(await page.getByRole('link',{name:'Download Milepost setup'}).getAttribute('href'),/^https:\/\/support\.8westit\.com\/download\.php\?t=/);
+      assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+      if(evidence&&viewport.width===1365)await page.screenshot({path:path.join(evidence,'devices-setup.png'),fullPage:true});
+      await page.getByRole('button',{name:'Revoke',exact:true}).click();
+      await page.getByText('Link revoked',{exact:true}).waitFor();
+      assert.equal(await page.getByRole('button',{name:'Get setup link',exact:true}).count(),0);
+      await page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesviewer`);
+      assert.equal(await page.getByRole('button',{name:'Create Windows setup link',exact:true}).count(),0);
+      assert.equal(await page.getByRole('button',{name:'Revoke',exact:true}).count(),0);
+      await page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesempty`);
+      await page.getByRole('heading',{name:'No computers on this page yet'}).waitFor();
+      await page.goto(`${ORIGIN}/portal/devices.php?fixture=deviceserror`);
+      await page.getByRole('alert').getByText(/Device services are temporarily unavailable/).waitFor();
+      assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+    }
+  } finally {await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
