@@ -616,12 +616,18 @@ if (!SERVE_MODE) test('Secure Plus requires separate order and installation cons
       await page.getByRole('button',{name:'Review Secure Plus',exact:true}).click();
       await page.getByRole('button',{name:'Accept $15/month order',exact:true}).waitFor();
       assert.equal(await page.locator('form:has(button:text-is("Accept $15/month order"))').evaluate(f=>f.checkValidity()),false);
+      assert.equal(await page.evaluate(()=>{
+        const b=document.getElementById('portal-chat-bubble').getBoundingClientRect();
+        return [...document.querySelectorAll('.portal-device-card,.portal-device-setup')].every(e=>{
+          const r=e.getBoundingClientRect();return r.right<=b.left||r.left>=b.right||r.bottom<=b.top||r.top>=b.bottom;
+        });
+      }),true,'Westy stays outside the complete order, terms and receipt text');
+      if(process.env.PORTAL_SECURITY_EVIDENCE)await page.screenshot({path:path.join(process.env.PORTAL_SECURITY_EVIDENCE,'security-review-'+viewport.width+'.png'),fullPage:true});
       let writes=0;
       page.on('request',r=>{if(r.method()==='POST'&&new URL(r.url()).pathname==='/portal/security.php')writes++;});
       await page.getByRole('button',{name:'Accept $15/month order',exact:true}).click();
       assert.equal(writes,0,'unchecked commercial consent cannot submit');
       await page.getByRole('checkbox').check();
-      if(process.env.PORTAL_SECURITY_EVIDENCE)await page.screenshot({path:path.join(process.env.PORTAL_SECURITY_EVIDENCE,'security-review-'+viewport.width+'.png'),fullPage:true});
       await page.getByRole('button',{name:'Accept $15/month order',exact:true}).click();
       await page.getByRole('button',{name:'Continue setup',exact:true}).waitFor();
       assert.equal(await page.getByRole('button',{name:'Install on this computer',exact:true}).count(),0);
@@ -641,10 +647,10 @@ if (!SERVE_MODE) test('Secure Plus requires separate order and installation cons
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
       assert.equal(await page.evaluate(()=>{
         const bubble=document.getElementById('portal-chat-bubble'),b=bubble.getBoundingClientRect();
-        return [...document.querySelectorAll('.portal-device-card a,.portal-device-card button,.portal-device-card input')].every(e=>{
+        return [...document.querySelectorAll('.portal-device-card,.portal-device-setup')].every(e=>{
           const r=e.getBoundingClientRect();return !r.width||!r.height||r.right<=b.left||r.left>=b.right||r.bottom<=b.top||r.top>=b.bottom;
         });
-      }),true,'Westy stays outside order and installation controls');
+      }),true,'Westy stays outside complete installation and receipt content');
       if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
       assert.equal(await page.getByRole('navigation',{name:'Customer portal'}).getByRole('link',{name:'Your devices',exact:true}).getAttribute('aria-current'),'page');
       if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
