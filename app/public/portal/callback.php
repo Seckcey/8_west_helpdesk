@@ -26,6 +26,7 @@ try {
         $_GET,
         is_string($stateCookie) ? $stateCookie : '',
     );
+    $destination = portal_take_login_return(is_string($_GET['state'] ?? null) ? $_GET['state'] : '');
     portal_establish_identity(db(), $identity);
 } catch (Throwable $error) {
     $failure = $error;
@@ -42,5 +43,5 @@ if ($failure !== null) {
 }
 
 header('Cache-Control: no-store');
-header('Location: /portal/', true, 302);
+header('Location: ' . $destination, true, 302);
 exit;

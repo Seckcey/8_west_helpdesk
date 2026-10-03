@@ -31,7 +31,7 @@ try {
     exit;
 }
 if ($context === null) {
-    portal_render_login('Sign in before opening a support request.');
+    portal_require_sign_in('Sign in before opening a support request.');
     exit;
 }
 if (! portal_role_can_write_tickets((string)$context['identity']['role'])) {

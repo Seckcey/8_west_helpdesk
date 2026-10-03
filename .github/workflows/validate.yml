@@ -212,7 +212,9 @@ jobs:
           SAFEHARBOR_COASTMARK_V3_TEST_PASS: safeharbor-test-root
         run: php app/tests/coastmark_time_export_mysql_test.php
       - name: Test customer portal authentication and revocation
-        run: php app/tests/portal_auth_test.php
+        run: |
+          php app/tests/portal_auth_test.php
+          php app/tests/portal_login_test.php
       - name: Test customer portal boundary and rendering
         run: php app/tests/portal_data_test.php
       - name: Test customer portal ticket workflow

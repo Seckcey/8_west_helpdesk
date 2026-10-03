@@ -1,5 +1,11 @@
 # Where things stand
 
+**Source repair awaiting release — October 3:** customer portal GET entry now
+starts its OIDC exchange automatically and preserves a validated customer page
+return. Failed sign-in retains an explicit retry and loop protection. No identity,
+customer-binding, configuration or schema change is required. See the
+[sign-in contract, tests and release boundary](customer-portal-login-return.md).
+
 **Current live release — October 3, 10:53 AM Pacific (17:53 UTC):** customer
 Secure Plus ordering is deployed at `40a5b3311b1a7e888abe4a7f8333e40b3a501363`,
 with the matching Milepost, Coastmark and Gateway services enabled. The final

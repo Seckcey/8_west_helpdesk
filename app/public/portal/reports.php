@@ -30,7 +30,7 @@ try {
     exit;
 }
 if ($context === null) {
-    portal_render_login('Sign in before viewing weekly service summaries.');
+    portal_require_sign_in('Sign in before viewing weekly service summaries.');
     exit;
 }
 

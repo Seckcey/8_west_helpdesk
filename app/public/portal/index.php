@@ -30,7 +30,7 @@ try {
 }
 
 if ($context === null) {
-    portal_render_login();
+    portal_require_sign_in();
     exit;
 }
 

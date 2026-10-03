@@ -9,7 +9,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if (!in_array($method, ['GET','POST'], true)) { header('Allow: GET, POST'); portal_render_error(405, 'Method not allowed', 'Open Your devices from the portal.'); exit; }
 try {
     $context = portal_authenticated_context(db());
-    if ($context === null) { portal_render_login(); exit; }
+    if ($context === null) { portal_require_sign_in(); exit; }
     $error = null; $download = null; $notice = null; $devices = null; $enrollments = [];
     try {
         if ($method === 'POST') {
@@ -36,7 +36,7 @@ try {
     } catch (PortalDevicesException $e) { $error ??= portal_devices_error($e->reason); }
     // No response leaves this page after a revocation or binding change during a service request.
     $fresh = portal_authenticated_context(db());
-    if ($fresh === null || $fresh['identity'] !== $context['identity']) { portal_render_login('Please sign in again.'); exit; }
+    if ($fresh === null || $fresh['identity'] !== $context['identity']) { portal_require_sign_in('Please sign in again.'); exit; }
     portal_render_devices($fresh, $devices, $enrollments, $error, $download, $notice);
 } catch (Throwable $e) {
     error_log('[safeharbor-portal-devices] request_failed type=' . $e::class);

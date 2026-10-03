@@ -36,7 +36,7 @@ try {
     exit;
 }
 if ($context === null) {
-    portal_render_login('Sign in before viewing a support ticket.');
+    portal_require_sign_in('Sign in before viewing a support ticket.');
     exit;
 }
 
