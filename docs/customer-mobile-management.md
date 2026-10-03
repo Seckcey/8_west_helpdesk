@@ -41,10 +41,12 @@ The page offers:
 - Setup-required or ready-for-device-approval states. The latter requires current
   customer-specific prerequisite evidence and read-only Intune access; it does not
   claim the phone is enrolled or that another customer's licensing covers it.
-  The backend separately requires current operator evidence of the exact
+  The backend separately requires protected approved setup evidence for the exact
   dedicated application's permissions. Microsoft access tokens are opaque;
   neither their contents nor a successful Graph read prove the application has
   no other grants. No provider token or permission-review receipt reaches this page.
+  A permission-review reminder becoming due does not disable inventory; explicit
+  evidence revocation, binding changes and provider/customer access refusal do.
 - Safe troubleshooting and a Westy explanation prompt. Chat is guidance, not
   authorization for a device action. No lock/restart/retire/wipe/script path exists
   in this mobile service.
