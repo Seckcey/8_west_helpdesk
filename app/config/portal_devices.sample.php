@@ -4,6 +4,7 @@
 return ['portal_devices' => [
     'enabled' => false,
     'diagnostics_enabled' => false,
+    'security_orders_enabled' => false,
     'endpoint' => 'https://support.8westit.com/api/svc/customer_portal.php',
     'secret' => '',
 ]];

@@ -15,6 +15,7 @@ const PORTAL_ASSETS = {
   '/assets/css/portal.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal.css'))],
   '/assets/css/portal-devices.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-devices.css'))],
   '/assets/css/portal-mobile.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-mobile.css'))],
+  '/assets/css/portal-security.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-security.css'))],
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
   '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
@@ -61,7 +62,7 @@ function portal_csrf_token(): string { return str_repeat('c', 64); }
 function cfg(string $key,mixed $default=null):mixed{
     global $argv;
     if($key==='portal_mobile')return ['enabled'=>in_array($argv[3],['devicesmobile','devicesmobileviewer','mobile','mobileviewer'],true)];
-    return $key==='portal_devices'?['diagnostics_enabled'=>true]:$default;
+    return $key==='portal_devices'?['diagnostics_enabled'=>true,'security_orders_enabled'=>true]:$default;
 }
 function portal_action_nonce(string $purpose, ?int $now = null): string {
     return hash('sha256', $purpose . ':' . ($now ?? 1));
@@ -72,8 +73,10 @@ require $argv[2];
 require dirname($argv[2]) . '/portal_devices_render.php';
 require dirname($argv[2]) . '/portal_device_operations_render.php';
 require dirname($argv[2]) . '/portal_mobile_render.php';
+require dirname($argv[2]) . '/portal_security_orders_render.php';
 $_SERVER['REQUEST_URI'] = str_starts_with($argv[3], 'help') ? '/portal/device_help.php' : (str_starts_with($argv[3], 'devices') ? '/portal/devices.php' : '/portal/');
 if(str_starts_with($argv[3],'mobile'))$_SERVER['REQUEST_URI']='/portal/mobile.php';
+if(str_starts_with($argv[3],'security'))$_SERVER['REQUEST_URI']='/portal/security.php';
 $context = [
     'identity' => ['display_name' => 'Frank at 8 West Lifestyle', 'role' => 'client_admin'],
     'binding' => ['client_name' => '8 West Lifestyle'],
@@ -168,6 +171,37 @@ switch ($argv[3]) {
             $argv[3]==='devicesdownload'?$grant+['download_url'=>'https://support.8westit.com/download.php?t='.str_repeat('d',64)]:null,
             $argv[3]==='devicesrevoked'?'The installation link is no longer available.':null);
         break;
+    case 'security':
+    case 'securityreview':
+    case 'securityaccepted':
+    case 'securityready':
+    case 'securitywaiting':
+    case 'securityinstalled':
+    case 'securityunknown':
+    case 'securityviewer':
+    case 'securityexpired':
+    case 'securityrecovery':
+        $device=['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11'];
+        $fixture=json_decode(file_get_contents(dirname($argv[1]).'/../tests/fixtures/security_orders/coastmark_secure_plus_v1.json'),true);
+        $order=['reference'=>str_repeat('a',32),'state'=>'review','expired'=>false,'device_reference'=>$device['reference'],
+            'offer'=>$fixture['quote']['offer'],'gateway_stage'=>null,'created_at'=>gmdate('Y-m-d\TH:i:s\Z'),
+            'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',time()+600),'can_approve'=>true,'can_install'=>false,
+            'approval_fingerprint'=>str_repeat('b',64),'can_continue'=>false,'can_refresh'=>false,'error_code'=>'','installation'=>null,
+            'existing_order'=>false,'superseded'=>false,'can_review_setup'=>false];
+        if(!in_array($argv[3],['security','securityreview','securityrecovery'],true))$order=array_replace($order,[
+            'state'=>'accepted','gateway_stage'=>'ready','can_approve'=>false,'can_install'=>true,'can_refresh'=>true]);
+        if($argv[3]==='securityaccepted')$order=array_replace($order,['gateway_stage'=>'company_ready','can_install'=>false,'approval_fingerprint'=>null,'can_continue'=>true]);
+        if(in_array($argv[3],['securitywaiting','securityinstalled','securityunknown'],true))$order=array_replace($order,[
+            'can_install'=>false,'approval_fingerprint'=>null,'installation'=>[
+                'state'=>$argv[3]==='securityinstalled'?'installed':($argv[3]==='securityunknown'?'unknown':'awaiting_verification'),
+                'outcome'=>'ok','reboot_pending'=>false,'updated_at'=>gmdate('Y-m-d\TH:i:s\Z'),
+                'protection'=>$argv[3]==='securityinstalled'?'current':'unknown','mdr'=>'unknown',
+                'observed_at'=>$argv[3]==='securityinstalled'?gmdate('Y-m-d\TH:i:s\Z'):null]]);
+        if($argv[3]==='securityviewer')$context['identity']['role']='client_viewer';
+        if($argv[3]==='securityexpired')$order=array_replace($order,['expired'=>true,'can_install'=>false,'can_refresh'=>false,'approval_fingerprint'=>null,'can_review_setup'=>true]);
+        if($argv[3]==='securityrecovery')$order['existing_order']=true;
+        portal_render_security_orders($context,$device,$argv[3]==='security'?[]:[$order]);
+        break;
     case 'dashboard':
         portal_render_dashboard($context, [
             'client' => ['name' => '8 West Lifestyle'],
@@ -211,7 +245,8 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer']) {
+  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
+    'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
       fixturePath,
       path.join(ROOT, 'app/lib/portal_data.php'),
@@ -228,12 +263,14 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   const consoleProblems = [];
+  let recoveringSecurityOrder=false;
   page.on('pageerror', (error) => consoleProblems.push(error.message));
   page.on('console', (message) => {
     if (['error', 'warning'].includes(message.type())) consoleProblems.push(message.text());
   });
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
+    if(url.searchParams.get('fixture')==='securityexpired')recoveringSecurityOrder=true;
     if (PORTAL_ASSETS[url.pathname]) {
       const [contentType,body]=PORTAL_ASSETS[url.pathname];return route.fulfill({contentType,body});
     }
@@ -255,6 +292,19 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
       if(form.get('action')==='repair_approve')assert.equal(form.get('approval_fingerprint'),'f'.repeat(64));
       return route.fulfill({contentType:'text/html',body:form.get('action')==='repair_propose'?pages.helpreview:pages.helpwaiting});
     }
+    if(url.pathname==='/portal/security.php'&&route.request().method()==='POST') {
+      const form=new URLSearchParams(route.request().postData());
+      assert.equal(form.get('csrf'),'c'.repeat(64));
+      const action=form.get('action');
+      if(['security_accept','security_install'].includes(action)) {
+        assert.equal(form.get('consent'),'yes');
+        assert.equal(form.get('approval_fingerprint'),'b'.repeat(64));
+      }
+      const next={security_review:recoveringSecurityOrder?'securityrecovery':'securityreview',security_accept:'securityaccepted',security_continue:'securityready',
+        security_install:'securitywaiting',security_refresh:'securityinstalled'}[action];
+      assert.ok(next,'only closed customer security forms can submit');
+      return route.fulfill({contentType:'text/html',body:pages[next]});
+    }
     if (url.pathname === '/assets/css/app.css') {
       return route.fulfill({ contentType: 'text/css; charset=utf-8', body: APP_CSS });
     }
@@ -270,6 +320,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
     const body = url.pathname === '/portal/' ? pages.dashboard
       : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
       : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
+      : url.pathname === '/portal/security.php' ? pages[url.searchParams.get('fixture') || 'security']
       : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
       : url.pathname === '/portal/new.php' ? pages.new
       : url.pathname === '/portal/ticket.php' ? pages.ticket
@@ -287,6 +338,7 @@ function fixtureForUrl(pages, url) {
   return url.pathname === '/portal/' ? pages.dashboard
     : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
     : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
+    : url.pathname === '/portal/security.php' ? pages[url.searchParams.get('fixture') || 'security']
     : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
     : url.pathname === '/portal/new.php' ? pages.new
     : url.pathname === '/portal/ticket.php' ? pages.ticket
@@ -555,6 +607,82 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
     await mobile.page.getByText('Your sign-in has ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
     assert.equal(await mobile.page.getByText('Request #102 received',{exact:true}).count(),0);
     await mobile.context.close();
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('Secure Plus requires separate order and installation consent and separates provider evidence', async () => {
+  const {pages,scratch}=await renderedFixtures();
+  const browser=await chromium.launch();
+  try {
+    for(const viewport of [{width:1365,height:900},{width:390,height:844}]) {
+      const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport);
+      page.setDefaultTimeout(10000);
+      await page.goto(ORIGIN+'/portal/devices.php');
+      await page.getByRole('link',{name:'Secure Plus'}).first().click();
+      await page.getByRole('heading',{name:'No Secure Plus order for this computer'}).waitFor();
+      await page.getByRole('button',{name:'Review Secure Plus',exact:true}).click();
+      await page.getByRole('button',{name:'Accept $15/month order',exact:true}).waitFor();
+      assert.equal(await page.locator('form:has(button:text-is("Accept $15/month order"))').evaluate(f=>f.checkValidity()),false);
+      assert.equal(await page.evaluate(()=>{
+        const b=document.getElementById('portal-chat-bubble').getBoundingClientRect();
+        return [...document.querySelectorAll('.portal-device-card,.portal-device-setup')].every(e=>{
+          const r=e.getBoundingClientRect();return r.right<=b.left||r.left>=b.right||r.bottom<=b.top||r.top>=b.bottom;
+        });
+      }),true,'Westy stays outside the complete order, terms and receipt text');
+      if(process.env.PORTAL_SECURITY_EVIDENCE)await page.screenshot({path:path.join(process.env.PORTAL_SECURITY_EVIDENCE,'security-review-'+viewport.width+'.png'),fullPage:true});
+      let writes=0;
+      page.on('request',r=>{if(r.method()==='POST'&&new URL(r.url()).pathname==='/portal/security.php')writes++;});
+      await page.getByRole('button',{name:'Accept $15/month order',exact:true}).click();
+      assert.equal(writes,0,'unchecked commercial consent cannot submit');
+      await page.getByRole('checkbox').check();
+      await page.getByRole('button',{name:'Accept $15/month order',exact:true}).click();
+      await page.getByRole('button',{name:'Continue setup',exact:true}).waitFor();
+      assert.equal(await page.getByRole('button',{name:'Install on this computer',exact:true}).count(),0);
+      await page.getByRole('button',{name:'Continue setup',exact:true}).click();
+      await page.getByRole('button',{name:'Install on this computer',exact:true}).waitFor();
+      const before=writes;
+      await page.getByRole('button',{name:'Install on this computer',exact:true}).click();
+      assert.equal(writes,before,'unchecked installation consent cannot submit');
+      await page.getByRole('checkbox').check();
+      await page.getByRole('button',{name:'Install on this computer',exact:true}).click();
+      await page.getByText('Checking provider enrollment',{exact:true}).waitFor();
+      assert.equal(await page.getByText('Not yet verified',{exact:true}).count(),2);
+      await page.getByRole('button',{name:'Check setup status',exact:true}).click();
+      await page.getByText('Provider confirmed',{exact:true}).waitFor();
+      await page.getByText('Current',{exact:true}).waitFor();
+      assert.equal(await page.getByText('Not yet verified',{exact:true}).count(),1,'MDR stays unknown until independently observed');
+      assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+      assert.equal(await page.evaluate(()=>{
+        const bubble=document.getElementById('portal-chat-bubble'),b=bubble.getBoundingClientRect();
+        return [...document.querySelectorAll('.portal-device-card,.portal-device-setup')].every(e=>{
+          const r=e.getBoundingClientRect();return !r.width||!r.height||r.right<=b.left||r.left>=b.right||r.bottom<=b.top||r.top>=b.bottom;
+        });
+      }),true,'Westy stays outside complete installation and receipt content');
+      if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
+      assert.equal(await page.getByRole('navigation',{name:'Customer portal'}).getByRole('link',{name:'Your devices',exact:true}).getAttribute('aria-current'),'page');
+      if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
+      if(process.env.PORTAL_SECURITY_EVIDENCE)await page.screenshot({path:path.join(process.env.PORTAL_SECURITY_EVIDENCE,'security-installed-'+viewport.width+'.png'),fullPage:true});
+      await page.goto(ORIGIN+'/portal/security.php?fixture=securityunknown');
+      await page.getByText(/before trying another install/).waitFor();
+      assert.equal(await page.getByRole('button',{name:'Install on this computer',exact:true}).count(),0);
+      await page.goto(ORIGIN+'/portal/security.php?fixture=securityexpired');
+      await page.getByRole('button',{name:'Review setup for existing order',exact:true}).click();
+      await page.getByRole('button',{name:'Approve setup for existing order',exact:true}).waitFor();
+      assert.equal(await page.getByRole('button',{name:'Accept $15/month order',exact:true}).count(),0);
+      await page.getByText(/does not place another order or change its price or terms/).waitFor();
+      const beforeRenew=writes;
+      if(process.env.PORTAL_SECURITY_EVIDENCE)await page.screenshot({path:path.join(process.env.PORTAL_SECURITY_EVIDENCE,'security-recovery-'+viewport.width+'.png'),fullPage:true});
+      await page.getByRole('button',{name:'Approve setup for existing order',exact:true}).click();
+      assert.equal(writes,beforeRenew,'unchecked fresh setup consent cannot submit');
+      await page.getByRole('checkbox').check();
+      await page.getByRole('button',{name:'Approve setup for existing order',exact:true}).click();
+      await page.getByRole('button',{name:'Continue setup',exact:true}).waitFor();
+      assert.equal(await page.getByRole('button',{name:'Install on this computer',exact:true}).count(),0,'fresh setup consent still requires separate install');
+      await page.goto(ORIGIN+'/portal/security.php?fixture=securityviewer');
+      assert.equal(await page.locator('form[action^="/portal/security.php"]').count(),0);
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+    }
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 

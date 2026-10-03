@@ -51,8 +51,10 @@ function portal_devices_scope(PDO $pdo, array $context): array
 function portal_devices_transport(string $endpoint, string $body, array $headers): array
 {
     $ch = curl_init($endpoint); $response = ''; $tooLarge = false;
+    $request=json_decode($body,true);
+    $timeout=is_array($request) && str_starts_with((string)($request['action']??''),'security_')?90:12;
     curl_setopt_array($ch, [CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>$body,
-        CURLOPT_HTTPHEADER=>$headers, CURLOPT_CONNECTTIMEOUT=>3, CURLOPT_TIMEOUT=>12,
+        CURLOPT_HTTPHEADER=>$headers, CURLOPT_CONNECTTIMEOUT=>3, CURLOPT_TIMEOUT=>$timeout,
         CURLOPT_FOLLOWLOCATION=>false, CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,
         CURLOPT_SSL_VERIFYPEER=>true, CURLOPT_SSL_VERIFYHOST=>2,
         CURLOPT_WRITEFUNCTION=>static function ($ch, string $chunk) use (&$response, &$tooLarge): int {
@@ -69,8 +71,13 @@ function portal_devices_transport(string $endpoint, string $body, array $headers
 function portal_devices_request(PDO $pdo, array $context, string $action, array $input, ?callable $transport = null): array
 {
     if (!in_array($action, ['devices','enrollments','enrollment_create','enrollment_download','enrollment_revoke',
-        'operations','health_start','repair_propose','repair_approve'], true)) {
+        'operations','health_start','repair_propose','repair_approve',
+        'security_orders','security_review','security_accept','security_continue','security_install','security_refresh'], true)) {
         throw new PortalDevicesException('invalid_request', 400);
+    }
+    if (str_starts_with($action,'security_')) {
+        if ((cfg('portal_devices',[])['security_orders_enabled']??false)!==true) throw new PortalDevicesException('orders_unavailable');
+        if ($action!=='security_orders' && !portal_devices_can_manage($context)) throw new PortalDevicesException('role',403);
     }
     if ((str_starts_with($action, 'enrollment_') || in_array($action,['health_start','repair_propose','repair_approve'],true))
         && !portal_devices_can_manage($context)) throw new PortalDevicesException('role', 403);
@@ -91,7 +98,9 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
         $reason = $data['reason'] ?? 'service_unavailable';
         $safe = ['role','customer_unavailable','identity_unavailable','enrollment_limit','enrollment_unavailable','unsupported_platform','installer_unavailable',
             'device_offline','operation_unavailable','support_busy','maintenance_active','maintenance_unavailable','rate_limited',
-            'fresh_diagnosis_required','approval_expired','approval_changed','repair_cooldown'];
+            'fresh_diagnosis_required','approval_expired','approval_changed','repair_cooldown',
+            'orders_unavailable','order_unavailable','order_authorization_changed','order_evidence_unavailable',
+            'order_service_unavailable','installation_unavailable','installation_busy'];
         throw new PortalDevicesException(in_array($reason, $safe, true) ? $reason : 'service_unavailable');
     }
     if (($data['contract'] ?? '') !== PORTAL_DEVICES_CONTEXT || !is_array($data['result'] ?? null)) throw new PortalDevicesException('service_unavailable');
@@ -114,6 +123,10 @@ function portal_devices_timestamp(mixed $value): bool
 /** Reject unexpected/malformed projections before they reach the renderer or browser. */
 function portal_devices_result(string $action, array $result): array
 {
+    if(str_starts_with($action,'security_')) {
+        require_once __DIR__.'/portal_security_orders.php';
+        return portal_security_orders_result($action,$result);
+    }
     if(in_array($action,['operations','health_start','repair_propose','repair_approve'],true)) {
         require_once __DIR__.'/portal_device_operations.php';
         return portal_device_operations_result($action,$result);

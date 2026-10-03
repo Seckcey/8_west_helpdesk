@@ -60,5 +60,6 @@ inventory.
 The Westy shortcut opens the existing support conversation. The separate
 [Computer checks feature](customer-device-checks.md) adds default-off diagnostic
 consent and exact print-service repair review. The enrollment page itself does
-not authorize a command. Commercial offers and Bitdefender ordering remain
-separate work; adding a computer does not purchase them.
+not authorize a command. The separate default-off [Secure Plus order
+flow](customer-security-orders.md) adds commercial review and explicit
+installation consent; adding a computer does not purchase it.
