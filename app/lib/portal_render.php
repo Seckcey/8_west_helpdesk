@@ -36,6 +36,7 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <link rel="stylesheet" href="/assets/css/app.css?v=5">
 <link rel="stylesheet" href="/assets/css/portal.css?v=1">
+<link rel="stylesheet" href="/assets/css/portal-devices.css?v=1">
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
     <?php
@@ -252,6 +253,7 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
    <div class="portal-shortcuts">
     <button type="button" data-portal-chat-prompt="Something is not working. Help me write a support request."><?= portal_icon('alert') ?>Something is not working</button>
     <a href="/portal/guide.php"><?= portal_icon('guide') ?>How this portal works</a>
+    <a href="/portal/devices.php"><?= portal_icon('device') ?>Your devices</a>
     <?php if ($canWrite): ?><a href="/portal/new.php"><?= portal_icon('edit') ?>Write a request</a><?php endif; ?>
    </div>
    <p class="portal-hint">Do not include passwords or verification codes.</p>

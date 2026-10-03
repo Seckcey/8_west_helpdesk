@@ -5,6 +5,7 @@ function portal_icon(string $name): string
 {
     $paths = [
         'home' => '<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',
+        'device' => '<rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8M12 16v5"/>',
         'requests' => '<path d="M5 3h11l3 3v15H5z"/><path d="M9 9h6M9 13h6M9 17h4"/>',
         'guide' => '<path d="M12 5v16M3 3c4 0 6 0 9 2 3-2 5-2 9-2v16c-4 0-6 0-9 2-3-2-5-2-9-2z"/>',
         'chat' => '<path d="M21 11a8 8 0 0 1-8 8H7l-4 3v-7a8 8 0 1 1 18-4Z"/>',
@@ -27,7 +28,7 @@ function portal_shell_start(array $context): void
 <header class="portal-top"><a href="/portal/" aria-label="Safeharbor home"><img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" width="1851" height="513" alt="Safeharbor — 8 West IT 365"></a><span>8 West IT</span><button type="button" class="portal-icon-button portal-menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="portal-nav"><?= portal_icon('menu') ?></button></header>
 <aside class="portal-sidebar" id="portal-nav"><p class="portal-business"><?= portal_h($client) ?></p>
 <nav aria-label="Customer portal">
-<?php foreach ([['/portal/', 'Home', 'home'], ['/portal/#requests', 'Support requests', 'requests'], ['/portal/reports.php', 'Service summaries', 'requests'], ['/portal/guide.php', 'Portal guide', 'guide'], ['/portal/guide.php#contact', 'Contact support', 'chat']] as [$url, $label, $icon]): ?>
+<?php foreach ([['/portal/', 'Home', 'home'], ['/portal/devices.php', 'Your devices', 'device'], ['/portal/#requests', 'Support requests', 'requests'], ['/portal/reports.php', 'Service summaries', 'requests'], ['/portal/guide.php', 'Portal guide', 'guide'], ['/portal/guide.php#contact', 'Contact support', 'chat']] as [$url, $label, $icon]): ?>
 <a href="<?= portal_h($url) ?>"<?= $path === $url ? ' aria-current="page"' : '' ?>><?= portal_icon($icon) ?><span><?= portal_h($label) ?></span></a>
 <?php endforeach; ?>
 </nav><div class="portal-account"><strong><?= portal_h($identity['display_name']) ?></strong><span><?= portal_h(portal_role_label((string)$identity['role'])) ?></span><form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="btn-link">Sign out</button></form></div></aside>
@@ -35,12 +36,20 @@ function portal_shell_start(array $context): void
 <?php
 }
 
+/** One chat trigger; device pages place it in their normal header flow. */
+function portal_westy_button(): void
+{
+    ?>
+<button id="portal-chat-bubble" type="button" aria-expanded="false" aria-controls="portal-chat-panel"><img src="/assets/img/westy-avatar.png" alt="" width="36" height="36"><strong>Westy</strong><span>Continue chat</span><?= portal_icon('arrow') ?></button>
+    <?php
+}
+
 function portal_westy_widget(array $context): void
 {
     $canWrite = portal_role_can_write_tickets((string)$context['identity']['role']);
     ?>
 <div id="portal-chat-root" data-csrf="<?= portal_h(portal_csrf_token()) ?>" data-can-write="<?= $canWrite ? '1' : '0' ?>">
-<button id="portal-chat-bubble" type="button" aria-expanded="false" aria-controls="portal-chat-panel"><img src="/assets/img/westy-avatar.png" alt="" width="36" height="36"><strong>Westy</strong><span>Continue chat</span><?= portal_icon('arrow') ?></button>
+<?php if (($context['chat_button_placement'] ?? '') !== 'inline') portal_westy_button(); ?>
 <section id="portal-chat-panel" class="portal-westy" aria-label="Private conversation with Westy" hidden>
 <div class="portal-chat-head"><div><strong>Westy</strong><span>Private conversation</span></div><button type="button" class="btn-link" id="portal-chat-new">New chat</button><button type="button" class="portal-icon-button" id="portal-chat-close" aria-label="Close Westy"><?= portal_icon('close') ?></button></div>
 <div id="portal-chat-messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></div>
