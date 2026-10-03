@@ -1,0 +1,12 @@
+.portal-mobile-providers{display:flex;flex-wrap:wrap;gap:1rem;margin:1.5rem 0}
+.portal-mobile-providers>div{display:flex;flex-direction:column;gap:.35rem;padding:1rem;border:1px solid var(--line);border-radius:var(--radius-sm);flex:1;min-width:220px}
+.portal-mobile-providers span,.portal-mobile-guide .portal-hint{color:var(--muted)}
+.portal-mobile-form{display:grid;gap:1rem}
+.portal-mobile-form>div{display:grid;gap:.45rem}.portal-mobile-form label{font-weight:600}
+.portal-mobile-form select{width:100%;max-width:100%;padding:.7rem;border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--text);background:var(--input-bg)}
+.portal-mobile-guide{margin-top:1.5rem;border-top:1px solid var(--line);padding-top:1.5rem}
+.portal-mobile-guide ol{padding-left:1.25rem}.portal-mobile-guide li{margin:.75rem 0}
+.portal-mobile-guide details{margin:1rem 0}.portal-mobile-guide summary{cursor:pointer;font-weight:600}
+.portal-mobile-actions{display:flex;flex-wrap:wrap;gap:.75rem}.portal-mobile-actions .btn-link{white-space:normal;text-align:left}
+.portal-mobile h1,.portal-mobile h3,.portal-mobile p,.portal-mobile li{overflow-wrap:anywhere}
+@media(max-width:640px){.portal-mobile-providers{gap:.6rem}.portal-mobile-providers>div{min-width:0;flex-basis:100%}.portal-mobile-form select{font-size:16px}}
