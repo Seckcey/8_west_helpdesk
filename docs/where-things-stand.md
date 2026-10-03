@@ -1,6 +1,6 @@
 # Where things stand
 
-**Current live release — October 3, 09:19 UTC:** customer computer checks are
+**Current live release — October 3, 2:19 AM Pacific (09:19 UTC):** customer computer checks are
 deployed at `0adde180fe2bae2a9a699fa81085cc90f3e1621d` (PR #154), with the matching
 Milepost release and both diagnostics gates enabled. The 116-second maintenance
 and report restoration passed independent verification; reporting scope and
