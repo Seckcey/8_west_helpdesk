@@ -1,6 +1,17 @@
 # Where things stand
 
-**Current live release — October 2, 7:19 PM Pacific:** the customer dashboard
+**Current live release — October 3, 2:19 AM Pacific (09:19 UTC):** customer computer checks are
+deployed at `0adde180fe2bae2a9a699fa81085cc90f3e1621d` (PR #154), with the matching
+Milepost release and both diagnostics gates enabled. The 116-second maintenance
+and report restoration passed independent verification; reporting scope and
+customer identity data are preserved. Genuine customer page acceptance awaits
+the correct customer login. No device check or repair ran; the selected laptop's
+existing staff-owned support cases still require review. Add-on ordering and
+six pending customer identity bindings remain separate work. See the
+[production receipt and recovery boundary](customer-device-checks-release-2026-10-03.md)
+and [customer consent contract](customer-device-checks.md).
+
+**Previous live release — October 2, 7:19 PM Pacific:** the customer dashboard
 and private Westy chat are deployed at
 `e210e7fe8060e9507cdfd73504b58d0f698ba0f2` (PR #150). Chat is enabled for
 every valid active customer binding, with usage limits and expiry maintenance.

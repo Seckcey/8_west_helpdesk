@@ -1,6 +1,9 @@
 # Customer computer checks
 
-This is a separately gated implementation, not a production acceptance receipt.
+The [October 3 production receipt](customer-device-checks-release-2026-10-03.md)
+records the installed source and enabled diagnostics gates. Genuine customer
+page acceptance and an explicitly approved physical check/repair remain pending.
+
 **Your devices → Computer checks** shows a single computer's health-check and
 repair history. The customer must check the consent box and submit a POST to run
 a Windows health check. It reads memory usage, free system-drive space and print
@@ -39,8 +42,9 @@ history entry does not permanently disable checks after genuine resolution.
 
 ## Rollout and containment
 
-Keep `portal_devices.diagnostics_enabled=false` until the matching Milepost
-protected migration, source and reconciliation cron are installed and verified.
+For a new installation, keep `portal_devices.diagnostics_enabled=false` until
+the matching Milepost protected migration, source and reconciliation cron are
+installed and verified.
 Enrollment uses the existing independent `portal_devices.enabled` gate and
 dedicated service key; no new key or identity is needed for computer checks.
 The Milepost release must preserve the provider allowlist and existing staff
