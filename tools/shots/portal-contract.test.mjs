@@ -118,14 +118,20 @@ switch ($argv[3]) {
         $device=['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11','connection'=>'reporting','connection_label'=>'Connected and reporting'];
         $health=['reference'=>str_repeat('2',32),'recipe'=>'health','title'=>'Computer health check','impact'=>'Read-only system status.','device_reference'=>$device['reference'],
             'state'=>'completed','created_at'=>gmdate('Y-m-d\TH:i:s\Z'),'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',time()+600),'can_approve'=>false,'approval_fingerprint'=>null,
-            'result'=>['version'=>1,'observed_at'=>gmdate('Y-m-d\TH:i:s\Z'),'memory_used_percent'=>42.1,'system_disk_free_percent'=>55.5,'spooler'=>'stopped']];
+            'result'=>['version'=>1,'observed_at'=>gmdate('Y-m-d\TH:i:s\Z',time()-30),'memory_used_percent'=>42.1,'system_disk_free_percent'=>55.5,'spooler'=>'stopped']];
         $repair=$health;$repair['reference']=str_repeat('3',32);$repair['recipe']='spooler_restart';$repair['title']='Restart the Windows print service';
         $repair['impact']='Printing pauses while the service restarts. Pending print jobs are preserved. There is no automatic rollback. Two later health checks verify the service; you still need to confirm that printing works.';
         $repair['state']=match($argv[3]){'helpwaiting'=>'verifying','helpverified'=>'service_verified','helpunknown'=>'needs_help',default=>'awaiting_approval'};
         $repair['can_approve']=$repair['state']==='awaiting_approval';$repair['approval_fingerprint']=$repair['can_approve']?str_repeat('f',64):null;
-        $repair['result']=$repair['state']==='service_verified'?array_replace($health['result'],['spooler'=>'running']):null;
+        $repair['result']=$repair['state']==='service_verified'?array_replace($health['result'],['observed_at'=>gmdate('Y-m-d\TH:i:s\Z'),'spooler'=>'running']):null;
         if($argv[3]==='helpviewer')$context['identity']['role']='client_viewer';
-        portal_render_device_help($context,$device,['available'=>true,'items'=>$argv[3]==='help'?[$health]:[$repair,$health]]);
+        $eligibility=match($argv[3]){
+            'helpunknown'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'support_review'],
+            'helpwaiting'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'in_progress'],
+            'helpverified'=>['can_check'=>true,'can_propose_repair'=>false,'reason'=>'repair_cooldown'],
+            'helpviewer'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'read_only'],
+            default=>['can_check'=>true,'can_propose_repair'=>true,'reason'=>'ready']};
+        portal_render_device_help($context,$device,['available'=>true,'eligibility'=>$eligibility,'items'=>$argv[3]==='help'?[$health]:[$repair,$health]]);
         break;
     case 'devices':
     case 'devicesviewer':
@@ -396,8 +402,17 @@ if (!SERVE_MODE) test('computer checks preserve explicit consent, exact repair r
         await page.goto(`${ORIGIN}/portal/device_help.php?fixture=${fixture}`);
         assert.equal(await page.getByRole('button',{name:'Approve this repair',exact:true}).count(),0);
         assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
-        if(fixture==='helpverified')await page.getByText('Try printing now.',{exact:false}).waitFor();
-        if(fixture==='helpunknown')await page.getByText('Support review needed',{exact:true}).waitFor();
+        if(fixture==='helpverified'){
+          await page.getByText('Try printing now.',{exact:false}).waitFor();
+          await page.locator('.portal-health-service').getByText('Running',{exact:true}).waitFor();
+          assert.equal(await page.getByText('Stopped',{exact:true}).count(),0);
+          assert.equal(await page.getByRole('button',{name:'Review print-service repair',exact:true}).count(),0);
+        }
+        if(fixture==='helpunknown'){
+          await page.getByText('Support review needed',{exact:true}).waitFor();
+          assert.equal(await page.getByRole('button',{name:'Run health check',exact:true}).count(),0);
+          assert.equal(await page.getByRole('button',{name:'Review print-service repair',exact:true}).count(),0);
+        }
         if(fixture==='helpviewer')assert.equal(await page.getByRole('button',{name:'Run health check',exact:true}).count(),0);
         if(evidence)await page.screenshot({path:path.join(evidence,`${fixture}-${viewport.width}.png`),fullPage:true});
       }

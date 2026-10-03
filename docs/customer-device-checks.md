@@ -30,6 +30,13 @@ require support review and are never represented as successful repair or
 automatically repeated. This feature does not close tickets, order antivirus,
 take payment, or change the private chat's tool permissions.
 
+The latest readings use the newest completed observation, including the final
+running-service observation from a verified repair. An earlier stopped reading
+cannot replace it or offer the obsolete repair again. Milepost supplies current
+check/repair eligibility from its authority and execution controls. A current
+support hold removes both new-check and repair controls; an old `needs_help`
+history entry does not permanently disable checks after genuine resolution.
+
 ## Rollout and containment
 
 Keep `portal_devices.diagnostics_enabled=false` until the matching Milepost

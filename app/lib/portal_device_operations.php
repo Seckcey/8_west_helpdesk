@@ -7,9 +7,17 @@ function portal_device_operations_result(string $action,array $result):array
 {
     $fail=static function():never{throw new PortalDevicesException('service_unavailable');};
     if($action==='operations') {
-        if(!portal_devices_keys($result,['available','items']) || !is_bool($result['available'])
+        if(!portal_devices_keys($result,['available','eligibility','items']) || !is_bool($result['available'])
             || !is_array($result['items']) || !array_is_list($result['items']) || count($result['items'])>25
             || (!$result['available'] && $result['items']!==[])) $fail();
+        $eligibility=$result['eligibility'];
+        if(!is_array($eligibility)||!portal_devices_keys($eligibility,['can_check','can_propose_repair','reason'])
+            ||!is_bool($eligibility['can_check'])||!is_bool($eligibility['can_propose_repair'])
+            ||!in_array($eligibility['reason'],['ready','repair_cooldown','read_only','not_available','in_progress','support_review'],true)
+            ||($eligibility['can_propose_repair']&&!$eligibility['can_check'])
+            ||($eligibility['can_check']!==in_array($eligibility['reason'],['ready','repair_cooldown'],true))
+            ||($eligibility['can_propose_repair']!==($eligibility['reason']==='ready'))
+            ||(!$result['available']&&$eligibility['reason']!=='not_available'))$fail();
         $rows=$result['items'];
     } else $rows=[$result];
     foreach($rows as $r) {

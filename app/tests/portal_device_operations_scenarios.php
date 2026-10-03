@@ -34,7 +34,7 @@ foreach(['health_start','repair_approve'] as $action)check(refused(static fn()=>
 check(refused(static fn()=>portal_device_operation_inputs(['action'=>'health_start','consent'=>'yes','device_reference'=>['bad'],'request_key'=>str_repeat('1',32)])),'array-shaped device reference refused');
 $inputs=portal_device_operation_inputs(['action'=>'repair_approve','consent'=>'yes','reference'=>$operation['reference'],'approval_fingerprint'=>$operation['approval_fingerprint'],'customer_id'=>'injected','script'=>'injected']);
 check($inputs===['repair_approve',['reference'=>$operation['reference'],'approval_fingerprint'=>$operation['approval_fingerprint']]],'browser extras cannot become scope or script authority');
-$history=['available'=>true,'items'=>[$operation]];
+$history=['available'=>true,'eligibility'=>['can_check'=>true,'can_propose_repair'=>true,'reason'=>'ready'],'items'=>[$operation]];
 ob_start();portal_render_device_help($a,$devices['items'][0],$history);$html=ob_get_clean();
 check(str_contains($html,'Approve this repair')&&str_contains($html,'name="consent"')&&str_contains($html,'two follow-up health checks'),'exact repair review includes independent consent and verification impact');
 check(!str_contains($html,'<script>untrusted label</script>')&&str_contains($html,'&lt;script&gt;untrusted label&lt;/script&gt;'),'operation page escapes device labels');
@@ -44,5 +44,19 @@ $history['items'][0]['can_approve']=false;$history['items'][0]['approval_fingerp
 ob_start();portal_render_device_help($a,$devices['items'][0],$history);$html=ob_get_clean();
 check(!str_contains($html,'Approve this repair')&&str_contains($html,'person who requested'),'another requester cannot see approval control');
 $history['items'][0]['state']='needs_help';
+$history['eligibility']=['can_check'=>false,'can_propose_repair'=>false,'reason'=>'support_review'];
 ob_start();portal_render_device_help($a,$devices['items'][0],$history);$html=ob_get_clean();
 check(str_contains($html,'Support review needed')&&!str_contains($html,'Approve this repair'),'uncertain repair is not presented as recovery or a retry');
+check(!str_contains($html,'Run health check')&&!str_contains($html,'Review print-service repair'),'authoritative current support hold removes both inappropriate actions');
+$health=$operation;$health['recipe']='health';$health['state']='completed';$health['can_approve']=false;$health['approval_fingerprint']=null;
+$health['result']=['version'=>1,'observed_at'=>gmdate('Y-m-d\TH:i:s\Z',time()-30),'memory_used_percent'=>40,'system_disk_free_percent'=>20,'spooler'=>'stopped'];
+$verified=$history['items'][0];$verified['state']='service_verified';$verified['result']=array_replace($health['result'],['observed_at'=>gmdate('Y-m-d\TH:i:s\Z'),'spooler'=>'running']);
+$history=['available'=>true,'eligibility'=>['can_check'=>true,'can_propose_repair'=>false,'reason'=>'repair_cooldown'],'items'=>[$verified,$health]];
+ob_start();portal_render_device_help($a,$devices['items'][0],$history);$html=ob_get_clean();
+check(str_contains($html,'Running')&&!str_contains($html,'Stopped')&&!str_contains($html,'Review print-service repair'),'verified result supersedes the prior stopped-service observation');
+$history['items'][0]['state']='needs_help';$history['items'][0]['result']=null;$history['eligibility']=['can_check'=>true,'can_propose_repair'=>true,'reason'=>'ready'];
+ob_start();portal_render_device_help($a,$devices['items'][0],$history);$html=ob_get_clean();
+check(str_contains($html,'Run health check'),'historical needs-help alone does not suppress a genuinely available new check');
+check(portal_device_operations_result('operations',$history)===$history,'current eligibility passes the closed DTO contract');
+$history['eligibility']['can_check']='yes';
+check(refused(static fn()=>portal_device_operations_result('operations',$history)),'malformed current eligibility is refused');

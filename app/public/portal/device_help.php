@@ -33,7 +33,7 @@ try {
             header('Location: /portal/device_help.php?device='.rawurlencode($reference).'#operation-history',true,303);exit;
         }catch(PortalDevicesException $e){$error=portal_devices_error($e->reason);}
     }
-    $operations=['available'=>false,'items'=>[]];
+    $operations=['available'=>false,'eligibility'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'not_available'],'items'=>[]];
     try{$operations=portal_devices_request(db(),$context,'operations',['device_reference'=>$reference]);}
     catch(PortalDevicesException $e){$error??=portal_devices_error($e->reason);}
     $fresh=portal_authenticated_context(db());
