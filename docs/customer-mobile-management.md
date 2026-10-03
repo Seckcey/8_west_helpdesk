@@ -46,12 +46,18 @@ Windows job ledger, add-on order, purchase or provider configuration is changed.
 Tests: `app/tests/portal_mobile_test.php` checks the closed projections and
 escaped renderer; `app/tests/portal_mobile_mysql_test.php` uses a disposable
 real schema to check immutable bindings, exact signed scope and mid-request
-revocation. `.github/workflows/mobile.yml` runs both. Browser fixtures must be
-identified as synthetic, with desktop and mobile evidence kept outside source.
+revocation. `.github/workflows/mobile.yml` runs both. The shared browser contract
+also checks discovery, return navigation, the current Devices item and preserved
+computer-check links for admins and viewers at desktop and phone widths, with
+mobile enabled and disabled. Browser fixtures are synthetic, with screenshots
+and evidence kept outside source.
 
-The coordinator owns release sequencing. The existing Devices navigation link is
-a separate additive handoff from its Windows owner; a direct page URL in this
-branch does not mean the production portal links to it. Validate both signed-in
-customer access and a named physical device after external setup. Roll back this
-page by disabling only `portal_mobile.enabled`; keep existing customer support,
-Windows controls and provider enrollments intact.
+The coordinator owns release sequencing. When `portal_mobile.enabled` is exactly
+`true`, Your devices links to Phones, tablets & Macs. That page keeps Your devices
+selected in the sidebar and links back to computer installation and support.
+When the gate is disabled, the mobile link is absent and the route remains
+unavailable. Existing computer-check links and role permissions remain intact.
+These source changes do not activate the production portal. Validate both
+signed-in customer access and a named physical device after external setup.
+Roll back this page by disabling only `portal_mobile.enabled`; keep existing
+customer support, Windows controls and provider enrollments intact.

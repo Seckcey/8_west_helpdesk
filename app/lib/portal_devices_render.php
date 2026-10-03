@@ -11,6 +11,7 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
     ?>
 <main class="portal-devices">
  <header class="portal-devices-heading"><div><p class="portal-eyebrow">YOUR BUSINESS</p><h1>Your devices</h1><p>Connect a computer so your support team can help when you need it.</p></div><div class="portal-devices-actions"><a class="btn-link" href="/portal/devices.php">Refresh status</a><?php portal_westy_button(); ?></div></header>
+ <?php if ((cfg('portal_mobile', [])['enabled'] ?? false) === true): ?><p><a class="btn-link" href="/portal/mobile.php">Phones, tablets &amp; Macs <?= portal_icon('arrow') ?></a></p><?php endif; ?>
  <?php if ($error !== null): ?><div class="portal-device-notice" role="alert"><?= portal_h($error) ?> <a href="/portal/new.php">Contact support</a></div><?php endif; ?>
  <?php if ($notice !== null): ?><div class="portal-device-notice is-success" role="status"><?= portal_h($notice) ?></div><?php endif; ?>
  <?php if ($download !== null): ?>
