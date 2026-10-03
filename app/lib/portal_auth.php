@@ -30,6 +30,89 @@ const PORTAL_REVOCATION_REFRESH_SECONDS = 60;
 const PORTAL_REVOCATION_MAXIMUM_STALE_SECONDS = 300;
 const PORTAL_REQUIRED_PRODUCT = 'safeharbor';
 const PORTAL_REQUIRED_ISSUER = 'https://id.8westit.com';
+const PORTAL_LOGIN_RETURN_KEY = '_safeharbor_portal_login_return';
+const PORTAL_LOGIN_GUARD_COOKIE = 'safeharbor_portal_login_pending';
+
+/** Only customer GET pages can be sign-in destinations; never auth or API routes. */
+function portal_safe_return_path(mixed $value): string
+{
+    if (! is_string($value) || strlen($value) > 2048) return '/portal/';
+    $candidate = $value;
+    for ($i = 0; $i < 4; $i++) {
+        if (str_contains($candidate, '\\') || preg_match('/[\x00-\x20\x7f]/', $candidate) === 1) return '/portal/';
+        $parts = parse_url($candidate);
+        if (! is_array($parts) || isset($parts['scheme']) || isset($parts['host'])
+            || isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment'])
+            || ! in_array($parts['path'] ?? '', [
+                '/portal/', '/portal/index.php', '/portal/ticket.php', '/portal/new.php',
+                '/portal/reports.php', '/portal/devices.php', '/portal/device_help.php',
+                '/portal/mobile.php', '/portal/security.php', '/portal/guide.php',
+            ], true)) {
+            return '/portal/';
+        }
+        $decoded = rawurldecode($candidate);
+        if ($decoded === $candidate) return $value;
+        $candidate = $decoded;
+    }
+    return '/portal/';
+}
+
+function portal_login_guard_options(int $expires): array
+{
+    return [
+        'expires' => $expires,
+        'path' => '/portal',
+        'secure' => portal_oidc_config()['cookie_secure'],
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ];
+}
+
+/** This cookie can only suppress a redirect. It never grants authentication. */
+function portal_login_can_start_automatically(string $method, array $cookies): bool
+{
+    return $method === 'GET' && ! isset($cookies[PORTAL_LOGIN_GUARD_COOKIE]);
+}
+
+function portal_prepare_login(EightWestIdClient $client, mixed $returnPath): EightWest\Id\AuthorizationRequest
+{
+    portal_session_start();
+    $request = $client->begin();
+    // The kit's host-only state cookie admits only the latest transaction.
+    $_SESSION[PORTAL_LOGIN_RETURN_KEY] = [
+        'state' => $request->state,
+        'expires_at' => $request->expiresAt,
+        'path' => portal_safe_return_path($returnPath),
+    ];
+    return $request;
+}
+
+/** Call only after handleCallback validates the state, issuer, code and identity. */
+function portal_take_login_return(string $state, ?int $now = null): string
+{
+    $stored = $_SESSION[PORTAL_LOGIN_RETURN_KEY] ?? null;
+    unset($_SESSION[PORTAL_LOGIN_RETURN_KEY]);
+    if (! is_array($stored) || ! is_string($stored['state'] ?? null)
+        || ! hash_equals($stored['state'], $state)
+        || ! is_int($stored['expires_at'] ?? null)
+        || $stored['expires_at'] <= ($now ?? time())) {
+        return '/portal/';
+    }
+    return portal_safe_return_path($stored['path'] ?? null);
+}
+
+function portal_redirect_to_identity(mixed $returnPath): never
+{
+    $request = portal_prepare_login(portal_oidc_client(), $returnPath);
+    if (! setcookie($request->cookieName, $request->state, $request->cookieOptions())
+        || ! setcookie(PORTAL_LOGIN_GUARD_COOKIE, '1', portal_login_guard_options($request->expiresAt))) {
+        throw new PortalAuthException('The customer sign-in cookies could not be set.');
+    }
+    header('Cache-Control: no-store, private');
+    header('Referrer-Policy: no-referrer');
+    header('Location: ' . $request->url, true, 302);
+    exit;
+}
 
 class PortalAuthException extends RuntimeException
 {
@@ -313,6 +396,12 @@ function portal_authenticated_context(
     if ($binding === null) {
         portal_destroy_session();
         return null;
+    }
+    // Clear only after the destination accepts BOTH revocation and binding.
+    // A freshly rejected session instead keeps the guard and renders a retry.
+    if (isset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE])) {
+        setcookie(PORTAL_LOGIN_GUARD_COOKIE, '', portal_login_guard_options(time() - 42000));
+        unset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]);
     }
     return ['identity' => $identity, 'binding' => $binding];
 }

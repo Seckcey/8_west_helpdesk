@@ -8,7 +8,7 @@ if(!portal_enabled() || (cfg('portal_devices',[])['security_orders_enabled']??fa
 $method=$_SERVER['REQUEST_METHOD']??'GET';
 if(!in_array($method,['GET','POST'],true)){header('Allow: GET, POST');portal_render_error(405,'Method not allowed','Open Secure Plus from Your devices.');exit;}
 try {
-    $context=portal_authenticated_context(db());if($context===null){portal_render_login();exit;}
+    $context=portal_authenticated_context(db());if($context===null){portal_require_sign_in();exit;}
     $reference=$_GET['device']??null;
     if(!is_string($reference)||preg_match('/^([1-9][0-9]{0,9}):[a-f0-9]{64}$/D',$reference,$match)!==1)throw new PortalDevicesException('device_unavailable',404);
     $inventory=portal_devices_request(db(),$context,'devices',['after'=>(int)$match[1]-1]);$device=null;
@@ -27,7 +27,7 @@ try {
             }
             portal_devices_request(db(),$context,$action,$input);
             $fresh=portal_authenticated_context(db());
-            if($fresh===null||$fresh['identity']!==$context['identity']){portal_render_login('Please sign in again.');exit;}
+            if($fresh===null||$fresh['identity']!==$context['identity']){portal_require_sign_in('Please sign in again.');exit;}
             header('Location: /portal/security.php?device='.rawurlencode($reference),true,303);exit;
         }catch(PortalDevicesException $e){$error=portal_security_order_error($e->reason);}
     }
@@ -36,7 +36,7 @@ try {
         $orders=array_values(array_filter($result['items'],static fn(array $order):bool=>$order['device_reference']===$reference));
     }catch(PortalDevicesException $e){$error??=portal_security_order_error($e->reason);}
     $fresh=portal_authenticated_context(db());
-    if($fresh===null||$fresh['identity']!==$context['identity']){portal_render_login('Please sign in again.');exit;}
+    if($fresh===null||$fresh['identity']!==$context['identity']){portal_require_sign_in('Please sign in again.');exit;}
     portal_render_security_orders($fresh,$device,$orders,$error);
 }catch(PortalDevicesException $e){portal_render_error($e->status,'Secure Plus unavailable',$e->reason==='device_unavailable'?'That computer is not available in your business. Return to Your devices.':portal_security_order_error($e->reason));}
 catch(Throwable $e){error_log('[safeharbor-security-orders] request_failed type='.$e::class);portal_render_error(503,'Secure Plus unavailable','Try again shortly or contact support.');}

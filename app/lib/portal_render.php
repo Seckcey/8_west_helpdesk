@@ -53,8 +53,24 @@ function portal_page_end(): void
     echo "</body>\n</html>\n";
 }
 
+/** Start customer OIDC on GET; never replay a POST or automatically retry a failure. */
+function portal_require_sign_in(?string $message = null): void
+{
+    if (portal_login_can_start_automatically($_SERVER['REQUEST_METHOD'] ?? '', $_COOKIE)) {
+        try {
+            portal_redirect_to_identity($_SERVER['REQUEST_URI'] ?? '/portal/');
+        } catch (Throwable $error) {
+            error_log('[safeharbor-portal] login_failed type=' . $error::class);
+            portal_render_error(503, 'Sign-in unavailable', '8 West ID sign-in is temporarily unavailable. Try again shortly.');
+            return;
+        }
+    }
+    portal_render_login($message ?? 'Sign-in was not completed. Continue with 8 West ID to try again.');
+}
+
 function portal_render_login(?string $message = null): void
 {
+    $returnPath = portal_safe_return_path($_SERVER['REQUEST_URI'] ?? '/portal/');
     portal_page_start('Customer portal', 'login-body');
     ?>
 <main class="login-wrap">
@@ -70,7 +86,7 @@ function portal_render_login(?string $message = null): void
       <p class="login-error" role="alert"><?= portal_h($message) ?></p>
     <?php endif; ?>
     <div class="login-form">
-      <a class="btn-primary" href="/portal/login.php">Continue with 8 West ID</a>
+      <a class="btn-primary" href="/portal/login.php?next=<?= portal_h(rawurlencode($returnPath)) ?>">Continue with 8 West ID</a>
     </div>
   </section>
   <p class="login-foot">Use the portal to open, read, and reply to support tickets. Device control, internal notes, technician time, and billing stay private.</p>

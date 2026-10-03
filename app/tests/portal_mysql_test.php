@@ -7,8 +7,33 @@
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') exit(1);
+ob_start(); // The authentication checks below rotate real PHP sessions.
+
+function cfg(string $key, mixed $default = null): mixed
+{
+    return [
+        'app_env' => 'dev', 'portal.cookie_secure' => true,
+        'portal.issuer' => 'https://id.example.test',
+        'portal.client_id' => 'safeharbor-test', 'portal.client_secret' => str_repeat('s', 48),
+        'portal.redirect_uri' => 'https://safeharbor.example.test/portal/callback.php',
+        'portal.revocation_cache_dir' => sys_get_temp_dir() . '/safeharbor-portal-mysql-test',
+    ][$key] ?? $default;
+}
 
 require_once __DIR__ . '/../lib/portal_data.php';
+require_once __DIR__ . '/../lib/portal_auth.php';
+
+function portal_mysql_identity(string $role = 'client_owner', string $tenant = 'acme-id'): EightWest\Id\Identity
+{
+    return new EightWest\Id\Identity(
+        subject: 't9u4', email: 'customer@example.test', name: 'Synthetic Customer',
+        tenant: $tenant, tenantId: '9', sessionVersion: '1.1', products: ['safeharbor'],
+        role: $role, capabilityRole: EightWest\Id\KNOWN_ROLES[$role], theme: 'system',
+        avatar: null, preferences: [], mfaEnrolled: true, mfaAuthenticated: true,
+        mfaTime: time(), authenticationTime: time(), authenticationMethods: ['pwd', 'otp'],
+        authenticationPolicy: 'suite-mfa-v1', mfaPolicy: new EightWest\Id\MfaPolicyResult(true, 'compliant'),
+    );
+}
 
 $database = getenv('SAFEHARBOR_PORTAL_TEST_DB') ?: 'safeharbor_portal_test';
 if (preg_match('/\Asafeharbor_portal_test(?:_[a-z0-9_]+)?\z/', $database) !== 1) {
@@ -223,6 +248,39 @@ portal_mysql_check('active request recheck binds slug, tenant, client, and bindi
     portal_active_binding_recheck($pdo, $bindingId, 'acme-id', 1, 11) !== null
     && portal_active_binding_recheck($pdo, $bindingId, 'acme-id', 2, 11) === null
     && portal_active_binding_recheck($pdo, $bindingId, 'acme-id', 1, 12) === null);
+
+foreach (PORTAL_CLIENT_ROLES as $role) {
+    $identity = portal_establish_identity($pdo, portal_mysql_identity($role));
+    $_COOKIE[PORTAL_LOGIN_GUARD_COOKIE] = '1';
+    $context = portal_authenticated_context($pdo, static fn() => false);
+    portal_mysql_check("{$role} callback session enters exact customer without another sign-in",
+        $context !== null && $context['identity'] === $identity
+        && $identity['tenant_id'] === 1 && $identity['client_id'] === 11
+        && ! isset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]) && portal_csrf_valid(portal_csrf_token()));
+    portal_mysql_check("{$role} existing session is reused after fresh checks",
+        portal_authenticated_context($pdo, static fn() => false)['identity'] === $identity);
+}
+foreach (['owner', 'admin', 'tech', 'msp_owner', 'msp_viewer'] as $role) {
+    portal_mysql_expect("{$role} cannot establish a customer session", PortalAuthenticationRejectedException::class,
+        fn() => portal_establish_identity($pdo, portal_mysql_identity($role)));
+}
+portal_mysql_expect('unbound tenant cannot establish a customer session', PortalAuthenticationRejectedException::class,
+    fn() => portal_establish_identity($pdo, portal_mysql_identity('client_owner', 'unbound-id')));
+$_COOKIE[PORTAL_LOGIN_GUARD_COOKIE] = '1';
+portal_mysql_check('revocation destroys session but retains retry guard',
+    portal_authenticated_context($pdo, static fn() => true) === null
+    && session_status() !== PHP_SESSION_ACTIVE && isset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]));
+portal_establish_identity($pdo, portal_mysql_identity(), time() - PORTAL_SESSION_MAX_SECONDS);
+portal_mysql_check('expired local credentials are refused', portal_authenticated_context($pdo, static fn() => false) === null);
+portal_establish_identity($pdo, portal_mysql_identity());
+portal_mysql_expect('unavailable revocation fails closed without clearing retry guard', PortalIdentityUnavailableException::class,
+    fn() => portal_authenticated_context($pdo, static function (): bool {
+        throw new EightWest\Id\RevocationUnavailableException('Synthetic unavailable feed');
+    }));
+portal_mysql_check('unavailable identity leaves retry guard intact', isset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]));
+$_SESSION[PORTAL_SESSION_KEY]['client_id'] = 12;
+portal_mysql_check('mismatched local customer binding is refused', portal_authenticated_context($pdo, static fn() => false) === null);
+unset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]);
 
 $summary = portal_ticket_summary($pdo, 1, 11, 50);
 $ticketIds = array_map(static fn(array $row): int => (int)$row['id'], $summary['tickets']);

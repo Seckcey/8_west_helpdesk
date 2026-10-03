@@ -17,8 +17,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 }
 
 try {
-    portal_session_start();
-    portal_oidc_client()->redirectToAuthorization();
+    portal_redirect_to_identity($_GET['next'] ?? '/portal/');
 } catch (Throwable $error) {
     error_log('[safeharbor-portal] login_failed type=' . $error::class);
     portal_render_error(503, 'Sign-in unavailable', '8 West ID sign-in is temporarily unavailable. Try again shortly.');

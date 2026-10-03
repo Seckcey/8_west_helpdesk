@@ -9,7 +9,7 @@ if(!portal_enabled()){http_response_code(404);exit('Not found.');}
 if(($_SERVER['REQUEST_METHOD'] ?? 'GET')!=='GET'){header('Allow: GET');portal_render_error(405,'Method not allowed','Open the portal guide to read help.');exit;}
 try{$context=portal_authenticated_context(db());}
 catch(Throwable){portal_render_error(503,'Temporarily unavailable','We could not validate your sign-in. Try again shortly.');exit;}
-if($context===null){portal_render_login();exit;}
+if($context===null){portal_require_sign_in();exit;}
 portal_page_start('Portal guide','',$context);
 ?>
 <main class="portal-guide"><h1>How this portal works</h1><p>Help with the things you can do here. These articles describe the portal; they are not device diagnostics.</p>

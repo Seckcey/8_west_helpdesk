@@ -1,5 +1,10 @@
 # Safeharbor customer portal contract
 
+**October 3 sign-in return repair:** [automatic OIDC handoff and safe page
+return](customer-portal-login-return.md) defines the entry, deep-link and retry
+behavior. It preserves the identity/customer authorization boundary below;
+production acceptance is recorded separately after deployment.
+
 **Phase 1 implementation under review (October 2, 2026):**
 [Private Westy and reviewed request handoff](customer-portal-phase1.md) documents
 the new customer shell, subject-scoped chat, additive migration 031, retention,
