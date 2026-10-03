@@ -8,7 +8,7 @@ $user=getenv('SAFEHARBOR_WESTY_TEST_USER')?:'root';$pass=getenv('SAFEHARBOR_WEST
 $connect=static fn()=>new PDO("mysql:host=$host;port=$port;dbname=$database;charset=utf8mb4",$user,$pass,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
 $admin=new PDO("mysql:host=$host;port=$port;charset=utf8mb4",$user,$pass,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 $admin->exec('CREATE DATABASE IF NOT EXISTS `'.$database.'`');$pdo=$connect();$pdo->exec("SET time_zone='+00:00'");
-$config=['enabled'=>true,'ai_enabled'=>true,'allowed_clients'=>['1:11','1:12','2:21'],'api_key'=>'synthetic-test-adapter-no-network','retention_days'=>30,'hourly_limit'=>30,'daily_limit'=>500,'monthly_microusd'=>5000000];
+$config=['enabled'=>true,'ai_enabled'=>true,'api_key'=>'synthetic-test-adapter-no-network','retention_days'=>30,'hourly_limit'=>30,'daily_limit'=>500,'monthly_microusd'=>5000000];
 function cfg(string $key,mixed $default=null): mixed{global $config;return str_starts_with($key,'portal_westy.')?($config[substr($key,13)]??$default):$default;}
 require __DIR__.'/portal_westy_fixture.php';
 require __DIR__.'/../lib/portal_westy_maintenance.php';
@@ -36,6 +36,20 @@ check('provider request pins Standard pricing instead of inheriting project tier
 $same=$a;$same['identity']['subject']='t9u99';check('another subject in same business sees no chat',portal_westy_state($pdo,$same)['turns']===[]);
 check('another business sees no chat',portal_westy_state($pdo,$b)['turns']===[]);
 check('another provider sees no chat',portal_westy_state($pdo,$c)['turns']===[]);
+$pdo->exec("INSERT INTO clients(id,tenant_id,name) VALUES(13,1,'Newly onboarded business')");
+$newBinding=portal_prepare_binding($pdo,'new-customer-preview',1,13,101,'Synthetic future customer.');
+$newContext=['identity'=>['tenant_id'=>1,'client_id'=>13,'binding_id'=>(int)$newBinding['id'],'identity_tenant_slug'=>'new-customer-preview','subject'=>'t12u13','role'=>'client_owner','display_name'=>'New customer']];
+denied('new disabled binding cannot use globally enabled chat',fn()=>portal_westy_state($pdo,$newContext),'sign_in');
+portal_transition_binding($pdo,(int)$newBinding['id'],'new-customer-preview',1,13,101,'active','Verified synthetic onboarding.');
+portal_westy_message($pdo,$newContext,$message('How do I write a request?',$newContext),$provider);
+check('future active customer works without a configuration update',count(portal_westy_state($pdo,$newContext)['turns'])===1);
+check('new customer remains isolated from existing private chat',count(portal_westy_state($pdo,$a)['turns'])===1);
+$wrongBinding=$newContext;$wrongBinding['identity']['client_id']=11;
+denied('global activation cannot cross an exact customer binding',fn()=>portal_westy_state($pdo,$wrongBinding),'sign_in');
+$config['enabled']=false;
+check('global kill switch hides chat for every customer',!portal_westy_state($pdo,$a)['enabled']&&!portal_westy_state($pdo,$newContext)['enabled']);
+denied('global kill switch rejects a new customer message',fn()=>portal_westy_message($pdo,$newContext,$message('Hidden',$newContext),$provider),'ai_unavailable');
+$config['enabled']=true;
 $staff=$a;$staff['identity']['role']='owner';denied('staff role cannot enter customer service',fn()=>portal_westy_state($pdo,$staff),'sign_in');
 $viewer=$a;$viewer['identity']['role']='client_viewer';$viewer['identity']['subject']='t9u98';
 portal_westy_message($pdo,$viewer,$message('How do I read updates?',$viewer),$provider);check('viewer can use own guidance',count(portal_westy_state($pdo,$viewer)['turns'])===1);

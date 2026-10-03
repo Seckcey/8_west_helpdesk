@@ -1,10 +1,13 @@
 # Customer portal Phase 1
 
-The source implementation is complete and tested. The dashboard and migration
-031 were deployed on October 2, with both private Westy switches disabled.
-See the [production release record](customer-portal-release-2026-10-02.md).
-Live customer sign-in acceptance and real model evaluation remain pending.
-This document records the feature and activation contract.
+The dashboard and migration 031 were deployed on October 2; see the
+[production release record](customer-portal-release-2026-10-02.md). The subsequent
+October 2 owner instruction authorizes activation for all legitimate active
+customers. Chat access now follows each authenticated active portal binding,
+including future verified signups, with no separate per-customer pilot list.
+The protected credential, live model evaluation, maintenance and production enable
+switches must still be verified before reporting chat as active. This source update
+does not by itself establish production activation or signed-in customer acceptance.
 
 The portal gives customers a clear place to ask for help, see requests needing
 a reply, follow business support requests, and reach the support team directly.
@@ -36,6 +39,13 @@ PHP session lock, then reauthorize before storing or returning the answer.
 Managed-customer and portal binding locks protect writes against suspension.
 Customer output is escaped/text-only, source links come from a closed allowlist,
 and no chat content is placed in browser storage or application logs.
+
+`portal_westy.enabled` enables chat for every customer who passes those existing
+checks. The former `allowed_clients` setting is no longer consulted and should be
+removed from protected configuration during activation. Neither an empty old list
+nor a newly provisioned customer needs an operator edit. The global kill switch,
+separate AI switch, disabled bindings, revoked identities and lifecycle containment
+still apply. Staff identities and generic intake clients do not gain customer access.
 
 ## Persistence and recovery
 
@@ -151,9 +161,21 @@ not an OpenAI billing limit; separately configure the dedicated project budget.
    credentials. No credential was present in the read-only October 2 probe.
 6. After protected provisioning, verify actual account access using a bounded
    synthetic Responses request and perform the live guidance/safety evaluation
-   below. Set only the specifically approved `tenant:client` pilot pair in
-   `allowed_clients`; the two enable switches and pilot acceptance remain
-   separate from code deployment. Keep the direct form usable in every failure.
+   below. Set `enabled=true` and `ai_enabled=true` for all authenticated active
+   customer bindings and remove the obsolete `allowed_clients` entry. Preserve
+   existing per-person and per-business limits. Keep the direct form usable in
+   every failure; no endpoint-agent update is needed for this portal/chat rollout.
+
+Inventory coverage separately: active registry customers, exact portal bindings,
+and active customer-role identities are different counts. Existing signup already
+creates the binding from verified ID evidence and immutable customer UUID receipts.
+For historical customers, use supported receipt-bound identity projection and the
+explicit mapping operator only after proving the exact customer/identity binding.
+Never infer it from a similar name, email domain, generic intake row or provider
+staff tenant. An empty identity tenant needs owner onboarding before a person can
+sign in; a missing customer's identity does not disable other valid customers.
+This activation does not authorize invitations, announcements, report-schedule
+expansion, customer charges or device-control features.
 
 Rollback first disables both Westy switches and removes its maintenance cron
 under the release procedure. Preserve the additive tables, budget history and
@@ -184,6 +206,12 @@ call, chat reset, expiry, scoped erasure, migration replay and malformed guards.
 Browser checks cover desktop/mobile layouts, main-composer/bubble continuity,
 editing, explicit audience review, durable receipt and the actual ticket detail.
 Run the repository's complete required PHP/browser checks at the final PR head.
+
+The all-customer access update adds six MySQL checks: future verified customers
+work without a configuration edit, while disabled bindings, mismatched bindings,
+private-conversation isolation and the global kill switch remain enforced. Its
+focused disposable Coastline run passed all 65 checks with zero failures. This
+uses synthetic identities/provider responses and does not claim a live model test.
 
 Real Luna evaluation is still required: ordinary portal questions; requests for
 a person; unclear technical problems; outage/security reports; instructions to

@@ -14,10 +14,10 @@ function portal_westy_config(): array
 {
     $read = static fn(string $key, mixed $default): mixed => function_exists('cfg') ? cfg('portal_westy.'.$key,$default) : $default;
     $c = ['enabled'=>$read('enabled',false), 'ai_enabled'=>$read('ai_enabled',false),
-        'allowed_clients'=>$read('allowed_clients',[]), 'api_key'=>$read('api_key',''),
+        'api_key'=>$read('api_key',''),
         'retention_days'=>$read('retention_days',30), 'hourly_limit'=>$read('hourly_limit',30),
         'daily_limit'=>$read('daily_limit',500), 'monthly_microusd'=>$read('monthly_microusd',5000000)];
-    if (!is_bool($c['enabled']) || !is_bool($c['ai_enabled']) || !is_array($c['allowed_clients']) || !is_string($c['api_key'])) throw new PortalWestyException('configuration',503);
+    if (!is_bool($c['enabled']) || !is_bool($c['ai_enabled']) || !is_string($c['api_key'])) throw new PortalWestyException('configuration',503);
     foreach (['retention_days'=>90,'hourly_limit'=>100,'daily_limit'=>2000,'monthly_microusd'=>20000000] as $key=>$max) {
         if (!is_int($c[$key]) || $c[$key]<1 || $c[$key]>$max) throw new PortalWestyException('configuration',503);
     }
@@ -44,11 +44,6 @@ function portal_westy_scope(PDO $pdo, array $context, bool $lock = false): array
     if (portal_active_binding_recheck($pdo,$i['binding_id'],(string)($i['identity_tenant_slug'] ?? ''),$i['tenant_id'],$i['client_id'])===null) throw new PortalWestyException('sign_in',401);
     return ['key'=>hash('sha256',json_encode(['safeharbor-portal-v1',...$ids,$i['subject']],JSON_THROW_ON_ERROR)),
         'tenant'=>$i['tenant_id'],'client'=>$i['client_id'],'binding'=>$i['binding_id'],'role'=>$i['role'],'name'=>$i['display_name']];
-}
-
-function portal_westy_allowed(array $c, array $s): bool
-{
-    return $c['enabled'] === true && in_array($s['tenant'].':'.$s['client'],$c['allowed_clients'],true);
 }
 
 function portal_westy_lock(PDO $pdo): string
@@ -78,7 +73,8 @@ function portal_westy_account(PDO $pdo, array $s, bool $create = false): ?array
 function portal_westy_state(PDO $pdo, array $context): array
 {
     $c=portal_westy_config(); $s=portal_westy_scope($pdo,$context);
-    $enabled=portal_westy_allowed($c,$s);
+    // Access follows the freshly checked customer binding, including future signups.
+    $enabled=$c['enabled'];
     $state=['enabled'=>$enabled,'ai_available'=>$enabled && $c['ai_enabled'] && trim($c['api_key'])!=='',
         'retention_days'=>$c['retention_days'],'can_write'=>portal_role_can_write_tickets($s['role']),
         'conversation'=>null,'turns'=>[],'draft'=>null];
@@ -128,7 +124,7 @@ function portal_westy_require_conversation(?array $account,mixed $expected): voi
 function portal_westy_message(PDO $pdo,array $context,array $request,?callable $provider=null,?callable $reauthorize=null): void
 {
     $c=portal_westy_config(); $s=portal_westy_scope($pdo,$context);
-    if (!portal_westy_allowed($c,$s) || !$c['ai_enabled'] || trim($c['api_key'])==='') throw new PortalWestyException('ai_unavailable',503);
+    if (!$c['enabled'] || !$c['ai_enabled'] || trim($c['api_key'])==='') throw new PortalWestyException('ai_unavailable',503);
     $key=portal_westy_key($request['operation'] ?? null);
     $text=$request['message'] ?? null;
     if (!is_string($text) || !mb_check_encoding($text,'UTF-8') || mb_strlen(trim($text))<1 || mb_strlen($text)>2000 || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/',$text)) throw new PortalWestyException('invalid_message',400);
@@ -202,7 +198,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
 function portal_westy_save_draft(PDO $pdo,array $context,array $request): void
 {
     $c=portal_westy_config();$s=portal_westy_scope($pdo,$context);
-    if (!portal_westy_allowed($c,$s)) throw new PortalWestyException('ai_unavailable',503);
+    if (!$c['enabled']) throw new PortalWestyException('ai_unavailable',503);
     if (!portal_role_can_write_tickets($s['role'])) throw new PortalWestyException('read_only',403);
     $key=portal_westy_key($request['draft_key'] ?? null);
     $subject=portal_ticket_subject($request['subject'] ?? null);$body=portal_ticket_body($request['body'] ?? null);$priority=portal_ticket_priority($request['priority'] ?? null);
@@ -242,7 +238,7 @@ function portal_westy_handoff(PDO $pdo,array $context,array $request): int
         $q=$pdo->prepare('SELECT * FROM portal_westy_drafts WHERE draft_key=? AND scope_key=?'.portal_westy_lock($pdo));$q->execute([$key,$s['key']]);$draft=$q->fetch();
         if(!$draft)throw new PortalWestyException('draft_changed');
         if($draft['state']==='sent'){ $pdo->commit();return (int)$draft['ticket_id']; }
-        if(!portal_westy_allowed(portal_westy_config(),$s))throw new PortalWestyException('ai_unavailable',503);
+        if(!portal_westy_config()['enabled'])throw new PortalWestyException('ai_unavailable',503);
         if($draft['state']!=='draft' || (int)$draft['revision']!==$request['revision'] || $draft['expires_at']<=gmdate('Y-m-d H:i:s') || $draft['conversation_key']!==$account['conversation_key'])throw new PortalWestyException('draft_changed');
         $ticket=portal_create_ticket($pdo,$s['tenant'],$s['client'],$s['role'],$s['name'],$draft['subject'],$draft['priority'],$draft['body']);
         $q=$pdo->prepare("UPDATE portal_westy_drafts SET state='sent',ticket_id=?,sent_at=?,subject=NULL,body=NULL WHERE draft_key=? AND scope_key=? AND state='draft'");$q->execute([$ticket,gmdate('Y-m-d H:i:s'),$key,$s['key']]);
@@ -254,7 +250,7 @@ function portal_westy_handoff(PDO $pdo,array $context,array $request): int
 function portal_westy_new_chat(PDO $pdo,array $context,array $request): void
 {
     $s=portal_westy_scope($pdo,$context);
-    if(!portal_westy_allowed(portal_westy_config(),$s))throw new PortalWestyException('ai_unavailable',503);
+    if(!portal_westy_config()['enabled'])throw new PortalWestyException('ai_unavailable',503);
     $next=portal_westy_key($request['next_conversation'] ?? null);
     $pdo->beginTransaction();
     try {
