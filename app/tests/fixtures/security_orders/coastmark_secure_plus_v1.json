@@ -1,0 +1,37 @@
+{
+    "version": 1,
+    "reference": "208c75711e0ac9017d3fd5e04183e8ea",
+    "state": "accepted",
+    "accepted_at": "2026-10-03T06:00:00Z",
+    "quote": {
+        "version": 1,
+        "reference": "cd7e47a3f8e5af876230d732aa1f348f",
+        "scope": {
+            "tenant_key": "8west",
+            "customer_id": "11111111-1111-4111-8111-111111111111",
+            "identity_tenant_slug": "customer-one",
+            "subject": "t1u1",
+            "session_version": "1.1",
+            "role": "client_owner",
+            "agent_id": 1,
+            "device_identity_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "offer": {
+            "code": "secure-plus-v1",
+            "name": "Secure Plus",
+            "unit_price_cents": 1500,
+            "currency": "USD",
+            "billing_interval": "month",
+            "quantity": 1,
+            "terms_version": "2026-10-03-v1",
+            "terms": "Secure Plus includes AV/EPP, EDR and MDR Foundations for one selected computer at USD $15 per device per month. Confirming records your order and permission to install on that computer. Protection requires verification after installation. This order does not collect payment or issue an invoice.",
+            "terms_sha256": "d78549940e3c94c20f7a3c8106b6442aeecb8e4fdf052756a070b621e0d1c911"
+        },
+        "fulfillment_spec_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "created_at": "2026-10-03T06:00:00Z",
+        "expires_at": "2026-10-03T06:10:00Z",
+        "quote_hash": "e13710c3d8d820a2b02a15c2cf2c6e4335b14bcca64a93d3fbdeb02630528747"
+    },
+    "receipt_sha256": "9020560b6ec939c21279cfaa2c34e3440bdc855c6c96c3336069906b51ea1b96",
+    "signature": "788a492024bba712dd9448ed3cd4c8b2af693d0f8a693e73561f78644dd718ab"
+}

@@ -31,6 +31,7 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
     <?php if ($device['last_seen_at'] !== null): ?><p class="portal-hint">Last check-in: <?= portal_h(portal_format_utc($device['last_seen_at'])) ?></p><?php endif; ?>
     <button type="button" class="btn-link" data-portal-chat-prompt="<?= portal_h('Help me describe a problem with my computer ' . $device['label'] . '. It shows ' . $device['connection_label'] . '.') ?>">Ask Westy for help <?= portal_icon('arrow') ?></button>
     <?php if((cfg('portal_devices',[])['diagnostics_enabled']??false)===true):?><a class="btn-link" href="/portal/device_help.php?device=<?= rawurlencode($device['reference']) ?>">Computer checks <?= portal_icon('arrow') ?></a><?php endif;?>
+    <?php if((cfg('portal_devices',[])['security_orders_enabled']??false)===true && str_contains(strtolower($device['platform']),'windows')):?><a class="btn-link" href="/portal/security.php?device=<?= rawurlencode($device['reference']) ?>">Secure Plus <?= portal_icon('arrow') ?></a><?php endif;?>
    </div></article>
   <?php endforeach; ?></div><?php if (($devices['next_after'] ?? null) !== null): ?><a href="/portal/devices.php?after=<?= (int)$devices['next_after'] ?>">Next computers <?= portal_icon('arrow') ?></a><?php endif; ?><?php endif; ?>
   <p class="portal-hint">A connected computer is available for support. Antivirus protection and any paid add-ons have their own status.</p>

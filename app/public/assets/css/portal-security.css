@@ -1,0 +1,7 @@
+.portal-security-status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin:1.2rem 0;padding:1rem 0;border-block:1px solid var(--line,#2a3b55)}
+.portal-security-status dt{font-size:.8rem;color:var(--muted,#9eafc6);margin-bottom:.35rem}
+.portal-security-status dd{margin:0;font-weight:600}
+.portal-security-page .portal-device-setup small{font-size:1rem;font-weight:400}
+.portal-security-page .portal-device-details form+form{margin-top:.7rem}
+.portal-security-page .portal-device-setup li{margin-block:.5rem}
+@media(max-width:700px){.portal-security-status{grid-template-columns:1fr;gap:.8rem}}
