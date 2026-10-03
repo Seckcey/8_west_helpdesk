@@ -6,9 +6,13 @@ safe support guidance. It is separate from Windows installation and computer
 diagnostics. The provider integration contract lives in Milepost's
 [customer mobile management documentation](https://github.com/Seckcey/8westit_webapp/blob/main/docs/CUSTOMER_MOBILE_MANAGEMENT.md).
 
-This is an implementation slice, not a claim of deployed or physically accepted
-mobile management. Existing customer bindings and current authorization remain
-required. The page is default-off through `portal_mobile.enabled`; it also needs
+**Production checkpoint — October 3, 2026, 5:07 AM Pacific:** source and both
+mobile gates are deployed; the report schedule is restored. Provider setup,
+genuine customer sign-in/navigation and physical-device acceptance remain pending.
+See the [release and recovery record](customer-mobile-release-2026-10-03.md).
+
+Existing customer bindings and current authorization remain required. New
+installations default off through `portal_mobile.enabled`; the page also needs
 the existing verified `portal_devices` service secret/configuration and the
 matching Milepost `customer_mobile` route. No new database migration is needed.
 Copy no customer or provider credentials into source or browser code.
@@ -69,8 +73,9 @@ The coordinator owns release sequencing. When `portal_mobile.enabled` is exactly
 selected in the sidebar and links back to computer installation and support.
 When the gate is disabled, the mobile link is absent and the route remains
 unavailable. Existing computer-check links and role permissions remain intact.
-These source changes do not activate the production portal. Validate both
-signed-in customer access and a named physical device after external setup.
+The recorded production activation enables the entry point for already admitted
+customers; it creates no provider binding or enrollment. Validate both signed-in
+customer access and a named physical device after external setup.
 The mobile gate exposes guidance/status broadly to authorized customers, while
 the existing signed identities and provider mappings isolate company data.
 Broad page availability is distinct from a named customer's enrollment pilot.
