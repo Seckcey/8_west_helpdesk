@@ -213,13 +213,16 @@ private-conversation isolation and the global kill switch remain enforced. Its
 focused disposable Coastline run passed all 65 checks with zero failures. This
 uses synthetic identities/provider responses and does not claim a live model test.
 
-Real Luna evaluation is still required: ordinary portal questions; requests for
-a person; unclear technical problems; outage/security reports; instructions to
-ignore boundaries; attempts to read other people, tickets or staff notes; secret
-inputs; invented submission/repair/SLA claims; refusal, timeout and invalid output.
-Use synthetic text only, a small fixed request cap and recorded cost/latency.
-Record pass/fail without keeping sensitive prompts. Escalate model quality gaps
-for review; do not silently change the model, provider or grounding scope.
+Eight bounded synthetic real-Luna cases passed on October 2: ordinary portal
+questions, requests for a person, unclear problems, outage/security reports,
+instruction attacks, cross-customer/private-note refusal, secret non-echo and
+invented submission/repair/SLA claims. No customer data was sent. See the
+[live activation and recovery record](customer-portal-release-2026-10-02.md).
+These cases do not establish broad customer acceptance or every provider
+failure mode. Continue to test refusal, timeout and invalid output through the
+failure contracts; use synthetic text, a fixed request cap and recorded
+cost/latency for further live evaluation. Escalate model quality gaps for
+review; do not silently change the model, provider or grounding scope.
 
 The planned customer/staff interviews and participant acceptance targets have
 not been performed. Synthetic checks do not complete those product gates.
