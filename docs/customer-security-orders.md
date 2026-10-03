@@ -1,8 +1,12 @@
 # Secure Plus in the customer portal
 
-Status: default-off source capability. Production activation and real customer
-acceptance require a separate verified release. Mobile enrollment, computer
-checks and support navigation retain their behavior.
+Status, October 3, 2026: deployed and enabled with the matching Milepost,
+Coastmark and Gateway release. Shipped sample defaults remain off. A real
+customer-owner session verified the connected computer, Secure Plus navigation
+and $15/month offer. No live order, provider action or installation was submitted;
+those acceptance steps remain unproven. See the canonical
+[production receipt](https://github.com/Seckcey/8westit_webapp/blob/main/docs/CUSTOMER_SECURITY_ORDERS_RELEASE_2026_10_03.md).
+Mobile enrollment, computer checks and support navigation retain their behavior.
 
 When portal_devices.security_orders_enabled is true, Windows computers show
 **Secure Plus** in **Your devices**. The page retrieves the selected computer's

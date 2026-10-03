@@ -60,6 +60,8 @@ inventory.
 The Westy shortcut opens the existing support conversation. The separate
 [Computer checks feature](customer-device-checks.md) adds default-off diagnostic
 consent and exact print-service repair review. The enrollment page itself does
-not authorize a command. The separate default-off [Secure Plus order
+not authorize a command. The separate [Secure Plus order
 flow](customer-security-orders.md) adds commercial review and explicit
-installation consent; adding a computer does not purchase it.
+installation consent; adding a computer does not purchase it. Its sample flag
+defaults off, while the October 3 production release is enabled. The linked
+guide distinguishes verified customer navigation from a real order or install.

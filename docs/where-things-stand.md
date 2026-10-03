@@ -1,6 +1,18 @@
 # Where things stand
 
-**Current live release — October 3, 5:07 AM Pacific (12:07 UTC):** customer mobile
+**Current live release — October 3, 10:53 AM Pacific (17:53 UTC):** customer
+Secure Plus ordering is deployed at `40a5b3311b1a7e888abe4a7f8333e40b3a501363`,
+with the matching Milepost, Coastmark and Gateway services enabled. The final
+seven-second window restored reports with their original scope and preserved
+all nine customer bindings and six lifecycle locks. The actual customer-owner
+session showed a connected computer and the $15/month offer. No quote, order,
+provider action or installation ran. Existing billing prerequisites and uncertain
+device work remain truthful readiness holds. See the
+[cross-service production and recovery receipt](https://github.com/Seckcey/8westit_webapp/blob/main/docs/CUSTOMER_SECURITY_ORDERS_RELEASE_2026_10_03.md)
+and [order contract](customer-security-orders.md). Earlier dated checkpoints below
+retain their historical observations; they are not current activation instructions.
+
+**Previous live release — October 3, 5:07 AM Pacific (12:07 UTC):** customer mobile
 guidance is deployed at `d97c8f1488fa7ab010234e635f5dfe786529c5ac` (PR #155), with
 Milepost `df5bde839b1bac87ede7e53c7586407bf49f3596` (PR #571) and both mobile gates
 enabled. The 226-second maintenance window restored the original report scope;
