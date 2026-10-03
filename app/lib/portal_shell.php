@@ -36,12 +36,20 @@ function portal_shell_start(array $context): void
 <?php
 }
 
+/** One chat trigger; device pages place it in their normal header flow. */
+function portal_westy_button(): void
+{
+    ?>
+<button id="portal-chat-bubble" type="button" aria-expanded="false" aria-controls="portal-chat-panel"><img src="/assets/img/westy-avatar.png" alt="" width="36" height="36"><strong>Westy</strong><span>Continue chat</span><?= portal_icon('arrow') ?></button>
+    <?php
+}
+
 function portal_westy_widget(array $context): void
 {
     $canWrite = portal_role_can_write_tickets((string)$context['identity']['role']);
     ?>
 <div id="portal-chat-root" data-csrf="<?= portal_h(portal_csrf_token()) ?>" data-can-write="<?= $canWrite ? '1' : '0' ?>">
-<button id="portal-chat-bubble" type="button" aria-expanded="false" aria-controls="portal-chat-panel"><img src="/assets/img/westy-avatar.png" alt="" width="36" height="36"><strong>Westy</strong><span>Continue chat</span><?= portal_icon('arrow') ?></button>
+<?php if (($context['chat_button_placement'] ?? '') !== 'inline') portal_westy_button(); ?>
 <section id="portal-chat-panel" class="portal-westy" aria-label="Private conversation with Westy" hidden>
 <div class="portal-chat-head"><div><strong>Westy</strong><span>Private conversation</span></div><button type="button" class="btn-link" id="portal-chat-new">New chat</button><button type="button" class="portal-icon-button" id="portal-chat-close" aria-label="Close Westy"><?= portal_icon('close') ?></button></div>
 <div id="portal-chat-messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></div>

@@ -407,6 +407,16 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
   const {pages,scratch}=await renderedFixtures();
   const browser=await chromium.launch();
   const evidence=process.env.PORTAL_DEVICE_EVIDENCE;
+  const unobstructed=async page=>assert.equal(await page.evaluate(()=>{
+    const bubble=document.getElementById('portal-chat-bubble'), b=bubble.getBoundingClientRect();
+    return [...document.querySelectorAll('.portal-devices a,.portal-devices button,.portal-devices input')].filter(e=>e!==bubble).every(e=>{
+      const r=e.getBoundingClientRect();return !r.width||!r.height||r.right<=b.left||r.left>=b.right||r.bottom<=b.top||r.top>=b.bottom;
+    });
+  }),true,'Westy trigger must not overlap device controls');
+  const contrast=async locator=>assert.ok(await locator.evaluate(e=>{
+    const luminance=c=>{const channels=c.match(/[\d.]+/g).slice(0,3).map(x=>Number(x)/255).map(x=>x<=0.04045?x/12.92:((x+0.055)/1.055)**2.4);return channels[0]*0.2126+channels[1]*0.7152+channels[2]*0.0722;};
+    const s=getComputedStyle(e),a=luminance(s.color),b=luminance(s.backgroundColor);return(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);
+  })>=4.5,'primary CTA text must meet normal-text contrast');
   try {
     for (const viewport of [{width:1365,height:900},{width:390,height:844}]) {
       const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport);
@@ -420,6 +430,12 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
       await page.getByText('Front desk computer',{exact:true}).waitFor();
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
       assert.equal(await page.locator('img').evaluateAll(images=>images.every(i=>i.complete&&i.naturalWidth>0)),true);
+      await unobstructed(page);
+      const chat=page.locator('#portal-chat-bubble');await chat.click();
+      await page.getByRole('region',{name:'Private conversation with Westy'}).or(page.getByRole('dialog',{name:'Private conversation with Westy'})).waitFor();
+      await page.getByRole('button',{name:'Close Westy',exact:true}).click();
+      assert.equal(await chat.evaluate(e=>e===document.activeElement),true);
+      await contrast(page.getByRole('button',{name:'Create Windows setup link',exact:true}));
       if(evidence)await page.screenshot({path:path.join(evidence,`devices-${viewport.width}.png`),fullPage:true});
       await page.getByRole('button',{name:'Create Windows setup link',exact:true}).click();
       assert.equal(await page.getByRole('heading',{name:'Install on your Windows computer'}).count(),0);
@@ -427,6 +443,10 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
       await page.getByRole('button',{name:'Create Windows setup link',exact:true}).click();
       await page.getByRole('heading',{name:'Install on your Windows computer'}).waitFor();
       assert.match(await page.getByRole('link',{name:'Download Milepost setup'}).getAttribute('href'),/^https:\/\/support\.8westit\.com\/download\.php\?t=/);
+      const download=page.getByRole('link',{name:'Download Milepost setup'});
+      await contrast(download);await download.hover();await contrast(download);await download.focus();await contrast(download);
+      assert.notEqual(await download.evaluate(e=>getComputedStyle(e).outlineStyle),'none');
+      await unobstructed(page);
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
       if(evidence&&viewport.width===1365)await page.screenshot({path:path.join(evidence,'devices-setup.png'),fullPage:true});
       await page.getByRole('button',{name:'Revoke',exact:true}).click();

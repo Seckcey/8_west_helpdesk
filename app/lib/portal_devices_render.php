@@ -6,10 +6,11 @@ require_once __DIR__ . '/portal_devices.php';
 function portal_render_devices(array $context, ?array $devices, array $enrollments, ?string $error = null, ?array $download = null, ?string $notice = null): void
 {
     $manage = portal_devices_can_manage($context);
+    $context['chat_button_placement'] = 'inline';
     portal_page_start('Your devices', 'portal-devices-page', $context);
     ?>
 <main class="portal-devices">
- <header class="portal-devices-heading"><div><p class="portal-eyebrow">YOUR BUSINESS</p><h1>Your devices</h1><p>Connect a computer so your support team can help when you need it.</p></div><a class="btn-link" href="/portal/devices.php">Refresh status</a></header>
+ <header class="portal-devices-heading"><div><p class="portal-eyebrow">YOUR BUSINESS</p><h1>Your devices</h1><p>Connect a computer so your support team can help when you need it.</p></div><div class="portal-devices-actions"><a class="btn-link" href="/portal/devices.php">Refresh status</a><?php portal_westy_button(); ?></div></header>
  <?php if ($error !== null): ?><div class="portal-device-notice" role="alert"><?= portal_h($error) ?> <a href="/portal/new.php">Contact support</a></div><?php endif; ?>
  <?php if ($notice !== null): ?><div class="portal-device-notice is-success" role="status"><?= portal_h($notice) ?></div><?php endif; ?>
  <?php if ($download !== null): ?>
