@@ -2,6 +2,8 @@
 
 Safeharbor's **Your devices** page and Windows enrollment are enabled for currently authorized customer identities with active business bindings. Owners and admins can create a four-hour, single-use setup link and revoke unused links; other customer roles can view device status. Existing Westy chat remains available. Customer-triggered diagnostics/repair and add-on ordering are separate follow-on work and are not enabled by this release.
 
+This is the 8 West customer rollout: the production provider allowlist remains `8west`. It does not activate directory, device, repair, or provisioning access for a new independent MSP. End-to-end onboarding of a new MSP remains separate and unproved.
+
 ## Production identity and evidence
 
 - Host: `milepost-ec2`, actual `ip-172-31-31-195`; app `/srv/8west/apps/safeharbor/current`.
