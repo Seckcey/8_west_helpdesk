@@ -15,6 +15,7 @@ const PORTAL_ASSETS = {
   '/assets/css/portal.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal.css'))],
   '/assets/css/portal-devices.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-devices.css'))],
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
+  '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
   '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
 };
@@ -56,6 +57,7 @@ async function w365Asset(pathname) {
 const FIXTURE_PHP = String.raw`<?php
 declare(strict_types=1);
 function portal_csrf_token(): string { return str_repeat('c', 64); }
+function cfg(string $key,mixed $default=null):mixed{return $key==='portal_devices'?['diagnostics_enabled'=>true]:$default;}
 function portal_action_nonce(string $purpose, ?int $now = null): string {
     return hash('sha256', $purpose . ':' . ($now ?? 1));
 }
@@ -63,7 +65,8 @@ require $argv[1];
 require dirname($argv[1]) . '/business_reports.php';
 require $argv[2];
 require dirname($argv[2]) . '/portal_devices_render.php';
-$_SERVER['REQUEST_URI'] = str_starts_with($argv[3], 'devices') ? '/portal/devices.php' : '/portal/';
+require dirname($argv[2]) . '/portal_device_operations_render.php';
+$_SERVER['REQUEST_URI'] = str_starts_with($argv[3], 'help') ? '/portal/device_help.php' : (str_starts_with($argv[3], 'devices') ? '/portal/devices.php' : '/portal/');
 $context = [
     'identity' => ['display_name' => 'Frank at 8 West Lifestyle', 'role' => 'client_admin'],
     'binding' => ['client_name' => '8 West Lifestyle'],
@@ -106,6 +109,30 @@ $archive = [
     'metrics' => $metrics, 'text' => $reportText,
 ];
 switch ($argv[3]) {
+    case 'help':
+    case 'helpreview':
+    case 'helpwaiting':
+    case 'helpverified':
+    case 'helpunknown':
+    case 'helpviewer':
+        $device=['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11','connection'=>'reporting','connection_label'=>'Connected and reporting'];
+        $health=['reference'=>str_repeat('2',32),'recipe'=>'health','title'=>'Computer health check','impact'=>'Read-only system status.','device_reference'=>$device['reference'],
+            'state'=>'completed','created_at'=>gmdate('Y-m-d\TH:i:s\Z'),'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',time()+600),'can_approve'=>false,'approval_fingerprint'=>null,
+            'result'=>['version'=>1,'observed_at'=>gmdate('Y-m-d\TH:i:s\Z',time()-30),'memory_used_percent'=>42.1,'system_disk_free_percent'=>55.5,'spooler'=>'stopped']];
+        $repair=$health;$repair['reference']=str_repeat('3',32);$repair['recipe']='spooler_restart';$repair['title']='Restart the Windows print service';
+        $repair['impact']='Printing pauses while the service restarts. Pending print jobs are preserved. There is no automatic rollback. Two later health checks verify the service; you still need to confirm that printing works.';
+        $repair['state']=match($argv[3]){'helpwaiting'=>'verifying','helpverified'=>'service_verified','helpunknown'=>'needs_help',default=>'awaiting_approval'};
+        $repair['can_approve']=$repair['state']==='awaiting_approval';$repair['approval_fingerprint']=$repair['can_approve']?str_repeat('f',64):null;
+        $repair['result']=$repair['state']==='service_verified'?array_replace($health['result'],['observed_at'=>gmdate('Y-m-d\TH:i:s\Z'),'spooler'=>'running']):null;
+        if($argv[3]==='helpviewer')$context['identity']['role']='client_viewer';
+        $eligibility=match($argv[3]){
+            'helpunknown'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'support_review'],
+            'helpwaiting'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'in_progress'],
+            'helpverified'=>['can_check'=>true,'can_propose_repair'=>false,'reason'=>'repair_cooldown'],
+            'helpviewer'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'read_only'],
+            default=>['can_check'=>true,'can_propose_repair'=>true,'reason'=>'ready']};
+        portal_render_device_help($context,$device,['available'=>true,'eligibility'=>$eligibility,'items'=>$argv[3]==='help'?[$health]:[$repair,$health]]);
+        break;
     case 'devices':
     case 'devicesviewer':
     case 'devicesempty':
@@ -170,7 +197,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked']) {
+  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer']) {
     const result = spawnSync('php', [
       fixturePath,
       path.join(ROOT, 'app/lib/portal_data.php'),
@@ -207,6 +234,13 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
       const body = form.get('action') === 'enrollment_revoke' ? pages.devicesrevoked : pages.devicesdownload;
       return route.fulfill({contentType:'text/html',body});
     }
+    if(url.pathname==='/portal/device_help.php'&&route.request().method()==='POST') {
+      const form=new URLSearchParams(route.request().postData());
+      assert.equal(form.get('csrf'),'c'.repeat(64));
+      if(form.get('action')!=='repair_propose')assert.equal(form.get('consent'),'yes');
+      if(form.get('action')==='repair_approve')assert.equal(form.get('approval_fingerprint'),'f'.repeat(64));
+      return route.fulfill({contentType:'text/html',body:form.get('action')==='repair_propose'?pages.helpreview:pages.helpwaiting});
+    }
     if (url.pathname === '/assets/css/app.css') {
       return route.fulfill({ contentType: 'text/css; charset=utf-8', body: APP_CSS });
     }
@@ -221,6 +255,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
     }
     const body = url.pathname === '/portal/' ? pages.dashboard
       : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
+      : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
       : url.pathname === '/portal/new.php' ? pages.new
       : url.pathname === '/portal/ticket.php' ? pages.ticket
       : url.pathname === '/portal/reports.php' && url.searchParams.has('id') ? pages.report
@@ -236,6 +271,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
 function fixtureForUrl(pages, url) {
   return url.pathname === '/portal/' ? pages.dashboard
     : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
+    : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
     : url.pathname === '/portal/new.php' ? pages.new
     : url.pathname === '/portal/ticket.php' ? pages.ticket
     : url.pathname === '/portal/reports.php' && url.searchParams.has('id') ? pages.report
@@ -334,6 +370,62 @@ if (SERVE_MODE) {
     await browser.close();
     await rm(scratch, { recursive: true, force: true });
   }
+});
+
+if (!SERVE_MODE) test('computer checks preserve explicit consent, exact repair review and honest outcomes on desktop and mobile',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  try {
+    for(const viewport of [{width:1365,height:900},{width:390,height:844}]) {
+      const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport);
+      const posts=[];page.on('request',r=>{if(r.method()==='POST'&&r.url().includes('device_help.php'))posts.push(new URLSearchParams(r.postData()));});
+      await page.goto(`${ORIGIN}/portal/device_help.php`);
+      await page.getByRole('heading',{name:'Front desk computer'}).waitFor();
+      await page.getByText('Run another health check',{exact:true}).click();
+      await page.getByRole('button',{name:'Run health check',exact:true}).click();
+      assert.equal(posts.length,0,'unchecked health consent sends nothing');
+      await page.getByText('Run another health check',{exact:true}).click();
+      await page.getByRole('button',{name:'Review print-service repair',exact:true}).click();
+      await page.getByText('Ready for your review',{exact:true}).waitFor();
+      assert.equal(posts.at(-1).get('action'),'repair_propose');
+      await page.getByRole('button',{name:'Approve this repair',exact:true}).click();
+      assert.equal(posts.length,1,'review alone and unchecked repair consent cannot approve');
+      assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+      const evidence=process.env.PORTAL_DEVICE_EVIDENCE;
+      await page.getByRole('heading',{name:'Front desk computer'}).click();await page.evaluate(()=>scrollTo(0,0));
+      if(evidence)await page.screenshot({path:path.join(evidence,`repair-review-${viewport.width}.png`),fullPage:true});
+      await page.getByRole('checkbox',{name:/I approve restarting/}).check();
+      await page.getByRole('button',{name:'Approve this repair',exact:true}).click();
+      await page.getByText('The repair reported completion. Waiting for two separate health checks.',{exact:true}).waitFor();
+      assert.equal(posts.at(-1).get('action'),'repair_approve');
+      assert.equal(posts.length,2);
+      for(const fixture of ['helpverified','helpunknown','helpviewer']) {
+        await page.goto(`${ORIGIN}/portal/device_help.php?fixture=${fixture}`);
+        assert.equal(await page.getByRole('button',{name:'Approve this repair',exact:true}).count(),0);
+        assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+        if(fixture==='helpverified'){
+          await page.getByText('Try printing now.',{exact:false}).waitFor();
+          await page.locator('.portal-health-service').getByText('Running',{exact:true}).waitFor();
+          assert.equal(await page.getByText('Stopped',{exact:true}).count(),0);
+          assert.equal(await page.getByRole('button',{name:'Review print-service repair',exact:true}).count(),0);
+        }
+        if(fixture==='helpunknown'){
+          await page.getByText('Support review needed',{exact:true}).waitFor();
+          assert.equal(await page.getByRole('button',{name:'Run health check',exact:true}).count(),0);
+          assert.equal(await page.getByRole('button',{name:'Review print-service repair',exact:true}).count(),0);
+        }
+        if(fixture==='helpviewer')assert.equal(await page.getByRole('button',{name:'Run health check',exact:true}).count(),0);
+        if(evidence)await page.screenshot({path:path.join(evidence,`${fixture}-${viewport.width}.png`),fullPage:true});
+      }
+      await page.goto(`${ORIGIN}/portal/device_help.php`);
+      await page.getByText('Run another health check',{exact:true}).click();
+      await page.getByRole('checkbox',{name:/I authorize this health check/}).check();
+      await page.getByRole('button',{name:'Run health check',exact:true}).click();
+      await page.getByText('The repair reported completion. Waiting for two separate health checks.',{exact:true}).waitFor();
+      assert.equal(posts.at(-1).get('action'),'health_start');
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+    }
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
 if (!SERVE_MODE) test('private composer preserves review, receipt recovery and mobile focus boundaries', async () => {

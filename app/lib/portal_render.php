@@ -36,7 +36,7 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <link rel="stylesheet" href="/assets/css/app.css?v=5">
 <link rel="stylesheet" href="/assets/css/portal.css?v=1">
-<link rel="stylesheet" href="/assets/css/portal-devices.css?v=1">
+<link rel="stylesheet" href="/assets/css/portal-devices.css?v=2">
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
     <?php
