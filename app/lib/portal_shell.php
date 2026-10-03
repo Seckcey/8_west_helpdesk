@@ -23,7 +23,7 @@ function portal_shell_start(array $context): void
     $identity = $context['identity'];
     $client = (string)($context['binding']['client_name'] ?? 'Your business');
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH);
-    if($path==='/portal/device_help.php')$path='/portal/devices.php';
+    if(in_array($path, ['/portal/device_help.php', '/portal/mobile.php'], true))$path='/portal/devices.php';
     ?>
 <a class="portal-skip" href="#portal-content">Skip to content</a>
 <header class="portal-top"><a href="/portal/" aria-label="Safeharbor home"><img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" width="1851" height="513" alt="Safeharbor — 8 West IT 365"></a><span>8 West IT</span><button type="button" class="portal-icon-button portal-menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="portal-nav"><?= portal_icon('menu') ?></button></header>

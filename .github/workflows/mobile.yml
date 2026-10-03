@@ -1,0 +1,38 @@
+name: Customer mobile isolation
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  mobile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+        env:
+          MYSQL_ROOT_PASSWORD: mobile-synthetic-only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pmobile-synthetic-only"
+          --health-interval=5s --health-timeout=3s --health-retries=24
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Closed projection and renderer
+        run: php app/tests/portal_mobile_test.php
+      - name: Real customer bindings and signed request
+        env:
+          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_WESTY_TEST_PORT: '3306'
+          SAFEHARBOR_WESTY_TEST_USER: root
+          SAFEHARBOR_WESTY_TEST_PASS: mobile-synthetic-only
+          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test_mobile
+        run: php app/tests/portal_mobile_mysql_test.php

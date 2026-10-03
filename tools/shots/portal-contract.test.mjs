@@ -14,6 +14,7 @@ const FAVICON = await readFile(path.join(ROOT, 'brand/svg/favicon.svg'), 'utf8')
 const PORTAL_ASSETS = {
   '/assets/css/portal.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal.css'))],
   '/assets/css/portal-devices.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-devices.css'))],
+  '/assets/css/portal-mobile.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-mobile.css'))],
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
   '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
@@ -57,7 +58,11 @@ async function w365Asset(pathname) {
 const FIXTURE_PHP = String.raw`<?php
 declare(strict_types=1);
 function portal_csrf_token(): string { return str_repeat('c', 64); }
-function cfg(string $key,mixed $default=null):mixed{return $key==='portal_devices'?['diagnostics_enabled'=>true]:$default;}
+function cfg(string $key,mixed $default=null):mixed{
+    global $argv;
+    if($key==='portal_mobile')return ['enabled'=>in_array($argv[3],['devicesmobile','devicesmobileviewer','mobile','mobileviewer'],true)];
+    return $key==='portal_devices'?['diagnostics_enabled'=>true]:$default;
+}
 function portal_action_nonce(string $purpose, ?int $now = null): string {
     return hash('sha256', $purpose . ':' . ($now ?? 1));
 }
@@ -66,7 +71,9 @@ require dirname($argv[1]) . '/business_reports.php';
 require $argv[2];
 require dirname($argv[2]) . '/portal_devices_render.php';
 require dirname($argv[2]) . '/portal_device_operations_render.php';
+require dirname($argv[2]) . '/portal_mobile_render.php';
 $_SERVER['REQUEST_URI'] = str_starts_with($argv[3], 'help') ? '/portal/device_help.php' : (str_starts_with($argv[3], 'devices') ? '/portal/devices.php' : '/portal/');
+if(str_starts_with($argv[3],'mobile'))$_SERVER['REQUEST_URI']='/portal/mobile.php';
 $context = [
     'identity' => ['display_name' => 'Frank at 8 West Lifestyle', 'role' => 'client_admin'],
     'binding' => ['client_name' => '8 West Lifestyle'],
@@ -109,6 +116,11 @@ $archive = [
     'metrics' => $metrics, 'text' => $reportText,
 ];
 switch ($argv[3]) {
+    case 'mobile':
+    case 'mobileviewer':
+        if($argv[3]==='mobileviewer')$context['identity']['role']='client_viewer';
+        portal_render_mobile($context,['providers'=>['android'=>'setup_required','intune'=>'setup_required'],'items'=>[],'next_offset'=>null],null,null,null);
+        break;
     case 'help':
     case 'helpreview':
     case 'helpwaiting':
@@ -134,12 +146,14 @@ switch ($argv[3]) {
         portal_render_device_help($context,$device,['available'=>true,'eligibility'=>$eligibility,'items'=>$argv[3]==='help'?[$health]:[$repair,$health]]);
         break;
     case 'devices':
+    case 'devicesmobile':
+    case 'devicesmobileviewer':
     case 'devicesviewer':
     case 'devicesempty':
     case 'deviceserror':
     case 'devicesdownload':
     case 'devicesrevoked':
-        if($argv[3]==='devicesviewer')$context['identity']['role']='client_viewer';
+        if(in_array($argv[3],['devicesviewer','devicesmobileviewer'],true))$context['identity']['role']='client_viewer';
         $devices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11',
             'connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in and inventory received.',
             'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-60),'troubleshooting'=>'support_request'],
@@ -197,7 +211,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer']) {
+  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer']) {
     const result = spawnSync('php', [
       fixturePath,
       path.join(ROOT, 'app/lib/portal_data.php'),
@@ -255,6 +269,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
     }
     const body = url.pathname === '/portal/' ? pages.dashboard
       : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
+      : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
       : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
       : url.pathname === '/portal/new.php' ? pages.new
       : url.pathname === '/portal/ticket.php' ? pages.ticket
@@ -271,6 +286,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
 function fixtureForUrl(pages, url) {
   return url.pathname === '/portal/' ? pages.dashboard
     : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
+    : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
     : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
     : url.pathname === '/portal/new.php' ? pages.new
     : url.pathname === '/portal/ticket.php' ? pages.ticket
@@ -366,6 +382,53 @@ if (SERVE_MODE) {
     assert.equal(await mobile.page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth), true);
     assert.deepEqual(mobile.consoleProblems, []);
     await mobile.context.close();
+  } finally {
+    await browser.close();
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+if (!SERVE_MODE) test('mobile discovery honors its gate and preserves device navigation for admins and viewers', async () => {
+  const { pages, scratch } = await renderedFixtures();
+  const browser = await chromium.launch();
+  try {
+    for (const viewport of [{ width: 1365, height: 900 }, { width: 390, height: 844 }]) {
+      for (const viewer of [false, true]) {
+        const enabledPages = { ...pages, devices: pages[viewer ? 'devicesmobileviewer' : 'devicesmobile'], mobile: pages[viewer ? 'mobileviewer' : 'mobile'], help: pages[viewer ? 'helpviewer' : 'help'] };
+        const { page, context, consoleProblems } = await openPortalPage(browser, enabledPages, viewport);
+        await page.goto(`${ORIGIN}/portal/devices.php`);
+        await page.getByRole('heading', { name: 'Your devices', exact: true }).waitFor();
+        assert.equal(await page.getByRole('link', { name: 'Computer checks', exact: true }).count(), 2);
+        assert.equal(await page.getByRole('button', { name: 'Create Windows setup link', exact: true }).count(), viewer ? 0 : 1);
+        const evidence = process.env.PORTAL_MOBILE_EVIDENCE;
+        if (evidence && !viewer) await page.screenshot({ path: path.join(evidence, `mobile-entry-${viewport.width}.png`), fullPage: true });
+        await page.getByRole('link', { name: 'Phones, tablets & Macs', exact: true }).click();
+        await page.getByRole('heading', { name: 'Phones, tablets & Macs', exact: true }).waitFor();
+        assert.equal(new URL(page.url()).pathname, '/portal/mobile.php');
+        assert.equal(await page.getByRole('button', { name: 'Create Windows setup link', exact: true }).count(), 0);
+        assert.equal(await page.locator('nav[aria-label="Customer portal"] a[aria-current="page"]').count(), 1);
+        assert.equal(await page.locator('nav[aria-label="Customer portal"] a[aria-current="page"]').textContent(), 'Your devices');
+        assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= body.clientWidth), true);
+        if (evidence && !viewer) await page.screenshot({ path: path.join(evidence, `mobile-current-${viewport.width}.png`), fullPage: true });
+        await page.getByRole('link', { name: 'Computer installation & support', exact: true }).click();
+        await page.getByRole('heading', { name: 'Your devices', exact: true }).waitFor();
+        await page.getByRole('link', { name: 'Computer checks', exact: true }).first().click();
+        await page.getByRole('heading', { name: 'Front desk computer', exact: true }).waitFor();
+        assert.equal(await page.locator('nav[aria-label="Customer portal"] a[aria-current="page"]').textContent(), 'Your devices');
+        assert.deepEqual(consoleProblems, []);
+        await context.close();
+
+        const disabledPages = { ...pages, devices: pages[viewer ? 'devicesviewer' : 'devices'] };
+        const disabled = await openPortalPage(browser, disabledPages, viewport);
+        await disabled.page.goto(`${ORIGIN}/portal/devices.php`);
+        assert.equal(await disabled.page.locator('a[href="/portal/mobile.php"]').count(), 0);
+        assert.equal(await disabled.page.getByRole('link', { name: 'Computer checks', exact: true }).count(), 2);
+        assert.equal(await disabled.page.locator('body').evaluate(body => body.scrollWidth <= body.clientWidth), true);
+        if (evidence && !viewer) await disabled.page.screenshot({ path: path.join(evidence, `mobile-disabled-${viewport.width}.png`), fullPage: true });
+        assert.deepEqual(disabled.consoleProblems, []);
+        await disabled.context.close();
+      }
+    }
   } finally {
     await browser.close();
     await rm(scratch, { recursive: true, force: true });
