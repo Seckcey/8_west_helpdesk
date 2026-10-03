@@ -60,3 +60,6 @@ check(str_contains($html,'Run health check'),'historical needs-help alone does n
 check(portal_device_operations_result('operations',$history)===$history,'current eligibility passes the closed DTO contract');
 $history['eligibility']['can_check']='yes';
 check(refused(static fn()=>portal_device_operations_result('operations',$history)),'malformed current eligibility is refused');
+$history=['available'=>true,'eligibility'=>['can_check'=>true,'can_propose_repair'=>true,'reason'=>'ready'],'items'=>[array_replace($health,['state'=>'expired','result'=>null])]];
+ob_start();portal_render_device_help($a,$devices['items'][0],$history);$html=ob_get_clean();
+check(str_contains($html,'This request expired before starting.')&&str_contains($html,'Run health check')&&!str_contains($html,'Waiting for the computer'),'safe unclaimed expiry presents a new explicit check without a false support hold');
