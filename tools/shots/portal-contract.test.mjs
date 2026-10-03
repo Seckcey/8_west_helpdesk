@@ -410,9 +410,12 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
   try {
     for (const viewport of [{width:1365,height:900},{width:390,height:844}]) {
       const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport);
+      page.setDefaultTimeout(10000);
       await page.goto(`${ORIGIN}/portal/devices.php`);
       assert.equal(await page.title(),'Your devices · Safeharbor');
+      if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
       assert.equal(await page.getByRole('navigation',{name:'Customer portal'}).getByRole('link',{name:'Your devices',exact:true}).getAttribute('aria-current'),'page');
+      if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
       await page.getByRole('heading',{name:'Connected computers'}).waitFor();
       await page.getByText('Front desk computer',{exact:true}).waitFor();
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
