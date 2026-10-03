@@ -1,6 +1,8 @@
 <?php
 /** Signed, tenant-bound controller events. Chat/model output has no authority here. */
 declare(strict_types=1);
+require_once __DIR__ . '/suite_managed_provider.php';
+require_once __DIR__ . '/managed_customer_status.php';
 
 const WESTY_WORKFLOW_SERVICE = 'milepost-workflow';
 const WESTY_WORKFLOW_CONTEXT = 'safeharbor-westy-workflow-v1';
@@ -12,8 +14,11 @@ function westy_workflow_settings(array $config): array
 {
     if (($config['enabled'] ?? false) !== true || !is_string($config['hmac_secret'] ?? null)
         || strlen($config['hmac_secret']) < 32
-        || !is_array($config['tenant_slugs'] ?? null) || !$config['tenant_slugs']
-        || !is_array($config['customer_ids'] ?? null) || !$config['customer_ids']) {
+        || !is_bool($config['managed_providers_enabled'] ?? false)
+        || !is_array($config['tenant_slugs'] ?? null) || !array_is_list($config['tenant_slugs'])
+        || !is_array($config['customer_ids'] ?? null) || !array_is_list($config['customer_ids'])
+        || count($config['tenant_slugs']) > 1000 || count($config['customer_ids']) > 1000
+        || (($config['managed_providers_enabled'] ?? false) !== true && (!$config['tenant_slugs'] || !$config['customer_ids']))) {
         throw new RuntimeException('workflow_unavailable');
     }
     foreach ($config['tenant_slugs'] as $slug) {
@@ -117,7 +122,10 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
 {
     $settings = westy_workflow_settings($settings);
     westy_workflow_schema_ready($pdo);
-    if (!in_array($p['tenant_slug'], $settings['tenant_slugs'], true) || !in_array($p['customer_id'], $settings['customer_ids'], true)) throw new RuntimeException('unauthorized');
+    $managed = ($settings['managed_providers_enabled'] ?? false) === true
+        && !in_array($p['tenant_slug'], ['8west', 'internal'], true);
+    if (!$managed && (!in_array($p['tenant_slug'], $settings['tenant_slugs'], true)
+        || !in_array($p['customer_id'], $settings['customer_ids'], true))) throw new RuntimeException('unauthorized');
     if ($pdo->inTransaction()) throw new RuntimeException('transaction_ownership_required');
     $pdo->beginTransaction();
     try {
@@ -126,10 +134,17 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
         $tenant = westy_workflow_row($pdo, 'SELECT id,slug FROM tenants WHERE slug = ?' . $lock, [$p['tenant_slug']]);
         if (!$tenant || $tenant['slug'] !== $p['tenant_slug']) throw new RuntimeException('unauthorized');
         $tid = (int)$tenant['id'];
+        if ($managed) {
+            $provider = suite_managed_provider($pdo, $p['tenant_slug'], true);
+            if ($provider === null || (int)$provider['tenant_id'] !== $tid) throw new RuntimeException('unauthorized');
+        }
         $identity = westy_workflow_row($pdo, 'SELECT id FROM svc_identities WHERE tenant_id = ? AND service = ? AND is_active = 1' . $lock, [$tid, WESTY_WORKFLOW_SERVICE]);
         if (!$identity) throw new RuntimeException('unauthorized');
         $binding = westy_workflow_row($pdo, 'SELECT client_id FROM suite_customer_sync_bindings WHERE tenant_id = ? AND customer_id = ? AND status = ?' . $lock, [$tid,$p['customer_id'],'active']);
         if (!$binding) throw new WestyWorkflowConflict('active_customer_binding_required');
+        if ($managed && !managed_customer_operational($pdo, $tid, (int)$binding['client_id'], true)) {
+            throw new WestyWorkflowConflict('active_customer_binding_required');
+        }
         $prior = westy_workflow_row($pdo, 'SELECT request_sha256,response_json FROM westy_workflow_receipts WHERE tenant_id = ? AND event_key = ?', [$tid,$p['event_key']]);
         if ($prior) {
             if (!hash_equals($prior['request_sha256'], $requestHash)) throw new WestyWorkflowConflict('event_key_conflict');
