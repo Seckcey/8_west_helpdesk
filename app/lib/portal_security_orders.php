@@ -9,14 +9,15 @@ function portal_security_orders_result(string $action,array $result): array
         || !array_is_list($result['items']) || count($result['items'])>50)) $fail();
     foreach($action==='security_orders'?$result['items']:[$result] as $row) {
         if (!is_array($row) || !portal_devices_keys($row,['reference','state','expired','device_reference','offer','gateway_stage','created_at','expires_at',
-            'can_approve','can_install','approval_fingerprint','can_continue','can_refresh','error_code','installation'])
+            'can_approve','can_install','approval_fingerprint','can_continue','can_refresh','error_code','installation','existing_order','superseded','can_review_setup'])
             || !is_string($row['reference']) || preg_match('/^[a-f0-9]{32}$/D',$row['reference'])!==1
             || !is_string($row['device_reference']) || preg_match('/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D',$row['device_reference'])!==1
             || !in_array($row['state'],['planning','review','accepting','accepted','needs_review'],true)
             || !in_array($row['gateway_stage'],[null,'approved','company_creating','company_created','company_ready','package_creating','package_created','ready','unknown','rejected','needs_review'],true)
-            || !in_array($row['error_code'],['','billing_setup_required','order_already_exists'],true)
+            || !in_array($row['error_code'],['','billing_setup_required','order_already_exists','execution_consent_expired'],true)
             || !portal_devices_timestamp($row['created_at']) || !portal_devices_timestamp($row['expires_at'])) $fail();
-        foreach(['expired','can_approve','can_install','can_continue','can_refresh'] as $key) if(!is_bool($row[$key])) $fail();
+        foreach(['expired','can_approve','can_install','can_continue','can_refresh','existing_order','superseded','can_review_setup'] as $key) if(!is_bool($row[$key])) $fail();
+        if ($row['superseded'] && ($row['can_approve'] || $row['can_install'] || $row['can_continue'] || $row['can_refresh'] || $row['can_review_setup'])) $fail();
         if (($row['can_approve']||$row['can_install']) ? (!is_string($row['approval_fingerprint']) || preg_match('/^[a-f0-9]{64}$/D',$row['approval_fingerprint'])!==1)
             : $row['approval_fingerprint']!==null) $fail();
         if (($row['can_approve'] && ($row['state']!=='review'||$row['expired']))
@@ -66,7 +67,8 @@ function portal_security_order_error(string $reason): string
 {
     return match($reason) {
         'order_consent'=>'Review the price, terms and selected computer, then tick the confirmation to continue.',
-        'approval_expired','approval_changed','order_authorization_changed'=>'This approval has expired or its details have changed. Contact support to review the existing order before trying again.',
+        'approval_expired','approval_changed','order_authorization_changed'=>'This approval has expired or its details have changed. Review setup again for the existing order when that option is available.',
+        'execution_consent_pending'=>'We are checking the previous confirmation. Its approval window must close before a replacement can start. Check the existing order shortly.',
         'installation_busy'=>'This computer has unfinished work. Contact support before starting another installation.',
         'order_service_unavailable'=>'The response could not be confirmed. Check the existing order below before submitting anything again.',
         'orders_unavailable','order_unavailable','order_evidence_unavailable','installation_unavailable'=>'Security ordering is unavailable right now. Contact support to review its status.',

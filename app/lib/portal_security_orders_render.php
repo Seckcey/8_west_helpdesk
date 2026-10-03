@@ -13,7 +13,9 @@ function portal_render_security_orders(array $context,array $device,?array $orde
 {
     $manage=portal_devices_can_manage($context);$context['chat_button_placement']='inline';
     $url='/portal/security.php?device='.rawurlencode($device['reference']);
-    $canReview=$orders!==null && array_filter($orders,static fn(array $o):bool=>in_array($o['state'],['accepted','accepting'],true)||$o['can_approve'])===[];
+    $hasReview=$orders!==null && array_filter($orders,static fn(array $o):bool=>$o['can_approve'])!==[];
+    $canReview=$orders!==null && !$hasReview && array_filter($orders,static fn(array $o):bool=>$o['existing_order']||in_array($o['state'],['accepted','accepting'],true))===[];
+    $canRecover=$orders!==null && !$hasReview && array_filter($orders,static fn(array $o):bool=>$o['can_review_setup'])!==[];
     portal_page_start('Secure Plus','portal-devices-page portal-security-page',$context);
     ?>
 <main class="portal-devices">
@@ -30,12 +32,13 @@ function portal_render_security_orders(array $context,array $device,?array $orde
   <h3><?= portal_h($device['label']) ?></h3>
   <?php if($order['offer']!==null): ?><p><strong>$15 USD per month</strong> · one computer</p><?php endif; ?>
   <?php if($order['state']==='review'): ?>
+   <?php if($order['existing_order']): ?><p>Your Secure Plus order is already recorded. This review gives fresh permission to finish setup for the same computer. It does not place another order or change its price or terms.</p><?php endif; ?>
    <p><?= portal_h($order['offer']['terms']) ?></p><p class="portal-hint">Review valid until <?= portal_h(portal_format_utc($order['expires_at'])) ?>.</p>
    <?php if($manage && $order['can_approve']): ?><form method="post" action="<?= portal_h($url) ?>"><?php portal_security_order_fields($order,'security_accept'); ?>
-    <label class="portal-device-consent"><input type="checkbox" name="consent" value="yes" required><span>I am authorized to order Secure Plus at $15 USD per month for this computer. I accept these terms and authorize its installation.</span></label>
-    <button class="btn-primary" type="submit">Accept $15/month order</button>
+    <label class="portal-device-consent"><input type="checkbox" name="consent" value="yes" required><span><?= $order['existing_order']?'I am authorized to continue setup for this existing Secure Plus order on this computer. I approve the reviewed setup; installation will require my separate confirmation.':'I am authorized to order Secure Plus at $15 USD per month for this computer. I accept these terms and authorize its installation.' ?></span></label>
+    <button class="btn-primary" type="submit"><?= $order['existing_order']?'Approve setup for existing order':'Accept $15/month order' ?></button>
    </form><?php endif; ?>
-  <?php elseif($order['state']==='accepting'): ?><p>We are confirming whether your order was accepted. Continue this request to check its existing receipt.</p>
+  <?php elseif($order['state']==='accepting'): ?><p><?= $order['existing_order']?'We are confirming your setup permission for the existing order. Check this request before trying again.':'We are confirming whether your order was accepted. Continue this request to check its existing receipt.' ?></p>
   <?php elseif($order['error_code']==='billing_setup_required'): ?><p>Support needs to connect your business’s billing account before you can place this order.</p>
   <?php elseif($order['error_code']==='order_already_exists'): ?><p>An accepted Secure Plus order already exists for this computer. Contact support to review that order.</p>
   <?php endif; ?>
@@ -59,7 +62,8 @@ function portal_render_security_orders(array $context,array $device,?array $orde
    <p class="portal-hint">An installer finishing does not by itself confirm protection or MDR enrollment.</p>
    <?php if($install['observed_at']!==null): ?><p class="portal-hint">Provider checked <?= portal_h(portal_format_utc($install['observed_at'])) ?>.</p><?php endif; ?>
   <?php endif; ?>
-  <?php if($order['expired'] && $install===null && $order['state']!=='accepting'): ?><p>This approval window has ended. Contact support to review the existing order before restarting setup.</p><?php endif; ?>
+  <?php if($order['superseded']): ?><p>This earlier setup approval has been replaced. Its history is retained; use the latest setup review above.</p>
+  <?php elseif($order['expired'] && $install===null && $order['state']!=='accepting'): ?><p>This approval window has ended. <?= $order['can_review_setup']?'Review setup again to give fresh permission for the existing order.':'Contact support if setup cannot be reviewed again.' ?></p><?php endif; ?>
   <?php if($manage && $order['can_continue']): ?><form method="post" action="<?= portal_h($url) ?>"><?php portal_security_order_fields($order,'security_continue'); ?><button type="submit" class="btn-primary"><?= $order['state']==='accepting'?'Check existing order':'Continue setup' ?></button></form><?php endif; ?>
   <?php if($manage && $order['can_install']): ?><form method="post" action="<?= portal_h($url) ?>"><?php portal_security_order_fields($order,'security_install'); ?>
    <label class="portal-device-consent"><input type="checkbox" name="consent" value="yes" required><span>Start the approved Secure Plus installation on <?= portal_h($device['label']) ?> now. Existing security software will not be removed automatically.</span></label><button type="submit" class="btn-primary">Install on this computer</button></form><?php endif; ?>
@@ -69,7 +73,7 @@ function portal_render_security_orders(array $context,array $device,?array $orde
  </section><aside><section class="portal-device-setup"><p class="portal-eyebrow">SECURE PLUS</p><h2>$15 <small>USD / month</small></h2><p>For one selected Windows computer.</p>
  <ul><li>Antivirus and endpoint protection</li><li>Endpoint detection and response</li><li>MDR Foundations</li></ul>
  <p>Reviewing an offer does not place an order. Accepting records your order; this portal does not collect payment or issue an invoice.</p>
- <?php if($manage && $canReview): ?><form method="post" action="<?= portal_h($url) ?>"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="security_review"><input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>"><input type="hidden" name="device_reference" value="<?= portal_h($device['reference']) ?>"><button type="submit" class="btn-primary">Review Secure Plus</button></form>
+ <?php if($manage && ($canReview || $canRecover)): ?><form method="post" action="<?= portal_h($url) ?>"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="security_review"><input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>"><input type="hidden" name="device_reference" value="<?= portal_h($device['reference']) ?>"><button type="submit" class="btn-primary"><?= $canRecover?'Review setup for existing order':'Review Secure Plus' ?></button></form>
  <?php elseif(!$manage): ?><p>A business owner or admin can review and place an order.</p><?php endif; ?>
  <p class="portal-hint">Keep the computer online during setup. Support will help if its software or current work prevents installation.</p><a href="/portal/new.php">Ask about this add-on</a></section></aside></div>
 </main>

@@ -11,7 +11,8 @@ $fixture=json_decode(file_get_contents(__DIR__.'/fixtures/security_orders/coastm
 $device=['reference'=>'1:'.str_repeat('a',64),'label'=>'<script>Test computer</script>','platform'=>'Windows 11'];
 $order=['reference'=>str_repeat('a',32),'state'=>'review','expired'=>false,'device_reference'=>$device['reference'],
     'offer'=>$fixture['quote']['offer'],'gateway_stage'=>null,'created_at'=>'2026-10-03T01:00:00Z','expires_at'=>'2026-10-03T01:10:00Z',
-    'can_approve'=>true,'can_install'=>false,'approval_fingerprint'=>str_repeat('b',64),'can_continue'=>false,'can_refresh'=>false,'error_code'=>'','installation'=>null];
+    'can_approve'=>true,'can_install'=>false,'approval_fingerprint'=>str_repeat('b',64),'can_continue'=>false,'can_refresh'=>false,'error_code'=>'','installation'=>null,
+    'existing_order'=>false,'superseded'=>false,'can_review_setup'=>false];
 so_check(portal_devices_result('security_review',$order)===$order,'closed exact review projection');
 so_check(portal_devices_result('security_orders',['items'=>[$order]])===['items'=>[$order]],'closed customer receipt listing');
 foreach(['installation_url'=>'https://private.invalid/x','subject'=>'t1u1','plan'=>['command'=>'x'],'package_ref'=>'pkg_private'] as $key=>$value){
@@ -50,4 +51,19 @@ so_check(!str_contains($html,'action="/portal/security.php') && !str_contains($h
 $unknown=array_replace($installed,['installation'=>array_replace($installed['installation'],['state'=>'unknown'])]);
 ob_start();portal_render_security_orders($context,$device,[$unknown]);$html=ob_get_clean();
 so_check(str_contains($html,'before trying another install') && !str_contains($html,'Install on this computer'),'unknown outcomes keep new execution unavailable');
+
+$expired=array_replace($ready,['expired'=>true,'can_install'=>false,'can_refresh'=>false,'approval_fingerprint'=>null,'can_review_setup'=>true]);
+so_check(portal_devices_result('security_orders',['items'=>[$expired]])===['items'=>[$expired]],'expired order advertises fresh setup only');
+ob_start();portal_render_security_orders($context,$device,[$expired]);$html=ob_get_clean();
+so_check(str_contains($html,'Review setup for existing order') && !str_contains($html,'Accept $15/month order'),'expired commercial receipt does not offer another purchase');
+$recovery=array_replace($order,['existing_order'=>true]);
+ob_start();portal_render_security_orders($context,$device,[$recovery,$expired]);$html=ob_get_clean();
+so_check(str_contains($html,'Approve setup for existing order') && str_contains($html,'does not place another order')
+    && !str_contains($html,'Review setup for existing order') && !str_contains($html,'Accept $15/month order'), 'fresh setup requires its own consent and hides duplicate review');
+$superseded=array_replace($expired,['superseded'=>true,'can_review_setup'=>false]);
+so_check(portal_devices_result('security_orders',['items'=>[$superseded]])===['items'=>[$superseded]],'superseded approval remains read-only history');
+$bad=$superseded;$bad['can_review_setup']=true;
+so_check(so_refused(fn()=>portal_devices_result('security_orders',['items'=>[$bad]])),'superseded approval cannot advertise new execution');
+ob_start();portal_render_security_orders($context,$device,[$superseded]);$html=ob_get_clean();
+so_check(str_contains($html,'earlier setup approval has been replaced') && !str_contains($html,'action="/portal/security.php'),'old approval retains history without action controls');
 echo "PASS portal security order contracts and consent: $checks checks\n";

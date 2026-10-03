@@ -17,9 +17,18 @@ customer receipts through Milepost. A business owner or admin can:
 
 The portal does not issue an invoice or collect payment. Review does not place
 an order. Competitor security software is not removed automatically. Support
-handles missing billing mappings, expired authority and uncertain installations.
+handles missing billing mappings and uncertain installations.
 Refresh page reads stored status; Check setup status requests fresh provider
 evidence without starting another install.
+
+An expired approval, a new sign-in or a safe refusal before delivery can show
+**Review setup for existing order**. The fresh review names the existing order
+and unchanged price/terms. **Approve setup for existing order** requires a new
+checkbox; **Install on this computer** remains a separate confirmation. This
+records new execution consent without another purchase. An open current review
+hides duplicate review controls. Replaced approvals stay visible as history and
+offer no actions. Uncertain provider writes and consumed installer links keep
+their support-review boundary.
 
 Only owner/admin roles get order/install/provider-refresh controls. Other
 authorized customer roles can read status. Forms require CSRF protection;
