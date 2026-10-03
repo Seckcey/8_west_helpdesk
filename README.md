@@ -10,7 +10,7 @@ technicians a place to manage client requests, conversations, service goals,
 approved time, and reports. It works alongside Milepost for device and alert
 context, Coastmark for draft invoice lines, and 8 West ID for suite sign-in.
 
-**Current state (September 24, 2026):** The service is live at
+**Current state (October 2, 2026):** The service is live at
 [safeharbor.8westit.com](https://safeharbor.8westit.com/). The core desk is
 feature-complete, while the four-week dogfood gate for the v1.0 stamp remains
 open. Managed onboarding is enabled for eligible new MSP signups; the first real
@@ -29,9 +29,10 @@ scope and verification evidence.
 - **Give customers a place to follow up:** The approved Lifestyle customer
   portal supports new requests, replies, ticket details, and report archives.
   Broader customer acceptance remains a separate step.
-  The [Phase 1 portal update](docs/customer-portal-phase1.md) adds a private Westy
-  conversation and explicitly reviewed ticket handoff. It remains under review;
-  production AI activation and real-provider acceptance are separate gates.
+  The [Phase 1 dashboard](docs/customer-portal-release-2026-10-02.md) is deployed.
+  Private Westy conversation and reviewed ticket handoff remain disabled;
+  customer sign-in acceptance, AI activation and real-provider evaluation are
+  separate gates in the [feature contract](docs/customer-portal-phase1.md).
 - **Connect the suite carefully:** Approved time can be sent to an existing
   Coastmark connection as a *draft* invoice line. Coastmark owns pricing and
   every later invoice decision. Westy offers help and guidance; it does not
