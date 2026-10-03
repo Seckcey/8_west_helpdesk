@@ -24,6 +24,17 @@ pm_check(portal_mobile_result('enrollment_plan',$plan)===$plan,'closed enrollmen
 $bad=$plan;$bad['automatic_enrollment']=true;pm_check(pm_refused(fn()=>portal_mobile_result('enrollment_plan',$bad)),'automatic enrollment refused');
 $bad=$plan;$bad['ownership']='company';$bad['method']='apple_automated_device';pm_check(pm_refused(fn()=>portal_mobile_result('enrollment_plan',$bad)),'company erase disclosure cannot be suppressed');
 $bad=$plan;$bad['download_url']='https://evil.invalid/profile';pm_check(pm_refused(fn()=>portal_mobile_result('enrollment_plan',$bad)),'arbitrary enrollment redirect refused');
+$personalMac=array_replace($plan,['platform'=>'macos','method'=>'macos_company_portal']);
+pm_check(portal_mobile_result('enrollment_plan',$personalMac)===$personalMac,'personal Mac user-approved enrollment accepted');
+$companyMac=array_replace($personalMac,['ownership'=>'company','method'=>'macos_automated_device','may_require_erase'=>true]);
+pm_check(portal_mobile_result('enrollment_plan',$companyMac)===$companyMac,'company Mac corporate enrollment with erase disclosure accepted');
+$companyReady=array_replace($companyMac,['state'=>'ready_for_device_consent','account_domain'=>'example.test']);
+pm_check(portal_mobile_result('enrollment_plan',$companyReady)===$companyReady,'reviewed company Mac readiness accepted');
+foreach(['method'=>'macos_company_portal','may_require_erase'=>false,'automatic_enrollment'=>true,'portal_commands'=>['wipe']]as$key=>$value){
+    $bad=$companyMac;$bad[$key]=$value;pm_check(pm_refused(fn()=>portal_mobile_result('enrollment_plan',$bad)),'company Mac boundary '.$key);
+}
+$bad=$personalMac;$bad['method']='macos_automated_device';pm_check(pm_refused(fn()=>portal_mobile_result('enrollment_plan',$bad)),'personal Mac cannot use corporate enrollment');
+$bad=$companyReady;$bad['account_domain']=null;pm_check(pm_refused(fn()=>portal_mobile_result('enrollment_plan',$bad)),'company Mac readiness needs reviewed domain');
 $support=['device'=>$device,'steps'=>['Check connection.','Check management app.','Ask support.'],'commands'=>[],'approval_required'=>true];
 pm_check(portal_mobile_result('support',$support)===$support,'read-only support contract');
 $bad=$support;$bad['commands']=['lock'];pm_check(pm_refused(fn()=>portal_mobile_result('support',$bad)),'support cannot smuggle command');
@@ -37,4 +48,8 @@ pm_check(!str_contains($html,'data-portal-chat-prompt="Help me understand &lt;sc
 $viewer=$context;$viewer['identity']['role']='client_viewer';
 ob_start();portal_render_mobile($viewer,$inventory,$plan,null,null);$viewerHtml=ob_get_clean();
 pm_check(!str_contains($viewerHtml,'name="action"')&&!str_contains($viewerHtml,'method="post" action="/portal/mobile.php"'),'viewer has no device mutation form');
+ob_start();portal_render_mobile($context,$inventory,$companyMac,null,null,'macos','company');$companyHtml=ob_get_clean();
+pm_check(str_contains($companyHtml,'Mac · Company device')&&str_contains($companyHtml,'An existing device may need to be erased')&&str_contains($companyHtml,'ADMINISTRATOR SETUP REQUIRED'),'company Mac renders ownership and possible erase without asserting readiness');
+ob_start();portal_render_mobile($context,$inventory,$personalMac,null,null,'macos','personal');$personalHtml=ob_get_clean();
+pm_check(!str_contains($personalHtml,'An existing device may need to be erased')&&str_contains($personalHtml,'Mac · Personal device'),'personal Mac preserves user-approved presentation');
 echo "Portal mobile projection/render checks: $checks passed\n";

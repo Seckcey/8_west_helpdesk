@@ -64,14 +64,14 @@ function portal_mobile_result(string $action,array $result): array
     }elseif($action==='enrollment_plan'){
         if(!portal_devices_keys($result,['platform','ownership','method','steps','privacy','offboarding','requires_device_consent','may_require_erase','automatic_enrollment','portal_commands','support','state','account_domain'])
             ||!in_array($result['platform'],['android','ios','macos'],true)||!in_array($result['ownership'],['personal','company'],true)
-            ||!in_array($result['method'],['android_work_profile','android_fully_managed','apple_account_driven_user','apple_automated_device','macos_company_portal'],true)
+            ||!in_array($result['method'],['android_work_profile','android_fully_managed','apple_account_driven_user','apple_automated_device','macos_company_portal','macos_automated_device'],true)
             ||!in_array($result['state'],['administrator_setup_required','ready_for_device_consent'],true)||$result['requires_device_consent']!==true||!is_bool($result['may_require_erase'])
             ||$result['automatic_enrollment']!==false||$result['portal_commands']!==[])$fail();
         if($result['account_domain']!==null&&(!is_string($result['account_domain'])||preg_match('/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/D',$result['account_domain'])!==1))$fail();
         if(($result['state']==='ready_for_device_consent')!==($result['account_domain']!==null))$fail();
-        $expected=match($result['platform']){'ios'=>$result['ownership']==='personal'?'apple_account_driven_user':'apple_automated_device','android'=>$result['ownership']==='personal'?'android_work_profile':'android_fully_managed',default=>'macos_company_portal'};
+        $expected=match($result['platform']){'ios'=>$result['ownership']==='personal'?'apple_account_driven_user':'apple_automated_device','android'=>$result['ownership']==='personal'?'android_work_profile':'android_fully_managed',default=>$result['ownership']==='personal'?'macos_company_portal':'macos_automated_device'};
         if($result['method']!==$expected||($result['platform']==='android'&&$result['state']==='ready_for_device_consent')
-            ||$result['may_require_erase']!==($result['ownership']==='company'&&$result['platform']!=='macos'))$fail();
+            ||$result['may_require_erase']!==($result['ownership']==='company'))$fail();
         foreach(['privacy','offboarding','support'] as $field)if(!portal_mobile_text($result[$field],500))$fail();
         if(!is_array($result['steps'])||!array_is_list($result['steps'])||count($result['steps'])!==3)$fail();
         foreach($result['steps'] as $step)if(!portal_mobile_text($step,400))$fail();

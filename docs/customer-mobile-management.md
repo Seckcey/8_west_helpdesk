@@ -32,9 +32,19 @@ The page offers:
 - Personal and company-owned enrollment guidance. Personal Apple enrollment uses
   Intune's account-driven User Enrollment. Company-device setup warns when it may
   require an erase; this page never erases a device.
+- Personal Macs use Company Portal/user-approved enrollment. Company Macs receive
+  Automated Device Enrollment guidance, with support choosing the correct
+  new/existing-device and authentication steps. A personal-Mac prerequisite
+  review cannot mark the corporate method ready; both need their own reviewed
+  method and current provider access. The corporate guide discloses possible
+  erasure without initiating or universally requiring one.
 - Setup-required or ready-for-device-approval states. The latter requires current
   customer-specific prerequisite evidence and read-only Intune access; it does not
   claim the phone is enrolled or that another customer's licensing covers it.
+  The backend separately requires current operator evidence of the exact
+  dedicated application's permissions. Microsoft access tokens are opaque;
+  neither their contents nor a successful Graph read prove the application has
+  no other grants. No provider token or permission-review receipt reaches this page.
 - Safe troubleshooting and a Westy explanation prompt. Chat is guidance, not
   authorization for a device action. No lock/restart/retire/wipe/script path exists
   in this mobile service.
@@ -59,5 +69,8 @@ When the gate is disabled, the mobile link is absent and the route remains
 unavailable. Existing computer-check links and role permissions remain intact.
 These source changes do not activate the production portal. Validate both
 signed-in customer access and a named physical device after external setup.
+The mobile gate exposes guidance/status broadly to authorized customers, while
+the existing signed identities and provider mappings isolate company data.
+Broad page availability is distinct from a named customer's enrollment pilot.
 Roll back this page by disabling only `portal_mobile.enabled`; keep existing
 customer support, Windows controls and provider enrollments intact.
