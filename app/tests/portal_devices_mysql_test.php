@@ -64,4 +64,5 @@ check(str_contains($html,'Create Windows setup link')&&str_contains($html,'name=
 $viewer=$a;$viewer['identity']['role']='client_viewer';
 ob_start();portal_render_devices($viewer,$devices,[$grant]);$html=ob_get_clean();
 check(!str_contains($html,'Create Windows setup link')&&!str_contains($html,'value="enrollment_revoke"'),'viewer has no mutation controls');
+require __DIR__.'/portal_device_operations_scenarios.php';
 echo 'PASS portal devices MySQL: '.$checks." checks\n";

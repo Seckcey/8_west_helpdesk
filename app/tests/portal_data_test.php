@@ -133,7 +133,7 @@ portal_data_check('portal mutation routes delegate to tenant-bound workflow func
     str_contains($publicSources, 'portal_create_ticket(')
     && str_contains($publicSources, 'portal_reply_to_ticket(')
     && str_contains($publicSources, 'portal_devices_request(')
-    && preg_match('#/(?:api|attachment|westy|invoice|payment|device|endpoint)[A-Za-z0-9_./-]*#i', str_replace(['https://developers.openai.com/api/docs/guides/your-data','/portal/devices.php'],'',$publicSources)) !== 1);
+    && preg_match('#/(?:api|attachment|westy|invoice|payment|device|endpoint)[A-Za-z0-9_./-]*#i', str_replace(['https://developers.openai.com/api/docs/guides/your-data','/portal/devices.php','/portal/device_help.php'],'',$publicSources)) !== 1);
 portal_data_check('only customer owner, admin, and staff roles can write tickets',
     portal_role_can_write_tickets('client_owner')
     && portal_role_can_write_tickets('client_admin')

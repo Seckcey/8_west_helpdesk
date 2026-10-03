@@ -24,13 +24,15 @@ the existing customer ticket writer creates a ticket and a permanent receipt.
 | Private chat | One immutable ID subject within that binding; other people in the same business cannot read it |
 | Business requests | Existing business-wide visibility; never described as personal requests |
 | Ticket creation/replies | Customer owner, admin and staff; viewer remains read-only |
-| Grounding | Five reviewed portal-guide articles plus that subject's recent private conversation; **no ticket content**, staff notes, devices, billing or broad Logbook search |
+| Grounding | Reviewed static portal-guide articles plus that subject's recent private conversation; **no ticket content**, staff notes, live device data, billing or broad Logbook search |
 | Provider | OpenAI Responses, `gpt-6-luna`, reasoning `low`, structured text only; no tools, browsing, remote conversation ID or action execution |
 | Human handoff | Exact saved subject/body/priority after explicit audience review; private transcript is not copied to the ticket |
 
 The staff Westy provider, federation, suite `/v1` endpoints, email transports,
 signup identity provisioning and existing request/reply paths are unchanged.
-No new attachments, payments, access changes, diagnostics or repairs are offered.
+The separate [Computer checks page](customer-device-checks.md) has its own
+default-off explicit diagnostic and repair-consent flow. This chat does not
+authorize device actions, attachments, payments or access changes.
 Service-goal displays remain response targets, not resolution or coverage promises.
 
 All endpoint requests recheck the existing customer session and binding. POSTs

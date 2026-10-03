@@ -57,7 +57,8 @@ Those fixtures do not prove a production installation. Live acceptance needs a
 real customer sign-in and an authorized Windows computer's later heartbeat and
 inventory.
 
-The current Westy shortcut opens the existing support conversation. Endpoint
-diagnostics, exact-approved repairs, commercial offers and Bitdefender ordering
-are subsequent slices of this work; this enrollment page does not claim to
-execute or purchase them.
+The Westy shortcut opens the existing support conversation. The separate
+[Computer checks feature](customer-device-checks.md) adds default-off diagnostic
+consent and exact print-service repair review. The enrollment page itself does
+not authorize a command. Commercial offers and Bitdefender ordering remain
+separate work; adding a computer does not purchase them.

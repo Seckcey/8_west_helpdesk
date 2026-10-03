@@ -68,10 +68,14 @@ function portal_devices_transport(string $endpoint, string $body, array $headers
 
 function portal_devices_request(PDO $pdo, array $context, string $action, array $input, ?callable $transport = null): array
 {
-    if (!in_array($action, ['devices','enrollments','enrollment_create','enrollment_download','enrollment_revoke'], true)) {
+    if (!in_array($action, ['devices','enrollments','enrollment_create','enrollment_download','enrollment_revoke',
+        'operations','health_start','repair_propose','repair_approve'], true)) {
         throw new PortalDevicesException('invalid_request', 400);
     }
-    if (str_starts_with($action, 'enrollment_') && !portal_devices_can_manage($context)) throw new PortalDevicesException('role', 403);
+    if ((str_starts_with($action, 'enrollment_') || in_array($action,['health_start','repair_propose','repair_approve'],true))
+        && !portal_devices_can_manage($context)) throw new PortalDevicesException('role', 403);
+    if (in_array($action,['operations','health_start','repair_propose','repair_approve'],true)
+        && (cfg('portal_devices',[])['diagnostics_enabled']??false)!==true) throw new PortalDevicesException('operation_unavailable');
     $config = portal_devices_config(); $scope = portal_devices_scope($pdo, $context);
     $body = json_encode(['action'=>$action,'scope'=>$scope,'input'=>$input], JSON_THROW_ON_ERROR);
     if (strlen($body) > 4096) throw new PortalDevicesException('invalid_request', 400);
@@ -85,7 +89,9 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
     catch (JsonException) { throw new PortalDevicesException('service_unavailable'); }
     if (($response['status'] ?? 0) !== 200 || !is_array($data) || ($data['ok'] ?? null) !== true) {
         $reason = $data['reason'] ?? 'service_unavailable';
-        $safe = ['role','customer_unavailable','identity_unavailable','enrollment_limit','enrollment_unavailable','unsupported_platform','installer_unavailable'];
+        $safe = ['role','customer_unavailable','identity_unavailable','enrollment_limit','enrollment_unavailable','unsupported_platform','installer_unavailable',
+            'device_offline','operation_unavailable','support_busy','maintenance_active','maintenance_unavailable','rate_limited',
+            'fresh_diagnosis_required','approval_expired','approval_changed','repair_cooldown'];
         throw new PortalDevicesException(in_array($reason, $safe, true) ? $reason : 'service_unavailable');
     }
     if (($data['contract'] ?? '') !== PORTAL_DEVICES_CONTEXT || !is_array($data['result'] ?? null)) throw new PortalDevicesException('service_unavailable');
@@ -108,6 +114,10 @@ function portal_devices_timestamp(mixed $value): bool
 /** Reject unexpected/malformed projections before they reach the renderer or browser. */
 function portal_devices_result(string $action, array $result): array
 {
+    if(in_array($action,['operations','health_start','repair_propose','repair_approve'],true)) {
+        require_once __DIR__.'/portal_device_operations.php';
+        return portal_device_operations_result($action,$result);
+    }
     $fail = static function (): never { throw new PortalDevicesException('service_unavailable'); };
     if ($action==='devices') {
         if (!portal_devices_keys($result,['items','next_after']) || !is_array($result['items']) || !array_is_list($result['items'])
@@ -139,6 +149,7 @@ function portal_devices_error(string $reason): string
 {
     return match ($reason) {
         'consent_required' => 'Confirm that you are authorized to add this computer before creating a setup link.',
+        'operation_consent' => 'Review the check or repair and tick its confirmation before continuing.',
         'role' => 'A business owner or admin can add devices and manage installation links. Your access lets you view device status.',
         'enrollment_limit' => 'This business has created 20 installation links in the last day. Use a current link or contact support for a larger rollout.',
         'enrollment_unavailable' => 'That installation link has expired, was revoked, or has already enrolled a computer. Create a new link to try again.',
@@ -146,6 +157,14 @@ function portal_devices_error(string $reason): string
         'installer_unavailable' => 'The verified installer is temporarily unavailable. Contact support or try again shortly.',
         'identity_unavailable', 'sign_in' => 'Your access needs to be checked again. Sign in again or try shortly.',
         'customer_unavailable' => 'Device access is not connected to this business yet. Contact support to complete the connection.',
+        'device_offline' => 'This computer needs a recent check-in. Keep it on and connected, then try again.',
+        'support_busy' => 'The support team already has work reserved. Contact support before starting another check.',
+        'maintenance_active','maintenance_unavailable' => 'Device checks are paused during maintenance. Try again later or contact support.',
+        'fresh_diagnosis_required' => 'Run a new health check before reviewing this repair. The previous observation is too old or no longer applies.',
+        'approval_expired','approval_changed' => 'This repair approval is no longer valid. Run a new health check and review the current proposal.',
+        'repair_cooldown' => 'A print-service repair was already approved in the last hour. Contact support if printing still does not work.',
+        'rate_limited' => 'This business has reached its hourly device-check limit. Contact support if the issue is urgent.',
+        'operation_unavailable' => 'A device check cannot start right now. Contact support; there may be unfinished work that needs review.',
         default => 'Device services are temporarily unavailable. Your support requests still work. Try again shortly or contact support.',
     };
 }
