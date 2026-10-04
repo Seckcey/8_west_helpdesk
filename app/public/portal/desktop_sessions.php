@@ -17,13 +17,7 @@ try{
     if($action==='start')$result=portal_desktop_start(db(),$context,$input);
     elseif($action==='list'){
         if($input!==[])throw new PortalDesktopException('invalid_request',400);
-        $scope=portal_westy_scope(db(),$context);
-        $q=db()->prepare('SELECT session_id FROM portal_desktop_bindings WHERE tenant_id=? AND client_id=? AND scope_key=? AND expires_at>UTC_TIMESTAMP() ORDER BY expires_at DESC LIMIT 10');
-        $q->execute([$scope['tenant'],$scope['client'],$scope['key']]);$items=[];
-        foreach($q->fetchAll(PDO::FETCH_COLUMN) as $id){
-            try{$items[]=portal_desktop_request($context,'state',['session_id'=>$id]);}catch(PortalDesktopException){}
-        }
-        $result=['items'=>$items];
+        $result=portal_desktop_list(db(),$context);
     }elseif(in_array($action,['state','stop'],true)){
         $expected=$action==='stop'?['session_id','task_id']:['session_id'];
         if(!portal_devices_keys($input,$expected))throw new PortalDesktopException('invalid_request',400);

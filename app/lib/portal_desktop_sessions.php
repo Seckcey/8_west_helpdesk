@@ -31,6 +31,16 @@ function portal_desktop_bind(PDO $pdo,array $context,string $pair):array
         ->execute([$pair,$scope['tenant'],$scope['client'],$context['identity']['subject'],$scope['key'],gmdate('Y-m-d H:i:s',$state['expires_at'])]);
     return $state;
 }
+function portal_desktop_list(PDO $pdo,array $context):array
+{
+    $scope=portal_westy_scope($pdo,$context);
+    $q=$pdo->prepare('SELECT session_id FROM portal_desktop_bindings WHERE tenant_id=? AND client_id=? AND scope_key=? AND expires_at>UTC_TIMESTAMP() ORDER BY expires_at DESC LIMIT 10');
+    $q->execute([$scope['tenant'],$scope['client'],$scope['key']]);$items=[];
+    foreach($q->fetchAll(PDO::FETCH_COLUMN) as $id){
+        try{$items[]=portal_desktop_request($context,'state',['session_id'=>$id]);}catch(PortalDesktopException){}
+    }
+    return ['items'=>$items];
+}
 function portal_desktop_binding(PDO $pdo,array $context,string $id):array
 {
     if(!portal_desktop_id($id))throw new PortalDesktopException('invalid_request',400);
