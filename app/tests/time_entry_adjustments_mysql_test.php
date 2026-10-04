@@ -716,6 +716,14 @@ try {
       VALUES
       (9001,1,11,'corrupt.approved.no-review',1001,103,10,'Corrupt fixture',1,
        'legacy','2026-08-28 11:00:00','approved',NULL,NULL,'')");
+    // Desktop authority is fresh-install-only DDL, unrelated to the time guards
+    // restored below. Reset only its empty disposable fixtures; retain history.
+    foreach (['portal_desktop_bindings', 'portal_desktop_handoffs'] as $table) {
+        if ((int) $pdo->query("SELECT COUNT(*) FROM `{$table}`")->fetchColumn() !== 0) {
+            throw new RuntimeException('Refusing to reset populated desktop authority fixture');
+        }
+    }
+    $pdo->exec('DROP TABLE portal_desktop_bindings, portal_desktop_handoffs');
     adjustment_mysql_execute_file($pdo, $schemaPath);
     adjustment_mysql_expect('service refuses approved label without reviewer evidence',
         fn() => time_entry_adjustment_create($pdo, 1, 101, 'owner', [

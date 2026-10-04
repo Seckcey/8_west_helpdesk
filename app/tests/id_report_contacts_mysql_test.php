@@ -918,6 +918,14 @@ try {
     $schemaPath = __DIR__ . '/../db/schema.sql';
     id_mysql_execute_file($pdo, $schemaPath);
     $freshContactScopeTriggerContract = id_mysql_contact_scope_trigger_contract($pdo);
+    // Desktop authority is fresh-install-only DDL, outside this contact-scope
+    // replay. Reset only its empty disposable fixtures before restoring schema.
+    foreach (['portal_desktop_bindings', 'portal_desktop_handoffs'] as $table) {
+        if ((int) $pdo->query("SELECT COUNT(*) FROM `{$table}`")->fetchColumn() !== 0) {
+            throw new RuntimeException('Refusing to reset populated desktop authority fixture');
+        }
+    }
+    $pdo->exec('DROP TABLE portal_desktop_bindings, portal_desktop_handoffs');
     id_mysql_execute_file($pdo, $schemaPath);
     id_mysql_check(
         count($freshContactScopeTriggerContract) === 12
