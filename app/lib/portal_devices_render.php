@@ -29,6 +29,7 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
     <span class="portal-device-state<?= $device['connection'] === 'reporting' ? ' is-online' : '' ?>"><?= portal_h($device['connection_label']) ?></span>
     <p class="portal-hint"><?= portal_h($device['connection_help']) ?></p>
     <?php if ($device['last_seen_at'] !== null): ?><p class="portal-hint">Last check-in: <?= portal_h(portal_format_utc($device['last_seen_at'])) ?></p><?php endif; ?>
+    <?php if(isset($device['hardware'])): ?><p class="portal-hint">RAM: <?= portal_h((string)$device['hardware']['ram_gb']) ?> GB · Inventory recorded <?= portal_h(portal_format_utc($device['hardware']['observed_at'])) ?></p><?php endif; ?>
     <button type="button" class="btn-link" data-portal-chat-prompt="<?= portal_h('Help me describe a problem with my computer ' . $device['label'] . '. It shows ' . $device['connection_label'] . '.') ?>">Ask Westy for help <?= portal_icon('arrow') ?></button>
     <?php if((cfg('portal_devices',[])['diagnostics_enabled']??false)===true):?><a class="btn-link" href="/portal/device_help.php?device=<?= rawurlencode($device['reference']) ?>">Computer checks <?= portal_icon('arrow') ?></a><?php endif;?>
     <?php if((cfg('portal_devices',[])['security_orders_enabled']??false)===true && str_contains(strtolower($device['platform']),'windows')):?><a class="btn-link" href="/portal/security.php?device=<?= rawurlencode($device['reference']) ?>">Secure Plus <?= portal_icon('arrow') ?></a><?php endif;?>

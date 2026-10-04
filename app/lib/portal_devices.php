@@ -97,7 +97,7 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
     if (($response['status'] ?? 0) !== 200 || !is_array($data) || ($data['ok'] ?? null) !== true) {
         $reason = $data['reason'] ?? 'service_unavailable';
         $safe = ['role','customer_unavailable','identity_unavailable','enrollment_limit','enrollment_unavailable','unsupported_platform','installer_unavailable',
-            'device_offline','operation_unavailable','support_busy','maintenance_active','maintenance_unavailable','rate_limited',
+            'device_offline','operation_unavailable','support_busy','support_status_unavailable','policy_restricted','execution_unresolved','maintenance_active','maintenance_unavailable','rate_limited',
             'fresh_diagnosis_required','approval_expired','approval_changed','repair_cooldown',
             'orders_unavailable','order_unavailable','order_authorization_changed','order_evidence_unavailable',
             'order_service_unavailable','installation_unavailable','installation_busy'];
@@ -140,10 +140,18 @@ function portal_devices_result(string $action, array $result): array
         if (!portal_devices_keys($result,['items','next_after']) || !is_array($result['items']) || !array_is_list($result['items'])
             || count($result['items'])>50 || ($result['next_after']!==null && (!is_int($result['next_after']) || $result['next_after']<1))) $fail();
         foreach($result['items'] as $row) {
-            if (!is_array($row) || !portal_devices_keys($row,['reference','label','platform','connection','connection_label','connection_help','last_seen_at','troubleshooting'])
+            $keys=['reference','label','platform','connection','connection_label','connection_help','last_seen_at','troubleshooting'];
+            if (!is_array($row) || !(portal_devices_keys($row,$keys)||portal_devices_keys($row,array_merge($keys,['hardware'])))
                 || !is_string($row['reference']) || preg_match('/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D',$row['reference'])!==1
                 || !in_array($row['connection'],['waiting','stale','inventory','reporting'],true) || $row['troubleshooting']!=='support_request'
                 || ($row['last_seen_at']!==null && !portal_devices_timestamp($row['last_seen_at']))) $fail();
+            if(isset($row['hardware'])) {
+                $hardware=$row['hardware'];
+                if(!is_array($hardware)||!portal_devices_keys($hardware,['ram_gb','observed_at','source'])
+                    ||$hardware['source']!=='agent_inventory'||!portal_devices_timestamp($hardware['observed_at'])
+                    ||(!is_int($hardware['ram_gb'])&&!is_float($hardware['ram_gb']))||!is_finite((float)$hardware['ram_gb'])
+                    ||$hardware['ram_gb']<=0||$hardware['ram_gb']>1048576)$fail();
+            }
             foreach(['label'=>128,'platform'=>128,'connection_label'=>100,'connection_help'=>300] as $field=>$limit) {
                 if(!is_string($row[$field]) || mb_strlen($row[$field])>$limit || preg_match('//u',$row[$field])!==1) $fail();
             }
@@ -175,7 +183,10 @@ function portal_devices_error(string $reason): string
         'identity_unavailable', 'sign_in' => 'Your access needs to be checked again. Sign in again or try shortly.',
         'customer_unavailable' => 'Device access is not connected to this business yet. Contact support to complete the connection.',
         'device_offline' => 'This computer needs a recent check-in. Keep it on and connected, then try again.',
-        'support_busy' => 'The support team already has work reserved. Contact support before starting another check.',
+        'support_busy' => 'A technician is handling this computer. Health checks and recorded facts remain available. Once the technician finishes and resolves the case, review and approve the proposed repair again.',
+        'support_status_unavailable' => 'Current support ownership could not be verified. The repair was not sent. Health checks and recorded facts remain available; try the approval again shortly.',
+        'policy_restricted' => 'Your workspace administrator has disabled this action in Westy settings.',
+        'execution_unresolved' => 'A previous command on this computer needs a confirmed result. Recorded hardware facts remain available with their capture time.',
         'maintenance_active','maintenance_unavailable' => 'Device checks are paused during maintenance. Try again later or contact support.',
         'fresh_diagnosis_required' => 'Run a new health check before reviewing this repair. The previous observation is too old or no longer applies.',
         'approval_expired','approval_changed' => 'This repair approval is no longer valid. Run a new health check and review the current proposal.',

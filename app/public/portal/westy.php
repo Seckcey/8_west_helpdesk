@@ -36,7 +36,7 @@ try{
         if(!is_array($request))json_out(['ok'=>false,'reason'=>'invalid_request'],400);
         $originalSession=session_id();
         if(!session_write_close())json_out(['ok'=>false,'reason'=>'unavailable'],503);
-        if(($request['action']??'')==='message' && str_contains($_SERVER['HTTP_ACCEPT']??'','text/event-stream')){
+        if(in_array($request['action']??'',['message','desktop_resume'],true) && str_contains($_SERVER['HTTP_ACCEPT']??'','text/event-stream')){
             // PHP checks use_cookies before applying session_start options. Set
             // these before the first SSE byte so read-only reopen needs no headers.
             ini_set('session.use_cookies','0');session_cache_limiter('');
@@ -58,7 +58,7 @@ try{
             $emit('done',['state'=>$state]);exit;
         }
         switch($request['action'] ?? ''){
-            case 'message': portal_westy_message(db(),$context,$request,null,static fn()=>portal_stream_authenticated_context(db(),$originalSession));break;
+            case 'message': case 'desktop_resume': portal_westy_message(db(),$context,$request,null,static fn()=>portal_stream_authenticated_context(db(),$originalSession));break;
             case 'save_draft': portal_westy_save_draft(db(),$context,$request);break;
             case 'handoff': portal_westy_handoff(db(),$context,$request);$receiptKey=$request['draft_key'];break;
             case 'new_chat': portal_westy_new_chat(db(),$context,$request);break;

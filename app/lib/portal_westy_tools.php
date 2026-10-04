@@ -10,8 +10,8 @@ function portal_westy_tool_definitions(): array
 {
     $device=['type'=>'string','description'=>'Exact device reference returned by list_computers.'];
     $definitions=[
-        ['list_computers','List this customer’s computers and their current connection status.',[]],
-        ['read_computer_status','Read recorded checks and repair status. Never starts or retries work.',['device_reference'=>$device]],
+        ['list_computers','List this customer’s computers, connection status and recorded hardware facts with inventory timestamps. Use returned RAM capacity to answer hardware questions without starting work.',[]],
+        ['read_computer_status','Read recorded checks and separate health-check and repair eligibility. A repair hold need not block diagnostics. Never starts or retries work.',['device_reference'=>$device]],
         ['start_health_check','Run a read-only Windows memory, disk-space and print-service check for the requested computer.',['device_reference'=>$device]],
         ['prepare_temp_cleanup','Preview only bounded Windows system temporary files and prepare a separate human approval. Does not delete anything.',['device_reference'=>$device]],
         ['propose_print_repair','Prepare an exact print-service restart approval from a fresh stopped-service diagnosis. Does not restart anything.',['device_reference'=>$device,'health_reference'=>['type'=>'string','description'=>'Completed health operation reference showing the service stopped.']]],

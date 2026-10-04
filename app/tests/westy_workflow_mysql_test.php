@@ -34,7 +34,10 @@ try {
         'CREATE TABLE tenants(id INT UNSIGNED PRIMARY KEY,slug VARCHAR(64) UNIQUE)',
         'CREATE TABLE clients(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,UNIQUE(tenant_id,id))',
         'CREATE TABLE svc_identities(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,service VARCHAR(64),is_active INT)',
-        'CREATE TABLE suite_customer_sync_bindings(tenant_id INT UNSIGNED,client_id INT UNSIGNED,customer_id CHAR(36),status VARCHAR(16))',
+        'CREATE TABLE suite_customer_sync_bindings(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,tenant_id INT UNSIGNED,client_id INT UNSIGNED,customer_id CHAR(36),status VARCHAR(16),source_version INT NOT NULL DEFAULT 1,last_event_id VARCHAR(64) NOT NULL DEFAULT \'fixture-active\')',
+        'CREATE TABLE suite_customer_sync_events(tenant_id INT UNSIGNED,binding_id INT UNSIGNED,status VARCHAR(16))',
+        'CREATE TABLE managed_customer_lifecycle_restore_receipts(tenant_id INT UNSIGNED,source_binding_id INT UNSIGNED,client_id INT UNSIGNED,customer_id CHAR(36),source_version INT,source_event_id VARCHAR(64))',
+        'CREATE TABLE suite_managed_providers(tenant_id INT UNSIGNED)',
         "CREATE TABLE users(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,is_active INT,role VARCHAR(16) DEFAULT 'tech')",
         "CREATE TABLE tickets(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,tenant_id INT UNSIGNED,client_id INT UNSIGNED,subject VARCHAR(190),priority VARCHAR(16),status VARCHAR(16) DEFAULT 'open',assignee_id INT UNSIGNED NULL,merged_into_id INT UNSIGNED NULL,channel VARCHAR(16),external_key VARCHAR(128),auto_close_eligible INT,sla_due_at DATETIME,service_goal_target_id BIGINT UNSIGNED NULL,created_at DATETIME,updated_at DATETIME,resolved_at DATETIME NULL,UNIQUE(tenant_id,id),UNIQUE(tenant_id,external_key))",
         'CREATE TABLE messages(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,ticket_id INT UNSIGNED,author_name VARCHAR(128),kind VARCHAR(16),body TEXT,created_at DATETIME)',
@@ -43,6 +46,7 @@ try {
     $migration=__DIR__.'/../db/migrations/025_westy_workflow.sql';
     ww_sql($pdo,$migration);
     require __DIR__.'/westy_workflow_test.php';
+    require __DIR__.'/westy_device_ownership_scenarios.php';
     $receiptCount=(int)$pdo->query('SELECT COUNT(*) FROM westy_workflow_receipts')->fetchColumn();
     ww_sql($pdo,$migration);
     westy_workflow_schema_ready($pdo);
@@ -69,11 +73,11 @@ try {
     $pdo->prepare('INSERT INTO time_entries(id,tenant_id,ticket_id,client_id,approval_status,billable) VALUES(9900,1,?,1,?,1)')->execute([$ticketId,'approved']);
     $closed=$pdo->query('SELECT closed_at FROM westy_workflows WHERE id=1')->fetchColumn();
     $timeEvent='safeharbor-time:'.str_repeat('f',32);
-    $timeBody=json_encode(['version'=>3,'tenant_key'=>'msp-one','client_key'=>'milepost-customer:'.$customer,'ticket_id'=>$ticketId,'entry_id'=>9900,'source_version'=>0,'approval_status'=>'approved','event_key'=>$timeEvent,'worked_at'=>str_replace(' ','T',$closed).'Z']);
+    $timeBody=json_encode(['version'=>3,'tenant_key'=>'8west','client_key'=>'milepost-customer:'.$customer,'ticket_id'=>$ticketId,'entry_id'=>9900,'source_version'=>0,'approval_status'=>'approved','event_key'=>$timeEvent,'worked_at'=>str_replace(' ','T',$closed).'Z']);
     $pdo->prepare('INSERT INTO coastmark_time_export_claims VALUES(1,1,9900,0,?,?,?)')->execute([$timeEvent,$timeBody,hash('sha256',$timeBody)]);
     $pdo->exec("INSERT INTO coastmark_time_export_receipts VALUES(1,1,1,'accepted',9)");
     $billingEvent=$pdo->query('SELECT event_key FROM westy_billing_outbox WHERE id=1')->fetchColumn();
-    $billingConfig=['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('test-only-',6),'tenant_slugs'=>['msp-one'],'customer_ids'=>[$customer]];
+    $billingConfig=['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('test-only-',6),'tenant_slugs'=>['8west'],'customer_ids'=>[$customer]];
     $delivered=westy_billing_dispatch($runtime,1,$billingConfig,static fn()=>['status'=>201,'body'=>json_encode(['ok'=>true,'action'=>'created','handoff'=>['id'=>1,'event_key'=>$billingEvent,'state'=>'review_required'],'invoices'=>[['invoice_id'=>9,'review_url'=>'https://coastmark.8westit.com/invoices/9','status'=>'draft']]])]);
     ww_check($delivered==='accepted','DML-only worker freezes approved-time payload and records injected Coastmark review receipt');
     ww_refuses(fn()=> $runtime->exec("UPDATE westy_billing_outbox SET payload_json='{}' WHERE id=1"),'frozen handoff body cannot change');

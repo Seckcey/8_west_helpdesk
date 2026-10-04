@@ -1,0 +1,76 @@
+[
+    {
+        "tables": {
+            "portal_westy_ai_attempts": null
+        },
+        "triggers": [],
+        "routines": []
+    },
+    {
+        "tables": {
+            "portal_westy_ai_attempts": "c036fd55d0614874bac12e9a7bdfb5c7b91706a8ac673cc026ac71fd72a864d9"
+        },
+        "triggers": [],
+        "routines": []
+    },
+    {
+        "tables": {
+            "portal_westy_ai_attempts": "c036fd55d0614874bac12e9a7bdfb5c7b91706a8ac673cc026ac71fd72a864d9"
+        },
+        "triggers": {
+            "portal_ai_attempt_scope": [
+                "portal_westy_ai_attempts",
+                "BEFORE",
+                "INSERT",
+                "692e8d0a179183f82c3f640602f95d2291f6d3d10f4837b27ca55af2ecd5606d"
+            ]
+        },
+        "routines": []
+    },
+    {
+        "tables": {
+            "portal_westy_ai_attempts": "c036fd55d0614874bac12e9a7bdfb5c7b91706a8ac673cc026ac71fd72a864d9"
+        },
+        "triggers": {
+            "portal_ai_attempt_immutable": [
+                "portal_westy_ai_attempts",
+                "BEFORE",
+                "UPDATE",
+                "f7eefa6c2b302ddedaf0707dd979120c3c18413650f35840fbbb7b5a9a960126"
+            ],
+            "portal_ai_attempt_scope": [
+                "portal_westy_ai_attempts",
+                "BEFORE",
+                "INSERT",
+                "692e8d0a179183f82c3f640602f95d2291f6d3d10f4837b27ca55af2ecd5606d"
+            ]
+        },
+        "routines": []
+    },
+    {
+        "tables": {
+            "portal_westy_ai_attempts": "c036fd55d0614874bac12e9a7bdfb5c7b91706a8ac673cc026ac71fd72a864d9"
+        },
+        "triggers": {
+            "portal_ai_attempt_expiry": [
+                "portal_westy_ai_attempts",
+                "BEFORE",
+                "DELETE",
+                "8fbc3977f7a43d8a2b6434e20fe0f00cc5de96995dda0dc725f5edcc019af291"
+            ],
+            "portal_ai_attempt_immutable": [
+                "portal_westy_ai_attempts",
+                "BEFORE",
+                "UPDATE",
+                "f7eefa6c2b302ddedaf0707dd979120c3c18413650f35840fbbb7b5a9a960126"
+            ],
+            "portal_ai_attempt_scope": [
+                "portal_westy_ai_attempts",
+                "BEFORE",
+                "INSERT",
+                "692e8d0a179183f82c3f640602f95d2291f6d3d10f4837b27ca55af2ecd5606d"
+            ]
+        },
+        "routines": []
+    }
+]

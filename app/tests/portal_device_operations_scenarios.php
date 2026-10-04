@@ -58,6 +58,18 @@ $history['items'][0]['state']='needs_help';$history['items'][0]['result']=null;$
 ob_start();portal_render_device_help($a,$devices['items'][0],$history);$html=ob_get_clean();
 check(str_contains($html,'Run health check'),'historical needs-help alone does not suppress a genuinely available new check');
 check(portal_device_operations_result('operations',$history)===$history,'current eligibility passes the closed DTO contract');
+$split=$history;$split['eligibility']=['can_check'=>true,'can_propose_repair'=>false,'reason'=>'ready','repair_reason'=>'support_review'];
+check(portal_device_operations_result('operations',$split)===$split,'support ownership may reserve repairs while health remains eligible');
+ob_start();portal_render_device_help($a,$devices['items'][0],$split);$splitHtml=ob_get_clean();
+check(str_contains($splitHtml,'Run health check')&&!str_contains($splitHtml,'Review print-service repair')&&str_contains($splitHtml,'Support reserves changes'),'split eligibility renders its exact boundary');
+$split['eligibility']=['can_check'=>false,'can_propose_repair'=>false,'reason'=>'execution_unresolved'];
+ob_start();portal_render_device_help($a,$devices['items'][0],$split);$splitHtml=ob_get_clean();
+check(!str_contains($splitHtml,'Run health check')&&str_contains($splitHtml,'An earlier command needs a confirmed result'),'unsettled execution has its own explanation');
+$split['eligibility']=['can_check'=>false,'can_propose_repair'=>false,'reason'=>'policy_restricted'];
+check(portal_device_operations_result('operations',$split)===$split,'explicit capability restriction is accepted as a closed reason');
+$ram=array_replace($health['result'],['version'=>2,'memory_total_bytes'=>17179869184,'memory_available_bytes'=>8589934592]);
+check(portal_device_health_result_valid($ram),'current health includes usable and available RAM');
+foreach([['memory_available_bytes'=>-1],['memory_total_bytes'=>'16'],['memory_available_bytes'=>17179869185]] as $invalid)check(!portal_device_health_result_valid(array_replace($ram,$invalid)),'invalid capacity is refused');
 $history['eligibility']['can_check']='yes';
 check(refused(static fn()=>portal_device_operations_result('operations',$history)),'malformed current eligibility is refused');
 $history=['available'=>true,'eligibility'=>['can_check'=>true,'can_propose_repair'=>true,'reason'=>'ready'],'items'=>[array_replace($health,['state'=>'expired','result'=>null])]];

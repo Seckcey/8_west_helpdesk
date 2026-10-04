@@ -134,6 +134,9 @@ function suite_sso_sql_statements(string $sql): array
     $buffer = '';
     $statements = [];
     foreach (preg_split('/\R/', $sql) ?: [] as $line) {
+        if (trim($line) === '' || str_starts_with(ltrim($line), '--')) {
+            continue;
+        }
         if (preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $match) === 1) {
             if (trim($buffer) !== '') {
                 throw new RuntimeException('DELIMITER changed with pending SQL.');

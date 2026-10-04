@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/portal_desktop_controls.php';
 
 function portal_icon(string $name): string
 {
@@ -58,8 +59,9 @@ function portal_westy_widget(array $context): void
 <button type="button" class="portal-jump" id="portal-chat-jump" hidden>Jump to latest ↓</button>
 <div id="portal-chat-draft" hidden></div><p id="portal-chat-status" role="status" aria-live="polite"></p>
 <form id="portal-chat-form" class="portal-composer" method="post" action="/portal/westy.php"><label class="sr-only" for="portal-chat-input">Ask Westy about your computer</label><textarea id="portal-chat-input" disabled name="message" rows="2" maxlength="2000" placeholder="Ask Westy about your computer…" required></textarea><div class="portal-composer-foot"><label class="portal-device-choice" for="portal-chat-device"><?= portal_icon('device') ?><span class="sr-only">Computer for this chat</span><select id="portal-chat-device"><option value="">Choose a computer</option></select></label><span class="portal-keyboard-hint">Enter to send · Shift+Enter for a new line</span><button type="button" class="portal-icon-button" id="portal-chat-stop" aria-label="Stop reply" hidden>■</button><button type="submit" class="btn-primary" id="portal-chat-send" disabled aria-label="Send message"><?= portal_icon('arrow') ?></button></div></form>
+<?php portal_desktop_controls(); ?>
 <div class="portal-chat-foot"><a href="/portal/guide.php#privacy">Private to you</a><span>·</span><?php if ($canWrite): ?><a href="/portal/new.php">Contact support</a><?php else: ?><span>Viewer access · requests are read-only</span><?php endif; ?></div>
 </section></div>
-<script src="/assets/js/portal-westy.js?v=2" defer></script>
+<script src="/assets/js/portal-westy.js?v=3" defer></script>
 <?php
 }

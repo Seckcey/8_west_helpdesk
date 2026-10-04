@@ -12,9 +12,10 @@ try {
         || !in_array($localTenant, support_enabled_tenants(db(), $supportConfig), true)
         || support_address($localTenant, (string)($supportConfig['mailbox'] ?? '')) === null) {
         echo json_encode(['product'=>'safeharbor','tenant_id'=>$manifest['tenant_id'],
-            'manifest_sha256'=>$hash,'status'=>'pending','requirements'=>[]], JSON_THROW_ON_ERROR) . "\n";
+            'manifest_sha256'=>$hash,'status'=>'pending','requirements'=>[],
+            'tenant_ai'=>['contract'=>1,'local_tenant_key'=>(string)$localTenant]], JSON_THROW_ON_ERROR) . "\n";
     } else {
-        suite_workspace_receipt($manifest, $hash, 'safeharbor', ['add_clients']);
+        suite_workspace_receipt($manifest, $hash, 'safeharbor', ['add_clients'], (string)$localTenant);
     }
 } catch (Throwable $error) {
     fwrite(STDERR, "workspace provisioning refused\n");

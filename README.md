@@ -19,6 +19,8 @@ new-MSP customer journey is still unproved. See the
 [IT 365 stopping point](docs/IT_365_STOPPING_POINT_2026_09_24.md) for the exact
 scope and verification evidence.
 
+MSP-owned provider/model/effort configuration is documented in [Westy tenant AI](docs/TENANT_AI.md), including its default-off configuration and [protected release procedure](docs/TENANT_AI_RELEASE.md). Source availability alone does not establish production activation.
+
 ## What Safeharbor does
 
 - **Handle support requests:** A technician queue, ticket conversations,

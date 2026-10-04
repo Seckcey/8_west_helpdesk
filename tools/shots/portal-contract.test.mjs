@@ -18,6 +18,7 @@ const PORTAL_ASSETS = {
   '/assets/css/portal-mobile.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-mobile.css'))],
   '/assets/css/portal-security.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-security.css'))],
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
+  '/assets/js/portal-desktop.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-desktop.js'))],
   '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
   '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
@@ -136,7 +137,7 @@ switch ($argv[3]) {
         $device=['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11','connection'=>'reporting','connection_label'=>'Connected and reporting'];
         $health=['reference'=>str_repeat('2',32),'recipe'=>'health','title'=>'Computer health check','impact'=>'Read-only system status.','device_reference'=>$device['reference'],
             'state'=>'completed','created_at'=>gmdate('Y-m-d\TH:i:s\Z'),'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',time()+600),'can_approve'=>false,'approval_fingerprint'=>null,
-            'result'=>['version'=>1,'observed_at'=>gmdate('Y-m-d\TH:i:s\Z',time()-30),'memory_used_percent'=>42.1,'system_disk_free_percent'=>55.5,'spooler'=>'stopped']];
+            'result'=>['version'=>2,'observed_at'=>gmdate('Y-m-d\TH:i:s\Z',time()-30),'memory_used_percent'=>42.1,'memory_total_bytes'=>17179869184,'memory_available_bytes'=>8589934592,'system_disk_free_percent'=>55.5,'spooler'=>'stopped']];
         $repair=$health;$repair['reference']=str_repeat('3',32);$repair['recipe']='spooler_restart';$repair['title']='Restart the Windows print service';
         $repair['impact']='Printing pauses while the service restarts. Pending print jobs are preserved. There is no automatic rollback. Two later health checks verify the service; you still need to confirm that printing works.';
         $repair['state']=match($argv[3]){'helpwaiting'=>'verifying','helpverified'=>'service_verified','helpunknown'=>'needs_help',default=>'awaiting_approval'};
@@ -162,7 +163,7 @@ switch ($argv[3]) {
         if(in_array($argv[3],['devicesviewer','devicesmobileviewer'],true))$context['identity']['role']='client_viewer';
         $devices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11',
             'connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in and inventory received.',
-            'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-60),'troubleshooting'=>'support_request'],
+            'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-60),'troubleshooting'=>'support_request','hardware'=>['ram_gb'=>15.8,'observed_at'=>'2026-10-04T09:57:35Z','source'=>'agent_inventory']],
             ['reference'=>'2:'.str_repeat('b',64),'label'=>'Warehouse laptop','platform'=>'Windows 11',
             'connection'=>'stale','connection_label'=>'Not checking in','connection_help'=>'Keep this computer online so support can help.',
             'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-86400),'troubleshooting'=>'support_request']], 'next_after'=>null];
@@ -503,6 +504,7 @@ if (!SERVE_MODE) test('computer checks preserve explicit consent, exact repair r
       const posts=[];page.on('request',r=>{if(r.method()==='POST'&&r.url().includes('device_help.php'))posts.push(new URLSearchParams(r.postData()));});
       await page.goto(`${ORIGIN}/portal/device_help.php`);
       await page.getByRole('heading',{name:'Front desk computer'}).waitFor();
+      await page.getByText(/Usable RAM: 16\.0 GB; 8\.0 GB available/).waitFor();
       await page.getByText('Run another health check',{exact:true}).click();
       await page.getByRole('button',{name:'Run health check',exact:true}).click();
       assert.equal(posts.length,0,'unchecked health consent sends nothing');
@@ -770,6 +772,8 @@ if (!SERVE_MODE) test('workspace renders incremental network events, keeps its c
         let raw='';for await(const chunk of request)raw+=chunk;const payload=JSON.parse(raw);
         assert.equal(request.headers['x-portal-csrf'],'c'.repeat(64));
         if(payload.action==='message'){
+          assert.match(payload.operation,/^f1[0-9a-f]{30}$/);
+          assert.ok(Math.abs(parseInt(payload.operation.slice(2,10),16)-Math.floor(Date.now()/1000))<=60,'new paid turn uses a current bounded-lifetime operation');
           messagePosts++;const turn={operation_key:payload.operation,state:'pending',input_text:payload.message,reply:{reply:'',tools:[],sources:[]}};state.turns.push(turn);
           state.conversations=[{key:state.conversation,title:payload.message}];
           response.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store'});
@@ -832,6 +836,66 @@ if (!SERVE_MODE) test('workspace renders incremental network events, keeps its c
     }
     assert.equal(messagePosts,4);assert.equal(stops,2);
   }finally{await browser.close();await new Promise(resolve=>server.close(resolve));await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('expired message operations preserve text and require refresh without replaying paid work',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const state={enabled:true,ai_available:true,can_write:true,conversation:'a'.repeat(32),conversations:[],turns:[],draft:null};
+  const posts=[];let reject=true;
+  const handler=async route=>{
+    if(route.request().method()==='GET')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state})});
+    const payload=route.request().postDataJSON();posts.push(payload);
+    assert.equal(payload.action,'message');assert.match(payload.operation,/^f1[0-9a-f]{30}$/);
+    if(reject)return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({ok:false,reason:'operation_expired'})});
+    state.turns.push({operation_key:payload.operation,state:'complete',input_text:payload.message,reply:{reply:'Saved despite an interrupted connection.',tools:[],sources:[]}});
+    return route.fulfill({contentType:'text/event-stream',body:'event: accepted\ndata: '+JSON.stringify({operation:payload.operation,conversation:state.conversation})+'\n\n'});
+  };
+  try{
+    const {page,context,consoleProblems}=await openPortalPage(browser,pages,{width:390,height:844},handler);
+    await page.goto(`${ORIGIN}/portal/`);
+    assert.equal(await page.locator('script[src*="portal-westy.js"]').getAttribute('src'),'/assets/js/portal-westy.js?v=3','refresh loads the versioned current message generator');
+    const input=page.getByRole('textbox',{name:'Ask Westy about your computer'});
+    await input.fill('Keep my original request.');await input.press('Enter');
+    await page.getByText('Refresh this page before sending a new message. If this continues, check your computer clock.',{exact:true}).waitFor();
+    assert.equal(await input.inputValue(),'Keep my original request.');assert.equal(posts.length,1);
+    reject=false;await page.reload();await input.fill('Keep my original request.');await input.press('Enter');
+    await page.getByText('Saved despite an interrupted connection.',{exact:true}).waitFor();
+    await page.waitForFunction(()=>document.getElementById('portal-chat-stop').hidden);
+    assert.equal(posts.length,2,'refresh and deliberate resubmission creates one new request, interrupted acceptance creates no retry');
+    assert.notEqual(posts[0].operation,posts[1].operation);assert.equal(state.turns.length,1);
+    await page.reload();await page.getByText('Saved despite an interrupted connection.',{exact:true}).waitFor();
+    assert.equal(posts.length,2,'saved response recovery is read-only');
+    assert.deepEqual(consoleProblems,['Failed to load resource: the server responded with a status of 409 (Conflict)'],'only the deliberately rejected expired request reports a browser error');
+    await context.close();
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('desktop continuation keeps the exact completed turn and never replays an uncertain resume',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const conversation='a'.repeat(32),operation='b'.repeat(32),posts=[];
+  const state={enabled:true,ai_available:true,can_write:true,conversation,conversations:[],turns:[{operation_key:operation,state:'complete',input_text:'Open my approved website.',reply:{reply:'Choose the window on your computer.',sources:[],tools:[]}}],draft:null};
+  const handler=async route=>{
+    if(route.request().method()==='GET')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state})});
+    const payload=route.request().postDataJSON();posts.push(payload);
+    assert.deepEqual(payload,{action:'desktop_resume',operation,conversation});
+    assert.equal(route.request().headers()['x-portal-csrf'],'c'.repeat(64));
+    return route.fulfill({contentType:'text/event-stream',body:'event: accepted\ndata: '+JSON.stringify({operation,conversation})+'\n\nevent: delta\ndata: '+JSON.stringify({operation,text:'Window permission received.'})+'\n\n'});
+  };
+  try{
+    const {page,context,consoleProblems}=await openPortalPage(browser,pages,{width:1440,height:900},handler);
+    await page.goto(`${ORIGIN}/portal/`);await page.getByText('Choose the window on your computer.',{exact:true}).waitFor();
+    const emit=detail=>page.evaluate(detail=>window.dispatchEvent(new CustomEvent('westy-desktop-resume',{detail})),detail);
+    await emit({conversation:'c'.repeat(32),operation});await emit({conversation,operation:'d'.repeat(32)});
+    assert.equal(posts.length,0,'different conversation or operation cannot resume');
+    await emit({conversation,operation});
+    await page.waitForFunction(()=>document.getElementById('portal-chat-stop').hidden);
+    await page.getByText('Choose the window on your computer.',{exact:true}).waitFor();
+    await emit({conversation,operation});
+    assert.equal(posts.length,1,'interrupted stream is inspected but never replayed');
+    assert.equal(posts.filter(p=>p.action==='message').length,0,'desktop continuation never synthesizes a new user message');
+    assert.equal(await page.getByText('Open my approved website.',{exact:true}).count(),1,'original user turn remains singular');
+    assert.deepEqual(consoleProblems,[]);await context.close();
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
 if (!SERVE_MODE) test('workspace operation cards use recorded preview, completion and cancellation receipts',async()=>{
