@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -13,6 +13,7 @@ const APP_CSS = await readFile(path.join(ROOT, 'app/public/assets/css/app.css'),
 const FAVICON = await readFile(path.join(ROOT, 'brand/svg/favicon.svg'), 'utf8');
 const PORTAL_ASSETS = {
   '/assets/css/portal.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal.css'))],
+  '/assets/css/portal-workspace.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-workspace.css'))],
   '/assets/css/portal-devices.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-devices.css'))],
   '/assets/css/portal-mobile.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-mobile.css'))],
   '/assets/css/portal-security.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-security.css'))],
@@ -24,6 +25,8 @@ const PORTAL_ASSETS = {
 const PORTAL_RENDER_SOURCE = await readFile(path.join(ROOT, 'app/lib/portal_render.php'), 'utf8');
 const ORIGIN = 'http://safeharbor.test';
 const SERVE_MODE = process.argv.includes('--serve');
+// Exported by Milepost's actual disposable MySQL/poll/result workflow. Never live data.
+const WORKSPACE_RECEIPTS = JSON.parse(await readFile(path.join(ROOT,'app/tests/fixtures/customer_workspace/operations.json'),'utf8')).operations;
 
 /**
  * The shared 8 West IT 365 suite chrome is vendored under app/public/assets/w365/ and served from
@@ -202,6 +205,7 @@ switch ($argv[3]) {
         if($argv[3]==='securityrecovery')$order['existing_order']=true;
         portal_render_security_orders($context,$device,$argv[3]==='security'?[]:[$order]);
         break;
+    case 'workspace': portal_render_workspace($context); break;
     case 'dashboard':
         portal_render_dashboard($context, [
             'client' => ['name' => '8 West Lifestyle'],
@@ -245,7 +249,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
+  for (const name of ['workspace','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
       fixturePath,
@@ -317,7 +321,8 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
         ? route.fulfill({ status: 404, body: '' })
         : route.fulfill({ contentType: asset.contentType, body: asset.body });
     }
-    const body = url.pathname === '/portal/' ? pages.dashboard
+    const body = url.pathname === '/portal/' ? pages.workspace
+      : url.pathname === '/portal/requests.php' ? pages.dashboard
       : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
       : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
       : url.pathname === '/portal/security.php' ? pages[url.searchParams.get('fixture') || 'security']
@@ -335,7 +340,8 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
 }
 
 function fixtureForUrl(pages, url) {
-  return url.pathname === '/portal/' ? pages.dashboard
+  return url.pathname === '/portal/' ? pages.workspace
+    : url.pathname === '/portal/requests.php' ? pages.dashboard
     : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
     : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
     : url.pathname === '/portal/security.php' ? pages[url.searchParams.get('fixture') || 'security']
@@ -385,7 +391,7 @@ if (SERVE_MODE) {
     });
     response.end(body ?? 'Not found.');
   });
-  server.listen(8898, '127.0.0.1', () => {
+  server.listen(8898, process.env.PORTAL_FIXTURE_HOST || '127.0.0.1', () => {
     console.log('Safeharbor portal fixture listening at http://127.0.0.1:8898/portal/');
   });
   const cleanup = async () => {
@@ -404,9 +410,9 @@ if (SERVE_MODE) {
   const browser = await chromium.launch();
   try {
     const desktop = await openPortalPage(browser, pages, { width: 1365, height: 850 });
-    await desktop.page.goto(`${ORIGIN}/portal/`);
+    await desktop.page.goto(`${ORIGIN}/portal/requests.php`);
     assert.equal(await desktop.page.title(), 'Your support · Safeharbor');
-    await desktop.page.getByRole('heading', { name: 'Business support requests' }).waitFor();
+    await desktop.page.getByRole('heading', { name: 'Support requests',exact:true }).waitFor();
     await desktop.page.getByRole('heading', { name: 'Needs your attention' }).waitFor();
     await desktop.page.getByRole('link', { name: 'Open support request' }).first().waitFor();
     await desktop.page.getByRole('heading', { name: 'Service summaries' }).waitFor();
@@ -418,7 +424,7 @@ if (SERVE_MODE) {
     await desktop.page.getByLabel('Send the update the support team needs').waitFor();
     assert.equal(await desktop.page.getByText('INTERNAL SECRET', { exact: true }).count(), 0);
 
-    await desktop.page.getByRole('link', { name: 'Help center' }).click();
+    await desktop.page.getByRole('link', { name: 'Support requests',exact:true }).click();
     await desktop.page.getByRole('link', { name: /Latest archived summary/ }).click();
     await desktop.page.getByRole('heading', { name: 'Aug 17 – Aug 23, 2026' }).waitFor();
     await desktop.page.getByText('145 minutes · 2.42 hours').waitFor();
@@ -428,7 +434,7 @@ if (SERVE_MODE) {
     await desktop.context.close();
 
     const mobile = await openPortalPage(browser, pages, { width: 390, height: 844 });
-    await mobile.page.goto(`${ORIGIN}/portal/`);
+    await mobile.page.goto(`${ORIGIN}/portal/requests.php`);
     await mobile.page.getByRole('link', { name: 'Open support request' }).first().waitFor();
     await mobile.page.getByRole('heading', { name: 'Service summaries' }).waitFor();
     assert.equal(await mobile.page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth), true);
@@ -438,6 +444,8 @@ if (SERVE_MODE) {
     await browser.close();
     await rm(scratch, { recursive: true, force: true });
   }
+
+
 });
 
 if (!SERVE_MODE) test('mobile discovery honors its gate and preserves device navigation for admins and viewers', async () => {
@@ -552,7 +560,10 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
     if(route.request().method()==='POST'){
       assert.equal(route.request().headers()['x-portal-csrf'],'c'.repeat(64));
       const request=route.request().postDataJSON();
-      if(request.action==='message')state.turns.push({operation_key:request.operation,state:'complete',input_text:request.message,reply:{reply:'Guidance <img src=x onerror=alert(1)> is text.',sources:['requests'],draft_subject:'Printer is offline',draft_body:'The printer is offline.'}});
+      if(request.action==='message'){
+        state.turns.push({operation_key:request.operation,state:'complete',input_text:request.message,reply:{reply:'Guidance <img src=x onerror=alert(1)> is text.',sources:['requests'],draft_subject:'Printer is offline',draft_body:'The printer is offline.'}});
+        return route.fulfill({contentType:'text/event-stream',body:'event: done\ndata: '+JSON.stringify({state})+'\n\n'});
+      }
       if(request.action==='save_draft'){
         saved=request;state.draft={...request,revision:1,state:'draft'};
       }
@@ -573,15 +584,14 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
   try{
     const desktop=await openPortalPage(browser,pages,{width:1365,height:850},handler);
     await desktop.page.goto(`${ORIGIN}/portal/`);
-    const input=desktop.page.getByRole('textbox',{name:'Tell Westy what is happening'});
-    await input.fill('Help me report the printer.');await desktop.page.getByRole('button',{name:'Ask Westy',exact:true}).click();
+    const input=desktop.page.getByRole('textbox',{name:'Ask Westy about your computer'});
+    await input.fill('Help me report the printer.');await desktop.page.getByRole('button',{name:'Send message',exact:true}).click();
     await desktop.page.getByText('Guidance <img src=x onerror=alert(1)> is text.',{exact:true}).waitFor();
-    assert.equal(await desktop.page.locator('#portal-chat-messages img').count(),0);
+    assert.equal(await desktop.page.locator('#portal-chat-messages img[src="x"]').count(),0);
     const box=await desktop.page.locator('#portal-chat-panel').boundingBox();
     assert.ok(box.width>500,'large composer remains in the page, unaffected by staff widget IDs');
-    await desktop.page.getByRole('button',{name:'Westy Continue chat'}).click();
-    assert.equal(await desktop.page.getByRole('textbox',{name:'Tell Westy what is happening'}).count(),1);
-    await desktop.page.getByRole('button',{name:'Close Westy',exact:true}).click();
+    assert.equal(await desktop.page.locator('#portal-chat-bubble').count(),0);
+    assert.equal(await desktop.page.getByRole('textbox',{name:'Ask Westy about your computer'}).count(),1);
     await desktop.page.getByRole('button',{name:'Edit suggested request'}).click();
     await desktop.page.getByLabel('What happened and who is affected?').fill('Exact reviewed text, with no private transcript.');
     await desktop.page.getByRole('button',{name:'Save & review request'}).click();
@@ -601,10 +611,10 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
     await mobile.page.getByRole('dialog',{name:'Private conversation with Westy'}).waitFor();
     assert.equal(await mobile.page.locator('.portal-content').evaluate(e=>e.inert),true);
     assert.equal(await mobile.page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
-    await mobile.page.getByRole('textbox',{name:'Tell Westy what is happening'}).press('Escape');
+    await mobile.page.getByRole('textbox',{name:'Ask Westy about your computer'}).press('Escape');
     assert.equal(await mobile.page.locator('#portal-chat-bubble').evaluate(e=>e===document.activeElement),true);
     deny=true;await mobile.page.reload();await mobile.page.getByRole('button',{name:'Westy',exact:true}).click();
-    await mobile.page.getByText('Your sign-in has ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
+    await mobile.page.getByText('Your sign-in ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
     assert.equal(await mobile.page.getByText('Request #102 received',{exact:true}).count(),0);
     await mobile.context.close();
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
@@ -747,4 +757,147 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
       await context.close();
     }
   } finally {await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('workspace renders incremental network events, keeps its composer visible and preserves history',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const device=WORKSPACE_RECEIPTS.health_queued.device_reference;let state, messagePosts=0, stops=0;
+  const reset=()=>{state={enabled:true,ai_available:true,can_write:true,tools_enabled:true,conversation:'a'.repeat(32),conversations:[],turns:[],draft:null,devices:[{reference:device,label:'Synthetic workstation'}]};};reset();
+  const server=createServer(async(request,response)=>{
+    const url=new URL(request.url,'http://localhost');
+    if(url.pathname==='/portal/westy.php'){
+      if(request.method==='POST'){
+        let raw='';for await(const chunk of request)raw+=chunk;const payload=JSON.parse(raw);
+        assert.equal(request.headers['x-portal-csrf'],'c'.repeat(64));
+        if(payload.action==='message'){
+          messagePosts++;const turn={operation_key:payload.operation,state:'pending',input_text:payload.message,reply:{reply:'',tools:[],sources:[]}};state.turns.push(turn);
+          state.conversations=[{key:state.conversation,title:payload.message}];
+          response.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store'});
+          const emit=(event,data)=>response.write('event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n');
+          emit('accepted',{operation:payload.operation,conversation:state.conversation});
+          turn.reply.reply='I’ll check the selected computer.';emit('delta',{operation:payload.operation,text:turn.reply.reply});
+          const tool={key:'call_check',name:'start_health_check',state:'complete',device_reference:device,operation:structuredClone(WORKSPACE_RECEIPTS.health_queued)};
+          turn.reply.tools.push(tool);emit('tool',{operation:payload.operation,tool});
+          await new Promise(resolve=>setTimeout(resolve,1200));
+          if(turn.state==='pending'){
+            turn.reply.reply+=' The health check is queued.';emit('delta',{operation:payload.operation,text:' The health check is queued.'});
+            turn.state='complete';
+          }
+          emit('done',{state});response.end();return;
+        }
+        if(payload.action==='stop'){stops++;const turn=state.turns.find(t=>t.operation_key===payload.operation);if(turn){turn.state='unavailable';turn.reason_code='stopped';}}
+        if(payload.action==='new_chat'){state={...state,conversation:payload.next_conversation,turns:[]};}
+      }
+      response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify({ok:true,state}));return;
+    }
+    let asset=PORTAL_ASSETS[url.pathname];
+    if(url.pathname==='/assets/css/app.css')asset=['text/css',APP_CSS];
+    if(url.pathname==='/assets/brand/favicon.svg')asset=['image/svg+xml',FAVICON];
+    if(asset){response.writeHead(200,{'Content-Type':asset[0]});response.end(asset[1]);return;}
+    response.writeHead(200,{'Content-Type':'text/html'});response.end(pages.workspace);
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin='http://127.0.0.1:'+server.address().port;
+  try{
+    for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
+      reset();const page=await browser.newPage({viewport});const problems=[];page.on('pageerror',e=>problems.push(e.message));
+      await page.goto(origin+'/portal/');const input=page.getByRole('textbox',{name:'Ask Westy about your computer'});await input.fill('Check my computer.');
+      const geometry=await page.locator('#portal-chat-form').boundingBox();assert.ok(geometry.y>=0&&geometry.y+geometry.height<=viewport.height,'composer is in the first viewport');
+      assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);assert.equal(await page.locator('#portal-chat-bubble').count(),0);
+      const navigation=await page.evaluate(()=>performance.getEntriesByType('navigation').length);
+      await input.press('Shift+Enter');assert.equal(await input.inputValue(),'Check my computer.\n');await input.press('Enter');
+      await page.getByText('I’ll check the selected computer.',{exact:true}).waitFor();
+      assert.equal(state.turns[0].state,'pending','visible text precedes provider completion');
+      assert.equal(await page.getByRole('button',{name:'Stop reply'}).isVisible(),true);
+      await page.getByText('I’ll check the selected computer. The health check is queued.',{exact:true}).waitFor();
+      await page.waitForFunction(()=>document.getElementById('portal-chat-stop').hidden);
+      assert.equal(await page.evaluate(()=>performance.getEntriesByType('navigation').length),navigation,'sending does not navigate or reload the page');
+      await page.reload();await page.getByText('I’ll check the selected computer. The health check is queued.',{exact:true}).waitFor();
+      await input.fill('Explain that.');await input.press('Enter');await page.getByRole('button',{name:'Stop reply'}).click();
+      await page.waitForFunction(()=>document.getElementById('portal-chat-stop').hidden);
+      assert.equal(state.turns.at(-1).state,'unavailable');
+      assert.equal(await page.locator('#portal-chat-input').evaluate(e=>e===document.activeElement),true,'focus returns to composer');
+      assert.equal(await page.getByText('Computer health check · Queued',{exact:true}).count(),2,'stopping a reply preserves both recorded queued operations');
+      if(process.env.PORTAL_SCREENSHOT_DIR){
+        const dir=process.env.PORTAL_SCREENSHOT_DIR;await mkdir(dir,{recursive:true});
+        await page.screenshot({path:path.join(dir,`workspace-${viewport.width}.png`)});
+      }
+      if(viewport.width===390){
+        await page.setViewportSize({width:390,height:450});
+        const compact=await page.locator('#portal-chat-form').boundingBox();assert.ok(compact.y>=0&&compact.y+compact.height<=450,'composer stays visible in a keyboard-sized viewport');
+        const menu=page.getByRole('button',{name:'Toggle navigation'});await menu.click();
+        assert.equal(await page.locator('.portal-content').evaluate(e=>e.inert),true);
+        await page.keyboard.press('Escape');assert.equal(await menu.evaluate(e=>e===document.activeElement),true,'drawer dismissal restores keyboard focus');
+      }
+      assert.deepEqual(problems,[]);await page.close();
+    }
+    assert.equal(messagePosts,4);assert.equal(stops,2);
+  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('workspace operation cards use recorded preview, completion and cancellation receipts',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const geometryProof=[];
+  try{
+    for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
+      let phase='approval',posts=[];
+      const getState=()=>{
+        const op=structuredClone(WORKSPACE_RECEIPTS[phase==='offline'?'health_queued':phase]);
+        const tool={key:'call_activity',name:op.recipe==='health'?'start_health_check':'prepare_temp_cleanup',state:phase==='offline'?'unavailable':'complete',device_reference:op.device_reference,operation:phase==='offline'?null:op,reason:phase==='offline'?'device_offline':null};
+        return {enabled:true,ai_available:true,can_write:true,conversation:'a'.repeat(32),conversations:[],draft:null,devices:[{reference:op.device_reference,label:'Synthetic workstation'}],turns:[{operation_key:'b'.repeat(32),state:'complete',input_text:'Help with this computer.',reply:{reply:'The recorded computer activity is shown here.',tools:[tool],sources:[]}}]};
+      };
+      const apiHandler=async route=>{
+        if(route.request().method()==='POST'){
+          const payload=route.request().postDataJSON();posts.push(payload);
+          assert.equal(payload.reference,WORKSPACE_RECEIPTS.approval.reference);
+          assert.equal(payload.approval_fingerprint,WORKSPACE_RECEIPTS.approval.approval_fingerprint);
+          assert.equal(payload.reviewed,true);assert.equal(payload.action,'approve_operation');phase='cleanup_queued';
+        }
+        await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:getState()})});
+      };
+      const {context,page,consoleProblems}=await openPortalPage(browser,pages,viewport,apiHandler);
+      await page.goto(ORIGIN+'/portal/');
+      const review=page.locator('.portal-tool-review');await page.getByRole('button',{name:'Approve cleanup'}).waitFor();
+      assert.match(await review.innerText(),/Synthetic workstation/);assert.match(await review.innerText(),/2 eligible files · 2\.0 KB/);
+      assert.match(await review.innerText(),/C:\\Windows\\Temp/);assert.match(await review.innerText(),/permanently deletes only files in the exact unchanged preview set/);
+      if(process.env.PORTAL_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.PORTAL_SCREENSHOT_DIR,`workspace-approval-${viewport.width}.png`)});
+      assert.equal(posts.length,0,'rendering a preview cannot authorize deletion');
+      await page.getByRole('button',{name:'Approve cleanup'}).click();await page.getByText('Waiting for your computer to report. You can leave this chat and return.',{exact:true}).waitFor();
+      assert.equal(posts.length,1,'exact human approval posts once');
+      for(const next of ['preview_queued','verifying','completed','cancel_delivered','unknown','offline']){
+        phase=next;await page.reload();
+        if(next==='offline')await page.getByText('The computer is not currently available.',{exact:true}).waitFor();
+        else await review.waitFor();
+        if(next==='completed'){assert.match(await review.innerText(),/2 files · 2\.0 KB/);assert.match(await review.innerText(),/55\.5% free/);}
+        if(['cancel_delivered','unknown'].includes(next)){assert.match(await review.innerText(),/outcome is not confirmed/);assert.match(await review.innerText(),/Do not repeat this check/);assert.equal(await page.getByRole('button',{name:/Approve/}).count(),0);}
+        const composer=await page.locator('#portal-chat-form').boundingBox(),footer=await page.locator('.portal-chat-foot').boundingBox();
+        assert.ok(composer.y>=0&&composer.y+composer.height<=viewport.height,'usable composer remains in the viewport for '+next);
+        assert.ok(footer.y>=0&&footer.y+footer.height<=viewport.height,'privacy/support footer remains in the viewport for '+next);
+        const input=page.getByRole('textbox',{name:'Ask Westy about your computer'});assert.equal(await input.isEnabled(),true);await input.fill('');
+        geometryProof.push({state:next,viewport,composer,footer,input_enabled:true});
+        if(process.env.PORTAL_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.PORTAL_SCREENSHOT_DIR,`workspace-${next}-${viewport.width}.png`)});
+      }
+      assert.equal(posts.length,1,'refresh, offline and unknown results never replay work');assert.deepEqual(consoleProblems,[]);await context.close();
+    }
+    if(process.env.PORTAL_SCREENSHOT_DIR)await writeFile(path.join(process.env.PORTAL_SCREENSHOT_DIR,'workspace-geometry.json'),JSON.stringify(geometryProof,null,2)+'\n');
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('late device responses cannot restore private names after logout',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  let release;const gate=new Promise(resolve=>release=resolve);
+  const state={enabled:true,ai_available:true,can_write:true,conversation:'a'.repeat(32),conversations:[],draft:null,turns:[],devices:[{reference:WORKSPACE_RECEIPTS.health_queued.device_reference,label:'Synthetic private computer'}]};
+  const {context,page}=await openPortalPage(browser,pages,{width:1000,height:800},async route=>{
+    if(new URL(route.request().url()).searchParams.has('devices'))await gate;
+    await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state})});
+  });
+  try{
+    await page.goto(ORIGIN+'/portal/');await page.waitForFunction(()=>!document.getElementById('portal-chat-input').disabled);
+    await page.evaluate(()=>{const channel=new BroadcastChannel('safeharbor-portal-access');channel.postMessage('signed-out');channel.close();});
+    await page.getByText('Your sign-in ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
+    const response=page.waitForResponse(r=>r.url().includes('?devices=1'));release();await (await response).finished();
+    // Allow the fetch continuation to run so the assertion observes the late result.
+    await page.waitForTimeout(100);
+    assert.equal(await page.locator('#portal-chat-device option').count(),1);assert.equal(await page.getByText('Synthetic private computer',{exact:true}).count(),0);
+    assert.equal(await page.locator('#portal-chat-input').isDisabled(),true);
+  }finally{release();await context.close();await browser.close();await rm(scratch,{recursive:true,force:true});}
 });

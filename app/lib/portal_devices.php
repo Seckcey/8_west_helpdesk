@@ -71,7 +71,7 @@ function portal_devices_transport(string $endpoint, string $body, array $headers
 function portal_devices_request(PDO $pdo, array $context, string $action, array $input, ?callable $transport = null): array
 {
     if (!in_array($action, ['devices','enrollments','enrollment_create','enrollment_download','enrollment_revoke',
-        'operations','health_start','repair_propose','repair_approve',
+        'operations','health_start','temp_start','repair_propose','repair_approve','operation_cancel',
         'security_orders','security_review','security_accept','security_continue','security_install','security_refresh'], true)) {
         throw new PortalDevicesException('invalid_request', 400);
     }
@@ -79,9 +79,9 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
         if ((cfg('portal_devices',[])['security_orders_enabled']??false)!==true) throw new PortalDevicesException('orders_unavailable');
         if ($action!=='security_orders' && !portal_devices_can_manage($context)) throw new PortalDevicesException('role',403);
     }
-    if ((str_starts_with($action, 'enrollment_') || in_array($action,['health_start','repair_propose','repair_approve'],true))
+    if ((str_starts_with($action, 'enrollment_') || in_array($action,['health_start','temp_start','repair_propose','repair_approve','operation_cancel'],true))
         && !portal_devices_can_manage($context)) throw new PortalDevicesException('role', 403);
-    if (in_array($action,['operations','health_start','repair_propose','repair_approve'],true)
+    if (in_array($action,['operations','health_start','temp_start','repair_propose','repair_approve','operation_cancel'],true)
         && (cfg('portal_devices',[])['diagnostics_enabled']??false)!==true) throw new PortalDevicesException('operation_unavailable');
     $config = portal_devices_config(); $scope = portal_devices_scope($pdo, $context);
     $body = json_encode(['action'=>$action,'scope'=>$scope,'input'=>$input], JSON_THROW_ON_ERROR);
@@ -111,7 +111,11 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
             throw new PortalDevicesException('service_unavailable');
         }
     }
-    return portal_devices_result($action, $result);
+    $result=portal_devices_result($action, $result);
+    if(in_array($action,['operations','health_start','temp_start','repair_propose'],true)){
+        foreach($action==='operations'?$result['items']:[$result] as $operation)if($operation['device_reference']!==($input['device_reference']??null))throw new PortalDevicesException('service_unavailable');
+    }
+    return $result;
 }
 
 function portal_devices_keys(array $value, array $expected): bool
@@ -127,7 +131,7 @@ function portal_devices_result(string $action, array $result): array
         require_once __DIR__.'/portal_security_orders.php';
         return portal_security_orders_result($action,$result);
     }
-    if(in_array($action,['operations','health_start','repair_propose','repair_approve'],true)) {
+    if(in_array($action,['operations','health_start','temp_start','repair_propose','repair_approve','operation_cancel'],true)) {
         require_once __DIR__.'/portal_device_operations.php';
         return portal_device_operations_result($action,$result);
     }

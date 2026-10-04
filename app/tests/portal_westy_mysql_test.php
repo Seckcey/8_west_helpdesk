@@ -31,7 +31,7 @@ check('new identity starts empty',portal_westy_state($pdo,$a)['turns']===[]);
 $request=$message('Help me write a printer request.');portal_westy_message($pdo,$a,$request,$provider);portal_westy_message($pdo,$a,$request,$provider);
 check('exact message replay calls provider once',$calls===1);
 check('one private turn survives refresh',count(portal_westy_state($pdo,$a)['turns'])===1);
-check('model has no tools or remote data',$captured['model']==='gpt-6-luna'&&$captured['store']===false&&!isset($captured['tools'])&&!isset($captured['previous_response_id']));
+check('tools remain empty until separately enabled; provider storage stays off',$captured['model']==='gpt-6-luna'&&$captured['store']===false&&$captured['tools']===[]&&!isset($captured['previous_response_id']));
 check('provider request pins Standard pricing instead of inheriting project tier',($captured['service_tier']??null)==='default');
 $same=$a;$same['identity']['subject']='t9u99';check('another subject in same business sees no chat',portal_westy_state($pdo,$same)['turns']===[]);
 check('another business sees no chat',portal_westy_state($pdo,$b)['turns']===[]);

@@ -113,7 +113,11 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    a default-off service, not a chat permission: `docs/westy-workflow-contract.md`
    owns its migration 025, dedicated `milepost-workflow` identity, exact
    tenant/customer gates, independent recovery proof and human takeover.
-   Never route command approval or invoice sending through the chat bubble.
+   The staff chat bubble never grants command or invoice authority. The separately
+   authorized customer `/portal/` workspace may use only the closed Milepost
+   tools in `docs/customer-workspace.md`; repair approval is a separate CSRF-bound
+   human control tied to the exact current device receipt. Model text cannot
+   approve work. This exception does not change staff chat or email authority.
    Shared drag/resize layout is centrally owned in
    `Seckcey/8_west_westy` and consumed from
    `https://westy.8westit.com/v1/westy-layout.js`. A commit to that repo does

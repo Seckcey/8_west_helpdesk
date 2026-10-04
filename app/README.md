@@ -4,6 +4,10 @@ The Safeharbor help desk — **plain PHP 8.3 + MySQL + Apache (mod_php)**, built
 with the exact conventions of Milepost (same layout, same vhost shape, same
 bootstrap style). No framework, no bundler, no build step.
 
+The customer `/portal/` workspace and `/portal/requests.php` support list follow
+the [workspace contract](../docs/customer-workspace.md), including streaming,
+closed device tools, human repair approval and rollout/rollback order.
+
 **Live:** https://safeharbor.8westit.com. Production credentials are not
 published; use an authorized 8 West ID or local account.
 

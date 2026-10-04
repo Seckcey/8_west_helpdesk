@@ -44,7 +44,7 @@ function portal_safe_return_path(mixed $value): string
         if (! is_array($parts) || isset($parts['scheme']) || isset($parts['host'])
             || isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment'])
             || ! in_array($parts['path'] ?? '', [
-                '/portal/', '/portal/index.php', '/portal/ticket.php', '/portal/new.php',
+                '/portal/', '/portal/index.php', '/portal/requests.php', '/portal/ticket.php', '/portal/new.php',
                 '/portal/reports.php', '/portal/devices.php', '/portal/device_help.php',
                 '/portal/mobile.php', '/portal/security.php', '/portal/guide.php',
             ], true)) {
@@ -404,6 +404,29 @@ function portal_authenticated_context(
         unset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]);
     }
     return ['identity' => $identity, 'binding' => $binding];
+}
+
+/** Reopen the original session read-only after SSE headers, without holding its lock.
+ * Strict mode plus the original ID check detects local logout/destruction. The
+ * ordinary fail-closed issuer and active-binding checks still run before output.
+ */
+function portal_stream_authenticated_context(PDO $pdo,string $originalSession): ?array
+{
+    if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
+    if(session_id()!==$originalSession)return null;
+    if(!headers_sent()){ini_set('session.use_cookies','0');session_cache_limiter('');}
+    if(ini_get('session.use_cookies')||session_cache_limiter()!=='')return null;
+    // read_and_close is handled directly by PHP. Passing INI options here tries
+    // to set them again after headers and emits warnings on supported PHP builds.
+    if(!session_start(['read_and_close'=>true]))return null;
+    if(session_id()!==$originalSession)return null;
+    $identity=portal_local_identity();
+    if($identity===null)return null;
+    try {
+        if(portal_oidc_client()->isRevoked($identity['subject'],$identity['session_version']))return null;
+    }catch(EightWestIdException $e){throw new PortalIdentityUnavailableException('Identity validation unavailable.',0,$e);}
+    $binding=portal_active_binding_recheck($pdo,$identity['binding_id'],$identity['identity_tenant_slug'],$identity['tenant_id'],$identity['client_id']);
+    return $binding===null?null:['identity'=>$identity,'binding'=>$binding];
 }
 
 function portal_csrf_token(): string

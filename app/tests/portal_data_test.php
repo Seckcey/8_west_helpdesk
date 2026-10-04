@@ -246,7 +246,7 @@ portal_data_check('dashboard links only to verified portal report pages',
 portal_data_check('rendered portal is dark and loads only its customer chat script',
     str_contains($rendered, '<html lang="en" data-theme="dark">')
     && substr_count($rendered, '<script')===1
-    && str_contains($rendered, 'src="/assets/js/portal-westy.js?v=1"'));
+    && str_contains($rendered, 'src="/assets/js/portal-westy.js?v=2"'));
 
 echo "Portal data: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

@@ -22,17 +22,18 @@ function portal_shell_start(array $context): void
 {
     $identity = $context['identity'];
     $client = (string)($context['binding']['client_name'] ?? 'Your business');
+    $workspace=($context['workspace']??false)===true;
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH);
     if(in_array($path, ['/portal/device_help.php', '/portal/mobile.php', '/portal/security.php'], true))$path='/portal/devices.php';
     ?>
 <a class="portal-skip" href="#portal-content">Skip to content</a>
-<header class="portal-top"><a href="/portal/" aria-label="Safeharbor home"><img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" width="1851" height="513" alt="Safeharbor — 8 West IT 365"></a><span>8 West IT</span><button type="button" class="portal-icon-button portal-menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="portal-nav"><?= portal_icon('menu') ?></button></header>
-<aside class="portal-sidebar" id="portal-nav"><p class="portal-business"><?= portal_h($client) ?></p>
+<header class="portal-top"><a href="/portal/" aria-label="Safeharbor home"><img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" width="1851" height="513" alt="Safeharbor — 8 West IT 365"></a><span>8 West IT</span><button type="button" class="portal-icon-button portal-menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="portal-nav"><?= portal_icon('menu') ?></button><?php if($workspace): ?><div class="portal-workspace-title"><strong>Westy</strong><span>Private conversation</span></div><button type="button" class="portal-icon-button portal-mobile-new" data-chat-new aria-label="New chat"><?= portal_icon('edit') ?></button><?php endif; ?></header>
+<aside class="portal-sidebar" id="portal-nav"><?php if($workspace): ?><a class="portal-workspace-brand" href="/portal/" aria-label="Safeharbor home"><img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" width="1851" height="513" alt="Safeharbor — 8 West IT 365"></a><button class="portal-new-chat" type="button" data-chat-new><?= portal_icon('edit') ?>New chat</button><?php else: ?><p class="portal-business"><?= portal_h($client) ?></p><?php endif; ?>
 <nav aria-label="Customer portal">
-<?php foreach ([['/portal/', 'Home', 'home'], ['/portal/devices.php', 'Your devices', 'device'], ['/portal/#requests', 'Support requests', 'requests'], ['/portal/reports.php', 'Service summaries', 'requests'], ['/portal/guide.php', 'Portal guide', 'guide'], ['/portal/guide.php#contact', 'Contact support', 'chat']] as [$url, $label, $icon]): ?>
+<?php foreach ([['/portal/', 'Westy', 'chat'], ['/portal/devices.php', 'Your devices', 'device'], ['/portal/requests.php', 'Support requests', 'requests'], ['/portal/reports.php', 'Service summaries', 'requests']] as [$url, $label, $icon]): ?>
 <a href="<?= portal_h($url) ?>"<?= $path === $url ? ' aria-current="page"' : '' ?>><?= portal_icon($icon) ?><span><?= portal_h($label) ?></span></a>
 <?php endforeach; ?>
-</nav><div class="portal-account"><strong><?= portal_h($identity['display_name']) ?></strong><span><?= portal_h(portal_role_label((string)$identity['role'])) ?></span><form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="btn-link">Sign out</button></form></div></aside>
+</nav><?php if($workspace): ?><section class="portal-chat-history" aria-label="Recent chats"><h2>Recent chats</h2><div id="portal-chat-history"></div></section><?php endif; ?><div class="portal-account"><strong><?= portal_h($identity['display_name']) ?></strong><span><?= portal_h(portal_role_label((string)$identity['role'])) ?></span><a href="/portal/guide.php">Portal guide</a><a href="/portal/guide.php#contact">Contact support</a><form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="btn-link">Sign out</button></form></div></aside>
 <div class="portal-content" id="portal-content" tabindex="-1">
 <?php
 }
@@ -49,15 +50,16 @@ function portal_westy_widget(array $context): void
 {
     $canWrite = portal_role_can_write_tickets((string)$context['identity']['role']);
     ?>
-<div id="portal-chat-root" data-csrf="<?= portal_h(portal_csrf_token()) ?>" data-can-write="<?= $canWrite ? '1' : '0' ?>">
-<?php if (($context['chat_button_placement'] ?? '') !== 'inline') portal_westy_button(); ?>
+<div id="portal-chat-root" data-csrf="<?= portal_h(portal_csrf_token()) ?>" data-workspace="<?= !empty($context['workspace'])?'1':'0' ?>" data-can-write="<?= $canWrite ? '1' : '0' ?>">
+<?php if (empty($context['workspace']) && ($context['chat_button_placement'] ?? '') !== 'inline') portal_westy_button(); ?>
 <section id="portal-chat-panel" class="portal-westy" aria-label="Private conversation with Westy" hidden>
 <div class="portal-chat-head"><div><strong>Westy</strong><span>Private conversation</span></div><button type="button" class="btn-link" id="portal-chat-new">New chat</button><button type="button" class="portal-icon-button" id="portal-chat-close" aria-label="Close Westy"><?= portal_icon('close') ?></button></div>
-<div id="portal-chat-messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></div>
-<form id="portal-chat-form" class="portal-composer"><label class="sr-only" for="portal-chat-input">Tell Westy what is happening</label><textarea id="portal-chat-input" name="message" rows="3" maxlength="2000" placeholder="Tell Westy what is happening…" required></textarea><div class="portal-composer-foot"><span>Private to you until you share a request</span><button type="submit" class="btn-primary" id="portal-chat-send">Ask Westy</button></div></form>
-<p id="portal-chat-status" role="status"></p><div id="portal-chat-draft" hidden></div>
-<div class="portal-chat-foot"><a href="/portal/guide.php#privacy">Privacy &amp; history</a><?php if ($canWrite): ?><a href="/portal/new.php">Write a request</a><?php else: ?><span>Viewer access · requests are read-only</span><?php endif; ?></div>
+<div id="portal-chat-messages" role="log" aria-label="Conversation" aria-live="off"><div id="portal-chat-empty"><img src="/assets/img/westy-avatar.png" width="64" height="64" alt=""><h1>What can I help you with?</h1><p>Ask about your computer. We’ll work through it together.</p></div></div>
+<button type="button" class="portal-jump" id="portal-chat-jump" hidden>Jump to latest ↓</button>
+<div id="portal-chat-draft" hidden></div><p id="portal-chat-status" role="status" aria-live="polite"></p>
+<form id="portal-chat-form" class="portal-composer" method="post" action="/portal/westy.php"><label class="sr-only" for="portal-chat-input">Ask Westy about your computer</label><textarea id="portal-chat-input" disabled name="message" rows="2" maxlength="2000" placeholder="Ask Westy about your computer…" required></textarea><div class="portal-composer-foot"><label class="portal-device-choice" for="portal-chat-device"><?= portal_icon('device') ?><span class="sr-only">Computer for this chat</span><select id="portal-chat-device"><option value="">Choose a computer</option></select></label><span class="portal-keyboard-hint">Enter to send · Shift+Enter for a new line</span><button type="button" class="portal-icon-button" id="portal-chat-stop" aria-label="Stop reply" hidden>■</button><button type="submit" class="btn-primary" id="portal-chat-send" disabled aria-label="Send message"><?= portal_icon('arrow') ?></button></div></form>
+<div class="portal-chat-foot"><a href="/portal/guide.php#privacy">Private to you</a><span>·</span><?php if ($canWrite): ?><a href="/portal/new.php">Contact support</a><?php else: ?><span>Viewer access · requests are read-only</span><?php endif; ?></div>
 </section></div>
-<script src="/assets/js/portal-westy.js?v=1" defer></script>
+<script src="/assets/js/portal-westy.js?v=2" defer></script>
 <?php
 }

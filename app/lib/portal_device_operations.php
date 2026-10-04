@@ -21,33 +21,54 @@ function portal_device_operations_result(string $action,array $result):array
         $rows=$result['items'];
     } else $rows=[$result];
     foreach($rows as $r) {
-        if(!is_array($r) || !portal_devices_keys($r,['reference','recipe','title','impact','device_reference','state','created_at','expires_at','can_approve','approval_fingerprint','result'])
+        $legacy=['reference','recipe','title','impact','device_reference','state','created_at','expires_at','can_approve','approval_fingerprint','result'];
+        if(!is_array($r) || !(portal_devices_keys($r,$legacy)||portal_devices_keys($r,array_merge($legacy,['basis_reference','preview','can_cancel'])))
             || !is_string($r['reference']) || preg_match('/^[a-f0-9]{32}$/D',$r['reference'])!==1
             || !is_string($r['device_reference']) || preg_match('/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D',$r['device_reference'])!==1
-            || !in_array($r['recipe'],['health','spooler_restart'],true)
-            || !in_array($r['state'],['awaiting_approval','authorized','queued','verifying','completed','service_verified','needs_help','expired'],true)
+            || !in_array($r['recipe'],['health','spooler_restart','temp_preview','temp_cleanup'],true)
+            || !in_array($r['state'],['awaiting_approval','authorized','queued','verifying','completed','service_verified','needs_help','expired','cancelled','cancel_requested','cleanup_verified'],true)
             || !is_bool($r['can_approve']) || !portal_devices_timestamp($r['created_at']) || !portal_devices_timestamp($r['expires_at'])) $fail();
         foreach(['title'=>100,'impact'=>600] as $key=>$limit) {
             if(!is_string($r[$key]) || mb_strlen($r[$key])>$limit || preg_match('//u',$r[$key])!==1) $fail();
         }
         if($r['can_approve']) {
-            if($r['state']!=='awaiting_approval' || $r['recipe']!=='spooler_restart' || !is_string($r['approval_fingerprint']) || preg_match('/^[a-f0-9]{64}$/D',$r['approval_fingerprint'])!==1) $fail();
+            if($r['state']!=='awaiting_approval' || !in_array($r['recipe'],['spooler_restart','temp_cleanup'],true) || !is_string($r['approval_fingerprint']) || preg_match('/^[a-f0-9]{64}$/D',$r['approval_fingerprint'])!==1) $fail();
         } elseif($r['approval_fingerprint']!==null) $fail();
+        if(array_key_exists('can_cancel',$r)){
+            if(!is_bool($r['can_cancel'])||($r['can_cancel']&&!in_array($r['state'],['awaiting_approval','authorized','queued','verifying'],true)))$fail();
+            if($r['basis_reference']!==null&&(!is_string($r['basis_reference'])||!preg_match('/^[a-f0-9]{32}$/D',$r['basis_reference'])))$fail();
+            if($r['preview']!==null&&($r['recipe']!=='temp_cleanup'||!portal_device_temp_result_valid($r['preview'],'temp_preview')))$fail();
+        }
         if($r['result']!==null) {
             $v=$r['result'];
-            if(!is_array($v) || !portal_devices_keys($v,['version','observed_at','memory_used_percent','system_disk_free_percent','spooler'])
-                || $v['version']!==1 || !portal_devices_timestamp($v['observed_at'])
-                || !in_array($v['spooler'],['running','stopped','startpending','stoppending','paused','pausepending','continuepending','missing'],true)) $fail();
-            foreach(['memory_used_percent','system_disk_free_percent'] as $key) {
-                if((!is_int($v[$key])&&!is_float($v[$key])) || !is_finite((float)$v[$key]) || $v[$key]<0 || $v[$key]>100) $fail();
-            }
+            if(str_starts_with($r['recipe'],'temp_')){if(!portal_device_temp_result_valid($v,$r['recipe']))$fail();}
+            elseif(!portal_device_health_result_valid($v))$fail();
         }
-        if(($r['recipe']==='health'&&in_array($r['state'],['awaiting_approval','verifying','service_verified'],true))
-            || ($r['state']==='completed'&&$r['recipe']!=='health')
-            || (in_array($r['state'],['completed','service_verified'],true)&&$r['result']===null)
-            || ($r['state']==='service_verified'&&$r['result']['spooler']!=='running')) $fail();
+        if((in_array($r['recipe'],['health','temp_preview'],true)&&in_array($r['state'],['awaiting_approval','verifying','service_verified','cleanup_verified'],true))
+            || ($r['state']==='completed'&&!in_array($r['recipe'],['health','temp_preview'],true))
+            || (in_array($r['state'],['completed','service_verified','cleanup_verified'],true)&&$r['result']===null)
+            || ($r['state']==='service_verified'&&($r['recipe']!=='spooler_restart'||$r['result']['spooler']!=='running'))
+            || ($r['state']==='cleanup_verified'&&($r['recipe']!=='temp_cleanup'||!isset($r['result']['health'])))
+            || ($r['recipe']==='temp_cleanup'&&(!isset($r['preview'],$r['basis_reference'])))) $fail();
     }
     return $result;
+}
+
+function portal_device_health_result_valid(mixed $v):bool
+{
+    if(!is_array($v)||!portal_devices_keys($v,['version','observed_at','memory_used_percent','system_disk_free_percent','spooler'])||$v['version']!==1||!portal_devices_timestamp($v['observed_at'])||!in_array($v['spooler'],['running','stopped','startpending','stoppending','paused','pausepending','continuepending','missing'],true))return false;
+    foreach(['memory_used_percent','system_disk_free_percent'] as $key)if((!is_int($v[$key])&&!is_float($v[$key]))||!is_finite((float)$v[$key])||$v[$key]<0||$v[$key]>100)return false;
+    return true;
+}
+
+function portal_device_temp_result_valid(mixed $v,string $kind):bool
+{
+    if(!is_array($v))return false;
+    if(isset($v['health'])){if($kind!=='temp_cleanup'||!portal_device_health_result_valid($v['health']))return false;unset($v['health']);}
+    $keys=$kind==='temp_preview'?['version','kind','observed_at','cutoff','manifest_sha256','eligible_files','eligible_bytes','bounded']:['version','kind','observed_at','manifest_sha256','deleted_files','deleted_bytes','skipped_files'];
+    if(!portal_devices_keys($v,$keys)||$v['version']!==1||$v['kind']!==$kind||!portal_devices_timestamp($v['observed_at'])||!is_string($v['manifest_sha256'])||!preg_match('/^[a-f0-9]{64}$/D',$v['manifest_sha256']))return false;
+    foreach(($kind==='temp_preview'?['eligible_files'=>200,'eligible_bytes'=>268435456]:['deleted_files'=>200,'deleted_bytes'=>268435456,'skipped_files'=>5200]) as $key=>$max)if(!is_int($v[$key])||$v[$key]<0||$v[$key]>$max)return false;
+    return $kind!=='temp_preview'||(portal_devices_timestamp($v['cutoff'])&&is_bool($v['bounded']));
 }
 
 function portal_device_operation_inputs(array $post):array
