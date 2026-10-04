@@ -74,7 +74,7 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
     ?callable $transport=null,?callable $resolver=null):array
 {
     $usage=['input'=>0,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>0];
-    $cost=0;$known=true;$receipts=[];$inFlight=false;
+    $cost=0;$known=true;$receipts=[];$inFlight=false;$buffer=null;
     try {
         for($round=0;$round<5;$round++) {
             $alive(true);
@@ -84,9 +84,15 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             $selection=portal_westy_ai_selection($resolved,portal_westy_config());
             $tools=portal_westy_ai_tools($context,$selection);
             $options=['max_output_tokens'=>1200,'max_input_tokens'=>66048,'tools'=>$tools];
+            $buffer=new PortalWestyTextBuffer(static fn(string $text)=>$output('delta',['text'=>$text]));
             $inFlight=true;
             $result=($provider??'westy_tenant_ai_stream')($selection,portal_westy_ai_instructions(),$messages,$options,
-                static fn(string $text)=>$output('delta',['text'=>$text]),static fn()=>$alive(true));
+                static fn(string $text)=>$buffer->append($text),
+                static function()use($buffer,$alive):void{
+                    // A timed flush goes through the unthrottled output guards.
+                    // Only progress with no output/action uses the idle throttle.
+                    if(!$buffer->flushDue())$alive(false);
+                });
             $inFlight=false;
             $roundUsage=$result['usage']??null;$roundCost=is_array($roundUsage)?westy_tenant_ai_cost($selection,$roundUsage):null;
             $known=$known && is_int($roundCost);
@@ -98,8 +104,14 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             $fresh=portal_westy_ai_snapshot($pdo,$context,$snapshot['revision'],'status',$resolver);
             if(!portal_westy_ai_same_selection($snapshot,$fresh))
                 throw new PortalWestyException('ai_changed');
-            if(!($result['ok']??false))return ['ok'=>false,'reason'=>$result['reason']??'provider_unavailable',
-                'usage'=>$known?$usage:null,'cost_micro_usd'=>$known?$cost:null,'rounds'=>$receipts];
+            if(!($result['ok']??false)){
+                $buffer->discard();
+                return ['ok'=>false,'reason'=>$result['reason']??'provider_unavailable',
+                    'usage'=>$known?$usage:null,'cost_micro_usd'=>$known?$cost:null,'rounds'=>$receipts];
+            }
+            // Retain the paid receipt above even if this successful round's
+            // final flush is refused. Flush before any tool or next round.
+            $buffer->flush();
             $calls=$result['tool_calls']??[];
             if($calls===[])return ['ok'=>true,'usage'=>$known?$usage:null,'cost_micro_usd'=>$known?$cost:null,'rounds'=>$receipts];
             if(count($calls)!==1 || $round===4)throw new PortalWestyException('tool_limit');
@@ -127,8 +139,10 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             if($partial['reply']!=='')$output('delta',['text'=>"\n\n"]);
         }
     } catch(PortalWestyException $error) {
+        $buffer?->discard();
         return ['ok'=>false,'reason'=>$error->reason,'usage'=>$known&&!$inFlight?$usage:null,'cost_micro_usd'=>$known&&!$inFlight?$cost:null,'rounds'=>$receipts];
     } catch(Throwable) {
+        $buffer?->discard();
         return ['ok'=>false,'reason'=>'provider_unavailable','usage'=>$known&&!$inFlight?$usage:null,'cost_micro_usd'=>$known&&!$inFlight?$cost:null,'rounds'=>$receipts];
     }
     return ['ok'=>false,'reason'=>'tool_limit','usage'=>null,'cost_micro_usd'=>null,'rounds'=>$receipts];

@@ -34,7 +34,7 @@ $stream=file_get_contents($runtime.'/lib/tenant_ai/tenant_ai_stream.php');
 $start=strpos($stream,'function westy_tenant_ai_stream(');if($start===false)throw new RuntimeException('Provider seam unavailable');
 $stub=<<<'PHP'
 function westy_tenant_ai_stream(array $selection,string $system,array $messages,array $options,callable $emit,callable $alive):array {
-    $alive();$emit('First visible chunk.');
+    $alive();$emit('First visible chunk.');$emit(' Buffered pending text.');
     for($n=0;$n<20;$n++){usleep(100000);$alive();}
     $emit(' Final chunk.');
     return ['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>20,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>10]];
@@ -83,7 +83,9 @@ try{
         if($scenario==='complete')check($doneAt!==null&&$doneAt-$firstAt>1.5&&str_contains($bytes,'Final chunk.'),'first chunk arrives before generation completes, not buffered full-response playback');
         else{
             preg_match_all('/event: delta\ndata: ([^\n]+)/',$bytes,$deltas);
-            check(!str_contains(implode('',$deltas[1]),'Final chunk.'),'stop/logout/revocation prevents subsequent visible content for '.$scenario);
+            check(!str_contains(implode('',$deltas[1]),'Final chunk.')&&!str_contains(implode('',$deltas[1]),'Buffered pending text.'),'stop/logout/revocation prevents buffered and subsequent visible content for '.$scenario);
+            $saved=$pdo->prepare('SELECT reply_json FROM portal_westy_turns WHERE operation_key=?');$saved->execute([$operation]);
+            check(json_decode((string)$saved->fetchColumn(),true)['reply']==='First visible chunk.','stop/logout/revocation discards pending text before persistence for '.$scenario);
             // Let the following independent scenario start without waiting for the
             // normal 180-second interrupted-turn window in this disposable ledger.
             $pdo->prepare("UPDATE portal_westy_turns SET created_at=created_at-INTERVAL 4 MINUTE WHERE operation_key=? AND state='pending'")->execute([$operation]);

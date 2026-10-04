@@ -2,14 +2,18 @@
 /** Real private ledger and signed service client; synthetic provider/network only. */
 declare(strict_types=1);
 require __DIR__.'/portal_devices_mysql_test.php';
+// Optional native schema is intentionally unavailable in this chat/stop fixture.
+$pdo->exec('DROP TABLE portal_desktop_bindings');
 $settings['portal_westy']=['enabled'=>true,'ai_enabled'=>true,'tools_enabled'=>true,'api_key'=>'synthetic-only','hourly_limit'=>30,'daily_limit'=>500,'monthly_microusd'=>5000000];
 $settings['portal_devices']['enabled']=true;$settings['portal_devices']['diagnostics_enabled']=true;
 $device='1:'.str_repeat('a',64);$seenActions=[];$events=[];$providerBodies=[];$scope=portal_devices_scope($pdo,$a);
 $operation=['reference'=>str_repeat('b',32),'recipe'=>'temp_preview','title'=>'Preview Windows temporary files','impact'=>'Read-only preview.',
     'device_reference'=>$device,'state'=>'queued','created_at'=>gmdate('Y-m-d\TH:i:s\Z'),'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',time()+600),
     'can_approve'=>false,'approval_fingerprint'=>null,'result'=>null,'basis_reference'=>null,'preview'=>null,'can_cancel'=>true];
-$transport=static function($url,$body,$headers)use(&$seenActions,$operation,$scope):array{
+$transport=static function($url,$body,$headers)use(&$seenActions,&$events,$operation,$scope):array{
     $request=json_decode($body,true);check($url===PORTAL_DEVICES_ENDPOINT&&$request['scope']===$scope,'tools derive the current stable customer scope server-side');$seenActions[]=$request['action'];
+    if($request['action']==='devices')check(implode('',array_map(static fn($event)=>$event[0]==='delta'?$event[1]['text']:'',$events))==='Looking for computers.',
+        'successful round flushes all text before actual tool dispatch');
     $result=match($request['action']){'devices'=>['items'=>[],'next_after'=>null],'operations'=>['available'=>true,'eligibility'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'in_progress'],'items'=>[$operation]],'temp_start'=>$operation,default=>throw new RuntimeException('Unexpected tool action')};
     return ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>$result])];
 };
@@ -28,6 +32,7 @@ $resolver=static function(int $tenant,string $action,?int $revision):array{
 $request=['operation'=>'f1'.sprintf('%08x',time()).bin2hex(random_bytes(11)),'message'=>'Preview temporary files on the selected computer.','conversation'=>null,'device_reference'=>$device];
 $round=0;$provider=static function($selection,$system,$messages,$options,$emit,$alive)use(&$round,&$providerBodies,$device):array{
     $providerBodies[]=westy_tenant_ai_body($selection,$system,$messages,$options);$round++;$alive();
+    if($round===1){$emit('Looking');$emit(' for computers.');}
     $output=match($round){1=>[['type'=>'function_call','name'=>'list_computers','call_id'=>'call_list','arguments'=>'{}']],2=>[['type'=>'function_call','name'=>'prepare_temp_cleanup','call_id'=>'call_preview','arguments'=>json_encode(['device_reference'=>$device])]],default=>[]};
     if($round===3){$emit('The preview ');$emit('is queued.');$output[]=['type'=>'message','content'=>[['type'=>'output_text','text'=>'The preview is queued.']]];}
     return westy_tenant_ai_parse($selection,200,['model'=>$selection['model'],'status'=>'completed',
@@ -40,7 +45,7 @@ $emit=static function($event,$data)use(&$events,$pdo,$request):void{
 };
 portal_westy_message($pdo,$a,$request,$provider,static fn()=>$a,$emit,$transport,aiResolver:$resolver);
 $q=$pdo->prepare('SELECT * FROM portal_westy_turns WHERE operation_key=?');$q->execute([$request['operation']]);$row=$q->fetch();$reply=json_decode($row['reply_json'],true);
-check($round===3&&$seenActions===['devices','temp_start']&&$reply['reply']==='The preview is queued.','real orchestration streams text after one preview dispatch');
+check($round===3&&$seenActions===['devices','temp_start']&&$reply['reply']==="Looking for computers.\n\n\n\nThe preview is queued.",'real orchestration preserves text and tool order across rounds');
 check(!str_contains($row['reply_json'],'synthetic-hidden-reasoning')&&!str_contains(json_encode($events),'synthetic-hidden-reasoning'),'encrypted reasoning never enters saved transcript or browser events');
 check(str_contains(json_encode($providerBodies[0]['input']),$device),'selected device reaches bounded provider context');
 portal_westy_message($pdo,$a,$request,$provider,static fn()=>$a,$emit,$transport,aiResolver:$resolver);check($round===3,'generation replay cannot repeat provider or device work');
