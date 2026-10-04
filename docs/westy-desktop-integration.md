@@ -1,9 +1,10 @@
 # Westy desktop integration candidate
 
-This candidate is not activated or accepted on a Windows endpoint. It depends on
-the Milepost desktop service and ordinary-user companion, the device-policy
-worker's portal shell integration, and the AI worker's selected-provider adapter.
-The existing project coordinator owns integration and release sequencing.
+The combined source has passed its portal, device, desktop and AI checks. It is
+not deployed or accepted on a Windows endpoint. It includes the Milepost desktop
+service, ordinary-user companion, portal shell integration and selected-provider
+adapter. The existing project coordinator owns integration and release sequencing;
+see [the final integration evidence and release gates](WESTY_INTEGRATION_2026-10-04.md).
 
 ## Customer flow
 
@@ -45,8 +46,9 @@ Passwords, MFA, UAC and elevated applications require the person.
 
 ## Configuration and migrations
 
-Protected migration integration and canonical schema updates are still pending
-coordinator review. The additive candidate is
+Protected migration integration and canonical schema updates are reviewed and
+included in the combined source; production application remains gated by the
+documented recovery procedure. The additive migration is
 `app/db/migrations/desktop_portal_sessions_v1.sql`; it creates only
 `portal_desktop_handoffs` and `portal_desktop_bindings`. Do not silently apply it
 on request startup or use a production database for the test fixture.
@@ -84,8 +86,9 @@ original backup/intent/receipt checks, partial/drift/replay refusal, selected
 database identity and the full canonical fresh schema. See the desktop section
 of `deploy/README.md` for the release and restricted cleanup grants.
 
-Remaining acceptance includes combined AI/device/desktop tests at the exact
-integrated source, genuine browser-to-companion sign-in, normal approval delay,
+Combined AI/device/desktop source checks have passed at the exact integrated
+candidate documented above. Remaining acceptance includes genuine
+browser-to-companion sign-in, normal approval delay,
 selected Windows app and browser behavior, session lock/multiuser/UAC, signed
 installer upgrade/repair/rollback/uninstall/reboot, and a production mount and
 rollback plan. No live install, migration, paid call, or endpoint control is

@@ -1,6 +1,16 @@
 # Where things stand
 
-**Current live release — October 3, 1:16 PM Pacific (20:16 UTC):** customer
+**October 4 Westy integration checkpoint:** combined portal, Milepost device,
+Windows companion and MSP tenant-AI source checks have passed. Production
+release and actual standard-user Windows acceptance remain pending. The current
+protected production artifact manifest was independently rechecked on October 4
+and still identifies `cf026f28bb2850b2ea9292d8e3d89802e87b0a42`; the new source
+has not been installed. Approved Coastline root access is required for the
+complete backup/restore check before any live migration or source-release window.
+See [the combined evidence and remaining gates](WESTY_INTEGRATION_2026-10-04.md).
+Earlier dated checkpoints below retain their original release evidence.
+
+**Earlier live release — October 3, 1:16 PM Pacific (20:16 UTC):** customer
 portal sign-in now finishes without the extra Safeharbor sign-in click, at
 `f543c1b78e619d7fd80429c8e452c4e3aa70b44a` (PR #163). In the real customer
 browser, removing only the local portal session and retaining 8 West ID sign-in
