@@ -13,6 +13,15 @@ header('Referrer-Policy: no-referrer');
 if(!portal_enabled())json_out(['ok'=>false,'reason'=>'not_found'],404);
 $method=$_SERVER['REQUEST_METHOD'] ?? 'GET';
 if(!in_array($method,['GET','POST'],true)){header('Allow: GET, POST');json_out(['ok'=>false,'reason'=>'method'],405);}
+$streaming=false;
+$emit=static function(string $event,array $data):void{
+    echo 'event: '.$event."\n".'data: '.json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n\n";
+    flush();
+};
+$fail=static function(string $reason,int $status)use(&$streaming,$emit):never{
+    if($streaming){$emit('error',['reason'=>$reason]);exit;}
+    json_out(['ok'=>false,'reason'=>$reason],$status);
+};
 try{
     $receiptKey=$method==='GET'?($_GET['receipt']??null):null;
     $context=portal_authenticated_context(db());
@@ -25,12 +34,37 @@ try{
         if(!is_string($raw)||strlen($raw)>40000)json_out(['ok'=>false,'reason'=>'invalid_request'],413);
         $request=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
         if(!is_array($request))json_out(['ok'=>false,'reason'=>'invalid_request'],400);
+        $originalSession=session_id();
         if(!session_write_close())json_out(['ok'=>false,'reason'=>'unavailable'],503);
+        if(($request['action']??'')==='message' && str_contains($_SERVER['HTTP_ACCEPT']??'','text/event-stream')){
+            // PHP checks use_cookies before applying session_start options. Set
+            // these before the first SSE byte so read-only reopen needs no headers.
+            ini_set('session.use_cookies','0');session_cache_limiter('');
+            $streaming=true;ignore_user_abort(true);set_time_limit(160);
+            header('Content-Type: text/event-stream; charset=utf-8');header('X-Accel-Buffering: no');
+            header('Cache-Control: no-store, private, no-transform');
+            if(function_exists('apache_setenv'))apache_setenv('no-gzip','1');
+            ini_set('zlib.output_compression','0');
+            while(ob_get_level()>0)ob_end_clean();
+            echo ': '.str_repeat(' ',2048)."\n\n";flush();
+            $reauthorize=static fn()=>portal_stream_authenticated_context(db(),$originalSession);
+            $conversation=$request['conversation']??null;
+            $streamEmit=static function(string $event,array $data)use($emit,&$conversation):void{if($event==='accepted')$conversation=$data['conversation'];$emit($event,$data);};
+            portal_westy_message(db(),$context,$request,null,$reauthorize,$streamEmit);
+            $fresh=$reauthorize();
+            if($fresh===null||$fresh['identity']!==$context['identity'])$fail('sign_in',401);
+            $state=portal_westy_state(db(),$fresh,$conversation);
+            $check=$reauthorize();if($check===null||$check['identity']!==$context['identity'])$fail('sign_in',401);
+            $emit('done',['state'=>$state]);exit;
+        }
         switch($request['action'] ?? ''){
-            case 'message': portal_westy_message(db(),$context,$request,null,static fn()=>portal_authenticated_context(db()));break;
+            case 'message': portal_westy_message(db(),$context,$request,null,static fn()=>portal_stream_authenticated_context(db(),$originalSession));break;
             case 'save_draft': portal_westy_save_draft(db(),$context,$request);break;
             case 'handoff': portal_westy_handoff(db(),$context,$request);$receiptKey=$request['draft_key'];break;
             case 'new_chat': portal_westy_new_chat(db(),$context,$request);break;
+            case 'select_chat': portal_westy_select_chat(db(),$context,$request);break;
+            case 'stop': portal_westy_stop(db(),$context,$request);break;
+            case 'approve_operation': case 'cancel_operation': portal_westy_operation_action(db(),$context,$request,null,static fn()=>portal_stream_authenticated_context(db(),$originalSession));break;
             default: throw new PortalWestyException('invalid_request',400);
         }
     }
@@ -38,12 +72,18 @@ try{
     $fresh=portal_authenticated_context(db());
     if($fresh===null || $fresh['identity']['subject']!==$context['identity']['subject']
         || $fresh['identity']['binding_id']!==$context['identity']['binding_id'])json_out(['ok'=>false,'reason'=>'sign_in'],401);
-    $state=portal_westy_state(db(),$fresh);
+    $state=portal_westy_state(db(),$fresh,isset($_GET['conversation'])?portal_westy_key($_GET['conversation']):null);
+    if($method==='GET'&&isset($_GET['devices'])){
+        $state['devices']=portal_devices_request(db(),$fresh,'devices',['after'=>0])['items'];
+        $check=portal_authenticated_context(db());
+        if($check===null||$check['identity']!==$fresh['identity'])$fail('sign_in',401);
+    }
     if($receiptKey!==null)$state['receipt']=portal_westy_receipt(db(),$fresh,$receiptKey);
+    $check=portal_authenticated_context(db());
+    if($check===null||$check['identity']!==$context['identity'])$fail('sign_in',401);
     session_write_close();
     json_out(['ok'=>true,'state'=>$state]);
-}catch(PortalWestyException $error){json_out(['ok'=>false,'reason'=>$error->reason],$error->status);}
-catch(PortalDataValidationException){json_out(['ok'=>false,'reason'=>'invalid_request'],400);}
-catch(JsonException){json_out(['ok'=>false,'reason'=>'invalid_request'],400);}
-catch(PortalIdentityUnavailableException){json_out(['ok'=>false,'reason'=>'identity_unavailable'],503);}
-catch(Throwable $error){error_log('[safeharbor-portal-westy] request_failed type='.$error::class);json_out(['ok'=>false,'reason'=>'unavailable'],503);}
+}catch(PortalWestyException|PortalDevicesException $error){$fail($error->reason,$error->status);}
+catch(PortalDataValidationException|JsonException){$fail('invalid_request',400);}
+catch(PortalIdentityUnavailableException){$fail('identity_unavailable',503);}
+catch(Throwable $error){error_log('[safeharbor-portal-westy] request_failed type='.$error::class);$fail('unavailable',503);}

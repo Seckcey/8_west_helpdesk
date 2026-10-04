@@ -37,6 +37,7 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <link rel="stylesheet" href="/assets/css/app.css?v=5">
 <link rel="stylesheet" href="/assets/css/portal.css?v=1">
 <link rel="stylesheet" href="/assets/css/portal-devices.css?v=2">
+<link rel="stylesheet" href="/assets/css/portal-workspace.css?v=1">
 <?php if(str_contains($bodyClass,'portal-security-page')): ?><link rel="stylesheet" href="/assets/css/portal-security.css?v=1"><?php endif; ?>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
@@ -265,10 +266,9 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
 <main class="portal-home">
  <div class="portal-main-column">
   <section class="portal-ask" aria-labelledby="portal-ask-heading">
-   <h1 id="portal-ask-heading">What do you need help with?</h1>
-   <div id="portal-chat-home-slot"><noscript><p>Westy needs JavaScript. <?php if($canWrite): ?>You can still <a href="/portal/new.php">write a request</a> and follow your support below.<?php else: ?>You can still read your business support requests below.<?php endif; ?></p></noscript></div>
+   <h1 id="portal-ask-heading">Support requests</h1>
    <div class="portal-shortcuts">
-    <button type="button" data-portal-chat-prompt="Something is not working. Help me write a support request."><?= portal_icon('alert') ?>Something is not working</button>
+    <a href="/portal/"><?= portal_icon('chat') ?>Ask Westy</a>
     <a href="/portal/guide.php"><?= portal_icon('guide') ?>How this portal works</a>
     <a href="/portal/devices.php"><?= portal_icon('device') ?>Your devices</a>
     <?php if ($canWrite): ?><a href="/portal/new.php"><?= portal_icon('edit') ?>Write a request</a><?php endif; ?>
@@ -297,6 +297,14 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
  </aside>
 </main>
     <?php
+    portal_page_end();
+}
+
+function portal_render_workspace(array $context): void
+{
+    $context['workspace']=true;
+    portal_page_start('Westy','portal-workspace',$context);
+    echo '<main id="portal-chat-home-slot" aria-label="Westy support workspace"><noscript><p>Enable JavaScript to chat with Westy, or <a href="/portal/new.php">contact support</a>.</p></noscript></main>';
     portal_page_end();
 }
 

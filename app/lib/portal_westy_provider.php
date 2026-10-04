@@ -1,5 +1,6 @@
 <?php
-/** Customer-only Responses adapter. Fixed provider URL; no tools or authority. */
+/** Legacy closed guidance parser retained for stored draft/contract compatibility.
+ * Current customer requests use portal_westy_stream.php and its reviewed tools. */
 declare(strict_types=1);
 require_once __DIR__ . '/portal_guide.php';
 

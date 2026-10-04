@@ -1,5 +1,9 @@
 # Customer portal Phase 1
 
+The [October 4 customer workspace contract](customer-workspace.md) supersedes the
+Phase 1 home layout, advise-only customer provider and transport described by the
+original release. Its source/activation/acceptance are separate from the receipts below.
+
 The dashboard and migration 031 were deployed on October 2; see the
 [production release record](customer-portal-release-2026-10-02.md). The subsequent
 October 2 owner instruction authorizes activation for all legitimate active
@@ -11,7 +15,7 @@ does not by itself establish production activation or signed-in customer accepta
 
 The portal gives customers a clear place to ask for help, see requests needing
 a reply, follow business support requests, and reach the support team directly.
-The large Westy composer and persistent bubble use the same private conversation.
+The full-height home workspace and customer-page widget use the same private conversation.
 Westy can explain the reviewed portal guide and suggest request text. A customer
 must edit or accept that text, review the audience, and explicitly send it before
 the existing customer ticket writer creates a ticket and a permanent receipt.
@@ -24,15 +28,16 @@ the existing customer ticket writer creates a ticket and a permanent receipt.
 | Private chat | One immutable ID subject within that binding; other people in the same business cannot read it |
 | Business requests | Existing business-wide visibility; never described as personal requests |
 | Ticket creation/replies | Customer owner, admin and staff; viewer remains read-only |
-| Grounding | Reviewed static portal-guide articles plus that subject's recent private conversation; **no ticket content**, staff notes, live device data, billing or broad Logbook search |
-| Provider | OpenAI Responses, `gpt-6-luna`, reasoning `low`, structured text only; no tools, browsing, remote conversation ID or action execution |
+| Grounding | Reviewed guide, private recent conversation and enabled scoped device receipts; **no ticket content**, staff notes, billing or broad Logbook search |
+| Provider | OpenAI Responses SSE, `gpt-6-luna`, reasoning `low`, bounded closed device tools when separately enabled; no browser or remote conversation ID |
 | Human handoff | Exact saved subject/body/priority after explicit audience review; private transcript is not copied to the ticket |
 
 The staff Westy provider, federation, suite `/v1` endpoints, email transports,
 signup identity provisioning and existing request/reply paths are unchanged.
 The separate [Computer checks page](customer-device-checks.md) has its own
-default-off explicit diagnostic and repair-consent flow. This chat does not
-authorize device actions, attachments, payments or access changes.
+explicit diagnostic and repair-consent flow. Enabled customer workspace tools can
+start a requested read-only check/preview; repairs need a separate exact human
+approval. Chat does not authorize attachments, payments or access changes.
 Service-goal displays remain response targets, not resolution or coverage promises.
 
 All endpoint requests recheck the existing customer session and binding. POSTs
@@ -57,7 +62,7 @@ the fixed portal authority, provider tenant, client, binding and immutable ID
 subject; display names and email addresses do not determine ownership.
 
 A message operation key is reserved before network I/O. Replaying it never
-automatically calls the provider again. A pending attempt older than 30 seconds
+automatically calls the provider again. A pending attempt older than 180 seconds
 is shown as interrupted. Unknown provider cost remains reserved.
 
 Draft revisions invalidate older reviews. The existing customer ticket writer

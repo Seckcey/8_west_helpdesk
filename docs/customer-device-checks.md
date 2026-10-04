@@ -14,7 +14,9 @@ That creates a proposal without dispatching a command. The page shows the exact
 step, target, impact, expiry and two follow-up observations. **Approve this repair**
 requires a separate confirmation by the original requester with the same current
 identity session. Owners/admins can authorize work; staff/viewers can read status.
-Chat, page views and refreshes cannot authorize checks or repairs.
+The separately enabled [Westy workspace](customer-workspace.md) can start a requested
+read-only check/preview in chat; page views and refreshes never dispatch work.
+Repairs always require a separate exact human approval.
 
 Safeharbor derives provider/customer/actor/role from its current authenticated
 context and active binding. The fixed signed Milepost service independently
@@ -31,7 +33,7 @@ verification; two separate fresh observations must show the service running.
 **Service verified** still asks the person to try printing. Unknown outcomes
 require support review and are never represented as successful repair or
 automatically repeated. This feature does not close tickets, order antivirus,
-take payment, or change the private chat's tool permissions.
+take payment, or grant arbitrary-command or model-approval authority.
 
 The latest readings use the newest completed observation, including the final
 running-service observation from a verified repair. An earlier stopped reading

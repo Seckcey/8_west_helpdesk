@@ -1,112 +1,172 @@
-/* One server-authorized conversation, one input, two places to continue it. */
+/* One private workspace. Incremental provider text, durable tools, no page submit. */
 (() => {
   'use strict';
   const root = document.getElementById('portal-chat-root');
   if (!root) return;
   const panel = document.getElementById('portal-chat-panel');
   const home = document.getElementById('portal-chat-home-slot');
+  const workspace = root.dataset.workspace === '1';
   const bubble = document.getElementById('portal-chat-bubble');
   const form = document.getElementById('portal-chat-form');
   const input = document.getElementById('portal-chat-input');
   const send = document.getElementById('portal-chat-send');
+  const stop = document.getElementById('portal-chat-stop');
   const status = document.getElementById('portal-chat-status');
   const log = document.getElementById('portal-chat-messages');
   const draftBox = document.getElementById('portal-chat-draft');
+  const history = document.getElementById('portal-chat-history');
+  const devices = document.getElementById('portal-chat-device');
+  const jump = document.getElementById('portal-chat-jump');
+  const empty = document.getElementById('portal-chat-empty');
+  const nodes = new Map();
   let state = null, busy = false, editing = false, pending = null, focusBefore = null, poll = null;
-  const labels = {
-    requests: 'Open a support request', updates: 'Follow a request', response: 'Response goals',
-    summaries: 'Service summaries', privacy: 'Westy and privacy'
-  };
+  let streamController = null, currentOperation = null, stickToBottom = true, accessEpoch = 0;
+  const labels = { requests:'Open a support request', updates:'Follow a request', response:'Response goals', summaries:'Service summaries', privacy:'Westy and privacy' };
   const errors = {
-    ai_unavailable: 'Westy is unavailable. You can still write a request directly to support.',
-    provider_unavailable: 'Westy could not finish that reply. Your message is saved; no support request was sent.',
-    provider_rate_limit: 'Westy is busy right now. You can still write a request directly.',
-    provider_refused: 'Westy could not answer that. You can write to the support team directly.',
-    provider_invalid: 'Westy could not give a usable answer. Please use the direct support form.',
-    interrupted: 'That reply was interrupted. No support request was sent. You can ask again or write to support.',
-    hourly_limit: 'You have reached the hourly Westy limit. Direct support requests are still available.',
-    daily_limit: 'Your business has reached today’s Westy limit. Direct support requests are still available.',
-    cost_limit: 'Your business has reached its Westy budget. Direct support requests are still available.',
-    busy: 'Westy is still answering your previous message. Check the conversation in a moment.',
-    sign_in: 'Your sign-in has ended or access changed. Sign in again to continue.',
-    identity_unavailable: 'We cannot verify access right now. Your private chat is hidden until access can be verified.',
-    read_only: 'Your viewer role cannot send support requests.',
-    draft_changed: 'This draft changed, expired or was already sent. Check the saved version before continuing.',
-    conversation_changed: 'Your conversation changed in another tab. Check the current conversation before continuing.',
-    sensitive_text: 'Please remove passwords, secret keys or verification codes before asking Westy.',
-    invalid_message: 'Enter a message of up to 2,000 characters.',
-    invalid_request: 'Check the required fields and try again.',
-    unavailable: 'We could not confirm that action. Check the saved conversation before trying again.'
+    ai_unavailable:'Westy is unavailable. You can still contact support.', provider_unavailable:'The reply was interrupted. Saved device work is shown below; it has not been retried.',
+    provider_rate_limit:'Westy is busy. Please try a new message later.', provider_refused:'Westy could not answer that. Contact support for help.',
+    provider_invalid:'Westy could not finish a usable reply.', interrupted:'This reply was interrupted. Check the device activity before asking again.',
+    stopped:'Reply stopped. Device work already dispatched keeps its own recorded status.',
+    hourly_limit:'You have reached the hourly chat limit. Contact support is still available.', daily_limit:'Your business has reached today’s chat limit.', cost_limit:'Your business has reached its chat budget.',
+    busy:'A reply is still running. You can stop it or wait.', sign_in:'Your sign-in ended or access changed. Sign in again to continue.',
+    identity_unavailable:'Access cannot be verified. Your private chat is hidden until it can be checked.', read_only:'Your role cannot authorize device work or send this request.',
+    draft_changed:'This draft changed or was already sent. Check its saved state.', conversation_changed:'The conversation changed in another tab. Check the current chat.',
+    sensitive_text:'Remove passwords, secret keys and verification codes before sending.', invalid_message:'Enter a message of up to 2,000 characters.', invalid_request:'Check the required fields.',
+    unavailable:'The result could not be confirmed. Checking saved work; nothing will be retried automatically.', approval_changed:'The approval changed or expired. Refresh the operation before continuing.',
+    tools_unavailable:'Device tools are not available. Your computers and support requests remain accessible.', support_busy:'Support already owns work on this computer. Contact support before starting another operation.',
+    device_offline:'The computer is not currently available.', repair_cooldown:'A recent repair is still within its cooldown.', operation_unavailable:'This operation is not available for your current access.',
+    service_unavailable:'The service response was not confirmed. This operation will not be retried automatically.'
   };
   const key = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   const element = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
   const button = (text, action, cls = 'btn-ghost') => { const b = element('button', text, cls); b.type = 'button'; b.addEventListener('click', action); return b; };
   const say = text => { status.textContent = text; };
-
-  async function api(payload, receiptKey = null) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
+  function controls() {
+    send.hidden = busy; stop.hidden = !busy; send.disabled = !state?.ai_available;
+    input.disabled = !state?.ai_available;
+    document.querySelectorAll('[data-chat-new],#portal-chat-new').forEach(b => b.disabled = busy);
+  }
+  async function api(payload, receiptKey = null, query = '') {
+    const epoch = accessEpoch;
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 25000);
     try {
-      const response = await fetch('/portal/westy.php' + (receiptKey ? '?receipt=' + encodeURIComponent(receiptKey) : ''), {
-        method: payload ? 'POST' : 'GET', credentials: 'same-origin', cache: 'no-store',
-        headers: payload ? { 'Content-Type': 'application/json', 'X-Portal-CSRF': root.dataset.csrf } : {},
-        body: payload ? JSON.stringify(payload) : undefined, signal: controller.signal
+      const response = await fetch('/portal/westy.php' + (receiptKey ? '?receipt=' + encodeURIComponent(receiptKey) : query), {
+        method:payload?'POST':'GET',credentials:'same-origin',cache:'no-store',
+        headers:payload?{'Content-Type':'application/json','X-Portal-CSRF':root.dataset.csrf}:{},
+        body:payload?JSON.stringify(payload):undefined,signal:controller.signal
       });
       const result = await response.json();
-      if (!response.ok || !result.ok) {
-        if (result.reason === 'sign_in' || result.reason === 'identity_unavailable') clearPrivate();
-        throw Object.assign(new Error(result.reason || 'unavailable'), { reason: result.reason });
-      }
+      if (epoch !== accessEpoch) throw Object.assign(new Error('sign_in'), {reason:'sign_in'});
+      if (!response.ok || !result.ok) throw Object.assign(new Error(result.reason || 'unavailable'), {reason:result.reason});
       return result.state;
     } finally { clearTimeout(timeout); }
   }
-
   function clearPrivate() {
-    state = null; log.replaceChildren(); draftBox.replaceChildren(); draftBox.hidden = true;
-    input.value = ''; editing = false; pending = null;
-    send.disabled = true; input.disabled = true;
+    accessEpoch++;
+    state=null; nodes.clear(); log.replaceChildren(); draftBox.replaceChildren(); draftBox.hidden=true;
+    history?.replaceChildren(); input.value=''; editing=false; pending=null;
+    devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';devices.disabled=true;
+    streamController?.abort(); if(poll)clearTimeout(poll); controls();
   }
-
+  function accessError(error) {
+    if(['sign_in','identity_unavailable'].includes(error.reason))clearPrivate();
+    say(errors[error.reason] || errors.unavailable);
+  }
   async function refresh(quiet = false) {
-    if (busy) return;
-    try { render(await api()); if (!quiet && state.ai_available) say(''); }
-    catch (error) {
-      // Cached DOM is not a substitute for fresh identity validation.
-      clearPrivate(); say(errors[error.reason] || 'Your chat could not be loaded. Direct support is still available.');
+    if(busy)return;
+    try {render(await api()); if(!quiet && state.ai_available)say('');}
+    catch(error){clearPrivate();accessError(error);}
+  }
+  const scrollLatest = () => { log.scrollTop=log.scrollHeight; stickToBottom=true; jump.hidden=true; };
+  log.addEventListener('scroll',()=>{stickToBottom=log.scrollHeight-log.scrollTop-log.clientHeight<80;jump.hidden=stickToBottom;});
+  jump.addEventListener('click',scrollLatest);
+  function turnNode(turn) {
+    let node=nodes.get(turn.operation_key);
+    if(!node){
+      const question=element('article',undefined,'portal-chat-message portal-chat-message-user'); question.setAttribute('aria-label','You'); question.append(element('p',turn.input_text));
+      const answer=element('article',undefined,'portal-chat-message portal-chat-message-assistant'); answer.setAttribute('aria-label','Westy');
+      const avatar=element('img',undefined,'portal-chat-avatar');avatar.src='/assets/img/westy-avatar.png';avatar.alt='';
+      const body=element('div',undefined,'portal-chat-message-body');const reply=element('p','', 'portal-chat-reply');const tools=element('div');const meta=element('div');
+      body.append(reply,tools,meta);answer.append(avatar,body);log.append(question,answer);
+      node={question,answer,reply,tools,meta,toolSignature:null,metaSignature:null};nodes.set(turn.operation_key,node);
+    }
+    return node;
+  }
+  const operationLabels={awaiting_approval:'Review required',authorized:'Authorized',queued:'Queued',verifying:'Checking recovery',completed:'Check complete',service_verified:'Service verified',needs_help:'Support review needed',expired:'Expired',cancelled:'Canceled',cancel_requested:'Cancel requested · waiting for result',cleanup_verified:'Cleanup verified'};
+  const bytesLabel=bytes=>bytes<1024?bytes+' bytes':bytes<1048576?(bytes/1024).toFixed(1)+' KB':(bytes/1048576).toFixed(1)+' MB';
+  function renderOperation(parent, op, turn) {
+    const review=element('section',undefined,'portal-tool-review');review.append(element('h3',op.title));
+    const details=element('dl');
+    const add=(label,value)=>{details.append(element('dt',label),element('dd',value));};
+    const namedDevice=[...devices.options].find(o=>o.value===op.device_reference);
+    const computer=namedDevice?.textContent || 'Computer details unavailable';
+    add('Computer',computer);add('Status',operationLabels[op.state]||op.state);
+    const health=op.result?.health||op.result;
+    if(health?.memory_used_percent!==undefined){add('Memory',health.memory_used_percent+'% used');add('Disk',health.system_disk_free_percent+'% free');add('Print service',health.spooler);}
+    const temp=op.preview || (op.result?.kind==='temp_preview'?op.result:null);
+    if(temp){add('Location','Windows temporary folder');add('Preview',temp.eligible_files+' eligible files · '+bytesLabel(temp.eligible_bytes));}
+    if(op.result?.kind==='temp_cleanup'){add('Removed',op.result.deleted_files+' files · '+bytesLabel(op.result.deleted_bytes));add('Skipped',String(op.result.skipped_files));}
+    review.append(details,element('p',op.impact));
+    if(op.state==='queued')review.append(element('p','Waiting for your computer to report. You can leave this chat and return.'));
+    if(['needs_help','cancel_requested'].includes(op.state))review.append(element('p','The outcome is not confirmed. Do not repeat this repair; contact support.', 'portal-tool-error'));
+    const actions=element('div',undefined,'portal-chat-draft-actions');
+    const act=async(action)=>{
+      if(busy)return;actions.querySelectorAll('button').forEach(b=>b.disabled=true);
+      try{render(await api({action,conversation:state.conversation,reference:op.reference,approval_fingerprint:op.approval_fingerprint,reviewed:true}));say(action==='approve_operation'?'Approval recorded. Waiting for the computer’s result.':'Cancellation requested. Check the recorded status.');}
+      catch(error){accessError(error);await refresh(true);}
+    };
+    if(op.can_approve&&namedDevice)actions.append(button(op.recipe==='temp_cleanup'?'Approve cleanup':'Approve repair',()=>act('approve_operation'),'btn-primary'));
+    else if(op.can_approve)review.append(element('p','Computer details must load before you can approve this operation.'));
+    if(op.can_cancel)actions.append(button('Cancel operation',()=>act('cancel_operation')));
+    if(op.state==='needs_help'){const link=element('a','Contact support');link.href='/portal/new.php';actions.append(link);}
+    review.append(actions);parent.append(review);
+  }
+  function renderTools(node,turn) {
+    const signature=JSON.stringify(turn.reply?.tools||[]); if(signature===node.toolSignature)return;node.toolSignature=signature;node.tools.replaceChildren();
+    const names={list_computers:'Computer list',read_computer_status:'Recorded device activity',start_health_check:'Computer health check',prepare_temp_cleanup:'Temporary-file preview',propose_print_repair:'Print-service repair review'};
+    for(const tool of turn.reply?.tools||[]){
+      const item=element('div',undefined,'portal-tool');item.dataset.active=String(tool.state==='dispatching'||['queued','verifying'].includes(tool.operation?.state));
+      const label=element('div',undefined,'portal-tool-summary');label.append(element('span',undefined,'portal-tool-dot'),element('span',(names[tool.name]||'Device tool')+' · '+(tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable'}[tool.state]||tool.state))));item.append(label);
+      if(tool.reason)item.append(element('p',errors[tool.reason]||'This operation is unavailable. Contact support.'));
+      if(tool.state==='unknown'||tool.state==='dispatching'&&turn.state!=='pending')item.append(element('p','The request may have reached your computer. It has not been retried. Check Your devices or contact support.','portal-tool-error'));
+      if(tool.proposal)renderOperation(item,tool.proposal,turn);else if(tool.operation)renderOperation(item,tool.operation,turn);
+      node.tools.append(item);
     }
   }
-
   function render(next) {
-    if (state && (state.conversation !== next.conversation || (state.can_write && !next.can_write))) clearPrivate();
-    state = next;
-    send.disabled = busy || !state.ai_available; input.disabled = !state.ai_available;
-    log.replaceChildren();
-    panel.classList.toggle('has-history', state.turns.length > 0);
-    for (const turn of state.turns) {
-      const question = element('article', undefined, 'portal-chat-message portal-chat-message-user');
-      question.append(element('strong', 'You'), element('p', turn.input_text)); log.append(question);
-      const answer = element('article', undefined, 'portal-chat-message');
-      answer.append(element('strong', 'Westy'));
-      if (turn.reply) {
-        answer.append(element('p', turn.reply.reply));
-        const sources = element('nav'); sources.setAttribute('aria-label', 'Sources for this answer');
-        for (const id of turn.reply.sources || []) {
-          if (!labels[id]) continue;
-          const link = element('a', labels[id]); link.href = '/portal/guide.php#' + id; sources.append(link);
-        }
-        answer.append(sources);
-        if (state.can_write && turn.reply.draft_subject && turn.reply.draft_body) {
-          answer.append(button('Edit suggested request', () => editDraft({ subject: turn.reply.draft_subject, body: turn.reply.draft_body, priority: 'normal' })));
-        }
-      } else answer.append(element('p', turn.state === 'pending' ? 'Thinking… You can keep browsing.' : errors[turn.reason_code] || errors.provider_unavailable));
-      log.append(answer);
+    const changed=state && state.conversation!==next.conversation;
+    if(changed){nodes.clear();log.replaceChildren();editing=false;stickToBottom=true;}
+    state=next;controls();
+    if(!next.turns.length){if(empty)log.append(empty);}else empty?.remove();
+    const present=new Set();
+    for(const turn of next.turns){
+      present.add(turn.operation_key);const node=turnNode(turn);const text=turn.reply?.reply||'';
+      if(node.reply.textContent!==text)node.reply.textContent=text;
+      renderTools(node,turn);
+      const signature=JSON.stringify([turn.state,turn.reason_code,turn.reply?.sources,turn.reply?.draft_subject,turn.reply?.draft_body]);
+      if(signature!==node.metaSignature){
+        node.metaSignature=signature;node.meta.replaceChildren();
+        if(turn.state==='pending'&&!text)node.meta.append(element('p','Westy is working…','portal-hint'));
+        if(turn.state==='unavailable')node.meta.append(element('p',turn.reason_code==='stopped'&&!turn.reply?.tools?.length?'Reply stopped.':(errors[turn.reason_code]||errors.interrupted),'portal-hint'));
+        if(turn.reply?.sources){const nav=element('nav');for(const id of turn.reply.sources){if(!labels[id])continue;const link=element('a',labels[id]);link.href='/portal/guide.php#'+id;nav.append(link);}node.meta.append(nav);}
+        if(state.can_write&&turn.reply?.draft_subject&&turn.reply?.draft_body)node.meta.append(button('Edit suggested request',()=>editDraft({subject:turn.reply.draft_subject,body:turn.reply.draft_body,priority:'normal'})));
+      }
     }
-    if (!editing) renderDraft(state.receipt || state.draft);
-    if (!state.ai_available) say(errors.ai_unavailable);
-    if (poll) clearTimeout(poll);
-    if (state.turns.some(t => t.state === 'pending')) poll = setTimeout(() => refresh(true), 2500);
+    for(const [id,node] of nodes)if(!present.has(id)){node.question.remove();node.answer.remove();nodes.delete(id);}
+    if(history){
+      const signature=JSON.stringify([next.conversation,next.conversations]);
+      if(history.dataset.signature!==signature){history.dataset.signature=signature;history.replaceChildren();for(const chat of next.conversations||[]){const b=button(chat.title,()=>selectChat(chat.key),'');if(chat.key===next.conversation)b.setAttribute('aria-current','true');history.append(b);}}
+    }
+    if(!editing)renderDraft(state.receipt||state.draft);
+    if(!state.ai_available)say(errors.ai_unavailable);
+    if(stickToBottom)scrollLatest();
+    scheduleRefresh();
   }
-
+  function scheduleRefresh(){
+    if(poll)clearTimeout(poll);
+    const active=state?.turns.some(t=>t.state==='pending'||(t.reply?.tools||[]).some(x=>['queued','authorized','verifying','cancel_requested'].includes(x.operation?.state)||['queued','verifying','cancel_requested'].includes(x.proposal?.state)));
+    if(active&&!busy)poll=setTimeout(()=>refresh(true),3000);
+  }
   function renderDraft(draft) {
     draftBox.replaceChildren(); draftBox.hidden = !draft;
     if (!draft) return;
@@ -185,76 +245,106 @@
     actions.append(submit, button('Back to editing', () => editDraft(draft))); draftBox.append(actions); check.focus();
   }
 
-  const mobileWidth = matchMedia('(max-width:760px)');
-  function syncPanelMode() {
-    const modal = panel.parentElement === root && !panel.hidden && mobileWidth.matches;
-    if (modal) { panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); }
-    else { panel.removeAttribute('role'); panel.removeAttribute('aria-modal'); }
-    for (const item of document.querySelectorAll('.portal-content,.portal-sidebar,.portal-top')) item.inert = modal;
+  async function readStream(response,onEvent){
+    if(!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')){
+      let data;try{data=await response.json();}catch{}throw Object.assign(new Error('unavailable'),{reason:data?.reason||'unavailable'});
+    }
+    const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',doneSeen=false;
+    try{
+      while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});if(buffer.length>524288)throw new Error('stream_limit');
+        let end;while((end=buffer.indexOf('\n\n'))>=0){const frame=buffer.slice(0,end);buffer=buffer.slice(end+2);let event='message';const data=[];
+          for(const line of frame.split('\n')){if(line.startsWith('event:'))event=line.slice(6).trim();if(line.startsWith('data:'))data.push(line.slice(5).trimStart());}
+          if(!data.length)continue;const payload=JSON.parse(data.join('\n'));if(event==='error')throw Object.assign(new Error(payload.reason),{reason:payload.reason});
+          if(event==='done')doneSeen=true;onEvent(event,payload);
+        }
+      }
+      if(!doneSeen)throw new Error('stream_interrupted');
+    }finally{reader.releaseLock();}
   }
-  mobileWidth.addEventListener('change', syncPanelMode);
-  function openPanel() {
-    focusBefore = document.activeElement; root.append(panel); panel.hidden = false;
-    bubble.setAttribute('aria-expanded', 'true'); input.focus();
-    if (!busy) refresh(true);
-    syncPanelMode();
-  }
-  function closePanel() {
-    panel.removeAttribute('role'); panel.removeAttribute('aria-modal');
-    for (const item of document.querySelectorAll('.portal-content,.portal-sidebar,.portal-top')) item.inert = false;
-    if (home) { home.append(panel); panel.hidden = false; } else panel.hidden = true;
-    bubble.setAttribute('aria-expanded', 'false'); (focusBefore?.isConnected ? focusBefore : bubble).focus();
-  }
-  bubble.addEventListener('click', () => bubble.getAttribute('aria-expanded') === 'true' ? closePanel() : openPanel());
-  document.getElementById('portal-chat-close').addEventListener('click', closePanel);
-  panel.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && panel.parentElement === root) closePanel();
-    if (event.key === 'Tab' && panel.getAttribute('aria-modal') === 'true') {
-      const items = [...panel.querySelectorAll('a,button,input,select,textarea')].filter(e => !e.disabled && e.getClientRects().length);
-      if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items.at(-1)?.focus(); }
-      else if (!event.shiftKey && document.activeElement === items.at(-1)) { event.preventDefault(); items[0]?.focus(); }
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();if(busy||!state?.ai_available||!input.value.trim())return;
+    const text=input.value.trim(),operation=key();currentOperation=operation;
+    const request={action:'message',operation,message:text,conversation:state.conversation,device_reference:devices.value||null};
+    const turn={operation_key:operation,input_text:text,state:'pending',reply:{reply:'',sources:[],tools:[]},reason_code:''};
+    state.turns.push(turn);busy=true;stickToBottom=true;render(state);input.value='';input.style.height='';say('Connecting to Westy…');controls();
+    streamController=new AbortController();
+    const streamTimeout=setTimeout(()=>streamController?.abort(),165000);
+    try{
+      const response=await fetch('/portal/westy.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'text/event-stream','X-Portal-CSRF':root.dataset.csrf},body:JSON.stringify(request),signal:streamController.signal});
+      await readStream(response,(event,data)=>{
+        if(event==='accepted'){state.conversation=data.conversation;say('Westy is working…');}
+        if(event==='delta'){turn.reply.reply+=data.text;const node=turnNode(turn);node.reply.textContent=turn.reply.reply;node.meta.replaceChildren();if(stickToBottom)scrollLatest();}
+        if(event==='tool'){const index=turn.reply.tools.findIndex(t=>t.key===data.tool.key);if(index<0)turn.reply.tools.push(data.tool);else turn.reply.tools[index]=data.tool;renderTools(turnNode(turn),turn);if(stickToBottom)scrollLatest();}
+        if(event==='done'){render(data.state);say('Reply finished.');}
+      });
+    }catch(error){
+      if(error.name!=='AbortError')accessError(error);
+      // Read receipts only: never resubmit an ambiguous generation or tool call.
+    }finally{
+      clearTimeout(streamTimeout);
+      busy=false;streamController=null;currentOperation=null;controls();
+      if(state){await refresh(true);if(state&&!state.turns.some(t=>t.operation_key===operation)){input.value=text;say('Your message was not saved. Review it before sending again.');}input.focus();scheduleRefresh();}
     }
   });
-  form.addEventListener('submit', async event => {
-    event.preventDefault(); if (busy || !state?.ai_available || !input.value.trim()) return;
-    const text = input.value.trim();
-    if (!pending || pending.text !== text) pending = { operation: key(), text };
-    const request = { action: 'message', operation: pending.operation, message: text, conversation: state.conversation };
-    busy = true; send.disabled = true; say('Westy is thinking…');
-    try { render(await api(request)); input.value = ''; pending = null; say(''); log.scrollTop = log.scrollHeight; }
-    catch (error) {
-      say(errors[error.reason] || 'The reply was not confirmed. Checking saved chat…');
-      if (error.reason === 'sign_in' || error.reason === 'identity_unavailable') clearPrivate();
-      else if (!error.reason || error.reason === 'conversation_changed' || error.reason === 'busy') {
-        try { render(await api()); if (state.turns.some(t => t.operation_key === request.operation)) { input.value = ''; pending = null; say('Your message is saved. No support request was sent.'); } }
-        catch { say('We cannot check your chat yet. Your unsent text remains here. Use the direct request form if you need support.'); }
-      }
-    } finally { busy = false; send.disabled = !state?.ai_available; }
+  stop.addEventListener('click',async()=>{
+    if(!currentOperation)return;stop.disabled=true;
+    try{const next=await api({action:'stop',operation:currentOperation});streamController?.abort();render(next);say(next.turns.find(t=>t.operation_key===currentOperation)?.reply?.tools?.length?errors.stopped:'Reply stopped.');}
+    catch(error){accessError(error);}finally{stop.disabled=false;}
   });
-  input.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); form.requestSubmit(); } });
-  document.getElementById('portal-chat-new').addEventListener('click', async () => {
-    if (busy || !state?.conversation) return;
-    if (!confirm('Start a new private chat? The current conversation will leave this view. Saved support requests remain unchanged.')) return;
-    busy = true;
-    try { editing = false; render(await api({ action: 'new_chat', conversation: state.conversation, next_conversation: key() })); input.value = ''; pending = null; say('New private chat.'); }
-    catch (error) { say(errors[error.reason] || errors.unavailable); }
-    finally { busy = false; send.disabled = !state?.ai_available; }
-  });
-  document.querySelectorAll('[data-portal-chat-prompt]').forEach(b => b.addEventListener('click', () => { if (panel.hidden) openPanel(); input.value = b.dataset.portalChatPrompt; input.focus(); }));
-  const menu = document.querySelector('.portal-menu');
-  menu.addEventListener('click', () => { const open = menu.getAttribute('aria-expanded') !== 'true'; menu.setAttribute('aria-expanded', String(open)); document.getElementById('portal-nav').classList.toggle('is-open', open); });
-  window.addEventListener('beforeunload', event => { if (editing || input.value.trim()) { event.preventDefault(); event.returnValue = ''; } });
-  // No transcript, draft text, identity or ticket data is stored in browser storage.
-  window.addEventListener('pagehide', clearPrivate);
-  window.addEventListener('pageshow', event => { if (event.persisted) refresh(); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !busy) refresh(true); });
-  // Content-free cross-tab sign-out signal; never put chat or identity in it.
-  if ('BroadcastChannel' in window) {
-    const access = new BroadcastChannel('safeharbor-portal-access');
-    document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit', () => access.postMessage('signed-out'));
-    access.addEventListener('message', event => { if (event.data === 'signed-out') { clearPrivate(); say(errors.sign_in); } });
+  input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit();}});
+  input.addEventListener('input',()=>{input.style.height='auto';input.style.height=Math.min(180,input.scrollHeight)+'px';});
+  async function newChat(){
+    if(busy||!state)return;
+    try{editing=false;render(await api({action:'new_chat',conversation:state.conversation,next_conversation:key()}));input.value='';say('');closeNavigation();input.focus();}
+    catch(error){accessError(error);}
   }
-  if (home) { home.append(panel); panel.hidden = false; }
-  send.disabled = true; input.disabled = true;
-  say('Loading your private conversation…'); refresh();
+  async function selectChat(conversation){
+    if(busy)return;
+    try{render(await api({action:'select_chat',conversation}));say('');closeNavigation();input.focus();}
+    catch(error){accessError(error);}
+  }
+  document.querySelectorAll('[data-chat-new],#portal-chat-new').forEach(b=>b.addEventListener('click',newChat));
+  const menu=document.querySelector('.portal-menu'),nav=document.getElementById('portal-nav');
+  function closeNavigation(){const restore=nav?.classList.contains('is-open')&&nav.contains(document.activeElement);menu?.setAttribute('aria-expanded','false');nav?.classList.remove('is-open');if(workspace)document.querySelector('.portal-content').inert=false;if(restore)menu?.focus();}
+  menu?.addEventListener('click',()=>{const open=menu.getAttribute('aria-expanded')!=='true';menu.setAttribute('aria-expanded',String(open));nav.classList.toggle('is-open',open);if(workspace)document.querySelector('.portal-content').inert=open;if(open)nav.querySelector('button,a')?.focus();});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeNavigation();if(!workspace&&!panel.hidden)closePanel();}});
+  const mobileWidth=matchMedia('(max-width:760px)');
+  function syncViewport(){
+    if(!workspace)return;
+    if(mobileWidth.matches&&window.visualViewport)document.documentElement.style.setProperty('--portal-viewport-height',window.visualViewport.height+'px');
+    else document.documentElement.style.removeProperty('--portal-viewport-height');
+  }
+  window.visualViewport?.addEventListener('resize',syncViewport);window.addEventListener('resize',syncViewport);syncViewport();
+  function syncPanelMode(){
+    if(workspace){if(!mobileWidth.matches)closeNavigation();return;}
+    const modal=!workspace&&!panel.hidden&&mobileWidth.matches;
+    if(modal){panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');}
+    else{panel.removeAttribute('role');panel.removeAttribute('aria-modal');}
+    for(const item of document.querySelectorAll('.portal-content,.portal-sidebar,.portal-top'))item.inert=modal;
+  }
+  mobileWidth.addEventListener('change',syncPanelMode);
+  function openPanel(){focusBefore=document.activeElement;root.append(panel);panel.hidden=false;bubble?.setAttribute('aria-expanded','true');syncPanelMode();input.focus();refresh(true);}
+  function closePanel(){panel.hidden=true;bubble?.setAttribute('aria-expanded','false');syncPanelMode();focusBefore?.focus();}
+  panel.addEventListener('keydown',event=>{
+    if(event.key==='Tab'&&panel.getAttribute('aria-modal')==='true'){
+      const items=[...panel.querySelectorAll('a,button,input,select,textarea')].filter(e=>!e.disabled&&e.getClientRects().length);
+      if(event.shiftKey&&document.activeElement===items[0]){event.preventDefault();items.at(-1)?.focus();}
+      else if(!event.shiftKey&&document.activeElement===items.at(-1)){event.preventDefault();items[0]?.focus();}
+    }
+  });
+  bubble?.addEventListener('click',()=>panel.hidden?openPanel():closePanel());
+  document.getElementById('portal-chat-close')?.addEventListener('click',closePanel);
+  document.querySelectorAll('[data-portal-chat-prompt]').forEach(b=>b.addEventListener('click',()=>{if(panel.hidden)openPanel();input.value=b.dataset.portalChatPrompt;input.focus();}));
+  window.addEventListener('beforeunload',event=>{if(editing||input.value.trim()){event.preventDefault();event.returnValue='';}});
+  // Browser storage never contains conversation text, identity or device receipts.
+  window.addEventListener('pagehide',clearPrivate);
+  window.addEventListener('pageshow',event=>{if(event.persisted)refresh();});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!busy)refresh(true);});
+  if('BroadcastChannel' in window){const access=new BroadcastChannel('safeharbor-portal-access');document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit',()=>access.postMessage('signed-out'));access.addEventListener('message',event=>{if(event.data==='signed-out'){clearPrivate();say(errors.sign_in);}});}
+  async function loadDevices(){
+    try{const next=await api(null,null,'?devices=1');const selected=devices.value;devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';for(const item of next.devices||[]){const option=element('option',item.label);option.value=item.reference;devices.append(option);}devices.disabled=false;if(selected)devices.value=selected;else if(devices.options.length===2)devices.selectedIndex=1;for(const node of nodes.values())node.toolSignature=null;if(state)render(state);}
+    catch(error){accessError(error);devices.disabled=true;devices.options[0].textContent='Computer tools unavailable';}
+  }
+  if(home){home.append(panel);panel.hidden=false;}
+  controls();say('Loading your private conversation…');refresh();loadDevices();
 })();
