@@ -120,6 +120,9 @@ Do not reverse constraints once new recipe/state rows exist.
 
 - `php app/tests/portal_westy_mysql_test.php`: original private isolation, budgets,
   ticket audience review, receipt immutability, lifecycle and retention.
+- `php app/tests/portal_westy_ai_delivery_mysql_test.php`: whole-callback byte/time
+  bounds, sticky MSP authority loss, buffered and final-flush revocation, retained
+  paid receipts, failed-round discard and no automatic replay.
 - `php app/tests/portal_workspace_mysql_test.php`: real ledger/tool orchestration,
   partial persistence, idempotency, SSE frame fragmentation, closed functions,
   extra-command/model-approval rejection, cross-device output, hidden reasoning,
@@ -145,3 +148,37 @@ no-customer-data request: 79 visible deltas; first 1,932 ms, last 2,338 ms,
 completion 2,437 ms. Only timing/count metadata was retained. This proves the
 provider adapter, separately from synthetic HTTP/Apache/browser tests; it does
 not prove the future public production route.
+
+The separate October 4 signed-limiter regression used synthetic credentials and
+provider SSE on Coastline: Safeharbor `02ceceacf28c4d84b3986dd5c824778dc9d2eeaf`
+(app tree `e9752cda2b31fc86cdc6d57c18b978780006d51d`) and 8 West ID
+`fef56b06238988b42c1068574d5c8b3fd714e001`. Each reply contained 3,366 bytes in
+842 provider callbacks. The actual SDK parser and cURL progress path ran against
+isolated synthetic HTTP origins; the actual signed ID endpoint and 1,200-request
+limiter were unchanged. No paid provider or production request ran in this test.
+
+| Case | First visible text | Completion | Signed authority requests |
+| --- | --- | --- | --- |
+| One reply | 225 ms | 8.805 s, complete | 143 |
+| Two concurrent MSPs | 259 / 244 ms | 8.792 / 8.834 s, both complete | 286 combined |
+
+The concurrent provider intervals overlapped for 8.494 seconds; actual cURL
+progress callbacks numbered 953 for the single run and 965/953 for the pair.
+All authority responses were signed HTTP 200 and all complete visible/stored
+reply hashes matched. Actual ID connection removal stopped a third run with
+`ai_changed`, no post-removal marker stored or delivered, and the unknown usage
+reservation retained. This is bounded synthetic throughput evidence, not a
+general capacity or public-proxy guarantee. Before this correction, the same
+reply shape exhausted the limiter before completing, even without transport
+progress callbacks.
+
+Private ledgers passed 89 checks; delivery boundaries passed 318; workspace/tool
+ordering passed 115; real HTTP buffered Stop/logout/revocation passed. The new
+newline fixture compares decoded transcript text, since JSON escapes newlines.
+Only that fixture assertion changed after the first two suites passed. Task
+containers, network and volume were removed and the shared mutex verified free.
+The coordinator handoff retains the measurement harness and raw evidence:
+`stream-fix-r4.log` SHA-256
+`c7849423f0db38beb8c6037aa446b0e4da6a65baea584153c05f5231bdbd5f1e`;
+`rate-results-r4/report.json` SHA-256
+`b363172e30420dad94318fd37e8df0b54685d00482e740f40013abb30c52a0d9`.
