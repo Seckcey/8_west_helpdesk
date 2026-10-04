@@ -127,7 +127,11 @@ class JournalTests(unittest.TestCase):
 
     def test_replaced_frozen_inode_invalidates_proof(self):
         freeze.replace_recorded(self.journal,self.record)
-        data=self.path.read_bytes();self.path.unlink();freeze.create_private(self.path,data)
+        # Allocate while the original inode still exists. Unlink/recreate may
+        # legitimately reuse that freed inode on the runner's filesystem.
+        replacement=self.root/'replacement';freeze.create_private(replacement,self.path.read_bytes())
+        self.assertNotEqual(replacement.stat().st_ino,self.path.stat().st_ino)
+        os.replace(replacement,self.path)
         with self.assertRaises(RuntimeError):
             freeze.assert_files_closed(self.journal)
 
