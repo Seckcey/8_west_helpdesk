@@ -39,9 +39,10 @@ scope and verification evidence.
   are also deployed and enabled. Genuine customer checks/repair acceptance is
   pending; release verification issued no device command and preserved existing
   staff-owned support holds.
-  The [customer workspace candidate](docs/customer-workspace.md) adds incremental
-  streaming, private chat history and guarded Milepost tools. Its release,
-  activation and live customer acceptance are recorded separately from those receipts.
+  The [customer workspace](docs/customer-workspace.md) is deployed with incremental
+  streaming, private chat history and guarded Milepost device tools enabled.
+  The [release record](docs/customer-workspace-release-2026-10-04.md) distinguishes
+  live activation and source checks from the pending genuine customer acceptance.
 - **Connect the suite carefully:** Approved time can be sent to an existing
   Coastmark connection as a *draft* invoice line. Coastmark owns pricing and
   every later invoice decision. Westy offers help and guidance; it does not

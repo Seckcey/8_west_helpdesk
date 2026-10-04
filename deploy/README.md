@@ -121,7 +121,7 @@ default. Record the exact SHA, CI run, backup record, migration output, and
 postdeploy hashes in a root-only release record.
 
 No application build step — the script refuses a dirty Git checkout, creates
-the app and its six derived brand files from the exact Git release archive,
+the app and its eight derived brand files from the exact Git release archive,
 lints that isolated artifact, stages exact SHA-256-verified root-only installer
 and full-app hasher controls, and streams only staged `app/` to the server
 without overwriting
