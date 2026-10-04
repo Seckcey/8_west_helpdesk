@@ -414,7 +414,11 @@ function portal_stream_authenticated_context(PDO $pdo,string $originalSession): 
 {
     if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
     if(session_id()!==$originalSession)return null;
-    if(!session_start(['use_cookies'=>false,'cache_limiter'=>'','read_and_close'=>true]))return null;
+    if(!headers_sent()){ini_set('session.use_cookies','0');session_cache_limiter('');}
+    if(ini_get('session.use_cookies')||session_cache_limiter()!=='')return null;
+    // read_and_close is handled directly by PHP. Passing INI options here tries
+    // to set them again after headers and emits warnings on supported PHP builds.
+    if(!session_start(['read_and_close'=>true]))return null;
     if(session_id()!==$originalSession)return null;
     $identity=portal_local_identity();
     if($identity===null)return null;
