@@ -34,11 +34,11 @@ class ProcessTests(unittest.TestCase):
                                'while(!file_exists($argv[2])) { usleep(10000); }')
         self.ready=self.root/'ready';self.release=self.root/'release'
 
-    def launch(self,paused=False,worker=None):
+    def launch(self,paused=False,worker=None,cwd=None):
         command=[shutil.which('flock'),'-n',str(self.root/'worker.lock'),shutil.which('php'),
                  str(worker or self.worker),str(self.ready),str(self.release)]
         if paused:command=['/bin/sh','-c','kill -STOP $$; exec "$@"','synthetic-cron',*command]
-        process=subprocess.Popen(command,start_new_session=True)
+        process=subprocess.Popen(command,start_new_session=True,cwd=cwd)
         def finish():
             self.release.touch()
             if process.poll() is None:
@@ -71,6 +71,43 @@ class ProcessTests(unittest.TestCase):
         os.kill(process.pid,signal.SIGCONT);wait_for(self.ready.exists)
         self.assertEqual(freeze.app_worker_pids(self.profile),[])
         self.assertIsNone(process.poll())
+
+    def test_absolute_scoped_worker_with_deleted_cwd_remains_visible(self):
+        directory=self.root/'gone';directory.mkdir()
+        process=self.launch(cwd=directory);child=self.ready.read_text()
+        directory.rmdir()
+        self.assertIsNotNone(freeze.proc_identity(child))
+        self.assertIn(child,freeze.app_worker_pids(self.profile))
+        self.assertIsNone(process.poll())
+
+    def test_relative_worker_with_deleted_cwd_refuses_inspection(self):
+        directory=self.root/'gone';directory.mkdir()
+        process=self.launch(worker='../app/current/db/worker.php',cwd=directory)
+        directory.rmdir()
+        with self.assertRaisesRegex(RuntimeError,'live process path became unreadable'):
+            freeze.app_worker_pids(self.profile)
+        self.assertIsNone(process.poll())
+
+    def test_absolute_unrelated_worker_with_deleted_cwd_is_preserved(self):
+        other=self.root/'other-app/current/db/worker.php';other.parent.mkdir(parents=True)
+        other.write_bytes(self.worker.read_bytes())
+        directory=self.root/'gone';directory.mkdir()
+        process=self.launch(worker=other,cwd=directory);directory.rmdir()
+        self.assertEqual(freeze.app_worker_pids(self.profile),[])
+        self.assertIsNone(process.poll())
+
+    def test_process_vanished_during_lookup_is_allowed_to_drain(self):
+        process=self.launch();original=Path.read_bytes;visited=False
+        def vanished(path):
+            nonlocal visited
+            if str(path)==f'/proc/{process.pid}/cmdline':
+                visited=True;self.release.touch();process.wait(timeout=5)
+                self.assertIsNone(freeze.proc_identity(process.pid))
+                raise FileNotFoundError('synthetic proc lookup after actual exit')
+            return original(path)
+        with patch.object(Path,'read_bytes',vanished):
+            self.assertEqual(freeze.app_worker_pids(self.profile),[])
+        self.assertTrue(visited)
 
     def test_changed_pid_start_identity_refuses_scoped_snapshot(self):
         process=self.launch(paused=True);original=freeze.proc_identity;calls=0

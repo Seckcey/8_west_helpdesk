@@ -326,20 +326,23 @@ def app_worker_pids(profile):
                 continue
             if not re.fullmatch(r'(?:php|python)[0-9.]*',name):
                 continue
-            cwd=(entry/'cwd').resolve(strict=True)
-            for raw in arguments[1:]:
-                argument=os.fsdecode(raw)
-                if not argument or argument.startswith('-'):
-                    continue
-                path=Path(argument)
-                if not path.is_absolute():
-                    path=cwd/path
+            paths=[Path(os.fsdecode(raw)) for raw in arguments[1:] if raw and not raw.startswith(b'-')]
+            def is_scoped(path):
                 resolved=str(path.resolve())
-                if resolved in exact or any(resolved.startswith(prefix) for prefix in prefixes):
-                    after=proc_identity(entry.name)
-                    if after is not None and after!=before:raise RuntimeError('scoped process identity changed during inspection')
-                    if after is not None:result.append(entry.name)
-                    break
-        except FileNotFoundError:
-            continue
+                return resolved in exact or any(resolved.startswith(prefix) for prefix in prefixes)
+            # Absolute worker paths do not depend on a still-existing cwd.
+            matched=any(is_scoped(path) for path in paths if path.is_absolute())
+            relative=[path for path in paths if not path.is_absolute()]
+            if not matched and relative:
+                cwd=(entry/'cwd').resolve(strict=True)
+                matched=any(is_scoped(cwd/path) for path in relative)
+            if matched:
+                after=proc_identity(entry.name)
+                if after is not None and after!=before:raise RuntimeError('scoped process identity changed during inspection')
+                if after is not None:result.append(entry.name)
+        except FileNotFoundError as error:
+            after=proc_identity(entry.name)
+            if after is None:continue
+            if after!=before:raise RuntimeError('scoped process identity changed during inspection') from error
+            raise RuntimeError('live process path became unreadable during inspection') from error
     return result
