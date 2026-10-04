@@ -29,6 +29,14 @@ The private merge `6175b1fbfd2e756a162b5c6c09d17a73de071d03` retains the device
 and desktop component histories, endpoint availability correction `fcce93d1`,
 and frozen tenant-AI component `1c711d39` from PR 169.
 
+The coordinator accepted the endpoint's two-file correction `9d9c1300` as
+`a8ac45fc`: an expired request retains its original typed text while the browser
+reconciles its receipt, and the setup download link keeps readable contrast.
+Tenant-AI follow-ups `ed51cb3c`, `02ceceac` and `15665e30` are included as
+`aa7ed9c`, `8167716` and `111ad04`. They bound text delivery, exercise absent
+optional native schema explicitly in disposable fixtures, and document measured
+throughput. No protected controls, schemas, SDK or ID limiter changed.
+
 The Astra owner resolved three shared files. The standalone AI migration exactly
 matches the reviewed AI component, including its exact-schema guard and 90-day
 plus 60-second retention boundary. Device instructions retain the reviewed
@@ -54,10 +62,30 @@ the same attempt. Earlier valid text and known usage or unknown reservations
 remain recorded. Ordinary Stop does not require optional native schema; genuine
 native attempts still refuse unavailable authority rather than claim cancellation.
 
-Final aggregate CI and long/concurrent streaming throughput acceptance remain
-required. ID permits 1,200 signed resolutions per application per minute; short
-synthetic streams do not establish throughput under that limit. No paid provider
-calls or actual customer repairs were issued for these fixture proofs.
+The earlier aggregate `d199b9a` failed three checks: an absent-native-schema
+fixture now included that schema, the download link's contrast, and retention of
+typed text during delayed expiry reconciliation. The accepted follow-ups address
+these findings without weakening assertions. Final combined hosted CI remains
+required before merge.
+
+Actual signed-ID, real-cURL synthetic streams reproduced exhaustion of the
+1,200-resolution-per-application-per-minute limit before the correction. The
+first complete UTF-8 delta now emits immediately; later text is buffered up to
+128 bytes or 100 milliseconds, while non-delivering heartbeats use the existing
+one-second liveness check. Every actual save, emission, tool and final delivery
+still checks fresh authority. Failed delivery discards pending text, retains
+known usage or unknown reservations, and never retries the paid attempt.
+
+The corrected single 3,366-byte reply completed in 8.80 seconds with a 225 ms
+first delta and 143 signed resolutions. Two genuine concurrent replies completed
+in 8.79/8.83 seconds with 286 combined resolutions and 8.49 seconds of overlap.
+An actual ID disable during another fixture suppressed all later text while
+retaining its unknown reservation. Visible and stored reply hashes matched.
+Final evidence includes ledger 89, delivery 318, workspace 115 and HTTP
+Stop/logout/revocation checks. The raw final log SHA is
+`c7849423f0db38beb8c6037aa446b0e4da6a65baea584153c05f5231bdbd5f1e`.
+These are bounded synthetic throughput proofs, not production provider latency
+or general capacity results. No paid calls or actual customer repairs were used.
 
 Release requires final ID/Milepost coupling, reviewed bindings and protected
 configuration, source-gap and in-flight checks, held locks, complete recovery
