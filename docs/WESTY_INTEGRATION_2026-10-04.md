@@ -68,6 +68,16 @@ typed text during delayed expiry reconciliation. The accepted follow-ups address
 these findings without weakening assertions. Final combined hosted CI remains
 required before merge.
 
+At `b9dc873`, hosted browser contracts and customer mobile isolation passed.
+The later time-adjustment fixture exposed another plain-CREATE collision when
+it deliberately replayed the full schema over retained corrupt-history data.
+The contact-scope fixture reproduced the same collision. Accepted test-only
+follow-up `82525ecd` verifies both native tables are empty before removing just
+those tables ahead of replay. All original time/contact data, random-database
+and loopback guards, trigger comparisons and refusal assertions remain. Real
+MySQL 8.0.46 passed adjustments 59/59 and contacts 120/120. Final combined hosted
+checks still gate merge; no production schema or behavior changed in this fix.
+
 Actual signed-ID, real-cURL synthetic streams reproduced exhaustion of the
 1,200-resolution-per-application-per-minute limit before the correction. The
 first complete UTF-8 delta now emits immediately; later text is buffered up to
