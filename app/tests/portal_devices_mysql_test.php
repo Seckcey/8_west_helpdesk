@@ -58,7 +58,15 @@ $revokeTransport=static function($u,$b,$h)use($pdo,$a,$transport):array{
 check(refused(static fn()=>portal_devices_request($pdo,$a,'devices',['after'=>0],$revokeTransport)),'binding revoked during service call prevents response disclosure');
 portal_transition_binding($pdo,$a['identity']['binding_id'],'northwind-preview',1,11,101,'active','Synthetic test restored.');
 $devices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'<script>untrusted label</script>','platform'=>'Windows 11','connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in received.','last_seen_at'=>'2026-10-03T01:00:00Z','troubleshooting'=>'support_request']],'next_after'=>null];
+check(portal_devices_result('devices',$devices)===$devices,'legacy device projection remains compatible');
+$devices['items'][0]['hardware']=['ram_gb'=>15.8,'observed_at'=>'2026-10-03T01:00:00Z','source'=>'agent_inventory'];
+check(portal_devices_result('devices',$devices)===$devices,'RAM fact and capture time pass the closed customer contract');
+foreach([['ram_gb'=>-1],['source'=>'inferred'],['observed_at'=>'not-a-date'],['ram_gb'=>'16'],['private'=>'extra']] as $invalid){
+    $bad=$devices;$bad['items'][0]['hardware']=array_replace($bad['items'][0]['hardware'],$invalid);
+    check(refused(static fn()=>portal_devices_result('devices',$bad)),'invalid or extra hardware fact is rejected');
+}
 ob_start();portal_render_devices($a,$devices,[$grant]);$html=ob_get_clean();
+check(str_contains($html,'15.8 GB')&&str_contains($html,'Inventory'),'device card shows capacity as a dated inventory fact');
 check(str_contains($html,'&lt;script&gt;untrusted label&lt;/script&gt;')&&!str_contains($html,'<script>untrusted label</script>'),'device labels are escaped');
 check(str_contains($html,'Create Windows setup link')&&str_contains($html,'name="consent"'),'owner sees real consent and enrollment controls');
 $viewer=$a;$viewer['identity']['role']='client_viewer';

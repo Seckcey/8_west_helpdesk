@@ -33,7 +33,9 @@
     draft_changed:'This draft changed or was already sent. Check its saved state.', conversation_changed:'The conversation changed in another tab. Check the current chat.',
     sensitive_text:'Remove passwords, secret keys and verification codes before sending.', invalid_message:'Enter a message of up to 2,000 characters.', invalid_request:'Check the required fields.',
     unavailable:'The result could not be confirmed. Checking saved work; nothing will be retried automatically.', approval_changed:'The approval changed or expired. Refresh the operation before continuing.',
-    tools_unavailable:'Device tools are not available. Your computers and support requests remain accessible.', support_busy:'Support already owns work on this computer. Contact support before starting another operation.',
+    tools_unavailable:'Device tools are not available. Your computers and support requests remain accessible.', support_busy:'A technician is handling this computer. Health checks and recorded facts remain available. Once the technician finishes and resolves the case, review and approve the proposed repair again.',
+    support_status_unavailable:'Current support ownership could not be verified. The repair was not sent. Health checks and recorded facts remain available; try the approval again shortly.',
+    policy_restricted:'Your workspace administrator has disabled this action in Westy settings.', execution_unresolved:'A previous command on this computer needs a confirmed result. Recorded hardware facts remain available with their capture time.',
     device_offline:'The computer is not currently available.', repair_cooldown:'A recent repair is still within its cooldown.', operation_unavailable:'This operation is not available for your current access.',
     service_unavailable:'The service response was not confirmed. This operation will not be retried automatically.'
   };
@@ -102,7 +104,7 @@
     const computer=namedDevice?.textContent || 'Computer details unavailable';
     add('Computer',computer);add('Status',operationLabels[op.state]||op.state);
     const health=op.result?.health||op.result;
-    if(health?.memory_used_percent!==undefined){add('Memory',health.memory_used_percent+'% used');add('Disk',health.system_disk_free_percent+'% free');add('Print service',health.spooler);}
+    if(health?.memory_used_percent!==undefined){add('Memory',health.memory_used_percent+'% used');if(health.memory_total_bytes!==undefined)add('RAM capacity',(health.memory_total_bytes/1073741824).toFixed(1)+' GB');add('Disk',health.system_disk_free_percent+'% free');add('Print service',health.spooler);}
     const temp=op.preview || (op.result?.kind==='temp_preview'?op.result:null);
     if(temp){add('Location','Windows temporary folder');add('Preview',temp.eligible_files+' eligible files · '+bytesLabel(temp.eligible_bytes));}
     if(op.result?.kind==='temp_cleanup'){add('Removed',op.result.deleted_files+' files · '+bytesLabel(op.result.deleted_bytes));add('Skipped',String(op.result.skipped_files));}
@@ -161,6 +163,8 @@
     if(!state.ai_available)say(errors.ai_unavailable);
     if(stickToBottom)scrollLatest();
     scheduleRefresh();
+    const latest=state.turns.at(-1);
+    window.dispatchEvent(new CustomEvent('westy-conversation',{detail:{conversation:state.conversation,operation:latest?.state==='complete'?latest.operation_key:null}}));
   }
   function scheduleRefresh(){
     if(poll)clearTimeout(poll);
@@ -284,6 +288,34 @@
       clearTimeout(streamTimeout);
       busy=false;streamController=null;currentOperation=null;controls();
       if(state){await refresh(true);if(state&&!state.turns.some(t=>t.operation_key===operation)){input.value=text;say('Your message was not saved. Review it before sending again.');}input.focus();scheduleRefresh();}
+    }
+  });
+  const desktopResumeAttempts=new Set();
+  window.addEventListener('westy-desktop-resume',async event=>{
+    const detail=event.detail,turn=state?.turns.at(-1);
+    if(busy||!state?.ai_available||!detail||detail.conversation!==state.conversation
+      ||turn?.state!=='complete'||detail.operation!==turn.operation_key)return;
+    const attempt=detail.conversation+':'+detail.operation;
+    if(desktopResumeAttempts.has(attempt))return;
+    desktopResumeAttempts.add(attempt);
+    const request={action:'desktop_resume',operation:detail.operation,conversation:detail.conversation};
+    currentOperation=detail.operation;busy=true;turn.state='pending';
+    turn.reply||={reply:'',sources:[],tools:[]};turn.reply.reply+='\n\n';
+    render(state);controls();say('Continuing your computer task…');
+    streamController=new AbortController();
+    const timeout=setTimeout(()=>streamController?.abort(),165000);
+    try{
+      const response=await fetch('/portal/westy.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'text/event-stream','X-Portal-CSRF':root.dataset.csrf},body:JSON.stringify(request),signal:streamController.signal});
+      await readStream(response,(event,data)=>{
+        if(event==='accepted')say('Westy is continuing your computer task…');
+        if(event==='delta'){turn.reply.reply+=data.text;turnNode(turn).reply.textContent=turn.reply.reply;if(stickToBottom)scrollLatest();}
+        if(event==='tool'){const index=turn.reply.tools.findIndex(t=>t.key===data.tool.key);if(index<0)turn.reply.tools.push(data.tool);else turn.reply.tools[index]=data.tool;renderTools(turnNode(turn),turn);}
+        if(event==='done'){render(data.state);say('Computer task response finished.');}
+      });
+    }catch(error){if(error.name!=='AbortError')accessError(error);}
+    finally{
+      clearTimeout(timeout);busy=false;streamController=null;currentOperation=null;controls();
+      if(state){await refresh(true);scheduleRefresh();}
     }
   });
   stop.addEventListener('click',async()=>{

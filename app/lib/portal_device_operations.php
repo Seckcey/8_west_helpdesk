@@ -11,12 +11,14 @@ function portal_device_operations_result(string $action,array $result):array
             || !is_array($result['items']) || !array_is_list($result['items']) || count($result['items'])>25
             || (!$result['available'] && $result['items']!==[])) $fail();
         $eligibility=$result['eligibility'];
-        if(!is_array($eligibility)||!portal_devices_keys($eligibility,['can_check','can_propose_repair','reason'])
+        $keys=['can_check','can_propose_repair','reason'];
+        if(!is_array($eligibility)||!(portal_devices_keys($eligibility,$keys)||portal_devices_keys($eligibility,array_merge($keys,['repair_reason'])))
             ||!is_bool($eligibility['can_check'])||!is_bool($eligibility['can_propose_repair'])
-            ||!in_array($eligibility['reason'],['ready','repair_cooldown','read_only','not_available','in_progress','support_review'],true)
+            ||!in_array($eligibility['reason'],['ready','repair_cooldown','read_only','not_available','in_progress','support_review','execution_unresolved','policy_restricted'],true)
             ||($eligibility['can_propose_repair']&&!$eligibility['can_check'])
             ||($eligibility['can_check']!==in_array($eligibility['reason'],['ready','repair_cooldown'],true))
-            ||($eligibility['can_propose_repair']!==($eligibility['reason']==='ready'))
+            ||(isset($eligibility['repair_reason'])&&!in_array($eligibility['repair_reason'],['ready','repair_cooldown','support_review','not_available','policy_restricted'],true))
+            ||($eligibility['can_propose_repair']!==($eligibility['can_check']&&($eligibility['repair_reason']??$eligibility['reason'])==='ready'))
             ||(!$result['available']&&$eligibility['reason']!=='not_available'))$fail();
         $rows=$result['items'];
     } else $rows=[$result];
@@ -56,8 +58,13 @@ function portal_device_operations_result(string $action,array $result):array
 
 function portal_device_health_result_valid(mixed $v):bool
 {
-    if(!is_array($v)||!portal_devices_keys($v,['version','observed_at','memory_used_percent','system_disk_free_percent','spooler'])||$v['version']!==1||!portal_devices_timestamp($v['observed_at'])||!in_array($v['spooler'],['running','stopped','startpending','stoppending','paused','pausepending','continuepending','missing'],true))return false;
+    $keys=['version','observed_at','memory_used_percent','system_disk_free_percent','spooler'];
+    if(is_array($v)&&($v['version']??null)===2)$keys=array_merge($keys,['memory_total_bytes','memory_available_bytes']);
+    if(!is_array($v)||!portal_devices_keys($v,$keys)||!in_array($v['version'],[1,2],true)||!portal_devices_timestamp($v['observed_at'])||!in_array($v['spooler'],['running','stopped','startpending','stoppending','paused','pausepending','continuepending','missing'],true))return false;
     foreach(['memory_used_percent','system_disk_free_percent'] as $key)if((!is_int($v[$key])&&!is_float($v[$key]))||!is_finite((float)$v[$key])||$v[$key]<0||$v[$key]>100)return false;
+    if($v['version']===2&&(!is_int($v['memory_total_bytes'])||!is_int($v['memory_available_bytes'])
+        ||$v['memory_total_bytes']<=0||$v['memory_total_bytes']>1125899906842624
+        ||$v['memory_available_bytes']<0||$v['memory_available_bytes']>$v['memory_total_bytes']))return false;
     return true;
 }
 
