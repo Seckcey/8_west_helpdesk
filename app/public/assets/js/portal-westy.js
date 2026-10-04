@@ -32,6 +32,7 @@
     identity_unavailable:'Access cannot be verified. Your private chat is hidden until it can be checked.', read_only:'Your role cannot authorize device work or send this request.',
     draft_changed:'This draft changed or was already sent. Check its saved state.', conversation_changed:'The conversation changed in another tab. Check the current chat.',
     sensitive_text:'Remove passwords, secret keys and verification codes before sending.', invalid_message:'Enter a message of up to 2,000 characters.', invalid_request:'Check the required fields.',
+    operation_expired:'Refresh this page before sending a new message. If this continues, check your computer clock.',
     unavailable:'The result could not be confirmed. Checking saved work; nothing will be retried automatically.', approval_changed:'The approval changed or expired. Refresh the operation before continuing.',
     tools_unavailable:'Device tools are not available. Your computers and support requests remain accessible.', support_busy:'A technician is handling this computer. Health checks and recorded facts remain available. Once the technician finishes and resolves the case, review and approve the proposed repair again.',
     support_status_unavailable:'Current support ownership could not be verified. The repair was not sent. Health checks and recorded facts remain available; try the approval again shortly.',
@@ -40,6 +41,7 @@
     service_unavailable:'The service response was not confirmed. This operation will not be retried automatically.'
   };
   const key = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  const messageKey = () => 'f1'+Math.floor(Date.now()/1000).toString(16).padStart(8,'0')+Array.from(crypto.getRandomValues(new Uint8Array(11)),b=>b.toString(16).padStart(2,'0')).join('');
   const element = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
   const button = (text, action, cls = 'btn-ghost') => { const b = element('button', text, cls); b.type = 'button'; b.addEventListener('click', action); return b; };
   const say = text => { status.textContent = text; };
@@ -267,7 +269,7 @@
   }
   form.addEventListener('submit',async event=>{
     event.preventDefault();if(busy||!state?.ai_available||!input.value.trim())return;
-    const text=input.value.trim(),operation=key();currentOperation=operation;
+    const text=input.value.trim(),operation=messageKey();currentOperation=operation;let operationExpired=false;
     const request={action:'message',operation,message:text,conversation:state.conversation,device_reference:devices.value||null};
     const turn={operation_key:operation,input_text:text,state:'pending',reply:{reply:'',sources:[],tools:[]},reason_code:''};
     state.turns.push(turn);busy=true;stickToBottom=true;render(state);input.value='';input.style.height='';say('Connecting to Westy…');controls();
@@ -282,12 +284,13 @@
         if(event==='done'){render(data.state);say('Reply finished.');}
       });
     }catch(error){
+      operationExpired=error.reason==='operation_expired';
       if(error.name!=='AbortError')accessError(error);
       // Read receipts only: never resubmit an ambiguous generation or tool call.
     }finally{
       clearTimeout(streamTimeout);
       busy=false;streamController=null;currentOperation=null;controls();
-      if(state){await refresh(true);if(state&&!state.turns.some(t=>t.operation_key===operation)){input.value=text;say('Your message was not saved. Review it before sending again.');}input.focus();scheduleRefresh();}
+      if(state){await refresh(true);if(state&&!state.turns.some(t=>t.operation_key===operation)){input.value=text;say(operationExpired?errors.operation_expired:'Your message was not saved. Review it before sending again.');}input.focus();scheduleRefresh();}
     }
   });
   const desktopResumeAttempts=new Set();

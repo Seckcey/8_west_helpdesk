@@ -772,6 +772,8 @@ if (!SERVE_MODE) test('workspace renders incremental network events, keeps its c
         let raw='';for await(const chunk of request)raw+=chunk;const payload=JSON.parse(raw);
         assert.equal(request.headers['x-portal-csrf'],'c'.repeat(64));
         if(payload.action==='message'){
+          assert.match(payload.operation,/^f1[0-9a-f]{30}$/);
+          assert.ok(Math.abs(parseInt(payload.operation.slice(2,10),16)-Math.floor(Date.now()/1000))<=60,'new paid turn uses a current bounded-lifetime operation');
           messagePosts++;const turn={operation_key:payload.operation,state:'pending',input_text:payload.message,reply:{reply:'',tools:[],sources:[]}};state.turns.push(turn);
           state.conversations=[{key:state.conversation,title:payload.message}];
           response.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store'});
@@ -834,6 +836,38 @@ if (!SERVE_MODE) test('workspace renders incremental network events, keeps its c
     }
     assert.equal(messagePosts,4);assert.equal(stops,2);
   }finally{await browser.close();await new Promise(resolve=>server.close(resolve));await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('expired message operations preserve text and require refresh without replaying paid work',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const state={enabled:true,ai_available:true,can_write:true,conversation:'a'.repeat(32),conversations:[],turns:[],draft:null};
+  const posts=[];let reject=true;
+  const handler=async route=>{
+    if(route.request().method()==='GET')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state})});
+    const payload=route.request().postDataJSON();posts.push(payload);
+    assert.equal(payload.action,'message');assert.match(payload.operation,/^f1[0-9a-f]{30}$/);
+    if(reject)return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({ok:false,reason:'operation_expired'})});
+    state.turns.push({operation_key:payload.operation,state:'complete',input_text:payload.message,reply:{reply:'Saved despite an interrupted connection.',tools:[],sources:[]}});
+    return route.fulfill({contentType:'text/event-stream',body:'event: accepted\ndata: '+JSON.stringify({operation:payload.operation,conversation:state.conversation})+'\n\n'});
+  };
+  try{
+    const {page,context,consoleProblems}=await openPortalPage(browser,pages,{width:390,height:844},handler);
+    await page.goto(`${ORIGIN}/portal/`);
+    assert.equal(await page.locator('script[src*="portal-westy.js"]').getAttribute('src'),'/assets/js/portal-westy.js?v=3','refresh loads the versioned current message generator');
+    const input=page.getByRole('textbox',{name:'Ask Westy about your computer'});
+    await input.fill('Keep my original request.');await input.press('Enter');
+    await page.getByText('Refresh this page before sending a new message. If this continues, check your computer clock.',{exact:true}).waitFor();
+    assert.equal(await input.inputValue(),'Keep my original request.');assert.equal(posts.length,1);
+    reject=false;await page.reload();await input.fill('Keep my original request.');await input.press('Enter');
+    await page.getByText('Saved despite an interrupted connection.',{exact:true}).waitFor();
+    await page.waitForFunction(()=>document.getElementById('portal-chat-stop').hidden);
+    assert.equal(posts.length,2,'refresh and deliberate resubmission creates one new request, interrupted acceptance creates no retry');
+    assert.notEqual(posts[0].operation,posts[1].operation);assert.equal(state.turns.length,1);
+    await page.reload();await page.getByText('Saved despite an interrupted connection.',{exact:true}).waitFor();
+    assert.equal(posts.length,2,'saved response recovery is read-only');
+    assert.deepEqual(consoleProblems,['Failed to load resource: the server responded with a status of 409 (Conflict)'],'only the deliberately rejected expired request reports a browser error');
+    await context.close();
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
 if (!SERVE_MODE) test('desktop continuation keeps the exact completed turn and never replays an uncertain resume',async()=>{
