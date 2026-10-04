@@ -303,25 +303,46 @@ def app_worker_pids(profile):
     current=Path(profile['app_root'])/'current'
     prefixes=[str(current/'cron')+'/',str(current/'db')+'/']
     exact=profile.get('worker_paths',[])
+    # Literal path matching only: never parse or evaluate shell commands. A
+    # conservative false positive delays the window instead of missing a
+    # scheduler shell/flock that can still launch the scoped PHP worker.
+    scoped=[*prefixes,*exact]
+    launcher_names={'sh','dash','bash','flock'}
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit():
             continue
         try:
+            before=proc_identity(entry.name)
+            if before is None:continue
             arguments=(entry/'cmdline').read_bytes().split(b'\0')
-            if not arguments or not re.fullmatch(r'(?:php|python)[0-9.]*',Path(os.fsdecode(arguments[0])).name):
+            if not arguments:continue
+            name=Path(os.fsdecode(arguments[0])).name
+            if name in launcher_names:
+                matched=any(prefix in os.fsdecode(raw) for raw in arguments[1:] for prefix in scoped)
+                if matched:
+                    after=proc_identity(entry.name)
+                    if after is not None and after!=before:raise RuntimeError('scoped process identity changed during inspection')
+                    if after is not None:result.append(entry.name)
                 continue
-            cwd=(entry/'cwd').resolve(strict=True)
-            for raw in arguments[1:]:
-                argument=os.fsdecode(raw)
-                if not argument or argument.startswith('-'):
-                    continue
-                path=Path(argument)
-                if not path.is_absolute():
-                    path=cwd/path
+            if not re.fullmatch(r'(?:php|python)[0-9.]*',name):
+                continue
+            paths=[Path(os.fsdecode(raw)) for raw in arguments[1:] if raw and not raw.startswith(b'-')]
+            def is_scoped(path):
                 resolved=str(path.resolve())
-                if resolved in exact or any(resolved.startswith(prefix) for prefix in prefixes):
-                    result.append(entry.name)
-                    break
-        except FileNotFoundError:
-            continue
+                return resolved in exact or any(resolved.startswith(prefix) for prefix in prefixes)
+            # Absolute worker paths do not depend on a still-existing cwd.
+            matched=any(is_scoped(path) for path in paths if path.is_absolute())
+            relative=[path for path in paths if not path.is_absolute()]
+            if not matched and relative:
+                cwd=(entry/'cwd').resolve(strict=True)
+                matched=any(is_scoped(cwd/path) for path in relative)
+            if matched:
+                after=proc_identity(entry.name)
+                if after is not None and after!=before:raise RuntimeError('scoped process identity changed during inspection')
+                if after is not None:result.append(entry.name)
+        except FileNotFoundError as error:
+            after=proc_identity(entry.name)
+            if after is None:continue
+            if after!=before:raise RuntimeError('scoped process identity changed during inspection') from error
+            raise RuntimeError('live process path became unreadable during inspection') from error
     return result
