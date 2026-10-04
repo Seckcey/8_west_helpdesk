@@ -269,7 +269,7 @@
   }
   form.addEventListener('submit',async event=>{
     event.preventDefault();if(busy||!state?.ai_available||!input.value.trim())return;
-    const text=input.value.trim(),operation=messageKey();currentOperation=operation;let operationExpired=false;
+    const text=input.value.trim(),operation=messageKey(),requestEpoch=accessEpoch;currentOperation=operation;let operationExpired=false;
     const request={action:'message',operation,message:text,conversation:state.conversation,device_reference:devices.value||null};
     const turn={operation_key:operation,input_text:text,state:'pending',reply:{reply:'',sources:[],tools:[]},reason_code:''};
     state.turns.push(turn);busy=true;stickToBottom=true;render(state);input.value='';input.style.height='';say('Connecting to Westy…');controls();
@@ -285,6 +285,9 @@
       });
     }catch(error){
       operationExpired=error.reason==='operation_expired';
+      // An explicit pre-admission refusal leaves the request unsent. Restore it
+      // before announcing refresh guidance; receipt reconciliation may be slow.
+      if(operationExpired&&state&&accessEpoch===requestEpoch&&state.conversation===request.conversation)input.value=text;
       if(error.name!=='AbortError')accessError(error);
       // Read receipts only: never resubmit an ambiguous generation or tool call.
     }finally{
