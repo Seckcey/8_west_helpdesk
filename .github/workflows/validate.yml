@@ -164,6 +164,7 @@ jobs:
           php app/tests/westy_mail_mysql_test.php
           php app/tests/westy_mail_poll_mysql_test.php
           php app/tests/portal_westy_mysql_test.php
+          php app/tests/portal_westy_ai_delivery_mysql_test.php
           php app/tests/portal_devices_mysql_test.php
           php app/tests/portal_workspace_mysql_test.php
           php app/tests/portal_stream_http_test.php

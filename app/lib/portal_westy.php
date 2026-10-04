@@ -240,13 +240,25 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     } catch(Throwable $e) { if($pdo->inTransaction())$pdo->rollBack(); throw $e; }
     $partial=['reply'=>'','sources'=>[],'draft_subject'=>'','draft_body'=>'','tools'=>[]];
     if($resume){$saved=json_decode((string)$resumeTurn['reply_json'],true);if(is_array($saved))$partial=array_intersect_key($saved,$partial)+$partial;$partial['reply'].="\n\n";}
+    // Once this attempt loses its MSP AI authority it cannot regain delivery
+    // authority, even if the connection is restored before accounting finishes.
+    $aiLost=false;
+    $requireAi=static function()use($pdo,$context,$aiSnapshot,$aiResolver,&$aiLost):void{
+        if(!$aiLost){
+            try{$fresh=portal_westy_ai_snapshot($pdo,$context,$aiSnapshot['revision'],'status',$aiResolver);
+                $aiLost=!portal_westy_ai_same_selection($aiSnapshot,$fresh);}
+            catch(Throwable){$aiLost=true;}
+        }
+        if($aiLost)throw new PortalWestyException('ai_changed',503);
+    };
     $lastCheck=0.0;$deadline=microtime(true)+150;
-    $alive=static function(bool $force=false)use($pdo,$context,$s,$turnId,$reauthorize,&$lastCheck,$deadline):void{
+    $alive=static function(bool $force=false)use($pdo,$context,$s,$turnId,$reauthorize,$requireAi,&$lastCheck,$deadline):void{
         if(microtime(true)>$deadline)throw new PortalWestyException('interrupted');
         if(!$force && microtime(true)-$lastCheck<1)return;
         $lastCheck=microtime(true);
         if(!portal_westy_config()['enabled']||!portal_westy_config()['ai_enabled'])throw new PortalWestyException('ai_unavailable');
         if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||$fresh['identity']!==$context['identity']||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
+        $requireAi();
         $q=$pdo->prepare('SELECT state FROM portal_westy_turns WHERE id=? AND scope_key=?');$q->execute([$turnId,$s['key']]);
         if($q->fetchColumn()!=='pending')throw new PortalWestyException('stopped');
     };
@@ -255,28 +267,31 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         $q=$pdo->prepare("UPDATE portal_westy_turns SET reply_json=? WHERE id=? AND scope_key=? AND state='pending'");
         $q->execute([json_encode($partial,JSON_THROW_ON_ERROR),$turnId,$s['key']]);
     };
-    $output=static function(string $event,array $value)use(&$partial,$save,$emit,$key):void{
+    $output=static function(string $event,array $value)use(&$partial,$save,$emit,$key,$alive):void{
+        $alive(true);
         if($event==='delta'){$partial['reply'].=$value['text'];$save();}
-        if($emit)$emit($event,['operation'=>$key]+$value);
+        if($emit){$alive(true);$emit($event,['operation'=>$key]+$value);}
     };
     if($emit)$emit('accepted',['operation'=>$key,'conversation'=>$account['conversation_key']]);
     $result=portal_westy_ai_run($pdo,$context,$aiSnapshot,$messages,$key,$partial,$alive,$output,$save,$provider,$transport,$aiResolver);
+    $aiLost=$aiLost || ($result['reason']??null)==='ai_changed';
     $result['data']=$partial;
     // A paid receipt survives loss of authority. Revalidation controls delivery,
     // never whether an already reserved attempt can finish its accounting.
     $authorized=false;
-    $deliveryAuthority=static function()use($pdo,$context,$s,$reauthorize,&$authorized):bool{
+    $deliveryAuthority=static function()use($pdo,$context,$s,$reauthorize,$requireAi,&$authorized):bool{
         $authorized=false;
         if ($reauthorize) {
             $fresh=$reauthorize();
             if(!is_array($fresh) || $fresh['identity']!==$context['identity'])return false;
         }
-        $authorized=portal_westy_config()['enabled'] && portal_westy_config()['ai_enabled']
-            && portal_westy_scope($pdo,$context,true)['key']===$s['key'];
-        return $authorized;
+        if(!portal_westy_config()['enabled'] || !portal_westy_config()['ai_enabled']
+            || portal_westy_scope($pdo,$context,true)['key']!==$s['key'])return false;
+        $requireAi();
+        return $authorized=true;
     };
     portal_westy_ai_finish($pdo,$s,$turnId,$attemptId,$account['conversation_key'],$month,$result,$deliveryAuthority);
-    if(!$authorized)throw new PortalWestyException('sign_in',401);
+    if(!$authorized)throw new PortalWestyException($aiLost?'ai_changed':'sign_in',$aiLost?503:401);
 }
 
 /** User-edited draft saved before the separate, explicit audience review. */
@@ -366,6 +381,16 @@ function portal_westy_stop(PDO $pdo,array $context,array $request): void
     $q->execute([$s['key'],$key]);$conversation=$q->fetchColumn();
     if(!is_string($conversation))return;
     try{$bound=portal_desktop_context($pdo,$context,$conversation,$key);}
+    catch(PDOException $error){
+        // The optional native schema is not a prerequisite for stopping plain
+        // chat. Never conceal a missing schema when this turn used a native task.
+        if(($error->errorInfo[1]??null)===1146){
+            $q=$pdo->prepare('SELECT 1 FROM portal_westy_ai_attempts a JOIN portal_westy_turns t ON t.id=a.turn_id WHERE t.scope_key=? AND t.operation_key=? AND a.desktop_task_id IS NOT NULL LIMIT 1');
+            $q->execute([$s['key'],$key]);
+            if($q->fetchColumn()===false)return;
+        }
+        throw new PortalWestyException('desktop_unavailable',409);
+    }
     catch(Throwable){throw new PortalWestyException('desktop_unavailable',409);}
     if(!isset($bound['desktop']))return;
     if(($bound['desktop']['operation_key']??null)!==$key)throw new PortalWestyException('desktop_unavailable');

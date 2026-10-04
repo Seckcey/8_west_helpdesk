@@ -183,9 +183,17 @@ function portal_westy_ai_finish(PDO $pdo,array $scope,int $turnId,int $attemptId
         $state=$turn['state']==='pending'?($available?'complete':'unavailable'):$turn['state'];
         $reason=$turn['state']==='pending'?($available?'':($deliver?($result['reason']??'provider_unavailable'):'conversation_changed')):$turn['reason_code'];
         $reply=$deliver?json_encode($result['data'],JSON_THROW_ON_ERROR):$turn['reply_json'];
+        $finished=$turn['finished_at']??gmdate('Y-m-d H:i:s');
         $q=$pdo->prepare('UPDATE portal_westy_turns SET state=?,reason_code=?,reply_json=?,charged_microusd=charged_microusd-?,input_tokens=?,output_tokens=?,finished_at=? WHERE id=? AND scope_key=? AND charged_microusd>=?');
-        $q->execute([$state,$reason,$reply,$refund,$input,$output,$turn['finished_at']??gmdate('Y-m-d H:i:s'),$turnId,$scope['key'],$refund]);
-        if($q->rowCount()!==1)throw new LogicException('turn charge mismatch');
+        $q->execute([$state,$reason,$reply,$refund,$input,$output,$finished,$turnId,$scope['key'],$refund]);
+        // A concurrent stop can already have written this exact final state.
+        // MySQL reports zero changed rows for that no-op; the locked row must
+        // match every assigned field and no refund may be outstanding.
+        $sameCount=static fn(?int $value,mixed $stored):bool=>$value===null?$stored===null:$stored!==null&&(int)$stored===$value;
+        $unchanged=$refund===0 && $state===$turn['state'] && $reason===$turn['reason_code']
+            && $reply===$turn['reply_json'] && $finished===$turn['finished_at']
+            && $sameCount($input,$turn['input_tokens']) && $sameCount($output,$turn['output_tokens']);
+        if($q->rowCount()!==1 && !($q->rowCount()===0 && $unchanged))throw new LogicException('turn charge mismatch');
         if($refund>0){
             $q=$pdo->prepare('UPDATE portal_westy_budgets SET charged_microusd=charged_microusd-? WHERE tenant_id=? AND client_id=? AND month_key=? AND charged_microusd>=?');
             $q->execute([$refund,$scope['tenant'],$scope['client'],$month,$refund]);

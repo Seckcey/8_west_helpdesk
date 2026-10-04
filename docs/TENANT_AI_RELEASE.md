@@ -72,7 +72,7 @@ In the still-held original window, verify again and apply:
 
 The PHP child validates actual inherited locks, current writers/drain, all 11 pinned source files, original capture artifacts, independent restore identity and exact schema catalog. It fsyncs the original migration intent before DDL. It can resume only a recognized empty prefix owned by that exact intent. Drift, populated partial state, orphan receipt, unowned partial/final schema, changed evidence and a final schema without its durable receipt all remain closed for recovery review. A complete matching receipt supports idempotent verification.
 
-The release owner performs the separately reviewed source/config installation and acceptance work while keeping the app closed and preserving these controls. None is implied by `apply`. Before reopening, the owner must explicitly accept the exact receipt, and the tool freshly rechecks its original intent/evidence and final schema:
+This is a schema-only window. Leave the existing running application source and configuration intact. Validate the additive schema and receipt against that unchanged application, then explicitly accept the exact receipt. The tool freshly rechecks its original intent/evidence and final schema before reopening under the original unchanged grants:
 
 ```json
 {"action":"unfreeze","accepted":true,"decision":"accepted-release","receipt_sha256":"EXACT_RECEIPT_SHA256"}
@@ -82,6 +82,12 @@ The release owner performs the separately reviewed source/config installation an
 Reopening unlocks only accounts this intent locked, preserves pre-existing locks, restores exact original cron bytes, restarts only originally active timers, and restores/reloads the original vhost last. It checks all file evidence and unit definitions before reopening writers. An interrupted reopen can resume only the same explicit acceptance and recognized exact pending changes. A changed file, unit, grant, identity or acceptance holds the remaining work for review.
 
 If no component migration intent/receipt exists, an explicitly accepted `abort-before-ddl` can restore the original state. Once either exists, that shortcut is refused. EOF, timeout, failed capture/restore/apply and a closed terminal never automatically reopen the app. Preserve the original journal, backups and source pins. Do not delete locks, fabricate receipts, rerun an old installer, replay uncertain DDL or start a new evidence directory to bypass an incomplete window.
+
+## Separate grant and application release
+
+After this schema-only window has completed and explicitly reopened, the release owner performs the separately reviewed, exact table-specific DELETE grant for Safeharbor's new `portal_westy_ai_attempts` receipt table. MySQL refuses that grant while the table does not exist. Keep the old application and maintenance code running until the grant is verified; do not create an interval where new receipt cleanup lacks its required grant. This helper never executes GRANT.
+
+Deploy or enable the tenant-AI application/maintenance code only in a later, separately reviewed source-release window using the established application release procedure. Refresh the actual resource profile, privilege inventory, source/config identity, backup and acceptance evidence for that new window. Never change the original schema-window grant hashes, intent, receipt or journal to accommodate the later grant/source/config changes, and never reuse that window as authority for the later release.
 
 ## Validation boundaries
 

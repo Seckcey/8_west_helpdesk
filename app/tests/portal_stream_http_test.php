@@ -1,5 +1,5 @@
 <?php
-/** Actual portal HTTP entry, session/revocation middleware and ledger. Only provider is synthetic. */
+/** Actual portal HTTP entry, session/revocation middleware and ledger. AI authority/provider are synthetic. */
 declare(strict_types=1);
 require __DIR__.'/portal_devices_mysql_test.php';
 require_once __DIR__.'/../lib/eightwestid/eightwestid.php';
@@ -19,17 +19,28 @@ $refreshFeed=static function(bool $allow=true)use($cache,$a,$apache,$runtime):vo
 $refreshFeed();$session=bin2hex(random_bytes(16));$csrf=str_repeat('c',64);
 $seedSession=static function()use($runtime,$session,$csrf,$a,$apache):void{$file=$runtime.'/sessions/sess_'.$session;file_put_contents($file,'_safeharbor_portal_identity|'.serialize($a['identity']).'_safeharbor_portal_csrf|'.serialize($csrf));if($apache)chown($file,'www-data');};
 $seedSession();
-$stream=file_get_contents($runtime.'/lib/portal_westy_stream.php');
-$start=strpos($stream,'function portal_westy_provider_stream(');if($start===false)throw new RuntimeException('Provider seam unavailable');
-$stub=<<<'PHP'
-function portal_westy_provider_stream(array $body,string $key,callable $emit,callable $alive):array {
-    $alive(true);$emit('delta',['text'=>'First visible chunk.']);
-    for($n=0;$n<20;$n++){usleep(100000);$alive(true);}
-    $emit('delta',['text'=>' Final chunk.']);
-    return ['ok'=>true,'output'=>[],'input_tokens'=>20,'output_tokens'=>10];
+$authority=<<<'PHP'
+<?php
+require_once __DIR__.'/tenant_ai/tenant_ai_engine.php';
+function safeharbor_tenant_ai_resolve(int $tenant,string $action='status',?int $revision=null):array {
+    return ['version'=>1,'app'=>'safeharbor','local_tenant_key'=>(string)$tenant,'tenant_id'=>$tenant*100,
+        'tenant_slug'=>'provider-'.$tenant,'status'=>'active','revision'=>1,'credential_version'=>1,
+        'api_key'=>'sk-synthetic-http-no-network']+westy_tenant_ai_selection('openai','gpt-6-luna','low');
 }
 PHP;
-file_put_contents($runtime.'/lib/portal_westy_stream.php',substr($stream,0,$start).$stub);
+// Only this disposable copy gets explicit synthetic AI authority. Runtime has no test bypass.
+file_put_contents($runtime.'/lib/tenant_ai.php',$authority);
+$stream=file_get_contents($runtime.'/lib/tenant_ai/tenant_ai_stream.php');
+$start=strpos($stream,'function westy_tenant_ai_stream(');if($start===false)throw new RuntimeException('Provider seam unavailable');
+$stub=<<<'PHP'
+function westy_tenant_ai_stream(array $selection,string $system,array $messages,array $options,callable $emit,callable $alive):array {
+    $alive();$emit('First visible chunk.');
+    for($n=0;$n<20;$n++){usleep(100000);$alive();}
+    $emit(' Final chunk.');
+    return ['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>20,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>10]];
+}
+PHP;
+file_put_contents($runtime.'/lib/tenant_ai/tenant_ai_stream.php',substr($stream,0,$start).$stub);
 $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);$address=stream_socket_get_name($socket,false);fclose($socket);
 $command=['setsid',PHP_BINARY,'-d','session.save_path='.$runtime.'/sessions','-S',$address,'-t',$runtime.'/public'];
 if($apache){
@@ -50,7 +61,7 @@ try{
     check($json()[0]===200,'real HTTP authenticates synthetic cookie through actual revocation and binding middleware');
     check($json(['action'=>'message','operation'=>str_repeat('e',32),'message'=>'Never stored.','conversation'=>null],'wrong')[0]===403,'real streaming route requires CSRF before reserving a turn');
     foreach(['complete','stop','logout','revoke'] as $scenario){
-        $seedSession();$refreshFeed();$state=$json()[1]['state'];$operation=bin2hex(random_bytes(16));$bytes='';$firstAt=null;$doneAt=null;$intervened=false;$startAt=microtime(true);$headers=[];
+        $seedSession();$refreshFeed();$state=$json()[1]['state'];$operation='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$bytes='';$firstAt=null;$doneAt=null;$intervened=false;$startAt=microtime(true);$headers=[];
         $curl=curl_init('http://'.$address.'/portal/westy.php');
         curl_setopt_array($curl,[CURLOPT_POST=>true,CURLOPT_TIMEOUT=>8,CURLOPT_HTTPHEADER=>['Cookie: safeharbor_portal='.$session,'Content-Type: application/json','Accept: text/event-stream','X-Portal-CSRF: '.$csrf],
             CURLOPT_POSTFIELDS=>json_encode(['action'=>'message','operation'=>$operation,'message'=>'Synthetic stream test.','conversation'=>$state['conversation']]),

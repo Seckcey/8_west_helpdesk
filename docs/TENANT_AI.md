@@ -6,7 +6,7 @@ Safeharbor resolves AI configuration from the customer's provider MSP in 8 West 
 
 ## Chat, usage and replay
 
-The portal checks current customer identity and provider binding before a turn, before each provider/tool round and before delivery. Provider/model/effort, catalog, AI revision and credential version must remain consistent. Revocation while a provider request is running suppresses output and retains known usage or the unknown reservation; it does not retry the request.
+The portal checks current customer identity and provider binding before a turn, before each provider/tool round, before saving/emitting streamed output and again at final delivery. Provider/model/effort, catalog, AI revision and credential version must remain consistent. Once an attempt observes an AI connection change or authority outage, it suppresses further output even if the connection returns. Text already delivered with valid authority remains available. Final accounting retains known usage or the unknown reservation; it does not retry the request.
 
 Each turn reserves a bounded amount before network I/O. `portal_westy_ai_attempts` records the attempt sequence, selected provider/model/catalog/revisions, usage receipts and reserved/charged microdollars. There are at most five rounds. Raw desktop images, accessibility text, credentials and provider continuation payloads stay out of durable chat/receipt storage. Tool operations retain their existing identity, device, approval and idempotency boundaries.
 
