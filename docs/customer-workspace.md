@@ -14,9 +14,15 @@ separate surface with its existing permissions.
 
 ## Streaming and recovery
 
-The Responses adapter consumes real `response.output_text.delta` events and sends
-SSE deltas to the browser immediately. It does not animate a completed response.
-The provider remains `gpt-6-luna`, low reasoning, Standard tier, `store=false`.
+The provider adapter consumes live text events and sends the first complete text
+callback immediately. Later callbacks are coalesced up to 128 bytes or 100 ms,
+checked on arriving text and transport progress callbacks. A callback is never
+split; one larger than the byte bound goes directly through the output guards.
+Each successful round explicitly flushes its remaining text before tool output
+or completion. Failed or cancelled rounds discard buffered text. This does not
+animate a completed response. Eligible MSPs use their current 8 West ID provider,
+model and effort selection; the separately bound internal fallback remains
+`gpt-6-luna`, low reasoning, Standard tier, `store=false`.
 Encrypted reasoning items may be carried between the bounded stateless tool
 rounds in server memory; they never enter the transcript, logs or browser stream.
 There are at most five provider rounds, four tool calls, 1,200 output tokens per
@@ -27,6 +33,11 @@ The server reserves a private turn once, saves partial text and tool intent befo
 emitting it, and releases the PHP session lock before network work. It rechecks
 the original session, current identity generation and exact active customer
 binding during generation, before dispatch and before final disclosure. Session
+and MSP AI authority checks remain fresh and unthrottled before persistence,
+emission, tool dispatch and final accounting. Only idle provider progress uses
+the existing one-second heartbeat throttle; it never authorizes output. A paid
+round receipt is captured before the final flush, so refusing that flush retains
+known usage. Sticky authority loss cannot flush or replay pending text. Session
 cookie/cache options are set before SSE headers so PHP can reopen the same session
 read-only. The response disables compression and requests no proxy buffering.
 Public proxy behavior still requires a real deployment-path test.

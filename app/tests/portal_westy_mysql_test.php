@@ -19,6 +19,9 @@ if(isset($argv[1])&&str_starts_with($argv[1],'--handoff=')){
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS=0');foreach($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $table)$pdo->exec('DROP TABLE `'.str_replace('`','``',$table).'`');$pdo->exec('SET FOREIGN_KEY_CHECKS=1');
 portal_westy_fixture_sql($pdo,__DIR__.'/../db/schema.sql');
+// Deliberately exercise the ordinary-chat deployment with optional native
+// schema absent, even when the aggregate fresh-install schema includes it.
+$pdo->exec('DROP TABLE portal_desktop_bindings');
 // These service-intake tables are intentionally migration-only on a fresh install.
 portal_westy_fixture_sql($pdo,__DIR__.'/../db/migrations/002_svc_intake.sql');
 portal_westy_fixture_sql($pdo,__DIR__.'/../db/migrations/009_support_intake.sql');
