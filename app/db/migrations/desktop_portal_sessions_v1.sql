@@ -1,4 +1,4 @@
--- Additive candidate; protected migration and canonical schema integration pending.
+-- Additive desktop handoff and private continuation authority.
 CREATE TABLE portal_desktop_handoffs (
  handoff_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
  pairing_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -23,5 +23,6 @@ CREATE TABLE portal_desktop_bindings (
  origin_session_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
  task_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
  expires_at DATETIME NOT NULL,
- KEY desktop_private_binding(tenant_id,client_id,scope_key,conversation_id)
+ KEY desktop_private_binding(tenant_id,client_id,scope_key,conversation_id),
+ KEY desktop_binding_expiry(expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

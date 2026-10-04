@@ -74,6 +74,16 @@ It refuses to run unless `MILEPOST_TEST_DB_NAME` is a `milepost_*test*` name and
 The established `app/tests/portal_login_test.php` remains part of the regression
 checks. Container execution belongs on the isolated Coastline test host.
 
+`portal_desktop_context` ambiguity is an explicit `desktop_unavailable` error: Stop
+must never report success after choosing no task from multiple exact matches.
+The private screenshot's width/height are its original physical window pixels;
+provider resizing must map coordinates back to that source size.
+
+`app/tests/desktop_migration_mysql_test.php` exercises the protected migration,
+original backup/intent/receipt checks, partial/drift/replay refusal, selected
+database identity and the full canonical fresh schema. See the desktop section
+of `deploy/README.md` for the release and restricted cleanup grants.
+
 Remaining acceptance includes combined AI/device/desktop tests at the exact
 integrated source, genuine browser-to-companion sign-in, normal approval delay,
 selected Windows app and browser behavior, session lock/multiuser/UAC, signed

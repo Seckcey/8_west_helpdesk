@@ -887,3 +887,46 @@ additive migration structures and stronger guards in place when the prior code
 is compatible; migration 016 explicitly supports that boundary. Restoring a
 database dump is disaster recovery only because it discards writes after the
 backup. Never run `php db/seed.php` in production—it resets demo data.
+
+## Desktop session authority migration (candidate)
+
+The reviewed desktop candidate adds only `portal_desktop_handoffs` and
+`portal_desktop_bindings`. The marked desktop block in `app/db/schema.sql` and
+`app/db/migrations/desktop_portal_sessions_v1.sql` must produce the exact pinned
+catalog in `deploy/desktop_sessions_migration_catalog.json`. No existing chat,
+report, time, repair, or customer record is rewritten or backfilled.
+
+The release owner stages the exact reviewed source, freezes desktop writers,
+and creates a root-owned mode-0700 evidence directory outside the app root.
+Run `deploy/desktop_sessions_migration.php plan` as local root with
+`--app-root`, `--expected-db` and the selected application config. `apply` also
+requires `--evidence-root`, the reviewed 40-character `--target` commit, and
+`--confirm 'APPLY SAFEHARBOR DESKTOP SESSIONS MIGRATION'`. It uses the local root
+MySQL socket; it never puts an application credential in a command or log.
+The protected operation checks payload bytes/catalog/database, obtains file
+and MySQL locks, creates a real private logical backup, verifies its digest,
+writes the original intent before DDL, then requires exact empty postflight
+before writing the completion receipt. Inspect the backup and preserve the
+write freeze until release verification is complete.
+
+Any partial schema, drift, failed dump, interrupted apply, or exact final schema
+without its original verified receipt requires operator recovery. Automatic
+replay does not fill partial tables, drop/recreate objects, or rewrite data.
+An exact receipted repeat verifies the original backup and preserves populated
+rows. Source rollback leaves these additive tables in place; restoring a dump
+would discard later writes and is not ordinary source rollback.
+
+Add table-specific `DELETE` only for these two temporary authority tables to
+the selected existing runtime account. Preserve its other reviewed grants;
+never grant database-wide `DELETE`, `TRUNCATE`, DDL, trigger or grant authority.
+The sorted inventory in `app/tests/business_reports_test.php` records the two
+new paths separately from existing private-chat retention. The real restricted
+account fixture in `desktop_handoff_mysql_test.php` proves expiry cleanup and
+denial of legacy-table deletion and DDL.
+
+Run `app/cron/desktop_sessions_prune.php` as the app account once per minute.
+It deletes at most 100 expired rows from each desktop table and reports failure
+or a full batch through a nonzero status. Monitor that status and resolve any
+backlog. Live handoffs and continuation bindings remain intact. Installation of
+this cron and the two grants is part of the reviewed release, not performed by
+checking in this candidate.

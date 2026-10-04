@@ -4,6 +4,14 @@ require_once __DIR__.'/portal_auth.php';
 require_once __DIR__.'/portal_westy.php';
 require_once __DIR__.'/portal_westy_desktop.php';
 
+/** Temporary handoff/continuation authority only; no private chat or legacy rows. */
+function portal_desktop_prune(PDO $pdo):array
+{
+    $handoffs=$pdo->exec('DELETE FROM portal_desktop_handoffs WHERE expires_at<=UTC_TIMESTAMP() ORDER BY expires_at LIMIT 100');
+    $bindings=$pdo->exec('DELETE FROM portal_desktop_bindings WHERE expires_at<=UTC_TIMESTAMP() ORDER BY expires_at LIMIT 100');
+    return ['handoffs'=>$handoffs,'bindings'=>$bindings];
+}
+
 function portal_desktop_origin():string
 {return portal_desktop_id($_SESSION['desktop_companion_session']??null)?'companion':'portal';}
 function portal_desktop_context(PDO $pdo,array $context,string $conversation,?string $operation=null):array
@@ -16,6 +24,7 @@ function portal_desktop_context(PDO $pdo,array $context,string $conversation,?st
     if($operation!==null)$parameters[]=$operation;
     $q->execute($parameters);$tasks=$q->fetchAll(PDO::FETCH_ASSOC);
     // Multiple matches are ambiguous; never choose a computer arbitrarily.
+    if(count($tasks)>1)throw new PortalDesktopException('desktop_unavailable',409);
     if(count($tasks)===1)$context['desktop']=$tasks[0];
     return $context;
 }

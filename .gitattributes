@@ -1,3 +1,6 @@
 # These files execute on Linux, including artifacts assembled on Windows.
 *.sh text eol=lf
 *.cron text eol=lf
+app/db/migrations/desktop_portal_sessions_v1.sql text eol=lf
+deploy/desktop_sessions_migration.php text eol=lf
+deploy/desktop_sessions_migration_catalog.json text eol=lf

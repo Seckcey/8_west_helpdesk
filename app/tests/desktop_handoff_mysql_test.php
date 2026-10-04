@@ -57,6 +57,9 @@ hs_check(portal_desktop_context($pdo,$context,str_repeat('1',32))['desktop']['op
 hs_check(portal_desktop_context($pdo,$context,str_repeat('1',32),str_repeat('2',32))['desktop']['task_id']===str_repeat('3',32),'exact operation returns original native task');
 hs_check(!isset(portal_desktop_context($pdo,$context,str_repeat('1',32),str_repeat('4',32))['desktop']),'wrong operation cannot obtain native task');
 hs_check(!isset(portal_desktop_context($pdo,$context,str_repeat('4',32))['desktop']),'other conversation cannot obtain native task');
+$pdo->exec("INSERT INTO portal_desktop_bindings SELECT REPEAT('b',32),tenant_id,client_id,subject,scope_key,conversation_id,operation_key,origin_channel,origin_session_hash,task_id,expires_at FROM portal_desktop_bindings");
+hs_check(hs_denied(fn()=>portal_desktop_context($pdo,$context,str_repeat('1',32),str_repeat('2',32))),'ambiguous exact operation raises unavailable for Stop');
+$pdo->exec("DELETE FROM portal_desktop_bindings WHERE session_id=REPEAT('b',32)");
 $pdo->exec("UPDATE portal_desktop_bindings SET origin_session_hash=REPEAT('0',64)");
 hs_check(!isset(portal_desktop_context($pdo,$context,str_repeat('1',32))['desktop']),'other browser session cannot obtain native task');
 hs_check(hs_denied(fn()=>portal_desktop_handoff_take($pdo,$id)),'consumed handoff cannot replay');
@@ -72,4 +75,31 @@ $pdo->exec("UPDATE customer_portal_bindings SET status='active'");portal_session
 $id=portal_desktop_handoff_create($pdo,str_repeat('d',32));hs_approve_fixture($pdo,$id,hs_identity());
 $pdo->prepare('UPDATE portal_desktop_handoffs SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 SECOND WHERE handoff_id=?')->execute([$id]);
 hs_check(hs_denied(fn()=>portal_desktop_handoff_take($pdo,$id)),'expired approved handoff denied');
+// A real restricted runtime account, not a root-backed mock, must perform cleanup.
+// Its only DELETE privileges are the two new temporary-authority tables.
+$runtimeUser='desktop_test_'.bin2hex(random_bytes(5));$runtimePassword=bin2hex(random_bytes(24));
+$account=$pdo->quote($runtimeUser)."@'%'";
+$pdo->exec('CREATE USER '.$account.' IDENTIFIED BY '.$pdo->quote($runtimePassword));
+try {
+    $pdo->exec('GRANT SELECT,INSERT,UPDATE ON `'.$schema.'`.* TO '.$account);
+    foreach(['portal_desktop_bindings','portal_desktop_handoffs'] as $table)
+        $pdo->exec('GRANT DELETE ON `'.$schema.'`.`'.$table.'` TO '.$account);
+    $runtime=new PDO('mysql:host='.$host.';dbname='.$schema,$runtimeUser,$runtimePassword,
+        [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
+    $pdo->exec("UPDATE portal_desktop_bindings SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 SECOND");
+    $before=(int)$pdo->query('SELECT COUNT(*) FROM portal_desktop_handoffs WHERE expires_at>UTC_TIMESTAMP()')->fetchColumn();
+    $counts=portal_desktop_prune($runtime);
+    hs_check($counts['handoffs']===1&&$counts['bindings']===1,'actual restricted account deletes expired authority');
+    hs_check((int)$pdo->query('SELECT COUNT(*) FROM portal_desktop_handoffs')->fetchColumn()===$before,'cleanup preserves live handoffs');
+    hs_check(hs_denied(fn()=>portal_desktop_handoff_take($pdo,$id)),'deleted expired handoff cannot replay');
+    foreach(['clients','suite_customer_sync_events','managed_customer_lifecycle_restore_receipts'] as $table){
+        $denied=false;
+        try{$runtime->exec('DELETE FROM `'.$table.'`');}catch(PDOException $e){$denied=($e->errorInfo[1]??null)===1142;}
+        hs_check($denied,'runtime cannot delete legacy '.$table);
+    }
+    $denied=false;
+    try{$runtime->exec('CREATE TABLE forbidden_runtime_ddl(id INT)');}catch(PDOException $e){$denied=($e->errorInfo[1]??null)===1142;}
+    hs_check($denied,'runtime cannot create schema objects');
+    $runtime=null;
+} finally {$pdo->exec('DROP USER '.$account);}
 portal_destroy_session();echo "PASS $checks actual MySQL handoff/session authority assertions\n";ob_end_flush();
