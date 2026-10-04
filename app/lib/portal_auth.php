@@ -47,6 +47,7 @@ function portal_safe_return_path(mixed $value): string
                 '/portal/', '/portal/index.php', '/portal/requests.php', '/portal/ticket.php', '/portal/new.php',
                 '/portal/reports.php', '/portal/devices.php', '/portal/device_help.php',
                 '/portal/mobile.php', '/portal/security.php', '/portal/guide.php',
+                '/portal/desktop_authorize.php',
             ], true)) {
             return '/portal/';
         }
