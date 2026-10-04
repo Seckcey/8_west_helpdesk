@@ -41,11 +41,12 @@ $round=0;$provider=static function($selection,$system,$messages,$options,$emit,$
 };
 $emit=static function($event,$data)use(&$events,$pdo,$request):void{
     $events[]=[$event,$data];
-    if($event==='delta'){$q=$pdo->prepare('SELECT state,reply_json FROM portal_westy_turns WHERE operation_key=?');$q->execute([$request['operation']]);$row=$q->fetch();check($row['state']==='pending'&&str_contains($row['reply_json'],$data['text']),'delta is saved and emitted while generation is still pending');}
+    if($event==='delta'){$q=$pdo->prepare('SELECT state,reply_json FROM portal_westy_turns WHERE operation_key=?');$q->execute([$request['operation']]);$row=$q->fetch();check($row['state']==='pending'&&str_contains(json_decode($row['reply_json'],true)['reply'],$data['text']),'delta is saved and emitted while generation is still pending');}
 };
 portal_westy_message($pdo,$a,$request,$provider,static fn()=>$a,$emit,$transport,aiResolver:$resolver);
 $q=$pdo->prepare('SELECT * FROM portal_westy_turns WHERE operation_key=?');$q->execute([$request['operation']]);$row=$q->fetch();$reply=json_decode($row['reply_json'],true);
-check($round===3&&$seenActions===['devices','temp_start']&&$reply['reply']==="Looking for computers.\n\n\n\nThe preview is queued.",'real orchestration preserves text and tool order across rounds');
+check($round===3&&$seenActions===['devices','temp_start']&&$reply['reply']==="Looking for computers.\n\n\n\nThe preview is queued.",
+    'real orchestration preserves text and tool order across rounds: '.json_encode([$round,$seenActions,$reply,$row['reason_code']]));
 check(!str_contains($row['reply_json'],'synthetic-hidden-reasoning')&&!str_contains(json_encode($events),'synthetic-hidden-reasoning'),'encrypted reasoning never enters saved transcript or browser events');
 check(str_contains(json_encode($providerBodies[0]['input']),$device),'selected device reaches bounded provider context');
 portal_westy_message($pdo,$a,$request,$provider,static fn()=>$a,$emit,$transport,aiResolver:$resolver);check($round===3,'generation replay cannot repeat provider or device work');
