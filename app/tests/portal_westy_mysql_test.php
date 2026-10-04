@@ -57,11 +57,11 @@ check('native session schema is absent in the ordinary-chat fixture',
     (int)$pdo->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='portal_desktop_bindings'")->fetchColumn()===0);
 $request=$message('Help me write a printer request.');tenant_test_message($pdo,$a,$request,$provider);tenant_test_message($pdo,$a,$request,$provider);
 check('exact message replay calls provider once',$calls===1);
-$beforeNative=$calls;
+$beforeNative=$calls;$nativeConversation=tenant_test_state($pdo,$a)['conversation'];
 denied('missing native capability returns typed unavailable',fn()=>tenant_test_message($pdo,$a,
-    ['action'=>'desktop_resume','operation'=>$request['operation'],'conversation'=>$request['conversation']],$provider),'desktop_unavailable');
+    ['action'=>'desktop_resume','operation'=>$request['operation'],'conversation'=>$nativeConversation],$provider),'desktop_unavailable');
 denied('missing native resume is not automatically replayed',fn()=>tenant_test_message($pdo,$a,
-    ['action'=>'desktop_resume','operation'=>$request['operation'],'conversation'=>$request['conversation']],$provider),'desktop_unavailable');
+    ['action'=>'desktop_resume','operation'=>$request['operation'],'conversation'=>$nativeConversation],$provider),'desktop_unavailable');
 check('missing native resume adds no provider call',$calls===$beforeNative);
 $firstAttempt=(int)$pdo->query('SELECT id FROM portal_westy_ai_attempts ORDER BY id LIMIT 1')->fetchColumn();
 denied('completed attempt receipt cannot be edited',fn()=>$pdo->exec('UPDATE portal_westy_ai_attempts SET charged_microusd=0 WHERE id='.$firstAttempt));
