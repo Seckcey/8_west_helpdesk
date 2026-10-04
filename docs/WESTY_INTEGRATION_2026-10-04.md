@@ -1,6 +1,6 @@
 # Westy portal and companion integration - October 4, 2026
 
-Status: assembled candidate; production and actual Windows acceptance pending.
+Status: combined source validated; production and actual Windows acceptance pending.
 The existing 8 West IT 365 coordinator owns integration and release.
 
 ## Customer behavior
@@ -65,8 +65,7 @@ native attempts still refuse unavailable authority rather than claim cancellatio
 The earlier aggregate `d199b9a` failed three checks: an absent-native-schema
 fixture now included that schema, the download link's contrast, and retention of
 typed text during delayed expiry reconciliation. The accepted follow-ups address
-these findings without weakening assertions. Final combined hosted CI remains
-required before merge.
+these findings without weakening assertions.
 
 At `b9dc873`, hosted browser contracts and customer mobile isolation passed.
 The later time-adjustment fixture exposed another plain-CREATE collision when
@@ -77,6 +76,19 @@ those tables ahead of replay. All original time/contact data, random-database
 and loopback guards, trigger comparisons and refusal assertions remain. Real
 MySQL 8.0.46 passed adjustments 59/59 and contacts 120/120. Final combined hosted
 checks still gate merge; no production schema or behavior changed in this fix.
+
+The final exact customer-asset fixture `7b3a4ff4` retains dark mode and compares
+the two complete ordered customer script tags, including current versions. It
+rejects extra, inline, technician and admin scripts. Its rendered HTML is
+unchanged; the canonical LF artifact passed all 44 checks and twelve asset/theme
+boundary probes. Windows checkout CRLF bytes initially failed two existing exact
+SQL checks; validation used canonical Git bytes without weakening those checks.
+
+Combined source `a312c8a9498bfd23262c9b072aa50f08412f3b2e` passed hosted Validate
+[`37230755486`](https://github.com/Seckcey/8_west_helpdesk/actions/runs/37230755486)
+(PHP, browser and selection) and customer mobile isolation
+[`37230755589`](https://github.com/Seckcey/8_west_helpdesk/actions/runs/37230755589).
+Subsequent acceptance documentation changes do not alter that application source.
 
 Actual signed-ID, real-cURL synthetic streams reproduced exhaustion of the
 1,200-resolution-per-application-per-minute limit before the correction. The
@@ -103,6 +115,14 @@ evidence and actual scoped writer closure. Follow the schema-only window in
 [TENANT_AI_RELEASE.md](TENANT_AI_RELEASE.md), explicit accepted reopening, the
 separately reviewed exact receipt DELETE grant, then a fresh source-release
 window. Do not change an original intent to accommodate later grants or source.
+
+The independent exact-Ubuntu recovery image passed complete synthetic restore,
+but the actual Coastline root-only execution and protected production-evidence
+transfer route remain unestablished. The current SSH account cannot authenticate
+sudo. Live freeze, capture, schema, grant, configuration and application release
+remain held until the owner supplies an approved existing root route. Disposable
+Docker rehearsal is not proof of that access or authority for a new privileged
+path. No production database or customer data was used in the image acceptance.
 
 Existing accepted Milepost agents/installers can support a server-first release
 after those gates pass. Every newly built full/lite Windows package includes the
