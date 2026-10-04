@@ -243,10 +243,14 @@ portal_data_check('dashboard links only to verified portal report pages',
     str_contains($rendered, 'Service summaries')
     && !str_contains($rendered, 'href="/reports.php')
     && !str_contains($rendered, 'recipient_email'));
-portal_data_check('rendered portal is dark and loads only its customer chat script',
+preg_match_all('/<script\b[^>]*>.*?<\/script\s*>/is', $rendered, $renderedScripts);
+portal_data_check('rendered portal is dark and loads only its exact customer chat and desktop scripts',
     str_contains($rendered, '<html lang="en" data-theme="dark">')
-    && substr_count($rendered, '<script')===1
-    && str_contains($rendered, 'src="/assets/js/portal-westy.js?v=2"'));
+    && preg_match_all('/<script\b/i', $rendered) === 2
+    && $renderedScripts[0] === [
+        '<script src="/assets/js/portal-desktop.js?v=2" defer></script>',
+        '<script src="/assets/js/portal-westy.js?v=3" defer></script>',
+    ]);
 
 echo "Portal data: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);
