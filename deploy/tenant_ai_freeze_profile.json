@@ -1,0 +1,140 @@
+{
+  "host": "ip-172-31-31-195",
+  "observed_at_utc": "2026-10-04T17:20:33Z",
+  "mysql_socket": "/var/run/mysqld/mysqld.sock",
+  "expected_mysql_user": "root@localhost",
+  "app": "safeharbor",
+  "database": "safeharbor",
+  "app_root": "/srv/8west/apps/safeharbor",
+  "hostnames": [
+    "safeharbor.8westit.com",
+    "www.safeharbor.8westit.com"
+  ],
+  "probe_paths": [
+    "/login.php",
+    "/portal/"
+  ],
+  "units": {},
+  "crons": [
+    {
+      "path": "/etc/cron.d/8west-ventures-workers",
+      "inode": 10820,
+      "sha256": "4430a311d5596ba046fe5924deed697e10a5bb9fa9f447a164aa2a425039dbbf",
+      "selected_active_lines": [
+        4,
+        5,
+        6
+      ],
+      "selected_lines": [
+        4,
+        5,
+        6
+      ],
+      "uid": 0,
+      "gid": 0,
+      "mode": 420
+    },
+    {
+      "path": "/etc/cron.d/safeharbor",
+      "inode": 2994,
+      "sha256": "0c5e962a3fc2fd7074c0d9981af0288a3dcc668b1f6d1bdd0149c6d441d13acc",
+      "selected_active_lines": [
+        2,
+        3
+      ],
+      "selected_lines": [
+        2,
+        3
+      ],
+      "uid": 0,
+      "gid": 0,
+      "mode": 420
+    },
+    {
+      "path": "/etc/cron.d/safeharbor-business-reports",
+      "inode": 28008,
+      "sha256": "0ccf6eb37945c35b30cd62fa752ca5ada155a88c12644cf517950c720b4068b6",
+      "selected_active_lines": [
+        10
+      ],
+      "selected_lines": [
+        10
+      ],
+      "uid": 0,
+      "gid": 0,
+      "mode": 420
+    },
+    {
+      "path": "/etc/cron.d/safeharbor-portal-westy",
+      "inode": 4669,
+      "sha256": "7acf7b683ca579c085e995adcd75ac029bdb33dd4be6dcd5b193862b9359a7fd",
+      "selected_active_lines": [
+        5
+      ],
+      "selected_lines": [
+        5
+      ],
+      "uid": 0,
+      "gid": 0,
+      "mode": 420
+    },
+    {
+      "path": "/etc/cron.d/safeharbor-westy-billing",
+      "inode": 35004,
+      "sha256": "5f0b091cf8f8465154da18fc69c77e19b763a74ce324c2f856b9557b8f409472",
+      "selected_active_lines": [
+        5
+      ],
+      "selected_lines": [
+        5
+      ],
+      "uid": 0,
+      "gid": 0,
+      "mode": 420
+    },
+    {
+      "path": "/etc/cron.d/safeharbor-westy-mail",
+      "inode": 3715,
+      "sha256": "8f6825528e42f8327fa79f96c72be0d14358e5a9a55ab0df652db2f20b2fec6d",
+      "selected_active_lines": [
+        4
+      ],
+      "selected_lines": [
+        4
+      ],
+      "uid": 0,
+      "gid": 0,
+      "mode": 420
+    }
+  ],
+  "vhost": {
+    "path": "/etc/apache2/sites-available/safeharbor-8westit-le-ssl.conf",
+    "enabled_link": "/etc/apache2/sites-enabled/safeharbor-8westit-le-ssl.conf",
+    "sha256": "8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43",
+    "uid": 0,
+    "gid": 0,
+    "mode": 384,
+    "inode": 262379
+  },
+  "locks": [
+    {
+      "path": "/run/lock/8west-suite-release.lock",
+      "uid": 0,
+      "gid": 0,
+      "mode": 420
+    },
+    {
+      "path": "/srv/8west/apps/safeharbor/.app-release.lock",
+      "uid": 0,
+      "gid": 0,
+      "mode": 420
+    },
+    {
+      "path": "/var/lib/safeharbor-report-scheduler/business-reports-deploy.lock",
+      "uid": 0,
+      "gid": 33,
+      "mode": 416
+    }
+  ],
+  "worker_paths": []
+}

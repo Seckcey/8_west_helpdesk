@@ -130,6 +130,10 @@ return [
     // Customer-private Westy. Independent of staff AI. Once enabled, every
     // authenticated active customer binding is eligible, including new signups.
     // Migration 031 and reviewed retention/expiry operation are prerequisites.
+    'tenant_ai' => [
+        'enabled'=>false, 'service_secret'=>'',
+        'internal_tenant_id'=>null, 'internal_local_tenant_key'=>null,
+    ],
     'portal_westy' => [
         'enabled' => false,
         'ai_enabled' => false,

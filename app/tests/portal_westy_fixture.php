@@ -8,6 +8,7 @@ function portal_westy_fixture_sql(PDO $pdo,string $path): void
 {
     $delimiter=';';$buffer='';
     foreach(preg_split('/\R/',file_get_contents($path)) as $line){
+        if(trim($line)===''||str_starts_with(ltrim($line),'--'))continue;
         if(preg_match('/^\s*DELIMITER\s+(\S+)/i',$line,$match)){ $delimiter=$match[1];continue; }
         $buffer.=$line."\n";$trim=rtrim($buffer);
         if(str_ends_with($trim,$delimiter)){$pdo->exec(substr($trim,0,-strlen($delimiter)));$buffer='';}

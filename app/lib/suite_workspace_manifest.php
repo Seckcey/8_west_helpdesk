@@ -52,10 +52,17 @@ function suite_workspace_manifest_read(string $product, array $argv): array
     return [$manifest, hash('sha256', $raw), $adopt];
 }
 
-function suite_workspace_receipt(array $manifest, string $hash, string $product, array $requirements = []): void
+function suite_workspace_receipt(array $manifest, string $hash, string $product, array $requirements = [], ?string $localTenantKey = null): void
 {
-    echo json_encode([
+    $receipt = [
         'product' => $product, 'tenant_id' => $manifest['tenant_id'], 'manifest_sha256' => $hash,
         'status' => $requirements === [] ? 'ready' : 'waiting_for_input', 'requirements' => $requirements,
-    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    ];
+    if ($localTenantKey !== null) {
+        if (preg_match('/\A[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}\z/D', $localTenantKey) !== 1) {
+            throw new InvalidArgumentException('invalid local workspace key');
+        }
+        $receipt['tenant_ai'] = ['contract' => 1, 'local_tenant_key' => $localTenantKey];
+    }
+    echo json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 }
