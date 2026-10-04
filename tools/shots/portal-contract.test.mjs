@@ -836,6 +836,7 @@ if (!SERVE_MODE) test('workspace renders incremental network events, keeps its c
 
 if (!SERVE_MODE) test('workspace operation cards use recorded preview, completion and cancellation receipts',async()=>{
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const geometryProof=[];
   try{
     for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
       let phase='approval',posts=[];
@@ -867,11 +868,17 @@ if (!SERVE_MODE) test('workspace operation cards use recorded preview, completio
         if(next==='offline')await page.getByText('The computer is not currently available.',{exact:true}).waitFor();
         else await review.waitFor();
         if(next==='completed'){assert.match(await review.innerText(),/2 files · 2\.0 KB/);assert.match(await review.innerText(),/55\.5% free/);}
-        if(['cancel_delivered','unknown'].includes(next)){assert.match(await review.innerText(),/outcome is not confirmed/);assert.equal(await page.getByRole('button',{name:/Approve/}).count(),0);}
+        if(['cancel_delivered','unknown'].includes(next)){assert.match(await review.innerText(),/outcome is not confirmed/);assert.match(await review.innerText(),/Do not repeat this check/);assert.equal(await page.getByRole('button',{name:/Approve/}).count(),0);}
+        const composer=await page.locator('#portal-chat-form').boundingBox(),footer=await page.locator('.portal-chat-foot').boundingBox();
+        assert.ok(composer.y>=0&&composer.y+composer.height<=viewport.height,'usable composer remains in the viewport for '+next);
+        assert.ok(footer.y>=0&&footer.y+footer.height<=viewport.height,'privacy/support footer remains in the viewport for '+next);
+        const input=page.getByRole('textbox',{name:'Ask Westy about your computer'});assert.equal(await input.isEnabled(),true);await input.fill('');
+        geometryProof.push({state:next,viewport,composer,footer,input_enabled:true});
         if(process.env.PORTAL_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.PORTAL_SCREENSHOT_DIR,`workspace-${next}-${viewport.width}.png`)});
       }
       assert.equal(posts.length,1,'refresh, offline and unknown results never replay work');assert.deepEqual(consoleProblems,[]);await context.close();
     }
+    if(process.env.PORTAL_SCREENSHOT_DIR)await writeFile(path.join(process.env.PORTAL_SCREENSHOT_DIR,'workspace-geometry.json'),JSON.stringify(geometryProof,null,2)+'\n');
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 

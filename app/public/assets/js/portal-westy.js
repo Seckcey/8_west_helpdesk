@@ -108,7 +108,7 @@
     if(op.result?.kind==='temp_cleanup'){add('Removed',op.result.deleted_files+' files · '+bytesLabel(op.result.deleted_bytes));add('Skipped',String(op.result.skipped_files));}
     review.append(details,element('p',op.impact));
     if(op.state==='queued')review.append(element('p','Waiting for your computer to report. You can leave this chat and return.'));
-    if(['needs_help','cancel_requested'].includes(op.state))review.append(element('p','The outcome is not confirmed. Do not repeat this repair; contact support.', 'portal-tool-error'));
+    if(['needs_help','cancel_requested'].includes(op.state)){const action={health:'check',temp_preview:'preview',temp_cleanup:'cleanup',spooler_restart:'repair'}[op.recipe]||'operation';review.append(element('p','The outcome is not confirmed. Do not repeat this '+action+'; contact support.', 'portal-tool-error'));}
     const actions=element('div',undefined,'portal-chat-draft-actions');
     const act=async(action)=>{
       if(busy)return;actions.querySelectorAll('button').forEach(b=>b.disabled=true);

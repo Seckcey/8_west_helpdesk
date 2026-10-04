@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require __DIR__.'/portal_devices_mysql_test.php';
 require_once __DIR__.'/../lib/eightwestid/eightwestid.php';
+echo 'Portal HTTP test PHP '.PHP_VERSION."\n";
 $runtime=sys_get_temp_dir().'/safeharbor-stream-'.bin2hex(random_bytes(8));
 $apache=getenv('SAFEHARBOR_STREAM_APACHE_TEST')==='1';
 foreach(['lib','config','public/portal','sessions','cache'] as $part)mkdir($runtime.'/'.$part,0700,true);
@@ -65,7 +66,7 @@ try{
                 return strlen($chunk);
             }]);
         $ok=curl_exec($curl);$http=(int)curl_getinfo($curl,CURLINFO_RESPONSE_CODE);curl_close($curl);
-        if($ok===false||$http!==200||$firstAt===null)fwrite(STDERR,'Synthetic HTTP diagnostic: '.json_encode(['http'=>$http,'body'=>trim($bytes),'log'=>file_get_contents($runtime.'/http.log')])."\n");
+        if($ok===false||$http!==200||$firstAt===null||str_contains($bytes,'Warning:')||str_contains($bytes,'Fatal error')||!str_contains(implode('',$headers),'text/event-stream'))fwrite(STDERR,'Synthetic HTTP diagnostic: '.json_encode(['php'=>PHP_VERSION,'http'=>$http,'headers'=>$headers,'body'=>substr(trim($bytes),0,12000),'log'=>substr(file_get_contents($runtime.'/http.log'),-8000)])."\n");
         check($ok!==false&&$http===200&&$firstAt!==null,'actual HTTP produces a visible delta for '.$scenario);
         check(str_contains(implode('',$headers),'text/event-stream')&&!str_contains($bytes,'Warning:')&&!str_contains($bytes,'Fatal error'),'SSE headers and post-header session reads remain clean for '.$scenario);
         if($scenario==='complete')check($doneAt!==null&&$doneAt-$firstAt>1.5&&str_contains($bytes,'Final chunk.'),'first chunk arrives before generation completes, not buffered full-response playback');
