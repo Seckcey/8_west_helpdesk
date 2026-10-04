@@ -85,6 +85,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Lint PHP
         run: find app -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Test tenant AI receipts and protected release contracts
+        env:
+          TENANT_AI_TEST_DISPOSABLE_SERVER: '1'
+          TENANT_AI_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=tenant_ai_test_safeharbor;charset=utf8mb4
+          TENANT_AI_TEST_PASS: safeharbor-test-root
+        run: |
+          find deploy -maxdepth 1 -name 'tenant_ai_*.php' -print0 | xargs -0 -n1 php -l
+          php app/tests/portal_westy_ai_receipt_test.php
+          sudo env TENANT_AI_TEST_DISPOSABLE_SERVER=1 php app/tests/tenant_ai_release_lock_test.php
+          sudo env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy -p 'test_tenant_ai_*.py'
+          mysql --protocol=tcp -h 127.0.0.1 -uroot -psafeharbor-test-root -e 'CREATE DATABASE tenant_ai_test_safeharbor CHARACTER SET utf8mb4 COLLATE utf8mb4_bin'
+          php tools/capture_tenant_ai_schema.php > "$RUNNER_TEMP/tenant-ai-schema.json"
+          php app/tests/tenant_ai_migration_db_test.php
       - name: Test verified business signup portal binding with restricted database account
         env:
           CUSTOMER_SIGNUP_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=signup_test_portal;charset=utf8mb4
@@ -151,6 +164,7 @@ jobs:
           php app/tests/westy_mail_mysql_test.php
           php app/tests/westy_mail_poll_mysql_test.php
           php app/tests/portal_westy_mysql_test.php
+          php app/tests/portal_westy_ai_delivery_mysql_test.php
           php app/tests/portal_devices_mysql_test.php
           php app/tests/portal_workspace_mysql_test.php
           php app/tests/portal_stream_http_test.php

@@ -12,7 +12,10 @@ $pdo->exec('CREATE DATABASE `'.$database.'`');$pdo->exec('USE `'.$database.'`');
 register_shutdown_function(static function()use($pdo,$database):void{$pdo->exec('DROP DATABASE IF EXISTS `'.$database.'`');});
 $settings=['portal_devices'=>['enabled'=>true,'endpoint'=>'https://support.8westit.com/api/svc/customer_portal.php','secret'=>str_repeat('e',64)]];
 function cfg(string $key,mixed $default=null):mixed { global $settings; $v=$settings;foreach(explode('.',$key) as $part){if(!is_array($v)||!array_key_exists($part,$v))return $default;$v=$v[$part];}return $v; }
-function portal_csrf_token():string{return str_repeat('c',64);}
+require_once __DIR__.'/../lib/portal_auth.php';
+session_save_path(sys_get_temp_dir());portal_session_start();
+$_SESSION[PORTAL_CSRF_KEY]=str_repeat('c',64);
+register_shutdown_function(static function():void{if(session_status()===PHP_SESSION_ACTIVE)session_destroy();});
 require __DIR__.'/portal_westy_fixture.php';
 require __DIR__.'/../lib/portal_devices_render.php';
 portal_westy_fixture_sql($pdo,__DIR__.'/../db/schema.sql');

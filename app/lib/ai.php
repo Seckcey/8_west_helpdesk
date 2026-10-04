@@ -16,6 +16,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/westy_credentials.php';
+require_once __DIR__ . '/tenant_ai.php';
 
 function ai_config(): array
 {
@@ -25,6 +26,13 @@ function ai_config(): array
 
 /** Is a REAL, usable provider configured? Controls whether Westy renders at all. */
 function ai_enabled(): bool
+{
+    $context=safeharbor_staff_ai_context();
+    return ($context['status']??'')==='active'
+        || (($context['status']??'')==='internal_legacy' && ai_legacy_enabled());
+}
+
+function ai_legacy_enabled(): bool
 {
     $c = ai_config();
     $provider = (string)($c['provider'] ?? 'anthropic');
@@ -41,6 +49,18 @@ function ai_enabled(): bool
  */
 function ai_provider_complete(string $system, string $user, array $schema): array
 {
+    $actor=function_exists('current_user')?current_user():null;
+    if(!is_array($actor) || (int)($actor['id']??0)<1)return ['ok'=>false,'error'=>'Your AI connection is unavailable.'];
+    $legacy=['enabled'=>true]+ai_config();
+    $ai=westy_tenant_ai_engine_config(safeharbor_staff_ai_context((int)$actor['id']),$legacy);
+    $ai['max_tokens']=(int)($legacy['max_tokens']??8000);
+    $ai['tenant_ai_refresh']=static fn(string $action,int $revision):array=>safeharbor_staff_ai_context((int)$actor['id'],$action,$revision);
+    return westy_tenant_ai_engine_complete($ai,$system,[['role'=>'user','content'=>[['type'=>'text','text'=>$user]]]],$schema,
+        static fn():array=>ai_legacy_complete($system,$user,$schema));
+}
+
+function ai_legacy_complete(string $system, string $user, array $schema): array
+{
     $c = ai_config();
 
     if (($c['provider'] ?? '') === 'stub') {
@@ -51,7 +71,7 @@ function ai_provider_complete(string $system, string $user, array $schema): arra
     }
 
     $key = trim((string)($c['api_key'] ?? ''));
-    if (!ai_enabled()) return ['ok' => false, 'error' => 'AI credentials are unavailable.'];
+    if (!ai_legacy_enabled()) return ['ok' => false, 'error' => 'AI credentials are unavailable.'];
 
     $provider = (string)($c['provider'] ?? 'anthropic');
     if ($provider === 'openai') {
