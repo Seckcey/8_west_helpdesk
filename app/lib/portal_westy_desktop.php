@@ -2,6 +2,7 @@
 /** Cloud-only adapter. Browser/model fields never select tenant, actor or device. */
 declare(strict_types=1);
 require_once __DIR__.'/portal_devices.php';
+require_once __DIR__.'/desktop_cleanup_readiness.php';
 const PORTAL_DESKTOP_ENDPOINT='https://support.8westit.com/api/svc/desktop_sessions.php';
 const PORTAL_DESKTOP_CONTEXT='safeharbor-desktop-sessions-v1';
 final class PortalDesktopException extends RuntimeException
@@ -27,6 +28,8 @@ function portal_desktop_transport(string $body,array $headers):array
 }
 function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array
 {
+    if(!in_array($action,['stop','state','result'],true)&&!desktop_cleanup_available())
+        throw new PortalDesktopException('cleanup_unavailable',503);
     $config=cfg('desktop_companion',[]);
     if(!is_array($config)||($config['endpoint']??null)!==PORTAL_DESKTOP_ENDPOINT
         ||!is_string($config['service_secret']??null)||preg_match('/\A[a-f0-9]{64}\z/D',$config['service_secret'])!==1
