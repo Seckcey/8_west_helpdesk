@@ -110,6 +110,20 @@ class Journal:
 
 
 def frozen_vhost(original, hostname, docroot):
+    if hostname == 'safeharbor.8westit.com':
+        # This deployment's reviewed template has a cache-only assets section
+        # and inherits global URL aliases. Do not generalize its Apache grammar.
+        if (docroot != '/srv/8west/apps/safeharbor/current/public'
+                or sha(original) != '8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43'):
+            raise RuntimeError('Safeharbor virtual host differs from reviewed shape')
+        closed = original.replace(
+            b'        AllowOverride All\n        Require all granted\n',
+            b'        AllowOverride None\n        AllowOverrideList None\n        Require all denied\n')
+        # Directory denial alone does not cover inherited /icons/ or status
+        # URLs. This vhost-only section merges after directory/files/global
+        # location authorization. Disabling overrides also excludes .htaccess If.
+        return closed.replace(b'</VirtualHost>\n',
+                              b'    <Location />\n        Require all denied\n    </Location>\n</VirtualHost>\n')
     text = original.decode('utf-8')
     if len(re.findall(r'^\s*ServerName ' + re.escape(hostname) + r'\s*$', text, re.M)) != 1:
         raise RuntimeError('unexpected app virtual host')
