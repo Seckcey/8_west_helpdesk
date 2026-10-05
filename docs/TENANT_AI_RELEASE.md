@@ -25,7 +25,7 @@ The helper never installs application source, changes grants, provisions secrets
 
 Earlier observation at `2026-10-05T00:49:05Z` followed the accepted ID schema-only window: its atomic restoration changed the shared cron inode from `10820` to `28893`, preserving bytes, owner and mode. The later Safeharbor `63ef6214` window stopped before any account lock, capture or DDL because the alias certificate name check failed after file closure. The release owner explicitly restored all seven original files, verified site health and unchanged application/database state, and closed the original process. That window, recipient keys, intent and recovery journal remain historical evidence; they cannot be reused for a new candidate.
 
-The current profile was independently observed read-only at `2026-10-05T02:02:50.027812+00:00`. It records the seven restored file inodes with their unchanged hashes/owners/modes, plus the separately serving HTTP vhost at inode `295882`. The profile now owns eight files: HTTPS, HTTP and six crons; scheduler selections and three lock definitions are unchanged. A new window needs a newly reviewed candidate and fresh recipients/evidence. ID's draft shared-cron observation remains held until Safeharbor finishes and the actual final inode is observed again.
+The release owner supplied fresh read-only observations on October 5 at approximately `16:22Z` for HTTPS and the six crons, and at `2026-10-05T16:25:36.021404Z` for HTTP. Their bytes, owners, modes and enabled-vhost links were unchanged after the completed tenant-AI reopening. The profile pins HTTPS inode `262842`, HTTP `262841`, shared ventures cron `42576`, Safeharbor cron `42584`, business reports `42592`, portal Westy `42600`, billing `42608` and mail `42616`. Scheduler selections and the three lock definitions are unchanged. These observations refresh a new candidate only; they do not amend any prior window or establish a new freeze. Refresh all observations again before using the candidate.
 
 ## Scope and drain
 
@@ -90,7 +90,7 @@ In the still-held original window, verify again and apply:
 {"action":"apply"}
 ```
 
-The PHP child validates actual inherited locks, current writers/drain, all 11 pinned source files, original capture artifacts, independent restore identity and exact schema catalog. It fsyncs the original migration intent before DDL. It can resume only a recognized empty prefix owned by that exact intent. Drift, populated partial state, orphan receipt, unowned partial/final schema, changed evidence and a final schema without its durable receipt all remain closed for recovery review. A complete matching receipt supports idempotent verification.
+The PHP child validates actual inherited locks, current writers/drain, all 14 pinned Safeharbor source files (including the desktop payload, helper and catalog), original capture artifacts, independent restore identity and exact schema catalog. It fsyncs the original migration intent before DDL. The tenant-AI component can resume only a recognized empty prefix owned by that exact intent. Drift, populated partial state, orphan receipt, unowned partial/final schema, changed evidence and a final schema without its durable receipt all remain closed for recovery review. A complete matching receipt supports idempotent verification. ID's separate source set and implementation are unchanged.
 
 This is a schema-only window. Leave the existing running application source and configuration intact. Validate the additive schema and receipt against that unchanged application, then explicitly accept the exact receipt. The tool freshly rechecks its original intent/evidence and final schema before reopening under the original unchanged grants:
 
@@ -110,6 +110,63 @@ After a completed freeze, an explicitly accepted `abort-before-ddl` can restore 
 This bounded action requires the original PID/start and physical held descriptors, unchanged source/intent/journal, exact original account/grant/database inventory, intact resource pairs and recognized actual file stages. It refuses any account attempt, completed freeze, capture/DDL/unknown artifact, changed inode or unreviewed unit change. Only profiles without systemd units use this path. It validates all resources before creating its separate partial-abort acceptance, preserves untouched original inodes, and restores only recorded replacements: crons first, HTTP then HTTPS, followed by configtest/reload. It can resume an exact pending rename under the same explicit acceptance and original process. It neither creates a completed-freeze event nor uses a fake closure proof, unlocks accounts or executes DDL. A fresh process cannot take over this abort. The existing post-account recovery rules still apply once that boundary has been crossed.
 
 EOF, timeout, failed capture/restore/apply and a closed terminal never automatically reopen the app. Preserve the original journal, backups and source pins. Do not delete locks, fabricate receipts, rerun an old installer, replay uncertain DDL or start a new evidence directory to bypass an incomplete window. These controls do not alter older staged candidates or historical recovery evidence.
+
+## Safeharbor desktop schema in a fresh outer window
+
+Use a fresh candidate, current profile, new evidence directory and the same
+`freeze`, `verify`, `capture` and independent full scratch-restore sequence above.
+The completed tenant-AI schema remains in place. This window applies only the
+two desktop authority tables; never reuse its predecessor's process or evidence.
+All application source/configuration, grants and originally held locks remain
+unchanged until this schema-only window has explicitly reopened.
+
+In the original lock-holding process, after the accepted restore proof:
+
+```json
+{"action":"verify"}
+{"action":"apply-desktop"}
+```
+
+The PHP child checks the same capture, backup, restore, source and writer-closure
+contracts. It requires pristine desktop `READY` and fsyncs
+`desktop-window-intent.json`, binding the freeze intent, target, database identity,
+closed-window proof and desktop payload/catalog before calling the existing
+`desktop_sessions_migration.php apply` helper. The helper retains its own original
+`desktop-before.sql`, `desktop-intent.json` and fsynced `desktop-receipt.json`.
+Closure is checked immediately before and after that helper. A repeat must verify
+the same outer intent, original component evidence and exact empty final schema;
+partial or unreceipted work is held for recovery, never repaired automatically.
+
+Accept only the returned exact SHA-256 of that original desktop receipt:
+
+```json
+{"action":"unfreeze","accepted":true,"decision":"accepted-desktop-release","receipt_sha256":"EXACT_DESKTOP_RECEIPT_SHA256"}
+{"action":"close"}
+```
+
+Reopening requires the original Safeharbor PID/start and physical descriptors.
+The read-only `verify-desktop-final` child revalidates target, outer intent,
+original backup/restore, private component evidence and the exact empty two-table
+catalog before account/file restoration can begin. It never creates missing
+proof or issues DDL. A standalone receipt from another execution cannot substitute
+for this window's original pre-DDL intent. A pending reopen can resume only with
+the same explicit acceptance under the original process and descriptors.
+
+One evidence directory accepts one migration component. Tenant-AI acceptance
+cannot reopen desktop work, and `abort-before-ddl` refuses any desktop outer
+intent, backup, intent or receipt. Keep the freeze and all evidence after an
+interruption; an abort label cannot erase the fact that desktop DDL may have run.
+After successful reopening, verify the new restricted cleanup grants and perform
+the separately reviewed source/configuration release. This action does not
+install application source, start cleanup, enable a capability or publish a package.
+
+Focused validation includes the Linux window tests and the opt-in disposable
+Coastline rehearsal `python3 -B deploy/test_tenant_ai_operator.py safeharbor desktop`.
+The latter uses real inherited locks, MySQL, private backup, independent restore,
+guarded helper execution and explicit reopening; only host/service/process
+observations are synthetic. It tests altered backups/source/proof, orphan or
+missing evidence, wrong target/digest, cross-component acceptance, schema drift
+and unexpected rows. Its synthetic records are not production acceptance.
 
 ## Separate grant and application release
 

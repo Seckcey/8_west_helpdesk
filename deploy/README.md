@@ -898,6 +898,12 @@ report, time, repair, or customer record is rewritten or backfilled.
 
 The release owner stages the exact reviewed source, freezes desktop writers,
 and creates a root-owned mode-0700 evidence directory outside the app root.
+For the protected production window, use the fresh outer window's
+`apply-desktop` and `accepted-desktop-release` sequence in
+[`TENANT_AI_RELEASE.md`](../docs/TENANT_AI_RELEASE.md#safeharbor-desktop-schema-in-a-fresh-outer-window).
+It binds the original held descriptors, capture/independent restore and desktop
+receipt before reopening; the standalone helper below does not supply that
+outer writer closure or authorize a source deployment.
 Run `deploy/desktop_sessions_migration.php plan` as local root with
 `--app-root`, `--expected-db` and the selected application config. `apply` also
 requires `--evidence-root`, the reviewed 40-character `--target` commit, and

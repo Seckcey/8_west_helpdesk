@@ -1,6 +1,6 @@
 {
   "host": "ip-172-31-31-195",
-  "observed_at_utc": "2026-10-05T02:02:50.027812+00:00",
+  "observed_at_utc": "2026-10-05T16:25:36.021404Z",
   "mysql_socket": "/var/run/mysqld/mysqld.sock",
   "expected_mysql_user": "root@localhost",
   "app": "safeharbor",
@@ -18,7 +18,7 @@
   "crons": [
     {
       "path": "/etc/cron.d/8west-ventures-workers",
-      "inode": 33658,
+      "inode": 42576,
       "sha256": "4430a311d5596ba046fe5924deed697e10a5bb9fa9f447a164aa2a425039dbbf",
       "selected_active_lines": [
         4,
@@ -36,7 +36,7 @@
     },
     {
       "path": "/etc/cron.d/safeharbor",
-      "inode": 33666,
+      "inode": 42584,
       "sha256": "0c5e962a3fc2fd7074c0d9981af0288a3dcc668b1f6d1bdd0149c6d441d13acc",
       "selected_active_lines": [
         2,
@@ -52,7 +52,7 @@
     },
     {
       "path": "/etc/cron.d/safeharbor-business-reports",
-      "inode": 33674,
+      "inode": 42592,
       "sha256": "0ccf6eb37945c35b30cd62fa752ca5ada155a88c12644cf517950c720b4068b6",
       "selected_active_lines": [
         10
@@ -66,7 +66,7 @@
     },
     {
       "path": "/etc/cron.d/safeharbor-portal-westy",
-      "inode": 33682,
+      "inode": 42600,
       "sha256": "7acf7b683ca579c085e995adcd75ac029bdb33dd4be6dcd5b193862b9359a7fd",
       "selected_active_lines": [
         5
@@ -80,7 +80,7 @@
     },
     {
       "path": "/etc/cron.d/safeharbor-westy-billing",
-      "inode": 33690,
+      "inode": 42608,
       "sha256": "5f0b091cf8f8465154da18fc69c77e19b763a74ce324c2f856b9557b8f409472",
       "selected_active_lines": [
         5
@@ -94,7 +94,7 @@
     },
     {
       "path": "/etc/cron.d/safeharbor-westy-mail",
-      "inode": 33698,
+      "inode": 42616,
       "sha256": "8f6825528e42f8327fa79f96c72be0d14358e5a9a55ab0df652db2f20b2fec6d",
       "selected_active_lines": [
         4
@@ -114,7 +114,7 @@
     "uid": 0,
     "gid": 0,
     "mode": 384,
-    "inode": 262933
+    "inode": 262842
   },
   "locks": [
     {
@@ -140,7 +140,7 @@
   "additional_vhosts": [
     {
       "path": "/etc/apache2/sites-available/safeharbor-8westit.conf",
-      "inode": 295882,
+      "inode": 262841,
       "sha256": "8bc24d73098ea3c5b0574d45f2c864a3d3e610960418b8af74e5da7807f1315c",
       "uid": 0,
       "gid": 0,

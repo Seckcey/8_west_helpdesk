@@ -16,6 +16,8 @@ const TAI_RELEASE_SOURCE_FILES = [
     'deploy/tenant_ai_writers.php', 'deploy/tenant_ai_operator.php', 'deploy/tenant_ai_freeze.py',
     'deploy/tenant_ai_freeze_profile.json', 'deploy/tenant_ai_window.py',
     'deploy/tenant_ai_restore.py', 'deploy/tenant_ai_scratch.py',
+    'app/db/migrations/desktop_portal_sessions_v1.sql', 'deploy/desktop_sessions_migration.php',
+    'deploy/desktop_sessions_migration_catalog.json',
 ];
 
 function tai_release_private_file(string $path): string

@@ -28,6 +28,9 @@ def main():
     app=sys.argv[1]
     if app not in ('id','safeharbor'):
         raise RuntimeError('fixed rehearsal application required')
+    desktop=len(sys.argv)==3 and sys.argv[2]=='desktop'
+    if len(sys.argv)>3 or (len(sys.argv)==3 and (not desktop or app!='safeharbor')):
+        raise RuntimeError('desktop rehearsal is Safeharbor only')
     source=Path('/src')/app
     candidate=Path(tempfile.mkdtemp(prefix='tenant-ai-candidate-'))
     shutil.copytree(source,candidate,dirs_exist_ok=True)
@@ -48,14 +51,20 @@ def main():
     (app_root/'current/public').mkdir(parents=True)
     freeze.create_private(app_root/'current/public/index.php',b'<?php /* synthetic application backup */\n')
     profile['app_root']=str(app_root);profile['hostnames']=['synthetic.test']
+    (app_root/'current/config').mkdir()
+    freeze.create_private(app_root/'current/config/config.php',b"<?php return ['db'=>['name'=>'safeharbor']];\n")
     profile['probe_paths']=['/index.php'];profile['mysql_socket']='/var/run/mysqld/mysqld.sock'
     vhost=app_root/'vhost.conf'
     freeze.create_private(vhost,(f'<VirtualHost *:443>\nServerName synthetic.test\nDocumentRoot {app_root}/current/public\n'
         f'<Directory {app_root}/current/public>\nAllowOverride All\nRequire all granted\n</Directory>\n</VirtualHost>\n').encode())
     enabled=app_root/'enabled.conf';enabled.symlink_to(vhost)
+    http=app_root/'http.conf';freeze.create_private(http,vhost.read_bytes().replace(b'*:443',b'*:80'))
+    http_enabled=app_root/'http-enabled.conf';http_enabled.symlink_to(http)
     cron=app_root/'mixed-cron';freeze.create_private(cron,b'# Synthetic\n* * * * * root php /unrelated.php\n* * * * * root php /synthetic.php\n')
     def record(path):return {'path':str(path),**freeze.read_physical(path)[1]}
     profile['vhost']={**record(vhost),'enabled_link':str(enabled)}
+    if app=='safeharbor':profile['additional_vhosts']=[{**record(http),'enabled_link':str(http_enabled)}]
+    profile.pop('probe_tls_hostname',None)
     profile['crons']=[{**record(cron),'selected_lines':[3]}]
     for lock in profile['locks']:
         path=Path(lock['path']);path.parent.mkdir(parents=True,exist_ok=True)
@@ -68,9 +77,10 @@ def main():
         'import sys\nsys.path.insert(0,'+repr(str(candidate/'deploy'))+')\n'
         'import tenant_ai_freeze as f\n'
         'f.checked_command=lambda args: "403" if args[0]=="curl" else ""\n'
+        'f.probe_origin=lambda profile,closed=False: None\n'
         'f.app_worker_pids=lambda profile: []\n',encoding='utf-8')
     os.environ['PYTHONPATH']=str(seams);os.environ['PYTHONDONTWRITEBYTECODE']='1'
-    name='tenant-ai-operator-db-'+app+'-01a106cf'
+    name='tenant-ai-operator-db-'+app+('-desktop' if desktop else '')+'-01a106cf'
     mutex=os.fdopen(os.open('/tmp/8west-coastline-heavy-tests.lock',os.O_RDWR|os.O_NOFOLLOW),'r+b')
     fcntl.flock(mutex,fcntl.LOCK_EX|fcntl.LOCK_NB)
     available=next(int(s.split()[1]) for s in Path('/proc/meminfo').read_text().splitlines() if s.startswith('MemAvailable:'))
@@ -80,7 +90,8 @@ def main():
     image=command(['docker','image','inspect','--format','{{.Id}}','mysql:8.0.46'],stdout=subprocess.PIPE).stdout.decode().strip()
     # This named socket volume was created for and mounted in this driver only.
     volume=os.environ['TENANT_AI_REHEARSAL_SOCKET_VOLUME']
-    if volume!='tenant-ai-operator-socket-01a106cf':raise RuntimeError('fixed owned socket volume required')
+    if volume!=('tenant-ai-desktop-socket-01a106cf' if desktop else 'tenant-ai-operator-socket-01a106cf'):
+        raise RuntimeError('fixed owned socket volume required')
     container=command(['docker','run','-d','--name',name,'--label','com.8west.task=tenant-ai-01a106cf',
         '--network','none','--memory','512m','--memory-swap','512m','--cpus','.75',
         '-e','MYSQL_ALLOW_EMPTY_PASSWORD=yes','-e','MYSQL_ROOT_HOST=localhost',
@@ -113,9 +124,13 @@ $schema=preg_replace('/-- BEGIN TENANT AI[^\\n]*\\n[\\s\\S]+?-- END TENANT AI[^\
 if($n!==1)throw new RuntimeException('canonical block absent');
 foreach(tai_migration_sql_statements($schema) as $statement)$pdo->exec($statement);
 '''
+        if desktop:
+            bootstrap=bootstrap.replace('BEGIN TENANT AI','BEGIN DESKTOP SESSION AUTHORITY').replace('END TENANT AI','END DESKTOP SESSION AUTHORITY')
         command(['php','-r',bootstrap,str(candidate),database],stdout=subprocess.DEVNULL)
         generation={'parent':os.getpid(),'parent_start':freeze.proc_identity(os.getpid()),'children':{'99999999':'1'}}
         with patch.object(window,'apache_generation',return_value=generation),\
+             patch.object(window,'probe_origin',return_value=None),\
+             patch.object(freeze,'probe_origin',return_value=None),\
              patch.object(window,'checked_command',return_value=''),\
              patch.object(freeze,'checked_command',side_effect=lambda args:'403' if args[0]=='curl' else ''),\
              patch.object(window,'app_worker_pids',return_value=[]),\
@@ -132,6 +147,10 @@ foreach(tai_migration_sql_statements($schema) as $statement)$pdo->exec($statemen
             # implicit utf8mb4 character set on precisely these two columns.
             # Real captures require their own independently reviewed line pins.
             column_lines=[154,155] if app=='id' else [3539,3540,3541,3542,3632,3633]
+            if desktop:
+                # Independently inspected desktop fixture with tenant-AI already
+                # installed: its attempt-state column adds one exact DDL pin.
+                column_lines=[3528,3638,3639,3640,3641,3731,3732]
             if app=='id':
                 lines=(evidence/'database.sql').read_bytes().splitlines()
                 assert lines[153:155]==[
@@ -139,7 +158,8 @@ foreach(tai_migration_sql_statements($schema) as $statement)$pdo->exec($statemen
                     b'  `full_name` varchar(100) COLLATE utf8mb4_bin NOT NULL,']
             else:
                 lines=(evidence/'database.sql').read_bytes().splitlines()
-                assert [lines[n-1] for n in column_lines]==[
+                assert [lines[n-1] for n in column_lines]==([
+                    b"  `state` enum('pending','complete','unavailable') COLLATE utf8mb4_bin NOT NULL,"] if desktop else [])+[
                     b"  `state` enum('draft','sent','expired') COLLATE utf8mb4_bin NOT NULL DEFAULT 'draft',",
                     b'  `subject` varchar(190) COLLATE utf8mb4_bin DEFAULT NULL,',
                     b'  `body` text COLLATE utf8mb4_bin,',
@@ -158,6 +178,56 @@ foreach(tai_migration_sql_statements($schema) as $statement)$pdo->exec($statemen
                 try:call()
                 except RuntimeError:negatives+=1;return
                 raise AssertionError('protected operator accepted an invalid state')
+            if desktop:
+                apply=lambda:subject.child('apply-desktop')
+                verify=lambda:subject.child('verify-desktop-final')
+                # Missing/changed recovery evidence must refuse before creating
+                # the outer intent or either target table.
+                path=evidence/'database.sql';raw=path.read_bytes();path.write_bytes(raw+b'changed')
+                refuses(apply);path.write_bytes(raw)
+                path=evidence/'restore-proof.json';path.rename(evidence/'held-restore.json')
+                refuses(apply);(evidence/'held-restore.json').rename(path)
+                assert not (evidence/'desktop-window-intent.json').exists()
+                payload=candidate/'app/db/migrations/desktop_portal_sessions_v1.sql';raw=payload.read_bytes()
+                payload.write_bytes(raw+b'-- changed\n');refuses(apply);payload.write_bytes(raw)
+                orphan=evidence/'desktop-receipt.json';freeze.create_private(orphan,b'{}\n')
+                refuses(apply);orphan.unlink()
+                first=apply();assert first['desktop_final_verified'] is True
+                receipt=evidence/'desktop-receipt.json';receipt_bytes=receipt.read_bytes()
+                assert apply()==first and verify()==first and receipt.read_bytes()==receipt_bytes
+                refuses(lambda:subject.child('apply'))
+                refuses(lambda:subject.unfreeze({'accepted':True,'decision':'abort-before-ddl'}))
+                refuses(lambda:subject.unfreeze({'accepted':True,'decision':'accepted-release'}))
+                request={'accepted':True,'decision':'accepted-desktop-release','receipt_sha256':digest(receipt)}
+                refuses(lambda:subject.unfreeze({**request,'receipt_sha256':'0'*64}))
+                for name in ('desktop-window-intent.json','desktop-intent.json','desktop-receipt.json','desktop-before.sql','restore-proof.json'):
+                    path=evidence/name;raw=path.read_bytes();path.write_bytes(b'{}\n')
+                    refuses(verify);path.write_bytes(raw)
+                outer=evidence/'desktop-window-intent.json';raw=outer.read_bytes()
+                changed=json.loads(raw);changed['target']='2'*40
+                outer.write_text(json.dumps(changed),encoding='utf-8');refuses(verify);outer.write_bytes(raw)
+                outer.rename(evidence/'held-outer.json');refuses(verify);refuses(apply)
+                (evidence/'held-outer.json').rename(outer)
+                receipt.rename(evidence/'held-receipt.json');refuses(verify);refuses(apply)
+                (evidence/'held-receipt.json').rename(receipt)
+                table='portal_desktop_bindings'
+                command(['docker','exec',container,'mysql','-uroot',database,'-e','ALTER TABLE '+table+' ADD synthetic_drift INT'],stdout=subprocess.DEVNULL)
+                refuses(verify)
+                command(['docker','exec',container,'mysql','-uroot',database,'-e','ALTER TABLE '+table+' DROP COLUMN synthetic_drift'],stdout=subprocess.DEVNULL)
+                sql="INSERT INTO portal_desktop_handoffs VALUES(REPEAT('a',32),REPEAT('b',32),REPEAT('c',64),'approved',JSON_OBJECT('private','fixture'),UTC_TIMESTAMP(),UTC_TIMESTAMP())"
+                command(['docker','exec',container,'mysql','-uroot',database,'-e',sql],stdout=subprocess.DEVNULL)
+                refuses(verify)
+                command(['docker','exec',container,'mysql','-uroot',database,'-e','DELETE FROM portal_desktop_handoffs'],stdout=subprocess.DEVNULL)
+                assert verify()==first
+                subject.unfreeze(request)
+                final=subject.child('inspect')
+                assert all(not account['locked'] for account in final['accounts'].values())
+                assert b'Require all granted' in vhost.read_bytes()
+                assert cron.read_bytes()==b'# Synthetic\n* * * * * root php /unrelated.php\n* * * * * root php /synthetic.php\n'
+                print('Safeharbor desktop: real locks, capture, independent restore, guarded helper DDL, original receipt, empty schema and explicit reopen PASS')
+                print(str(negatives)+' actual desktop protected-operator refusal cases PASS')
+                print('Synthetic evidence: '+str(evidence))
+                return
             # Test only synthetic evidence/resources. Preserve and restore each
             # exact original before proceeding to the positive apply path.
             dump=evidence/'database.sql';dump_bytes=dump.read_bytes()

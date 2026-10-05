@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Root-operated scoped release window. Read JSON actions from stdin while locks remain held.
 
-Actions: freeze, verify, capture, apply, unfreeze, close. Failure/EOF never reopens
+Actions: freeze, verify, capture, apply, apply-desktop, unfreeze, close. Failure/EOF never reopens
 an application. Run only from the reviewed candidate on its pinned production host.
 Scratch restoration is a separate explicit Coastline operation; this process stays
 alive holding the original descriptors while the operator obtains that proof.
@@ -29,7 +29,11 @@ SOURCE_FILES = ['app/db/migrations/20261004_tenant_ai.sql','deploy/tenant_ai_mig
     'deploy/tenant_ai_migration_catalog.json','deploy/tenant_ai_release.php',
     'deploy/tenant_ai_writers.php','deploy/tenant_ai_operator.php','deploy/tenant_ai_freeze.py',
     'deploy/tenant_ai_freeze_profile.json','deploy/tenant_ai_window.py',
-    'deploy/tenant_ai_restore.py','deploy/tenant_ai_scratch.py']
+    'deploy/tenant_ai_restore.py','deploy/tenant_ai_scratch.py',
+    'app/db/migrations/desktop_portal_sessions_v1.sql','deploy/desktop_sessions_migration.php',
+    'deploy/desktop_sessions_migration_catalog.json']
+
+DESKTOP_EVIDENCE = ('desktop-window-intent.json','desktop-before.sql','desktop-intent.json','desktop-receipt.json')
 
 
 def load_profile():
@@ -380,6 +384,8 @@ class Window:
         if decision=='abort-pre-account':
             return self.abort_pre_account()
         if decision=='accepted-release':
+            if any((self.evidence/name).exists() or (self.evidence/name).is_symlink() for name in DESKTOP_EVIDENCE):
+                raise RuntimeError('desktop work requires its own original receipt acceptance')
             receipt=read_physical(self.evidence/'tenant-ai-receipt.json',0o600)[0]
             value=json.loads(receipt)
             migration_intent=read_physical(self.evidence/'tenant-ai-intent.json',0o600)[0]
@@ -388,8 +394,18 @@ class Window:
                 raise RuntimeError('exact migration receipt acceptance required')
             # Read-only verification; reopening must never initiate or repair DDL.
             self.child('verify-final')
+        elif decision=='accepted-desktop-release':
+            if self.profile['app']!='safeharbor' or self.journal.intent.get('operator')!=self.locks.identity():
+                raise RuntimeError('original Safeharbor process and held descriptors required')
+            receipt=read_physical(self.evidence/'desktop-receipt.json',0o600)[0]
+            if sha(receipt)!=request.get('receipt_sha256'):
+                raise RuntimeError('exact desktop receipt acceptance required')
+            # Read-only validation of the original outer intent, restore, helper
+            # receipt/backup, target and current empty schema; never invokes DDL.
+            self.child('verify-desktop-final')
         elif decision=='abort-before-ddl':
-            if (self.evidence/'tenant-ai-intent.json').exists() or (self.evidence/'tenant-ai-receipt.json').exists():
+            if any((self.evidence/name).exists() or (self.evidence/name).is_symlink()
+                   for name in ('tenant-ai-intent.json','tenant-ai-receipt.json',*DESKTOP_EVIDENCE)):
                 raise RuntimeError('DDL may have started; reviewed recovery required')
         else:
             raise RuntimeError('explicit release acceptance or pre-DDL abort required')
@@ -485,6 +501,10 @@ def main():
                 elif action=='verify':result=window.require_closed()
                 elif action=='capture':result=window.capture()
                 elif action=='apply':window.require_closed();result=window.child('apply')
+                elif action=='apply-desktop':
+                    if profile['app']!='safeharbor' or window.journal is None or window.journal.intent.get('operator')!=locks.identity():
+                        raise RuntimeError('original Safeharbor window required')
+                    window.require_closed();result=window.child('apply-desktop')
                 elif action=='unfreeze':result=window.unfreeze(request)
                 else:raise RuntimeError('unknown operator action')
                 print(json.dumps({'ok':True,'action':action,'result':result}),flush=True)
