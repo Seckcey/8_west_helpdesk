@@ -47,7 +47,7 @@ function sh_ds_write(string $path,array $value):void
 {
     $fd=fopen($path,'x');if($fd===false)throw new RuntimeException('existing evidence must not be overwritten');
     try{chmod($path,0600);$bytes=json_encode($value,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n";
-        if(fwrite($fd,$bytes)!==strlen($bytes)||!fflush($fd))throw new RuntimeException('evidence write incomplete');
+        if(fwrite($fd,$bytes)!==strlen($bytes)||!fflush($fd)||!fsync($fd))throw new RuntimeException('evidence write incomplete');
     }finally{fclose($fd);}
 }
 function sh_ds_evidence(string $root,string $database):array

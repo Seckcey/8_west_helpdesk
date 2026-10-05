@@ -115,8 +115,13 @@ try {
         finally{fclose($stream);}
         $verify('after_account_backup');echo "{\"ok\":true}\n";exit;
     }
-    if($action==='apply'||$action==='verify-final') {
-        if($action==='apply')$verify('before_proof');
+    if(in_array($action,['apply','verify-final','apply-desktop','verify-desktop-final'],true)) {
+        $desktop=in_array($action,['apply-desktop','verify-desktop-final'],true);
+        $applying=in_array($action,['apply','apply-desktop'],true);
+        foreach($desktop?['tenant-ai-intent.json','tenant-ai-receipt.json']:
+            ['desktop-window-intent.json','desktop-before.sql','desktop-intent.json','desktop-receipt.json'] as $other)
+            if(file_exists($root.'/'.$other)||is_link($root.'/'.$other))throw new RuntimeException('one migration component per original window');
+        if($applying)$verify('before_proof');
         $capture=json_decode(tai_release_private_file($root.'/capture.json'),true,32,JSON_THROW_ON_ERROR);
         if(($capture['intent_sha256']??null)!==$request['intent_sha256']||$capture['identity']!==$identity)throw new RuntimeException('capture differs from closed window');
         foreach($capture['artifacts'] as $name=>$record){
@@ -131,8 +136,49 @@ try {
         if(file_exists($proofPath)){
             if(json_decode(tai_release_private_file($proofPath),true,32,JSON_THROW_ON_ERROR)!==$proof)throw new RuntimeException('original closed-window proof differs');
         }else {
-            if($action==='verify-final')throw new RuntimeException('original closed-window proof absent');
+            if(!$applying)throw new RuntimeException('original closed-window proof absent');
             tai_release_write($proofPath,$proof);
+        }
+        if($desktop){
+            if(TAI_RELEASE_APP!=='safeharbor'||$profile['database']!==$identity['database'])throw new RuntimeException('Safeharbor desktop identity required');
+            tai_release_proof($proofPath,$intent['target'],$identity,$intent['candidate']);
+            define('SH_DS_LIBRARY_ONLY',true);
+            require __DIR__.'/desktop_sessions_migration.php';
+            sh_ds_payload($intent['candidate'].'/'.SH_DS_PATH);
+            $outerPath=$root.'/desktop-window-intent.json';
+            $expected=['contract'=>'safeharbor-desktop-window-v1','target'=>$intent['target'],'identity'=>$identity,
+                'freeze_intent_sha256'=>$request['intent_sha256'],'proof_sha256'=>hash_file('sha256',$proofPath),
+                'payload_sha256'=>SH_DS_SHA256,'catalog_sha256'=>SH_DS_CATALOG_SHA256];
+            $snapshot=sh_ds_snapshot($pdo,$profile['database']);
+            $original=file_exists($outerPath)||is_link($outerPath);
+            if($original){
+                if(json_decode(tai_release_private_file($outerPath),true,16,JSON_THROW_ON_ERROR)!==$expected)
+                    throw new RuntimeException('original desktop window differs');
+            }else{
+                if(!$applying||$snapshot['state']!=='READY')throw new RuntimeException('original pristine desktop window required');
+                foreach(['desktop-before.sql','desktop-intent.json','desktop-receipt.json'] as $name)
+                    if(file_exists($root.'/'.$name)||is_link($root.'/'.$name))throw new RuntimeException('unowned desktop evidence');
+                // Durable outer ownership exists before the existing helper can
+                // create its own backup/intent or issue any DDL.
+                tai_release_write($outerPath,$expected);
+            }
+            if($applying){
+                $verify('before_desktop_ddl');
+                tai_release_proof($proofPath,$intent['target'],$identity,$intent['candidate']);
+                $process=proc_open(['/usr/bin/php',$intent['candidate'].'/deploy/desktop_sessions_migration.php','apply',
+                    '--app-root',$profile['app_root'].'/current','--expected-db',$profile['database'],
+                    '--evidence-root',$root,'--target',$intent['target'],
+                    '--confirm','APPLY SAFEHARBOR DESKTOP SESSIONS MIGRATION'],
+                    [0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file','/dev/null','w']],$pipes);
+                if(!is_resource($process)||proc_close($process)!==0)throw new RuntimeException('desktop helper refused; retain original window');
+                $verify('after_desktop_ddl');
+            }
+            foreach(['desktop-before.sql','desktop-intent.json','desktop-receipt.json'] as $name)tai_operator_artifact($root,$name);
+            $component=sh_ds_evidence($root,$profile['database']);
+            if($component['target']!==$intent['target']||!sh_ds_receipt_valid($root,$profile['database'])
+                ||sh_ds_snapshot($pdo,$profile['database'])!==['state'=>'FINAL','rows'=>0,'errors'=>[]])
+                throw new RuntimeException('original desktop receipt or exact empty schema differs');
+            echo json_encode(['desktop_final_verified'=>true,'receipt_sha256'=>hash_file('sha256',$root.'/desktop-receipt.json')],JSON_THROW_ON_ERROR)."\n";exit;
         }
         if($action==='verify-final'){
             tai_release_proof($proofPath,$intent['target'],$identity,$intent['candidate']);

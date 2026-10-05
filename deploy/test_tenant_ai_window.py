@@ -243,5 +243,58 @@ class WindowTests(unittest.TestCase):
             self.subject.unfreeze({'accepted':True,'decision':'accepted-release','receipt_sha256':freeze.sha(receipt)})
         self.assertIn('verify-final',self.calls);self.assertNotIn('unlock-account',self.calls)
 
+    def desktop_receipt(self):
+        patch.object(freeze,'probe_origin',return_value=None).start()
+        self.profile['app']='safeharbor';self.subject.freeze()
+        raw=b'{"contract":"synthetic-desktop-receipt"}\n'
+        freeze.create_private(self.evidence/'desktop-receipt.json',raw)
+        return {'accepted':True,'decision':'accepted-desktop-release','receipt_sha256':freeze.sha(raw)}
+
+    def test_every_desktop_stage_prevents_no_ddl_abort(self):
+        self.subject.freeze()
+        for name in window.DESKTOP_EVIDENCE:
+            with self.subTest(name=name):
+                path=self.evidence/name;freeze.create_private(path,b'{}\n')
+                with self.assertRaises(RuntimeError):self.subject.unfreeze({'accepted':True,'decision':'abort-before-ddl'})
+                self.assertNotIn('unlock-account',self.calls);path.unlink()
+
+    def test_desktop_work_cannot_use_tenant_ai_acceptance(self):
+        self.desktop_receipt()
+        with self.assertRaises(RuntimeError):self.subject.unfreeze({'accepted':True,'decision':'accepted-release'})
+        self.assertNotIn('verify-final',self.calls);self.assertNotIn('unlock-account',self.calls)
+
+    def test_desktop_receipt_requires_original_process(self):
+        request=self.desktop_receipt()
+        with patch.object(self.locks,'identity',return_value={'pid':-1}):
+            with self.assertRaises(RuntimeError):self.subject.unfreeze(request)
+        self.assertNotIn('verify-desktop-final',self.calls);self.assertNotIn('unlock-account',self.calls)
+
+    def test_desktop_acceptance_is_safeharbor_only(self):
+        request=self.desktop_receipt();self.profile['app']='id'
+        with self.assertRaises(RuntimeError):self.subject.unfreeze(request)
+        self.assertNotIn('unlock-account',self.calls)
+
+    def test_desktop_receipt_digest_is_explicit(self):
+        request=self.desktop_receipt();request['receipt_sha256']='0'*64
+        with self.assertRaises(RuntimeError):self.subject.unfreeze(request)
+        self.assertNotIn('verify-desktop-final',self.calls);self.assertNotIn('unlock-account',self.calls)
+
+    def test_desktop_receipt_alone_cannot_reopen(self):
+        request=self.desktop_receipt()
+        with self.assertRaises(RuntimeError):self.subject.unfreeze(request)
+        self.assertIn('verify-desktop-final',self.calls);self.assertNotIn('unlock-account',self.calls)
+
+    def test_desktop_verified_acceptance_restores_only_after_fresh_closure(self):
+        request=self.desktop_receipt()
+        original=self.child
+        def verified(action,**extra):
+            if action=='verify-desktop-final':self.calls.append(action);return {'desktop_final_verified':True}
+            return original(action,**extra)
+        with patch.object(self.subject,'child',side_effect=verified):self.subject.unfreeze(request)
+        self.assertLess(self.calls.index('verify-desktop-final'),self.calls.index('unlock-account'))
+        self.assertEqual(self.cron.read_bytes(),self.original_cron)
+        self.assertEqual(self.vhost.read_bytes(),self.original_vhost)
+        self.assertFalse(self.closed)
+
 
 if __name__=='__main__':unittest.main()
