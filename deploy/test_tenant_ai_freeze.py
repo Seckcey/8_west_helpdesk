@@ -26,6 +26,32 @@ CRON = b'''# synthetic mixed cron
 
 
 class PureProfileTests(unittest.TestCase):
+    def test_safeharbor_http_shape_also_requires_exact_reviewed_bytes(self):
+        original=Path(__file__).with_name('apache-safeharbor.conf').read_bytes()
+        closed=freeze.frozen_vhost(original,'safeharbor.8westit.com','/srv/8west/apps/safeharbor/current/public')
+        self.assertIn(b'<VirtualHost *:80>',closed);self.assertIn(b'<Location />\n        Require all denied',closed)
+        self.assertIn(b'RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]',closed)
+        with self.assertRaises(RuntimeError):
+            freeze.frozen_vhost(original+b'# drift\n','safeharbor.8westit.com','/srv/8west/apps/safeharbor/current/public')
+
+    def test_probe_keeps_verified_canonical_tls_and_each_alias_host_without_following(self):
+        profile={'app':'safeharbor','hostnames':['safeharbor.8westit.com','www.safeharbor.8westit.com'],
+                 'probe_tls_hostname':'safeharbor.8westit.com','probe_paths':['/login.php','/portal/'],
+                 'vhost':{},'additional_vhosts':[{}]}
+        with patch.object(freeze,'checked_command',return_value='403') as command:
+            freeze.probe_origin(profile,closed=True)
+        self.assertEqual(command.call_count,8)
+        for call in command.call_args_list:
+            args=call.args[0]
+            self.assertNotIn('--location',args);self.assertNotIn('--insecure',args);self.assertNotIn('-k',args)
+            self.assertEqual(args[:4],['curl','-q','--noproxy','*'])
+            if args[-1].startswith('https:'):self.assertTrue(args[-1].startswith('https://safeharbor.8westit.com/'))
+        self.assertEqual(sum('Host: www.safeharbor.8westit.com' in c.args[0] for c in command.call_args_list),4)
+        with patch.object(freeze,'checked_command',return_value='301\nhttps://unrelated.example/login.php'):
+            with self.assertRaises(RuntimeError):freeze.probe_origin(profile,closed=True)
+        with patch.object(freeze,'checked_command',side_effect=RuntimeError('TLS refused')):
+            with self.assertRaises(RuntimeError):freeze.probe_origin(profile)
+
     def test_reviewed_safeharbor_shape_preserves_unrelated_bytes(self):
         original=Path(__file__).with_name('apache-safeharbor-le-ssl.conf').read_bytes()
         self.assertEqual(freeze.sha(original),'8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43')

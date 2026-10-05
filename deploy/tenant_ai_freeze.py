@@ -114,7 +114,9 @@ def frozen_vhost(original, hostname, docroot):
         # This deployment's reviewed template has a cache-only assets section
         # and inherits global URL aliases. Do not generalize its Apache grammar.
         if (docroot != '/srv/8west/apps/safeharbor/current/public'
-                or sha(original) != '8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43'):
+                or sha(original) not in (
+                    '8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43',
+                    '8bc24d73098ea3c5b0574d45f2c864a3d3e610960418b8af74e5da7807f1315c')):
             raise RuntimeError('Safeharbor virtual host differs from reviewed shape')
         closed = original.replace(
             b'        AllowOverride All\n        Require all granted\n',
@@ -251,6 +253,45 @@ def assert_files_closed(journal):
             raise RuntimeError('live file no longer matches the recorded frozen inode')
 
 
+def profile_vhosts(profile):
+    return [profile['vhost'], *profile.get('additional_vhosts', [])]
+
+
+def probe_origin(profile, closed=False):
+    """Check each Host route locally; authenticate HTTPS using its reviewed SNI name.
+
+    Redirects are never followed. A frozen HTTP redirect is accepted only to the
+    exact canonical HTTPS path, whose independent request must itself be denied.
+    """
+    hosts=profile['hostnames'];tls=profile.get('probe_tls_hostname',hosts[0])
+    if (not hosts or tls!=hosts[0] or len(set(hosts))!=len(hosts)
+            or any(not re.fullmatch(r'[a-z0-9]+(?:[.-][a-z0-9]+)*',host) for host in hosts)):
+        raise RuntimeError('unreviewed origin host mapping')
+    if profile['app']=='safeharbor' and (hosts!=['safeharbor.8westit.com','www.safeharbor.8westit.com']
+            or len(profile_vhosts(profile))!=2):
+        raise RuntimeError('both reviewed Safeharbor virtual hosts are required')
+    for hostname in hosts:
+        for path in profile['probe_paths']:
+            if not re.fullmatch(r'/[A-Za-z0-9/_.-]*',path):
+                raise RuntimeError('unreviewed origin path')
+            for protocol,port in (('https',443),('http',80)):
+                destination=tls if protocol=='https' else hostname
+                response=checked_command(['curl','-q','--noproxy','*','--http1.1',
+                    '--silent','--show-error','--max-time','10','--proto','=http,https',
+                    '--output','/dev/null','--write-out','%{http_code}\n%{redirect_url}',
+                    '--resolve',destination+':'+str(port)+':127.0.0.1',
+                    '--header','Host: '+hostname,protocol+'://'+destination+path])
+                fields=response.split('\n',1);status=fields[0];redirect=fields[1] if len(fields)>1 else ''
+                if not re.fullmatch(r'[1-5][0-9]{2}',status):
+                    raise RuntimeError('origin probe did not produce an HTTP status')
+                if closed:
+                    if status=='403':continue
+                    if protocol=='http' and status in ('301','308') and redirect=='https://'+tls+path:continue
+                    raise RuntimeError('app-only origin closure not observed')
+                if not 200<=int(status)<400:
+                    raise RuntimeError('origin prerequisite is not healthy')
+
+
 def assert_system_closed(journal, profile):
     if Path('/proc/sys/kernel/random/boot_id').read_text().strip() != journal.intent['boot_id']:
         raise RuntimeError('host reboot invalidated the closure proof')
@@ -258,10 +299,10 @@ def assert_system_closed(journal, profile):
     assert_scheduler_inventory(profile)
     if app_worker_pids(profile):
         raise RuntimeError('app CLI workers have not drained')
-    vhost=profile['vhost']
-    enabled=Path(vhost['enabled_link'])
-    if not enabled.is_symlink() or str(enabled.resolve())!=vhost['path']:
-        raise RuntimeError('enabled app virtual host changed')
+    for vhost in profile_vhosts(profile):
+        enabled=Path(vhost['enabled_link'])
+        if not enabled.is_symlink() or str(enabled.resolve())!=vhost['path']:
+            raise RuntimeError('enabled app virtual host changed')
     for name, original in journal.intent['units'].items():
         current = unit_state(name)
         if current['fragment'] != original['fragment'] or current['UnitFileState'] != original['UnitFileState']:
@@ -274,17 +315,7 @@ def assert_system_closed(journal, profile):
     if any(proc_identity(pid) == start for pid,start in generation['children'].items()):
         raise RuntimeError('original Apache generation has not drained')
     checked_command(['systemctl','is-active','--quiet','apache2'])
-    resolves=[]
-    for hostname in profile['hostnames']:
-        for port in (80,443):resolves.extend(['--resolve',hostname+':'+str(port)+':127.0.0.1'])
-    for hostname in profile['hostnames']:
-        for path in profile['probe_paths']:
-            for protocol in ('http','https'):
-                status = checked_command(['curl','--silent','--show-error','--max-time','10',
-                    '--location','--max-redirs','2','--proto-redir','=https',
-                    '--output','/dev/null','--write-out','%{http_code}',*resolves,protocol+'://'+hostname+path])
-                if status != '403':
-                    raise RuntimeError('app-only origin closure not observed')
+    probe_origin(profile,closed=True)
 
 
 def assert_scheduler_inventory(profile):
