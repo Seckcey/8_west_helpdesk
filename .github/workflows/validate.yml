@@ -233,6 +233,8 @@ jobs:
           php app/tests/portal_login_test.php
       - name: Test customer portal boundary and rendering
         run: php app/tests/portal_data_test.php
+      - name: Test desktop cleanup readiness without a database
+        run: php app/tests/desktop_cleanup_readiness_test.php
       - name: Test customer portal ticket workflow
         run: php app/tests/portal_ticket_workflow_test.php
       - name: Test customer portal weekly archive access

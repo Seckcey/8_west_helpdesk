@@ -66,6 +66,22 @@ after five minutes; consumed identity JSON is erased immediately. The native web
 session is rotated before use and passes the current revocation and customer
 binding checks. A valid cached login alone cannot bypass those checks.
 
+The deployment-owned wrapper in Milepost's
+[cleanup runbook](https://github.com/Seckcey/8westit_webapp/blob/main/docs/WESTY_DESKTOP_CLEANUP_OPERATIONS.md)
+runs this command as `www-data` with an independent one-minute systemd timer.
+It continues when Milepost's transient mount fails. Direct cron execution alone
+does not supply the required readiness receipt. Both apps read the same fixed
+`/run/8west-desktop-cleanup` location on the shared host and require both jobs to
+have two consecutive successful completions, with receipts no older than 90
+seconds from this boot. Missing, stale, malformed, incomplete, failed or
+full-batch cleanup returns `cleanup_unavailable` before new desktop requests can
+reach the transport. Stop/state/result retain normal authorization and transport
+checks but bypass this health gate. Ordinary chat, human takeover/write holds,
+session lifetimes and tenant boundaries are unchanged. Recovery requires real
+successful cleanup; there is no manual health override or new external alerting.
+The wrapper/units and matching application readers require the separately
+authorized backend release; these source changes do not install or enable them.
+
 ## Verification and remaining gates
 
 `app/tests/desktop_return_path_test.php` exercises the narrow OIDC return path.
