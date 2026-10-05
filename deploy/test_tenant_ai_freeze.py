@@ -26,6 +26,35 @@ CRON = b'''# synthetic mixed cron
 
 
 class PureProfileTests(unittest.TestCase):
+    def test_reviewed_safeharbor_shape_preserves_unrelated_bytes(self):
+        original=Path(__file__).with_name('apache-safeharbor-le-ssl.conf').read_bytes()
+        self.assertEqual(freeze.sha(original),'8f56a2ddfd42a072139d3ff7c111720940e307ffe2751bb03948fc5abc1a5e43')
+        closed=freeze.frozen_vhost(original,'safeharbor.8westit.com','/srv/8west/apps/safeharbor/current/public')
+        expected=original.replace(b'        AllowOverride All\n        Require all granted\n',
+                                  b'        AllowOverride None\n        AllowOverrideList None\n        Require all denied\n')
+        expected=expected.replace(b'</VirtualHost>\n',b'    <Location />\n        Require all denied\n    </Location>\n</VirtualHost>\n')
+        self.assertEqual(closed,expected)
+        self.assertIn(b'Options FollowSymLinks',closed)
+        self.assertIn(b'DirectoryIndex index.php index.html',closed)
+
+    def test_safeharbor_unknown_authorization_and_scope_refuse(self):
+        original=Path(__file__).with_name('apache-safeharbor-le-ssl.conf').read_bytes()
+        extras=(b'<Location />\nRequire all granted\n</Location>\n',
+                b'<Directory /srv/8west/apps/safeharbor/current/public/assets>\nRequire all granted\n</Directory>\n',
+                b'Alias /other /srv/unreviewed\n',b'Include /etc/unreviewed.conf\n',
+                b'<If "true">\nRequire all granted\n</If>\n')
+        variants=[original+original,original.replace(b'DocumentRoot ',b'DocumentRoot /other\nDocumentRoot '),
+                  original.replace(b'AllowOverride All',b'AllowOverride AuthConfig'),
+                  original.replace(b'Require all granted',b'Require all granted\nRequire local'),
+                  original.replace(b'ServerName safeharbor.8westit.com',b'ServerName other.example')]
+        variants += [original.replace(b'</VirtualHost>',extra+b'</VirtualHost>') for extra in extras]
+        for altered in variants:
+            with self.subTest(change=freeze.sha(altered)):
+                with self.assertRaisesRegex(RuntimeError,'differs from reviewed shape'):
+                    freeze.frozen_vhost(altered,'safeharbor.8westit.com','/srv/8west/apps/safeharbor/current/public')
+        with self.assertRaisesRegex(RuntimeError,'differs from reviewed shape'):
+            freeze.frozen_vhost(original,'safeharbor.8westit.com','/srv/8west/apps/other/current/public')
+
     def test_vhost_exact_scope(self):
         closed = freeze.frozen_vhost(VHOST,'id.8westit.com','/srv/8west/apps/ewid/current/public')
         self.assertEqual(closed,VHOST.replace(b'Require all granted',b'Require all denied'))
