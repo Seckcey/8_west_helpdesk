@@ -146,7 +146,7 @@ foreach(tai_migration_sql_statements($schema) as $statement)$pdo->exec($statemen
             # Reviewed synthetic ID dump lines 154/155: MySQL expands the
             # implicit utf8mb4 character set on precisely these two columns.
             # Real captures require their own independently reviewed line pins.
-            column_lines=[154,155] if app=='id' else [3539,3540,3541,3542,3632,3633]
+            column_lines=[154,155] if app=='id' else [3586,3587,3588,3589,3679,3680]
             if desktop:
                 # Independently inspected desktop fixture with tenant-AI already
                 # installed: its attempt-state column adds one exact DDL pin.
