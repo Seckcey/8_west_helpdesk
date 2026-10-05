@@ -13,6 +13,8 @@ import tempfile
 import time
 import unittest
 import uuid
+import re
+from unittest.mock import patch
 
 import tenant_ai_freeze as freeze
 
@@ -106,8 +108,11 @@ echo json_encode(['status'=>(int)$m[1],'body'=>$b]);'''
         return json.loads(self.docker('exec',self.name,'php','-r',code,host,path,method).stdout)
 
     def start(self,vhost):
+        self.start_configuration(self.configuration(vhost))
+
+    def start_configuration(self,configuration):
         self.cleanup_container()
-        (self.root/'httpd.conf').write_text(self.configuration(vhost))
+        (self.root/'httpd.conf').write_text(configuration)
         self.docker('run','-d','--name',self.name,'--label','com.8west.apache-fixture='+self.name,
                     '--network','none','--memory','128m','--memory-swap','128m','--cpus','.25',
                     '--pids-limit','64','--read-only','--cap-drop','ALL',
@@ -124,6 +129,63 @@ echo json_encode(['status'=>(int)$m[1],'body'=>$b]);'''
             except (subprocess.CalledProcessError,json.JSONDecodeError):
                 time.sleep(.1)
         self.fail('isolated Apache did not start: '+self.docker('logs',self.name,check=False).stderr)
+
+    def paired_configuration(self,https,http):
+        config=self.configuration(https)
+        config=config.replace('Listen 127.0.0.1:8080\n','Listen 127.0.0.1:8080\nListen 127.0.0.1:8443\n')
+        config=config.replace('User www-data\n','LoadModule ssl_module /usr/lib/apache2/modules/mod_ssl.so\n'
+                              'LoadModule rewrite_module /usr/lib/apache2/modules/mod_rewrite.so\nUser www-data\n')
+        config=config.replace('<VirtualHost *:8080>','<VirtualHost *:8443>\nSSLEngine On\n'
+                              'SSLCertificateFile /fixture/server.crt\nSSLCertificateKeyFile /fixture/server.key',1)
+        plain=re.search(r'<VirtualHost \*:80>.*?</VirtualHost>',self.configuration(http),re.S).group(0)
+        plain=plain.replace('<VirtualHost *:80>','<VirtualHost *:8080>')
+        # Put the reviewed HTTP app before the unrelated HTTP vhost.
+        return config.replace('<VirtualHost *:8080>\n    ServerName unrelated.example',
+                              plain+'\n<VirtualHost *:8080>\n    ServerName unrelated.example')
+
+    def tls_probe(self,args,check=True):
+        # Test-only transport/CA substitutions. The production curl command and
+        # its URL-derived TLS identity/Host headers remain otherwise unchanged.
+        extra=['--cacert','/fixture/server.crt']
+        for host in ('safeharbor.8westit.com','www.safeharbor.8westit.com'):
+            extra+=['--connect-to',host+':443:127.0.0.1:8443','--connect-to',host+':80:127.0.0.1:8080']
+        result=self.docker('exec',self.name,*args[:-1],*extra,args[-1],check=check)
+        return result.stdout.strip() if check else result
+
+    def test_real_tls_prerequisites_and_both_vhosts_alias_closure(self):
+        # A synthetic trusted certificate covers canonical only, matching the
+        # actual SAN contract. No production cert/key or TLS override is used.
+        subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1',
+                        '-subj','/CN=safeharbor.8westit.com','-addext','subjectAltName=DNS:safeharbor.8westit.com',
+                        '-keyout',str(self.root/'server.key'),'-out',str(self.root/'server.crt')],
+                       check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)
+        (self.root/'server.key').chmod(0o644)  # Disposable fixture only; mount is read-only.
+        https=Path(__file__).with_name('apache-safeharbor-le-ssl.conf').read_bytes()
+        http=Path(__file__).with_name('apache-safeharbor.conf').read_bytes()
+        frozen_https=freeze.frozen_vhost(https,'safeharbor.8westit.com',DOCROOT)
+        frozen_http=freeze.frozen_vhost(http,'safeharbor.8westit.com',DOCROOT)
+        profile={'app':'safeharbor','hostnames':['safeharbor.8westit.com','www.safeharbor.8westit.com'],
+                 'probe_tls_hostname':'safeharbor.8westit.com','probe_paths':['/login.php','/portal/'],
+                 'vhost':{},'additional_vhosts':[{}]}
+        self.start_configuration(self.paired_configuration(https,http))
+        self.assertEqual(self.request('www.safeharbor.8westit.com','/login.php')['status'],200)
+        bad=self.tls_probe(['curl','-q','--noproxy','*','--silent','--output','/dev/null',
+                            'https://www.safeharbor.8westit.com/login.php'],check=False)
+        self.assertEqual(bad.returncode,60)  # SAN mismatch is still refused.
+        with patch.object(freeze,'checked_command',side_effect=self.tls_probe):
+            freeze.probe_origin(profile)
+        self.start_configuration(self.paired_configuration(frozen_https,http))
+        self.assertEqual(self.request('www.safeharbor.8westit.com','/login.php')['status'],200)
+        with patch.object(freeze,'checked_command',side_effect=self.tls_probe):
+            with self.assertRaisesRegex(RuntimeError,'closure not observed'):freeze.probe_origin(profile,closed=True)
+        self.start_configuration(self.paired_configuration(frozen_https,frozen_http))
+        with patch.object(freeze,'checked_command',side_effect=self.tls_probe):
+            freeze.probe_origin(profile,closed=True)
+        self.assertEqual(self.request('www.safeharbor.8westit.com','/login.php')['status'],403)
+        self.assertEqual(self.request('unrelated.example','/')['status'],200)
+        self.start_configuration(self.paired_configuration(https,http))
+        with patch.object(freeze,'checked_command',side_effect=self.tls_probe):freeze.probe_origin(profile)
+        self.assertEqual(self.request('www.safeharbor.8westit.com','/login.php')['status'],200)
 
     def test_actual_shape_closes_root_assets_overrides_and_inherited_aliases(self):
         original=Path(__file__).with_name('apache-safeharbor-le-ssl.conf').read_bytes()

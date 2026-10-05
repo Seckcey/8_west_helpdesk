@@ -21,7 +21,8 @@ import sys
 
 from tenant_ai_freeze import (Journal, read_physical, create_private, replace_recorded,
     frozen_vhost, apache_generation, unit_state, checked_command, wait_until,
-    app_worker_pids, assert_system_closed, assert_scheduler_inventory, proc_identity, sha)
+    app_worker_pids, assert_system_closed, assert_scheduler_inventory, proc_identity, sha,
+    profile_vhosts, probe_origin)
 from tenant_ai_scratch import DUMP_FLAGS, digest, create_json, private_directory, private_file
 
 SOURCE_FILES = ['app/db/migrations/20261004_tenant_ai.sql','deploy/tenant_ai_migration.php',
@@ -107,6 +108,12 @@ class Locks:
     def mapping(self):
         return {path:stream.fileno() for path,stream in self.streams.items()}
 
+    def identity(self):
+        self.verify()
+        return {'pid':os.getpid(),'start':proc_identity(os.getpid()),'locks':[
+            {'path':path,'fd':stream.fileno(),'dev':os.fstat(stream.fileno()).st_dev,
+             'inode':os.fstat(stream.fileno()).st_ino} for path,stream in self.streams.items()]}
+
 
 class Window:
     def __init__(self,profile,candidate,target,evidence,locks):
@@ -137,12 +144,15 @@ class Window:
     def freeze(self):
         if self.journal is None:
             assert_scheduler_inventory(self.profile)
+            # Detect TLS/name/routing failures before evidence or live file mutation.
+            probe_origin(self.profile)
             database=self.child('inspect')
             freeze_id='tenant-ai-'+self.profile['app']+'-'+os.urandom(12).hex()
             files=[]
-            for number,record in enumerate([self.profile['vhost'],*self.profile['crons']]):
+            vhosts=profile_vhosts(self.profile)
+            for number,record in enumerate([*vhosts,*self.profile['crons']]):
                 original,metadata=expected_file(record)
-                if number==0:
+                if number<len(vhosts):
                     enabled=Path(record['enabled_link'])
                     if not enabled.is_symlink() or str(enabled.resolve())!=record['path']:
                         raise RuntimeError('enabled vhost differs from reviewed physical file')
@@ -164,9 +174,10 @@ class Window:
                 'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),'freeze_id':freeze_id,
                 'target':self.target,'candidate':str(self.candidate),'source_files':self.source_files,
                 'profile_sha256':self.source_files['deploy/tenant_ai_freeze_profile.json'],
-                'database':database,'files':files,'units':units,'apache':apache_generation()}
+                'database':database,'files':files,'units':units,'apache':apache_generation(),
+                'operator':self.locks.identity()}
             self.journal=Journal(self.evidence,intent)
-        if (self.evidence/'unfreeze-acceptance.json').exists():
+        if any((self.evidence/name).exists() for name in ('unfreeze-acceptance.json','partial-unfreeze-acceptance.json')):
             raise RuntimeError('this intent already entered explicit reopening')
         for record in self.journal.intent['files']:
             replace_recorded(self.journal,record)
@@ -250,10 +261,124 @@ class Window:
         self.journal.append('capture',self.profile['app'],'done')
         return {'captured':True,'backup_sha256':artifacts['database.sql']['sha256']}
 
+    def abort_pre_account(self):
+        """Explicit rollback in the original lock-holding process, before account work.
+
+        A completed freeze is neither required nor synthesized. Recognized pending
+        file renames may be resumed, but any account/capture/DDL or unknown stage
+        requires separate recovery. This bounded path changes no systemd units.
+        """
+        journal=self.journal;intent=journal.intent
+        if (intent.get('operator')!=self.locks.identity()
+                or intent['boot_id']!=Path('/proc/sys/kernel/random/boot_id').read_text().strip()):
+            raise RuntimeError('original process and held descriptors required for partial abort')
+        fresh_journal=Journal(self.evidence)
+        if fresh_journal.intent_sha256!=journal.intent_sha256 or fresh_journal.events!=journal.events:
+            raise RuntimeError('original journal changed outside this window')
+        if self.profile['units'] or intent['units']:
+            raise RuntimeError('partial abort of unit changes needs separate recovery')
+        assert_scheduler_inventory(self.profile)
+        vhosts=profile_vhosts(self.profile);reviewed=[*vhosts,*self.profile['crons']]
+        if len(intent['files'])!=len(reviewed):
+            raise RuntimeError('original resource set differs')
+        paths={record['path'] for record in intent['files']}
+        allowed={'freeze-file':paths,'reopen-file':paths,'apache-reload':{self.profile['app']},
+                 'partial-unfreeze':{self.profile['app']},'partial-apache-reload':{self.profile['app']},
+                 'failure':{'freeze','unfreeze','verify','capture','apply'}}
+        for event in journal.events:
+            if (event['action'] not in allowed or event['resource'] not in allowed[event['action']]
+                    or event['state'] not in (('recorded',) if event['action']=='failure' else ('intent','done'))):
+                raise RuntimeError('account, completed freeze or unknown stage prevents partial abort')
+        acceptance={'intent_sha256':journal.intent_sha256,'accepted':True,'decision':'abort-pre-account',
+                    'operator':intent['operator']}
+        acceptance_path=self.evidence/'partial-unfreeze-acceptance.json'
+        if acceptance_path.exists() and json.loads(read_physical(acceptance_path,0o600)[0])!=acceptance:
+            raise RuntimeError('partial abort acceptance differs')
+        names={'freeze-intent.json','partial-unfreeze-acceptance.json'}
+        names.update(f'event-{number:06d}.json' for number in range(1,len(journal.events)+1))
+        restore=[]
+        for number,(record,profile_record) in enumerate(zip(intent['files'],reviewed)):
+            names.update((record['original_file'],record['frozen_file']))
+            if (record['path']!=profile_record['path']
+                    or record['original_file']!=f'resource-{number:02d}.original'
+                    or record['frozen_file']!=f'resource-{number:02d}.frozen'
+                    or any(record['original'][key]!=profile_record[key] for key in ('sha256','uid','gid','mode','inode'))):
+                raise RuntimeError('partial abort resource differs from reviewed scope')
+            original=read_physical(self.evidence/record['original_file'],0o600)[0]
+            frozen=read_physical(self.evidence/record['frozen_file'],0o600)[0]
+            expected=(frozen_vhost(original,self.profile['hostnames'][0],self.profile['app_root']+'/current/public')
+                      if number<len(vhosts) else selected_cron(original,profile_record['selected_lines'],intent['freeze_id']))
+            if sha(original)!=record['original']['sha256'] or sha(frozen)!=record['frozen_sha256'] or frozen!=expected:
+                raise RuntimeError('partial abort protected resource pair changed')
+            current,metadata=read_physical(Path(record['path']))
+            if any(metadata[key]!=record['original'][key] for key in ('uid','gid','mode')):
+                raise RuntimeError('partial abort resource metadata changed')
+            events={action:[e for e in journal.events if e['action']==action and e['resource']==record['path']]
+                    for action in ('freeze-file','reopen-file')}
+            for sequence in events.values():
+                if [e['state'] for e in sequence] not in ([],['intent'],['intent','done']):
+                    raise RuntimeError('unrecognized partial file stage')
+            frozen_events=events['freeze-file'];reopen_events=events['reopen-file']
+            if reopen_events:
+                if not acceptance_path.exists() or not frozen_events:
+                    raise RuntimeError('unowned partial reopen')
+                if current==original:
+                    if reopen_events[-1]['state']=='done' and metadata!=reopen_events[-1]['detail']:
+                        raise RuntimeError('completed partial reopen inode changed')
+                    restore.append(record)  # Finish an exact pending rename or verify done.
+                    continue
+                if reopen_events[-1]['state']=='done':
+                    raise RuntimeError('completed partial reopen changed')
+            if current==original and metadata==record['original'] and len(frozen_events)<2 and not reopen_events:
+                continue  # This resource was never replaced; preserve its original inode.
+            if current!=frozen or not frozen_events:
+                raise RuntimeError('resource is not an owned partial freeze')
+            if frozen_events[-1]['state']=='done' and metadata!=frozen_events[-1]['detail']:
+                raise RuntimeError('recorded frozen inode changed')
+            restore.append(record)
+        if any(path.name not in names for path in self.evidence.iterdir()):
+            raise RuntimeError('capture, DDL or unknown artifact prevents partial abort')
+        for vhost in vhosts:
+            link=Path(vhost['enabled_link'])
+            if not link.is_symlink() or str(link.resolve())!=vhost['path']:
+                raise RuntimeError('enabled virtual host changed')
+        if proc_identity(intent['apache']['parent'])!=intent['apache']['parent_start']:
+            raise RuntimeError('original Apache parent changed')
+        # Uses this Window's actual inherited descriptors and pinned read-only PHP
+        # inspection; no account lock or fake system-closure proof is involved.
+        if self.child('inspect')!=intent['database']:
+            raise RuntimeError('original accounts, grants or database changed')
+        checked_command(['apache2ctl','configtest'])
+        self.locks.verify()
+        if not acceptance_path.exists():
+            create_json(acceptance_path,acceptance)
+        if not any(e['action']=='partial-unfreeze' for e in journal.events):
+            journal.append('partial-unfreeze',self.profile['app'],'intent')
+        order=[*intent['files'][len(vhosts):],*reversed(intent['files'][:len(vhosts)])]
+        for record in order:
+            if record in restore:
+                self.locks.verify();replace_recorded(journal,record,reopen=True)
+        self.locks.verify()
+        if not journal.completed('partial-apache-reload',self.profile['app']):
+            journal.append('partial-apache-reload',self.profile['app'],'intent')
+            checked_command(['apache2ctl','configtest']);checked_command(['systemctl','reload','apache2'])
+            checked_command(['systemctl','is-active','--quiet','apache2'])
+            journal.append('partial-apache-reload',self.profile['app'],'done')
+        for record in intent['files']:
+            data,metadata=read_physical(Path(record['path']))
+            if sha(data)!=record['original']['sha256'] or any(metadata[k]!=record['original'][k] for k in ('uid','gid','mode')):
+                raise RuntimeError('partial abort restoration differs')
+        self.locks.verify()
+        if not journal.completed('partial-unfreeze',self.profile['app']):
+            journal.append('partial-unfreeze',self.profile['app'],'done')
+        return {'reopened':True,'decision':'abort-pre-account','completed_freeze':False}
+
     def unfreeze(self,request):
         if self.journal is None or request.get('accepted') is not True:
             raise RuntimeError('explicit root acceptance for this intent required')
         decision=request.get('decision')
+        if decision=='abort-pre-account':
+            return self.abort_pre_account()
         if decision=='accepted-release':
             receipt=read_physical(self.evidence/'tenant-ai-receipt.json',0o600)[0]
             value=json.loads(receipt)
@@ -306,7 +431,8 @@ class Window:
             self.journal.append('unlock-account',key,'intent')
             self.child('unlock-account',account=key)
             self.journal.append('unlock-account',key,'done')
-        for record in self.journal.intent['files'][1:]:
+        vhost_count=len(profile_vhosts(self.profile))
+        for record in self.journal.intent['files'][vhost_count:]:
             replace_recorded(self.journal,record,reopen=True)
         for name,original in self.journal.intent['units'].items():
             if name.endswith('.timer') and original['ActiveState']=='active' and not self.journal.completed('start-timer',name):
@@ -315,7 +441,8 @@ class Window:
                     raise RuntimeError('changed timer cannot be restored')
                 self.journal.append('start-timer',name,'intent');checked_command(['systemctl','start',name])
                 self.journal.append('start-timer',name,'done')
-        replace_recorded(self.journal,self.journal.intent['files'][0],reopen=True)
+        for record in reversed(self.journal.intent['files'][:vhost_count]):
+            replace_recorded(self.journal,record,reopen=True)
         checked_command(['apache2ctl','configtest']);checked_command(['systemctl','reload','apache2'])
         checked_command(['systemctl','is-active','--quiet','apache2'])
         self.journal.append('unfreeze',self.profile['app'],'done')

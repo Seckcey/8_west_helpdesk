@@ -48,6 +48,7 @@ class WindowTests(unittest.TestCase):
         self.generation={'parent':os.getpid(),'parent_start':freeze.proc_identity(os.getpid()),'children':{'99999999':'1'}}
         self.addCleanup(patch.stopall)
         patch.object(window,'apache_generation',return_value=self.generation).start()
+        patch.object(window,'probe_origin',return_value=None).start()
         patch.object(window,'checked_command',return_value='').start()
         patch.object(freeze,'checked_command',side_effect=lambda args:'403' if args[0]=='curl' else '').start()
         patch.object(window,'app_worker_pids',return_value=[]).start()
@@ -73,6 +74,116 @@ class WindowTests(unittest.TestCase):
         self.subject.unfreeze({'accepted':True,'decision':'abort-before-ddl'})
         self.assertFalse(self.closed);self.assertEqual(self.vhost.read_bytes(),self.original_vhost)
         self.assertEqual(self.cron.read_bytes(),self.original_cron)
+
+    def partial_freeze(self):
+        with patch.object(window,'assert_system_closed',side_effect=RuntimeError('late TLS/closure failure')):
+            with self.assertRaises(RuntimeError):self.subject.freeze()
+        self.assertFalse(self.closed);self.assertNotIn('lock-account',self.calls)
+
+    def partial_abort(self):
+        return self.subject.unfreeze({'accepted':True,'decision':'abort-pre-account'})
+
+    def test_tls_prerequisite_failure_leaves_files_and_evidence_untouched(self):
+        with patch.object(window,'probe_origin',side_effect=RuntimeError('certificate mismatch')):
+            with self.assertRaises(RuntimeError):self.subject.freeze()
+        self.assertEqual(list(self.evidence.iterdir()),[])
+        self.assertEqual(self.vhost.read_bytes(),self.original_vhost)
+        self.assertEqual(self.cron.read_bytes(),self.original_cron)
+        self.assertEqual(self.calls,[])
+
+    def test_additional_http_vhost_is_frozen_and_restored(self):
+        http=self.root/'http.conf';freeze.create_private(http,self.original_vhost.replace(b'*:443',b'*:80'))
+        link=self.root/'http-enabled.conf';link.symlink_to(http)
+        self.profile['additional_vhosts']=[{'path':str(http),'enabled_link':str(link),**freeze.read_physical(http)[1]}]
+        original=http.read_bytes()
+        self.subject.freeze();self.assertIn(b'all denied',http.read_bytes())
+        self.subject.unfreeze({'accepted':True,'decision':'abort-before-ddl'})
+        self.assertEqual(http.read_bytes(),original);self.assertEqual(self.vhost.read_bytes(),self.original_vhost)
+
+    def test_preaccount_abort_after_reload_restores_without_fake_freeze_or_account_work(self):
+        self.partial_freeze();result=self.partial_abort()
+        self.assertEqual(result,{'reopened':True,'decision':'abort-pre-account','completed_freeze':False})
+        self.assertEqual(self.vhost.read_bytes(),self.original_vhost);self.assertEqual(self.cron.read_bytes(),self.original_cron)
+        self.assertFalse(self.subject.journal.completed('freeze','id'))
+        self.assertFalse((self.evidence/'unfreeze-acceptance.json').exists())
+        self.assertNotIn('lock-account',self.calls);self.assertNotIn('unlock-account',self.calls)
+        with self.assertRaises(RuntimeError):self.subject.freeze()
+
+    def test_partial_abort_preserves_never_replaced_resource_inode(self):
+        original=window.replace_recorded;inode=self.cron.stat().st_ino
+        def fail_cron(journal,record,*args,**kwargs):
+            if record['path']==str(self.cron):raise RuntimeError('before second resource')
+            return original(journal,record,*args,**kwargs)
+        with patch.object(window,'replace_recorded',side_effect=fail_cron):
+            with self.assertRaises(RuntimeError):self.subject.freeze()
+        self.partial_abort()
+        self.assertEqual(self.cron.stat().st_ino,inode);self.assertEqual(self.vhost.read_bytes(),self.original_vhost)
+
+    def test_partial_abort_accepts_only_recorded_pending_freeze_rename(self):
+        append=freeze.Journal.append
+        def fail_done(journal,action,resource,state,detail=None):
+            if action=='freeze-file' and state=='done':raise RuntimeError('after exact rename')
+            return append(journal,action,resource,state,detail)
+        with patch.object(freeze.Journal,'append',new=fail_done):
+            with self.assertRaises(RuntimeError):self.subject.freeze()
+        self.partial_abort();self.assertEqual(self.vhost.read_bytes(),self.original_vhost)
+
+    def test_partial_abort_resumes_recorded_pending_reopen_without_unlocking(self):
+        self.partial_freeze();append=self.subject.journal.append
+        def fail_done(action,resource,state,detail=None):
+            if action=='reopen-file' and state=='done':raise RuntimeError('after exact reopen rename')
+            return append(action,resource,state,detail)
+        with patch.object(self.subject.journal,'append',side_effect=fail_done):
+            with self.assertRaises(RuntimeError):self.partial_abort()
+        self.partial_abort();self.assertEqual(self.vhost.read_bytes(),self.original_vhost)
+        self.assertEqual(self.cron.read_bytes(),self.original_cron);self.assertNotIn('unlock-account',self.calls)
+
+    def assert_partial_refuses_without_restoring(self):
+        before=self.vhost.read_bytes();cron=self.cron.read_bytes()
+        with self.assertRaises(RuntimeError):self.partial_abort()
+        self.assertEqual(self.vhost.read_bytes(),before);self.assertEqual(self.cron.read_bytes(),cron)
+        self.assertFalse((self.evidence/'partial-unfreeze-acceptance.json').exists())
+        self.assertNotIn('unlock-account',self.calls)
+
+    def test_partial_abort_refuses_different_original_process(self):
+        self.partial_freeze()
+        with patch.object(self.locks,'identity',return_value={'pid':-1}):self.assert_partial_refuses_without_restoring()
+
+    def test_partial_abort_refuses_replaced_real_mutex(self):
+        self.partial_freeze();p=Path(self.lock_records[0]['path']);new=self.root/'new-lock'
+        freeze.create_private(new,b'');os.replace(new,p)
+        self.assert_partial_refuses_without_restoring()
+
+    def test_partial_abort_refuses_unknown_frozen_inode(self):
+        self.partial_freeze();new=self.root/'new-vhost';freeze.create_private(new,self.vhost.read_bytes())
+        os.replace(new,self.vhost);self.assert_partial_refuses_without_restoring()
+
+    def test_partial_abort_refuses_corrupt_original_evidence(self):
+        self.partial_freeze();record=self.subject.journal.intent['files'][0]
+        (self.evidence/record['original_file']).write_bytes(b'changed')
+        self.assert_partial_refuses_without_restoring()
+
+    def test_partial_abort_refuses_changed_account_state(self):
+        self.partial_freeze();self.facts['accounts']['synthetic@localhost']['locked']=True
+        self.assert_partial_refuses_without_restoring()
+
+    def test_partial_abort_refuses_changed_grants(self):
+        self.partial_freeze();self.facts['grants']['synthetic@localhost']='b'*64
+        self.assert_partial_refuses_without_restoring()
+
+    def test_partial_abort_refuses_any_account_attempt(self):
+        self.partial_freeze();self.subject.journal.append('lock-account','synthetic@localhost','intent')
+        self.assert_partial_refuses_without_restoring()
+
+    def test_partial_abort_refuses_capture_or_ddl_artifact(self):
+        self.partial_freeze()
+        for filename in ('database.sql','capture.json','tenant-ai-intent.json','tenant-ai-receipt.json'):
+            with self.subTest(filename=filename):
+                p=self.evidence/filename;freeze.create_private(p,b'{}')
+                self.assert_partial_refuses_without_restoring();p.unlink()
+
+    def test_partial_abort_refuses_completed_freeze(self):
+        self.subject.freeze();self.assert_partial_refuses_without_restoring()
 
     def test_reopen_requires_explicit_acceptance(self):
         self.subject.freeze()
