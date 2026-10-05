@@ -1,6 +1,6 @@
 {
   "host": "ip-172-31-31-195",
-  "observed_at_utc": "2026-10-04T17:20:33Z",
+  "observed_at_utc": "2026-10-05T00:49:05Z",
   "mysql_socket": "/var/run/mysqld/mysqld.sock",
   "expected_mysql_user": "root@localhost",
   "app": "safeharbor",
@@ -18,7 +18,7 @@
   "crons": [
     {
       "path": "/etc/cron.d/8west-ventures-workers",
-      "inode": 10820,
+      "inode": 28893,
       "sha256": "4430a311d5596ba046fe5924deed697e10a5bb9fa9f447a164aa2a425039dbbf",
       "selected_active_lines": [
         4,
