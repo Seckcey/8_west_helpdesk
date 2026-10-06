@@ -36,7 +36,7 @@ try{
         if(!is_array($request))json_out(['ok'=>false,'reason'=>'invalid_request'],400);
         $originalSession=session_id();
         if(!session_write_close())json_out(['ok'=>false,'reason'=>'unavailable'],503);
-        if(in_array($request['action']??'',['message','desktop_resume'],true) && str_contains($_SERVER['HTTP_ACCEPT']??'','text/event-stream')){
+        if(in_array($request['action']??'',['message','desktop_resume','run_resume'],true) && str_contains($_SERVER['HTTP_ACCEPT']??'','text/event-stream')){
             // PHP checks use_cookies before applying session_start options. Set
             // these before the first SSE byte so read-only reopen needs no headers.
             ini_set('session.use_cookies','0');session_cache_limiter('');
@@ -58,7 +58,10 @@ try{
             $emit('done',['state'=>$state]);exit;
         }
         switch($request['action'] ?? ''){
-            case 'message': case 'desktop_resume': portal_westy_message(db(),$context,$request,null,static fn()=>portal_stream_authenticated_context(db(),$originalSession));break;
+            case 'message': case 'desktop_resume': case 'run_resume': portal_westy_message(db(),$context,$request,null,static fn()=>portal_stream_authenticated_context(db(),$originalSession));break;
+            case 'diagnostic_preference':
+                if(!portal_devices_keys($request,['action','automatic_diagnostics'])||!is_bool($request['automatic_diagnostics']))throw new PortalWestyException('invalid_request',400);
+                portal_desktop_request($context,'shell_preferences',['automatic_diagnostics'=>$request['automatic_diagnostics']]);break;
             case 'save_draft': portal_westy_save_draft(db(),$context,$request);break;
             case 'handoff': portal_westy_handoff(db(),$context,$request);$receiptKey=$request['draft_key'];break;
             case 'new_chat': portal_westy_new_chat(db(),$context,$request);break;
@@ -78,12 +81,14 @@ try{
         $check=portal_authenticated_context(db());
         if($check===null||$check['identity']!==$fresh['identity'])$fail('sign_in',401);
     }
+    if($method==='GET'&&isset($_GET['diagnostic_preference'])&&portal_westy_runs_installed(db()))
+        try{$state['diagnostic_preference']=portal_desktop_request($fresh,'shell_preferences',[]);}catch(PortalDesktopException){}
     if($receiptKey!==null)$state['receipt']=portal_westy_receipt(db(),$fresh,$receiptKey);
     $check=portal_authenticated_context(db());
     if($check===null||$check['identity']!==$context['identity'])$fail('sign_in',401);
     session_write_close();
     json_out(['ok'=>true,'state'=>$state]);
-}catch(PortalWestyException|PortalDevicesException $error){$fail($error->reason,$error->status);}
+}catch(PortalWestyException|PortalDevicesException|PortalDesktopException $error){$fail($error->reason,$error->status);}
 catch(PortalDataValidationException|JsonException){$fail('invalid_request',400);}
 catch(PortalIdentityUnavailableException){$fail('identity_unavailable',503);}
 catch(Throwable $error){error_log('[safeharbor-portal-westy] request_failed type='.$error::class);$fail('unavailable',503);}

@@ -28,7 +28,7 @@ function portal_desktop_transport(string $body,array $headers):array
 }
 function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array
 {
-    if(!in_array($action,['stop','state','result'],true)&&!desktop_cleanup_available())
+    if(!in_array($action,['stop','state','result','shell_result','shell_cancel','shell_preferences'],true)&&!desktop_cleanup_available())
         throw new PortalDesktopException('cleanup_unavailable',503);
     $config=cfg('desktop_companion',[]);
     if(!is_array($config)||($config['endpoint']??null)!==PORTAL_DESKTOP_ENDPOINT
@@ -42,13 +42,16 @@ function portal_desktop_request(array $context,string $action,array $input,?call
     $reply=($transport??'portal_desktop_transport')($body,['Content-Type: application/json','X-Portal-Timestamp: '.$timestamp,
         'X-Portal-Nonce: '.$nonce,'X-Portal-Signature: '.hash_hmac('sha256',$preimage,$config['service_secret'])]);
     if(portal_devices_scope(db(),$context)!==$scope)throw new PortalDesktopException('sign_in',401);
+    if(str_starts_with($action,'shell_')&&($reply['status']??0)>=500)throw new PortalDesktopException('connection_unknown');
     $data=json_decode($reply['body'],true,32,JSON_THROW_ON_ERROR);
     if($reply['status']!==200||!is_array($data)||($data['ok']??null)!==true){
         $reason=$data['reason']??'desktop_unavailable';
         $safe=['desktop_unavailable','desktop_offline','capability_disabled','policy_unavailable','actor_unavailable',
             'device_unavailable','device_reassigned','session_expired','session_busy','task_changed','observation_stale',
             'observation_busy','observation_expired','observation_unavailable','payload_unavailable','action_busy',
-            'step_limit','navigation_not_allowed','outside_target','invalid_action','request_changed','read_only'];
+            'step_limit','navigation_not_allowed','outside_target','invalid_action','request_changed','read_only',
+            'shell_unavailable','companion_offline','companion_ambiguous','execution_unresolved','execution_busy',
+            'support_busy','invalid_pipeline','sensitive_text','action_unavailable','cleanup_unavailable','approval_required'];
         throw new PortalDesktopException(in_array($reason,$safe,true)?$reason:'desktop_unavailable');
     }
     if(($data['contract']??null)!==PORTAL_DESKTOP_CONTEXT||!is_array($data['result']??null))throw new PortalDesktopException('invalid_response');

@@ -165,6 +165,9 @@ jobs:
           php app/tests/westy_mail_poll_mysql_test.php
           php app/tests/portal_westy_mysql_test.php
           php app/tests/portal_westy_ai_delivery_mysql_test.php
+          sudo install -d -m 0700 -o "$(id -u)" /run/8west-desktop-cleanup
+          php app/tests/portal_westy_runs_mysql_test.php
+          php app/tests/endpoint_tool_runs_migration_mysql_test.php
           php app/tests/portal_devices_mysql_test.php
           php app/tests/portal_access_mysql_test.php
           php app/tests/portal_workspace_mysql_test.php

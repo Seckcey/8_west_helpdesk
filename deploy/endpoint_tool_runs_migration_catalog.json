@@ -1,0 +1,17 @@
+{
+    "portal_westy_tool_runs": "3f586bf50264c21b37d89c87096ac440c65cada50f0ca16d0c47a89b9d1991a1",
+    "triggers": [
+        {
+            "TRIGGER_NAME": "portal_westy_tool_run_identity_update",
+            "ACTION_TIMING": "BEFORE",
+            "EVENT_MANIPULATION": "UPDATE",
+            "ACTION_STATEMENT": "BEGIN\n IF NOT(NEW.turn_id<=>OLD.turn_id) OR NOT(NEW.tenant_id<=>OLD.tenant_id) OR NOT(NEW.client_id<=>OLD.client_id)\n  OR NOT(NEW.scope_key<=>OLD.scope_key) OR NOT(NEW.conversation_id<=>OLD.conversation_id) OR NOT(NEW.operation_key<=>OLD.operation_key)\n  OR NOT(NEW.origin_channel<=>OLD.origin_channel) OR NOT(NEW.origin_session_hash<=>OLD.origin_session_hash)\n  OR NOT(NEW.companion_session<=>OLD.companion_session) OR NOT(NEW.created_at<=>OLD.created_at) OR NOT(NEW.expires_at<=>OLD.expires_at)\n  OR NEW.sequence<OLD.sequence THEN\n  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Tool run identity is immutable';\n END IF;\nEND"
+        },
+        {
+            "TRIGGER_NAME": "portal_westy_tool_run_scope_insert",
+            "ACTION_TIMING": "BEFORE",
+            "EVENT_MANIPULATION": "INSERT",
+            "ACTION_STATEMENT": "BEGIN\n IF NOT EXISTS(SELECT 1 FROM portal_westy_turns t WHERE t.id=NEW.turn_id AND t.tenant_id=NEW.tenant_id\n  AND t.client_id=NEW.client_id AND t.scope_key=NEW.scope_key AND t.conversation_key=NEW.conversation_id AND t.operation_key=NEW.operation_key)\n  OR (NEW.origin_channel='companion' AND NEW.companion_session IS NULL)\n  OR (NEW.origin_channel='portal' AND NEW.companion_session IS NOT NULL) THEN\n  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Tool run scope mismatch';\n END IF;\nEND"
+        }
+    ]
+}
