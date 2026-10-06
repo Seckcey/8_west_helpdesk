@@ -7,8 +7,12 @@ check(portal_westy_runs_installed($pdo),'canonical schema includes durable tool 
 $settings['portal_westy']=['enabled'=>true,'ai_enabled'=>true,'tools_enabled'=>true,'hourly_limit'=>100,'daily_limit'=>500,'monthly_microusd'=>20000000];
 $settings['desktop_companion']=['endpoint'=>PORTAL_DESKTOP_ENDPOINT,'service_secret'=>str_repeat('e',64)];
 // These are actual readiness receipts, confined to this explicitly disposable container.
+$readinessFiles=[];
+register_shutdown_function(static function()use(&$readinessFiles):void{foreach($readinessFiles as $file)unlink($file);});
 foreach(['milepost','safeharbor'] as $job){
     $dir='/run/8west-desktop-cleanup/'.$job;if(!is_dir($dir))mkdir($dir,0700,true);chmod($dir,0700);
+    if(file_exists($dir.'/status.json'))throw new RuntimeException('Refusing to replace existing cleanup authority');
+    $readinessFiles[]=$dir.'/status.json';
     file_put_contents($dir.'/status.json',json_encode(['schema'=>1,'job'=>$job,'boot_id'=>trim(file_get_contents('/proc/sys/kernel/random/boot_id')),
         'started_at'=>time()-1,'completed_at'=>time(),'exit_code'=>0,'successful_runs'=>2,'healthy'=>true]));chmod($dir.'/status.json',0600);
 }
@@ -74,4 +78,41 @@ portal_westy_run_stop($pdo,$a,$scope,$request['operation'],$endpoint);
 $resume['operation']=$request['operation'];$resume['sequence']=1;$receiptState='completed';$runMessage($resume);
 check($cancelled===1&&$providerCalls===1&&$queued===1,'Stop cancels pending command and prevents late-result continuation');
 check(portal_westy_run_find($pdo,$scope,$request['operation'])['replay_json']===null,'Stop erases resumable provider context');
+
+// Existing background health checks also resume from actual receipts, without a native companion.
+$settings['portal_devices']['enabled']=true;$settings['portal_devices']['diagnostics_enabled']=true;
+$healthCalls=0;$healthQueues=0;$healthReady=false;$device='1:'.str_repeat('a',64);
+$healthOperation=['reference'=>str_repeat('e',32),'recipe'=>'health','title'=>'Computer health check','impact'=>'Read-only system status.',
+    'device_reference'=>$device,'state'=>'queued','created_at'=>gmdate('Y-m-d\TH:i:s\Z'),'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',time()+600),
+    'can_approve'=>false,'approval_fingerprint'=>null,'result'=>null,'basis_reference'=>null,'preview'=>null,'can_cancel'=>true];
+$healthTransport=static function($url,$body,$headers)use(&$healthQueues,&$healthReady,$healthOperation):array{
+    $request=json_decode($body,true);$receipt=$healthOperation;
+    if($healthReady){$receipt['state']='completed';$receipt['can_cancel']=false;$receipt['result']=['version'=>2,'observed_at'=>gmdate('Y-m-d\TH:i:s\Z'),
+        'memory_used_percent'=>42.1,'memory_total_bytes'=>17179869184,'memory_available_bytes'=>8589934592,'system_disk_free_percent'=>55.5,'spooler'=>'running'];}
+    if($request['action']==='health_start'){$healthQueues++;$result=$receipt;}
+    elseif($request['action']==='operations')$result=['available'=>true,'eligibility'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'in_progress'],'items'=>[$receipt]];
+    else throw new RuntimeException('Unexpected health request');
+    return ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>$result])];
+};
+$healthProvider=static function($selection,$system,$messages,$options,$emit,$alive)use(&$healthCalls,$device):array{
+    $healthCalls++;
+    if($healthCalls===1){
+        $args=['device_reference'=>$device];$id='actual_health';
+        $replay=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>$id,'name'=>'start_health_check','arguments'=>json_encode($args)]]];
+        foreach(['provider','model','effort','revision','credential_version'] as $field)$replay[$field]=$selection[$field]??null;
+        return ['ok'=>true,'tool_calls'=>[['id'=>$id,'name'=>'start_health_check','arguments'=>$args]],'continuation'=>$replay,'usage'=>['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>30]];
+    }
+    check(str_contains(json_encode($messages),'17179869184')&&str_contains(json_encode($messages),'42.1'),'background health model continuation receives actual RAM and usage');
+    $emit('The completed check measured 16 GB RAM and 42.1 percent used.');
+    return ['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>150,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>30]];
+};
+$healthMessage=static function(array $r)use($pdo,$a,$healthProvider,$resolver,$healthTransport):void{portal_westy_message($pdo,$a,$r,$healthProvider,static fn()=>$a,transport:$healthTransport,aiResolver:$resolver);};
+$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$request['message']='Check this computer memory.';
+$healthMessage($request);$run=portal_westy_run_find($pdo,$scope,$request['operation']);
+check($healthCalls===1&&$healthQueues===1&&$run['state']==='waiting','background health waits for result without a premature queued explanation');
+$resume=['action'=>'run_resume','operation'=>$request['operation'],'conversation'=>$run['conversation_id'],'sequence'=>1];
+$healthMessage($resume);check($healthCalls===1&&$healthQueues===1,'pending background health does not consume another model turn');
+$healthReady=true;$healthMessage($resume);$healthMessage($resume);
+check($healthCalls===2&&$healthQueues===1&&portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='complete','completed background health resumes once without requeue');
+
 echo 'PASS general tool continuation MySQL: '.$checks." checks\n";

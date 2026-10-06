@@ -136,8 +136,11 @@
     const signature=JSON.stringify(turn.reply?.tools||[]); if(signature===node.toolSignature)return;node.toolSignature=signature;node.tools.replaceChildren();
     const names={list_computers:'Computer list',read_computer_status:'Recorded device activity',start_health_check:'Computer health check',prepare_temp_cleanup:'Temporary-file preview',propose_print_repair:'Print-service repair review',inspect_computer:'Computer investigation',run_powershell:'Script review'};
     for(const tool of turn.reply?.tools||[]){
-      const item=element('div',undefined,'portal-tool');item.dataset.active=String(tool.state==='dispatching'||['queued','verifying'].includes(tool.operation?.state));
-      const label=element('div',undefined,'portal-tool-summary');label.append(element('span',undefined,'portal-tool-dot'),element('span',(names[tool.name]||'Device tool')+' · '+(tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable'}[tool.state]||tool.state))));item.append(label);
+      const shell=['inspect_computer','run_powershell'].includes(tool.name)?tool.result:null;
+      const shellLabels={queued:'Waiting',claimed:'Received',running:'Running',completed:'Result received',cancelled:'Cancelled',refused:'Not executed',unknown:'Outcome unknown',expired:'Expired'};
+      const item=element('div',undefined,'portal-tool');item.dataset.active=String(tool.state==='dispatching'||['queued','verifying'].includes(tool.operation?.state)||['queued','claimed','running'].includes(shell?.state));
+      const toolLabel=shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable'}[tool.state]||tool.state);
+      const label=element('div',undefined,'portal-tool-summary');label.append(element('span',undefined,'portal-tool-dot'),element('span',(names[tool.name]||'Device tool')+' · '+toolLabel));item.append(label);
       if(tool.reason)item.append(element('p',errors[tool.reason]||'This operation is unavailable. Contact support.'));
       if(tool.effect)item.append(element('p',tool.effect));
       if(tool.result&&['inspect_computer','run_powershell'].includes(tool.name)){
