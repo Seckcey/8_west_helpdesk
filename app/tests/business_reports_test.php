@@ -3256,6 +3256,7 @@ report_check('runtime DELETE grant allowlist matches every production delete pat
     'portal_westy_ai_attempts',
     'portal_westy_budgets',
     'portal_westy_drafts',
+    'portal_westy_tool_runs',
     'portal_westy_turns',
     'svc_rate_buckets',
     'svc_support_rate',

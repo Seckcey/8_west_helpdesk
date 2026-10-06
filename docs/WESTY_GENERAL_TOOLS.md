@@ -11,3 +11,11 @@ Private replay is bounded to 30 minutes and erased on Stop, completion or expiry
 The additive `endpoint_tool_runs_v1.sql` table binds the original turn, customer, scope, conversation, operation and origin session. Database triggers reject inconsistent scope or changes to that identity. `app/db/schema.sql` contains the same table and triggers. Apply with the protected `deploy/endpoint_tool_runs_migration.php` CLI after its exact payload/catalog verification and a verified backup; use a private external evidence directory. Partial schemas and unreceipted final states require operator recovery. Do not apply DDL through a page request.
 
 The corresponding Milepost release supplies the execution policy, native transport and staff-alert route. Staff alerts retain their existing job, queue, approval and fresh-monitoring recovery contract. This source does not itself prove deployment, signed installation or live endpoint acceptance. Those remain release-owner gates; no speed improvement is claimed without measurements.
+
+Before enabling continuation, the release owner verifies the existing runtime user's grants against the actual database and account. The new table needs ordinary SELECT/INSERT/UPDATE access and a table-specific DELETE grant for expiry and private-data erasure. Do not widen database-wide DELETE or grant schema administration. For an installation using the established `safeharbor` database/account, the additional cleanup grant is:
+
+```sql
+GRANT DELETE ON safeharbor.portal_westy_tool_runs TO 'safeharbor'@'localhost';
+```
+
+Hosted validation includes the actual root-only CLI backup/apply/repeat, concurrent-owner refusal, missing receipt and backup-tamper checks. The rendered portal was checked at 1440 px and 390 px for wait/resume once, Stop, preference changes, private-state reset and clean console. The full application suite and separately authorized live endpoint acceptance remain release gates.
