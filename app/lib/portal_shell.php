@@ -3,6 +3,14 @@ declare(strict_types=1);
 require_once __DIR__.'/portal_access.php';
 require_once __DIR__.'/portal_desktop_controls.php';
 
+/** File contents, not mtime or a hand-maintained number, invalidate cached assets. */
+function portal_asset_version(string $path):string
+{
+    $hash=hash_file('sha256',$path);
+    if($hash===false)throw new RuntimeException('Portal asset unavailable');
+    return substr($hash,0,20);
+}
+
 function portal_icon(string $name): string
 {
     $paths = [
@@ -63,6 +71,6 @@ function portal_westy_widget(array $context): void
 <?php portal_desktop_controls(); ?>
 <div class="portal-chat-foot"><a href="/portal/guide.php#privacy">Private to you</a><span>·</span><?php if ($canWrite): ?><a href="/portal/new.php">Contact support</a><?php else: ?><span>Viewer access · requests are read-only</span><?php endif; ?></div>
 </section></div>
-<script src="/assets/js/portal-westy.js?v=3" defer></script>
+<script src="/assets/js/portal-westy.js?v=<?= portal_asset_version(__DIR__.'/../public/assets/js/portal-westy.js') ?>" defer></script>
 <?php
 }

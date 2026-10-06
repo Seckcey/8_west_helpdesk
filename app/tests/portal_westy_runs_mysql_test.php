@@ -115,4 +115,102 @@ $healthMessage($resume);check($healthCalls===1&&$healthQueues===1,'pending backg
 $healthReady=true;$healthMessage($resume);$healthMessage($resume);
 check($healthCalls===2&&$healthQueues===1&&portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='complete','completed background health resumes once without requeue');
 
+// The production failure shape, with synthetic arguments: four sources were
+// accidentally chained before two transformations. None of that plan may queue.
+$sixStages=[
+    ['command'=>'Get-CimInstance','parameters'=>[['name'=>'ClassName','values'=>['Win32_OperatingSystem']],['name'=>'Property','values'=>['FreePhysicalMemory','TotalVisibleMemorySize']]]],
+    ['command'=>'Get-CimInstance','parameters'=>[['name'=>'ClassName','values'=>['Win32_PerfFormattedData_PerfOS_Processor']],['name'=>'Filter','values'=>["Name='_Total'"]],['name'=>'Property','values'=>['PercentProcessorTime']]]],
+    ['command'=>'Get-Volume','parameters'=>[['name'=>'DriveLetter','values'=>['C']]]],
+    ['command'=>'Get-Process','parameters'=>[['name'=>'Name','values'=>['*']]]],
+    ['command'=>'Sort-Object','parameters'=>[['name'=>'Property','values'=>['WorkingSet64']],['name'=>'Descending','values'=>[]]]],
+    ['command'=>'Select-Object','parameters'=>[['name'=>'Property','values'=>['Name','Id','WorkingSet64']],['name'=>'First','values'=>['5']]]],
+];
+$plans=[[$sixStages[0]],[$sixStages[1]],[$sixStages[2]],array_slice($sixStages,3)];
+$fixtureCall=static function(array $selection,string $id,array $plan)use($device):array{
+    $args=['device_reference'=>$device,'pipeline'=>$plan,'effect'=>'Read synthetic diagnostic evidence'];
+    $replay=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>$id,'name'=>'inspect_computer','arguments'=>json_encode($args)]]];
+    foreach(['provider','model','effort','revision','credential_version'] as $field)$replay[$field]=$selection[$field]??null;
+    return ['ok'=>true,'tool_calls'=>[['id'=>$id,'name'=>'inspect_computer','arguments'=>$args]],'continuation'=>$replay,
+        'usage'=>['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>30]];
+};
+$fixtureDone=static fn():array=>['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>30]];
+$newRequest=static fn():array=>array_replace($request,['operation'=>'f1'.sprintf('%08x',time()).bin2hex(random_bytes(11)),'message'=>'Inspect synthetic memory, processor, disk and process state.']);
+$splitCalls=0;$splitQueues=0;$splitKeys=[];
+$splitProvider=static function($selection,$system,$messages,$options,$emit,$alive)use(&$splitCalls,&$splitQueues,$sixStages,$plans,$fixtureCall,$fixtureDone):array{
+    $splitCalls++;
+    if($splitCalls===1)return $fixtureCall($selection,'bad_composition',$sixStages);
+    if($splitCalls===2){
+        $feedback=json_decode(end($messages)['content'][0]['text'],true);
+        check($splitQueues===0&&$feedback['executed']===false&&$feedback['correction_allowed']===true&&$feedback['retry_allowed']===false,'malformed composition reaches inference as safe feedback with zero dispatches');
+        check($feedback['validation']['code']==='transformation_required'&&!str_contains(json_encode($feedback),'_Total'),'feedback explains the structural error without copying submitted arguments');
+    }else check(str_contains(json_encode(end($messages)),'synthetic observation '.($splitCalls-2)),'each split source waits for its actual receipt');
+    if($splitCalls<=5)return $fixtureCall($selection,'corrected_'.$splitCalls,$plans[$splitCalls-2]);
+    $emit('The four completed synthetic observations are available.');return $fixtureDone();
+};
+$splitEndpoint=static function($body,$headers)use(&$splitQueues,&$splitKeys,$plans):array{
+    $wire=json_decode($body,true);
+    if($wire['action']==='shell_queue'){
+        check($wire['input']['plan']===$plans[$splitQueues],'only one source plus its intended transformations reaches the queue');
+        $splitKeys[]=$wire['input']['request_key'];$splitQueues++;$state='queued';
+    }else{$state='completed';}
+    return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>['state'=>$state,'result'=>['stdout'=>'synthetic observation '.$splitQueues],'retry_allowed'=>false]])];
+};
+$splitMessage=static fn(array $r)=>portal_westy_message($pdo,$a,$r,$splitProvider,static fn()=>$a,transport:$splitEndpoint,aiResolver:$resolver);
+$splitRequest=$newRequest();$splitMessage($splitRequest);
+for($sequence=1;$sequence<=4;$sequence++){
+    $splitRun=portal_westy_run_find($pdo,$scope,$splitRequest['operation']);
+    check($splitRun['state']==='waiting'&&(int)$splitRun['sequence']===$sequence,'rejection does not consume an asynchronous wait sequence');
+    $splitResume=['action'=>'run_resume','operation'=>$splitRequest['operation'],'conversation'=>$splitRun['conversation_id'],'sequence'=>$sequence];
+    $splitMessage($splitResume);$splitMessage($splitResume);
+}
+check($splitCalls===6&&$splitQueues===4&&count(array_unique($splitKeys))===4,'four independent checks finish once with distinct new intents');
+$q=$pdo->prepare('SELECT reply_json FROM portal_westy_turns WHERE operation_key=?');$q->execute([$splitRequest['operation']]);$splitReply=json_decode($q->fetchColumn(),true);
+check($splitReply['tools'][0]['name']==='inspect_computer'&&$splitReply['tools'][0]['state']==='rejected'&&count($splitReply['tools'])===5,'saved transcript has a named rejected tool, never a blank unavailable row');
+
+// A saved endpoint validation refusal is also safe to correct after reconnect.
+// Unknown queue responses and post-dispatch receipts never acquire that permission.
+foreach(['refused','unknown','dispatched'] as $scenario){
+    $calls=0;$queues=0;$reads=0;
+    $fixtureProvider=static function($selection,$system,$messages,$options,$emit,$alive)use(&$calls,$scenario,$fixtureCall,$fixtureDone,$plans):array{
+        $calls++;
+        if($calls===1)return $fixtureCall($selection,'first_intent',$plans[0]);
+        $receipt=json_decode(end($messages)['content'][0]['text'],true)['untrusted_result'];
+        if($scenario==='refused'&&$calls===2){
+            check($receipt['executed']===false&&$receipt['correction_allowed']===true&&$receipt['retry_allowed']===false,'durable pre-execution refusal resumes with correction feedback');
+            return $fixtureCall($selection,'new_corrected_intent',$plans[1]);
+        }
+        check(!isset($receipt['correction_allowed'])&&!isset($receipt['executed']),'unknown and dispatched receipts never become pre-execution rejections');
+        return $fixtureDone();
+    };
+    $fixtureEndpoint=static function($body,$headers)use(&$queues,&$reads,$scenario):array{
+        $wire=json_decode($body,true);
+        if($wire['action']==='shell_queue'){
+            $queues++;
+            if($queues===1&&$scenario==='refused')return ['status'=>400,'body'=>'{"ok":false,"reason":"invalid_pipeline"}'];
+            if($scenario==='unknown')return ['status'=>503,'body'=>'{"ok":false,"reason":"invalid_pipeline"}'];
+            $receipt=['state'=>'queued'];
+        }else{$reads++;$receipt=$scenario==='refused'?['state'=>'completed']:['state'=>'unknown','reason'=>'invalid_pipeline'];}
+        return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>$receipt+['retry_allowed'=>false]])];
+    };
+    $fixtureMessage=static fn(array $r)=>portal_westy_message($pdo,$a,$r,$fixtureProvider,static fn()=>$a,transport:$fixtureEndpoint,aiResolver:$resolver);
+    $fixtureRequest=$newRequest();$fixtureMessage($fixtureRequest);$fixtureRun=portal_westy_run_find($pdo,$scope,$fixtureRequest['operation']);
+    if($scenario==='refused'){
+        // Also exercise a pre-fix waiting record, without a new schema or replay.
+        $pending=json_decode($fixtureRun['pending_json'],true);$pending['terminal']=['state'=>'unavailable','reason'=>'invalid_pipeline','retry_allowed'=>false];
+        $pdo->prepare('UPDATE portal_westy_tool_runs SET pending_json=? WHERE turn_id=?')->execute([json_encode($pending),$fixtureRun['turn_id']]);
+    }
+    $fixtureResume=['action'=>'run_resume','operation'=>$fixtureRequest['operation'],'conversation'=>$fixtureRun['conversation_id'],'sequence'=>1];
+    $fixtureMessage($fixtureResume);$fixtureMessage($fixtureResume);
+    if($scenario==='refused'){$fixtureResume['sequence']=2;$fixtureMessage($fixtureResume);$fixtureMessage($fixtureResume);}
+    check($queues===($scenario==='refused'?2:1)&&$calls===($scenario==='refused'?3:2),'reconnect consumes receipt once and never resends an existing intent');
+    check($reads===1,'recorded refusal requires no endpoint retry; real/unknown result is fetched once');
+}
+
+// Repeated malformed model output remains inside the original paid-round bound.
+$badCalls=0;$badQueues=0;
+$badProvider=static function($selection)use(&$badCalls,$sixStages,$fixtureCall):array{return $fixtureCall($selection,'bad_'.++$badCalls,$sixStages);};
+$badTransport=static function()use(&$badQueues):array{$badQueues++;throw new RuntimeException('Invalid plan reached transport');};
+$badRequest=$newRequest();portal_westy_message($pdo,$a,$badRequest,$badProvider,static fn()=>$a,transport:$badTransport,aiResolver:$resolver);
+check($badCalls===5&&$badQueues===0&&portal_westy_run_find($pdo,$scope,$badRequest['operation'])['state']==='stopped','repeated validation failures stop at the bounded limit without endpoint work');
+
 echo 'PASS general tool continuation MySQL: '.$checks." checks\n";

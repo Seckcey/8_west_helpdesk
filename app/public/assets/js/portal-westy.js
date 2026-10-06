@@ -137,14 +137,14 @@
     const names={list_computers:'Computer list',read_computer_status:'Recorded device activity',start_health_check:'Computer health check',prepare_temp_cleanup:'Temporary-file preview',propose_print_repair:'Print-service repair review',inspect_computer:'Computer investigation',run_powershell:'Script review'};
     for(const tool of turn.reply?.tools||[]){
       const shell=['inspect_computer','run_powershell'].includes(tool.name)?tool.result:null;
-      const shellLabels={queued:'Waiting',claimed:'Received',running:'Running',completed:'Result received',cancelled:'Cancelled',refused:'Not executed',unknown:'Outcome unknown',expired:'Expired'};
+      const shellLabels={queued:'Waiting',claimed:'Received',running:'Running',completed:'Result received',cancelled:'Cancelled',refused:'Not executed',rejected:'Not executed',unknown:'Outcome unknown',expired:'Expired'};
       const item=element('div',undefined,'portal-tool');item.dataset.active=String(tool.state==='dispatching'||['queued','verifying'].includes(tool.operation?.state)||['queued','claimed','running'].includes(shell?.state));
       const toolLabel=shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable'}[tool.state]||tool.state);
       const label=element('div',undefined,'portal-tool-summary');label.append(element('span',undefined,'portal-tool-dot'),element('span',(names[tool.name]||'Device tool')+' · '+toolLabel));item.append(label);
       if(tool.reason)item.append(element('p',errors[tool.reason]||'This operation is unavailable. Contact support.'));
       if(tool.effect)item.append(element('p',tool.effect));
       if(tool.result&&['inspect_computer','run_powershell'].includes(tool.name)){
-        const result=tool.result;item.append(element('p',({queued:'Waiting for the computer.',claimed:'The computer received the command. Check Westy on the computer if approval is needed.',running:'Running on the computer.',completed:'Result received.',cancelled:'Cancelled before execution.',refused:'The command was not executed.',unknown:'The outcome is unknown. This command will not repeat.'}[result.state]||errors[result.reason]||'Checking the saved result.')));
+        const result=tool.result;item.append(element('p',({queued:'Waiting for the computer.',claimed:'The computer received the command. Check Westy on the computer if approval is needed.',running:'Running on the computer.',completed:'Result received.',cancelled:'Cancelled before execution.',refused:'The command was not executed.',rejected:'The plan was rejected before execution. Westy can use the validation feedback to correct it.',unknown:'The outcome is unknown. This command will not repeat.'}[result.state]||errors[result.reason]||'Checking the saved result.')));
       }
       if(tool.state==='unknown'||tool.state==='dispatching'&&turn.state!=='pending')item.append(element('p','The request may have reached your computer. It has not been retried. Check Your devices or contact support.','portal-tool-error'));
       if(tool.proposal)renderOperation(item,tool.proposal,turn);else if(tool.operation)renderOperation(item,tool.operation,turn);

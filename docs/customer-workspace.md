@@ -53,6 +53,13 @@ subject/customer scope; retention and immutable ticket receipts remain unchanged
 
 ## Device tools and approvals
 
+The general companion tools and durable receipt flow are documented in
+[Westy general tools](WESTY_GENERAL_TOOLS.md). Independent diagnostic sources use
+separate calls. A malformed plan rejected before execution returns structured
+feedback so Westy can correct it within the existing bounds; uncertain execution
+is never retried by that mechanism. The customer script URL changes with its
+contents so a normal reload retrieves the current continuation behavior.
+
 `portal_westy.tools_enabled` separately enables five closed functions:
 `list_computers`, `read_computer_status`, `start_health_check`,
 `prepare_temp_cleanup`, and `propose_print_repair`. Customer owners/admins may
