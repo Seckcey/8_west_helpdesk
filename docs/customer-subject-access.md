@@ -21,6 +21,9 @@ Missing/revoked access never falls back to a different customer.
 
 The effective customer role controls existing ticket/device permissions. Existing
 tenant capabilities, exact action approval and commercial consent are unchanged.
+Customer device diagnostics, repairs, enrollment and native control still require
+client_owner or client_admin. Individual employee subjects are supported by the
+ledger, but client_staff and client_viewer do not gain those capabilities.
 Chat scope contains the subject plus grant reference/generation, so renewed access
 cannot inherit earlier conversations, pending tool intent or desktop tasks.
 Companion handoffs copy the server-approved identity and recheck access before use.
