@@ -27,10 +27,10 @@ function portal_westy_config(): array
     return $c;
 }
 
-function portal_westy_scope(PDO $pdo, array $context, bool $lock = false): array
+function portal_westy_scope(PDO $pdo, array $context, bool $lock = false, ?callable $accessTransport=null): array
 {
     $i = $context['identity'] ?? [];
-    if (!in_array($i['role'] ?? '',PORTAL_CLIENT_ROLES,true) || !is_string($i['subject'] ?? null)
+    if (!in_array(portal_customer_role($i),PORTAL_CLIENT_ROLES,true) || !is_string($i['subject'] ?? null)
         || preg_match('/^t[1-9][0-9]*u[1-9][0-9]*$/D',$i['subject'])!==1) throw new PortalWestyException('sign_in',401);
     $ids = [];
     foreach (['tenant_id','client_id','binding_id'] as $name) {
@@ -44,9 +44,12 @@ function portal_westy_scope(PDO $pdo, array $context, bool $lock = false): array
         $q->execute($ids);
         if (!$q->fetchColumn()) throw new PortalWestyException('sign_in',401);
     }
-    if (portal_active_binding_recheck($pdo,$i['binding_id'],(string)($i['identity_tenant_slug'] ?? ''),$i['tenant_id'],$i['client_id'])===null) throw new PortalWestyException('sign_in',401);
-    return ['key'=>hash('sha256',json_encode(['safeharbor-portal-v1',...$ids,$i['subject']],JSON_THROW_ON_ERROR)),
-        'tenant'=>$i['tenant_id'],'client'=>$i['client_id'],'binding'=>$i['binding_id'],'role'=>$i['role'],'name'=>$i['display_name']];
+    if (portal_identity_binding($pdo,$i,$accessTransport)===null) throw new PortalWestyException('sign_in',401);
+    // New grants/generations cannot acquire old conversations, tool intents or handoffs.
+    $key=['safeharbor-portal-v1',...$ids,$i['subject']];
+    if(isset($i['customer_access']))array_push($key,'customer-access-v1',$i['customer_access']['access']['reference'],$i['customer_access']['access']['generation']);
+    return ['key'=>hash('sha256',json_encode($key,JSON_THROW_ON_ERROR)),
+        'tenant'=>$i['tenant_id'],'client'=>$i['client_id'],'binding'=>$i['binding_id'],'role'=>portal_customer_role($i),'name'=>$i['display_name']];
 }
 
 function portal_westy_lock(PDO $pdo): string

@@ -96,6 +96,27 @@ function portal_render_login(?string $message = null): void
     portal_page_end();
 }
 
+function portal_render_client_choices(array $principal,array $choices): void
+{
+    portal_page_start('Choose a client for Westy');
+    ?>
+<main class="page page-narrow"><header class="page-head"><div>
+<h1 class="page-title">Choose a client for Westy</h1>
+<p class="page-sub">Continue as <?=portal_h($principal['display_name'])?>. Your 8 West ID account and other apps stay signed in.</p>
+</div></header>
+<?php if(!$choices): ?><p role="status">No customer access is currently assigned to this account. Ask your workspace administrator to review your access.</p><?php endif; ?>
+<div class="portal-report-list"><?php foreach($choices as $choice): ?>
+<section class="card login-card" aria-label="<?=portal_h($choice['binding']['client_name'])?>">
+<h2 class="page-title"><?=portal_h($choice['binding']['client_name'])?></h2>
+<p class="page-sub"><?=portal_h(portal_role_label($choice['access']['role']))?></p>
+<form method="post" class="login-form"><input type="hidden" name="csrf" value="<?=portal_h(portal_csrf_token())?>">
+<input type="hidden" name="reference" value="<?=portal_h($choice['access']['access']['reference'])?>">
+<input type="hidden" name="generation" value="<?=portal_h($choice['access']['access']['generation'])?>">
+<button class="btn-primary" type="submit">Use Westy for this client</button></form></section>
+<?php endforeach; ?></div></main>
+<?php portal_page_end();
+}
+
 function portal_render_error(int $status, string $title, string $message): void
 {
     http_response_code($status);
@@ -259,7 +280,7 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
 {
     $identity = $context['identity'];
     $context['binding']['client_name'] = $summary['client']['name'];
-    $canWrite = portal_role_can_write_tickets((string)$identity['role']);
+    $canWrite = portal_role_can_write_tickets(portal_customer_role($identity));
     $waiting = portal_tickets_with_status($summary['tickets'], ['waiting']);
     portal_page_start('Your support', '', $context);
     ?>
@@ -464,7 +485,7 @@ function portal_render_ticket(
     $identity = $context['identity'];
     $ticket = $detail['ticket'];
     $ticketId = (int)$ticket['id'];
-    $canWrite = portal_role_can_write_tickets((string)($identity['role'] ?? ''));
+    $canWrite = portal_role_can_write_tickets(portal_customer_role($identity));
     $canReply = $canWrite && ($ticket['status'] ?? '') !== 'resolved';
     $nonce = $canReply ? portal_action_nonce('ticket:reply:' . $ticketId) : '';
     portal_page_start('Ticket #' . $ticketId, '', $context);

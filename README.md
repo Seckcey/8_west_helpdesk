@@ -4,6 +4,9 @@
 
 # Safeharbor
 
+See [independent customer access](docs/customer-subject-access.md) for existing ID
+accounts in a customer Westy workspace, client selection and the Milepost release dependency.
+
 **Every client issue, safely ashore.** Safeharbor is the help desk for the
 [8 West IT 365 suite](https://8westit.com/), built by 8 West IT, LLC. It gives
 technicians a place to manage client requests, conversations, service goals,

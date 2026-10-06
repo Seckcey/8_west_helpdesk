@@ -34,7 +34,7 @@ function portal_shell_start(array $context): void
 <?php foreach ([['/portal/', 'Westy', 'chat'], ['/portal/devices.php', 'Your devices', 'device'], ['/portal/requests.php', 'Support requests', 'requests'], ['/portal/reports.php', 'Service summaries', 'requests']] as [$url, $label, $icon]): ?>
 <a href="<?= portal_h($url) ?>"<?= $path === $url ? ' aria-current="page"' : '' ?>><?= portal_icon($icon) ?><span><?= portal_h($label) ?></span></a>
 <?php endforeach; ?>
-</nav><?php if($workspace): ?><section class="portal-chat-history" aria-label="Recent chats"><h2>Recent chats</h2><div id="portal-chat-history"></div></section><?php endif; ?><div class="portal-account"><strong><?= portal_h($identity['display_name']) ?></strong><span><?= portal_h(portal_role_label((string)$identity['role'])) ?></span><a href="/portal/guide.php">Portal guide</a><a href="/portal/guide.php#contact">Contact support</a><form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="btn-link">Sign out</button></form></div></aside>
+</nav><?php if($workspace): ?><section class="portal-chat-history" aria-label="Recent chats"><h2>Recent chats</h2><div id="portal-chat-history"></div></section><?php endif; ?><div class="portal-account"><strong><?= portal_h($identity['display_name']) ?></strong><span><?= portal_h(portal_role_label(portal_customer_role($identity))) ?></span><?php if(isset($identity['customer_access']) && !isset($_SESSION['desktop_companion_session'])): ?><a href="/portal/clients.php">Use Westy for another client</a><?php endif; ?><a href="/portal/guide.php">Portal guide</a><a href="/portal/guide.php#contact">Contact support</a><form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="btn-link">Sign out</button></form></div></aside>
 <div class="portal-content" id="portal-content" tabindex="-1">
 <?php
 }
@@ -49,7 +49,7 @@ function portal_westy_button(): void
 
 function portal_westy_widget(array $context): void
 {
-    $canWrite = portal_role_can_write_tickets((string)$context['identity']['role']);
+    $canWrite = portal_role_can_write_tickets(portal_customer_role($context['identity']));
     ?>
 <div id="portal-chat-root" data-csrf="<?= portal_h(portal_csrf_token()) ?>" data-workspace="<?= !empty($context['workspace'])?'1':'0' ?>" data-can-write="<?= $canWrite ? '1' : '0' ?>">
 <?php if (empty($context['workspace']) && ($context['chat_button_placement'] ?? '') !== 'inline') portal_westy_button(); ?>

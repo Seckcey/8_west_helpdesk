@@ -34,7 +34,7 @@ if ($context === null) {
     portal_require_sign_in('Sign in before opening a support request.');
     exit;
 }
-if (! portal_role_can_write_tickets((string)$context['identity']['role'])) {
+if (! portal_role_can_write_tickets(portal_customer_role($context['identity']))) {
     portal_render_error(403, 'Read-only access', 'Your customer viewer role cannot open or change tickets.');
     exit;
 }
@@ -65,7 +65,7 @@ if ($method === 'POST') {
             db(),
             (int)$context['identity']['tenant_id'],
             (int)$context['identity']['client_id'],
-            (string)$context['identity']['role'],
+            portal_customer_role($context['identity']),
             (string)$context['identity']['display_name'],
             $values['subject'],
             $values['priority'],

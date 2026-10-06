@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/eightwestid/eightwestid.php';
 require_once __DIR__ . '/portal_data.php';
+require_once __DIR__ . '/portal_access.php';
 
 use EightWest\Id\Client as EightWestIdClient;
 use EightWest\Id\ConfigurationException as EightWestIdConfigurationException;
@@ -47,7 +48,7 @@ function portal_safe_return_path(mixed $value): string
                 '/portal/', '/portal/index.php', '/portal/requests.php', '/portal/ticket.php', '/portal/new.php',
                 '/portal/reports.php', '/portal/devices.php', '/portal/device_help.php',
                 '/portal/mobile.php', '/portal/security.php', '/portal/guide.php',
-                '/portal/desktop_authorize.php',
+                '/portal/desktop_authorize.php', '/portal/clients.php',
             ], true)) {
             return '/portal/';
         }
@@ -265,13 +266,26 @@ function portal_role_allowed(string $role): bool
 }
 
 /** @return array<string,mixed> */
-function portal_establish_identity(PDO $pdo, EightWestIdentity $identity, ?int $now = null): array
+function portal_establish_identity(PDO $pdo, EightWestIdentity $identity, ?int $now = null, string $destination='/portal/', ?callable $accessTransport=null): array
 {
-    if (! portal_role_allowed($identity->role)) {
-        throw new PortalAuthenticationRejectedException('This 8 West ID role is not admitted to the customer portal.');
-    }
     if (! in_array(PORTAL_REQUIRED_PRODUCT, $identity->products, true)) {
         throw new PortalAuthenticationRejectedException('The Safeharbor entitlement is required.');
+    }
+    if (!portal_role_allowed($identity->role)) {
+        if(!array_key_exists($identity->role,EightWest\Id\KNOWN_ROLES))throw new PortalAuthenticationRejectedException('Identity role is unavailable.');
+        portal_session_start();
+        $issuedAt=$now??time();
+        $principal=['subject'=>$identity->subject,'session_version'=>$identity->sessionVersion,
+            'identity_tenant_slug'=>$identity->tenant,'role'=>$identity->role,'display_name'=>$identity->name,
+            'issued_at'=>$issuedAt,'expires_at'=>$issuedAt+(int)portal_oidc_config()['session_lifetime_seconds']];
+        $choices=portal_access_choices($pdo,$principal,$accessTransport);
+        if(!$choices)throw new PortalAuthenticationRejectedException('No customer access has been assigned to this account.');
+        if(count($choices)===1)return portal_access_select($pdo,$principal,$choices[0]['access']['access']['reference'],$choices[0]['access']['access']['generation'],$accessTransport);
+        if(!session_regenerate_id(true))throw new PortalAuthException('The customer session could not be rotated.');
+        unset($_SESSION[PORTAL_SESSION_KEY],$_SESSION['desktop_companion_session']);
+        $_SESSION[PORTAL_CSRF_KEY]=bin2hex(random_bytes(32));
+        $_SESSION[PORTAL_ACCESS_PENDING_KEY]=['principal'=>$principal,'destination'=>portal_safe_return_path($destination),'expires_at'=>$issuedAt+600];
+        return [];
     }
     $slug = portal_identity_tenant_slug($identity->tenant);
     $binding = portal_active_binding_by_identity($pdo, $slug);
@@ -309,6 +323,7 @@ function portal_establish_identity(PDO $pdo, EightWestIdentity $identity, ?int $
         'expires_at' => $issuedAt + $lifetime,
     ];
     $_SESSION[PORTAL_CSRF_KEY] = bin2hex(random_bytes(32));
+    unset($_SESSION[PORTAL_ACCESS_PENDING_KEY]);
     return $_SESSION[PORTAL_SESSION_KEY];
 }
 
@@ -328,7 +343,9 @@ function portal_local_identity(?int $now = null): ?array
     foreach (['binding_id', 'tenant_id', 'client_id', 'issued_at', 'expires_at'] as $key) {
         if (! is_int($identity[$key] ?? null) || $identity[$key] < 1) return null;
     }
-    if (! portal_role_allowed($identity['role'])
+    $membership=array_key_exists('customer_access',$identity);
+    if ((!$membership && !portal_role_allowed($identity['role']))
+        || ($membership && (!array_key_exists($identity['role'],EightWest\Id\KNOWN_ROLES) || !portal_access_shape($identity['customer_access'],$identity)))
         || strlen($identity['display_name']) > 190
         || preg_match('/[\x00-\x1f\x7f]/', $identity['display_name']) === 1
         || ! EightWest\Id\valid_revocation_subject($identity['subject'])
@@ -340,7 +357,8 @@ function portal_local_identity(?int $now = null): ?array
         return null;
     }
     try {
-        if (portal_identity_tenant_slug($identity['identity_tenant_slug']) !== $identity['identity_tenant_slug']) {
+        if ($membership ? preg_match('/\A[a-z0-9][a-z0-9-]{0,62}\z/D',$identity['identity_tenant_slug'])!==1
+            : portal_identity_tenant_slug($identity['identity_tenant_slug']) !== $identity['identity_tenant_slug']) {
             return null;
         }
     } catch (PortalDataValidationException) {
@@ -357,6 +375,7 @@ function portal_authenticated_context(
     PDO $pdo,
     ?callable $revocationCheck = null,
     ?int $now = null,
+    ?callable $accessTransport = null,
 ): ?array {
     portal_session_start();
     $identity = portal_local_identity($now);
@@ -387,13 +406,7 @@ function portal_authenticated_context(
         portal_destroy_session();
         return null;
     }
-    $binding = portal_active_binding_recheck(
-        $pdo,
-        $identity['binding_id'],
-        $identity['identity_tenant_slug'],
-        $identity['tenant_id'],
-        $identity['client_id'],
-    );
+    $binding = portal_identity_binding($pdo,$identity,$accessTransport);
     if ($binding === null) {
         portal_destroy_session();
         return null;
@@ -426,7 +439,7 @@ function portal_stream_authenticated_context(PDO $pdo,string $originalSession): 
     try {
         if(portal_oidc_client()->isRevoked($identity['subject'],$identity['session_version']))return null;
     }catch(EightWestIdException $e){throw new PortalIdentityUnavailableException('Identity validation unavailable.',0,$e);}
-    $binding=portal_active_binding_recheck($pdo,$identity['binding_id'],$identity['identity_tenant_slug'],$identity['tenant_id'],$identity['client_id']);
+    $binding=portal_identity_binding($pdo,$identity);
     return $binding===null?null:['identity'=>$identity,'binding'=>$binding];
 }
 
