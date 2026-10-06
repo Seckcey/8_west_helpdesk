@@ -104,7 +104,7 @@ function portal_desktop_handoff_approve(PDO $pdo,array $context,string $id):void
     $pdo->prepare("UPDATE portal_desktop_handoffs SET state='approved',identity_json=? WHERE handoff_id=? AND state='pending' AND expires_at>UTC_TIMESTAMP()")
         ->execute([json_encode($identity,JSON_THROW_ON_ERROR),$id]);
 }
-function portal_desktop_handoff_take(PDO $pdo,string $id):bool
+function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCheck=null,?callable $accessTransport=null):bool
 {
     if(!portal_desktop_id($id))throw new PortalDesktopException('invalid_request',400);
     portal_session_start();$pdo->beginTransaction();
@@ -120,7 +120,7 @@ function portal_desktop_handoff_take(PDO $pdo,string $id):bool
         if(!session_regenerate_id(true))throw new PortalDesktopException('sign_in');
         $_SESSION[PORTAL_SESSION_KEY]=$identity;$_SESSION[PORTAL_CSRF_KEY]=bin2hex(random_bytes(32));
         $_SESSION['desktop_companion_session']=$row['pairing_id'];
-        if(portal_authenticated_context($pdo)===null)throw new PortalDesktopException('sign_in',401);
+        if(portal_authenticated_context($pdo,$revocationCheck,null,$accessTransport)===null)throw new PortalDesktopException('sign_in',401);
         $pdo->prepare("UPDATE portal_desktop_handoffs SET state='consumed',identity_json=NULL WHERE handoff_id=?")->execute([$id]);
         $pdo->commit();return true;
     }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();unset($_SESSION[PORTAL_SESSION_KEY],$_SESSION['desktop_companion_session']);throw $error;}

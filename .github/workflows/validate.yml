@@ -166,6 +166,7 @@ jobs:
           php app/tests/portal_westy_mysql_test.php
           php app/tests/portal_westy_ai_delivery_mysql_test.php
           php app/tests/portal_devices_mysql_test.php
+          php app/tests/portal_access_mysql_test.php
           php app/tests/portal_workspace_mysql_test.php
           php app/tests/portal_stream_http_test.php
           php app/tests/portal_security_orders_test.php

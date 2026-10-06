@@ -43,7 +43,7 @@ if ($context === null) {
 $draft = is_string($_POST['body'] ?? null) ? $_POST['body'] : '';
 $errorMessage = null;
 if ($method === 'POST') {
-    if (! portal_role_can_write_tickets((string)$context['identity']['role'])) {
+    if (! portal_role_can_write_tickets(portal_customer_role($context['identity']))) {
         portal_render_error(403, 'Read-only access', 'Your customer viewer role cannot reply to tickets.');
         exit;
     }
@@ -67,7 +67,7 @@ if ($method === 'POST') {
             (int)$context['identity']['tenant_id'],
             (int)$context['identity']['client_id'],
             $ticketId,
-            (string)$context['identity']['role'],
+            portal_customer_role($context['identity']),
             (string)$context['identity']['display_name'],
             $draft,
         );

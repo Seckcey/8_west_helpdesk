@@ -27,7 +27,8 @@ try {
         is_string($stateCookie) ? $stateCookie : '',
     );
     $destination = portal_take_login_return(is_string($_GET['state'] ?? null) ? $_GET['state'] : '');
-    portal_establish_identity(db(), $identity);
+    portal_establish_identity(db(), $identity, null, $destination);
+    if(isset($_SESSION[PORTAL_ACCESS_PENDING_KEY]))$destination='/portal/clients.php';
 } catch (Throwable $error) {
     $failure = $error;
     portal_destroy_session();

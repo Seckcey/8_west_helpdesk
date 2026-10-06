@@ -2,6 +2,7 @@
 /** Customer device service client. Browser input cannot choose the customer or actor. */
 declare(strict_types=1);
 require_once __DIR__ . '/portal_data.php';
+require_once __DIR__ . '/portal_access.php';
 
 const PORTAL_DEVICES_ENDPOINT = 'https://support.8westit.com/api/svc/customer_portal.php';
 const PORTAL_DEVICES_CONTEXT = 'safeharbor-customer-devices-v1';
@@ -24,27 +25,28 @@ function portal_devices_config(): array
 }
 
 function portal_devices_can_manage(array $context): bool
-{ return in_array($context['identity']['role'] ?? '', PORTAL_DEVICES_WRITE_ROLES, true); }
+{ return in_array(portal_customer_role($context['identity']??[]), PORTAL_DEVICES_WRITE_ROLES, true); }
 
-function portal_devices_scope(PDO $pdo, array $context): array
+function portal_devices_scope(PDO $pdo, array $context, ?callable $accessTransport=null): array
 {
     $i = $context['identity'] ?? [];
     foreach (['tenant_id', 'client_id', 'binding_id'] as $field) {
         if (!is_int($i[$field] ?? null) || $i[$field] < 1) throw new PortalDevicesException('sign_in', 401);
     }
-    if (!in_array($i['role'] ?? '', PORTAL_CLIENT_ROLES, true)
+    if (!in_array(portal_customer_role($i), PORTAL_CLIENT_ROLES, true)
         || !is_string($i['subject'] ?? null) || preg_match('/^t[1-9][0-9]*u[1-9][0-9]*$/D', $i['subject']) !== 1
         || !is_string($i['session_version'] ?? null) || strlen($i['session_version']) > 41
         || !is_string($i['identity_tenant_slug'] ?? null)) throw new PortalDevicesException('sign_in', 401);
-    $binding = portal_active_binding_recheck($pdo, $i['binding_id'], $i['identity_tenant_slug'], $i['tenant_id'], $i['client_id']);
+    $binding = portal_identity_binding($pdo,$i,$accessTransport);
     if ($binding === null) throw new PortalDevicesException('sign_in', 401);
     $q = $pdo->prepare("SELECT b.customer_id,t.slug FROM suite_customer_sync_bindings b
         JOIN tenants t ON t.id=b.tenant_id WHERE b.tenant_id=? AND b.client_id=? AND b.status='active'");
     $q->execute([$i['tenant_id'], $i['client_id']]); $row = $q->fetch(PDO::FETCH_ASSOC);
     if (!is_array($row)) throw new PortalDevicesException('customer_unavailable');
     return ['provider_slug'=>$row['slug'], 'customer_id'=>$row['customer_id'],
-        'identity_tenant_slug'=>$i['identity_tenant_slug'], 'subject'=>$i['subject'],
-        'session_version'=>$i['session_version'], 'role'=>$i['role']];
+        'identity_tenant_slug'=>$binding['identity_tenant_slug'], 'subject'=>$i['subject'],
+        'session_version'=>$i['session_version'], 'role'=>portal_customer_role($i)]
+        +(isset($i['customer_access'])?['access'=>$i['customer_access']['access']]:[]);
 }
 
 /** Bounded HTTPS transport, no redirects, no response-body/credential logging. */
@@ -68,7 +70,7 @@ function portal_devices_transport(string $endpoint, string $body, array $headers
     } finally { curl_close($ch); }
 }
 
-function portal_devices_request(PDO $pdo, array $context, string $action, array $input, ?callable $transport = null): array
+function portal_devices_request(PDO $pdo, array $context, string $action, array $input, ?callable $transport = null, ?callable $accessTransport=null): array
 {
     if (!in_array($action, ['devices','enrollments','enrollment_create','enrollment_download','enrollment_revoke',
         'operations','health_start','temp_start','repair_propose','repair_approve','operation_cancel',
@@ -83,7 +85,7 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
         && !portal_devices_can_manage($context)) throw new PortalDevicesException('role', 403);
     if (in_array($action,['operations','health_start','temp_start','repair_propose','repair_approve','operation_cancel'],true)
         && (cfg('portal_devices',[])['diagnostics_enabled']??false)!==true) throw new PortalDevicesException('operation_unavailable');
-    $config = portal_devices_config(); $scope = portal_devices_scope($pdo, $context);
+    $config = portal_devices_config(); $scope = portal_devices_scope($pdo, $context, $accessTransport);
     $body = json_encode(['action'=>$action,'scope'=>$scope,'input'=>$input], JSON_THROW_ON_ERROR);
     if (strlen($body) > 4096) throw new PortalDevicesException('invalid_request', 400);
     $timestamp = (string)time(); $nonce = bin2hex(random_bytes(16));
@@ -91,12 +93,12 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
     $headers = ['Content-Type: application/json', 'X-Portal-Timestamp: ' . $timestamp, 'X-Portal-Nonce: ' . $nonce,
         'X-Portal-Signature: ' . hash_hmac('sha256', $preimage, $config['secret'])];
     $response = ($transport ?? 'portal_devices_transport')($config['endpoint'], $body, $headers);
-    if (portal_devices_scope($pdo, $context) !== $scope) throw new PortalDevicesException('sign_in', 401);
+    if (portal_devices_scope($pdo, $context, $accessTransport) !== $scope) throw new PortalDevicesException('sign_in', 401);
     try { $data = json_decode($response['body'] ?? '', true, 16, JSON_THROW_ON_ERROR); }
     catch (JsonException) { throw new PortalDevicesException('service_unavailable'); }
     if (($response['status'] ?? 0) !== 200 || !is_array($data) || ($data['ok'] ?? null) !== true) {
         $reason = $data['reason'] ?? 'service_unavailable';
-        $safe = ['role','customer_unavailable','identity_unavailable','enrollment_limit','enrollment_unavailable','unsupported_platform','installer_unavailable',
+        $safe = ['role','customer_unavailable','customer_access_changed','identity_unavailable','enrollment_limit','enrollment_unavailable','unsupported_platform','installer_unavailable',
             'device_offline','operation_unavailable','support_busy','support_status_unavailable','policy_restricted','execution_unresolved','maintenance_active','maintenance_unavailable','rate_limited',
             'fresh_diagnosis_required','approval_expired','approval_changed','repair_cooldown',
             'orders_unavailable','order_unavailable','order_authorization_changed','order_evidence_unavailable',

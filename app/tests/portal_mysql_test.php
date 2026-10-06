@@ -17,6 +17,7 @@ function cfg(string $key, mixed $default = null): mixed
         'portal.client_id' => 'safeharbor-test', 'portal.client_secret' => str_repeat('s', 48),
         'portal.redirect_uri' => 'https://safeharbor.example.test/portal/callback.php',
         'portal.revocation_cache_dir' => sys_get_temp_dir() . '/safeharbor-portal-mysql-test',
+        'portal_devices' => ['enabled'=>true,'endpoint'=>'https://support.8westit.com/api/svc/customer_portal.php','secret'=>str_repeat('e',64)],
     ][$key] ?? $default;
 }
 
@@ -260,9 +261,10 @@ foreach (PORTAL_CLIENT_ROLES as $role) {
     portal_mysql_check("{$role} existing session is reused after fresh checks",
         portal_authenticated_context($pdo, static fn() => false)['identity'] === $identity);
 }
+$noAccess = static fn(): array => ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>['items'=>[]]])];
 foreach (['owner', 'admin', 'tech', 'msp_owner', 'msp_viewer'] as $role) {
-    portal_mysql_expect("{$role} cannot establish a customer session", PortalAuthenticationRejectedException::class,
-        fn() => portal_establish_identity($pdo, portal_mysql_identity($role)));
+    portal_mysql_expect("{$role} without an explicit grant cannot establish a customer session", PortalAuthenticationRejectedException::class,
+        fn() => portal_establish_identity($pdo, portal_mysql_identity($role), null, '/portal/', $noAccess));
 }
 portal_mysql_expect('unbound tenant cannot establish a customer session', PortalAuthenticationRejectedException::class,
     fn() => portal_establish_identity($pdo, portal_mysql_identity('client_owner', 'unbound-id')));
