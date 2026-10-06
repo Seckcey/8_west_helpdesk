@@ -74,6 +74,7 @@
   function clearPrivate() {
     accessEpoch++;
     state=null; nodes.clear(); log.replaceChildren(); draftBox.replaceChildren(); draftBox.hidden=true;
+    preferenceControl?.closest('label')?.remove();preferenceControl=null;
     history?.replaceChildren(); input.value=''; editing=false; pending=null;
     devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';devices.disabled=true;
     streamController?.abort(); if(poll)clearTimeout(poll); controls();
@@ -293,7 +294,7 @@
         if(event==='accepted'){state.conversation=data.conversation;say('Westy is working…');}
         if(event==='delta'){turn.reply.reply+=data.text;const node=turnNode(turn);node.reply.textContent=turn.reply.reply;node.meta.replaceChildren();if(stickToBottom)scrollLatest();}
         if(event==='tool'){const index=turn.reply.tools.findIndex(t=>t.key===data.tool.key);if(index<0)turn.reply.tools.push(data.tool);else turn.reply.tools[index]=data.tool;renderTools(turnNode(turn),turn);if(stickToBottom)scrollLatest();}
-        if(event==='done'){render(data.state);say('Reply finished.');}
+        if(event==='done'){render(data.state);say(state.turns.some(t=>t.run?.state==='waiting')?'Waiting for the computer check…':'Reply finished.');}
       });
     }catch(error){
       operationExpired=error.reason==='operation_expired';
@@ -394,7 +395,7 @@
   window.addEventListener('beforeunload',event=>{if(editing||input.value.trim()){event.preventDefault();event.returnValue='';}});
   // Browser storage never contains conversation text, identity or device receipts.
   window.addEventListener('pagehide',clearPrivate);
-  window.addEventListener('pageshow',event=>{if(event.persisted)refresh();});
+  window.addEventListener('pageshow',event=>{if(event.persisted){refresh();loadDevices();loadPreference();}});
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!busy)refresh(true);});
   if('BroadcastChannel' in window){const access=new BroadcastChannel('safeharbor-portal-access');document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit',()=>access.postMessage('signed-out'));access.addEventListener('message',event=>{if(event.data==='signed-out'){clearPrivate();say(errors.sign_in);}});}
   async function loadDevices(){
