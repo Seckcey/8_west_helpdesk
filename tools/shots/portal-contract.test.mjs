@@ -965,3 +965,43 @@ if (!SERVE_MODE) test('late device responses cannot restore private names after 
     assert.equal(await page.locator('#portal-chat-input').isDisabled(),true);
   }finally{release();await context.close();await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
+
+if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in desktop and mobile chat',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  try{for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
+    const conversation='a'.repeat(32),operation='b'.repeat(32);let resumes=0,stops=0,automatic=true;
+    const state={enabled:true,ai_available:true,can_write:true,tools_enabled:true,conversation,conversations:[],draft:null,
+      devices:[{reference:'1:'+ 'c'.repeat(64),label:'Synthetic computer'}],turns:[{operation_key:operation,state:'complete',
+        input_text:'Investigate memory use.',reply:{reply:'Checking current process memory.',sources:[],tools:[{key:'inspect_1',name:'inspect_computer',state:'complete',effect:'Read current process memory',result:{state:'running'}}]},
+        run:{state:'waiting',ready:false,sequence:1}}]};
+    const handler=async route=>{
+      const payload=route.request().method()==='POST'?route.request().postDataJSON():null;
+      if(payload?.action==='diagnostic_preference')automatic=payload.automatic_diagnostics;
+      if(payload?.action==='stop'){stops++;state.turns[0].run=null;state.turns[0].reply.reply='Stopped. Waiting for cancellation confirmation.';}
+      if(payload?.action==='run_resume'){
+        assert.deepEqual(payload,{action:'run_resume',operation,conversation,sequence:1});resumes++;
+        state.turns[0].run=null;state.turns[0].reply.reply='The completed memory result explains the slowdown.';
+        state.turns[0].reply.tools[0].result={state:'completed',result:{stdout:'PRIVATE_RAW_OUTPUT',exit_code:0}};
+        return route.fulfill({contentType:'text/event-stream',body:'event: done\ndata: '+JSON.stringify({state})+'\n\n'});
+      }
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{...state,diagnostic_preference:{automatic_diagnostics:automatic}}})});
+    };
+    const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport,handler);
+    await page.route('**/portal/desktop_sessions.php',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{sessions:[]}})}));
+    try{
+      await page.goto(ORIGIN+'/portal/');await page.getByText('Computer investigation · Running',{exact:true}).waitFor();
+      assert.equal(await page.locator('#portal-chat-input').isDisabled(),true);assert.equal(await page.locator('#portal-chat-stop').isVisible(),true);
+      await page.getByLabel('Ask me before each automatic computer check').check();assert.equal(automatic,false);
+      state.turns[0].run.ready=true;await page.getByText('The completed memory result explains the slowdown.',{exact:true}).waitFor();
+      assert.equal(resumes,1);assert.equal(await page.locator('#portal-chat-input').isDisabled(),false);
+      assert.equal(await page.getByText('PRIVATE_RAW_OUTPUT',{exact:false}).count(),0);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+      state.turns[0].run={state:'waiting',ready:false,sequence:2};await page.reload();await page.locator('#portal-chat-stop').click();
+      await page.waitForFunction(()=>!document.getElementById('portal-chat-input').disabled);assert.equal(stops,1);assert.equal(resumes,1);
+      await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
+      assert.equal(await page.getByLabel('Ask me before each automatic computer check').count(),0);
+      await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
+      await page.getByLabel('Ask me before each automatic computer check').waitFor();assert.deepEqual(consoleProblems,[]);
+    }finally{await context.close();}
+  }}finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});

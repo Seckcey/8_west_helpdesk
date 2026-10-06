@@ -165,6 +165,9 @@ jobs:
           php app/tests/westy_mail_poll_mysql_test.php
           php app/tests/portal_westy_mysql_test.php
           php app/tests/portal_westy_ai_delivery_mysql_test.php
+          sudo install -d -m 0700 -o "$(id -u)" /run/8west-desktop-cleanup
+          php app/tests/portal_westy_runs_mysql_test.php
+          php app/tests/endpoint_tool_runs_migration_mysql_test.php
           php app/tests/portal_devices_mysql_test.php
           php app/tests/portal_access_mysql_test.php
           php app/tests/portal_workspace_mysql_test.php
@@ -353,3 +356,33 @@ jobs:
         run: php app/tests/central_issues_mysql_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php
+
+  tool-runs-protected-cli:
+    needs: changes
+    if: needs.changes.outputs.php == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.0.46
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports:
+          - 3306:3306
+        volumes:
+          - /var/run/mysqld:/var/run/mysqld
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute root-only backup, apply, repeat, drift and lock contracts
+        run: |
+          sudo env SAFEHARBOR_TOOL_RUNS_CLI_TEST=1 \
+            SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER=1 \
+            SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_cli \
+            SAFEHARBOR_WESTY_TEST_HOST=127.0.0.1 \
+            SAFEHARBOR_WESTY_TEST_USER=root \
+            php app/tests/endpoint_tool_runs_cli_mysql_test.php

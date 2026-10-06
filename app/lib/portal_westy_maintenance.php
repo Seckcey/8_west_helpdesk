@@ -34,6 +34,13 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
         }
         $q=$pdo->prepare("UPDATE portal_westy_turns SET input_text=NULL,reply_json=NULL,state=IF(state='pending','unavailable',state),reason_code=IF(state='pending','expired',reason_code) WHERE ".$turnWhere);
         $q->execute($turnArgs);$result['turn_content']=$q->rowCount();
+        require_once __DIR__.'/portal_westy_runs.php';
+        if(portal_westy_runs_installed($pdo)){
+            // Continuations have a shorter lifetime than the transcript; erasure
+            // removes them in the same transaction and cannot revive a stopped run.
+            $q=$pdo->prepare('DELETE FROM portal_westy_tool_runs WHERE '.($scope===null?'expires_at<=?':'1=1').$filter);
+            $q->execute($scope===null?[$now]:$args);
+        }
         $q=$pdo->prepare("UPDATE portal_westy_drafts SET state='expired',subject=NULL,body=NULL WHERE ".$draftWhere);
         $q->execute($draftArgs);$result['draft_content']=$q->rowCount();
         $hasAiReceipts=false;

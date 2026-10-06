@@ -2,8 +2,10 @@
 /** Real private ledger and signed service client; synthetic provider/network only. */
 declare(strict_types=1);
 require __DIR__.'/portal_devices_mysql_test.php';
-// Optional native schema is intentionally unavailable in this chat/stop fixture.
+// This fixture covers a predecessor without either optional native or durable
+// continuation migration. The new receipt-driven path has its own MySQL suite.
 $pdo->exec('DROP TABLE portal_desktop_bindings');
+$pdo->exec('DROP TABLE portal_westy_tool_runs');
 $settings['portal_westy']=['enabled'=>true,'ai_enabled'=>true,'tools_enabled'=>true,'api_key'=>'synthetic-only','hourly_limit'=>30,'daily_limit'=>500,'monthly_microusd'=>5000000];
 $settings['portal_devices']['enabled']=true;$settings['portal_devices']['diagnostics_enabled']=true;
 $device='1:'.str_repeat('a',64);$seenActions=[];$events=[];$providerBodies=[];$scope=portal_devices_scope($pdo,$a);

@@ -47,9 +47,12 @@ function portal_westy_ai_instructions():string
 
 function portal_westy_ai_tools(array $context, array $selection):array
 {
+    // Six paid attempts include a final response after at most five asynchronous waits.
+    if((int)($context['tool_run']['sequence']??0)>=5)return [];
     $tools=[];
     if(portal_westy_tools_enabled())foreach(portal_westy_tool_definitions() as $tool)
         $tools[]=['name'=>$tool['name'],'description'=>$tool['description'],'input_schema'=>$tool['parameters']];
+    if(portal_westy_tools_enabled()&&isset($context['tool_run']))array_push($tools,...portal_westy_shell_definitions());
     $model=westy_tenant_ai_catalog()[$selection['provider']??'']['models'][$selection['model']??'']??[];
     if(($model['computer_use']['typed_functions_with_images']??false)===true
         && function_exists('portal_westy_desktop_definitions'))array_push($tools,...portal_westy_desktop_definitions($context));
@@ -68,7 +71,7 @@ function portal_westy_desktop_context(PDO $pdo,array $context,string $conversati
     return $bound;
 }
 
-/** Five bounded rounds. Images, UIA text and provider replay never enter the durable transcript. */
+/** Five bounded rounds. Private provider replay lives only in the short-lived run record. */
 function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $messages,string $operation,
     array &$partial,callable $alive,callable $output,callable $save,?callable $provider=null,
     ?callable $transport=null,?callable $resolver=null):array
@@ -120,7 +123,17 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             $index=count($partial['tools']);$partial['tools'][$index]=[];
             $toolSave=static function()use($save,$output,&$partial,$index):void{$save();$output('tool',['tool'=>$partial['tools'][$index]]);};
             $parts=[];
-            if(str_starts_with($name,'desktop_')) {
+            if(in_array($name,['inspect_computer','run_powershell'],true)){
+                $input=portal_westy_shell_input($context,$call,$operation);
+                $pending=array_intersect_key($input,array_flip(['run_id','request_key','conversation_id','origin_channel']));
+                $pending+=['kind'=>'shell','call_id'=>$call['id']];
+                $messages[]=$result['continuation'];
+                portal_westy_run_wait($pdo,$context,$operation,$pending,$messages);
+                $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>'dispatching','effect'=>$input['effect'],'awaiting_run'=>true];$toolSave();
+                $receipt=portal_westy_run_dispatch($pdo,$context,$operation,$input,$transport);
+                $partial['tools'][$index]['state']=$receipt['state'];$partial['tools'][$index]['result']=$receipt;$toolSave();
+                return ['ok'=>true,'waiting'=>true,'usage'=>$known?$usage:null,'cost_micro_usd'=>$known?$cost:null,'rounds'=>$receipts];
+            }elseif(str_starts_with($name,'desktop_')) {
                 $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>'dispatching'];$toolSave();
                 $toolResult=portal_westy_desktop_dispatch($context,$name,$call['arguments'],static function()use($alive):bool{$alive(true);return true;});
                 $public=$toolResult['public_result'];
@@ -133,6 +146,14 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
                 $toolResult=portal_westy_tool_call($pdo,$context,['name'=>$name,'call_id'=>$call['id'],
                     'arguments'=>json_encode($call['arguments'],JSON_THROW_ON_ERROR)],$operation,$partial['tools'][$index],$toolSave,$transport);
                 $parts[]=['type'=>'text','text'=>json_encode($toolResult,JSON_THROW_ON_ERROR)];
+                if(isset($context['tool_run'])&&in_array($name,['start_health_check','prepare_temp_cleanup'],true)
+                    &&in_array($toolResult['state']??'', ['queued','authorized','verifying'],true)&&portal_desktop_id($toolResult['reference']??null)){
+                    $messages[]=$result['continuation'];
+                    portal_westy_run_wait($pdo,$context,$operation,['kind'=>'device','device_reference'=>$call['arguments']['device_reference'],
+                        'reference'=>$toolResult['reference'],'call_id'=>$call['id']],$messages);
+                    $partial['tools'][$index]['awaiting_run']=true;$toolSave();
+                    return ['ok'=>true,'waiting'=>true,'usage'=>$known?$usage:null,'cost_micro_usd'=>$known?$cost:null,'rounds'=>$receipts];
+                }
             }
             $messages[]=$result['continuation'];
             $messages[]=['role'=>'tool','call_id'=>$call['id'],'content'=>$parts];
