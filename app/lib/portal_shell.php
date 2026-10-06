@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/portal_access.php';
 require_once __DIR__.'/portal_desktop_controls.php';
 
 function portal_icon(string $name): string
