@@ -120,11 +120,21 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             if(count($calls)!==1 || $round===4)throw new PortalWestyException('tool_limit');
             $call=$calls[0];$name=$call['name'];
             if(!in_array($name,array_column($tools,'name'),true))throw new PortalWestyException('tool_invalid');
+            // Validate identity/content before allocating a visible tool row.
+            $input=in_array($name,['inspect_computer','run_powershell'],true)?portal_westy_shell_input($context,$call,$operation):null;
+            if($input!==null&&in_array($call['id'],array_column($partial['tools'],'key'),true))throw new PortalWestyException('tool_invalid');
             $index=count($partial['tools']);$partial['tools'][$index]=[];
             $toolSave=static function()use($save,$output,&$partial,$index):void{$save();$output('tool',['tool'=>$partial['tools'][$index]]);};
             $parts=[];
             if(in_array($name,['inspect_computer','run_powershell'],true)){
-                $input=portal_westy_shell_input($context,$call,$operation);
+                $rejection=$name==='inspect_computer'?portal_westy_shell_validation($input['plan']):null;
+                if($rejection!==null){
+                    $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>'rejected','result'=>$rejection];$toolSave();
+                    $messages[]=$result['continuation'];
+                    $messages[]=['role'=>'tool','call_id'=>$call['id'],'content'=>[['type'=>'text','text'=>json_encode($rejection,JSON_THROW_ON_ERROR)]]];
+                    if($partial['reply']!=='')$output('delta',['text'=>"\n\n"]);
+                    continue; // Same bounded paid attempt; no durable wait and no endpoint dispatch.
+                }
                 $pending=array_intersect_key($input,array_flip(['run_id','request_key','conversation_id','origin_channel']));
                 $pending+=['kind'=>'shell','call_id'=>$call['id']];
                 $messages[]=$result['continuation'];

@@ -3,20 +3,28 @@
 declare(strict_types=1);
 require_once __DIR__.'/portal_westy_desktop.php';
 
+// Provider guidance only. Milepost and the companion remain execution-policy authorities.
+const PORTAL_WESTY_SHELL_SOURCES=['Get-Process','Get-Service','Get-CimInstance','Get-WinEvent','Get-HotFix',
+    'Get-NetAdapter','Get-NetIPConfiguration','Get-NetTCPConnection','Get-Volume','Get-Disk'];
+const PORTAL_WESTY_SHELL_TRANSFORMS=['Select-Object','Sort-Object','Where-Object'];
+
 function portal_westy_shell_definitions():array
 {
     $device=['type'=>'string','description'=>'Exact reference from list_computers for the requested computer.'];
     $effect=['type'=>'string','description'=>'Brief intended observation or change, in plain language.'];
     $parameter=['type'=>'object','additionalProperties'=>false,'required'=>['name','values'],
         'properties'=>['name'=>['type'=>'string'],'values'=>['type'=>'array','items'=>['type'=>'string'],'maxItems'=>20]]];
-    $pipeline=['type'=>'array','minItems'=>1,'maxItems'=>6,'items'=>['type'=>'object','additionalProperties'=>false,
-        'required'=>['command','parameters'],'properties'=>['command'=>['type'=>'string'],
+    $pipeline=['type'=>'array','minItems'=>1,'maxItems'=>6,
+        'description'=>'Exactly one source at index 0, then zero to five transformations. This is a pipeline, not a list of independent commands. Use separate sequential tool calls for different sources.',
+        'items'=>['type'=>'object','additionalProperties'=>false,
+        'required'=>['command','parameters'],'properties'=>['command'=>['type'=>'string','enum'=>array_merge(PORTAL_WESTY_SHELL_SOURCES,PORTAL_WESTY_SHELL_TRANSFORMS)],
         'parameters'=>['type'=>'array','items'=>$parameter,'maxItems'=>12]]]];
     $description='Run a composable read-only PowerShell pipeline on the signed-in Windows companion. No screen consent is needed. '
         .'Start with one local source: Get-Process (Name,Id), Get-Service (Name,DisplayName), Get-CimInstance (ClassName, optional Filter and Property), '
         .'Get-WinEvent (required LogName and MaxEvents 1..100, optional FilterXPath), Get-HotFix (Id), Get-NetAdapter (Name), '
         .'Get-NetIPConfiguration, Get-NetTCPConnection (State,OwningProcess), Get-Volume (DriveLetter), Get-Disk (Number). '
-        .'Then combine Select-Object (Property,First,Skip), Sort-Object (Property,Descending), or Where-Object (Property,Value and exactly one EQ/NE/GT/GE/LT/LE/Like/NotLike). '
+        .'Every later stage MUST be Select-Object (Property,First,Skip), Sort-Object (Property,Descending), or Where-Object (Property,Value and exactly one EQ/NE/GT/GE/LT/LE/Like/NotLike). '
+        .'Never put a second Get-* source in the same pipeline. For independent observations, issue one tool call, wait for its receipt, then issue the next source. '
         .'Every parameter uses a list of literal string values; switch values are []. No expressions, script blocks, remote host or file parameters. '
         .'Event logs: System, Application, Setup, Microsoft-Windows-WindowsUpdateClient/Operational, Microsoft-Windows-DriverFrameworks-UserMode/Operational, Microsoft-Windows-Diagnostics-Performance/Operational. '
         .'CIM classes: Win32_OperatingSystem, Win32_ComputerSystem, Win32_Processor, Win32_LogicalDisk, Win32_PhysicalMemory, Win32_VideoController, Win32_PnPEntity, Win32_NetworkAdapter, Win32_NetworkAdapterConfiguration, Win32_Battery, Win32_PerfFormattedData_PerfOS_Processor, Win32_PerfFormattedData_PerfOS_Memory, Win32_PerfFormattedData_PerfDisk_LogicalDisk, Win32_PerfFormattedData_PerfProc_Process. '
@@ -25,6 +33,33 @@ function portal_westy_shell_definitions():array
         ['run_powershell','Propose an exact PowerShell script for this computer when the diagnostic pipeline is insufficient. The person must approve the exact script and effect locally before every execution. Runs with their existing Windows permissions, never elevation. Do not request secrets, persist credentials, disable safeguards or repeat unknown work.',['device_reference'=>$device,'script'=>['type'=>'string','maxLength'=>6000],'effect'=>$effect]]];
     return array_map(static fn(array $d):array=>['name'=>$d[0],'description'=>$d[1],
         'input_schema'=>['type'=>'object','properties'=>$d[2],'required'=>array_keys($d[2]),'additionalProperties'=>false]],$definitions);
+}
+
+/** Fixed feedback contains no submitted argument values and grants no execution permission. */
+function portal_westy_shell_rejection(string $code='endpoint_validation'):array
+{
+    return ['state'=>'rejected','reason'=>'invalid_pipeline','executed'=>false,'correction_allowed'=>true,'retry_allowed'=>false,
+        'validation'=>['code'=>$code,'message'=>'This request was rejected before execution. Do not resend it unchanged. Create a new corrected tool call: exactly one supported source first, then only Select-Object, Sort-Object or Where-Object. Split independent sources into separate sequential calls, waiting for each receipt. Use only the documented parameters and literal string-value arrays; switches use [].']];
+}
+
+/** Catch malformed composition before a durable dispatch intent or network request exists. */
+function portal_westy_shell_validation(mixed $plan):?array
+{
+    if(!is_array($plan)||!array_is_list($plan)||count($plan)<1||count($plan)>6)return portal_westy_shell_rejection('pipeline_shape');
+    foreach($plan as $index=>$stage){
+        if(!is_array($stage)||!portal_devices_keys($stage,['command','parameters'])||!is_string($stage['command'])
+            ||!is_array($stage['parameters'])||!array_is_list($stage['parameters'])||count($stage['parameters'])>12)
+            return portal_westy_shell_rejection('stage_shape');
+        if($index===0&&!in_array($stage['command'],PORTAL_WESTY_SHELL_SOURCES,true))return portal_westy_shell_rejection('source_required');
+        if($index>0&&!in_array($stage['command'],PORTAL_WESTY_SHELL_TRANSFORMS,true))return portal_westy_shell_rejection('transformation_required');
+        foreach($stage['parameters'] as $parameter){
+            if(!is_array($parameter)||!portal_devices_keys($parameter,['name','values'])||!is_string($parameter['name'])
+                ||!is_array($parameter['values'])||!array_is_list($parameter['values'])||count($parameter['values'])>20)
+                return portal_westy_shell_rejection('parameter_shape');
+            foreach($parameter['values'] as $value)if(!is_string($value))return portal_westy_shell_rejection('literal_strings_required');
+        }
+    }
+    return null;
 }
 
 function portal_westy_shell_input(array $context,array $call,string $operation):array

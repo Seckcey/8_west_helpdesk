@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APP_CSS = await readFile(path.join(ROOT, 'app/public/assets/css/app.css'), 'utf8');
@@ -853,7 +854,8 @@ if (!SERVE_MODE) test('expired message operations preserve text and require refr
   try{
     const {page,context,consoleProblems}=await openPortalPage(browser,pages,{width:390,height:844},handler);
     await page.goto(`${ORIGIN}/portal/`);
-    assert.equal(await page.locator('script[src*="portal-westy.js"]').getAttribute('src'),'/assets/js/portal-westy.js?v=3','refresh loads the versioned current message generator');
+    const version=createHash('sha256').update(PORTAL_ASSETS['/assets/js/portal-westy.js'][1]).digest('hex').slice(0,20);
+    assert.equal(await page.locator('script[src*="portal-westy.js"]').getAttribute('src'),'/assets/js/portal-westy.js?v='+version,'refresh loads the exact current message generator by content');
     const input=page.getByRole('textbox',{name:'Ask Westy about your computer'});
     await input.fill('Keep my original request.');await input.press('Enter');
     await page.getByText('Refresh this page before sending a new message. If this continues, check your computer clock.',{exact:true}).waitFor();
@@ -972,7 +974,9 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
     const conversation='a'.repeat(32),operation='b'.repeat(32);let resumes=0,stops=0,automatic=true;
     const state={enabled:true,ai_available:true,can_write:true,tools_enabled:true,conversation,conversations:[],draft:null,
       devices:[{reference:'1:'+ 'c'.repeat(64),label:'Synthetic computer'}],turns:[{operation_key:operation,state:'complete',
-        input_text:'Investigate memory use.',reply:{reply:'Checking current process memory.',sources:[],tools:[{key:'inspect_1',name:'inspect_computer',state:'complete',effect:'Read current process memory',result:{state:'running'}}]},
+        input_text:'Investigate memory use.',reply:{reply:'Checking current process memory.',sources:[],tools:[
+          {key:'invalid_0',name:'inspect_computer',state:'rejected',result:{state:'rejected',executed:false,correction_allowed:true,retry_allowed:false}},
+          {key:'inspect_1',name:'inspect_computer',state:'complete',effect:'Read current process memory',result:{state:'running'}}]},
         run:{state:'waiting',ready:false,sequence:1}}]};
     const handler=async route=>{
       const payload=route.request().method()==='POST'?route.request().postDataJSON():null;
@@ -981,7 +985,7 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
       if(payload?.action==='run_resume'){
         assert.deepEqual(payload,{action:'run_resume',operation,conversation,sequence:1});resumes++;
         state.turns[0].run=null;state.turns[0].reply.reply='The completed memory result explains the slowdown.';
-        state.turns[0].reply.tools[0].result={state:'completed',result:{stdout:'PRIVATE_RAW_OUTPUT',exit_code:0}};
+        state.turns[0].reply.tools[1].result={state:'completed',result:{stdout:'PRIVATE_RAW_OUTPUT',exit_code:0}};
         return route.fulfill({contentType:'text/event-stream',body:'event: done\ndata: '+JSON.stringify({state})+'\n\n'});
       }
       return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{...state,diagnostic_preference:{automatic_diagnostics:automatic}}})});
@@ -990,6 +994,9 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
     await page.route('**/portal/desktop_sessions.php',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{sessions:[]}})}));
     try{
       await page.goto(ORIGIN+'/portal/');await page.getByText('Computer investigation · Running',{exact:true}).waitFor();
+      await page.getByText('Computer investigation · Not executed',{exact:true}).waitFor();
+      await page.getByText('The plan was rejected before execution. Westy can use the validation feedback to correct it.',{exact:true}).waitFor();
+      assert.equal(await page.getByText('Device tool',{exact:false}).count(),0);
       assert.equal(await page.locator('#portal-chat-input').isDisabled(),true);assert.equal(await page.locator('#portal-chat-stop').isVisible(),true);
       await page.getByLabel('Ask me before each automatic computer check').check();assert.equal(automatic,false);
       state.turns[0].run.ready=true;await page.getByText('The completed memory result explains the slowdown.',{exact:true}).waitFor();

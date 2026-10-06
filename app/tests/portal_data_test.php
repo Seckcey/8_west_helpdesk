@@ -249,8 +249,16 @@ portal_data_check('rendered portal is dark and loads only its exact customer cha
     && preg_match_all('/<script\b/i', $rendered) === 2
     && $renderedScripts[0] === [
         '<script src="/assets/js/portal-desktop.js?v=2" defer></script>',
-        '<script src="/assets/js/portal-westy.js?v=3" defer></script>',
+        '<script src="/assets/js/portal-westy.js?v='.substr(hash_file('sha256',__DIR__.'/../public/assets/js/portal-westy.js'),0,20).'" defer></script>',
     ]);
+
+$asset=tempnam(sys_get_temp_dir(),'portal-cache-');
+try{
+    file_put_contents($asset,'first script');touch($asset,1700000000);$firstVersion=portal_asset_version($asset);
+    file_put_contents($asset,'other script');touch($asset,1700000000);$secondVersion=portal_asset_version($asset);
+    portal_data_check('same-size asset replacement with preserved timestamp changes the cache version',$firstVersion!==$secondVersion);
+    portal_data_check('unchanged bytes retain a stable cache version',$secondVersion===portal_asset_version($asset));
+}finally{unlink($asset);}
 
 echo "Portal data: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

@@ -80,7 +80,14 @@ function portal_westy_run_wait(PDO $pdo,array $context,string $operation,array $
 function portal_westy_run_result(array $context,array $run,?callable $transport=null):array
 {
     $pending=json_decode($run['pending_json'],true,32,JSON_THROW_ON_ERROR);
-    if(isset($pending['terminal']))return ['ready'=>true,'receipt'=>$pending['terminal']];
+    if(isset($pending['terminal'])){
+        $receipt=$pending['terminal'];
+        // Only a saved queue refusal proves no execution. Never promote a result
+        // fetched from a dispatched command, an unknown response or a lost reply.
+        if(($pending['kind']??'shell')==='shell'&&($receipt['state']??null)==='unavailable'
+            &&($receipt['reason']??null)==='invalid_pipeline')$receipt=portal_westy_shell_rejection();
+        return ['ready'=>true,'receipt'=>$receipt];
+    }
     try{
         if(($pending['kind']??'shell')==='shell')$receipt=portal_westy_shell_receipt($context,$pending,$transport);
         else{
@@ -107,6 +114,7 @@ function portal_westy_run_dispatch(PDO $pdo,array $context,string $operation,arr
         try{$receipt=portal_desktop_request($context,'shell_queue',$input,$transport);}
         catch(PortalDesktopException $error){
             $receipt=['state'=>$error->reason==='connection_unknown'?'unknown':'unavailable','reason'=>$error->reason,'retry_allowed'=>false];
+            if($error->reason==='invalid_pipeline')$receipt=portal_westy_shell_rejection();
             // A lost queue response is reconciled by request key. It is never sent again.
             if($error->reason!=='connection_unknown'){
                 $pending=json_decode($run['pending_json'],true,32,JSON_THROW_ON_ERROR);$pending['terminal']=$receipt;
