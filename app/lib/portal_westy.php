@@ -255,9 +255,10 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
             $modelReceipt=($pending['kind']??null)==='terminal'?portal_westy_terminal_model_result($runResult['receipt']):portal_westy_tool_model_result($runResult['receipt']);
             $messages[]=['role'=>'tool','call_id'=>$pending['call_id'],'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>$modelReceipt],JSON_THROW_ON_ERROR)]]];
         }
-        $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions(),$messages,['tools'=>portal_westy_ai_tools($pdo,$context,$aiSelection),'max_output_tokens'=>1200]);
+        $aiTools=portal_westy_ai_tools($pdo,$context,$aiSelection);
+        $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>1200]);
         while (!$runResume && strlen(json_encode($body,JSON_THROW_ON_ERROR))>28000 && count($messages)>1) {
-            array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions(),$messages,['tools'=>portal_westy_ai_tools($pdo,$context,$aiSelection),'max_output_tokens'=>1200]);
+            array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>1200]);
         }
         $bytes=strlen(json_encode($body,JSON_THROW_ON_ERROR));
         if ($bytes>($runResume?131072:32000)) throw new PortalWestyException('context_limit',400);

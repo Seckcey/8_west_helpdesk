@@ -7,6 +7,7 @@ portal_westy_fixture_sql($pdo,__DIR__.'/../db/migrations/endpoint_tool_runs_v2.s
 check(portal_westy_terminal_installed($pdo),'additive v2 column activates general tools');
 $generalNames=array_column(portal_westy_ai_tools($pdo,$a+['tool_run'=>['sequence'=>0]],$providerSelection),'name');
 check(in_array('exec_command',$generalNames,true)&&in_array('desktop_open',$generalNames,true),'v2 schema with native configuration advertises general execution and desktop activation');
+check(str_contains(portal_westy_ai_instructions(array_map(static fn($name)=>['name'=>$name],$generalNames)),'Use exec_command')&&!str_contains(portal_westy_ai_instructions([]),'Use exec_command'),'instructions match actual offered tools and do not advertise exhausted general tools');
 $settings['portal_westy']['hourly_limit']=100;$settings['portal_westy']['daily_limit']=1000;$settings['portal_westy']['monthly_microusd']=20000000;
 $phase='prepare';$termCalls=[];$nativeReceipt=null;$paid=0;$actualHandle=null;$stopDuringReview=false;$losePrepare=false;$needsApproval=false;
 $terminalTransport=static function(string $body,array $headers)use(&$phase,&$termCalls,&$nativeReceipt,&$stopDuringReview,&$losePrepare,&$needsApproval,$pdo,$a,$scope):array{

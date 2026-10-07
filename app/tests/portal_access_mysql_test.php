@@ -15,7 +15,7 @@ $settings=['app_env'=>'dev','portal'=>['issuer'=>'https://id.example.test','revo
 function cfg(string $key,mixed $default=null):mixed {global $settings;$v=$settings;foreach(explode('.',$key) as $part){if(!is_array($v)||!array_key_exists($part,$v))return $default;$v=$v[$part];}return $v;}
 require_once __DIR__.'/../lib/portal_auth.php';
 require __DIR__.'/portal_westy_fixture.php';
-require __DIR__.'/../lib/portal_desktop_sessions.php';
+require_once __DIR__.'/../lib/portal_desktop_sessions.php';
 session_save_path(sys_get_temp_dir());portal_session_start();
 register_shutdown_function(static function():void{if(session_status()===PHP_SESSION_ACTIVE)session_destroy();});
 portal_westy_fixture_sql($pdo,__DIR__.'/../db/schema.sql');[$a,$b,$c]=portal_westy_fixture_seed($pdo);
