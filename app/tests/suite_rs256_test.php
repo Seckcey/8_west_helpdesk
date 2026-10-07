@@ -176,9 +176,26 @@ rs_check(
         === 'token_type_invalid',
     'suite-cookie wrapper refuses OIDC token reuse',
 );
-$jwksCache = sys_get_temp_dir() . '/safeharbor-suite-rs256-test-'
-    . getmypid() . '-' . bin2hex(random_bytes(4)) . '.json';
-file_put_contents($jwksCache, json_encode($jwks, JSON_THROW_ON_ERROR));
+$jwksDirectory = sys_get_temp_dir() . '/safeharbor-suite-rs256-test-'
+    . getmypid() . '-' . bin2hex(random_bytes(4));
+if (!mkdir($jwksDirectory, 0700)) {
+    throw new RuntimeException('Could not create private JWKS test directory');
+}
+$jwksCache = $jwksDirectory . '/jwks.json';
+register_shutdown_function(static function () use ($jwksCache, $jwksDirectory): void {
+    @unlink($jwksCache);
+    @rmdir($jwksDirectory);
+});
+$jwksEnvelope = json_encode([
+    'schema_version' => 1,
+    'source' => 'https://id.test/.well-known/jwks.json',
+    'fetched_at' => time(),
+    'jwks' => $jwks,
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+if (file_put_contents($jwksCache, $jwksEnvelope) !== strlen($jwksEnvelope)
+    || !chmod($jwksCache, 0600)) {
+    throw new RuntimeException('Could not write private JWKS test envelope');
+}
 $rsSuiteConfig = [
     'token_algorithms' => ['RS256'],
     'issuer' => 'https://id.test',
@@ -200,5 +217,6 @@ rs_check(
     'production RS256 suite-cookie wrapper refuses OIDC token reuse',
 );
 @unlink($jwksCache);
+@rmdir($jwksDirectory);
 
 exit($failures === 0 ? 0 : 1);

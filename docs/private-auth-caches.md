@@ -64,7 +64,39 @@ CI runs all five Safeharbor commands above beside existing suite revocation
 validation. On a nonroot runner, private IO reports 31 passes and seven explicit
 root-only skips; all 38 were exercised in the isolated root run. The subsequent
 skip-accounting edit changes output only. POSIX/OpenSSL/pcntl and TLS checks
-fail if their requirements are unavailable. Full exact-head CI, disposable
-MySQL suite sign-in/tenant regressions, all-app runtime isolation and live
-source/config acceptance remain release gates; component evidence closes none
-of those production gates.
+fail if their requirements are unavailable.
+
+The later `cache-repair-v5` checkpoint passed private IO as root (38, no skips)
+and an ordinary UID (31, seven explicit root-only skips), the signed-envelope
+0644 refusal/0600 acceptance pair, and all 60 suite SSO assertions against a
+disposable MySQL server. Archive SHA-256:
+`99198433f5e8bfa97c89aa49c8cbbb6913e12191c8d7bb5a921487a337e14ae4`.
+Receipt SHA-256:
+`99e72ba3226898da8372af2dabcde5edb125e4e4aa43a8cd955bdfa6c9ac229d`.
+The coordinator verified all 1,152 source files against reviewed Git after
+CRLF/LF normalization, retaining distinct raw hashes. All owned containers,
+network and volume were removed and the actual shared flock was free.
+
+The v5 receipt retains an initial Milepost child-session environment failure
+and its corrected 87/87 rerun. No live source hash was captured between those
+two commands. This limitation is not concealed by the archive comparison.
+The later `cache-lock-v7` checkpoint passed the corrected source-bound RS256
+fixture through the actual production wrapper under root and UID 65534, with
+no OpenSSL skip. Portal authentication passed all 74 checks with the two
+updated SDK identity pins and the added private-file helper pin. Real loopback
+TLS passed six checks. All 1,131 canonical-LF source file hashes matched before
+and after all nine commands across both applications. Its PHP-only container
+was removed after four seconds and the normal flock release was verified.
+Archive SHA-256:
+`a6db0f8cc6d0b50519633e2e6866a41f32430c4b52955d8d47e4720b0b6911a2`.
+Receipt SHA-256:
+`e8f07ed112f7de24ec7040120269f78d31a57189f5443c46c86c2d75e55d401b`.
+An earlier v6 launch found its script absent during transfer and created no
+lock or container; v7 contains the final approved identity-pin fixture. Full
+CI must still pass at the final frozen head.
+
+All-app runtime isolation, private directory provisioning and live source/
+config acceptance remain release gates. The optional Apache stream fixture
+must refresh caches under the assigned runtime UID after its ownership
+handoff; hosted validation currently exercises ordinary PHP mode. Component
+evidence closes none of these production gates.
