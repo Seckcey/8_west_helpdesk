@@ -402,8 +402,9 @@ suite_revocation_check(
 suite_revocation_check(
     str_contains($revocationSource, 'suite_revocation_cached_envelope')
         && str_contains($revocationSource, "'suite-revocations'")
-        && str_contains($revocationSource, '@chmod($directory, 0700)')
-        && str_contains($revocationSource, '@chmod($path, 0600)')
+        && str_contains($revocationSource, 'PrivateFileCache::read(')
+        && str_contains($revocationSource, 'PrivateFileCache::write(')
+        && str_contains($revocationSource, 'PrivateFileCache::lock(')
         && str_contains($revocationSource, '@flock($lock, LOCK_EX)'),
     'private authenticated cache wiring is incomplete',
 );

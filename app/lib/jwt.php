@@ -7,6 +7,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/trusted_jwks.php';
+
 require_once __DIR__ . '/suite_auth_policy.php';
 
 function b64url_encode(string $data): string
@@ -193,21 +195,7 @@ function jwt_verify_rs256_reason(string $token, array $jwks, string $issuer): ar
 
 function jwt_load_jwks(string $url, string $cachePath, int $ttl = 3600, bool $forceRefresh = false): ?array
 {
-    $read = static function (string $path): ?array {
-        $decoded = is_readable($path) ? json_decode((string) file_get_contents($path), true) : null;
-        return is_array($decoded) && is_array($decoded['keys'] ?? null) ? $decoded : null;
-    };
-    if (! $forceRefresh && is_file($cachePath) && filemtime($cachePath) >= time() - $ttl) return $read($cachePath);
-    $context = stream_context_create(['http' => ['timeout' => 3, 'ignore_errors' => false]]);
-    $body = @file_get_contents($url, false, $context);
-    $decoded = is_string($body) ? json_decode($body, true) : null;
-    if (is_array($decoded) && is_array($decoded['keys'] ?? null)) {
-        $temp = $cachePath . '.' . bin2hex(random_bytes(6)) . '.tmp';
-        if (@file_put_contents($temp, $body, LOCK_EX) !== false) @rename($temp, $cachePath);
-        @unlink($temp);
-        return $decoded;
-    }
-    return is_file($cachePath) && filemtime($cachePath) >= time() - 86400 ? $read($cachePath) : null;
+    return \EightWest\Id\Security\TrustedJwks::load($url, $cachePath, $ttl, $forceRefresh);
 }
 
 /** @return array{0: array<string,mixed>|null,1:string|null} */
@@ -224,7 +212,8 @@ function jwt_verify_suite_reason(string $token, array $suite): array
     if ($alg === 'HS256') return jwt_verify_reason($token, (string) ($suite['sso_secret'] ?? ''), $issuer);
     if ($alg !== 'RS256') return [null, 'unexpected_algorithm'];
     $url = (string) ($suite['jwks_url'] ?? rtrim($issuer, '/') . '/.well-known/jwks.json');
-    $cachePath = (string) ($suite['jwks_cache_path'] ?? sys_get_temp_dir() . '/safeharbor-ewid-jwks.json');
+    if (!\EightWest\Id\Security\TrustedJwks::sameOrigin($url, $issuer)) return [null, 'jwks_unavailable'];
+    $cachePath = (string) ($suite['jwks_cache_path'] ?? '/var/cache/8west/safeharbor/jwks.json');
     $jwks = jwt_load_jwks($url, $cachePath);
     if ($jwks === null) return [null, 'jwks_unavailable'];
     $result = jwt_verify_rs256_reason($token, $jwks, $issuer);
