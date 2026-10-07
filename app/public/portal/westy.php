@@ -62,6 +62,14 @@ try{
             case 'diagnostic_preference':
                 if(!portal_devices_keys($request,['action','automatic_diagnostics'])||!is_bool($request['automatic_diagnostics']))throw new PortalWestyException('invalid_request',400);
                 portal_desktop_request($context,'shell_preferences',['automatic_diagnostics'=>$request['automatic_diagnostics']]);break;
+            case 'tool_preferences':
+                if(!portal_devices_keys($request,['action','revision','restrictions'])||!is_int($request['revision'])||!is_array($request['restrictions']))throw new PortalWestyException('invalid_request',400);
+                portal_desktop_request($context,'terminal_preferences',['revision'=>$request['revision'],'restrictions'=>$request['restrictions']]);break;
+            case 'approve_terminal':
+                if(!portal_devices_keys($request,['action','operation','conversation','sequence','fingerprint','reviewed'])||$request['reviewed']!==true
+                    ||!is_int($request['sequence'])||!is_string($request['fingerprint'])||!preg_match('/\A[a-f0-9]{64}\z/D',$request['fingerprint']))throw new PortalWestyException('invalid_request',400);
+                $scope=portal_westy_scope(db(),$context);portal_westy_require_conversation(portal_westy_account(db(),$scope),portal_westy_key($request['conversation']));
+                portal_westy_terminal_approve(db(),$context,portal_westy_key($request['operation']),$request['sequence'],$request['fingerprint']);break;
             case 'save_draft': portal_westy_save_draft(db(),$context,$request);break;
             case 'handoff': portal_westy_handoff(db(),$context,$request);$receiptKey=$request['draft_key'];break;
             case 'new_chat': portal_westy_new_chat(db(),$context,$request);break;
@@ -83,6 +91,8 @@ try{
     }
     if($method==='GET'&&isset($_GET['diagnostic_preference'])&&portal_westy_runs_installed(db()))
         try{$state['diagnostic_preference']=portal_desktop_request($fresh,'shell_preferences',[]);}catch(PortalDesktopException){}
+    if($method==='GET'&&isset($_GET['tool_preferences'])&&portal_westy_terminal_installed(db()))
+        try{$state['tool_preferences']=portal_desktop_request($fresh,'terminal_preferences',[]);}catch(PortalDesktopException){}
     if($receiptKey!==null)$state['receipt']=portal_westy_receipt(db(),$fresh,$receiptKey);
     $check=portal_authenticated_context(db());
     if($check===null||$check['identity']!==$context['identity'])$fail('sign_in',401);

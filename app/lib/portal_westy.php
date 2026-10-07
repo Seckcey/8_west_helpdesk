@@ -117,6 +117,7 @@ function portal_westy_state(PDO $pdo, array $context, ?string $conversation = nu
         }
     }
     unset($turn);
+    $state['turns']=portal_westy_terminal_refresh($pdo,$context,$s,$state['turns'],$transport);
     $q=$pdo->prepare("SELECT draft_key,revision,state,subject,body,priority,ticket_id,expires_at FROM portal_westy_drafts WHERE scope_key=? AND conversation_key=? AND (state='sent' OR (state='draft' AND expires_at>?)) ORDER BY id DESC LIMIT 1");
     $q->execute([$s['key'],$state['conversation'],gmdate('Y-m-d H:i:s')]);
     $state['draft']=$q->fetch() ?: null;
@@ -183,7 +184,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         $desktopTask=$context['desktop']['task_id'];
         $q=$pdo->prepare('SELECT id FROM portal_westy_ai_attempts WHERE desktop_task_id=? AND scope_key=?');$q->execute([$desktopTask,$s['key']]);
         if($q->fetchColumn())return; // Completed, pending and unknown repeats all remain idempotent.
-        if(portal_westy_desktop_definitions($context)===[])throw new PortalWestyException('desktop_unavailable');
+        if(portal_westy_desktop_definitions($pdo,$context)===[])throw new PortalWestyException('desktop_unavailable');
         $q=$pdo->prepare('SELECT * FROM portal_westy_turns WHERE scope_key=? AND conversation_key=? AND operation_key=?');
         $q->execute([$s['key'],$conversation,$key]);$resumeTurn=$q->fetch();
         if(!$resumeTurn || $resumeTurn['state']!=='complete' || $resumeTurn['input_text']===null
@@ -196,6 +197,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     if (!is_string($text) || !mb_check_encoding($text,'UTF-8') || mb_strlen(trim($text))<1 || mb_strlen($text)>2000 || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/',$text)) throw new PortalWestyException('invalid_message',400);
     // Obvious credentials are refused before either storage or provider transmission.
     if (preg_match('/(?:\bsk-[a-zA-Z0-9_-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:password|api[_ -]?key|verification code|one[- ]time code)\s*(?:is|:|=)\s*\S+)/i',$text)) throw new PortalWestyException('sensitive_text',400);
+    $context['authorized_task']=trim($text);
     $pdo->beginTransaction();
     try {
         $s=portal_westy_scope($pdo,$context,true); $account=portal_westy_account($pdo,$s,true);
@@ -250,11 +252,12 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
             // Decoding as objects preserves empty tool argument objects for Anthropic.
             $messages=portal_westy_run_restore($run['replay_json']);
             $pending=json_decode($run['pending_json'],true,32,JSON_THROW_ON_ERROR);
-            $messages[]=['role'=>'tool','call_id'=>$pending['call_id'],'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>$runResult['receipt']],JSON_THROW_ON_ERROR)]]];
+            $modelReceipt=($pending['kind']??null)==='terminal'?portal_westy_terminal_model_result($runResult['receipt']):portal_westy_tool_model_result($runResult['receipt']);
+            $messages[]=['role'=>'tool','call_id'=>$pending['call_id'],'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>$modelReceipt],JSON_THROW_ON_ERROR)]]];
         }
-        $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions(),$messages,['tools'=>portal_westy_ai_tools($context,$aiSelection),'max_output_tokens'=>1200]);
+        $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions(),$messages,['tools'=>portal_westy_ai_tools($pdo,$context,$aiSelection),'max_output_tokens'=>1200]);
         while (!$runResume && strlen(json_encode($body,JSON_THROW_ON_ERROR))>28000 && count($messages)>1) {
-            array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions(),$messages,['tools'=>portal_westy_ai_tools($context,$aiSelection),'max_output_tokens'=>1200]);
+            array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions(),$messages,['tools'=>portal_westy_ai_tools($pdo,$context,$aiSelection),'max_output_tokens'=>1200]);
         }
         $bytes=strlen(json_encode($body,JSON_THROW_ON_ERROR));
         if ($bytes>($runResume?131072:32000)) throw new PortalWestyException('context_limit',400);

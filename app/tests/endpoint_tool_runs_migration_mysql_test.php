@@ -4,8 +4,12 @@ declare(strict_types=1);
 require __DIR__.'/portal_devices_mysql_test.php';
 define('SH_TR_LIBRARY_ONLY',true);require __DIR__.'/../../deploy/endpoint_tool_runs_migration.php';
 $payload=dirname(__DIR__,2).'/'.SH_TR_PATH;
+// Exercise the historical v1 contract independently of the canonical v2 tail.
+$pdo->exec('DROP TABLE portal_westy_tool_runs');
+foreach(smp_sql_statements(file_get_contents($payload)) as $statement)$pdo->exec($statement);
+
 check(sh_tr_payload($payload)===file_get_contents($payload),'run migration bytes are pinned');
-check(sh_tr_snapshot($pdo,$database)===['state'=>'FINAL','rows'=>0,'errors'=>[]],'canonical schema equals exact additive run catalog and guards');
+check(sh_tr_snapshot($pdo,$database)===['state'=>'FINAL','rows'=>0,'errors'=>[]],'historical v1 schema retains exact catalog and guards');
 $pdo->exec('ALTER TABLE portal_westy_tool_runs ADD unexpected INT NULL');
 check(sh_tr_snapshot($pdo,$database)['state']==='DRIFT','extra run column refused');
 $pdo->exec('ALTER TABLE portal_westy_tool_runs DROP COLUMN unexpected');
