@@ -1012,3 +1012,65 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
     }finally{await context.close();}
   }}finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
+
+if (!SERVE_MODE) test('general runtime shows exact approval, live output, Stop and personal restrictions on desktop and mobile',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  try{for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
+    const conversation='a'.repeat(32),operation='b'.repeat(32),fingerprint='e'.repeat(64);let approved=0,stopped=0,saved=0;
+    const command={command:'Restart-Service -Name SyntheticService',working_directory:'C:\\Synthetic',execution_context:'system',timeout_seconds:120,effect:'Restart the synthetic service',tty:false};
+    const settings={revision:0,restrictions:{commands:true,files:true,repairs:true,system:true,browser:true,desktop:true}};
+    const state={enabled:true,ai_available:true,can_write:true,conversation,conversations:[],draft:null,
+      devices:[{reference:'1:'+ 'c'.repeat(64),label:'Synthetic computer'}],turns:[{operation_key:operation,state:'complete',input_text:'Restart the synthetic service.',
+        reply:{reply:'Review the exact service restart.',tools:[{key:'terminal_1',name:'exec_command',state:'awaiting_approval',awaiting_run:true,effect:command.effect}]},
+        run:{state:'waiting',ready:false,sequence:1,receipt:{state:'awaiting_approval',execution_context:'system',process_id:'d'.repeat(32)},
+          approval:{fingerprint,command,chars:null,reason:'This interrupts the service.'}}}]};
+    const handler=async route=>{
+      const payload=route.request().method()==='POST'?route.request().postDataJSON():null;
+      if(payload?.action==='approve_terminal'){
+        assert.deepEqual(payload,{action:'approve_terminal',operation,conversation,sequence:1,fingerprint,reviewed:true});approved++;
+        const receipt={state:'running',execution_context:'system',process_id:'d'.repeat(32),progress:{sequence:1,exit_code:null,stdout:'Synthetic service is stopping…',stderr:'',truncated:false}};
+        state.turns[0].reply.reply='The command is running on your computer.';
+        state.turns[0].reply.tools[0].result=receipt;state.turns[0].reply.tools[0].awaiting_run=false;
+        state.turns[0].run=null;state.turns[0].terminal_active=true;state.turns[0].terminal_processes={['d'.repeat(32)]:receipt};
+      }else if(payload?.action==='stop'){
+        assert.equal(payload.operation,operation);stopped++;state.turns[0].terminal_processes['d'.repeat(32)].state='unknown';state.turns[0].state='unavailable';
+      }else if(payload?.action==='tool_preferences'){
+        assert.equal(payload.revision,settings.revision);assert.equal(payload.restrictions.system,false);saved++;settings.revision++;settings.restrictions=payload.restrictions;
+      }else if(payload)throw new Error('Unexpected action '+payload.action);
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{...state,tool_preferences:settings}})});
+    };
+    const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport,handler);
+    await page.route('**/portal/desktop_sessions.php',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{sessions:[]}})}));
+    try{
+      await page.goto(ORIGIN+'/portal/');assert.equal(new URL(page.url()).pathname,'/portal/');assert.match(await page.title(),/Westy|Safeharbor/i);
+      await page.getByText('Review this exact action',{exact:true}).waitFor();assert.equal(approved,0);
+      assert.equal(await page.getByRole('button',{name:'Approve action',exact:true}).isDisabled(),true);
+      await page.getByText(command.command,{exact:true}).waitFor();await page.getByText('This interrupts the service.',{exact:true}).waitFor();
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+      if(process.env.WESTY_QA_OUTPUT){await mkdir(process.env.WESTY_QA_OUTPUT,{recursive:true});await page.screenshot({path:path.join(process.env.WESTY_QA_OUTPUT,`approval-${viewport.width}.png`),fullPage:false});}
+      await page.getByLabel('I reviewed and approve this exact action.').check();await page.getByRole('button',{name:'Approve action',exact:true}).click();
+      await page.getByText('Computer command · Running',{exact:true}).waitFor();assert.equal(approved,1);
+      await page.getByText('View command output',{exact:true}).click();await page.getByText('Synthetic service is stopping…',{exact:true}).waitFor();
+      assert.equal(await page.getByText('Exit code:',{exact:false}).count(),0,'running output never invents an exit code');
+      await page.reload();await page.getByText('Computer command · Running',{exact:true}).waitFor();
+      assert.equal(await page.locator('#portal-chat-stop').isVisible(),true,'final reply retains the global original-task Stop on reload');
+      state.turns[0].terminal_processes['d'.repeat(32)].progress.stdout='Fresh command output after the final reply';
+      await page.getByText('Fresh command output after the final reply',{exact:true}).waitFor({state:'attached',timeout:10000});
+      await page.getByText('View command output',{exact:true}).click();
+      if(process.env.WESTY_QA_OUTPUT)await page.screenshot({path:path.join(process.env.WESTY_QA_OUTPUT,`output-${viewport.width}.png`),fullPage:false});
+      await page.getByRole('button',{name:'Stop this task',exact:true}).click();await page.getByText('Computer command · Outcome unknown',{exact:true}).waitFor();assert.equal(stopped,1);
+      assert.equal(await page.locator('#portal-chat-stop').isVisible(),true,'unconfirmed Stop retains unresolved controls');
+      const completed=state.turns[0].terminal_processes['d'.repeat(32)];completed.state='completed';completed.progress.exit_code=0;state.turns[0].terminal_active=false;
+      await page.reload();await page.getByText('Computer command · Finished',{exact:true}).waitFor();await page.getByText('Exit code: 0',{exact:true}).waitFor();
+      assert.equal(await page.locator('#portal-chat-stop').isVisible(),false,'actual final receipt clears global Stop');
+      completed.content_expired=true;completed.progress.stdout='';completed.progress.stderr='';
+      await page.reload();await page.getByText('Temporary command output expired after one day. The execution result remains recorded.',{exact:true}).waitFor();
+      assert.equal(await page.getByText('View command output',{exact:true}).count(),0,'expired temporary output does not reappear on reload');
+      await page.getByText('Computer tool permissions',{exact:true}).click();await page.getByLabel('Windows SYSTEM tools',{exact:true}).uncheck();
+      await page.getByRole('button',{name:'Save permissions',exact:true}).click();await page.getByText('Your computer tool permissions are saved.',{exact:true}).waitFor();assert.equal(saved,1);
+      await page.getByText('Computer tool permissions',{exact:true}).click();assert.equal(await page.getByLabel('Windows SYSTEM tools',{exact:true}).isChecked(),false);
+      assert.deepEqual(consoleProblems,[]);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+      await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));assert.equal(await page.getByText('Computer tool permissions',{exact:true}).count(),0);
+    }finally{await context.close();}
+  }}finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});

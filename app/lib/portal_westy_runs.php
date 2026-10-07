@@ -2,6 +2,8 @@
 /** Private, bounded continuations. A receipt can resume inference, never replay execution. */
 declare(strict_types=1);
 require_once __DIR__.'/portal_westy_shell.php';
+require_once __DIR__.'/portal_westy_terminal.php';
+require_once __DIR__.'/portal_westy_control.php';
 
 function portal_westy_runs_installed(PDO $pdo):bool
 {
@@ -17,10 +19,14 @@ function portal_westy_run_origin():array
     return ['origin_channel'=>portal_desktop_id($companion)?'companion':'portal',
         'origin_session_hash'=>hash('sha256',session_id()),'companion_session'=>portal_desktop_id($companion)?$companion:null];
 }
-function portal_westy_run_matches(array $run):bool
+function portal_westy_run_origin_matches(array $run):bool
 {
     foreach(portal_westy_run_origin() as $key=>$value)if($run[$key]!==$value)return false;
-    return strtotime($run['expires_at'].' UTC')>time();
+    return true;
+}
+function portal_westy_run_matches(array $run):bool
+{
+    return portal_westy_run_origin_matches($run)&&strtotime($run['expires_at'].' UTC')>time();
 }
 function portal_westy_run_find(PDO $pdo,array $scope,string $operation,bool $lock=false):?array
 {
@@ -89,6 +95,8 @@ function portal_westy_run_result(array $context,array $run,?callable $transport=
         return ['ready'=>true,'receipt'=>$receipt];
     }
     try{
+        if(($pending['kind']??'shell')==='terminal')return portal_westy_terminal_result($context,$run,$pending,$transport);
+        if(($pending['kind']??null)==='control')return portal_westy_control_result($context,$pending,$transport);
         if(($pending['kind']??'shell')==='shell')$receipt=portal_westy_shell_receipt($context,$pending,$transport);
         else{
             $items=portal_devices_request(db(),$context,'operations',['device_reference'=>$pending['device_reference']],$transport)['items'];$receipt=null;
@@ -129,7 +137,13 @@ function portal_westy_run_public(PDO $pdo,array $context,array $scope,string $op
     $run=portal_westy_run_find($pdo,$scope,$operation);
     if(!$run||!portal_westy_run_matches($run)||$run['state']!=='waiting')return null;
     $result=portal_westy_run_result($context,$run,$transport);
-    return ['sequence'=>(int)$run['sequence'],'state'=>'waiting','ready'=>$result['ready'],'receipt'=>$result['receipt']];
+    $public=['sequence'=>(int)$run['sequence'],'state'=>'waiting','ready'=>$result['ready'],'receipt'=>$result['receipt']];
+    $pending=json_decode($run['pending_json'],true,32,JSON_THROW_ON_ERROR);
+    if(($pending['kind']??null)==='terminal'&&($result['receipt']['state']??null)==='awaiting_approval')
+        $public['approval']=['fingerprint'=>$result['receipt']['approval_fingerprint'],
+            'command'=>$pending['input']['command']??null,'chars'=>$pending['input']['chars']??null,
+            'reason'=>$result['receipt']['review']['reason']??$result['receipt']['reason']??'Review the exact action.'];
+    return $public;
 }
 function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $state):void
 {
@@ -140,20 +154,37 @@ function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $st
 function portal_westy_run_stop(PDO $pdo,array $context,array $scope,string $operation,?callable $transport=null):void
 {
     if(!portal_westy_runs_installed($pdo))return;
+    if(portal_westy_scope($pdo,$context)['key']!==$scope['key'])throw new PortalWestyException('sign_in',401);
     $pdo->beginTransaction();
     try{
         $q=$pdo->prepare('SELECT id FROM portal_westy_turns WHERE scope_key=? AND operation_key=?'.portal_westy_lock($pdo));$q->execute([$scope['key'],$operation]);
         $run=portal_westy_run_find($pdo,$scope,$operation,true);
-        if(!$run||!portal_westy_run_matches($run)){$pdo->commit();return;}
-        $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET state='stopped',replay_json=NULL WHERE scope_key=? AND operation_key=? AND state IN ('running','waiting')");$q->execute([$scope['key'],$operation]);
+        if(!$run||!portal_westy_run_origin_matches($run)){$pdo->commit();return;}
+        $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET state='stopped',replay_json=NULL WHERE scope_key=? AND operation_key=? AND state IN ('running','waiting','complete')");$q->execute([$scope['key'],$operation]);
         $q=$pdo->prepare("UPDATE portal_westy_turns SET state='unavailable',reason_code='stopped',finished_at=? WHERE scope_key=? AND operation_key=? AND state IN ('pending','complete')");$q->execute([gmdate('Y-m-d H:i:s'),$scope['key'],$operation]);
         $pdo->commit();
     }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}
+    $unconfirmed=false;
+    if(portal_westy_terminal_installed($pdo))foreach(portal_westy_terminal_processes($run) as $handle=>$stored){
+        $process=portal_westy_terminal_owned_process($run,$handle);
+        try{portal_desktop_request($context,'terminal_cancel',array_intersect_key($process,array_flip(['run_id','conversation_id','origin_channel','action_id']))+['request_key'=>null],$transport);}
+        catch(Throwable){$unconfirmed=true;}
+    }
     if($run['pending_json']!==null){
         $pending=json_decode($run['pending_json'],true,32,JSON_THROW_ON_ERROR);
         if(($pending['kind']??'shell')==='shell'){
             try{portal_westy_shell_receipt($context,$pending,$transport,'shell_cancel');}
             catch(Throwable){throw new PortalWestyException('stop_unconfirmed');}
         }
+        if(($pending['kind']??null)==='terminal'){
+            try{portal_desktop_request($context,'terminal_cancel',portal_westy_terminal_identity($pending),$transport);}
+            catch(PortalDesktopException $error){if($error->reason!=='action_unavailable')$unconfirmed=true;}
+            catch(Throwable){$unconfirmed=true;}
+        }
+        if(($pending['kind']??null)==='control'){
+            try{portal_desktop_request($context,'control_cancel',$pending['input'],$transport);}
+            catch(Throwable){$unconfirmed=true;}
+        }
     }
+    if($unconfirmed)throw new PortalWestyException('stop_unconfirmed');
 }

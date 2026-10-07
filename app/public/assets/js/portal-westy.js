@@ -32,6 +32,10 @@
     companion_ambiguous:'More than one Westy companion is connected for this computer. Disconnect the extra session.',
     run_unavailable:'This saved investigation cannot continue from this session. Check the original chat and its receipts.',
     shell_unavailable:'General computer tools are not available yet. Background checks remain available.',
+    terminal_unavailable:'This computer needs the updated Westy runtime before general tools are available.',
+    terminal_offline:'The requested Windows execution context is not connected. Open Westy on the computer or contact support.',
+    tool_restriction:'Your administrator or personal tool settings restrict this action.',
+    preferences_changed:'These settings changed in another session. Reload them before saving.',
     hourly_limit:'You have reached the hourly chat limit. Contact support is still available.', daily_limit:'Your business has reached today’s chat limit.', cost_limit:'Your business has reached its chat budget.',
     busy:'A reply is still running. You can stop it or wait.', sign_in:'Your sign-in ended or access changed. Sign in again to continue.',
     identity_unavailable:'Access cannot be verified. Your private chat is hidden until it can be checked.', read_only:'Your role cannot authorize device work or send this request.',
@@ -52,13 +56,13 @@
   const say = text => { status.textContent = text; };
   function controls() {
     const waiting=state?.turns.some(t=>t.run?.state==='waiting');
-    send.hidden = busy||waiting; stop.hidden = !busy&&!waiting; send.disabled = !state?.ai_available;
+    send.hidden = busy||waiting; stop.hidden = !busy&&!waiting&&!state?.turns.some(t=>t.terminal_active); send.disabled = !state?.ai_available;
     input.disabled = !state?.ai_available||busy||waiting;
     document.querySelectorAll('[data-chat-new],#portal-chat-new').forEach(b => b.disabled = busy);
   }
   async function api(payload, receiptKey = null, query = '') {
     const epoch = accessEpoch;
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 25000);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), payload?.action==='approve_terminal'?55000:25000);
     try {
       const response = await fetch('/portal/westy.php' + (receiptKey ? '?receipt=' + encodeURIComponent(receiptKey) : query), {
         method:payload?'POST':'GET',credentials:'same-origin',cache:'no-store',
@@ -75,6 +79,7 @@
     accessEpoch++;
     state=null; nodes.clear(); log.replaceChildren(); draftBox.replaceChildren(); draftBox.hidden=true;
     preferenceControl?.closest('label')?.remove();preferenceControl=null;
+    toolPreferences?.remove();toolPreferences=null;
     history?.replaceChildren(); input.value=''; editing=false; pending=null;
     devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';devices.disabled=true;
     streamController?.abort(); if(poll)clearTimeout(poll); controls();
@@ -133,16 +138,20 @@
     review.append(actions);parent.append(review);
   }
   function renderTools(node,turn) {
-    const signature=JSON.stringify(turn.reply?.tools||[]); if(signature===node.toolSignature)return;node.toolSignature=signature;node.tools.replaceChildren();
-    const names={list_computers:'Computer list',read_computer_status:'Recorded device activity',start_health_check:'Computer health check',prepare_temp_cleanup:'Temporary-file preview',propose_print_repair:'Print-service repair review',inspect_computer:'Computer investigation',run_powershell:'Script review'};
+    const signature=JSON.stringify([turn.reply?.tools||[],turn.run]); if(signature===node.toolSignature)return;node.toolSignature=signature;node.tools.replaceChildren();
+    const names={list_computers:'Computer list',read_computer_status:'Recorded device activity',start_health_check:'Computer health check',prepare_temp_cleanup:'Temporary-file preview',propose_print_repair:'Print-service repair review',inspect_computer:'Computer investigation',run_powershell:'Script review',exec_command:'Computer command',read_process:'Command output',write_stdin:'Command input',stop_process:'Stop command',desktop_open:'Connect to computer',desktop_windows:'Available windows',desktop_select:'Select window',desktop_observe:'Read window',desktop_action:'Computer action',desktop_stop:'Stop computer control'};
     for(const tool of turn.reply?.tools||[]){
+      const terminal=['exec_command','read_process','write_stdin','stop_process'].includes(tool.name);
+      const savedReceipt=tool.awaiting_run&&turn.run?.receipt?turn.run.receipt:tool.result;
+      const terminalReceipt=terminal&&(turn.terminal_processes?.[savedReceipt?.process_id]||savedReceipt);
       const shell=['inspect_computer','run_powershell'].includes(tool.name)?tool.result:null;
       const shellLabels={queued:'Waiting',claimed:'Received',running:'Running',completed:'Result received',cancelled:'Cancelled',refused:'Not executed',rejected:'Not executed',unknown:'Outcome unknown',expired:'Expired'};
       const item=element('div',undefined,'portal-tool');item.dataset.active=String(tool.state==='dispatching'||['queued','verifying'].includes(tool.operation?.state)||['queued','claimed','running'].includes(shell?.state));
-      const toolLabel=shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable'}[tool.state]||tool.state);
+      const toolLabel=terminalReceipt?({review_pending:'Reviewing',awaiting_approval:'Review required',queued:'Waiting',claimed:'Received',running:'Running',completed:'Finished',cancelled:'Cancelled',unknown:'Outcome unknown',refused:'Not executed',unavailable:'Unavailable'}[terminalReceipt.state]||terminalReceipt.state):shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable'}[tool.state]||tool.state);
       const label=element('div',undefined,'portal-tool-summary');label.append(element('span',undefined,'portal-tool-dot'),element('span',(names[tool.name]||'Device tool')+' · '+toolLabel));item.append(label);
       if(tool.reason)item.append(element('p',errors[tool.reason]||'This operation is unavailable. Contact support.'));
       if(tool.effect)item.append(element('p',tool.effect));
+      if(terminalReceipt)renderTerminal(item,terminalReceipt,tool.awaiting_run?turn.run?.approval:null,turn);
       if(tool.result&&['inspect_computer','run_powershell'].includes(tool.name)){
         const result=tool.result;item.append(element('p',({queued:'Waiting for the computer.',claimed:'The computer received the command. Check Westy on the computer if approval is needed.',running:'Running on the computer.',completed:'Result received.',cancelled:'Cancelled before execution.',refused:'The command was not executed.',rejected:'The plan was rejected before execution. Westy can use the validation feedback to correct it.',unknown:'The outcome is unknown. This command will not repeat.'}[result.state]||errors[result.reason]||'Checking the saved result.')));
       }
@@ -150,6 +159,33 @@
       if(tool.proposal)renderOperation(item,tool.proposal,turn);else if(tool.operation)renderOperation(item,tool.operation,turn);
       node.tools.append(item);
     }
+  }
+  function renderTerminal(parent,receipt,approval,turn){
+    const labels={review_pending:'Reviewing the requested action',awaiting_approval:'Your approval is needed',queued:'Waiting for the computer',claimed:'Received by the computer',running:'Running',completed:'Finished',unknown:'Outcome unknown',cancelled:'Cancelled',refused:'Not executed',unavailable:'Unavailable'};
+    parent.append(element('p',(labels[receipt.state]||receipt.state)+(receipt.execution_context==='system'?' · Windows SYSTEM':receipt.execution_context==='user'?' · Your Windows account':'')));
+    if(receipt.reason)parent.append(element('p',errors[receipt.reason]||receipt.reason));
+    const progress=receipt.progress;
+    if(receipt.content_expired)parent.append(element('p','Temporary command output expired after one day. The execution result remains recorded.','portal-hint'));
+    if(progress){
+      if(progress.exit_code!==null&&progress.exit_code!==undefined)parent.append(element('p','Exit code: '+progress.exit_code));
+      if(progress.stdout||progress.stderr){const output=element('details');output.append(element('summary','View command output'));
+        if(progress.stdout)output.append(element('pre',progress.stdout,'portal-chat-draft-review'));
+        if(progress.stderr)output.append(element('pre',progress.stderr,'portal-chat-draft-review'));
+        if(progress.truncated)output.append(element('p','Showing the most recent output; earlier output was truncated.','portal-hint'));parent.append(output);}
+    }
+    if(approval&&state.can_write){
+      const review=element('section',undefined,'portal-tool-review');review.append(element('h3','Review this exact action'),element('p',approval.reason));
+      if(approval.command){const c=approval.command;review.append(element('p',c.effect),element('p',(c.execution_context==='system'?'Windows SYSTEM':'Your Windows account')+' · '+(c.working_directory||'Runtime working directory')+' · Up to '+c.timeout_seconds+' seconds'),element('pre',c.command,'portal-chat-draft-review'));}
+      if(approval.chars!==null)review.append(element('pre',approval.chars,'portal-chat-draft-review'));
+      const label=element('label',undefined,'portal-chat-review-audience');const check=element('input');check.type='checkbox';label.append(check,element('span','I reviewed and approve this exact action.'));review.append(label);
+      const approve=button('Approve action',async()=>{if(!check.checked||busy)return;approve.disabled=true;
+        try{render(await api({action:'approve_terminal',operation:turn.operation_key,conversation:state.conversation,sequence:turn.run.sequence,fingerprint:approval.fingerprint,reviewed:true}));say('Approval recorded. Checking the computer result.');}
+        catch(error){accessError(error);await refresh(true);}
+      },'btn-primary');approve.disabled=true;check.addEventListener('change',()=>approve.disabled=!check.checked||busy);const actions=element('div',undefined,'portal-chat-draft-actions');actions.append(approve);review.append(actions);parent.append(review);
+    }
+    if(['review_pending','awaiting_approval','queued','claimed','running','unknown','unavailable'].includes(receipt.state))parent.append(button('Stop this task',async()=>{
+      try{render(await api({action:'stop',operation:turn.operation_key}));streamController?.abort();say('Stop requested. Check the recorded outcome.');}catch(error){accessError(error);}
+    }));
   }
   function render(next) {
     const changed=state && state.conversation!==next.conversation;
@@ -186,7 +222,7 @@
     if(poll)clearTimeout(poll);
     const ready=state?.turns.find(t=>t.state==='complete'&&t.run?.ready);
     if(ready&&!busy&&state.ai_available){poll=setTimeout(()=>resumeRun(ready),100);return;}
-    const active=state?.turns.some(t=>t.run?.state==='waiting'||t.state==='pending'||(t.reply?.tools||[]).some(x=>['queued','authorized','verifying','cancel_requested'].includes(x.operation?.state)||['queued','verifying','cancel_requested'].includes(x.proposal?.state)));
+    const active=state?.turns.some(t=>t.terminal_active||t.run?.state==='waiting'||t.state==='pending'||(t.reply?.tools||[]).some(x=>['queued','authorized','verifying','cancel_requested'].includes(x.operation?.state)||['queued','verifying','cancel_requested'].includes(x.proposal?.state)));
     if(active&&!busy)poll=setTimeout(()=>refresh(true),3000);
   }
   function renderDraft(draft) {
@@ -346,7 +382,7 @@
   }
   window.addEventListener('westy-desktop-resume',event=>resumeComputer(event.detail,state?.turns.at(-1)));
   stop.addEventListener('click',async()=>{
-    const operation=currentOperation||state?.turns.find(t=>t.run?.state==='waiting')?.operation_key;
+    const operation=currentOperation||state?.turns.find(t=>t.run?.state==='waiting'||t.terminal_active)?.operation_key;
     if(!operation)return;stop.disabled=true;
     try{const next=await api({action:'stop',operation});streamController?.abort();render(next);say(next.turns.find(t=>t.operation_key===operation)?.reply?.tools?.length?errors.stopped:'Reply stopped.');}
     catch(error){accessError(error);}finally{stop.disabled=false;}
@@ -398,7 +434,7 @@
   window.addEventListener('beforeunload',event=>{if(editing||input.value.trim()){event.preventDefault();event.returnValue='';}});
   // Browser storage never contains conversation text, identity or device receipts.
   window.addEventListener('pagehide',clearPrivate);
-  window.addEventListener('pageshow',event=>{if(event.persisted){refresh();loadDevices();loadPreference();}});
+  window.addEventListener('pageshow',event=>{if(event.persisted){refresh();loadDevices();loadPreference();loadToolPreferences();}});
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!busy)refresh(true);});
   if('BroadcastChannel' in window){const access=new BroadcastChannel('safeharbor-portal-access');document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit',()=>access.postMessage('signed-out'));access.addEventListener('message',event=>{if(event.data==='signed-out'){clearPrivate();say(errors.sign_in);}});}
   async function loadDevices(){
@@ -415,11 +451,26 @@
       label.append(checkbox,element('span','Ask me before each automatic computer check'));form.after(label);
       checkbox.addEventListener('change',async()=>{
         checkbox.disabled=true;const ask=checkbox.checked;
-        try{render(await api({action:'diagnostic_preference',automatic_diagnostics:!ask}));say(ask?'Computer checks will ask for approval in the Westy companion.':'Routine computer checks can run automatically. Scripts still require approval.');}
+        try{render(await api({action:'diagnostic_preference',automatic_diagnostics:!ask}));say(ask?'Computer work will ask for approval.':'Ordinary requested work can proceed automatically. Dangerous or disruptive actions still require approval.');}
         catch(error){checkbox.checked=!ask;accessError(error);}finally{checkbox.disabled=false;}
       });
     }catch{ /* Existing chat remains available when general tools are not installed. */ }
   }
+  let toolPreferences=null;
+  async function loadToolPreferences(){
+    try{
+      const next=await api(null,null,'?tool_preferences=1'),settings=next.tool_preferences;
+      if(!settings||toolPreferences)return;
+      const details=element('details',undefined,'portal-chat-foot');toolPreferences=details;details.append(element('summary','Computer tool permissions'),element('p','Allow ordinary requested work. Your administrator’s restrictions still apply. Turning off commands, files, or repairs disables general command execution.'));
+      const fields={};for(const [name,title] of Object.entries({commands:'General commands',files:'File access',repairs:'Ordinary repairs',system:'Windows SYSTEM tools',browser:'Browser control',desktop:'Desktop app control'})){
+        const label=element('label',undefined,'portal-chat-review-audience');const control=element('input');control.type='checkbox';control.checked=settings.restrictions[name]===true;fields[name]=control;label.append(control,element('span',title));details.append(label);
+      }
+      const save=button('Save permissions',async()=>{save.disabled=true;try{
+        render(await api({action:'tool_preferences',revision:settings.revision,restrictions:Object.fromEntries(Object.entries(fields).map(([name,c])=>[name,c.checked]))}));
+        details.remove();toolPreferences=null;await loadToolPreferences();say('Your computer tool permissions are saved.');
+      }catch(error){accessError(error);}finally{save.disabled=false;}});details.append(save);form.after(details);
+    }catch{ /* Older deployments keep their existing preferences. */ }
+  }
   if(home){home.append(panel);panel.hidden=false;}
-  controls();say('Loading your private conversation…');refresh();loadDevices();loadPreference();
+  controls();say('Loading your private conversation…');refresh();loadDevices();loadPreference();loadToolPreferences();
 })();

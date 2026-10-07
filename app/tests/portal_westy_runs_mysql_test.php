@@ -4,6 +4,8 @@ declare(strict_types=1);
 require __DIR__.'/portal_devices_mysql_test.php';
 function db():PDO{global $pdo;return $pdo;}
 check(portal_westy_runs_installed($pdo),'canonical schema includes durable tool runs');
+// Exercise the historical v1 surface explicitly; canonical fresh installs now include v2.
+if(portal_westy_terminal_installed($pdo))$pdo->exec('ALTER TABLE portal_westy_tool_runs DROP COLUMN processes_json');
 $settings['portal_westy']=['enabled'=>true,'ai_enabled'=>true,'tools_enabled'=>true,'hourly_limit'=>100,'daily_limit'=>500,'monthly_microusd'=>20000000];
 $settings['desktop_companion']=['endpoint'=>PORTAL_DESKTOP_ENDPOINT,'service_secret'=>str_repeat('e',64)];
 // These are actual readiness receipts, confined to this explicitly disposable container.
@@ -20,6 +22,9 @@ check(desktop_cleanup_available(),'real isolated readiness receipts validate');
 $providerSelection=['version'=>1,'app'=>'safeharbor','local_tenant_key'=>'1','tenant_id'=>100,'tenant_slug'=>'provider-1',
     'status'=>'active','revision'=>1,'credential_version'=>1,'api_key'=>'synthetic-no-network']+westy_tenant_ai_selection('openai','gpt-6-luna','low');
 $resolver=static fn()=> $providerSelection;
+$legacyNames=array_column(portal_westy_ai_tools($pdo,$a+['tool_run'=>['sequence'=>0]],$providerSelection),'name');
+check(!in_array('exec_command',$legacyNames,true)&&!in_array('desktop_open',$legacyNames,true),'pre-v2 schema does not advertise general execution or desktop activation');
+check(!str_contains(portal_westy_ai_instructions(array_map(static fn($name)=>['name'=>$name],$legacyNames)),'Use exec_command'),'pre-v2 instructions match the offered historical tools');
 $request=['action'=>'message','operation'=>'f1'.sprintf('%08x',time()).bin2hex(random_bytes(11)),
     'message'=>'Find the reason for this synthetic computer memory problem.','conversation'=>portal_westy_state($pdo,$a,aiResolver:$resolver)['conversation']];
 $providerCalls=0;$queued=0;$receiptState='running';$cancelled=0;$seenMessages=[];

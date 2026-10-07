@@ -22,6 +22,7 @@ portal_westy_fixture_sql($pdo,__DIR__.'/../db/schema.sql');
 // Deliberately exercise the ordinary-chat deployment with optional native
 // schema absent, even when the aggregate fresh-install schema includes it.
 $pdo->exec('DROP TABLE portal_desktop_bindings');
+$pdo->exec('ALTER TABLE portal_westy_tool_runs DROP COLUMN processes_json');
 // These service-intake tables are intentionally migration-only on a fresh install.
 portal_westy_fixture_sql($pdo,__DIR__.'/../db/migrations/002_svc_intake.sql');
 portal_westy_fixture_sql($pdo,__DIR__.'/../db/migrations/009_support_intake.sql');
@@ -58,6 +59,7 @@ check('new identity starts empty',tenant_test_state($pdo,$a)['turns']===[]);
 check('native configuration is absent in the ordinary-chat fixture',cfg('desktop_companion',null)===null);
 check('native session schema is absent in the ordinary-chat fixture',
     (int)$pdo->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='portal_desktop_bindings'")->fetchColumn()===0);
+check('optional terminal v2 schema is absent in the ordinary-chat fixture',!portal_westy_terminal_installed($pdo));
 $request=$message('Help me write a printer request.');tenant_test_message($pdo,$a,$request,$provider);tenant_test_message($pdo,$a,$request,$provider);
 check('exact message replay calls provider once',$calls===1);
 $beforeNative=$calls;$nativeConversation=tenant_test_state($pdo,$a)['conversation'];

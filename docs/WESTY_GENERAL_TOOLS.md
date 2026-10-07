@@ -1,5 +1,100 @@
 # General computer troubleshooting
 
+## General runtime v2
+
+With both protected v2 migrations and the compatible signed endpoint installed,
+Westy uses `exec_command`, `read_process`, `write_stdin` and `stop_process` for
+general requested work. The endpoint bundles a pinned Codex execution component;
+no Codex desktop, endpoint model login or extra subscription is required. The
+existing tenant AI provider, credentials, budgets and paid-attempt receipts remain
+the model authority. Historical v1 behavior below remains the compatibility path
+until v2 is installed.
+
+Ordinary in-scope work proceeds under current tenant and personal policy. Independent
+review examines the actual command, working directory, context, timeout and effect
+against the real request. Dangerous, disruptive or unresolved work requires approval
+of that exact action from the authenticated originating chat. Model arguments cannot
+approve themselves or choose another actor, tenant, device or run. Input is reviewed
+separately. General commands cannot promise file isolation, so disabling file or
+repair tools also disables the general shell route; SYSTEM can be restricted while
+otherwise allowed user-context tools remain available.
+
+Ordinary commands use `tty=false`, including commands with follow-up piped input.
+`list_computers` may return `terminal_capabilities` separately for `user` and
+`system`, with a boolean `tty_supported` and observation/expiry timestamps. True
+support requires fresh authenticated endpoint evidence, expires within 15 seconds
+and applies only to that device and context. Absent, false, stale or future-dated
+evidence cannot authorize TTY. Older device responses remain valid for ordinary
+work. The endpoint checks the actual Windows `ReleasePseudoConsole` API; an older
+Windows endpoint can continue ordinary execution, files and desktop tools even
+when interactive TTY is unavailable.
+
+A definite `terminal_tty_unsupported` refusal from the original queue request
+reports `executed=false`, `correction_allowed=true` and `retry_allowed=false`.
+Within the existing inference budget, Westy may create a new `tty=false` intent
+when it meets the user's task; the new intent receives its own independent review.
+The refused request is never altered or replayed. Lost replies and failures after
+queue acceptance, claim or dispatch do not receive correction permission. A
+started TTY keeps its authenticated progress/authority checks; expiry of an idle
+capability advertisement alone does not stop that process.
+
+Process IDs are opaque handles owned by the original run, conversation, sign-in
+session and portal/companion origin. Closing the model reply does not declare its
+process finished. The original chat continues receipt polling and offers Stop;
+reload reads saved progress without another execution or paid inference. Read and
+Stop remain available for the original unresolved process after inference expiry,
+subject to current binding/revocation checks. Closed or expired runs cannot execute
+new commands, provide stdin, approve new work or resume inference. Another run or
+sign-in origin cannot acquire the handle.
+
+Scheduled maintenance closes inference and erases its replay and pending input at
+run expiry. It retains only content-free process ownership while the parent chat
+turn remains within its existing retention period. Parent expiry removes that
+ownership before deleting parent metadata; exact-account erasure removes all its
+runs immediately. This does not extend transcript retention or execution authority.
+
+Receipt refresh is bounded to two processes per state request, oldest first.
+Ownership metadata is content-free; the existing chat reply stores its bounded tool
+output. Confirmed completion stops active polling. Unknown or unconfirmed Stop keeps
+the unresolved state visible and never replays execution. Milepost expires temporary
+output/input after one day; a refreshed expired receipt removes its temporary output
+from the saved tool result and shows an expiration notice. Ordinary chat retention
+still applies to text already included in replies.
+
+The v2 desktop tools discover and select actual Windows windows and use the existing
+browser/native UI Automation participant for observation, navigation, click, type
+and scroll. Each action needs current authority and a fresh unchanged target capture
+after review. UAC, passwords, MFA and the secure desktop stay with the person.
+
+## Protected v2 migration
+
+`app/db/migrations/endpoint_tool_runs_v2.sql` adds nullable `processes_json` to the
+existing ledger. The canonical schema appends the identical ALTER so its MySQL
+shape and original identity triggers match upgraded installations. Use
+`deploy/endpoint_tool_runs_v2_migration.php plan --app-root <app> --expected-db <db>`
+for read-only inspection. The root-only `apply` path additionally requires a private
+external `--evidence-root`, the exact release `--target`, and
+`--confirm "APPLY SAFEHARBOR ENDPOINT TOOL RUNS V2 MIGRATION"`.
+
+The adapter uses the fixed local MySQL socket and shared migration locks. It requires
+the original protected v1 receipt and backup, verifies pinned SQL/catalog and exact
+predecessor state, then writes a full private database backup and durable intent
+before ALTER. It compares the row count and ordered digest of every original column
+afterward. No empty-ledger assumption is made. A verified repeat performs no DDL and
+preserves the original backup; missing or changed intent, receipt, parent evidence
+or backup refuses. Partial, drifted or unreceipted final schemas require operator
+inspection and recovery under the write freeze; never overwrite evidence or replay
+DDL blindly. Retain ledger and original identity triggers during application rollback.
+
+Executed disposable MySQL checks cover populated preservation, canonical parity,
+real backup failure before DDL, both advisory locks, evidence tampering, repeats and
+later legitimate process metadata. Separate lifecycle/browser checks cover a final
+reply with a live process, reload, exact Stop, Stop/read races, revocation, foreign
+origin refusal and output pruning. These checks do not replace full CI, installed
+signed-candidate acceptance, or real browser and native-app tests on the endpoint.
+
+## Historical v1 compatibility
+
 Westy can select a diagnostic pipeline, wait for its actual endpoint result, choose a follow-up check and explain the collected evidence. The existing tenant AI provider/model selection, budgets and usage receipts apply to every continuation. No additional subscription or Codex endpoint installation is introduced.
 
 `inspect_computer` accepts a typed diagnostic pipeline. `run_powershell` proposes exact PowerShell and an effect; the ordinary-user Windows companion requires local approval before it runs. Routine diagnostics are automatic under current policy, with a personal “Ask me before each automatic computer check” preference. Screen tools keep their separate local consent and fresh-observation requirements.

@@ -168,6 +168,8 @@ jobs:
           sudo install -d -m 0700 -o "$(id -u)" /run/8west-desktop-cleanup
           php app/tests/portal_westy_runs_mysql_test.php
           php app/tests/endpoint_tool_runs_migration_mysql_test.php
+          php app/tests/endpoint_tool_runs_v2_migration_mysql_test.php
+          php app/tests/portal_westy_control_mysql_test.php
           php app/tests/portal_devices_mysql_test.php
           php app/tests/portal_access_mysql_test.php
           php app/tests/portal_workspace_mysql_test.php
@@ -386,3 +388,9 @@ jobs:
             SAFEHARBOR_WESTY_TEST_HOST=127.0.0.1 \
             SAFEHARBOR_WESTY_TEST_USER=root \
             php app/tests/endpoint_tool_runs_cli_mysql_test.php
+          sudo env SAFEHARBOR_TOOL_RUNS_CLI_TEST=1 \
+            SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER=1 \
+            SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_cli_v2 \
+            SAFEHARBOR_WESTY_TEST_HOST=127.0.0.1 \
+            SAFEHARBOR_WESTY_TEST_USER=root \
+            php app/tests/endpoint_tool_runs_v2_cli_mysql_test.php

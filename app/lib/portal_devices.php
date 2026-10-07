@@ -141,12 +141,25 @@ function portal_devices_result(string $action, array $result): array
     if ($action==='devices') {
         if (!portal_devices_keys($result,['items','next_after']) || !is_array($result['items']) || !array_is_list($result['items'])
             || count($result['items'])>50 || ($result['next_after']!==null && (!is_int($result['next_after']) || $result['next_after']<1))) $fail();
-        foreach($result['items'] as $row) {
+        foreach($result['items'] as &$row) {
             $keys=['reference','label','platform','connection','connection_label','connection_help','last_seen_at','troubleshooting'];
-            if (!is_array($row) || !(portal_devices_keys($row,$keys)||portal_devices_keys($row,array_merge($keys,['hardware'])))
+            $optional=is_array($row)?array_intersect_key($row,array_flip(['hardware','terminal_capabilities'])):[];
+            if (!is_array($row) || !portal_devices_keys(array_diff_key($row,$optional),$keys)
                 || !is_string($row['reference']) || preg_match('/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D',$row['reference'])!==1
                 || !in_array($row['connection'],['waiting','stale','inventory','reporting'],true) || $row['troubleshooting']!=='support_request'
                 || ($row['last_seen_at']!==null && !portal_devices_timestamp($row['last_seen_at']))) $fail();
+            if(array_key_exists('terminal_capabilities',$row)){
+                if(!is_array($row['terminal_capabilities'])||!portal_devices_keys($row['terminal_capabilities'],['user','system']))$fail();
+                foreach($row['terminal_capabilities'] as &$capability){
+                    if(!is_array($capability)||!portal_devices_keys($capability,['tty_supported','observed_at','expires_at'])||!is_bool($capability['tty_supported']))$fail();
+                    if(!$capability['tty_supported']){if($capability['observed_at']!==null||$capability['expires_at']!==null)$fail();continue;}
+                    if(!portal_devices_timestamp($capability['observed_at'])||!portal_devices_timestamp($capability['expires_at']))$fail();
+                    $observed=strtotime($capability['observed_at']);$expires=strtotime($capability['expires_at']);
+                    if($expires<=$observed||$expires>$observed+15)$fail();
+                    if($expires<=time()||$observed>time())$capability=['tty_supported'=>false,'observed_at'=>null,'expires_at'=>null];
+                }
+                unset($capability);
+            }
             if(isset($row['hardware'])) {
                 $hardware=$row['hardware'];
                 if(!is_array($hardware)||!portal_devices_keys($hardware,['ram_gb','observed_at','source'])
@@ -158,6 +171,7 @@ function portal_devices_result(string $action, array $result): array
                 if(!is_string($row[$field]) || mb_strlen($row[$field])>$limit || preg_match('//u',$row[$field])!==1) $fail();
             }
         }
+        unset($row);
     } else {
         if ($action==='enrollments' && (!portal_devices_keys($result,['items']) || !is_array($result['items'])
             || !array_is_list($result['items']) || count($result['items'])>50)) $fail();

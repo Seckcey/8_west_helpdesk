@@ -36,10 +36,19 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
         $q->execute($turnArgs);$result['turn_content']=$q->rowCount();
         require_once __DIR__.'/portal_westy_runs.php';
         if(portal_westy_runs_installed($pdo)){
-            // Continuations have a shorter lifetime than the transcript; erasure
-            // removes them in the same transaction and cannot revive a stopped run.
-            $q=$pdo->prepare('DELETE FROM portal_westy_tool_runs WHERE '.($scope===null?'expires_at<=?':'1=1').$filter);
-            $q->execute($scope===null?[$now]:$args);
+            if($scope===null&&portal_westy_terminal_installed($pdo)){
+                // Inference expires after 30 minutes. Only content-free original
+                // process ownership survives for receipt/Stop while its chat is retained.
+                $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET replay_json=NULL,pending_json=NULL,state=IF(state IN ('running','waiting'),'stopped',state) WHERE expires_at<=?");
+                $q->execute([$now]);
+                $q=$pdo->prepare('DELETE FROM portal_westy_tool_runs WHERE (expires_at<=? AND (processes_json IS NULL OR JSON_LENGTH(processes_json)=0)) OR EXISTS(SELECT 1 FROM portal_westy_turns t WHERE t.id=portal_westy_tool_runs.turn_id AND t.expires_at<=?)');
+                $q->execute([$now,$now]);
+            }else{
+                // Exact-scope erasure includes every saved process; historical v1
+                // rows keep their existing expiry behavior without requiring v2 DDL.
+                $q=$pdo->prepare('DELETE FROM portal_westy_tool_runs WHERE '.($scope===null?'expires_at<=?':'1=1').$filter);
+                $q->execute($scope===null?[$now]:$args);
+            }
         }
         $q=$pdo->prepare("UPDATE portal_westy_drafts SET state='expired',subject=NULL,body=NULL WHERE ".$draftWhere);
         $q->execute($draftArgs);$result['draft_content']=$q->rowCount();
