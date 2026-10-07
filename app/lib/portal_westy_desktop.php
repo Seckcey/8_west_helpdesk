@@ -54,7 +54,7 @@ function portal_desktop_request(array $context,string $action,array $input,?call
             'step_limit','navigation_not_allowed','outside_target','invalid_action','request_changed','read_only',
             'shell_unavailable','companion_offline','companion_ambiguous','execution_unresolved','execution_busy',
             'support_busy','invalid_pipeline','sensitive_text','action_unavailable','cleanup_unavailable','approval_required',
-            'terminal_unavailable','terminal_offline','terminal_not_running','terminal_starting','terminal_input_pending','tool_restriction',
+            'terminal_unavailable','terminal_offline','terminal_tty_unsupported','terminal_not_running','terminal_starting','terminal_input_pending','tool_restriction',
             'approval_changed','preferences_changed','terminal_upgrade_incomplete','desktop_upgrade_required','select_window_first','inventory_stale','review_changed'];
         throw new PortalDesktopException(in_array($reason,$safe,true)?$reason:'desktop_unavailable');
     }

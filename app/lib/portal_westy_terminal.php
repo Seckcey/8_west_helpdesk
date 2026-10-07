@@ -21,7 +21,7 @@ function portal_westy_terminal_definitions():array
             'command'=>['type'=>'string','maxLength'=>16000],
             'working_directory'=>['type'=>['string','null'],'description'=>'Existing absolute Windows directory, or null for the runtime working directory.'],
             'execution_context'=>['type'=>'string','enum'=>['user','system']],
-            'tty'=>['type'=>'boolean'],'timeout_seconds'=>['type'=>'integer','minimum'=>1,'maximum'=>900],
+            'tty'=>['type'=>'boolean','description'=>'Use false for ordinary commands and piped stdin. Use true only when list_computers reports fresh terminal_capabilities for this device and execution_context with tty_supported=true. Unsupported TTY is refused before execution; it never disables ordinary commands.'],'timeout_seconds'=>['type'=>'integer','minimum'=>1,'maximum'=>900],
             'effect'=>['type'=>'string','maxLength'=>600,'description'=>'Plain-language intended effect; this text grants no authority.']]],
         ['read_process','Read a running process and wait briefly for newer output. Use the latest progress sequence. Never treat a missing exit code as completion.',[
             'process_id'=>$process,'after_sequence'=>['type'=>'integer','minimum'=>0]]],
@@ -223,7 +223,7 @@ function portal_westy_terminal_save_pending(PDO $pdo,array $scope,string $operat
 }
 function portal_westy_terminal_dispatch(PDO $pdo,array $context,string $operation,?callable $transport=null):array
 {
-    $scope=portal_westy_scope($pdo,$context);$pdo->beginTransaction();$pending=null;
+    $scope=portal_westy_scope($pdo,$context);$pdo->beginTransaction();$pending=null;$queueRefusalEligible=false;
     try{
         $q=$pdo->prepare('SELECT state FROM portal_westy_turns WHERE scope_key=? AND operation_key=?'.portal_westy_lock($pdo));$q->execute([$scope['key'],$operation]);
         if($q->fetchColumn()!=='pending')throw new PortalWestyException('stopped');
@@ -232,7 +232,9 @@ function portal_westy_terminal_dispatch(PDO $pdo,array $context,string $operatio
         $pending=json_decode($run['pending_json'],true,32,JSON_THROW_ON_ERROR);
         if(($pending['kind']??null)!=='terminal')throw new PortalWestyException('run_unavailable');
         if($pending['tool_name']==='exec_command'){
+            $queueRefusalEligible=true;
             $receipt=portal_desktop_request($context,'terminal_queue',$pending['input'],$transport);
+            $queueRefusalEligible=false;
             portal_westy_terminal_remember($pdo,$scope,$run,$pending,$receipt);
         }
         $pdo->commit();
@@ -248,9 +250,13 @@ function portal_westy_terminal_dispatch(PDO $pdo,array $context,string $operatio
         if($pdo->inTransaction())$pdo->rollBack();
         if($pending===null)throw $error;
         $receipt=['state'=>$error->reason==='connection_unknown'?'unknown':'unavailable','reason'=>$error->reason,'retry_allowed'=>false];
+        $ttyRefused=$queueRefusalEligible&&$error->reason==='terminal_tty_unsupported'&&($pending['input']['command']['tty']??null)===true;
+        if($ttyRefused)$receipt=['state'=>'refused','reason'=>'terminal_tty_unsupported','executed'=>false,'correction_allowed'=>true,'retry_allowed'=>false,
+            'correction'=>['tty'=>false,'requires_new_request'=>true],
+            'guidance'=>'This computer cannot close interactive TTY output reliably with the installed runtime. Nothing executed. Submit a new ordinary exec_command intent with tty=false if it meets the requested task; ordinary commands, piped stdin and file work remain available. Never replay this intent.'];
         // A lost prepare/input reply is never retried. Cancel by immutable request
         // identity; a late review sees the cancelled row and cannot release work.
-        try{portal_desktop_request($context,'terminal_cancel',portal_westy_terminal_identity($pending),$transport);}catch(Throwable){}
+        if(!$ttyRefused)try{portal_desktop_request($context,'terminal_cancel',portal_westy_terminal_identity($pending),$transport);}catch(Throwable){}
         $pending['terminal']=$receipt;portal_westy_terminal_save_pending($pdo,$scope,$operation,$pending);
         return $receipt+['process_id'=>$pending['process_id']];
     }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}

@@ -146,9 +146,52 @@ check($nativeReceipt['state']==='queued','exact approval releases the prepared a
 $needsApproval=false;$paid=0;$losePrepare=true;$termCalls=[];$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendTerminal($request);
 check($termCalls===['terminal_queue','terminal_cancel']&&$nativeReceipt['state']==='cancelled','lost prepare never reviews or dispatches and cancels by request key');
 $lostRun=portal_westy_run_find($pdo,$scope,$request['operation']);check(portal_westy_run_result($a,$lostRun,$terminalTransport)['receipt']['state']==='unknown','lost response remains unknown without retry');
+check(!isset(portal_westy_run_result($a,$lostRun,$terminalTransport)['receipt']['correction_allowed']),'lost prepare never becomes a correctable pre-execution refusal');
 // A Stop arriving while review is pending wins; a late receipt cannot revive it.
 $losePrepare=false;$paid=0;$stopDuringReview=true;$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendTerminal($request);
 check(portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='stopped'&&$nativeReceipt['state']==='cancelled','late review result cannot resurrect a stopped run');
+// Only an explicit first queue refusal may guide a new non-TTY intent.
+$fixPaid=0;$fixWires=[];$termCalls=[];$losePrepare=false;$stopDuringReview=false;$needsApproval=false;
+$fixTransport=static function($body,$headers)use(&$fixWires,$terminalTransport):array{
+    $wire=json_decode($body,true);$fixWires[]=$wire;
+    if($wire['action']==='terminal_queue'&&$wire['input']['command']['tty'])return ['status'=>409,'body'=>json_encode(['ok'=>false,'reason'=>'terminal_tty_unsupported'])];
+    return $terminalTransport($body,$headers);
+};
+$fixProvider=static function($selection,$system,$messages,$options,$emit,$alive)use(&$fixPaid,$device):array{
+    $fixPaid++;
+    if($fixPaid===2){$last=json_decode(end($messages)['content'][0]['text'],true)['untrusted_result'];
+        check($last['executed']===false&&$last['correction_allowed']===true&&$last['retry_allowed']===false&&$last['correction']['tty']===false,
+            'model receives actionable correction only from the definitive original TTY queue refusal');}
+    if($fixPaid>2){check(str_contains(json_encode($messages),'synthetic corrected output'),'fresh non-TTY result reaches continued inference');
+        $emit('The synthetic ordinary command completed.');return ['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>20]];}
+    $args=['device_reference'=>$device,'command'=>"Write-Output 'synthetic corrected output'",'working_directory'=>null,'execution_context'=>'user','tty'=>$fixPaid===1,'timeout_seconds'=>120,'effect'=>'Read synthetic corrected output'];
+    $id='tty_fresh_intent_'.$fixPaid;$replay=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>$id,'name'=>'exec_command','arguments'=>json_encode($args)]]];
+    foreach(['provider','model','effort','revision','credential_version'] as $field)$replay[$field]=$selection[$field]??null;
+    return ['ok'=>true,'tool_calls'=>[['id'=>$id,'name'=>'exec_command','arguments'=>$args]],'continuation'=>$replay,
+        'usage'=>['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>20]];
+};
+$fixMessage=static function(array $r)use($pdo,$a,$fixProvider,$resolver,$fixTransport):void{
+    portal_westy_message($pdo,$a,$r,$fixProvider,static fn()=>$a,transport:$fixTransport,aiResolver:$resolver);
+};
+$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$request['message']='Read synthetic corrected output using a suitable command.';$fixMessage($request);
+$fixRun=portal_westy_run_find($pdo,$scope,$request['operation']);
+check(count($fixWires)===1&&$fixWires[0]['action']==='terminal_queue'&&portal_westy_terminal_processes($fixRun)===[],
+    'unsupported initial TTY creates no process ownership, paid endpoint review or cancellation request');
+$fixResume=['action'=>'run_resume','operation'=>$request['operation'],'conversation'=>$fixRun['conversation_id'],'sequence'=>1];$fixMessage($fixResume);
+$queues=array_values(array_filter($fixWires,static fn($wire)=>$wire['action']==='terminal_queue'));
+check(count($queues)===2&&$queues[0]['input']['request_key']!==$queues[1]['input']['request_key']&&$queues[0]['input']['command']['tty']===true&&$queues[1]['input']['command']['tty']===false,
+    'correction creates a fresh reviewed non-TTY intent without replaying or changing the rejected intent');
+$nativeReceipt['state']='completed';$nativeReceipt['progress']=['sequence'=>1,'input_sequence'=>0,'state'=>'completed','exit_code'=>0,'stdout'=>'synthetic corrected output','stderr'=>'','duration_ms'=>1,'truncated'=>false];
+$fixResume['sequence']=2;$fixMessage($fixResume);
+check($fixPaid===3&&count(array_filter($fixWires,static fn($wire)=>$wire['action']==='terminal_review'))===1,'ordinary non-TTY correction completes through one fresh review and actual receipt');
+$paid=0;$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));
+$lateUnsupported=static function($body,$headers)use($terminalTransport):array{
+    if(json_decode($body,true)['action']==='terminal_review')return ['status'=>409,'body'=>json_encode(['ok'=>false,'reason'=>'terminal_tty_unsupported'])];
+    return $terminalTransport($body,$headers);
+};
+portal_westy_message($pdo,$a,$request,$terminalProvider,static fn()=>$a,transport:$lateUnsupported,aiResolver:$resolver);
+$lateRun=portal_westy_run_find($pdo,$scope,$request['operation']);$lateResult=portal_westy_run_result($a,$lateRun,$lateUnsupported)['receipt'];
+check(!isset($lateResult['executed'])&&!isset($lateResult['correction_allowed'])&&$lateResult['retry_allowed']===false,'a later review failure cannot masquerade as the original unexecuted queue refusal');
 // Retained ownership must leave before parent retention/metadata deletion: no orphan FK.
 $oldOperation=bin2hex(random_bytes(16));$q=$pdo->prepare('SELECT * FROM portal_westy_turns WHERE scope_key=? AND operation_key=?');$q->execute([$scope['key'],$originalOperation]);$oldTurn=$q->fetch();unset($oldTurn['id']);
 $oldTurn['operation_key']=$oldOperation;$oldTurn['created_at']=gmdate('Y-m-d H:i:s',time()-91*86400);$oldTurn['expires_at']=gmdate('Y-m-d H:i:s',time()-86400);

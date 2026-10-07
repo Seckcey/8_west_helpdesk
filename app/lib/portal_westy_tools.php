@@ -10,7 +10,7 @@ function portal_westy_tool_definitions(): array
 {
     $device=['type'=>'string','description'=>'Exact device reference returned by list_computers.'];
     $definitions=[
-        ['list_computers','List this customer’s computers, connection status and recorded hardware facts with inventory timestamps. Use returned RAM capacity to answer hardware questions without starting work.',[]],
+        ['list_computers','List this customer’s computers, connection status, recorded hardware facts and available fresh terminal_capabilities. TTY support is separate for user and SYSTEM context; absent, false or expired support cannot authorize TTY. Ordinary non-TTY commands remain available. Use returned RAM capacity to answer hardware questions without starting work.',[]],
         ['read_computer_status','Read recorded checks and separate health-check and repair eligibility. A repair hold need not block diagnostics. Never starts or retries work.',['device_reference'=>$device]],
         ['start_health_check','Run a read-only Windows memory, disk-space and print-service check for the requested computer.',['device_reference'=>$device]],
         ['prepare_temp_cleanup','Preview only bounded Windows system temporary files and prepare a separate human approval. Does not delete anything.',['device_reference'=>$device]],

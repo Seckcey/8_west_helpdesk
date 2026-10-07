@@ -19,6 +19,25 @@ separately. General commands cannot promise file isolation, so disabling file or
 repair tools also disables the general shell route; SYSTEM can be restricted while
 otherwise allowed user-context tools remain available.
 
+Ordinary commands use `tty=false`, including commands with follow-up piped input.
+`list_computers` may return `terminal_capabilities` separately for `user` and
+`system`, with a boolean `tty_supported` and observation/expiry timestamps. True
+support requires fresh authenticated endpoint evidence, expires within 15 seconds
+and applies only to that device and context. Absent, false, stale or future-dated
+evidence cannot authorize TTY. Older device responses remain valid for ordinary
+work. The endpoint checks the actual Windows `ReleasePseudoConsole` API; an older
+Windows endpoint can continue ordinary execution, files and desktop tools even
+when interactive TTY is unavailable.
+
+A definite `terminal_tty_unsupported` refusal from the original queue request
+reports `executed=false`, `correction_allowed=true` and `retry_allowed=false`.
+Within the existing inference budget, Westy may create a new `tty=false` intent
+when it meets the user's task; the new intent receives its own independent review.
+The refused request is never altered or replayed. Lost replies and failures after
+queue acceptance, claim or dispatch do not receive correction permission. A
+started TTY keeps its authenticated progress/authority checks; expiry of an idle
+capability advertisement alone does not stop that process.
+
 Process IDs are opaque handles owned by the original run, conversation, sign-in
 session and portal/companion origin. Closing the model reply does not declare its
 process finished. The original chat continues receipt polling and offers Stop;

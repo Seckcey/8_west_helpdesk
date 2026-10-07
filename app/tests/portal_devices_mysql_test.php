@@ -64,6 +64,24 @@ $devices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'<script>untr
 check(portal_devices_result('devices',$devices)===$devices,'legacy device projection remains compatible');
 $devices['items'][0]['hardware']=['ram_gb'=>15.8,'observed_at'=>'2026-10-03T01:00:00Z','source'=>'agent_inventory'];
 check(portal_devices_result('devices',$devices)===$devices,'RAM fact and capture time pass the closed customer contract');
+$ttyDevices=$devices;$ttyDevices['items'][0]['terminal_capabilities']=[
+    'user'=>['tty_supported'=>true,'observed_at'=>gmdate('Y-m-d\TH:i:s\Z'),'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',time()+15)],
+    'system'=>['tty_supported'=>false,'observed_at'=>null,'expires_at'=>null]];
+check(portal_devices_result('devices',$ttyDevices)===$ttyDevices,'fresh typed TTY capability remains separate for user and SYSTEM');
+$bad=$ttyDevices;$bad['items'][0]['terminal_capabilities']['user']['tty_supported']='true';
+check(refused(static fn()=>portal_devices_result('devices',$bad)),'model-like text cannot advertise native TTY capability');
+$bad=$ttyDevices;$bad['items'][0]['terminal_capabilities']['user']['extra']='anything';
+check(refused(static fn()=>portal_devices_result('devices',$bad)),'TTY projection rejects unknown capability fields');
+$bad=$ttyDevices;$bad['items'][0]['terminal_capabilities']['system']['observed_at']=gmdate('Y-m-d\TH:i:s\Z');
+check(refused(static fn()=>portal_devices_result('devices',$bad)),'unsupported TTY cannot carry a misleading fresh observation');
+$bad=$ttyDevices;$bad['items'][0]['terminal_capabilities']['user']['expires_at']=gmdate('Y-m-d\TH:i:s\Z',time()+16);
+check(refused(static fn()=>portal_devices_result('devices',$bad)),'TTY projection cannot widen native freshness');
+$bad=$ttyDevices;$bad['items'][0]['terminal_capabilities']['user']['observed_at']=gmdate('Y-m-d\TH:i:s\Z',time()-16);
+$bad['items'][0]['terminal_capabilities']['user']['expires_at']=gmdate('Y-m-d\TH:i:s\Z',time()-1);
+check(portal_devices_result('devices',$bad)['items'][0]['terminal_capabilities']['user']===['tty_supported'=>false,'observed_at'=>null,'expires_at'=>null],'expired TTY capability is removed before model or UI disclosure');
+$bad=$ttyDevices;$bad['items'][0]['terminal_capabilities']['user']['observed_at']=gmdate('Y-m-d\TH:i:s\Z',time()+60);
+$bad['items'][0]['terminal_capabilities']['user']['expires_at']=gmdate('Y-m-d\TH:i:s\Z',time()+75);
+check(!portal_devices_result('devices',$bad)['items'][0]['terminal_capabilities']['user']['tty_supported'],'future-dated capability cannot create support before its actual observation');
 foreach([['ram_gb'=>-1],['source'=>'inferred'],['observed_at'=>'not-a-date'],['ram_gb'=>'16'],['private'=>'extra']] as $invalid){
     $bad=$devices;$bad['items'][0]['hardware']=array_replace($bad['items'][0]['hardware'],$invalid);
     check(refused(static fn()=>portal_devices_result('devices',$bad)),'invalid or extra hardware fact is rejected');
