@@ -107,7 +107,7 @@ denied('old asset missing operation is refused before billing',fn()=>tenant_test
 check('old asset refusal never calls provider',$calls===$count);
 
 check('one private turn survives refresh',count(tenant_test_state($pdo,$a)['turns'])===1);
-check('tools remain empty until separately enabled; provider storage stays off',$captured['model']==='gpt-6-luna'&&$captured['store']===false&&($captured['tools']??[])===[]&&!isset($captured['previous_response_id']));
+check('computer tools are available by default; provider storage stays off',$captured['model']==='gpt-6-luna'&&$captured['store']===false&&in_array('list_computers',array_column($captured['tools']??[],'name'),true)&&!isset($captured['previous_response_id']));
 check('provider request pins Standard pricing instead of inheriting project tier',($captured['service_tier']??null)==='default');
 $same=$a;$same['identity']['subject']='t9u99';check('another subject in same business sees no chat',tenant_test_state($pdo,$same)['turns']===[]);
 check('another business sees no chat',tenant_test_state($pdo,$b)['turns']===[]);
@@ -216,7 +216,9 @@ $scope=portal_westy_scope($pdo,$a);$dry=portal_westy_maintain($pdo,false,$scope)
 $erased=portal_westy_maintain($pdo,true,$scope);check('exact identity erasure clears draft and message content',$erased['turn_content']>0&&$erased['draft_content']>0);
 check('erasure preserves other private identities',(int)$pdo->query('SELECT COUNT(*) FROM portal_westy_turns WHERE input_text IS NOT NULL')->fetchColumn()>0);
 check('erasure preserves durable ticket receipts',portal_westy_handoff($pdo,$a,$handoff)===$ticket);
+check('v1 retained runs may outlive expired parent deadlines before maintenance',(int)$pdo->query('SELECT COUNT(*) FROM portal_westy_tool_runs r JOIN portal_westy_turns t ON t.id=r.turn_id WHERE t.expires_at<=UTC_TIMESTAMP() AND r.expires_at>UTC_TIMESTAMP()')->fetchColumn()>0);
 $maintenance=portal_westy_maintain($pdo,true);check('scheduled expiry removes old content and metadata',$maintenance['metadata_deleted']>0&&(int)$pdo->query('SELECT COUNT(*) FROM portal_westy_turns')->fetchColumn()===0);
+check('dependent v1 runs are erased before expired parent metadata',(int)$pdo->query('SELECT COUNT(*) FROM portal_westy_tool_runs')->fetchColumn()===0);
 check('expired AI attempts are removed with their parents',(int)$pdo->query('SELECT COUNT(*) FROM portal_westy_ai_attempts')->fetchColumn()===0);
 check('unused old account is removed',portal_westy_account($pdo,portal_westy_scope($pdo,$purged))===null);
 $count=$calls;

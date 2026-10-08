@@ -1,13 +1,21 @@
 # General computer troubleshooting
 
-The proposed October 7 [acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
-requires the full requested runtime to fit the currently authorized connection,
-after independent review and again immediately before payload release. A
-`connection_expiring` refusal sends no command; reconnecting does not replay it.
-Output reads for the same process render one current output/Stop card while
-retaining stored tool history. A fixed Windows system-temp preview cannot
-substitute for a user-temp request; general user-context tools remain available
-under the existing independent review and exact dangerous-action approval.
+The 1.26.9 source follow-up is in
+[Safeharbor PR #184](https://github.com/Seckcey/8_west_helpdesk/pull/184), paired
+with [Milepost PR #625](https://github.com/Seckcey/8westit_webapp/pull/625).
+Its functional source before coordinator documentation is Safeharbor
+`3fe125b5de28bfb5aafe6d6b80495b5569e5925c` and Milepost
+`1324cf78a4db0e17983eeb7d407b60d7840a19d0`. This document describes that source;
+deployment, private signing and owner laptop acceptance are recorded separately.
+
+The preceding October 7 [acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
+was deployed at Safeharbor `979f9f2ae7055e029aa467a8784e6e9dd20acdd9`.
+Its one-current-output-card behavior and truthful receipts remain. The new source
+supports independent command sessions, durable result recovery and renewable
+running-process authority rather than an arbitrary fixed process lifetime.
+Actual Stop, revocation, account/device authority and explicit capability choices
+still apply. A Windows system-temp preview must not substitute for a user-temp
+request; that preview lists files and does not perform general user-temp cleanup.
 
 ## General runtime v2
 
@@ -21,12 +29,22 @@ until v2 is installed.
 
 Ordinary in-scope work proceeds under current tenant and personal policy. Independent
 review examines the actual command, working directory, context, timeout and effect
-against the real request. Dangerous, disruptive or unresolved work requires approval
-of that exact action from the authenticated originating chat. Model arguments cannot
+against the real request. A sufficiently specific user request authorizes its target
+and material effect, including ordinary file changes and requested repairs. Additional
+approval applies when the proposed material action exceeds that request; actual
+Windows elevation is a separate supported human step. Model arguments cannot
 approve themselves or choose another actor, tenant, device or run. Input is reviewed
 separately. General commands cannot promise file isolation, so disabling file or
 repair tools also disables the general shell route; SYSTEM can be restricted while
 otherwise allowed user-context tools remain available.
+
+Computer tool permissions offer persistent **Allow** and **Deny** for the blanket
+unresolved-execution guard. Missing preferences mean Allow for every MSP and its
+clients. Explicit Deny is preserved, including through older settings saves. With
+Allow, an earlier unknown receipt does not block new authorized work or require
+another confirmation. Unknown remains truthful history: recover available status
+and output, inspect actual state when prior effects matter, and use a new execution
+session rather than replaying the uncertain command.
 
 Ordinary commands use `tty=false`, including commands with follow-up piped input.
 `list_computers` may return `terminal_capabilities` separately for `user` and
@@ -53,8 +71,13 @@ process finished. The original chat continues receipt polling and offers Stop;
 reload reads saved progress without another execution or paid inference. Read and
 Stop remain available for the original unresolved process after inference expiry,
 subject to current binding/revocation checks. Closed or expired runs cannot execute
-new commands, provide stdin, approve new work or resume inference. Another run or
-sign-in origin cannot acquire the handle.
+new commands, provide stdin, approve new work or resume inference. A later authorized
+turn can use `list_tasks`, `read_task` and `attach_task` to recover its user's genuinely
+running process. Attachment issues a new handle in the current run after checking
+the original task's actor, device, execution context and origin; it starts no new
+process. Unknown work cannot be attached as running. `cancel_task` requests exact
+owned-task cancellation and its receipt must distinguish confirmed Stop from unknown.
+A foreign actor or unrelated device cannot acquire the handle.
 
 Scheduled maintenance closes inference and erases its replay and pending input at
 run expiry. It retains only content-free process ownership while the parent chat
@@ -74,6 +97,19 @@ The v2 desktop tools discover and select actual Windows windows and use the exis
 browser/native UI Automation participant for observation, navigation, click, type
 and scroll. Each action needs current authority and a fresh unchanged target capture
 after review. UAC, passwords, MFA and the secure desktop stay with the person.
+`desktop_launch` starts an executable with literal arguments under the signed-in
+Windows user, with no application-name allowlist; acceptance establishes process
+creation only. Discover and observe the real resulting window before claiming the
+application task succeeded. Actions include right/middle click and normal Windows
+key chords. The observed browser address control supplies `browser_url`; the model
+must not infer a destination from a requested URL. Desktop polling remains available
+while independent terminal work runs.
+
+The model retains completed tool messages when it yields after five provider rounds
+and resumes within the existing paid run budget without replaying those calls. This
+supports adaptive troubleshooting; a rejected pre-execution intent can be corrected,
+and an unknown outcome must not be misrepresented as a safe retry. Source checks do
+not establish a successful real browser or native application interaction on a laptop.
 
 ## Protected v2 migration
 

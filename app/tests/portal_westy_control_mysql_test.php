@@ -52,4 +52,27 @@ check($controlCalls===['control_start','control_cancel']&&$controlState['state']
 $run=portal_westy_run_find($pdo,$scope,$request['operation']);check(portal_westy_run_result($a,$run,$controlTransport)['receipt']['state']==='unknown','lost control receipt remains unknown');
 $loseControl=false;$stopActivation=true;$controlCalls=[];$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
 check($controlState['state']==='stopped'&&portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='stopped','Stop during activation wins over its late response');
+$desktopCalls=[];$loseLaunch=false;$launchArguments=['inventory_id'=>bin2hex(random_bytes(16)),
+    'application'=>'notepad.exe','arguments'=>['synthetic literal file name.txt']];
+$desktopTransport=static function(string $body)use(&$desktopCalls,&$loseLaunch,$bound,$launchArguments):array{
+    $wire=json_decode($body,true);$desktopCalls[]=$wire['action'];
+    if($wire['action']==='state')$result=$bound['desktop']+['connected'=>true,'state'=>'active','control_version'=>2];
+    elseif($wire['action']==='launch'){
+        foreach($launchArguments as $key=>$value)check($wire['input'][$key]===$value,'launch preserves literal '.$key);
+        if($loseLaunch)throw new PortalDesktopException('connection_unknown');
+        $result=['action_id'=>str_repeat('7',32),'state'=>'queued'];
+    }elseif($wire['action']==='result')$result=['state'=>'executed','result'=>['reason'=>'application_started','observation_available'=>false]];
+    elseif($wire['action']==='stop')$result=['state'=>'stopped'];
+    else throw new RuntimeException('Unexpected desktop fixture action');
+    return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>$result])];
+};
+$definitions=array_column(portal_westy_desktop_definitions($pdo,$bound,$desktopTransport),null,'name');
+check(isset($definitions['desktop_launch'])&&in_array('right_click',$definitions['desktop_action']['input_schema']['properties']['kind']['enum'],true),'actual active v2 control advertises launch and ordinary pointer actions');
+$desktopCalls=[];$launched=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,null,$desktopTransport);
+check($desktopCalls===['launch','result']&&$launched['public_result']['state']==='executed'
+    &&$launched['public_result']['reason']==='application_started_discover_window','OS launch acceptance requires subsequent real window observation');
+$desktopCalls=[];$loseLaunch=true;$lost=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,null,$desktopTransport);
+check($desktopCalls===['launch','stop']&&$lost['public_result']['state']==='unknown'&&$lost['public_result']['action_id']===null,'lost initial launch response remains unknown and is never replayed');
+$seen=portal_desktop_observation_result(['browser_origin'=>'https://example.test','browser_url'=>'https://example.test/actual/path?q=observed','image_png'=>null]);
+check($seen['private_observation']['browser_url']==='https://example.test/actual/path?q=observed'&&!isset($seen['public_result']['observation']['browser_url']),'model receives actually observed browser URL without copying it to durable public metadata');
 echo "PASS control v2 MySQL: $checks cumulative assertions\n";

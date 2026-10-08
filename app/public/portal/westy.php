@@ -64,8 +64,12 @@ try{
                 if(!portal_devices_keys($request,['action','automatic_diagnostics'])||!is_bool($request['automatic_diagnostics']))throw new PortalWestyException('invalid_request',400);
                 portal_desktop_request($context,'shell_preferences',['automatic_diagnostics'=>$request['automatic_diagnostics']]);break;
             case 'tool_preferences':
-                if(!portal_devices_keys($request,['action','revision','restrictions'])||!is_int($request['revision'])||!is_array($request['restrictions']))throw new PortalWestyException('invalid_request',400);
-                portal_desktop_request($context,'terminal_preferences',['revision'=>$request['revision'],'restrictions'=>$request['restrictions']]);break;
+                if((!portal_devices_keys($request,['action','revision','restrictions'])&&!portal_devices_keys($request,['action','revision','restrictions','execution_guard']))
+                    ||!is_int($request['revision'])||!is_array($request['restrictions'])
+                    ||(array_key_exists('execution_guard',$request)&&!in_array($request['execution_guard'],['allow','deny'],true)))throw new PortalWestyException('invalid_request',400);
+                $preferences=['revision'=>$request['revision'],'restrictions'=>$request['restrictions']];
+                if(array_key_exists('execution_guard',$request))$preferences['execution_guard']=$request['execution_guard'];
+                portal_desktop_request($context,'terminal_preferences',$preferences);break;
             case 'approve_terminal':
                 if(!portal_devices_keys($request,['action','operation','conversation','sequence','fingerprint','reviewed'])||$request['reviewed']!==true
                     ||!is_int($request['sequence'])||!is_string($request['fingerprint'])||!preg_match('/\A[a-f0-9]{64}\z/D',$request['fingerprint']))throw new PortalWestyException('invalid_request',400);

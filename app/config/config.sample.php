@@ -137,7 +137,7 @@ return [
     'portal_westy' => [
         'enabled' => false,
         'ai_enabled' => false,
-        'tools_enabled' => false, // Enable after reviewed Milepost workspace migration/source/flags.
+        'tools_enabled' => true,
         'api_key' => '', // Dedicated server-only OpenAI project credential.
         'retention_days' => 30,
         'hourly_limit' => 30,
