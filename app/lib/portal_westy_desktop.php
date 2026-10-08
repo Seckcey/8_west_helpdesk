@@ -7,7 +7,8 @@ const PORTAL_DESKTOP_ENDPOINT='https://support.8westit.com/api/svc/desktop_sessi
 const PORTAL_DESKTOP_CONTEXT='safeharbor-desktop-sessions-v1';
 final class PortalDesktopException extends RuntimeException
 {
-    public function __construct(public readonly string $reason,public readonly int $status=503){parent::__construct($reason);}
+    public function __construct(public readonly string $reason,public readonly int $status=503,
+        public readonly bool $requestRejected=false){parent::__construct($reason);}
 }
 function portal_desktop_id(mixed $value):bool
 {return is_string($value)&&preg_match('/\A[a-f0-9]{32}\z/D',$value)===1;}
@@ -15,7 +16,7 @@ function portal_desktop_transport(string $body,array $headers):array
 {
     $ch=curl_init(PORTAL_DESKTOP_ENDPOINT);$response='';$large=false;
     $action=json_decode($body,true,32,JSON_THROW_ON_ERROR)['action']??'';
-    $deadline=in_array($action,['terminal_review','terminal_input','action'],true)?45:8;
+    $deadline=in_array($action,['terminal_review','terminal_input','action','launch'],true)?45:8;
     curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$body,CURLOPT_HTTPHEADER=>$headers,
         CURLOPT_CONNECTTIMEOUT=>3,CURLOPT_TIMEOUT=>$deadline,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,
         CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,
@@ -57,7 +58,12 @@ function portal_desktop_request(array $context,string $action,array $input,?call
             'support_busy','invalid_pipeline','sensitive_text','action_unavailable','cleanup_unavailable','approval_required',
             'terminal_unavailable','terminal_offline','terminal_tty_unsupported','terminal_not_running','terminal_starting','terminal_input_pending','tool_restriction',
             'approval_changed','preferences_changed','terminal_upgrade_incomplete','desktop_upgrade_required','select_window_first','inventory_stale','review_changed'];
-        throw new PortalDesktopException(in_array($reason,$safe,true)?$reason:'desktop_unavailable');
+        // Only the endpoint's explicit, recognized 4xx refusal proves this
+        // request was rejected. Network loss, malformed data and 5xx do not.
+        $rejected=is_array($data)&&($data['ok']??null)===false&&in_array($reason,$safe,true)
+            &&is_int($reply['status'])&&$reply['status']>=400&&$reply['status']<500;
+        throw new PortalDesktopException(in_array($reason,$safe,true)?$reason:'desktop_unavailable',
+            $rejected?$reply['status']:503,$rejected);
     }
     if(($data['contract']??null)!==PORTAL_DESKTOP_CONTEXT||!is_array($data['result']??null))throw new PortalDesktopException('invalid_response');
     return $data['result'];
@@ -132,7 +138,7 @@ function portal_desktop_observation_result(array $observation):array
 function portal_westy_desktop_dispatch(array $context,string $name,array $arguments,?callable $alive=null,?callable $transport=null):array
 {
     $task=portal_desktop_task($context);$identity=['session_id'=>$task['session_id'],'task_id'=>$task['task_id']];
-    $alive??=static fn():bool=>true;$started=microtime(true);$actionId=null;$executionRequested=false;
+    $alive??=static fn():bool=>true;$started=microtime(true);$actionId=null;$executionRequested=false;$executed=false;
     try{
         if(!$alive())throw new PortalDesktopException('task_stopped');
         if($name==='desktop_stop'){
@@ -167,6 +173,7 @@ function portal_westy_desktop_dispatch(array $context,string $name,array $argume
                 if(in_array($receipt['state']??null,['unknown','cancelled','refused'],true))
                     return ['public_result'=>['state'=>$receipt['state'],'action_id'=>$actionId,'reason'=>$receipt['result']['reason']??null]];
                 if(($receipt['state']??null)!=='executed'){usleep(200000);continue;}
+                $executed=true;
                 if(($receipt['result']['observation_available']??false)!==true)
                     return ['public_result'=>['state'=>'executed','action_id'=>$actionId,'reason'=>$name==='desktop_launch'?'application_started_discover_window':'observe_again']];
             }
@@ -183,8 +190,22 @@ function portal_westy_desktop_dispatch(array $context,string $name,array $argume
         }
         throw new PortalDesktopException('result_unknown');
     }catch(Throwable $error){
-        try{portal_desktop_request($context,'stop',$identity,$transport);}catch(Throwable){}
         $reason=$error instanceof PortalDesktopException?$error->reason:'desktop_unavailable';
-        return ['public_result'=>['state'=>$executionRequested?'unknown':'stopped','reason'=>$reason,'action_id'=>$actionId]];
+        if($executed){
+            if($reason==='task_stopped'){
+                try{portal_desktop_request($context,'stop',$identity,$transport);}catch(Throwable){}
+            }
+            return ['public_result'=>['state'=>'executed','reason'=>$reason==='task_stopped'?'task_stopped':'observation_unavailable','action_id'=>$actionId]];
+        }
+        $refused=$executionRequested&&$actionId===null&&$error instanceof PortalDesktopException&&$error->requestRejected;
+        $unknown=$executionRequested&&!$refused;
+        // A refused enqueue or unavailable read can be followed by fresh evidence
+        // in the same request. Never Stop the entire task just for those results.
+        // An uncertain dispatch is not replayed; revoke pending input as before.
+        if($unknown||$reason==='task_stopped'||$name==='desktop_stop'){
+            try{portal_desktop_request($context,'stop',$identity,$transport);}catch(Throwable){}
+        }
+        return ['public_result'=>['state'=>$refused?'refused':($unknown?'unknown':($reason==='task_stopped'?'stopped':'unavailable')),
+            'reason'=>$reason,'action_id'=>$actionId]];
     }
 }

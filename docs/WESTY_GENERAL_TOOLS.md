@@ -1,5 +1,36 @@
 # General computer troubleshooting
 
+## October 8 browser and desktop receipt repair (source candidate)
+
+Application launch uses a 45-second transport deadline, matching its existing
+bounded Milepost review path, instead of abandoning the request after eight
+seconds while review could still be running. Other transport deadlines are unchanged.
+
+A recognized, explicit 4xx backend refusal before an action ID is returned is
+reported as **refused**, with its reason. It does not become an unknown execution
+or stop the desktop task. An unavailable read likewise permits fresh evidence
+within the same request. Malformed responses, 5xx failures, missing replies and
+receipt loss after accepted dispatch remain uncertain and never authorize replay.
+If Windows acceptance was already confirmed but the later observation is lost,
+the receipt retains **executed / observation_unavailable**; it does not claim the
+requested navigation or edit succeeded. Explicit Stop still revokes the task.
+
+The paired Milepost/native candidate removes passive-input cancellation and
+separates internal desktop task endings from a persistent pause of future work.
+Use Take control or Stop deliberately; ordinary mouse/keyboard activity keeps
+the task authorized. Saved Deny, account/device and genuine Windows/elevation
+boundaries remain in force.
+
+The focused synthetic transport/control suite passed 373 cumulative assertions
+on isolated Coastline MySQL, including confirmed refusal, malformed/5xx response,
+lost accepted launch receipt, unavailable observation and explicit Stop. This is
+source validation, not deployment or laptop acceptance. The October 8 owner report
+records a cleanup pass, browser-origin failure and Notepad support-busy/unknown
+result; it does not prove either failed browser or desktop task completed. Earlier
+release and acceptance records below remain historical evidence.
+
+## Earlier connection repair record
+
 The October 8 connection repair is merged in
 [Safeharbor PR #185](https://github.com/Seckcey/8_west_helpdesk/pull/185), paired
 with [Milepost PR #631](https://github.com/Seckcey/8westit_webapp/pull/631) and
