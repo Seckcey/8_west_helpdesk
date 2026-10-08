@@ -1,9 +1,18 @@
 # Westy customer workspace
 
-The October 7 [companion acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
-adds bounded approved-session renewal, truthful approval/connection status and
-one current output card per process. That candidate remains separate from the
-earlier production release and corrected laptop acceptance.
+The 1.26.9 local-control follow-up in
+[Safeharbor PR #184](https://github.com/Seckcey/8_west_helpdesk/pull/184) and
+[Milepost PR #625](https://github.com/Seckcey/8westit_webapp/pull/625) adds independent
+sessions, cross-turn task recovery, application launch and persistent optional
+execution-guard settings. Its source and release boundaries are documented in
+[Westy general tools](WESTY_GENERAL_TOOLS.md). This source is not yet a deployed
+backend or signed installer; Frankie owns laptop installation and acceptance.
+
+The preceding October 7 [companion acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
+was deployed at Safeharbor `979f9f2ae7055e029aa467a8784e6e9dd20acdd9`, adding
+bounded approved-session renewal, truthful approval/connection status and one
+current output card per process. Its private Full 1.26.8 package was signed and
+staged, with corrected physical laptop acceptance still unclaimed.
 
 Source contract for the October 4 candidate. Production installation and signed-in
 customer acceptance must be recorded separately by the release owner.
@@ -30,8 +39,10 @@ model and effort selection; the separately bound internal fallback remains
 `gpt-6-luna`, low reasoning, Standard tier, `store=false`.
 Encrypted reasoning items may be carried between the bounded stateless tool
 rounds in server memory; they never enter the transcript, logs or browser stream.
-There are at most five provider rounds, four tool calls, 1,200 output tokens per
-round, a 64 KB request cap, and a 150-second wall-clock generation deadline.
+There are five provider rounds per request, 1,200 output tokens per round, a 64 KB
+request cap, and a 150-second wall-clock generation deadline. After an ordinary
+tool's fifth-round result, the server saves the real tool messages and yields a
+continuation within the existing run budget instead of replaying completed calls.
 The existing business/subject caps and worst-case cost reservation still apply.
 
 The server reserves a private turn once, saves partial text and tool intent before
@@ -65,7 +76,9 @@ feedback so Westy can correct it within the existing bounds; uncertain execution
 is never retried by that mechanism. The customer script URL changes with its
 contents so a normal reload retrieves the current continuation behavior.
 
-`portal_westy.tools_enabled` separately enables five closed functions:
+`portal_westy.tools_enabled` defaults to true when unset; an explicitly saved false
+remains false. This applies to every MSP and its clients. The legacy device-check
+and repair functions are
 `list_computers`, `read_computer_status`, `start_health_check`,
 `prepare_temp_cleanup`, and `propose_print_repair`. Customer owners/admins may
 request read-only checks/previews in chat. The selected reference is resolved
@@ -74,13 +87,25 @@ Every service request uses the fixed HTTPS Milepost endpoint, existing dedicated
 HMAC credential and server-derived provider/customer/subject/session/role. No
 model/browser field supplies a command or changes the customer scope.
 
+Installed compatible v2 routes additionally expose general commands, file operations,
+task discovery/recovery and browser/native desktop tools described in the linked
+general-tools contract. They are not limited to those five legacy functions.
+In **Computer tool permissions**, Allow is the default for new authorized work
+when an earlier outcome is unknown; Deny enables that blanket guard only by the
+user's choice. Earlier unknown receipts remain intact, and no uncertain command
+is replayed. The user's sufficiently specific request authorizes its scope; an
+extra confirmation is needed only for material work beyond that scope or the
+supported Windows elevation step when Windows requires it.
+
 The model has no approval function and receives no approval fingerprint. A human
 must review the named computer, exact impact and preview and press the separate
 approval control. The current device name must load before approval is offered.
 The operation must belong to this subject's retained conversation and remain
 approved by Milepost for the same current subject/session/role. CSRF is mandatory.
 Changes, expiry, revocation, ownership holds and mismatched service projections
-fail closed. A cached receipt never supplies an active approval control.
+fail closed. These controls apply to the separate legacy reviewed repair proposal;
+they do not add a second approval to an already-authorized v2 request. A cached
+receipt never supplies an active approval control.
 
 Temporary cleanup starts with a read-only preview. Milepost binds the proposed
 script hash to that exact inventory and cutoff, then verifies a later health
@@ -92,10 +117,12 @@ Unsupported operations lead to accurate guidance or Contact support.
 Cancel operation withdraws only work confirmed undelivered under the delivery
 locks. Delivered or ambiguous work shows cancellation requested/support review,
 retains its execution fence and is never silently repeated. Stop reply and Cancel
-operation are separate actions. Transcript text does not itself approve repairs,
-send tickets/email, make purchases, change access or initiate arbitrary commands.
+operation are separate actions. Text claiming that a legacy proposal is approved
+does not press its approval control, send tickets/email, make purchases or change
+access. General v2 commands use the actual authorized request and current device
+authority described above.
 
-## Release order and acceptance
+## Original workspace rollout and current follow-up
 
 Deploy this backward-compatible projection reader before the matching Milepost
 source starts returning expanded receipts. Preserve all existing portal/identity,
@@ -111,8 +138,15 @@ backup and restore proof, install its matching recipe/API/reconciler, then enabl
 `portal_devices.enabled`, `diagnostics_enabled`, Milepost diagnostics and repair
 execution gates must remain enabled for the reviewed rollout. These final gates
 cover every legitimately active binding and eligible owner/admin; they do not add
-a pilot list or alter provider allowlists. Default-off sample values protect an
+a pilot list or alter provider allowlists. Other default-off sample values protect an
 unmigrated installation and are not the requested final activation state.
+
+For the 1.26.9 follow-up, the existing v2 schema and cleanup receipts are prerequisites,
+not new migrations. Preserve original provider approvals and protected report/service
+configuration. The owner accepts the existing working recovery backup and owns all
+post-release tests. No new pre-update backup, separate backup verification or broad
+manual acceptance suite is added. Source/CI, deployed runtime, signing/staging and
+owner physical acceptance must be reported separately.
 
 Verify signed-in desktop/mobile first-viewport composition, an actual production
 provider delta before completion through Apache/public proxy, Stop, refresh/history,
