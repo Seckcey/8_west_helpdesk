@@ -1,5 +1,10 @@
 # Westy customer workspace
 
+The October 7 [companion acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
+adds bounded approved-session renewal, truthful approval/connection status and
+one current output card per process. That candidate remains separate from the
+earlier production release and corrected laptop acceptance.
+
 Source contract for the October 4 candidate. Production installation and signed-in
 customer acceptance must be recorded separately by the release owner.
 

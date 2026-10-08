@@ -1,5 +1,15 @@
 # Where things stand
 
+**October 7 Westy acceptance repair:** the previous paired release installed
+Safeharbor `8a4d78a3ade58ce308862a7666421e8c7a57a568` and its matching Milepost
+backend. The owner installed private Full 1.26.7 on 8WV-FRANKIE and then reported
+connection, control and presentation failures. [PR #183](https://github.com/Seckcey/8_west_helpdesk/pull/183)
+proposes approved-session renewal and truthful receipt/approval presentation,
+paired with Milepost PR #621 and proposed native 1.26.8. This correction is in
+review; no corrected deployment, signed artifact or laptop acceptance is claimed.
+See [the exact candidate and focused evidence](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md).
+Earlier dated checkpoints below preserve their original observations.
+
 **October 4 Westy integration checkpoint:** combined portal, Milepost device,
 Windows companion and MSP tenant-AI source checks have passed. Production
 release and actual standard-user Windows acceptance remain pending. The current
