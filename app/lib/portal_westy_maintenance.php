@@ -44,10 +44,13 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
                 $q=$pdo->prepare('DELETE FROM portal_westy_tool_runs WHERE (expires_at<=? AND (processes_json IS NULL OR JSON_LENGTH(processes_json)=0)) OR EXISTS(SELECT 1 FROM portal_westy_turns t WHERE t.id=portal_westy_tool_runs.turn_id AND t.expires_at<=?)');
                 $q->execute([$now,$now]);
             }else{
-                // Exact-scope erasure includes every saved process; historical v1
-                // rows keep their existing expiry behavior without requiring v2 DDL.
-                $q=$pdo->prepare('DELETE FROM portal_westy_tool_runs WHERE '.($scope===null?'expires_at<=?':'1=1').$filter);
-                $q->execute($scope===null?[$now]:$args);
+                // Erase child ownership before its parent, even when a v1 run's
+                // own deadline is later than the expired conversation. No v2 DDL
+                // is needed; exact-scope erasure still removes every saved process.
+                $q=$pdo->prepare('DELETE FROM portal_westy_tool_runs WHERE '.($scope===null
+                    ?'expires_at<=? OR EXISTS(SELECT 1 FROM portal_westy_turns t WHERE t.id=portal_westy_tool_runs.turn_id AND t.expires_at<=?)'
+                    :'1=1'.$filter));
+                $q->execute($scope===null?[$now,$now]:$args);
             }
         }
         $q=$pdo->prepare("UPDATE portal_westy_drafts SET state='expired',subject=NULL,body=NULL WHERE ".$draftWhere);
