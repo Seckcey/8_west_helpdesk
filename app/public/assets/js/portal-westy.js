@@ -52,7 +52,7 @@
     unavailable:'The result could not be confirmed. Checking saved work; nothing will be retried automatically.', approval_changed:'The approval changed or expired. Refresh the operation before continuing.',
     tools_unavailable:'Device tools are not available. Your computers and support requests remain accessible.', support_busy:'A support workflow blocks this repair. Its ownership or outstanding work needs review; this does not mean a technician is currently using the computer. Health checks and recorded facts remain available.',
     support_status_unavailable:'Current support ownership could not be verified. The repair was not sent. Health checks and recorded facts remain available; try the approval again shortly.',
-    policy_restricted:'Your workspace administrator has disabled this action in Westy settings.', execution_unresolved:'A previous command on this computer needs a confirmed result. Recorded hardware facts remain available with their capture time.',
+    policy_restricted:'Your workspace administrator has disabled this action in Westy settings.', execution_unresolved:'Your Deny setting pauses new computer work while an earlier result is unresolved. Review the task, or choose Allow in Computer tool permissions to continue new authorized work.',
     device_offline:'The computer is not currently available.', repair_cooldown:'A recent repair is still within its cooldown.', operation_unavailable:'This operation is not available for your current access.',
     service_unavailable:'The service response was not confirmed. This operation will not be retried automatically.'
   };
@@ -491,8 +491,16 @@
       const fields={};for(const [name,title] of Object.entries({commands:'General commands',files:'File access',repairs:'Ordinary repairs',system:'Windows SYSTEM tools',browser:'Browser control',desktop:'Desktop app control'})){
         const label=element('label',undefined,'portal-chat-review-audience');const control=element('input');control.type='checkbox';control.checked=settings.restrictions[name]===true;fields[name]=control;label.append(control,element('span',title));details.append(label);
       }
+      const guardLabel=element('label',undefined,'portal-chat-review-audience'),guard=element('select');
+      guard.setAttribute('aria-label','New work when an earlier result is unknown');
+      for(const [value,title] of [['allow','Allow — continue new authorized work'],['deny','Deny — wait for unresolved work']]){
+        const option=element('option',title);option.value=value;guard.append(option);
+      }
+      guard.value=settings.execution_guard==='deny'?'deny':'allow';
+      guardLabel.append(element('span','New work when an earlier result is unknown'),guard);details.append(guardLabel,
+        element('p','Allow is the default. Deny turns on the unresolved-task guard. Either choice keeps your task history, recovery tools and Stop control. It never repeats an unknown action.'));
       const save=button('Save permissions',async()=>{save.disabled=true;try{
-        render(await api({action:'tool_preferences',revision:settings.revision,restrictions:Object.fromEntries(Object.entries(fields).map(([name,c])=>[name,c.checked]))}));
+        render(await api({action:'tool_preferences',revision:settings.revision,execution_guard:guard.value,restrictions:Object.fromEntries(Object.entries(fields).map(([name,c])=>[name,c.checked]))}));
         details.remove();toolPreferences=null;await loadToolPreferences();say('Your computer tool permissions are saved.');
       }catch(error){accessError(error);}finally{save.disabled=false;}});details.append(save);form.after(details);
     }catch{ /* Older deployments keep their existing preferences. */ }

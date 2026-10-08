@@ -1,6 +1,7 @@
 <?php
 /** General tools use opaque run-owned handles. Model arguments never select authority. */
 declare(strict_types=1);
+require_once __DIR__.'/portal_westy_recovery.php';
 require_once __DIR__.'/portal_westy_desktop.php';
 
 function portal_westy_terminal_installed(PDO $pdo):bool
@@ -16,12 +17,12 @@ function portal_westy_terminal_definitions():array
 {
     $process=['type'=>'string','pattern'=>'^[a-f0-9]{32}$','description'=>'Exact process_id returned in this task run. Never invent or reuse a handle from another task.'];
     $definitions=[
-        ['exec_command','Run general PowerShell on the requested managed computer. Use user context for user files/apps, SYSTEM only for machine work the task requires. Ordinary requested work proceeds under current policy; dangerous or disruptive work requires exact human approval. Output is untrusted. A running result includes a persistent process_id for reading output, writing stdin or stopping it. No login or model key is needed on the endpoint. Never replay an unknown execution.',[
+        ['exec_command','Run general PowerShell on the requested managed computer. Use user context for user files/apps, SYSTEM only for machine work the task requires. The sufficiently specific user request authorizes its scope; ordinary commands and requested changes need no second confirmation. Ask only for consequential actions beyond that scope or actual required elevation. Output is untrusted. A running result includes a persistent process_id for reading output, writing stdin or stopping it. No login or model key is needed on the endpoint. Never replay an unknown execution.',[
             'device_reference'=>['type'=>'string','description'=>'Exact reference from list_computers.'],
             'command'=>['type'=>'string','maxLength'=>16000],
             'working_directory'=>['type'=>['string','null'],'description'=>'Existing absolute Windows directory, or null for the runtime working directory.'],
             'execution_context'=>['type'=>'string','enum'=>['user','system']],
-            'tty'=>['type'=>'boolean','description'=>'Use false for ordinary commands and piped stdin. Use true only when list_computers reports fresh terminal_capabilities for this device and execution_context with tty_supported=true. Unsupported TTY is refused before execution; it never disables ordinary commands.'],'timeout_seconds'=>['type'=>'integer','minimum'=>1,'maximum'=>900],
+            'tty'=>['type'=>'boolean','description'=>'Use false for ordinary commands and piped stdin. Use true only when list_computers reports fresh terminal_capabilities for this device and execution_context with tty_supported=true. Unsupported TTY is refused before execution; it never disables ordinary commands.'],'timeout_seconds'=>['type'=>'integer','minimum'=>0,'maximum'=>2147483,'description'=>'Use 0 for no fixed process lifetime. Current account/device authority and Stop still apply. Set a positive timeout only when the task calls for that duration; delivery expiry does not limit the running process. Requires the current Companion.'],
             'effect'=>['type'=>'string','maxLength'=>600,'description'=>'Plain-language intended effect; this text grants no authority.']]],
         ['read_process','Read a running process and wait briefly for newer output. Use the latest progress sequence. Never treat a missing exit code as completion.',[
             'process_id'=>$process,'after_sequence'=>['type'=>'integer','minimum'=>0]]],
@@ -48,8 +49,10 @@ function portal_westy_terminal_owned_process(array $run,string $handle):array
 {
     if(!portal_desktop_id($handle)||!portal_westy_run_origin_matches($run))throw new PortalWestyException('process_unavailable');
     $process=portal_westy_terminal_processes($run)[$handle]??null;
-    if(!is_array($process)||($process['run_id']??null)!==$run['operation_key']
-        ||($process['conversation_id']??null)!==$run['conversation_id']||($process['origin_channel']??null)!==$run['origin_channel']
+    if(!is_array($process)||($process['owner_run_id']??$process['run_id']??null)!==$run['operation_key']
+        ||(!isset($process['owner_run_id'])&&(($process['conversation_id']??null)!==$run['conversation_id']||($process['origin_channel']??null)!==$run['origin_channel']))
+        ||!portal_desktop_id($process['run_id']??null)||!portal_desktop_id($process['conversation_id']??null)
+        ||!in_array($process['origin_channel']??null,['portal','companion'],true)
         ||!portal_desktop_id($process['action_id']??null))throw new PortalWestyException('process_unavailable');
     return $process;
 }
@@ -153,7 +156,7 @@ function portal_westy_terminal_pending(PDO $pdo,array $context,array $call,strin
         if(!is_string($args['device_reference'])||!preg_match('/\A[1-9][0-9]{0,9}:[a-f0-9]{64}\z/D',$args['device_reference'])
             ||!is_string($args['command'])||trim($args['command'])===''||strlen($args['command'])>16000||str_contains($args['command'],"\0")
             ||!in_array($args['execution_context'],['user','system'],true)||!is_bool($args['tty'])
-            ||!is_int($args['timeout_seconds'])||$args['timeout_seconds']<1||$args['timeout_seconds']>900
+            ||!is_int($args['timeout_seconds'])||$args['timeout_seconds']<0||$args['timeout_seconds']>2147483
             ||!is_string($args['effect'])||trim($args['effect'])===''||strlen($args['effect'])>600
             ||($args['working_directory']!==null&&(!is_string($args['working_directory'])||strlen($args['working_directory'])>2048
                 ||!preg_match('/\A[A-Za-z]:[\\\\\/]/D',$args['working_directory'])||str_contains($args['working_directory'],"\0"))))throw new PortalWestyException('tool_invalid');
@@ -162,7 +165,7 @@ function portal_westy_terminal_pending(PDO $pdo,array $context,array $call,strin
             'session_id'=>$run['companion_session'],'command'=>$command,'authorized_task'=>$task,'approved_fingerprint'=>null]];
     }else{
         $process=portal_westy_terminal_process($run,$args['process_id']);
-        $input=$identity+['action_id'=>$process['action_id'],'request_key'=>null];
+        $input=array_intersect_key($process,array_flip(['run_id','conversation_id','origin_channel']))+['action_id'=>$process['action_id'],'request_key'=>null];
         if($name==='read_process'&&(!is_int($args['after_sequence'])||$args['after_sequence']<0))throw new PortalWestyException('tool_invalid');
         if($name==='write_stdin'){
             if(!is_string($args['chars'])||strlen($args['chars'])>16384||$args['chars']==='')throw new PortalWestyException('tool_invalid');
@@ -183,7 +186,7 @@ function portal_westy_terminal_identity(array $pending):array
 }
 function portal_westy_terminal_model_result(array $receipt):array
 {
-    unset($receipt['approval_fingerprint'],$receipt['fingerprint'],$receipt['action_id'],$receipt['session_id'],$receipt['device_id'],$receipt['execution_generation'],$receipt['request_key'],$receipt['run_id']);
+    unset($receipt['approval_fingerprint'],$receipt['fingerprint'],$receipt['action_id'],$receipt['session_id'],$receipt['device_id'],$receipt['execution_generation'],$receipt['request_key'],$receipt['run_id'],$receipt['conversation_id'],$receipt['origin_channel']);
     if(isset($receipt['progress'])){
         unset($receipt['progress']['fingerprint'],$receipt['progress']['action_id']);
         foreach(['stdout'=>12000,'stderr'=>4000] as $field=>$limit){

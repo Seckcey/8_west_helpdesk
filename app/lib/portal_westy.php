@@ -253,8 +253,10 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
             // Decoding as objects preserves empty tool argument objects for Anthropic.
             $messages=portal_westy_run_restore($run['replay_json']);
             $pending=json_decode($run['pending_json'],true,32,JSON_THROW_ON_ERROR);
-            $modelReceipt=($pending['kind']??null)==='terminal'?portal_westy_terminal_model_result($runResult['receipt']):portal_westy_tool_model_result($runResult['receipt']);
-            $messages[]=['role'=>'tool','call_id'=>$pending['call_id'],'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>$modelReceipt],JSON_THROW_ON_ERROR)]]];
+            if(($pending['kind']??null)!=='continuation'){
+                $modelReceipt=($pending['kind']??null)==='terminal'?portal_westy_terminal_model_result($runResult['receipt']):portal_westy_tool_model_result($runResult['receipt']);
+                $messages[]=['role'=>'tool','call_id'=>$pending['call_id'],'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>$modelReceipt],JSON_THROW_ON_ERROR)]]];
+            }
         }
         $aiTools=portal_westy_ai_tools($pdo,$context,$aiSelection);
         $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>1200]);

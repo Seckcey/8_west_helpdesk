@@ -5,6 +5,11 @@ require __DIR__.'/portal_westy_runs_mysql_test.php';
 // The required historical continuation suite leaves the exact v1 predecessor.
 portal_westy_fixture_sql($pdo,__DIR__.'/../db/migrations/endpoint_tool_runs_v2.sql');
 check(portal_westy_terminal_installed($pdo),'additive v2 column activates general tools');
+unset($settings['portal_westy']['tools_enabled']);
+check(portal_westy_tools_enabled(),'existing and new users without an override receive globally enabled tools');
+$settings['portal_westy']['tools_enabled']=false;
+check(!portal_westy_tools_enabled(),'explicit configured tool disable remains honored');
+unset($settings['portal_westy']['tools_enabled']);
 $generalNames=array_column(portal_westy_ai_tools($pdo,$a+['tool_run'=>['sequence'=>0]],$providerSelection),'name');
 check(in_array('exec_command',$generalNames,true)&&in_array('desktop_open',$generalNames,true),'v2 schema with native configuration advertises general execution and desktop activation');
 check(str_contains(portal_westy_ai_instructions(array_map(static fn($name)=>['name'=>$name],$generalNames)),'Use exec_command')&&!str_contains(portal_westy_ai_instructions([]),'Use exec_command'),'instructions match actual offered tools and do not advertise exhausted general tools');
@@ -206,4 +211,41 @@ portal_westy_maintain($pdo,true,$scope);
 check(portal_westy_run_find($pdo,$scope,$originalOperation)===null,'exact-scope erasure removes even retained original-process ownership');
 $q=$pdo->prepare('SELECT COUNT(*) FROM portal_westy_tool_runs WHERE scope_key=?');$q->execute([$scope['key']]);check((int)$q->fetchColumn()===0,'exact-scope erasure leaves no run replay or process metadata');
 $request['conversation']=portal_westy_account($pdo,$scope)['conversation_key'];
+// More than five successful synchronous tools continue from real receipts,
+// preserving cost bounds and Stop without repeating the earlier calls.
+$continueCalls=0;$recoverCalls=0;
+$continuationTransport=static function(string $body)use(&$recoverCalls,$a):array{
+    $wire=json_decode($body,true);
+    check($wire['action']==='terminal_tasks'&&$wire['scope']['subject']===$a['identity']['subject'],'recovery dispatch uses current actor and performs no execution');
+    $recoverCalls++;
+    return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>['tasks'=>[],'execution_guard'=>'allow']])];
+};
+$continuationProvider=static function($selection,$system,$messages,$options,$emit,$alive)use(&$continueCalls,$device,$fixtureDone):array{
+    $continueCalls++;
+    if($continueCalls===6){
+        $receipts=array_values(array_filter($messages,static fn($m)=>($m['role']??null)==='tool'));
+        check(count($receipts)===5&&count(array_unique(array_column($receipts,'call_id')))===5,'continued inference sees every actual tool receipt exactly once');
+        $emit('The five synthetic task inventories are available.');return $fixtureDone();
+    }
+    $id='recovery_round_'.$continueCalls;$args=['device_reference'=>$device];
+    $replay=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>$id,'name'=>'list_tasks','arguments'=>json_encode($args)]]];
+    foreach(['provider','model','effort','revision','credential_version'] as $field)$replay[$field]=$selection[$field]??null;
+    return ['ok'=>true,'tool_calls'=>[['id'=>$id,'name'=>'list_tasks','arguments'=>$args]],'continuation'=>$replay,
+        'usage'=>['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>20]];
+};
+$continueMessage=static fn(array $r)=>portal_westy_message($pdo,$a,$r,$continuationProvider,static fn()=>$a,transport:$continuationTransport,aiResolver:$resolver);
+$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$request['message']='Inspect prior synthetic task receipts and explain the result.';
+$continueMessage($request);$run=portal_westy_run_find($pdo,$scope,$request['operation']);
+check($continueCalls===5&&$recoverCalls===5&&$run['state']==='waiting','fifth valid tool yields a durable continuation instead of failing the task');
+check(portal_westy_run_result($a,$run,$continuationTransport)['ready']===true&&$recoverCalls===5,'ready continuation does not query or replay prior tools');
+$resume=['action'=>'run_resume','operation'=>$request['operation'],'conversation'=>$run['conversation_id'],'sequence'=>1];
+$continueMessage($resume);$continueMessage($resume);
+check($continueCalls===6&&$recoverCalls===5&&portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='complete','continued model response and reconnect do not repeat tools or paid inference');
+$continueCalls=0;$recoverCalls=0;$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));
+$continueMessage($request);$run=portal_westy_run_find($pdo,$scope,$request['operation']);
+portal_westy_run_stop($pdo,$a,$scope,$request['operation'],$continuationTransport);
+$resume=['action'=>'run_resume','operation'=>$request['operation'],'conversation'=>$run['conversation_id'],'sequence'=>1];
+try{$continueMessage($resume);}catch(PortalWestyException){}
+check($continueCalls===5&&$recoverCalls===5&&portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='stopped','Stop wins before continuation and cannot restart paid work');
+require __DIR__.'/portal_westy_recovery_mysql_cases.php';
 echo "PASS terminal v2 MySQL: $checks cumulative assertions\n";

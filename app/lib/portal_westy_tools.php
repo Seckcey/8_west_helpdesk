@@ -4,7 +4,7 @@ declare(strict_types=1);
 require_once __DIR__.'/portal_device_operations.php';
 
 function portal_westy_tools_enabled(): bool
-{ return cfg('portal_westy.tools_enabled',false) === true; }
+{ return cfg('portal_westy.tools_enabled',true) === true; }
 
 function portal_westy_tool_definitions(): array
 {

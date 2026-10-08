@@ -1072,6 +1072,7 @@ if (!SERVE_MODE) test('general runtime shows exact approval, live output, Stop a
         assert.equal(payload.operation,operation);stopped++;state.turns[0].terminal_processes['d'.repeat(32)].state='unknown';state.turns[0].state='unavailable';
       }else if(payload?.action==='tool_preferences'){
         assert.equal(payload.revision,settings.revision);assert.equal(payload.restrictions.system,false);saved++;settings.revision++;settings.restrictions=payload.restrictions;
+        assert.ok(['allow','deny'].includes(payload.execution_guard));settings.execution_guard=payload.execution_guard;
       }else if(payload)throw new Error('Unexpected action '+payload.action);
       return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{...state,tool_preferences:settings}})});
     };
@@ -1108,8 +1109,18 @@ if (!SERVE_MODE) test('general runtime shows exact approval, live output, Stop a
       await page.reload();await page.getByText('Temporary command output expired after one day. The execution result remains recorded.',{exact:true}).waitFor();
       assert.equal(await page.getByText('View command output',{exact:true}).count(),0,'expired temporary output does not reappear on reload');
       await page.getByText('Computer tool permissions',{exact:true}).click();await page.getByLabel('Windows SYSTEM tools',{exact:true}).uncheck();
+      const guard=()=>page.getByLabel('New work when an earlier result is unknown',{exact:true});
+      assert.equal(await guard().inputValue(),'allow','unset preference renders Allow');
+      await guard().selectOption('deny');
       await page.getByRole('button',{name:'Save permissions',exact:true}).click();await page.getByText('Your computer tool permissions are saved.',{exact:true}).waitFor();assert.equal(saved,1);
       await page.getByText('Computer tool permissions',{exact:true}).click();assert.equal(await page.getByLabel('Windows SYSTEM tools',{exact:true}).isChecked(),false);
+      assert.equal(await guard().inputValue(),'deny','saved Deny is restored after save');
+      await page.reload();await page.getByText('Computer tool permissions',{exact:true}).click();
+      assert.equal(await guard().inputValue(),'deny','saved Deny survives page/companion reload');
+      if(process.env.WESTY_QA_OUTPUT){await mkdir(process.env.WESTY_QA_OUTPUT,{recursive:true});await page.screenshot({path:path.join(process.env.WESTY_QA_OUTPUT,`execution-guard-${viewport.width}.png`),fullPage:true});}
+      await guard().selectOption('allow');await page.getByRole('button',{name:'Save permissions',exact:true}).click();
+      await page.getByText('Your computer tool permissions are saved.',{exact:true}).waitFor();assert.equal(saved,2);
+      await page.reload();await page.getByText('Computer tool permissions',{exact:true}).click();assert.equal(await guard().inputValue(),'allow');
       assert.deepEqual(consoleProblems,[]);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
       await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));assert.equal(await page.getByText('Computer tool permissions',{exact:true}).count(),0);
     }finally{await context.close();}

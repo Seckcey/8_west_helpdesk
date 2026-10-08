@@ -86,6 +86,7 @@ function portal_westy_run_wait(PDO $pdo,array $context,string $operation,array $
 function portal_westy_run_result(array $context,array $run,?callable $transport=null):array
 {
     $pending=json_decode($run['pending_json'],true,32,JSON_THROW_ON_ERROR);
+    if(($pending['kind']??null)==='continuation')return ['ready'=>true,'receipt'=>['state'=>'ready','execution_requested'=>false]];
     if(isset($pending['terminal'])){
         $receipt=$pending['terminal'];
         // Only a saved queue refusal proves no execution. Never promote a result
