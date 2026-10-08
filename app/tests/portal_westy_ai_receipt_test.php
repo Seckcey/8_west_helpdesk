@@ -32,14 +32,19 @@ check($row('turns')['state']==='unavailable'&&$row('turns')['reason_code']==='st
 check($row('turns')['charged_microusd']===30&&$row('budgets')['charged_microusd']===30&&$row('ai_attempts')['state']==='unavailable','known stopped receipt remains fully reconciled');
 $reset();$finish(false);
 check($row('turns')['state']==='unavailable'&&!str_contains($row('turns')['reply_json'],'NEW_PRIVATE_RESULT')&&$row('ai_attempts')['charged_microusd']===30,'revoked actor loses delivery but retains paid receipt');
+check($row('turns')['reason_code']==='access_changed','lost authority does not invent another conversation or tab');
 $reset();$finish(true,['ok'=>false,'data'=>[],'usage'=>null,'cost_micro_usd'=>null]);
 check($row('turns')['charged_microusd']===100&&$row('budgets')['charged_microusd']===100&&!json_decode($row('ai_attempts')['usage_json'],true)['known'],'unknown provider result keeps whole reservation');
 $reset('pending',2);$finish();
 check($row('turns')['charged_microusd']===70&&$row('budgets')['charged_microusd']===70&&$row('turns')['input_tokens']===36&&$row('turns')['output_tokens']===6,'continuation accumulates prior charge and tokens');
 $reset();$pdo->exec('UPDATE portal_westy_turns SET input_text=NULL,reply_json=NULL');$finish();
 check($row('turns')['reply_json']===null&&$row('turns')['state']==='unavailable','content erasure cannot be reversed by late completion');
+check($row('turns')['reason_code']==='content_unavailable','erasure has its own truthful reason');
 $reset();$pdo->exec("UPDATE portal_westy_accounts SET conversation_key='changed'");$finish();
 check($row('turns')['state']==='unavailable'&&!str_contains($row('turns')['reply_json'],'NEW_PRIVATE_RESULT'),'new conversation prevents late delivery');
+check($row('turns')['reason_code']==='conversation_changed','actual changed conversation remains distinguishable');
+$reset();$pdo->exec("UPDATE portal_westy_turns SET expires_at='2000-01-01 00:00:00'");$finish();
+check($row('turns')['reason_code']==='conversation_expired'&&!str_contains($row('turns')['reply_json'],'NEW_PRIVATE_RESULT'),'expired conversation never receives late text');
 $reset();$badScope=array_replace($scope,['client'=>12]);
 try{portal_westy_ai_finish($pdo,$badScope,1,1,$conversation,$month,$result,true);check(false,'wrong scope');}catch(LogicException){check($row('ai_attempts')['state']==='pending'&&$row('budgets')['charged_microusd']===100,'wrong scope cannot mutate receipt');}
 $clock=1791130000;$operation=static fn(int $stamp,string $version='f1'):string=>$version.sprintf('%08x',$stamp).str_repeat('a',22);

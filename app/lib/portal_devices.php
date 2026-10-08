@@ -199,7 +199,7 @@ function portal_devices_error(string $reason): string
         'identity_unavailable', 'sign_in' => 'Your access needs to be checked again. Sign in again or try shortly.',
         'customer_unavailable' => 'Device access is not connected to this business yet. Contact support to complete the connection.',
         'device_offline' => 'This computer needs a recent check-in. Keep it on and connected, then try again.',
-        'support_busy' => 'A technician is handling this computer. Health checks and recorded facts remain available. Once the technician finishes and resolves the case, review and approve the proposed repair again.',
+        'support_busy' => 'A support workflow blocks this repair. Its ownership or outstanding work needs review; this does not mean a technician is currently using the computer. Health checks and recorded facts remain available.',
         'support_status_unavailable' => 'Current support ownership could not be verified. The repair was not sent. Health checks and recorded facts remain available; try the approval again shortly.',
         'policy_restricted' => 'Your workspace administrator has disabled this action in Westy settings.',
         'execution_unresolved' => 'A previous command on this computer needs a confirmed result. Recorded hardware facts remain available with their capture time.',

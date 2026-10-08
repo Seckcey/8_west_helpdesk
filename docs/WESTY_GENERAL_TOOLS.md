@@ -1,5 +1,14 @@
 # General computer troubleshooting
 
+The proposed October 7 [acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
+requires the full requested runtime to fit the currently authorized connection,
+after independent review and again immediately before payload release. A
+`connection_expiring` refusal sends no command; reconnecting does not replay it.
+Output reads for the same process render one current output/Stop card while
+retaining stored tool history. A fixed Windows system-temp preview cannot
+substitute for a user-temp request; general user-context tools remain available
+under the existing independent review and exact dangerous-action approval.
+
 ## General runtime v2
 
 With both protected v2 migrations and the compatible signed endpoint installed,

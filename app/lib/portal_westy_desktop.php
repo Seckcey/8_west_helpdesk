@@ -30,7 +30,7 @@ function portal_desktop_transport(string $body,array $headers):array
 }
 function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array
 {
-    if(!in_array($action,['stop','state','result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','control_result','control_cancel'],true)&&!desktop_cleanup_available())
+    if(!in_array($action,['stop','state','renew','result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','control_result','control_cancel'],true)&&!desktop_cleanup_available())
         throw new PortalDesktopException('cleanup_unavailable',503);
     $config=cfg('desktop_companion',[]);
     if(!is_array($config)||($config['endpoint']??null)!==PORTAL_DESKTOP_ENDPOINT

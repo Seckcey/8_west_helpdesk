@@ -151,6 +151,7 @@ function portal_westy_require_conversation(?array $account,mixed $expected): voi
 /** Reserves once before network I/O. Pending/ambiguous attempts are never retried. */
 function portal_westy_message(PDO $pdo,array $context,array $request,?callable $provider=null,?callable $reauthorize=null,?callable $emit=null,?callable $transport=null,?callable $aiResolver=null): void
 {
+    if(!array_key_exists('desktop_renewal_proof',$context))$context=portal_desktop_capture_context($context);
     $c=portal_westy_config(); $s=portal_westy_scope($pdo,$context);
     if (!$c['enabled'] || !$c['ai_enabled']) throw new PortalWestyException('ai_unavailable',503);
     $aiSnapshot=portal_westy_ai_snapshot($pdo,$context,null,'status',$aiResolver);
@@ -318,7 +319,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         if(!$force && microtime(true)-$lastCheck<1)return;
         $lastCheck=microtime(true);
         if(!portal_westy_config()['enabled']||!portal_westy_config()['ai_enabled'])throw new PortalWestyException('ai_unavailable');
-        if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||$fresh['identity']!==$context['identity']||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
+        if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||!portal_desktop_same_context($context,$fresh)||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
         $requireAi();
         $q=$pdo->prepare('SELECT state FROM portal_westy_turns WHERE id=? AND scope_key=?');$q->execute([$turnId,$s['key']]);
         if($q->fetchColumn()!=='pending')throw new PortalWestyException('stopped');
@@ -344,7 +345,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         $authorized=false;
         if ($reauthorize) {
             $fresh=$reauthorize();
-            if(!is_array($fresh) || $fresh['identity']!==$context['identity'])return false;
+            if(!is_array($fresh) || !portal_desktop_same_context($context,$fresh))return false;
         }
         if(!portal_westy_config()['enabled'] || !portal_westy_config()['ai_enabled']
             || portal_westy_scope($pdo,$context,true)['key']!==$s['key'])return false;

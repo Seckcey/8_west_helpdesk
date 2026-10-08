@@ -26,6 +26,7 @@ try{
     $receiptKey=$method==='GET'?($_GET['receipt']??null):null;
     $context=portal_authenticated_context(db());
     if($context===null)json_out(['ok'=>false,'reason'=>'sign_in'],401);
+    $context=portal_desktop_capture_context($context);
     if($method==='POST'){
         if(strtolower(trim(explode(';',$_SERVER['CONTENT_TYPE'] ?? '')[0]))!=='application/json')json_out(['ok'=>false,'reason'=>'invalid_request'],415);
         if(!portal_csrf_valid($_SERVER['HTTP_X_PORTAL_CSRF'] ?? null))json_out(['ok'=>false,'reason'=>'sign_in'],403);
@@ -52,9 +53,9 @@ try{
             $streamEmit=static function(string $event,array $data)use($emit,&$conversation):void{if($event==='accepted')$conversation=$data['conversation'];$emit($event,$data);};
             portal_westy_message(db(),$context,$request,null,$reauthorize,$streamEmit);
             $fresh=$reauthorize();
-            if($fresh===null||$fresh['identity']!==$context['identity'])$fail('sign_in',401);
+            if($fresh===null||!portal_desktop_same_context($context,$fresh))$fail('sign_in',401);
             $state=portal_westy_state(db(),$fresh,$conversation);
-            $check=$reauthorize();if($check===null||$check['identity']!==$context['identity'])$fail('sign_in',401);
+            $check=$reauthorize();if($check===null||!portal_desktop_same_context($context,$check))$fail('sign_in',401);
             $emit('done',['state'=>$state]);exit;
         }
         switch($request['action'] ?? ''){
@@ -95,7 +96,7 @@ try{
         try{$state['tool_preferences']=portal_desktop_request($fresh,'terminal_preferences',[]);}catch(PortalDesktopException){}
     if($receiptKey!==null)$state['receipt']=portal_westy_receipt(db(),$fresh,$receiptKey);
     $check=portal_authenticated_context(db());
-    if($check===null||$check['identity']!==$context['identity'])$fail('sign_in',401);
+    if($check===null||!portal_desktop_same_context($context,$check))$fail('sign_in',401);
     session_write_close();
     json_out(['ok'=>true,'state'=>$state]);
 }catch(PortalWestyException|PortalDevicesException|PortalDesktopException $error){$fail($error->reason,$error->status);}

@@ -13,7 +13,7 @@ function portal_westy_tool_definitions(): array
         ['list_computers','List this customer’s computers, connection status, recorded hardware facts and available fresh terminal_capabilities. TTY support is separate for user and SYSTEM context; absent, false or expired support cannot authorize TTY. Ordinary non-TTY commands remain available. Use returned RAM capacity to answer hardware questions without starting work.',[]],
         ['read_computer_status','Read recorded checks and separate health-check and repair eligibility. A repair hold need not block diagnostics. Never starts or retries work.',['device_reference'=>$device]],
         ['start_health_check','Run a read-only Windows memory, disk-space and print-service check for the requested computer.',['device_reference'=>$device]],
-        ['prepare_temp_cleanup','Preview only bounded Windows system temporary files and prepare a separate human approval. Does not delete anything.',['device_reference'=>$device]],
+        ['prepare_temp_cleanup','Only for an explicit request for the Windows SYSTEM temporary folder (C:\\Windows\\Temp). Never use for user/profile temp or an unspecified location. Preview bounded files and prepare separate human approval; never deletes. For user temp use general tools in user context.',['device_reference'=>$device]],
         ['propose_print_repair','Prepare an exact print-service restart approval from a fresh stopped-service diagnosis. Does not restart anything.',['device_reference'=>$device,'health_reference'=>['type'=>'string','description'=>'Completed health operation reference showing the service stopped.']]],
     ];
     return array_map(static fn(array $d):array=>['type'=>'function','name'=>$d[0],'description'=>$d[1],'strict'=>true,
@@ -33,6 +33,11 @@ function portal_westy_tool_call(PDO $pdo,array $context,array $call,string $turn
     foreach($args as $key=>$value) {
         $pattern=$key==='device_reference'?'/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D':'/^[a-f0-9]{32}$/D';
         if(!is_string($value)||preg_match($pattern,$value)!==1)throw new PortalWestyException('tool_invalid');
+    }
+    if($name==='prepare_temp_cleanup'&&!portal_westy_windows_temp_requested($context['authorized_task']??'')){
+        $entry=['key'=>$call['call_id'],'name'=>$name,'state'=>'unavailable','reason'=>'temp_scope_mismatch'];$save();
+        return ['available'=>false,'executed'=>false,'reason'=>'temp_scope_mismatch','correction_allowed'=>true,
+            'guidance'=>'This recipe only covers explicitly requested Windows system temp. For user temp, inspect the actual signed-in user temporary path with exec_command in user context, then review the exact proposed cleanup. If the location is unclear, ask. No preview or cleanup was dispatched.'];
     }
     $action=match($name){'list_computers'=>'devices','read_computer_status'=>'operations','start_health_check'=>'health_start',
         'prepare_temp_cleanup'=>'temp_start','propose_print_repair'=>'repair_propose'};
@@ -54,6 +59,14 @@ function portal_westy_tool_call(PDO $pdo,array $context,array $call,string $turn
         $entry['state']=$e->reason==='service_unavailable'?'unknown':'unavailable';$entry['reason']=$e->reason;$save();
         return ['available'=>false,'reason'=>$e->reason,'outcome'=>$entry['state'],'retry_allowed'=>false];
     }
+}
+
+/** A fixed machine recipe must never silently widen or substitute the user's location. */
+function portal_westy_windows_temp_requested(mixed $task):bool
+{
+    if(!is_string($task))return false;
+    if(preg_match('/(?:\b(?:my|user|profile|personal)\s+(?:temporary|temp)\b|%temp%|\$env:temp\b|\bappdata\b)/i',$task))return false;
+    return preg_match('/(?:\bwindows\s+(?:system\s+)?(?:temporary|temp)\b|\bsystem\s+(?:temporary|temp)\b|[a-z]:[\\\\\/]windows[\\\\\/]temp\b)/i',$task)===1;
 }
 
 function portal_westy_tool_model_result(array $result): array
@@ -114,6 +127,6 @@ function portal_westy_operation_action(PDO $pdo,array $context,array $request,?c
             || !hash_equals((string)$matched['approval_fingerprint'],$request['approval_fingerprint']))throw new PortalWestyException('approval_changed');
         $input['approval_fingerprint']=$request['approval_fingerprint'];
     }
-    if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||$fresh['identity']!==$context['identity']||portal_westy_scope($pdo,$fresh)['key']!==$scope['key'])throw new PortalWestyException('sign_in',401);}
+    if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||!portal_desktop_same_context($context,$fresh)||portal_westy_scope($pdo,$fresh)['key']!==$scope['key'])throw new PortalWestyException('sign_in',401);}
     portal_devices_request($pdo,$context,$action,$input,$transport);
 }

@@ -7,6 +7,7 @@ header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
 try{
     if(!portal_enabled())throw new PortalDesktopException('not_found',404);
     $context=portal_authenticated_context(db());if($context===null)throw new PortalDesktopException('sign_in',401);
+    $context=portal_desktop_capture_context($context);
     if(($_SERVER['REQUEST_METHOD']??'')!=='POST')throw new PortalDesktopException('method',405);
     if(!portal_csrf_valid($_SERVER['HTTP_X_PORTAL_CSRF']??null))throw new PortalDesktopException('sign_in',403);
     $raw=file_get_contents('php://input',false,null,0,8193);
@@ -15,6 +16,10 @@ try{
     if(!is_array($input)||!is_string($input['action']??null))throw new PortalDesktopException('invalid_request',400);
     $action=$input['action'];unset($input['action']);
     if($action==='start')$result=portal_desktop_start(db(),$context,$input);
+    elseif($action==='renew'){
+        if($input!==[])throw new PortalDesktopException('invalid_request',400);
+        $result=portal_desktop_renew(db(),$context);
+    }
     elseif($action==='list'){
         if($input!==[])throw new PortalDesktopException('invalid_request',400);
         $result=portal_desktop_list(db(),$context);
@@ -24,7 +29,7 @@ try{
         portal_desktop_binding(db(),$context,$input['session_id']);$result=portal_desktop_request($context,$action,$input);
     }else{throw new PortalDesktopException('invalid_request',400);}
     $fresh=portal_authenticated_context(db());
-    if($fresh===null||$fresh['identity']!==$context['identity'])throw new PortalDesktopException('sign_in',401);
+    if($fresh===null||!portal_desktop_same_context($context,$fresh))throw new PortalDesktopException('sign_in',401);
     json_out(['ok'=>true,'result'=>$result]);
 }catch(PortalDesktopException $error){json_out(['ok'=>false,'reason'=>$error->reason],$error->status);}
 catch(Throwable){json_out(['ok'=>false,'reason'=>'desktop_unavailable'],503);}

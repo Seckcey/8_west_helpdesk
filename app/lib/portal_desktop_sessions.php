@@ -14,6 +14,67 @@ function portal_desktop_prune(PDO $pdo):array
 
 function portal_desktop_origin():string
 {return portal_desktop_id($_SESSION['desktop_companion_session']??null)?'companion':'portal';}
+
+/** Server-only provenance from an explicitly approved, consumed handoff. The
+ * companion marker alone can also be set by an ordinary browser and proves nothing. */
+function portal_desktop_renewal_proof(array $identity):?array
+{
+    $proof=$_SESSION['desktop_renewal']??null;
+    if(!is_array($proof)||($proof['version']??null)!==1||!is_array($proof['identity']??null)
+        ||!is_string($proof['session_hash']??null)||!hash_equals(hash('sha256',session_id()),$proof['session_hash'])
+        ||!portal_desktop_id($proof['pairing_id']??null)||($proof['pairing_id']!==($_SESSION['desktop_companion_session']??null)))return null;
+    $original=$proof['identity'];$issued=$original['issued_at']??null;$expires=$original['expires_at']??null;
+    if(!is_int($issued)||!is_int($expires)||$issued<=0||$issued>time()||$expires<=time()||$expires-$issued>PORTAL_SESSION_MAX_SECONDS
+        ||!is_int($identity['expires_at']??null)||$identity['expires_at']<=$issued||$identity['expires_at']>$expires
+        ||array_replace($identity,['expires_at'=>$expires])!==$original)return null;
+    return $proof;
+}
+
+/** In-flight work may observe a renewed lease, but every identity field other
+ * than that lease must still match the same original approved server identity. */
+function portal_desktop_capture_context(array $context):array
+{
+    $context['desktop_renewal_proof']=portal_desktop_renewal_proof($context['identity']);return $context;
+}
+function portal_desktop_same_context(array $before,array $after):bool
+{
+    $proof=$before['desktop_renewal_proof']??null;
+    if(!is_array($proof))return $before['identity']===$after['identity'];
+    return is_array($proof)&&portal_desktop_renewal_proof($after['identity'])===$proof
+        &&portal_desktop_renewal_proof($before['identity'])===$proof
+        &&$after['identity']['expires_at']>time()&&$after['identity']['expires_at']>=$before['identity']['expires_at'];
+}
+
+function portal_desktop_renew(PDO $pdo,array $context,?callable $transport=null):array
+{
+    $identity=$context['identity'];$proof=portal_desktop_renewal_proof($identity);
+    if($proof===null||$identity['expires_at']<=time())throw new PortalDesktopException('renewal_unavailable',403);
+    $fresh=portal_authenticated_context($pdo);
+    if($fresh===null||!portal_desktop_same_context($context,$fresh))throw new PortalDesktopException('sign_in',401);
+    $binding=portal_desktop_binding($pdo,$context,$proof['pairing_id']);
+    $original=$proof['identity'];
+    $authorityKey=hash('sha256',json_encode($proof,JSON_THROW_ON_ERROR));
+    if(($_SESSION['desktop_renewal_registered']??null)===$authorityKey
+        &&($identity['expires_at']>time()+600||$identity['expires_at']===$original['expires_at']))
+        return ['renewed'=>false,'expires_at'=>$identity['expires_at']];
+    $state=portal_desktop_request($context,'renew',['session_id'=>$proof['pairing_id'],'issued_at'=>$original['issued_at'],
+        'authority_expires_at'=>$original['expires_at'],'authority_key'=>$authorityKey],$transport);
+    if(!portal_devices_keys($state,['version','session_id','expires_at','authority_expires_at','server_unix'])
+        ||$state['version']!==1||$state['session_id']!==$proof['pairing_id']||$state['authority_expires_at']!==$original['expires_at']
+        ||!is_int($state['server_unix'])||abs(time()-$state['server_unix'])>30||!is_int($state['expires_at'])
+        ||$state['expires_at']<=time()||$state['expires_at']>$state['server_unix']+1800||$state['expires_at']>$original['expires_at'])
+        throw new PortalDesktopException('invalid_response');
+    // A slow reply cannot revive an expired PHP identity or a changed pairing.
+    $fresh=portal_authenticated_context($pdo);
+    if($identity['expires_at']<=time()||($_SESSION[PORTAL_SESSION_KEY]??null)!==$identity
+        ||portal_desktop_renewal_proof($identity)!==$proof||$fresh===null||!portal_desktop_same_context($context,$fresh))throw new PortalDesktopException('sign_in',401);
+    $q=$pdo->prepare('UPDATE portal_desktop_bindings SET expires_at=? WHERE session_id=? AND scope_key=? AND expires_at>UTC_TIMESTAMP()');
+    $q->execute([gmdate('Y-m-d H:i:s',$state['expires_at']),$binding['session_id'],$binding['scope_key']]);
+    if($q->rowCount()!==1&&strtotime(portal_desktop_binding($pdo,$context,$proof['pairing_id'])['expires_at'].' UTC')!==$state['expires_at'])throw new PortalDesktopException('desktop_unavailable');
+    $_SESSION[PORTAL_SESSION_KEY]['expires_at']=$state['expires_at'];
+    $_SESSION['desktop_renewal_registered']=$authorityKey;
+    return ['renewed'=>true,'expires_at'=>$state['expires_at']];
+}
 function portal_desktop_context(PDO $pdo,array $context,string $conversation,?string $operation=null):array
 {
     unset($context['desktop']);
@@ -48,7 +109,7 @@ function portal_desktop_list(PDO $pdo,array $context):array
     foreach($q->fetchAll(PDO::FETCH_COLUMN) as $id){
         try{$items[]=portal_desktop_request($context,'state',['session_id'=>$id]);}catch(PortalDesktopException){}
     }
-    return ['items'=>$items];
+    return ['items'=>$items,'renewal_available'=>portal_desktop_renewal_proof($context['identity'])!==null];
 }
 function portal_desktop_binding(PDO $pdo,array $context,string $id):array
 {
@@ -100,9 +161,13 @@ function portal_desktop_handoff_approve(PDO $pdo,array $context,string $id):void
     $q=$pdo->prepare("SELECT * FROM portal_desktop_handoffs WHERE handoff_id=? AND state='pending' AND expires_at>UTC_TIMESTAMP()");$q->execute([$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
     if(!$row)throw new PortalDesktopException('pairing_used');
     portal_desktop_bind($pdo,$context,$row['pairing_id']);
-    $identity=$context['identity'];$identity['expires_at']=min($identity['expires_at'],time()+1800);
     $pdo->prepare("UPDATE portal_desktop_handoffs SET state='approved',identity_json=? WHERE handoff_id=? AND state='pending' AND expires_at>UTC_TIMESTAMP()")
-        ->execute([json_encode($identity,JSON_THROW_ON_ERROR),$id]);
+        ->execute([json_encode(portal_desktop_handoff_envelope($context['identity'],time()),JSON_THROW_ON_ERROR),$id]);
+}
+function portal_desktop_handoff_envelope(array $original,int $now):array
+{
+    $identity=$original;$identity['expires_at']=min($identity['expires_at'],$now+1800);
+    return ['version'=>1,'identity'=>$identity,'authority'=>$original];
 }
 function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCheck=null,?callable $accessTransport=null):bool
 {
@@ -114,14 +179,21 @@ function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCh
         if(!$row)throw new PortalDesktopException('pairing_used');
         if($row['state']==='pending'){$pdo->commit();return false;}
         if($row['state']!=='approved')throw new PortalDesktopException('pairing_used');
-        $identity=json_decode($row['identity_json'],true,16,JSON_THROW_ON_ERROR);
+        $envelope=json_decode($row['identity_json'],true,16,JSON_THROW_ON_ERROR);
+        $renewable=($envelope['version']??null)===1&&is_array($envelope['identity']??null)&&is_array($envelope['authority']??null);
+        $identity=$renewable?$envelope['identity']:$envelope;
         // Mint a new server session from the explicitly approved server identity.
         // No browser cookie, OIDC token or secret is copied into the native process.
         if(!session_regenerate_id(true))throw new PortalDesktopException('sign_in');
         $_SESSION[PORTAL_SESSION_KEY]=$identity;$_SESSION[PORTAL_CSRF_KEY]=bin2hex(random_bytes(32));
         $_SESSION['desktop_companion_session']=$row['pairing_id'];
+        unset($_SESSION['desktop_renewal'],$_SESSION['desktop_renewal_registered']);
+        if($renewable){
+            $_SESSION['desktop_renewal']=['version'=>1,'pairing_id'=>$row['pairing_id'],'session_hash'=>hash('sha256',session_id()),'identity'=>$envelope['authority']];
+            if(portal_desktop_renewal_proof($identity)===null)throw new PortalDesktopException('sign_in',401);
+        }
         if(portal_authenticated_context($pdo,$revocationCheck,null,$accessTransport)===null)throw new PortalDesktopException('sign_in',401);
         $pdo->prepare("UPDATE portal_desktop_handoffs SET state='consumed',identity_json=NULL WHERE handoff_id=?")->execute([$id]);
         $pdo->commit();return true;
-    }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();unset($_SESSION[PORTAL_SESSION_KEY],$_SESSION['desktop_companion_session']);throw $error;}
+    }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();unset($_SESSION[PORTAL_SESSION_KEY],$_SESSION['desktop_companion_session'],$_SESSION['desktop_renewal'],$_SESSION['desktop_renewal_registered']);throw $error;}
 }

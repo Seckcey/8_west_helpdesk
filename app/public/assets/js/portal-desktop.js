@@ -9,6 +9,7 @@
   const available = document.getElementById('portal-desktop-available');
   let conversation = null, operation = null, task = null, loading = false, starting = false, taskOperation = null, resumedTask = null;
   let seenCompanion = false, nextListAt = 0, revision = 0, stopping = false, selectedSession = null;
+  let renewalAvailable = false, renewing = false, nextRenewalAt = 0;
   const taskActive = () => ['active', 'consent_pending'].includes(task?.state);
   const updateStart = () => {
     root.setAttribute('aria-busy', String(loading || starting || stopping));
@@ -83,6 +84,8 @@
         if (currentRevision !== revision) return;
         if (!Array.isArray(state?.items)) throw new Error('desktop_unavailable');
         setAvailability(state.items);
+        renewalAvailable = state.renewal_available === true;
+        void renew();
       }
     } catch {
       if (currentRevision !== revision) return;
@@ -91,6 +94,14 @@
         : 'Computer control is unavailable. You can continue chatting or contact support.';
       nextListAt = Date.now() + 5000;
     } finally { loading = false; updateStart(); }
+  }
+  async function renew() {
+    if (!renewalAvailable || renewing || Date.now() < nextRenewalAt) return;
+    renewing = true; nextRenewalAt = Date.now() + 30000;
+    try { await request('renew'); }
+    catch (error) {
+      if (['renewal_unavailable', 'sign_in', 'session_expired'].includes(error.message)) renewalAvailable = false;
+    } finally { renewing = false; }
   }
   root.addEventListener('toggle', () => { if (root.open) { nextListAt = 0; void refresh(); } });
   start.addEventListener('click', async () => {
@@ -112,8 +123,9 @@
     finally { stopping = false; stop.disabled = false; nextListAt = 0; updateStart(); if (!taskActive()) void refresh(); }
   });
   const timer = setInterval(refresh, 1500);
+  const renewalTimer = setInterval(renew, 5000);
   document.addEventListener('visibilitychange', () => { nextListAt = 0; void refresh(); });
   window.addEventListener('focus', () => { nextListAt = 0; void refresh(); });
   void refresh();
-  window.addEventListener('pagehide', () => clearInterval(timer), {once: true});
+  window.addEventListener('pagehide', () => { clearInterval(timer); clearInterval(renewalTimer); }, {once: true});
 })();

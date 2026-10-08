@@ -1,5 +1,13 @@
 # Westy desktop integration candidate
 
+**October 7 correction:** the previous paired backend release installed this
+integration at `8a4d78a3ade58ce308862a7666421e8c7a57a568`. The owner installed
+private Full 1.26.7 and reported connection, control and presentation failures.
+The proposed renewal and receipt correction is documented in
+[the acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md). It is not deployed
+or accepted on the laptop yet. The October 4 candidate status below records the
+earlier source checkpoint; it is not current production status.
+
 The combined source has passed its portal, device, desktop and AI checks. It is
 not deployed or accepted on a Windows endpoint. It includes the Milepost desktop
 service, ordinary-user companion, portal shell integration and selected-provider
@@ -75,8 +83,11 @@ does not supply the required readiness receipt. Both apps read the same fixed
 have two consecutive successful completions, with receipts no older than 90
 seconds from this boot. Missing, stale, malformed, incomplete, failed or
 full-batch cleanup returns `cleanup_unavailable` before new desktop requests can
-reach the transport. Stop/state/result retain normal authorization and transport
-checks but bypass this health gate. Ordinary chat, human takeover/write holds,
+reach the transport. Stop/state/result and the proposed connection-only renewal
+retain normal authorization and transport checks but bypass this health gate.
+Renewal requires the original approved handoff provenance and fresh native
+presence; it grants no new task or repair authority. Ordinary chat, human
+takeover/write holds,
 session lifetimes and tenant boundaries are unchanged. Recovery requires real
 successful cleanup; there is no manual health override or new external alerting.
 The wrapper/units and matching application readers require the separately
