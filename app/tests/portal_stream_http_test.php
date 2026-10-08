@@ -17,7 +17,12 @@ file_put_contents($runtime.'/config/config.php','<?php return '.var_export($conf
 $cache=new EightWest\Id\FileRevocationCache($runtime.'/cache');
 $refreshFeed=static function(bool $allow=true)use($cache,$a,$apache,$runtime):void{$cache->save("https://id.example.test/oauth/revocations.php\0fixture",['fetched_at'=>time(),'generated_at'=>time(),'count'=>0,'authorization_count'=>$allow?1:0,'revoked'=>[],'authorizations'=>$allow?[$a['identity']['subject']=>'1.1']:[]]);if($apache)foreach(glob($runtime.'/cache/*') as $file)chown($file,'www-data');};
 $refreshFeed();$session=bin2hex(random_bytes(16));$csrf=str_repeat('c',64);
-$seedSession=static function()use($runtime,$session,$csrf,$a,$apache):void{$file=$runtime.'/sessions/sess_'.$session;file_put_contents($file,'_safeharbor_portal_identity|'.serialize($a['identity']).'_safeharbor_portal_csrf|'.serialize($csrf));if($apache)chown($file,'www-data');};
+$seedSession=static function(?array $identity=null,?array $proof=null,?string $pair=null)use($runtime,$session,$csrf,$a,$apache):void{
+    $file=$runtime.'/sessions/sess_'.$session;$data='_safeharbor_portal_identity|'.serialize($identity??$a['identity']).'_safeharbor_portal_csrf|'.serialize($csrf);
+    if($proof!==null)$data.='desktop_renewal|'.serialize($proof);
+    if($pair!==null)$data.='desktop_companion_session|'.serialize($pair);
+    file_put_contents($file,$data);if($apache)chown($file,'www-data');
+};
 $seedSession();
 $authority=<<<'PHP'
 <?php
@@ -60,19 +65,31 @@ try{
     };
     check($json()[0]===200,'real HTTP authenticates synthetic cookie through actual revocation and binding middleware');
     check($json(['action'=>'message','operation'=>str_repeat('e',32),'message'=>'Never stored.','conversation'=>null],'wrong')[0]===403,'real streaming route requires CSRF before reserving a turn');
-    foreach(['complete','stop','logout','revoke'] as $scenario){
-        $seedSession();$refreshFeed();$state=$json()[1]['state'];$operation='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$bytes='';$firstAt=null;$doneAt=null;$intervened=false;$startAt=microtime(true);$headers=[];
+    foreach(['complete','renewed','lease_gap','proof_removed','proof_changed','pair_changed','shortened_lease','identity_changed','unapproved_renewal','stop','logout','revoke'] as $scenario){
+        $initialIdentity=$a['identity'];$proof=null;$pair=null;
+        if(in_array($scenario,['renewed','lease_gap','proof_removed','proof_changed','pair_changed','shortened_lease','identity_changed'],true)){
+            $pair=str_repeat('a',32);$proof=['version'=>1,'pairing_id'=>$pair,'session_hash'=>hash('sha256',$session),'identity'=>$a['identity']];
+            $initialIdentity['expires_at']=time()+(in_array($scenario,['renewed','lease_gap'],true)?2:600);
+        }
+        $seedSession($initialIdentity,$proof,$pair);$refreshFeed();$state=$json()[1]['state'];$operation='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$bytes='';$firstAt=null;$doneAt=null;$intervened=false;$startAt=microtime(true);$headers=[];
         $curl=curl_init('http://'.$address.'/portal/westy.php');
         curl_setopt_array($curl,[CURLOPT_POST=>true,CURLOPT_TIMEOUT=>8,CURLOPT_HTTPHEADER=>['Cookie: safeharbor_portal='.$session,'Content-Type: application/json','Accept: text/event-stream','X-Portal-CSRF: '.$csrf],
             CURLOPT_POSTFIELDS=>json_encode(['action'=>'message','operation'=>$operation,'message'=>'Synthetic stream test.','conversation'=>$state['conversation']]),
             CURLOPT_HEADERFUNCTION=>static function($c,$line)use(&$headers){$headers[]=$line;return strlen($line);},
-            CURLOPT_WRITEFUNCTION=>static function($c,$chunk)use(&$bytes,&$firstAt,&$doneAt,&$intervened,$scenario,$json,$operation,$runtime,$session,$refreshFeed):int{
+            CURLOPT_WRITEFUNCTION=>static function($c,$chunk)use(&$bytes,&$firstAt,&$doneAt,&$intervened,$scenario,$json,$operation,$runtime,$session,$refreshFeed,$seedSession,$initialIdentity,$proof,$pair):int{
                 $bytes.=$chunk;if(str_contains($bytes,'First visible chunk.')&&$firstAt===null)$firstAt=microtime(true);
                 if(str_contains($bytes,'event: done'))$doneAt=microtime(true);
                 if($firstAt!==null&&!$intervened){$intervened=true;$at=microtime(true);
                     if($scenario==='stop'){check($json(['action'=>'stop','operation'=>$operation])[0]===200,'separate stop request runs during streaming without a session lock');check(microtime(true)-$at<1.5,'stop response precedes provider completion');}
                     elseif($scenario==='logout')unlink($runtime.'/sessions/sess_'.$session);
                     elseif($scenario==='revoke')$refreshFeed(false);
+                    elseif($scenario==='renewed')$seedSession(array_replace($initialIdentity,['expires_at'=>time()+1200]),$proof,$pair);
+                    elseif($scenario==='proof_removed')$seedSession($initialIdentity,null,$pair);
+                    elseif($scenario==='proof_changed'){$proof['identity']['expires_at']++;$seedSession($initialIdentity,$proof,$pair);}
+                    elseif($scenario==='pair_changed')$seedSession($initialIdentity,$proof,str_repeat('b',32));
+                    elseif($scenario==='shortened_lease')$seedSession(array_replace($initialIdentity,['expires_at'=>time()+300]),$proof,$pair);
+                    elseif($scenario==='identity_changed')$seedSession(array_replace($initialIdentity,['display_name'=>'Changed during stream']),$proof,$pair);
+                    elseif($scenario==='unapproved_renewal')$seedSession(array_replace($initialIdentity,['expires_at'=>$initialIdentity['expires_at']+1]));
                 }
                 return strlen($chunk);
             }]);
@@ -80,12 +97,16 @@ try{
         if($ok===false||$http!==200||$firstAt===null||str_contains($bytes,'Warning:')||str_contains($bytes,'Fatal error')||!str_contains(implode('',$headers),'text/event-stream'))fwrite(STDERR,'Synthetic HTTP diagnostic: '.json_encode(['php'=>PHP_VERSION,'http'=>$http,'headers'=>$headers,'body'=>substr(trim($bytes),0,12000),'log'=>substr(file_get_contents($runtime.'/http.log'),-8000)])."\n");
         check($ok!==false&&$http===200&&$firstAt!==null,'actual HTTP produces a visible delta for '.$scenario);
         check(str_contains(implode('',$headers),'text/event-stream')&&!str_contains($bytes,'Warning:')&&!str_contains($bytes,'Fatal error'),'SSE headers and post-header session reads remain clean for '.$scenario);
-        if($scenario==='complete')check($doneAt!==null&&$doneAt-$firstAt>1.5&&str_contains($bytes,'Final chunk.'),'first chunk arrives before generation completes, not buffered full-response playback');
+        if(in_array($scenario,['complete','renewed'],true)){
+            check($doneAt!==null&&$doneAt-$firstAt>1.5&&str_contains($bytes,'Final chunk.'),'first chunk arrives before generation completes with valid authority for '.$scenario);
+            if($scenario==='renewed')check(time()>=$initialIdentity['expires_at'],'actual stream crosses its originally captured short lease only after proven renewal');
+        }
         else{
             preg_match_all('/event: delta\ndata: ([^\n]+)/',$bytes,$deltas);
-            check(!str_contains(implode('',$deltas[1]),'Final chunk.')&&!str_contains(implode('',$deltas[1]),'Buffered pending text.'),'stop/logout/revocation prevents buffered and subsequent visible content for '.$scenario);
+            check(!str_contains(implode('',$deltas[1]),'Final chunk.')&&($scenario==='lease_gap'||!str_contains(implode('',$deltas[1]),'Buffered pending text.')),'lost authority prevents subsequent visible content for '.$scenario);
             $saved=$pdo->prepare('SELECT reply_json FROM portal_westy_turns WHERE operation_key=?');$saved->execute([$operation]);
-            check(json_decode((string)$saved->fetchColumn(),true)['reply']==='First visible chunk.','stop/logout/revocation discards pending text before persistence for '.$scenario);
+            $savedText=json_decode((string)$saved->fetchColumn(),true)['reply'];
+            check($scenario==='lease_gap'?str_starts_with($savedText,'First visible chunk.')&&!str_contains($savedText,'Final chunk.'):$savedText==='First visible chunk.','lost authority discards subsequent text before persistence for '.$scenario);
             // Let the following independent scenario start without waiting for the
             // normal 180-second interrupted-turn window in this disposable ledger.
             $pdo->prepare("UPDATE portal_westy_turns SET created_at=created_at-INTERVAL 4 MINUTE WHERE operation_key=? AND state='pending'")->execute([$operation]);

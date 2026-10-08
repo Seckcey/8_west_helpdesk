@@ -31,7 +31,7 @@ $resolver=static function(int $tenant,string $action,?int $revision):array{
         'tenant_slug'=>'provider-'.$tenant,'status'=>'active','revision'=>1,'credential_version'=>1,
         'api_key'=>'sk-synthetic-workspace-no-network']+westy_tenant_ai_selection('openai','gpt-6-luna','low');
 };
-$request=['operation'=>'f1'.sprintf('%08x',time()).bin2hex(random_bytes(11)),'message'=>'Preview temporary files on the selected computer.','conversation'=>null,'device_reference'=>$device];
+$request=['operation'=>'f1'.sprintf('%08x',time()).bin2hex(random_bytes(11)),'message'=>'Preview Windows system temporary files on the selected computer.','conversation'=>null,'device_reference'=>$device];
 $round=0;$provider=static function($selection,$system,$messages,$options,$emit,$alive)use(&$round,&$providerBodies,$device):array{
     $providerBodies[]=westy_tenant_ai_body($selection,$system,$messages,$options);$round++;$alive();
     if($round===1){$emit('Looking');$emit(' for computers.');}
@@ -55,6 +55,13 @@ portal_westy_message($pdo,$a,$request,$provider,static fn()=>$a,$emit,$transport
 $state=portal_westy_state($pdo,$a,null,$transport,aiResolver:$resolver);check($state['turns'][0]['reply']['tools'][1]['operation']['reference']===$operation['reference'],'reload restores the durable receipt and refreshes status without dispatch');
 check(portal_westy_state($pdo,$b,null,$transport,aiResolver:$resolver)['turns']===[],'other customer receives no private conversation or receipts');
 $entry=[];$save=static function():void{};
+foreach(['Preview my temp files.','Preview user temporary files.','Clean %TEMP%.','Clean $env:TEMP.','Preview temporary files.','Preview C:\\Users\\Example\\AppData\\Local\\Temp.'] as $task){
+    $before=count($seenActions);
+    $result=portal_westy_tool_call($pdo,$a+['authorized_task'=>$task],['name'=>'prepare_temp_cleanup','call_id'=>'scope_refused','arguments'=>json_encode(['device_reference'=>$device])],$request['operation'],$entry,$save,$transport);
+    check($result['reason']==='temp_scope_mismatch'&&!$result['executed']&&count($seenActions)===$before,'user or unspecified temp never dispatches system-temp recipe');
+}
+foreach(['Preview Windows system temporary files.','Preview C:\\Windows\\Temp.'] as $task)
+    check(portal_westy_windows_temp_requested($task),'explicit Windows temp scope is recognized');
 foreach([
     ['name'=>'run_powershell','call_id'=>'bad','arguments'=>'{}'],
     ['name'=>'prepare_temp_cleanup','call_id'=>'bad','arguments'=>json_encode(['device_reference'=>$device,'script'=>'Remove-Item anything'])],
@@ -79,4 +86,42 @@ if(is_file(__DIR__.'/../lib/portal_desktop_sessions.php')){
 }
 $badTransport=static fn()=>['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>array_replace($operation,['device_reference'=>'2:'.str_repeat('c',64)])])];
 check(refused(static fn()=>portal_devices_request($pdo,$a,'temp_start',['device_reference'=>$device,'request_key'=>bin2hex(random_bytes(16))],$badTransport)),'cross-device service result is rejected before display');
+// Exercise the production human-approval guard after its receipt refresh, not
+// just the context helper: only timely renewal of the same authority may pass.
+$savedSession=$_SESSION;$approvalCalls=0;
+$approval=array_replace($fixtures['operations']['approval'],['reference'=>str_repeat('c',32),'basis_reference'=>$operation['reference'],
+    'device_reference'=>$device,'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',time()+600)]);
+$approvalTransport=static function($url,$body)use($operation,$approval,&$approvalCalls):array{
+    $input=json_decode($body,true);$action=$input['action'];
+    if($action==='operations')$result=['available'=>true,'eligibility'=>['can_check'=>false,'can_propose_repair'=>false,'reason'=>'in_progress'],'items'=>[$operation,$approval]];
+    elseif($action==='repair_approve'){$approvalCalls++;check($input['input']['reference']===$approval['reference']
+        &&$input['input']['approval_fingerprint']===$approval['approval_fingerprint'],'human guard preserves exact approval reference and fingerprint');
+        $result=array_replace($approval,['state'=>'queued','can_approve'=>false,'approval_fingerprint'=>null]);}
+    else throw new RuntimeException('Unexpected approval action');
+    return ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>$result])];
+};
+$original=array_replace($a['identity'],['issued_at'=>time()-60,'expires_at'=>time()+3600]);
+$captured=array_replace($a,['identity'=>array_replace($original,['expires_at'=>time()+300])]);
+$renewed=array_replace($a,['identity'=>array_replace($original,['expires_at'=>time()+1200])]);
+$proof=['version'=>1,'pairing_id'=>str_repeat('a',32),'session_hash'=>hash('sha256',session_id()),'identity'=>$original];
+$_SESSION['desktop_companion_session']=$proof['pairing_id'];$_SESSION['desktop_renewal']=$proof;
+$captured=portal_desktop_capture_context($captured);
+$approve=['action'=>'approve_operation','reference'=>$approval['reference'],'conversation'=>$state['conversation'],
+    'reviewed'=>true,'approval_fingerprint'=>$approval['approval_fingerprint']];
+portal_westy_operation_action($pdo,$captured,$approve,$approvalTransport,static fn()=>$renewed);
+check($approvalCalls===1,'inner human approval accepts same-authority timely lease renewal once');
+foreach(['removed_proof','changed_pair','changed_subject','expired_lease'] as $case){
+    $_SESSION['desktop_renewal']=$proof;$_SESSION['desktop_companion_session']=$proof['pairing_id'];
+    $reauthorize=static function()use($case,$renewed){$fresh=$renewed;
+        if($case==='removed_proof')unset($_SESSION['desktop_renewal']);
+        if($case==='changed_pair')$_SESSION['desktop_companion_session']=str_repeat('b',32);
+        if($case==='changed_subject')$fresh['identity']['subject']='t9u99';
+        if($case==='expired_lease')$fresh['identity']['expires_at']=time()-1;
+        return $fresh;};
+    try{portal_westy_operation_action($pdo,$captured,$approve,$approvalTransport,$reauthorize);$denied=false;}
+    catch(PortalWestyException $error){$denied=$error->reason==='sign_in';}
+    check($denied&&$approvalCalls===1,'inner approval denies changed or expired authority before dispatch: '.$case);
+}
+$_SESSION=$savedSession;
+
 echo 'PASS streamed workspace: '.$checks." checks\n";

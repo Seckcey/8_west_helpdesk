@@ -948,6 +948,42 @@ if (!SERVE_MODE) test('workspace operation cards use recorded preview, completio
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
+if (!SERVE_MODE) test('expired cleanup approval refreshes without replay or a stale failure banner',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  try{for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
+    let expired=false,posts=0;
+    const state=()=>{
+      const operation=structuredClone(WORKSPACE_RECEIPTS.approval);
+      if(expired){operation.state='expired';operation.can_approve=false;operation.can_cancel=false;}
+      return {enabled:true,ai_available:true,can_write:true,conversation:'a'.repeat(32),conversations:[],draft:null,
+        devices:[{reference:operation.device_reference,label:'Synthetic workstation'}],turns:[{operation_key:'b'.repeat(32),state:'complete',input_text:'Preview Windows system temp.',
+          reply:{reply:'Review the recorded preview.',tools:[{key:'preview',name:'prepare_temp_cleanup',state:'complete',operation}]}}]};
+    };
+    const handler=async route=>{
+      if(route.request().method()==='POST'){
+        assert.equal(route.request().postDataJSON().action,'approve_operation');posts++;expired=true;
+        return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({ok:false,reason:'approval_expired'})});
+      }
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:state()})});
+    };
+    const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport,handler);
+    await page.route('**/portal/desktop_sessions.php',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{items:[]}})}));
+    try{
+      await page.goto(ORIGIN+'/portal/');await page.getByRole('button',{name:'Approve cleanup'}).waitFor();
+      expired=true;
+      await page.getByText('This approval expired. It cannot authorize new work. Ask Westy for a fresh preview of the location you want to review.',{exact:true}).waitFor({timeout:10000});
+      assert.equal(await page.getByRole('button',{name:'Approve cleanup'}).count(),0);assert.equal(posts,0,'polling never approves or replays');
+      expired=false;await page.reload();await page.getByRole('button',{name:'Approve cleanup'}).click();
+      await page.getByText('This approval expired. It cannot authorize new work. Ask Westy for a fresh preview of the location you want to review.',{exact:true}).waitFor();
+      assert.match(await page.locator('#portal-chat-status').innerText(),/approval expired/i);
+      assert.equal(posts,1,'failed approval is inspected once and never repeated');
+      assert.equal(await page.getByRole('button',{name:'Approve cleanup'}).count(),0);
+      if(process.env.WESTY_QA_OUTPUT){await mkdir(process.env.WESTY_QA_OUTPUT,{recursive:true});await page.screenshot({path:path.join(process.env.WESTY_QA_OUTPUT,`expired-cleanup-${viewport.width}.png`)});}
+      assert.deepEqual(consoleProblems.filter(value=>!value.includes('409')),[]);
+    }finally{await context.close();}
+  }}finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
 if (!SERVE_MODE) test('late device responses cannot restore private names after logout',async()=>{
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
   let release;const gate=new Promise(resolve=>release=resolve);
@@ -1059,6 +1095,11 @@ if (!SERVE_MODE) test('general runtime shows exact approval, live output, Stop a
       await page.getByText('View command output',{exact:true}).click();
       if(process.env.WESTY_QA_OUTPUT)await page.screenshot({path:path.join(process.env.WESTY_QA_OUTPUT,`output-${viewport.width}.png`),fullPage:false});
       await page.getByRole('button',{name:'Stop this task',exact:true}).click();await page.getByText('Computer command · Outcome unknown',{exact:true}).waitFor();assert.equal(stopped,1);
+      for(let update=0;update<5;update++)state.turns[0].reply.tools.push({key:'read_'+update,name:'read_process',state:'unknown',result:{process_id:'d'.repeat(32),state:'unknown'}});
+      await page.reload();await page.getByText('Computer command · Outcome unknown',{exact:true}).waitFor();
+      assert.equal(await page.getByText('View command output',{exact:true}).count(),1,'same process reads restore one current output card');
+      assert.equal(await page.getByRole('button',{name:'Stop this task',exact:true}).count(),1,'one unresolved command has one Stop action');
+      assert.equal(approved,1,'restoration never dispatches the command again');
       assert.equal(await page.locator('#portal-chat-stop').isVisible(),true,'unconfirmed Stop retains unresolved controls');
       const completed=state.turns[0].terminal_processes['d'.repeat(32)];completed.state='completed';completed.progress.exit_code=0;state.turns[0].terminal_active=false;
       await page.reload();await page.getByText('Computer command · Finished',{exact:true}).waitFor();await page.getByText('Exit code: 0',{exact:true}).waitFor();

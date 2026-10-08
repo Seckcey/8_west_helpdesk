@@ -23,6 +23,7 @@ try{
     if($context!==null){
         portal_desktop_bind(db(),$context,$pair);
         $_SESSION['desktop_companion_session']=$pair;
+        if(portal_desktop_renewal_proof($context['identity'])===null)unset($_SESSION['desktop_renewal'],$_SESSION['desktop_renewal_registered']);
         portal_render_workspace($context);exit;
     }
     $handoff=portal_desktop_handoff_create(db(),$pair);

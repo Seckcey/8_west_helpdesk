@@ -39,11 +39,18 @@
     hourly_limit:'You have reached the hourly chat limit. Contact support is still available.', daily_limit:'Your business has reached today’s chat limit.', cost_limit:'Your business has reached its chat budget.',
     busy:'A reply is still running. You can stop it or wait.', sign_in:'Your sign-in ended or access changed. Sign in again to continue.',
     identity_unavailable:'Access cannot be verified. Your private chat is hidden until it can be checked.', read_only:'Your role cannot authorize device work or send this request.',
-    draft_changed:'This draft changed or was already sent. Check its saved state.', conversation_changed:'The conversation changed in another tab. Check the current chat.',
+    draft_changed:'This draft changed or was already sent. Check its saved state.', conversation_changed:'The current conversation changed. Check the saved chat before sending another message.',
+    access_changed:'The reply was interrupted because its sign-in or access could no longer be verified. Saved computer output is shown below; the command has not been retried.',
+    conversation_expired:'This conversation expired before the reply finished. Computer work has not been retried.',
+    content_unavailable:'This reply is no longer available. Computer work has not been retried.',
+    user_took_over:'Computer control stopped after an input event was detected. Nothing will restart automatically. Ask for a new task when you are ready.',
+    task_expired:'This computer-control task expired. Ask for a new task; the old task will not restart.',
+    temp_scope_mismatch:'This preview only supports the Windows system temporary folder. It does not cover your user temporary folder.',
+    connection_expiring:'The computer connection cannot cover this command’s full runtime. The command was not sent. Reconnect Westy, then review a new request.',
     sensitive_text:'Remove passwords, secret keys and verification codes before sending.', invalid_message:'Enter a message of up to 2,000 characters.', invalid_request:'Check the required fields.',
     operation_expired:'Refresh this page before sending a new message. If this continues, check your computer clock.',
     unavailable:'The result could not be confirmed. Checking saved work; nothing will be retried automatically.', approval_changed:'The approval changed or expired. Refresh the operation before continuing.',
-    tools_unavailable:'Device tools are not available. Your computers and support requests remain accessible.', support_busy:'A technician is handling this computer. Health checks and recorded facts remain available. Once the technician finishes and resolves the case, review and approve the proposed repair again.',
+    tools_unavailable:'Device tools are not available. Your computers and support requests remain accessible.', support_busy:'A support workflow blocks this repair. Its ownership or outstanding work needs review; this does not mean a technician is currently using the computer. Health checks and recorded facts remain available.',
     support_status_unavailable:'Current support ownership could not be verified. The repair was not sent. Health checks and recorded facts remain available; try the approval again shortly.',
     policy_restricted:'Your workspace administrator has disabled this action in Westy settings.', execution_unresolved:'A previous command on this computer needs a confirmed result. Recorded hardware facts remain available with their capture time.',
     device_offline:'The computer is not currently available.', repair_cooldown:'A recent repair is still within its cooldown.', operation_unavailable:'This operation is not available for your current access.',
@@ -53,7 +60,7 @@
   const messageKey = () => 'f1'+Math.floor(Date.now()/1000).toString(16).padStart(8,'0')+Array.from(crypto.getRandomValues(new Uint8Array(11)),b=>b.toString(16).padStart(2,'0')).join('');
   const element = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
   const button = (text, action, cls = 'btn-ghost') => { const b = element('button', text, cls); b.type = 'button'; b.addEventListener('click', action); return b; };
-  const say = text => { status.textContent = text; };
+  const say = text => { status.textContent = text; delete status.dataset.operation; };
   function controls() {
     const waiting=state?.turns.some(t=>t.run?.state==='waiting');
     send.hidden = busy||waiting; stop.hidden = !busy&&!waiting&&!state?.turns.some(t=>t.terminal_active); send.disabled = !state?.ai_available;
@@ -124,12 +131,13 @@
     if(op.result?.kind==='temp_cleanup'){add('Removed',op.result.deleted_files+' files · '+bytesLabel(op.result.deleted_bytes));add('Skipped',String(op.result.skipped_files));}
     review.append(details,element('p',op.impact));
     if(op.state==='queued')review.append(element('p','Waiting for your computer to report. You can leave this chat and return.'));
+    if(op.state==='expired')review.append(element('p','This approval expired. It cannot authorize new work. Ask Westy for a fresh preview of the location you want to review.','portal-hint'));
     if(['needs_help','cancel_requested'].includes(op.state)){const action={health:'check',temp_preview:'preview',temp_cleanup:'cleanup',spooler_restart:'repair'}[op.recipe]||'operation';review.append(element('p','The outcome is not confirmed. Do not repeat this '+action+'; contact support.', 'portal-tool-error'));}
     const actions=element('div',undefined,'portal-chat-draft-actions');
     const act=async(action)=>{
       if(busy)return;actions.querySelectorAll('button').forEach(b=>b.disabled=true);
       try{render(await api({action,conversation:state.conversation,reference:op.reference,approval_fingerprint:op.approval_fingerprint,reviewed:true}));say(action==='approve_operation'?'Approval recorded. Waiting for the computer’s result.':'Cancellation requested. Check the recorded status.');}
-      catch(error){accessError(error);await refresh(true);}
+      catch(error){accessError(error);status.dataset.operation=op.reference;await refresh(true);}
     };
     if(op.can_approve&&namedDevice)actions.append(button(op.recipe==='temp_cleanup'?'Approve cleanup':'Approve repair',()=>act('approve_operation'),'btn-primary'));
     else if(op.can_approve)review.append(element('p','Computer details must load before you can approve this operation.'));
@@ -138,9 +146,21 @@
     review.append(actions);parent.append(review);
   }
   function renderTools(node,turn) {
-    const signature=JSON.stringify([turn.reply?.tools||[],turn.run]); if(signature===node.toolSignature)return;node.toolSignature=signature;node.tools.replaceChildren();
+    const signature=JSON.stringify([turn.reply?.tools||[],turn.run,turn.terminal_processes]); if(signature===node.toolSignature)return;node.toolSignature=signature;node.tools.replaceChildren();
     const names={list_computers:'Computer list',read_computer_status:'Recorded device activity',start_health_check:'Computer health check',prepare_temp_cleanup:'Temporary-file preview',propose_print_repair:'Print-service repair review',inspect_computer:'Computer investigation',run_powershell:'Script review',exec_command:'Computer command',read_process:'Command output',write_stdin:'Command input',stop_process:'Stop command',desktop_open:'Connect to computer',desktop_windows:'Available windows',desktop_select:'Select window',desktop_observe:'Read window',desktop_action:'Computer action',desktop_stop:'Stop computer control'};
+    // Output reads update the same process. Keep the stored tool history intact,
+    // but show one current output/Stop control for each distinct process.
+    const visible=[],processes=new Map();
     for(const tool of turn.reply?.tools||[]){
+      const process=tool.process_id||tool.result?.process_id;
+      if(process&&['exec_command','read_process','write_stdin','stop_process'].includes(tool.name)){
+        if(processes.has(process)){
+          const index=processes.get(process),previous=visible[index];
+          visible[index]={...previous,...tool,name:previous.name,effect:previous.effect||tool.effect};
+        }else{processes.set(process,visible.length);visible.push(tool);}
+      }else visible.push(tool);
+    }
+    for(const tool of visible){
       const terminal=['exec_command','read_process','write_stdin','stop_process'].includes(tool.name);
       const savedReceipt=tool.awaiting_run&&turn.run?.receipt?turn.run.receipt:tool.result;
       const terminalReceipt=terminal&&(turn.terminal_processes?.[savedReceipt?.process_id]||savedReceipt);
@@ -150,6 +170,7 @@
       const toolLabel=terminalReceipt?({review_pending:'Reviewing',awaiting_approval:'Review required',queued:'Waiting',claimed:'Received',running:'Running',completed:'Finished',cancelled:'Cancelled',unknown:'Outcome unknown',refused:'Not executed',unavailable:'Unavailable'}[terminalReceipt.state]||terminalReceipt.state):shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable'}[tool.state]||tool.state);
       const label=element('div',undefined,'portal-tool-summary');label.append(element('span',undefined,'portal-tool-dot'),element('span',(names[tool.name]||'Device tool')+' · '+toolLabel));item.append(label);
       if(tool.reason)item.append(element('p',errors[tool.reason]||'This operation is unavailable. Contact support.'));
+      if(tool.name.startsWith('desktop_')&&tool.result?.stop_reason)item.append(element('p',errors[tool.result.stop_reason]||'Computer control stopped. Ask for a new task when you are ready.'));
       if(tool.effect)item.append(element('p',tool.effect));
       if(terminalReceipt)renderTerminal(item,terminalReceipt,tool.awaiting_run?turn.run?.approval:null,turn);
       if(tool.result&&['inspect_computer','run_powershell'].includes(tool.name)){
@@ -191,6 +212,11 @@
     const changed=state && state.conversation!==next.conversation;
     if(changed){nodes.clear();log.replaceChildren();editing=false;stickToBottom=true;}
     state=next;controls();
+    if(status.dataset.operation){
+      const reference=status.dataset.operation;
+      const operation=next.turns.flatMap(t=>(t.reply?.tools||[]).flatMap(x=>[x.operation,x.proposal])).find(x=>x?.reference===reference);
+      if(operation?.state==='expired')say('The approval expired. Ask for a fresh preview before approving any cleanup or repair.');
+    }
     if(!next.turns.length){if(empty)log.append(empty);}else empty?.remove();
     const present=new Set();
     for(const turn of next.turns){
@@ -222,7 +248,7 @@
     if(poll)clearTimeout(poll);
     const ready=state?.turns.find(t=>t.state==='complete'&&t.run?.ready);
     if(ready&&!busy&&state.ai_available){poll=setTimeout(()=>resumeRun(ready),100);return;}
-    const active=state?.turns.some(t=>t.terminal_active||t.run?.state==='waiting'||t.state==='pending'||(t.reply?.tools||[]).some(x=>['queued','authorized','verifying','cancel_requested'].includes(x.operation?.state)||['queued','verifying','cancel_requested'].includes(x.proposal?.state)));
+    const active=state?.turns.some(t=>t.terminal_active||t.run?.state==='waiting'||t.state==='pending'||(t.reply?.tools||[]).some(x=>['awaiting_approval','queued','authorized','verifying','cancel_requested'].includes(x.operation?.state)||['awaiting_approval','queued','verifying','cancel_requested'].includes(x.proposal?.state)));
     if(active&&!busy)poll=setTimeout(()=>refresh(true),3000);
   }
   function renderDraft(draft) {

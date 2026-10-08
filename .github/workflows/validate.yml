@@ -241,6 +241,15 @@ jobs:
         run: php app/tests/portal_data_test.php
       - name: Test desktop cleanup readiness without a database
         run: php app/tests/desktop_cleanup_readiness_test.php
+      - name: Test desktop renewal provenance without a database
+        run: php app/tests/desktop_renewal_test.php
+      - name: Test desktop renewal handoff and session authority
+        env:
+          MILEPOST_TEST_DB_HOST: 127.0.0.1
+          MILEPOST_TEST_DB_NAME: milepost_safeharbor_test
+          MILEPOST_TEST_DB_ALLOW_DROP: 'YES'
+          MILEPOST_TEST_DB_PASS: safeharbor-test-root
+        run: php app/tests/desktop_renewal_mysql_test.php
       - name: Test customer portal ticket workflow
         run: php app/tests/portal_ticket_workflow_test.php
       - name: Test customer portal weekly archive access

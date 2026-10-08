@@ -243,7 +243,9 @@ function portal_westy_ai_finish(PDO $pdo,array $scope,int $turnId,int $attemptId
             $output=$output!==null && $turn['output_tokens']!==null?$output+(int)$turn['output_tokens']:null;
         }
         $state=$turn['state']==='pending'?($available?'complete':'unavailable'):$turn['state'];
-        $reason=$turn['state']==='pending'?($available?'':($deliver?($result['reason']??'provider_unavailable'):'conversation_changed')):$turn['reason_code'];
+        $undelivered=!$authorized?'access_changed':($currentConversation!==$conversation||$turn['conversation_key']!==$conversation
+            ?'conversation_changed':($turn['input_text']===null?'content_unavailable':'conversation_expired'));
+        $reason=$turn['state']==='pending'?($available?'':($deliver?($result['reason']??'provider_unavailable'):$undelivered)):$turn['reason_code'];
         $reply=$deliver?json_encode($result['data'],JSON_THROW_ON_ERROR):$turn['reply_json'];
         $finished=$turn['finished_at']??gmdate('Y-m-d H:i:s');
         $q=$pdo->prepare('UPDATE portal_westy_turns SET state=?,reason_code=?,reply_json=?,charged_microusd=charged_microusd-?,input_tokens=?,output_tokens=?,finished_at=? WHERE id=? AND scope_key=? AND charged_microusd>=?');
