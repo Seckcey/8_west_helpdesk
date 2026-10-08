@@ -36,7 +36,7 @@
     updateStart();
     stop.hidden = !['active', 'consent_pending'].includes(state.state);
     status.textContent = taskActive() && state.connected !== true ? 'Connection status is unavailable. Use Stop or the local Stop button to take over.'
-      : state.state === 'active' ? 'Westy can use the window you approved. Move the mouse, press a key, or choose Stop to take over.'
+      : state.state === 'active' ? 'Westy can use the window you approved. Choose Take control in Westy Companion or Stop here to end control.'
       : state.state === 'consent_pending' ? 'Choose a window and allow this task on your computer.'
       : 'Computer control is off.';
     if (state.state === 'active' && state.connected === true && state.task_id !== resumedTask && taskOperation && state.conversation_id === conversation) {
