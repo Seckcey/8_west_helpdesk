@@ -1,11 +1,14 @@
 # General computer troubleshooting
 
-The October 8 connection repair is proposed in
+The October 8 connection repair is merged in
 [Safeharbor PR #185](https://github.com/Seckcey/8_west_helpdesk/pull/185), paired
-with [Milepost PR #631](https://github.com/Seckcey/8westit_webapp/pull/631).
-The preceding 1.26.9 backend is deployed at Safeharbor
-`e4cadc52ee114f11c06002f428de7c45104d1ce7`; its private installer was signed
-and staged. Frankie subsequently reported failed connection and computer-tool
+with [Milepost PR #631](https://github.com/Seckcey/8westit_webapp/pull/631) and
+its [compatibility correction #633](https://github.com/Seckcey/8westit_webapp/pull/633).
+Safeharbor's installed release is
+`eb7d18515f2d801834b93dab85a06f602a3f4df4`; its original report scheduler is
+active with the existing recipient and delivery confirmations preserved.
+The preceding 1.26.9 private installer was signed and staged. Frankie
+subsequently reported failed connection and computer-tool
 acceptance, including an automatic disconnect. Source, signature and deployment
 evidence do not establish a working laptop. The saved unresolved-operation reply
 shown in the report predates that installation; unknown history is preserved.
@@ -26,9 +29,13 @@ The absent Companion process snapshot does not establish a crash, close or
 expiry cause. The full signed-in-user control goal remains open through owner
 acceptance. General commands, files, browser and desktop control, concurrent
 sessions, output, Stop, saved permissions and actual account/device boundaries
-remain part of that goal. This candidate changes no schema, material AI approval
-or saved unknown results. Deployment, package verification and Frankie's
-installation and post-release tests remain separate delivery steps.
+remain part of that goal. This repair changes no schema, material AI approval
+or saved unknown results. On October 8 at 21:02:19 UTC, the installed Safeharbor
+source, customer binding, existing schema and cleanup checks passed, together
+with exactly one successful provider connection test. The root schema inspection
+performed no migration. These backend checks do not establish working computer
+control on the laptop. Private signing, package verification and staging remain
+pending at this checkpoint; Frankie owns installation and all post-release tests.
 
 The 1.26.9 source follow-up is in
 [Safeharbor PR #184](https://github.com/Seckcey/8_west_helpdesk/pull/184), paired

@@ -2,12 +2,21 @@
 
 The October 8 connection repair in
 [Safeharbor PR #185](https://github.com/Seckcey/8_west_helpdesk/pull/185) and
-[Milepost PR #631](https://github.com/Seckcey/8westit_webapp/pull/631) is a proposed
-follow-up to failed owner acceptance of the delivered 1.26.9 package. Safeharbor
-currently runs `e4cadc52ee114f11c06002f428de7c45104d1ce7`. Frankie reported a
+[Milepost PR #631](https://github.com/Seckcey/8westit_webapp/pull/631), including
+the [Milepost compatibility correction #633](https://github.com/Seckcey/8westit_webapp/pull/633),
+is merged and installed as a follow-up to failed owner acceptance of the delivered
+1.26.9 package. Safeharbor currently runs
+`eb7d18515f2d801834b93dab85a06f602a3f4df4`, with its original report scheduler
+active. Frankie reported a
 failed first connection, a successful second attempt and a later automatic
 disconnect. The definitive disconnect cause remains unproven; installation and
 all post-release laptop tests belong to Frankie.
+
+The October 8 backend check at 21:02:19 UTC verified the installed source,
+customer binding, existing schema, cleanup readiness and exactly one successful
+provider connection test. It performed no migration or computer operation.
+Signing, package verification and staging remain pending at this checkpoint;
+these backend results do not establish laptop acceptance.
 
 In the repair, browser approval says **Sign-in approved** and directs the user
 back to the Westy window to finish connecting. Device and permission startup
@@ -25,7 +34,8 @@ sessions, cross-turn task recovery, application launch and persistent optional
 execution-guard settings. Its source and release boundaries are documented in
 [Westy general tools](WESTY_GENERAL_TOOLS.md). Its backend and private signed
 installer were delivered; successful laptop acceptance is not claimed. The
-connection repair above is still a separate proposed release.
+connection repair above is a separate installed backend release whose private
+package and laptop acceptance remain pending at the checkpoint above.
 
 The preceding October 7 [companion acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
 was deployed at Safeharbor `979f9f2ae7055e029aa467a8784e6e9dd20acdd9`, adding
