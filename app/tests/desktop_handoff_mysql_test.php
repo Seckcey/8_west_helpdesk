@@ -56,7 +56,7 @@ hs_check(portal_desktop_handoff_completed($pdo,$id,$handoffCsrf),'lost consume b
 hs_check(!portal_desktop_handoff_completed($pdo,$id,str_repeat('f',64)),'unrelated CSRF cannot acknowledge a completed handoff');
 hs_check(!portal_desktop_handoff_completed($pdo,str_repeat('f',32),$handoffCsrf),'another handoff cannot borrow completion');
 $completion=$_SESSION['desktop_handoff_completed'];
-foreach(['session_hash'=>str_repeat('f',64),'pairing_id'=>str_repeat('f',32),'expires_at'=>time()-1,'scope_key'=>str_repeat('f',64)] as $field=>$invalid){
+foreach(['session_hash'=>str_repeat('f',64),'pairing_id'=>str_repeat('f',32),'expires_at'=>time()-1,'identity_hash'=>str_repeat('f',64)] as $field=>$invalid){
     $_SESSION['desktop_handoff_completed']=array_replace($completion,[$field=>$invalid]);
     hs_check(!portal_desktop_handoff_completed($pdo,$id,$handoffCsrf),'completed receipt remains bound to current authority: '.$field);
 }
