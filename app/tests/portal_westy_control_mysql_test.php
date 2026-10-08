@@ -73,6 +73,50 @@ check($desktopCalls===['launch','result']&&$launched['public_result']['state']==
     &&$launched['public_result']['reason']==='application_started_discover_window','OS launch acceptance requires subsequent real window observation');
 $desktopCalls=[];$loseLaunch=true;$lost=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,null,$desktopTransport);
 check($desktopCalls===['launch','stop']&&$lost['public_result']['state']==='unknown'&&$lost['public_result']['action_id']===null,'lost initial launch response remains unknown and is never replayed');
+$failureCalls=[];$failureMode='refusal';
+$failureTransport=static function(string $body)use(&$failureCalls,&$failureMode):array{
+    $wire=json_decode($body,true);$action=$wire['action'];$failureCalls[]=$action;
+    if($action==='stop')$result=['state'=>'stopped'];
+    elseif($action==='launch'&&in_array($failureMode,['refusal','server_error','malformed','unrecognized'],true))
+        return ['status'=>$failureMode==='server_error'?503:409,'body'=>json_encode([
+            'ok'=>$failureMode==='malformed'?true:false,'reason'=>$failureMode==='unrecognized'?'invented_error':'support_busy'])];
+    elseif($action==='observe')return ['status'=>409,'body'=>json_encode(['ok'=>false,'reason'=>'observation_busy'])];
+    elseif($action==='launch'||$action==='select')$result=['action_id'=>str_repeat('8',32),'state'=>'queued'];
+    elseif($action==='result'&&$failureMode==='receipt_loss')throw new PortalDesktopException('connection_unknown');
+    elseif($action==='result')$result=['state'=>'executed','result'=>['observation_available'=>true]];
+    elseif($action==='observation'&&$failureMode==='stop_after_execution')$result=['state'=>'pending'];
+    elseif($action==='observation')throw new PortalDesktopException('connection_unknown');
+    else throw new RuntimeException('Unexpected recovery fixture action');
+    return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>$result])];
+};
+$refused=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,null,$failureTransport);
+check($refused['public_result']['state']==='refused'&&$refused['public_result']['reason']==='support_busy'
+    &&$refused['public_result']['action_id']===null&&$failureCalls===['launch'],
+    'definitive prequeue 409 is refused without unknown history, Stop or replay');
+foreach(['server_error','malformed','unrecognized'] as $failureMode){
+    $failureCalls=[];$uncertain=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,null,$failureTransport);
+    check($uncertain['public_result']['state']==='unknown'&&$failureCalls===['launch','stop'],
+        '5xx or invalid refusal cannot prove no execution: '.$failureMode);
+}
+$failureCalls=[];$readUnavailable=portal_westy_desktop_dispatch($bound,'desktop_observe',[],null,$failureTransport);
+check($readUnavailable['public_result']['state']==='unavailable'&&$failureCalls===['observe'],
+    'unavailable read permits fresh evidence within the same task without calling Stop');
+$failureCalls=[];$failureMode='receipt_loss';$uncertain=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,null,$failureTransport);
+check($uncertain['public_result']['state']==='unknown'&&$uncertain['public_result']['action_id']===str_repeat('8',32)
+    &&$failureCalls===['launch','result','stop'],'accepted launch with lost result keeps exact action ID and never replays');
+$failureCalls=[];$failureMode='observation_loss';
+$selected=portal_westy_desktop_dispatch($bound,'desktop_select',['inventory_id'=>str_repeat('9',32),'window'=>'123','process_id'=>45],null,$failureTransport);
+check($selected['public_result']['state']==='executed'&&$selected['public_result']['reason']==='observation_unavailable'
+    &&$failureCalls===['select','result','observation'],'lost post-action observation preserves actual OS acceptance without claiming task success');
+$failureCalls=[];$failureMode='stop_after_execution';$aliveChecks=0;
+$selected=portal_westy_desktop_dispatch($bound,'desktop_select',['inventory_id'=>str_repeat('9',32),'window'=>'123','process_id'=>45],
+    static function()use(&$aliveChecks):bool{return ++$aliveChecks<3;},$failureTransport);
+check($selected['public_result']['state']==='executed'&&$selected['public_result']['reason']==='task_stopped'
+    &&$failureCalls===['select','result','observation','stop'],'explicit Stop after OS acceptance still stops control and preserves the executed receipt');
+$failureCalls=[];$stopped=portal_westy_desktop_dispatch($bound,'desktop_stop',[],null,$failureTransport);
+check($stopped['public_result']['state']==='stopped'&&$failureCalls===['stop'],'explicit Stop still dispatches exactly once');
+$failureCalls=[];$stopped=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,static fn():bool=>false,$failureTransport);
+check($stopped['public_result']['state']==='stopped'&&$failureCalls===['stop'],'Stop before dispatch prevents launch');
 $seen=portal_desktop_observation_result(['browser_origin'=>'https://example.test','browser_url'=>'https://example.test/actual/path?q=observed','image_png'=>null]);
 check($seen['private_observation']['browser_url']==='https://example.test/actual/path?q=observed'&&!isset($seen['public_result']['observation']['browser_url']),'model receives actually observed browser URL without copying it to durable public metadata');
 echo "PASS control v2 MySQL: $checks cumulative assertions\n";
