@@ -90,8 +90,20 @@ access_check(!isset($_SESSION[PORTAL_SESSION_KEY]) && !isset($_SESSION['desktop_
 portal_session_start();$handoff=bin2hex(random_bytes(16));$pair=bin2hex(random_bytes(16));
 $pdo->prepare("INSERT INTO portal_desktop_handoffs(handoff_id,pairing_id,browser_session_hash,state,identity_json,created_at,expires_at) VALUES(?,?,?,'approved',?,UTC_TIMESTAMP(),UTC_TIMESTAMP()+INTERVAL 5 MINUTE)")
     ->execute([$handoff,$pair,hash('sha256',session_id()),json_encode($new)]);
-access_check(portal_desktop_handoff_take($pdo,$handoff,fn()=>false,$transport),'current membership completes exact companion handoff');
+$accessCalls=0;
+$handoffTransport=static function(...$args)use($pdo,$transport,&$accessCalls){
+    access_check($pdo->inTransaction(),'handoff access verification precedes committed consumption');$accessCalls++;return $transport(...$args);
+};
+access_check(portal_desktop_handoff_take($pdo,$handoff,fn()=>false,$handoffTransport),'current membership completes exact companion handoff');
+access_check($accessCalls===1,'receipt captures already verified identity without another remote access lookup');
 access_check($_SESSION[PORTAL_SESSION_KEY]['role']==='owner' && $_SESSION['desktop_companion_session']===$pair,'companion keeps original identity and separate customer permission');
+$consumedSession=session_id();$consumedIdentity=$_SESSION[PORTAL_SESSION_KEY];
+access_check(portal_desktop_handoff_take($pdo,$handoff,fn()=>false,$transport)&&session_id()===$consumedSession
+    &&$_SESSION[PORTAL_SESSION_KEY]===$consumedIdentity,'same authorized membership can acknowledge its receipt without reminting authority');
+$items[0]['access']['generation']=4;
+access_check(access_denied(fn()=>portal_desktop_handoff_take($pdo,$handoff,fn()=>false,$transport)),'completed receipt cannot survive changed membership generation');
+$items[0]['access']['generation']=3;
+unset($_SESSION['desktop_handoff_completed']);
 access_check(access_denied(fn()=>portal_desktop_handoff_take($pdo,$handoff,fn()=>false,$transport)),'consumed handoff cannot replay');
 // A normal customer identity uses its existing path without contacting membership discovery.
 $never=static fn()=>throw new RuntimeException('Legacy path called discovery');

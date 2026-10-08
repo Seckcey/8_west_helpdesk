@@ -27,6 +27,21 @@ try{
     $context=portal_authenticated_context(db());
     if($context===null)json_out(['ok'=>false,'reason'=>'sign_in'],401);
     $context=portal_desktop_capture_context($context);
+    if($method==='GET'&&(isset($_GET['devices'])||isset($_GET['diagnostic_preference'])||isset($_GET['tool_preferences']))){
+        // Startup metadata is independent of transcript/old execution receipts.
+        // Do not hold this browser's session lock across the service round trip:
+        // connection renewal and Stop must be able to proceed concurrently.
+        $metadata=[];$originalSession=session_id();
+        if(!session_write_close())$fail('unavailable',503);
+        if(isset($_GET['devices']))$metadata['devices']=portal_devices_request(db(),$context,'devices',['after'=>0])['items'];
+        if(isset($_GET['diagnostic_preference'])&&portal_westy_runs_installed(db()))
+            try{$metadata['diagnostic_preference']=portal_desktop_request($context,'shell_preferences',[]);}catch(PortalDesktopException){}
+        if(isset($_GET['tool_preferences'])&&portal_westy_terminal_installed(db()))
+            try{$metadata['tool_preferences']=portal_desktop_request($context,'terminal_preferences',[]);}catch(PortalDesktopException){}
+        $check=portal_stream_authenticated_context(db(),$originalSession);
+        if($check===null||!portal_desktop_same_context($context,$check))$fail('sign_in',401);
+        json_out(['ok'=>true,'state'=>$metadata]);exit;
+    }
     if($method==='POST'){
         if(strtolower(trim(explode(';',$_SERVER['CONTENT_TYPE'] ?? '')[0]))!=='application/json')json_out(['ok'=>false,'reason'=>'invalid_request'],415);
         if(!portal_csrf_valid($_SERVER['HTTP_X_PORTAL_CSRF'] ?? null))json_out(['ok'=>false,'reason'=>'sign_in'],403);
@@ -89,15 +104,6 @@ try{
     if($fresh===null || $fresh['identity']['subject']!==$context['identity']['subject']
         || $fresh['identity']['binding_id']!==$context['identity']['binding_id'])json_out(['ok'=>false,'reason'=>'sign_in'],401);
     $state=portal_westy_state(db(),$fresh,isset($_GET['conversation'])?portal_westy_key($_GET['conversation']):null);
-    if($method==='GET'&&isset($_GET['devices'])){
-        $state['devices']=portal_devices_request(db(),$fresh,'devices',['after'=>0])['items'];
-        $check=portal_authenticated_context(db());
-        if($check===null||$check['identity']!==$fresh['identity'])$fail('sign_in',401);
-    }
-    if($method==='GET'&&isset($_GET['diagnostic_preference'])&&portal_westy_runs_installed(db()))
-        try{$state['diagnostic_preference']=portal_desktop_request($fresh,'shell_preferences',[]);}catch(PortalDesktopException){}
-    if($method==='GET'&&isset($_GET['tool_preferences'])&&portal_westy_terminal_installed(db()))
-        try{$state['tool_preferences']=portal_desktop_request($fresh,'terminal_preferences',[]);}catch(PortalDesktopException){}
     if($receiptKey!==null)$state['receipt']=portal_westy_receipt(db(),$fresh,$receiptKey);
     $check=portal_authenticated_context(db());
     if($check===null||!portal_desktop_same_context($context,$check))$fail('sign_in',401);

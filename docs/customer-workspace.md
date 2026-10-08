@@ -1,12 +1,31 @@
 # Westy customer workspace
 
+The October 8 connection repair in
+[Safeharbor PR #185](https://github.com/Seckcey/8_west_helpdesk/pull/185) and
+[Milepost PR #631](https://github.com/Seckcey/8westit_webapp/pull/631) is a proposed
+follow-up to failed owner acceptance of the delivered 1.26.9 package. Safeharbor
+currently runs `e4cadc52ee114f11c06002f428de7c45104d1ce7`. Frankie reported a
+failed first connection, a successful second attempt and a later automatic
+disconnect. The definitive disconnect cause remains unproven; installation and
+all post-release laptop tests belong to Frankie.
+
+In the repair, browser approval says **Sign-in approved** and directs the user
+back to the Westy window to finish connecting. Device and permission startup
+reads avoid transcript/history refresh and return only their requested metadata
+after current-access checks. Temporary failures refresh availability without
+selecting another computer or replaying work; revoked access hides private state.
+The same authenticated session can recover a lost handoff response, and a new
+Companion pair retains only the original approved renewal authority and deadline.
+Saved Allow/Deny choices, Stop and truthful unknown receipts are unchanged.
+
 The 1.26.9 local-control follow-up in
 [Safeharbor PR #184](https://github.com/Seckcey/8_west_helpdesk/pull/184) and
 [Milepost PR #625](https://github.com/Seckcey/8westit_webapp/pull/625) adds independent
 sessions, cross-turn task recovery, application launch and persistent optional
 execution-guard settings. Its source and release boundaries are documented in
-[Westy general tools](WESTY_GENERAL_TOOLS.md). This source is not yet a deployed
-backend or signed installer; Frankie owns laptop installation and acceptance.
+[Westy general tools](WESTY_GENERAL_TOOLS.md). Its backend and private signed
+installer were delivered; successful laptop acceptance is not claimed. The
+connection repair above is still a separate proposed release.
 
 The preceding October 7 [companion acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
 was deployed at Safeharbor `979f9f2ae7055e029aa467a8784e6e9dd20acdd9`, adding

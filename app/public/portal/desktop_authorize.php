@@ -13,8 +13,8 @@ try{
     if(($_SERVER['REQUEST_METHOD']??'GET')==='POST'){
         if(!portal_csrf_valid($_POST['csrf']??null))throw new PortalDesktopException('sign_in',403);
         portal_desktop_handoff_approve(db(),$context,$id);
-        portal_page_start('Westy connected');
-        echo '<main class="page page-narrow"><h1>Westy is connected</h1><p>You can return to your Westy window. Screen access is still off; each computer task starts with your local consent.</p></main>';
+        portal_page_start('Westy sign-in approved');
+        echo '<main class="page page-narrow"><h1>Sign-in approved</h1><p>Return to your Westy window to finish connecting. That window will show when your account and computer tools are ready.</p></main>';
         portal_page_end();exit;
     }
     if(($_SERVER['REQUEST_METHOD']??'GET')!=='GET')throw new PortalDesktopException('method',405);
@@ -22,7 +22,7 @@ try{
     ?>
 <main class="page page-narrow"><h1>Connect your Westy window</h1>
 <p>Connect as <?=portal_h($context['identity']['display_name'])?> for <?=portal_h($context['binding']['client_name']??'your business')?>.</p>
-<p>Approve only if you just clicked Connect Westy on your computer. This opens your private chat in that window. Computer control requires a separate local consent.</p>
+<p>Connect only if you just clicked Connect Westy on your computer. This opens your private chat in that window. Westy follows your saved computer tool permissions for the work you request.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?=portal_h(portal_csrf_token())?>"><button class="btn-primary" type="submit">Connect Westy</button></form></main>
 <?php portal_page_end();
 }catch(Throwable){portal_render_error(503,'Connection not completed','Start again from your Westy window.');}

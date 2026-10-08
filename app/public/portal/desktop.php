@@ -8,12 +8,17 @@ if(!portal_enabled()){http_response_code(404);exit;}
 try{
     portal_session_start();
     if(($_SERVER['REQUEST_METHOD']??'GET')==='POST'){
-        if(!portal_csrf_valid($_SERVER['HTTP_X_PORTAL_CSRF']??null))throw new PortalDesktopException('sign_in',403);
         $body=file_get_contents('php://input',false,null,0,2049);
         if(!is_string($body)||strlen($body)>2048)throw new PortalDesktopException('invalid_request',400);
         $input=json_decode($body,true,8,JSON_THROW_ON_ERROR);
         if(!is_array($input)||!portal_devices_keys($input,['handoff']))throw new PortalDesktopException('invalid_request',400);
-        $ready=portal_desktop_handoff_take(db(),$input['handoff']);
+        // A lost consume response can leave this same browser with its new
+        // cookie but the old page/CSRF. Only its exact completed receipt may
+        // acknowledge readiness; it cannot mint or repeat any authority.
+        $csrf=$_SERVER['HTTP_X_PORTAL_CSRF']??null;
+        $completed=is_string($csrf)&&portal_desktop_handoff_completed(db(),$input['handoff'],$csrf);
+        if(!$completed&&!portal_csrf_valid($csrf))throw new PortalDesktopException('sign_in',403);
+        $ready=$completed||portal_desktop_handoff_take(db(),$input['handoff']);
         header('Cache-Control: no-store, private');json_out(['ok'=>true,'ready'=>$ready]);exit;
     }
     if(($_SERVER['REQUEST_METHOD']??'GET')!=='GET')throw new PortalDesktopException('method',405);
@@ -21,16 +26,14 @@ try{
     if(!portal_desktop_id($pair))throw new PortalDesktopException('invalid_request',400);
     $context=portal_local_identity()===null?null:portal_authenticated_context(db());
     if($context!==null){
-        portal_desktop_bind(db(),$context,$pair);
-        $_SESSION['desktop_companion_session']=$pair;
-        if(portal_desktop_renewal_proof($context['identity'])===null)unset($_SESSION['desktop_renewal'],$_SESSION['desktop_renewal_registered']);
+        portal_desktop_attach(db(),$context,$pair);
         portal_render_workspace($context);exit;
     }
     $handoff=portal_desktop_handoff_create(db(),$pair);
     portal_page_start('Connect Westy');
     ?>
 <main class="page page-narrow" id="desktop-handoff" data-handoff="<?=portal_h($handoff)?>" data-csrf="<?=portal_h(portal_csrf_token())?>">
-<h1>Connect Westy</h1><p>Sign in with 8 West ID in your browser, then approve connecting this Westy window. Screen access stays off until you allow a task on this computer.</p>
+<h1>Connect Westy</h1><p>Sign in with 8 West ID in your browser to connect this Westy window. Your saved computer tool permissions apply to the work you request.</p>
 <a class="btn-primary" target="_blank" rel="noopener noreferrer" href="/portal/desktop_authorize.php?handoff=<?=portal_h($handoff)?>">Continue in your browser</a>
 <p id="desktop-handoff-status" role="status">Waiting for sign-in.</p>
 </main><script src="/assets/js/desktop-handoff.js" defer></script>

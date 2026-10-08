@@ -1,5 +1,35 @@
 # General computer troubleshooting
 
+The October 8 connection repair is proposed in
+[Safeharbor PR #185](https://github.com/Seckcey/8_west_helpdesk/pull/185), paired
+with [Milepost PR #631](https://github.com/Seckcey/8westit_webapp/pull/631).
+The preceding 1.26.9 backend is deployed at Safeharbor
+`e4cadc52ee114f11c06002f428de7c45104d1ce7`; its private installer was signed
+and staged. Frankie subsequently reported failed connection and computer-tool
+acceptance, including an automatic disconnect. Source, signature and deployment
+evidence do not establish a working laptop. The saved unresolved-operation reply
+shown in the report predates that installation; unknown history is preserved.
+
+The repair separates browser sign-in approval from a completed Companion
+connection. Startup device and permission reads no longer refresh the transcript
+or historical tool receipts, release the PHP session lock during service requests,
+and reauthorize before returning the requested fields in the existing `state`
+envelope. Temporary availability failures retry reads and retain the selected
+computer; they never replay commands, messages or approvals. A lost handoff
+response can be acknowledged only by the same regenerated session, original page
+CSRF, scoped actor and unexpired receipt. Reconnecting retains the original
+approved renewal deadline rather than creating a new approval.
+
+Milepost's paired repair addresses the missing actor-matching helper in native
+and customer capability routes and transient Companion connection handling.
+The absent Companion process snapshot does not establish a crash, close or
+expiry cause. The full signed-in-user control goal remains open through owner
+acceptance. General commands, files, browser and desktop control, concurrent
+sessions, output, Stop, saved permissions and actual account/device boundaries
+remain part of that goal. This candidate changes no schema, material AI approval
+or saved unknown results. Deployment, package verification and Frankie's
+installation and post-release tests remain separate delivery steps.
+
 The 1.26.9 source follow-up is in
 [Safeharbor PR #184](https://github.com/Seckcey/8_west_helpdesk/pull/184), paired
 with [Milepost PR #625](https://github.com/Seckcey/8westit_webapp/pull/625).
