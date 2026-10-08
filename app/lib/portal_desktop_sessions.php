@@ -101,6 +101,20 @@ function portal_desktop_bind(PDO $pdo,array $context,string $pair):array
         ->execute([$pair,$scope['tenant'],$scope['client'],$context['identity']['subject'],$scope['key'],gmdate('Y-m-d H:i:s',$state['expires_at'])]);
     return $state;
 }
+/** A new native pair may retain this browser's already verified original
+ * handoff authority, never a later deadline or another actor's provenance. */
+function portal_desktop_attach(PDO $pdo,array $context,string $pair,?callable $bind=null):array
+{
+    $proof=portal_desktop_renewal_proof($context['identity']);
+    $state=($bind??'portal_desktop_bind')($pdo,$context,$pair);
+    $_SESSION['desktop_companion_session']=$pair;
+    if($proof!==null&&$proof['pairing_id']!==$pair){
+        $proof['pairing_id']=$pair;$_SESSION['desktop_renewal']=$proof;
+        unset($_SESSION['desktop_renewal_registered'],$_SESSION['desktop_handoff_completed']);
+    }
+    if(portal_desktop_renewal_proof($context['identity'])===null)unset($_SESSION['desktop_renewal'],$_SESSION['desktop_renewal_registered']);
+    return $state;
+}
 function portal_desktop_list(PDO $pdo,array $context):array
 {
     $scope=portal_westy_scope($pdo,$context);
@@ -169,9 +183,20 @@ function portal_desktop_handoff_envelope(array $original,int $now):array
     $identity=$original;$identity['expires_at']=min($identity['expires_at'],$now+1800);
     return ['version'=>1,'identity'=>$identity,'authority'=>$original];
 }
+function portal_desktop_handoff_completed(PDO $pdo,mixed $id,?string $csrf=null):bool
+{
+    $receipt=$_SESSION['desktop_handoff_completed']??null;
+    if(!portal_desktop_id($id)||!is_array($receipt)||($receipt['handoff_id']??null)!==$id
+        ||($receipt['pairing_id']??null)!==($_SESSION['desktop_companion_session']??null)
+        ||($receipt['expires_at']??0)<=time()||($receipt['session_hash']??null)!==hash('sha256',session_id())
+        ||($csrf!==null&&!hash_equals($receipt['csrf_hash'],hash('sha256',$csrf))))return false;
+    $context=portal_authenticated_context($pdo);
+    return $context!==null&&hash_equals($receipt['scope_key'],portal_westy_scope($pdo,$context)['key']);
+}
 function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCheck=null,?callable $accessTransport=null):bool
 {
     if(!portal_desktop_id($id))throw new PortalDesktopException('invalid_request',400);
+    if(portal_desktop_handoff_completed($pdo,$id))return true;
     portal_session_start();$pdo->beginTransaction();
     try{
         $q=$pdo->prepare('SELECT * FROM portal_desktop_handoffs WHERE handoff_id=? AND browser_session_hash=? AND expires_at>UTC_TIMESTAMP() FOR UPDATE');
@@ -184,6 +209,7 @@ function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCh
         $identity=$renewable?$envelope['identity']:$envelope;
         // Mint a new server session from the explicitly approved server identity.
         // No browser cookie, OIDC token or secret is copied into the native process.
+        $priorCsrf=portal_csrf_token();
         if(!session_regenerate_id(true))throw new PortalDesktopException('sign_in');
         $_SESSION[PORTAL_SESSION_KEY]=$identity;$_SESSION[PORTAL_CSRF_KEY]=bin2hex(random_bytes(32));
         $_SESSION['desktop_companion_session']=$row['pairing_id'];
@@ -192,8 +218,13 @@ function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCh
             $_SESSION['desktop_renewal']=['version'=>1,'pairing_id'=>$row['pairing_id'],'session_hash'=>hash('sha256',session_id()),'identity'=>$envelope['authority']];
             if(portal_desktop_renewal_proof($identity)===null)throw new PortalDesktopException('sign_in',401);
         }
-        if(portal_authenticated_context($pdo,$revocationCheck,null,$accessTransport)===null)throw new PortalDesktopException('sign_in',401);
+        $context=portal_authenticated_context($pdo,$revocationCheck,null,$accessTransport);
+        if($context===null)throw new PortalDesktopException('sign_in',401);
         $pdo->prepare("UPDATE portal_desktop_handoffs SET state='consumed',identity_json=NULL WHERE handoff_id=?")->execute([$id]);
-        $pdo->commit();return true;
-    }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();unset($_SESSION[PORTAL_SESSION_KEY],$_SESSION['desktop_companion_session'],$_SESSION['desktop_renewal'],$_SESSION['desktop_renewal_registered']);throw $error;}
+        $pdo->commit();
+        $_SESSION['desktop_handoff_completed']=['handoff_id'=>$id,'pairing_id'=>$row['pairing_id'],
+            'session_hash'=>hash('sha256',session_id()),'csrf_hash'=>hash('sha256',$priorCsrf),
+            'scope_key'=>portal_westy_scope($pdo,$context)['key'],'expires_at'=>strtotime($row['expires_at'].' UTC')];
+        return true;
+    }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();unset($_SESSION[PORTAL_SESSION_KEY],$_SESSION['desktop_companion_session'],$_SESSION['desktop_renewal'],$_SESSION['desktop_renewal_registered'],$_SESSION['desktop_handoff_completed']);throw $error;}
 }

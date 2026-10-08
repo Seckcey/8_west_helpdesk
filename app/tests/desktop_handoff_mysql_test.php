@@ -44,12 +44,25 @@ hs_approve_fixture($pdo,$id,hs_identity());
 session_write_close();session_id('');portal_session_start();
 hs_check(hs_denied(fn()=>portal_desktop_handoff_take($pdo,$id)),'other browser cannot consume approved handoff');
 session_write_close();session_id($first);portal_session_start();
+$handoffCsrf=portal_csrf_token();
 hs_check(portal_desktop_handoff_take($pdo,$id),'approved one-use identity creates new session');
 hs_check(session_id()!==$first,'native web session id rotated');
 hs_check(portal_local_identity()['subject']==='t10u12','verified approved subject preserved');
 hs_check($_SESSION['desktop_companion_session']===str_repeat('a',32),'native origin bound to pair');
 $row=$pdo->query('SELECT state,identity_json FROM portal_desktop_handoffs')->fetch();
 hs_check($row['state']==='consumed'&&$row['identity_json']===null,'handoff consumed and identity bytes erased');
+$consumedSession=session_id();$consumedIdentity=portal_local_identity();
+hs_check(portal_desktop_handoff_completed($pdo,$id,$handoffCsrf),'lost consume body can be acknowledged by same regenerated session and original page CSRF');
+hs_check(!portal_desktop_handoff_completed($pdo,$id,str_repeat('f',64)),'unrelated CSRF cannot acknowledge a completed handoff');
+hs_check(!portal_desktop_handoff_completed($pdo,str_repeat('f',32),$handoffCsrf),'another handoff cannot borrow completion');
+$completion=$_SESSION['desktop_handoff_completed'];
+foreach(['session_hash'=>str_repeat('f',64),'pairing_id'=>str_repeat('f',32),'expires_at'=>time()-1,'scope_key'=>str_repeat('f',64)] as $field=>$invalid){
+    $_SESSION['desktop_handoff_completed']=array_replace($completion,[$field=>$invalid]);
+    hs_check(!portal_desktop_handoff_completed($pdo,$id,$handoffCsrf),'completed receipt remains bound to current authority: '.$field);
+}
+$_SESSION['desktop_handoff_completed']=$completion;
+hs_check(portal_desktop_handoff_take($pdo,$id)&&session_id()===$consumedSession&&portal_local_identity()===$consumedIdentity
+    &&$pdo->query('SELECT state,identity_json FROM portal_desktop_handoffs')->fetch()===$row,'duplicate status read never mints a second session or reconsumes authority');
 $context=portal_authenticated_context($pdo);$scope=portal_westy_scope($pdo,$context);
 $pdo->prepare('INSERT INTO portal_desktop_bindings(session_id,tenant_id,client_id,subject,scope_key,conversation_id,operation_key,origin_channel,origin_session_hash,task_id,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
  ->execute([str_repeat('a',32),1,10,'t10u12',$scope['key'],str_repeat('1',32),str_repeat('2',32),'companion',hash('sha256',session_id()),str_repeat('3',32),gmdate('Y-m-d H:i:s',time()+300)]);
@@ -62,7 +75,8 @@ hs_check(hs_denied(fn()=>portal_desktop_context($pdo,$context,str_repeat('1',32)
 $pdo->exec("DELETE FROM portal_desktop_bindings WHERE session_id=REPEAT('b',32)");
 $pdo->exec("UPDATE portal_desktop_bindings SET origin_session_hash=REPEAT('0',64)");
 hs_check(!isset(portal_desktop_context($pdo,$context,str_repeat('1',32))['desktop']),'other browser session cannot obtain native task');
-hs_check(hs_denied(fn()=>portal_desktop_handoff_take($pdo,$id)),'consumed handoff cannot replay');
+unset($_SESSION['desktop_handoff_completed']);
+hs_check(hs_denied(fn()=>portal_desktop_handoff_take($pdo,$id)),'consumed handoff without exact same-session completion cannot replay');
 unset($_SESSION[PORTAL_SESSION_KEY],$_SESSION['desktop_companion_session']);
 $id=portal_desktop_handoff_create($pdo,str_repeat('b',32));hs_approve_fixture($pdo,$id,hs_identity());hs_feed('2.1');
 hs_check(hs_denied(fn()=>portal_desktop_handoff_take($pdo,$id)),'fresh session-version revocation denies mint');

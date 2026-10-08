@@ -32,6 +32,17 @@ hs_check($result['renewed']&&$_SESSION[PORTAL_SESSION_KEY]['expires_at']===$resu
 hs_check(strtotime(portal_desktop_binding($pdo,$context,$pair)['expires_at'].' UTC')===$result['expires_at'],'local binding follows exact validated backend lease');
 $after=portal_desktop_capture_context(portal_authenticated_context($pdo));
 hs_check(portal_desktop_same_context($context,$after),'real reauthenticated context remains equivalent after timely renewal');
+$beforeAttach=$_SESSION['desktop_renewal'];$beforeIdentity=$_SESSION[PORTAL_SESSION_KEY];$nextPair=str_repeat('a',32);
+$bound=static fn(PDO $p,array $ctx,string $id):array=>['session_id'=>$id,'expires_at'=>time()+1800];
+portal_desktop_attach($pdo,$after,$nextPair,$bound);
+hs_check($_SESSION['desktop_renewal']===array_replace($beforeAttach,['pairing_id'=>$nextPair])
+    &&$_SESSION[PORTAL_SESSION_KEY]===$beforeIdentity&&!isset($_SESSION['desktop_renewal_registered']),
+    'reconnect retains exact existing issuer authority and identity while registering only the new pair');
+hs_check(portal_desktop_renewal_proof($beforeIdentity)!==null,'reconnected same browser remains eligible for bounded renewal');
+$_SESSION['desktop_renewal']=$beforeAttach;$_SESSION['desktop_companion_session']=$pair;
+try{portal_desktop_attach($pdo,$after,$nextPair,static function(){throw new PortalDesktopException('pairing_used');});}
+catch(PortalDesktopException){}
+hs_check($_SESSION['desktop_renewal']===$beforeAttach&&$_SESSION['desktop_companion_session']===$pair,'failed bind cannot move original provenance to a different pair');
 foreach([['session_id'=>str_repeat('f',32)],['expires_at'=>time()+9000],['authority_expires_at'=>$original['expires_at']+1],['server_unix'=>time()-31],['version'=>2]] as $change){
     $_SESSION[PORTAL_SESSION_KEY]=$context['identity'];unset($_SESSION['desktop_renewal_registered']);
     $bad=static function($body)use($reply,$change){$response=$reply($body);$wire=json_decode($response['body'],true);$wire['result']=array_replace($wire['result'],$change);$response['body']=json_encode($wire);return $response;};

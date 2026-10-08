@@ -84,6 +84,7 @@
         if (currentRevision !== revision) return;
         if (!Array.isArray(state?.items)) throw new Error('desktop_unavailable');
         setAvailability(state.items);
+        if(state.items.some(isConnected))window.dispatchEvent(new CustomEvent('westy-connection-ready'));
         renewalAvailable = state.renewal_available === true;
         void renew();
       }

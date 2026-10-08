@@ -21,6 +21,7 @@
   const nodes = new Map();
   let state = null, busy = false, editing = false, pending = null, focusBefore = null, poll = null;
   let streamController = null, currentOperation = null, stickToBottom = true, accessEpoch = 0;
+  let devicesLoading = false, devicesRetry = null, rememberedDevice = null;
   const labels = { requests:'Open a support request', updates:'Follow a request', response:'Response goals', summaries:'Service summaries', privacy:'Westy and privacy' };
   const errors = {
     ai_unavailable:'Westy is unavailable. You can still contact support.', provider_unavailable:'The reply was interrupted. Saved device work is shown below; it has not been retried.',
@@ -89,6 +90,7 @@
     toolPreferences?.remove();toolPreferences=null;
     history?.replaceChildren(); input.value=''; editing=false; pending=null;
     devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';devices.disabled=true;
+    if(devicesRetry)clearTimeout(devicesRetry);devicesRetry=null;rememberedDevice=null;
     streamController?.abort(); if(poll)clearTimeout(poll); controls();
   }
   function accessError(error) {
@@ -98,7 +100,12 @@
   async function refresh(quiet = false) {
     if(busy)return;
     try {render(await api()); if(!quiet && state.ai_available)say('');}
-    catch(error){clearPrivate();accessError(error);}
+    catch(error){
+      accessError(error);
+      if(!['sign_in','identity_unavailable'].includes(error.reason)){
+        if(poll)clearTimeout(poll);poll=setTimeout(()=>refresh(true),5000);
+      }
+    }
   }
   const scrollLatest = () => { log.scrollTop=log.scrollHeight; stickToBottom=true; jump.hidden=true; };
   log.addEventListener('scroll',()=>{stickToBottom=log.scrollHeight-log.scrollTop-log.clientHeight<80;jump.hidden=stickToBottom;});
@@ -461,12 +468,37 @@
   // Browser storage never contains conversation text, identity or device receipts.
   window.addEventListener('pagehide',clearPrivate);
   window.addEventListener('pageshow',event=>{if(event.persisted){refresh();loadDevices();loadPreference();loadToolPreferences();}});
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!busy)refresh(true);});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(!busy)refresh(true);if(devices.disabled)loadDevices();}});
+  window.addEventListener('online',()=>{if(devices.disabled)loadDevices();});
+  window.addEventListener('westy-connection-ready',()=>{if(devices.disabled)loadDevices();});
   if('BroadcastChannel' in window){const access=new BroadcastChannel('safeharbor-portal-access');document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit',()=>access.postMessage('signed-out'));access.addEventListener('message',event=>{if(event.data==='signed-out'){clearPrivate();say(errors.sign_in);}});}
   async function loadDevices(){
-    try{const next=await api(null,null,'?devices=1');const selected=devices.value;devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';for(const item of next.devices||[]){const option=element('option',item.label);option.value=item.reference;devices.append(option);}devices.disabled=false;if(selected)devices.value=selected;else if(devices.options.length===2)devices.selectedIndex=1;for(const node of nodes.values())node.toolSignature=null;if(state)render(state);}
-    catch(error){accessError(error);devices.disabled=true;devices.options[0].textContent='Computer tools unavailable';}
+    if(devicesLoading)return;devicesLoading=true;
+    if(devicesRetry)clearTimeout(devicesRetry);devicesRetry=null;
+    const epoch=accessEpoch;const selected=devices.value||rememberedDevice;
+    try{
+      const next=await api(null,null,'?devices=1');
+      if(!Array.isArray(next.devices))throw new Error('invalid_devices');
+      devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';
+      for(const item of next.devices){const option=element('option',item.label);option.value=item.reference;devices.append(option);}
+      devices.disabled=false;
+      if(selected){devices.value=selected;rememberedDevice=selected;}
+      else if(devices.options.length===2){devices.selectedIndex=1;rememberedDevice=devices.value;}
+      for(const node of nodes.values())node.toolSignature=null;if(state)render(state);
+    }
+    catch(error){
+      if(epoch!==accessEpoch)return;
+      rememberedDevice=selected;
+      if(['sign_in','identity_unavailable'].includes(error.reason)){accessError(error);return;}
+      devices.disabled=true;
+      say('Computer tools are temporarily unavailable. Checking the connection again.');
+      devices.options[0].textContent='Computer tools unavailable — checking again';
+      // Only refresh availability. Unknown commands, messages and approvals are
+      // never submitted by this recovery path, and another computer is not selected.
+      if(epoch===accessEpoch)devicesRetry=setTimeout(loadDevices,5000);
+    }finally{devicesLoading=false;}
   }
+  devices.addEventListener('change',()=>{rememberedDevice=devices.value||null;});
   let preferenceControl=null;
   async function loadPreference(){
     try{

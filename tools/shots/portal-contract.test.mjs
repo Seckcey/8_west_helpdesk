@@ -1049,6 +1049,115 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
   }}finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
+if (!SERVE_MODE) test('startup metadata bypasses slow history, releases the session and reauthorizes before output',async()=>{
+  const scratch=await mkdtemp(path.join(tmpdir(),'westy-metadata-'));
+  try{
+    await mkdir(path.join(scratch,'app/public/portal'),{recursive:true});await mkdir(path.join(scratch,'app/lib'),{recursive:true});
+    await writeFile(path.join(scratch,'app/public/portal/westy.php'),await readFile(path.join(ROOT,'app/public/portal/westy.php')));
+    await writeFile(path.join(scratch,'app/lib/portal_auth.php'),'<?php');await writeFile(path.join(scratch,'app/lib/portal_westy.php'),'<?php');
+    await writeFile(path.join(scratch,'app/lib/bootstrap.php'),String.raw`<?php
+      session_save_path(dirname(__DIR__,2));session_id('metadata-fixture');session_start();
+      $_SERVER['REQUEST_METHOD']='GET';parse_str($argv[1],$_GET);$GLOBALS['calls']=[];
+      function enforce_https(){} function portal_enabled(){return true;} function db(){return null;}
+      function portal_authenticated_context($db){return ['identity'=>['subject'=>'fixture','binding_id'=>1]];}
+      function portal_desktop_capture_context($c){return $c;}
+      function portal_desktop_same_context($a,$b){return $a===$b;}
+      function portal_westy_state(...$args){throw new RuntimeException('history must not run for metadata');}
+      function fixture_call($name){if(session_status()===PHP_SESSION_ACTIVE)throw new RuntimeException('session lock held');$GLOBALS['calls'][]=$name;}
+      function portal_devices_request(...$args){fixture_call('devices');return ['items'=>[['reference'=>'fixture-device','label'=>'Synthetic computer']]];}
+      function portal_westy_runs_installed($db){return true;} function portal_westy_terminal_installed($db){return true;}
+      function portal_desktop_request($c,$op,$input){fixture_call($op);return $op==='shell_preferences'?['automatic_diagnostics'=>true]:['revision'=>0,'execution_guard'=>'allow','restrictions'=>['commands'=>true]];}
+      function portal_stream_authenticated_context($db,$id){
+        fixture_call('reauthorize');if($id!=='metadata-fixture')throw new RuntimeException('wrong session');
+        if(($GLOBALS['argv'][2]??'')==='revoked')return null;
+        $c=portal_authenticated_context($db);if(($GLOBALS['argv'][2]??'')==='rebound')$c['identity']['binding_id']=2;return $c;
+      }
+      function json_out($body,$status=200){echo json_encode(['status'=>$status,'body'=>$body,'calls'=>$GLOBALS['calls']]);exit;}
+    `);
+    const run=(query,mode='')=>{
+      const result=spawnSync('php',[path.join(scratch,'app/public/portal/westy.php'),query,mode],{encoding:'utf8'});
+      assert.equal(result.status,0,result.stderr);assert.equal(result.stderr,'');return JSON.parse(result.stdout);
+    };
+    const all=run('devices=1&diagnostic_preference=1&tool_preferences=1');
+    assert.equal(all.status,200);assert.equal(all.body.ok,true);
+    assert.deepEqual(Object.keys(all.body.state),['devices','diagnostic_preference','tool_preferences']);
+    assert.equal(all.body.state.devices[0].label,'Synthetic computer');assert.equal(all.body.state.tool_preferences.execution_guard,'allow');
+    assert.deepEqual(all.calls,['devices','shell_preferences','terminal_preferences','reauthorize']);
+    const devices=run('devices=1');assert.deepEqual(Object.keys(devices.body.state),['devices']);
+    for(const mode of ['revoked','rebound']){
+      const denied=run('devices=1',mode);assert.equal(denied.status,401);assert.deepEqual(denied.body,{ok:false,reason:'sign_in'});
+    }
+  }finally{await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('startup availability recovers without replay, changing computers or retrying revoked access',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const reference='1:'+'c'.repeat(64),other='1:'+'d'.repeat(64);let deviceCalls=0,historyCalls=0,failDevice=true,revoked=false,items=[{reference,label:'Synthetic computer'}];
+  const handler=async route=>{
+    assert.equal(route.request().method(),'GET','availability recovery never sends a command, message or approval');
+    const url=new URL(route.request().url());let state={};
+    if(url.searchParams.has('devices')){
+      deviceCalls++;
+      if(revoked)return route.fulfill({json:{ok:false,reason:'sign_in'}});
+      if(failDevice){failDevice=false;return route.fulfill({json:{ok:false,reason:'unavailable'}});}
+      state={devices:items};
+    }else if(url.searchParams.has('diagnostic_preference'))state={diagnostic_preference:{automatic_diagnostics:true}};
+    else if(url.searchParams.has('tool_preferences'))state={tool_preferences:{revision:0,restrictions:{commands:true},execution_guard:'allow'}};
+    else{
+      historyCalls++;if(historyCalls===1)return route.fulfill({json:{ok:false,reason:'unavailable'}});
+      state={enabled:true,ai_available:true,can_write:true,conversation:null,conversations:[],turns:[],draft:null};
+    }
+    return route.fulfill({json:{ok:true,state}});
+  };
+  try{
+    const {page,context,consoleProblems}=await openPortalPage(browser,pages,{width:1100,height:850},handler);
+    try{
+      await page.route('**/portal/desktop_sessions.php',route=>route.fulfill({json:{ok:true,result:{sessions:[]}}}));
+      await page.clock.install();await page.goto(ORIGIN+'/portal/');assert.match(await page.title(),/Westy|Safeharbor/i);
+      await page.waitForFunction(()=>document.querySelector('#portal-chat-device option').textContent.includes('checking again'));
+      await page.clock.fastForward(5100);
+      await page.waitForFunction(()=>!document.querySelector('#portal-chat-device').disabled&&!document.querySelector('#portal-chat-input').disabled);
+      assert.equal(await page.locator('#portal-chat-device').inputValue(),reference);assert.ok(deviceCalls>=2&&historyCalls>=2);
+      failDevice=true;
+      await page.evaluate(()=>{document.querySelector('#portal-chat-device').disabled=true;window.dispatchEvent(new Event('online'));});
+      await page.getByText('Computer tools are temporarily unavailable. Checking the connection again.',{exact:true}).waitFor();
+      await page.clock.fastForward(5100);await page.waitForFunction(()=>!document.querySelector('#portal-chat-device').disabled);
+      assert.equal(await page.locator('#portal-chat-device').inputValue(),reference,'same selected computer survives an outage');
+      items=[{reference:other,label:'Different computer'}];
+      await page.evaluate(()=>{document.querySelector('#portal-chat-device').disabled=true;window.dispatchEvent(new Event('westy-connection-ready'));});
+      await page.waitForFunction(()=>!document.querySelector('#portal-chat-device').disabled);
+      assert.equal(await page.locator('#portal-chat-device').inputValue(),'','recovery never substitutes another computer');
+      revoked=true;
+      await page.evaluate(()=>{document.querySelector('#portal-chat-device').disabled=true;window.dispatchEvent(new Event('online'));});
+      await page.getByText('Your sign-in ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
+      const stoppedAt=deviceCalls;await page.clock.fastForward(15000);assert.equal(deviceCalls,stoppedAt);
+      assert.equal(await page.locator('#portal-chat-device').isDisabled(),true);assert.deepEqual(consoleProblems,[]);
+    }finally{await context.close();}
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('browser handoff retries the same receipt after interruption and reloads once on success',async()=>{
+  const script=await readFile(path.join(ROOT,'app/public/assets/js/desktop-handoff.js'),'utf8');
+  const browser=await chromium.launch();const page=await browser.newPage();let loads=0,posts=0;const errors=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  try{
+    await page.clock.install();
+    await page.route('**/*',route=>{
+      const req=route.request();assert.equal(new URL(req.url()).origin,ORIGIN);
+      if(req.method()==='POST'){
+        posts++;assert.equal(req.headers()['x-portal-csrf'],'fixture-csrf');assert.deepEqual(req.postDataJSON(),{handoff:'a'.repeat(32)});
+        return route.fulfill({json:posts===1?{ok:false,reason:'unavailable'}:{ok:true,ready:true}});
+      }
+      loads++;return route.fulfill({contentType:'text/html',body:loads===1
+        ?`<!doctype html><title>Westy sign-in fixture</title><main id="desktop-handoff" data-csrf="fixture-csrf" data-handoff="${'a'.repeat(32)}"><p id="desktop-handoff-status">Waiting</p></main><script>${script}</script>`
+        :'<title>Westy workspace fixture</title><main>Connected workspace</main>'});
+    });
+    await page.goto(ORIGIN+'/portal/desktop.php');await page.getByText('Connection interrupted.',{exact:false}).waitFor();
+    assert.equal(loads,1);await page.clock.fastForward(1600);await page.getByText('Connected workspace',{exact:true}).waitFor();
+    await page.clock.fastForward(5000);assert.equal(loads,2);assert.equal(posts,2);assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
 if (!SERVE_MODE) test('general runtime shows exact approval, live output, Stop and personal restrictions on desktop and mobile',async()=>{
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
   try{for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
