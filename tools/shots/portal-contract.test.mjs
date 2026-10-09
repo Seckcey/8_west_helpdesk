@@ -18,6 +18,7 @@ const PORTAL_ASSETS = {
   '/assets/css/portal-devices.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-devices.css'))],
   '/assets/css/portal-mobile.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-mobile.css'))],
   '/assets/css/portal-security.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-security.css'))],
+  '/assets/js/portal-computer-time.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-computer-time.js'))],
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
   '/assets/js/portal-desktop.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-desktop.js'))],
   '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
