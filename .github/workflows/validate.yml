@@ -64,6 +64,8 @@ jobs:
         run: node tools/shots/portal-reply-actions.test.mjs
       - name: Test Westy ownership and reply guidance in a real browser
         run: node tools/shots/westy-workflow-contract.test.mjs
+      - name: Test selected-computer timezone contracts
+        run: node --test tools/shots/computer-time-contract.test.mjs
 
   php:
     needs: changes

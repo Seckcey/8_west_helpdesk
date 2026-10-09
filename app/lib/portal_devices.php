@@ -129,6 +129,7 @@ function portal_devices_timestamp(mixed $value): bool
 /** Reject unexpected/malformed projections before they reach the renderer or browser. */
 function portal_devices_result(string $action, array $result): array
 {
+    require_once __DIR__.'/portal_computer_time.php';
     if(str_starts_with($action,'security_')) {
         require_once __DIR__.'/portal_security_orders.php';
         return portal_security_orders_result($action,$result);
@@ -143,11 +144,12 @@ function portal_devices_result(string $action, array $result): array
             || count($result['items'])>50 || ($result['next_after']!==null && (!is_int($result['next_after']) || $result['next_after']<1))) $fail();
         foreach($result['items'] as &$row) {
             $keys=['reference','label','platform','connection','connection_label','connection_help','last_seen_at','troubleshooting'];
-            $optional=is_array($row)?array_intersect_key($row,array_flip(['hardware','terminal_capabilities'])):[];
+            $optional=is_array($row)?array_intersect_key($row,array_flip(['hardware','terminal_capabilities','computer_time'])):[];
             if (!is_array($row) || !portal_devices_keys(array_diff_key($row,$optional),$keys)
                 || !is_string($row['reference']) || preg_match('/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D',$row['reference'])!==1
                 || !in_array($row['connection'],['waiting','stale','inventory','reporting'],true) || $row['troubleshooting']!=='support_request'
                 || ($row['last_seen_at']!==null && !portal_devices_timestamp($row['last_seen_at']))) $fail();
+            if(array_key_exists('computer_time',$row))$row['computer_time']=portal_computer_time_validate($row['computer_time']);
             if(array_key_exists('terminal_capabilities',$row)){
                 if(!is_array($row['terminal_capabilities'])||!portal_devices_keys($row['terminal_capabilities'],['user','system']))$fail();
                 foreach($row['terminal_capabilities'] as &$capability){
