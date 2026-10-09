@@ -61,6 +61,8 @@ release-review gate; no live approval or proof timestamp is changed here.
 - `node --test tools/shots/computer-time-contract.test.mjs`: five tests covering
   browser-clock independence, timezone selection, DST gaps/repeated hours,
   half-hour offsets, UTC, expiry and the PHP consumer checks.
+- Existing `tools/shots/portal-contract.test.mjs`: all 17 browser scenarios
+  passed with the new helper asset available; existing scenarios are unchanged.
 - Real PHP workspace shell and production JS/CSS rendered through a synthetic
   Playwright router at `http://safeharbor.test/portal/`. Desktop 1100×800 and
   mobile 390×844 passed: Pacific/Eastern switching with browser timezone Tokyo,
