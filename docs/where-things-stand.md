@@ -1,6 +1,16 @@
 # Where things stand
 
-**October 7 Westy acceptance repair:** the previous paired release installed
+**October 8 Westy control repair — deployed:** Safeharbor's accepted narrow
+`e50ad5198d9267fb1fa469c7a303f365de2b6694` repair is installed, the original
+report schedule is active, and the current source/customer/schema/cleanup
+review passed. The paired private 1.26.12 installer is signed and independently
+verified; staging and Frankie-owned installation/physical acceptance remain
+separate. No migration or new provider test was performed. Intervening
+branding/catalog/clock/feedback/employee source changes are not included in
+this runtime. See the [actual release, recovery and remaining acceptance](westy-control-repair-release-2026-10-08.md).
+Earlier dated checkpoints below preserve their original observations.
+
+**Historical October 7 Westy acceptance repair:** the previous paired release installed
 Safeharbor `8a4d78a3ade58ce308862a7666421e8c7a57a568` and its matching Milepost
 backend. The owner installed private Full 1.26.7 on 8WV-FRANKIE and then reported
 connection, control and presentation failures. [PR #183](https://github.com/Seckcey/8_west_helpdesk/pull/183)
