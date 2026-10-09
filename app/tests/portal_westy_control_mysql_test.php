@@ -28,7 +28,7 @@ $controlTransport=static function(string $body,array $headers)use($pdo,$a,$scope
             $stopActivation=false;$cancel=static function($b,$h)use(&$controlState):array{$controlState['state']='stopped';return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>$controlState])];};
             portal_westy_run_stop($pdo,$a,$scope,$input['run_id'],$cancel);
         }elseif($controlState['state']!=='stopped')$controlState['state']='active';
-    }elseif($action==='control_cancel')$controlState['state']='stopped';
+    }elseif($action==='control_cancel'||$action==='stop')$controlState['state']='stopped';
     elseif($action!=='control_result'&&$action!=='state')throw new RuntimeException('Unexpected control action '.$action);
     return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>$controlState])];
 };
@@ -52,6 +52,110 @@ check($controlCalls===['control_start','control_cancel']&&$controlState['state']
 $run=portal_westy_run_find($pdo,$scope,$request['operation']);check(portal_westy_run_result($a,$run,$controlTransport)['receipt']['state']==='unknown','lost control receipt remains unknown');
 $loseControl=false;$stopActivation=true;$controlCalls=[];$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
 check($controlState['state']==='stopped'&&portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='stopped','Stop during activation wins over its late response');
+
+// A real completed continuation releases its control even after pending intent
+// has been replaced. Neither provider inference nor input may be replayed.
+$controlCalls=[];$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
+$completionRun=portal_westy_run_find($pdo,$scope,$request['operation']);$completedTask=$controlState['task_id'];$completionCalls=0;
+check(!in_array('stop',$controlCalls,true),'waiting for control retains its live task');
+$completionProvider=static function($selection,$system,$messages,$options,$emit,$alive)use(&$completionCalls):array{
+    $completionCalls++;$emit('The synthetic computer task response is complete.');
+    return ['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>20]];
+};
+$completionRequest=['action'=>'run_resume','operation'=>$request['operation'],'conversation'=>$completionRun['conversation_id'],'sequence'=>1];
+$complete=static fn()=>portal_westy_message($pdo,$a,$completionRequest,$completionProvider,static fn()=>$a,transport:$controlTransport,aiResolver:$resolver);
+$complete();
+check($controlState['state']==='stopped'&&count(array_filter($controlCalls,static fn($action)=>$action==='stop'))===1,
+    'actual final response releases the exact active control task once');
+$q=$pdo->prepare('SELECT * FROM portal_desktop_bindings WHERE session_id=?');$q->execute([$session]);$cleared=$q->fetch();
+check($cleared['task_id']===null&&$cleared['operation_key']===null&&$cleared['conversation_id']===null&&$cleared['origin_session_hash']===null,
+    'confirmed completion clears only the task binding and preserves the pairing');
+$q=$pdo->prepare('SELECT reply_json,charged_microusd FROM portal_westy_turns WHERE id=?');$q->execute([$completionRun['turn_id']]);$completedTurn=$q->fetch();
+check(str_contains($completedTurn['reply_json'],$completedTask)&&str_contains($completedTurn['reply_json'],'response is complete'),'completion keeps the saved receipt and final answer');
+$completedCalls=$controlCalls;$complete();
+check($completionCalls===1&&$controlCalls===$completedCalls,'reconnect after cleanup replays neither provider nor desktop request');
+$q->execute([$completionRun['turn_id']]);check($q->fetch()===$completedTurn,'completion cleanup does not change paid accounting or receipts');
+
+foreach(['continuation',null] as $pendingKind){
+    $controlCalls=[];$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
+    $q=$pdo->prepare('UPDATE portal_westy_tool_runs SET pending_json=? WHERE scope_key=? AND operation_key=?');
+    $q->execute([$pendingKind===null?null:json_encode(['kind'=>$pendingKind]),$scope['key'],$request['operation']]);
+    portal_westy_run_stop($pdo,$a,$scope,$request['operation'],$controlTransport);
+    check($controlState['state']==='stopped'&&array_slice($controlCalls,-1)===['stop']&&!in_array('control_cancel',$controlCalls,true),
+        'Stop finds exact bound control after the pending intent has changed: '.($pendingKind??'null'));
+}
+
+foreach(['missing','replacement'] as $bindingChange){
+    $request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
+    $knownRun=portal_westy_run_find($pdo,$scope,$request['operation']);$replacement=bin2hex(random_bytes(16));
+    if($bindingChange==='missing')$pdo->prepare('DELETE FROM portal_desktop_bindings WHERE session_id=?')->execute([$session]);
+    else $pdo->prepare('UPDATE portal_desktop_bindings SET task_id=?,operation_key=? WHERE session_id=?')->execute([$replacement,$replacement,$session]);
+    $controlCalls=[];
+    try{portal_westy_run_stop($pdo,$a,$scope,$request['operation'],$controlTransport);check(false,'known pending task without exact binding falsely confirmed Stop: '.$bindingChange);}
+    catch(PortalWestyException $error){check($error->reason==='stop_unconfirmed','missing exact binding retains truthful Stop uncertainty: '.$bindingChange);}
+    check($controlCalls===[]&&portal_westy_run_find($pdo,$scope,$request['operation'])['pending_json']===$knownRun['pending_json'],
+        'unbound known task keeps its intent and cannot cancel a replacement: '.$bindingChange);
+    if($bindingChange==='replacement'){
+        $q=$pdo->prepare('SELECT task_id FROM portal_desktop_bindings WHERE session_id=?');$q->execute([$session]);
+        check($q->fetchColumn()===$replacement,'replacement binding survives Stop of the old run');
+    }else $pdo->prepare('INSERT INTO portal_desktop_bindings(session_id,tenant_id,client_id,subject,scope_key,expires_at) VALUES(?,?,?,?,?,?)')
+        ->execute([$session,$scope['tenant'],$scope['client'],$a['identity']['subject'],$scope['key'],gmdate('Y-m-d H:i:s',time()+1800)]);
+}
+
+foreach(['lost','missing_identity','wrong_session','wrong_task','still_active','replacement','expired_binding'] as $mode){
+    $controlCalls=[];$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
+    $releaseRun=portal_westy_run_find($pdo,$scope,$request['operation']);$releaseTask=$controlState['task_id'];$releaseCalls=0;$replacement=bin2hex(random_bytes(16));
+    $pdo->prepare("UPDATE portal_westy_tool_runs SET state='running' WHERE turn_id=?")->execute([$releaseRun['turn_id']]);
+    if($mode==='expired_binding')$pdo->prepare('UPDATE portal_desktop_bindings SET expires_at=? WHERE session_id=?')->execute([gmdate('Y-m-d H:i:s',time()-1),$session]);
+    $releaseTransport=static function(string $body)use($pdo,$scope,$session,$releaseTask,$mode,$replacement,&$releaseCalls):array{
+        $releaseCalls++;$wire=json_decode($body,true);
+        check($wire['action']==='stop'&&$wire['input']===['session_id'=>$session,'task_id'=>$releaseTask],'release transmits only immutable exact task identity');
+        if($mode==='lost')throw new PortalDesktopException('connection_unknown');
+        if($mode==='replacement')$pdo->prepare('UPDATE portal_desktop_bindings SET task_id=?,operation_key=? WHERE session_id=? AND scope_key=?')->execute([$replacement,$replacement,$session,$scope['key']]);
+        $result=['session_id'=>$session,'task_id'=>$releaseTask,'state'=>'stopped'];
+        if($mode==='missing_identity')unset($result['session_id']);
+        if($mode==='wrong_session')$result['session_id']=$replacement;
+        if($mode==='wrong_task')$result['task_id']=$replacement;
+        if($mode==='still_active')$result['state']='active';
+        return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>$result])];
+    };
+    $confirmed=in_array($mode,['replacement','expired_binding'],true);
+    try{portal_westy_run_end($pdo,$scope,$request['operation'],'complete',$a,$releaseTransport);check($confirmed,'unconfirmed release must fail: '.$mode);}
+    catch(PortalWestyException $error){check(!$confirmed&&$error->reason==='stop_unconfirmed','uncertain release returns stop_unconfirmed: '.$mode);}
+    $q=$pdo->prepare('SELECT task_id,operation_key FROM portal_desktop_bindings WHERE session_id=?');$q->execute([$session]);$after=$q->fetch();
+    check($releaseCalls===1,'release never retries a lost or mismatched response: '.$mode);
+    check($after['task_id']===($mode==='replacement'?$replacement:($confirmed?null:$releaseTask)), 'only a confirmed exact binding is cleared: '.$mode);
+    if($mode==='replacement')check($after['operation_key']===$replacement,'replacement run correlation survives the late stop reply');
+    $ended=portal_westy_run_find($pdo,$scope,$request['operation']);
+    check($ended['state']==='complete'&&$ended['replay_json']===null&&$ended['pending_json']===null,'uncertain stop cannot revive completed inference: '.$mode);
+    $pdo->prepare('UPDATE portal_desktop_bindings SET expires_at=? WHERE session_id=?')->execute([gmdate('Y-m-d H:i:s',time()+1800),$session]);
+}
+
+// Every persisted correlation dimension participates in selecting the old task.
+$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
+$exactRun=portal_westy_run_find($pdo,$scope,$request['operation']);$unexpectedStops=0;
+$noStop=static function()use(&$unexpectedStops):array{$unexpectedStops++;throw new RuntimeException('Unexpected cleanup request');};
+foreach(['tenant_id'=>2,'client_id'=>12,'scope_key'=>str_repeat('f',64),'operation_key'=>str_repeat('f',32),
+    'conversation_id'=>str_repeat('f',32),'origin_channel'=>'companion','origin_session_hash'=>str_repeat('f',64)] as $field=>$otherValue){
+    $q=$pdo->prepare('SELECT '.$field.' FROM portal_desktop_bindings WHERE session_id=?');$q->execute([$session]);$original=$q->fetchColumn();
+    $pdo->prepare('UPDATE portal_desktop_bindings SET '.$field.'=? WHERE session_id=?')->execute([$otherValue,$session]);
+    check(!portal_westy_control_release($pdo,$a,$exactRun,$noStop),'different binding dimension cannot be stopped: '.$field);
+    $pdo->prepare('UPDATE portal_desktop_bindings SET '.$field.'=? WHERE session_id=?')->execute([$original,$session]);
+}
+try{portal_westy_control_release($pdo,$b,$exactRun,$noStop);check(false,'different customer accepted cleanup');}
+catch(PortalWestyException $error){check($error->reason==='stop_unconfirmed','different customer cannot release an old run');}
+$_SESSION['desktop_companion_session']=str_repeat('f',32);
+try{portal_westy_control_release($pdo,$a,$exactRun,$noStop);check(false,'different origin accepted cleanup');}
+catch(PortalWestyException $error){check($error->reason==='stop_unconfirmed','different origin cannot release an old run');}
+unset($_SESSION['desktop_companion_session']);
+$ambiguousSession=bin2hex(random_bytes(16));
+$pdo->prepare('INSERT INTO portal_desktop_bindings(session_id,tenant_id,client_id,subject,scope_key,conversation_id,operation_key,origin_channel,origin_session_hash,task_id,expires_at) SELECT ?,tenant_id,client_id,subject,scope_key,conversation_id,operation_key,origin_channel,origin_session_hash,task_id,expires_at FROM portal_desktop_bindings WHERE session_id=?')->execute([$ambiguousSession,$session]);
+try{portal_westy_control_release($pdo,$a,$exactRun,$noStop);check(false,'ambiguous binding accepted cleanup');}
+catch(PortalWestyException $error){check($error->reason==='stop_unconfirmed','ambiguous binding cannot choose a computer to stop');}
+$pdo->prepare('DELETE FROM portal_desktop_bindings WHERE session_id=?')->execute([$ambiguousSession]);
+check($unexpectedStops===0,'mismatched run or binding performs no network request');
+portal_westy_run_stop($pdo,$a,$scope,$request['operation'],$controlTransport);
+
 $desktopCalls=[];$loseLaunch=false;$launchArguments=['inventory_id'=>bin2hex(random_bytes(16)),
     'application'=>'notepad.exe','arguments'=>['synthetic literal file name.txt']];
 $desktopTransport=static function(string $body)use(&$desktopCalls,&$loseLaunch,$bound,$launchArguments):array{

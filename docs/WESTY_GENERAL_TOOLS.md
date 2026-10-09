@@ -173,6 +173,20 @@ key chords. The observed browser address control supplies `browser_url`; the mod
 must not infer a destination from a requested URL. Desktop polling remains available
 while independent terminal work runs.
 
+Durable desktop replay keeps the existing public action receipt, including an
+executed, refused or unknown result and its action ID. Only screenshots and
+private UI observations expire; the resumed model must request a new observation
+without repeating an executed or uncertain action.
+
+A final response releases the desktop task bound to that exact customer, run,
+conversation and sign-in origin. Waiting continuations keep control. Explicit Stop
+also finds the binding after its pending intent has changed or been cleared.
+Safeharbor clears the task binding only after Milepost confirms the same session
+and task are stopped. A missing, mismatched or lost response reports
+`stop_unconfirmed` and retains the binding; a late response cannot clear a newer
+task. Finished inference and paid receipts remain saved and cannot be replayed.
+This desktop cleanup does not declare a separate terminal process finished.
+
 The model retains completed tool messages when it yields after five provider rounds
 and resumes within the existing paid run budget without replaying those calls. This
 supports adaptive troubleshooting; a rejected pre-execution intent can be corrected,

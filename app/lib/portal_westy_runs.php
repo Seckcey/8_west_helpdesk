@@ -51,7 +51,16 @@ function portal_westy_run_replay(array $messages):string
         $parts=[];
         foreach($message['content']??[] as $part){
             if(($part['type']??'')!=='text')continue;
-            if(str_contains($part['text'],'"untrusted_observation"'))$part=['type'=>'text','text'=>'Desktop observation expired. Obtain a fresh observation before acting.'];
+            if(str_contains($part['text'],'"untrusted_observation"')){
+                $envelope=json_decode($part['text'],true);
+                // The public receipt is durable evidence of execution (or its
+                // uncertainty). Only the attached screen contents expire.
+                $part=['type'=>'text','text'=>is_array($envelope)&&is_array($envelope['result']??null)
+                    &&array_key_exists('untrusted_observation',$envelope)
+                    ?json_encode(['result'=>$envelope['result'],'observation_status'=>'expired',
+                        'guidance'=>'Obtain a fresh observation before acting. Preserve this receipt; do not repeat an executed or uncertain action.'],JSON_THROW_ON_ERROR)
+                    :'Desktop observation expired. Obtain a fresh observation before acting.'];
+            }
             $parts[]=$part;
         }
         $message['content']=$parts?:[['type'=>'text','text'=>'Transient observation expired.']];
@@ -146,11 +155,15 @@ function portal_westy_run_public(PDO $pdo,array $context,array $scope,string $op
             'reason'=>$result['receipt']['review']['reason']??$result['receipt']['reason']??'Review the exact action.'];
     return $public;
 }
-function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $state):void
+function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $state,array $context,?callable $transport=null):void
 {
     if(!portal_westy_runs_installed($pdo))return;
+    $run=portal_westy_run_find($pdo,$scope,$operation);
     $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET state=?,replay_json=NULL,pending_json=NULL WHERE scope_key=? AND operation_key=? AND state='running'");
     $q->execute([$state,$scope['key'],$operation]);
+    // Accounting and receipts are already durable. An unconfirmed stop retains
+    // its binding, but cannot replay the finished inference or desktop action.
+    if($run)portal_westy_control_release($pdo,$context,$run,$transport);
 }
 function portal_westy_run_stop(PDO $pdo,array $context,array $scope,string $operation,?callable $transport=null):void
 {
@@ -165,7 +178,9 @@ function portal_westy_run_stop(PDO $pdo,array $context,array $scope,string $oper
         $q=$pdo->prepare("UPDATE portal_westy_turns SET state='unavailable',reason_code='stopped',finished_at=? WHERE scope_key=? AND operation_key=? AND state IN ('pending','complete')");$q->execute([gmdate('Y-m-d H:i:s'),$scope['key'],$operation]);
         $pdo->commit();
     }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}
-    $unconfirmed=false;
+    $unconfirmed=false;$controlReleased=false;$controlUnconfirmed=false;
+    try{$controlReleased=portal_westy_control_release($pdo,$context,$run,$transport);}
+    catch(Throwable){$unconfirmed=$controlUnconfirmed=true;}
     if(portal_westy_terminal_installed($pdo))foreach(portal_westy_terminal_processes($run) as $handle=>$stored){
         $process=portal_westy_terminal_owned_process($run,$handle);
         try{portal_desktop_request($context,'terminal_cancel',array_intersect_key($process,array_flip(['run_id','conversation_id','origin_channel','action_id']))+['request_key'=>null],$transport);}
@@ -182,9 +197,17 @@ function portal_westy_run_stop(PDO $pdo,array $context,array $scope,string $oper
             catch(PortalDesktopException $error){if($error->reason!=='action_unavailable')$unconfirmed=true;}
             catch(Throwable){$unconfirmed=true;}
         }
-        if(($pending['kind']??null)==='control'){
-            try{portal_desktop_request($context,'control_cancel',$pending['input'],$transport);}
-            catch(Throwable){$unconfirmed=true;}
+        if(($pending['kind']??null)==='control'&&!$controlReleased&&!$controlUnconfirmed){
+            if(portal_desktop_id($pending['session_id']??null)&&portal_desktop_id($pending['task_id']??null)){
+                // Losing or replacing a known binding is not a stop receipt.
+                // Preserve its intent; never redirect cancellation to a new task.
+                $unconfirmed=true;
+            }else{
+                // A lost prepare may have no saved task binding. Keep its original
+                // cancellation-by-request-key recovery; never repeat preparation.
+                try{portal_desktop_request($context,'control_cancel',$pending['input'],$transport);}
+                catch(Throwable){$unconfirmed=true;}
+            }
         }
     }
     if($unconfirmed)throw new PortalWestyException('stop_unconfirmed');
