@@ -12,7 +12,7 @@ function portal_device_operation_fields(array $device,string $action):void
 
 function portal_render_device_help(array $context,array $device,array $operations,?string $error=null):void
 {
-    $manage=portal_devices_can_manage($context);$available=$operations['available'];
+    $manage=portal_devices_can_operate($context);$available=$operations['available'];
     $eligibility=$operations['eligibility']??['can_check'=>false,'can_propose_repair'=>false,'reason'=>'not_available'];
     $held=in_array($eligibility['reason'],['support_review','execution_unresolved'],true);
     $repairHeld=($eligibility['repair_reason']??$eligibility['reason'])==='support_review';
@@ -41,7 +41,7 @@ function portal_render_device_help(array $context,array $device,array $operation
    <?php elseif($pending):?><p role="status">A check or approved repair is in progress. Keep the computer on and connected. This page refreshes while you keep it open.</p>
    <?php elseif($manage&&$available&&$eligibility['can_check']&&$device['connection']==='reporting'&&stripos($device['platform'],'windows')!==false):?>
    <form method="post" action="<?= portal_h($self) ?>"><?php portal_device_operation_fields($device,'health_start');?><input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>"><label class="portal-device-consent"><input type="checkbox" name="consent" value="yes" required><span>I authorize this health check on <?= portal_h($device['label']) ?>.</span></label><button class="btn-primary">Run health check</button></form>
-   <?php elseif(!$manage):?><p class="portal-hint">A business owner or admin can run checks and approve repairs.</p>
+   <?php elseif(!$manage):?><p class="portal-hint">Your read-only account can view the checks recorded for this computer.</p>
    <?php else:?><p class="portal-hint">Checks require a supported Windows computer with a recent check-in. Keep it online, then refresh its status.</p><?php endif;?>
   </section>
   <?php if($repairHeld&&!$held):?><p class="portal-hint">Support reserves changes to this computer. You can still run read-only health checks. Contact support before a repair.</p><?php endif;?>

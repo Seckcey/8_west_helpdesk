@@ -27,6 +27,9 @@ function portal_devices_config(): array
 function portal_devices_can_manage(array $context): bool
 { return in_array(portal_customer_role($context['identity']??[]), PORTAL_DEVICES_WRITE_ROLES, true); }
 
+function portal_devices_can_operate(array $context): bool
+{ return in_array(portal_customer_role($context['identity']??[]), ['client_owner','client_admin','client_staff'], true); }
+
 function portal_devices_scope(PDO $pdo, array $context, ?callable $accessTransport=null): array
 {
     $i = $context['identity'] ?? [];
@@ -73,6 +76,7 @@ function portal_devices_transport(string $endpoint, string $body, array $headers
 function portal_devices_request(PDO $pdo, array $context, string $action, array $input, ?callable $transport = null, ?callable $accessTransport=null): array
 {
     if (!in_array($action, ['devices','enrollments','enrollment_create','enrollment_download','enrollment_revoke',
+        'device_access_list','device_access_create','device_access_redeem','device_access_revoke',
         'operations','health_start','temp_start','repair_propose','repair_approve','operation_cancel',
         'security_orders','security_review','security_accept','security_continue','security_install','security_refresh'], true)) {
         throw new PortalDevicesException('invalid_request', 400);
@@ -81,8 +85,15 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
         if ((cfg('portal_devices',[])['security_orders_enabled']??false)!==true) throw new PortalDevicesException('orders_unavailable');
         if ($action!=='security_orders' && !portal_devices_can_manage($context)) throw new PortalDevicesException('role',403);
     }
-    if ((str_starts_with($action, 'enrollment_') || in_array($action,['health_start','temp_start','repair_propose','repair_approve','operation_cancel'],true))
+    if ((str_starts_with($action, 'enrollment_') || in_array($action,['device_access_list','device_access_create','device_access_revoke'],true))
         && !portal_devices_can_manage($context)) throw new PortalDevicesException('role', 403);
+    if (in_array($action,['health_start','temp_start','repair_propose','repair_approve','operation_cancel'],true)
+        && !portal_devices_can_operate($context)) throw new PortalDevicesException('role', 403);
+    if ($action==='device_access_redeem') {
+        if (!in_array(portal_customer_role($context['identity']??[]), ['client_staff','client_viewer'], true)) throw new PortalDevicesException('role',403);
+        // A label comes from the verified session. Identity and device authority are never selected by this text.
+        $input['display_name'] = mb_strcut(trim((string)($context['identity']['display_name']??'')),0,190,'UTF-8');
+    }
     if (in_array($action,['operations','health_start','temp_start','repair_propose','repair_approve','operation_cancel'],true)
         && (cfg('portal_devices',[])['diagnostics_enabled']??false)!==true) throw new PortalDevicesException('operation_unavailable');
     $config = portal_devices_config(); $scope = portal_devices_scope($pdo, $context, $accessTransport);
@@ -99,6 +110,7 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
     if (($response['status'] ?? 0) !== 200 || !is_array($data) || ($data['ok'] ?? null) !== true) {
         $reason = $data['reason'] ?? 'service_unavailable';
         $safe = ['role','customer_unavailable','customer_access_changed','identity_unavailable','enrollment_limit','enrollment_unavailable','unsupported_platform','installer_unavailable',
+            'device_unavailable','device_access_unavailable','device_access_changed',
             'device_offline','operation_unavailable','support_busy','support_status_unavailable','policy_restricted','execution_unresolved','maintenance_active','maintenance_unavailable','rate_limited',
             'fresh_diagnosis_required','approval_expired','approval_changed','repair_cooldown',
             'orders_unavailable','order_unavailable','order_authorization_changed','order_evidence_unavailable',
@@ -139,6 +151,25 @@ function portal_devices_result(string $action, array $result): array
         return portal_device_operations_result($action,$result);
     }
     $fail = static function (): never { throw new PortalDevicesException('service_unavailable'); };
+    if (str_starts_with($action,'device_access_')) {
+        if ($action==='device_access_list' && (!portal_devices_keys($result,['items','next_after']) || !is_array($result['items'])
+            || !array_is_list($result['items']) || count($result['items'])>50
+            || ($result['next_after']!==null && (!is_int($result['next_after']) || $result['next_after']<1)))) $fail();
+        foreach ($action==='device_access_list' ? $result['items'] : [$result] as $row) {
+            $keys=['reference','state','employee','created_at','expires_at'];
+            if ($action==='device_access_create') $keys[]='token';
+            if (!is_array($row) || !portal_devices_keys($row,$keys) || !is_string($row['reference'])
+                || preg_match('/^[a-f0-9]{32}$/D',$row['reference'])!==1 || !in_array($row['state'],['pending','active','revoked','expired'],true)
+                || !portal_devices_timestamp($row['created_at']) || !portal_devices_timestamp($row['expires_at'])
+                || ($row['employee']!==null && (!is_string($row['employee']) || strlen($row['employee'])>190
+                    || preg_match('//u',$row['employee'])!==1 || preg_match('/[\x00-\x1f\x7f]/',$row['employee'])))) $fail();
+            if ($action==='device_access_create' && $row['token']!==null && ($row['state']!=='pending'
+                || !is_string($row['token']) || preg_match('/^[a-f0-9]{64}$/D',$row['token'])!==1)) $fail();
+            if ($action==='device_access_redeem' && $row['state']!=='active') $fail();
+            if ($action==='device_access_revoke' && $row['state']!=='revoked') $fail();
+        }
+        return $result;
+    }
     if ($action==='devices') {
         if (!portal_devices_keys($result,['items','next_after']) || !is_array($result['items']) || !array_is_list($result['items'])
             || count($result['items'])>50 || ($result['next_after']!==null && (!is_int($result['next_after']) || $result['next_after']<1))) $fail();
@@ -193,7 +224,10 @@ function portal_devices_error(string $reason): string
     return match ($reason) {
         'consent_required' => 'Confirm that you are authorized to add this computer before creating a setup link.',
         'operation_consent' => 'Review the check or repair and tick its confirmation before continuing.',
-        'role' => 'A business owner or admin can add devices and manage installation links. Your access lets you view device status.',
+        'role' => 'Your account does not have permission for this action. Business owners and admins manage computer access; employees can work with their assigned computers and viewers can read their status.',
+        'device_unavailable' => 'This computer is not currently assigned to your account or connected to this business. Ask your business owner to check access.',
+        'device_access_unavailable' => 'This private computer link is unavailable. It may have expired, been revoked, or been used by another employee. Ask your business owner for a new link.',
+        'device_access_changed' => 'That request already belongs to a different computer or account state. Check existing access before creating a new link.',
         'enrollment_limit' => 'This business has created 20 installation links in the last day. Use a current link or contact support for a larger rollout.',
         'enrollment_unavailable' => 'That installation link has expired, was revoked, or has already enrolled a computer. Create a new link to try again.',
         'unsupported_platform' => 'Self-service installation currently supports Windows. Contact support to add a Mac or Linux computer.',
