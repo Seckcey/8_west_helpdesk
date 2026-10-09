@@ -90,6 +90,7 @@ function portal_westy_widget(array $context): void
 <?php portal_desktop_controls(); ?>
 <div class="portal-chat-foot"><a href="/portal/guide.php#privacy">Private to you</a><span>·</span><?php if ($canWrite): ?><a href="/portal/new.php">Contact support</a><?php else: ?><span>Viewer access · requests are read-only</span><?php endif; ?></div>
 </section></div>
+<script src="/assets/js/portal-computer-time.js?v=<?= portal_asset_version(__DIR__.'/../public/assets/js/portal-computer-time.js') ?>" defer></script>
 <script src="/assets/js/portal-westy.js?v=<?= portal_asset_version(__DIR__.'/../public/assets/js/portal-westy.js') ?>" defer></script>
 <?php
 }

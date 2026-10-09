@@ -17,6 +17,7 @@ function portal_computer_time_validate(mixed $value, ?int $now=null): ?array
         || $value['schema']!=='milepost.computer_time.v1' || $value['source']!=='agent_inventory'
         || !is_string($value['timezone']) || !in_array($value['timezone'],timezone_identifiers_list(DateTimeZone::ALL_WITH_BC),true)
         || !is_string($value['reported_timezone']) || preg_match('/\A[A-Za-z0-9_+() .\/-]{1,128}\z/D',$value['reported_timezone'])!==1) return null;
+    $times=[];
     foreach(['observed_at','received_at','expires_at','server_now'] as $field){
         $times[$field]=portal_computer_time_instant($value[$field]);
         if($times[$field]===null)return null;

@@ -54,6 +54,10 @@ function portal_westy_tool_call(PDO $pdo,array $context,array $call,string $turn
         if(in_array($action,['health_start','temp_start','repair_propose'],true))$entry['operation']=$result;
         $save();
         // A model can describe approval, but never receives a usable approval capability.
+        if ($name==='list_computers') {
+            require_once __DIR__.'/portal_computer_time.php';
+            $result=portal_computer_time_model_devices($result);
+        }
         return portal_westy_tool_model_result($result);
     }catch(PortalDevicesException $e){
         $entry['state']=$e->reason==='service_unavailable'?'unknown':'unavailable';$entry['reason']=$e->reason;$save();

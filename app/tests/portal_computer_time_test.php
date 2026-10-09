@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/../lib/portal_computer_time.php';
 require_once __DIR__.'/../lib/portal_devices.php';
+require_once __DIR__.'/../lib/portal_westy_device_instructions.php';
 $count=0;
 function time_check(bool $ok,string $label):void {global $count;$count++;if(!$ok)throw new RuntimeException($label);}
 $now=strtotime('2026-07-01T12:00:00Z');
@@ -34,4 +35,7 @@ time_check($result['items'][0]['last_seen_at']===$row['last_seen_at'],'raw UTC r
 $before=date_default_timezone_get();date_default_timezone_set('Asia/Tokyo');
 time_check(portal_computer_time_model_devices(['items'=>[$row+['computer_time'=>$clock]]],$now)['items'][0]['time_display']===$result['items'][0]['time_display'],'server timezone ignored');date_default_timezone_set($before);
 time_check(str_contains(portal_computer_time_instructions(),'SELECTED COMPUTER'),'both provider paths can share selected-computer policy');
+function portal_guide_articles():array { return []; }
+time_check(str_ends_with(portal_westy_device_instructions(false),portal_computer_time_instructions()),'legacy provider path receives policy once');
+time_check(str_ends_with(portal_westy_device_instructions(true),portal_computer_time_instructions()),'general provider path receives policy once');
 echo "$count computer time consumer checks passed\n";
