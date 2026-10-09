@@ -55,7 +55,7 @@ function portal_westy_control_result(array $context,array $pending,?callable $tr
 }
 
 /** Release only this run's bound task. A newer binding must survive a late reply. */
-function portal_westy_control_release(PDO $pdo,array $context,array $run,?callable $transport=null):bool
+function portal_westy_control_release(PDO $pdo,array $context,array $run,?callable $transport=null):?array
 {
     try{
         $where='tenant_id=? AND client_id=? AND scope_key=? AND operation_key=? AND conversation_id=? AND origin_channel=? AND origin_session_hash=?';
@@ -68,10 +68,10 @@ function portal_westy_control_release(PDO $pdo,array $context,array $run,?callab
             // Ordinary chat also runs on deployments without optional desktop
             // schema. Other database failures cannot prove that control ended.
             if(($error->errorInfo[1]??null)===1146||($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='sqlite'
-                &&str_contains($error->getMessage(),'no such table')))return false;
+                &&str_contains($error->getMessage(),'no such table')))return null;
             throw $error;
         }
-        if($bindings===[])return false;
+        if($bindings===[])return null;
         $scope=portal_westy_scope($pdo,$context);
         if($scope['key']!==$run['scope_key']||(int)$run['tenant_id']!==$scope['tenant']
             ||(int)$run['client_id']!==$scope['client']||!portal_westy_run_origin_matches($run))
@@ -85,6 +85,6 @@ function portal_westy_control_release(PDO $pdo,array $context,array $run,?callab
         $q=$pdo->prepare('UPDATE portal_desktop_bindings SET task_id=NULL,conversation_id=NULL,operation_key=NULL,origin_channel=NULL,origin_session_hash=NULL WHERE '
             .$where.' AND session_id=? AND task_id=?');
         $q->execute([...$parameters,$identity['session_id'],$identity['task_id']]);
-        return true;
+        return $identity+['state'=>'stopped'];
     }catch(Throwable){throw new PortalWestyException('stop_unconfirmed');}
 }

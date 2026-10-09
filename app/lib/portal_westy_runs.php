@@ -159,7 +159,7 @@ function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $st
 {
     if(!portal_westy_runs_installed($pdo))return;
     $run=portal_westy_run_find($pdo,$scope,$operation);
-    $known=null;
+    $known=null;$confirmed=null;
     if($run){
         $pending=json_decode((string)$run['pending_json'],true);
         $prior=$context['tool_run']??null;
@@ -168,19 +168,23 @@ function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $st
             $pending=json_decode((string)$prior['pending_json'],true);
         if(($pending['kind']??null)==='control'&&portal_desktop_id($pending['session_id']??null)&&portal_desktop_id($pending['task_id']??null))
             $known=array_intersect_key($pending,array_flip(['kind','session_id','task_id']));
+        if($known!==null&&($pending['terminal']['state']??null)==='stopped'
+            &&($pending['terminal']['session_id']??null)===$known['session_id']&&($pending['terminal']['task_id']??null)===$known['task_id'])
+            $confirmed=$pending['terminal'];
         $desktop=$context['desktop']??null;
         if(is_array($desktop)&&($desktop['operation_key']??null)===$operation&&($desktop['conversation_id']??null)===$run['conversation_id']
             &&($desktop['origin_channel']??null)===$run['origin_channel']&&portal_desktop_id($desktop['session_id']??null)&&portal_desktop_id($desktop['task_id']??null))
             $known=['kind'=>'control','session_id'=>$desktop['session_id'],'task_id'=>$desktop['task_id']];
     }
-    $retained=$known===null?null:json_encode($known,JSON_THROW_ON_ERROR);
+    $retained=$known===null?null:json_encode($known+($confirmed===null?[]:['terminal'=>$confirmed]),JSON_THROW_ON_ERROR);
     $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET state=?,replay_json=NULL,pending_json=? WHERE scope_key=? AND operation_key=? AND state='running'");
     $q->execute([$state,$retained,$scope['key'],$operation]);
     // Accounting and receipts are already durable. An unconfirmed stop retains
     // its binding, but cannot replay the finished inference or desktop action.
     if($run){
         $released=portal_westy_control_release($pdo,$context,$run,$transport);
-        if(!$released&&$known!==null)throw new PortalWestyException('stop_unconfirmed');
+        if(!$released&&$known!==null&&(($confirmed['session_id']??null)!==$known['session_id']||($confirmed['task_id']??null)!==$known['task_id']))
+            throw new PortalWestyException('stop_unconfirmed');
         if($released&&$retained!==null)$pdo->prepare('UPDATE portal_westy_tool_runs SET pending_json=NULL WHERE turn_id=? AND scope_key=? AND pending_json=CAST(? AS JSON)')
             ->execute([$run['turn_id'],$scope['key'],$retained]);
     }
@@ -217,11 +221,20 @@ function portal_westy_run_stop(PDO $pdo,array $context,array $scope,string $oper
             catch(PortalDesktopException $error){if($error->reason!=='action_unavailable')$unconfirmed=true;}
             catch(Throwable){$unconfirmed=true;}
         }
-        if(($pending['kind']??null)==='control'&&!$controlReleased&&!$controlUnconfirmed){
+        if(($pending['kind']??null)==='control'&&$controlReleased){
+            // Preserve the actual stopped identity for a concurrently finishing
+            // response; absence of a binding alone is never confirmation.
+            $pending['terminal']=$controlReleased;
+            $pdo->prepare("UPDATE portal_westy_tool_runs SET pending_json=? WHERE turn_id=? AND scope_key=? AND state='stopped'")
+                ->execute([json_encode($pending,JSON_THROW_ON_ERROR),$run['turn_id'],$scope['key']]);
+        }elseif(($pending['kind']??null)==='control'&&!$controlUnconfirmed){
+            $alreadyStopped=($pending['terminal']['state']??null)==='stopped'
+                &&($pending['terminal']['session_id']??null)===($pending['session_id']??null)
+                &&($pending['terminal']['task_id']??null)===($pending['task_id']??null);
             if(portal_desktop_id($pending['session_id']??null)&&portal_desktop_id($pending['task_id']??null)){
                 // Losing or replacing a known binding is not a stop receipt.
                 // Preserve its intent; never redirect cancellation to a new task.
-                $unconfirmed=true;
+                if(!$alreadyStopped)$unconfirmed=true;
             }else{
                 // A lost prepare may have no saved task binding. Keep its original
                 // cancellation-by-request-key recovery; never repeat preparation.

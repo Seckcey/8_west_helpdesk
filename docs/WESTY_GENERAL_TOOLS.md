@@ -185,6 +185,10 @@ Safeharbor clears the task binding only after Milepost confirms the same session
 and task are stopped. A missing, mismatched or lost response reports
 `stop_unconfirmed` and retains the binding; a late response cannot clear a newer
 task. Finished inference and paid receipts remain saved and cannot be replayed.
+If a known task loses its binding before the final response, the completed run
+retains its content-free session/task identity and reports `stop_unconfirmed`.
+An earlier confirmed Stop keeps its exact receipt so a concurrent final response
+does not turn confirmed cancellation into uncertainty.
 This desktop cleanup does not declare a separate terminal process finished.
 
 The model retains completed tool messages when it yields after five provider rounds

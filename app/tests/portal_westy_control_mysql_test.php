@@ -149,7 +149,7 @@ foreach(['missing','replacement'] as $bindingChange){
     try{$finishLost();check(false,'lost final-response binding falsely confirmed release: '.$bindingChange);}
     catch(PortalWestyException $error){check($error->reason==='stop_unconfirmed','actual final response reports unconfirmed release: '.$bindingChange);}
     $ended=portal_westy_run_find($pdo,$scope,$request['operation']);$retained=json_decode($ended['pending_json'],true);
-    check($ended['state']==='complete'&&$ended['replay_json']===null&&$retained===['kind'=>'control','session_id'=>$session,'task_id'=>$oldTask],
+    check($ended['state']==='complete'&&$ended['replay_json']===null&&$retained==['kind'=>'control','session_id'=>$session,'task_id'=>$oldTask],
         'finished inference keeps only the known unreleased control identity: '.$bindingChange);
     $q=$pdo->prepare('SELECT reply_json,charged_microusd FROM portal_westy_turns WHERE id=?');$q->execute([$lostRun['turn_id']]);$paid=$q->fetch();
     check(str_contains($paid['reply_json'],$oldTask)&&str_contains($paid['reply_json'],'receipt remains saved.'),'lost binding cannot discard final response or action receipt');
