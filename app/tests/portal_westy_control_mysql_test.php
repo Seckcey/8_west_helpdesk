@@ -253,20 +253,24 @@ check(isset($definitions['desktop_launch'])&&in_array('right_click',$definitions
 $desktopCalls=[];$launched=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,null,$desktopTransport);
 check($desktopCalls===['launch','result']&&$launched['public_result']['state']==='executed'
     &&$launched['public_result']['reason']==='application_started_discover_window','OS launch acceptance requires subsequent real window observation');
+check($launched['public_result']===['state'=>'executed','action_id'=>str_repeat('7',32),'reason'=>'application_started_discover_window',
+    'action_reason'=>'application_started'],'executed launch keeps its native reason separate from the discovery guidance');
 $desktopCalls=[];$loseLaunch=true;$lost=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,null,$desktopTransport);
 check($desktopCalls===['launch','stop']&&$lost['public_result']['state']==='unknown'&&$lost['public_result']['action_id']===null,'lost initial launch response remains unknown and is never replayed');
-$failureCalls=[];$failureMode='refusal';
-$failureTransport=static function(string $body)use(&$failureCalls,&$failureMode):array{
+$failureCalls=[];$failureMode='refusal';$failureReceipt=['observation_available'=>true];
+$inputObservation=['observation_id'=>str_repeat('5',32),'available'=>true,'reason'=>null,'complete'=>true];
+$failureTransport=static function(string $body)use(&$failureCalls,&$failureMode,&$failureReceipt,$inputObservation):array{
     $wire=json_decode($body,true);$action=$wire['action'];$failureCalls[]=$action;
     if($action==='stop')$result=['state'=>'stopped'];
     elseif($action==='launch'&&in_array($failureMode,['refusal','server_error','malformed','unrecognized'],true))
         return ['status'=>$failureMode==='server_error'?503:409,'body'=>json_encode([
             'ok'=>$failureMode==='malformed'?true:false,'reason'=>$failureMode==='unrecognized'?'invented_error':'support_busy'])];
     elseif($action==='observe')return ['status'=>409,'body'=>json_encode(['ok'=>false,'reason'=>'observation_busy'])];
-    elseif($action==='launch'||$action==='select')$result=['action_id'=>str_repeat('8',32),'state'=>'queued'];
+    elseif($action==='launch'||$action==='select'||$action==='action')$result=['action_id'=>str_repeat('8',32),'state'=>'queued'];
     elseif($action==='result'&&$failureMode==='receipt_loss')throw new PortalDesktopException('connection_unknown');
-    elseif($action==='result')$result=['state'=>'executed','result'=>['observation_available'=>true]];
+    elseif($action==='result')$result=['state'=>'executed','result'=>$failureReceipt];
     elseif($action==='observation'&&$failureMode==='stop_after_execution')$result=['state'=>'pending'];
+    elseif($action==='observation'&&$failureMode==='observed')$result=['state'=>'completed','observation'=>$inputObservation];
     elseif($action==='observation')throw new PortalDesktopException('connection_unknown');
     else throw new RuntimeException('Unexpected recovery fixture action');
     return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>$result])];
@@ -288,13 +292,41 @@ check($uncertain['public_result']['state']==='unknown'&&$uncertain['public_resul
     &&$failureCalls===['launch','result','stop'],'accepted launch with lost result keeps exact action ID and never replays');
 $failureCalls=[];$failureMode='observation_loss';
 $selected=portal_westy_desktop_dispatch($bound,'desktop_select',['inventory_id'=>str_repeat('9',32),'window'=>'123','process_id'=>45],null,$failureTransport);
-check($selected['public_result']['state']==='executed'&&$selected['public_result']['reason']==='observation_unavailable'
+check($selected['public_result']===['state'=>'executed','reason'=>'observation_unavailable','action_id'=>str_repeat('8',32)]
     &&$failureCalls===['select','result','observation'],'lost post-action observation preserves actual OS acceptance without claiming task success');
 $failureCalls=[];$failureMode='stop_after_execution';$aliveChecks=0;
 $selected=portal_westy_desktop_dispatch($bound,'desktop_select',['inventory_id'=>str_repeat('9',32),'window'=>'123','process_id'=>45],
     static function()use(&$aliveChecks):bool{return ++$aliveChecks<3;},$failureTransport);
-check($selected['public_result']['state']==='executed'&&$selected['public_result']['reason']==='task_stopped'
+check($selected['public_result']===['state'=>'executed','reason'=>'task_stopped','action_id'=>str_repeat('8',32)]
     &&$failureCalls===['select','result','observation','stop'],'explicit Stop after OS acceptance still stops control and preserves the executed receipt');
+// The executed native input reason stays separate from guidance and from the
+// observation's own reason: input was sent, the requested edit is not verified.
+// A receipt without a reason token (older companion) keeps today's exact result.
+$typed=['kind'=>'type','observation_id'=>str_repeat('4',32),'x'=>null,'y'=>null,'amount'=>null,'text'=>'synthetic text',
+    'key'=>null,'url'=>null,'effect'=>'Type the synthetic text.'];$typedAction=str_repeat('8',32);
+foreach([
+    'no observation, native reason'=>['no_observation',['reason'=>'post_observation_unavailable','observation_available'=>false],['action','result'],
+        ['state'=>'executed','action_id'=>$typedAction,'reason'=>'observe_again','action_reason'=>'post_observation_unavailable']],
+    'no observation, older companion'=>['no_observation',['observation_available'=>false],['action','result'],
+        ['state'=>'executed','action_id'=>$typedAction,'reason'=>'observe_again']],
+    'observed, mismatched text'=>['observed',['reason'=>'text_mismatch','observation_available'=>true],['action','result','observation'],
+        ['state'=>'executed','observation'=>$inputObservation,'action_id'=>$typedAction,'action_reason'=>'text_mismatch']],
+    'observed, no reason'=>['observed',['reason'=>null,'observation_available'=>true],['action','result','observation'],
+        ['state'=>'executed','observation'=>$inputObservation,'action_id'=>$typedAction]],
+    'observation error, unconfirmed text'=>['observation_loss',['reason'=>'text_not_confirmed','observation_available'=>true],['action','result','observation'],
+        ['state'=>'executed','reason'=>'observation_unavailable','action_id'=>$typedAction,'action_reason'=>'text_not_confirmed']],
+    'observation error, free text is not a reason'=>['observation_loss',['reason'=>'text_mismatch: synthetic echo','observation_available'=>true],['action','result','observation'],
+        ['state'=>'executed','reason'=>'observation_unavailable','action_id'=>$typedAction]],
+    'Stop after input, mismatched text'=>['stop_after_execution',['reason'=>'text_mismatch','observation_available'=>true],['action','result','observation','stop'],
+        ['state'=>'executed','reason'=>'task_stopped','action_id'=>$typedAction,'action_reason'=>'text_mismatch']],
+] as $case=>[$failureMode,$failureReceipt,$expectedCalls,$expectedResult]){
+    $failureCalls=[];$aliveChecks=0;
+    $typedResult=portal_westy_desktop_dispatch($bound,'desktop_action',$typed,$failureMode==='stop_after_execution'
+        ?static function()use(&$aliveChecks):bool{return ++$aliveChecks<3;}:null,$failureTransport);
+    check($typedResult['public_result']===$expectedResult&&$failureCalls===$expectedCalls
+        &&($typedResult['private_observation']??null)===($failureMode==='observed'?$inputObservation:null),
+        'executed input keeps its own native reason beside guidance, observation and action ID without replay: '.$case);
+}
 $failureCalls=[];$stopped=portal_westy_desktop_dispatch($bound,'desktop_stop',[],null,$failureTransport);
 check($stopped['public_result']['state']==='stopped'&&$failureCalls===['stop'],'explicit Stop still dispatches exactly once');
 $failureCalls=[];$stopped=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,static fn():bool=>false,$failureTransport);
