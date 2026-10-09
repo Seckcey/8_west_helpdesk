@@ -7,6 +7,7 @@ require_once __DIR__ . '/portal_westy_stream.php';
 require_once __DIR__ . '/portal_westy_tools.php';
 require_once __DIR__ . '/portal_westy_tenant_ai.php';
 require_once __DIR__ . '/portal_westy_runs.php';
+require_once __DIR__ . '/portal_westy_feedback.php';
 
 final class PortalWestyException extends RuntimeException
 {
@@ -100,12 +101,12 @@ function portal_westy_state(PDO $pdo, array $context, ?string $conversation = nu
         $state['conversations'][]=['key'=>$chat['conversation_key'],'title'=>mb_substr((string)$first->fetchColumn(),0,65)];
     }
     if($conversation!==null && $conversation!==$account['conversation_key'] && !in_array($conversation,array_column($state['conversations'],'key'),true))throw new PortalWestyException('conversation_changed');
-    $q=$pdo->prepare('SELECT operation_key,state,input_text,reply_json,reason_code,created_at FROM portal_westy_turns WHERE scope_key=? AND conversation_key=? AND expires_at>? AND input_text IS NOT NULL ORDER BY id DESC LIMIT 50');
+    $q=$pdo->prepare('SELECT id,model_name,expires_at,conversation_key,operation_key,state,input_text,reply_json,reason_code,created_at FROM portal_westy_turns WHERE scope_key=? AND conversation_key=? AND expires_at>? AND input_text IS NOT NULL ORDER BY id DESC LIMIT 50');
     $q->execute([$s['key'],$state['conversation'],gmdate('Y-m-d H:i:s')]);
-    foreach (array_reverse($q->fetchAll()) as $row) {
+    foreach (portal_westy_feedback_project($pdo,$s,array_reverse($q->fetchAll())) as $row) {
         if ($row['state']==='pending' && strtotime($row['created_at'].' UTC')<time()-180) { $row['state']='unavailable';$row['reason_code']='interrupted'; }
         $row['reply']=$row['reply_json']===null ? null : json_decode($row['reply_json'],true);
-        unset($row['reply_json']); $state['turns'][]=$row;
+        unset($row['reply_json'],$row['id'],$row['model_name'],$row['expires_at'],$row['conversation_key']); $state['turns'][]=$row;
     }
     $state['turns']=portal_westy_refresh_tools($pdo,$context,$state['turns'],$transport);
     foreach($state['turns'] as &$turn){
