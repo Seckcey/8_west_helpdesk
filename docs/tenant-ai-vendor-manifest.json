@@ -4,10 +4,25 @@
   "contract": 1,
   "catalog": "2026-10-04.1",
   "files": {
+    "app/lib/tenant_ai/tenant_ai_contract.php": "9a8dfa1bcb347924307e9abf9593efa7fb4901540f3b23e071c981b40a3a8f05",
+    "app/lib/tenant_ai/tenant_ai_client.php": "d3a0b40da042eff0812932cfecc208f2e6f2fbe5782fd6673c3ce4f8123d54a3",
+    "app/lib/tenant_ai/tenant_ai_provider.php": "db55a1fdd400698b709c498ff5e497189ca609e9e3c88f011afc396925083268",
+    "app/lib/tenant_ai/tenant_ai_stream.php": "716abc76e491da6e1d9504d5ec6a281efc6a2dd25fd3351912883ce5715a3ac0",
+    "app/lib/tenant_ai/tenant_ai_engine.php": "94b34ade2b32836e0b01d5bc8344bf122a899306800f1befd502c5b8f8fb3023"
+  },
+  "upstream_files": {
     "app/lib/tenant_ai/tenant_ai_contract.php": "3fb920e2358c0342f3dcd215c65443d25f8ec1fc2226b9b7f4122ed3ff4d96e9",
     "app/lib/tenant_ai/tenant_ai_client.php": "d3a0b40da042eff0812932cfecc208f2e6f2fbe5782fd6673c3ce4f8123d54a3",
     "app/lib/tenant_ai/tenant_ai_provider.php": "db55a1fdd400698b709c498ff5e497189ca609e9e3c88f011afc396925083268",
     "app/lib/tenant_ai/tenant_ai_stream.php": "716abc76e491da6e1d9504d5ec6a281efc6a2dd25fd3351912883ce5715a3ac0",
     "app/lib/tenant_ai/tenant_ai_engine.php": "94b34ade2b32836e0b01d5bc8344bf122a899306800f1befd502c5b8f8fb3023"
-  }
+  },
+  "local_patch": {
+    "id": "tenant-ai-catalog-2026-10-08.1",
+    "description": "Add reviewed gpt-6.1-sol and correct Sonnet 5.5 cached-input estimate; credential compatibility preserved",
+    "files": [
+      "app/lib/tenant_ai/tenant_ai_contract.php"
+    ]
+  },
+  "hash_format": "SHA-256 of canonical LF Git file bytes"
 }
