@@ -1,6 +1,12 @@
 # General computer troubleshooting
 
-## October 8 browser and desktop receipt repair (source candidate)
+## October 8 browser and desktop receipt repair (backend deployed)
+
+The narrow Safeharbor backend is deployed at `e50ad519…`; reports and current
+read-only readiness are verified. The paired private 1.26.12 package is signed
+and independently verified, while installation and physical acceptance remain
+pending. See the [exact release and recovery record](westy-control-repair-release-2026-10-08.md).
+The source-test and earlier owner observations below retain their original dates.
 
 Application launch uses a 45-second transport deadline, matching its existing
 bounded Milepost review path, instead of abandoning the request after eight
