@@ -53,3 +53,38 @@ function portal_westy_control_result(array $context,array $pending,?callable $tr
     $state['retry_allowed']=false;
     return ['ready'=>($state['state']??null)!=='consent_pending','receipt'=>$state];
 }
+
+/** Release only this run's bound task. A newer binding must survive a late reply. */
+function portal_westy_control_release(PDO $pdo,array $context,array $run,?callable $transport=null):?array
+{
+    try{
+        $where='tenant_id=? AND client_id=? AND scope_key=? AND operation_key=? AND conversation_id=? AND origin_channel=? AND origin_session_hash=?';
+        $parameters=[$run['tenant_id'],$run['client_id'],$run['scope_key'],$run['operation_key'],$run['conversation_id'],$run['origin_channel'],$run['origin_session_hash']];
+        // Expiry does not erase a task's identity or prove that its control ended.
+        try{
+            $q=$pdo->prepare('SELECT session_id,task_id FROM portal_desktop_bindings WHERE '.$where.' AND task_id IS NOT NULL LIMIT 2');
+            $q->execute($parameters);$bindings=$q->fetchAll(PDO::FETCH_ASSOC);
+        }catch(PDOException $error){
+            // Ordinary chat also runs on deployments without optional desktop
+            // schema. Other database failures cannot prove that control ended.
+            if(($error->errorInfo[1]??null)===1146||($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='sqlite'
+                &&str_contains($error->getMessage(),'no such table')))return null;
+            throw $error;
+        }
+        if($bindings===[])return null;
+        $scope=portal_westy_scope($pdo,$context);
+        if($scope['key']!==$run['scope_key']||(int)$run['tenant_id']!==$scope['tenant']
+            ||(int)$run['client_id']!==$scope['client']||!portal_westy_run_origin_matches($run))
+            throw new PortalWestyException('stop_unconfirmed');
+        if(count($bindings)!==1||!portal_desktop_id($bindings[0]['session_id'])||!portal_desktop_id($bindings[0]['task_id']))
+            throw new PortalWestyException('stop_unconfirmed');
+        $identity=$bindings[0];
+        $result=portal_desktop_request($context,'stop',$identity,$transport);
+        if(($result['session_id']??null)!==$identity['session_id']||($result['task_id']??null)!==$identity['task_id']
+            ||($result['state']??null)!=='stopped')throw new PortalWestyException('stop_unconfirmed');
+        $q=$pdo->prepare('UPDATE portal_desktop_bindings SET task_id=NULL,conversation_id=NULL,operation_key=NULL,origin_channel=NULL,origin_session_hash=NULL WHERE '
+            .$where.' AND session_id=? AND task_id=?');
+        $q->execute([...$parameters,$identity['session_id'],$identity['task_id']]);
+        return $identity+['state'=>'stopped'];
+    }catch(Throwable){throw new PortalWestyException('stop_unconfirmed');}
+}
