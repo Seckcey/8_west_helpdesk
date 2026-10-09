@@ -1,5 +1,34 @@
 # General computer troubleshooting
 
+## 1.26.14 native-action receipt clarification (source candidate)
+
+The Safeharbor desktop dispatcher now preserves the native input-action reason
+as optional `result.action_reason` on executed select, launch and input results.
+It remains separate from the dispatcher's fallback `reason` and the
+observation's own `reason`. A missing, null or non-token reason from an older
+Companion leaves the existing result unchanged. The optional value is a lower
+case reason token of at most 80 characters; it contains no typed or observed text.
+
+An **executed** receipt means the input was sent; it does not establish that the
+requested edit or navigation succeeded:
+
+- `text_not_confirmed`: all input was delivered, but readback was unavailable.
+- `text_mismatch`: readback differs from the requested text. Do not report the
+  requested edit as successful; retain the mismatch or unverified outcome.
+- `post_observation_unavailable`: the native post-action capture failed.
+
+Existing action IDs, fallback guidance, explicit Stop and unknown/cancelled/
+refused handling remain intact. The added reason survives durable tool-result
+replay. An unknown or partially delivered action is never relabeled executed,
+and this change does not retry an uncertain action or change product permissions.
+
+This source change is backward compatible with the earlier Companion. The
+release sequence installs the compatible consumer before the paired native
+producer. Source review and check results are distinct from production deployment
+and Frankie's installed-device acceptance. The final 1.26.14 release record will
+identify the actual source cut and changed replay-fixture hash; earlier records
+below retain their original release identities and evidence timestamps.
+
 ## October 8 browser and desktop receipt repair (backend deployed)
 
 The narrow Safeharbor backend is deployed at `e50ad519…`; reports and current
