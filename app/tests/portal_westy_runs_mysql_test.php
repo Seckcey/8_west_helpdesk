@@ -2,6 +2,7 @@
 /** Real scoped ledger with synthetic provider and endpoint transport; no customer device calls. */
 declare(strict_types=1);
 require __DIR__.'/portal_devices_mysql_test.php';
+require __DIR__.'/portal_westy_replay_test.php';
 function db():PDO{global $pdo;return $pdo;}
 check(portal_westy_runs_installed($pdo),'canonical schema includes durable tool runs');
 // Exercise the historical v1 surface explicitly; canonical fresh installs now include v2.
