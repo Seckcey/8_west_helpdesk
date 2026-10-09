@@ -127,11 +127,41 @@ foreach(['lost','missing_identity','wrong_session','wrong_task','still_active','
     check($after['task_id']===($mode==='replacement'?$replacement:($confirmed?null:$releaseTask)), 'only a confirmed exact binding is cleared: '.$mode);
     if($mode==='replacement')check($after['operation_key']===$replacement,'replacement run correlation survives the late stop reply');
     $ended=portal_westy_run_find($pdo,$scope,$request['operation']);
-    check($ended['state']==='complete'&&$ended['replay_json']===null&&$ended['pending_json']===null,'uncertain stop cannot revive completed inference: '.$mode);
+    $kept=json_decode((string)$ended['pending_json'],true);
+    check($ended['state']==='complete'&&$ended['replay_json']===null&&($confirmed?$kept===null:($kept['task_id']??null)===$releaseTask),
+        'uncertain stop retains only known identity without reviving completed inference: '.$mode);
     $pdo->prepare('UPDATE portal_desktop_bindings SET expires_at=? WHERE session_id=?')->execute([gmdate('Y-m-d H:i:s',time()+1800),$session]);
 }
 
 // Every persisted correlation dimension participates in selecting the old task.
+foreach(['missing','replacement'] as $bindingChange){
+    $request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
+    $lostRun=portal_westy_run_find($pdo,$scope,$request['operation']);$oldTask=$controlState['task_id'];$replacement=bin2hex(random_bytes(16));$finishCalls=0;
+    $loseAtFinish=static function($selection,$system,$messages,$options,$emit,$alive)use($pdo,$session,$bindingChange,$replacement,&$finishCalls):array{
+        $finishCalls++;$emit('The synthetic action receipt remains saved.');
+        if($bindingChange==='missing')$pdo->prepare('DELETE FROM portal_desktop_bindings WHERE session_id=?')->execute([$session]);
+        else $pdo->prepare('UPDATE portal_desktop_bindings SET task_id=?,operation_key=? WHERE session_id=?')->execute([$replacement,$replacement,$session]);
+        return ['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>20]];
+    };
+    $resumeLost=['action'=>'run_resume','operation'=>$request['operation'],'conversation'=>$lostRun['conversation_id'],'sequence'=>1];
+    $finishLost=static fn()=>portal_westy_message($pdo,$a,$resumeLost,$loseAtFinish,static fn()=>$a,transport:$controlTransport,aiResolver:$resolver);
+    $controlCalls=[];
+    try{$finishLost();check(false,'lost final-response binding falsely confirmed release: '.$bindingChange);}
+    catch(PortalWestyException $error){check($error->reason==='stop_unconfirmed','actual final response reports unconfirmed release: '.$bindingChange);}
+    $ended=portal_westy_run_find($pdo,$scope,$request['operation']);$retained=json_decode($ended['pending_json'],true);
+    check($ended['state']==='complete'&&$ended['replay_json']===null&&$retained===['kind'=>'control','session_id'=>$session,'task_id'=>$oldTask],
+        'finished inference keeps only the known unreleased control identity: '.$bindingChange);
+    $q=$pdo->prepare('SELECT reply_json,charged_microusd FROM portal_westy_turns WHERE id=?');$q->execute([$lostRun['turn_id']]);$paid=$q->fetch();
+    check(str_contains($paid['reply_json'],$oldTask)&&str_contains($paid['reply_json'],'receipt remains saved.'),'lost binding cannot discard final response or action receipt');
+    $before=$controlCalls;$finishLost();$q->execute([$lostRun['turn_id']]);
+    check($finishCalls===1&&$controlCalls===$before&&$q->fetch()===$paid&&!in_array('stop',$before,true)&&!in_array('control_cancel',$before,true),
+        'lost final binding replays nothing and cannot stop a replacement: '.$bindingChange);
+    if($bindingChange==='replacement'){
+        $q=$pdo->prepare('SELECT task_id FROM portal_desktop_bindings WHERE session_id=?');$q->execute([$session]);check($q->fetchColumn()===$replacement,'new task survives old response completion');
+    }else $pdo->prepare('INSERT INTO portal_desktop_bindings(session_id,tenant_id,client_id,subject,scope_key,expires_at) VALUES(?,?,?,?,?,?)')
+        ->execute([$session,$scope['tenant'],$scope['client'],$a['identity']['subject'],$scope['key'],gmdate('Y-m-d H:i:s',time()+1800)]);
+}
+
 $request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
 $exactRun=portal_westy_run_find($pdo,$scope,$request['operation']);$unexpectedStops=0;
 $noStop=static function()use(&$unexpectedStops):array{$unexpectedStops++;throw new RuntimeException('Unexpected cleanup request');};

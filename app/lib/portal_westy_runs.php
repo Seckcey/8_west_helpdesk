@@ -159,11 +159,31 @@ function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $st
 {
     if(!portal_westy_runs_installed($pdo))return;
     $run=portal_westy_run_find($pdo,$scope,$operation);
-    $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET state=?,replay_json=NULL,pending_json=NULL WHERE scope_key=? AND operation_key=? AND state='running'");
-    $q->execute([$state,$scope['key'],$operation]);
+    $known=null;
+    if($run){
+        $pending=json_decode((string)$run['pending_json'],true);
+        $prior=$context['tool_run']??null;
+        if(($pending['kind']??null)!=='control'&&is_array($prior)&&$prior['operation_key']===$operation
+            &&$prior['scope_key']===$scope['key']&&$prior['conversation_id']===$run['conversation_id'])
+            $pending=json_decode((string)$prior['pending_json'],true);
+        if(($pending['kind']??null)==='control'&&portal_desktop_id($pending['session_id']??null)&&portal_desktop_id($pending['task_id']??null))
+            $known=array_intersect_key($pending,array_flip(['kind','session_id','task_id']));
+        $desktop=$context['desktop']??null;
+        if(is_array($desktop)&&($desktop['operation_key']??null)===$operation&&($desktop['conversation_id']??null)===$run['conversation_id']
+            &&($desktop['origin_channel']??null)===$run['origin_channel']&&portal_desktop_id($desktop['session_id']??null)&&portal_desktop_id($desktop['task_id']??null))
+            $known=['kind'=>'control','session_id'=>$desktop['session_id'],'task_id'=>$desktop['task_id']];
+    }
+    $retained=$known===null?null:json_encode($known,JSON_THROW_ON_ERROR);
+    $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET state=?,replay_json=NULL,pending_json=? WHERE scope_key=? AND operation_key=? AND state='running'");
+    $q->execute([$state,$retained,$scope['key'],$operation]);
     // Accounting and receipts are already durable. An unconfirmed stop retains
     // its binding, but cannot replay the finished inference or desktop action.
-    if($run)portal_westy_control_release($pdo,$context,$run,$transport);
+    if($run){
+        $released=portal_westy_control_release($pdo,$context,$run,$transport);
+        if(!$released&&$known!==null)throw new PortalWestyException('stop_unconfirmed');
+        if($released&&$retained!==null)$pdo->prepare('UPDATE portal_westy_tool_runs SET pending_json=NULL WHERE turn_id=? AND scope_key=? AND pending_json=CAST(? AS JSON)')
+            ->execute([$run['turn_id'],$scope['key'],$retained]);
+    }
 }
 function portal_westy_run_stop(PDO $pdo,array $context,array $scope,string $operation,?callable $transport=null):void
 {
