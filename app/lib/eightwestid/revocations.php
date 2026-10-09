@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace EightWest\Id;
 
+require_once __DIR__ . '/private_file_cache.php';
+
 const REVOCATION_REASONS = [
     'account_disabled',
     'email_unverified',
@@ -56,7 +58,7 @@ final class FileRevocationCache implements RevocationCache
 {
     public function __construct(private readonly string $directory)
     {
-        if ($directory === '' || str_contains($directory, "\0")) {
+        if ($directory === '' || !str_starts_with($directory, '/') || str_contains($directory, "\0")) {
             throw new ConfigurationException('Invalid revocation-cache directory.');
         }
     }
@@ -64,17 +66,8 @@ final class FileRevocationCache implements RevocationCache
     public function load(string $key): ?array
     {
         $path = $this->path($key);
-        if (! is_file($path)) return null;
-        $handle = @fopen($path, 'rb');
-        if ($handle === false) return null;
-        try {
-            if (! flock($handle, LOCK_SH)) return null;
-            $raw = stream_get_contents($handle, 2097153);
-            flock($handle, LOCK_UN);
-        } finally {
-            fclose($handle);
-        }
-        if (! is_string($raw) || strlen($raw) > 2097152) return null;
+        $raw = Security\PrivateFileCache::read($path, 2097152);
+        if ($raw === null) return null;
         try {
             $value = json_decode($raw, true, 16, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
@@ -89,17 +82,11 @@ final class FileRevocationCache implements RevocationCache
         if ($validated === null) {
             throw new ProtocolException('Refusing to cache an invalid revocation response.');
         }
-        if (! is_dir($this->directory)
-            && ! @mkdir($this->directory, 0700, true)
-            && ! is_dir($this->directory)) {
-            throw new ProtocolException('The revocation-cache directory is unavailable.');
-        }
         $path = $this->path($key);
         $json = json_encode($validated, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        if (@file_put_contents($path, $json, LOCK_EX) === false) {
+        if (! Security\PrivateFileCache::write($path, $json, 2097152)) {
             throw new ProtocolException('The revocation cache could not be written.');
         }
-        @chmod($path, 0600);
     }
 
     private function path(string $key): string

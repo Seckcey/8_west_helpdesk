@@ -132,7 +132,12 @@ jobs:
       - name: Test the suite app drawer and account menu
         run: php app/tests/suite_chrome_test.php
       - name: Test suite authorization-session revocation
-        run: php app/tests/suite_revocation_test.php
+        run: |
+          php app/tests/suite_revocation_test.php
+          php app/tests/private_file_cache_test.php
+          php app/tests/trusted_jwks_test.php
+          php app/tests/trusted_jwks_https_test.php
+          php app/tests/private_revocation_io_test.php
       - name: Test suite admission before database writes
         env:
           SAFEHARBOR_SSO_TEST_DISPOSABLE_SERVER: '1'
