@@ -22,6 +22,7 @@
   let state = null, busy = false, editing = false, pending = null, focusBefore = null, poll = null;
   let streamController = null, currentOperation = null, stickToBottom = true, accessEpoch = 0;
   let devicesLoading = false, devicesRetry = null, rememberedDevice = null;
+  const computerClocks = new Map();
   const labels = { requests:'Open a support request', updates:'Follow a request', response:'Response goals', summaries:'Service summaries', privacy:'Westy and privacy' };
   const errors = {
     ai_unavailable:'Westy is unavailable. You can still contact support.', provider_unavailable:'The reply was interrupted. Saved device work is shown below; it has not been retried.',
@@ -60,6 +61,16 @@
   const key = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   const messageKey = () => 'f1'+Math.floor(Date.now()/1000).toString(16).padStart(8,'0')+Array.from(crypto.getRandomValues(new Uint8Array(11)),b=>b.toString(16).padStart(2,'0')).join('');
   const element = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
+  const computerTime = element('p', 'Choose a computer to show its local time.', 'portal-hint');
+  computerTime.id = 'portal-computer-time'; form.after(computerTime);
+  function updateComputerTime() {
+    const clock=devices.disabled?null:computerClocks.get(devices.value);
+    computerTime.textContent=!devices.value?'Choose a computer to show its local time.':
+      (window.PortalComputerTime?.summary(clock,performance.now()) || 'Computer timezone unavailable · times shown in UTC');
+    computerTime.title=clock ? 'Timezone reported '+window.PortalComputerTime.format(clock.value.observed_at,clock,performance.now()) : '';
+  }
+  setInterval(updateComputerTime,30000);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')updateComputerTime();});
   const button = (text, action, cls = 'btn-ghost') => { const b = element('button', text, cls); b.type = 'button'; b.addEventListener('click', action); return b; };
   const say = text => { status.textContent = text; delete status.dataset.operation; };
   function controls() {
@@ -91,6 +102,7 @@
     history?.replaceChildren(); input.value=''; editing=false; pending=null;
     devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';devices.disabled=true;
     if(devicesRetry)clearTimeout(devicesRetry);devicesRetry=null;rememberedDevice=null;
+    computerClocks.clear();updateComputerTime();
     streamController?.abort(); if(poll)clearTimeout(poll); controls();
   }
   function accessError(error) {
@@ -480,10 +492,13 @@
       const next=await api(null,null,'?devices=1');
       if(!Array.isArray(next.devices))throw new Error('invalid_devices');
       devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';
-      for(const item of next.devices){const option=element('option',item.label);option.value=item.reference;devices.append(option);}
+      computerClocks.clear();
+      for(const item of next.devices){const option=element('option',item.label);option.value=item.reference;devices.append(option);
+        computerClocks.set(item.reference,window.PortalComputerTime?.create(item.computer_time,performance.now()) || null);}
       devices.disabled=false;
       if(selected){devices.value=selected;rememberedDevice=selected;}
       else if(devices.options.length===2){devices.selectedIndex=1;rememberedDevice=devices.value;}
+      updateComputerTime();
       for(const node of nodes.values())node.toolSignature=null;if(state)render(state);
     }
     catch(error){
@@ -491,6 +506,7 @@
       rememberedDevice=selected;
       if(['sign_in','identity_unavailable'].includes(error.reason)){accessError(error);return;}
       devices.disabled=true;
+      computerClocks.clear();updateComputerTime();
       say('Computer tools are temporarily unavailable. Checking the connection again.');
       devices.options[0].textContent='Computer tools unavailable — checking again';
       // Only refresh availability. Unknown commands, messages and approvals are
@@ -498,7 +514,7 @@
       if(epoch===accessEpoch)devicesRetry=setTimeout(loadDevices,5000);
     }finally{devicesLoading=false;}
   }
-  devices.addEventListener('change',()=>{rememberedDevice=devices.value||null;});
+  devices.addEventListener('change',()=>{rememberedDevice=devices.value||null;updateComputerTime();});
   let preferenceControl=null;
   async function loadPreference(){
     try{
