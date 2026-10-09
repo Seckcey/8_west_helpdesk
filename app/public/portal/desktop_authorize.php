@@ -22,7 +22,7 @@ try{
     ?>
 <main class="page page-narrow"><h1>Connect your Westy window</h1>
 <p>Connect as <?=portal_h($context['identity']['display_name'])?> for <?=portal_h($context['binding']['client_name']??'your business')?>.</p>
-<p>Connect only if you just clicked Connect Westy on your computer. This opens your private chat in that window. Westy follows your saved computer tool permissions for the work you request.</p>
+<p>Connect only if you just chose Continue in your browser in your own Westy window on your computer. This opens your private chat in that window. Westy follows your saved computer tool permissions for the work you request.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?=portal_h(portal_csrf_token())?>"><button class="btn-primary" type="submit">Connect Westy</button></form></main>
 <?php portal_page_end();
 }catch(Throwable){portal_render_error(503,'Connection not completed','Start again from your Westy window.');}
