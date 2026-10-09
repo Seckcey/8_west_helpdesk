@@ -176,6 +176,7 @@ jobs:
           php app/tests/endpoint_tool_runs_v2_migration_mysql_test.php
           php app/tests/portal_westy_control_mysql_test.php
           php app/tests/portal_devices_mysql_test.php
+          php app/tests/portal_employee_device_access_mysql_test.php
           php app/tests/portal_access_mysql_test.php
           php app/tests/portal_workspace_mysql_test.php
           php app/tests/portal_stream_http_test.php

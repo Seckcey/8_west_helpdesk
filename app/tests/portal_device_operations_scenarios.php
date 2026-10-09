@@ -6,7 +6,7 @@ $before=$calls;
 check(refused(static fn()=>portal_devices_request($pdo,$a,'operations',['device_reference'=>'1:'.str_repeat('a',64)],$transport)),'diagnostics defaults off without a service call');
 check($calls===$before,'disabled diagnostics makes no request');
 $settings['portal_devices']['diagnostics_enabled']=true;
-foreach(['client_staff','client_viewer'] as $role) {
+foreach(['client_viewer'] as $role) {
     $limited=$a;$limited['identity']['role']=$role;
     foreach(['health_start','repair_propose','repair_approve'] as $action) {
         check(refused(static fn()=>portal_devices_request($pdo,$limited,$action,[],$transport)),$role.' cannot request '.$action);

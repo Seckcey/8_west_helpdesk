@@ -80,6 +80,7 @@ function portal_desktop_task(array $context):array
 }
 function portal_westy_desktop_definitions(PDO $pdo,array $context,?callable $transport=null):array
 {
+    if (!portal_devices_can_operate($context)) return [];
     $open=[];
     if(isset($context['tool_run'])&&portal_westy_terminal_installed($pdo))$open=[['name'=>'desktop_open',
         'description'=>'Open computer control for the current requested task using the existing signed-in Westy pairing. This uses the actual Windows session, browsers and native apps. Discover windows, then select a fresh target or launch the requested application. Ordinary authorized work needs no manual Start or per-click approval. Secure desktop, UAC, passwords and MFA remain with the person.',
