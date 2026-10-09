@@ -122,6 +122,110 @@
   const scrollLatest = () => { log.scrollTop=log.scrollHeight; stickToBottom=true; jump.hidden=true; };
   log.addEventListener('scroll',()=>{stickToBottom=log.scrollHeight-log.scrollTop-log.clientHeight<80;jump.hidden=stickToBottom;});
   jump.addEventListener('click',scrollLatest);
+  const replyActionIcon = name => {
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
+    svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');svg.setAttribute('stroke-width','1.7');
+    const path=document.createElementNS(svg.namespaceURI,'path');
+    path.setAttribute('d',name==='copy'?'M8 8h12v13H8zM16 8V3H3v13h5':'M7 10H3v11h4m0-11 5-8h1a2 2 0 0 1 2 2v5h4a2 2 0 0 1 2 2l-2 8a2 2 0 0 1-2 2H7V10Z');
+    if(name==='down')svg.setAttribute('transform','rotate(180)');
+    svg.append(path);return svg;
+  };
+  const activeReplyNode = node => nodes.get(node.replyTurn?.operation_key)===node;
+  function replyActionButtons(node) {
+    const feedback=node.replyTurn?.feedback;
+    for(const [reaction,control] of Object.entries(node.reactionButtons||{})){
+      control.setAttribute('aria-pressed',String(feedback?.reaction===reaction));
+      control.disabled=!!node.feedbackSaving||!!node.pendingFeedback;
+    }
+    if(node.feedbackRetry)node.feedbackRetry.hidden=!node.pendingFeedback||!!node.feedbackSaving;
+  }
+  async function copyReply(node) {
+    const text=node.replyTurn?.reply?.reply,epoch=accessEpoch;
+    if(typeof text!=='string'||!text)return;
+    const focus=document.activeElement;let copied=false;
+    node.copyButton.disabled=true;
+    try{
+      try{await navigator.clipboard.writeText(text);copied=true;}catch{
+        const buffer=element('textarea',undefined,'portal-reply-copy-buffer');buffer.value=text;buffer.readOnly=true;
+        buffer.setAttribute('aria-label','Reply text to copy');node.actions.append(buffer);buffer.select();
+        try{copied=document.execCommand('copy');}catch{copied=false;}finally{buffer.remove();}
+      }
+      if(epoch!==accessEpoch||!activeReplyNode(node))return;
+      node.copyButton.disabled=false;
+      if(document.activeElement===document.body)focus?.focus();
+      if(copied){say('Reply copied.');return;}
+      node.manualCopy?.remove();
+      const box=element('div',undefined,'portal-reply-manual-copy');
+      const hint=element('p','Clipboard access is unavailable. Copy the selected text with Ctrl+C or your device’s Copy command.');
+      const textBox=element('textarea');textBox.value=text;textBox.readOnly=true;textBox.rows=4;
+      textBox.setAttribute('aria-label','Reply text to copy');
+      const close=button('Close copy text',()=>{box.remove();node.manualCopy=null;node.copyButton.focus();});
+      box.append(hint,textBox,close);node.actions.after(box);node.manualCopy=box;textBox.focus();textBox.select();
+      say('Reply text is selected for copying.');
+    }finally{if(epoch===accessEpoch&&activeReplyNode(node))node.copyButton.disabled=false;}
+  }
+  async function saveReplyFeedback(node, reaction = null) {
+    if(node.feedbackSaving||!activeReplyNode(node))return;
+    const feedback=node.replyTurn.feedback;if(!feedback)return;
+    const request=node.pendingFeedback||{conversation:state.conversation,operation:node.replyTurn.operation_key,
+      response_id:feedback.response_id,request_id:key(),revision:feedback.revision,
+      reaction:feedback.reaction===reaction?'none':reaction};
+    const epoch=accessEpoch,identity=node.actionIdentity,focus=document.activeElement;
+    node.pendingFeedback=request;node.feedbackSaving=true;replyActionButtons(node);say('Saving feedback…');
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+    try{
+      const response=await fetch('/portal/westy_feedback.php',{method:'POST',credentials:'same-origin',cache:'no-store',
+        headers:{'Content-Type':'application/json','X-Portal-CSRF':root.dataset.csrf},body:JSON.stringify(request),signal:controller.signal});
+      const result=await response.json();
+      if(epoch!==accessEpoch||!activeReplyNode(node)||node.actionIdentity!==identity)return;
+      if(!response.ok||!result.ok)throw Object.assign(new Error('feedback'),{reason:result.reason});
+      const saved=result.feedback;
+      if(saved?.response_id!==request.response_id||!Number.isInteger(saved.revision)||saved.revision<request.revision+1
+        ||!['up','down','none'].includes(saved.reaction))throw new Error('invalid_feedback_receipt');
+      node.replyTurn.feedback=saved;node.pendingFeedback=null;
+      say(saved.reaction==='none'?'Feedback cleared.':'Feedback saved.');
+    }catch(error){
+      if(epoch!==accessEpoch||!activeReplyNode(node)||node.actionIdentity!==identity)return;
+      if(['sign_in','identity_unavailable'].includes(error.reason)){accessError(error);return;}
+      if(error.reason==='feedback_changed'){
+        node.pendingFeedback=null;await refresh(true);
+        say('This reply or feedback changed. Check the saved reply and choose again.');
+      }else if(error.reason==='invalid_request'){
+        node.pendingFeedback=null;say('Feedback could not be saved. Refresh the page and choose again.');
+      }else say('Feedback could not be confirmed. Use Retry feedback to check the same choice.');
+    }finally{
+      clearTimeout(timeout);node.feedbackSaving=false;
+      if(epoch===accessEpoch&&activeReplyNode(node)&&node.actionIdentity===identity){
+        replyActionButtons(node);
+        if(document.activeElement===document.body&&focus?.isConnected&&!focus.hidden&&!focus.disabled)focus.focus();
+      }
+    }
+  }
+  function renderReplyActions(node,turn) {
+    node.replyTurn=turn;
+    const text=turn.reply?.reply;
+    const identity=turn.state!=='pending'&&typeof text==='string'&&text.trim()
+      ?turn.feedback?.response_id||turn.operation_key+':'+text:null;
+    if(identity!==node.actionIdentity){
+      node.actionIdentity=identity;node.actions.replaceChildren();node.manualCopy?.remove();node.manualCopy=null;
+      node.pendingFeedback=null;node.feedbackSaving=false;node.reactionButtons={};node.feedbackRetry=null;
+      if(identity){
+        const copy=button('Copy',()=>copyReply(node));copy.setAttribute('aria-label','Copy reply');copy.prepend(replyActionIcon('copy'));
+        node.copyButton=copy;node.actions.append(copy);
+        if(turn.feedback){
+          for(const [reaction,label] of [['up','Helpful'],['down','Not helpful']]){
+            const control=button(undefined,()=>saveReplyFeedback(node,reaction));control.setAttribute('aria-label',label);
+            control.title=label+' · Saves this prompt and reply privately for review.';
+            control.setAttribute('aria-description','Saves this prompt and reply privately for review. Select again to clear your rating.');
+            control.append(replyActionIcon(reaction));node.reactionButtons[reaction]=control;node.actions.append(control);
+          }
+          node.feedbackRetry=button('Retry feedback',()=>saveReplyFeedback(node));node.actions.append(node.feedbackRetry);
+        }
+      }
+    }
+    replyActionButtons(node);
+  }
   function turnNode(turn) {
     let node=nodes.get(turn.operation_key);
     if(!node){
@@ -129,8 +233,9 @@
       const answer=element('article',undefined,'portal-chat-message portal-chat-message-assistant'); answer.setAttribute('aria-label','Westy');
       const avatar=element('img',undefined,'portal-chat-avatar');avatar.src=root.dataset.avatar||'/assets/img/westy-avatar.png';avatar.alt='';
       const body=element('div',undefined,'portal-chat-message-body');const reply=element('p','', 'portal-chat-reply');const tools=element('div');const meta=element('div');
-      body.append(reply,tools,meta);answer.append(avatar,body);log.append(question,answer);
-      node={question,answer,reply,tools,meta,toolSignature:null,metaSignature:null};nodes.set(turn.operation_key,node);
+      const actions=element('div',undefined,'portal-reply-actions');actions.setAttribute('role','group');actions.setAttribute('aria-label','Reply actions');
+      body.append(reply,tools,meta,actions);answer.append(avatar,body);log.append(question,answer);
+      node={question,answer,reply,tools,meta,actions,actionIdentity:null,toolSignature:null,metaSignature:null};nodes.set(turn.operation_key,node);
     }
     return node;
   }
@@ -241,6 +346,7 @@
     for(const turn of next.turns){
       present.add(turn.operation_key);const node=turnNode(turn);const text=turn.reply?.reply||'';
       if(node.reply.textContent!==text)node.reply.textContent=text;
+      renderReplyActions(node,turn);
       renderTools(node,turn);
       const signature=JSON.stringify([turn.state,turn.reason_code,turn.reply?.sources,turn.reply?.draft_subject,turn.reply?.draft_body]);
       if(signature!==node.metaSignature){

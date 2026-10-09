@@ -26,3 +26,19 @@
 @media(max-width:760px){.portal-workspace{height:min(var(--portal-viewport-height,100dvh),100dvh)}.portal-workspace .portal-content,.portal-workspace .portal-sidebar{height:calc(min(var(--portal-viewport-height,100dvh),100dvh) - 64px);bottom:auto}}
 @media(max-width:1000px){.portal-keyboard-hint{display:none}.portal-workspace .portal-top{padding:0 22px}.portal-workspace #portal-chat-panel{padding:0 22px}}
 @media(max-width:760px){.portal-workspace .portal-top{left:0;height:64px;padding:0 12px;border-bottom:1px solid var(--line)}.portal-workspace .portal-top .portal-menu{display:grid;order:0}.portal-workspace-title{order:1}.portal-workspace-title strong{font-size:18px}.portal-workspace-title span{font-size:11px}.portal-workspace .portal-mobile-new{display:grid;order:2;margin-left:auto}.portal-workspace .portal-sidebar{top:64px;height:calc(min(var(--portal-viewport-height,100dvh),100dvh) - 64px);z-index:50;width:min(300px,85vw);box-shadow:16px 0 36px rgba(0,0,0,.28)}.portal-workspace .portal-workspace-brand{display:none}.portal-workspace .portal-new-chat{margin-top:16px}.portal-workspace .portal-content{left:0;top:64px;bottom:0}.portal-workspace #portal-chat-panel{padding:0 14px;padding-bottom:env(safe-area-inset-bottom)}.portal-workspace #portal-chat-messages{padding:24px 0 18px}.portal-chat-message-assistant{grid-template-columns:28px minmax(0,1fr);gap:10px}.portal-chat-avatar{width:28px;height:28px}.portal-chat-reply{font-size:15px}.portal-chat-message{margin-bottom:24px!important}.portal-workspace .portal-composer textarea{font-size:16px;min-height:64px;padding:12px 16px 4px}.portal-composer-foot{padding:0 10px 8px}.portal-device-choice{max-width:78%}.portal-workspace .portal-chat-foot{padding:8px 0 10px;font-size:11px}.portal-tool-review{padding:12px}.portal-tool-review dl{grid-template-columns:70px minmax(0,1fr);gap:6px}.portal-tool-review .portal-chat-draft-actions{flex-wrap:wrap}.portal-workspace #portal-chat-draft{max-height:40dvh}.portal-jump{bottom:150px}}
+
+/* Saved reply actions share the portal's existing color and focus tokens. */
+.portal-reply-actions{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:10px}
+.portal-reply-actions:empty{display:none}
+.portal-reply-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;width:auto;min-height:36px;min-width:36px;margin-top:0;padding:7px 9px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-size:12px;cursor:pointer}
+.portal-reply-actions button:hover{color:var(--text);background:var(--p-navy-800)}
+.portal-reply-actions button[aria-pressed="true"]{color:var(--text);background:var(--p-navy-800);border-color:var(--accent)}
+.portal-reply-actions button:focus-visible,.portal-reply-manual-copy textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.portal-reply-actions button:disabled{opacity:.6;cursor:wait}
+.portal-reply-actions button[hidden]{display:none}
+.portal-reply-actions svg{width:16px;height:16px;flex:none}
+.portal-reply-copy-buffer{position:fixed;left:-10000px;top:0;width:1px;height:1px}
+.portal-reply-manual-copy{margin-top:8px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--p-navy-800)}
+.portal-reply-manual-copy p{font-size:12px;color:var(--muted-strong)}
+.portal-reply-manual-copy textarea{box-sizing:border-box;width:100%;padding:10px;color:var(--text);background:var(--p-navy-900);border:1px solid var(--line);border-radius:6px;font:inherit;resize:vertical}
+@media(max-width:760px){.portal-reply-actions button{min-width:44px;min-height:44px}}
