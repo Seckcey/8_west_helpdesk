@@ -2,15 +2,45 @@
  * Safeharbor visual walkthrough (dev tooling — not part of the app stack).
  *
  *   cd tools/shots && npm install
- *   BASE=https://safeharbor.8westit.com node walkthrough.mjs
+ *   BASE=<local-or-staging-origin> SH_EMAIL=<account-email> SH_PASSWORD=<account-password> node walkthrough.mjs
+ *
+ * Required (no defaults; the operator supplies every one):
+ *   BASE         target origin, e.g. http://localhost:8080 (no trailing slash)
+ *   SH_EMAIL     sign-in email for an account on that target
+ *   SH_PASSWORD  sign-in password for that account
+ * Optional:
+ *   SHOTS        output directory (default C:/tmp/shots)
+ *
+ * If any required input is missing, the script names it and exits non-zero
+ * before launching a browser, creating the output directory or touching
+ * the network.
  *
  * Captures: login, queue, keyboard ops, ticket, reply, clients, client,
  * time, palette → PNGs in C:/tmp/shots (or $SHOTS).
  */
-import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 
-const BASE = process.env.BASE ?? "https://safeharbor.8westit.com";
+const BASE = process.env.BASE ?? "";
+const EMAIL = process.env.SH_EMAIL ?? "";
+const PASSWORD = process.env.SH_PASSWORD ?? "";
+const missing = [
+  ["BASE", BASE],
+  ["SH_EMAIL", EMAIL],
+  ["SH_PASSWORD", PASSWORD],
+].filter(([, v]) => v.trim() === "").map(([k]) => k);
+if (missing.length) {
+  console.error(
+    `walkthrough: missing required input ${missing.join(", ")}. ` +
+      "Set BASE (local or staging origin), SH_EMAIL and SH_PASSWORD as " +
+      "environment variables, e.g. BASE=<origin> SH_EMAIL=<email> " +
+      "SH_PASSWORD=<password> node walkthrough.mjs",
+  );
+  process.exit(2);
+}
+
+// Loaded only after the input check so a missing input fails fast and clearly.
+const { chromium } = await import("playwright");
+
 const OUT = process.env.SHOTS ?? "C:/tmp/shots";
 mkdirSync(OUT, { recursive: true });
 
@@ -30,8 +60,9 @@ const shot = async (name) => {
 await page.goto(`${BASE}/login.php`, { waitUntil: "networkidle" });
 await shot("01-login");
 
-// 2. sign in with demo credentials
-await page.fill('input[name="password"]', "harbor");
+// 2. sign in with the operator-supplied credentials
+await page.fill('input[name="email"]', EMAIL);
+await page.fill('input[name="password"]', PASSWORD);
 await page.getByRole("button", { name: "Sign in" }).click();
 await page.waitForURL(`${BASE}/`);
 await page.waitForTimeout(400);
