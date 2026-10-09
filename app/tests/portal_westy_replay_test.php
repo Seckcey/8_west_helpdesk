@@ -10,6 +10,9 @@ $assertReplay=static function(bool $ok,string $message)use(&$replayChecks):void{
 $receipts=[
     ['state'=>'executed','action_id'=>str_repeat('a',32),'reason'=>'application_started_discover_window'],
     ['state'=>'executed','action_id'=>str_repeat('b',32),'reason'=>'observation_unavailable'],
+    ['state'=>'executed','reason'=>'observation_unavailable','action_id'=>str_repeat('d',32),'action_reason'=>'text_not_confirmed'],
+    ['state'=>'executed','observation'=>['observation_id'=>str_repeat('e',32),'available'=>true,'reason'=>null],
+        'action_id'=>str_repeat('f',32),'action_reason'=>'text_mismatch'],
     ['state'=>'refused','action_id'=>null,'reason'=>'controller_surface'],
     ['state'=>'unknown','action_id'=>str_repeat('c',32),'reason'=>'connection_unknown','retry_allowed'=>false],
 ];

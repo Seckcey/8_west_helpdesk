@@ -138,7 +138,7 @@ function portal_desktop_observation_result(array $observation):array
 function portal_westy_desktop_dispatch(array $context,string $name,array $arguments,?callable $alive=null,?callable $transport=null):array
 {
     $task=portal_desktop_task($context);$identity=['session_id'=>$task['session_id'],'task_id'=>$task['task_id']];
-    $alive??=static fn():bool=>true;$started=microtime(true);$actionId=null;$executionRequested=false;$executed=false;
+    $alive??=static fn():bool=>true;$started=microtime(true);$actionId=null;$executionRequested=false;$executed=false;$actionReason=[];
     try{
         if(!$alive())throw new PortalDesktopException('task_stopped');
         if($name==='desktop_stop'){
@@ -173,9 +173,15 @@ function portal_westy_desktop_dispatch(array $context,string $name,array $argume
                 if(in_array($receipt['state']??null,['unknown','cancelled','refused'],true))
                     return ['public_result'=>['state'=>$receipt['state'],'action_id'=>$actionId,'reason'=>$receipt['result']['reason']??null]];
                 if(($receipt['state']??null)!=='executed'){usleep(200000);continue;}
-                $executed=true;
+                // Executed means input was sent, not that the requested edit was
+                // verified. The native input reason (text_not_confirmed, text_mismatch)
+                // stays apart from guidance and from any observation's own reason.
+                // Only a reason token is kept; an older companion sends none, so its
+                // result is unchanged.
+                $executed=true;$nativeReason=$receipt['result']['reason']??null;
+                $actionReason=is_string($nativeReason)&&preg_match('/\A[a-z][a-z0-9_]{0,79}\z/D',$nativeReason)===1?['action_reason'=>$nativeReason]:[];
                 if(($receipt['result']['observation_available']??false)!==true)
-                    return ['public_result'=>['state'=>'executed','action_id'=>$actionId,'reason'=>$name==='desktop_launch'?'application_started_discover_window':'observe_again']];
+                    return ['public_result'=>['state'=>'executed','action_id'=>$actionId,'reason'=>$name==='desktop_launch'?'application_started_discover_window':'observe_again']+$actionReason];
             }
             $result=portal_desktop_request($context,'observation',$identity+['request_key'=>$key],$transport);
             if(($result['state']??null)==='completed'){
@@ -183,7 +189,7 @@ function portal_westy_desktop_dispatch(array $context,string $name,array $argume
                     'observed_at'=>$result['observation']['observed_at'],'window_count'=>count($result['observation']['windows'])],
                     'private_observation'=>$result['observation']];
                 $out=portal_desktop_observation_result($result['observation']);
-                if($actionId!==null){$out['public_result']['state']='executed';$out['public_result']['action_id']=$actionId;}
+                if($actionId!==null){$out['public_result']['state']='executed';$out['public_result']['action_id']=$actionId;$out['public_result']+=$actionReason;}
                 return $out;
             }
             usleep(200000);
@@ -195,7 +201,7 @@ function portal_westy_desktop_dispatch(array $context,string $name,array $argume
             if($reason==='task_stopped'){
                 try{portal_desktop_request($context,'stop',$identity,$transport);}catch(Throwable){}
             }
-            return ['public_result'=>['state'=>'executed','reason'=>$reason==='task_stopped'?'task_stopped':'observation_unavailable','action_id'=>$actionId]];
+            return ['public_result'=>['state'=>'executed','reason'=>$reason==='task_stopped'?'task_stopped':'observation_unavailable','action_id'=>$actionId]+$actionReason];
         }
         $refused=$executionRequested&&$actionId===null&&$error instanceof PortalDesktopException&&$error->requestRejected;
         $unknown=$executionRequested&&!$refused;
