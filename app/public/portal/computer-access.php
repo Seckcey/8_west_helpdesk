@@ -57,19 +57,20 @@ try {
     }
     $fresh = portal_authenticated_context(db());
     if ($fresh === null || $fresh['identity'] !== $context['identity']) { portal_require_sign_in('Please sign in again.'); exit; }
+    $fresh['chat_button_placement'] = 'inline';
     portal_page_start('Computer access', 'portal-devices-page', $fresh);
     ?>
 <main class="portal-devices">
-  <header class="portal-page-header"><div><p class="portal-eyebrow"><?= portal_h($fresh['binding']['client_name']) ?></p><h1>Computer access</h1></div><a href="/portal/devices.php">Your devices</a></header>
-  <?php if ($error !== null): ?><p class="portal-notice" role="alert"><?= portal_h($error) ?></p><?php endif; ?>
-  <?php if ($notice !== null): ?><p class="portal-notice" role="status"><?= portal_h($notice) ?></p><?php endif; ?>
+  <header class="portal-devices-heading"><div><p class="portal-eyebrow"><?= portal_h($fresh['binding']['client_name']) ?></p><h1>Computer access</h1></div><div class="portal-devices-actions"><a href="/portal/devices.php">Your devices</a><?php portal_westy_button(); ?></div></header>
+  <?php if ($error !== null): ?><p class="portal-device-notice" role="alert"><?= portal_h($error) ?></p><?php endif; ?>
+  <?php if ($notice !== null): ?><p class="portal-device-notice is-success" role="status"><?= portal_h($notice) ?></p><?php endif; ?>
   <?php if ($manage && $device !== '' && $access !== null): ?>
     <section class="portal-device-setup"><h2>Give an employee access</h2>
       <p>The employee needs their own account in this business. Share the link privately: the first signed-in employee in this business to use it gets access to this computer.</p>
       <?php if (in_array($fresh['identity']['role'], ['client_owner', 'client_admin'], true) && !isset($fresh['identity']['customer_access'])): ?>
         <p><a href="https://id.8westit.com/users.php#employee-invitations">Invite an employee in 8 West ID</a></p>
       <?php endif; ?>
-      <?php if ($link !== null): ?><label for="computer-access-link">Private access link</label><input id="computer-access-link" type="text" readonly autocomplete="off" value="<?= portal_h($link) ?>"><?php endif; ?>
+      <?php if ($link !== null): ?><p class="field"><label for="computer-access-link">Private access link</label><input id="computer-access-link" type="text" readonly autocomplete="off" value="<?= portal_h($link) ?>"></p><?php endif; ?>
       <form method="post" action="/portal/computer-access.php">
         <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>">
         <input type="hidden" name="action" value="device_access_create">
