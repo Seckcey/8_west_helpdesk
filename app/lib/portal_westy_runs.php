@@ -177,10 +177,14 @@ function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $st
             $known=['kind'=>'control','session_id'=>$desktop['session_id'],'task_id'=>$desktop['task_id']];
     }
     $retained=$known===null?null:json_encode($known+($confirmed===null?[]:['terminal'=>$confirmed]),JSON_THROW_ON_ERROR);
-    $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET state=?,replay_json=NULL,pending_json=? WHERE scope_key=? AND operation_key=? AND state='running'");
+    // A dispatch can enter waiting before its paid attempt is finalized. If
+    // finalization fails, Stop must also remove that waiting replay intent.
+    $eligible=$state==='stopped'?"state IN ('running','waiting')":"state='running'";
+    $q=$pdo->prepare("UPDATE portal_westy_tool_runs SET state=?,replay_json=NULL,pending_json=? WHERE scope_key=? AND operation_key=? AND $eligible");
     $q->execute([$state,$retained,$scope['key'],$operation]);
-    // Accounting and receipts are already durable. An unconfirmed stop retains
-    // its binding, but cannot replay the finished inference or desktop action.
+    // The reserved paid attempt and previously saved receipts remain durable,
+    // including when final accounting failed. An unconfirmed stop retains its
+    // binding, but cannot replay inference or the desktop action.
     if($run){
         $released=portal_westy_control_release($pdo,$context,$run,$transport);
         if(!$released&&$known!==null&&(($confirmed['session_id']??null)!==$known['session_id']||($confirmed['task_id']??null)!==$known['task_id']))
