@@ -115,7 +115,7 @@
     if(!node){
       const question=element('article',undefined,'portal-chat-message portal-chat-message-user'); question.setAttribute('aria-label','You'); question.append(element('p',turn.input_text));
       const answer=element('article',undefined,'portal-chat-message portal-chat-message-assistant'); answer.setAttribute('aria-label','Westy');
-      const avatar=element('img',undefined,'portal-chat-avatar');avatar.src='/assets/img/westy-avatar.png';avatar.alt='';
+      const avatar=element('img',undefined,'portal-chat-avatar');avatar.src=root.dataset.avatar||'/assets/img/westy-avatar.png';avatar.alt='';
       const body=element('div',undefined,'portal-chat-message-body');const reply=element('p','', 'portal-chat-reply');const tools=element('div');const meta=element('div');
       body.append(reply,tools,meta);answer.append(avatar,body);log.append(question,answer);
       node={question,answer,reply,tools,meta,toolSignature:null,metaSignature:null};nodes.set(turn.operation_key,node);
