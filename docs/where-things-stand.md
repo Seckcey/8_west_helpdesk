@@ -1,6 +1,17 @@
 # Where things stand
 
-**October 8 Westy control repair — deployed:** Safeharbor's accepted narrow
+**October 9 Westy 1.26.13 — backend deployed, installer delivered:** Safeharbor's
+selected `d35c657a185e06d54d1012b87fe4fff8f0284a40` source is installed, including
+the accepted control repair, companion branding and computer-local-time changes.
+The original report schedule is active. Current runtime, customer service,
+schema and owned cleanup evidence passed. The paired private Full 1.26.13
+installer is signed, independently verified and delivered to `8WV-FRANKIE`.
+Frankie owns installation and physical acceptance; full Codex parity is unproven.
+No migration, new provider probe or new backup was performed. Other GitHub
+application changes remain outside this selected runtime. See the
+[release, delivered installer and retained recovery evidence](westy-1.26.13-release-2026-10-09.md).
+
+**Historical October 8 Westy control repair — deployed then:** Safeharbor's accepted narrow
 `e50ad5198d9267fb1fa469c7a303f365de2b6694` repair is installed, the original
 report schedule is active, and the current source/customer/schema/cleanup
 review passed. The paired private 1.26.12 installer is signed and independently
