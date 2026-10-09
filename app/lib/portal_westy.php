@@ -354,7 +354,16 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         $requireAi();
         return $authorized=true;
     };
-    portal_westy_ai_finish($pdo,$s,$turnId,$attemptId,$account['conversation_key'],$month,$result,$deliveryAuthority);
+    try{
+        portal_westy_ai_finish($pdo,$s,$turnId,$attemptId,$account['conversation_key'],$month,$result,$deliveryAuthority);
+    }catch(Throwable $finishError){
+        // A failed accounting transaction is still a failed task. Release only
+        // its already bound control, without retrying inference or input and
+        // without rewriting/refunding the uncertain paid attempt. Cleanup keeps
+        // an unconfirmed task identity; it must not replace the original error.
+        try{portal_westy_run_end($pdo,$s,$key,'stopped',$context,$transport);}catch(Throwable){}
+        throw $finishError;
+    }
     if(($result['waiting']??false)!==true)portal_westy_run_end($pdo,$s,$key,($result['ok']??false)?'complete':'stopped',$context,$transport);
     if(!$authorized)throw new PortalWestyException($aiLost?'ai_changed':'sign_in',$aiLost?503:401);
 }

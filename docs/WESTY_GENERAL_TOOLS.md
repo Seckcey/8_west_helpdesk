@@ -191,6 +191,21 @@ An earlier confirmed Stop keeps its exact receipt so a concurrent final response
 does not turn confirmed cancellation into uncertainty.
 This desktop cleanup does not declare a separate terminal process finished.
 
+The 1.26.13 source candidate also attempts that exact cleanup when saving a paid
+attempt's final result throws. It stops either a running continuation or a waiting
+continuation already created by desktop dispatch, and removes its replay intent.
+The original finalization error survives even if cleanup throws. A confirmed Stop
+clears only its matching task binding; an unconfirmed Stop retains the known
+session/task identity. The reserved paid attempt, its charge, and previously saved
+partial/action receipts remain unchanged. Nothing retries inference or desktop
+input, refunds an uncertain attempt, or marks final accounting successful.
+
+This is source behavior for the proposed 1.26.13 release. The last recorded narrow
+Safeharbor deployment remains `e50ad5198d9267fb1fa469c7a303f365de2b6694` until a
+separately verified release installs the selected candidate. Synthetic database
+tests establish the cleanup regression and its repair; they do not identify the
+version or cause of the later laptop screenshots.
+
 The model retains completed tool messages when it yields after five provider rounds
 and resumes within the existing paid run budget without replaying those calls. This
 supports adaptive troubleshooting; a rejected pre-execution intent can be corrected,
