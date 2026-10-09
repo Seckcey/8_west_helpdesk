@@ -78,6 +78,8 @@ reference (`/srv/8west/apps/milepost/current` on the box): page-per-file in
 # app — no build; lint, deploy, verify
 find app -name "*.php" -print0 | xargs -0 -n1 php -l
 SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+# UI verification: set an explicit local/staging target and account inputs first.
+# walkthrough uses BASE; westy-check uses SH_BASE. Both require SH_EMAIL/SH_PASSWORD.
 cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/shots
 ```
 
@@ -99,7 +101,9 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
    `docs/suite-sso-contract.md`). Every string through `h()`, every query
    prepared, UTC everywhere.
 5. **Verify visually.** After UI work, run `tools/shots/walkthrough.mjs`
-   against production and read the PNGs.
+   against an explicitly selected local or staging instance with operator-supplied
+   account inputs, then read the PNGs. The walkthrough modifies tickets and sends
+   a reply; use disposable test records. See [verification tool inputs](docs/verification-tool-inputs.md).
 6. **Shared-box discipline:** additive only on the EC2 host (own app dir,
    docroot, vhost pair, MySQL db/user, own `/etc/cron.d/safeharbor`); Apache
    `reload` never `restart`; `config/config.php` and the `.pem` never enter
