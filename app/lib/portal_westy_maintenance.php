@@ -18,8 +18,15 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
     $count=static function(string $table,string $where,array $parameters)use($pdo):int{
         $q=$pdo->prepare('SELECT COUNT(*) FROM '.$table.' WHERE '.$where);$q->execute($parameters);return (int)$q->fetchColumn();
     };
+    require_once __DIR__.'/portal_westy_feedback.php';
+    $hasFeedback=portal_westy_feedback_installed($pdo);
+    $feedbackWhere=$scope===null
+        ? '(expires_at<=? OR EXISTS(SELECT 1 FROM portal_westy_turns t WHERE t.id=portal_westy_reply_feedback.turn_id AND (t.expires_at<=? OR (t.input_text IS NULL AND t.reply_json IS NULL))))'
+        : '1=1'.$filter;
+    $feedbackArgs=$scope===null?[$now,$now]:$args;
     $result=['applied'=>$apply,'turn_content'=>$count('portal_westy_turns',$turnWhere,$turnArgs),
-        'draft_content'=>$count('portal_westy_drafts',$draftWhere,$draftArgs),'metadata_deleted'=>0];
+        'draft_content'=>$count('portal_westy_drafts',$draftWhere,$draftArgs),'metadata_deleted'=>0,
+        'feedback_content'=>$hasFeedback?$count('portal_westy_reply_feedback',$feedbackWhere,$feedbackArgs):0];
     if(!$apply)return $result;
     // The accepted operation clock skew is at most 60 seconds; keep metadata for
     // that same grace so a future-stamped operation is expired before its row is purged.
@@ -34,6 +41,10 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
         }
         $q=$pdo->prepare("UPDATE portal_westy_turns SET input_text=NULL,reply_json=NULL,state=IF(state='pending','unavailable',state),reason_code=IF(state='pending','expired',reason_code) WHERE ".$turnWhere);
         $q->execute($turnArgs);$result['turn_content']=$q->rowCount();
+        if($hasFeedback){
+            $q=$pdo->prepare('DELETE FROM portal_westy_reply_feedback WHERE '.$feedbackWhere);
+            $q->execute($feedbackArgs);$result['feedback_content']=$q->rowCount();
+        }
         require_once __DIR__.'/portal_westy_runs.php';
         if(portal_westy_runs_installed($pdo)){
             if($scope===null&&portal_westy_terminal_installed($pdo)){

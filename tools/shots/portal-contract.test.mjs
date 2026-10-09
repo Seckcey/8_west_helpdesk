@@ -821,6 +821,7 @@ if (!SERVE_MODE) test('workspace renders incremental network events, keeps its c
       await input.fill('Explain that.');await input.press('Enter');await page.getByRole('button',{name:'Stop reply'}).click();
       await page.waitForFunction(()=>document.getElementById('portal-chat-stop').hidden);
       assert.equal(state.turns.at(-1).state,'unavailable');
+      await page.waitForFunction(()=>document.getElementById('portal-chat-input')===document.activeElement);
       assert.equal(await page.locator('#portal-chat-input').evaluate(e=>e===document.activeElement),true,'focus returns to composer');
       assert.equal(await page.getByText('Computer health check · Queued',{exact:true}).count(),2,'stopping a reply preserves both recorded queued operations');
       if(process.env.PORTAL_SCREENSHOT_DIR){
