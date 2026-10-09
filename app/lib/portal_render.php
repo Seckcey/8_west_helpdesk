@@ -23,6 +23,7 @@ function portal_security_headers(): void
 function portal_page_start(string $title, string $bodyClass = '', ?array $context = null): void
 {
     $GLOBALS['portal_view_context'] = $context;
+    $brand = portal_branding();
     if ($context !== null) $bodyClass = trim('portal-app ' . $bodyClass);
     portal_security_headers();
     ?>
@@ -32,8 +33,8 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#061936">
-<title><?= portal_h($title) ?> · Safeharbor</title>
-<link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
+<title><?= portal_h($title) ?> · <?= portal_h($brand['name']) ?></title>
+<link rel="icon" type="<?= portal_h($brand['favicon_type']) ?>" href="<?= portal_h($brand['favicon']) ?>">
 <link rel="stylesheet" href="/assets/css/app.css?v=5">
 <link rel="stylesheet" href="/assets/css/portal.css?v=1">
 <link rel="stylesheet" href="/assets/css/portal-devices.css?v=2">
@@ -71,13 +72,14 @@ function portal_require_sign_in(?string $message = null): void
 
 function portal_render_login(?string $message = null): void
 {
+    $brand = portal_branding();
     $returnPath = portal_safe_return_path($_SERVER['REQUEST_URI'] ?? '/portal/');
     portal_page_start('Customer portal', 'login-body');
     ?>
 <main class="login-wrap">
   <header class="login-head">
-    <img class="suite-login-logo" src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" width="1851" height="513">
-    <h1 class="login-name">Safeharbor</h1>
+    <img class="suite-login-logo" src="<?= portal_h($brand['logo']) ?>" alt="<?= portal_h($brand['alt']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>">
+    <h1 class="login-name"><?= portal_h($brand['name']) ?></h1>
     <p class="login-tag">Ask for help and follow every customer-visible update</p>
   </header>
   <section class="card login-card" aria-labelledby="portal-sign-in-heading">
@@ -119,13 +121,14 @@ function portal_render_client_choices(array $principal,array $choices): void
 
 function portal_render_error(int $status, string $title, string $message): void
 {
+    $brand = portal_branding();
     http_response_code($status);
     portal_page_start($title, 'login-body');
     ?>
 <main class="login-wrap">
   <header class="login-head">
-    <img class="suite-login-logo" src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" width="1851" height="513">
-    <h1 class="login-name">Safeharbor</h1>
+    <img class="suite-login-logo" src="<?= portal_h($brand['logo']) ?>" alt="<?= portal_h($brand['alt']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>">
+    <h1 class="login-name"><?= portal_h($brand['name']) ?></h1>
   </header>
   <section class="card login-card">
     <h2 class="page-title"><?= portal_h($title) ?></h2>

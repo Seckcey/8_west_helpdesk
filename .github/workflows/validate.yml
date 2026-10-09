@@ -238,7 +238,9 @@ jobs:
           php app/tests/portal_auth_test.php
           php app/tests/portal_login_test.php
       - name: Test customer portal boundary and rendering
-        run: php app/tests/portal_data_test.php
+        run: |
+          php app/tests/portal_data_test.php
+          php app/tests/portal_companion_branding_test.php
       - name: Test desktop cleanup readiness without a database
         run: php app/tests/desktop_cleanup_readiness_test.php
       - name: Test desktop renewal provenance without a database
