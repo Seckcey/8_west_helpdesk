@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 const WESTY_TENANT_AI_VERSION = 1;
 const WESTY_TENANT_AI_CATALOG = '2026-10-04.1';
+// Additive review edition, separate from the persisted credential compatibility version.
+const WESTY_TENANT_AI_CATALOG_REVIEW = '2026-10-08.1';
 const WESTY_TENANT_AI_URL = 'https://id.8westit.com/api/svc/tenant-ai.php';
 const WESTY_TENANT_AI_APPS = ['milepost', 'safeharbor', 'coastmark', 'logbook', 'coastline_control_panel'];
 
@@ -21,13 +23,16 @@ function westy_tenant_ai_catalog(): array
                 'default_effort'=>'low','rates'=>['input'=>100000,'cached_input'=>10000,'cache_write'=>125000,'cache_write_1h'=>0,'output'=>500000]],
             'gpt-6-astra'=>$common + ['label'=>'GPT-6 Astra','efforts'=>['low','medium','high','xhigh','max'],
                 'default_effort'=>'medium','rates'=>['input'=>10000000,'cached_input'=>1000000,'cache_write'=>12500000,'cache_write_1h'=>0,'output'=>50000000]],
+            // Official Responses API ID; account access is discovered separately, never inferred from Codex.
+            'gpt-6.1-sol'=>$common + ['label'=>'GPT-6.1 Sol','efforts'=>['low','medium','high','xhigh','max'],
+                'default_effort'=>'medium','rates'=>['input'=>2000000,'cached_input'=>100000,'cache_write'=>2500000,'cache_write_1h'=>0,'output'=>10000000]],
         ]],
         'anthropic'=>['label'=>'Claude (Anthropic)','models'=>[
             // Reserve the full output allowance inside Haiku's 200k total context.
             'claude-haiku-4-5-20251001'=>['max_input_tokens'=>184000] + $common + ['label'=>'Claude Haiku 4.5','efforts'=>[''],
                 'default_effort'=>'','rates'=>['input'=>1000000,'cached_input'=>100000,'cache_write'=>1250000,'cache_write_1h'=>2000000,'output'=>5000000]],
             'claude-sonnet-5-5'=>$common + ['label'=>'Claude Sonnet 5.5','efforts'=>['low','medium','high'],
-                'default_effort'=>'medium','rates'=>['input'=>2000000,'cached_input'=>200000,'cache_write'=>2500000,'cache_write_1h'=>4000000,'output'=>10000000]],
+                'default_effort'=>'medium','rates'=>['input'=>2000000,'cached_input'=>100000,'cache_write'=>2500000,'cache_write_1h'=>4000000,'output'=>10000000]],
             'claude-opus-5-5'=>$common + ['label'=>'Claude Opus 5.5','efforts'=>['low','medium','high'],
                 'default_effort'=>'medium','rates'=>['input'=>4000000,'cached_input'=>200000,'cache_write'=>5000000,'cache_write_1h'=>8000000,'output'=>20000000]],
         ]],
