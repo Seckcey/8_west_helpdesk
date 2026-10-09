@@ -122,9 +122,9 @@ physical Companion clipboard acceptance.
 The source candidate passed 57 focused MySQL checks, the existing 92-check
 private workspace MySQL suite, both desktop/mobile reply-action browser
 scenarios and all 17 existing portal browser scenarios. PHP lint passed for
-283 files; portal data (46), Companion branding (52), portal authentication
+285 files; portal data (46), Companion branding (52), portal authentication
 (73), AI receipts (21), CI selection (15), technician-time MySQL (98), business
-reports (243) and the integrated model catalog (37) checks passed. The technician-time
+reports (243), integrated model catalog (37) and computer-time consumer (23) checks passed. The technician-time
 race proof requires MySQL performance schema enabled. Browser tests used
 the real renderer and JavaScript at 1440×900 and 390×844. The Browser plugin
 was unavailable, so the existing Playwright tooling was used. The focused
