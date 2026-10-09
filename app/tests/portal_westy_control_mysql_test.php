@@ -76,6 +76,54 @@ $completedCalls=$controlCalls;$complete();
 check($completionCalls===1&&$controlCalls===$completedCalls,'reconnect after cleanup replays neither provider nor desktop request');
 $q->execute([$completionRun['turn_id']]);check($q->fetch()===$completedTurn,'completion cleanup does not change paid accounting or receipts');
 
+// A failed finish transaction must still end its own desktop control. The
+// fixture trigger exists only in this disposable test database/connection.
+foreach(['opening','finishing','unconfirmed'] as $finishFailure){
+    $controlCalls=[];$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));
+    if($finishFailure!=='opening'){
+        $sendControl($request);$failedRun=portal_westy_run_find($pdo,$scope,$request['operation']);
+        $failedRequest=['action'=>'run_resume','operation'=>$request['operation'],'conversation'=>$failedRun['conversation_id'],'sequence'=>1];
+    }else $failedRequest=$request;
+    $pdo->exec("CREATE TRIGGER westy_fixture_finish_error BEFORE UPDATE ON portal_westy_ai_attempts FOR EACH ROW
+        BEGIN IF @westy_fixture_finish_connection=CONNECTION_ID() AND NEW.turn_id=
+            (SELECT id FROM portal_westy_turns WHERE operation_key=@westy_fixture_finish_operation LIMIT 1)
+        THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic finish failure'; END IF; END");
+    $pdo->exec('SET @westy_fixture_finish_connection=CONNECTION_ID()');
+    $pdo->prepare('SET @westy_fixture_finish_operation=?')->execute([$request['operation']]);
+    $finishTransport=static function(string $body,array $headers)use($finishFailure,&$controlCalls,$controlTransport):array{
+        if($finishFailure==='unconfirmed'&&(json_decode($body,true)['action']??null)==='stop'){
+            $controlCalls[]='stop';throw new PortalDesktopException('connection_unknown');
+        }
+        return $controlTransport($body,$headers);
+    };
+    try{
+        portal_westy_message($pdo,$a,$failedRequest,$finishFailure==='opening'?$controlProvider:$completionProvider,
+            static fn()=>$a,transport:$finishTransport,aiResolver:$resolver);
+        check(false,'synthetic finish error was swallowed');
+    }catch(PDOException $error){check(($error->errorInfo[0]??null)==='45000','the original finish failure remains visible');}
+    finally{$pdo->exec('SET @westy_fixture_finish_connection=NULL, @westy_fixture_finish_operation=NULL');$pdo->exec('DROP TRIGGER westy_fixture_finish_error');}
+    $failedRun=portal_westy_run_find($pdo,$scope,$request['operation']);
+    check($controlState['state']===($finishFailure==='unconfirmed'?'active':'stopped')&&$failedRun['state']==='stopped'
+        &&count(array_filter($controlCalls,static fn($action)=>$action==='stop'))===1,
+        'finish transaction failure attempts exact release once and preserves its true outcome: '.$finishFailure);
+    $retainedFailure=json_decode((string)$failedRun['pending_json'],true);
+    check($finishFailure==='unconfirmed'?($retainedFailure['task_id']??null)===$controlState['task_id']:$retainedFailure===null,
+        'unconfirmed cleanup retains only its bound control identity');
+    $q=$pdo->prepare('SELECT state,reserve_microusd,charged_microusd FROM portal_westy_ai_attempts WHERE turn_id=? ORDER BY sequence DESC LIMIT 1');
+    $q->execute([$failedRun['turn_id']]);$pendingPaid=$q->fetch();
+    check($pendingPaid['state']==='pending'&&$pendingPaid['reserve_microusd']===$pendingPaid['charged_microusd'],
+        'control cleanup neither fabricates paid completion nor refunds an uncertain attempt');
+    $q=$pdo->prepare('SELECT reply_json FROM portal_westy_turns WHERE id=?');$q->execute([$failedRun['turn_id']]);$savedFailure=$q->fetchColumn();
+    check(is_string($savedFailure)&&str_contains($savedFailure,$controlState['task_id']), 'saved partial action receipt survives failed finish and cleanup');
+    $callsBefore=$controlCalls;$providerCallsBefore=$completionCalls;
+    try{portal_westy_message($pdo,$a,$failedRequest,$completionProvider,static fn()=>$a,transport:$controlTransport,aiResolver:$resolver);}
+    catch(PortalWestyException){}
+    check($controlCalls===$callsBefore&&$completionCalls===$providerCallsBefore,'reconnect after failed finish replays no inference or desktop request');
+    // End this synthetic fixture's pending-turn concurrency slot so independent
+    // scenarios can start; retain its paid-attempt row and reserved charge.
+    $pdo->prepare("UPDATE portal_westy_turns SET state='unavailable' WHERE id=? AND state='pending'")->execute([$failedRun['turn_id']]);
+}
+
 foreach(['continuation',null] as $pendingKind){
     $controlCalls=[];$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
     $q=$pdo->prepare('UPDATE portal_westy_tool_runs SET pending_json=? WHERE scope_key=? AND operation_key=?');
