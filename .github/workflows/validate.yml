@@ -60,6 +60,8 @@ jobs:
         run: node tools/shots/time-contract.test.mjs
       - name: Test customer portal usefulness in a real browser
         run: node tools/shots/portal-contract.test.mjs
+      - name: Test private Westy reply Copy and feedback in a real browser
+        run: node tools/shots/portal-reply-actions.test.mjs
       - name: Test Westy ownership and reply guidance in a real browser
         run: node tools/shots/westy-workflow-contract.test.mjs
       - name: Test selected-computer timezone contracts
@@ -178,6 +180,15 @@ jobs:
           php app/tests/portal_workspace_mysql_test.php
           php app/tests/portal_stream_http_test.php
           php app/tests/portal_security_orders_test.php
+      - name: Test private Westy feedback ownership, linkage, replay and erasure
+        env:
+          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
+          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_WESTY_TEST_PORT: 3306
+          SAFEHARBOR_WESTY_TEST_USER: root
+          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
+        run: php app/tests/portal_westy_feedback_mysql_test.php
       - name: Test dedicated Westy Graph transport and reply intake
         run: |
           php app/tests/westy_mail_graph_test.php

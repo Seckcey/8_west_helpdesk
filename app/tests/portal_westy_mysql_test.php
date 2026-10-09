@@ -78,7 +78,7 @@ $admin->exec("CREATE USER '$runtimeUser'@'%' IDENTIFIED BY 'synthetic-runtime-fi
 register_shutdown_function(static function()use($admin,$runtimeUser):void{$admin->exec("DROP USER IF EXISTS '$runtimeUser'@'%'");});
 $admin->exec("GRANT SELECT,INSERT,UPDATE ON `$database`.* TO '$runtimeUser'@'%'");
 foreach(['canned_responses','clients','contacts','email_threads','messages','portal_westy_accounts','portal_westy_budgets',
-    'portal_westy_drafts','portal_westy_turns','svc_rate_buckets','svc_support_rate','tickets','portal_westy_ai_attempts'] as $table)
+    'portal_westy_drafts','portal_westy_turns','svc_rate_buckets','svc_support_rate','tickets','portal_westy_ai_attempts','portal_westy_reply_feedback'] as $table)
     $admin->exec("GRANT DELETE ON `$database`.`$table` TO '$runtimeUser'@'%'");
 $runtime=new PDO("mysql:host=$host;port=$port;dbname=$database;charset=utf8mb4",$runtimeUser,'synthetic-runtime-fixture',
     [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
