@@ -1,5 +1,17 @@
 # Where things stand
 
+**October 9, 11:48 PM Pacific — browser continuation correction deployed:**
+Safeharbor now runs the reviewed `4b1ff4fdf7efc4519f140de78f4d2cde6494c6bc`
+cut after PR #206 and successful hosted validation. The exact source/runtime
+digests, unchanged configuration and original report schedule were verified;
+login returned HTTP 200. See the
+[deployment and precise rollback requirement](WESTY_BROWSER_RECOVERY_2026_10_09.md).
+Full 1.26.16 remains installed on the laptop. A standalone native typing candidate
+inserted the first test phrase exactly, but its following surface observation
+failed, so selection/replacement were not attempted. Full browser and Notepad
+acceptance remain pending. Other work, held security claims, the accepted backup
+and historical unknown job 4446 remain unchanged. Earlier records are historical.
+
 **October 9, 11:34 PM Pacific — Westy continuation correction in review:**
 Safeharbor production is `9d1c23c254ab9358d8cf9a7c1422856898d5a74f`; its original
 report schedule and configuration are restored. A later browser attempt connected
