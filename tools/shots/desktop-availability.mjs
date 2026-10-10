@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const repo = fileURLToPath(new URL('../../', import.meta.url));
-const render = `function portal_h($s){return htmlspecialchars($s,ENT_QUOTES,'UTF-8');} function portal_csrf_token(){return 'synthetic-only';} require 'app/lib/portal_desktop_controls.php'; portal_desktop_controls();`;
+const render = `function portal_h($s){return htmlspecialchars($s,ENT_QUOTES,'UTF-8');} function portal_csrf_token(){return 'synthetic-only';} require 'app/lib/portal_shell.php'; portal_desktop_controls();`;
 const php = process.env.DESKTOP_CONTROLS_HTML ? null : spawnSync(process.env.PHP_BIN || 'php', ['-r', render], { cwd: repo, encoding: 'utf8' });
 if (php) assert.equal(php.status, 0, php.stderr);
 const fragment = process.env.DESKTOP_CONTROLS_HTML ? readFileSync(process.env.DESKTOP_CONTROLS_HTML, 'utf8') : php.stdout;

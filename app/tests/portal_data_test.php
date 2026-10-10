@@ -248,7 +248,7 @@ portal_data_check('rendered portal is dark and loads only its exact customer cha
     str_contains($rendered, '<html lang="en" data-theme="dark">')
     && preg_match_all('/<script\b/i', $rendered) === 3
     && $renderedScripts[0] === [
-        '<script src="/assets/js/portal-desktop.js?v=2" defer></script>',
+        '<script src="/assets/js/portal-desktop.js?v='.substr(hash_file('sha256',__DIR__.'/../public/assets/js/portal-desktop.js'),0,20).'" defer></script>',
         '<script src="/assets/js/portal-computer-time.js?v='.substr(hash_file('sha256',__DIR__.'/../public/assets/js/portal-computer-time.js'),0,20).'" defer></script>',
         '<script src="/assets/js/portal-westy.js?v='.substr(hash_file('sha256',__DIR__.'/../public/assets/js/portal-westy.js'),0,20).'" defer></script>',
     ]);
