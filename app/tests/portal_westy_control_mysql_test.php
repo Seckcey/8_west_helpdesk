@@ -259,7 +259,7 @@ $desktopCalls=[];$loseLaunch=true;$lost=portal_westy_desktop_dispatch($bound,'de
 check($desktopCalls===['launch','stop']&&$lost['public_result']['state']==='unknown'&&$lost['public_result']['action_id']===null,'lost initial launch response remains unknown and is never replayed');
 $failureCalls=[];$failureMode='refusal';$failureReceipt=['observation_available'=>true];
 $inputObservation=['observation_id'=>str_repeat('5',32),'available'=>true,'reason'=>null,'complete'=>true];
-$failureTransport=static function(string $body)use(&$failureCalls,&$failureMode,&$failureReceipt,$inputObservation):array{
+$failureTransport=static function(string $body)use(&$failureCalls,&$failureMode,&$failureReceipt,&$inputObservation):array{
     $wire=json_decode($body,true);$action=$wire['action'];$failureCalls[]=$action;
     if($action==='stop')$result=['state'=>'stopped'];
     elseif($action==='launch'&&in_array($failureMode,['refusal','server_error','malformed','unrecognized'],true))
@@ -327,6 +327,17 @@ foreach([
         &&($typedResult['private_observation']??null)===($failureMode==='observed'?$inputObservation:null),
         'executed input keeps its own native reason beside guidance, observation and action ID without replay: '.$case);
 }
+$availableObservation=$inputObservation;$inputObservation['available']=false;$inputObservation['reason']='controller_surface';
+$failureCalls=[];$failureMode='observed';$failureReceipt=['reason'=>'post_observation_unavailable',
+    'observation_available'=>false,'observation_reason'=>'controller_surface'];
+$selected=portal_westy_desktop_dispatch($bound,'desktop_select',['inventory_id'=>str_repeat('9',32),'window'=>'123','process_id'=>45],null,$failureTransport);
+check($failureCalls===['select','result','observation']&&$selected['public_result']['state']==='executed'
+    &&$selected['public_result']['action_reason']==='post_observation_unavailable'
+    &&$selected['public_result']['observation_reason']==='controller_surface'
+    &&$selected['public_result']['observation']===$inputObservation
+    &&$selected['public_result']['recovery']==='choose_another_window_or_launch_requested_url',
+    'actual service serialization consumes the unavailable controller view and preserves supported recovery without reselecting');
+$inputObservation=$availableObservation;
 $failureCalls=[];$stopped=portal_westy_desktop_dispatch($bound,'desktop_stop',[],null,$failureTransport);
 check($stopped['public_result']['state']==='stopped'&&$failureCalls===['stop'],'explicit Stop still dispatches exactly once');
 $failureCalls=[];$stopped=portal_westy_desktop_dispatch($bound,'desktop_launch',$launchArguments,static fn():bool=>false,$failureTransport);

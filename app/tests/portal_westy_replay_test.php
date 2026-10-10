@@ -14,6 +14,9 @@ $receipts=[
     ['state'=>'executed','observation'=>['observation_id'=>str_repeat('e',32),'available'=>true,'reason'=>null],
         'action_id'=>str_repeat('f',32),'action_reason'=>'text_mismatch'],
     ['state'=>'refused','action_id'=>null,'reason'=>'controller_surface'],
+    ['state'=>'executed','action_id'=>str_repeat('1',32),'action_reason'=>'post_observation_unavailable',
+        'observation_reason'=>'controller_surface','observation'=>['available'=>false,'reason'=>'controller_surface'],
+        'recovery'=>'choose_another_window_or_launch_requested_url'],
     ['state'=>'unknown','action_id'=>str_repeat('c',32),'reason'=>'connection_unknown','retry_allowed'=>false],
 ];
 foreach($receipts as $receipt)foreach([null,['elements'=>[['name'=>'PRIVATE_UIA']], 'browser_url'=>'PRIVATE_URL']] as $observation){
