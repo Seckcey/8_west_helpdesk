@@ -1,5 +1,18 @@
 # Where things stand
 
+**October 9, 11:34 PM Pacific — Westy continuation correction in review:**
+Safeharbor production is `9d1c23c254ab9358d8cf9a7c1422856898d5a74f`; its original
+report schedule and configuration are restored. A later browser attempt connected
+but the model returned text without using its available desktop tools. The next
+correction provides one real read-only discovery and a further continuation,
+keeping private observations transient and preserving Stop and uncertain history.
+Focused source checks passed; hosted CI, deployment and laptop acceptance remain
+pending. See the [exact source and evidence](WESTY_BROWSER_RECOVERY_2026_10_09.md).
+Installed Full 1.26.16 remains the laptop version. A separate native text-insertion
+repair is being prepared; its failed pacing experiment is not accepted or shipped.
+Other development, held security work, the accepted backup and unknown job 4446
+remain unchanged. Earlier dated records below are historical.
+
 **October 9, 9:44 PM Pacific — Westy control repair continues:** Safeharbor's
 current selected runtime is `a357c91748384750d15c40650805db2c5d6e22e3`, with
 original report scheduling restored. Frankie installed private Full 1.26.16

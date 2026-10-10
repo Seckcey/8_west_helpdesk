@@ -1,5 +1,44 @@
 # Westy browser observation recovery
 
+## Continue after a successful desktop connection
+
+The October 9, 10:55 PM Pacific laptop attempt connected successfully but ended
+before any browser action. For task `97d143fa485d772136406eb09020e867`, all six
+desktop tools reached the provider. The provider returned only text, and normal
+completion stopped control afterward. This evidence does not show missing tools
+or an early Stop. Neither example.com navigation nor the link destination was
+verified in that attempt.
+
+The reviewed correction gives this exact successful resumed-connection case one
+real, read-only window inventory and one further provider opportunity when its
+first answer contains no tool call. It stays within the existing five-round
+budget. It does not choose a window, type, click, grant access, replay uncertain
+input, or change the approved provider/model. A second text-only answer follows
+normal completion. Successful browser interaction still needs live evidence.
+
+Private window inventory is transient input to the next provider round. Durable
+history keeps only the public discovery receipt and expired-observation guidance.
+The original `9fad2cce` candidate is incomplete without the `2ef9f600` follow-up;
+do not release it alone. The complete source/test pair is frozen for release as
+`4b1ff4fdf7efc4519f140de78f4d2cde6494c6bc`, based on the actual deployed
+`9d1c23c254ab9358d8cf9a7c1422856898d5a74f`. Its normal-main form includes one
+new CI command and preserves unrelated main changes.
+
+Focused checks passed 138 continuation, 18 diagnostics, 37 catalog/vendor and
+15 dispatcher assertions. The continuation test executes the unmodified message
+admission/resume functions against SQLite with synthetic external boundaries;
+it proves the admitted pending context survives database cleanup and reaches
+the runner. It also exercises actual replay/restore expiry of private inventory.
+These checks do not establish MySQL locking, live provider behavior, device
+control, or physical acceptance. Hosted CI, normal integration, exact artifact
+deployment and another laptop attempt remain separate gates.
+
+Current production remains `9d1c23c2`, with the original report schedule restored.
+No native installer, schema, provider setting, saved permission or backup changes
+are part of this correction. The earlier sections below retain their original
+source-stage evidence; the typed-refusal and controller-cache changes have since
+been deployed in that current production cut.
+
 ## Typed refusals and retained control cleanup
 
 The later controlled Full 1.26.16 attempt opened a new example.com window, then
