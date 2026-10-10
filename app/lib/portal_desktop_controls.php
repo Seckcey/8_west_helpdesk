@@ -15,6 +15,6 @@ function portal_desktop_controls():void
 <button id="portal-desktop-start" type="button" disabled>Allow a computer task</button>
 </fieldset>
 <button id="portal-desktop-stop" type="button" hidden>Stop computer control</button>
-</details><script src="/assets/js/portal-desktop.js?v=2" defer></script>
+</details><script src="/assets/js/portal-desktop.js?v=<?= portal_asset_version(__DIR__.'/../public/assets/js/portal-desktop.js') ?>" defer></script>
 <?php
 }
