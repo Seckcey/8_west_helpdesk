@@ -30,14 +30,40 @@ admission/resume functions against SQLite with synthetic external boundaries;
 it proves the admitted pending context survives database cleanup and reaches
 the runner. It also exercises actual replay/restore expiry of private inventory.
 These checks do not establish MySQL locking, live provider behavior, device
-control, or physical acceptance. Hosted CI, normal integration, exact artifact
-deployment and another laptop attempt remain separate gates.
+control, or physical acceptance. PR #206 merged normally as `5f7e5c20` after
+hosted checks passed; default-branch validation `38031740679` also passed.
+Another laptop attempt remains a separate acceptance gate.
 
-Current production remains `9d1c23c2`, with the original report schedule restored.
+The corrected `4b1ff4fd` cut was deployed October 9 at 11:47 PM Pacific through
+the unchanged receiver under the suite, app and report locks. Its source-artifact
+digest is `df992c14f516d3edef6731520e314dbb091782dd5c3dd40d6b914588f0072349`;
+the actual deployed digest is
+`78c320b539002a9deb76e6e09b1bb694440a2c3ac18f4f8610c7a89cae4ad32b`.
+The protected configuration and report code remained byte-identical. The current
+release-record digest is
+`05adfab69d261e58ccf905fa869ee7c26a1930a33bae89789948213b3ad3b4ce`.
+Login returned HTTP 200 and both application services were active.
+
+The original report schedule was restored at 11:48 PM Pacific after a genuine
+protected review. All original sender, recipient, schedule, archive and delivery
+confirmation facts and timestamps were preserved. Separate active-state verification
+passed. No new report or canary was sent. MAIN released its suite/app locks at
+11:49 PM. Protected deployment, capture and activation evidence is retained under
+the existing release-evidence root in `report-rebind-4b1ff4fd`.
+
+The retained inverse is the exact original `9d1c23c2` archive. Before that overlay,
+quarantine only the newly introduced `tests/portal_westy_desktop_continuation_test.php`
+after matching its regular-file identity and SHA-256
+`33c1ea6d1d4bcdbd8ab4b9245ce99b711e50a36ce5e76d31d9505aea4efbb1c6`.
+The unchanged receiver cannot remove stale paths. A rollback requires a fresh
+measured runtime and report binding after its cache stamp, using the original
+pre-forward capture; never reinstall an old activation against new bytes.
+
 No native installer, schema, provider setting, saved permission or backup changes
 are part of this correction. The earlier sections below retain their original
 source-stage evidence; the typed-refusal and controller-cache changes have since
-been deployed in that current production cut.
+been retained in the current production cut. Browser and complete Notepad acceptance
+remain unproven; deployed source is not a successful laptop task.
 
 ## Typed refusals and retained control cleanup
 
