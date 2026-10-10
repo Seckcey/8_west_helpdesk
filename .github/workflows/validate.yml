@@ -98,6 +98,7 @@ jobs:
           find deploy -maxdepth 1 -name 'tenant_ai_*.php' -print0 | xargs -0 -n1 php -l
           php app/tests/portal_westy_ai_receipt_test.php
           php app/tests/tenant_ai_catalog_test.php
+          php app/tests/portal_westy_desktop_continuation_test.php
           sudo env TENANT_AI_TEST_DISPOSABLE_SERVER=1 php app/tests/tenant_ai_release_lock_test.php
           sudo env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy -p 'test_tenant_ai_*.py'
           mysql --protocol=tcp -h 127.0.0.1 -uroot -psafeharbor-test-root -e 'CREATE DATABASE tenant_ai_test_safeharbor CHARACTER SET utf8mb4 COLLATE utf8mb4_bin'
