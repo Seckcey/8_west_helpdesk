@@ -1,5 +1,17 @@
 # Where things stand
 
+**October 10 — 1.26.19 employee consumer source readiness:** the employee
+consumer is already merged in PR #193 and present in reviewed main
+`e6308be3cae19a7b3db1e6a85be3aa63772e4a61`, with exact-main validation passed.
+Its complete difference from the recorded `4b1ff4fd` runtime is five employee
+runtime paths and no Safeharbor schema/deploy change. Milepost assignment
+schema/readiness/enforcement must precede the compatible Safeharbor consumer;
+8 West ID invitation exposure follows last. No employee activation, live account
+or device operation, new runtime observation or customer acceptance is recorded
+by this source review. See the [exact source, coverage and remaining release
+boundaries](SAFEHARBOR_1_26_19_EMPLOYEE_READINESS.md). The dated installed-runtime
+record below remains the latest recorded deployment here.
+
 **October 9, 11:48 PM Pacific — browser continuation correction deployed:**
 Safeharbor now runs the reviewed `4b1ff4fdf7efc4519f140de78f4d2cde6494c6bc`
 cut after PR #206 and successful hosted validation. The exact source/runtime
