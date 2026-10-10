@@ -75,7 +75,7 @@
   const say = text => { status.textContent = text; delete status.dataset.operation; };
   function controls() {
     const waiting=state?.turns.some(t=>t.run?.state==='waiting');
-    send.hidden = busy||waiting; stop.hidden = !busy&&!waiting&&!state?.turns.some(t=>t.terminal_active); send.disabled = !state?.ai_available;
+    send.hidden = busy||waiting; stop.hidden = !busy&&!waiting&&!state?.turns.some(t=>t.terminal_active||t.desktop_cleanup); send.disabled = !state?.ai_available;
     input.disabled = !state?.ai_available||busy||waiting;
     document.querySelectorAll('[data-chat-new],#portal-chat-new').forEach(b => b.disabled = busy);
   }
@@ -348,11 +348,18 @@
       if(node.reply.textContent!==text)node.reply.textContent=text;
       renderReplyActions(node,turn);
       renderTools(node,turn);
-      const signature=JSON.stringify([turn.state,turn.reason_code,turn.reply?.sources,turn.reply?.draft_subject,turn.reply?.draft_body]);
+      const signature=JSON.stringify([turn.state,turn.reason_code,turn.reply?.sources,turn.reply?.draft_subject,turn.reply?.draft_body,turn.desktop_cleanup]);
       if(signature!==node.metaSignature){
         node.metaSignature=signature;node.meta.replaceChildren();
         if(turn.state==='pending'&&!text)node.meta.append(element('p','Westy is working…','portal-hint'));
         if(turn.state==='unavailable')node.meta.append(element('p',turn.reason_code==='stopped'&&!turn.reply?.tools?.length?'Reply stopped.':(errors[turn.reason_code]||errors.interrupted),'portal-hint'));
+        if(turn.desktop_cleanup){
+          node.meta.append(element('p','Computer control has not been confirmed stopped. The previous action will not be repeated.','portal-hint'));
+          node.meta.append(button('Stop computer control',async event=>{
+            const control=event.currentTarget;control.disabled=true;
+            try{await stopOperation(turn.operation_key);}finally{control.disabled=false;}
+          }));
+        }
         if(turn.reply?.sources){const nav=element('nav');for(const id of turn.reply.sources){if(!labels[id])continue;const link=element('a',labels[id]);link.href='/portal/guide.php#'+id;nav.append(link);}node.meta.append(nav);}
         if(state.can_write&&turn.reply?.draft_subject&&turn.reply?.draft_body)node.meta.append(button('Edit suggested request',()=>editDraft({subject:turn.reply.draft_subject,body:turn.reply.draft_body,priority:'normal'})));
       }
@@ -532,12 +539,12 @@
     }
   }
   window.addEventListener('westy-desktop-resume',event=>resumeComputer(event.detail,state?.turns.at(-1)));
-  stop.addEventListener('click',async()=>{
-    const operation=currentOperation||state?.turns.find(t=>t.run?.state==='waiting'||t.terminal_active)?.operation_key;
+  async function stopOperation(operation){
     if(!operation)return;stop.disabled=true;
-    try{const next=await api({action:'stop',operation});streamController?.abort();render(next);say(next.turns.find(t=>t.operation_key===operation)?.reply?.tools?.length?errors.stopped:'Reply stopped.');}
-    catch(error){accessError(error);}finally{stop.disabled=false;}
-  });
+    try{const next=await api({action:'stop',operation});if(currentOperation===operation)streamController?.abort();render(next);say(next.turns.find(t=>t.operation_key===operation)?.reply?.tools?.length?errors.stopped:'Reply stopped.');}
+    catch(error){accessError(error);if(!busy)await refresh(true);}finally{stop.disabled=false;}
+  }
+  stop.addEventListener('click',()=>stopOperation(currentOperation||state?.turns.find(t=>t.run?.state==='waiting'||t.terminal_active||t.desktop_cleanup)?.operation_key));
   input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit();}});
   input.addEventListener('input',()=>{input.style.height='auto';input.style.height=Math.min(180,input.scrollHeight)+'px';});
   async function newChat(){

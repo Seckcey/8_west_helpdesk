@@ -193,6 +193,31 @@ function portal_westy_run_end(PDO $pdo,array $scope,string $operation,string $st
             ->execute([$run['turn_id'],$scope['key'],$retained]);
     }
 }
+/** Admission has not spent a new attempt. Serialize with another resume/Stop and
+ * close only the exact waiting sequence that failed; retain paid history/errors. */
+function portal_westy_run_admission_failed(PDO $pdo,array $scope,array $expected,array $context,Throwable $error,?callable $transport=null):void
+{
+    $pdo->beginTransaction();
+    try{
+        $q=$pdo->prepare('SELECT state FROM portal_westy_turns WHERE scope_key=? AND operation_key=?'.portal_westy_lock($pdo));
+        $q->execute([$scope['key'],$expected['operation_key']]);$turnState=$q->fetchColumn();
+        $run=portal_westy_run_find($pdo,$scope,$expected['operation_key'],true);
+        if(!$run||$turnState!=='complete'||$run['state']!=='waiting'||!portal_westy_run_origin_matches($run)
+            ||(int)$run['turn_id']!==(int)$expected['turn_id']||(int)$run['sequence']!==(int)$expected['sequence']
+            ||$run['conversation_id']!==$expected['conversation_id']){
+            $pdo->commit();return;
+        }
+        $reason=$error instanceof PortalWestyException?$error->reason:'interrupted';
+        $q=$pdo->prepare("UPDATE portal_westy_turns SET state='unavailable',reason_code=?,finished_at=? WHERE scope_key=? AND operation_key=? AND state='complete'");
+        $q->execute([$reason,gmdate('Y-m-d H:i:s'),$scope['key'],$run['operation_key']]);
+        // Keep the turn lock until exact cleanup is recorded. This bounded Stop
+        // cannot race a second admission into a new paid attempt. Its failure is
+        // committed as retained cleanup identity, never a false stop receipt.
+        $context['tool_run']=$run;
+        try{portal_westy_run_end($pdo,$scope,$run['operation_key'],'stopped',$context,$transport);}catch(Throwable){}
+        $pdo->commit();
+    }catch(Throwable $failure){if($pdo->inTransaction())$pdo->rollBack();throw $failure;}
+}
 function portal_westy_run_stop(PDO $pdo,array $context,array $scope,string $operation,?callable $transport=null):void
 {
     if(!portal_westy_runs_installed($pdo))return;

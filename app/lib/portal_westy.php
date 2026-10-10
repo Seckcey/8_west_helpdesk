@@ -111,6 +111,7 @@ function portal_westy_state(PDO $pdo, array $context, ?string $conversation = nu
     $state['turns']=portal_westy_refresh_tools($pdo,$context,$state['turns'],$transport);
     foreach($state['turns'] as &$turn){
         $turn['run']=portal_westy_run_public($pdo,$context,$s,$turn['operation_key'],$transport);
+        $turn['desktop_cleanup']=portal_westy_control_cleanup_public($pdo,$context,$s,$turn['operation_key']);
         if($turn['run']!==null){
             foreach($turn['reply']['tools']??[] as $index=>$tool){
                 if(($tool['awaiting_run']??false)===true)$turn['reply']['tools'][$index]['result']=$turn['run']['receipt'];
@@ -154,13 +155,11 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
 {
     if(!array_key_exists('desktop_renewal_proof',$context))$context=portal_desktop_capture_context($context);
     $c=portal_westy_config(); $s=portal_westy_scope($pdo,$context);
-    if (!$c['enabled'] || !$c['ai_enabled']) throw new PortalWestyException('ai_unavailable',503);
-    $aiSnapshot=portal_westy_ai_snapshot($pdo,$context,null,'status',$aiResolver);
-    $aiSelection=portal_westy_ai_selection($aiSnapshot,$c);
-    if($aiSnapshot['status']==='internal_legacy' && trim($c['api_key'])==='')throw new PortalWestyException('ai_unavailable',503);
     $key=portal_westy_key($request['operation'] ?? null);
     $runResume=($request['action']??'')==='run_resume';$run=null;$runResult=null;
     $resume=$runResume||($request['action']??'')==='desktop_resume';$resumeTurn=null;$desktopTask=null;$priorCharge=0;
+    $admissionRun=null;
+    try{
     if($runResume){
         if(!portal_devices_keys($request,['action','operation','conversation','sequence'])||!is_int($request['sequence']))throw new PortalWestyException('invalid_request',400);
         $conversation=portal_westy_key($request['conversation']);
@@ -172,6 +171,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         if(!$runResult['ready'])return;
         $q=$pdo->prepare('SELECT * FROM portal_westy_turns WHERE id=? AND scope_key=? AND conversation_key=?');$q->execute([$run['turn_id'],$s['key'],$conversation]);$resumeTurn=$q->fetch();
         if(!$resumeTurn||$resumeTurn['state']!=='complete'||$resumeTurn['input_text']===null||strtotime($resumeTurn['expires_at'].' UTC')<=time())throw new PortalWestyException('conversation_changed');
+        $admissionRun=$run;
         $request['message']=$resumeTurn['input_text'];
         $context['tool_run']=$run;
         // A previously consented screen task can participate again, but every
@@ -193,6 +193,12 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
             || strtotime($resumeTurn['expires_at'].' UTC')<=time())throw new PortalWestyException('conversation_changed');
         $request['message']=$resumeTurn['input_text'];
     }
+    // Resolve AI admission after identifying an owned waiting continuation, so
+    // losing model availability cannot strand its existing desktop control.
+    if (!$c['enabled'] || !$c['ai_enabled']) throw new PortalWestyException('ai_unavailable',503);
+    $aiSnapshot=portal_westy_ai_snapshot($pdo,$context,null,'status',$aiResolver);
+    $aiSelection=portal_westy_ai_selection($aiSnapshot,$c);
+    if($aiSnapshot['status']==='internal_legacy' && trim($c['api_key'])==='')throw new PortalWestyException('ai_unavailable',503);
     $text=$request['message'] ?? null;
     $selected=$request['device_reference']??null;
     if($selected!==null&&(!is_string($selected)||!preg_match('/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D',$selected)))throw new PortalWestyException('invalid_request',400);
@@ -301,6 +307,12 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         }
         $pdo->commit();
     } catch(Throwable $e) { if($pdo->inTransaction())$pdo->rollBack(); throw $e; }
+    }catch(Throwable $admissionError){
+        if($admissionRun!==null){
+            try{portal_westy_run_admission_failed($pdo,$s,$admissionRun,$context,$admissionError,$transport);}catch(Throwable){}
+        }
+        throw $admissionError;
+    }
     $partial=['reply'=>'','sources'=>[],'draft_subject'=>'','draft_body'=>'','tools'=>[]];
     if($resume){$saved=json_decode((string)$resumeTurn['reply_json'],true);if(is_array($saved))$partial=array_intersect_key($saved,$partial)+$partial;$partial['reply'].="\n\n";
         if($runResume)foreach($partial['tools'] as &$tool)if(($tool['awaiting_run']??false)===true){$tool['awaiting_run']=false;$tool['result']=$runResult['receipt'];$tool['state']=$runResult['receipt']['state']??'complete';}unset($tool);

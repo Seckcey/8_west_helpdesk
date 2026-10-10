@@ -54,6 +54,8 @@ function portal_desktop_request(array $context,string $action,array $input,?call
             'observation_busy','observation_expired','observation_unavailable','payload_unavailable','action_busy',
             'step_limit','navigation_not_allowed','outside_target','invalid_action','request_changed','read_only',
             'companion_update_required','invalid_launch','window_inventory_stale',
+            'invalid_selection','target_changed','invalid_scroll','invalid_text','unsupported_key',
+            'review_timed_out','review_unavailable','desktop_review_refused',
             'shell_unavailable','companion_offline','companion_ambiguous','execution_unresolved','execution_busy',
             'support_busy','invalid_pipeline','sensitive_text','action_unavailable','cleanup_unavailable','approval_required',
             'terminal_unavailable','terminal_offline','terminal_tty_unsupported','terminal_not_running','terminal_starting','terminal_input_pending','tool_restriction',
@@ -123,10 +125,29 @@ function portal_westy_desktop_definitions(PDO $pdo,array $context,?callable $tra
             if($definition['name']==='desktop_action'){
                 $definition['description']='Act against the latest real observation. The sufficiently specific user request authorizes its scope, including ordinary navigation, clicks, typing, shortcuts and requested changes. Ask only when the material action exceeds that request or Windows actually requires elevation. Key chords support CTRL, SHIFT, ALT and WIN modifiers with letters, digits, F1-F24 or named navigation/editing keys. Never repeat an unknown outcome. Unused parameters must be null.';
                 $definition['input_schema']['properties']['kind']['enum']=['click','double_click','right_click','middle_click','type','key','scroll','focus','navigate'];
+                $definition['input_schema']['properties']['key']['description']='Uppercase Windows chord, for example CTRL+A, CTRL+L, ENTER, BACKSPACE or DELETE. Use CTRL, SHIFT, ALT or WIN modifiers once each; letters/digits, F1-F24 and named keys must be uppercase.';
+                $definition['input_schema']['properties']['text']['description']='Exact text for type, at most 2000 UTF-8 bytes; null for other actions.';
+                $definition['input_schema']['properties']['amount']['description']='For scroll, a nonzero integer from -8 to 8; null for other actions.';
             }
         }unset($definition);
     }
     return $definitions;
+}
+/** A corrected intent is allowed only after a known refusal, never uncertain input. */
+function portal_desktop_refusal_guidance(string $reason,string $tool):array
+{
+    $guidance=match($reason){
+        'observation_stale','observation_expired','observation_unavailable','payload_unavailable','review_changed','review_timed_out','review_unavailable'=>$tool==='desktop_launch'
+            ?'Discover a fresh window inventory before proposing a new launch intent. Do not replay the refused intent.'
+            :'Read a fresh desktop observation before proposing a new action. Do not replay the refused intent.',
+        'target_changed','invalid_selection','window_inventory_stale','inventory_stale'=>'Discover a fresh window inventory and select the actual target before proposing a new action.',
+        'unsupported_key'=>'Use an uppercase supported Windows chord such as CTRL+A or ENTER in a new intent.',
+        'invalid_text'=>'Use nonempty text of at most 2000 UTF-8 bytes in a new intent.',
+        'invalid_scroll'=>'Use a nonzero scroll amount from -8 to 8 in a new intent.',
+        default=>null,
+    };
+    return ['executed'=>false,'retry_allowed'=>false,'correction_allowed'=>$guidance!==null]
+        +($guidance===null?[]:['guidance'=>$guidance]);
 }
 function portal_desktop_observation_result(array $observation):array
 {
@@ -225,6 +246,6 @@ function portal_westy_desktop_dispatch(array $context,string $name,array $argume
             try{portal_desktop_request($context,'stop',$identity,$transport);}catch(Throwable){}
         }
         return ['public_result'=>['state'=>$refused?'refused':($unknown?'unknown':($reason==='task_stopped'?'stopped':'unavailable')),
-            'reason'=>$reason,'action_id'=>$actionId]];
+            'reason'=>$reason,'action_id'=>$actionId]+($refused?portal_desktop_refusal_guidance($reason,$name):[])];
     }
 }
