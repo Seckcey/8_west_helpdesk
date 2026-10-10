@@ -17,13 +17,14 @@ SPEC.loader.exec_module(ci)
 class SelectionTests(unittest.TestCase):
     def test_unknown_or_missing_diff_runs_every_job(self):
         for paths in (None, [], ["future-runtime/file"], [".github/workflows/validate.yml"],
-                      [".github/scripts/ci_changes.py"], ["docs/../app/code.php"], ["docs\\odd.md"]):
+                      [".github/scripts/ci_changes.py"], ["docs/../app/code.php"], ["docs\\odd.md"],
+                      ["app/new-runtime/input"], ["app/tests/fixtures/customer_workspace/operations.json"]):
             with self.subTest(paths=paths):
                 self.assertTrue(all(ci.classify(paths)[0].values()))
 
     def test_documentation_update(self):
         selected, _ = ci.classify(["AGENTS.md", "docs/where-things-stand.md", "deploy/README.md"])
-        self.assertEqual(selected, {"php": False, "browser": False})
+        self.assertEqual(selected, {"php": False, "browser": False, "protected_cli": False})
 
     def test_runtime_markdown_is_never_skipped(self):
         self.assertTrue(all(ci.classify(["app/public/operator-guide.md"])[0].values()))
@@ -35,8 +36,8 @@ class SelectionTests(unittest.TestCase):
     def test_push_cannot_skip_after_unvalidated_predecessor(self):
         for event, previous_green in (("push", False), ("workflow_dispatch", True)):
             self.assertTrue(all(ci.select_for_event(event, ["README.md"], previous_green)[0].values()))
-        self.assertEqual(ci.select_for_event("push", ["AGENTS.md", "docs/where-things-stand.md", "deploy/README.md"], True)[0], {"php": False, "browser": False})
-        self.assertEqual(ci.select_for_event("pull_request", ["AGENTS.md", "docs/where-things-stand.md", "deploy/README.md"])[0], {"php": False, "browser": False})
+        self.assertEqual(ci.select_for_event("push", ["AGENTS.md", "docs/where-things-stand.md", "deploy/README.md"], True)[0], {"php": False, "browser": False, "protected_cli": False})
+        self.assertEqual(ci.select_for_event("pull_request", ["AGENTS.md", "docs/where-things-stand.md", "deploy/README.md"])[0], {"php": False, "browser": False, "protected_cli": False})
 
     def test_predecessor_requires_latest_exact_green_push(self):
         base = "a" * 40
@@ -74,15 +75,63 @@ class SelectionTests(unittest.TestCase):
                 self.assertIn("branch=" + ci.DEFAULT_BRANCH, url)
                 self.assertIn("per_page=1", url)
 
-    def test_every_application_and_transitive_browser_input_keeps_both_jobs(self):
+    def test_actual_browser_roots_and_transitive_dependencies_keep_browser(self):
         for path in ("app/lib/business_reports.php", "app/lib/service_goals.php",
                      "app/lib/managed_customer_status.php", "app/lib/portal_data.php",
+                     "app/lib/suite_managed_provider.php", "app/lib/portal_access.php",
+                     "app/lib/portal_shell.php", "app/lib/portal_desktop_controls.php",
+                     "app/lib/portal_devices.php", "app/lib/portal_devices_render.php",
+                     "app/lib/portal_device_operations.php", "app/lib/portal_device_operations_render.php",
+                     "app/lib/portal_mobile.php", "app/lib/portal_mobile_render.php",
+                     "app/lib/portal_security_orders.php", "app/lib/portal_security_orders_render.php",
+                     "app/lib/portal_computer_time.php", "app/lib/portal_westy_device_instructions.php",
+                     "app/lib/westy_workflow.php", "app/lib/render.php",
+                     "app/tests/portal_computer_time_test.php", "app/tests/westy_queue_owner_test.php",
+                     "app/public/portal/westy.php", "app/public/api/time_entry_adjustment.php",
                      "app/public/assets/js/app.js", "app/public/time.php",
                      "tools/shots/package-lock.json", "brand/svg/favicon.svg"):
-            self.assertTrue(all(ci.classify([path])[0].values()))
+            with self.subTest(path=path):
+                self.assertTrue(ci.classify([path])[0]["browser"])
+
+    def test_backend_only_changes_keep_php_without_chromium(self):
+        for path in ("app/lib/portal_westy.php", "app/lib/portal_westy_control.php",
+                     "app/lib/portal_westy_desktop.php", "app/lib/portal_westy_runs.php",
+                     "app/lib/portal_westy_tenant_ai.php"):
+            with self.subTest(path=path):
+                self.assertEqual(ci.classify([path])[0], {"php": True, "browser": False, "protected_cli": True})
+        # New/other library consumers remain conservative, rather than relying on
+        # an exhaustive, easily stale dependency allowlist.
+        self.assertTrue(all(ci.classify(["app/lib/new_shared_consumer.php"])[0].values()))
+
+    def test_independent_php_tests_do_not_start_unrelated_runners(self):
+        for path in ("app/tests/portal_westy_desktop_continuation_test.php",
+                     "app/tests/portal_westy_desktop_diagnostics_test.php",
+                     "app/tests/portal_westy_feedback_mysql_test.php",
+                     "app/tests/portal_employee_device_access_mysql_test.php",
+                     "app/tests/trusted_jwks_https_test.php", "app/tests/private_file_cache_test.php",
+                     "app/tests/portal_mobile_mysql_test.php"):
+            self.assertEqual(ci.classify([path])[0], {"php": True, "browser": False, "protected_cli": False})
+
+    def test_protected_cli_keeps_real_fixtures_schema_and_migration_dependencies(self):
+        for path in ("app/tests/portal_devices_mysql_test.php", "app/tests/portal_westy_fixture.php",
+                     "app/tests/portal_device_operations_scenarios.php", "app/tests/portal_security_orders_scenarios.php",
+                     "app/tests/endpoint_tool_runs_cli_mysql_test.php", "app/tests/endpoint_tool_runs_v2_cli_mysql_test.php",
+                     "app/tests/endpoint_tool_runs_migration_mysql_test.php", "app/lib/eightwestid/eightwestid.php",
+                     "app/config/config.sample.php", "app/db/schema.sql", "app/db/migrations/endpoint_tool_runs_v2.sql",
+                     "deploy/endpoint_tool_runs_v2_migration.php", "deploy/endpoint_tool_runs_migration_catalog.json",
+                     "deploy/managed_provider_migration.php"):
+            with self.subTest(path=path):
+                self.assertTrue(ci.classify([path])[0]["protected_cli"])
+
+    def test_browser_tools_assets_and_mixed_changes_select_consumers(self):
+        self.assertEqual(ci.classify(["tools/shots/portal-contract.test.mjs"])[0],
+                         {"php": False, "browser": True, "protected_cli": False})
+        self.assertEqual(ci.classify(["brand/svg/favicon.svg", "app/public/assets/js/portal-westy.js"])[0],
+                         {"php": True, "browser": True, "protected_cli": False})
+        self.assertTrue(all(ci.classify(["app/lib/portal_westy_desktop.php", "tools/shots/portal-contract.test.mjs"])[0].values()))
 
     def test_deployment_script_keeps_php_but_does_not_launch_browser(self):
-        self.assertEqual(ci.classify(["deploy/deploy.sh"])[0], {"php": True, "browser": False})
+        self.assertEqual(ci.classify(["deploy/deploy.sh"])[0], {"php": True, "browser": False, "protected_cli": False})
 
 
 class GitDiffTests(unittest.TestCase):
@@ -122,6 +171,25 @@ class GitDiffTests(unittest.TestCase):
         paths = ci.changed_paths(self.base, self.commit(), self.repo)
         self.assertEqual(paths, ["app/sample.php"])
         self.assertTrue(ci.classify(paths)[0]["php"])
+
+    def test_backend_rename_into_browser_source_keeps_both_consumers(self):
+        (self.repo / "app" / "lib").mkdir()
+        backend = self.repo / "app" / "lib" / "portal_westy_desktop.php"
+        backend.write_text("<?php echo 1;\n", encoding="utf-8")
+        base = self.commit()
+        backend.rename(backend.with_name("portal_render.php"))
+        paths = ci.changed_paths(base, self.commit(), self.repo)
+        self.assertEqual(set(paths), {"app/lib/portal_westy_desktop.php", "app/lib/portal_render.php"})
+        self.assertTrue(all(ci.classify(paths)[0].values()))
+
+    def test_deleted_protected_fixture_keeps_executed_cli(self):
+        (self.repo / "app" / "tests").mkdir()
+        fixture = self.repo / "app" / "tests" / "portal_westy_fixture.php"
+        fixture.write_text("<?php echo 1;\n", encoding="utf-8")
+        base = self.commit()
+        fixture.unlink()
+        paths = ci.changed_paths(base, self.commit(), self.repo)
+        self.assertTrue(ci.classify(paths)[0]["protected_cli"])
 
     def test_spaces_unicode_and_multiple_commit_push(self):
         (self.repo / "docs" / "release notes café.md").write_text("Notes\n", encoding="utf-8")

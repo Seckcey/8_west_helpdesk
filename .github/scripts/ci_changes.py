@@ -9,9 +9,40 @@ import subprocess
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-JOBS = ("php", "browser")
+JOBS = ("php", "browser", "protected_cli")
 DEFAULT_BRANCH = "main"
 WORKFLOW_FILE = "validate.yml"
+
+# These five backend helpers are not loaded by the hosted browser fixtures.
+# All other library changes retain browser coverage, including new dependencies.
+BACKEND_WITHOUT_BROWSER = {
+    "app/lib/portal_westy.php",
+    "app/lib/portal_westy_control.php",
+    "app/lib/portal_westy_desktop.php",
+    "app/lib/portal_westy_runs.php",
+    "app/lib/portal_westy_tenant_ai.php",
+}
+BROWSER_TEST_INPUTS = {
+    "app/tests/portal_computer_time_test.php",
+    "app/tests/westy_queue_owner_test.php",
+}
+# The root CLI tests include the real device fixture, its scenarios and the
+# migration tests. Library/config/schema changes remain conservative below.
+PROTECTED_CLI_TEST_INPUTS = {
+    "app/tests/endpoint_tool_runs_cli_mysql_test.php",
+    "app/tests/endpoint_tool_runs_v2_cli_mysql_test.php",
+    "app/tests/endpoint_tool_runs_migration_mysql_test.php",
+    "app/tests/portal_devices_mysql_test.php",
+    "app/tests/portal_westy_fixture.php",
+    "app/tests/portal_device_operations_scenarios.php",
+    "app/tests/portal_security_orders_scenarios.php",
+}
+DEPLOY_WITHOUT_PROTECTED_CLI = {
+    "deploy/deploy.sh",
+    "deploy/hash-safeharbor-app-artifact.sh",
+    "deploy/manage-business-report-scheduler.sh",
+    "deploy/remote-install-safeharbor-app.sh",
+}
 
 
 def full_selection(reason: str) -> tuple[dict[str, bool], str]:
@@ -35,10 +66,31 @@ def classify(paths: list[str] | None) -> tuple[dict[str, bool], str]:
         if is_documentation(path):
             continue
         docs_only = False
-        if path.startswith(("app/", "brand/", "tools/shots/")):
+        if path.startswith("tools/shots/"):
+            selected["browser"] = True
+        elif path.startswith(("brand/", "app/public/assets/")):
+            selected["php"] = selected["browser"] = True
+        elif path.startswith("app/lib/") and path.endswith(".php"):
+            selected["php"] = selected["protected_cli"] = True
+            if path not in BACKEND_WITHOUT_BROWSER:
+                selected["browser"] = True
+        elif path.startswith(("app/config/", "app/db/")):
+            selected["php"] = selected["protected_cli"] = True
+        elif path.startswith("app/tests/fixtures/"):
+            # Shared fixtures may be consumed by either executed contract lane.
+            return full_selection("Shared application fixture changed; running every validation job.")
+        elif path.startswith("app/tests/") and path.endswith(".php"):
+            selected["php"] = True
+            if path in BROWSER_TEST_INPUTS:
+                selected["browser"] = True
+            if path in PROTECTED_CLI_TEST_INPUTS:
+                selected["protected_cli"] = True
+        elif path.startswith("app/public/") and path.endswith(".php"):
             selected["php"] = selected["browser"] = True
         elif path.startswith("deploy/"):
             selected["php"] = True
+            if path not in DEPLOY_WITHOUT_PROTECTED_CLI:
+                selected["protected_cli"] = True
         else:
             return full_selection("Unclassified or CI path; running every validation job.")
     reason = (

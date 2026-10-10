@@ -22,6 +22,7 @@ jobs:
     outputs:
       php: ${{ steps.select.outputs.php }}
       browser: ${{ steps.select.outputs.browser }}
+      protected_cli: ${{ steps.select.outputs.protected_cli }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,7 +75,7 @@ jobs:
     timeout-minutes: 15
     services:
       mysql:
-        image: mysql:8.0
+        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
         env:
           MYSQL_ROOT_PASSWORD: safeharbor-test-root
           MYSQL_DATABASE: safeharbor_portal_test
@@ -383,12 +384,23 @@ jobs:
           SAFEHARBOR_CENTRAL_TEST_USER: root
           SAFEHARBOR_CENTRAL_TEST_PASS: safeharbor-test-root
         run: php app/tests/central_issues_mysql_test.php
+      - name: Test customer mobile projection and real binding isolation
+        env:
+          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_WESTY_TEST_PORT: '3306'
+          SAFEHARBOR_WESTY_TEST_USER: root
+          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
+          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test_mobile
+        run: |
+          php app/tests/portal_mobile_test.php
+          php app/tests/portal_mobile_mysql_test.php
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php
 
   tool-runs-protected-cli:
     needs: changes
-    if: needs.changes.outputs.php == 'true'
+    if: needs.changes.outputs.protected_cli == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
