@@ -135,7 +135,7 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
     ?callable $transport=null,?callable $resolver=null):array
 {
     $usage=['input'=>0,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>0];
-    $cost=0;$known=true;$receipts=[];$inFlight=false;$buffer=null;
+    $cost=0;$known=true;$receipts=[];$inFlight=false;$buffer=null;$discoveryContext=null;
     try {
         for($round=0;$round<5;$round++) {
             $alive(true);
@@ -156,13 +156,18 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             $inFlight=true;
             $instructions=portal_westy_ai_instructions($tools);
             portal_westy_desktop_tools_diagnostic($operation,(int)($context['tool_run']['sequence']??0),$round+1,$tools,$desktopAvailability);
-            $result=($provider??'westy_tenant_ai_stream')($selection,$instructions,$messages,$options,
+            // The actual inventory is input to one round only. Every durable
+            // wait below receives the public receipt, never these private titles.
+            $providerMessages=$messages;
+            if($discoveryContext!==null)$providerMessages[$discoveryContext['index']]['content'][0]['text']=json_encode($discoveryContext['data'],JSON_THROW_ON_ERROR);
+            $result=($provider??'westy_tenant_ai_stream')($selection,$instructions,$providerMessages,$options,
                 static fn(string $text)=>$buffer->append($text),
                 static function()use($buffer,$alive):void{
                     // A timed flush goes through the unthrottled output guards.
                     // Only progress with no output/action uses the idle throttle.
                     if(!$buffer->flushDue())$alive(false);
                 });
+            unset($providerMessages);$discoveryContext=null;
             $inFlight=false;
             $roundUsage=$result['usage']??null;$roundCost=is_array($roundUsage)?westy_tenant_ai_cost($selection,$roundUsage):null;
             $known=$known && is_int($roundCost);
@@ -194,10 +199,14 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
                 $partial['tools'][$index]['state']=$public['state']??'unavailable';$partial['tools'][$index]['result']=$public;
                 $save();$output('tool',['tool'=>$partial['tools'][$index]]);
                 $messages[]=$result['continuation'];
-                $messages[]=['role'=>'user','content'=>[['type'=>'text','text'=>json_encode([
+                $discoveryContext=['index'=>count($messages),'data'=>[
                     'server_read_only_discovery'=>['tool'=>'desktop_windows','result'=>$public,
                         'untrusted_observation'=>$discovery['private_observation']??null],
                     'continuation'=>'Continue the original request using this actual result and the current offered tools. No target has been selected and no input has been replayed.',
+                ]];
+                $messages[]=['role'=>'user','content'=>[['type'=>'text','text'=>json_encode([
+                    'server_read_only_discovery'=>['tool'=>'desktop_windows','result'=>$public,'observation_status'=>'expired'],
+                    'continuation'=>'The transient window inventory has expired. Obtain a fresh observation before relying on window contents or selecting a target. Preserve this read receipt; do not replay an executed or uncertain action.',
                 ],JSON_THROW_ON_ERROR)]]];
                 unset($discovery);
                 continue; // First round only; consumes the existing five-round budget.

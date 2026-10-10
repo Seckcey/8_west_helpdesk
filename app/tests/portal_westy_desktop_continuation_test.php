@@ -10,6 +10,10 @@ foreach([['final class PortalDesktopException','function portal_desktop_transpor
     if($start===false||$end===false)throw new RuntimeException('Desktop fixture boundary changed');
     eval(substr($desktopSource,$start,$end-$start));
 }
+$runSource=file_get_contents(__DIR__.'/../lib/portal_westy_runs.php');
+$start=strpos($runSource,'function portal_westy_run_replay(');$end=strpos($runSource,'function portal_westy_run_wait(',$start+1);
+if($start===false||$end===false)throw new RuntimeException('Replay fixture boundary changed');
+eval(substr($runSource,$start,$end-$start));
 final class PortalWestyException extends RuntimeException
 {
     public function __construct(public readonly string $reason,public readonly int $status=503){parent::__construct($reason);}
@@ -21,13 +25,13 @@ function portal_westy_terminal_definitions():array{return [['name'=>'exec_comman
     'input_schema'=>['type'=>'object','properties'=>[]]]];}
 function portal_westy_shell_definitions():array{return [];}
 function portal_westy_recovery_definitions():array{return [];}
-function portal_westy_scope(PDO $pdo,array $context):array{return ['tenant'=>1];}
-function portal_westy_config():array{return [];}
+function portal_westy_scope(PDO $pdo,array $context,bool $lock=false):array{return $GLOBALS['admissionScope']??['tenant'=>1];}
+function portal_westy_config():array{return $GLOBALS['admissionConfig']??[];}
 function portal_guide_articles():array{return [];}
 function portal_devices_can_operate(array $context):bool{return true;}
 function portal_devices_keys(array $input,array $keys):bool{$actual=array_keys($input);sort($actual);sort($keys);return $actual===$keys;}
 function portal_westy_run_wait(PDO $pdo,array $context,string $operation,array $pending,array $messages):void
-{$GLOBALS['waits'][]=$pending;}
+{$GLOBALS['waits'][]=$pending;$GLOBALS['waitReplays'][]=portal_westy_run_replay($messages);}
 function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array
 {
     $GLOBALS['wire'][]=['action'=>$action,'input'=>$input];
@@ -46,7 +50,7 @@ $context=['desktop'=>$task,'tool_run'=>['operation_key'=>$operation,'conversatio
     'pending_json'=>json_encode($pending,JSON_THROW_ON_ERROR)]];
 $state=$task+['state'=>'active','connected'=>true,'control_version'=>2];
 $partial=['reply'=>'','tools'=>[['key'=>$callId,'name'=>'desktop_open','state'=>'active','awaiting_run'=>false,'result'=>$state]]];
-$selection=['status'=>'active','provider'=>'openai','model'=>'gpt-6-luna','effort'=>'low','revision'=>4,'credential_version'=>1];
+$selection=['status'=>'active','provider'=>'openai','model'=>'gpt-6-luna','effort'=>'low','revision'=>4,'credential_version'=>1,'catalog'=>'2026-10-04.1'];
 $usage=['input'=>100,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>20];
 $messages=[['role'=>'user','content'=>[['type'=>'text','text'=>'Inspect the requested synthetic browser.']]],
     ['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>$callId,'name'=>'desktop_open',
@@ -64,7 +68,7 @@ $reply=static function(string $text,array $calls=[])use($selection,$usage):array
         'usage'=>['input_tokens'=>$usage['input'],'output_tokens'=>$usage['output'],'input_tokens_details'=>['cached_tokens'=>0,'cache_write_tokens'=>0]]]);
 };
 $run=static function(array $ctx,array $initial,callable $provider,?callable $alive=null,?callable $resolver=null,?callable $setup=null)use($pdo,$selection,$messages,$operation,$state,$inventory):array{
-    $GLOBALS['wire']=[];$GLOBALS['waits']=[];
+    $GLOBALS['wire']=[];$GLOBALS['waits']=[];$GLOBALS['waitReplays']=[];
     $GLOBALS['service']=static function($context,$action,$input)use($state,$inventory):array{
         if($action==='state')return $state;
         if($action==='windows'){
@@ -83,7 +87,7 @@ $run=static function(array $ctx,array $initial,callable $provider,?callable $ali
     $save=static function()use(&$saved,&$work):void{$saved[]=$work;};
     $result=portal_westy_ai_run($pdo,$ctx,$selection,$messages,$operation,$work,$alive??static function():void{},$output,$save,
         $provider,resolver:$resolver??static fn()=>$selection);
-    return ['result'=>$result,'partial'=>$work,'events'=>$events,'saved'=>$saved,'wire'=>$GLOBALS['wire'],'waits'=>$GLOBALS['waits']];
+    return ['result'=>$result,'partial'=>$work,'events'=>$events,'saved'=>$saved,'wire'=>$GLOBALS['wire'],'waits'=>$GLOBALS['waits'],'waitReplays'=>$GLOBALS['waitReplays']];
 };
 $log=tempnam(sys_get_temp_dir(),'westy-desktop-continuation-');$oldLog=ini_set('error_log',$log);
 try{
@@ -300,5 +304,106 @@ try{
     $out=$run($context,$partial,$provider);
     check($calls===5&&($out['result']['waiting']??false)===true&&$out['waits']===[['kind'=>'continuation']],'recovery never adds a sixth round or a new run budget');
     check(count($out['result']['rounds'])===5&&$out['result']['usage']['input']===500,'five paid rounds remain fully accounted');
+    check(count($out['waitReplays'])===1&&!str_contains($out['waitReplays'][0],'PRIVATE_WINDOW'),'actual durable replay expires automatic and model-requested private inventories');
+    $restored=portal_westy_run_restore($out['waitReplays'][0]);$discoveryReceipt=null;
+    foreach($restored as $message)if(($message['role']??null)==='user'){
+        $data=json_decode($message['content'][0]['text']??'',true);
+        if(isset($data['server_read_only_discovery']))$discoveryReceipt=$data['server_read_only_discovery'];
+    }
+    check($discoveryReceipt['result']['window_count']===2&&$discoveryReceipt['observation_status']==='expired'
+        &&!isset($discoveryReceipt['untrusted_observation']),'real restored continuation retains public discovery proof and requires a fresh inventory');
+
+    // One admission regression executes the actual message, binding and run
+    // readers against SQLite. Namespace seams replace only external authority
+    // and the desktop include boundary; the AI-run seam calls the real runner
+    // then stops before accounting/cleanup, which other tests own.
+    eval(<<<'PHP'
+namespace WestyAdmissionFixture;
+final class ReachedRunner extends \RuntimeException {}
+function portal_westy_runs_installed(\PDO $pdo):bool{return true;}
+function portal_desktop_origin():string{return 'companion';}
+function portal_westy_desktop_context(\PDO $pdo,array $context,string $conversation,string $operation):array
+{return portal_desktop_context($pdo,$context,$conversation,$operation);}
+function portal_westy_ai_run($pdo,$context,$snapshot,$messages,$operation,&$partial,...$arguments):array
+{
+    $GLOBALS['admissionContext']=$context;
+    $GLOBALS['admissionResult']=\portal_westy_ai_run($pdo,$context,$snapshot,$messages,$operation,$partial,...$arguments);
+    $GLOBALS['admissionPartial']=$partial;
+    throw new ReachedRunner();
+}
+PHP);
+    foreach([
+        ['portal_westy.php','portal_westy_lock','portal_westy_state'],
+        ['portal_westy.php','portal_westy_require_conversation','portal_westy_save_draft'],
+        ['portal_westy_runs.php','portal_westy_run_origin','portal_westy_run_create'],
+        ['portal_westy_runs.php','portal_westy_run_result','portal_westy_run_dispatch'],
+        ['portal_westy_control.php','portal_westy_control_result','portal_westy_control_cleanup_public'],
+        ['portal_desktop_sessions.php','portal_desktop_context','portal_desktop_bind'],
+        ['portal_westy_tools.php','portal_westy_tool_model_result','portal_westy_refresh_tools'],
+    ] as [$file,$first,$next]){
+        $source=file_get_contents(__DIR__.'/../lib/'.$file);$start=strpos($source,'function '.$first.'(');$end=strpos($source,'function '.$next.'(',$start+1);
+        if($start===false||$end===false)throw new RuntimeException('Admission fixture source boundary changed');
+        eval('namespace WestyAdmissionFixture; use \\PDO; use \\Throwable; use \\PortalWestyException; use \\PortalDesktopException; '.substr($source,$start,$end-$start));
+    }
+    $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+    $db->sqliteCreateFunction('UTC_TIMESTAMP',static fn()=>gmdate('Y-m-d H:i:s'));
+    $db->exec('CREATE TABLE portal_westy_accounts(scope_key TEXT UNIQUE,tenant_id INT,client_id INT,binding_id INT,conversation_key TEXT,created_at TEXT);
+        CREATE TABLE portal_westy_turns(id INTEGER PRIMARY KEY,tenant_id INT,client_id INT,scope_key TEXT,operation_key TEXT,conversation_key TEXT,
+            state TEXT,input_text TEXT,reply_json TEXT,expires_at TEXT,created_at TEXT,reserve_microusd INT,charged_microusd INT,finished_at TEXT);
+        CREATE TABLE portal_westy_tool_runs(turn_id INT,tenant_id INT,client_id INT,scope_key TEXT,operation_key TEXT,conversation_id TEXT,
+            state TEXT,sequence INT,pending_json TEXT,replay_json TEXT,origin_channel TEXT,origin_session_hash TEXT,companion_session TEXT,expires_at TEXT);
+        CREATE TABLE portal_desktop_bindings(session_id TEXT,task_id TEXT,tenant_id INT,client_id INT,scope_key TEXT,conversation_id TEXT,
+            operation_key TEXT,origin_channel TEXT,origin_session_hash TEXT,expires_at TEXT);
+        CREATE TABLE portal_westy_ai_attempts(id INTEGER PRIMARY KEY,turn_id INT,sequence INT,tenant_id INT,client_id INT,scope_key TEXT,
+            provider TEXT,model_name TEXT,catalog_version TEXT,ai_revision INT,credential_version INT,desktop_task_id TEXT,request_fingerprint TEXT,
+            state TEXT,reserve_microusd INT,charged_microusd INT,created_at TEXT,usage_json TEXT);
+        CREATE TABLE portal_westy_budgets(tenant_id INT,client_id INT,month_key TEXT,charged_microusd INT,UNIQUE(tenant_id,client_id,month_key));');
+    $scope=['tenant'=>1,'client'=>11,'binding'=>1,'key'=>str_repeat('6',64)];$GLOBALS['admissionScope']=$scope;
+    $GLOBALS['admissionConfig']=['enabled'=>true,'ai_enabled'=>true,'api_key'=>'','retention_days'=>30,'hourly_limit'=>100,'daily_limit'=>500,'monthly_microusd'=>20000000];
+    $_SESSION['desktop_companion_session']=$task['session_id'];$expires=gmdate('Y-m-d H:i:s',time()+1800);$now=gmdate('Y-m-d H:i:s');
+    $db->prepare('INSERT INTO portal_westy_accounts VALUES(?,?,?,?,?,?)')->execute([$scope['key'],1,11,1,$task['conversation_id'],$now]);
+    $waitingPartial=$partial;$waitingPartial['tools'][0]['awaiting_run']=true;
+    $db->prepare('INSERT INTO portal_westy_turns VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([
+        1,1,11,$scope['key'],$operation,$task['conversation_id'],'complete','Inspect the requested synthetic browser.',json_encode($waitingPartial),$expires,$now,100,100,$now]);
+    $db->prepare('INSERT INTO portal_westy_tool_runs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([
+        1,1,11,$scope['key'],$operation,$task['conversation_id'],'waiting',1,json_encode($pending),portal_westy_run_replay(array_slice($messages,0,2)),
+        'companion',hash('sha256',session_id()),$task['session_id'],$expires]);
+    $db->prepare('INSERT INTO portal_desktop_bindings VALUES(?,?,?,?,?,?,?,?,?,?)')->execute([
+        $task['session_id'],$task['task_id'],1,11,$scope['key'],$task['conversation_id'],$operation,'companion',hash('sha256',session_id()),$expires]);
+    $db->prepare('INSERT INTO portal_westy_ai_attempts(turn_id,sequence,scope_key,provider,model_name,ai_revision,credential_version,state,created_at,usage_json) VALUES(?,?,?,?,?,?,?,?,?,?)')
+        ->execute([1,1,$scope['key'],'openai','gpt-6-luna',4,1,'complete',$now,'{"known":true}']);
+    $GLOBALS['wire']=[];$before=$GLOBALS['service'];
+    $GLOBALS['service']=static function($context,$action,$input)use($before,$state):array{
+        if($action==='control_result')return $state;
+        return $before($context,$action,$input);
+    };
+    $calls=0;$provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$calls,$db,$reply,$state):array{
+        $calls++;
+        if($calls===1){
+            $row=$db->query('SELECT state,pending_json,replay_json FROM portal_westy_tool_runs')->fetch();
+            check($row===['state'=>'running','pending_json'=>null,'replay_json'=>null],'actual admission clears database pending/replay before the first provider call');
+            $receipt=json_decode($input[array_key_last($input)]['content'][0]['text'],true);
+            check($receipt['untrusted_result']['task_id']===$state['task_id']&&$receipt['untrusted_result']['state']==='active','actual admission supplies the exact completed open receipt');
+            $emit('ADMISSION_PROVISIONAL');return $reply('ADMISSION_PROVISIONAL');
+        }
+        check(str_contains(json_encode($input,JSON_THROW_ON_ERROR),'PRIVATE_WINDOW_ONE'),'actual admitted request reaches fresh recovery inventory');
+        $emit('Admitted continuation observed.');return $reply('Admitted continuation observed.');
+    };
+    $admissionContext=['desktop_renewal_proof'=>null];
+    try{
+        \WestyAdmissionFixture\portal_westy_message($db,$admissionContext,['action'=>'run_resume','operation'=>$operation,
+            'conversation'=>$task['conversation_id'],'sequence'=>1],$provider,aiResolver:static fn()=>$selection);
+        check(false,'admission fixture did not reach the runner');
+    }catch(\WestyAdmissionFixture\ReachedRunner){}
+    $seen=$GLOBALS['admissionContext'];
+    check($seen['tool_run']['pending_json']===json_encode($pending)&&$seen['desktop']['operation_key']===$operation,
+        'actual admitted context retains the fetched pending receipt and exact binding after the SQL clear');
+    check($calls===2&&$GLOBALS['admissionResult']['ok']&&array_column($GLOBALS['wire'],'action')===['control_result','state','state','windows','observation','state'],
+        'actual message admission reaches one recovery read and one bounded continuation');
+    $saved=json_decode($db->query('SELECT reply_json FROM portal_westy_turns')->fetchColumn(),true);
+    check($saved['tools'][0]['awaiting_run']===false&&$saved['tools'][1]['name']==='desktop_windows'
+        &&!str_contains($saved['reply'],'ADMISSION_PROVISIONAL')&&!str_contains(json_encode($saved),'PRIVATE_WINDOW'),
+        'actual admission updates the awaiting receipt and saves only public discovery and final text');
+    unset($GLOBALS['admissionScope'],$GLOBALS['admissionConfig'],$_SESSION['desktop_companion_session']);
 }finally{ini_set('error_log',$oldLog);unlink($log);}
 echo "PASS $checks desktop continuation assertions (synthetic boundaries only)\n";
