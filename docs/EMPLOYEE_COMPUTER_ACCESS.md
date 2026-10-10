@@ -51,12 +51,22 @@ private link tokens in logs, screenshots, support tickets or release receipts.
 
 ## Integration and release
 
-Deploy the reviewed ID and Milepost schema/source prerequisites before exposing
-this flow. Safeharbor adds no schema, provider credential, roster service or live
-account migration. Existing employees/viewers have no automatic computer grants;
-their owners must assign access. Source rollback to an older Milepost version
-can restore broader historical visibility, so the release owner must retain a
-rollback plan that preserves employee boundaries.
+Release order is Milepost's reviewed assignment schema, readiness and enforcement
+first, the complete compatible Safeharbor consumer second, and 8 West ID's
+reviewed invitation schema/source exposure last. Confirm Milepost's current
+same-customer, immutable-principal enforcement for lists, direct operations,
+results and native delivery before exposing employee invitations. Safeharbor
+adds no schema, provider credential, roster service or live account migration.
+Existing employees/viewers have no automatic computer grants; their owners must
+assign access.
+
+Rollback removes ID invitation exposure first, before either compatible consumer
+is reverted. Retain assignment and invitation history and compatible Milepost
+enforcement: an older Milepost version can restore broader historical visibility.
+The release owner must verify that the exact inverse preserves employee/viewer
+boundaries; this document does not authorize a migration or live activation.
+The [1.26.19 source-readiness manifest](SAFEHARBOR_1_26_19_EMPLOYEE_READINESS.md)
+records the complete Safeharbor source gap and its remaining release evidence.
 
 Clock-first dependency `aa35b6e7b94c60ccf8b8c31aba8cb28834115ef1` supplies the
 accepted optional `computer_time` consumer. This work preserves its nullable,
