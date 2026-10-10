@@ -17,7 +17,10 @@ guard, require manual retry, or report navigation success from a launch receipt.
 Authored source is 159953aae0d623c56c9ba1532deedd274112278a over diagnostic
 428f37054c5b88c0310fe64db653c963b71a8b11 and accepted runtime c0bab890.
 Unchanged normal-main integration is b3b763c over 5dc3f090, preserving main's
-existing account/device operation check. Focused checks passed: the new
+existing account/device operation check. Follow-up source a357c91748384750d15c40650805db2c5d6e22e3,
+integrated unchanged as 0ad1a39, explains actual executable-path discovery through
+the existing user-context command and process-result tools. It does not assume
+Chrome is on PATH or invent an installation path. Focused checks passed: the new
 dispatcher regression failed before the fix and passed 15 assertions afterward;
 18 diagnostic, 21 AI receipt and 61 replay checks; PHP lint and diff checks.
 The actual service-serialization case was added to the existing hosted MySQL
