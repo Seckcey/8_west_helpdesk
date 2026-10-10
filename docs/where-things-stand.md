@@ -1,5 +1,18 @@
 # Where things stand
 
+**October 9, 9:44 PM Pacific — Westy control repair continues:** Safeharbor's
+current selected runtime is `a357c91748384750d15c40650805db2c5d6e22e3`, with
+original report scheduling restored. Frankie installed private Full 1.26.16
+and observed real browser navigation plus intermittent Notepad success.
+A subsequent controlled browser attempt opened example.com but ended after a
+rejected action was misreported as unknown. The next source correction preserves
+typed refusals, releases failed continuation ownership and retains an explicit
+Stop when release is unconfirmed. Source/isolated tests passed; deployment and
+repeatable laptop acceptance are pending. See the
+[candidate, evidence and remaining boundaries](WESTY_BROWSER_RECOVERY_2026_10_09.md).
+Other development, held security work, the accepted backup and unknown job 4446
+retain their existing status. Earlier dated records below are historical.
+
 **October 9 Westy 1.26.14 — owner acceptance failed:** the protected current
 Safeharbor artifact record identifies c0bab8901e7fbfcb25275dfa7696a9b7c66c93e0.
 Private Full 1.26.14 was signed, verified and delivered; Frankie reports installing
