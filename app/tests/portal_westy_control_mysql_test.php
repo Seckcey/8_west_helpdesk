@@ -344,4 +344,127 @@ $failureCalls=[];$stopped=portal_westy_desktop_dispatch($bound,'desktop_launch',
 check($stopped['public_result']['state']==='stopped'&&$failureCalls===['stop'],'Stop before dispatch prevents launch');
 $seen=portal_desktop_observation_result(['browser_origin'=>'https://example.test','browser_url'=>'https://example.test/actual/path?q=observed','image_png'=>null]);
 check($seen['private_observation']['browser_url']==='https://example.test/actual/path?q=observed'&&!isset($seen['public_result']['observation']['browser_url']),'model receives actually observed browser URL without copying it to durable public metadata');
+// Typed, authenticated pre-enqueue refusals must survive the real adapter. The
+// same body on a server error, or after acceptance, still cannot prove no input.
+foreach(['invalid_selection','target_changed','invalid_scroll','invalid_text','unsupported_key',
+    'review_timed_out','review_unavailable','desktop_review_refused'] as $reason){
+    foreach([409,503] as $status){
+        $typedCalls=[];
+        $typedRefusal=static function(string $body)use($reason,$status,&$typedCalls):array{
+            $wire=json_decode($body,true);$typedCalls[]=$wire['action'];
+            if($wire['action']==='stop')return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>['state'=>'stopped']])];
+            return ['status'=>$status,'body'=>json_encode(['ok'=>false,'reason'=>$reason])];
+        };
+        $result=portal_westy_desktop_dispatch($bound,'desktop_action',$typed,null,$typedRefusal)['public_result'];
+        check($result['reason']===$reason&&$result['action_id']===null,'typed reason and absence of an action receipt are preserved: '.$reason);
+        check($result['state']===($status===409?'refused':'unknown')&&$typedCalls===($status===409?['action']:['action','stop']),
+            'only explicit pre-enqueue 4xx avoids unknown history and Stop: '.$reason.'/'.$status);
+        if($status===409)check($result['executed']===false&&$result['retry_allowed']===false
+            &&$result['correction_allowed']===($reason!=='desktop_review_refused'),'correction guidance cannot replay input or bypass a review denial');
+        else check(!isset($result['correction_allowed']),'uncertain input never acquires correction permission');
+    }
+}
+
+// Admission failures happen before a new paid attempt. They still release the
+// exact waiting desktop task and retain the original error and previous usage.
+foreach(['hourly_limit','daily_limit','cost_limit','context_limit','conversation_changed','ai_disabled','ai_unavailable','lost_stop'] as $failure){
+    $request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
+    $waiting=portal_westy_run_find($pdo,$scope,$request['operation']);$waitingTask=$controlState['task_id'];
+    $resumeAdmission=['action'=>'run_resume','operation'=>$request['operation'],'conversation'=>$waiting['conversation_id'],'sequence'=>(int)$waiting['sequence']];
+    $savedSettings=$settings['portal_westy'];$expectedReason=match($failure){'lost_stop'=>'hourly_limit','ai_disabled'=>'ai_unavailable',default=>$failure};
+    if(in_array($failure,['hourly_limit','daily_limit','cost_limit','lost_stop'],true))
+        $settings['portal_westy'][match($failure){'daily_limit'=>'daily_limit','cost_limit'=>'monthly_microusd',default=>'hourly_limit'}]=1;
+    elseif($failure==='context_limit')$pdo->prepare('UPDATE portal_westy_tool_runs SET replay_json=? WHERE turn_id=?')
+        ->execute([json_encode([['role'=>'user','content'=>[['type'=>'text','text'=>str_repeat('x',132000)]]]]),$waiting['turn_id']]);
+    elseif($failure==='ai_disabled')$settings['portal_westy']['ai_enabled']=false;
+    $admissionResolver=match($failure){
+        'conversation_changed'=>static fn()=>array_replace($providerSelection,['revision'=>$providerSelection['revision']+1]),
+        'ai_unavailable'=>static fn()=>['status'=>'disabled'],default=>$resolver};
+    $paidSnapshot=static function()use($pdo,$waiting):array{
+        $q=$pdo->prepare('SELECT reserve_microusd,charged_microusd,reply_json FROM portal_westy_turns WHERE id=?');$q->execute([$waiting['turn_id']]);
+        $turn=$q->fetch();$q=$pdo->prepare('SELECT * FROM portal_westy_ai_attempts WHERE turn_id=? ORDER BY sequence');$q->execute([$waiting['turn_id']]);
+        return ['turn'=>$turn,'attempts'=>$q->fetchAll(),'budget'=>$pdo->query('SELECT * FROM portal_westy_budgets ORDER BY tenant_id,client_id,month_key')->fetchAll()];
+    };
+    $paidBefore=$paidSnapshot();$providerBefore=$completionCalls;$admissionStops=0;
+    $admissionTransport=static function(string $body,array $headers)use($controlTransport,$failure,$pdo,$host,$port,$user,$pass,$database,$scope,$waiting,$session,$waitingTask,&$admissionStops):array{
+        $wire=json_decode($body,true);
+        if($wire['action']==='stop'){
+            $admissionStops++;check($wire['input']===['session_id'=>$session,'task_id'=>$waitingTask],'admission cleanup stops only its original desktop identity');
+            check($pdo->inTransaction(),'admission cleanup serializes with another resume');
+            if($failure==='hourly_limit'){
+                $other=new PDO("mysql:host=$host;port=$port;dbname=$database;charset=utf8mb4",$user,$pass,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+                $other->exec('SET SESSION innodb_lock_wait_timeout=1');$other->beginTransaction();
+                try{$q=$other->prepare('SELECT state FROM portal_westy_turns WHERE scope_key=? AND operation_key=? FOR UPDATE');$q->execute([$scope['key'],$waiting['operation_key']]);check(false,'second admission bypassed cleanup lock');}
+                catch(PDOException $error){check(($error->errorInfo[1]??null)===1205,'second admission waits for failed admission cleanup');}
+                finally{$other->rollBack();}
+            }
+            if($failure==='lost_stop')throw new PortalDesktopException('connection_unknown');
+        }
+        return $controlTransport($body,$headers);
+    };
+    $resumeFailed=static fn()=>portal_westy_message($pdo,$a,$resumeAdmission,$completionProvider,static fn()=>$a,transport:$admissionTransport,aiResolver:$admissionResolver);
+    try{$resumeFailed();check(false,'admission should fail: '.$failure);}
+    catch(PortalWestyException $error){check($error->reason===$expectedReason,'cleanup preserves the original admission error: '.$failure);}
+    finally{$settings['portal_westy']=$savedSettings;}
+    $closed=portal_westy_run_find($pdo,$scope,$waiting['operation_key']);
+    $q=$pdo->prepare('SELECT state,reason_code FROM portal_westy_turns WHERE id=?');$q->execute([$waiting['turn_id']]);$failedTurn=$q->fetch();
+    check($admissionStops===1&&$closed['state']==='stopped'&&$closed['replay_json']===null,'admission failure closes only one waiting sequence without replay: '.$failure);
+    check($failedTurn===['state'=>'unavailable','reason_code'=>$expectedReason]&&$paidSnapshot()===$paidBefore&&$completionCalls===$providerBefore,
+        'original error, response, charges and attempt history survive without new inference: '.$failure);
+    $cleanup=portal_westy_control_cleanup_public($pdo,$a,$scope,$waiting['operation_key']);
+    check($cleanup===($failure==='lost_stop'?['state'=>'stop_unconfirmed']:null),'public cleanup follows actual Stop confirmation: '.$failure);
+    $resumeFailed();check($admissionStops===1&&$paidSnapshot()===$paidBefore&&$completionCalls===$providerBefore,'reconnect never retries rejected paid admission');
+    if($failure==='lost_stop'){
+        $refreshTransport=static function(string $body,array $headers)use($controlTransport):array{
+            if(json_decode($body,true)['action']==='terminal_result')throw new PortalDesktopException('connection_unknown');
+            return $controlTransport($body,$headers);
+        };
+        $state=portal_westy_state($pdo,$a,transport:$refreshTransport,aiResolver:$resolver);
+        $public=array_values(array_filter($state['turns'],static fn($turn)=>$turn['operation_key']===$waiting['operation_key']))[0];
+        check($public['run']===null&&$public['desktop_cleanup']===['state'=>'stop_unconfirmed']&&$public['reason_code']===$expectedReason,
+            'normal refresh exposes desktop-only cleanup independently of completed inference');
+        portal_westy_run_stop($pdo,$a,$scope,$waiting['operation_key'],$controlTransport);
+        check(portal_westy_control_cleanup_public($pdo,$a,$scope,$waiting['operation_key'])===null&&$paidSnapshot()===$paidBefore,
+            'explicit confirmed Stop clears cleanup without replay or accounting changes');
+        $q=$pdo->prepare('SELECT reason_code FROM portal_westy_turns WHERE id=?');$q->execute([$waiting['turn_id']]);
+        check($q->fetchColumn()===$expectedReason,'later Stop does not replace the original admission error');
+    }
+}
+
+// A stale failure cannot stop a later waiting sequence, running continuation, or
+// another origin. The exact old identity remains visible if its binding is lost.
+$request['operation']='f1'.sprintf('%08x',time()).bin2hex(random_bytes(11));$sendControl($request);
+$waiting=portal_westy_run_find($pdo,$scope,$request['operation']);$controlCalls=[];
+$stale=$waiting;$stale['sequence']--;
+portal_westy_run_admission_failed($pdo,$scope,$stale,$a,new PortalWestyException('hourly_limit'),$controlTransport);
+check($controlCalls===[]&&portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='waiting','stale admission failure cannot stop a newer sequence');
+$_SESSION['desktop_companion_session']=str_repeat('f',32);
+portal_westy_run_admission_failed($pdo,$scope,$waiting,$a,new PortalWestyException('hourly_limit'),$controlTransport);
+unset($_SESSION['desktop_companion_session']);
+check($controlCalls===[],'foreign origin cannot perform failed-admission cleanup');
+$pdo->prepare("UPDATE portal_westy_tool_runs SET state='running' WHERE turn_id=?")->execute([$waiting['turn_id']]);
+portal_westy_run_admission_failed($pdo,$scope,$waiting,$a,new PortalWestyException('hourly_limit'),$controlTransport);
+check($controlCalls===[]&&portal_westy_run_find($pdo,$scope,$request['operation'])['state']==='running','late admission failure cannot close an admitted continuation');
+$pdo->prepare('UPDATE portal_desktop_bindings SET operation_key=?,task_id=? WHERE session_id=?')->execute([str_repeat('9',32),str_repeat('8',32),$session]);
+try{portal_westy_run_end($pdo,$scope,$request['operation'],'complete',$a,$controlTransport);check(false,'replacement cannot prove old Stop');}
+catch(PortalWestyException $error){check($error->reason==='stop_unconfirmed','lost binding retains unconfirmed desktop identity');}
+// Seed historical expiry at insert time; run identity/expiry is immutable.
+$historical=portal_westy_run_find($pdo,$scope,$request['operation']);$expiredOperation=bin2hex(random_bytes(16));
+$pdo->prepare("INSERT INTO portal_westy_turns(tenant_id,client_id,scope_key,conversation_key,operation_key,state,input_text,model_name,reserve_microusd,charged_microusd,created_at,expires_at)
+    SELECT tenant_id,client_id,scope_key,conversation_key,?,'complete','Historical synthetic task',model_name,0,0,created_at,expires_at FROM portal_westy_turns WHERE id=?")
+    ->execute([$expiredOperation,$waiting['turn_id']]);
+$historical['turn_id']=(int)$pdo->lastInsertId();$historical['operation_key']=$expiredOperation;
+$historical['created_at']=gmdate('Y-m-d H:i:s',time()-1801);$historical['expires_at']=gmdate('Y-m-d H:i:s',time()-1);
+$pdo->prepare('INSERT INTO portal_westy_tool_runs (`'.implode('`,`',array_keys($historical)).'`) VALUES('.implode(',',array_fill(0,count($historical),'?')).')')
+    ->execute(array_values($historical));
+check(portal_westy_control_cleanup_public($pdo,$a,$scope,$expiredOperation)===['state'=>'stop_unconfirmed'],'expired inference cannot hide unconfirmed cleanup');
+check(portal_westy_control_cleanup_public($pdo,$b,portal_westy_scope($pdo,$b),$request['operation'])===null,'different customer cannot see old control');
+$_SESSION['desktop_companion_session']=str_repeat('f',32);
+check(portal_westy_control_cleanup_public($pdo,$a,$scope,$request['operation'])===null,'different origin cannot see old control');
+unset($_SESSION['desktop_companion_session']);
+try{portal_westy_run_stop($pdo,$a,$scope,$request['operation'],$controlTransport);check(false,'replacement was falsely stopped');}
+catch(PortalWestyException $error){check($error->reason==='stop_unconfirmed','explicit Stop preserves uncertainty for a replaced binding');}
+$q=$pdo->prepare('SELECT task_id FROM portal_desktop_bindings WHERE session_id=?');$q->execute([$session]);
+check($controlCalls===[]&&$q->fetchColumn()===str_repeat('8',32),'cleanup never redirects Stop to replacement work');
+
 echo "PASS control v2 MySQL: $checks cumulative assertions\n";

@@ -54,6 +54,19 @@ function portal_westy_control_result(array $context,array $pending,?callable $tr
     return ['ready'=>($state['state']??null)!=='consent_pending','receipt'=>$state];
 }
 
+/** Finished inference does not prove that its desktop control was released. */
+function portal_westy_control_cleanup_public(PDO $pdo,array $context,array $scope,string $operation):?array
+{
+    $run=portal_westy_run_find($pdo,$scope,$operation);
+    if(!$run||!portal_westy_run_origin_matches($run)||!in_array($run['state'],['complete','stopped'],true))return null;
+    $pending=json_decode((string)$run['pending_json'],true);
+    if(($pending['kind']??null)!=='control'||!portal_desktop_id($pending['session_id']??null)||!portal_desktop_id($pending['task_id']??null))return null;
+    $receipt=$pending['terminal']??null;
+    if(($receipt['state']??null)==='stopped'&&($receipt['session_id']??null)===$pending['session_id']
+        &&($receipt['task_id']??null)===$pending['task_id'])return null;
+    return ['state'=>'stop_unconfirmed'];
+}
+
 /** Release only this run's bound task. A newer binding must survive a late reply. */
 function portal_westy_control_release(PDO $pdo,array $context,array $run,?callable $transport=null):?array
 {
