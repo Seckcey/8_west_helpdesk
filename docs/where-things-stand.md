@@ -1,6 +1,16 @@
 # Where things stand
 
-**October 9 Westy 1.26.13 — backend deployed, installer delivered:** Safeharbor's
+**October 9 Westy 1.26.14 — owner acceptance failed:** the protected current
+Safeharbor artifact record identifies c0bab8901e7fbfcb25275dfa7696a9b7c66c93e0.
+Private Full 1.26.14 was signed, verified and delivered; Frankie reports installing
+it and failing browser and Notepad control. No working-control or all-clear claim
+follows from source checks, signing or delivery. A native correction is frozen
+and bounded provider-boundary desktop-tool diagnostics are in review; their
+deployment and a corrected installer remain pending. See the
+[diagnostic scope, focused checks and production boundary](WESTY_DESKTOP_DIAGNOSTICS_2026_10_09.md).
+The accepted backup, held security work and unknown job 4446 remain unchanged.
+
+**Historical October 9 Westy 1.26.13 — backend deployed, installer delivered:** Safeharbor's
 selected `d35c657a185e06d54d1012b87fe4fff8f0284a40` source is installed, including
 the accepted control repair, companion branding and computer-local-time changes.
 The original report schedule is active. Current runtime, customer service,
