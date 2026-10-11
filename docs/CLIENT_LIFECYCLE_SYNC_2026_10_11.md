@@ -1,6 +1,10 @@
 # Client lifecycle and suite sync — October 11, 2026
 
-Source candidate; production release and owner acceptance remain pending.
+Source integrated in PR #214. MAIN records the reviewed runtime
+`55211b9a0f027844b8121e6807abe754f0d6601d` installed on October 11, with original
+reporting restored. See the [release and recovery evidence](SAFEHARBOR_CLIENT_LIFECYCLE_RELEASE_2026_10_11.md).
+The affected customer's actual delivery, signed-in selector and Frankie
+acceptance remain **Not tested**; broader relevant-change sync is unfinished.
 Tracker `LOCAL-b1eb60ff-c8f5-4f8a-86f4-c23f2c92d6bc` is titled
 **When i open a support ticket in safeharbor, it still shows deleted clients**.
 The full original requirement remains:
@@ -81,8 +85,9 @@ ordered/replay-safe delivery, conflict/restoration rules and compatible consumer
 changes. This PR does not introduce that protocol, turn on delivery gates,
 backfill legacy bindings, send invitations, or purge records.
 
-Before production acceptance, the release owner must verify the affected
+For customer acceptance, the release owner must verify the affected
 customer's actual Milepost outbox lineage and Safeharbor receipt/current binding,
 reconcile delivery failures or an unmapped legacy duplicate through the existing
-owner workflow, apply the reviewed source, and verify the real new-ticket user
-path. Source tests do not prove live cross-app propagation or owner acceptance.
+owner workflow, and verify the real new-ticket user path against the installed
+source. Availability checks and source tests do not prove live cross-app
+propagation or owner acceptance.
