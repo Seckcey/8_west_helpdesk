@@ -107,6 +107,22 @@ for the actual items and `truncated` equal to `has_more`, with an 8 MiB source
 response ceiling. Milepost owns the UI, pre-download cap notice, formula-safe
 CSV, 4 MiB CSV ceiling, actual count and narrow-filter/continuation guidance.
 
+The paired Milepost producer/consumer is PR #697 at immutable head
+`2e2ea4edbd451fca40c31c0730e703145614b10f`, based on its merged Cua main
+`fef87686e963f9f2a40877129a1fc2353a556eaa`. Its actual
+`portal/lib/westy_feedback.php` and `portal/public/westy_feedback_scope.php`
+were reviewed for the canonical route, verified current actor, signed tenant,
+active local user, existing staff client visibility, configured MFA/feed and
+closed wire. The paired worker passed the actual synthetic Safeharbor
+MySQL/RS256 wire from source commit
+`e9ae7e3be310fb154cf83413c08aefcc83496c1b` through its existing parser, fresh
+customer intersection and CSV helper: two latest rows, a cleared `none`,
+recorded AI revision 7, unknown provider build, actual count 2, no truncation,
+1,556 CSV bytes and no raw conversation text. Later Safeharbor changes affect
+documentation and removed-device selection only; feedback API bytes are
+unchanged. This is a paired synthetic contract receipt, not live signed-in
+customer or provider acceptance.
+
 Each item identifies the latest immutable revision, including a cleared
 `none` reaction, response and retained conversation/operation references,
 customer UUID, ISO UTC timestamps and recorded generating provider/model,
@@ -164,3 +180,7 @@ All browser receipts are synthetic. They do not prove production sign-in,
 provider execution, package signing, endpoint updates or customer acceptance.
 The Safeharbor coordinator reviews and integrates this PR; MAIN retains the
 combined release and signing handoff. Frankie owns post-release customer testing.
+Both isolated Coastline task directories and their owned containers were
+removed after validation, including the task MySQL volume and network. The
+desktop Docker policy was preserved. Hosted CI and normal integration remain
+separate gates at the final PR head.
