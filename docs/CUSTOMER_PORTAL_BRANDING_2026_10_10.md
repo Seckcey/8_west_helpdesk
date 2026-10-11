@@ -68,6 +68,8 @@ The producer is Milepost PR #695, initially reviewed at
 `a600d2c62e5097f85f51bc2ee719b832d710cc87`, after its Cua PR #694. It adds the
 picker-compatible reference to authenticated bind/state receipts using the
 existing current customer binding and HMAC. Its Stop projection is unchanged.
+The published head `06e8e45ca19c4962446b8e03b5ada4096f93a10c` adds documentation;
+the reviewed PHP delta is unchanged.
 This source evidence does not prove an installed Companion or remote-control
 employee transport.
 
@@ -136,10 +138,12 @@ claimed. Existing immutable capture and parent erasure remain unchanged.
 - Existing startup browser cases passed for unlocked metadata/reauthorization,
   connection recovery and exact local defaults, including explicit blank and
   another-computer selection surviving refresh.
-- Existing MySQL handoff/renewal fixture verifies local pair/reference,
+- Existing MySQL handoff/renewal fixture passed 35 handoff checks and 84
+  cumulative renewal assertions. It verifies local pair/reference,
   disconnect, expiry, revoked state, older producer, ordinary visit and backend
   refusal alongside its existing renewal/revocation checks.
-- Existing MySQL feedback fixture verifies actual RS256 signatures, token
+- Existing MySQL feedback fixture passed 146 cumulative checks. It verifies
+  actual RS256 signatures, token
   type/issuer/role/tenant/product/version, active operator, MFA/feed/revocation,
   callback identity/scope and changes during reads, latest clear/history,
   filters/order/pages/export limits, safe metadata projection, disabled or
