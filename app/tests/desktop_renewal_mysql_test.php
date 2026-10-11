@@ -20,6 +20,44 @@ $pdo->prepare('INSERT INTO portal_desktop_bindings(session_id,tenant_id,client_i
     ->execute([$pair,1,10,$original['subject'],$scope['key'],gmdate('Y-m-d H:i:s',time()+300)]);
 $pdo->exec("INSERT INTO suite_customer_sync_bindings VALUES(1,1,10,'00000000-0000-4000-8000-000000000010',1,1,'active')");
 $config['desktop_companion']=['endpoint'=>PORTAL_DESKTOP_ENDPOINT,'service_secret'=>str_repeat('d',64)];$calls=0;
+$localReference='1:'.str_repeat('a',64);
+$localDevices=[['reference'=>$localReference,'connection'=>'reporting']];
+$localState=['session_id'=>$pair,'expires_at'=>time()+300,'state'=>'paired','connected'=>true,'device_reference'=>$localReference];
+$localTransport=static function(string $body)use(&$localState,$pair):array{
+    $request=json_decode($body,true,32,JSON_THROW_ON_ERROR);
+    hs_check($request['action']==='state'&&$request['input']['session_id']===$pair,'local default reads only the exact owned pair');
+    return ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DESKTOP_CONTEXT,'ok'=>true,'result'=>$localState])];
+};
+hs_check(portal_desktop_default_device($pdo,$context,$localDevices,$localTransport)===
+    ['default_device_reference'=>$localReference,'local_device_state'=>'ready'],'exact current owned connected reporting computer is the local default');
+foreach(['active','stopped'] as $sessionState){
+    $localState['state']=$sessionState;
+    hs_check(portal_desktop_default_device($pdo,$context,$localDevices,$localTransport)['default_device_reference']===$localReference,
+        'selection does not require an executing task or disable the current computer after Stop');
+}
+$localState['state']='paired';
+foreach([
+    [['connected'=>false],$localDevices,'offline'],
+    [[],[['reference'=>$localReference,'connection'=>'stale']],'offline'],
+    [['device_reference'=>'2:'.str_repeat('b',64)],$localDevices,'unavailable'],
+    [['session_id'=>str_repeat('b',32)],$localDevices,'unavailable'],
+    [['expires_at'=>time()-1],$localDevices,'expired'],
+    [['state'=>'revoked'],$localDevices,'unavailable'],
+] as [$change,$allowed,$expected]){
+    $saved=$localState;$localState=array_replace($saved,$change);
+    hs_check(portal_desktop_default_device($pdo,$context,$allowed,$localTransport)===
+        ['default_device_reference'=>null,'local_device_state'=>$expected],'offline, changed, unlisted and expired pairs never select another computer');
+    $localState=$saved;
+}
+unset($localState['device_reference']);
+hs_check(portal_desktop_default_device($pdo,$context,$localDevices,$localTransport)['local_device_state']==='unavailable','older producer without a verified reference has no inferred local default');
+$localState['device_reference']=$localReference;
+$ordinary=array_replace($context,['desktop_companion_pair'=>null]);
+hs_check(portal_desktop_default_device($pdo,$ordinary,$localDevices,$localTransport)['local_device_state']==='not_companion','ordinary browser does not infer a local pair');
+$unbound=array_replace($context,['desktop_companion_pair'=>str_repeat('f',32)]);
+hs_check(portal_desktop_default_device($pdo,$unbound,$localDevices,$localTransport)['default_device_reference']===null,'session marker without an owned binding has no authority');
+$refused=static fn()=>['status'=>403,'body'=>json_encode(['ok'=>false,'reason'=>'actor_unavailable'])];
+hs_check(portal_desktop_default_device($pdo,$context,$localDevices,$refused)['default_device_reference']===null,'current backend refusal cannot expose a default');
 $reply=static function(string $body)use(&$calls,$original,$pair):array{
     $calls++;$request=json_decode($body,true,32,JSON_THROW_ON_ERROR);
     hs_check($request['action']==='renew'&&$request['input']['authority_expires_at']===$original['expires_at']

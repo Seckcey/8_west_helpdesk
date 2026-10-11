@@ -54,7 +54,7 @@ function portal_desktop_default_device(PDO $pdo,array $context,array $devices,?c
         }
         $reference=$state['device_reference']??null;
         if(!is_string($reference)||preg_match('/\A[1-9][0-9]{0,9}:[a-f0-9]{64}\z/D',$reference)!==1
-            ||($state['state']??null)!=='active'||!is_bool($state['connected']??null))return $result;
+            ||!in_array($state['state']??null,['paired','active','stopped'],true)||!is_bool($state['connected']??null))return $result;
         $matches=array_values(array_filter($devices,static fn(array $device):bool=>($device['reference']??null)===$reference));
         if(count($matches)!==1)return $result;
         if(!$state['connected']||($matches[0]['connection']??null)!=='reporting'){
