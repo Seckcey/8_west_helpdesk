@@ -52,3 +52,38 @@ foreach(['known_refusal','lost_reply','stopped'] as $scenario){
     check(in_array('stop',array_column($GLOBALS['wire'],'action'),true)===($scenario!=='known_refusal'),'uncertain or cancelled task invokes the existing scoped Stop');
 }
 echo "PASS $checks desktop/Cua continuation assertions (synthetic boundaries only)\n";
+
+// A large text-only driver catalog reaches the next round through the existing actual count.
+$catalog=['tools'=>array_fill(0,300,['name'=>'synthetic_tool','description'=>str_repeat('Synthetic catalog text. ',10),
+    'inputSchema'=>['type'=>'object','properties'=>['pid'=>['type'=>'integer']]]])];
+$setupCatalog=static function()use($setupCua,$catalog):void{
+    $setupCua();$before=$GLOBALS['service'];
+    $GLOBALS['service']=static function($context,$action,$input)use($before,$catalog):array{
+        if($action==='cua_result')return ['state'=>'executed','result'=>['contract'=>'westy-cua-v1','state'=>'returned','driver_error'=>false,'reason'=>null],
+            'response'=>['isError'=>false,'structuredContent'=>$catalog,'content'=>[['type'=>'text','text'=>json_encode($catalog,JSON_THROW_ON_ERROR)]]]];
+        return $before($context,$action,$input);
+    };
+};
+foreach([[200,50000,null],[200,63000,'input_limit'],[503,0,'provider_unavailable']] as [$countStatus,$count,$expectedReason]){
+    $calls=0;$counted=0;$label=$expectedReason??'admitted';
+    $provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$calls,&$counted,$reply,$countStatus,$count):array{
+        $calls++;
+        if($calls===1)return $reply('',[['id'=>'synthetic-catalog','name'=>'desktop_cua','arguments'=>['method'=>'tools/list','params_json'=>'{}']]]);
+        // The same preparation as westy_tenant_ai_stream; only the count transport is injected.
+        $body=westy_tenant_ai_body($selected,$system,$input,array_replace($options,['stream'=>true]));
+        check(strlen(json_encode($body,JSON_THROW_ON_ERROR))+2048>$options['max_input_tokens'],'driver catalog round exceeds the conservative byte bound');
+        westy_tenant_ai_input_bound($selected,$body,static function(array $s,array $b)use(&$counted,$countStatus,$count):array{
+            $counted++;return ['status'=>$countStatus,'body'=>json_encode(['input_tokens'=>$count],JSON_THROW_ON_ERROR)];
+        },$options['max_input_tokens']);
+        $emit('Catalog read.');return $reply('Catalog read.');
+    };
+    $out=$run($context,$partial,$provider,setup:$setupCatalog);
+    $tool=$out['partial']['tools'][1]??[];
+    check($calls===2&&$counted===1&&($out['result']['ok']?null:$out['result']['reason'])===$expectedReason,'actual count decides the next round: '.$label);
+    check(($tool['name']??null)==='desktop_cua'&&($tool['state']??null)==='returned'&&end($out['saved'])['tools'][1]===$tool,'saved driver receipt is kept: '.$label);
+    check(array_column($out['wire'],'action')===['state','cua','cua_result','state']&&!str_contains(json_encode($out['saved'],JSON_THROW_ON_ERROR),'synthetic_tool'),
+        'no re-dispatch, relay Stop or raw catalog in public history: '.$label);
+    if($expectedReason!==null)check(count($out['result']['rounds'])===1&&$out['result']['rounds'][0]['ok']&&$out['result']['usage']===null
+        &&$out['result']['cost_micro_usd']===null,'refused round keeps the paid receipt and existing unknown-usage accounting: '.$label);
+}
+echo "PASS $checks desktop/Cua input-count assertions (synthetic boundaries only)\n";
