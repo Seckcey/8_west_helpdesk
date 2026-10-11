@@ -1,16 +1,17 @@
 # Where things stand
 
-**October 11 — 1.26.20 application deployed; combined publication and lock closeout pending:**
+**October 11 — 1.26.20 application deployed and normal package published:**
 MAIN's release receipt records Safeharbor source
 `497a765dbf9233f44dc9290a7a31674d3c1f134e` installed from the exact reviewed
 archive. Original reporting is active with unchanged configuration, cron and
 genuine sender/recipient/provider/approval clocks. Apache validation and graceful
 reload passed; the actual login route returned HTTP 200. See the
 [release bindings and recovery procedure](SAFEHARBOR_1_26_20_RELEASE_2026_10_11.md).
-Package publication and outer-lock release receipts remain pending; MAIN retains
-the combined release. Employee remote access is deferred follow-up, and Frankie
-retains physical/customer testing. No signed-in, provider or device acceptance
-is inferred from the deployment.
+MAIN published normal 1.26.20 at 2:49:46 AM Pacific, verified the served installer
+and released its technical custody. Employee remote access is deferred follow-up,
+and Frankie retains installation and physical/customer testing. No signed-in,
+provider or device acceptance is inferred from the deployment. The documentation
+closeout changes no application bytes or deployed release identity.
 
 **Historical October 10 — Cua source candidate:** the
 [Westy Cua consumer](WESTY_CUA_INTEGRATION.md) is prepared as a grouped change

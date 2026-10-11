@@ -44,8 +44,13 @@ used an incorrect help hostname and failed DNS resolution; correcting it from
 the actual vhost did not replay the deployment.
 
 The release owner held the actual suite and Safeharbor app mutexes during the
-cut. Their release receipt is pending at this documentation handoff. This record
-does not declare the shared server or another owner's locks free.
+cut. MAIN's final execution receipt confirms its root custodian exited 0,
+processes `4187881`, `4187882` and `4187883` were absent, and its suite,
+Safeharbor app and package locks were released. Original mutex inodes were
+retained; no foreign holder was released. MAIN separately records its AWS
+telemetry lock released, healthy runtime and unchanged `hbbs`, `hbbr` and `npm`.
+This is the owner's scoped custody receipt, not a declaration that every shared
+resource is free.
 
 ## Retained procedure and recovery
 
@@ -78,14 +83,21 @@ activation against changed bytes or blindly replay an unknown execution result.
 The [report restoration contract](business-reports-contract.md) and
 [established deployment procedure](../deploy/README.md) remain applicable.
 
-## Remaining combined release and acceptance
+## Combined publication and remaining acceptance
 
-MAIN retains package publication and the combined Milepost, relay and signing
-release. Signing run `38128787692` succeeded at the reported `2b71` source;
-publication and installed-device identity are separate evidence and remain
-pending at this handoff. Keep the application source frozen until that closeout;
-merge this factual documentation only after MAIN's remaining publication and
-outer-lock release receipts.
+MAIN's final execution receipt records normal 1.26.20 publication on October 11
+at 2:49:46 AM Pacific (09:49:46 UTC), using the reported Milepost `2b71` source
+and catalog `c9fb`. Signing run `38128787692` succeeded. The actual serving
+`www-data` installer drift check passed at 2:49:56 AM Pacific, and Milepost login
+returned HTTP 200. Publication and the release owner's lock closeout are complete;
+installed-device identity and behavior remain separate evidence. The prior
+1.26.19 lineage succession blocker was not bypassed by this release.
+
+This four-file documentation closeout leaves the application Git tree
+`08fcfc184544ac5ef2dcfb64af032dd8a72e452a` identical to deployed source `497a765`.
+A later documentation commit is not a new application deployment. MAIN retains
+the combined release record and signing ownership; Safeharbor owns its factual
+documentation and normal integration closeout.
 
 Login HTTP 200 and active reporting do not prove signed-in portal behavior,
 provider execution, Cua control, package installation or owner/customer
