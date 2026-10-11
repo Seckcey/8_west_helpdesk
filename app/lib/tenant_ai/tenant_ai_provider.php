@@ -93,8 +93,8 @@ function westy_tenant_ai_body(array $selection,string $system,array $messages,ar
     return $body;
 }
 
-/** Text uses a conservative byte bound. Media is counted by the selected provider,
- * including extracted PDF text/pages; compressed file size is never a token estimate. */
+/** Text within a conservative byte bound needs no count. Larger text and all media are counted
+ * by the selected provider, including extracted PDF text/pages; compressed file size is never a token estimate. */
 function westy_tenant_ai_input_bound(array $selection,array $body,?callable $counter=null,int $limit=200000): int
 {
     if($limit<1 || $limit>200000)throw new RuntimeException('input_limit');
@@ -107,8 +107,9 @@ function westy_tenant_ai_input_bound(array $selection,array $body,?callable $cou
         foreach($value as $child)if($hasMedia($child))return true;
         return false;
     };
-    if(!$hasMedia($body))$bound=strlen(json_encode($body,JSON_THROW_ON_ERROR))+2048;
-    else {
+    $bound=$hasMedia($body)?null:strlen(json_encode($body,JSON_THROW_ON_ERROR))+2048;
+    // A JSON byte is not a token: text over the byte bound gets the same actual count as media.
+    if($bound===null || $bound>$limit){
         $keys=$selection['provider']==='openai'
             ? ['model','input','instructions','tools','tool_choice','text','reasoning','parallel_tool_calls']
             : ['model','messages','system','tools','tool_choice','thinking','output_config'];

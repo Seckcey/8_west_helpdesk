@@ -29,6 +29,7 @@
     ai_unavailable:'Westy is unavailable. You can still contact support.', provider_unavailable:'The reply was interrupted. Saved device work is shown below; it has not been retried.',
     provider_rate_limit:'Westy is busy. Please try a new message later.', provider_refused:'Westy could not answer that. Contact support for help.',
     provider_invalid:'Westy could not finish a usable reply.', interrupted:'This reply was interrupted. Check the device activity before asking again.',
+    input_limit:'This request grew too large for one reply. Saved device work is shown below; it has not been retried.',
     stopped:'Reply stopped. Device work already dispatched keeps its own recorded status.',
     stop_unconfirmed:'The conversation has stopped. The computer has not confirmed cancellation yet; it will not repeat the command.',
     companion_offline:'Open Westy on that computer and connect it to continue. Background health checks may still be available.',

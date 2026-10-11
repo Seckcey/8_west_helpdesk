@@ -302,9 +302,11 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
     } catch(PortalWestyException $error) {
         $buffer?->discard();
         return ['ok'=>false,'reason'=>$error->reason,'usage'=>$known&&!$inFlight?$usage:null,'cost_micro_usd'=>$known&&!$inFlight?$cost:null,'rounds'=>$receipts];
-    } catch(Throwable) {
+    } catch(Throwable $error) {
         $buffer?->discard();
-        return ['ok'=>false,'reason'=>'provider_unavailable','usage'=>$known&&!$inFlight?$usage:null,'cost_micro_usd'=>$known&&!$inFlight?$cost:null,'rounds'=>$receipts];
+        // Only the adapter's known input-budget refusal is named; every other failure and its text stay private.
+        $reason=$error::class===RuntimeException::class&&$error->getMessage()==='input_limit'?'input_limit':'provider_unavailable';
+        return ['ok'=>false,'reason'=>$reason,'usage'=>$known&&!$inFlight?$usage:null,'cost_micro_usd'=>$known&&!$inFlight?$cost:null,'rounds'=>$receipts];
     }
     return ['ok'=>false,'reason'=>'tool_limit','usage'=>null,'cost_micro_usd'=>null,'rounds'=>$receipts];
 }
