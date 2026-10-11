@@ -1,15 +1,29 @@
 # Where things stand
 
-**October 10 — Cua source candidate, not deployed:** the
+**October 11 — 1.26.20 application deployed and normal package published:**
+MAIN's release receipt records Safeharbor source
+`497a765dbf9233f44dc9290a7a31674d3c1f134e` installed from the exact reviewed
+archive. Original reporting is active with unchanged configuration, cron and
+genuine sender/recipient/provider/approval clocks. Apache validation and graceful
+reload passed; the actual login route returned HTTP 200. See the
+[release bindings and recovery procedure](SAFEHARBOR_1_26_20_RELEASE_2026_10_11.md).
+MAIN published normal 1.26.20 at 2:49:46 AM Pacific, verified the served installer
+and released its technical custody. Employee remote access is deferred follow-up,
+and Frankie retains installation and physical/customer testing. No signed-in,
+provider or device acceptance is inferred from the deployment. The documentation
+closeout changes no application bytes or deployed release identity.
+
+**Historical October 10 — Cua source candidate:** the
 [Westy Cua consumer](WESTY_CUA_INTEGRATION.md) is prepared as a grouped change
 with Milepost. It replaces the new Companion's legacy desktop tool exposure
 with the real Cua catalog and transient results while preserving the selected
 provider, authentication, terminal tools and receipt history. Synthetic source
 checks pass; MAIN owns merge, release versions, signing and laptop acceptance.
-The deployed runtime receipt below remains the last recorded deployment.
+The later application deployment is recorded above; this paragraph preserves
+the original source-review boundary.
 
-**October 10, 5:02:10 PM Pacific — employee consumer deployed and original restoration complete:**
-Safeharbor runs `1294c84edb7252b8f38cb91f9c843e3bfa55cabd`, after Milepost's
+**Historical October 10, 5:02:10 PM Pacific — employee consumer deployed and original restoration complete:**
+Safeharbor installed `1294c84edb7252b8f38cb91f9c843e3bfa55cabd`, after Milepost's
 assignment schema and enforcing runtime. The complete installed artifact and
 immutable/current release record matched; configuration is unchanged. Reporting
 is active with the original private scope and provider/approval/archive clocks

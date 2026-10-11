@@ -1,4 +1,9 @@
-# Westy Cua desktop consumer: source candidate
+# Westy Cua desktop consumer
+
+MAIN's October 11 [application release receipt](SAFEHARBOR_1_26_20_RELEASE_2026_10_11.md)
+records this consumer deployed in Safeharbor source `497a765`. The source and
+synthetic evidence below is retained; native publication, installation and
+physical/provider/customer acceptance remain separate release evidence.
 
 Safeharbor recognizes Milepost's authenticated `desktop_engine: westy-cua-v1`
 advertisement for the currently bound actor/device/task. That task receives
