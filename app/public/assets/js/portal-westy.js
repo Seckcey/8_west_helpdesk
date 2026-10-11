@@ -22,6 +22,7 @@
   let state = null, busy = false, editing = false, pending = null, focusBefore = null, poll = null;
   let streamController = null, currentOperation = null, stickToBottom = true, accessEpoch = 0;
   let devicesLoading = false, devicesRetry = null, rememberedDevice = null;
+  let deviceChoiceMade = false, deviceDefaultApplied = false;
   const computerClocks = new Map();
   const labels = { requests:'Open a support request', updates:'Follow a request', response:'Response goals', summaries:'Service summaries', privacy:'Westy and privacy' };
   const errors = {
@@ -102,6 +103,7 @@
     history?.replaceChildren(); input.value=''; editing=false; pending=null;
     devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';devices.disabled=true;
     if(devicesRetry)clearTimeout(devicesRetry);devicesRetry=null;rememberedDevice=null;
+    deviceChoiceMade=false;deviceDefaultApplied=false;
     computerClocks.clear();updateComputerTime();
     streamController?.abort(); if(poll)clearTimeout(poll); controls();
   }
@@ -600,17 +602,26 @@
   async function loadDevices(){
     if(devicesLoading)return;devicesLoading=true;
     if(devicesRetry)clearTimeout(devicesRetry);devicesRetry=null;
-    const epoch=accessEpoch;const selected=devices.value||rememberedDevice;
+    const epoch=accessEpoch;let selected=devices.value||rememberedDevice;
     try{
       const next=await api(null,null,'?devices=1');
       if(!Array.isArray(next.devices))throw new Error('invalid_devices');
+      if(deviceChoiceMade)selected=devices.value||rememberedDevice;
       devices.replaceChildren(element('option','Choose a computer'));devices.options[0].value='';
       computerClocks.clear();
       for(const item of next.devices){const option=element('option',item.label);option.value=item.reference;devices.append(option);
         computerClocks.set(item.reference,window.PortalComputerTime?.create(item.computer_time,performance.now()) || null);}
       devices.disabled=false;
       if(selected){devices.value=selected;rememberedDevice=selected;}
-      else if(devices.options.length===2){devices.selectedIndex=1;rememberedDevice=devices.value;}
+      else if(!deviceChoiceMade&&!deviceDefaultApplied){
+        if(next.local_device_state==='ready'&&typeof next.default_device_reference==='string'
+            &&next.devices.some(item=>item.reference===next.default_device_reference&&item.connection==='reporting')){
+          devices.value=next.default_device_reference;rememberedDevice=devices.value||null;
+        }else if((next.local_device_state===undefined||next.local_device_state==='not_companion')&&devices.options.length===2){
+          devices.selectedIndex=1;rememberedDevice=devices.value;
+        }
+      }
+      deviceDefaultApplied=true;
       updateComputerTime();
       for(const node of nodes.values())node.toolSignature=null;if(state)render(state);
     }
@@ -627,7 +638,7 @@
       if(epoch===accessEpoch)devicesRetry=setTimeout(loadDevices,5000);
     }finally{devicesLoading=false;}
   }
-  devices.addEventListener('change',()=>{rememberedDevice=devices.value||null;updateComputerTime();});
+  devices.addEventListener('change',()=>{deviceChoiceMade=true;rememberedDevice=devices.value||null;updateComputerTime();});
   let preferenceControl=null;
   async function loadPreference(){
     try{
