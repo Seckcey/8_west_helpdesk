@@ -5,20 +5,9 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/ticket_clients.php';
 enforce_https();
 $user = require_login();
-
-$clientsQ = db()->prepare('SELECT id, name, sla_tier FROM clients WHERE tenant_id = ? ORDER BY name');
-$clientsQ->execute([tenant_id()]);
-$clients = $clientsQ->fetchAll();
-
-$contactsQ = db()->prepare(
-    'SELECT k.id, k.client_id, k.name
-       FROM contacts k JOIN clients c ON c.id = k.client_id
-      WHERE c.tenant_id = ? ORDER BY k.name'
-);
-$contactsQ->execute([tenant_id()]);
-$contacts = $contactsQ->fetchAll();
 
 $error = '';
 
@@ -31,23 +20,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $channel   = in_array($_POST['channel'] ?? '', ['email', 'portal', 'alert', 'phone'], true) ? $_POST['channel'] : 'portal';
     $body      = trim((string)($_POST['body'] ?? ''));
 
-    $cq = db()->prepare('SELECT * FROM clients WHERE id = ? AND tenant_id = ?');
-    $cq->execute([$clientId, tenant_id()]);
-    $client = $cq->fetch();
-
-    if (!$client) {
-        $error = 'Pick a client first.';
-    } elseif ($subject === '') {
+    if ($subject === '') {
         $error = 'Give the ticket a subject — future-you will thank present-you.';
     } else {
-        if ($contactId) {
-            $kq = db()->prepare('SELECT 1 FROM contacts WHERE id = ? AND client_id = ?');
-            $kq->execute([$contactId, $clientId]);
-            if (!$kq->fetch()) $contactId = null;
-        }
         $pdo = db();
         $pdo->beginTransaction();
         try {
+            ticket_new_client_for_create($pdo, tenant_id(), $clientId);
+            if ($contactId) {
+                $kq = $pdo->prepare('SELECT 1 FROM contacts WHERE id = ? AND client_id = ? FOR SHARE');
+                $kq->execute([$contactId, $clientId]);
+                if (!$kq->fetch()) $contactId = null;
+            }
             $goal = service_goal_snapshot_for_new_ticket(
                 $pdo,
                 tenant_id(),
@@ -81,12 +65,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
             header('Location: /ticket.php?id=' . $tid);
             exit;
+        } catch (TicketClientUnavailableException $e) {
+            $pdo->rollBack();
+            $error = 'This client is unavailable for new tickets. Pick another client.';
         } catch (Throwable $e) {
             $pdo->rollBack();
             $error = 'Could not create the ticket — please try again.';
         }
     }
 }
+
+$clients = ticket_new_clients(db(), tenant_id());
+$contacts = ticket_new_contacts(db(), tenant_id(), $clients);
 
 page_top($user, 'New ticket', 'queue');
 ?>
@@ -97,7 +87,7 @@ page_top($user, 'New ticket', 'queue');
   </div>
   <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
   <?php if (!$clients): ?>
-    <div class="card empty"><p>No clients yet — <a class="link" href="/client_new.php">add your first client</a> and come right back.</p></div>
+    <div class="card empty"><p>No clients are available for new tickets — <a class="link" href="/client_new.php">add a client</a> and come right back.</p></div>
   <?php else: ?>
   <div class="card form-card">
     <form method="post" action="/ticket_new.php" class="form-grid">

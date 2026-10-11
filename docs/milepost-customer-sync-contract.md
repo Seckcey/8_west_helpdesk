@@ -122,8 +122,17 @@ client.
    otherwise changes schedule status; Safeharbor owns that switch, and a human
    owner/admin must explicitly disable the Safeharbor schedule when the service
    workflow calls for it.
+   Staff new-ticket choices and their contact choices exclude customers that
+   fail the existing `managed_customer_operational()` boundary. Submission
+   rechecks that same boundary inside the ticket transaction, taking the tenant
+   share lock before provider/binding/client reads. A previously loaded form
+   cannot create a ticket or message after an inactive event commits.
 4. A later sequential `active` version may reactivate the binding and rename
    the same client. This is still the same source customer and local client.
+   New-ticket eligibility does not automatically return after inactive history:
+   it requires the existing immutable restoration receipt for the exact current
+   source binding, customer, version and event. An older receipt cannot revive
+   a later source version. Unbound local clients keep their existing eligibility.
 5. Replaying the exact event id and exact raw body returns the original
    five-field receipt, even after later versions have arrived. Reusing an
    event id with different bytes or facts is tampering and is rejected.
@@ -138,6 +147,14 @@ business-event time, and SHA-256 of the raw request. Binding identity cannot
 change, bindings cannot be deleted, and receipts cannot be updated or deleted.
 Foreign keys deliberately prevent a client deletion from orphaning this or
 its help-desk history.
+
+The new-ticket list uses a bulk read projection of the canonical operational
+predicate; its MySQL regression checks compare list and contact membership with
+that predicate across lifecycle transitions and provider availability. This
+avoids a provider/history query for every option. The server write check calls
+the canonical function directly. See the [October 11 capability and remaining
+sync gaps](CLIENT_LIFECYCLE_SYNC_2026_10_11.md); this consumer correction does not
+establish bidirectional sync or prove a production deletion was delivered.
 
 ## Installation and controlled canary
 
