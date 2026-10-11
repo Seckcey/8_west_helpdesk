@@ -39,11 +39,13 @@ operation changes are included.
 | MP-PRE-008, model catalog | The reviewed catalog is already in `app/lib/tenant_ai/tenant_ai_contract.php`, with offline coverage in `app/tests/tenant_ai_catalog_test.php`. No catalog rebuild or selection change. |
 | MP-PRE-009, tenant administrator settings | `docs/TENANT_AI.md` assigns provider/model/effort management to the MSP owner or administrator in 8 West ID. Safeharbor consumes the signed active selection. No duplicate customer model selector. |
 | MP-PRE-010, compact footer | PR #198 changed two existing `portal-workspace.css` sections. Main already contains the compact composer, footer, status and computer-time spacing, including mobile styling. No further style gap was found in the inspected renders. |
-| MP-PRE-012, feedback | PR #191's Copy, Helpful, Not helpful and retry controls are present in `portal-westy.js`, with immutable scoped feedback in `portal_westy_feedback.php`. `docs/portal-westy-reply-feedback.md` retains private context, parent expiry and exact erasure. No additional dashboard, transcript export or training authority was requested by this accepted item. |
+| MP-PRE-012, feedback | PR #191's Copy, Helpful, Not helpful and retry controls are present in `portal-westy.js`, with immutable scoped feedback in `portal_westy_feedback.php`. `docs/portal-westy-reply-feedback.md` retains private context, parent expiry and exact erasure. The accepted operator filtering/export criteria remain unfinished; the existing Milepost hub owns that review UI, and the necessary Safeharbor data/capture seam is pending an agreed contract. No automatic training is authorized. |
 | MP-PRE-013, Westy hub | The accepted hub is the Milepost operator hub, owned by Milepost. It does not request a new Safeharbor customer hub or running-version UI. No Safeharbor change. |
 
-The existing employee/local-default lane remains separately owned. Shared
-portal JavaScript is unchanged by this patch. Frozen Cua integration files and
+The Milepost employee/local-default implementation remains separately owned;
+its necessary Safeharbor consumer seam is pending an agreed contract in this
+same worker assignment. Shared portal JavaScript is unchanged by this patch.
+Frozen Cua integration files and
 `docs/where-things-stand.md` are outside this change.
 
 ## Validation and handoff
