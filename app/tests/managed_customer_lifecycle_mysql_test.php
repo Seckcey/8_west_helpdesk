@@ -5,6 +5,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(1);
 
 require_once __DIR__ . '/../lib/managed_customer_lifecycle.php';
+require_once __DIR__ . '/../lib/ticket_clients.php';
 
 $lifecycleMysqlChecks = 0;
 $lifecycleMysqlFailures = 0;
@@ -337,6 +338,66 @@ function lifecycle_mysql_mark_active(PDO $pdo, int $bindingId, string $eventId, 
     if ($update->rowCount() !== 1) throw new RuntimeException('Active transition fixture failed.');
 }
 
+/** @param list<int> $expected */
+function lifecycle_mysql_ticket_choices(PDO $pdo, array $expected, string $stage): void
+{
+    $clients = ticket_new_clients($pdo, 1);
+    $ids = array_map(static fn(array $row): int => (int)$row['id'], $clients);
+    sort($ids);
+    sort($expected);
+    $canonical = [];
+    foreach ($pdo->query('SELECT id FROM clients WHERE tenant_id=1')->fetchAll() as $row) {
+        if (managed_customer_operational($pdo, 1, (int)$row['id'])) $canonical[] = (int)$row['id'];
+    }
+    sort($canonical);
+    lifecycle_mysql_check($ids === $expected && $ids === $canonical,
+        $stage . ': bulk ticket choices match exact canonical eligibility');
+    $contacts = ticket_new_contacts($pdo, 1, $clients);
+    $contactClients = array_map(static fn(array $row): int => (int)$row['client_id'], $contacts);
+    sort($contactClients);
+    lifecycle_mysql_check($contactClients === $expected,
+        $stage . ': contacts belong only to eligible clients in this tenant');
+}
+
+/** @param class-string<Throwable> $class */
+function lifecycle_mysql_ticket_refuses(string $class, callable $operation, string $message): void
+{
+    try {
+        $operation();
+        lifecycle_mysql_check(false, $message);
+    } catch (Throwable $error) {
+        lifecycle_mysql_check($error instanceof $class, $message . ' (' . $error::class . ')');
+    }
+}
+
+if (($argv[1] ?? '') === 'ticket-sync-race-child') {
+    try {
+        $pdo = lifecycle_mysql_connection((string)$argv[2]);
+        $bindingId = (int)$argv[3];
+        $clientId = $bindingId === 501 ? 11 : 12;
+        $pdo->exec('SET SESSION innodb_lock_wait_timeout=5');
+        $pdo->beginTransaction();
+        echo "ready\n";
+        flush();
+        // Same producer order as suite_customer_sync_receive.
+        $pdo->query('SELECT id FROM tenants WHERE id=1 FOR UPDATE')->fetchAll();
+        $pdo->query('SELECT id FROM suite_customer_sync_bindings WHERE id=' . $bindingId . ' FOR UPDATE')->fetchAll();
+        $pdo->query('SELECT id FROM clients WHERE id=' . $clientId . ' AND tenant_id=1 FOR UPDATE')->fetchAll();
+        echo "locked\n";
+        flush();
+        if (($argv[4] ?? '') === 'delay') usleep(250_000);
+        $eventId = $bindingId === 501
+            ? '77777777-7777-4777-8777-777777777777'
+            : '88888888-8888-4888-8888-888888888888';
+        lifecycle_mysql_mark_inactive($pdo, $bindingId, $eventId, hash('sha256', $eventId));
+        $pdo->commit();
+        exit(0);
+    } catch (Throwable $error) {
+        fwrite(STDERR, $error::class . ':' . $error->getMessage() . "\n");
+        exit(1);
+    }
+}
+
 if (($argv[1] ?? '') === 'race-child') {
     $database = (string)($argv[2] ?? '');
     $delay = (string)($argv[3] ?? '0') === '1';
@@ -562,7 +623,14 @@ try {
 
     $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (1,'Provider One','provider-one')");
     $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
-        (11,1,'Managed One'),(12,1,'Managed Two')");
+        (11,1,'Managed One'),(12,1,'Managed Two'),(13,1,'Legacy Local')");
+    $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (2,'Other Provider','other-provider')");
+    $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (21,2,'Other Tenant Client')");
+    $pdo->exec("INSERT INTO contacts (id,client_id,name,email) VALUES
+        (901,11,'Managed One Contact','one@example.test'),
+        (902,12,'Managed Two Contact','two@example.test'),
+        (903,13,'Legacy Contact','legacy@example.test'),
+        (904,21,'Other Tenant Contact','other@example.test')");
     $pdo->exec("INSERT INTO users
         (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
         (101,1,'owner@example.test','','Owner','O','owner',1),
@@ -584,6 +652,12 @@ try {
     lifecycle_mysql_seed_active(
         $pdo, $customerOne, 11, 501, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'ewid-t91', 'managed-one',
     );
+    lifecycle_mysql_ticket_choices($pdo, [11,12,13], 'active and legacy');
+    $pdo->exec("INSERT INTO tickets (tenant_id,client_id,contact_id,subject,sla_due_at) VALUES
+        (1,11,901,'Retained historical ticket',UTC_TIMESTAMP()+INTERVAL 1 HOUR)");
+    $historyTicketId = (int)$pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body) VALUES (?,'Tech','tech','Retained history')")
+        ->execute([$historyTicketId]);
     lifecycle_mysql_mark_inactive(
         $pdo, 501, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', str_repeat('b', 64),
     );
@@ -591,6 +665,31 @@ try {
         !managed_customer_operational($pdo, 1, 11),
         'committed inactive source event closes the runtime boundary before worker execution',
     );
+    lifecycle_mysql_ticket_choices($pdo, [12,13], 'inactive before containment worker');
+    $pdo->beginTransaction();
+    lifecycle_mysql_ticket_refuses(TicketClientUnavailableException::class,
+        static fn() => ticket_new_client_for_create($pdo, 1, 11),
+        'stale ticket selection refuses a retained inactive client before writes');
+    $pdo->rollBack();
+    lifecycle_mysql_check(
+        (int)$pdo->query('SELECT COUNT(*) FROM clients WHERE id=11')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM contacts WHERE id=901')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM tickets')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn() === 1,
+        'refused new ticket preserves retained client contact ticket and message');
+    $pdo->beginTransaction();
+    lifecycle_mysql_ticket_refuses(TicketClientUnavailableException::class,
+        static fn() => ticket_new_client_for_create($pdo, 1, 21),
+        'new-ticket submission rejects another tenant client');
+    lifecycle_mysql_ticket_refuses(TicketClientUnavailableException::class,
+        static fn() => ticket_new_client_for_create($pdo, 1, 999),
+        'new-ticket submission rejects missing client');
+    lifecycle_mysql_check(ticket_new_client_for_create($pdo, 1, 13)['id'] === 13,
+        'unbound local client remains eligible in a ticket transaction');
+    $pdo->rollBack();
+    lifecycle_mysql_ticket_refuses(LogicException::class,
+        static fn() => ticket_new_client_for_create($pdo, 1, 13),
+        'ticket eligibility cannot release its locks before a ticket transaction');
 
     $commandA = [PHP_BINARY, __FILE__, 'race-child', $database, '1'];
     $commandB = [PHP_BINARY, __FILE__, 'race-child', $database, '0'];
@@ -645,6 +744,7 @@ try {
         !managed_customer_operational($pdo, 1, 11),
         'a later active source event remains latched closed before restored ID evidence',
     );
+    lifecycle_mysql_ticket_choices($pdo, [12,13], 'active after inactive without restoration');
     $blockedActive = managed_customer_lifecycle_apply(
         $runtime,
         lifecycle_mysql_candidate($pdo, $customerOne),
@@ -714,6 +814,7 @@ try {
             )->fetchColumn()===2,
         'restored-only receipt reopens exact owned surfaces with one fresh contact snapshot',
     );
+    lifecycle_mysql_ticket_choices($pdo, [11,12,13], 'exact current restoration');
     lifecycle_mysql_refuses(
         PDOException::class,
         static fn() => $pdo->exec(
@@ -839,6 +940,71 @@ try {
             )->fetchColumn()===1,
         'least-privilege runtime exactly restores after interruption',
     );
+
+    $producer = proc_open([PHP_BINARY, __FILE__, 'ticket-sync-race-child', $database, '501', 'delay'],
+        [1=>['pipe','w'],2=>['pipe','w']], $producerPipes);
+    if (!is_resource($producer)) throw new RuntimeException('Cannot start ticket sync race.');
+    $producerReady = trim((string)fgets($producerPipes[1]));
+    $producerLocked = trim((string)fgets($producerPipes[1]));
+    $pdo->beginTransaction();
+    lifecycle_mysql_ticket_refuses(TicketClientUnavailableException::class,
+        static fn() => ticket_new_client_for_create($pdo, 1, 11),
+        'producer-first race: ticket waits then observes committed inactive state');
+    $pdo->rollBack();
+    stream_get_contents($producerPipes[1]);
+    $producerError = stream_get_contents($producerPipes[2]);
+    fclose($producerPipes[1]); fclose($producerPipes[2]);
+    lifecycle_mysql_check(proc_close($producer) === 0 && $producerReady === 'ready'
+        && $producerLocked === 'locked' && $producerError === '',
+        'producer-first race completes without lock-order deadlock');
+    lifecycle_mysql_mark_active($pdo, 501, '99999999-9999-4999-8999-999999999999', str_repeat('9', 64));
+    lifecycle_mysql_ticket_choices($pdo, [12,13], 'old restoration cannot revive a later source version');
+    $pdo->beginTransaction();
+    lifecycle_mysql_ticket_refuses(TicketClientUnavailableException::class,
+        static fn() => ticket_new_client_for_create($pdo, 1, 11),
+        'POST canonical check also rejects stale restoration receipt');
+    $pdo->rollBack();
+
+    // In the reverse ordering, the ticket belongs to the active lifetime and
+    // the inactive event waits for its complete ticket/message commit.
+    service_goal_ensure_default_policies($pdo, 1);
+    $pdo->beginTransaction();
+    ticket_new_client_for_create($pdo, 1, 12);
+    $producer = proc_open([PHP_BINARY, __FILE__, 'ticket-sync-race-child', $database, '502'],
+        [1=>['pipe','w'],2=>['pipe','w']], $producerPipes);
+    if (!is_resource($producer)) throw new RuntimeException('Cannot start reverse ticket sync race.');
+    $producerReady = trim((string)fgets($producerPipes[1]));
+    usleep(100_000);
+    lifecycle_mysql_check($producerReady === 'ready' && proc_get_status($producer)['running'],
+        'ticket-first race: inactive writer waits for the ticket tenant lock');
+    $goal = service_goal_snapshot_for_new_ticket($pdo, 1, 12, 'normal');
+    $pdo->prepare('INSERT INTO tickets (tenant_id,client_id,contact_id,subject,service_goal_target_id,sla_due_at)
+        VALUES (1,12,902,?, ?, ?)')->execute(['Eligible ticket before inactive', $goal['target_id'], $goal['due_at']]);
+    $activeTicketId = (int)$pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body) VALUES (?,'Tech','tech','Eligible response')")
+        ->execute([$activeTicketId]);
+    $pdo->commit();
+    stream_get_contents($producerPipes[1]);
+    $producerError = stream_get_contents($producerPipes[2]);
+    fclose($producerPipes[1]); fclose($producerPipes[2]);
+    lifecycle_mysql_check(proc_close($producer) === 0 && $producerError === ''
+        && (int)$pdo->query('SELECT COUNT(*) FROM tickets')->fetchColumn() === 2
+        && (int)$pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn() === 2,
+        'ticket-first race commits eligible ticket/message and retains both after inactive');
+    lifecycle_mysql_ticket_choices($pdo, [13], 'both managed clients contained');
+
+    $pdo->exec("UPDATE users SET suite_subject='t9u101' WHERE id=101");
+    $pdo->exec("INSERT INTO suite_managed_providers
+        (tenant_id,issuer_tenant_id,provider_slug,owner_user_id,owner_subject,lease_until)
+        VALUES (1,9,'provider-one',101,'t9u101',UTC_TIMESTAMP()-INTERVAL 1 MINUTE)");
+    lifecycle_mysql_ticket_choices($pdo, [], 'enrolled provider unavailable');
+    $pdo->beginTransaction();
+    lifecycle_mysql_ticket_refuses(TicketClientUnavailableException::class,
+        static fn() => ticket_new_client_for_create($pdo, 1, 13),
+        'POST honors the existing enrolled-provider availability boundary');
+    $pdo->rollBack();
+    $pdo->exec('UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()+INTERVAL 1 MINUTE WHERE tenant_id=1');
+    lifecycle_mysql_ticket_choices($pdo, [13], 'enrolled provider available again');
 
     $admin->exec("CREATE DATABASE {$quotedFreshDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $fresh = lifecycle_mysql_connection($freshDatabase);
