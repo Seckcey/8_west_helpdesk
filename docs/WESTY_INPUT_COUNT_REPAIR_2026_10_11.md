@@ -1,7 +1,9 @@
 # Westy input-count repair — October 11, 2026
 
-R1/R2 are a source candidate. MAIN owns the grouped release and tracker;
-deployment and Frankie's real browser/Notepad acceptance remain pending.
+MAIN's October 11 execution receipt records R1/R2 installed at source
+`5d7e6ade7ca9645b37fb68ea799c529b71b333d8`, with original business-report
+scheduling restored. Real provider/Cua and Frankie's signed-in browser/Notepad
+acceptance remain **Not tested**. MAIN owns the release and tracker.
 
 ## Customer behavior
 
@@ -49,20 +51,51 @@ existing contract-patch metadata remain unchanged. The existing catalog test
 checks every adapter's actual canonical-LF bytes, pins both reviewed patch
 hashes and requires every other adapter to equal its original upstream bytes.
 
-MAIN runs the normal existing PHP 8.3 catalog, continuation and lint checks at
-the final grouped source/documentation head. Normal PR review, required CI and
-Safeharbor integration gates apply. A temporary runner that bypasses the
-provenance checks is not validation.
+MAIN's exact-head PHP 8.3 checks passed: 48 catalog/input-count checks, 178
+desktop/Cua continuation assertions, and lint on both changed production PHP
+files and both changed test files. PR #216's exact-head Validate `38181718102`
+passed all four jobs. Default Validate `38182054671` attempt 2 passed at the
+merged source above. Attempt 1's unchanged service-goal concurrency-observation
+assertion failed; only the failed PHP job was retried once. No source/test/CI
+change, skip or bypass was used, and the root cause is not asserted. These
+synthetic checks do not establish live provider or customer acceptance.
 
 ## Release and acceptance
 
-MAIN must account for the exact candidate versus the current live release and
-use the established report-preserving deployment procedure and retained
-rollback. This source repair requires no schema, key, configuration, package,
-device or signing change. No real provider request or device acceptance is
-claimed by this source preparation.
+MAIN installed the exact reviewed archive through the unchanged receiver with
+exit 0, advancing runtime `55211b9` to `5d7e6ad`. The new manager's
+install-disabled, enable and actual verify-active steps succeeded. MAIN reports
+that all three production-file hashes match the reviewed source. The original
+552 capture and unused retained 497 inverse remain preserved.
 
-After the release owner verifies the installed files and reporting state,
-Frankie's real signed-in browser/Notepad workflow remains the acceptance gate.
+| Execution binding | SHA-256 / value |
+| --- | --- |
+| Installed source | `5d7e6ade7ca9645b37fb68ea799c529b71b333d8` |
+| Clean source artifact | `02979eda0a232ffbf6ffc30d53f84a8c7171cc2fe6200c45ca60a7afc81b3369` |
+| Actual deployed artifact | `7e8108fbad1efff3f27eef075add680e24af0a9ba38c62552727d2ede686f753` |
+| Actual current release record | `e246b87a37a884ca6208e2caf834d97d974467d21df0f285c117d87d6d64c22e` |
+| Original 552 capture | `c24c45ddf9796a5c80cfdaece5989ee94171d2dee354ee1d0354452f591106e0` |
+| New report bundle | `7430b614c5915c77d3e7b66acf526e945516eb477a910d2d6a0835239ec245a2` |
+| New report activation | `c8ef52465b0645a994d3b735c8e670f1d107c6179fc44304503abfcb62defc8d` |
+| Unchanged protected config | `cfeed7737ca4c1ee2e59a7d36c69209650b5740d23ff3c8b8df15dcc2fd27601` |
+| Unchanged report cron | `0ccf6eb37945c35b30cd62fa752ca5ada155a88c12644cf517950c720b4068b6` |
+| Genuine protected-gate review | `2026-10-11T23:27:10Z` (4:27:10 PM Pacific) |
+
+All other original activation fields and approval/provider clocks were
+identical; only the five reviewed release/artifact/bundle/protected-review
+bindings changed. This release changed no schema, keys or protected config.
+MAIN explicitly unlocked and closed its app FD 4 and suite FD 3 at
+`2026-10-11T23:30:00Z` (4:30 PM Pacific); session `71332` exited 0 and existing
+mutex inode files were retained. This does not establish future foreign-lock
+availability. The source/docs freeze ended with MAIN's window closeout.
+
+The saved `receiver-result.json` and `actual-runtime-receipt.json` in the
+`safeharbor-r1r2-5d7e6ade-execution-01a12734` evidence folder support these
+release-owner receipts. The coordinator checked those saved records; it did
+not independently rerun SSH or a provider/device workflow. The site's TLS HTTP
+302 anonymous entry establishes availability only.
+
+Real provider/Cua and Frankie's signed-in browser/Notepad workflow remain the
+acceptance gate; deployment and report restoration do not satisfy that gate.
 An input-limit message is a refusal to continue that reply; any previously
 dispatched device work retains its own recorded outcome and Stop status.
