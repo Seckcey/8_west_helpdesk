@@ -23,7 +23,7 @@ function portal_security_headers(): void
 function portal_page_start(string $title, string $bodyClass = '', ?array $context = null): void
 {
     $GLOBALS['portal_view_context'] = $context;
-    $brand = portal_branding();
+    $brand = portal_branding($context);
     if ($context !== null) $bodyClass = trim('portal-app ' . $bodyClass);
     portal_security_headers();
     ?>

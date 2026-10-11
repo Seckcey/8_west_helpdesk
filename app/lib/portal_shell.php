@@ -2,14 +2,15 @@
 declare(strict_types=1);
 require_once __DIR__.'/portal_access.php';
 require_once __DIR__.'/portal_desktop_controls.php';
+require_once __DIR__.'/tenant_branding.php';
 
 /** Presentation only: this never creates or validates authentication authority. */
-function portal_branding(): array
+function portal_branding(?array $context = null): array
 {
     $pair = $_SESSION['desktop_companion_session'] ?? null;
     $companion = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH) === '/portal/desktop.php'
         || (is_string($pair) && preg_match('/\A[a-f0-9]{32}\z/D', $pair) === 1);
-    return $companion
+    $brand = $companion
         ? ['name'=>'Westy Companion', 'home'=>'Westy home', 'alt'=>'Westy Companion — 8 West IT',
             'logo'=>'/assets/brand/westy-companion/westy-horizontal-logo-v1.png', 'width'=>2172, 'height'=>724,
             'favicon'=>'/assets/brand/westy-companion/westy-1.png', 'favicon_type'=>'image/png',
@@ -18,6 +19,13 @@ function portal_branding(): array
             'logo'=>'/assets/brand/8-west-it-westy.png', 'width'=>2172, 'height'=>724,
             'favicon'=>'/assets/brand/favicon.svg', 'favicon_type'=>'image/svg+xml',
             'avatar'=>'/assets/img/westy-avatar.png'];
+    $config = function_exists('cfg') ? cfg('tenant_branding', []) : [];
+    if (safeharbor_tenant_brand_provider($context) !== null && is_array($config)
+        && tenant_brand_hex($config['service_secret'] ?? null)) {
+        $brand['logo'] = '/portal/tenant-brand-logo.php?surface=' . ($companion ? 'companion' : 'safeharbor');
+        $brand['alt'] = 'Company logo';
+    }
+    return $brand;
 }
 
 /** File contents, not mtime or a hand-maintained number, invalidate cached assets. */
@@ -50,7 +58,7 @@ function portal_shell_start(array $context): void
     $identity = $context['identity'];
     $client = (string)($context['binding']['client_name'] ?? 'Your business');
     $workspace=($context['workspace']??false)===true;
-    $brand = portal_branding();
+    $brand = portal_branding($context);
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH);
     if(in_array($path, ['/portal/device_help.php', '/portal/mobile.php', '/portal/security.php'], true))$path='/portal/devices.php';
     ?>
