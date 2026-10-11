@@ -23,6 +23,7 @@ const PORTAL_ASSETS = {
   '/assets/js/portal-desktop.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-desktop.js'))],
   '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
+  '/assets/brand/8-west-it-westy.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/brand/8-west-it-westy.png'))],
   '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
 };
 const PORTAL_RENDER_SOURCE = await readFile(path.join(ROOT, 'app/lib/portal_render.php'), 'utf8');
@@ -65,6 +66,7 @@ async function w365Asset(pathname) {
 const FIXTURE_PHP = String.raw`<?php
 declare(strict_types=1);
 function portal_csrf_token(): string { return str_repeat('c', 64); }
+function portal_safe_return_path(mixed $value): string { return '/portal/'; }
 function cfg(string $key,mixed $default=null):mixed{
     global $argv;
     if($key==='portal_mobile')return ['enabled'=>in_array($argv[3],['devicesmobile','devicesmobileviewer','mobile','mobileviewer'],true)];
@@ -125,6 +127,9 @@ $archive = [
     'metrics' => $metrics, 'text' => $reportText,
 ];
 switch ($argv[3]) {
+    case 'login':
+        portal_render_login();
+        break;
     case 'mobile':
     case 'mobileviewer':
         if($argv[3]==='mobileviewer')$context['identity']['role']='client_viewer';
@@ -252,7 +257,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['workspace','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
+  for (const name of ['login','workspace','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
       fixturePath,
@@ -324,7 +329,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
         ? route.fulfill({ status: 404, body: '' })
         : route.fulfill({ contentType: asset.contentType, body: asset.body });
     }
-    const body = url.pathname === '/portal/' ? pages.workspace
+    const body = url.pathname === '/portal/' ? pages[url.searchParams.get('fixture') === 'login' ? 'login' : 'workspace']
       : url.pathname === '/portal/requests.php' ? pages.dashboard
       : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
       : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
@@ -343,7 +348,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
 }
 
 function fixtureForUrl(pages, url) {
-  return url.pathname === '/portal/' ? pages.workspace
+  return url.pathname === '/portal/' ? pages[url.searchParams.get('fixture') === 'login' ? 'login' : 'workspace']
     : url.pathname === '/portal/requests.php' ? pages.dashboard
     : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
     : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
@@ -443,6 +448,32 @@ if (SERVE_MODE) {
     assert.equal(await mobile.page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth), true);
     assert.deepEqual(mobile.consoleProblems, []);
     await mobile.context.close();
+
+    for (const viewport of [{width:1365,height:850},{width:390,height:844}]) {
+      const {page,context,consoleProblems} = await openPortalPage(browser,pages,viewport);
+      for (const [view,url] of [['login','/portal/?fixture=login'],['customer','/portal/requests.php'],['workspace','/portal/']]) {
+        await page.goto(ORIGIN+url);
+        const logos=page.locator('img[src="/assets/brand/8-west-it-westy.png"]');
+        const visible=logos.filter({visible:true});
+        const compactWorkspace=view==='workspace'&&viewport.width===390;
+        assert.equal(await visible.count()>0,!compactWorkspace,'existing compact workspace keeps artwork hidden');
+        const logo=compactWorkspace?logos.first():visible.first();
+        await logo.waitFor({state:compactWorkspace?'attached':'visible'});
+        assert.equal(await logo.getAttribute('alt'),'8 West IT with Westy');
+        assert.deepEqual(await logo.evaluate(img=>[img.naturalWidth,img.naturalHeight]),[2172,724]);
+        if(!compactWorkspace){
+          const box=await logo.boundingBox();assert.ok(box.width>0&&box.height>0);
+          assert.ok(Math.abs(box.width/box.height-3)<0.02,'supplied artwork is not distorted');
+        }
+        assert.equal(await page.locator('body').evaluate(body=>body.scrollWidth<=body.clientWidth),true);
+        if(process.env.PORTAL_BRANDING_EVIDENCE){
+          await mkdir(process.env.PORTAL_BRANDING_EVIDENCE,{recursive:true});
+          await page.screenshot({path:path.join(process.env.PORTAL_BRANDING_EVIDENCE,`${view}-${viewport.width}.png`)});
+        }
+      }
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+    }
   } finally {
     await browser.close();
     await rm(scratch, { recursive: true, force: true });
