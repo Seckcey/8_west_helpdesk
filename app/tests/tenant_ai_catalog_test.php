@@ -70,16 +70,22 @@ check($failed->result()['ok']===false && $failed->result()['usage']===$result['u
 
 $root=dirname(__DIR__,2);
 $manifest=json_decode(file_get_contents($root.'/docs/tenant-ai-vendor-manifest.json'),true,32,JSON_THROW_ON_ERROR);
-check($manifest['commit']==='3003a3c897edace2140de00f02e9279914ea1638' && $manifest['catalog']==='2026-10-04.1','upstream base and credential catalog preserved');
+check($manifest['upstream']==='Seckcey/8_west_westy' && $manifest['commit']==='3003a3c897edace2140de00f02e9279914ea1638' && $manifest['catalog']==='2026-10-04.1','upstream base and credential catalog preserved');
 check($manifest['local_patch']['id']==='tenant-ai-catalog-2026-10-08.1'
     && $manifest['local_patch']['files']===['app/lib/tenant_ai/tenant_ai_contract.php'],'only reviewed contract is locally patched');
+$providerPatch=$manifest['provider_input_count_patch']??null;
+check(is_array($providerPatch) && $providerPatch['id']==='westy-input-count-2026-10-11.1'
+    && $providerPatch['files']===['app/lib/tenant_ai/tenant_ai_provider.php']
+    && $providerPatch['sha256']==='19ac3e43d96ef2fe011de556a3f06fdd9ba15b683a016e2472884e31c0e5be0a','only reviewed provider input-count patch is recorded');
 foreach($manifest['files'] as $path=>$expected){
     $bytes=str_replace("\r\n","\n",file_get_contents($root.'/'.$path));
     check(hash('sha256',$bytes)===$expected,'actual canonical LF hash '.$path);
-    if($path!=='app/lib/tenant_ai/tenant_ai_contract.php')check($expected===$manifest['upstream_files'][$path],'unchanged upstream adapter '.$path);
+    if($path!=='app/lib/tenant_ai/tenant_ai_contract.php' && $path!=='app/lib/tenant_ai/tenant_ai_provider.php')check($expected===$manifest['upstream_files'][$path],'unchanged upstream adapter '.$path);
 }
 check($manifest['files']['app/lib/tenant_ai/tenant_ai_contract.php']==='9a8dfa1bcb347924307e9abf9593efa7fb4901540f3b23e071c981b40a3a8f05'
     && $manifest['upstream_files']['app/lib/tenant_ai/tenant_ai_contract.php']==='3fb920e2358c0342f3dcd215c65443d25f8ec1fc2226b9b7f4122ed3ff4d96e9','ID-acknowledged patch bytes and original upstream hash both retained');
+check($manifest['files']['app/lib/tenant_ai/tenant_ai_provider.php']==='19ac3e43d96ef2fe011de556a3f06fdd9ba15b683a016e2472884e31c0e5be0a'
+    && $manifest['upstream_files']['app/lib/tenant_ai/tenant_ai_provider.php']==='db55a1fdd400698b709c498ff5e497189ca609e9e3c88f011afc396925083268','input-count patch bytes and original upstream provider hash both retained');
 echo "tenant_ai_catalog_test: $checks checks passed\n";
 
 // Text over the conservative byte bound is admitted only by the existing actual count, against the same limit.
