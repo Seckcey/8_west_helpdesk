@@ -1,9 +1,13 @@
 # Customer portal artwork and usability review — October 10, 2026
 
-Source candidate based on main `2d0ab38be8264d646a1407f1c41c36f6ab333096`,
+Historical source candidate based on main `2d0ab38be8264d646a1407f1c41c36f6ab333096`,
 after MAIN integrated the separately owned Cua PR #211.
 This record establishes source and synthetic rendering evidence. Merge,
-deployment and customer acceptance remain separate release steps.
+deployment and customer acceptance remain separate release steps. PR #212 later
+merged as `497a765dbf9233f44dc9290a7a31674d3c1f134e`; MAIN's October 11
+[application release receipt](SAFEHARBOR_1_26_20_RELEASE_2026_10_11.md) records
+that source deployed with original reporting restored. The synthetic evidence
+below is retained; installed-device and customer acceptance remain separate.
 
 ## Customer artwork
 
