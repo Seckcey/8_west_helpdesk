@@ -33,13 +33,19 @@ try{
         // connection renewal and Stop must be able to proceed concurrently.
         $metadata=[];$originalSession=session_id();
         if(!session_write_close())$fail('unavailable',503);
-        if(isset($_GET['devices']))$metadata['devices']=portal_devices_request(db(),$context,'devices',['after'=>0])['items'];
+        if(isset($_GET['devices'])){
+            $metadata['devices']=portal_devices_request(db(),$context,'devices',['after'=>0])['items'];
+            $metadata+=portal_desktop_default_device(db(),$context,$metadata['devices']);
+        }
         if(isset($_GET['diagnostic_preference'])&&portal_westy_runs_installed(db()))
             try{$metadata['diagnostic_preference']=portal_desktop_request($context,'shell_preferences',[]);}catch(PortalDesktopException){}
         if(isset($_GET['tool_preferences'])&&portal_westy_terminal_installed(db()))
             try{$metadata['tool_preferences']=portal_desktop_request($context,'terminal_preferences',[]);}catch(PortalDesktopException){}
         $check=portal_stream_authenticated_context(db(),$originalSession);
         if($check===null||!portal_desktop_same_context($context,$check))$fail('sign_in',401);
+        if(isset($_GET['devices'])&&($context['desktop_companion_pair']??null)!==($_SESSION['desktop_companion_session']??null)){
+            $metadata['default_device_reference']=null;$metadata['local_device_state']='unavailable';
+        }
         json_out(['ok'=>true,'state'=>$metadata]);exit;
     }
     if($method==='POST'){

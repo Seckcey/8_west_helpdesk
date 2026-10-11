@@ -34,7 +34,36 @@ function portal_desktop_renewal_proof(array $identity):?array
  * than that lease must still match the same original approved server identity. */
 function portal_desktop_capture_context(array $context):array
 {
-    $context['desktop_renewal_proof']=portal_desktop_renewal_proof($context['identity']);return $context;
+    $context['desktop_renewal_proof']=portal_desktop_renewal_proof($context['identity']);
+    $context['desktop_companion_pair']=$_SESSION['desktop_companion_session']??null;
+    return $context;
+}
+
+/** A presentation default requires the actual owned pair and current device list. */
+function portal_desktop_default_device(PDO $pdo,array $context,array $devices,?callable $transport=null):array
+{
+    $pair=$context['desktop_companion_pair']??null;
+    $result=['default_device_reference'=>null,'local_device_state'=>$pair===null?'not_companion':'unavailable'];
+    if($pair===null||!portal_desktop_id($pair))return $result;
+    try {
+        portal_desktop_binding($pdo,$context,$pair);
+        $state=portal_desktop_request($context,'state',['session_id'=>$pair],$transport);
+        if(($state['session_id']??null)!==$pair||!is_int($state['expires_at']??null))return $result;
+        if($state['expires_at']<=time()||($state['state']??null)==='expired'){
+            $result['local_device_state']='expired';return $result;
+        }
+        $reference=$state['device_reference']??null;
+        if(!is_string($reference)||preg_match('/\A[1-9][0-9]{0,9}:[a-f0-9]{64}\z/D',$reference)!==1
+            ||!in_array($state['state']??null,['paired','active','stopped'],true)||!is_bool($state['connected']??null))return $result;
+        $matches=array_values(array_filter($devices,static fn(array $device):bool=>($device['reference']??null)===$reference));
+        if(count($matches)!==1)return $result;
+        if(!$state['connected']||($matches[0]['connection']??null)!=='reporting'){
+            $result['local_device_state']='offline';return $result;
+        }
+        return ['default_device_reference'=>$reference,'local_device_state'=>'ready'];
+    } catch(PortalDesktopException|PortalDevicesException|PortalWestyException) {
+        return $result;
+    }
 }
 function portal_desktop_same_context(array $before,array $after):bool
 {

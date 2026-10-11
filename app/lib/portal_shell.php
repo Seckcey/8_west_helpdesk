@@ -14,8 +14,8 @@ function portal_branding(): array
             'logo'=>'/assets/brand/westy-companion/westy-horizontal-logo-v1.png', 'width'=>2172, 'height'=>724,
             'favicon'=>'/assets/brand/westy-companion/westy-1.png', 'favicon_type'=>'image/png',
             'avatar'=>'/assets/brand/westy-companion/westy-1.png']
-        : ['name'=>'Safeharbor', 'home'=>'Safeharbor home', 'alt'=>'Safeharbor — 8 West IT 365',
-            'logo'=>'/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png', 'width'=>1851, 'height'=>513,
+        : ['name'=>'Safeharbor', 'home'=>'Safeharbor home', 'alt'=>'8 West IT with Westy',
+            'logo'=>'/assets/brand/8-west-it-westy.png', 'width'=>2172, 'height'=>724,
             'favicon'=>'/assets/brand/favicon.svg', 'favicon_type'=>'image/svg+xml',
             'avatar'=>'/assets/img/westy-avatar.png'];
 }

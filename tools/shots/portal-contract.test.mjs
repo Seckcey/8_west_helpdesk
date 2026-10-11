@@ -23,6 +23,7 @@ const PORTAL_ASSETS = {
   '/assets/js/portal-desktop.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-desktop.js'))],
   '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
+  '/assets/brand/8-west-it-westy.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/brand/8-west-it-westy.png'))],
   '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
 };
 const PORTAL_RENDER_SOURCE = await readFile(path.join(ROOT, 'app/lib/portal_render.php'), 'utf8');
@@ -65,6 +66,7 @@ async function w365Asset(pathname) {
 const FIXTURE_PHP = String.raw`<?php
 declare(strict_types=1);
 function portal_csrf_token(): string { return str_repeat('c', 64); }
+function portal_safe_return_path(mixed $value): string { return '/portal/'; }
 function cfg(string $key,mixed $default=null):mixed{
     global $argv;
     if($key==='portal_mobile')return ['enabled'=>in_array($argv[3],['devicesmobile','devicesmobileviewer','mobile','mobileviewer'],true)];
@@ -125,6 +127,9 @@ $archive = [
     'metrics' => $metrics, 'text' => $reportText,
 ];
 switch ($argv[3]) {
+    case 'login':
+        portal_render_login();
+        break;
     case 'mobile':
     case 'mobileviewer':
         if($argv[3]==='mobileviewer')$context['identity']['role']='client_viewer';
@@ -252,7 +257,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['workspace','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
+  for (const name of ['login','workspace','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
       fixturePath,
@@ -324,7 +329,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
         ? route.fulfill({ status: 404, body: '' })
         : route.fulfill({ contentType: asset.contentType, body: asset.body });
     }
-    const body = url.pathname === '/portal/' ? pages.workspace
+    const body = url.pathname === '/portal/' ? pages[url.searchParams.get('fixture') === 'login' ? 'login' : 'workspace']
       : url.pathname === '/portal/requests.php' ? pages.dashboard
       : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
       : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
@@ -343,7 +348,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
 }
 
 function fixtureForUrl(pages, url) {
-  return url.pathname === '/portal/' ? pages.workspace
+  return url.pathname === '/portal/' ? pages[url.searchParams.get('fixture') === 'login' ? 'login' : 'workspace']
     : url.pathname === '/portal/requests.php' ? pages.dashboard
     : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
     : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
@@ -443,6 +448,32 @@ if (SERVE_MODE) {
     assert.equal(await mobile.page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth), true);
     assert.deepEqual(mobile.consoleProblems, []);
     await mobile.context.close();
+
+    for (const viewport of [{width:1365,height:850},{width:390,height:844}]) {
+      const {page,context,consoleProblems} = await openPortalPage(browser,pages,viewport);
+      for (const [view,url] of [['login','/portal/?fixture=login'],['customer','/portal/requests.php'],['workspace','/portal/']]) {
+        await page.goto(ORIGIN+url);
+        const logos=page.locator('img[src="/assets/brand/8-west-it-westy.png"]');
+        const visible=logos.filter({visible:true});
+        const compactWorkspace=view==='workspace'&&viewport.width===390;
+        assert.equal(await visible.count()>0,!compactWorkspace,'existing compact workspace keeps artwork hidden');
+        const logo=compactWorkspace?logos.first():visible.first();
+        await logo.waitFor({state:compactWorkspace?'attached':'visible'});
+        assert.equal(await logo.getAttribute('alt'),'8 West IT with Westy');
+        assert.deepEqual(await logo.evaluate(img=>[img.naturalWidth,img.naturalHeight]),[2172,724]);
+        if(!compactWorkspace){
+          const box=await logo.boundingBox();assert.ok(box.width>0&&box.height>0);
+          assert.ok(Math.abs(box.width/box.height-3)<0.02,'supplied artwork is not distorted');
+        }
+        assert.equal(await page.locator('body').evaluate(body=>body.scrollWidth<=body.clientWidth),true);
+        if(process.env.PORTAL_BRANDING_EVIDENCE){
+          await mkdir(process.env.PORTAL_BRANDING_EVIDENCE,{recursive:true});
+          await page.screenshot({path:path.join(process.env.PORTAL_BRANDING_EVIDENCE,`${view}-${viewport.width}.png`)});
+        }
+      }
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+    }
   } finally {
     await browser.close();
     await rm(scratch, { recursive: true, force: true });
@@ -1062,11 +1093,12 @@ if (!SERVE_MODE) test('startup metadata bypasses slow history, releases the sess
       $_SERVER['REQUEST_METHOD']='GET';parse_str($argv[1],$_GET);$GLOBALS['calls']=[];
       function enforce_https(){} function portal_enabled(){return true;} function db(){return null;}
       function portal_authenticated_context($db){return ['identity'=>['subject'=>'fixture','binding_id'=>1]];}
-      function portal_desktop_capture_context($c){return $c;}
-      function portal_desktop_same_context($a,$b){return $a===$b;}
+      function portal_desktop_capture_context($c){return $c+['desktop_companion_pair'=>null];}
+      function portal_desktop_same_context($a,$b){return $a['identity']===$b['identity'];}
       function portal_westy_state(...$args){throw new RuntimeException('history must not run for metadata');}
       function fixture_call($name){if(session_status()===PHP_SESSION_ACTIVE)throw new RuntimeException('session lock held');$GLOBALS['calls'][]=$name;}
       function portal_devices_request(...$args){fixture_call('devices');return ['items'=>[['reference'=>'fixture-device','label'=>'Synthetic computer']]];}
+      function portal_desktop_default_device($db,$c,$devices){fixture_call('local_default');return ['default_device_reference'=>null,'local_device_state'=>'not_companion'];}
       function portal_westy_runs_installed($db){return true;} function portal_westy_terminal_installed($db){return true;}
       function portal_desktop_request($c,$op,$input){fixture_call($op);return $op==='shell_preferences'?['automatic_diagnostics'=>true]:['revision'=>0,'execution_guard'=>'allow','restrictions'=>['commands'=>true]];}
       function portal_stream_authenticated_context($db,$id){
@@ -1082,10 +1114,10 @@ if (!SERVE_MODE) test('startup metadata bypasses slow history, releases the sess
     };
     const all=run('devices=1&diagnostic_preference=1&tool_preferences=1');
     assert.equal(all.status,200);assert.equal(all.body.ok,true);
-    assert.deepEqual(Object.keys(all.body.state),['devices','diagnostic_preference','tool_preferences']);
+    assert.deepEqual(Object.keys(all.body.state),['devices','default_device_reference','local_device_state','diagnostic_preference','tool_preferences']);
     assert.equal(all.body.state.devices[0].label,'Synthetic computer');assert.equal(all.body.state.tool_preferences.execution_guard,'allow');
-    assert.deepEqual(all.calls,['devices','shell_preferences','terminal_preferences','reauthorize']);
-    const devices=run('devices=1');assert.deepEqual(Object.keys(devices.body.state),['devices']);
+    assert.deepEqual(all.calls,['devices','local_default','shell_preferences','terminal_preferences','reauthorize']);
+    const devices=run('devices=1');assert.deepEqual(Object.keys(devices.body.state),['devices','default_device_reference','local_device_state']);
     for(const mode of ['revoked','rebound']){
       const denied=run('devices=1',mode);assert.equal(denied.status,401);assert.deepEqual(denied.body,{ok:false,reason:'sign_in'});
     }
@@ -1135,6 +1167,39 @@ if (!SERVE_MODE) test('startup availability recovers without replay, changing co
       const stoppedAt=deviceCalls;await page.clock.fastForward(15000);assert.equal(deviceCalls,stoppedAt);
       assert.equal(await page.locator('#portal-chat-device').isDisabled(),true);assert.deepEqual(consoleProblems,[]);
     }finally{await context.close();}
+    for(const localState of ['ready','offline','expired','unavailable','mismatch','not_companion']){
+      let available=[{reference,label:'Local computer',connection:'reporting'}];
+      const localHandler=route=>{
+        const url=new URL(route.request().url());
+        const local=localState==='mismatch'?'ready':localState;
+        const next=url.searchParams.has('devices')?{devices:available,local_device_state:local,
+          default_device_reference:localState==='ready'?reference:localState==='mismatch'?other:null}
+          :{enabled:true,ai_available:true,can_write:true,conversation:null,conversations:[],turns:[],draft:null};
+        return route.fulfill({json:{ok:true,state:next}});
+      };
+      const {page,context,consoleProblems}=await openPortalPage(browser,pages,{width:1100,height:850},localHandler);
+      try{
+        await page.route('**/portal/desktop_sessions.php',route=>route.fulfill({json:{ok:true,result:{sessions:[]}}}));
+        await page.goto(ORIGIN+'/portal/');await page.waitForFunction(()=>!document.querySelector('#portal-chat-device').disabled);
+        assert.equal(await page.locator('#portal-chat-device').inputValue(),['ready','not_companion'].includes(localState)?reference:'');
+        if(localState==='ready'){
+          const refresh=async()=>{
+            await page.evaluate(()=>{document.querySelector('#portal-chat-device').disabled=true;window.dispatchEvent(new Event('westy-connection-ready'));});
+            await page.waitForFunction(()=>!document.querySelector('#portal-chat-device').disabled);
+          };
+          await page.locator('#portal-chat-device').selectOption('');await refresh();
+          assert.equal(await page.locator('#portal-chat-device').inputValue(),'','explicit blank survives local-default refresh');
+          available.push({reference:other,label:'Another computer',connection:'reporting'});await refresh();
+          await page.locator('#portal-chat-device').selectOption(other);await refresh();
+          assert.equal(await page.locator('#portal-chat-device').inputValue(),other,'explicit other computer overrides the local default');
+          available=available.filter(item=>item.reference!==other);await refresh();
+          assert.equal(await page.locator('#portal-chat-device').inputValue(),'','removed explicit selection is not replaced by the local computer');
+          available.push({reference:other,label:'Another computer',connection:'reporting'});await refresh();
+          assert.equal(await page.locator('#portal-chat-device').inputValue(),'','a removed selection does not revive when its reference returns');
+        }
+        assert.deepEqual(consoleProblems,[]);
+      }finally{await context.close();}
+    }
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
