@@ -1,11 +1,19 @@
-# Safeharbor 1.26.19 employee consumer source readiness
+# Safeharbor 1.26.19 employee consumer historical source review
 
-October 10, 2026. This is a source and existing-validation handoff for the
-employee consumer. Deployment, provider behavior, signed packaging and customer
-acceptance require their own evidence. This review performed no live account,
-invitation, device, provider, schema, configuration or production operation.
+**Later deployment:** the compatible consumer was installed from
+`1294c84edb7252b8f38cb91f9c843e3bfa55cabd`, with Safeharbor's original
+restoration complete October 10 at 5:02:10 PM Pacific. The app tree is unchanged
+from this review. See the separate [actual deployment and recovery
+record](SAFEHARBOR_1_26_19_EMPLOYEE_DEPLOYMENT_2026_10_10.md); it does not establish
+employee/provider/device/customer acceptance or completion of other owners' work.
 
-## Exact source and recorded runtime
+The October 10 source-review handoff below is historical. Its original
+`e6308be` candidate, recorded `4b1ff4fd` baseline, comparisons and synthetic
+validation evidence are preserved. That review performed no live account,
+invitation, device, provider, schema, configuration or production operation;
+the later deployment belongs to its separately recorded executor.
+
+## Exact source and runtime at the original review
 
 The reviewed source candidate is main
 `e6308be3cae19a7b3db1e6a85be3aa63772e4a61`, including employee
@@ -17,7 +25,7 @@ The candidate's Git `app/` tree object is
 files; it is not a deployment artifact digest. This documentation change does
 not change that application tree.
 
-The latest recorded runtime is the narrow
+At that original review, the latest recorded runtime was the narrow
 `4b1ff4fdf7efc4519f140de78f4d2cde6494c6bc` cut installed October 9 at
 11:47 PM Pacific (October 10 UTC). Its recorded source-artifact digest is
 `df992c14f516d3edef6731520e314dbb091782dd5c3dd40d6b914588f0072349`,

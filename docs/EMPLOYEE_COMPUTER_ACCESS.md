@@ -1,8 +1,13 @@
 # Employee accounts and assigned computers
 
-This is a next-release source candidate paired with 8 West ID employee
-invitations and Milepost device assignments. It is not a production activation
-or a record of invitations sent.
+The compatible Safeharbor consumer is deployed from
+`1294c84edb7252b8f38cb91f9c843e3bfa55cabd`; original reporting and writers were
+restored October 10, 2026, at 5:02:10 PM Pacific. See the
+[deployment and recovery record](SAFEHARBOR_1_26_19_EMPLOYEE_DEPLOYMENT_2026_10_10.md).
+Milepost assignment enforcement preceded this release. At Safeharbor's handoff,
+8 West ID invitation exposure and customer publication remained pending their
+owners. The steps below describe the paired flow, not invitations sent or
+employee/device/customer acceptance.
 
 ## Owner and employee steps
 

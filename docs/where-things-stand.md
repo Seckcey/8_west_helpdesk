@@ -1,6 +1,20 @@
 # Where things stand
 
-**October 10 — 1.26.19 employee consumer source readiness:** the employee
+**October 10, 5:02:10 PM Pacific — employee consumer deployed and original restoration complete:**
+Safeharbor runs `1294c84edb7252b8f38cb91f9c843e3bfa55cabd`, after Milepost's
+assignment schema and enforcing runtime. The complete installed artifact and
+immutable/current release record matched; configuration is unchanged. Reporting
+is active with the original private scope and provider/approval/archive clocks
+preserved. Original writers, accounts, cron and vhosts were restored; cleanup
+became healthy through its normal scheduled runs. Safeharbor used two Apache
+graceful reloads and no restart. See the [actual deployment, exact bindings and
+recovery boundary](SAFEHARBOR_1_26_19_EMPLOYEE_DEPLOYMENT_2026_10_10.md).
+At this handoff, ID invitation exposure and customer/private publication remained
+pending other owners. An unauthenticated Computer access HTTP 200 is a login
+render, not employee, provider, device or customer acceptance. Frankie owns
+testing. The dated source reviews and prior deployment records below are historical.
+
+**Historical October 10 — 1.26.19 employee consumer source readiness:** the employee
 consumer is already merged in PR #193 and present in reviewed main
 `e6308be3cae19a7b3db1e6a85be3aa63772e4a61`, with exact-main validation passed.
 Its complete difference from the recorded `4b1ff4fd` runtime is five employee
@@ -9,10 +23,10 @@ schema/readiness/enforcement must precede the compatible Safeharbor consumer;
 8 West ID invitation exposure follows last. No employee activation, live account
 or device operation, new runtime observation or customer acceptance is recorded
 by this source review. See the [exact source, coverage and remaining release
-boundaries](SAFEHARBOR_1_26_19_EMPLOYEE_READINESS.md). The dated installed-runtime
-record below remains the latest recorded deployment here.
+boundaries](SAFEHARBOR_1_26_19_EMPLOYEE_READINESS.md). This paragraph preserves
+the original source-review boundary; the later deployment is recorded above.
 
-**October 9, 11:48 PM Pacific — browser continuation correction deployed:**
+**Historical October 9, 11:48 PM Pacific — browser continuation correction deployed:**
 Safeharbor now runs the reviewed `4b1ff4fdf7efc4519f140de78f4d2cde6494c6bc`
 cut after PR #206 and successful hosted validation. The exact source/runtime
 digests, unchanged configuration and original report schedule were verified;
