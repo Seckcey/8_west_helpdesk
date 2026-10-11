@@ -258,6 +258,7 @@ jobs:
         run: |
           php app/tests/portal_data_test.php
           php app/tests/portal_companion_branding_test.php
+          php app/tests/tenant_branding_test.php
       - name: Test desktop cleanup readiness without a database
         run: php app/tests/desktop_cleanup_readiness_test.php
       - name: Test desktop renewal provenance without a database

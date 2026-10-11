@@ -1,6 +1,18 @@
 # Where things stand
 
-**October 11 — 1.26.20 application deployed and normal package published:**
+**October 11 — ticket-client filter runtime deployed:** MAIN's release receipt
+records reviewed source `55211b9a0f027844b8121e6807abe754f0d6601d` installed,
+with original reporting restored and configuration, cron and genuine delivery
+evidence preserved. The received inactive-customer boundary now applies to staff
+new-ticket choices and stale submissions; retained history and local clients
+remain. See the [release and recovery evidence](SAFEHARBOR_CLIENT_LIFECYCLE_RELEASE_2026_10_11.md).
+Login HTTP 200 and new-ticket HTTP 302 establish availability only. The affected
+customer's actual event delivery, signed-in selector and Frankie acceptance are
+**Not tested**; broader relevant-change synchronization remains unfinished.
+This web repair changes no schema, keys, packages or device release. Tenant
+branding is a separate source candidate, not activated by this release.
+
+**Historical October 11 — 1.26.20 application deployed and normal package published:**
 MAIN's release receipt records Safeharbor source
 `497a765dbf9233f44dc9290a7a31674d3c1f134e` installed from the exact reviewed
 archive. Original reporting is active with unchanged configuration, cron and

@@ -1,7 +1,7 @@
 <?php
 /** Hermetic rendered branding boundaries; no session, backend or device operations. */
 declare(strict_types=1);
-function cfg(string $key, mixed $default = null): mixed { return $default; }
+function cfg(string $key, mixed $default = null): mixed { return $key==='tenant_branding' ? ($GLOBALS['brand_config']??$default) : $default; }
 function portal_csrf_token(): string { return str_repeat('c', 64); }
 function portal_safe_return_path(mixed $value): string { return '/portal/'; }
 require_once __DIR__.'/../lib/portal_render.php';
@@ -67,4 +67,22 @@ foreach (['westy-horizontal-logo-v1.png'=>'77495b2260a478ebdd5cc1c92bda1b6748e2d
     'westy-1.png'=>'86300229fb0792f20e67ca0bb3e9be7c4decb3a43c059f05ebd098256cb6df35'] as $file=>$hash) {
     brand_check(hash_file('sha256', __DIR__.'/../public/assets/brand/westy-companion/'.$file) === $hash, 'original SharePoint asset bytes are retained');
 }
+$GLOBALS['brand_config']=['service_secret'=>str_repeat('ab',32)];
+$_SESSION=[];$_SERVER['REQUEST_URI']='/portal/';
+$context=['binding'=>['provider_tenant_slug'=>'alpha']];
+$branded=portal_branding($context);
+brand_check($branded['logo']==='/portal/tenant-brand-logo.php?surface=safeharbor', 'verified ordinary context chooses fixed media route');
+brand_check($branded['alt']==='Company logo', 'tenant artwork has neutral alternative text');
+brand_check(portal_branding(['binding'=>['provider_tenant_slug'=>'beta']])['logo']===$branded['logo'], 'switch never puts provider identity in URL');
+foreach ([null,[],['identity'=>['tenant_slug'=>'alpha']],['binding'=>['provider_tenant_slug'=>'8west']],['binding'=>['provider_tenant_slug'=>'internal']],['binding'=>['provider_tenant_slug'=>'bad/slug']]] as $unverified) {
+    brand_check(portal_branding($unverified)['logo']===$ordinaryLogo, 'unverified or house context retains default');
+}
+$_SESSION=['desktop_companion_session'=>$pair];
+$companion=portal_branding($context);
+brand_check($companion['logo']==='/portal/tenant-brand-logo.php?surface=companion', 'valid existing pair chooses only Companion fallback surface');
+brand_check($companion['avatar']===$newAvatar && $companion['name']==='Westy Companion', 'company logo preserves product and mascot');
+$GLOBALS['brand_config']=[];
+brand_check(portal_branding($context)['logo']===$newLogo, 'missing key preserves Companion default');
+$_SESSION=[];$_SERVER['REQUEST_URI']='/portal/';
+brand_check(portal_branding($context)['logo']===$ordinaryLogo, 'missing key preserves ordinary default');
 echo "PASS $checks Companion branding checks\n";
