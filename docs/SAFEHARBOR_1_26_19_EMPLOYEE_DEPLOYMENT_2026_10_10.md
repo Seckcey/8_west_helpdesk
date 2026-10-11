@@ -36,8 +36,9 @@ mode 0600 and one link. Configuration bytes remained unchanged.
 
 ## Procedure and original restoration
 
-Safeharbor's coordinator executed the reviewed receiver and two owner-reviewed
-candidate controller copies. Their changes were limited to constants and
+Safeharbor's coordinator executed the reviewed receiver and forward controller;
+both forward and inverse candidate copies were owner-reviewed and prepared.
+Their changes were limited to constants and
 references; the prepared 35-file packet, original controller sources, manifests,
 diffs and archives remain immutable. The original `4b1ff4fd` report capture was
 taken once and its private fields retained. No Safeharbor migration, grant,
