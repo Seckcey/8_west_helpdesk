@@ -1,5 +1,13 @@
 # Where things stand
 
+**October 10 — Cua source candidate, not deployed:** the
+[Westy Cua consumer](WESTY_CUA_INTEGRATION.md) is prepared as a grouped change
+with Milepost. It replaces the new Companion's legacy desktop tool exposure
+with the real Cua catalog and transient results while preserving the selected
+provider, authentication, terminal tools and receipt history. Synthetic source
+checks pass; MAIN owns merge, release versions, signing and laptop acceptance.
+The deployed runtime receipt below remains the last recorded deployment.
+
 **October 10, 5:02:10 PM Pacific — employee consumer deployed and original restoration complete:**
 Safeharbor runs `1294c84edb7252b8f38cb91f9c843e3bfa55cabd`, after Milepost's
 assignment schema and enforcing runtime. The complete installed artifact and

@@ -407,3 +407,4 @@ PHP);
     unset($GLOBALS['admissionScope'],$GLOBALS['admissionConfig'],$_SESSION['desktop_companion_session']);
 }finally{ini_set('error_log',$oldLog);unlink($log);}
 echo "PASS $checks desktop continuation assertions (synthetic boundaries only)\n";
+require __DIR__.'/portal_westy_cua_cases.php';
