@@ -612,7 +612,7 @@
       for(const item of next.devices){const option=element('option',item.label);option.value=item.reference;devices.append(option);
         computerClocks.set(item.reference,window.PortalComputerTime?.create(item.computer_time,performance.now()) || null);}
       devices.disabled=false;
-      if(selected){devices.value=selected;rememberedDevice=selected;}
+      if(selected){devices.value=selected;rememberedDevice=devices.value||null;}
       else if(!deviceChoiceMade&&!deviceDefaultApplied){
         if(next.local_device_state==='ready'&&typeof next.default_device_reference==='string'
             &&next.devices.some(item=>item.reference===next.default_device_reference&&item.connection==='reporting')){

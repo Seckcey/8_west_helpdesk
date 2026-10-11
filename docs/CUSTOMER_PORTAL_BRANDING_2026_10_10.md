@@ -59,7 +59,8 @@ start work or reinterpret Stop as a ban on future authorized work.
 
 The initial Companion selection uses that exact reference once. An explicit
 other selection or an explicit blank survives refresh. An unlisted, offline,
-expired, revoked or mismatched pair does not select another computer. Missing
+expired, revoked or mismatched pair does not select another computer. Removed
+explicit selections stay blank even if that reference later returns. Missing
 reference metadata from an older producer is unavailable; ordinary browser
 visits retain their existing one-computer convenience. Startup reauthorization
 also checks that the pair has not changed during the unlocked read.

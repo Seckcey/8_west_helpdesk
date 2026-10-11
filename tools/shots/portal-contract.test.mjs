@@ -1194,6 +1194,8 @@ if (!SERVE_MODE) test('startup availability recovers without replay, changing co
           assert.equal(await page.locator('#portal-chat-device').inputValue(),other,'explicit other computer overrides the local default');
           available=available.filter(item=>item.reference!==other);await refresh();
           assert.equal(await page.locator('#portal-chat-device').inputValue(),'','removed explicit selection is not replaced by the local computer');
+          available.push({reference:other,label:'Another computer',connection:'reporting'});await refresh();
+          assert.equal(await page.locator('#portal-chat-device').inputValue(),'','a removed selection does not revive when its reference returns');
         }
         assert.deepEqual(consoleProblems,[]);
       }finally{await context.close();}
