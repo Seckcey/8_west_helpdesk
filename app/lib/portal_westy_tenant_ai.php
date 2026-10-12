@@ -188,14 +188,42 @@ function portal_westy_ai_latest_images(array $messages):array
     return $messages;
 }
 
+/** Closed projections for the provider metadata in the failure line: only these exact values are written, never a returned string. */
+const PORTAL_WESTY_AI_FAILURE_TYPES=['invalid_request_error','authentication_error','permission_error','not_found_error','request_too_large',
+    'rate_limit_error','api_error','overloaded_error','server_error','insufficient_quota','billing_error','timeout_error'];
+const PORTAL_WESTY_AI_FAILURE_CODES=['model_not_found','invalid_api_key','insufficient_quota','rate_limit_exceeded','unsupported_parameter',
+    'unsupported_value','unknown_parameter','invalid_value','invalid_type','missing_required_parameter','context_length_exceeded','server_error'];
+const PORTAL_WESTY_AI_FAILURE_PARAMS=['model','instructions','input','max_output_tokens','reasoning','reasoning.effort','store','background',
+    'service_tier','include','text','tools','parallel_tool_calls','stream','system','messages','max_tokens','thinking','output_config',
+    'output_config.effort','tool_choice'];
+
+/** Bounded integers and closed-list names from an adapter result; anything else is omitted or `unclassified`. */
+function portal_westy_ai_failure_provider(array $result):array
+{
+    $http=$result['http']??null;$transport=$result['transport']??null;$fields=[];
+    if(is_int($http)&&($http===0||($http>=100&&$http<=599)))$fields['http']=$http;
+    if(is_int($transport)&&$transport>=0&&$transport<=99)$fields['transport']=$transport;
+    $error=$result['provider_error']??null;
+    if(!is_array($error))return $fields;
+    foreach(['type'=>PORTAL_WESTY_AI_FAILURE_TYPES,'code'=>PORTAL_WESTY_AI_FAILURE_CODES,'param'=>PORTAL_WESTY_AI_FAILURE_PARAMS] as $field=>$allowed){
+        $value=$error[$field]??null;
+        if(!is_string($value))continue;
+        $known=in_array($value,$allowed,true)||($field==='param'&&preg_match('/\A(?:tools|input|messages)\[(?:0|[1-9][0-9]{0,2})\]\z/D',$value)===1);
+        $fields['provider_'.$field]=$known?$value:'unclassified';
+    }
+    return $fields;
+}
+
 /** One content-free record of why an attempt ended, so a failure has a name. */
-function portal_westy_ai_failure_diagnostic(string $operation,int $sequence,int $round,string $reason,?Throwable $error=null,?callable $sink=null):void
+function portal_westy_ai_failure_diagnostic(string $operation,int $sequence,int $round,string $reason,?Throwable $error=null,?callable $sink=null,?array $result=null):void
 {
     try{
         if(preg_match('/\A[a-f0-9]{32}\z/D',$operation)!==1||preg_match('/\A[a-z][a-z0-9_]{0,63}\z/D',$reason)!==1)return;
         $class=$error===null?null:substr(strrchr('\\'.$error::class,'\\'),1);
-        ($sink??'error_log')(json_encode(['event'=>'westy_ai_failure','operation'=>$operation,'sequence'=>$sequence,'round'=>$round,
-            'reason'=>$reason]+($class===null?[]:['error'=>preg_replace('/[^A-Za-z0-9_]/','',$class)]),JSON_THROW_ON_ERROR));
+        $line=['event'=>'westy_ai_failure','operation'=>$operation,'sequence'=>$sequence,'round'=>$round,
+            'reason'=>$reason]+($class===null?[]:['error'=>preg_replace('/[^A-Za-z0-9_]/','',$class)]);
+        $json=json_encode($line+($result===null?[]:portal_westy_ai_failure_provider($result)),JSON_THROW_ON_ERROR);
+        ($sink??'error_log')(strlen($json)<=1024?$json:json_encode($line,JSON_THROW_ON_ERROR));
     }catch(Throwable){/* Logging cannot change provider or desktop behavior. */}
 }
 
@@ -259,7 +287,7 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             if(!($result['ok']??false)){
                 $buffer->discard();
                 $reason=is_string($result['reason']??null)?$result['reason']:'provider_unavailable';
-                portal_westy_ai_failure_diagnostic($operation,$sequence,$round+1,$reason);
+                portal_westy_ai_failure_diagnostic($operation,$sequence,$round+1,$reason,null,null,$result);
                 return ['ok'=>false,'reason'=>$reason,
                     'usage'=>$known?$usage:null,'cost_micro_usd'=>$known?$cost:null,'rounds'=>$receipts];
             }
