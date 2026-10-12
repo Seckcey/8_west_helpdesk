@@ -1,9 +1,12 @@
 # Westy input-count repair — October 11, 2026
 
-MAIN's October 11 execution receipt records R1/R2 installed at source
+Historical October 11 execution receipt records R1/R2 installed at source
 `5d7e6ade7ca9645b37fb68ea799c529b71b333d8`, with original business-report
-scheduling restored. Real provider/Cua and Frankie's signed-in browser/Notepad
-acceptance remain **Not tested**. MAIN owns the release and tracker.
+scheduling restored. Frankie's later browser/Notepad retests failed. The
+[October 12 typed-tool release](WESTY_CUA_TOOLS_2026_10_11.md#october-12-production-receipt)
+is now installed at `102b35d7c5f0b7215e4c09e5dd1293ca0697f24b`; its actual
+browser/Notepad retest remains pending. The bindings below retain the earlier
+R1/R2 execution evidence. Colonel owns actual release and tracker operations.
 
 ## Customer behavior
 

@@ -1,8 +1,48 @@
 # Westy computer use: typed Cua tools — October 11, 2026
 
-Source candidate on branch `codex/westy-cua-completion`, imported from the yielded
-`claude/westy-cua-fix` commit `2889326` plus its eight uncommitted files. Not deployed. Frankie's laptop
-acceptance (Notepad and browser) is the gate; synthetic tests do not prove it.
+PR #219 is merged and deployed at
+`102b35d7c5f0b7215e4c09e5dd1293ca0697f24b`. Its reviewed source was completed
+from the yielded `claude/westy-cua-fix` commit `2889326` plus its eight uncommitted
+files, then frozen at `e291fe7`. Frankie's actual Notepad/browser retest remains
+pending. Synthetic checks and portal rendering do not prove desktop acceptance.
+
+## October 12 production receipt
+
+Colonel applied the accepted source through the unchanged receiver at 09:52 UTC
+(2:52 AM Pacific). The saved runtime receipt was observed at
+`2026-10-12T10:03:03.730651Z`. Exact-main Validate38227731286 passed all four jobs;
+the installed source and current/immutable records match.
+
+| Actual runtime binding | Value |
+| --- | --- |
+| Installed source | `102b35d7c5f0b7215e4c09e5dd1293ca0697f24b` |
+| Clean source artifact | `6ccdfa54b35b312d16dfa5313bcd0a15a16373b516c68b2c77f3351ec4994d50` |
+| Complete deployed artifact | `ef570c87a8cb154e016bdc23b16bf438934e4b8715fa47c7c6b7ed916d858f5b` |
+| Current/immutable record digest | `a07e67e928ffc7a8b0d6f9710920cf77afad39b09e04f518a5a485ac87e2a7ed` |
+| Protected configuration digest | `98a05f288e56c8535b8ea8897e03ce0e6827f9cfb34abe919531ff0b9e40aef1` |
+| Active report evidence | `567f4706206f8abc3d58633d54218a63cf52a749ed31b8899672195eb757c8c0` |
+| Unchanged cron digest | `0ccf6eb37945c35b30cd62fa752ca5ada155a88c12644cf517950c720b4068b6` |
+| Actual monthly ceiling | `20000000` micro-USD ($20), per client per UTC calendar month |
+
+The separately approved configuration change preserved all outside-span bytes
+and unrelated PHP values, including charged/reserved history, hourly/daily limits
+and enable flags. The unchanged manager verifies reports active; original private
+delivery scope, Graph/recipient/archive evidence and clocks were preserved. The
+configuration change has its own valid activation binding and was not admitted
+by relaxing the source-only rebind controller.
+
+The private saved `actual-runtime-receipt.json` digest is
+`dff6fb1edcd796750415c1593aba1ede9565a3e508c3c81473446d6b82ac0e99`.
+Colonel reports signed-in portal rendering verified and its own suite/app/report
+descriptors released with SSH closed at `2026-10-12T10:04:11Z`. This is owner
+execution evidence, not another coordinator's production rerun or proof of global
+lock freedom. The source window is closed.
+
+The prior browser/Notepad acceptance result remains a historical failure. A fresh
+retest of this release and Agent2.0.0 remain pending; no live provider/Companion
+postcondition or active AI profile is inferred from portal rendering. This backend
+release requires no new installer. Operational-client editing in PR #218 and
+branding activation retain their separate release/acceptance boundaries.
 
 ## Evidence and diagnosis
 
@@ -168,8 +208,9 @@ boundaries, and unknown outcomes keep their existing behavior.
   (UTC). Admission refuses an attempt when that client's spend plus the reserve exceeds it.
   - The default is 5,000,000 ($5), which allows only a handful of computer tasks a month.
   - The configuration accepts 1 to 20,000,000 ($20). A larger value makes Westy unavailable.
-  - Frankie approved 20,000,000 on 2026-10-11. Applying it is a protected runtime operation in the
-    release procedure; this patch does not change it.
+  - Frankie approved 20,000,000 on 2026-10-11. Colonel separately applied it in
+    production on October 12, as recorded above. The source patch does not change
+    the protected configuration or reset charged history.
 - **Hourly limit:** `hourly_limit` counts attempts, and computer tasks now use several
   continuations.
 
@@ -235,6 +276,16 @@ Reverting these commits restores the previous source behavior. It does not undo 
 made on a device, such as typed text, launched apps or browser state. It does not change protected
 runtime operations either: the deployed release, release records, and configuration such as
 `portal_westy.monthly_microusd`. MAIN performs those separately.
+
+For the accepted102b release, the compatible source inverse is the retained5d
+forward archive. Preserve only the added `lib/portal_westy_cua.php` through the
+reviewed physical-file procedure before overlay. The old497 inverse is not valid
+for this release. The original5d capture was taken before the budget change;
+**recover the budget-original protected configuration through the existing native
+procedure before using the unchanged source-only5d inverse controller**. Its old
+configuration-hash invariant remains mandatory. Then bind recovery to the actual
+source/configuration and a genuine current protected review, preserving original
+delivery facts/clocks. Do not restore a stale activation or alter the budget ledger.
 
 There is one existing tenant-wide owner/admin AI model selector. Separate computer
 and chat selectors were not implemented by this work. The report that Sol6.1 was

@@ -1,6 +1,21 @@
 # Where things stand
 
-**October 11 — ticket-client filter runtime deployed:** MAIN's release receipt
+**October 12 — typed Westy computer tools deployed; $20 allowance active:**
+Colonel installed reviewed PR #219 source
+`102b35d7c5f0b7215e4c09e5dd1293ca0697f24b` through the existing receiver.
+The complete deployed artifact matches the current and immutable release records.
+The separately approved monthly ceiling is now `20000000` micro-USD per client
+per UTC calendar month; unrelated configuration, charged history, limits and
+flags were preserved. Original reports are verified active with their delivery
+scope and clocks preserved. Signed-in portal rendering was verified. See the
+[runtime bindings and recovery order](WESTY_CUA_TOOLS_2026_10_11.md#october-12-production-receipt).
+The earlier browser/Notepad retests failed; the new release still awaits Frankie's
+actual browser/Notepad acceptance and Agent2.0.0. No new installer is required for
+this backend release. Shared operational-client editing in PR #218 is a separate
+source change; its production release and affected-customer acceptance remain
+pending. Branding activation is not established by this receipt.
+
+**Historical October 11 — ticket-client filter runtime deployed:** MAIN's release receipt
 records reviewed source `55211b9a0f027844b8121e6807abe754f0d6601d` installed,
 with original reporting restored and configuration, cron and genuine delivery
 evidence preserved. The received inactive-customer boundary now applies to staff
