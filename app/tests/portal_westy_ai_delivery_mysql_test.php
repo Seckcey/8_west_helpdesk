@@ -115,4 +115,40 @@ foreach(['failed_result','exception'] as $failure){
     portal_westy_message($pdo,$a,$request,$provider,static fn()=>$a,$emit,aiResolver:$resolver);
     check($calls===1,'failed round is never automatically replayed: '.$failure);
 }
+// A full check that outlasts the one-second idle throttle must not make the next
+// idle progress callback run another one. Counts are read inside the provider as
+// differences, so the number of forced checks around them does not matter.
+$events=[];$calls=0;$slow=true;$guard=0;$probe=[];
+$resolver=static fn()=> $selection;
+$request=['operation'=>'f1'.sprintf('%08x',time()).bin2hex(random_bytes(11)),
+    'message'=>'Synthetic slow guard throttle.',
+    'conversation'=>portal_westy_state($pdo,$a,aiResolver:$resolver)['conversation']];
+$reauthorize=static function()use($a,&$slow,&$guard):array{
+    ++$guard;if($slow)usleep(1100000);return $a;
+};
+$provider=static function($ai,$system,$messages,$options,$emit,$alive)use(&$calls,&$slow,&$guard,&$probe):array{
+    ++$calls;
+    // The slow round-start check has just completed. Progress now arrives
+    // back to back, as the cURL progress callback would deliver it.
+    $probe['before']=$guard;
+    for($i=0;$i<3;$i++)$alive();
+    $probe['idle']=$guard;
+    $slow=false;
+    // Delivering text goes through the unthrottled output guards.
+    $emit('Synthetic reply after the throttle.');$probe['forced']=$guard;
+    usleep(1100000);$alive();$probe['later']=$guard;
+    return ['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>900,'cached_input'=>0,
+        'cache_write'=>0,'cache_write_1h'=>0,'output'=>160]];
+};
+$emit=static function($event,$data)use(&$events):void{if($event==='delta')$events[]=$data['text'];};
+portal_westy_message($pdo,$a,$request,$provider,$reauthorize,$emit,aiResolver:$resolver);
+check($probe['idle']===$probe['before'],'idle progress right after a completed slow full check does not repeat it: '
+    .($probe['idle']-$probe['before']).' extra full checks');
+check($probe['forced']>$probe['idle'],'forced check still runs the real guard');
+check($probe['later']>$probe['forced'],'idle progress checks again once the throttle interval has passed');
+$receipt->execute([$request['operation']]);$row=$receipt->fetch();$usage=json_decode($row['usage_json'],true);
+check($calls===1 && $events===['Synthetic reply after the throttle.']
+    && json_decode($row['reply_json'],true)['reply']==='Synthetic reply after the throttle.'
+    && $usage['known']===true && (int)$row['charged_microusd']===170,
+    'slow guard round completes once with its exact paid receipt');
 echo 'PASS tenant AI delivery boundary: '.$checks." checks\n";
