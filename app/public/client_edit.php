@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/service_goal_policy_admin.php';
+require_once __DIR__ . '/../lib/client_operational_context.php';
 enforce_https();
 $user = require_login();
 $canManageServiceTier = service_goal_policy_can_manage_client_tier($user);
@@ -18,6 +19,7 @@ if (!$client) {
 }
 
 $error = '';
+$operational = client_operational_context(db(), tenant_id(), $id);
 
 $tq = db()->prepare('SELECT COUNT(*) n FROM tickets WHERE client_id = ?');
 $tq->execute([$id]);
@@ -56,11 +58,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($action === 'delete' && $ticketCount === 0) {
-        db()->prepare('DELETE FROM contacts WHERE client_id = ?')->execute([$id]);
-        db()->prepare('DELETE FROM clients WHERE id = ? AND tenant_id = ?')->execute([$id, tenant_id()]);
-        header('Location: /clients.php');
-        exit;
+    if ($action === 'delete') {
+        try {
+            $removed = client_operational_delete_local(db(), tenant_id(), $id);
+            if ($removed === 'deleted' || $removed === 'missing') {
+                header('Location: /clients.php');
+                exit;
+            }
+            $error = $removed === 'bound'
+                ? 'This client is linked to Milepost. Use shared client details to change its active or inactive state. Contacts and history were kept.'
+                : 'This client has tickets, so it cannot be deleted.';
+        } catch (Throwable) {
+            $error = 'Client removal is temporarily unavailable. Nothing was removed.';
+        }
+        $operational = client_operational_context(db(), tenant_id(), $id);
     }
 }
 
@@ -72,11 +83,29 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
     <h1 class="page-title">Edit client</h1>
   </div>
   <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
+  <?php if ($operational['available']): ?>
+  <div class="card form-card">
+    <h2>Shared operational details</h2>
+    <p><?= h($operational['display_name']) ?></p>
+    <p>Last synced state: <?= h($operational['status']) ?>.</p>
+    <details><summary>Synced receipt details</summary>
+      <p>Source version <?= (int)$operational['source_version'] ?>. Source event time: <?= h($operational['occurred_at']) ?>.</p>
+      <p>Event <?= h($operational['event_id']) ?>.</p>
+    </details>
+    <p class="rail-note">These are the last details received from Milepost. Open Milepost to check and edit the current name or active state. Existing access restoration remains separate.</p>
+    <a class="btn-primary" href="<?= h($operational['edit_url']) ?>">Edit shared client details in Milepost</a>
+  </div>
+  <?php elseif ($operational['bound'] !== false): ?>
+  <p class="rail-note">Shared details are temporarily unavailable. Local edits below remain available.</p>
+  <?php else: ?>
+  <p class="rail-note">This client is local to Safeharbor. Changes below are not synchronized to Milepost.</p>
+  <?php endif; ?>
   <div class="card form-card">
     <form method="post" action="/client_edit.php?id=<?= (int)$id ?>" class="form-grid">
       <?= csrf_field() ?>
-      <label class="field span-2">Client name
+      <label class="field span-2">Local Safeharbor name
         <input type="text" name="name" required value="<?= h($client['name']) ?>">
+        <span class="rail-note">This edit is local. A later shared name update can replace it for a linked client.</span>
       </label>
       <label class="field">Domain
         <input type="text" name="domain" value="<?= h($client['domain']) ?>">
@@ -103,7 +132,7 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
         <textarea name="notes" placeholder="VPN creds in vault, preferred contact hours…"><?= h($client['notes'] ?? '') ?></textarea>
       </label>
       <div class="form-actions span-2">
-        <button type="submit" class="btn-primary">Save changes</button>
+        <button type="submit" class="btn-primary">Save local changes</button>
         <a href="/client.php?id=<?= (int)$id ?>" class="btn-link">Cancel</a>
       </div>
     </form>
@@ -111,13 +140,15 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
 
   <div class="demo-card">
     <span class="demo-text">
-      <?php if ($ticketCount === 0): ?>
+      <?php if ($operational['bound'] === true): ?>
+        This linked client and its contacts are retained. Change its shared active or inactive state in Milepost.
+      <?php elseif ($ticketCount === 0): ?>
         This client has no tickets. Deleting removes it and its contacts — there's no undo.
       <?php else: ?>
         This client has <?= $ticketCount ?> ticket<?= $ticketCount === 1 ? '' : 's' ?>, so it can't be deleted (delete or reassign those first).
       <?php endif; ?>
     </span>
-    <?php if ($ticketCount === 0): ?>
+    <?php if ($ticketCount === 0 && $operational['bound'] !== true): ?>
     <form method="post" action="/client_edit.php?id=<?= (int)$id ?>" onsubmit="return confirm('Delete <?= h($client['name']) ?> and its contacts? No undo.');">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="delete">

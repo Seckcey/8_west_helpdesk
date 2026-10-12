@@ -29,6 +29,7 @@ function cfg(string $key, mixed $default = null): mixed
 }
 
 require_once __DIR__ . '/../lib/suite_customer_sync.php';
+require_once __DIR__ . '/../lib/client_operational_context.php';
 
 $disposableServer = getenv('SAFEHARBOR_CUSTOMER_SYNC_TEST_DISPOSABLE_SERVER');
 if ($disposableServer !== '1') {
@@ -449,6 +450,15 @@ sync_mysql_check('create makes one stable default Safeharbor client without sour
     && $pdo->query("SELECT name FROM clients WHERE id={$clientId}")->fetchColumn() === '8 West IT'
     && (int)$pdo->query("SELECT source_key IS NULL FROM clients WHERE id={$clientId}")->fetchColumn() === 1
     && $pdo->query("SELECT sla_tier FROM clients WHERE id={$clientId}")->fetchColumn() === 'standard');
+$pdo->prepare('INSERT INTO contacts(client_id,name,email) VALUES(?,?,?)')
+    ->execute([$clientId, 'Retained synthetic contact', 'retained@example.invalid']);
+sync_mysql_check('zero-ticket bound removal is refused before deleting contacts',
+    client_operational_delete_local($pdo, 1, $clientId) === 'bound'
+    && (int)$pdo->query("SELECT COUNT(*) FROM contacts WHERE client_id={$clientId}")->fetchColumn() === 1
+    && (int)$pdo->query("SELECT COUNT(*) FROM clients WHERE id={$clientId}")->fetchColumn() === 1);
+sync_mysql_check('native immutable receipt supplies the last-synced context',
+    client_operational_context($pdo, 1, $clientId)['available'] === true
+    && client_operational_context($pdo, 1, $clientId)['event_id'] === $created['event_id']);
 $replayed = suite_customer_sync_receive($runtime, $create['payload'], $create['sha']);
 sync_mysql_check('exact event replay is byte-shape idempotent',
     $replayed === $created
