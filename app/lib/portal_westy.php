@@ -337,12 +337,12 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     $alive=static function(bool $force=false)use($pdo,$context,$s,$turnId,$reauthorize,$requireAi,&$lastCheck,$deadline):void{
         if(microtime(true)>$deadline)throw new PortalWestyException('interrupted');
         if(!$force && microtime(true)-$lastCheck<1)return;
-        $lastCheck=microtime(true);
         if(!portal_westy_config()['enabled']||!portal_westy_config()['ai_enabled'])throw new PortalWestyException('ai_unavailable');
         if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||!portal_desktop_same_context($context,$fresh)||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
         $requireAi();
         $q=$pdo->prepare('SELECT state FROM portal_westy_turns WHERE id=? AND scope_key=?');$q->execute([$turnId,$s['key']]);
         if($q->fetchColumn()!=='pending')throw new PortalWestyException('stopped');
+        $lastCheck=microtime(true);
     };
     $save=static function()use($pdo,$turnId,$s,&$partial,$alive):void{
         $alive(true);
