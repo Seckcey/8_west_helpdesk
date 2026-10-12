@@ -30,6 +30,22 @@
     provider_rate_limit:'Westy is busy. Please try a new message later.', provider_refused:'Westy could not answer that. Contact support for help.',
     provider_invalid:'Westy could not finish a usable reply.', interrupted:'This reply was interrupted. Check the device activity before asking again.',
     input_limit:'This request grew too large for one reply. Saved device work is shown below; it has not been retried.',
+    provider_incomplete:'Westy’s reply was cut off before it finished. Saved device work is shown below; it has not been retried.',
+    provider_limit:'Westy’s reply was too large to receive. Saved device work is shown below; it has not been retried.',
+    input_count_unavailable:'Westy could not measure this request’s size, so it was not sent. Saved device work is shown below; try again shortly.',
+    quota_unavailable:'The AI provider’s usage limit was reached. Try again later or contact support.',
+    credentials_refused:'The AI provider did not accept Westy’s credentials. Contact support.',
+    model_unavailable:'The selected AI model is not available. Contact support.',
+    provider_model_mismatch:'The AI provider answered with a different model, so the reply was not used. Contact support.',
+    needs_setup:'Westy’s AI provider is not set up yet. Contact support.',
+    ai_changed:'Westy’s AI settings changed during this reply. Saved device work is shown below; send your request again.',
+    tool_limit:'This task reached Westy’s step limit for one request. Saved device work is shown below; ask Westy to continue.',
+    tool_invalid:'Westy asked for a computer step it cannot run, so this reply stopped. Saved device work is shown below.',
+    context_limit:'This conversation is too long to continue. Start a new chat to continue the task.',
+    desktop_unavailable:'Computer control is not available for this task. Reconnect Westy on the computer, then ask again.',
+    process_unavailable:'That command is no longer available. Check the device activity before asking again.',
+    task_unavailable:'That earlier task is no longer available. Check the device activity before asking again.',
+    configuration:'Westy is not configured correctly. Contact support.',
     stopped:'Reply stopped. Device work already dispatched keeps its own recorded status.',
     stop_unconfirmed:'The conversation has stopped. The computer has not confirmed cancellation yet; it will not repeat the command.',
     companion_offline:'Open Westy on that computer and connect it to continue. Background health checks may still be available.',
@@ -274,7 +290,9 @@
   }
   function renderTools(node,turn) {
     const signature=JSON.stringify([turn.reply?.tools||[],turn.run,turn.terminal_processes]); if(signature===node.toolSignature)return;node.toolSignature=signature;node.tools.replaceChildren();
-    const names={list_computers:'Computer list',read_computer_status:'Recorded device activity',start_health_check:'Computer health check',prepare_temp_cleanup:'Temporary-file preview',propose_print_repair:'Print-service repair review',inspect_computer:'Computer investigation',run_powershell:'Script review',exec_command:'Computer command',read_process:'Command output',write_stdin:'Command input',stop_process:'Stop command',desktop_open:'Connect to computer',desktop_windows:'Available windows',desktop_select:'Select window',desktop_observe:'Read window',desktop_action:'Computer action',desktop_stop:'Stop computer control'};
+    const names={list_computers:'Computer list',read_computer_status:'Recorded device activity',start_health_check:'Computer health check',prepare_temp_cleanup:'Temporary-file preview',propose_print_repair:'Print-service repair review',inspect_computer:'Computer investigation',run_powershell:'Script review',exec_command:'Computer command',read_process:'Command output',write_stdin:'Command input',stop_process:'Stop command',desktop_open:'Connect to computer',desktop_windows:'Available windows',desktop_select:'Select window',desktop_observe:'Read window',desktop_action:'Computer action',desktop_stop:'Stop computer control',
+      cua_list_windows:'Available windows',cua_launch_app:'Open app',cua_window_state:'Read window',cua_click:'Click',cua_type_text:'Type text',cua_set_value:'Set field',cua_press_keys:'Press keys',cua_scroll:'Scroll',
+      cua_browser_state:'Read web page',cua_browser_prepare:'Connect to browser',cua_browser_navigate:'Open web address',cua_browser_click:'Click on web page',cua_browser_type:'Type on web page'};
     // Output reads update the same process. Keep the stored tool history intact,
     // but show one current output/Stop control for each distinct process.
     const visible=[],processes=new Map();
@@ -294,7 +312,7 @@
       const shell=['inspect_computer','run_powershell'].includes(tool.name)?tool.result:null;
       const shellLabels={queued:'Waiting',claimed:'Received',running:'Running',completed:'Result received',cancelled:'Cancelled',refused:'Not executed',rejected:'Not executed',unknown:'Outcome unknown',expired:'Expired'};
       const item=element('div',undefined,'portal-tool');item.dataset.active=String(tool.state==='dispatching'||['queued','verifying'].includes(tool.operation?.state)||['queued','claimed','running'].includes(shell?.state));
-      const toolLabel=terminalReceipt?({review_pending:'Reviewing',awaiting_approval:'Review required',queued:'Waiting',claimed:'Received',running:'Running',completed:'Finished',cancelled:'Cancelled',unknown:'Outcome unknown',refused:'Not executed',unavailable:'Unavailable'}[terminalReceipt.state]||terminalReceipt.state):shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable'}[tool.state]||tool.state);
+      const toolLabel=terminalReceipt?({review_pending:'Reviewing',awaiting_approval:'Review required',queued:'Waiting',claimed:'Received',running:'Running',completed:'Finished',cancelled:'Cancelled',unknown:'Outcome unknown',refused:'Not executed',unavailable:'Unavailable'}[terminalReceipt.state]||terminalReceipt.state):shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable',returned:tool.result?.driver_error?'Not completed':'Done',refused:'Not run',rejected:'Not sent'}[tool.state]||tool.state);
       const label=element('div',undefined,'portal-tool-summary');label.append(element('span',undefined,'portal-tool-dot'),element('span',(names[tool.name]||'Device tool')+' · '+toolLabel));item.append(label);
       if(tool.reason)item.append(element('p',errors[tool.reason]||'This operation is unavailable. Contact support.'));
       if(tool.name.startsWith('desktop_')&&tool.result?.stop_reason)item.append(element('p',errors[tool.result.stop_reason]||'Computer control stopped. Ask for a new task when you are ready.'));
@@ -355,7 +373,11 @@
       if(signature!==node.metaSignature){
         node.metaSignature=signature;node.meta.replaceChildren();
         if(turn.state==='pending'&&!text)node.meta.append(element('p','Westy is working…','portal-hint'));
-        if(turn.state==='unavailable')node.meta.append(element('p',turn.reason_code==='stopped'&&!turn.reply?.tools?.length?'Reply stopped.':(errors[turn.reason_code]||errors.interrupted),'portal-hint'));
+        if(turn.state==='unavailable'){
+          node.meta.append(element('p',turn.reason_code==='stopped'&&!turn.reply?.tools?.length?'Reply stopped.':(errors[turn.reason_code]||errors.interrupted),'portal-hint'));
+          // The code names the exact cause for support, even when its message is generic.
+          if(turn.reason_code&&turn.reason_code!=='stopped')node.meta.append(element('p','Reason code: '+turn.reason_code,'portal-hint'));
+        }
         if(turn.desktop_cleanup){
           node.meta.append(element('p','Computer control has not been confirmed stopped. The previous action will not be repeated.','portal-hint'));
           node.meta.append(button('Stop computer control',async event=>{

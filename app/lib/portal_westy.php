@@ -101,12 +101,16 @@ function portal_westy_state(PDO $pdo, array $context, ?string $conversation = nu
         $state['conversations'][]=['key'=>$chat['conversation_key'],'title'=>mb_substr((string)$first->fetchColumn(),0,65)];
     }
     if($conversation!==null && $conversation!==$account['conversation_key'] && !in_array($conversation,array_column($state['conversations'],'key'),true))throw new PortalWestyException('conversation_changed');
-    $q=$pdo->prepare('SELECT id,model_name,expires_at,conversation_key,operation_key,state,input_text,reply_json,reason_code,created_at FROM portal_westy_turns WHERE scope_key=? AND conversation_key=? AND expires_at>? AND input_text IS NOT NULL ORDER BY id DESC LIMIT 50');
+    // A resumed computer task is pending again long after its turn was created;
+    // staleness is measured from its newest paid attempt, never the first one.
+    $q=$pdo->prepare('SELECT id,model_name,expires_at,conversation_key,operation_key,state,input_text,reply_json,reason_code,created_at,
+        (SELECT MAX(a.created_at) FROM portal_westy_ai_attempts a WHERE a.turn_id=portal_westy_turns.id) AS attempt_at
+        FROM portal_westy_turns WHERE scope_key=? AND conversation_key=? AND expires_at>? AND input_text IS NOT NULL ORDER BY id DESC LIMIT 50');
     $q->execute([$s['key'],$state['conversation'],gmdate('Y-m-d H:i:s')]);
     foreach (portal_westy_feedback_project($pdo,$s,array_reverse($q->fetchAll())) as $row) {
-        if ($row['state']==='pending' && strtotime($row['created_at'].' UTC')<time()-180) { $row['state']='unavailable';$row['reason_code']='interrupted'; }
+        if ($row['state']==='pending' && strtotime(($row['attempt_at']??$row['created_at']).' UTC')<time()-180) { $row['state']='unavailable';$row['reason_code']='interrupted'; }
         $row['reply']=$row['reply_json']===null ? null : json_decode($row['reply_json'],true);
-        unset($row['reply_json'],$row['id'],$row['model_name'],$row['expires_at'],$row['conversation_key']); $state['turns'][]=$row;
+        unset($row['reply_json'],$row['id'],$row['model_name'],$row['expires_at'],$row['conversation_key'],$row['attempt_at']); $state['turns'][]=$row;
     }
     $state['turns']=portal_westy_refresh_tools($pdo,$context,$state['turns'],$transport);
     foreach($state['turns'] as &$turn){
@@ -266,15 +270,15 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
             }
         }
         $aiTools=portal_westy_ai_tools($pdo,$context,$aiSelection);
-        $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>1200]);
+        $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>PORTAL_WESTY_AI_MAX_OUTPUT]);
         while (!$runResume && strlen(json_encode($body,JSON_THROW_ON_ERROR))>28000 && count($messages)>1) {
-            array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>1200]);
+            array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>PORTAL_WESTY_AI_MAX_OUTPUT]);
         }
         $bytes=strlen(json_encode($body,JSON_THROW_ON_ERROR));
         if ($bytes>($runResume?131072:32000)) throw new PortalWestyException('context_limit',400);
         // Count every input byte as a token plus framing overhead, at cache-write
-        // rate, across at most five rounds of 1200 output/reasoning tokens each.
-        $reserve=westy_tenant_ai_reserve($aiSelection,66048,1200,5);
+        // rate, across at most five rounds of the full output/reasoning allowance.
+        $reserve=westy_tenant_ai_reserve($aiSelection,PORTAL_WESTY_AI_MAX_INPUT,PORTAL_WESTY_AI_MAX_OUTPUT,5);
         $month=gmdate('Y-m');
         $insert=$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
         $q=$pdo->prepare($insert.' INTO portal_westy_budgets(tenant_id,client_id,month_key,charged_microusd) VALUES(?,?,?,0)');$q->execute([$s['tenant'],$s['client'],$month]);
@@ -350,7 +354,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         if($emit){$alive(true);$emit($event,['operation'=>$key]+$value);}
     };
     if($emit)$emit('accepted',['operation'=>$key,'conversation'=>$account['conversation_key']]);
-    $result=portal_westy_ai_run($pdo,$context,$aiSnapshot,$messages,$key,$partial,$alive,$output,$save,$provider,$transport,$aiResolver);
+    $result=portal_westy_ai_run($pdo,$context,$aiSnapshot,$messages,$key,$partial,$alive,$output,$save,$provider,$transport,$aiResolver,$deadline);
     $aiLost=$aiLost || ($result['reason']??null)==='ai_changed';
     $result['data']=$partial;
     // A paid receipt survives loss of authority. Revalidation controls delivery,
