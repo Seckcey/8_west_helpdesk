@@ -51,7 +51,8 @@ final class WestyTenantAiStream
                 $output=$original->response->output??null;
                 $this->final=westy_tenant_ai_parse($this->selection,200,$response,is_array($output)?$output:null);
             }
-            elseif(in_array($type,['response.refusal.delta','error'],true))throw new RuntimeException('provider_unavailable');
+            elseif($type==='response.refusal.delta')throw new RuntimeException('provider_invalid');
+            elseif($type==='error')throw new RuntimeException('provider_unavailable');
             return;
         }
         switch($type){
@@ -105,6 +106,43 @@ final class WestyTenantAiStream
     }
 }
 
+/** Closed projections: a provider-supplied string is reported only when it is in these lists, never reflected. */
+const WESTY_TENANT_AI_ERROR_TYPES=['invalid_request_error','authentication_error','permission_error','not_found_error','request_too_large',
+    'rate_limit_error','api_error','overloaded_error','server_error','insufficient_quota','billing_error','timeout_error'];
+const WESTY_TENANT_AI_ERROR_CODES=['model_not_found','invalid_api_key','insufficient_quota','rate_limit_exceeded','unsupported_parameter',
+    'unsupported_value','unknown_parameter','invalid_value','invalid_type','missing_required_parameter','context_length_exceeded','server_error'];
+/** Request fields emitted by westy_tenant_ai_body; tools/input/messages may carry one bounded array index. */
+const WESTY_TENANT_AI_ERROR_PARAMS=['model','instructions','input','max_output_tokens','reasoning','reasoning.effort','store','background',
+    'service_tier','include','text','tools','parallel_tool_calls','stream','system','messages','max_tokens','thinking','output_config',
+    'output_config.effort','tool_choice'];
+
+function westy_tenant_ai_stream_error_param(string $param): ?string
+{
+    if(in_array($param,WESTY_TENANT_AI_ERROR_PARAMS,true))return $param;
+    if(preg_match('/\A(tools|input|messages)\[([0-9]{1,3})\](?:[.\[][A-Za-z0-9_.\[\]-]{0,120})?\z/D',$param,$match)===1)return $match[1].'['.(int)$match[2].']';
+    return null;
+}
+
+/** Bounded, content-free failure receipt. The provider body is parsed locally and only closed-list values leave this function. */
+function westy_tenant_ai_stream_failure(array $selection,int $http,int $transport,string $body,?Throwable $parse): array
+{
+    $http=$http===0 || ($http>=100 && $http<=599)?$http:0;$transport=$transport>=0 && $transport<=99?$transport:0;
+    if($parse!==null)return ['ok'=>false,'usage'=>null,'http'=>$http,'reason'=>get_class($parse)==='RuntimeException'
+        && in_array($parse->getMessage(),['provider_invalid','provider_limit','provider_unavailable'],true)?$parse->getMessage()
+        :($parse instanceof JsonException?'provider_invalid':'provider_unavailable')];
+    if($http===200)return ['ok'=>false,'reason'=>'provider_unavailable','usage'=>null,'http'=>200,'transport'=>$transport];
+    $failure=westy_tenant_ai_parse($selection,$http,[])+['http'=>$http,'transport'=>$transport];
+    $json=json_decode(substr($body,0,16384),true,8);$error=is_array($json)?($json['error']??null):null;
+    if(is_array($error)){
+        $known=[];
+        foreach(['type'=>WESTY_TENANT_AI_ERROR_TYPES,'code'=>WESTY_TENANT_AI_ERROR_CODES] as $field=>$allowed)
+            if(is_string($error[$field]??null))$known[$field]=in_array($error[$field],$allowed,true)?$error[$field]:'unclassified';
+        if(is_string($error['param']??null))$known['param']=westy_tenant_ai_stream_error_param($error['param'])??'unclassified';
+        if($known!==[])$failure['provider_error']=$known;
+    }
+    return $failure;
+}
+
 function westy_tenant_ai_stream(array $selection,string $system,array $messages,array $options,callable $delta,callable $alive):array
 {
     if(($selection['status']??null)!=='active' || !westy_tenant_ai_api_key($selection['provider']??'',$selection['api_key']??null))
@@ -112,7 +150,7 @@ function westy_tenant_ai_stream(array $selection,string $system,array $messages,
     $body=westy_tenant_ai_body($selection,$system,$messages,array_replace($options,['stream'=>true]));
     westy_tenant_ai_input_bound($selection,$body,$options['count_transport']??null,$options['max_input_tokens']??200000);
     $alive();
-    $openai=$selection['provider']==='openai';$cancelled=null;$invalid=false;
+    $openai=$selection['provider']==='openai';$cancelled=null;$failure=null;$errorBody='';
     $guard=static function()use($alive,&$cancelled):void{try{$alive();}catch(Throwable $e){$cancelled=$e;throw $e;}};
     $visible=static function(string $text)use($delta,&$cancelled):void{try{$delta($text);}catch(Throwable $e){$cancelled=$e;throw $e;}};
     $parser=new WestyTenantAiStream($selection,$visible,$guard);
@@ -126,11 +164,17 @@ function westy_tenant_ai_stream(array $selection,string $system,array $messages,
         CURLOPT_NOPROGRESS=>false,CURLOPT_XFERINFOFUNCTION=>static function()use($alive,&$cancelled):int{
             try{$alive();return 0;}catch(Throwable $e){$cancelled=$e;return 1;}
         },
-        CURLOPT_WRITEFUNCTION=>static function($ch,string $chunk)use($parser,&$invalid):int{
-            try{$parser->feed($chunk);return strlen($chunk);}catch(Throwable){$invalid=true;return 0;}
+        CURLOPT_WRITEFUNCTION=>static function($ch,string $chunk)use($parser,&$failure,&$errorBody):int{
+            // A non-200 body is a provider error document, not SSE: keep a bounded private copy for classification only.
+            if(curl_getinfo($ch,CURLINFO_RESPONSE_CODE)!==200){
+                $room=16384-strlen($errorBody);$errorBody.=substr($chunk,0,$room);
+                // Past the cap, stop the transfer (curl write error); the real HTTP status is still classified.
+                return strlen($chunk)>$room?0:strlen($chunk);
+            }
+            try{$parser->feed($chunk);return strlen($chunk);}catch(Throwable $e){$failure??=$e;return 0;}
         }]);
-    try{$ok=curl_exec($curl);$http=(int)curl_getinfo($curl,CURLINFO_HTTP_CODE);}finally{curl_close($curl);}
+    try{$ok=curl_exec($curl);$http=(int)curl_getinfo($curl,CURLINFO_HTTP_CODE);$errno=curl_errno($curl);}finally{curl_close($curl);}
     if($cancelled!==null)throw $cancelled;
-    if($ok===false || $invalid || $http!==200)return ['ok'=>false,'reason'=>$http===429?'quota_unavailable':'provider_unavailable','usage'=>null];
+    if($ok===false || $failure!==null || $http!==200)return westy_tenant_ai_stream_failure($selection,$http,$errno,$errorBody,$failure);
     return $parser->result();
 }

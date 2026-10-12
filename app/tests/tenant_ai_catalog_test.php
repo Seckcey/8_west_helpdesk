@@ -70,7 +70,7 @@ check($failed->result()['ok']===false && $failed->result()['usage']===$result['u
 
 $root=dirname(__DIR__,2);
 $manifest=json_decode(file_get_contents($root.'/docs/tenant-ai-vendor-manifest.json'),true,32,JSON_THROW_ON_ERROR);
-check($manifest['upstream']==='Seckcey/8_west_westy' && $manifest['commit']==='3003a3c897edace2140de00f02e9279914ea1638' && $manifest['catalog']==='2026-10-04.1','upstream base and credential catalog preserved');
+check($manifest['upstream']==='Seckcey/8_west_westy' && $manifest['commit']==='2a5e35fe91a77549c8d0d8b30a0d35819285aa5a' && $manifest['catalog']==='2026-10-04.1','upstream base and credential catalog preserved');
 check($manifest['local_patch']['id']==='tenant-ai-catalog-2026-10-08.1'
     && $manifest['local_patch']['files']===['app/lib/tenant_ai/tenant_ai_contract.php'],'only reviewed contract is locally patched');
 $providerPatch=$manifest['provider_input_count_patch']??null;
