@@ -95,16 +95,18 @@ The raw relay also exposed these upstream tools, which are not offered:
 | `browser_dialog`, `browser_set_input_files`, `browser_download`, `browser_pointer` | Native window clicks and keys on the dialog, file picker or download bar; `cua_scroll` on the browser window. Not equivalent in every case. |
 | Driver configuration, update, recording, history and diagnostic tools | Deliberately not offered; they change or inspect the driver, not the person's task. |
 
-The completion review removed the candidate's additional launch-path and URL
-policies. `cua_launch_app` forwards the requested executable path, including a
+The completion review removed the candidate's additional launch-path and browser
+URI policies. `cua_launch_app` forwards the requested executable path, including a
 network or device path, and accepts addresses or file paths for the default app.
 The driver and Windows determine whether the requested launch can execute under
-the user's existing permissions. `cua_browser_navigate` accepts `about:` pages
-as well as `http` and `https`. Empty or malformed argument shapes are still
-reported before dispatch; there is no new discretionary permission guard.
-
-The rejection of `file:///` in `cua_browser_navigate` is upstream behavior. Its `browser_navigate`
-accepts only `http:`, `https:` and `about:`.
+the user's existing permissions. `cua_browser_navigate` forwards the original URI
+without rewriting it or imposing a scheme policy, including `file:`, browser and
+default-app forms. The pinned driver, browser and OS determine what is supported
+and permitted. Its `url` must be a nonempty UTF-8 string of at most 2048 bytes with
+no control characters. Empty or malformed argument shapes are still reported
+before dispatch; there is no new discretionary permission guard. The earlier
+claim that an upstream contract requires rejecting `file:` was not substantiated
+and is withdrawn.
 
 Local files and scripts remain possible:
 
@@ -183,10 +185,14 @@ boundaries, and unknown outcomes keep their existing behavior.
 - **Local tests:** PHP 8.3, `portal_westy_desktop_continuation_test.php`, including the Cua cases.
   The incoming candidate passed **322 cumulative assertions**, including 138
   pre-existing desktop continuation assertions; this was not 322 new Cua cases.
-  The completed candidate passes **385 cumulative assertions**, with the same
-  138-assertion starting suite. Separate diagnostics, recovery and replay suites
-  pass 18, 15 and 61 assertions respectively. All seven changed PHP files lint,
-  and the changed browser JavaScript passes its syntax check.
+  The completed candidate passes **408 cumulative assertions**, with the same
+  138-assertion starting suite. This rerun includes exact file/browser/custom URI
+  forwarding and the retained empty, size, UTF-8 and control-character checks.
+  Both PHP files changed by the URI correction pass syntax checks. Before that
+  correction, head `86d37e3` passed 385 cumulative assertions plus separate
+  diagnostics, recovery and replay suites with 18, 15 and 61 assertions
+  respectively; all seven changed PHP files and the browser JavaScript passed
+  their syntax checks at that head.
   They cover:
   - the lost-response receipt;
   - actual dispatch and authority/receipt/Stop boundaries, with deterministic
@@ -197,16 +203,20 @@ boundaries, and unknown outcomes keep their existing behavior.
   - final accounting saves returned/unknown rows and removes unsent rows, while
     concurrent Stop or lost delivery authority retains the earlier stored history.
 - **Browser contract:** `tools/shots/portal-contract.test.mjs`, "general checks wait for
-  receipts", passes at 1440x900 and 390x844. Both saved screenshots were inspected.
+  receipts", passed at `86d37e3` at 1440x900 and 390x844. Both saved screenshots were inspected.
   The case covers "Result unavailable" and "Driver replied"; these are synthetic
   receipts, not proof of a live device action.
 - **Coastline MySQL:** the preceding author's fourteen-suite report is historical;
-  the final application bytes independently pass the affected delivery, run and
-  workspace suites with 322, 144 and 133 cumulative checks respectively. Those
+  head `86d37e3` independently passed the affected delivery, run and workspace
+  suites with 322, 144 and 133 cumulative checks respectively. Those
   totals include each suite's 84-check device setup and must not be added as
   unique new assertions. The isolated test containers and volumes were removed.
   The completion handoff binds these logs and the original author snapshot to
   the final local commit with a source manifest.
+- **URI correction scope:** only the existing continuation fixture and the two
+  changed PHP syntax checks were rerun. The earlier browser and MySQL evidence
+  is retained at its actual source head; those suites were not rerun for this
+  mapping/schema/documentation correction.
 - **Not covered:** none of these test a live provider, the Companion or a real desktop.
 
 ## Acceptance (Frankie, on the laptop)

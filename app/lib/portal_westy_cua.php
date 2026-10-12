@@ -69,8 +69,8 @@ function portal_westy_cua_definitions():array
                 'continuation'=>['type'=>'string','description'=>'Opaque continuation from the previous snapshot of this tab.']],[])],
         ['name'=>'cua_browser_prepare','description'=>'Connect to the person\'s open browser window when cua_browser_state reports browser_requires_setup or browser_consent_required. Tell the person first. It turns on the browser\'s debugging connection for this task.',
             'input_schema'=>$object(['pid'=>$pid,'window_id'=>$window],['pid','window_id'])],
-        ['name'=>'cua_browser_navigate','description'=>'Open an http, https or about address in a bound tab. Refs from before the navigation expire.',
-            'input_schema'=>$object($tab+['url'=>['type'=>'string']],['target_id','tab_id','url'])],
+        ['name'=>'cua_browser_navigate','description'=>'Open the requested address or URI in a bound tab. The driver and browser determine supported schemes. Refs from before the navigation expire.',
+            'input_schema'=>$object($tab+['url'=>['type'=>'string','description'=>'The exact requested address or URI; do not rewrite it.']],['target_id','tab_id','url'])],
         ['name'=>'cua_browser_click','description'=>'Click a page element by its current ref.',
             'input_schema'=>$object($tab+['ref'=>$ref,'input_route'=>['type'=>'string','enum'=>['trusted','dom_event'],'description'=>'Default trusted.']],['target_id','tab_id','ref'])],
         ['name'=>'cua_browser_type','description'=>'Type into a page field by its current ref. replace true clears the field first.',
@@ -131,15 +131,6 @@ function portal_westy_cua_list(array $a,string $key,int $max,int $itemBytes,stri
     if(!is_array($value)||!array_is_list($value)||$value===[]||count($value)>$max)portal_westy_cua_reject($key.' must be a list of 1 to '.$max.' items.');
     foreach($value as $index=>$item)portal_westy_cua_string([$key=>$item],$key,$itemBytes,$pattern,true);
     return $value;
-}
-
-function portal_westy_cua_url(string $url,bool $about=false):string
-{
-    if($about&&preg_match('/\Aabout:[^\s]+\z/iD',$url)===1)return $url;
-    $parts=parse_url($url);
-    if(!is_array($parts)||!in_array(strtolower($parts['scheme']??''),['http','https'],true)||($parts['host']??'')===''||preg_match('/\s/',$url)===1)
-        portal_westy_cua_reject('Use a complete http or https address.');
-    return $url;
 }
 
 /** Exactly the model's allowed fields, translated to one upstream tools/call. Westy adds
@@ -260,7 +251,9 @@ function portal_westy_cua_request(string $tool,mixed $arguments):array
             $window();$out['strategy']=['kind'=>'existing_profile'];
             return ['name'=>'browser_prepare','arguments'=>$out,'public'=>$public];
         case 'cua_browser_navigate':
-            $tab();$out['url']=portal_westy_cua_url(portal_westy_cua_string($a,'url',2048,'',true),true);
+            $tab();$out['url']=portal_westy_cua_string($a,'url',2048,'',true);
+            if($out['url']==='')portal_westy_cua_reject('url must not be empty.');
+            // Preserve the requested URI; supported schemes belong to the driver/browser.
             return ['name'=>'browser_navigate','arguments'=>$out,'public'=>$public];
         case 'cua_browser_click':
             $tab();$set(['ref'=>portal_westy_cua_string($a,'ref',128,$opaque,true),'input_route'=>portal_westy_cua_enum($a,'input_route',['trusted','dom_event'])]);

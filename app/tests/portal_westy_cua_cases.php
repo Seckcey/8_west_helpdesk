@@ -129,10 +129,18 @@ check($request('cua_browser_state',['target_id'=>'t-1','tab_id'=>'tab-1','query'
 check($rejects('cua_browser_state',$observe+['tab_id'=>'tab-1'])&&$rejects('cua_browser_state',$observe+['query'=>'x'])&&$rejects('cua_browser_state',[]),
     'binding and snapshot forms are never mixed');
 check($request('cua_browser_prepare',$observe)['arguments']===$observe+['strategy'=>['kind'=>'existing_profile']],'preparation uses only the Companion\'s existing-profile grant');
-check($request('cua_browser_navigate',['target_id'=>'t-1','tab_id'=>'tab-1','url'=>'about:blank'])['arguments']['url']==='about:blank'
-    &&$request('cua_browser_navigate',['target_id'=>'t-1','tab_id'=>'tab-1','url'=>'about:settings'])['arguments']['url']==='about:settings'
-    &&$rejects('cua_browser_navigate',['target_id'=>'t-1','tab_id'=>'tab-1','url'=>'file:///C:/Windows'])
-    &&$rejects('cua_browser_navigate',['target_id'=>'t-1','tab_id'=>'tab-1','url'=>'https://example.com/a b']),'navigation accepts only web addresses');
+$navigationTab=['target_id'=>'t-1','tab_id'=>'tab-1'];
+foreach(['about:blank','about:settings','file:///C:/Windows','file:///C:/My Documents/café.txt',
+    'file://server/share/report.txt','https://EXAMPLE.com/A%2Fb?q=café#Part','https://example.com/a b',
+    'edge://settings','ms-settings:display','mailto:help@example.com','custom+app:Exact/%2f?Key=Value',
+    str_repeat('a',2048)] as $index=>$url)
+    check($request('cua_browser_navigate',$navigationTab+['url'=>$url])===
+        ['name'=>'browser_navigate','arguments'=>$navigationTab+['url'=>$url]],
+        'navigation forwards the exact requested URI for upstream scheme handling: '.$index);
+foreach([[],['url'=>null],['url'=>''],['url'=>123],['url'=>[]],['url'=>str_repeat('a',2049)],
+    ['url'=>str_repeat('é',1025)],['url'=>"file:///C:/bad\x00name"],['url'=>"https://example.com/\nnext"],
+    ['url'=>"about:\tblank"],['url'=>"custom:\x7f"],['url'=>"custom:\xC3\x28"]] as $index=>$navigation)
+    check($rejects('cua_browser_navigate',$navigationTab+$navigation),'invalid navigation argument is refused before dispatch: '.$index);
 check($request('cua_browser_type',['target_id'=>'t-1','tab_id'=>'tab-1','ref'=>'p4:2','text'=>'hello','replace'=>true])['arguments']===
     ['target_id'=>'t-1','tab_id'=>'tab-1','ref'=>'p4:2','text'=>'hello','replace'=>true],'page typing keeps its exact ref and replace choice');
 check(portal_westy_cua_request('cua_type_text',$observe+['text'=>'café'])['public']===$observe+['characters'=>4],'typed text is counted, never stored, in the public receipt');
