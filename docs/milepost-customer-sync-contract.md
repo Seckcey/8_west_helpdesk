@@ -16,6 +16,44 @@ local client row, tickets, time, service-goal snapshots, portal mappings, and
 reports. This receiver never queries Milepost and never writes Coastmark or 8
 West ID.
 
+## Shared operational editing flow (source candidate)
+
+The client editor separates the **last synced** shared operational name/state
+from the local Safeharbor fields. The shared display is read from the exact
+current binding and its matching immutable receipt, never from an editable
+local name. It shows the accepted source version; it does not prove Milepost's
+live state. An older active receipt cannot restore a removed Milepost client.
+
+For a verified binding, **Edit shared client details in Milepost** opens the
+fixed `https://support.8westit.com/suite_customer_metadata.php` editor with
+only the normalized customer UUID and expected source version. Milepost must
+independently authenticate the actual existing requester, verify current
+client-management authority and exact tenant/customer scope, and use its own
+CSRF-bound editing flow. The link grants no permission. Safeharbor sends no
+outbound metadata mutation and borrows no service or feedback credential.
+This flow is a source candidate until the corresponding Milepost editor is
+released and verified; a link or local save is not synchronization proof.
+
+**Save local changes** keeps existing contact/domain/service-goal/health/notes
+and history ownership. A local name override is local-only and can be replaced
+by a later canonical active name receipt under the existing receiver contract.
+Unbound clients retain local-only editing. Unavailable metadata does not block
+local edits or report them as shared completion.
+
+A bound client, even with zero tickets, cannot be removed by the local delete
+POST. The handler rechecks the binding before any contact deletion, using the
+receiver's tenant-first lock order and one transaction. Stale or forged forms
+preserve bound contacts, receipts, and history. Unbound local deletion still
+requires a fresh zero-ticket check; a client-delete failure rolls back contact
+deletion. Shared inactive state belongs in the canonical editor, which retains
+the relationship. Existing exact-current human access-restoration requirements
+remain separate from a canonical active receipt.
+
+Focused coverage: `app/tests/client_operational_context_test.php`; existing
+customer-sync/lifecycle fixtures continue to own ordered receipt and restoration
+semantics. Runtime convergence and real-user acceptance are separate release
+evidence, collected by the named release owner.
+
 ## Closed HTTP and authentication contract
 
 - Destination: `POST /api/svc/customers.php`
