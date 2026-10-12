@@ -47,6 +47,20 @@ function portal_westy_run_create(PDO $pdo,array $scope,int $turn,string $convers
 function portal_westy_run_replay(array $messages):string
 {
     foreach($messages as &$message){
+        if(($message['role']??'')==='provider'){
+            // A computer-tool call's arguments can hold typed text. Its replay keeps
+            // the call's identity for the receipt, never what the call asked for.
+            foreach($message['output']??[] as $index=>$item){
+                $item=is_object($item)?get_object_vars($item):$item;
+                if(!is_array($item)||!is_string($item['name']??null)
+                    ||(!str_starts_with($item['name'],'cua_')&&$item['name']!=='desktop_cua'))continue;
+                if(($item['type']??null)==='function_call')$item['arguments']='{}';
+                elseif(($item['type']??null)==='tool_use')$item['input']=new stdClass();
+                else continue;
+                $message['output'][$index]=$item;
+            }
+            continue;
+        }
         if(($message['role']??'')!=='tool')continue;
         $parts=[];
         foreach($message['content']??[] as $part){
