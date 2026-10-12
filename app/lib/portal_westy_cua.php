@@ -4,8 +4,11 @@
  * its own session, and only bounded evidence returns. Screen content stays transient. */
 declare(strict_types=1);
 
-/** One Cua call needs its 58-second receipt wait plus request overhead. */
-const PORTAL_WESTY_CUA_DISPATCH_SECONDS=62.0;
+/** Each existing desktop request may take 8 seconds. Polling for a receipt stops while one
+ * more poll, a Stop request and headroom still fit before the attempt deadline. */
+const PORTAL_WESTY_CUA_POLL_RESERVE=20.0;
+/** Least time left to send a call: an 8-second queue request, a 20-second receipt wait and the poll reserve. */
+const PORTAL_WESTY_CUA_DISPATCH_SECONDS=48.0;
 const PORTAL_WESTY_CUA_EVIDENCE_BYTES=24000;
 const PORTAL_WESTY_CUA_TEXT_BYTES=8000;
 const PORTAL_WESTY_CUA_TOOLS=['cua_list_windows','cua_launch_app','cua_window_state','cua_click','cua_type_text','cua_set_value',
@@ -153,9 +156,10 @@ function portal_westy_cua_request(string $tool,mixed $arguments):array
         'cua_browser_state'=>['pid','window_id','target_id','tab_id','query','include_screenshot','continuation'],
         'cua_browser_prepare'=>['pid','window_id'],'cua_browser_navigate'=>['target_id','tab_id','url'],
         'cua_browser_click'=>['target_id','tab_id','ref','input_route'],'cua_browser_type'=>['target_id','tab_id','ref','text','replace','mode']][$tool];
-    $extra=array_values(array_diff(array_keys($arguments),$allowed));
-    if($extra!==[])portal_westy_cua_reject('Unsupported field for '.$tool.': '.implode(', ',array_map(static fn($key):string=>portal_westy_cua_clip((string)$key,40),array_slice($extra,0,5)))
-        .(count($extra)>5?' and '.(count($extra)-5).' more':'').'.');
+    // Supplied names can carry screen or personal text, so only the count and the
+    // server's own field names are ever written into a receipt.
+    $extra=count(array_diff(array_keys($arguments),$allowed));
+    if($extra>0)portal_westy_cua_reject($extra.' unsupported '.($extra===1?'field was':'fields were').' given. '.$tool.' accepts: '.implode(', ',$allowed).'.');
     $a=$arguments;$out=[];$public=[];
     $window=static function(bool $required=true)use($a,&$out,&$public):void{
         $pid=portal_westy_cua_int($a,'pid',1,4294967295,$required);$id=portal_westy_cua_int($a,'window_id',1,PHP_INT_MAX,$required);
@@ -224,7 +228,7 @@ function portal_westy_cua_request(string $tool,mixed $arguments):array
             // only its named keys or one literal printable character are sent.
             $keys=array_map(static fn(string $key):string=>strlen($key)===1?strtolower($key):strtolower(trim($key)),$keys);
             foreach($keys as $key)if(!in_array($key,PORTAL_WESTY_CUA_KEYS,true)&&preg_match('/\A[\x21-\x7e]\z/D',$key)!==1)
-                portal_westy_cua_reject('Unsupported key "'.portal_westy_cua_clip($key,24).'". Use names such as enter, tab, esc, backspace, delete, up, pagedown, f5, ctrl, shift, alt or win, or one character.');
+                portal_westy_cua_reject('A key name is not supported. Use names such as enter, tab, esc, backspace, delete, up, pagedown, f5, ctrl, shift, alt or win, or one printable character.');
             $set(count($keys)===1?['key'=>$keys[0]]:['keys'=>$keys]);
             $set(['element_token'=>$token(),'delivery_mode'=>$delivery()]);
             return ['name'=>count($keys)===1?'press_key':'hotkey','arguments'=>$out,'public'=>$public];
@@ -368,9 +372,13 @@ function portal_westy_cua_facts(?array $response):array
 function portal_westy_cua_guidance(array $public):string
 {
     return match($public['state']??null){
-        'returned'=>($public['driver_error']??false)
-            ?'The driver did not complete this call. Read its error and correct the call or observe again; do not repeat it unchanged.'
-            :'The driver answered. Check its result, then observe again to verify the requested outcome before reporting success.',
+        // A returned receipt whose response was lost proves only that the driver
+        // acknowledged the call; its effect is unknown and it is never replayed.
+        'returned'=>($public['reason']??null)==='response_unavailable'
+            ?'The driver acknowledged this call, but its result was lost, so its effect is unknown. Do not repeat it. Observe again before reporting any outcome.'
+            :(($public['driver_error']??false)
+                ?'The driver did not complete this call. Read its error and correct the call or observe again; do not repeat it unchanged.'
+                :'The driver returned a result. That alone does not prove the requested outcome; observe again to verify it before reporting success.'),
         'rejected'=>'Not sent. Correct the arguments and try again.',
         'refused'=>'Not run. Do not repeat it unchanged; explain the reason or choose another supported step.',
         'cancelled'=>'Cancelled before it ran. Do not repeat it unless the person asks again.',
@@ -378,8 +386,9 @@ function portal_westy_cua_guidance(array $public):string
     };
 }
 
-/** Validate, dispatch once and shape the result exactly like the other desktop tools. */
-function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,callable $alive,?callable $transport=null):array
+/** Validate, dispatch once and shape the result exactly like the other desktop tools.
+ * The attempt deadline bounds the receipt wait; an expired wait is an unknown outcome. */
+function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,callable $alive,?callable $transport=null,?float $deadline=null):array
 {
     try{
         $request=portal_westy_cua_request($tool,$arguments);
@@ -389,7 +398,7 @@ function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,call
         $public=['state'=>'rejected','reason'=>'invalid_arguments','executed'=>false,'correction_allowed'=>true,'retry_allowed'=>false];
         return ['public_result'=>$public+['guidance'=>portal_westy_cua_clip(portal_westy_cua_guidance($public).' '.$error->getMessage(),400)]];
     }
-    $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport);
+    $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport,$deadline);
     $response=$dispatch['private_observation']['cua']??null;$response=is_array($response)?$response:null;
     $public=$dispatch['public_result']+$request['public']+portal_westy_cua_facts($response);
     $public['guidance']=portal_westy_cua_guidance($public);

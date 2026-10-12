@@ -185,7 +185,7 @@ function portal_westy_cua_response(array $response):array
     }
     return ['private_observation'=>['cua'=>$response],'images'=>$images];
 }
-function portal_westy_cua_dispatch(array $context,array $arguments,callable $alive,?callable $transport):array
+function portal_westy_cua_dispatch(array $context,array $arguments,callable $alive,?callable $transport,?float $deadline=null):array
 {
     $task=portal_desktop_task($context);$identity=['session_id'=>$task['session_id'],'task_id'=>$task['task_id']];
     $dispatched=false;$actionId=null;$returned=false;
@@ -199,7 +199,8 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
         $queued=portal_desktop_request($context,'cua',$identity+['request_key'=>bin2hex(random_bytes(16))]+$arguments,$transport);
         if(!portal_desktop_id($queued['action_id']??null))throw new PortalDesktopException('invalid_response');
         $actionId=$queued['action_id'];$started=microtime(true);
-        while(microtime(true)-$started<58){
+        // With an attempt deadline, stop polling while a last poll and Stop still fit before it.
+        while(microtime(true)-$started<58&&($deadline===null||microtime(true)+PORTAL_WESTY_CUA_POLL_RESERVE<$deadline)){
             if(!$alive())throw new PortalDesktopException('task_stopped');
             $receipt=portal_desktop_request($context,'cua_result',$identity+['action_id'=>$actionId],$transport);
             if(in_array($receipt['state']??null,['queued','claimed'],true)){usleep(200000);continue;}

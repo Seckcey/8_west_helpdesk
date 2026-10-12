@@ -190,6 +190,64 @@ $provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$c
 };
 $out=$runAt($context,$partial,$provider,microtime(true)+150,$setupCua);
 check($out['result']['ok']&&$calls===2&&$out['waits']===[],'an early tool result continues in the same attempt');
+$out=$runAt($context,$partial,$late,microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS-1,$setupCua);
+check($cuaDispatches===[]&&$out['waits']===[['kind'=>'continuation']],'one second short of the full request envelope, the call is not sent');
+$out=$runAt($context,$partial,$late,microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS+1,$setupCua);
+check(count($cuaDispatches)===1&&$out['partial']['tools'][1]['state']==='returned','with the full envelope left, the call is sent');
+// A slow receipt never runs past the attempt deadline: polling stops while a last poll
+// and Stop still fit, and the outcome stays honestly unknown.
+$GLOBALS['wire']=[];$setupCua();$before=$GLOBALS['service'];
+$GLOBALS['service']=static function($context,$action,$input)use($before):array{
+    return $action==='cua_result'?['state'=>'claimed']:$before($context,$action,$input);
+};
+$deadline=microtime(true)+PORTAL_WESTY_CUA_POLL_RESERVE+1.5;
+$slow=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true,null,$deadline);
+check($slow['public_result']['state']==='unknown'&&$slow['public_result']['reason']==='result_unknown'&&$slow['public_result']['retry_allowed']===false,
+    'a receipt that cannot arrive in time is an unknown outcome, never a success');
+check($deadline-microtime(true)>=PORTAL_WESTY_CUA_POLL_RESERVE-1,'polling ends while a last poll and Stop still fit before the deadline');
+check(count(array_filter($GLOBALS['wire'],static fn($w)=>$w['action']==='cua'))===1&&count(array_filter($GLOBALS['wire'],static fn($w)=>$w['action']==='cua_result'))>1
+    &&in_array('stop',array_column($GLOBALS['wire'],'action'),true),'the call is sent once, polled, and followed by the existing scoped Stop');
+
+// A returned receipt whose driver response was lost is an acknowledgement, not a verified outcome.
+$withoutResponse=static function()use($setupCua):void{
+    $setupCua();$before=$GLOBALS['service'];
+    $GLOBALS['service']=static function($context,$action,$input)use($before):array{
+        return $action==='cua_result'?['state'=>'executed','result'=>['contract'=>'westy-cua-v1','state'=>'returned','driver_error'=>false,'reason'=>null]]
+            :$before($context,$action,$input);
+    };
+};
+$calls=0;
+$provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$calls,$reply,$observe):array{
+    $calls++;
+    if($calls===1)return $reply('',[['id'=>'lost-response','name'=>'cua_click','arguments'=>$observe+['element_token'=>'s0000002a:1']]]);
+    $last=json_decode($input[array_key_last($input)]['content'][0]['text'],true,32,JSON_THROW_ON_ERROR);
+    check($last['result']['state']==='returned'&&$last['result']['reason']==='response_unavailable'&&str_contains($last['result']['guidance'],'its effect is unknown')
+        &&str_contains($last['result']['guidance'],'Do not repeat it')&&$last['untrusted_observation']===['response'=>'unavailable'],
+        'the model is told the effect is unknown and must observe before reporting');
+    $emit('Checking the screen again.');return $reply('Checking the screen again.');
+};
+$out=$run($context,$partial,$provider,setup:$withoutResponse);
+$lost=$out['partial']['tools'][1];
+check($out['result']['ok']&&$calls===2&&$lost['state']==='returned'&&$lost['result']['reason']==='response_unavailable'&&$lost['result']['retry_allowed']===false,
+    'the saved receipt keeps the returned state and the lost-response reason');
+check(count($cuaDispatches)===1&&!in_array('stop',array_column($out['wire'],'action'),true),'a lost response is neither replayed nor treated as a failed dispatch');
+
+// Supplied field names and key values can carry screen or personal text; receipts never repeat them.
+$calls=0;$seenInput=null;
+$provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$calls,&$seenInput,$reply,$observe):array{
+    $calls++;
+    if($calls===1)return $reply('',[['id'=>'marker-field','name'=>'cua_click','arguments'=>$observe+['element_token'=>'s0000002a:1','PRIVATE_SCREEN_MARKER_42'=>1]]]);
+    if($calls===2)return $reply('',[['id'=>'marker-key','name'=>'cua_press_keys','arguments'=>$observe+['keys'=>['PRIVATE_KEY_MARKER_43']]]]);
+    $seenInput=$input;$emit('Corrected.');return $reply('Corrected.');
+};
+$out=$run($context,$partial,$provider,setup:$setupCua);
+$receipts=array_values(array_filter(portal_westy_run_restore(portal_westy_run_replay($seenInput)),static fn($m)=>($m['role']??null)==='tool'));
+check($out['result']['ok']&&$calls===3&&$cuaDispatches===[]&&array_column(array_slice($out['partial']['tools'],1),'state')===['rejected','rejected'],
+    'unknown fields and key names are refused before dispatch');
+check(count($receipts)===3&&!str_contains(json_encode($out['saved'],JSON_THROW_ON_ERROR),'PRIVATE_')&&!str_contains(json_encode($receipts,JSON_THROW_ON_ERROR),'PRIVATE_'),
+    'supplied field names and key values never reach public, saved or replayed receipts');
+check(str_contains($out['partial']['tools'][1]['result']['guidance'],'cua_click accepts: pid, window_id, element_token')
+    &&str_contains($out['partial']['tools'][2]['result']['guidance'],'one printable character'),'guidance names only server-owned fields and formats');
 
 // The internal tenant model and its reservation.
 $legacy=portal_westy_ai_selection(['status'=>'internal_legacy','revision'=>3],['api_key'=>'sk-synthetic-no-network']);

@@ -1045,7 +1045,9 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
       devices:[{reference:'1:'+ 'c'.repeat(64),label:'Synthetic computer'}],turns:[{operation_key:operation,state:'complete',
         input_text:'Investigate memory use.',reply:{reply:'Checking current process memory.',sources:[],tools:[
           {key:'invalid_0',name:'inspect_computer',state:'rejected',result:{state:'rejected',executed:false,correction_allowed:true,retry_allowed:false}},
-          {key:'inspect_1',name:'inspect_computer',state:'complete',effect:'Read current process memory',result:{state:'running'}}]},
+          {key:'inspect_1',name:'inspect_computer',state:'complete',effect:'Read current process memory',result:{state:'running'}},
+          {key:'cua_lost',name:'cua_click',state:'returned',result:{state:'returned',action_id:'d'.repeat(32),driver_error:false,retry_allowed:false,reason:'response_unavailable'}},
+          {key:'cua_read',name:'cua_window_state',state:'returned',result:{state:'returned',action_id:'e'.repeat(32),driver_error:false,retry_allowed:false,reason:null}}]},
         run:{state:'waiting',ready:false,sequence:1}}]};
     const handler=async route=>{
       const payload=route.request().method()==='POST'?route.request().postDataJSON():null;
@@ -1066,6 +1068,11 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
       await page.getByText('Computer investigation · Not executed',{exact:true}).waitFor();
       await page.getByText('The plan was rejected before execution. Westy can use the validation feedback to correct it.',{exact:true}).waitFor();
       assert.equal(await page.getByText('Device tool',{exact:false}).count(),0);
+      // A driver reply is a receipt; a lost reply is an unknown outcome, never Done.
+      await page.getByText('Click · Result unavailable',{exact:true}).waitFor();
+      await page.getByText('The computer acknowledged this step, but its result was lost, so whether it worked is unknown. Westy checks the screen again before reporting and does not repeat the step.',{exact:true}).waitFor();
+      await page.getByText('Read window · Driver replied',{exact:true}).waitFor();
+      assert.equal(await page.getByText(' · Done',{exact:false}).count(),0);
       assert.equal(await page.locator('#portal-chat-input').isDisabled(),true);assert.equal(await page.locator('#portal-chat-stop').isVisible(),true);
       await page.getByLabel('Ask me before each automatic computer check').check();assert.equal(automatic,false);
       state.turns[0].run.ready=true;await page.getByText('The completed memory result explains the slowdown.',{exact:true}).waitFor();

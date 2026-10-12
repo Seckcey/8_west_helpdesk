@@ -369,7 +369,7 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
                     return $wait();
                 }
                 $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>'dispatching'];$toolSave();
-                $toolResult=portal_westy_cua_tool($context,$name,$call['arguments'],static function()use($alive):bool{$alive(true);return true;},$transport);
+                $toolResult=portal_westy_cua_tool($context,$name,$call['arguments'],static function()use($alive):bool{$alive(true);return true;},$transport,$deadline);
                 $public=$toolResult['public_result'];
                 $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>$public['state']??'unknown','result'=>$public];$toolSave();
                 $parts[]=['type'=>'text','text'=>json_encode(['result'=>$public,
