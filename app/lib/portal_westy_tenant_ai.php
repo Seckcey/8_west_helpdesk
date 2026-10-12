@@ -307,8 +307,8 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
                     'offered_tools'=>array_column($tools,'name')]],JSON_THROW_ON_ERROR)]]];
                 // A model that keeps calling what cannot run ends the reply instead of spending rounds.
                 if(portal_westy_ai_mistakes($messages)>=PORTAL_WESTY_AI_MISTAKE_LIMIT)throw new PortalWestyException('tool_invalid');
-                if($partial['reply']!=='')$output('delta',['text'=>"\n\n"]);
                 if($round===4||portal_westy_ai_yield_due($deadline,$context))return $wait();
+                if($partial['reply']!=='')$output('delta',['text'=>"\n\n"]);
                 continue;
             }
             // Validate identity/content before allocating a visible tool row.
@@ -358,20 +358,26 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
                 $partial['tools'][$index]['state']=$receipt['state'];$partial['tools'][$index]['result']=$receipt;$toolSave();
                 return ['ok'=>true,'waiting'=>true,'usage'=>$known?$usage:null,'cost_micro_usd'=>$known?$cost:null,'rounds'=>$receipts];
             }elseif(in_array($name,PORTAL_WESTY_CUA_TOOLS,true)){
-                if($deadline!==null&&isset($context['tool_run'])&&$deadline-microtime(true)<PORTAL_WESTY_CUA_DISPATCH_SECONDS){
-                    // Too little of this attempt remains to wait for a receipt. The
-                    // call is never sent; the continuation lets the model send it.
-                    unset($partial['tools'][$index]);
+                // Too little of this attempt remains to wait for a receipt. The
+                // call is never sent; the continuation lets the model send it.
+                $notSent=static function()use(&$messages,$result,$call,$wait):array{
                     $messages[]=$result['continuation'];
                     $messages[]=['role'=>'tool','call_id'=>$call['id'],'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>[
                         'state'=>'not_sent','executed'=>false,'retry_allowed'=>true,'reason'=>'step_time_limit',
-                        'guidance'=>'Not sent because this step ran out of time. Nothing was executed. Send the call again now.']],JSON_THROW_ON_ERROR)]]];
+                        'guidance'=>'Not sent because this step ran out of time. Nothing was executed. Continue the original request; reconstruct the arguments from that request or a fresh observation before trying again.']],JSON_THROW_ON_ERROR)]]];
                     return $wait();
+                };
+                if($deadline!==null&&isset($context['tool_run'])&&$deadline-microtime(true)<PORTAL_WESTY_CUA_DISPATCH_SECONDS){
+                    unset($partial['tools'][$index]);return $notSent();
                 }
                 $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>'dispatching'];$toolSave();
                 $toolResult=portal_westy_cua_tool($context,$name,$call['arguments'],static function()use($alive):bool{$alive(true);return true;},$transport,$deadline);
+                // Saving the row can use up that time; the dispatcher then sends nothing.
+                if(($toolResult['not_sent']??false)===true){unset($partial['tools'][$index]);return $notSent();}
                 $public=$toolResult['public_result'];
-                $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>$public['state']??'unknown','result'=>$public];$toolSave();
+                $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>$public['state']??'unknown','result'=>$public];
+                // Before a yield the final accounting saves this row; another save could outlast the deadline.
+                if($round!==4&&!portal_westy_ai_yield_due($deadline,$context))$toolSave();
                 $parts[]=['type'=>'text','text'=>json_encode(['result'=>$public,
                     'untrusted_observation'=>$toolResult['private_observation']??null],JSON_THROW_ON_ERROR|JSON_INVALID_UTF8_SUBSTITUTE|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)];
                 foreach($toolResult['images']??[] as $image)$parts[]=$image;
@@ -403,10 +409,11 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             $messages[]=['role'=>'tool','call_id'=>$call['id'],'content'=>$parts];
             if(($partial['tools'][$index]['state']??null)==='rejected'&&in_array($name,PORTAL_WESTY_CUA_TOOLS,true)
                 &&portal_westy_ai_mistakes($messages)>=PORTAL_WESTY_AI_MISTAKE_LIMIT)throw new PortalWestyException('tool_invalid');
-            if($partial['reply']!=='')$output('delta',['text'=>"\n\n"]);
             // Yield after the fifth round, or earlier when another model round plus a
-            // device call might not finish before this attempt's deadline.
+            // device call might not finish before this attempt's deadline. A resumed
+            // attempt starts a new paragraph itself, so a yield writes no separator.
             if($round===4||portal_westy_ai_yield_due($deadline,$context))return $wait();
+            if($partial['reply']!=='')$output('delta',['text'=>"\n\n"]);
         }
     } catch(PortalWestyException $error) {
         $buffer?->discard();

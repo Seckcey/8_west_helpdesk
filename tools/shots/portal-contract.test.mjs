@@ -1070,9 +1070,13 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
       assert.equal(await page.getByText('Device tool',{exact:false}).count(),0);
       // A driver reply is a receipt; a lost reply is an unknown outcome, never Done.
       await page.getByText('Click · Result unavailable',{exact:true}).waitFor();
-      await page.getByText('The computer acknowledged this step, but its result was lost, so whether it worked is unknown. Westy checks the screen again before reporting and does not repeat the step.',{exact:true}).waitFor();
+      await page.getByText('The computer acknowledged this step, but its result was lost, so whether it worked is unknown. Westy is asked to check the screen again; the step is not retried automatically.',{exact:true}).waitFor();
       await page.getByText('Read window · Driver replied',{exact:true}).waitFor();
       assert.equal(await page.getByText(' · Done',{exact:false}).count(),0);
+      if(process.env.SH_CUA_SHOT_DIR){
+        await mkdir(process.env.SH_CUA_SHOT_DIR,{recursive:true});
+        await page.screenshot({path:path.join(process.env.SH_CUA_SHOT_DIR,`cua-receipts-${viewport.width}.png`),fullPage:true});
+      }
       assert.equal(await page.locator('#portal-chat-input').isDisabled(),true);assert.equal(await page.locator('#portal-chat-stop').isVisible(),true);
       await page.getByLabel('Ask me before each automatic computer check').check();assert.equal(automatic,false);
       state.turns[0].run.ready=true;await page.getByText('The completed memory result explains the slowdown.',{exact:true}).waitFor();

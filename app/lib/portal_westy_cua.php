@@ -4,10 +4,12 @@
  * its own session, and only bounded evidence returns. Screen content stays transient. */
 declare(strict_types=1);
 
-/** Each existing desktop request may take 8 seconds. Polling for a receipt stops while one
- * more poll, a Stop request and headroom still fit before the attempt deadline. */
+/** Legacy bindings: two 8-second desktop requests (poll and Stop) plus headroom.
+ * The dispatcher adds the existing membership checks for customer_access bindings. */
 const PORTAL_WESTY_CUA_POLL_RESERVE=20.0;
-/** Least time left to send a call: an 8-second queue request, a 20-second receipt wait and the poll reserve. */
+/** A full alive check may refresh revocations (12s) and the AI selection (8s). */
+const PORTAL_WESTY_CUA_AUTHORITY_SECONDS=20.0;
+/** Queue request, an opportunity to wait, and poll/Stop reserve; not a promised receipt. */
 const PORTAL_WESTY_CUA_DISPATCH_SECONDS=48.0;
 const PORTAL_WESTY_CUA_EVIDENCE_BYTES=24000;
 const PORTAL_WESTY_CUA_TEXT_BYTES=8000;
@@ -40,7 +42,7 @@ function portal_westy_cua_definitions():array
             'input_schema'=>$object(['aumid'=>['type'=>'string','description'=>'Packaged app id, for example Microsoft.WindowsNotepad_8wekyb3d8bbwe!App.'],
                 'name'=>['type'=>'string','description'=>'App name, for example notepad or calc.'],
                 'path'=>['type'=>'string','description'=>'Full path to an .exe file.'],
-                'urls'=>['type'=>'array','items'=>['type'=>'string'],'description'=>'http or https addresses to open in the default browser.'],
+                'urls'=>['type'=>'array','items'=>['type'=>'string'],'description'=>'Addresses or file paths to open in their default app.'],
                 'arguments'=>['type'=>'array','items'=>['type'=>'string'],'description'=>'Optional command-line arguments for aumid, name or path.']],[])],
         ['name'=>'cua_window_state','description'=>'Observe one window: a screenshot plus its controls with element tokens, roles, labels and values. Call it before acting and again afterwards to verify. A new snapshot replaces older tokens.',
             'input_schema'=>$object(['pid'=>$pid,'window_id'=>$window,
@@ -67,7 +69,7 @@ function portal_westy_cua_definitions():array
                 'continuation'=>['type'=>'string','description'=>'Opaque continuation from the previous snapshot of this tab.']],[])],
         ['name'=>'cua_browser_prepare','description'=>'Connect to the person\'s open browser window when cua_browser_state reports browser_requires_setup or browser_consent_required. Tell the person first. It turns on the browser\'s debugging connection for this task.',
             'input_schema'=>$object(['pid'=>$pid,'window_id'=>$window],['pid','window_id'])],
-        ['name'=>'cua_browser_navigate','description'=>'Open an http or https address in a bound tab. Refs from before the navigation expire.',
+        ['name'=>'cua_browser_navigate','description'=>'Open an http, https or about address in a bound tab. Refs from before the navigation expire.',
             'input_schema'=>$object($tab+['url'=>['type'=>'string']],['target_id','tab_id','url'])],
         ['name'=>'cua_browser_click','description'=>'Click a page element by its current ref.',
             'input_schema'=>$object($tab+['ref'=>$ref,'input_route'=>['type'=>'string','enum'=>['trusted','dom_event'],'description'=>'Default trusted.']],['target_id','tab_id','ref'])],
@@ -133,7 +135,7 @@ function portal_westy_cua_list(array $a,string $key,int $max,int $itemBytes,stri
 
 function portal_westy_cua_url(string $url,bool $about=false):string
 {
-    if($about&&$url==='about:blank')return $url;
+    if($about&&preg_match('/\Aabout:[^\s]+\z/iD',$url)===1)return $url;
     $parts=parse_url($url);
     if(!is_array($parts)||!in_array(strtolower($parts['scheme']??''),['http','https'],true)||($parts['host']??'')===''||preg_match('/\s/',$url)===1)
         portal_westy_cua_reject('Use a complete http or https address.');
@@ -185,13 +187,14 @@ function portal_westy_cua_request(string $tool,mixed $arguments):array
             return ['name'=>'list_windows','arguments'=>$out,'public'=>$public];
         case 'cua_launch_app':
             $aumid=portal_westy_cua_string($a,'aumid',300,'/\A[A-Za-z0-9._-]{1,200}![A-Za-z0-9._-]{1,100}\z/D');
-            $name=portal_westy_cua_string($a,'name',120,'/\A[\p{L}\p{N} ._()&+-]{1,120}\z/uD');
-            // A local drive path only: no network share, device namespace or alternate data stream.
-            $path=portal_westy_cua_string($a,'path',520,'/\A[A-Za-z]:(?:\\\\[^<>:"|?*\\\\\/]+)+\.exe\z/iD');
+            $name=portal_westy_cua_string($a,'name',120);
+            // Preserve upstream launch forms. The driver/OS resolves executability
+            // and existing permissions; this adapter adds no path/scheme policy.
+            $path=portal_westy_cua_string($a,'path',520);
             $urls=portal_westy_cua_list($a,'urls',5,2048);
             $chosen=count(array_filter([$aumid,$name,$path,$urls],static fn($v)=>$v!==null));
             if($chosen!==1)portal_westy_cua_reject('Give exactly one of aumid, name, path or urls.');
-            foreach($urls??[] as $url)portal_westy_cua_url($url);
+            if($aumid===''||$name===''||$path===''||in_array('',$urls??[],true))portal_westy_cua_reject('Give a nonempty app name, path or address.');
             $arguments=portal_westy_cua_list($a,'arguments',10,500);
             if($arguments!==null&&$urls!==null)portal_westy_cua_reject('arguments cannot be combined with urls.');
             $set(['aumid'=>$aumid,'name'=>$name,'path'=>$path,'urls'=>$urls,'additional_arguments'=>$arguments]);
@@ -362,10 +365,14 @@ function portal_westy_cua_bytes(array $evidence):int
 function portal_westy_cua_facts(?array $response):array
 {
     $structured=is_array($response['structuredContent']??null)?$response['structuredContent']:[];$facts=[];
-    $code=static fn(mixed $value):bool=>is_string($value)&&preg_match('/\A[a-z][a-z0-9_]{0,63}\z/D',$value)===1;
-    foreach(['effect','code','route'] as $key)if($code($structured[$key]??null))$facts['driver_'.$key]=$structured[$key];
+    // Unknown values still reach the current model in private evidence. Only
+    // these literal protocol facts may survive in the public history.
+    $allowed=['effect'=>['unverifiable'],
+        'code'=>['background_unavailable','browser_requires_setup','browser_consent_required'],
+        'route'=>['background','foreground','trusted','dom_event']];
+    foreach($allowed as $key=>$values)if(in_array($structured[$key]??null,$values,true))$facts['driver_'.$key]=$structured[$key];
     $escalation=$structured['escalation']['recommended']??$structured['escalation']['target']??null;
-    if($code($escalation))$facts['driver_escalation']=$escalation;
+    if(in_array($escalation,['foreground'],true))$facts['driver_escalation']=$escalation;
     return $facts;
 }
 
@@ -399,8 +406,22 @@ function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,call
         return ['public_result'=>$public+['guidance'=>portal_westy_cua_clip(portal_westy_cua_guidance($public).' '.$error->getMessage(),400)]];
     }
     $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport,$deadline);
+    if(($dispatch['not_sent']??false)===true)return ['not_sent'=>true];
     $response=$dispatch['private_observation']['cua']??null;$response=is_array($response)?$response:null;
     $public=$dispatch['public_result']+$request['public']+portal_westy_cua_facts($response);
+    // Token-shaped text can still be private content. Never treat a regex match
+    // as membership in the server-owned reason vocabulary.
+    $reasons=['response_unavailable','result_unknown','connection_unknown','connection_unavailable','invalid_response',
+        'invalid_cua_request','desktop_unavailable','desktop_offline','capability_disabled','policy_unavailable','actor_unavailable',
+        'device_unavailable','device_reassigned','session_expired','session_busy','task_changed','task_stopped','observation_stale',
+        'observation_busy','observation_expired','observation_unavailable','payload_unavailable','action_busy','action_unavailable',
+        'step_limit','request_changed','read_only','companion_update_required','companion_offline','companion_ambiguous',
+        'execution_unresolved','execution_busy','support_busy','cleanup_unavailable','approval_required','tool_restriction',
+        'approval_changed','preferences_changed','review_changed','desktop_upgrade_required','cua_unavailable',
+        'cua_interrupted','cua_runtime_unavailable','cua_runtime_invalid','cua_protocol_invalid','cua_catalog_invalid','cua_session_unavailable','cua_parameters_invalid',
+        'cua_disconnected','cua_response_too_large','cua_response_mismatch','unrecognized'];
+    if(($public['reason']??null)!==null&&!in_array($public['reason'],$reasons,true))$public['reason']='unrecognized';
+    if(!in_array($public['state']??null,['returned','refused','cancelled','unknown'],true))$public['state']='unknown';
     $public['guidance']=portal_westy_cua_guidance($public);
     $result=['public_result'=>$public,'images'=>$dispatch['images']??[]];
     if(($public['state']??null)==='returned')$result['private_observation']=portal_westy_cua_evidence($response,count($result['images']));

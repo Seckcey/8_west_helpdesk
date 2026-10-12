@@ -189,19 +189,31 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
 {
     $task=portal_desktop_task($context);$identity=['session_id'=>$task['session_id'],'task_id'=>$task['task_id']];
     $dispatched=false;$actionId=null;$returned=false;
+    // Customer-access scope is checked before AND after each desktop request.
+    // alive also checks it in session reauthorization, Westy scope and AI scope.
+    // Each membership read uses the existing 12-second service timeout.
+    $membershipSeconds=isset($context['identity']['customer_access'])?12.0:0.0;
+    $pollReserve=PORTAL_WESTY_CUA_POLL_RESERVE+4*$membershipSeconds;
+    $authoritySeconds=PORTAL_WESTY_CUA_AUTHORITY_SECONDS+3*$membershipSeconds;
+    $dispatchSeconds=PORTAL_WESTY_CUA_DISPATCH_SECONDS+6*$membershipSeconds;
     try{
+        if($deadline!==null&&$deadline-microtime(true)<$dispatchSeconds)return ['not_sent'=>true];
         if(!$alive())throw new PortalDesktopException('task_stopped');
         if(!portal_devices_keys($arguments,['method','params_json'])||!is_string($arguments['method'])
             ||!in_array($arguments['method'],['tools/list','tools/call','resources/list','resources/read'],true)
             ||!is_string($arguments['params_json'])||strlen($arguments['params_json'])>60000)
             throw new PortalDesktopException('invalid_cua_request',400,true);
+        // Checked again at the moment of sending: authority checks before it also take time.
+        if($deadline!==null&&$deadline-microtime(true)<$dispatchSeconds)return ['not_sent'=>true];
         $dispatched=true;
         $queued=portal_desktop_request($context,'cua',$identity+['request_key'=>bin2hex(random_bytes(16))]+$arguments,$transport);
         if(!portal_desktop_id($queued['action_id']??null))throw new PortalDesktopException('invalid_response');
         $actionId=$queued['action_id'];$started=microtime(true);
-        // With an attempt deadline, stop polling while a last poll and Stop still fit before it.
-        while(microtime(true)-$started<58&&($deadline===null||microtime(true)+PORTAL_WESTY_CUA_POLL_RESERVE<$deadline)){
+        // Reserve the full authority check BEFORE starting it, then remeasure.
+        // A check begun near the deadline cannot consume the scoped Stop budget.
+        while(microtime(true)-$started<58&&($deadline===null||microtime(true)+$authoritySeconds+$pollReserve<$deadline)){
             if(!$alive())throw new PortalDesktopException('task_stopped');
+            if($deadline!==null&&microtime(true)+$pollReserve>=$deadline)break;
             $receipt=portal_desktop_request($context,'cua_result',$identity+['action_id'=>$actionId],$transport);
             if(in_array($receipt['state']??null,['queued','claimed'],true)){usleep(200000);continue;}
             if(($receipt['result']['contract']??null)==='westy-cua-v1'){
@@ -209,9 +221,11 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
                 $public=['state'=>$receipt['result']['state'],'action_id'=>$actionId,
                     'driver_error'=>($receipt['result']['driver_error']??false)===true,'retry_allowed'=>false,
                     'reason'=>$receipt['result']['reason']??null];
-                if($returned)$public['guidance']='The driver answered. Read its actual result and verify the requested postcondition. Do not repeat uncertain effects.';
-                if(is_array($receipt['response']??null))return ['public_result'=>$public]+portal_westy_cua_response($receipt['response']);
-                if($returned)$public['reason']='response_unavailable';
+                if(is_array($receipt['response']??null)){
+                    if($returned)$public['guidance']='The driver returned a result. Verify the requested outcome before reporting it. Do not repeat uncertain effects.';
+                    return ['public_result'=>$public]+portal_westy_cua_response($receipt['response']);
+                }
+                if($returned){$public['reason']='response_unavailable';$public['guidance']='The driver acknowledged this call, but its result was lost, so its effect is unknown. Do not repeat it.';}
                 return ['public_result'=>$public];
             }
             if(in_array($receipt['state']??null,['refused','cancelled','unknown'],true))

@@ -102,9 +102,9 @@ check($request('cua_launch_app',['aumid'=>'Microsoft.WindowsNotepad_8wekyb3d8bbw
 check($request('cua_launch_app',['path'=>'C:\\Windows\\notepad.exe','arguments'=>['C:\\notes.txt']])===['name'=>'launch_app',
     'arguments'=>['path'=>'C:\\Windows\\notepad.exe','additional_arguments'=>['C:\\notes.txt']]],'an executable path keeps its literal arguments');
 check($request('cua_launch_app',['urls'=>['https://example.com/a?b=1']])===['name'=>'launch_app','arguments'=>['urls'=>['https://example.com/a?b=1']]],'web addresses open in the default browser');
-foreach([['urls'=>['javascript:alert(1)']],['urls'=>['file:///C:/x']],['name'=>'notepad','path'=>'C:\\Windows\\notepad.exe'],[],
-    ['path'=>'C:\\x.bat'],['urls'=>['https://example.com'],'arguments'=>['x']],['aumid'=>'not-an-aumid']] as $index=>$launch)
-    check($rejects('cua_launch_app',$launch),'unsafe or ambiguous launch is refused: '.$index);
+foreach([['urls'=>['']],['name'=>'notepad','path'=>'C:\\Windows\\notepad.exe'],[],
+    ['path'=>''],['urls'=>['https://example.com'],'arguments'=>['x']],['aumid'=>'not-an-aumid']] as $index=>$launch)
+    check($rejects('cua_launch_app',$launch),'empty or ambiguous launch is refused: '.$index);
 check($request('cua_type_text',$observe+['text'=>"line one\nline two\tend"])===['name'=>'type_text','arguments'=>$observe+['text'=>"line one\nline two\tend",'delivery_mode'=>'background']],
     'requested multi-line text is typed exactly');
 foreach([['text'=>"bell\x07"],['text'=>str_repeat('a',PORTAL_WESTY_CUA_TEXT_BYTES+1)],['text'=>''],['text'=>'x','session'=>'model-chosen'],
@@ -130,6 +130,7 @@ check($rejects('cua_browser_state',$observe+['tab_id'=>'tab-1'])&&$rejects('cua_
     'binding and snapshot forms are never mixed');
 check($request('cua_browser_prepare',$observe)['arguments']===$observe+['strategy'=>['kind'=>'existing_profile']],'preparation uses only the Companion\'s existing-profile grant');
 check($request('cua_browser_navigate',['target_id'=>'t-1','tab_id'=>'tab-1','url'=>'about:blank'])['arguments']['url']==='about:blank'
+    &&$request('cua_browser_navigate',['target_id'=>'t-1','tab_id'=>'tab-1','url'=>'about:settings'])['arguments']['url']==='about:settings'
     &&$rejects('cua_browser_navigate',['target_id'=>'t-1','tab_id'=>'tab-1','url'=>'file:///C:/Windows'])
     &&$rejects('cua_browser_navigate',['target_id'=>'t-1','tab_id'=>'tab-1','url'=>'https://example.com/a b']),'navigation accepts only web addresses');
 check($request('cua_browser_type',['target_id'=>'t-1','tab_id'=>'tab-1','ref'=>'p4:2','text'=>'hello','replace'=>true])['arguments']===
@@ -190,23 +191,195 @@ $provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$c
 };
 $out=$runAt($context,$partial,$provider,microtime(true)+150,$setupCua);
 check($out['result']['ok']&&$calls===2&&$out['waits']===[],'an early tool result continues in the same attempt');
+$calls=0;
+$generic=static function($selected,$system,$input,$options,$emit,$alive)use(&$calls,$reply):array{
+    $text='Round '.(++$calls).'.';$emit($text);
+    return $reply($text,[['id'=>'generic-'.$calls,'name'=>'desktop_windows','arguments'=>[]]]);
+};
+$genericYield=$run($context,$partial,$generic);
+check($calls===5&&($genericYield['result']['waiting']??false)===true&&count($genericYield['waitReplays'])===1
+    &&str_ends_with($genericYield['partial']['reply'],'Round 5.'),'the generic fifth-round yield also writes no trailing separator');
+check($genericYield['partial']['tools'][5]['state']==='observed'&&count($genericYield['result']['rounds'])===5,
+    'the generic yield retains every actual read receipt and paid round');
 $out=$runAt($context,$partial,$late,microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS-1,$setupCua);
 check($cuaDispatches===[]&&$out['waits']===[['kind'=>'continuation']],'one second short of the full request envelope, the call is not sent');
 $out=$runAt($context,$partial,$late,microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS+1,$setupCua);
 check(count($cuaDispatches)===1&&$out['partial']['tools'][1]['state']==='returned','with the full envelope left, the call is sent');
 // A slow receipt never runs past the attempt deadline: polling stops while a last poll
-// and Stop still fit, and the outcome stays honestly unknown.
-$GLOBALS['wire']=[];$setupCua();$before=$GLOBALS['service'];
-$GLOBALS['service']=static function($context,$action,$input)use($before):array{
-    return $action==='cua_result'?['state'=>'claimed']:$before($context,$action,$input);
+// and Stop still fit, and the outcome stays honestly unknown. Slow authority checks are
+// measured too. This case waits for the real window, about 28 seconds.
+$GLOBALS['wire']=[];$setupCua();$before=$GLOBALS['service'];$pollStarts=[];
+$GLOBALS['service']=static function($context,$action,$input)use($before,&$pollStarts):array{
+    if($action!=='cua_result')return $before($context,$action,$input);
+    $pollStarts[]=microtime(true);return ['state'=>'claimed'];
 };
-$deadline=microtime(true)+PORTAL_WESTY_CUA_POLL_RESERVE+1.5;
-$slow=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true,null,$deadline);
+$deadline=microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS+1;
+$slow=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static function():bool{usleep(400000);return true;},null,$deadline);
 check($slow['public_result']['state']==='unknown'&&$slow['public_result']['reason']==='result_unknown'&&$slow['public_result']['retry_allowed']===false,
     'a receipt that cannot arrive in time is an unknown outcome, never a success');
 check($deadline-microtime(true)>=PORTAL_WESTY_CUA_POLL_RESERVE-1,'polling ends while a last poll and Stop still fit before the deadline');
+check($pollStarts!==[]&&max($pollStarts)+PORTAL_WESTY_CUA_POLL_RESERVE<$deadline,'no poll starts inside the reserve, even after a slow authority check');
 check(count(array_filter($GLOBALS['wire'],static fn($w)=>$w['action']==='cua'))===1&&count(array_filter($GLOBALS['wire'],static fn($w)=>$w['action']==='cua_result'))>1
     &&in_array('stop',array_column($GLOBALS['wire'],'action'),true),'the call is sent once, polled, and followed by the existing scoped Stop');
+// The time left is checked again at the moment of sending.
+$GLOBALS['wire']=[];$setupCua();
+$unsent=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true,null,microtime(true)+30);
+check($unsent===['not_sent'=>true]&&$cuaDispatches===[]&&!in_array('cua',array_column($GLOBALS['wire'],'action'),true),
+    'with too little time left at the moment of sending, nothing is sent');
+$savedStates=[];$GLOBALS['wire']=[];$GLOBALS['waits']=[];$GLOBALS['waitReplays']=[];$setupCua();$work=$partial;
+$result=portal_westy_ai_run($pdo,$context,$selection,$messages,$operation,$work,static function():void{},
+    static function(string $event,array $data)use(&$work):void{if($event==='delta')$work['reply'].=$data['text'];},
+    static function()use(&$work,&$savedStates):void{usleep(600000);$savedStates[]=$work['tools'][array_key_last($work['tools'])]['state']??null;},
+    $late,resolver:static fn()=>$selection,deadline:microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS+0.3);
+check(($result['waiting']??false)===true&&in_array('dispatching',$savedStates,true)&&$cuaDispatches===[]&&count($work['tools'])===1
+    &&str_contains($GLOBALS['waitReplays'][0]??'','not_sent'),'a slow row save uses up the margin, so the call is not sent and the model is told so');
+// A call that ends near the deadline yields at once: the final accounting saves its row,
+// and the resumed attempt adds its own paragraph break.
+$provider=static function($selected,$system,$input,$options,$emit,$alive)use($reply,$observe):array{
+    $emit('Looking.');return $reply('Looking.',[['id'=>'yield-observe','name'=>'cua_window_state','arguments'=>$observe]]);
+};
+$out=$runAt($context,$partial,$provider,microtime(true)+80,$setupCua);
+check(($out['result']['waiting']??false)===true&&$out['partial']['tools'][1]['state']==='returned'&&end($out['saved'])['tools'][1]['state']==='dispatching'
+    &&str_ends_with($out['partial']['reply'],'Looking.'),'before a yield the finished row is left to the final accounting and no separator is written');
+// The final accounting really replaces the saved dispatching row. Stop or lost
+// authority still wins delivery, and an unknown device result stays unknown.
+$finishSource=file_get_contents(__DIR__.'/../lib/portal_westy_tenant_ai.php');
+eval('namespace WestyAdmissionFixture; use \\PDO; use \\Throwable; use \\LogicException; '
+    .substr($finishSource,strpos($finishSource,'function portal_westy_ai_finish(')));
+$yielded=['returned'=>$out,'not_sent'=>$runAt($context,$partial,$late,microtime(true)+30,$setupCua)];
+$yielded['unknown']=$runAt($context,$partial,$late,microtime(true)+80,static function()use($setupCua):void{
+    $setupCua();$before=$GLOBALS['service'];
+    $GLOBALS['service']=static function($context,$action,$input)use($before):array{
+        if($action==='cua_result')throw new PortalDesktopException('connection_unknown');
+        return $before($context,$action,$input);
+    };
+});
+foreach($yielded as $effect=>$sample)foreach(['deliver','stopped','access_changed'] as $delivery){
+    $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+    $db->exec('CREATE TABLE portal_westy_accounts(scope_key TEXT,tenant_id INT,client_id INT,conversation_key TEXT);
+        CREATE TABLE portal_westy_turns(id INT,scope_key TEXT,tenant_id INT,client_id INT,conversation_key TEXT,state TEXT,
+            input_text TEXT,expires_at TEXT,reply_json TEXT,charged_microusd INT,input_tokens INT,output_tokens INT,finished_at TEXT,reason_code TEXT);
+        CREATE TABLE portal_westy_ai_attempts(id INT,turn_id INT,scope_key TEXT,state TEXT,reserve_microusd INT,sequence INT,
+            charged_microusd INT,usage_json TEXT,finished_at TEXT);
+        CREATE TABLE portal_westy_budgets(tenant_id INT,client_id INT,month_key TEXT,charged_microusd INT);');
+    $scope=['key'=>'scope','tenant'=>1,'client'=>11];$old=json_encode(['reply'=>'Saved before dispatch.','tools'=>[['state'=>'dispatching']]]);
+    $db->exec("INSERT INTO portal_westy_accounts VALUES('scope',1,11,'conversation');
+        INSERT INTO portal_westy_ai_attempts VALUES(1,1,'scope','pending',10000,1,10000,NULL,NULL);");
+    $db->prepare('INSERT INTO portal_westy_turns VALUES(1,?,1,11,?,?,?,?,?,10000,NULL,NULL,NULL,?)')
+        ->execute(['scope','conversation',$delivery==='stopped'?'unavailable':'pending','Original authorized request.',
+            gmdate('Y-m-d H:i:s',time()+3600),$old,$delivery==='stopped'?'stopped':'']);
+    $db->prepare('INSERT INTO portal_westy_budgets VALUES(1,11,?,10000)')->execute([gmdate('Y-m')]);
+    WestyAdmissionFixture\portal_westy_ai_finish($db,$scope,1,1,'conversation',gmdate('Y-m'),
+        $sample['result']+['data'=>$sample['partial']],$delivery!=='access_changed');
+    $stored=$db->query('SELECT state,reply_json,reason_code FROM portal_westy_turns')->fetch();
+    if($delivery==='deliver'){
+        $receipt=json_decode($stored['reply_json'],true);
+        check($stored['state']==='complete'&&$receipt===$sample['partial'],'final accounting durably saves the yielded '.$effect.' receipt');
+        check($effect==='not_sent'?count($receipt['tools'])===1:$receipt['tools'][1]['state']===$effect,
+            'delivery neither leaves an unsent row nor promotes an uncertain dispatch to completion');
+    }else check($stored['state']==='unavailable'&&$stored['reason_code']===$delivery&&$stored['reply_json']===$old,
+        'final accounting does not overwrite '.$delivery.' with a late '.$effect.' receipt');
+    check($db->query('SELECT state FROM portal_westy_ai_attempts')->fetchColumn()===($delivery==='deliver'?'complete':'unavailable'),
+        'the paid attempt reaches its truthful final state even when delivery is suppressed');
+}
+// Typed text reaches the driver but never stays in a saved continuation.
+$typing=static fn($selected,$system,$input,$options,$emit,$alive)=>$reply('',[['id'=>'typed','name'=>'cua_type_text','arguments'=>$observe+['text'=>'PRIVATE_TYPED_MARKER_44']]]);
+$out=$runAt($context,$partial,$typing,microtime(true)+80,$setupCua);$replayed=$out['waitReplays'][0]??'';
+check(str_contains(json_encode($cuaDispatches,JSON_THROW_ON_ERROR),'PRIVATE_TYPED_MARKER_44')&&!str_contains($replayed,'PRIVATE')
+    &&str_contains($replayed,'"name":"cua_type_text"')&&str_contains($replayed,'"call_id":"typed"'),'the saved continuation keeps the call identity without its arguments');
+$restored=portal_westy_run_restore(portal_westy_run_replay([['role'=>'provider','output'=>[
+    (object)['type'=>'function_call','call_id'=>'o1','name'=>'cua_type_text','arguments'=>'{"text":"PRIVATE_OBJECT_TEXT"}'],
+    (object)['type'=>'tool_use','id'=>'o2','name'=>'cua_type_text','input'=>(object)['text'=>'PRIVATE_ANTHROPIC_TEXT']],
+    ['type'=>'function_call','call_id'=>'o3','name'=>'list_computers','arguments'=>'{"query":"KEEP_OTHER"}']]]]));
+check(!str_contains(json_encode($restored,JSON_THROW_ON_ERROR),'PRIVATE')&&str_contains(json_encode($restored,JSON_THROW_ON_ERROR),'KEEP_OTHER')
+    &&$restored[0]['output'][0]->arguments==='{}'&&$restored[0]['output'][1]->input instanceof stdClass,
+    'restored and Anthropic-shaped computer-tool calls are redacted the same way; other tools are unchanged');
+foreach(['openai','anthropic'] as $vendor)foreach(['cua_type_text','desktop_cua'] as $toolName){
+    $selected=['revision'=>4,'credential_version'=>1]+westy_tenant_ai_selection($vendor,
+        $vendor==='openai'?'gpt-6.1-sol':'claude-sonnet-5-5','medium');
+    $call=$vendor==='openai'?['type'=>'function_call','call_id'=>'private-pair','name'=>$toolName,'arguments'=>'{"text":"private_arguments"}']
+        :['type'=>'tool_use','id'=>'private-pair','name'=>$toolName,'input'=>(object)['text'=>'private_arguments']];
+    $receipt=['state'=>'unknown','retry_allowed'=>false,'reason'=>'connection_unknown'];
+    $original=[['role'=>'user','content'=>[['type'=>'text','text'=>'The original authorized request.']]],
+        ['role'=>'provider','output'=>[$call]]+$selected,
+        ['role'=>'tool','call_id'=>'private-pair','content'=>[['type'=>'text','text'=>json_encode(['result'=>$receipt,
+            'untrusted_observation'=>['value'=>'private_screen_text']])]]]];
+    $wire=portal_westy_run_replay($original);$restored=portal_westy_run_restore($wire);
+    $body=westy_tenant_ai_body($selected,'Original task authority.',$restored,['tools'=>portal_westy_cua_definitions()]);
+    $encoded=json_encode($body,JSON_THROW_ON_ERROR);
+    check(!str_contains($encoded,'private_arguments')&&!str_contains($encoded,'private_screen_text')
+        &&str_contains($encoded,'The original authorized request.'),'restored '.$vendor.' request keeps authority text without transient arguments/observations');
+    check(portal_westy_run_replay($restored)===$wire&&str_contains(json_encode($original),'private_arguments'),
+        'durable redaction is idempotent and does not mutate the current '.$vendor.' attempt');
+    if($vendor==='openai'){
+        check($body['input'][1]->arguments==='{}'&&$body['input'][1]->call_id===$body['input'][2]['call_id']
+            &&$body['input'][2]['type']==='function_call_output','OpenAI retains the paired function call and receipt');
+    }else{
+        check($body['messages'][1]['content'][0]->input instanceof stdClass
+            &&get_object_vars($body['messages'][1]['content'][0]->input)===[]
+            &&$body['messages'][1]['content'][0]->id===$body['messages'][2]['content'][0]['tool_use_id'],
+            'Anthropic retains an empty object and the paired tool_use/tool_result');
+    }
+    $savedReceipt=json_decode($restored[2]['content'][0]['text'],true);
+    check($savedReceipt['result']===$receipt&&$savedReceipt['observation_status']==='expired','uncertain effect survives '.$vendor.' protocol restoration unchanged');
+}
+// An unreadable driver response after a returned receipt is still only an acknowledgement.
+$GLOBALS['wire']=[];$setupCua(['isError'=>false,'content'=>[['type'=>'image','mimeType'=>'image/png','data'=>'not base64!']]]);
+$unreadable=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true);
+check($unreadable['public_result']['state']==='returned'&&$unreadable['public_result']['reason']==='response_unavailable'
+    &&str_contains($unreadable['public_result']['guidance'],'Observe again before reporting')&&!in_array('stop',array_column($GLOBALS['wire'],'action'),true),
+    'an unreadable response after a returned receipt has an unknown effect, without Stop or a repeat');
+// Only a closed reason code is kept from the relay.
+$GLOBALS['wire']=[];$setupCua();$before=$GLOBALS['service'];
+$GLOBALS['service']=static function($context,$action,$input)use($before):array{
+    return $action==='cua_result'?['state'=>'refused','result'=>['reason'=>'PRIVATE free text from the relay']]:$before($context,$action,$input);
+};
+$freeText=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true);
+check($freeText['public_result']['state']==='refused'&&$freeText['public_result']['reason']==='unrecognized','a reason that is not a closed code is stored as unrecognized');
+
+// A lowercase token can still be private text. Closed vocabularies, not a regex,
+// decide which relay/driver facts may enter a public receipt or durable replay.
+$GLOBALS['service']=static function($context,$action,$input)use($before):array{
+    return $action==='cua_result'?['state'=>'refused','result'=>['reason'=>'private_screen_marker']]:$before($context,$action,$input);
+};
+$privateCode=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true);
+check($privateCode['public_result']['reason']==='unrecognized','a token-shaped private reason is not a public code');
+check(portal_westy_cua_facts(['structuredContent'=>['effect'=>'private_effect','code'=>'private_code','route'=>'private_route',
+    'escalation'=>['recommended'=>'private_escalation']]])===[],'token-shaped private driver values stay transient');
+
+// Execute the actual dispatcher with a deterministic clock and synthetic boundary
+// durations. No production clock seam, network, device or provider is introduced.
+$dispatchStart=strpos($desktopSource,'function portal_westy_cua_dispatch(');
+$dispatchEnd=strpos($desktopSource,'function portal_westy_desktop_dispatch(',$dispatchStart);
+eval('namespace WestyCuaDeadlineFixture; use \\PortalDesktopException; use \\Throwable;'
+    .'function microtime(bool $float=true):float{return $GLOBALS["cuaClock"];}'
+    .'function usleep(int $micros):void{$GLOBALS["cuaClock"]+=$micros/1000000;}'
+    .'function portal_desktop_task(array $context):array{return $context["desktop"];}'
+    .'function portal_desktop_id(mixed $value):bool{return \\portal_desktop_id($value);}'
+    .'function portal_devices_keys(array $input,array $keys):bool{return \\portal_devices_keys($input,$keys);}'
+    .'function portal_westy_cua_response(array $response):array{return \\portal_westy_cua_response($response);}'
+    .'function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array{'
+        .'$GLOBALS["cuaClockCalls"][]=["action"=>$action,"at"=>$GLOBALS["cuaClock"]];'
+        .'$GLOBALS["cuaClock"]+=$GLOBALS["cuaRequestSeconds"];'
+        .'if($action==="cua_result"&&($GLOBALS["cuaClockReturned"]??false))return ["result"=>["contract"=>"westy-cua-v1","state"=>"returned"],"response"=>["content"=>[]]];'
+        .'return $action==="cua"?["action_id"=>str_repeat("9",32)]:["state"=>$action==="stop"?"stopped":"claimed"];}'
+    .substr($desktopSource,$dispatchStart,$dispatchEnd-$dispatchStart));
+foreach([[false,85.0,8.0,20.0],[true,150.0,32.0,56.0],[true,200.0,32.0,56.0]] as [$membership,$until,$requestSeconds,$authoritySeconds]){
+    $GLOBALS['cuaClock']=0.0;$GLOBALS['cuaClockCalls']=[];$GLOBALS['cuaRequestSeconds']=$requestSeconds;$authorityCalls=0;
+    $timedContext=$context;if($membership)$timedContext['identity']['customer_access']=[];
+    $timed=WestyCuaDeadlineFixture\portal_westy_cua_dispatch($timedContext,['method'=>'tools/call','params_json'=>'{}'],
+        static function()use(&$authorityCalls,$authoritySeconds):bool{if($authorityCalls++>0)$GLOBALS['cuaClock']+=$authoritySeconds;return true;},null,$until);
+    check($GLOBALS['cuaClock']<$until,'slow authority and scoped receipt/Stop requests finish before the attempt deadline: '.($membership?'membership':'legacy'));
+    check($timed['public_result']['state']==='unknown'&&!$timed['public_result']['retry_allowed']
+        &&array_column($GLOBALS['cuaClockCalls'],'action')[0]==='cua'
+        &&end($GLOBALS['cuaClockCalls'])['action']==='stop','deadline expiry preserves one uncertain dispatch and the scoped Stop');
+}
+$GLOBALS['cuaClock']=0.0;$GLOBALS['cuaClockCalls']=[];$GLOBALS['cuaRequestSeconds']=0.1;$GLOBALS['cuaClockReturned']=true;
+$fastMembership=$context;$fastMembership['identity']['customer_access']=[];
+$fast=WestyCuaDeadlineFixture\portal_westy_cua_dispatch($fastMembership,['method'=>'tools/call','params_json'=>'{}'],static fn():bool=>true,null,150.0);
+check($fast['public_result']['state']==='returned'&&array_column($GLOBALS['cuaClockCalls'],'action')===['cua','cua_result'],
+    'an ordinary timely membership-bound call still dispatches and receives its result within the unchanged attempt deadline');
+$GLOBALS['cuaClockReturned']=false;
 
 // A returned receipt whose driver response was lost is an acknowledgement, not a verified outcome.
 $withoutResponse=static function()use($setupCua):void{
@@ -222,7 +395,8 @@ $provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$c
     if($calls===1)return $reply('',[['id'=>'lost-response','name'=>'cua_click','arguments'=>$observe+['element_token'=>'s0000002a:1']]]);
     $last=json_decode($input[array_key_last($input)]['content'][0]['text'],true,32,JSON_THROW_ON_ERROR);
     check($last['result']['state']==='returned'&&$last['result']['reason']==='response_unavailable'&&str_contains($last['result']['guidance'],'its effect is unknown')
-        &&str_contains($last['result']['guidance'],'Do not repeat it')&&$last['untrusted_observation']===['response'=>'unavailable'],
+        &&str_contains($last['result']['guidance'],'Do not repeat it')&&str_contains($last['result']['guidance'],'Observe again before reporting')
+        &&$last['untrusted_observation']===['response'=>'unavailable'],
         'the model is told the effect is unknown and must observe before reporting');
     $emit('Checking the screen again.');return $reply('Checking the screen again.');
 };
@@ -269,8 +443,10 @@ foreach(['quote-dense controls'=>$dense,'thousands of fields'=>$fields,'control 
     $embedded=json_encode(['result'=>[],'untrusted_observation'=>$evidence],JSON_THROW_ON_ERROR|JSON_INVALID_UTF8_SUBSTITUTE|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
     check(portal_westy_cua_bytes($evidence)<=PORTAL_WESTY_CUA_EVIDENCE_BYTES&&strlen($embedded)<=PORTAL_WESTY_CUA_EVIDENCE_BYTES+40,'evidence stays bounded as embedded: '.$label);
 }
-foreach(['\\\\server\\share\\payload.exe','\\\\.\\C:\\x.exe','C:\\x.txt:evil.exe','C:x.exe','C:\\','C:\\dir/evil.exe'] as $unsafe)
-    check($rejects('cua_launch_app',['path'=>$unsafe]),'launch refuses a non-local or alternate-stream path: '.$unsafe);
+foreach(['\\\\server\\share\\app.exe','\\\\?\\C:\\long\\app.exe','C:x.exe','C:\\dir/app.exe','C:\\task.bat'] as $path)
+    check($request('cua_launch_app',['path'=>$path])['arguments']===['path'=>$path],'launch retains the requested path for the driver/OS: '.$path);
+foreach(['file:///C:/notes.txt','C:\\notes.txt','ms-settings:display'] as $address)
+    check($request('cua_launch_app',['urls'=>[$address]])['arguments']===['urls'=>[$address]],'default-app launch retains the requested address or file path');
 check($request('cua_launch_app',['path'=>'C:\\Program Files\\Vendor App\\app.exe'])['arguments']===['path'=>'C:\\Program Files\\Vendor App\\app.exe'],'an ordinary local program path is accepted');
 $bloated=portal_westy_cua_tool($context,'cua_click',$observe+[str_repeat('k',40000)=>1],static fn():bool=>true);
 check(strlen($bloated['public_result']['guidance'])<=420&&!str_contains($bloated['public_result']['guidance'],str_repeat('k',100)),'a rejected receipt never stores an oversized field name');

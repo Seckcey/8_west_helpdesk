@@ -46,7 +46,7 @@
     process_unavailable:'That command is no longer available. Check the device activity before asking again.',
     task_unavailable:'That earlier task is no longer available. Check the device activity before asking again.',
     configuration:'Westy is not configured correctly. Contact support.',
-    response_unavailable:'The computer acknowledged this step, but its result was lost, so whether it worked is unknown. Westy checks the screen again before reporting and does not repeat the step.',
+    response_unavailable:'The computer acknowledged this step, but its result was lost, so whether it worked is unknown. Westy is asked to check the screen again; the step is not retried automatically.',
     stopped:'Reply stopped. Device work already dispatched keeps its own recorded status.',
     stop_unconfirmed:'The conversation has stopped. The computer has not confirmed cancellation yet; it will not repeat the command.',
     companion_offline:'Open Westy on that computer and connect it to continue. Background health checks may still be available.',
