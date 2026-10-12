@@ -153,8 +153,9 @@ function portal_westy_cua_request(string $tool,mixed $arguments):array
         'cua_browser_state'=>['pid','window_id','target_id','tab_id','query','include_screenshot','continuation'],
         'cua_browser_prepare'=>['pid','window_id'],'cua_browser_navigate'=>['target_id','tab_id','url'],
         'cua_browser_click'=>['target_id','tab_id','ref','input_route'],'cua_browser_type'=>['target_id','tab_id','ref','text','replace','mode']][$tool];
-    $extra=array_diff(array_keys($arguments),$allowed);
-    if($extra!==[])portal_westy_cua_reject('Unsupported field for '.$tool.': '.implode(', ',array_map('strval',$extra)).'.');
+    $extra=array_values(array_diff(array_keys($arguments),$allowed));
+    if($extra!==[])portal_westy_cua_reject('Unsupported field for '.$tool.': '.implode(', ',array_map(static fn($key):string=>portal_westy_cua_clip((string)$key,40),array_slice($extra,0,5)))
+        .(count($extra)>5?' and '.(count($extra)-5).' more':'').'.');
     $a=$arguments;$out=[];$public=[];
     $window=static function(bool $required=true)use($a,&$out,&$public):void{
         $pid=portal_westy_cua_int($a,'pid',1,4294967295,$required);$id=portal_westy_cua_int($a,'window_id',1,PHP_INT_MAX,$required);
@@ -181,7 +182,8 @@ function portal_westy_cua_request(string $tool,mixed $arguments):array
         case 'cua_launch_app':
             $aumid=portal_westy_cua_string($a,'aumid',300,'/\A[A-Za-z0-9._-]{1,200}![A-Za-z0-9._-]{1,100}\z/D');
             $name=portal_westy_cua_string($a,'name',120,'/\A[\p{L}\p{N} ._()&+-]{1,120}\z/uD');
-            $path=portal_westy_cua_string($a,'path',520,'/\A(?:[A-Za-z]:\\\\|\\\\\\\\)[^<>"|?*]+\.exe\z/iD');
+            // A local drive path only: no network share, device namespace or alternate data stream.
+            $path=portal_westy_cua_string($a,'path',520,'/\A[A-Za-z]:(?:\\\\[^<>:"|?*\\\\\/]+)+\.exe\z/iD');
             $urls=portal_westy_cua_list($a,'urls',5,2048);
             $chosen=count(array_filter([$aumid,$name,$path,$urls],static fn($v)=>$v!==null));
             if($chosen!==1)portal_westy_cua_reject('Give exactly one of aumid, name, path or urls.');
@@ -309,9 +311,13 @@ function portal_westy_cua_compact(mixed $value,int $depth,array $limits,?string 
         if(count($value)>$limits['list'])$out[]='['.(count($value)-$limits['list']).' more items omitted]';
         return $out;
     }
-    $out=[];
+    $out=[];$kept=0;
     // Markdown trees duplicate the structured elements; inline pixels travel as images.
-    foreach($value as $name=>$item)if(!in_array($name,['tree_markdown','markdown','data'],true))$out[$name]=portal_westy_cua_compact($item,$depth+1,$limits,(string)$name);
+    foreach($value as $name=>$item){
+        if(in_array($name,['tree_markdown','markdown','data'],true))continue;
+        if(++$kept>$limits['keys']){$out['omitted_fields']=count($value)-$limits['keys'];break;}
+        $out[portal_westy_cua_clip((string)$name,64)]=portal_westy_cua_compact($item,$depth+1,$limits,(string)$name);
+    }
     return $out;
 }
 
@@ -323,18 +329,29 @@ function portal_westy_cua_evidence(?array $response,int $images=0):array
     $texts=[];
     foreach($response['content']??[] as $part)
         if(is_array($part)&&($part['type']??null)==='text'&&is_string($part['text']??null))$texts[]=$part['text'];
-    foreach([['string'=>1500,'list'=>60,'elements'=>200,'text'=>4000],['string'=>500,'list'=>25,'elements'=>80,'text'=>1500]] as $limits){
+    foreach([['string'=>1500,'list'=>60,'keys'=>80,'elements'=>200,'text'=>4000],['string'=>500,'list'=>25,'keys'=>40,'elements'=>80,'text'=>1500]] as $limits){
         $evidence=['is_error'=>($response['isError']??false)===true];
         if($structured!==null)$evidence['structured']=portal_westy_cua_compact($structured,0,$limits);
         // A structured element list supersedes the Markdown rendering of the same tree.
         if($texts!==[]&&!isset($structured['elements']))
             $evidence['text']=array_map(static fn(string $text):string=>portal_westy_cua_clip($text,$limits['text']),array_slice($texts,0,3));
         if($images>0)$evidence['images_attached']=$images;
-        $wire=json_encode($evidence,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE);
-        if(is_string($wire)&&strlen($wire)<=PORTAL_WESTY_CUA_EVIDENCE_BYTES)return $evidence;
+        if(portal_westy_cua_bytes($evidence)<=PORTAL_WESTY_CUA_EVIDENCE_BYTES)return $evidence;
     }
-    return ['is_error'=>($response['isError']??false)===true,'truncated'=>true,
-        'text'=>portal_westy_cua_clip((string)$wire,PORTAL_WESTY_CUA_EVIDENCE_BYTES-200)]+($images>0?['images_attached'=>$images]:[]);
+    // Last resort: a clipped plain rendering, measured as it is finally encoded so
+    // quote- or backslash-dense screen text cannot double the bound.
+    $text=(string)json_encode($evidence,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE);
+    $fallback=static fn(string $text):array=>['is_error'=>($response['isError']??false)===true,'truncated'=>true,'text'=>$text]
+        +($images>0?['images_attached'=>$images]:[]);
+    for($bytes=PORTAL_WESTY_CUA_EVIDENCE_BYTES-200;$bytes>0&&portal_westy_cua_bytes($fallback(portal_westy_cua_clip($text,$bytes)))>PORTAL_WESTY_CUA_EVIDENCE_BYTES;$bytes=intdiv($bytes*3,4));
+    return $fallback($bytes>0?portal_westy_cua_clip($text,$bytes):'');
+}
+
+/** Encoded size exactly as the tool loop embeds evidence in the provider request. */
+function portal_westy_cua_bytes(array $evidence):int
+{
+    $wire=json_encode($evidence,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE);
+    return is_string($wire)?strlen($wire):PHP_INT_MAX;
 }
 
 /** Closed driver codes only; the public receipt never carries screen content. */
@@ -370,7 +387,7 @@ function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,call
         if(strlen($params)>60000)portal_westy_cua_reject('This call is too large. Send less text at once.');
     }catch(PortalWestyCuaRejected $error){
         $public=['state'=>'rejected','reason'=>'invalid_arguments','executed'=>false,'correction_allowed'=>true,'retry_allowed'=>false];
-        return ['public_result'=>$public+['guidance'=>portal_westy_cua_guidance($public).' '.$error->getMessage()]];
+        return ['public_result'=>$public+['guidance'=>portal_westy_cua_clip(portal_westy_cua_guidance($public).' '.$error->getMessage(),400)]];
     }
     $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport);
     $response=$dispatch['private_observation']['cua']??null;$response=is_array($response)?$response:null;

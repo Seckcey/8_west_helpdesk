@@ -24,12 +24,13 @@ The Companion and the pinned Cua Driver 0.34.0 worked. Safeharbor's tool loop di
 | --- | --- |
 | Tools | `desktop_cua` is no longer offered. Thirteen validated tools replace it: `cua_list_windows`, `cua_launch_app`, `cua_window_state`, `cua_click`, `cua_type_text`, `cua_set_value`, `cua_press_keys`, `cua_scroll`, `cua_browser_state`, `cua_browser_prepare`, `cua_browser_navigate`, `cua_browser_click`, `cua_browser_type`. `desktop_stop` is unchanged. |
 | Translation | `app/lib/portal_westy_cua.php` checks every field, then builds the exact upstream `tools/call` (`get_window_state`, `click`, `type_text`, `press_key`/`hotkey`, `scroll`, `set_value`, `launch_app`, `list_windows`, `get_browser_state`, `browser_*`). Unknown fields, including `session`, are refused. The Companion still injects its own session. Only named keys the driver knows are sent, because the driver presses the first character of an unknown key name. |
-| Observation | `get_window_state` is bounded (150 controls, 1,000 with a query, 1,280-pixel screenshot). The model receives one line per control instead of JSON plus a duplicate Markdown tree. Evidence per call is capped at 24 KB. Only the newest screenshot is sent to the provider. |
+| Observation | `get_window_state` is bounded (150 controls, 1,000 with a query, 1,280-pixel screenshot). The model receives one line per control instead of JSON plus a duplicate Markdown tree. Evidence per call is capped at 24 KB as finally encoded, including quote- or backslash-dense screen text. Only the newest screenshot is sent to the provider. |
 | Playbook | The device instructions carry a short find, observe, act, verify playbook for Windows and the browser. No driver manual is required reading. |
 | Time | After a tool result, the attempt yields a durable continuation when less than 90 seconds remain. A Cua call is never sent with less than 62 seconds left; the model is told it was not sent and sends it again after the continuation. |
-| Mistakes | Invalid arguments return `rejected` with correction guidance. A call to a tool that is no longer offered returns the real offer. Neither ends the reply, and neither reaches the device. |
-| Model | The internal tenant uses GPT-6.1 Sol at medium effort (was GPT-6 Luna at low). Tenants with an 8 West ID AI selection are unchanged. |
-| Allowance | Each round allows 8,000 output tokens, and the reserve uses the same number. |
+| Mistakes | Invalid arguments return `rejected` with correction guidance. A call to a tool that is no longer offered returns the real offer. Neither reaches the device. The fifth such call in one turn, counted across continuations, ends the reply as `tool_invalid` instead of spending more paid rounds. |
+| Model | The internal tenant uses GPT-6.1 Sol at medium effort (was GPT-6 Luna at low). This applies to all of that tenant's Westy chat, not only computer use. Tenants with an 8 West ID AI selection are unchanged. |
+| Allowance | Each round allows up to 8,000 output tokens. When the five-round reserve would not fit the remaining monthly budget, the attempt uses 4,000, 2,000 or the original 1,200 tokens instead, and the reserve uses the same number. A tenant is therefore never refused sooner than before; for example, GPT-6 Astra on the default budget starts at 2,000. |
+| Launch | `cua_launch_app` paths must be local drive paths to an `.exe`. Network shares, device paths and alternate data streams are refused. |
 | Failure names | The adapter's closed reason codes (`input_count_unavailable`, `provider_invalid`, `provider_limit`, `provider_refused`) are kept instead of becoming `provider_unavailable`. Each failed attempt writes one content-free `westy_ai_failure` line (operation, sequence, round, reason, exception class) to the PHP error log. The portal shows a message for every reason plus "Reason code: …". |
 | Stale turns | A pending turn is shown as interrupted after 180 seconds measured from its newest attempt, not from the first one. |
 
@@ -61,7 +62,10 @@ Companion change.
 
 ## Validation (synthetic)
 
-- Local PHP 8.3: `portal_westy_desktop_continuation_test.php` (275 assertions including the new
+- An independent adversarial review of the first commit found no privacy or contract defect. Its
+  findings (the evidence bound for quote-dense text, launch paths, oversized rejected field names,
+  the expensive-model reserve and repeated mistakes) are fixed in the following commit.
+- Local PHP 8.3: `portal_westy_desktop_continuation_test.php` (289 assertions including the new
   Cua cases), `tenant_ai_catalog_test.php`, `portal_westy_ai_receipt_test.php`,
   `portal_westy_desktop_diagnostics_test.php`, `portal_westy_desktop_recovery_test.php`,
   `portal_westy_replay_test.php`, `portal_computer_time_test.php` and the desktop and workflow

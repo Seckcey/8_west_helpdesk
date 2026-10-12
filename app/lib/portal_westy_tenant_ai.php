@@ -8,6 +8,8 @@ require_once __DIR__.'/portal_westy_cua.php';
  * medium-effort model needs far more than a short visible answer. */
 const PORTAL_WESTY_AI_MAX_INPUT=66048;
 const PORTAL_WESTY_AI_MAX_OUTPUT=8000;
+/** Mistakes that send nothing (invalid arguments, a tool that is not offered) a turn may make before it ends. */
+const PORTAL_WESTY_AI_MISTAKE_LIMIT=5;
 /** After a tool result, yield a durable continuation when less than this remains of
  * the attempt's deadline: one more model round plus one device call must still fit. */
 const PORTAL_WESTY_AI_YIELD_SECONDS=90.0;
@@ -140,6 +142,28 @@ function portal_westy_desktop_context(PDO $pdo,array $context,string $conversati
     return $bound;
 }
 
+/** The largest allowance whose five-round reserve fits the remaining budget. The original
+ * 1,200 tokens is the floor, so an expensive model is never refused sooner than before. */
+function portal_westy_ai_output_allowance(array $selection,int $remaining):?int
+{
+    foreach([PORTAL_WESTY_AI_MAX_OUTPUT,4000,2000,1200] as $tokens)
+        if(westy_tenant_ai_reserve($selection,PORTAL_WESTY_AI_MAX_INPUT,$tokens,5)<=$remaining)return $tokens;
+    return null;
+}
+
+/** Calls in this turn's history that were answered without being sent. The count survives
+ * continuations because their public receipts stay in the durable replay. */
+function portal_westy_ai_mistakes(array $messages):int
+{
+    $count=0;
+    foreach($messages as $message){
+        if(($message['role']??null)!=='tool'||!is_string($message['content'][0]['text']??null))continue;
+        $data=json_decode($message['content'][0]['text'],true);
+        if(($data['result']['state']??null)==='rejected'||($data['untrusted_result']['reason']??null)==='tool_unavailable')$count++;
+    }
+    return $count;
+}
+
 /** The attempt yields before its deadline only at a point where every tool has a receipt. */
 function portal_westy_ai_yield_due(?float $deadline,array $context):bool
 {
@@ -178,7 +202,7 @@ function portal_westy_ai_failure_diagnostic(string $operation,int $sequence,int 
 /** Five paid rounds per request, with durable continuation within the existing run budget. */
 function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $messages,string $operation,
     array &$partial,callable $alive,callable $output,callable $save,?callable $provider=null,
-    ?callable $transport=null,?callable $resolver=null,?float $deadline=null):array
+    ?callable $transport=null,?callable $resolver=null,?float $deadline=null,int $maxOutput=PORTAL_WESTY_AI_MAX_OUTPUT):array
 {
     $usage=['input'=>0,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>0];
     $cost=0;$known=true;$receipts=[];$inFlight=false;$buffer=null;$discoveryContext=null;$round=0;
@@ -197,7 +221,7 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
                 throw new PortalWestyException('ai_changed');
             $selection=portal_westy_ai_selection($resolved,portal_westy_config());
             $tools=portal_westy_ai_tools($pdo,$context,$selection,$desktopAvailability);
-            $options=['max_output_tokens'=>PORTAL_WESTY_AI_MAX_OUTPUT,'max_input_tokens'=>PORTAL_WESTY_AI_MAX_INPUT,'tools'=>$tools];
+            $options=['max_output_tokens'=>$maxOutput,'max_input_tokens'=>PORTAL_WESTY_AI_MAX_INPUT,'tools'=>$tools];
             $recoveryKey=$round===0?portal_westy_desktop_recovery_key($context,$operation,$partial,$tools,$desktopAvailability):null;
             $deferredText='';
             $buffer=new PortalWestyTextBuffer(static function(string $text)use($output,$alive,$recoveryKey,&$deferredText):void{
@@ -281,6 +305,8 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
                 $messages[]=['role'=>'tool','call_id'=>$call['id'],'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>[
                     'state'=>'refused','executed'=>false,'retry_allowed'=>false,'reason'=>'tool_unavailable',
                     'offered_tools'=>array_column($tools,'name')]],JSON_THROW_ON_ERROR)]]];
+                // A model that keeps calling what cannot run ends the reply instead of spending rounds.
+                if(portal_westy_ai_mistakes($messages)>=PORTAL_WESTY_AI_MISTAKE_LIMIT)throw new PortalWestyException('tool_invalid');
                 if($partial['reply']!=='')$output('delta',['text'=>"\n\n"]);
                 if($round===4||portal_westy_ai_yield_due($deadline,$context))return $wait();
                 continue;
@@ -375,6 +401,8 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             }
             $messages[]=$result['continuation'];
             $messages[]=['role'=>'tool','call_id'=>$call['id'],'content'=>$parts];
+            if(($partial['tools'][$index]['state']??null)==='rejected'&&in_array($name,PORTAL_WESTY_CUA_TOOLS,true)
+                &&portal_westy_ai_mistakes($messages)>=PORTAL_WESTY_AI_MISTAKE_LIMIT)throw new PortalWestyException('tool_invalid');
             if($partial['reply']!=='')$output('delta',['text'=>"\n\n"]);
             // Yield after the fifth round, or earlier when another model round plus a
             // device call might not finish before this attempt's deadline.

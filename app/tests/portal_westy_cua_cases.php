@@ -196,6 +196,42 @@ $legacy=portal_westy_ai_selection(['status'=>'internal_legacy','revision'=>3],['
 check($legacy['status']==='active'&&$legacy['provider']==='openai'&&$legacy['model']==='gpt-6.1-sol'&&$legacy['effort']==='medium'&&$legacy['credential_version']===0,
     'the internal tenant uses GPT-6.1 Sol at medium effort');
 check(westy_tenant_ai_reserve($legacy,PORTAL_WESTY_AI_MAX_INPUT,PORTAL_WESTY_AI_MAX_OUTPUT,5)===1225600,'a five-round Sol attempt reserves 1.2256 USD before provider I/O');
+$astra=westy_tenant_ai_selection('openai','gpt-6-astra','medium');
+check(portal_westy_ai_output_allowance($legacy,5000000)===8000&&portal_westy_ai_output_allowance($astra,5000000)===2000
+    &&portal_westy_ai_output_allowance($astra,4428000)===1200&&portal_westy_ai_output_allowance($astra,4427999)===null,
+    'the allowance shrinks to fit the remaining budget and is never refused sooner than the original 1,200 tokens');
+
+// Adversarial screen text cannot break the evidence bound.
+$dense=['isError'=>false,'structuredContent'=>['window_title'=>str_repeat('"\\',3000),'elements'=>array_map(static fn(int $i):array=>['element_index'=>$i,
+    'element_token'=>sprintf('s%08x:%d',42,$i),'role'=>'text','label'=>str_repeat('"\\',60).$i,'value'=>str_repeat("\"\x01\\",50)],range(0,149))]];
+$fields=['isError'=>false,'structuredContent'=>array_combine(array_map(static fn(int $i):string=>'field_'.$i.str_repeat('k',300),range(0,4999)),
+    array_fill(0,5000,str_repeat('"',2000)))];
+foreach(['quote-dense controls'=>$dense,'thousands of fields'=>$fields,'control characters'=>['content'=>[['type'=>'text','text'=>str_repeat("\x01\x02\"",40000)]]]] as $label=>$hostile){
+    $evidence=portal_westy_cua_evidence($hostile,1);
+    $embedded=json_encode(['result'=>[],'untrusted_observation'=>$evidence],JSON_THROW_ON_ERROR|JSON_INVALID_UTF8_SUBSTITUTE|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+    check(portal_westy_cua_bytes($evidence)<=PORTAL_WESTY_CUA_EVIDENCE_BYTES&&strlen($embedded)<=PORTAL_WESTY_CUA_EVIDENCE_BYTES+40,'evidence stays bounded as embedded: '.$label);
+}
+foreach(['\\\\server\\share\\payload.exe','\\\\.\\C:\\x.exe','C:\\x.txt:evil.exe','C:x.exe','C:\\','C:\\dir/evil.exe'] as $unsafe)
+    check($rejects('cua_launch_app',['path'=>$unsafe]),'launch refuses a non-local or alternate-stream path: '.$unsafe);
+check($request('cua_launch_app',['path'=>'C:\\Program Files\\Vendor App\\app.exe'])['arguments']===['path'=>'C:\\Program Files\\Vendor App\\app.exe'],'an ordinary local program path is accepted');
+$bloated=portal_westy_cua_tool($context,'cua_click',$observe+[str_repeat('k',40000)=>1],static fn():bool=>true);
+check(strlen($bloated['public_result']['guidance'])<=420&&!str_contains($bloated['public_result']['guidance'],str_repeat('k',100)),'a rejected receipt never stores an oversized field name');
+
+// A model that keeps sending calls that cannot run ends the reply instead of spending rounds.
+$calls=0;
+$provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$calls,$reply,$observe):array{
+    $calls++;return $reply('',[['id'=>'mistake-'.$calls,'name'=>$calls%2?'cua_click':'desktop_cua','arguments'=>$observe]]);
+};
+$out=$run($context,$partial,$provider,setup:$setupCua);
+check(!$out['result']['ok']&&$out['result']['reason']==='tool_invalid'&&$calls===PORTAL_WESTY_AI_MISTAKE_LIMIT&&$cuaDispatches===[],
+    'repeated unsendable calls end the reply at the mistake limit without reaching the device');
+$prior=$messages;
+for($i=0;$i<PORTAL_WESTY_AI_MISTAKE_LIMIT-1;$i++)$prior[]=['role'=>'tool','call_id'=>'old-'.$i,'content'=>[['type'=>'text',
+    'text'=>json_encode(['result'=>['state'=>'rejected'],'observation_status'=>'expired'],JSON_THROW_ON_ERROR)]]];
+$calls=0;$work=$partial;
+$result=portal_westy_ai_run($pdo,$context,$selection,$prior,$operation,$work,static function():void{},static function():void{},static function():void{},
+    $provider,resolver:static fn()=>$selection);
+check(!$result['ok']&&$result['reason']==='tool_invalid'&&$calls===1,'mistakes saved in the durable replay count after a continuation');
 
 // Each failure keeps its own name, and its record never carries content.
 $failureLog=tempnam(sys_get_temp_dir(),'westy-cua-failure-');$previousLog=ini_set('error_log',$failureLog);

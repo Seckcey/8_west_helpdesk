@@ -276,14 +276,15 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         }
         $bytes=strlen(json_encode($body,JSON_THROW_ON_ERROR));
         if ($bytes>($runResume?131072:32000)) throw new PortalWestyException('context_limit',400);
-        // Count every input byte as a token plus framing overhead, at cache-write
-        // rate, across at most five rounds of the full output/reasoning allowance.
-        $reserve=westy_tenant_ai_reserve($aiSelection,PORTAL_WESTY_AI_MAX_INPUT,PORTAL_WESTY_AI_MAX_OUTPUT,5);
         $month=gmdate('Y-m');
         $insert=$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
         $q=$pdo->prepare($insert.' INTO portal_westy_budgets(tenant_id,client_id,month_key,charged_microusd) VALUES(?,?,?,0)');$q->execute([$s['tenant'],$s['client'],$month]);
         $q=$pdo->prepare('SELECT charged_microusd FROM portal_westy_budgets WHERE tenant_id=? AND client_id=? AND month_key=?'.portal_westy_lock($pdo));$q->execute([$s['tenant'],$s['client'],$month]);
-        if ((int)$q->fetchColumn()+$reserve>$c['monthly_microusd']) throw new PortalWestyException('cost_limit',429);
+        // Count every input byte as a token plus framing overhead, at cache-write
+        // rate, across at most five rounds of this attempt's output/reasoning allowance.
+        $maxOutput=portal_westy_ai_output_allowance($aiSelection,$c['monthly_microusd']-(int)$q->fetchColumn());
+        if ($maxOutput===null) throw new PortalWestyException('cost_limit',429);
+        $reserve=westy_tenant_ai_reserve($aiSelection,PORTAL_WESTY_AI_MAX_INPUT,$maxOutput,5);
         $q=$pdo->prepare('SELECT COUNT(*) FROM portal_westy_ai_attempts WHERE tenant_id=? AND client_id=? AND created_at>=?');$q->execute([$s['tenant'],$s['client'],gmdate('Y-m-d 00:00:00')]);
         if ((int)$q->fetchColumn()>=$c['daily_limit']) throw new PortalWestyException('daily_limit',429);
         $q=$pdo->prepare('UPDATE portal_westy_budgets SET charged_microusd=charged_microusd+? WHERE tenant_id=? AND client_id=? AND month_key=?');$q->execute([$reserve,$s['tenant'],$s['client'],$month]);
@@ -354,7 +355,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         if($emit){$alive(true);$emit($event,['operation'=>$key]+$value);}
     };
     if($emit)$emit('accepted',['operation'=>$key,'conversation'=>$account['conversation_key']]);
-    $result=portal_westy_ai_run($pdo,$context,$aiSnapshot,$messages,$key,$partial,$alive,$output,$save,$provider,$transport,$aiResolver,$deadline);
+    $result=portal_westy_ai_run($pdo,$context,$aiSnapshot,$messages,$key,$partial,$alive,$output,$save,$provider,$transport,$aiResolver,$deadline,$maxOutput);
     $aiLost=$aiLost || ($result['reason']??null)==='ai_changed';
     $result['data']=$partial;
     // A paid receipt survives loss of authority. Revalidation controls delivery,
