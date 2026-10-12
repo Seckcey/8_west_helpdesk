@@ -489,6 +489,29 @@ try{
     check(substr_count($logged,'"event":"westy_ai_failure"')===4&&str_contains($logged,'"reason":"provider_incomplete"')&&str_contains($logged,'"error":"JsonException"'),
         'each failed attempt records one content-free reason');
     check(!str_contains($logged,'PRIVATE'),'failure records never include exception text');
+    // The adapter's bounded HTTP facts reach the same line; every provider string is re-projected through closed lists.
+    $closed=['ok'=>false,'reason'=>'provider_unavailable','usage'=>null,'http'=>400,'transport'=>0,
+        'provider_error'=>['type'=>'invalid_request_error','code'=>'unsupported_value','param'=>'reasoning.effort']];
+    $out=$run($context,$partial,static fn(...$arguments)=>$closed,setup:$setupCua);
+    $lines=array_values(array_filter(explode("\n",(string)file_get_contents($failureLog)),static fn(string $text):bool=>str_contains($text,'"event":"westy_ai_failure"')));
+    $last=(string)end($lines);$line=json_decode(substr($last,(int)strpos($last,'{')),true);
+    check(!$out['result']['ok']&&$out['result']['reason']==='provider_unavailable'&&($line['http']??null)===400&&($line['transport']??null)===0
+        &&($line['provider_type']??null)==='invalid_request_error'&&($line['provider_code']??null)==='unsupported_value'
+        &&($line['provider_param']??null)==='reasoning.effort','a streamed provider failure logs its HTTP status and closed error names on the same line');
+    $captured=[];$sink=static function(string $text)use(&$captured):void{$captured[]=$text;};
+    $hostile=['ok'=>false,'reason'=>'provider_unavailable','usage'=>null,'message'=>'PRIVATE message','http'=>'PRIVATE http','transport'=>999,
+        'provider_error'=>['type'=>'PRIVATE_type sk-PRIVATEKEY','code'=>'PRIVATE-code','param'=>'tools[3].PRIVATE','message'=>'PRIVATE error message','key'=>'sk-PRIVATEKEY']];
+    portal_westy_ai_failure_diagnostic($operation,1,1,'provider_unavailable',null,$sink,$hostile);
+    $hostileLine=json_decode($captured[0]??'',true);
+    check(count($captured)===1&&!str_contains($captured[0],'PRIVATE')&&!str_contains($captured[0],'sk-')&&!isset($hostileLine['http'])&&!isset($hostileLine['transport'])
+        &&($hostileLine['provider_type']??null)==='unclassified'&&($hostileLine['provider_code']??null)==='unclassified'&&($hostileLine['provider_param']??null)==='unclassified',
+        'a hostile adapter result yields no private text and only unclassified names');
+    $captured=[];
+    portal_westy_ai_failure_diagnostic($operation,1,1,'provider_unavailable',null,$sink,['http'=>600,'transport'=>-1,'provider_error'=>['param'=>'input[3]']]);
+    portal_westy_ai_failure_diagnostic($operation,1,1,'provider_unavailable',null,$sink,['provider_error'=>['param'=>'input[03]']]);
+    $edge=array_map(static fn(string $text):array=>json_decode($text,true),$captured);
+    check(!isset($edge[0]['http'])&&!isset($edge[0]['transport'])&&($edge[0]['provider_param']??null)==='input[3]'&&($edge[1]['provider_param']??null)==='unclassified'
+        &&!isset($edge[1]['provider_type'])&&strlen($captured[0])<=1024,'out-of-range integers are omitted, a bounded array index is kept, and the line stays bounded');
 }finally{ini_set('error_log',$previousLog===false?'':$previousLog);unlink($failureLog);}
 
 foreach(['known_refusal','lost_reply','stopped'] as $scenario){
