@@ -1,6 +1,22 @@
 # Where things stand
 
-**October 12 — typed Westy computer tools deployed; $20 allowance active:**
+**October 12, 3:49 PM Pacific — normal Westy chat restored:**
+Safeharbor PR #221 is deployed as
+`ceb14beda8e21fcedc5b8ec1589d6103174a4ad4`. Starting the idle-check interval
+after successful authorization checks removes the reproduced immediate-repeat
+pattern. A new ordinary signed-in greeting returned `hi` and completed with
+known usage, one provider round and zero tools; the UI became ready again.
+The same OpenAI `gpt-6.1-sol` selection, AI revision 6 and credential version 3
+were used. Reporting is active with unchanged protected configuration, $20
+allowance, branding, cron and original delivery/approval/archive clocks. Exact
+PR/main CI and independent runtime/immutable-record checks passed. See the
+[tenant AI release and normal-path evidence](TENANT_AI.md).
+Earlier unknown receipts were preserved. Historical first-call causes and
+Frankie's Companion/browser/Notepad/Agent2/physical acceptance remain separate;
+this greeting did not perform computer tools. This documentation closeout
+does not change the deployed application.
+
+**Historical October 12 — typed Westy computer tools deployed; $20 allowance active:**
 Colonel installed reviewed PR #219 source
 `102b35d7c5f0b7215e4c09e5dd1293ca0697f24b` through the existing receiver.
 The complete deployed artifact matches the current and immutable release records.
