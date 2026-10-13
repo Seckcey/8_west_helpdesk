@@ -358,6 +358,7 @@ eval('namespace WestyCuaDeadlineFixture; use \\PortalDesktopException; use \\Thr
     .'function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array{'
         .'$GLOBALS["cuaClockCalls"][]=["action"=>$action,"at"=>$GLOBALS["cuaClock"]];'
         .'$seconds=$GLOBALS["cuaRequestSeconds"];$GLOBALS["cuaClock"]+=is_callable($seconds)?$seconds($action):$seconds;'
+        .'$fail=$GLOBALS["cuaClockFail"]??null;if(is_callable($fail)&&($error=$fail($action))!==null)throw $error;'
         .'if($action==="cua_result"&&($GLOBALS["cuaClockReturned"]??false))return ["result"=>["contract"=>"westy-cua-v1","state"=>"returned"],"response"=>["content"=>[]]];'
         .'return $action==="cua"?["action_id"=>str_repeat("9",32)]:["state"=>$action==="stop"?"stopped":"claimed"];}'
     .substr($desktopSource,$dispatchStart,$dispatchEnd-$dispatchStart));
@@ -446,6 +447,62 @@ $revoked=$probe($fastMembership,20.0,static function()use(&$alives):bool{if(++$a
 check(($revoked['result']['public_result']['state']??null)==='unknown'&&end($revoked['actions'])==='stop','access revoked during the wait sends the scoped Stop');
 $revokedFirst=$probe($fastMembership,20.0,static function():bool{throw new RuntimeException('sign_in');});
 check(($revokedFirst['result']['public_result']['state']??null)==='refused'&&$revokedFirst['actions']===[],'access revoked before sending sends nothing');
+// A receipt read that did not run or was lost in transit is asked again; an explicit
+// refusal or an ended sign-in still ends the wait with the scoped Stop.
+$GLOBALS['cuaClockReturned']=true;
+foreach(['transit'=>new PortalDesktopException('connection_unknown'),'unsent read'=>new PortalDesktopException('connection_unavailable',503,true),
+    'server error'=>new PortalDesktopException('desktop_unavailable'),'malformed'=>new JsonException('Syntax error')] as $label=>$failure){
+    $reads=0;
+    $GLOBALS['cuaClockFail']=static function(string $action)use(&$reads,$failure):?Throwable{return $action==='cua_result'&&++$reads<=2?$failure:null;};
+    $retried=$probe($fastMembership,20.0,static fn():bool=>true);
+    check(($retried['result']['public_result']['state']??null)==='returned'&&$retried['actions']===['cua','cua_result','cua_result','cua_result'],
+        'a receipt read that fails ('.$label.') is asked again instead of ending control');
+}
+foreach(['refused read'=>new PortalDesktopException('action_unavailable',404,true),'ended sign-in'=>new PortalDesktopException('sign_in',401)] as $label=>$failure){
+    $GLOBALS['cuaClockFail']=static fn(string $action):?Throwable=>$action==='cua_result'?$failure:null;
+    $ended=$probe($fastMembership,20.0,static fn():bool=>true);
+    check(($ended['result']['public_result']['state']??null)==='unknown'&&$ended['actions']===['cua','cua_result','stop'],
+        'an '.$label.' while waiting still ends the wait with the scoped Stop');
+}
+// A queue request that failed before it was sent did not run: refused, never Stopped.
+$GLOBALS['cuaClockFail']=static fn(string $action):?Throwable=>$action==='cua'?new PortalDesktopException('connection_unavailable',503,true):null;
+$unsentQueue=$probe($fastMembership,20.0,static fn():bool=>true);
+check(($unsentQueue['result']['public_result']['state']??null)==='refused'&&$unsentQueue['result']['public_result']['reason']==='connection_unavailable'
+    &&$unsentQueue['actions']===['cua'],'a call whose access check failed before sending is refused without a Stop');
+check(str_contains(portal_westy_cua_guidance(['state'=>'refused','reason'=>'connection_unavailable']),'Send the same call again'),
+    'the model is told it may send that call again');
+$GLOBALS['cuaClockFail']=static fn(string $action):?Throwable=>$action==='cua'?new PortalDesktopException('connection_unknown'):null;
+$lostQueue=$probe($fastMembership,20.0,static fn():bool=>true);
+check(($lostQueue['result']['public_result']['state']??null)==='unknown'&&$lostQueue['actions']===['cua','stop'],
+    'a call that may have been sent stays unknown and keeps the scoped Stop');
+$GLOBALS['cuaClockFail']=null;$GLOBALS['cuaClockReturned']=false;
+// The real request function names its access failures: before sending they prove the
+// request did not run; after sending the outcome stays open.
+if(!defined('PORTAL_DESKTOP_ENDPOINT'))define('PORTAL_DESKTOP_ENDPOINT','https://support.8westit.com/api/svc/desktop_sessions.php');
+if(!defined('PORTAL_DESKTOP_CONTEXT'))define('PORTAL_DESKTOP_CONTEXT','safeharbor-desktop-sessions-v1');
+if(!class_exists('PortalIdentityUnavailableException'))eval('final class PortalIdentityUnavailableException extends RuntimeException{}');
+if(!class_exists('PortalDevicesException'))eval('final class PortalDevicesException extends RuntimeException{
+    public function __construct(public readonly string $reason,public readonly int $status=503){parent::__construct($reason);}}');
+$requestStart=strpos($desktopSource,'function portal_desktop_request(');$requestEnd=strpos($desktopSource,'function portal_westy_desktop_definitions(',$requestStart);
+eval('namespace WestyDesktopScopeFixture; use \\PortalDesktopException; use \\PortalDevicesException; use \\PortalIdentityUnavailableException; use \\Throwable;'
+    .'function desktop_cleanup_available():bool{return true;}'
+    .'function db(){return null;}'
+    .'function cfg(string $key,mixed $default=null):mixed{return ["endpoint"=>\\PORTAL_DESKTOP_ENDPOINT,"service_secret"=>str_repeat("ab",32)];}'
+    .'function portal_devices_scope($pdo,array $context):array{$step=$GLOBALS["scopeSteps"][$GLOBALS["scopeCall"]++]??"ok";if($step instanceof Throwable)throw $step;return ["scope"=>"same"];}'
+    .substr($desktopSource,$requestStart,$requestEnd-$requestStart));
+foreach(['membership unreadable'=>[[new PortalDevicesException('customer_unavailable')],'connection_unavailable',true,0],
+    'access validation down'=>[[new PortalIdentityUnavailableException('down')],'connection_unavailable',true,0],
+    'signed out'=>[[new PortalDevicesException('sign_in',401)],'sign_in',true,0],
+    'unreadable after sending'=>[['ok',new PortalIdentityUnavailableException('down')],'connection_unknown',false,1]] as $label=>[$steps,$reason,$rejected,$sent]){
+    $GLOBALS['scopeSteps']=$steps;$GLOBALS['scopeCall']=0;$transported=0;
+    try{
+        WestyDesktopScopeFixture\portal_desktop_request($context,'cua',[],static function()use(&$transported):array{$transported++;
+            return ['status'=>200,'body'=>json_encode(['ok'=>true,'contract'=>PORTAL_DESKTOP_CONTEXT,'result'=>[]])];});
+        $caught=null;
+    }catch(PortalDesktopException $error){$caught=$error;}
+    check($caught!==null&&$caught->reason===$reason&&$caught->requestRejected===$rejected&&$transported===$sent,
+        'a desktop request names an access failure ('.$label.') with whether it was sent');
+}
 
 // A returned receipt whose driver response was lost is an acknowledgement, not a verified outcome.
 $withoutResponse=static function()use($setupCua):void{

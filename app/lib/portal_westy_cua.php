@@ -397,7 +397,10 @@ function portal_westy_cua_guidance(array $public):string
                 ?'The driver did not complete this call. Read its error and correct the call or observe again; do not repeat it unchanged.'
                 :'The driver returned a result. That alone does not prove the requested outcome; observe again to verify it before reporting success.'),
         'rejected'=>'Not sent. Correct the arguments and try again.',
-        'refused'=>'Not run. Do not repeat it unchanged; explain the reason or choose another supported step.',
+        // The access check before sending failed, so nothing reached the computer.
+        'refused'=>($public['reason']??null)==='connection_unavailable'
+            ?'Not sent: the check before sending could not complete, so nothing ran. Send the same call again.'
+            :'Not run. Do not repeat it unchanged; explain the reason or choose another supported step.',
         'cancelled'=>'Cancelled before it ran. Do not repeat it unless the person asks again.',
         default=>'The outcome is unknown and computer control may have stopped. Do not repeat this call. Observe first if control is still available.',
     };

@@ -32,20 +32,22 @@ function portal_desktop_transport(string $body,array $headers):array
 }
 function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array
 {
+    // Everything that fails before the transport call proves this request did not
+    // run, so it is a rejected request, never an uncertain one.
     if(!in_array($action,['stop','state','renew','result','cua_result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','terminal_tasks','terminal_task_result','terminal_task_cancel','control_result','control_cancel'],true)&&!desktop_cleanup_available())
-        throw new PortalDesktopException('cleanup_unavailable',503);
+        throw new PortalDesktopException('cleanup_unavailable',503,true);
     $config=cfg('desktop_companion',[]);
     if(!is_array($config)||($config['endpoint']??null)!==PORTAL_DESKTOP_ENDPOINT
         ||!is_string($config['service_secret']??null)||preg_match('/\A[a-f0-9]{64}\z/D',$config['service_secret'])!==1
-        ||$config['service_secret']===str_repeat('0',64))throw new PortalDesktopException('connection_unavailable');
-    $scope=portal_devices_scope(db(),$context);
+        ||$config['service_secret']===str_repeat('0',64))throw new PortalDesktopException('connection_unavailable',503,true);
+    $scope=portal_desktop_scope($context,true);
     $body=json_encode(['action'=>$action,'scope'=>$scope,'input'=>$input],JSON_THROW_ON_ERROR);
-    if(strlen($body)>131072)throw new PortalDesktopException('invalid_request',400);
+    if(strlen($body)>131072)throw new PortalDesktopException('invalid_request',400,true);
     $timestamp=(string)time();$nonce=bin2hex(random_bytes(16));
     $preimage=PORTAL_DESKTOP_CONTEXT."\nPOST\n/api/svc/desktop_sessions.php\n".$timestamp."\n".$nonce."\n".hash('sha256',$body);
     $reply=($transport??'portal_desktop_transport')($body,['Content-Type: application/json','X-Portal-Timestamp: '.$timestamp,
         'X-Portal-Nonce: '.$nonce,'X-Portal-Signature: '.hash_hmac('sha256',$preimage,$config['service_secret'])]);
-    if(portal_devices_scope(db(),$context)!==$scope)throw new PortalDesktopException('sign_in',401);
+    if(portal_desktop_scope($context,false)!==$scope)throw new PortalDesktopException('sign_in',401);
     if((str_starts_with($action,'shell_')||str_starts_with($action,'terminal_')||str_starts_with($action,'control_')||$action==='cua')&&($reply['status']??0)>=500)throw new PortalDesktopException('connection_unknown');
     $data=json_decode($reply['body'],true,32,JSON_THROW_ON_ERROR);
     if($reply['status']!==200||!is_array($data)||($data['ok']??null)!==true){
@@ -70,6 +72,19 @@ function portal_desktop_request(array $context,string $action,array $input,?call
     }
     if(($data['contract']??null)!==PORTAL_DESKTOP_CONTEXT||!is_array($data['result']??null))throw new PortalDesktopException('invalid_response');
     return $data['result'];
+}
+/** The caller's access scope, read before and after each desktop request. A failed read
+ * before sending proves the request did not run; after sending its outcome stays open.
+ * An ended sign-in keeps its own reason either way. */
+function portal_desktop_scope(array $context,bool $beforeSending):array
+{
+    try{return portal_devices_scope(db(),$context);}
+    catch(PortalDevicesException $error){
+        if($error->reason==='sign_in')throw new PortalDesktopException('sign_in',401,$beforeSending);
+        throw new PortalDesktopException($beforeSending?'connection_unavailable':'connection_unknown',503,$beforeSending);
+    }catch(PortalIdentityUnavailableException){
+        throw new PortalDesktopException($beforeSending?'connection_unavailable':'connection_unknown',503,$beforeSending);
+    }
 }
 /** The authenticated orchestrator attaches desktop context only after reading the
  * actor's own conversation binding; it never copies these fields from tool args. */
@@ -237,7 +252,16 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
                 if(!$measured('check',static fn()=>$alive(false)))throw new PortalDesktopException('task_stopped');
             }elseif(!$alive(null))throw new PortalDesktopException('task_stopped');
             if(!$fits(portal_westy_cua_need($cost,0,1)))break;
-            $receipt=$measured('request',static fn()=>portal_desktop_request($context,'cua_result',$identity+['action_id'=>$actionId],$transport));
+            try{
+                $receipt=$measured('request',static fn()=>portal_desktop_request($context,'cua_result',$identity+['action_id'=>$actionId],$transport));
+            }catch(PortalDesktopException|\JsonException $error){
+                // Reading the receipt is safe to repeat: a read that did not run or was
+                // lost in transit is asked again while the wait lasts. An explicit
+                // refusal or an ended sign-in still ends the wait.
+                if($error instanceof PortalDesktopException&&!in_array($error->reason,['connection_unavailable','connection_unknown','desktop_unavailable','invalid_response'],true))throw $error;
+                if($error instanceof PortalDesktopException&&$error->requestRejected&&$error->reason!=='connection_unavailable')throw $error;
+                usleep(200000);continue;
+            }
             if(in_array($receipt['state']??null,['queued','claimed'],true)){usleep(200000);continue;}
             if(($receipt['result']['contract']??null)==='westy-cua-v1'){
                 $returned=($receipt['result']['state']??null)==='returned';
