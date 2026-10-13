@@ -187,9 +187,13 @@ $out=$runAt($context,$partial,$late,microtime(true)+80,$setupCua);
 check(($out['result']['waiting']??false)===true&&$out['waits']===[['kind'=>'continuation']]&&count($cuaDispatches)===1,
     'a tool result late in the attempt yields a durable continuation before the deadline');
 check($out['partial']['tools'][1]['state']==='returned'&&!str_contains($out['waitReplays'][0],'PRIVATE'),'the finished call keeps its receipt and the yield keeps no screen content');
-$out=$runAt($context,$partial,$late,microtime(true)+30,$setupCua);
-check($cuaDispatches===[]&&!in_array('cua',array_column($out['wire'],'action'),true)&&count($out['partial']['tools'])===1,
-    'a call that cannot finish before the deadline is never sent and gets no public receipt');
+$admission=portal_westy_cua_admission_seconds($context);
+$out=$runAt($context,$partial,$late,microtime(true)+$admission-1,$setupCua);
+$unsentRow=$out['partial']['tools'][1]??[];
+check($cuaDispatches===[]&&!in_array('cua',array_column($out['wire'],'action'),true)&&($unsentRow['state']??null)==='not_sent'
+    &&$unsentRow['result']['reason']==='step_time_limit'&&$unsentRow['result']['executed']===false
+    &&$unsentRow['result']['timing']['needed_ms']===(int)round($admission*1000)&&$unsentRow['result']['timing']['remaining_ms']<$admission*1000,
+    'a call that cannot finish before the deadline is never sent, and its row keeps the reason and the time that was left');
 check($out['waits']===[['kind'=>'continuation']]&&str_contains($out['waitReplays'][0],'not_sent')&&str_contains($out['waitReplays'][0],'step_time_limit'),
     'the continuation tells the model the call was not sent');
 $calls=0;
@@ -209,38 +213,23 @@ check($calls===5&&($genericYield['result']['waiting']??false)===true&&count($gen
     &&str_ends_with($genericYield['partial']['reply'],'Round 5.'),'the generic fifth-round yield also writes no trailing separator');
 check($genericYield['partial']['tools'][5]['state']==='observed'&&count($genericYield['result']['rounds'])===5,
     'the generic yield retains every actual read receipt and paid round');
-$out=$runAt($context,$partial,$late,microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS-1,$setupCua);
-check($cuaDispatches===[]&&$out['waits']===[['kind'=>'continuation']],'one second short of the full request envelope, the call is not sent');
-$out=$runAt($context,$partial,$late,microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS+1,$setupCua);
-check(count($cuaDispatches)===1&&$out['partial']['tools'][1]['state']==='returned','with the full envelope left, the call is sent');
-// A slow receipt never runs past the attempt deadline: polling stops while a last poll
-// and Stop still fit, and the outcome stays honestly unknown. Slow authority checks are
-// measured too. This case waits for the real window, about 28 seconds.
-$GLOBALS['wire']=[];$setupCua();$before=$GLOBALS['service'];$pollStarts=[];
-$GLOBALS['service']=static function($context,$action,$input)use($before,&$pollStarts):array{
-    if($action!=='cua_result')return $before($context,$action,$input);
-    $pollStarts[]=microtime(true);return ['state'=>'claimed'];
-};
-$deadline=microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS+1;
-$slow=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static function():bool{usleep(400000);return true;},null,$deadline);
-check($slow['public_result']['state']==='unknown'&&$slow['public_result']['reason']==='result_unknown'&&$slow['public_result']['retry_allowed']===false,
-    'a receipt that cannot arrive in time is an unknown outcome, never a success');
-check($deadline-microtime(true)>=PORTAL_WESTY_CUA_POLL_RESERVE-1,'polling ends while a last poll and Stop still fit before the deadline');
-check($pollStarts!==[]&&max($pollStarts)+PORTAL_WESTY_CUA_POLL_RESERVE<$deadline,'no poll starts inside the reserve, even after a slow authority check');
-check(count(array_filter($GLOBALS['wire'],static fn($w)=>$w['action']==='cua'))===1&&count(array_filter($GLOBALS['wire'],static fn($w)=>$w['action']==='cua_result'))>1
-    &&in_array('stop',array_column($GLOBALS['wire'],'action'),true),'the call is sent once, polled, and followed by the existing scoped Stop');
+$out=$runAt($context,$partial,$late,microtime(true)+$admission-1,$setupCua);
+check($cuaDispatches===[]&&$out['waits']===[['kind'=>'continuation']],'one second short of the admission time, the call is not sent');
+$out=$runAt($context,$partial,$late,microtime(true)+$admission+1,$setupCua);
+check(count($cuaDispatches)===1&&$out['partial']['tools'][1]['state']==='returned'&&is_int($out['partial']['tools'][1]['result']['timing']['queue_ms']??null),
+    'with the admission time left, the call is sent and its receipt keeps its timing');
 // The time left is checked again at the moment of sending.
 $GLOBALS['wire']=[];$setupCua();
-$unsent=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true,null,microtime(true)+30);
-check($unsent===['not_sent'=>true]&&$cuaDispatches===[]&&!in_array('cua',array_column($GLOBALS['wire'],'action'),true),
+$unsent=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true,null,microtime(true)+$admission-1);
+check(($unsent['not_sent']??false)===true&&is_int($unsent['timing']['remaining_ms']??null)&&$cuaDispatches===[]&&!in_array('cua',array_column($GLOBALS['wire'],'action'),true),
     'with too little time left at the moment of sending, nothing is sent');
 $savedStates=[];$GLOBALS['wire']=[];$GLOBALS['waits']=[];$GLOBALS['waitReplays']=[];$setupCua();$work=$partial;
 $result=portal_westy_ai_run($pdo,$context,$selection,$messages,$operation,$work,static function():void{},
     static function(string $event,array $data)use(&$work):void{if($event==='delta')$work['reply'].=$data['text'];},
     static function()use(&$work,&$savedStates):void{usleep(600000);$savedStates[]=$work['tools'][array_key_last($work['tools'])]['state']??null;},
-    $late,resolver:static fn()=>$selection,deadline:microtime(true)+PORTAL_WESTY_CUA_DISPATCH_SECONDS+0.3);
-check(($result['waiting']??false)===true&&in_array('dispatching',$savedStates,true)&&$cuaDispatches===[]&&count($work['tools'])===1
-    &&str_contains($GLOBALS['waitReplays'][0]??'','not_sent'),'a slow row save uses up the margin, so the call is not sent and the model is told so');
+    $late,resolver:static fn()=>$selection,deadline:microtime(true)+$admission+0.3);
+check(($result['waiting']??false)===true&&in_array('dispatching',$savedStates,true)&&$cuaDispatches===[]&&($work['tools'][1]['state']??null)==='not_sent'
+    &&str_contains($GLOBALS['waitReplays'][0]??'','not_sent'),'a slow row save uses up the margin, so the call is not sent, its row says so and the model is told');
 // A call that ends near the deadline yields at once: the final accounting saves its row,
 // and the resumed attempt adds its own paragraph break.
 $provider=static function($selected,$system,$input,$options,$emit,$alive)use($reply,$observe):array{
@@ -254,7 +243,7 @@ check(($out['result']['waiting']??false)===true&&$out['partial']['tools'][1]['st
 $finishSource=file_get_contents(__DIR__.'/../lib/portal_westy_tenant_ai.php');
 eval('namespace WestyAdmissionFixture; use \\PDO; use \\Throwable; use \\LogicException; '
     .substr($finishSource,strpos($finishSource,'function portal_westy_ai_finish(')));
-$yielded=['returned'=>$out,'not_sent'=>$runAt($context,$partial,$late,microtime(true)+30,$setupCua)];
+$yielded=['returned'=>$out,'not_sent'=>$runAt($context,$partial,$late,microtime(true)+$admission-1,$setupCua)];
 $yielded['unknown']=$runAt($context,$partial,$late,microtime(true)+80,static function()use($setupCua):void{
     $setupCua();$before=$GLOBALS['service'];
     $GLOBALS['service']=static function($context,$action,$input)use($before):array{
@@ -283,8 +272,8 @@ foreach($yielded as $effect=>$sample)foreach(['deliver','stopped','access_change
     if($delivery==='deliver'){
         $receipt=json_decode($stored['reply_json'],true);
         check($stored['state']==='complete'&&$receipt===$sample['partial'],'final accounting durably saves the yielded '.$effect.' receipt');
-        check($effect==='not_sent'?count($receipt['tools'])===1:$receipt['tools'][1]['state']===$effect,
-            'delivery neither leaves an unsent row nor promotes an uncertain dispatch to completion');
+        check($receipt['tools'][1]['state']===$effect,
+            'delivery keeps a not-sent row as not sent and never promotes an uncertain dispatch to completion');
     }else check($stored['state']==='unavailable'&&$stored['reason_code']===$delivery&&$stored['reply_json']===$old,
         'final accounting does not overwrite '.$delivery.' with a late '.$effect.' receipt');
     check($db->query('SELECT state FROM portal_westy_ai_attempts')->fetchColumn()===($delivery==='deliver'?'complete':'unavailable'),
@@ -368,7 +357,7 @@ eval('namespace WestyCuaDeadlineFixture; use \\PortalDesktopException; use \\Thr
     .'function portal_westy_cua_response(array $response):array{return \\portal_westy_cua_response($response);}'
     .'function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array{'
         .'$GLOBALS["cuaClockCalls"][]=["action"=>$action,"at"=>$GLOBALS["cuaClock"]];'
-        .'$GLOBALS["cuaClock"]+=$GLOBALS["cuaRequestSeconds"];'
+        .'$seconds=$GLOBALS["cuaRequestSeconds"];$GLOBALS["cuaClock"]+=is_callable($seconds)?$seconds($action):$seconds;'
         .'if($action==="cua_result"&&($GLOBALS["cuaClockReturned"]??false))return ["result"=>["contract"=>"westy-cua-v1","state"=>"returned"],"response"=>["content"=>[]]];'
         .'return $action==="cua"?["action_id"=>str_repeat("9",32)]:["state"=>$action==="stop"?"stopped":"claimed"];}'
     .substr($desktopSource,$dispatchStart,$dispatchEnd-$dispatchStart));
@@ -387,7 +376,60 @@ $fastMembership=$context;$fastMembership['identity']['customer_access']=[];
 $fast=WestyCuaDeadlineFixture\portal_westy_cua_dispatch($fastMembership,['method'=>'tools/call','params_json'=>'{}'],static fn():bool=>true,null,150.0);
 check($fast['public_result']['state']==='returned'&&array_column($GLOBALS['cuaClockCalls'],'action')===['cua','cua_result'],
     'an ordinary timely membership-bound call still dispatches and receives its result within the unchanged attempt deadline');
+// An observation early in the attempt and the next actions later in the same attempt
+// all reach the computer, and the rule that admits a call also lets it poll.
+$probe=static function(array $ctx,float $at,callable $alive,float $until=150.0):array{
+    $GLOBALS['cuaClock']=$at;$GLOBALS['cuaClockCalls']=[];
+    $result=WestyCuaDeadlineFixture\portal_westy_cua_dispatch($ctx,['method'=>'tools/call','params_json'=>'{}'],$alive,null,$until);
+    return ['result'=>$result,'actions'=>array_column($GLOBALS['cuaClockCalls'],'action'),'end'=>$GLOBALS['cuaClock']];
+};
+$later=[];
+foreach([18.0,48.0,64.0,84.0] as $at)$later[]=$probe($fastMembership,$at,static fn():bool=>true)['result']['public_result']['state']??'not_sent';
+check($later===array_fill(0,4,'returned'),'an observation and later actions in the same attempt all reach the computer');
+$pastAdmission=$probe($fastMembership,151.0-portal_westy_cua_admission_seconds($fastMembership),static fn():bool=>true);
+check(($pastAdmission['result']['not_sent']??false)===true&&$pastAdmission['actions']===[]&&is_int($pastAdmission['result']['timing']['needed_ms']??null),
+    'past the admission time nothing is sent, and the refusal carries its timing');
 $GLOBALS['cuaClockReturned']=false;
+$unpolled=[];$latePolls=[];$pollAndStop=portal_westy_cua_need(portal_westy_cua_costs($fastMembership),0,1);
+for($at=0.0;$at<150.0;$at+=0.5){
+    $p=$probe($fastMembership,$at,static fn():bool=>true);
+    if(in_array('cua',$p['actions'],true)&&(!in_array('cua_result',$p['actions'],true)||end($p['actions'])!=='stop'||$p['end']>=150.0))$unpolled[]=$at;
+    foreach($GLOBALS['cuaClockCalls'] as $call)if($call['action']==='cua_result'&&$call['at']+$pollAndStop>=150.0)$latePolls[]=$at;
+}
+check($unpolled===[],'every sent call is polled at least once and ends with the scoped Stop before the deadline');
+check($latePolls===[],'no poll starts unless it and a worst-case Stop still fit before the deadline');
+// A poll that suddenly takes its worst case (two 12-second membership reads around an
+// 8-second request) right at the margin delays the worst-case Stop by only its own
+// excess: past the 150-second deadline, but inside the 180-second stale-turn limit.
+$GLOBALS['cuaRequestSeconds']=static fn(string $action):float=>$action==='stop'||($action==='cua_result'&&150.0-$GLOBALS['cuaClock']<40.0)?32.0:0.1;
+$spike=$probe($fastMembership,84.0,static fn():bool=>true);
+check(($spike['result']['public_result']['state']??null)==='unknown'&&end($spike['actions'])==='stop'&&$spike['end']>150.0&&$spike['end']<176.0,
+    'a sudden worst-case poll at the margin still ends with the scoped Stop inside the stale-turn limit');
+$GLOBALS['cuaRequestSeconds']=0.1;
+// A full check is started during the wait only while its own worst case fits, so a
+// check that turns slow cannot push Stop past the deadline (customer access and legacy).
+$alives=0;
+$slowCheck=$probe($fastMembership,20.0,static function()use(&$alives):bool{if(++$alives>1)$GLOBALS['cuaClock']+=56.0;return true;});
+check(($slowCheck['result']['public_result']['state']??null)==='unknown'&&end($slowCheck['actions'])==='stop'&&$slowCheck['end']<150.0&&$alives===2,
+    'a worst-case authority check during the wait is not repeated once another could outlast the deadline');
+$alives=0;
+$slowLegacy=$probe($context,100.0,static function()use(&$alives):bool{if(++$alives>1)$GLOBALS['cuaClock']+=20.0;return true;});
+check(($slowLegacy['result']['public_result']['state']??null)==='unknown'&&end($slowLegacy['actions'])==='stop'&&$slowLegacy['end']<150.0,
+    'a legacy authority check that turns slow near the deadline still leaves time for the scoped Stop');
+// The check before sending is full; checks while waiting are throttled.
+$forces=[];
+$probe($fastMembership,20.0,static function(...$arguments)use(&$forces):bool{$forces[]=$arguments[0]??true;return true;});
+check(($forces[0]??null)===true&&count($forces)>1&&array_unique(array_slice($forces,1))===[false],
+    'the dispatcher forces the check before sending and asks without force while it waits');
+$alives=0;
+$stopped=$probe($fastMembership,20.0,static function()use(&$alives):bool{return ++$alives<3;});
+check(($stopped['result']['public_result']['state']??null)==='unknown'&&$stopped['result']['public_result']['reason']==='task_stopped'
+    &&end($stopped['actions'])==='stop','Stop during the wait ends it and sends the scoped Stop');
+$alives=0;
+$revoked=$probe($fastMembership,20.0,static function()use(&$alives):bool{if(++$alives>=2)throw new RuntimeException('sign_in');return true;});
+check(($revoked['result']['public_result']['state']??null)==='unknown'&&end($revoked['actions'])==='stop','access revoked during the wait sends the scoped Stop');
+$revokedFirst=$probe($fastMembership,20.0,static function():bool{throw new RuntimeException('sign_in');});
+check(($revokedFirst['result']['public_result']['state']??null)==='refused'&&$revokedFirst['actions']===[],'access revoked before sending sends nothing');
 
 // A returned receipt whose driver response was lost is an acknowledgement, not a verified outcome.
 $withoutResponse=static function()use($setupCua):void{

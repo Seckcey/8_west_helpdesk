@@ -188,39 +188,61 @@ function portal_westy_cua_response(array $response):array
 function portal_westy_cua_dispatch(array $context,array $arguments,callable $alive,?callable $transport,?float $deadline=null):array
 {
     $task=portal_desktop_task($context);$identity=['session_id'=>$task['session_id'],'task_id'=>$task['task_id']];
-    $dispatched=false;$actionId=null;$returned=false;
-    // Customer-access scope is checked before AND after each desktop request.
-    // alive also checks it in session reauthorization, Westy scope and AI scope.
-    // Each membership read uses the existing 12-second service timeout.
-    $membershipSeconds=isset($context['identity']['customer_access'])?12.0:0.0;
-    $pollReserve=PORTAL_WESTY_CUA_POLL_RESERVE+4*$membershipSeconds;
-    $authoritySeconds=PORTAL_WESTY_CUA_AUTHORITY_SECONDS+3*$membershipSeconds;
-    $dispatchSeconds=PORTAL_WESTY_CUA_DISPATCH_SECONDS+6*$membershipSeconds;
+    $dispatched=false;$actionId=null;$returned=false;$sentAt=null;$queuedAt=null;
+    // One rule admits the call and decides every receipt poll: one more poll and the
+    // scoped Stop must fit before the attempt deadline. Checks and polls are budgeted
+    // at the longest they have taken in this request (membership is still read before
+    // and after every desktop request), never below the binding's floor; Stop is
+    // always budgeted at its worst case. A poll that suddenly runs long can therefore
+    // only delay Stop past the deadline by its own excess, within the stale-turn limit.
+    $cost=portal_westy_cua_costs($context);
+    $fits=static fn(float $seconds):bool=>$deadline===null||microtime(true)+$seconds<$deadline;
+    $measured=static function(string $kind,callable $call)use(&$cost):mixed{
+        $from=microtime(true);
+        try{return $call();}finally{$cost[$kind]=max($cost[$kind],microtime(true)-$from);}
+    };
+    // Content-free timings in whole milliseconds keep a refusal or a slow receipt
+    // visible in the record.
+    $ms=static fn(float $seconds):int=>(int)round($seconds*1000);
+    $notSent=static fn(float $need):array=>['not_sent'=>true,
+        'timing'=>['remaining_ms'=>$ms($deadline-microtime(true)),'needed_ms'=>$ms($need)]];
+    $timing=static function()use(&$sentAt,&$queuedAt,$ms):array{
+        $times=array_filter(['queue_ms'=>$sentAt!==null&&$queuedAt!==null?$ms($queuedAt-$sentAt):null,
+            'wait_ms'=>$queuedAt!==null?$ms(microtime(true)-$queuedAt):null],static fn($value)=>$value!==null);
+        return $times===[]?[]:['timing'=>$times];
+    };
     try{
-        if($deadline!==null&&$deadline-microtime(true)<$dispatchSeconds)return ['not_sent'=>true];
-        if(!$alive())throw new PortalDesktopException('task_stopped');
+        $need=portal_westy_cua_need($cost,1,2,PORTAL_WESTY_CUA_MIN_WAIT);
+        if(!$fits($need))return $notSent($need);
+        if(!$measured('check',static fn()=>$alive()))throw new PortalDesktopException('task_stopped');
         if(!portal_devices_keys($arguments,['method','params_json'])||!is_string($arguments['method'])
             ||!in_array($arguments['method'],['tools/list','tools/call','resources/list','resources/read'],true)
             ||!is_string($arguments['params_json'])||strlen($arguments['params_json'])>60000)
             throw new PortalDesktopException('invalid_cua_request',400,true);
-        // Checked again at the moment of sending: authority checks before it also take time.
-        if($deadline!==null&&$deadline-microtime(true)<$dispatchSeconds)return ['not_sent'=>true];
-        $dispatched=true;
-        $queued=portal_desktop_request($context,'cua',$identity+['request_key'=>bin2hex(random_bytes(16))]+$arguments,$transport);
+        // Checked again at the moment of sending, now with that check's actual cost.
+        $need=portal_westy_cua_need($cost,0,2,PORTAL_WESTY_CUA_MIN_WAIT);
+        if(!$fits($need))return $notSent($need);
+        $dispatched=true;$sentAt=microtime(true);
+        $queued=$measured('request',static fn()=>portal_desktop_request($context,'cua',
+            $identity+['request_key'=>bin2hex(random_bytes(16))]+$arguments,$transport));
         if(!portal_desktop_id($queued['action_id']??null))throw new PortalDesktopException('invalid_response');
-        $actionId=$queued['action_id'];$started=microtime(true);
-        // Reserve the full authority check BEFORE starting it, then remeasure.
-        // A check begun near the deadline cannot consume the scoped Stop budget.
-        while(microtime(true)-$started<58&&($deadline===null||microtime(true)+$authoritySeconds+$pollReserve<$deadline)){
-            if(!$alive())throw new PortalDesktopException('task_stopped');
-            if($deadline!==null&&microtime(true)+$pollReserve>=$deadline)break;
-            $receipt=portal_desktop_request($context,'cua_result',$identity+['action_id'=>$actionId],$transport);
+        $actionId=$queued['action_id'];$started=$queuedAt=microtime(true);
+        while(microtime(true)-$started<58&&$fits(portal_westy_cua_need($cost,0,1))){
+            // A full check starts only while its own worst case still fits, and within a
+            // second of the last one alive(false) reuses it. Past that point every poll
+            // still reads membership, and a person's Stop reaches the computer through
+            // its own scoped Stop, which marks this action cancelled or unknown for the
+            // next poll.
+            if($fits(max($cost['check'],$cost['check_worst'])+portal_westy_cua_need($cost,0,1))
+                &&!$measured('check',static fn()=>$alive(false)))throw new PortalDesktopException('task_stopped');
+            if(!$fits(portal_westy_cua_need($cost,0,1)))break;
+            $receipt=$measured('request',static fn()=>portal_desktop_request($context,'cua_result',$identity+['action_id'=>$actionId],$transport));
             if(in_array($receipt['state']??null,['queued','claimed'],true)){usleep(200000);continue;}
             if(($receipt['result']['contract']??null)==='westy-cua-v1'){
                 $returned=($receipt['result']['state']??null)==='returned';
                 $public=['state'=>$receipt['result']['state'],'action_id'=>$actionId,
                     'driver_error'=>($receipt['result']['driver_error']??false)===true,'retry_allowed'=>false,
-                    'reason'=>$receipt['result']['reason']??null];
+                    'reason'=>$receipt['result']['reason']??null]+$timing();
                 if(is_array($receipt['response']??null)){
                     if($returned)$public['guidance']='The driver returned a result. Verify the requested outcome before reporting it. Do not repeat uncertain effects.';
                     return ['public_result'=>$public]+portal_westy_cua_response($receipt['response']);
@@ -230,18 +252,19 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
             }
             if(in_array($receipt['state']??null,['refused','cancelled','unknown'],true))
                 return ['public_result'=>['state'=>$receipt['state'],'action_id'=>$actionId,'retry_allowed'=>false,
-                    'reason'=>$receipt['result']['reason']??null]];
+                    'reason'=>$receipt['result']['reason']??null]+$timing()];
             throw new PortalDesktopException('invalid_response');
         }
         throw new PortalDesktopException('result_unknown');
     }catch(Throwable $error){
         $reason=$error instanceof PortalDesktopException?$error->reason:'desktop_unavailable';
         $refused=!$dispatched||($actionId===null&&$error instanceof PortalDesktopException&&$error->requestRejected);
+        $times=$timing();
         if(!$refused&&!$returned||$reason==='task_stopped'){
             try{portal_desktop_request($context,'stop',$identity,$transport);}catch(Throwable){}
         }
         return ['public_result'=>['state'=>$returned?'returned':($refused?'refused':'unknown'),
-            'action_id'=>$actionId,'reason'=>$returned?'response_unavailable':$reason,'retry_allowed'=>false]];
+            'action_id'=>$actionId,'reason'=>$returned?'response_unavailable':$reason,'retry_allowed'=>false]+$times];
     }
 }
 function portal_westy_desktop_dispatch(array $context,string $name,array $arguments,?callable $alive=null,?callable $transport=null):array

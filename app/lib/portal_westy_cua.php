@@ -4,13 +4,27 @@
  * its own session, and only bounded evidence returns. Screen content stays transient. */
 declare(strict_types=1);
 
-/** Legacy bindings: two 8-second desktop requests (poll and Stop) plus headroom.
- * The dispatcher adds the existing membership checks for customer_access bindings. */
-const PORTAL_WESTY_CUA_POLL_RESERVE=20.0;
-/** A full alive check may refresh revocations (12s) and the AI selection (8s). */
-const PORTAL_WESTY_CUA_AUTHORITY_SECONDS=20.0;
-/** Queue request, an opportunity to wait, and poll/Stop reserve; not a promised receipt. */
-const PORTAL_WESTY_CUA_DISPATCH_SECONDS=48.0;
+/** Computer-call timing. A desktop request and an authority check are budgeted at the
+ * longest they have taken in this request, never below a floor; a customer-access
+ * request also reads membership before and after the call. The scoped Stop is always
+ * budgeted at its worst case, so a call that suddenly runs long cannot push Stop past
+ * the stale-turn limit, and a full check starts during the wait only while its own
+ * worst case also fits. */
+const PORTAL_WESTY_CUA_REQUEST_FLOOR=2.0;
+const PORTAL_WESTY_CUA_ACCESS_REQUEST_FLOOR=3.0;
+const PORTAL_WESTY_CUA_CHECK_FLOOR=2.0;
+const PORTAL_WESTY_CUA_ACCESS_CHECK_FLOOR=3.0;
+/** Worst cases from the existing timeouts: an 8-second desktop request, 12 seconds per
+ * membership read, and a full check that refreshes revocations (12 seconds) and the AI
+ * selection (8 seconds); a customer-access check also reads membership three times. */
+const PORTAL_WESTY_CUA_STOP_WORST=8.0;
+const PORTAL_WESTY_CUA_ACCESS_STOP_WORST=32.0;
+const PORTAL_WESTY_CUA_CHECK_WORST=20.0;
+const PORTAL_WESTY_CUA_ACCESS_CHECK_WORST=56.0;
+/** The shortest receipt wait worth sending a call for: room for an app launch or page load. */
+const PORTAL_WESTY_CUA_MIN_WAIT=20.0;
+/** Spare time kept after the scoped Stop. */
+const PORTAL_WESTY_CUA_HEADROOM=4.0;
 const PORTAL_WESTY_CUA_EVIDENCE_BYTES=24000;
 const PORTAL_WESTY_CUA_TEXT_BYTES=8000;
 const PORTAL_WESTY_CUA_TOOLS=['cua_list_windows','cua_launch_app','cua_window_state','cua_click','cua_type_text','cua_set_value',
@@ -386,6 +400,27 @@ function portal_westy_cua_guidance(array $public):string
     };
 }
 
+/** The binding's floors and worst cases, before anything in this request is measured. */
+function portal_westy_cua_costs(array $context):array
+{
+    $access=isset($context['identity']['customer_access']);
+    return ['check'=>$access?PORTAL_WESTY_CUA_ACCESS_CHECK_FLOOR:PORTAL_WESTY_CUA_CHECK_FLOOR,
+        'request'=>$access?PORTAL_WESTY_CUA_ACCESS_REQUEST_FLOOR:PORTAL_WESTY_CUA_REQUEST_FLOOR,
+        'stop'=>$access?PORTAL_WESTY_CUA_ACCESS_STOP_WORST:PORTAL_WESTY_CUA_STOP_WORST,
+        'check_worst'=>$access?PORTAL_WESTY_CUA_ACCESS_CHECK_WORST:PORTAL_WESTY_CUA_CHECK_WORST];
+}
+/** Seconds for these checks and desktop requests, a wait, the scoped Stop and the headroom. */
+function portal_westy_cua_need(array $cost,int $checks,int $requests,float $wait=0.0):float
+{
+    return $checks*$cost['check']+$requests*$cost['request']+$wait+$cost['stop']+PORTAL_WESTY_CUA_HEADROOM;
+}
+/** Least time left to start a call: the check before sending, the queue request, a
+ * first poll, the shortest useful receipt wait and the scoped Stop. */
+function portal_westy_cua_admission_seconds(array $context):float
+{
+    return portal_westy_cua_need(portal_westy_cua_costs($context),1,2,PORTAL_WESTY_CUA_MIN_WAIT);
+}
+
 /** Validate, dispatch once and shape the result exactly like the other desktop tools.
  * The attempt deadline bounds the receipt wait; an expired wait is an unknown outcome. */
 function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,callable $alive,?callable $transport=null,?float $deadline=null):array
@@ -399,7 +434,7 @@ function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,call
         return ['public_result'=>$public+['guidance'=>portal_westy_cua_clip(portal_westy_cua_guidance($public).' '.$error->getMessage(),400)]];
     }
     $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport,$deadline);
-    if(($dispatch['not_sent']??false)===true)return ['not_sent'=>true];
+    if(($dispatch['not_sent']??false)===true)return ['not_sent'=>true,'timing'=>$dispatch['timing']??[]];
     $response=$dispatch['private_observation']['cua']??null;$response=is_array($response)?$response:null;
     $public=$dispatch['public_result']+$request['public']+portal_westy_cua_facts($response);
     // Token-shaped text can still be private content. Never treat a regex match

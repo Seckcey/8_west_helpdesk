@@ -1037,6 +1037,28 @@ if (!SERVE_MODE) test('late device responses cannot restore private names after 
   }finally{release();await context.close();await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
+if (!SERVE_MODE) test('an ended sign-in stops computer-control polling and says how to continue',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const state={enabled:true,ai_available:true,can_write:true,conversation:'a'.repeat(32),conversations:[],draft:null,turns:[],devices:[]};
+  const {context,page}=await openPortalPage(browser,pages,{width:1000,height:800},
+    route=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state})}));
+  let requests=0;
+  await page.route('**/portal/desktop_sessions.php',route=>{requests++;
+    return route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({ok:false,reason:'sign_in'})});});
+  try{
+    await page.goto(ORIGIN+'/portal/');
+    await page.waitForFunction(()=>document.getElementById('portal-desktop-status')?.textContent.includes('Sign in again'));
+    // Focus and visibility changes, and the timers, must not start another request.
+    for(let i=0;i<3;i++){
+      await page.evaluate(()=>{window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));});
+      await page.waitForTimeout(400);
+    }
+    await page.waitForTimeout(1800);
+    assert.equal(requests,1,'an ended sign-in is not retried automatically');
+    assert.equal(await page.locator('#portal-desktop-status').textContent(),'Your sign-in ended or access changed. Sign in again to use computer control.');
+  }finally{await context.close();await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
 if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in desktop and mobile chat',async()=>{
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
   try{for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
@@ -1047,7 +1069,8 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
           {key:'invalid_0',name:'inspect_computer',state:'rejected',result:{state:'rejected',executed:false,correction_allowed:true,retry_allowed:false}},
           {key:'inspect_1',name:'inspect_computer',state:'complete',effect:'Read current process memory',result:{state:'running'}},
           {key:'cua_lost',name:'cua_click',state:'returned',result:{state:'returned',action_id:'d'.repeat(32),driver_error:false,retry_allowed:false,reason:'response_unavailable'}},
-          {key:'cua_read',name:'cua_window_state',state:'returned',result:{state:'returned',action_id:'e'.repeat(32),driver_error:false,retry_allowed:false,reason:null}}]},
+          {key:'cua_read',name:'cua_window_state',state:'returned',result:{state:'returned',action_id:'e'.repeat(32),driver_error:false,retry_allowed:false,reason:null}},
+          {key:'cua_unsent',name:'cua_browser_state',state:'not_sent',result:{state:'not_sent',executed:false,reason:'step_time_limit',timing:{remaining_ms:20000,needed_ms:29000}}}]},
         run:{state:'waiting',ready:false,sequence:1}}]};
     const handler=async route=>{
       const payload=route.request().method()==='POST'?route.request().postDataJSON():null;
@@ -1072,6 +1095,9 @@ if (!SERVE_MODE) test('general checks wait for receipts, resume once and stop in
       await page.getByText('Click · Result unavailable',{exact:true}).waitFor();
       await page.getByText('The computer acknowledged this step, but its result was lost, so whether it worked is unknown. Westy is asked to check the screen again; the step is not retried automatically.',{exact:true}).waitFor();
       await page.getByText('Read window · Driver replied',{exact:true}).waitFor();
+      // A step refused for time stays in the record instead of disappearing.
+      await page.getByText('Read web page · Not sent',{exact:true}).waitFor();
+      await page.getByText('This step was not sent because the reply ran out of time. Nothing ran on the computer; Westy continues and can send it again.',{exact:true}).waitFor();
       assert.equal(await page.getByText(' · Done',{exact:false}).count(),0);
       if(process.env.SH_CUA_SHOT_DIR){
         await mkdir(process.env.SH_CUA_SHOT_DIR,{recursive:true});

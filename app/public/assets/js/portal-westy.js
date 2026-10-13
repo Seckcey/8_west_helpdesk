@@ -47,6 +47,7 @@
     task_unavailable:'That earlier task is no longer available. Check the device activity before asking again.',
     configuration:'Westy is not configured correctly. Contact support.',
     response_unavailable:'The computer acknowledged this step, but its result was lost, so whether it worked is unknown. Westy is asked to check the screen again; the step is not retried automatically.',
+    step_time_limit:'This step was not sent because the reply ran out of time. Nothing ran on the computer; Westy continues and can send it again.',
     stopped:'Reply stopped. Device work already dispatched keeps its own recorded status.',
     stop_unconfirmed:'The conversation has stopped. The computer has not confirmed cancellation yet; it will not repeat the command.',
     companion_offline:'Open Westy on that computer and connect it to continue. Background health checks may still be available.',
@@ -313,13 +314,13 @@
       const shell=['inspect_computer','run_powershell'].includes(tool.name)?tool.result:null;
       const shellLabels={queued:'Waiting',claimed:'Received',running:'Running',completed:'Result received',cancelled:'Cancelled',refused:'Not executed',rejected:'Not executed',unknown:'Outcome unknown',expired:'Expired'};
       const item=element('div',undefined,'portal-tool');item.dataset.active=String(tool.state==='dispatching'||['queued','verifying'].includes(tool.operation?.state)||['queued','claimed','running'].includes(shell?.state));
-      const toolLabel=terminalReceipt?({review_pending:'Reviewing',awaiting_approval:'Review required',queued:'Waiting',claimed:'Received',running:'Running',completed:'Finished',cancelled:'Cancelled',unknown:'Outcome unknown',refused:'Not executed',unavailable:'Unavailable'}[terminalReceipt.state]||terminalReceipt.state):shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable',refused:'Not run',rejected:'Not sent',
+      const toolLabel=terminalReceipt?({review_pending:'Reviewing',awaiting_approval:'Review required',queued:'Waiting',claimed:'Received',running:'Running',completed:'Finished',cancelled:'Cancelled',unknown:'Outcome unknown',refused:'Not executed',unavailable:'Unavailable'}[terminalReceipt.state]||terminalReceipt.state):shell?(shellLabels[shell.state]||'Checking result'):tool.operation?operationLabels[tool.operation.state]:({complete:'Complete',dispatching:'Working',unknown:'Outcome unknown',unavailable:'Unavailable',refused:'Not run',rejected:'Not sent',not_sent:'Not sent',
         // A driver reply is a receipt, not proof of the requested outcome.
         returned:tool.result?.reason==='response_unavailable'?'Result unavailable':tool.result?.driver_error?'Not completed':'Driver replied'}[tool.state]||tool.state);
       const label=element('div',undefined,'portal-tool-summary');label.append(element('span',undefined,'portal-tool-dot'),element('span',(names[tool.name]||'Device tool')+' · '+toolLabel));item.append(label);
       if(tool.reason)item.append(element('p',errors[tool.reason]||'This operation is unavailable. Contact support.'));
       if(tool.name.startsWith('desktop_')&&tool.result?.stop_reason)item.append(element('p',errors[tool.result.stop_reason]||'Computer control stopped. Ask for a new task when you are ready.'));
-      if(tool.name.startsWith('cua_')&&['response_unavailable','tool_restriction'].includes(tool.result?.reason))item.append(element('p',errors[tool.result.reason]));
+      if(tool.name.startsWith('cua_')&&['response_unavailable','tool_restriction','step_time_limit'].includes(tool.result?.reason))item.append(element('p',errors[tool.result.reason]));
       if(tool.effect)item.append(element('p',tool.effect));
       if(terminalReceipt)renderTerminal(item,terminalReceipt,tool.awaiting_run?turn.run?.approval:null,turn);
       if(tool.result&&['inspect_computer','run_powershell'].includes(tool.name)){
