@@ -114,7 +114,7 @@ function portal_westy_run_replay(array $messages):string
                     for($limit=6000;;$limit=intdiv($limit*3,4)){
                         $clip=strlen($screen)>$limit?mb_strcut($screen,0,$limit,'UTF-8').'…[truncated]':$screen;
                         $text=json_encode(['result'=>$envelope['result'],'observation_status'=>'summarized','last_screen'=>$clip,
-                            'guidance'=>'The screen as it was before the pause, kept as text so you can continue. If your next step uses a control listed here with its element token or ref, act on it directly; if the driver says it is stale, observe again. Report only what a current observation shows. Preserve this receipt; do not repeat an executed or uncertain action.'],
+                            'guidance'=>'The screen as it was before the pause, kept as text so you can continue. If your next step only clicks or navigates with an element token or ref listed here, act on it directly; if the driver says it is stale, observe again. Observe first if the outcome of a later call is unknown or if the step types or replaces text. Report only what a current observation shows. Preserve this receipt; do not repeat an executed or uncertain action.'],
                             JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);
                         if(strlen(json_encode($text,JSON_THROW_ON_ERROR))<=$summaryBytes||$limit<200)break;
                     }

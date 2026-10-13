@@ -221,8 +221,9 @@ boundaries, and unknown outcomes keep their existing behavior.
   labels and values and page text. Screenshots are never kept, every older reading still
   expires, a later pause replaces the summary, and the saved continuation is cleared when
   the run resumes, ends, stops or expires. Readings from the legacy desktop tools still
-  expire entirely. The model may act on an element token or ref listed in the summary,
-  observes again if the driver reports it stale, and observes again before reporting.
+  expire entirely. The model may click or navigate with an element token or ref listed in
+  the summary, observes again if the driver reports it stale, and observes first when the
+  outcome of a later call is unknown or the step types or replaces text, and before reporting.
 - The saved continuation keeps each Cua call's name and call id. Its arguments keep only
   the `pid`, `window_id`, `target_id` and `tab_id` it addressed (since October 13; browser
   ids only in the driver's minted `bt-<uuid>` and `tab-<uuid>` forms); typed
