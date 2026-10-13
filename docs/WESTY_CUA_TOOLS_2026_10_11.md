@@ -80,7 +80,7 @@ produce the observed behavior, not traced events:
 | Translation | `app/lib/portal_westy_cua.php` checks every field, then builds the exact upstream `tools/call` (`get_window_state`, `click`, `type_text`, `press_key`/`hotkey`, `scroll`, `set_value`, `launch_app`, `list_windows`, `get_browser_state`, `browser_*`). Unknown fields, including `session`, are refused. The Companion still injects its own session. Only named keys the driver knows are sent, because the driver presses the first character of an unknown key name. |
 | Observation | `get_window_state` is bounded (150 controls, 1,000 with a query, 1,280-pixel screenshot). The model receives one line per control instead of JSON plus a duplicate Markdown tree. Evidence per call is capped at 24 KB as finally encoded, including quote- or backslash-dense screen text. Only the newest screenshot is sent to the provider. |
 | Playbook | The device instructions carry a short find, observe, act, verify playbook for Windows and the browser. No driver manual is required reading. |
-| Time | After a tool result, the attempt yields a durable continuation when less than 90 seconds remain. Dispatch and polling reserve the existing authority, membership, receipt and Stop timeouts described below. A receipt that does not arrive in time is `unknown`, the existing scoped Stop follows, and the call is never repeated automatically. A call that is not sent is answered `not_sent`; after continuation, its arguments must be reconstructed from the original request or fresh observation. Final accounting saves a yielding call's actual row instead of an extra post-call save. A yield writes no paragraph break because resumption adds one. |
+| Time | After a tool result, the attempt yields a durable continuation when less than 90 seconds remain. One rule, described below, admits a call and decides every receipt poll. A receipt that does not arrive in time is `unknown`, the existing scoped Stop follows, and the call is never repeated automatically. A call that is not sent is answered `not_sent`; after continuation, its arguments must be reconstructed from the original request or fresh observation. Its row stays in the record as "Not sent" with `reason: step_time_limit` and the time that was left. Final accounting saves a yielding call's actual row instead of an extra post-call save. A yield writes no paragraph break because resumption adds one. |
 | Receipts | A driver reply is a receipt, not proof of the requested outcome. Rows read "Driver replied", "Not completed" (driver error) or "Result unavailable". "Result unavailable" means `returned` with `reason: response_unavailable`: the driver acknowledged the call, but its response was lost. That row explains that the effect is unknown. The model is told not to repeat the call and to observe again before reporting any outcome. |
 | Mistakes | Invalid arguments return `rejected` with correction guidance. A call to a tool that is no longer offered returns the real offer. Neither reaches the device. The guidance repeats only server-owned tool and field names, counts and supported formats; supplied field names and values are never echoed. The fifth such call in one turn, counted across continuations, ends the reply as `tool_invalid` instead of spending more paid rounds. |
 | Model | Safeharbor's built-in fallback for the internal tenant is now GPT-6.1 Sol at medium effort (was GPT-6 Luna at low). It applies only while that tenant has never saved an 8 West ID AI selection, and then to all of its Westy chat, not only computer use. A saved 8 West ID selection always takes precedence, for every tenant. |
@@ -93,25 +93,40 @@ Companion change.
 
 ### Time boundary
 
-The existing attempt deadline remains 150 seconds. For a legacy customer binding, an
-authority check can refresh revocations (12 seconds) and AI selection (8 seconds).
-Each desktop request can take 8 seconds. The dispatcher reserves 20 seconds for a
-poll plus Stop and headroom, and checks for another 20 seconds **before** starting
-authority validation. It rechecks the remaining time afterwards. Dispatch needs
-at least 48 seconds both before and after its first authority check.
+The existing attempt deadline remains 150 seconds. One rule admits a call and decides
+every receipt poll: one more poll and the scoped Stop must fit before the deadline,
+with 4 seconds of headroom. A call is admitted only when the check before sending, the
+queue request, a first poll, the shortest useful receipt wait and Stop also fit. That
+wait is 8 seconds for reading, clicking, typing and keys, and 20 seconds for launching
+an app, connecting to the browser or loading a page. While requests are fast, a call
+needs 53 seconds left (65 for a slow step) with a `customer_access` binding, and 26
+seconds (38) with a legacy binding.
 
-For a `customer_access` binding, each membership read can take 12 seconds.
-Reauthorization, Westy scope and AI scope each perform one; each desktop request
-performs a scope check both before and after transport. Consequently, authority
-can take 56 seconds and a scoped request 32 seconds. The poll/Stop reserve is 68
-seconds, and dispatch requires 120 seconds. These are scheduling allowances,
-not a promise that the driver will answer. A slow queue can leave time only for
-Stop, yielding an unknown outcome. None of these checks skips authentication,
-revocation, membership or a user Stop.
+A check and a desktop request are budgeted at the longest they have actually taken in
+this request, never below a floor: 2 seconds for a legacy binding and 3 seconds for a
+`customer_access` binding, whose requests also read membership before and after the
+call. Stop is always budgeted at its worst case from the existing timeouts: 8 seconds,
+or 32 seconds with the two 12-second membership reads. On October 12 the earlier rule
+added every worst-case timeout together (120 seconds to send and more than 124 seconds
+to poll for `customer_access`), so only a call in the first 30 seconds of an attempt
+could be sent, and the next call was always refused.
 
-The deadline is cooperative: these allowances cover the existing bounded network
-calls, with headroom for local work; PHP scheduling or database locks are not a
-real-time guarantee. Final accounting and delivery revalidation remain required
+While it waits for a receipt, the dispatcher starts a full authority check only while
+that check's own worst case (20 seconds, or 56 seconds for `customer_access`) still
+fits, and asks without force, so a full check runs at most once a second. The check
+before sending is always full. Past that point a light check still reads the kill
+switch and the turn's own Stop locally before every poll, and every poll still reads
+membership. A person's Stop also reaches the computer through its own scoped Stop,
+which marks the pending action cancelled or unknown. None of this skips
+authentication, revocation, membership or a user Stop. The model loop starts a call
+only with the admission time left; a slow row save can still leave the dispatcher to
+refuse it, which shows a brief "Working" row that then reads "Not sent".
+
+The deadline is cooperative. A poll that suddenly takes its own worst case right at
+the margin can delay the worst-case Stop by that excess, about 25 seconds for
+`customer_access`. That passes the 150-second deadline but stays inside the 180-second
+stale-turn limit, and the outcome stays `unknown`. PHP scheduling or database locks
+are not a real-time guarantee. Final accounting and delivery revalidation remain required
 after the tool loop. A completed **attempt** with a waiting continuation does not
 mean an unknown **device action** completed.
 

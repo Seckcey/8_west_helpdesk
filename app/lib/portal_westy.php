@@ -334,15 +334,19 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         if($aiLost)throw new PortalWestyException('ai_changed',503);
     };
     $lastCheck=0.0;$deadline=microtime(true)+150;
-    $alive=static function(bool $force=false)use($pdo,$context,$s,$turnId,$reauthorize,$requireAi,&$lastCheck,$deadline):void{
+    // force=null is the light check: only the kill switch and the turn's own Stop, both
+    // local reads, for a wait too close to the deadline to start a full check.
+    $alive=static function(?bool $force=false)use($pdo,$context,$s,$turnId,$reauthorize,$requireAi,&$lastCheck,$deadline):void{
         if(microtime(true)>$deadline)throw new PortalWestyException('interrupted');
-        if(!$force && microtime(true)-$lastCheck<1)return;
+        if($force===false && microtime(true)-$lastCheck<1)return;
         if(!portal_westy_config()['enabled']||!portal_westy_config()['ai_enabled'])throw new PortalWestyException('ai_unavailable');
-        if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||!portal_desktop_same_context($context,$fresh)||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
-        $requireAi();
+        if($force!==null){
+            if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||!portal_desktop_same_context($context,$fresh)||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
+            $requireAi();
+        }
         $q=$pdo->prepare('SELECT state FROM portal_westy_turns WHERE id=? AND scope_key=?');$q->execute([$turnId,$s['key']]);
         if($q->fetchColumn()!=='pending')throw new PortalWestyException('stopped');
-        $lastCheck=microtime(true);
+        if($force!==null)$lastCheck=microtime(true);
     };
     $save=static function()use($pdo,$turnId,$s,&$partial,$alive):void{
         $alive(true);

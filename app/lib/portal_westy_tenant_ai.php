@@ -386,22 +386,29 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
                 $partial['tools'][$index]['state']=$receipt['state'];$partial['tools'][$index]['result']=$receipt;$toolSave();
                 return ['ok'=>true,'waiting'=>true,'usage'=>$known?$usage:null,'cost_micro_usd'=>$known?$cost:null,'rounds'=>$receipts];
             }elseif(in_array($name,PORTAL_WESTY_CUA_TOOLS,true)){
-                // Too little of this attempt remains to wait for a receipt. The
-                // call is never sent; the continuation lets the model send it.
-                $notSent=static function()use(&$messages,$result,$call,$wait):array{
+                // Too little of this attempt remains to wait for a receipt. The call is
+                // never sent; its row keeps the reason and the time that was left, and
+                // the continuation lets the model send it.
+                $notSent=static function(array $timing)use(&$messages,&$partial,$index,$result,$call,$name,$wait):array{
+                    $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>'not_sent',
+                        'result'=>['state'=>'not_sent','executed'=>false,'reason'=>'step_time_limit','timing'=>$timing]];
                     $messages[]=$result['continuation'];
                     $messages[]=['role'=>'tool','call_id'=>$call['id'],'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>[
                         'state'=>'not_sent','executed'=>false,'retry_allowed'=>true,'reason'=>'step_time_limit',
                         'guidance'=>'Not sent because this step ran out of time. Nothing was executed. Continue the original request; reconstruct the arguments from that request or a fresh observation before trying again.']],JSON_THROW_ON_ERROR)]]];
                     return $wait();
                 };
-                if($deadline!==null&&isset($context['tool_run'])&&$deadline-microtime(true)<PORTAL_WESTY_CUA_DISPATCH_SECONDS){
-                    unset($partial['tools'][$index]);return $notSent();
-                }
+                $need=portal_westy_cua_admission_seconds($context,portal_westy_cua_wait($name));
+                if($deadline!==null&&isset($context['tool_run'])&&$deadline-microtime(true)<$need)
+                    return $notSent(['remaining_ms'=>(int)round(($deadline-microtime(true))*1000),'needed_ms'=>(int)round($need*1000)]);
                 $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>'dispatching'];$toolSave();
-                $toolResult=portal_westy_cua_tool($context,$name,$call['arguments'],static function()use($alive):bool{$alive(true);return true;},$transport,$deadline);
+                // The dispatcher forces the check before sending. While it waits it asks
+                // without force (a full check at most once a second) or, near the
+                // deadline, for the light local check (null).
+                $toolResult=portal_westy_cua_tool($context,$name,$call['arguments'],
+                    static function(?bool $force=true)use($alive):bool{$alive($force);return true;},$transport,$deadline);
                 // Saving the row can use up that time; the dispatcher then sends nothing.
-                if(($toolResult['not_sent']??false)===true){unset($partial['tools'][$index]);return $notSent();}
+                if(($toolResult['not_sent']??false)===true)return $notSent($toolResult['timing']??[]);
                 $public=$toolResult['public_result'];
                 $partial['tools'][$index]=['key'=>$call['id'],'name'=>$name,'state'=>$public['state']??'unknown','result'=>$public];
                 // Before a yield the final accounting saves this row; another save could outlast the deadline.

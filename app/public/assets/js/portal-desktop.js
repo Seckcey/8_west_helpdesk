@@ -9,7 +9,7 @@
   const available = document.getElementById('portal-desktop-available');
   let conversation = null, operation = null, task = null, loading = false, starting = false, taskOperation = null, resumedTask = null;
   let seenCompanion = false, nextListAt = 0, revision = 0, stopping = false, selectedSession = null;
-  let renewalAvailable = false, renewing = false, nextRenewalAt = 0;
+  let renewalAvailable = false, renewing = false, nextRenewalAt = 0, signedOut = false;
   const taskActive = () => ['active', 'consent_pending'].includes(task?.state);
   const updateStart = () => {
     root.setAttribute('aria-busy', String(loading || starting || stopping));
@@ -68,8 +68,17 @@
       : 'No connected computer is available. You can continue chatting or contact support.';
     updateStart();
   }
+  // An ended sign-in cannot recover by retrying, so every automatic request stops
+  // and the page says how to continue. Other failures keep their own retry.
+  function endSession() {
+    signedOut = true; clearInterval(timer); clearInterval(renewalTimer);
+    setAvailability([]);
+    status.textContent = taskActive()
+      ? 'Your sign-in ended or access changed. Use the local Stop button to take over, then sign in again.'
+      : 'Your sign-in ended or access changed. Sign in again to use computer control.';
+  }
   async function refresh() {
-    if (document.hidden || root.parentElement.closest('[hidden]') || loading || starting || stopping) return;
+    if (signedOut || document.hidden || root.parentElement.closest('[hidden]') || loading || starting || stopping) return;
     if (!taskActive() && Date.now() < nextListAt) return;
     loading = true; updateStart(); const currentRevision = revision;
     try {
@@ -88,8 +97,9 @@
         renewalAvailable = state.renewal_available === true;
         void renew();
       }
-    } catch {
+    } catch (error) {
       if (currentRevision !== revision) return;
+      if (error?.message === 'sign_in') { endSession(); return; }
       setAvailability([]);
       status.textContent = taskActive() ? 'Connection status is unavailable. Use Stop or the local Stop button to take over.'
         : 'Computer control is unavailable. You can continue chatting or contact support.';
@@ -97,11 +107,12 @@
     } finally { loading = false; updateStart(); }
   }
   async function renew() {
-    if (!renewalAvailable || renewing || Date.now() < nextRenewalAt) return;
+    if (signedOut || !renewalAvailable || renewing || Date.now() < nextRenewalAt) return;
     renewing = true; nextRenewalAt = Date.now() + 30000;
     try { await request('renew'); }
     catch (error) {
       if (['renewal_unavailable', 'sign_in', 'session_expired'].includes(error.message)) renewalAvailable = false;
+      if (error.message === 'sign_in') endSession();
     } finally { renewing = false; }
   }
   root.addEventListener('toggle', () => { if (root.open) { nextListAt = 0; void refresh(); } });
