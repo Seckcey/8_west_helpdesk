@@ -214,8 +214,14 @@ boundaries, and unknown outcomes keep their existing behavior.
   - pid and window_id;
   - the count of typed characters;
   - server-written guidance.
-- The existing durable replay expires every Cua observation. A continuation therefore starts
-  with a fresh `cua_window_state`.
+- Since October 13 (approved by Frankie), the saved continuation keeps one text summary
+  of the newest Cua screen reading, at most 8,000 bytes, marked `summarized` with
+  `last_screen`, so a resumed task knows where it was. It can include window titles, control
+  labels and values and page text. Screenshots are never kept, every older reading still
+  expires, a later pause replaces the summary, and the saved continuation is cleared when
+  the run resumes, ends, stops or expires. Readings from the legacy desktop tools still
+  expire entirely. The model is told the summary may be out of date and to observe again
+  before acting or reporting.
 - The saved continuation keeps each Cua call's name and call id, but replaces its
   arguments with `{}`. This includes attempted calls to the removed `desktop_cua`
   relay. OpenAI retains an argument JSON string; Anthropic retains an empty object

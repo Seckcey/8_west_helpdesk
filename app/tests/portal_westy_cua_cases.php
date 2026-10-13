@@ -66,7 +66,10 @@ check(($tool['name']??null)==='cua_window_state'&&$tool['state']==='returned'&&$
     'public receipt keeps the target identity for a later continuation');
 check(!str_contains(json_encode($out['saved'],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),'PRIVATE'),'public tool history stores no screen text, tokens or pixels');
 $replay=portal_westy_run_replay($seenInput);
-check(!str_contains($replay,'PRIVATE')&&!str_contains($replay,'s0000002a')&&str_contains($replay,'returned'),'existing durable replay redacts Cua evidence while keeping the actual receipt');
+// The newest Cua reading survives a pause as bounded text; pixels and the Markdown
+// duplicate never do, and the actual receipt is kept.
+check(str_contains($replay,'last_screen')&&str_contains($replay,'summarized')&&!str_contains($replay,base64_encode('PRIVATE_PNG'))
+    &&!str_contains($replay,'PRIVATE_MARKDOWN')&&str_contains($replay,'returned'),'durable replay keeps only a text summary of the newest Cua reading and the actual receipt');
 check(array_column($out['wire'],'action')===['state','cua','cua_result','state'],'one intended call and one receipt poll reach the service without legacy recovery');
 
 // Model mistakes are corrected in the same reply; nothing reaches the device.
@@ -186,7 +189,8 @@ $late=static fn($selected,$system,$input,$options,$emit,$alive)=>$reply('',[['id
 $out=$runAt($context,$partial,$late,microtime(true)+80,$setupCua);
 check(($out['result']['waiting']??false)===true&&$out['waits']===[['kind'=>'continuation']]&&count($cuaDispatches)===1,
     'a tool result late in the attempt yields a durable continuation before the deadline');
-check($out['partial']['tools'][1]['state']==='returned'&&!str_contains($out['waitReplays'][0],'PRIVATE'),'the finished call keeps its receipt and the yield keeps no screen content');
+check($out['partial']['tools'][1]['state']==='returned'&&str_contains($out['waitReplays'][0],'last_screen')
+    &&!str_contains($out['waitReplays'][0],base64_encode('PRIVATE_PNG')),'the finished call keeps its receipt and the yield keeps only a text summary of the screen');
 $admission=portal_westy_cua_admission_seconds($context);
 $out=$runAt($context,$partial,$late,microtime(true)+$admission-1,$setupCua);
 $unsentRow=$out['partial']['tools'][1]??[];
@@ -282,7 +286,7 @@ foreach($yielded as $effect=>$sample)foreach(['deliver','stopped','access_change
 // Typed text reaches the driver but never stays in a saved continuation.
 $typing=static fn($selected,$system,$input,$options,$emit,$alive)=>$reply('',[['id'=>'typed','name'=>'cua_type_text','arguments'=>$observe+['text'=>'PRIVATE_TYPED_MARKER_44']]]);
 $out=$runAt($context,$partial,$typing,microtime(true)+80,$setupCua);$replayed=$out['waitReplays'][0]??'';
-check(str_contains(json_encode($cuaDispatches,JSON_THROW_ON_ERROR),'PRIVATE_TYPED_MARKER_44')&&!str_contains($replayed,'PRIVATE')
+check(str_contains(json_encode($cuaDispatches,JSON_THROW_ON_ERROR),'PRIVATE_TYPED_MARKER_44')&&!str_contains($replayed,'PRIVATE_TYPED_MARKER_44')
     &&str_contains($replayed,'"name":"cua_type_text"')&&str_contains($replayed,'"call_id":"typed"'),'the saved continuation keeps the call identity without its arguments');
 $restored=portal_westy_run_restore(portal_westy_run_replay([['role'=>'provider','output'=>[
     (object)['type'=>'function_call','call_id'=>'o1','name'=>'cua_type_text','arguments'=>'{"text":"PRIVATE_OBJECT_TEXT"}'],
@@ -304,8 +308,10 @@ foreach(['openai','anthropic'] as $vendor)foreach(['cua_type_text','desktop_cua'
     $wire=portal_westy_run_replay($original);$restored=portal_westy_run_restore($wire);
     $body=westy_tenant_ai_body($selected,'Original task authority.',$restored,['tools'=>portal_westy_cua_definitions()]);
     $encoded=json_encode($body,JSON_THROW_ON_ERROR);
-    check(!str_contains($encoded,'private_arguments')&&!str_contains($encoded,'private_screen_text')
-        &&str_contains($encoded,'The original authorized request.'),'restored '.$vendor.' request keeps authority text without transient arguments/observations');
+    // Only a typed Cua tool's newest reading is kept as a text summary; the raw relay's expires.
+    $summarized=$toolName==='cua_type_text';
+    check(!str_contains($encoded,'private_arguments')&&str_contains($encoded,'private_screen_text')===$summarized
+        &&str_contains($encoded,'The original authorized request.'),'restored '.$vendor.' request keeps authority text, never call arguments, and only a Cua screen summary');
     check(portal_westy_run_replay($restored)===$wire&&str_contains(json_encode($original),'private_arguments'),
         'durable redaction is idempotent and does not mutate the current '.$vendor.' attempt');
     if($vendor==='openai'){
@@ -318,8 +324,29 @@ foreach(['openai','anthropic'] as $vendor)foreach(['cua_type_text','desktop_cua'
             'Anthropic retains an empty object and the paired tool_use/tool_result');
     }
     $savedReceipt=json_decode($restored[2]['content'][0]['text'],true);
-    check($savedReceipt['result']===$receipt&&$savedReceipt['observation_status']==='expired','uncertain effect survives '.$vendor.' protocol restoration unchanged');
+    check($savedReceipt['result']===$receipt&&$savedReceipt['observation_status']===($summarized?'summarized':'expired'),
+        'uncertain effect survives '.$vendor.' protocol restoration unchanged');
 }
+// One text summary of the newest Cua reading survives a pause; older readings and
+// pixels do not, a later pause replaces it, and it is bounded.
+$readings=static function(array $values,string $prefix):array{
+    $messages=[];
+    foreach($values as $i=>$value){
+        $messages[]=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>$prefix.$i,'name'=>'cua_window_state','arguments'=>'{}']]];
+        $messages[]=['role'=>'tool','call_id'=>$prefix.$i,'content'=>[
+            ['type'=>'text','text'=>json_encode(['result'=>['state'=>'returned'],'untrusted_observation'=>['text'=>$value]],JSON_THROW_ON_ERROR)],
+            ['type'=>'image','media_type'=>'image/png','data'=>base64_encode('PIXELS_'.$prefix.$i)]]];
+    }
+    return $messages;
+};
+$summaryWire=portal_westy_run_replay($readings(['OLDER_SCREEN','NEWEST_SCREEN'],'read-'));
+check(str_contains($summaryWire,'NEWEST_SCREEN')&&!str_contains($summaryWire,'OLDER_SCREEN')&&!str_contains($summaryWire,base64_encode('PIXELS_read-1'))
+    &&substr_count($summaryWire,'last_screen')===1,'only the newest Cua reading survives a pause, as text without pixels');
+$laterWire=portal_westy_run_replay(array_merge(portal_westy_run_restore($summaryWire),$readings(['LATER_SCREEN'],'later-')));
+check(str_contains($laterWire,'LATER_SCREEN')&&!str_contains($laterWire,'NEWEST_SCREEN')&&substr_count($laterWire,'last_screen')===1,
+    'a later pause replaces the earlier summary instead of keeping both');
+check(portal_westy_run_replay(portal_westy_run_restore($laterWire))===$laterWire,'the kept summary is stable across repeated waits');
+check(strlen(portal_westy_run_replay($readings([str_repeat('x',50000)],'huge-')))<12000,'the kept summary is bounded');
 // An unreadable driver response after a returned receipt is still only an acknowledgement.
 $GLOBALS['wire']=[];$setupCua(['isError'=>false,'content'=>[['type'=>'image','mimeType'=>'image/png','data'=>'not base64!']]]);
 $unreadable=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true);

@@ -325,23 +325,33 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     // Once this attempt loses its MSP AI authority it cannot regain delivery
     // authority, even if the connection is restored before accounting finishes.
     $aiLost=false;
-    $requireAi=static function()use($pdo,$context,$aiSnapshot,$aiResolver,&$aiLost):void{
-        if(!$aiLost){
-            try{$fresh=portal_westy_ai_snapshot($pdo,$context,$aiSnapshot['revision'],'status',$aiResolver);
-                $aiLost=!portal_westy_ai_same_selection($aiSnapshot,$fresh);}
-            catch(Throwable){$aiLost=true;}
-        }
+    // One failed or changed authority read is not yet an AI change or a sign-out: it is
+    // read once more, shortly after, before it can end the reply. A second answer is final.
+    $twice=static function(callable $ok):bool{if($ok())return true;usleep(300000);return $ok();};
+    $requireAi=static function()use($pdo,$context,$aiSnapshot,$aiResolver,&$aiLost,$twice):void{
+        if(!$aiLost)$aiLost=!$twice(static function()use($pdo,$context,$aiSnapshot,$aiResolver):bool{
+            try{return portal_westy_ai_same_selection($aiSnapshot,portal_westy_ai_snapshot($pdo,$context,$aiSnapshot['revision'],'status',$aiResolver));}
+            catch(Throwable){return false;}
+        });
         if($aiLost)throw new PortalWestyException('ai_changed',503);
+    };
+    $reread=static function()use($reauthorize,$twice):mixed{
+        $fresh=null;
+        $twice(static function()use($reauthorize,&$fresh):bool{try{$fresh=$reauthorize();}catch(Throwable){$fresh=null;}return is_array($fresh);});
+        return $fresh;
     };
     $lastCheck=0.0;$deadline=microtime(true)+150;
     // force=null is the light check: only the kill switch and the turn's own Stop, both
     // local reads, for a wait too close to the deadline to start a full check.
-    $alive=static function(?bool $force=false)use($pdo,$context,$s,$turnId,$reauthorize,$requireAi,&$lastCheck,$deadline):void{
+    $alive=static function(?bool $force=false)use($pdo,$context,$s,$turnId,$reauthorize,$requireAi,$reread,&$lastCheck,$deadline):void{
         if(microtime(true)>$deadline)throw new PortalWestyException('interrupted');
         if($force===false && microtime(true)-$lastCheck<1)return;
+        // A forced check within a second of a full one re-reads only local state (the
+        // kill switch and the turn's own Stop) instead of repeating the remote checks.
+        if($force===true && microtime(true)-$lastCheck<1)$force=null;
         if(!portal_westy_config()['enabled']||!portal_westy_config()['ai_enabled'])throw new PortalWestyException('ai_unavailable');
         if($force!==null){
-            if($reauthorize){$fresh=$reauthorize();if(!is_array($fresh)||!portal_desktop_same_context($context,$fresh)||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
+            if($reauthorize){$fresh=$reread();if(!is_array($fresh)||!portal_desktop_same_context($context,$fresh)||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
             $requireAi();
         }
         $q=$pdo->prepare('SELECT state FROM portal_westy_turns WHERE id=? AND scope_key=?');$q->execute([$turnId,$s['key']]);
@@ -365,10 +375,10 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     // A paid receipt survives loss of authority. Revalidation controls delivery,
     // never whether an already reserved attempt can finish its accounting.
     $authorized=false;
-    $deliveryAuthority=static function()use($pdo,$context,$s,$reauthorize,$requireAi,&$authorized):bool{
+    $deliveryAuthority=static function()use($pdo,$context,$s,$reauthorize,$requireAi,$reread,&$authorized):bool{
         $authorized=false;
         if ($reauthorize) {
-            $fresh=$reauthorize();
+            $fresh=$reread();
             if(!is_array($fresh) || !portal_desktop_same_context($context,$fresh))return false;
         }
         if(!portal_westy_config()['enabled'] || !portal_westy_config()['ai_enabled']
