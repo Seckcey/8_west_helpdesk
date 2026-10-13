@@ -308,10 +308,9 @@ foreach(['openai','anthropic'] as $vendor)foreach(['cua_type_text','desktop_cua'
     $wire=portal_westy_run_replay($original);$restored=portal_westy_run_restore($wire);
     $body=westy_tenant_ai_body($selected,'Original task authority.',$restored,['tools'=>portal_westy_cua_definitions()]);
     $encoded=json_encode($body,JSON_THROW_ON_ERROR);
-    // Only a typed Cua tool's newest reading is kept as a text summary; the raw relay's expires.
-    $summarized=$toolName==='cua_type_text';
-    check(!str_contains($encoded,'private_arguments')&&str_contains($encoded,'private_screen_text')===$summarized
-        &&str_contains($encoded,'The original authorized request.'),'restored '.$vendor.' request keeps authority text, never call arguments, and only a Cua screen summary');
+    // A typing acknowledgement or the raw relay is not a screen reading, so its evidence expires.
+    check(!str_contains($encoded,'private_arguments')&&!str_contains($encoded,'private_screen_text')
+        &&str_contains($encoded,'The original authorized request.'),'restored '.$vendor.' request keeps authority text without call arguments or acknowledgement evidence');
     check(portal_westy_run_replay($restored)===$wire&&str_contains(json_encode($original),'private_arguments'),
         'durable redaction is idempotent and does not mutate the current '.$vendor.' attempt');
     if($vendor==='openai'){
@@ -324,7 +323,7 @@ foreach(['openai','anthropic'] as $vendor)foreach(['cua_type_text','desktop_cua'
             'Anthropic retains an empty object and the paired tool_use/tool_result');
     }
     $savedReceipt=json_decode($restored[2]['content'][0]['text'],true);
-    check($savedReceipt['result']===$receipt&&$savedReceipt['observation_status']===($summarized?'summarized':'expired'),
+    check($savedReceipt['result']===$receipt&&$savedReceipt['observation_status']==='expired',
         'uncertain effect survives '.$vendor.' protocol restoration unchanged');
 }
 // One text summary of the newest Cua reading survives a pause; older readings and
@@ -346,7 +345,13 @@ $laterWire=portal_westy_run_replay(array_merge(portal_westy_run_restore($summary
 check(str_contains($laterWire,'LATER_SCREEN')&&!str_contains($laterWire,'NEWEST_SCREEN')&&substr_count($laterWire,'last_screen')===1,
     'a later pause replaces the earlier summary instead of keeping both');
 check(portal_westy_run_replay(portal_westy_run_restore($laterWire))===$laterWire,'the kept summary is stable across repeated waits');
-check(strlen(portal_westy_run_replay($readings([str_repeat('x',50000)],'huge-')))<12000,'the kept summary is bounded');
+foreach(['plain'=>str_repeat('x',50000),'quotes and paths'=>str_repeat('"C:\Users\a" ',5000),'non-Latin'=>str_repeat('漢字',10000)] as $label=>$screen)
+    check(strlen(portal_westy_run_replay($readings([$screen],'huge-')))<9000,'the kept summary is bounded as stored: '.$label);
+$acknowledged=$readings(['REAL_SCREEN'],'seen-');
+$acknowledged[]=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>'typed-ack','name'=>'cua_type_text','arguments'=>'{}']]];
+$acknowledged[]=['role'=>'tool','call_id'=>'typed-ack','content'=>[['type'=>'text','text'=>json_encode(['result'=>['state'=>'returned'],'untrusted_observation'=>['text'=>'ACK_EVIDENCE']],JSON_THROW_ON_ERROR)]]];
+$ackWire=portal_westy_run_replay($acknowledged);
+check(str_contains($ackWire,'REAL_SCREEN')&&!str_contains($ackWire,'ACK_EVIDENCE'),'a typing acknowledgement does not replace the newest screen reading');
 // An unreadable driver response after a returned receipt is still only an acknowledgement.
 $GLOBALS['wire']=[];$setupCua(['isError'=>false,'content'=>[['type'=>'image','mimeType'=>'image/png','data'=>'not base64!']]]);
 $unreadable=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true);
@@ -446,18 +451,23 @@ $GLOBALS['cuaRequestSeconds']=0.1;
 // The light check (null) is a local read and takes no simulated time here.
 $alives=0;
 $slowCheck=$probe($fastMembership,20.0,static function(...$arguments)use(&$alives):bool{
-    if(array_key_exists(0,$arguments)&&$arguments[0]===null)return true;if(++$alives>1)$GLOBALS['cuaClock']+=56.0;return true;});
-check(($slowCheck['result']['public_result']['state']??null)==='unknown'&&end($slowCheck['actions'])==='stop'&&$slowCheck['end']<150.0&&$alives===2,
-    'a worst-case authority check during the wait is not repeated once another could outlast the deadline');
+    if(array_key_exists(0,$arguments)&&$arguments[0]===null)return true;if(++$alives>1)$GLOBALS['cuaClock']+=113.0;return true;});
+check(($slowCheck['result']['public_result']['state']??null)==='unknown'&&end($slowCheck['actions'])==='stop'&&$slowCheck['end']<150.0&&$alives===1,
+    'with customer access a full check and its retry never fit in the wait, so only light checks and membership reads run there');
+$alives=0;
+$slowRetry=$probe($context,20.0,static function(...$arguments)use(&$alives):bool{
+    if(array_key_exists(0,$arguments)&&$arguments[0]===null)return true;if(++$alives>1)$GLOBALS['cuaClock']+=41.0;return true;});
+check(($slowRetry['result']['public_result']['state']??null)==='unknown'&&end($slowRetry['actions'])==='stop'&&$slowRetry['end']<150.0&&$alives>1,
+    'a legacy check that takes its worst case with a retry starts only while it fits, and Stop still lands before the deadline');
 $alives=0;
 $slowLegacy=$probe($context,100.0,static function(...$arguments)use(&$alives):bool{
     if(array_key_exists(0,$arguments)&&$arguments[0]===null)return true;if(++$alives>1)$GLOBALS['cuaClock']+=20.0;return true;});
 check(($slowLegacy['result']['public_result']['state']??null)==='unknown'&&end($slowLegacy['actions'])==='stop'&&$slowLegacy['end']<150.0,
     'a legacy authority check that turns slow near the deadline still leaves time for the scoped Stop');
-// The check before sending is full; while waiting the dispatcher asks without force,
+// The check before sending is forced (full unless one ran within a second); while waiting the dispatcher asks without force,
 // then only for the light local check once a full one could not fit.
 $forces=[];
-$probe($fastMembership,20.0,static function(...$arguments)use(&$forces):bool{$forces[]=array_key_exists(0,$arguments)?$arguments[0]:true;return true;});
+$probe($context,60.0,static function(...$arguments)use(&$forces):bool{$forces[]=array_key_exists(0,$arguments)?$arguments[0]:true;return true;});
 check(($forces[0]??null)===true&&!in_array(true,array_slice($forces,1),true)&&in_array(false,$forces,true)&&in_array(null,$forces,true)
     &&array_search(null,$forces,true)>array_search(false,$forces,true),
     'the dispatcher forces the check before sending, then throttles it, then keeps the light check near the deadline');
