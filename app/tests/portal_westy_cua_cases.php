@@ -48,6 +48,8 @@ $provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$c
     check(!str_contains($system,'["ctrl","a"]')&&str_contains($system,'Recipe for typing in Notepad')
         &&str_contains($system,'Recipe for opening a page and following a link')&&!str_contains($system,'act once, then observe again'),
         'the playbook carries the two recipes, observes only when needed and never suggests ctrl+a');
+    check(str_contains($system,'if it was already open say so and that it may be behind other windows'),
+        'the playbook has Westy say when it worked in a window that was already open');
     check(str_contains($system,portal_computer_time_instructions()),'computer-local time guidance survives desktop integration');
     check($options['max_output_tokens']===PORTAL_WESTY_AI_MAX_OUTPUT&&$options['max_input_tokens']===PORTAL_WESTY_AI_MAX_INPUT,'rounds use the shared reasoning-sized bounds');
     if($calls===1)return $reply('',[['id'=>'synthetic-cua','name'=>'cua_window_state','arguments'=>$observe]]);
