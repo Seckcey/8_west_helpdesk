@@ -303,11 +303,15 @@ check(!str_contains(json_encode($restored,JSON_THROW_ON_ERROR),'PRIVATE')&&str_c
 $addressed=portal_westy_run_restore(portal_westy_run_replay([['role'=>'provider','output'=>[
     ['type'=>'function_call','call_id'=>'k1','name'=>'cua_type_text','arguments'=>json_encode(['pid'=>3228,'window_id'=>5178902,
         'element_token'=>'s0000002a:1','text'=>'PRIVATE_KEPT_TEXT'],JSON_THROW_ON_ERROR)],
-    ['type'=>'tool_use','id'=>'k2','name'=>'cua_browser_click','input'=>(object)['target_id'=>'t-1','tab_id'=>'tab 2','ref'=>'r9','pid'=>-1]],
+    ['type'=>'tool_use','id'=>'k2','name'=>'cua_browser_click','input'=>(object)['target_id'=>'bt-0f8b2c1e-1a2b-4c3d-8e9f-0123456789ab',
+        'tab_id'=>'https://PRIVATE.example/','ref'=>'r9','pid'=>-1]],
     ['type'=>'function_call','call_id'=>'k3','name'=>'cua_window_state','arguments'=>'not json'],
-    ['type'=>'function_call','call_id'=>'k4','name'=>'desktop_cua','arguments'=>'{"pid":7,"params_json":"PRIVATE_RELAY"}']]]]));
+    ['type'=>'function_call','call_id'=>'k4','name'=>'desktop_cua','arguments'=>'{"pid":7,"params_json":"PRIVATE_RELAY"}'],
+    ['type'=>'function_call','call_id'=>'k5','name'=>'cua_browser_state','arguments'=>json_encode(['target_id'=>'PRIVATE_TEXT',
+        'tab_id'=>'tab-0f8b2c1e-1a2b-4c3d-8e9f-0123456789ab','query'=>'PRIVATE_QUERY'],JSON_THROW_ON_ERROR)]]]]));
 check($addressed[0]['output'][0]->arguments==='{"pid":3228,"window_id":5178902}'
-    &&get_object_vars($addressed[0]['output'][1]->input)===['target_id'=>'t-1']&&$addressed[0]['output'][2]->arguments==='{}'
+    &&get_object_vars($addressed[0]['output'][1]->input)===['target_id'=>'bt-0f8b2c1e-1a2b-4c3d-8e9f-0123456789ab']
+    &&$addressed[0]['output'][2]->arguments==='{}'&&$addressed[0]['output'][4]->arguments==='{"tab_id":"tab-0f8b2c1e-1a2b-4c3d-8e9f-0123456789ab"}'
     &&$addressed[0]['output'][3]->arguments==='{"pid":7}'&&!str_contains(json_encode($addressed,JSON_THROW_ON_ERROR),'PRIVATE')
     &&portal_westy_run_replay($addressed)===portal_westy_run_replay(portal_westy_run_restore(portal_westy_run_replay($addressed))),
     'a paused computer call keeps only the window or tab it addressed, never its text, tokens or refs');

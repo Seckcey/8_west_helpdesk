@@ -224,7 +224,8 @@ boundaries, and unknown outcomes keep their existing behavior.
   expire entirely. The model may act on an element token or ref listed in the summary,
   observes again if the driver reports it stale, and observes again before reporting.
 - The saved continuation keeps each Cua call's name and call id. Its arguments keep only
-  the `pid`, `window_id`, `target_id` and `tab_id` it addressed (since October 13); typed
+  the `pid`, `window_id`, `target_id` and `tab_id` it addressed (since October 13; browser
+  ids only in the driver's minted `bt-<uuid>` and `tab-<uuid>` forms); typed
   text, values, URLs, queries, element tokens and refs are removed. This includes attempted
   calls to the removed `desktop_cua` relay. OpenAI retains an argument JSON string; Anthropic
   retains an object and its paired `tool_use`/`tool_result`. Current in-memory arguments are

@@ -71,12 +71,14 @@ function portal_westy_run_replay(array $messages):string
     // A computer-tool call's arguments can hold typed text. Its replay keeps the call's
     // identity for the receipt and the window or tab it addressed, never what it asked
     // for. Without those identifiers a resumed model repeats calls that name no window.
+    // Browser ids are kept only in the driver's minted shapes, bt-<uuid> and tab-<uuid>.
     $target=static function(mixed $arguments):stdClass{
         $arguments=is_string($arguments)?json_decode($arguments,true):(is_object($arguments)?get_object_vars($arguments):$arguments);
         $kept=[];
         foreach(['pid','window_id'] as $key)if(is_int($arguments[$key]??null)&&$arguments[$key]>0)$kept[$key]=$arguments[$key];
-        foreach(['target_id','tab_id'] as $key)
-            if(is_string($arguments[$key]??null)&&preg_match('/\A[\x21-\x7e]{1,256}\z/D',$arguments[$key])===1)$kept[$key]=$arguments[$key];
+        foreach(['target_id'=>'bt','tab_id'=>'tab'] as $key=>$prefix)
+            if(is_string($arguments[$key]??null)&&preg_match('/\A'.$prefix.'-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D',$arguments[$key])===1)
+                $kept[$key]=$arguments[$key];
         return (object)$kept;
     };
     foreach($messages as $mi=>&$message){
