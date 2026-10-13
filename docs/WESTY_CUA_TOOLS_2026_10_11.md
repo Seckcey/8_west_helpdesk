@@ -96,9 +96,11 @@ Companion change.
 The existing attempt deadline remains 150 seconds. One rule admits a call and decides
 every receipt poll: one more poll and the scoped Stop must fit before the deadline,
 with 4 seconds of headroom. A call is admitted only when the check before sending, the
-queue request, a first poll, a 20-second receipt wait (room for an app launch or page
-load) and Stop also fit. That is 65 seconds for a `customer_access` binding and 38
-seconds for a legacy binding while requests are fast.
+queue request, a first poll, the shortest useful receipt wait and Stop also fit. That
+wait is 8 seconds for reading, clicking, typing and keys, and 20 seconds for launching
+an app, connecting to the browser or loading a page. While requests are fast, a call
+needs 53 seconds left (65 for a slow step) with a `customer_access` binding, and 26
+seconds (38) with a legacy binding.
 
 A check and a desktop request are budgeted at the longest they have actually taken in
 this request, never below a floor: 2 seconds for a legacy binding and 3 seconds for a
@@ -112,9 +114,10 @@ could be sent, and the next call was always refused.
 While it waits for a receipt, the dispatcher starts a full authority check only while
 that check's own worst case (20 seconds, or 56 seconds for `customer_access`) still
 fits, and asks without force, so a full check runs at most once a second. The check
-before sending is always full. Past that point every poll still reads membership, and
-a person's Stop reaches the computer through its own scoped Stop, which marks the
-pending action cancelled or unknown for the next poll. None of this skips
+before sending is always full. Past that point a light check still reads the kill
+switch and the turn's own Stop locally before every poll, and every poll still reads
+membership. A person's Stop also reaches the computer through its own scoped Stop,
+which marks the pending action cancelled or unknown. None of this skips
 authentication, revocation, membership or a user Stop. The model loop starts a call
 only with the admission time left; a slow row save can still leave the dispatcher to
 refuse it, which shows a brief "Working" row that then reads "Not sent".

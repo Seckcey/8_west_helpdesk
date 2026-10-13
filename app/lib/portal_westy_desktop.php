@@ -185,7 +185,8 @@ function portal_westy_cua_response(array $response):array
     }
     return ['private_observation'=>['cua'=>$response],'images'=>$images];
 }
-function portal_westy_cua_dispatch(array $context,array $arguments,callable $alive,?callable $transport,?float $deadline=null):array
+function portal_westy_cua_dispatch(array $context,array $arguments,callable $alive,?callable $transport,?float $deadline=null,
+    float $wait=PORTAL_WESTY_CUA_MIN_WAIT):array
 {
     $task=portal_desktop_task($context);$identity=['session_id'=>$task['session_id'],'task_id'=>$task['task_id']];
     $dispatched=false;$actionId=null;$returned=false;$sentAt=null;$queuedAt=null;
@@ -212,7 +213,7 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
         return $times===[]?[]:['timing'=>$times];
     };
     try{
-        $need=portal_westy_cua_need($cost,1,2,PORTAL_WESTY_CUA_MIN_WAIT);
+        $need=portal_westy_cua_need($cost,1,2,$wait);
         if(!$fits($need))return $notSent($need);
         if(!$measured('check',static fn()=>$alive()))throw new PortalDesktopException('task_stopped');
         if(!portal_devices_keys($arguments,['method','params_json'])||!is_string($arguments['method'])
@@ -220,7 +221,7 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
             ||!is_string($arguments['params_json'])||strlen($arguments['params_json'])>60000)
             throw new PortalDesktopException('invalid_cua_request',400,true);
         // Checked again at the moment of sending, now with that check's actual cost.
-        $need=portal_westy_cua_need($cost,0,2,PORTAL_WESTY_CUA_MIN_WAIT);
+        $need=portal_westy_cua_need($cost,0,2,$wait);
         if(!$fits($need))return $notSent($need);
         $dispatched=true;$sentAt=microtime(true);
         $queued=$measured('request',static fn()=>portal_desktop_request($context,'cua',
@@ -229,12 +230,12 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
         $actionId=$queued['action_id'];$started=$queuedAt=microtime(true);
         while(microtime(true)-$started<58&&$fits(portal_westy_cua_need($cost,0,1))){
             // A full check starts only while its own worst case still fits, and within a
-            // second of the last one alive(false) reuses it. Past that point every poll
-            // still reads membership, and a person's Stop reaches the computer through
-            // its own scoped Stop, which marks this action cancelled or unknown for the
-            // next poll.
-            if($fits(max($cost['check'],$cost['check_worst'])+portal_westy_cua_need($cost,0,1))
-                &&!$measured('check',static fn()=>$alive(false)))throw new PortalDesktopException('task_stopped');
+            // second of the last one alive(false) reuses it. Past that point alive(null)
+            // still reads the kill switch and the turn's own Stop locally before every
+            // poll, and every poll still reads membership.
+            if($fits(max($cost['check'],$cost['check_worst'])+portal_westy_cua_need($cost,0,1))){
+                if(!$measured('check',static fn()=>$alive(false)))throw new PortalDesktopException('task_stopped');
+            }elseif(!$alive(null))throw new PortalDesktopException('task_stopped');
             if(!$fits(portal_westy_cua_need($cost,0,1)))break;
             $receipt=$measured('request',static fn()=>portal_desktop_request($context,'cua_result',$identity+['action_id'=>$actionId],$transport));
             if(in_array($receipt['state']??null,['queued','claimed'],true)){usleep(200000);continue;}

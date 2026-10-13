@@ -21,8 +21,11 @@ const PORTAL_WESTY_CUA_STOP_WORST=8.0;
 const PORTAL_WESTY_CUA_ACCESS_STOP_WORST=32.0;
 const PORTAL_WESTY_CUA_CHECK_WORST=20.0;
 const PORTAL_WESTY_CUA_ACCESS_CHECK_WORST=56.0;
-/** The shortest receipt wait worth sending a call for: room for an app launch or page load. */
-const PORTAL_WESTY_CUA_MIN_WAIT=20.0;
+/** The shortest receipt wait worth sending a call for. Launching an app, connecting to
+ * the browser or loading a page gets longer than reading, clicking or typing. */
+const PORTAL_WESTY_CUA_MIN_WAIT=8.0;
+const PORTAL_WESTY_CUA_SLOW_WAIT=20.0;
+const PORTAL_WESTY_CUA_SLOW_TOOLS=['cua_launch_app','cua_browser_prepare','cua_browser_navigate'];
 /** Spare time kept after the scoped Stop. */
 const PORTAL_WESTY_CUA_HEADROOM=4.0;
 const PORTAL_WESTY_CUA_EVIDENCE_BYTES=24000;
@@ -414,11 +417,16 @@ function portal_westy_cua_need(array $cost,int $checks,int $requests,float $wait
 {
     return $checks*$cost['check']+$requests*$cost['request']+$wait+$cost['stop']+PORTAL_WESTY_CUA_HEADROOM;
 }
+/** The shortest receipt wait worth sending this tool's call for. */
+function portal_westy_cua_wait(string $tool):float
+{
+    return in_array($tool,PORTAL_WESTY_CUA_SLOW_TOOLS,true)?PORTAL_WESTY_CUA_SLOW_WAIT:PORTAL_WESTY_CUA_MIN_WAIT;
+}
 /** Least time left to start a call: the check before sending, the queue request, a
  * first poll, the shortest useful receipt wait and the scoped Stop. */
-function portal_westy_cua_admission_seconds(array $context):float
+function portal_westy_cua_admission_seconds(array $context,float $wait=PORTAL_WESTY_CUA_MIN_WAIT):float
 {
-    return portal_westy_cua_need(portal_westy_cua_costs($context),1,2,PORTAL_WESTY_CUA_MIN_WAIT);
+    return portal_westy_cua_need(portal_westy_cua_costs($context),1,2,$wait);
 }
 
 /** Validate, dispatch once and shape the result exactly like the other desktop tools.
@@ -433,7 +441,7 @@ function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,call
         $public=['state'=>'rejected','reason'=>'invalid_arguments','executed'=>false,'correction_allowed'=>true,'retry_allowed'=>false];
         return ['public_result'=>$public+['guidance'=>portal_westy_cua_clip(portal_westy_cua_guidance($public).' '.$error->getMessage(),400)]];
     }
-    $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport,$deadline);
+    $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport,$deadline,portal_westy_cua_wait($tool));
     if(($dispatch['not_sent']??false)===true)return ['not_sent'=>true,'timing'=>$dispatch['timing']??[]];
     $response=$dispatch['private_observation']['cua']??null;$response=is_array($response)?$response:null;
     $public=$dispatch['public_result']+$request['public']+portal_westy_cua_facts($response);

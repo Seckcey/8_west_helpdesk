@@ -365,7 +365,9 @@ foreach([[false,85.0,8.0,20.0],[true,150.0,32.0,56.0],[true,200.0,32.0,56.0]] as
     $GLOBALS['cuaClock']=0.0;$GLOBALS['cuaClockCalls']=[];$GLOBALS['cuaRequestSeconds']=$requestSeconds;$authorityCalls=0;
     $timedContext=$context;if($membership)$timedContext['identity']['customer_access']=[];
     $timed=WestyCuaDeadlineFixture\portal_westy_cua_dispatch($timedContext,['method'=>'tools/call','params_json'=>'{}'],
-        static function()use(&$authorityCalls,$authoritySeconds):bool{if($authorityCalls++>0)$GLOBALS['cuaClock']+=$authoritySeconds;return true;},null,$until);
+        static function(...$arguments)use(&$authorityCalls,$authoritySeconds):bool{
+            // The light check (null) is a local read; only full checks are slow here.
+            if(!(array_key_exists(0,$arguments)&&$arguments[0]===null)&&$authorityCalls++>0)$GLOBALS['cuaClock']+=$authoritySeconds;return true;},null,$until);
     check($GLOBALS['cuaClock']<$until,'slow authority and scoped receipt/Stop requests finish before the attempt deadline: '.($membership?'membership':'legacy'));
     check($timed['public_result']['state']==='unknown'&&!$timed['public_result']['retry_allowed']
         &&array_column($GLOBALS['cuaClockCalls'],'action')[0]==='cua'
@@ -378,17 +380,22 @@ check($fast['public_result']['state']==='returned'&&array_column($GLOBALS['cuaCl
     'an ordinary timely membership-bound call still dispatches and receives its result within the unchanged attempt deadline');
 // An observation early in the attempt and the next actions later in the same attempt
 // all reach the computer, and the rule that admits a call also lets it poll.
-$probe=static function(array $ctx,float $at,callable $alive,float $until=150.0):array{
+$probe=static function(array $ctx,float $at,callable $alive,float $until=150.0,float $wait=PORTAL_WESTY_CUA_MIN_WAIT):array{
     $GLOBALS['cuaClock']=$at;$GLOBALS['cuaClockCalls']=[];
-    $result=WestyCuaDeadlineFixture\portal_westy_cua_dispatch($ctx,['method'=>'tools/call','params_json'=>'{}'],$alive,null,$until);
+    $result=WestyCuaDeadlineFixture\portal_westy_cua_dispatch($ctx,['method'=>'tools/call','params_json'=>'{}'],$alive,null,$until,$wait);
     return ['result'=>$result,'actions'=>array_column($GLOBALS['cuaClockCalls'],'action'),'end'=>$GLOBALS['cuaClock']];
 };
 $later=[];
-foreach([18.0,48.0,64.0,84.0] as $at)$later[]=$probe($fastMembership,$at,static fn():bool=>true)['result']['public_result']['state']??'not_sent';
-check($later===array_fill(0,4,'returned'),'an observation and later actions in the same attempt all reach the computer');
+foreach([18.0,48.0,64.0,84.0,96.0] as $at)$later[]=$probe($fastMembership,$at,static fn():bool=>true)['result']['public_result']['state']??'not_sent';
+check($later===array_fill(0,5,'returned'),'an observation and later actions in the same attempt all reach the computer');
 $pastAdmission=$probe($fastMembership,151.0-portal_westy_cua_admission_seconds($fastMembership),static fn():bool=>true);
 check(($pastAdmission['result']['not_sent']??false)===true&&$pastAdmission['actions']===[]&&is_int($pastAdmission['result']['timing']['needed_ms']??null),
     'past the admission time nothing is sent, and the refusal carries its timing');
+// Launching an app or loading a page needs a longer receipt wait than reading or clicking.
+check(portal_westy_cua_wait('cua_browser_navigate')===PORTAL_WESTY_CUA_SLOW_WAIT&&portal_westy_cua_wait('cua_click')===PORTAL_WESTY_CUA_MIN_WAIT
+    &&($probe($fastMembership,90.0,static fn():bool=>true,150.0,PORTAL_WESTY_CUA_SLOW_WAIT)['result']['not_sent']??false)===true
+    &&($probe($fastMembership,90.0,static fn():bool=>true)['result']['public_result']['state']??null)==='returned',
+    'a slow step is held for a longer wait than a quick one at the same moment');
 $GLOBALS['cuaClockReturned']=false;
 $unpolled=[];$latePolls=[];$pollAndStop=portal_westy_cua_need(portal_westy_cua_costs($fastMembership),0,1);
 for($at=0.0;$at<150.0;$at+=0.5){
@@ -408,19 +415,28 @@ check(($spike['result']['public_result']['state']??null)==='unknown'&&end($spike
 $GLOBALS['cuaRequestSeconds']=0.1;
 // A full check is started during the wait only while its own worst case fits, so a
 // check that turns slow cannot push Stop past the deadline (customer access and legacy).
+// The light check (null) is a local read and takes no simulated time here.
 $alives=0;
-$slowCheck=$probe($fastMembership,20.0,static function()use(&$alives):bool{if(++$alives>1)$GLOBALS['cuaClock']+=56.0;return true;});
+$slowCheck=$probe($fastMembership,20.0,static function(...$arguments)use(&$alives):bool{
+    if(array_key_exists(0,$arguments)&&$arguments[0]===null)return true;if(++$alives>1)$GLOBALS['cuaClock']+=56.0;return true;});
 check(($slowCheck['result']['public_result']['state']??null)==='unknown'&&end($slowCheck['actions'])==='stop'&&$slowCheck['end']<150.0&&$alives===2,
     'a worst-case authority check during the wait is not repeated once another could outlast the deadline');
 $alives=0;
-$slowLegacy=$probe($context,100.0,static function()use(&$alives):bool{if(++$alives>1)$GLOBALS['cuaClock']+=20.0;return true;});
+$slowLegacy=$probe($context,100.0,static function(...$arguments)use(&$alives):bool{
+    if(array_key_exists(0,$arguments)&&$arguments[0]===null)return true;if(++$alives>1)$GLOBALS['cuaClock']+=20.0;return true;});
 check(($slowLegacy['result']['public_result']['state']??null)==='unknown'&&end($slowLegacy['actions'])==='stop'&&$slowLegacy['end']<150.0,
     'a legacy authority check that turns slow near the deadline still leaves time for the scoped Stop');
-// The check before sending is full; checks while waiting are throttled.
+// The check before sending is full; while waiting the dispatcher asks without force,
+// then only for the light local check once a full one could not fit.
 $forces=[];
-$probe($fastMembership,20.0,static function(...$arguments)use(&$forces):bool{$forces[]=$arguments[0]??true;return true;});
-check(($forces[0]??null)===true&&count($forces)>1&&array_unique(array_slice($forces,1))===[false],
-    'the dispatcher forces the check before sending and asks without force while it waits');
+$probe($fastMembership,20.0,static function(...$arguments)use(&$forces):bool{$forces[]=array_key_exists(0,$arguments)?$arguments[0]:true;return true;});
+check(($forces[0]??null)===true&&!in_array(true,array_slice($forces,1),true)&&in_array(false,$forces,true)&&in_array(null,$forces,true)
+    &&array_search(null,$forces,true)>array_search(false,$forces,true),
+    'the dispatcher forces the check before sending, then throttles it, then keeps the light check near the deadline');
+// A person's Stop near the deadline is still seen before the next poll.
+$lateStop=$probe($fastMembership,90.0,static function(...$arguments):bool{return !(array_key_exists(0,$arguments)&&$arguments[0]===null);});
+check(($lateStop['result']['public_result']['state']??null)==='unknown'&&$lateStop['result']['public_result']['reason']==='task_stopped'
+    &&$lateStop['actions']===['cua','stop'],'Stop near the deadline ends the wait before another poll and sends the scoped Stop');
 $alives=0;
 $stopped=$probe($fastMembership,20.0,static function()use(&$alives):bool{return ++$alives<3;});
 check(($stopped['result']['public_result']['state']??null)==='unknown'&&$stopped['result']['public_result']['reason']==='task_stopped'
