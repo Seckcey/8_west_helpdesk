@@ -122,6 +122,20 @@ authentication, revocation, membership or a user Stop. The model loop starts a c
 only with the admission time left; a slow row save can still leave the dispatcher to
 refuse it, which shows a brief "Working" row that then reads "Not sent".
 
+A desktop request that fails before its transport call (configuration, the access
+check before sending, or an oversize request) is a rejected request: it did not run,
+so a Cua call is `refused` with `connection_unavailable` and no scoped Stop, and the
+model is told to send it again. After sending, an unreadable access check or reply
+keeps the outcome open as before. A receipt read is safe to repeat, so a read that did
+not run, was lost in transit, or returned a server error or unreadable body is asked
+again while the wait lasts; an explicit refusal or an ended sign-in still ends the wait
+with the scoped Stop. On October 13 one failed access check before sending ended
+Frankie's Notepad test this way.
+
+After a pause, replayed observations read "expired, not failed", and the playbook tells
+the model to observe again and continue instead of reporting, and to scroll when a
+control or link is not in view.
+
 The deadline is cooperative. A poll that suddenly takes its own worst case right at
 the margin can delay the worst-case Stop by that excess, about 25 seconds for
 `customer_access`. That passes the 150-second deadline but stays inside the 180-second

@@ -72,8 +72,8 @@ function portal_westy_run_replay(array $messages):string
                 $part=['type'=>'text','text'=>is_array($envelope)&&is_array($envelope['result']??null)
                     &&array_key_exists('untrusted_observation',$envelope)
                     ?json_encode(['result'=>$envelope['result'],'observation_status'=>'expired',
-                        'guidance'=>'Obtain a fresh observation before acting. Preserve this receipt; do not repeat an executed or uncertain action.'],JSON_THROW_ON_ERROR)
-                    :'Desktop observation expired. Obtain a fresh observation before acting.'];
+                        'guidance'=>'Expired, not failed: its screen contents were cleared when the reply paused. Observe again before you act or report. Preserve this receipt; do not repeat an executed or uncertain action.'],JSON_THROW_ON_ERROR)
+                    :'Desktop observation expired, not failed: its screen contents were cleared when the reply paused. Observe again before you act or report.'];
             }
             $parts[]=$part;
         }
