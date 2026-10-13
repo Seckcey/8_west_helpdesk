@@ -158,10 +158,10 @@ The raw relay also exposed these upstream tools, which are not offered:
 | `drag`, mouse button and cursor tools | Keyboard shortcuts with `cua_press_keys`, `cua_click`, `cua_scroll`. For file moves, `exec_command` where general tools are installed. There is no drag-and-drop. |
 | `get_desktop_state` and desktop-scope input | Target listed windows with `cua_list_windows` and `cua_window_state`. Full-display capture and screen-coordinate input are not available. |
 | `verify_state`, `zoom` | Observe again with `cua_window_state`, using `query` to narrow it. |
-| `invoke_menu`, `set_window_frame`, `bring_to_front` | Click menu items by element token, use the app's own shortcuts such as `["alt","f"]`, or retry one action with `delivery_mode: foreground`. Moving or resizing a window is not available. |
+| `invoke_menu`, `set_window_frame`, `bring_to_front` | Click menu items by element token, use the app's own shortcuts such as `["alt","f"]`, or retry one action with `delivery_mode: foreground`. Moving or resizing a window is not available. In modern Windows apps (Notepad, Settings, Calculator) the pinned driver presses a shortcut only through a visible control that offers it, whatever the delivery mode, so a shortcut for an item in a closed menu fails; click the menu, then the item. |
 | `list_apps` | `cua_launch_app` by name or AUMID; `exec_command` for discovery where available. |
 | `kill_app` | `["alt","f4"]` with `cua_press_keys` after the person asks; `exec_command` under the existing policy. |
-| `clipboard_read`, `clipboard_write` | Select, then `["ctrl","c"]` or `["ctrl","v"]`; `exec_command` in user context. |
+| `clipboard_read`, `clipboard_write` | Select, then `["ctrl","c"]` or `["ctrl","v"]` (classic apps and browsers; see the modern-app limit above); `exec_command` in user context. |
 | `browser_dialog`, `browser_set_input_files`, `browser_download`, `browser_pointer` | Native window clicks and keys on the dialog, file picker or download bar; `cua_scroll` on the browser window. Not equivalent in every case. |
 | Driver configuration, update, recording, history and diagnostic tools | Deliberately not offered; they change or inspect the driver, not the person's task. |
 
@@ -221,12 +221,15 @@ boundaries, and unknown outcomes keep their existing behavior.
   labels and values and page text. Screenshots are never kept, every older reading still
   expires, a later pause replaces the summary, and the saved continuation is cleared when
   the run resumes, ends, stops or expires. Readings from the legacy desktop tools still
-  expire entirely. The model is told the summary may be out of date and to observe again
-  before acting or reporting.
-- The saved continuation keeps each Cua call's name and call id, but replaces its
-  arguments with `{}`. This includes attempted calls to the removed `desktop_cua`
-  relay. OpenAI retains an argument JSON string; Anthropic retains an empty object
-  and its paired `tool_use`/`tool_result`. Current in-memory arguments are untouched.
+  expire entirely. The model may act on an element token or ref listed in the summary,
+  observes again if the driver reports it stale, and observes again before reporting.
+- The saved continuation keeps each Cua call's name and call id. Its arguments keep only
+  the `pid`, `window_id`, `target_id` and `tab_id` it addressed (since October 13); typed
+  text, values, URLs, queries, element tokens and refs are removed. This includes attempted
+  calls to the removed `desktop_cua` relay. OpenAI retains an argument JSON string; Anthropic
+  retains an object and its paired `tool_use`/`tool_result`. Current in-memory arguments are
+  untouched. Before this, every resumed attempt saw its earlier calls as `{}` and opened by
+  repeating a call with no `pid`, which was rejected.
 - The model can no longer call driver tools outside the curated set (for example `set_config`,
   `kill_app`, clipboard or recording tools), which the raw relay allowed.
 - Browser and launch permissions are still enforced by Milepost and the Companion.
