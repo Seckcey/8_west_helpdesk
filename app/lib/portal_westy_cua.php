@@ -16,11 +16,13 @@ const PORTAL_WESTY_CUA_CHECK_FLOOR=2.0;
 const PORTAL_WESTY_CUA_ACCESS_CHECK_FLOOR=3.0;
 /** Worst cases from the existing timeouts: an 8-second desktop request, 12 seconds per
  * membership read, and a full check that refreshes revocations (12 seconds) and the AI
- * selection (8 seconds); a customer-access check also reads membership three times. */
+ * selection (8 seconds); a customer-access check also reads membership three times.
+ * A failed sign-in or AI read is read once more after 0.3 seconds, so a full check can
+ * take twice its single-read worst case. */
 const PORTAL_WESTY_CUA_STOP_WORST=8.0;
 const PORTAL_WESTY_CUA_ACCESS_STOP_WORST=32.0;
-const PORTAL_WESTY_CUA_CHECK_WORST=20.0;
-const PORTAL_WESTY_CUA_ACCESS_CHECK_WORST=56.0;
+const PORTAL_WESTY_CUA_CHECK_WORST=41.0;
+const PORTAL_WESTY_CUA_ACCESS_CHECK_WORST=113.0;
 /** The shortest receipt wait worth sending a call for. Launching an app, connecting to
  * the browser or loading a page gets longer than reading, clicking or typing. */
 const PORTAL_WESTY_CUA_MIN_WAIT=8.0;

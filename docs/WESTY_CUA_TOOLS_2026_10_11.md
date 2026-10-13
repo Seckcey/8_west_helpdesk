@@ -112,9 +112,10 @@ to poll for `customer_access`), so only a call in the first 30 seconds of an att
 could be sent, and the next call was always refused.
 
 While it waits for a receipt, the dispatcher starts a full authority check only while
-that check's own worst case (20 seconds, or 56 seconds for `customer_access`) still
-fits, and asks without force, so a full check runs at most once a second. The check
-before sending is always full. Past that point a light check still reads the kill
+that check's own worst case still fits: 41 seconds, or 113 seconds for `customer_access`,
+because a failed sign-in or AI read is read once more. It asks without force, so a full
+check runs at most once a second. The check before sending is always
+full. Past that point a light check still reads the kill
 switch and the turn's own Stop locally before every poll, and every poll still reads
 membership. A person's Stop also reaches the computer through its own scoped Stop,
 which marks the pending action cancelled or unknown. None of this skips
@@ -214,8 +215,14 @@ boundaries, and unknown outcomes keep their existing behavior.
   - pid and window_id;
   - the count of typed characters;
   - server-written guidance.
-- The existing durable replay expires every Cua observation. A continuation therefore starts
-  with a fresh `cua_window_state`.
+- Since October 13 (approved by Frankie), the saved continuation keeps one text summary
+  of the newest Cua screen reading, at most 8,000 bytes, marked `summarized` with
+  `last_screen`, so a resumed task knows where it was. It can include window titles, control
+  labels and values and page text. Screenshots are never kept, every older reading still
+  expires, a later pause replaces the summary, and the saved continuation is cleared when
+  the run resumes, ends, stops or expires. Readings from the legacy desktop tools still
+  expire entirely. The model is told the summary may be out of date and to observe again
+  before acting or reporting.
 - The saved continuation keeps each Cua call's name and call id, but replaces its
   arguments with `{}`. This includes attempted calls to the removed `desktop_cua`
   relay. OpenAI retains an argument JSON string; Anthropic retains an empty object

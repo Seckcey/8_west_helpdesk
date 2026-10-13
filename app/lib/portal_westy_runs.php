@@ -43,10 +43,32 @@ function portal_westy_run_create(PDO $pdo,array $scope,int $turn,string $convers
     return portal_westy_run_find($pdo,$scope,$operation,true);
 }
 
-/** Images/UIA remain transient even when crossing a durable shell wait boundary. */
+/** Images/UIA remain transient across a durable wait boundary, except one bounded text
+ * summary (8,000 bytes) of the newest Cua screen reading, so a resumed computer task is
+ * not blind. Screenshots never survive, older readings expire, and the replay itself is
+ * cleared when the run resumes, ends, stops or expires. */
 function portal_westy_run_replay(array $messages):string
 {
-    foreach($messages as &$message){
+    $summaryBytes=8000;
+    // Which tool results answer a Cua screen reading, and which of them is the newest.
+    // Acknowledgements of clicks or typing are not screen readings.
+    $cuaCalls=[];
+    foreach($messages as $message)if(($message['role']??'')==='provider')foreach($message['output']??[] as $item){
+        $item=is_object($item)?get_object_vars($item):$item;
+        $id=is_array($item)?($item['call_id']??$item['id']??null):null;
+        if(is_string($id)&&in_array($item['name']??null,['cua_window_state','cua_browser_state','cua_list_windows'],true))$cuaCalls[$id]=true;
+    }
+    $newest=null;
+    foreach($messages as $mi=>$message){
+        if(($message['role']??'')!=='tool'||!isset($cuaCalls[$message['call_id']??'']))continue;
+        foreach($message['content']??[] as $pi=>$part){
+            $text=is_string($part['text']??null)?$part['text']:'';
+            $envelope=str_contains($text,'"untrusted_observation"')||str_contains($text,'"last_screen"')?json_decode($text,true):null;
+            if(is_array($envelope)&&is_array($envelope['result']??null)
+                &&(is_array($envelope['untrusted_observation']??null)||is_string($envelope['last_screen']??null)))$newest=[$mi,$pi];
+        }
+    }
+    foreach($messages as $mi=>&$message){
         if(($message['role']??'')==='provider'){
             // A computer-tool call's arguments can hold typed text. Its replay keeps
             // the call's identity for the receipt, never what the call asked for.
@@ -63,10 +85,31 @@ function portal_westy_run_replay(array $messages):string
         }
         if(($message['role']??'')!=='tool')continue;
         $parts=[];
-        foreach($message['content']??[] as $part){
+        foreach($message['content']??[] as $pi=>$part){
             if(($part['type']??'')!=='text')continue;
+            $kept=str_contains($part['text'],'"last_screen"')?json_decode($part['text'],true):null;
+            if(is_array($kept)&&is_array($kept['result']??null)&&is_string($kept['last_screen']??null)){
+                // A summary from an earlier pause stays only while it is still the newest reading.
+                if($newest!==[$mi,$pi])$part=['type'=>'text','text'=>json_encode(['result'=>$kept['result'],'observation_status'=>'expired',
+                    'guidance'=>'Expired, not failed: its screen contents were cleared when the reply paused. Observe again before you act or report. Preserve this receipt; do not repeat an executed or uncertain action.'],JSON_THROW_ON_ERROR)];
+                $parts[]=$part;continue;
+            }
             if(str_contains($part['text'],'"untrusted_observation"')){
                 $envelope=json_decode($part['text'],true);
+                if($newest===[$mi,$pi]&&is_array($envelope)&&is_array($envelope['untrusted_observation']??null)){
+                    $screen=(string)json_encode($envelope['untrusted_observation'],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE);
+                    // The bound holds for the part as stored: the replay escapes it once more,
+                    // so quote-, path- or non-Latin-heavy text keeps less of the screen.
+                    for($limit=6000;;$limit=intdiv($limit*3,4)){
+                        $clip=strlen($screen)>$limit?mb_strcut($screen,0,$limit,'UTF-8').'…[truncated]':$screen;
+                        $text=json_encode(['result'=>$envelope['result'],'observation_status'=>'summarized','last_screen'=>$clip,
+                            'guidance'=>'The screen as it was before the pause, kept as text so you can continue. It may be out of date: use it to remember where you were and what you saw, observe again before you act, and report only what a current observation shows. Preserve this receipt; do not repeat an executed or uncertain action.'],
+                            JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);
+                        if(strlen(json_encode($text,JSON_THROW_ON_ERROR))<=$summaryBytes||$limit<200)break;
+                    }
+                    $parts[]=['type'=>'text','text'=>$text];
+                    continue;
+                }
                 // The public receipt is durable evidence of execution (or its
                 // uncertainty). Only the attached screen contents expire.
                 $part=['type'=>'text','text'=>is_array($envelope)&&is_array($envelope['result']??null)
