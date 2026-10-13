@@ -68,16 +68,27 @@ function portal_westy_run_replay(array $messages):string
                 &&(is_array($envelope['untrusted_observation']??null)||is_string($envelope['last_screen']??null)))$newest=[$mi,$pi];
         }
     }
+    // A computer-tool call's arguments can hold typed text. Its replay keeps the call's
+    // identity for the receipt and the window or tab it addressed, never what it asked
+    // for. Without those identifiers a resumed model repeats calls that name no window.
+    // Browser ids are kept only in the driver's minted shapes, bt-<uuid> and tab-<uuid>.
+    $target=static function(mixed $arguments):stdClass{
+        $arguments=is_string($arguments)?json_decode($arguments,true):(is_object($arguments)?get_object_vars($arguments):$arguments);
+        $kept=[];
+        foreach(['pid','window_id'] as $key)if(is_int($arguments[$key]??null)&&$arguments[$key]>0)$kept[$key]=$arguments[$key];
+        foreach(['target_id'=>'bt','tab_id'=>'tab'] as $key=>$prefix)
+            if(is_string($arguments[$key]??null)&&preg_match('/\A'.$prefix.'-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D',$arguments[$key])===1)
+                $kept[$key]=$arguments[$key];
+        return (object)$kept;
+    };
     foreach($messages as $mi=>&$message){
         if(($message['role']??'')==='provider'){
-            // A computer-tool call's arguments can hold typed text. Its replay keeps
-            // the call's identity for the receipt, never what the call asked for.
             foreach($message['output']??[] as $index=>$item){
                 $item=is_object($item)?get_object_vars($item):$item;
                 if(!is_array($item)||!is_string($item['name']??null)
                     ||(!str_starts_with($item['name'],'cua_')&&$item['name']!=='desktop_cua'))continue;
-                if(($item['type']??null)==='function_call')$item['arguments']='{}';
-                elseif(($item['type']??null)==='tool_use')$item['input']=new stdClass();
+                if(($item['type']??null)==='function_call')$item['arguments']=json_encode($target($item['arguments']??null),JSON_THROW_ON_ERROR);
+                elseif(($item['type']??null)==='tool_use')$item['input']=$target($item['input']??null);
                 else continue;
                 $message['output'][$index]=$item;
             }
@@ -103,7 +114,7 @@ function portal_westy_run_replay(array $messages):string
                     for($limit=6000;;$limit=intdiv($limit*3,4)){
                         $clip=strlen($screen)>$limit?mb_strcut($screen,0,$limit,'UTF-8').'…[truncated]':$screen;
                         $text=json_encode(['result'=>$envelope['result'],'observation_status'=>'summarized','last_screen'=>$clip,
-                            'guidance'=>'The screen as it was before the pause, kept as text so you can continue. It may be out of date: use it to remember where you were and what you saw, observe again before you act, and report only what a current observation shows. Preserve this receipt; do not repeat an executed or uncertain action.'],
+                            'guidance'=>'The screen as it was before the pause, kept as text so you can continue. If your next step only clicks or navigates with an element token or ref listed here, act on it directly; if the driver says it is stale, observe again. Observe first if the outcome of a later call is unknown or if the step types or replaces text. Report only what a current observation shows. Preserve this receipt; do not repeat an executed or uncertain action.'],
                             JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);
                         if(strlen(json_encode($text,JSON_THROW_ON_ERROR))<=$summaryBytes||$limit<200)break;
                     }

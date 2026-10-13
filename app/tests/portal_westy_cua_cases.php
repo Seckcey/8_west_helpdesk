@@ -44,6 +44,10 @@ $provider=static function($selected,$system,$input,$options,$emit,$alive)use(&$c
     check(str_contains($system,'Cua Driver')&&str_contains($system,'cua_window_state')&&!str_contains($system,'Desktop action x/y must be relative'),
         'Cua playbook replaces legacy coordinate instructions');
     check(!str_contains($system,'resources/read')&&!str_contains($system,'WINDOWS.md'),'no driver manual is required reading');
+    // Modern Notepad has no visible control for ctrl+a, so the pinned driver refuses it there.
+    check(!str_contains($system,'["ctrl","a"]')&&str_contains($system,'Recipe for typing in Notepad')
+        &&str_contains($system,'Recipe for opening a page and following a link')&&!str_contains($system,'act once, then observe again'),
+        'the playbook carries the two recipes, observes only when needed and never suggests ctrl+a');
     check(str_contains($system,portal_computer_time_instructions()),'computer-local time guidance survives desktop integration');
     check($options['max_output_tokens']===PORTAL_WESTY_AI_MAX_OUTPUT&&$options['max_input_tokens']===PORTAL_WESTY_AI_MAX_INPUT,'rounds use the shared reasoning-sized bounds');
     if($calls===1)return $reply('',[['id'=>'synthetic-cua','name'=>'cua_window_state','arguments'=>$observe]]);
@@ -295,6 +299,22 @@ $restored=portal_westy_run_restore(portal_westy_run_replay([['role'=>'provider',
 check(!str_contains(json_encode($restored,JSON_THROW_ON_ERROR),'PRIVATE')&&str_contains(json_encode($restored,JSON_THROW_ON_ERROR),'KEEP_OTHER')
     &&$restored[0]['output'][0]->arguments==='{}'&&$restored[0]['output'][1]->input instanceof stdClass,
     'restored and Anthropic-shaped computer-tool calls are redacted the same way; other tools are unchanged');
+// The window or tab a call addressed survives a pause, so the resumed model can name it again.
+$addressed=portal_westy_run_restore(portal_westy_run_replay([['role'=>'provider','output'=>[
+    ['type'=>'function_call','call_id'=>'k1','name'=>'cua_type_text','arguments'=>json_encode(['pid'=>3228,'window_id'=>5178902,
+        'element_token'=>'s0000002a:1','text'=>'PRIVATE_KEPT_TEXT'],JSON_THROW_ON_ERROR)],
+    ['type'=>'tool_use','id'=>'k2','name'=>'cua_browser_click','input'=>(object)['target_id'=>'bt-0f8b2c1e-1a2b-4c3d-8e9f-0123456789ab',
+        'tab_id'=>'https://PRIVATE.example/','ref'=>'r9','pid'=>-1]],
+    ['type'=>'function_call','call_id'=>'k3','name'=>'cua_window_state','arguments'=>'not json'],
+    ['type'=>'function_call','call_id'=>'k4','name'=>'desktop_cua','arguments'=>'{"pid":7,"params_json":"PRIVATE_RELAY"}'],
+    ['type'=>'function_call','call_id'=>'k5','name'=>'cua_browser_state','arguments'=>json_encode(['target_id'=>'PRIVATE_TEXT',
+        'tab_id'=>'tab-0f8b2c1e-1a2b-4c3d-8e9f-0123456789ab','query'=>'PRIVATE_QUERY'],JSON_THROW_ON_ERROR)]]]]));
+check($addressed[0]['output'][0]->arguments==='{"pid":3228,"window_id":5178902}'
+    &&get_object_vars($addressed[0]['output'][1]->input)===['target_id'=>'bt-0f8b2c1e-1a2b-4c3d-8e9f-0123456789ab']
+    &&$addressed[0]['output'][2]->arguments==='{}'&&$addressed[0]['output'][4]->arguments==='{"tab_id":"tab-0f8b2c1e-1a2b-4c3d-8e9f-0123456789ab"}'
+    &&$addressed[0]['output'][3]->arguments==='{"pid":7}'&&!str_contains(json_encode($addressed,JSON_THROW_ON_ERROR),'PRIVATE')
+    &&portal_westy_run_replay($addressed)===portal_westy_run_replay(portal_westy_run_restore(portal_westy_run_replay($addressed))),
+    'a paused computer call keeps only the window or tab it addressed, never its text, tokens or refs');
 foreach(['openai','anthropic'] as $vendor)foreach(['cua_type_text','desktop_cua'] as $toolName){
     $selected=['revision'=>4,'credential_version'=>1]+westy_tenant_ai_selection($vendor,
         $vendor==='openai'?'gpt-6.1-sol':'claude-sonnet-5-5','medium');
