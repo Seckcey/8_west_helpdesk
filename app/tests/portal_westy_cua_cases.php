@@ -464,7 +464,7 @@ $slowLegacy=$probe($context,100.0,static function(...$arguments)use(&$alives):bo
     if(array_key_exists(0,$arguments)&&$arguments[0]===null)return true;if(++$alives>1)$GLOBALS['cuaClock']+=20.0;return true;});
 check(($slowLegacy['result']['public_result']['state']??null)==='unknown'&&end($slowLegacy['actions'])==='stop'&&$slowLegacy['end']<150.0,
     'a legacy authority check that turns slow near the deadline still leaves time for the scoped Stop');
-// The check before sending is forced (full unless one ran within a second); while waiting the dispatcher asks without force,
+// The check before sending is forced; while waiting the dispatcher asks without force,
 // then only for the light local check once a full one could not fit.
 $forces=[];
 $probe($context,60.0,static function(...$arguments)use(&$forces):bool{$forces[]=array_key_exists(0,$arguments)?$arguments[0]:true;return true;});

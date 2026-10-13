@@ -348,9 +348,6 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     $alive=static function(?bool $force=false)use($pdo,$context,$s,$turnId,$reauthorize,$requireAi,$reread,&$lastCheck,$deadline):void{
         if(microtime(true)>$deadline)throw new PortalWestyException('interrupted');
         if($force===false && microtime(true)-$lastCheck<1)return;
-        // A forced check within a second of a full one re-reads only local state (the
-        // kill switch and the turn's own Stop) instead of repeating the remote checks.
-        if($force===true && microtime(true)-$lastCheck<1)$force=null;
         if(!portal_westy_config()['enabled']||!portal_westy_config()['ai_enabled'])throw new PortalWestyException('ai_unavailable');
         if($force!==null){
             if($reauthorize){$fresh=$reread();if(!is_array($fresh)||!portal_desktop_same_context($context,$fresh)||portal_westy_scope($pdo,$fresh)['key']!==$s['key'])throw new PortalWestyException('sign_in',401);}
@@ -360,15 +357,17 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         if($q->fetchColumn()!=='pending')throw new PortalWestyException('stopped');
         if($force!==null)$lastCheck=microtime(true);
     };
-    $save=static function()use($pdo,$turnId,$s,&$partial,$alive):void{
-        $alive(true);
+    $save=static function(bool $checked=false)use($pdo,$turnId,$s,&$partial,$alive):void{
+        if(!$checked)$alive(true);
         $q=$pdo->prepare("UPDATE portal_westy_turns SET reply_json=? WHERE id=? AND scope_key=? AND state='pending'");
         $q->execute([json_encode($partial,JSON_THROW_ON_ERROR),$turnId,$s['key']]);
     };
+    // One full check covers this output's save and emit, which follow it with no work
+    // in between; every output still gets its own check.
     $output=static function(string $event,array $value)use(&$partial,$save,$emit,$key,$alive):void{
         $alive(true);
-        if($event==='delta'){$partial['reply'].=$value['text'];$save();}
-        if($emit){$alive(true);$emit($event,['operation'=>$key]+$value);}
+        if($event==='delta'){$partial['reply'].=$value['text'];$save(true);}
+        if($emit)$emit($event,['operation'=>$key]+$value);
     };
     if($emit)$emit('accepted',['operation'=>$key,'conversation'=>$account['conversation_key']]);
     $result=portal_westy_ai_run($pdo,$context,$aiSnapshot,$messages,$key,$partial,$alive,$output,$save,$provider,$transport,$aiResolver,$deadline,$maxOutput);

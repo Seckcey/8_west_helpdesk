@@ -114,8 +114,8 @@ could be sent, and the next call was always refused.
 While it waits for a receipt, the dispatcher starts a full authority check only while
 that check's own worst case still fits: 41 seconds, or 113 seconds for `customer_access`,
 because a failed sign-in or AI read is read once more. It asks without force, so a full
-check runs at most once a second. The check before sending is full unless a full check
-ran within the last second. Past that point a light check still reads the kill
+check runs at most once a second. The check before sending is always
+full. Past that point a light check still reads the kill
 switch and the turn's own Stop locally before every poll, and every poll still reads
 membership. A person's Stop also reaches the computer through its own scoped Stop,
 which marks the pending action cancelled or unknown. None of this skips
