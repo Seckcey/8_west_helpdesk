@@ -458,7 +458,7 @@ function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,call
         'execution_unresolved','execution_busy','support_busy','cleanup_unavailable','approval_required','tool_restriction',
         'approval_changed','preferences_changed','review_changed','desktop_upgrade_required','cua_unavailable',
         'cua_interrupted','cua_runtime_unavailable','cua_runtime_invalid','cua_protocol_invalid','cua_catalog_invalid','cua_session_unavailable','cua_parameters_invalid',
-        'cua_disconnected','cua_response_too_large','cua_response_mismatch','unrecognized'];
+        'cua_disconnected','cua_response_too_large','cua_response_mismatch','customer_unavailable','sign_in','unrecognized'];
     if(($public['reason']??null)!==null&&!in_array($public['reason'],$reasons,true))$public['reason']='unrecognized';
     if(!in_array($public['state']??null,['returned','refused','cancelled','unknown'],true))$public['state']='unknown';
     $public['guidance']=portal_westy_cua_guidance($public);

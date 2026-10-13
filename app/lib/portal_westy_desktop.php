@@ -34,16 +34,19 @@ function portal_desktop_request(array $context,string $action,array $input,?call
 {
     // Everything that fails before the transport call proves this request did not
     // run, so it is a rejected request, never an uncertain one.
-    if(!in_array($action,['stop','state','renew','result','cua_result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','terminal_tasks','terminal_task_result','terminal_task_cancel','control_result','control_cancel'],true)&&!desktop_cleanup_available())
-        throw new PortalDesktopException('cleanup_unavailable',503,true);
-    $config=cfg('desktop_companion',[]);
-    if(!is_array($config)||($config['endpoint']??null)!==PORTAL_DESKTOP_ENDPOINT
-        ||!is_string($config['service_secret']??null)||preg_match('/\A[a-f0-9]{64}\z/D',$config['service_secret'])!==1
-        ||$config['service_secret']===str_repeat('0',64))throw new PortalDesktopException('connection_unavailable',503,true);
-    $scope=portal_desktop_scope($context,true);
-    $body=json_encode(['action'=>$action,'scope'=>$scope,'input'=>$input],JSON_THROW_ON_ERROR);
-    if(strlen($body)>131072)throw new PortalDesktopException('invalid_request',400,true);
-    $timestamp=(string)time();$nonce=bin2hex(random_bytes(16));
+    try{
+        if(!in_array($action,['stop','state','renew','result','cua_result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','terminal_tasks','terminal_task_result','terminal_task_cancel','control_result','control_cancel'],true)&&!desktop_cleanup_available())
+            throw new PortalDesktopException('cleanup_unavailable',503,true);
+        $config=cfg('desktop_companion',[]);
+        if(!is_array($config)||($config['endpoint']??null)!==PORTAL_DESKTOP_ENDPOINT
+            ||!is_string($config['service_secret']??null)||preg_match('/\A[a-f0-9]{64}\z/D',$config['service_secret'])!==1
+            ||$config['service_secret']===str_repeat('0',64))throw new PortalDesktopException('connection_unavailable',503,true);
+        $scope=portal_desktop_scope($context,true);
+        $body=json_encode(['action'=>$action,'scope'=>$scope,'input'=>$input],JSON_THROW_ON_ERROR);
+        if(strlen($body)>131072)throw new PortalDesktopException('invalid_request',400,true);
+        $timestamp=(string)time();$nonce=bin2hex(random_bytes(16));
+    }catch(PortalDesktopException $error){throw $error;}
+    catch(Throwable){throw new PortalDesktopException('connection_unavailable',503,true);}
     $preimage=PORTAL_DESKTOP_CONTEXT."\nPOST\n/api/svc/desktop_sessions.php\n".$timestamp."\n".$nonce."\n".hash('sha256',$body);
     $reply=($transport??'portal_desktop_transport')($body,['Content-Type: application/json','X-Portal-Timestamp: '.$timestamp,
         'X-Portal-Nonce: '.$nonce,'X-Portal-Signature: '.hash_hmac('sha256',$preimage,$config['service_secret'])]);
@@ -75,12 +78,13 @@ function portal_desktop_request(array $context,string $action,array $input,?call
 }
 /** The caller's access scope, read before and after each desktop request. A failed read
  * before sending proves the request did not run; after sending its outcome stays open.
- * An ended sign-in keeps its own reason either way. */
+ * An ended sign-in and a deactivated customer keep their own reasons either way. */
 function portal_desktop_scope(array $context,bool $beforeSending):array
 {
     try{return portal_devices_scope(db(),$context);}
     catch(PortalDevicesException $error){
         if($error->reason==='sign_in')throw new PortalDesktopException('sign_in',401,$beforeSending);
+        if($error->reason==='customer_unavailable')throw new PortalDesktopException('customer_unavailable',409,$beforeSending);
         throw new PortalDesktopException($beforeSending?'connection_unavailable':'connection_unknown',503,$beforeSending);
     }catch(PortalIdentityUnavailableException){
         throw new PortalDesktopException($beforeSending?'connection_unavailable':'connection_unknown',503,$beforeSending);
@@ -242,7 +246,7 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
         $queued=$measured('request',static fn()=>portal_desktop_request($context,'cua',
             $identity+['request_key'=>bin2hex(random_bytes(16))]+$arguments,$transport));
         if(!portal_desktop_id($queued['action_id']??null))throw new PortalDesktopException('invalid_response');
-        $actionId=$queued['action_id'];$started=$queuedAt=microtime(true);
+        $actionId=$queued['action_id'];$started=$queuedAt=microtime(true);$readFailures=0;
         while(microtime(true)-$started<58&&$fits(portal_westy_cua_need($cost,0,1))){
             // A full check starts only while its own worst case still fits, and within a
             // second of the last one alive(false) reuses it. Past that point alive(null)
@@ -260,7 +264,8 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
                 // refusal or an ended sign-in still ends the wait.
                 if($error instanceof PortalDesktopException&&!in_array($error->reason,['connection_unavailable','connection_unknown','desktop_unavailable','invalid_response'],true))throw $error;
                 if($error instanceof PortalDesktopException&&$error->requestRejected&&$error->reason!=='connection_unavailable')throw $error;
-                usleep(200000);continue;
+                // Back off so an identity or network outage is not read four times a second.
+                usleep(min(1000000,200000*++$readFailures));continue;
             }
             if(in_array($receipt['state']??null,['queued','claimed'],true)){usleep(200000);continue;}
             if(($receipt['result']['contract']??null)==='westy-cua-v1'){
@@ -285,6 +290,10 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
         $reason=$error instanceof PortalDesktopException?$error->reason:'desktop_unavailable';
         $refused=!$dispatched||($actionId===null&&$error instanceof PortalDesktopException&&$error->requestRejected);
         $times=$timing();
+        // One content-free line names why a computer call ended without its receipt.
+        try{error_log(json_encode(['event'=>'westy_cua_failure','state'=>$returned?'returned':($refused?'refused':'unknown'),
+            'reason'=>$returned?'response_unavailable':$reason,'error'=>preg_replace('/[^A-Za-z0-9_]/','',substr((string)strrchr('\\'.$error::class,'\\'),1))]
+            +($times['timing']??[]),JSON_THROW_ON_ERROR));}catch(Throwable){}
         if(!$refused&&!$returned||$reason==='task_stopped'){
             try{portal_desktop_request($context,'stop',$identity,$transport);}catch(Throwable){}
         }

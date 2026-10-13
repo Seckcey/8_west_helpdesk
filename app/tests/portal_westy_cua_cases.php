@@ -458,7 +458,8 @@ foreach(['transit'=>new PortalDesktopException('connection_unknown'),'unsent rea
     check(($retried['result']['public_result']['state']??null)==='returned'&&$retried['actions']===['cua','cua_result','cua_result','cua_result'],
         'a receipt read that fails ('.$label.') is asked again instead of ending control');
 }
-foreach(['refused read'=>new PortalDesktopException('action_unavailable',404,true),'ended sign-in'=>new PortalDesktopException('sign_in',401)] as $label=>$failure){
+foreach(['refused read'=>new PortalDesktopException('action_unavailable',404,true),'ended sign-in'=>new PortalDesktopException('sign_in',401),
+    'deactivated customer'=>new PortalDesktopException('customer_unavailable',409)] as $label=>$failure){
     $GLOBALS['cuaClockFail']=static fn(string $action):?Throwable=>$action==='cua_result'?$failure:null;
     $ended=$probe($fastMembership,20.0,static fn():bool=>true);
     check(($ended['result']['public_result']['state']??null)==='unknown'&&$ended['actions']===['cua','cua_result','stop'],
@@ -476,6 +477,13 @@ $lostQueue=$probe($fastMembership,20.0,static fn():bool=>true);
 check(($lostQueue['result']['public_result']['state']??null)==='unknown'&&$lostQueue['actions']===['cua','stop'],
     'a call that may have been sent stays unknown and keeps the scoped Stop');
 $GLOBALS['cuaClockFail']=null;$GLOBALS['cuaClockReturned']=false;
+// A lasting read outage backs off instead of reading four times a second.
+$GLOBALS['cuaClockFail']=static fn(string $action):?Throwable=>$action==='cua_result'?new PortalDesktopException('connection_unknown'):null;
+$outage=$probe($fastMembership,20.0,static fn():bool=>true);
+$outagePolls=count(array_keys($outage['actions'],'cua_result',true));
+check(($outage['result']['public_result']['state']??null)==='unknown'&&end($outage['actions'])==='stop'&&$outagePolls>1&&$outagePolls<70,
+    'a lasting read outage backs off, then ends with the scoped Stop');
+$GLOBALS['cuaClockFail']=null;
 // The real request function names its access failures: before sending they prove the
 // request did not run; after sending the outcome stays open.
 if(!defined('PORTAL_DESKTOP_ENDPOINT'))define('PORTAL_DESKTOP_ENDPOINT','https://support.8westit.com/api/svc/desktop_sessions.php');
@@ -490,9 +498,12 @@ eval('namespace WestyDesktopScopeFixture; use \\PortalDesktopException; use \\Po
     .'function cfg(string $key,mixed $default=null):mixed{return ["endpoint"=>\\PORTAL_DESKTOP_ENDPOINT,"service_secret"=>str_repeat("ab",32)];}'
     .'function portal_devices_scope($pdo,array $context):array{$step=$GLOBALS["scopeSteps"][$GLOBALS["scopeCall"]++]??"ok";if($step instanceof Throwable)throw $step;return ["scope"=>"same"];}'
     .substr($desktopSource,$requestStart,$requestEnd-$requestStart));
-foreach(['membership unreadable'=>[[new PortalDevicesException('customer_unavailable')],'connection_unavailable',true,0],
+foreach(['membership unreadable'=>[[new PortalDevicesException('identity_unavailable')],'connection_unavailable',true,0],
     'access validation down'=>[[new PortalIdentityUnavailableException('down')],'connection_unavailable',true,0],
+    'database error'=>[[new PDOException('down')],'connection_unavailable',true,0],
     'signed out'=>[[new PortalDevicesException('sign_in',401)],'sign_in',true,0],
+    'customer deactivated'=>[[new PortalDevicesException('customer_unavailable')],'customer_unavailable',true,0],
+    'customer deactivated after sending'=>[['ok',new PortalDevicesException('customer_unavailable')],'customer_unavailable',false,1],
     'unreadable after sending'=>[['ok',new PortalIdentityUnavailableException('down')],'connection_unknown',false,1]] as $label=>[$steps,$reason,$rejected,$sent]){
     $GLOBALS['scopeSteps']=$steps;$GLOBALS['scopeCall']=0;$transported=0;
     try{
