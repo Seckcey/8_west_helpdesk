@@ -325,14 +325,16 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     // Once this attempt loses its MSP AI authority it cannot regain delivery
     // authority, even if the connection is restored before accounting finishes.
     $aiLost=false;
-    // One failed or changed authority read is not yet an AI change or a sign-out: it is
-    // read once more, shortly after, before it can end the reply. A second answer is final.
+    // A failed authority read is read once more, shortly after, before it can end the
+    // reply. An answer that shows a change is final at once, even if it later reverts.
     $twice=static function(callable $ok):bool{if($ok())return true;usleep(300000);return $ok();};
-    $requireAi=static function()use($pdo,$context,$aiSnapshot,$aiResolver,&$aiLost,$twice):void{
-        if(!$aiLost)$aiLost=!$twice(static function()use($pdo,$context,$aiSnapshot,$aiResolver):bool{
-            try{return portal_westy_ai_same_selection($aiSnapshot,portal_westy_ai_snapshot($pdo,$context,$aiSnapshot['revision'],'status',$aiResolver));}
-            catch(Throwable){return false;}
-        });
+    $requireAi=static function()use($pdo,$context,$aiSnapshot,$aiResolver,&$aiLost):void{
+        if(!$aiLost){
+            $read=static fn():array=>portal_westy_ai_snapshot($pdo,$context,$aiSnapshot['revision'],'status',$aiResolver);
+            try{$fresh=$read();}
+            catch(Throwable){usleep(300000);try{$fresh=$read();}catch(Throwable){$fresh=null;}}
+            $aiLost=!is_array($fresh)||!portal_westy_ai_same_selection($aiSnapshot,$fresh);
+        }
         if($aiLost)throw new PortalWestyException('ai_changed',503);
     };
     $reread=static function()use($reauthorize,$twice):mixed{
