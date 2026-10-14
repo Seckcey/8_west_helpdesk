@@ -10,6 +10,9 @@ and original delivery evidence. The signed-in customer portal hid YOLO against
 the older Milepost API, then showed its checked default after the paired update.
 An authorized same-account test saved OFF, verified OFF after reload, restored
 the original checked choice, and verified all other permission choices unchanged.
+The existing “Ask me before each automatic computer check” choice stayed on;
+it can still require prompts even with YOLO checked. Tenant policy and the
+existing administrator/SYSTEM and safety-review approval rules still apply.
 No device command or replacement report canary was sent. Actual rollback backups
 and detailed verification are recorded in the
 [paired release receipt](SAFEHARBOR_PAIRED_WESTY_2026_10_14.md).
