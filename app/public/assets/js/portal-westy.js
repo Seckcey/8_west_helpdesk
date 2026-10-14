@@ -707,8 +707,17 @@
       guard.value=settings.execution_guard==='deny'?'deny':'allow';
       guardLabel.append(element('span','New work when an earlier result is unknown'),guard);details.append(guardLabel,
         element('p','Allow is the default. Deny turns on the unresolved-task guard. Either choice keeps your task history, recovery tools and Stop control. It never repeats an unknown action.'));
+      // Shown only when Milepost reports YOLO, so either side can deploy first.
+      let yolo=null;
+      if(typeof settings.yolo==='boolean'){
+        const label=element('label',undefined,'portal-chat-review-audience');yolo=element('input');yolo.type='checkbox';yolo.checked=settings.yolo;
+        label.append(yolo,element('span','Run commands without asking me (YOLO)'));
+        details.append(label,element('p','On by default. Westy still asks before administrator-level (SYSTEM) work and scripts, asks when its safety review cannot finish, and refuses unsafe requests. Turn it off to approve each flagged command yourself.'));
+      }
       const save=button('Save permissions',async()=>{save.disabled=true;try{
-        render(await api({action:'tool_preferences',revision:settings.revision,execution_guard:guard.value,restrictions:Object.fromEntries(Object.entries(fields).map(([name,c])=>[name,c.checked]))}));
+        const request={action:'tool_preferences',revision:settings.revision,execution_guard:guard.value,restrictions:Object.fromEntries(Object.entries(fields).map(([name,c])=>[name,c.checked]))};
+        if(yolo)request.yolo=yolo.checked;
+        render(await api(request));
         details.remove();toolPreferences=null;await loadToolPreferences();say('Your computer tool permissions are saved.');
       }catch(error){accessError(error);}finally{save.disabled=false;}});details.append(save);form.after(details);
     }catch{ /* Older deployments keep their existing preferences. */ }
