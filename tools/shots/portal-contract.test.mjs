@@ -1288,6 +1288,8 @@ if (!SERVE_MODE) test('general runtime shows exact approval, live output, Stop a
       }else if(payload?.action==='tool_preferences'){
         assert.equal(payload.revision,settings.revision);assert.equal(payload.restrictions.system,false);saved++;settings.revision++;settings.restrictions=payload.restrictions;
         assert.ok(['allow','deny'].includes(payload.execution_guard));settings.execution_guard=payload.execution_guard;
+        // A page only sends YOLO after Milepost reported it.
+        if('yolo' in settings){assert.equal(typeof payload.yolo,'boolean');settings.yolo=payload.yolo;}else assert.equal('yolo' in payload,false);
       }else if(payload)throw new Error('Unexpected action '+payload.action);
       return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{...state,tool_preferences:settings}})});
     };
@@ -1336,6 +1338,13 @@ if (!SERVE_MODE) test('general runtime shows exact approval, live output, Stop a
       await guard().selectOption('allow');await page.getByRole('button',{name:'Save permissions',exact:true}).click();
       await page.getByText('Your computer tool permissions are saved.',{exact:true}).waitFor();assert.equal(saved,2);
       await page.reload();await page.getByText('Computer tool permissions',{exact:true}).click();assert.equal(await guard().inputValue(),'allow');
+      assert.equal(await page.getByLabel('Run commands without asking me (YOLO)',{exact:true}).count(),0,'YOLO stays hidden until Milepost reports it');
+      settings.yolo=true;await page.reload();await page.getByText('Computer tool permissions',{exact:true}).click();
+      const yolo=()=>page.getByLabel('Run commands without asking me (YOLO)',{exact:true});
+      assert.equal(await yolo().isChecked(),true,'YOLO renders on by default');
+      await yolo().uncheck();await page.getByRole('button',{name:'Save permissions',exact:true}).click();
+      await page.getByText('Your computer tool permissions are saved.',{exact:true}).waitFor();assert.equal(saved,3);assert.equal(settings.yolo,false);
+      await page.reload();await page.getByText('Computer tool permissions',{exact:true}).click();assert.equal(await yolo().isChecked(),false,'turning YOLO off survives reload');
       assert.deepEqual(consoleProblems,[]);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
       await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));assert.equal(await page.getByText('Computer tool permissions',{exact:true}).count(),0);
     }finally{await context.close();}

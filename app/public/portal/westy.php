@@ -85,11 +85,15 @@ try{
                 if(!portal_devices_keys($request,['action','automatic_diagnostics'])||!is_bool($request['automatic_diagnostics']))throw new PortalWestyException('invalid_request',400);
                 portal_desktop_request($context,'shell_preferences',['automatic_diagnostics'=>$request['automatic_diagnostics']]);break;
             case 'tool_preferences':
-                if((!portal_devices_keys($request,['action','revision','restrictions'])&&!portal_devices_keys($request,['action','revision','restrictions','execution_guard']))
+                if((!portal_devices_keys($request,['action','revision','restrictions'])&&!portal_devices_keys($request,['action','revision','restrictions','execution_guard'])
+                    &&!portal_devices_keys($request,['action','revision','restrictions','execution_guard','yolo']))
                     ||!is_int($request['revision'])||!is_array($request['restrictions'])
-                    ||(array_key_exists('execution_guard',$request)&&!in_array($request['execution_guard'],['allow','deny'],true)))throw new PortalWestyException('invalid_request',400);
+                    ||(array_key_exists('execution_guard',$request)&&!in_array($request['execution_guard'],['allow','deny'],true))
+                    ||(array_key_exists('yolo',$request)&&!is_bool($request['yolo'])))throw new PortalWestyException('invalid_request',400);
                 $preferences=['revision'=>$request['revision'],'restrictions'=>$request['restrictions']];
                 if(array_key_exists('execution_guard',$request))$preferences['execution_guard']=$request['execution_guard'];
+                // Only a page that saw Milepost report YOLO sends it; Milepost validates it again.
+                if(array_key_exists('yolo',$request))$preferences['yolo']=$request['yolo'];
                 portal_desktop_request($context,'terminal_preferences',$preferences);break;
             case 'approve_terminal':
                 if(!portal_devices_keys($request,['action','operation','conversation','sequence','fingerprint','reviewed'])||$request['reviewed']!==true
