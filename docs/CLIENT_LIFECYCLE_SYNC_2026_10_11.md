@@ -43,11 +43,11 @@ tenant-scoped client query after the existing enrolled-provider check. It
 excludes inactive customers and active-after-inactive customers without a
 restoration receipt for the exact current binding/customer/version/event.
 Contacts come only from the returned eligible client IDs and exact tenant.
-Unbound local clients retain existing behavior. Query count is independent of
+Ordinary unbound local clients retain existing behavior. Query count is independent of
 the number of choices; provider checking occurs once for the list.
 
 `app/public/ticket_new.php` calls the canonical
-`managed_customer_operational()` through the creation helper in a fresh ticket
+`managed_customer_status()` through the creation helper in a fresh ticket
 transaction. It takes `FOR SHARE` on the tenant before provider/binding/client
 reads, matching the sync receiver's tenant-first lock order. If inactive commits
 first, ticket submission waits and rejects the client before service-goal,
@@ -60,7 +60,55 @@ This uses lifecycle facts, not a new optional execution guard. It changes no
 schema, transport, configuration gate, portal/account/device permission,
 financial fact or historical record.
 
+### October 13 intake-purpose correction
+
+The manual staff picker also omits the existing email and Milepost alert routing
+records. `ticket_new_client_is_intake()` recognizes only an **unbound** client
+with the exact creator name and description, a blank domain, and NULL
+`source_key`. The GET projection reads only the necessary client fields and
+binding ID, filters those routing records, and returns the original ID/name/tier
+fields. The locked POST applies the same purpose check before ticket or message
+writes. Contact choices still derive from the final eligible client IDs.
+
+This is conservative matching of existing mutable routing metadata, not a new
+immutable client type. A similar name, different description/domain, partner key,
+or managed binding keeps its ordinary lifecycle eligibility. Editing the full
+signature can make a routing record selectable; an ordinary record copied with
+all of the system metadata cannot be distinguished by this matcher. The email
+and alert intake creators, routing behavior, operational predicate and retained
+client/contact/ticket/message history are unchanged. Migration 009 already owns
+`source_key`; no production migration accompanies this correction.
+
+The affected managed customer's missing delivery is a separate issue. The
+October 13 read-only trace found its producer client absent and its original
+inactive version 2 frozen in Milepost's outbox, while Safeharbor retained only
+the matching active version 1 receipt. The customer was outside current dispatch
+membership and signup eligibility. A prior accepted receipt does not establish
+current delivery scope. A zero failed-attempt counter does not rule out a past
+interrupted request. Milepost owns the bounded delivery correction; this picker
+change does not infer inactive state, alter gates, replay events or hide that
+customer by name. Source/test completion and actual delivery/selector acceptance
+remain separate release gates.
+
 ## Verification and remaining work
+
+October 13 correction: the new cases first produced seven expected failures
+against the unchanged helper; after the correction all **78 lifecycle MySQL
+checks** passed, including the existing provider/restoration/concurrency cases.
+The existing alert-intake suite passed **69 checks**, and both changed PHP files
+passed lint. These ran with synthetic data in a unique Coastline Compose project
+and database volume, with no published ports; its containers, network and volume
+were removed afterwards.
+
+The additional, unmodified `intake_service_goal_test.php` could not reach its
+assertions. Its simple semicolon/newline SQL loader first skipped the CRLF
+schema as one trigger-containing chunk; normalizing only the disposable SQL
+copy exposed the loader's unsupported trigger `END IF` statements. No repository
+schema or unrelated test loader was changed. This optional fixture is not an
+executed mail-path acceptance result. Actual production selector acceptance and
+the managed customer's pending delivery remain outstanding.
+
+Historical October 11 verification follows:
 
 The existing `managed_customer_lifecycle_mysql_test.php` now checks list parity,
 contacts, unbound clients, cross-tenant/missing clients, inactive history,

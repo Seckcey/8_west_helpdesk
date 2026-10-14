@@ -170,7 +170,7 @@ client.
    New-ticket eligibility does not automatically return after inactive history:
    it requires the existing immutable restoration receipt for the exact current
    source binding, customer, version and event. An older receipt cannot revive
-   a later source version. Unbound local clients keep their existing eligibility.
+   a later source version. Ordinary unbound local clients keep their existing eligibility.
 5. Replaying the exact event id and exact raw body returns the original
    five-field receipt, even after later versions have arrived. Reusing an
    event id with different bytes or facts is tampering and is rejected.
@@ -187,10 +187,30 @@ Foreign keys deliberately prevent a client deletion from orphaning this or
 its help-desk history.
 
 The new-ticket list uses a bulk read projection of the canonical operational
-predicate; its MySQL regression checks compare list and contact membership with
-that predicate across lifecycle transitions and provider availability. This
-avoids a provider/history query for every option. The server write check calls
-the canonical function directly. See the [October 11 capability and remaining
+predicate, then omits the existing unbound email/alert intake routing records
+from manual choices. Purpose matching requires the exact creator name and note,
+blank domain, and NULL partner `source_key`; a similar name alone never excludes
+a client. Managed bindings and ordinary local/partner records retain their
+canonical eligibility. The matcher uses mutable metadata, not an immutable type:
+changed signatures remain ordinary choices, and a complete system-metadata copy
+cannot be distinguished. Intake creators, operational routing and history remain
+unchanged. Only ID/name/tier leave the selector helper; contacts derive from its
+final choices. Migration 009 supplies the existing `source_key` field.
+
+The MySQL regression checks retain canonical list/contact parity across lifecycle
+transitions and provider availability for the ordinary/managed cohort. Separate
+manual-purpose cases cover routing records, ordinary variants, managed and
+partner exceptions, history, and stale POST. The server write check calls the
+canonical status function and the same purpose matcher after tenant/provider/
+binding/client locking, before ticket or message writes. Query count remains
+independent of the number of options.
+
+A retained active consumer receipt cannot reveal an undelivered producer
+deletion. Diagnose the exact tenant/customer UUID, ordered frozen outbox event,
+current delivery scope and receiver receipt before changing eligibility. Preserve
+the original event and uncertain transport outcomes; never infer inactivity from
+a label or treat a zero failed-attempt counter as proof that no request occurred.
+See the [October 11 capability and remaining
 sync gaps](CLIENT_LIFECYCLE_SYNC_2026_10_11.md); this consumer correction does not
 establish bidirectional sync or prove a production deletion was delivered.
 
