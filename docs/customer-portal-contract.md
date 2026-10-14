@@ -121,6 +121,87 @@ close/resolve operation. Portal
 tickets and replies therefore remain human-owned and cannot gain Milepost's
 one-use telemetry auto-close capability.
 
+## Protection request (source only)
+
+This section is source on `claude/T-20261013-04-sh-protection-request`. The
+deployed Safeharbor runtime (2c) does not include it, and nothing here records
+a deployment or customer acceptance.
+
+**Audience.** Only the business's own `client_owner` or `client_admin`, signed
+in with their own account. Delegated customer access, `client_staff` and
+`client_viewer` see no form. The proxy refuses them with 403
+`owner_request_refused` before any service call.
+
+**Form.** Your devices → Protection request. The choices are the
+server-returned device references on the current page, shown by their escaped
+labels: the computer, then "A new computer" or "The same computer as an earlier
+record" plus that earlier record. The browser never chooses the provider,
+customer, identity realm, subject, session or role.
+
+**Wire.** The existing signed `safeharbor-customer-devices-v1` envelope, action
+`protection_request`, with the server-derived scope. The input has exactly four
+required keys:
+
+- `device_reference`: an opaque `[1-9][0-9]{0,9}:[a-f0-9]{64}` reference;
+- `request_key`: 32 lowercase hex characters;
+- `computer`: `new_computer` or `same_computer`;
+- `same_as_device_reference`: always present. It is JSON `null` for a new
+  computer, and a different earlier opaque reference for the same computer.
+
+A missing or extra key, a wrong type, an unknown `computer`, an inconsistent
+null/string pair, a self-reference, or a malformed reference or key is refused
+with 400 locally, and nothing is sent. Milepost remains the authority for the
+reference, the earlier record's current alias, the tenant and the customer. The
+scope is rechecked after the transport. The result must be exactly `reference`
+(32 hex), `computer` (equal to the one sent) and `state` (`recorded` or
+`superseded`); anything else is refused as `service_unavailable`.
+
+**Recovery.** The page keeps one request per portal session: its original
+server key and its four inputs, bound to the signed-in subject, session version
+and binding. They are stored as the transport starts, after every local check.
+
+- If no confirmed result arrives, the page says so and offers "Retry the same
+  request". The retry resends that key and those inputs only: the browser sends
+  no key or input for it. There is no automatic retry and no new key.
+- Milepost replays a matching key with the same reference and state. It refuses
+  changed choices under that key (409 `owner_request_changed`). The page also
+  refuses a reused key with different choices before sending.
+- A GET reload never POSTs. It shows only the unconfirmed state, or the answer
+  received when the request was sent, labelled as not a new check.
+- Sending the form again is an explicit new intent with a distinct server key.
+  Other portal work is not blocked by an unconfirmed request.
+- A destroyed portal session loses the retry. A later new request then follows
+  Milepost's one-current-request-per-computer supersession.
+
+**Meaning.** The copy says only recorded or superseded. A request does not
+install Bitdefender, create a provider job, enroll a computer, take a payment,
+or prove entitlement, a license or hardware identity, and it grants no
+installation authority.
+
+- The tenant admin/technician reviewed INSTALL path and
+  `portal_devices.security_orders_enabled` are unchanged.
+- Milepost's `customer_protection.enabled=false` and empty keys gate benefit
+  INSTALL admission and start, not this form.
+- Safeharbor adds no flag, schema or key. The existing portal, device,
+  diagnostics, security and mobile flags are unchanged.
+- The request records the requesting owner/admin's subject. Small Business
+  Essentials employee attribution remains open; nothing here creates or implies
+  employee IDs.
+
+**Release and rollback.** The Milepost backend comes first: its owner-request
+storage, authenticated `protection_request` dispatch and identity compatibility
+must be verified before this consumer is deployed or exposed. A later release
+uses exact reviewed green main through the established release/report manager,
+with a working inverse captured from the current 2c runtime, config and report
+controls. Rollback reverts this Safeharbor action first, separately contains
+Milepost benefit starts, and retains the immutable request tables and history.
+It involves no license cancellation, uninstall or receipt erasure.
+
+`app/tests/portal_devices_mysql_test.php` covers the proxy, scope, role,
+delegated-access, input, result, replay and no-install contracts.
+`tools/shots/portal-contract.test.mjs` covers the rendered submit, explicit
+retry, GET reload and no-install behavior.
+
 ## OIDC authority
 
 Every vendored file under `lib/eightwestid/` is pinned by exact Git-blob digest

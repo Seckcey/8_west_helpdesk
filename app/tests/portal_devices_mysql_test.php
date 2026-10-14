@@ -60,6 +60,66 @@ $revokeTransport=static function($u,$b,$h)use($pdo,$a,$transport):array{
 };
 check(refused(static fn()=>portal_devices_request($pdo,$a,'devices',['after'=>0],$revokeTransport)),'binding revoked during service call prevents response disclosure');
 portal_transition_binding($pdo,$a['identity']['binding_id'],'northwind-preview',1,11,101,'active','Synthetic test restored.');
+// Protection request (A114): exactly four inputs, exactly reference/computer/state back. It installs nothing.
+$prNew=['device_reference'=>'1:'.str_repeat('a',64),'request_key'=>str_repeat('d',32),'computer'=>'new_computer','same_as_device_reference'=>null];
+$prResponse=['status'=>200,'reason'=>null,'result'=>['reference'=>str_repeat('9',32),'computer'=>'new_computer','state'=>'recorded']];$prBodies=[];
+$prTransport=static function(string $url,string $body,array $headers)use(&$prBodies,&$prResponse):array{
+    $prBodies[]=json_decode($body,true,16,JSON_THROW_ON_ERROR);
+    return ['status'=>$prResponse['status'],'body'=>json_encode($prResponse['status']===200?['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>$prResponse['result']]:['ok'=>false,'reason'=>$prResponse['reason']])];
+};
+$prReason=static function(callable $fn):string{try{$fn();return 'accepted';}catch(PortalDevicesException $e){return $e->reason.':'.$e->status;}};
+check(($settings['portal_devices']['security_orders_enabled']??false)===false && portal_devices_request($pdo,$a,'protection_request',$prNew,$prTransport)===$prResponse['result'],'owner request is recorded while the reviewed INSTALL seam stays off');
+check(end($prBodies)===['action'=>'protection_request','scope'=>$scope,'input'=>$prNew],'exactly the four inputs travel under the server-derived scope');
+check(array_key_exists('same_as_device_reference',end($prBodies)['input']) && end($prBodies)['input']['same_as_device_reference']===null,'a new computer sends an actual JSON null');
+$admin=$a;$admin['identity']['role']='client_admin';
+$prSame=['device_reference'=>'1:'.str_repeat('a',64),'request_key'=>str_repeat('e',32),'computer'=>'same_computer','same_as_device_reference'=>'2:'.str_repeat('b',64)];
+$prResponse['result']=['reference'=>str_repeat('8',32),'computer'=>'same_computer','state'=>'recorded'];
+check(portal_devices_request($pdo,$admin,'protection_request',$prSame,$prTransport)===$prResponse['result'] && end($prBodies)['input']===$prSame,'admin same-computer request sends the different earlier reference');
+// An explicit retry resends the original key and inputs; the producer's replay may report superseded.
+$prResponse['result']['state']='superseded';
+check(portal_devices_request($pdo,$admin,'protection_request',$prSame,$prTransport)===$prResponse['result'] && $prBodies[count($prBodies)-1]===$prBodies[count($prBodies)-2],'same-key replay resends identical inputs and accepts superseded');
+$before=count($prBodies);
+foreach(['client_staff','client_viewer'] as $role){$limited=$a;$limited['identity']['role']=$role;
+    check($prReason(static fn()=>portal_devices_request($pdo,$limited,'protection_request',$prNew,$prTransport))==='owner_request_refused:403',$role.' cannot send a protection request');}
+$delegated=$a;$delegated['identity']['customer_access']=['provider_slug'=>'preview-provider','customer_id'=>$uuid(11),'identity_tenant_slug'=>'northwind-preview','role'=>'client_owner',
+    'access'=>['reference'=>str_repeat('a',32),'generation'=>1,'identity_role'=>'client_owner','identity_tenant_slug'=>'northwind-preview']];
+check($prReason(static fn()=>portal_devices_request($pdo,$delegated,'protection_request',$prNew,$prTransport))==='owner_request_refused:403','delegated customer access cannot send a protection request');
+foreach([
+    'a missing fourth input'=>array_diff_key($prNew,['same_as_device_reference'=>true]),
+    'an extra input'=>$prNew+['customer_id'=>$uuid(11)],
+    'a new computer naming an earlier record'=>['same_as_device_reference'=>'2:'.str_repeat('b',64)]+$prNew,
+    'a same computer without an earlier record'=>['computer'=>'same_computer']+$prNew,
+    'the target as its own earlier record'=>['computer'=>'same_computer','same_as_device_reference'=>$prNew['device_reference']]+$prNew,
+    'an unknown computer value'=>['computer'=>'replacement']+$prNew,
+    'a malformed earlier record'=>['computer'=>'same_computer','same_as_device_reference'=>'2:'.str_repeat('b',63)]+$prNew,
+    'a non-string earlier record'=>['computer'=>'same_computer','same_as_device_reference'=>2]+$prNew,
+    'a malformed device reference'=>['device_reference'=>'0:'.str_repeat('a',64)]+$prNew,
+    'an uppercase request key'=>['request_key'=>str_repeat('D',32)]+$prNew,
+    'a short request key'=>['request_key'=>str_repeat('d',31)]+$prNew,
+    'a non-string request key'=>['request_key'=>123]+$prNew,
+] as $name=>$bad) check($prReason(static fn()=>portal_devices_request($pdo,$a,'protection_request',$bad,$prTransport))==='invalid_request:400','protection request refuses '.$name);
+check(count($prBodies)===$before,'refused roles and inputs send nothing');
+foreach([
+    'an extra result field'=>['reference'=>str_repeat('9',32),'computer'=>'new_computer','state'=>'recorded','installed'=>true],
+    'a missing state'=>['reference'=>str_repeat('9',32),'computer'=>'new_computer'],
+    'an install state'=>['reference'=>str_repeat('9',32),'computer'=>'new_computer','state'=>'installed'],
+    'a malformed reference'=>['reference'=>str_repeat('9',31),'computer'=>'new_computer','state'=>'recorded'],
+    'a different computer statement'=>['reference'=>str_repeat('9',32),'computer'=>'same_computer','state'=>'recorded'],
+] as $name=>$reply){$prResponse['result']=$reply;
+    check($prReason(static fn()=>portal_devices_request($pdo,$a,'protection_request',$prNew,$prTransport))==='service_unavailable:503','protection result refuses '.$name);}
+foreach([[409,'owner_request_changed','owner_request_changed'],[403,'owner_request_refused','owner_request_refused'],[503,'protection_unavailable','protection_unavailable'],
+    [404,'device_unavailable','device_unavailable'],[400,'invalid_request','service_unavailable']] as [$status,$reason,$shown]){
+    $prResponse['status']=$status;$prResponse['reason']=$reason;
+    check($prReason(static fn()=>portal_devices_request($pdo,$a,'protection_request',$prNew,$prTransport))===$shown.':503','producer refusal '.$reason.' is reported without a result');}
+$prResponse=['status'=>200,'reason'=>null,'result'=>['reference'=>str_repeat('9',32),'computer'=>'new_computer','state'=>'recorded']];
+$prRevoke=static function($u,$b,$h)use($pdo,$a,$prTransport):array{
+    portal_transition_binding($pdo,$a['identity']['binding_id'],'northwind-preview',1,11,101,'disabled','Synthetic revocation during a protection request.');
+    return $prTransport($u,$b,$h);
+};
+check($prReason(static fn()=>portal_devices_request($pdo,$a,'protection_request',$prNew,$prRevoke))==='sign_in:401','binding revoked during a protection request discloses no result');
+portal_transition_binding($pdo,$a['identity']['binding_id'],'northwind-preview',1,11,101,'active','Synthetic test restored.');
+check(array_values(array_unique(array_column($prBodies,'action')))===['protection_request'],'a protection request makes no install, enrollment or order call');
+check($prReason(static fn()=>portal_devices_request($pdo,$a,'security_install',['reference'=>str_repeat('1',32),'approval_fingerprint'=>str_repeat('f',64)],$prTransport))==='orders_unavailable:503','the reviewed INSTALL seam stays separate and off');
 $devices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'<script>untrusted label</script>','platform'=>'Windows 11','connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in received.','last_seen_at'=>'2026-10-03T01:00:00Z','troubleshooting'=>'support_request']],'next_after'=>null];
 check(portal_devices_result('devices',$devices)===$devices,'legacy device projection remains compatible');
 $devices['items'][0]['hardware']=['ram_gb'=>15.8,'observed_at'=>'2026-10-03T01:00:00Z','source'=>'agent_inventory'];
@@ -93,6 +153,18 @@ check(str_contains($html,'Create Windows setup link')&&str_contains($html,'name=
 $viewer=$a;$viewer['identity']['role']='client_viewer';
 ob_start();portal_render_devices($viewer,$devices,[$grant]);$html=ob_get_clean();
 check(!str_contains($html,'Create Windows setup link')&&!str_contains($html,'value="enrollment_revoke"'),'viewer has no mutation controls');
+check(!str_contains($html,'Protection request'),'viewer has no protection request controls');
+$recorded=['principal'=>[],'input'=>$prNew,'result'=>['reference'=>str_repeat('9',32),'computer'=>'new_computer','state'=>'recorded']];
+ob_start();portal_render_devices($a,$devices,[],null,null,null,$recorded);$html=ob_get_clean();
+check(str_contains($html,'value="protection_request"')&&preg_match_all('/name="request_key" value="([a-f0-9]{32})"/',$html,$keys)===2&&$keys[1][0]!==$keys[1][1],'owner sees the protection request form with its own fresh server key');
+check(str_contains($html,'<option value="1:'.str_repeat('a',64).'">&lt;script&gt;untrusted label&lt;/script&gt;</option>')&&!str_contains($html,'<option value="1:'.str_repeat('a',64).'"><script>'),'request choices use server references and escaped labels');
+check(str_contains($html,'Protection request recorded for &lt;script&gt;')&&!str_contains($html,'value="protection_retry"'),'a recorded answer is shown without a retry');
+check(!str_contains($html,'Install on your Windows computer')&&!str_contains($html,'download.php'),'a recorded protection request shows no installation');
+ob_start();portal_render_devices($a,$devices,[],null,null,null,['result'=>null]+$recorded);$html=ob_get_clean();
+check(str_contains($html,'has no confirmed result')&&!str_contains($html,'Protection request recorded'),'an unknown outcome is not shown as recorded');
+check(preg_match('~<form[^>]*>(?:(?!</form>).)*value="protection_retry"(?:(?!</form>).)*</form>~s',$html,$retry)===1&&!str_contains($retry[0],'request_key')&&!str_contains($retry[0],'device_reference'),'the explicit retry carries no browser key or inputs');
+ob_start();portal_render_devices($delegated,$devices,[]);$html=ob_get_clean();
+check(!str_contains($html,'Protection request'),'delegated access has no protection request controls');
 require __DIR__.'/portal_device_operations_scenarios.php';
 require __DIR__.'/portal_security_orders_scenarios.php';
 echo 'PASS portal devices MySQL: '.$checks." checks\n";

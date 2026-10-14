@@ -78,8 +78,22 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
     if (!in_array($action, ['devices','enrollments','enrollment_create','enrollment_download','enrollment_revoke',
         'device_access_list','device_access_create','device_access_redeem','device_access_revoke',
         'operations','health_start','temp_start','repair_propose','repair_approve','operation_cancel',
-        'security_orders','security_review','security_accept','security_continue','security_install','security_refresh'], true)) {
+        'security_orders','security_review','security_accept','security_continue','security_install','security_refresh',
+        'protection_request'], true)) {
         throw new PortalDevicesException('invalid_request', 400);
+    }
+    if ($action === 'protection_request') {
+        // The customer's own owner or admin, never delegated access. A request installs nothing.
+        if (!portal_devices_can_manage($context) || array_key_exists('customer_access', $context['identity'] ?? [])) throw new PortalDevicesException('owner_request_refused', 403);
+        // Exactly the producer's four required inputs; same_as is JSON null for a new computer.
+        if (!portal_devices_keys($input, ['device_reference','request_key','computer','same_as_device_reference'])
+            || !is_string($input['device_reference']) || preg_match('/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D', $input['device_reference']) !== 1
+            || !is_string($input['request_key']) || preg_match('/^[a-f0-9]{32}$/D', $input['request_key']) !== 1
+            || !in_array($input['computer'], ['new_computer','same_computer'], true)
+            || ($input['computer'] === 'same_computer') !== is_string($input['same_as_device_reference'])
+            || ($input['same_as_device_reference'] !== null && (!is_string($input['same_as_device_reference'])
+                || preg_match('/^[1-9][0-9]{0,9}:[a-f0-9]{64}$/D', $input['same_as_device_reference']) !== 1
+                || $input['same_as_device_reference'] === $input['device_reference']))) throw new PortalDevicesException('invalid_request', 400);
     }
     if (str_starts_with($action,'security_')) {
         if ((cfg('portal_devices',[])['security_orders_enabled']??false)!==true) throw new PortalDevicesException('orders_unavailable');
@@ -114,7 +128,8 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
             'device_offline','operation_unavailable','support_busy','support_status_unavailable','policy_restricted','execution_unresolved','maintenance_active','maintenance_unavailable','rate_limited',
             'fresh_diagnosis_required','approval_expired','approval_changed','repair_cooldown',
             'orders_unavailable','order_unavailable','order_authorization_changed','order_evidence_unavailable',
-            'order_service_unavailable','installation_unavailable','installation_busy'];
+            'order_service_unavailable','installation_unavailable','installation_busy',
+            'owner_request_refused','owner_request_changed','protection_unavailable'];
         throw new PortalDevicesException(in_array($reason, $safe, true) ? $reason : 'service_unavailable');
     }
     if (($data['contract'] ?? '') !== PORTAL_DEVICES_CONTEXT || !is_array($data['result'] ?? null)) throw new PortalDevicesException('service_unavailable');
@@ -129,6 +144,7 @@ function portal_devices_request(PDO $pdo, array $context, string $action, array 
     if(in_array($action,['operations','health_start','temp_start','repair_propose'],true)){
         foreach($action==='operations'?$result['items']:[$result] as $operation)if($operation['device_reference']!==($input['device_reference']??null))throw new PortalDevicesException('service_unavailable');
     }
+    if($action==='protection_request'&&$result['computer']!==$input['computer'])throw new PortalDevicesException('service_unavailable');
     return $result;
 }
 
@@ -151,6 +167,13 @@ function portal_devices_result(string $action, array $result): array
         return portal_device_operations_result($action,$result);
     }
     $fail = static function (): never { throw new PortalDevicesException('service_unavailable'); };
+    if ($action==='protection_request') {
+        // Exactly reference/computer/state. Recorded or superseded is not an install, job or license.
+        if (!portal_devices_keys($result,['reference','computer','state']) || !is_string($result['reference'])
+            || preg_match('/^[a-f0-9]{32}$/D',$result['reference'])!==1 || !in_array($result['computer'],['new_computer','same_computer'],true)
+            || !in_array($result['state'],['recorded','superseded'],true)) $fail();
+        return $result;
+    }
     if (str_starts_with($action,'device_access_')) {
         if ($action==='device_access_list' && (!portal_devices_keys($result,['items','next_after']) || !is_array($result['items'])
             || !array_is_list($result['items']) || count($result['items'])>50
@@ -245,6 +268,11 @@ function portal_devices_error(string $reason): string
         'repair_cooldown' => 'A print-service repair was already approved in the last hour. Contact support if printing still does not work.',
         'rate_limited' => 'This business has reached its hourly device-check limit. Contact support if the issue is urgent.',
         'operation_unavailable' => 'A device check cannot start right now. Contact support; there may be unfinished work that needs review.',
+        'owner_request_refused' => 'Only the business owner or an admin, signed in with their own account, can send a protection request. Delegated access cannot.',
+        'owner_request_changed' => 'This request was already sent with different choices, so nothing was changed. Start a new request to choose again.',
+        'protection_unavailable' => 'Protection requests cannot be recorded right now, and this attempt recorded nothing. Try again later or contact support.',
+        'protection_choice' => 'Choose a computer, and choose an earlier record only when it is the same computer. Nothing was sent.',
+        'protection_retry_unavailable' => 'There is no unconfirmed protection request to retry. Its last known status is shown below.',
         default => 'Device services are temporarily unavailable. Your support requests still work. Try again shortly or contact support.',
     };
 }
