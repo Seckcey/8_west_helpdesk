@@ -86,9 +86,10 @@ function portal_westy_state(PDO $pdo, array $context, ?string $conversation = nu
     $ai=$enabled && $c['ai_enabled']?portal_westy_ai_snapshot($pdo,$context,null,'status',$aiResolver):['status'=>'disabled'];
     $state=['enabled'=>$enabled,'ai_available'=>$enabled && $c['ai_enabled']
             && (($ai['status']??'')==='active' || (($ai['status']??'')==='internal_legacy' && trim($c['api_key'])!=='')),
-        'ai_status'=>westy_tenant_ai_public_status($ai),
+        'ai_status'=>westy_tenant_ai_public_status($ai),'ai_model'=>null,
         'retention_days'=>$c['retention_days'],'can_write'=>portal_role_can_write_tickets($s['role']),
         'conversation'=>null,'turns'=>[],'draft'=>null,'conversations'=>[],'tools_enabled'=>portal_westy_tools_enabled()];
+    if($state['ai_available'])$state['ai_model']=portal_westy_ai_display($ai);
     // Kill switch does not rely on the new schema; the old portal keeps working.
     if (!$enabled) return $state;
     $account=portal_westy_account($pdo,$s);

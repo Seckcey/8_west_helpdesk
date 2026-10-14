@@ -54,6 +54,7 @@ $provider=static function(array $body)use(&$calls,&$captured):array{$calls++;$ca
 $message=static fn(string $text,?array $ctx=null)=>['operation'=>'f1'.sprintf('%08x',time()).bin2hex(random_bytes(11)),'message'=>$text,'conversation'=>tenant_test_state($pdo,$ctx??$a)['conversation']];
 $draft=static fn()=>['draft_key'=>bin2hex(random_bytes(16)),'revision'=>0,'subject'=>'Reviewed printer request','body'=>'Printing is blocked for the front desk.','priority'=>'normal','conversation'=>tenant_test_state($pdo,$a)['conversation']];
 check('new identity starts empty',tenant_test_state($pdo,$a)['turns']===[]);
+check('chat state names the model and effort in use',tenant_test_state($pdo,$a)['ai_model']===['model'=>'GPT-6 Luna','effort'=>'Low']);
 // Ordinary chat has no native-service configuration or connected-companion
 // prerequisite. The aggregate-source test also supplies the optional helpers.
 check('native configuration is absent in the ordinary-chat fixture',cfg('desktop_companion',null)===null);

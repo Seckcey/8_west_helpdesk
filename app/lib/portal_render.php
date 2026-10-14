@@ -36,7 +36,7 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <title><?= portal_h($title) ?> · <?= portal_h($brand['name']) ?></title>
 <link rel="icon" type="<?= portal_h($brand['favicon_type']) ?>" href="<?= portal_h($brand['favicon']) ?>">
 <link rel="stylesheet" href="/assets/css/app.css?v=5">
-<link rel="stylesheet" href="/assets/css/portal.css?v=2">
+<link rel="stylesheet" href="/assets/css/portal.css?v=3">
 <link rel="stylesheet" href="/assets/css/portal-devices.css?v=2">
 <link rel="stylesheet" href="/assets/css/portal-workspace.css?v=1">
 <?php if(str_contains($bodyClass,'portal-security-page')): ?><link rel="stylesheet" href="/assets/css/portal-security.css?v=1"><?php endif; ?>
