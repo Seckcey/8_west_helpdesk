@@ -1,6 +1,16 @@
 # Where things stand
 
-**October 14 — paired Westy backend and portal updates deployed:**
+**October 14, 7:25 AM Pacific — original inactive event received and named ticket choices repaired:**
+The one authorized original Milepost event is now Safeharbor receipt 16, with its
+unchanged event ID and payload hash. Binding 7 / client 19 (`8WV-`) is inactive
+at source version 2; its client row and original active-v1 receipt 9 are retained.
+The normal signed-in staff New ticket selector was reloaded and verified to omit
+`8WV-`, Email Intake and Milepost Intake. No ticket was filed for this check.
+See the [exact recovery and selector proof](SAFEHARBOR_R1_ORIGINAL_EVENT_RECOVERY_2026_10_14.md).
+This establishes the three named choices and exact original event, while broader
+customer v2 and physical computer acceptance remain open.
+
+**Earlier October 14 — paired Westy backend and portal updates deployed:**
 Safeharbor source `2c552151580cd9df7a00cb28b24e2dc9304ce1a6` is installed,
 including reviewed PRs #227–#232. Milepost source
 `a0c709ba9021e7b6c0fa2d3b10a0446a5b2129fc` followed after Safeharbor's actual
@@ -16,8 +26,8 @@ existing administrator/SYSTEM and safety-review approval rules still apply.
 No device command or replacement report canary was sent. Actual rollback backups
 and detailed verification are recorded in the
 [paired release receipt](SAFEHARBOR_PAIRED_WESTY_2026_10_14.md).
-Physical computer behavior, broader customer v2 acceptance and the original
-8WV deleted-client inactive-event recovery remain separate open gates.
+Physical computer behavior and broader customer v2 acceptance remain separate
+open gates. The subsequent original 8WV inactive-event recovery is recorded above.
 
 **Historical October 12, 3:49 PM Pacific — normal Westy chat restored:**
 Safeharbor PR #221 is deployed as

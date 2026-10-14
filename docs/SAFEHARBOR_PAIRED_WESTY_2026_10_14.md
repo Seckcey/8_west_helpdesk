@@ -122,8 +122,10 @@ isolated Coastline database fixture passed all 303 assertions, including older
 payload omission behavior, and its temporary resources were removed. That
 finite synthetic proof remains separate from the live preference evidence.
 
-The original 8WV deleted-client inactive event was not invoked or recreated.
+This paired update did not invoke or recreate the original 8WV inactive event.
+Its subsequent separately authorized one-event recovery and signed-in selector
+proof are recorded in the [R1 recovery receipt](SAFEHARBOR_R1_ORIGINAL_EVENT_RECOVERY_2026_10_14.md).
 Retained unknown delivery history remains unknown; the intake-purpose selector
-change alone does not prove every named deleted client was repaired. No
+change alone did not establish that original event's delivery. No
 installer, other-app runtime, identity, provider, financial or schema release
 is included. This documentation-only closeout does not change deployed code.
