@@ -1,6 +1,22 @@
 # Where things stand
 
-**October 12, 3:49 PM Pacific — normal Westy chat restored:**
+**October 14 — paired Westy backend and portal updates deployed:**
+Safeharbor source `2c552151580cd9df7a00cb28b24e2dc9304ce1a6` is installed,
+including reviewed PRs #227–#232. Milepost source
+`a0c709ba9021e7b6c0fa2d3b10a0446a5b2129fc` followed after Safeharbor's actual
+release-lock handoff. Complete runtime checks and the existing report manager
+passed; Safeharbor reporting is active with unchanged protected configuration
+and original delivery evidence. The signed-in customer portal hid YOLO against
+the older Milepost API, then showed its checked default after the paired update.
+An authorized same-account test saved OFF, verified OFF after reload, restored
+the original checked choice, and verified all other permission choices unchanged.
+No device command or replacement report canary was sent. Actual rollback backups
+and detailed verification are recorded in the
+[paired release receipt](SAFEHARBOR_PAIRED_WESTY_2026_10_14.md).
+Physical computer behavior, broader customer v2 acceptance and the original
+8WV deleted-client inactive-event recovery remain separate open gates.
+
+**Historical October 12, 3:49 PM Pacific — normal Westy chat restored:**
 Safeharbor PR #221 is deployed as
 `ceb14beda8e21fcedc5b8ec1589d6103174a4ad4`. Starting the idle-check interval
 after successful authorization checks removes the reproduced immediate-repeat
