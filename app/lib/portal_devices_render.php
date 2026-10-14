@@ -10,7 +10,7 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
     portal_page_start('Your devices', 'portal-devices-page', $context);
     ?>
 <main class="portal-devices">
- <header class="portal-devices-heading"><div><p class="portal-eyebrow">YOUR BUSINESS</p><h1>Your devices</h1><p>Connect a computer so your support team can help when you need it.</p></div><div class="portal-devices-actions"><a class="btn-link" href="/portal/devices.php">Refresh status</a><?php portal_westy_button(); ?></div></header>
+ <header class="portal-devices-heading"><div><p class="portal-eyebrow">YOUR COMPUTERS</p><h1>Your devices</h1><p>Connect a computer so your support team can help when you need it.</p></div><div class="portal-devices-actions"><a class="btn-link" href="/portal/devices.php">Refresh status</a><?php portal_westy_button(); ?></div></header>
  <?php if ((cfg('portal_mobile', [])['enabled'] ?? false) === true): ?><p><a class="btn-link" href="/portal/mobile.php">Phones, tablets &amp; Macs <?= portal_icon('arrow') ?></a></p><?php endif; ?>
  <?php if ($error !== null): ?><div class="portal-device-notice" role="alert"><?= portal_h($error) ?> <a href="/portal/new.php">Contact support</a></div><?php endif; ?>
  <?php if ($notice !== null): ?><div class="portal-device-notice is-success" role="status"><?= portal_h($notice) ?></div><?php endif; ?>
@@ -18,12 +18,12 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
  <section class="portal-device-install" aria-labelledby="install-title"><p class="portal-eyebrow">READY TO INSTALL</p><h2 id="install-title">Install on your Windows computer</h2>
   <ol><li>Download the setup file on the computer you want to add.</li><li>Open it and approve Windows’ administrator prompt. The installer checks the signed Milepost package.</li><li>Keep the computer online, then refresh this page to see its first check-in.</li></ol>
   <a class="btn-primary" href="<?= portal_h($download['download_url']) ?>" rel="noreferrer">Download Milepost setup</a>
-  <p class="portal-hint">This private link expires <?= portal_h(portal_format_utc($download['expires_at'])) ?> and can enroll one computer. Share it only with someone authorized to install for your business.</p>
+  <p class="portal-hint">This private link expires <?= portal_h(portal_format_utc($download['expires_at'])) ?> and can enroll one computer. Share it only with someone authorized to install this computer.</p>
  </section><?php endif; ?>
  <div class="portal-devices-layout"><section aria-labelledby="computers-heading">
   <div class="portal-section-title"><h2 id="computers-heading">Connected computers</h2></div>
   <?php if ($devices === null): ?><p>We cannot retrieve your computers right now. Their status has not been changed.</p>
-  <?php elseif (($devices['items'] ?? []) === []): ?><div class="portal-device-empty"><?= portal_icon('device') ?><h3>No computers on this page yet</h3><p><?= $manage ? 'Add your first Windows computer using the setup panel.' : 'Ask a business owner or admin to add your computers.' ?></p></div>
+  <?php elseif (($devices['items'] ?? []) === []): ?><div class="portal-device-empty"><?= portal_icon('device') ?><h3>No computers on this page yet</h3><p><?= $manage ? 'Add your first Windows computer using the setup panel.' : 'Ask an owner or administrator to add your computers.' ?></p></div>
   <?php else: ?><div class="portal-device-list"><?php foreach ($devices['items'] as $device): ?>
    <article class="portal-device-card"><div class="portal-device-symbol"><?= portal_icon('device') ?></div><div class="portal-device-details"><h3><?= portal_h($device['label']) ?></h3><p><?= portal_h($device['platform']) ?></p>
     <span class="portal-device-state<?= $device['connection'] === 'reporting' ? ' is-online' : '' ?>"><?= portal_h($device['connection_label']) ?></span>
@@ -44,7 +44,7 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
    <button type="submit" class="btn-primary">Create Windows setup link</button>
   </form><?php else: ?><p>Owners and admins can add devices. Your devices list shows the computers assigned to your account.</p><?php endif; ?>
   <p class="portal-hint">Adding a device does not order Bitdefender or create a charge.</p><a href="/portal/new.php">Need help with Mac or Linux?</a></section>
-  <?php if ($manage && $enrollments !== []): ?><section class="portal-device-links"><h2>Installation links</h2><p class="portal-hint">Recent links for your business. Revoking a link does not remove an installed agent.</p>
+  <?php if ($manage && $enrollments !== []): ?><section class="portal-device-links"><h2>Installation links</h2><p class="portal-hint">Recent installation links. Revoking a link does not remove an installed agent.</p>
   <?php foreach ($enrollments as $grant): ?><article><div><strong><?= portal_h(['ready'=>'Ready to install','enrolled'=>'Computer enrolled','revoked'=>'Link revoked','expired'=>'Link expired'][$grant['state']] ?? 'Unavailable') ?></strong><span><?= portal_h(portal_format_utc($grant['created_at'])) ?></span></div>
    <?php if ($grant['state'] === 'ready'): ?><form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="reference" value="<?= portal_h($grant['reference']) ?>"><button name="action" value="enrollment_download" class="btn-link">Get setup link</button><button name="action" value="enrollment_revoke" class="btn-link">Revoke</button></form><?php endif; ?>
   </article><?php endforeach; ?></section><?php endif; ?>

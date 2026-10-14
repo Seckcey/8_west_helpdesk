@@ -9,12 +9,16 @@ Milepost assignment enforcement preceded this release. At Safeharbor's handoff,
 owners. The steps below describe the paired flow, not invitations sent or
 employee/device/customer acceptance.
 
+Source-only wording update: the customer portal uses member/People labels for
+these existing accounts and assignments. This does not add roles or permissions,
+change private-link behavior, or establish deployment/customer acceptance.
+
 ## Owner and employee steps
 
 1. A client owner/admin opens People in 8 West ID, chooses Employee or Read only,
    and creates an employee setup link. The employee chooses their own password.
 2. In Safeharbor, the owner opens Your devices → Computer access beside the
-   appropriate computer and chooses Create employee access link.
+   appropriate computer and chooses Create member access link.
 3. The owner privately shares that separate link with the employee. The first
    signed-in employee in the same verified business to use it receives access.
 4. The employee signs into their customer portal and chooses Use this computer.
