@@ -276,7 +276,10 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
             array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>PORTAL_WESTY_AI_MAX_OUTPUT]);
         }
         $bytes=strlen(json_encode($body,JSON_THROW_ON_ERROR));
-        if ($bytes>($runResume?131072:32000)) throw new PortalWestyException('context_limit',400);
+        if ($bytes>($runResume?131072:32000)) {
+            if($runResume)portal_westy_context_diagnostic('request',$bytes,$messages,$bytes-strlen((string)json_encode($messages)));
+            throw new PortalWestyException('context_limit',400);
+        }
         $month=gmdate('Y-m');
         $insert=$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
         $q=$pdo->prepare($insert.' INTO portal_westy_budgets(tenant_id,client_id,month_key,charged_microusd) VALUES(?,?,?,0)');$q->execute([$s['tenant'],$s['client'],$month]);
