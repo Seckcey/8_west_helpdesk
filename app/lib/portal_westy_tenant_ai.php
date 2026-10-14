@@ -45,6 +45,17 @@ function portal_westy_ai_selection(array $resolved,array $config):array
     return $resolved;
 }
 
+/** Catalog names of the model and effort the next reply will use; read-only, never a choice. */
+function portal_westy_ai_display(array $resolved):?array
+{
+    if(!in_array($resolved['status']??'',['active','internal_legacy'],true))return null;
+    $selection=portal_westy_ai_selection($resolved,[]);
+    $entry=westy_tenant_ai_catalog()[$selection['provider']??'']['models'][$selection['model']??'']??null;
+    if(!is_array($entry))return null;
+    $effort=['low'=>'Low','medium'=>'Medium','high'=>'High','xhigh'=>'Extra high','max'=>'Max'][$selection['effort']??'']??null;
+    return ['model'=>$entry['label'],'effort'=>$effort];
+}
+
 function portal_westy_ai_same_selection(array $before,array $after):bool
 {
     foreach(['status','revision','app','local_tenant_key','tenant_id','tenant_slug','provider','model','effort','catalog','credential_version'] as $field)

@@ -589,7 +589,7 @@ if (!SERVE_MODE) test('computer checks preserve explicit consent, exact repair r
 if (!SERVE_MODE) test('private composer preserves review, receipt recovery and mobile focus boundaries', async () => {
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
   let saved=null,sends=0,deny=false,receiptRecovery=false;
-  const state={enabled:true,ai_available:true,can_write:true,conversation:'a'.repeat(32),turns:[],draft:null};
+  const state={enabled:true,ai_available:true,ai_model:{model:'GPT-6 Astra',effort:'Medium'},can_write:true,conversation:'a'.repeat(32),turns:[],draft:null};
   const handler=async route=>{
     if(deny)return route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({ok:false,reason:'sign_in'})});
     if(route.request().method()==='POST'){
@@ -619,6 +619,8 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
   try{
     const desktop=await openPortalPage(browser,pages,{width:1365,height:850},handler);
     await desktop.page.goto(`${ORIGIN}/portal/`);
+    // The model and effort in use are shown read-only under the composer.
+    await desktop.page.getByText('Model: GPT-6 Astra · Medium effort',{exact:true}).waitFor();
     const input=desktop.page.getByRole('textbox',{name:'Ask Westy about your computer'});
     await input.fill('Help me report the printer.');await desktop.page.getByRole('button',{name:'Send message',exact:true}).click();
     await desktop.page.getByText('Guidance <img src=x onerror=alert(1)> is text.',{exact:true}).waitFor();

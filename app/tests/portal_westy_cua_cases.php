@@ -620,6 +620,12 @@ check(str_contains($out['partial']['tools'][1]['result']['guidance'],'cua_click 
 $legacy=portal_westy_ai_selection(['status'=>'internal_legacy','revision'=>3],['api_key'=>'sk-synthetic-no-network']);
 check($legacy['status']==='active'&&$legacy['provider']==='openai'&&$legacy['model']==='gpt-6.1-sol'&&$legacy['effort']==='medium'&&$legacy['credential_version']===0,
     'the internal tenant uses GPT-6.1 Sol at medium effort');
+check(portal_westy_ai_display(['status'=>'internal_legacy','revision'=>3])===['model'=>'GPT-6.1 Sol','effort'=>'Medium']
+    &&portal_westy_ai_display(['status'=>'active']+westy_tenant_ai_selection('openai','gpt-6-astra','xhigh'))===['model'=>'GPT-6 Astra','effort'=>'Extra high']
+    &&portal_westy_ai_display(['status'=>'active']+westy_tenant_ai_selection('anthropic','claude-haiku-4-5-20251001',''))===['model'=>'Claude Haiku 4.5','effort'=>null]
+    &&portal_westy_ai_display(['status'=>'needs_setup'])===null
+    &&portal_westy_ai_display(['status'=>'active','provider'=>'openai','model'=>'unreviewed-model','effort'=>'low'])===null,
+    'the chat names the catalog model and effort in use, and nothing for an unavailable or unknown model');
 check(westy_tenant_ai_reserve($legacy,PORTAL_WESTY_AI_MAX_INPUT,PORTAL_WESTY_AI_MAX_OUTPUT,5)===1225600,'a five-round Sol attempt reserves 1.2256 USD before provider I/O');
 $astra=westy_tenant_ai_selection('openai','gpt-6-astra','medium');
 check(portal_westy_ai_output_allowance($legacy,5000000)===8000&&portal_westy_ai_output_allowance($astra,5000000)===2000

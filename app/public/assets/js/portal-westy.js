@@ -12,6 +12,7 @@
   const send = document.getElementById('portal-chat-send');
   const stop = document.getElementById('portal-chat-stop');
   const status = document.getElementById('portal-chat-status');
+  const model = document.getElementById('portal-chat-model');
   const log = document.getElementById('portal-chat-messages');
   const draftBox = document.getElementById('portal-chat-draft');
   const history = document.getElementById('portal-chat-history');
@@ -362,6 +363,13 @@
     const changed=state && state.conversation!==next.conversation;
     if(changed){nodes.clear();log.replaceChildren();editing=false;stickToBottom=true;}
     state=next;controls();
+    if(model){
+      // Shows the administrator's current selection; it is not a control.
+      const ai=next.ai_available?next.ai_model:null;
+      const text=ai?.model?'Model: '+ai.model+(ai.effort?' · '+ai.effort+' effort':''):'';
+      if(model.textContent!==text)model.textContent=text;
+      model.hidden=!text;
+    }
     if(status.dataset.operation){
       const reference=status.dataset.operation;
       const operation=next.turns.flatMap(t=>(t.reply?.tools||[]).flatMap(x=>[x.operation,x.proposal])).find(x=>x?.reference===reference);
