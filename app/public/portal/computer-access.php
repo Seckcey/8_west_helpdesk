@@ -20,7 +20,7 @@ try {
     $context = portal_authenticated_context(db());
     if ($context === null) {
         // Keep the one-use credential out of the OIDC return URL. Reopen the private link after sign-in.
-        portal_render_login('Sign in with your own employee account, then open this private computer link again.');
+        portal_render_login('Sign in with your own account, then open this private computer link again.');
         exit;
     }
     $manage = portal_devices_can_manage($context);
@@ -38,7 +38,7 @@ try {
                     ['device_reference' => $device, 'request_key' => $_POST['request_key'] ?? '']);
                 if ($result['token'] !== null) {
                     $link = 'https://safeharbor.8westit.com/portal/computer-access.php?token=' . $result['token'];
-                    $notice = 'Share this private link with the employee who should use this computer. It expires in 48 hours. No email has been sent.';
+                    $notice = 'Share this private link with the member who should use this computer. It expires in 48 hours. No email has been sent.';
                 } else {
                     $notice = 'This link was already created. Check access below; it was not replaced or sent again.';
                 }
@@ -65,10 +65,10 @@ try {
   <?php if ($error !== null): ?><p class="portal-device-notice" role="alert"><?= portal_h($error) ?></p><?php endif; ?>
   <?php if ($notice !== null): ?><p class="portal-device-notice is-success" role="status"><?= portal_h($notice) ?></p><?php endif; ?>
   <?php if ($manage && $device !== '' && $access !== null): ?>
-    <section class="portal-device-setup"><h2>Give an employee access</h2>
-      <p>The employee needs their own account in this business. Share the link privately: the first signed-in employee in this business to use it gets access to this computer.</p>
+    <section class="portal-device-setup"><h2>Give a member access</h2>
+      <p>The member needs their own account here. Share the link privately: the first eligible signed-in member to use it gets access to this computer.</p>
       <?php if (in_array($fresh['identity']['role'], ['client_owner', 'client_admin'], true) && !isset($fresh['identity']['customer_access'])): ?>
-        <p><a href="https://id.8westit.com/users.php#employee-invitations">Invite an employee in 8 West ID</a></p>
+        <p><a href="https://id.8westit.com/users.php#employee-invitations">Invite a member in 8 West ID</a></p>
       <?php endif; ?>
       <?php if ($link !== null): ?><p class="field"><label for="computer-access-link">Private access link</label><input id="computer-access-link" type="text" readonly autocomplete="off" value="<?= portal_h($link) ?>"></p><?php endif; ?>
       <form method="post" action="/portal/computer-access.php">
@@ -76,13 +76,13 @@ try {
         <input type="hidden" name="action" value="device_access_create">
         <input type="hidden" name="device_reference" value="<?= portal_h($device) ?>">
         <input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>">
-        <button class="btn-primary" type="submit">Create employee access link</button>
+        <button class="btn-primary" type="submit">Create member access link</button>
       </form>
     </section>
-    <section class="portal-device-links"><h2>Employees and access links</h2>
-      <?php if ($access['items'] === []): ?><p>No employee access has been assigned to this computer yet.</p><?php endif; ?>
+    <section class="portal-device-links"><h2>People and access links</h2>
+      <?php if ($access['items'] === []): ?><p>No member access has been assigned to this computer yet.</p><?php endif; ?>
       <?php foreach ($access['items'] as $grant): ?><article>
-        <div><strong><?= portal_h($grant['employee'] ?? 'Unclaimed access link') ?></strong><span><?= portal_h(['pending' => 'Waiting for an employee', 'active' => 'Has access', 'revoked' => 'Revoked', 'expired' => 'Link expired'][$grant['state']]) ?></span></div>
+        <div><strong><?= portal_h($grant['employee'] ?? 'Unclaimed access link') ?></strong><span><?= portal_h(['pending' => 'Waiting for a member', 'active' => 'Has access', 'revoked' => 'Revoked', 'expired' => 'Link expired'][$grant['state']]) ?></span></div>
         <?php if (in_array($grant['state'], ['pending', 'active'], true)): ?><form method="post" action="/portal/computer-access.php">
           <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="device_access_revoke">
           <input type="hidden" name="device_reference" value="<?= portal_h($device) ?>"><input type="hidden" name="reference" value="<?= portal_h($grant['reference']) ?>">
@@ -92,14 +92,14 @@ try {
       <?php if ($access['next_after'] !== null): ?><a href="/portal/computer-access.php?device=<?= rawurlencode($device) ?>&amp;after=<?= (int)$access['next_after'] ?>">Next access records</a><?php endif; ?>
     </section>
   <?php elseif (!$manage && $token !== '' && !$redeemed): ?>
-    <section class="portal-device-setup"><h2>Use your assigned computer</h2><p>This private link grants your signed-in account access to one computer in <?= portal_h($fresh['binding']['client_name']) ?>. Your account's existing read-only or employee permissions still apply.</p>
+    <section class="portal-device-setup"><h2>Use your assigned computer</h2><p>This private link grants your signed-in account access to one computer in <?= portal_h($fresh['binding']['client_name']) ?>. Your account's existing permissions, including read-only access, still apply.</p>
       <form method="post" action="/portal/computer-access.php">
         <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="device_access_redeem">
         <input type="hidden" name="token" value="<?= portal_h($token) ?>"><button class="btn-primary" type="submit">Use this computer</button>
       </form>
     </section>
   <?php elseif ($redeemed): ?><a class="btn-primary" href="/portal/devices.php">Open Your devices</a>
-  <?php else: ?><p><?= $manage ? 'Choose Computer access beside a computer in Your devices. Owners and administrators already have access to their own business’s computers.' : 'Ask your business owner for a private computer access link.' ?></p><?php endif; ?>
+  <?php else: ?><p><?= $manage ? 'Choose Computer access beside a computer in Your devices. Owners and administrators already have access to the computers in Your devices.' : 'Ask an owner or administrator for a private computer access link.' ?></p><?php endif; ?>
 </main>
 <?php portal_page_end();
 } catch (Throwable $failure) {
