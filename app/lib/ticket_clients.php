@@ -7,6 +7,16 @@ require_once __DIR__ . '/suite_managed_provider.php';
 
 final class TicketClientUnavailableException extends RuntimeException {}
 
+/** Match only the existing unbound intake routing record signatures. */
+function ticket_new_client_is_intake(array $client, bool $managed): bool
+{
+    if ($managed || $client['source_key'] !== null || $client['domain'] !== '') return false;
+    return ($client['name'] === 'Email Intake'
+            && $client['notes'] === 'Catch-all for tickets emailed by unknown senders. Reassign to the right client and it will learn their domain next time.')
+        || ($client['name'] === 'Milepost Intake'
+            && $client['notes'] === 'Catch-all for Milepost alerts whose client name did not match a Safeharbor client. Reassign the ticket to the right client once the names line up.');
+}
+
 /** @return list<array<string,mixed>> */
 function ticket_new_clients(PDO $pdo, int $tenantId): array
 {
@@ -21,7 +31,8 @@ function ticket_new_clients(PDO $pdo, int $tenantId): array
     // Keep exact-current restoration and inactive history in parity with that
     // canonical predicate (covered by managed_customer_lifecycle_mysql_test).
     $query = $pdo->prepare(
-        "SELECT client.id, client.name, client.sla_tier
+        "SELECT client.id, client.name, client.sla_tier, client.domain,
+                client.notes, client.source_key, binding.id AS ticket_binding_id
            FROM clients client
            LEFT JOIN suite_customer_sync_bindings binding
              ON binding.tenant_id = client.tenant_id AND binding.client_id = client.id
@@ -47,7 +58,12 @@ function ticket_new_clients(PDO $pdo, int $tenantId): array
           ORDER BY client.name"
     );
     $query->execute([$tenantId]);
-    return $query->fetchAll(PDO::FETCH_ASSOC);
+    $clients = [];
+    foreach ($query->fetchAll(PDO::FETCH_ASSOC) as $client) {
+        if (ticket_new_client_is_intake($client, $client['ticket_binding_id'] !== null)) continue;
+        $clients[] = ['id' => $client['id'], 'name' => $client['name'], 'sla_tier' => $client['sla_tier']];
+    }
+    return $clients;
 }
 
 /** @param list<array<string,mixed>> $clients
@@ -83,14 +99,17 @@ function ticket_new_client_for_create(PDO $pdo, int $tenantId, int $clientId): a
     $lock = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR SHARE' : '';
     $tenant = $pdo->prepare('SELECT id FROM tenants WHERE id = ?' . $lock);
     $tenant->execute([$tenantId]);
-    if ($tenant->fetchColumn() === false || $clientId < 1
-        || !managed_customer_operational($pdo, $tenantId, $clientId, true)) {
+    if ($tenant->fetchColumn() === false || $clientId < 1) {
+        throw new TicketClientUnavailableException('Client unavailable for new tickets.');
+    }
+    $status = managed_customer_status($pdo, $tenantId, $clientId, true);
+    if (!$status['operational']) {
         throw new TicketClientUnavailableException('Client unavailable for new tickets.');
     }
     $query = $pdo->prepare('SELECT * FROM clients WHERE tenant_id = ? AND id = ?' . $lock);
     $query->execute([$tenantId, $clientId]);
     $client = $query->fetch(PDO::FETCH_ASSOC);
-    if (!is_array($client)) {
+    if (!is_array($client) || ticket_new_client_is_intake($client, $status['managed'])) {
         throw new TicketClientUnavailableException('Client unavailable for new tickets.');
     }
     return $client;

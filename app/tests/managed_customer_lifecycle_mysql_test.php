@@ -481,6 +481,9 @@ $admin->exec("CREATE DATABASE {$quotedDatabase} CHARACTER SET utf8mb4 COLLATE ut
 try {
     $pdo = lifecycle_mysql_connection($database);
     lifecycle_mysql_execute_sql($pdo, lifecycle_mysql_pre024_schema());
+    // Existing partner-intake schema is required by the staff ticket picker.
+    // Install before case transactions: MySQL DDL would implicitly commit them.
+    lifecycle_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/009_support_intake.sql');
     lifecycle_mysql_check(
         (int)$pdo->query("SELECT COUNT(*) FROM information_schema.tables
           WHERE table_schema=DATABASE()
@@ -653,6 +656,110 @@ try {
         $pdo, $customerOne, 11, 501, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'ewid-t91', 'managed-one',
     );
     lifecycle_mysql_ticket_choices($pdo, [11,12,13], 'active and legacy');
+    // Routing buckets remain operational, but are not manual customer choices.
+    // This cohort is separate from canonical lifecycle parity assertions below.
+    $emailIntakeNote = 'Catch-all for tickets emailed by unknown senders. Reassign to the right client and it will learn their domain next time.';
+    $milepostIntakeNote = 'Catch-all for Milepost alerts whose client name did not match a Safeharbor client. Reassign the ticket to the right client once the names line up.';
+    $intakeInsert = $pdo->prepare('INSERT INTO clients (id,tenant_id,name,domain,notes,source_key) VALUES (?,1,?,?,?,?)');
+    foreach ([
+        [31, 'Email Intake', '', $emailIntakeNote, null],
+        [32, 'Milepost Intake', '', $milepostIntakeNote, null],
+        [33, 'Email Intake', '', null, null],
+        [34, 'Milepost Intake', '', 'Ordinary local customer', null],
+        [35, 'Email Intake', 'customer.example.test', $emailIntakeNote, null],
+        [36, 'Renamed Local', '', $emailIntakeNote, null],
+        [37, 'email intake', '', $emailIntakeNote, null],
+        [38, 'Milepost Intake', '', $milepostIntakeNote, 'coastmark:ordinary-customer'],
+        [39, 'Email Intake', '', 'Ordinary before form submission', null],
+    ] as $intakeFixture) $intakeInsert->execute($intakeFixture);
+    $pdo->exec("INSERT INTO contacts (id,client_id,name,email) VALUES
+        (931,31,'Email routing contact','email-routing@example.test'),
+        (932,32,'Alert routing contact','alert-routing@example.test')");
+    $pdo->exec("INSERT INTO tickets (tenant_id,client_id,contact_id,subject,sla_due_at) VALUES
+        (1,31,931,'Retained intake history',UTC_TIMESTAMP()+INTERVAL 1 HOUR)");
+    $intakeHistoryId = (int)$pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body) VALUES (?,'Tech','tech','Retained intake message')")
+        ->execute([$intakeHistoryId]);
+    $managedOriginal = $pdo->query('SELECT name,domain,notes FROM clients WHERE id=11')->fetch(PDO::FETCH_ASSOC);
+    $pdo->prepare('UPDATE clients SET name=?,domain=?,notes=? WHERE id=11')
+        ->execute(['Email Intake', '', $emailIntakeNote]);
+    try {
+        $manualChoices = ticket_new_clients($pdo, 1);
+        $manualIds = array_map(static fn(array $row): int => (int)$row['id'], $manualChoices);
+        sort($manualIds);
+        lifecycle_mysql_check($manualIds === [11,12,13,33,34,35,36,37,38,39],
+            'manual choices exclude only exact unbound intake signatures, preserving managed and ordinary variants');
+        lifecycle_mysql_check(array_reduce($manualChoices,
+            static fn(bool $valid, array $row): bool => $valid && count($row) === 3
+                && isset($row['id'], $row['name'], $row['sla_tier']), true),
+            'manual choices expose only the original id name and tier projection');
+        $manualContacts = array_column(ticket_new_contacts($pdo, 1, $manualChoices), 'id');
+        sort($manualContacts);
+        lifecycle_mysql_check($manualContacts === [901,902,903],
+            'manual contacts exclude routing bucket contacts and other tenants');
+        lifecycle_mysql_check(managed_customer_operational($pdo, 1, 31)
+            && managed_customer_operational($pdo, 1, 32),
+            'both hidden intake records remain operational for ordinary routing');
+        foreach ([31,32] as $intakeId) {
+            $pdo->beginTransaction();
+            try {
+                lifecycle_mysql_ticket_refuses(TicketClientUnavailableException::class,
+                    static function () use ($pdo, $intakeId): void {
+                        ticket_new_client_for_create($pdo, 1, $intakeId);
+                        $pdo->prepare("INSERT INTO tickets (tenant_id,client_id,subject,sla_due_at)
+                            VALUES (1,?,'Unexpected manual intake ticket',UTC_TIMESTAMP()+INTERVAL 1 HOUR)")
+                            ->execute([$intakeId]);
+                        $pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body) VALUES (?,'Tech','tech','Unexpected manual message')")
+                            ->execute([(int)$pdo->lastInsertId()]);
+                    }, 'direct intake POST refuses before ticket and message writes');
+                lifecycle_mysql_check((int)$pdo->query('SELECT COUNT(*) FROM tickets')->fetchColumn() === 1
+                    && (int)$pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn() === 1,
+                    'refused intake POST retains historical counts before rollback');
+            } finally {
+                $pdo->rollBack();
+            }
+        }
+        foreach ([11,13,33,34,35,36,37,38] as $ordinaryId) {
+            $pdo->beginTransaction();
+            try {
+                lifecycle_mysql_check((int)ticket_new_client_for_create($pdo, 1, $ordinaryId)['id'] === $ordinaryId,
+                    'managed or ordinary local variant remains available to locked POST: ' . $ordinaryId);
+            } finally {
+                $pdo->rollBack();
+            }
+        }
+        // The form above included client39; its purpose changes before a fresh POST.
+        $pdo->prepare('UPDATE clients SET notes=? WHERE id=39')->execute([$emailIntakeNote]);
+        $pdo->beginTransaction();
+        try {
+            lifecycle_mysql_ticket_refuses(TicketClientUnavailableException::class,
+                static fn() => ticket_new_client_for_create($pdo, 1, 39),
+                'stale form cannot select a record that now has the exact intake purpose');
+        } finally {
+            $pdo->rollBack();
+        }
+        $pdo->prepare('UPDATE clients SET notes=? WHERE id=39')->execute(['Changed purpose description']);
+        $pdo->beginTransaction();
+        try {
+            lifecycle_mysql_check((int)ticket_new_client_for_create($pdo, 1, 39)['id'] === 39,
+                'changed purpose signature is conservatively treated as an ordinary local client');
+        } finally {
+            $pdo->rollBack();
+        }
+        lifecycle_mysql_check((int)$pdo->query('SELECT COUNT(*) FROM clients WHERE id IN (31,32)')->fetchColumn() === 2
+            && (int)$pdo->query('SELECT COUNT(*) FROM contacts WHERE id IN (931,932)')->fetchColumn() === 2
+            && (int)$pdo->query('SELECT COUNT(*) FROM tickets')->fetchColumn() === 1
+            && (int)$pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn() === 1,
+            'manual eligibility checks preserve routing clients contacts and ticket/message history');
+    } finally {
+        $pdo->prepare('DELETE FROM messages WHERE ticket_id=?')->execute([$intakeHistoryId]);
+        $pdo->prepare('DELETE FROM tickets WHERE id=?')->execute([$intakeHistoryId]);
+        $pdo->exec('DELETE FROM contacts WHERE id IN (931,932)');
+        $pdo->exec('DELETE FROM clients WHERE tenant_id=1 AND id BETWEEN 31 AND 39');
+        $pdo->prepare('UPDATE clients SET name=?,domain=?,notes=? WHERE id=11')
+            ->execute([$managedOriginal['name'], $managedOriginal['domain'], $managedOriginal['notes']]);
+    }
+    lifecycle_mysql_ticket_choices($pdo, [11,12,13], 'intake cohort removed');
     $pdo->exec("INSERT INTO tickets (tenant_id,client_id,contact_id,subject,sla_due_at) VALUES
         (1,11,901,'Retained historical ticket',UTC_TIMESTAMP()+INTERVAL 1 HOUR)");
     $historyTicketId = (int)$pdo->lastInsertId();
