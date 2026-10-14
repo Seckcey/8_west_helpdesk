@@ -47,6 +47,25 @@ function portal_westy_run_create(PDO $pdo,array $scope,int $turn,string $convers
  * summary (8,000 bytes) of the newest Cua screen reading, so a resumed computer task is
  * not blind. Screenshots never survive, older readings expire, and the replay itself is
  * cleared when the run resumes, ends, stops or expires. */
+/** One content-free line naming what filled a conversation that hit the size limit. */
+function portal_westy_context_diagnostic(string $where,int $bytes,array $messages,int $base=0):void
+{
+    try{
+        $kinds=['provider'=>0,'command_output'=>0,'screen'=>0,'other_tool'=>0,'text'=>0];
+        foreach($messages as $message){
+            $size=strlen((string)json_encode($message,JSON_INVALID_UTF8_SUBSTITUTE));$text=json_encode($message['content']??'',JSON_INVALID_UTF8_SUBSTITUTE);
+            $kind=match(true){
+                ($message['role']??'')==='provider'=>'provider',
+                ($message['role']??'')!=='tool'=>'text',
+                str_contains((string)$text,'\\"progress\\"')=>'command_output',
+                str_contains((string)$text,'untrusted_observation')||str_contains((string)$text,'last_screen')=>'screen',
+                default=>'other_tool'};
+            $kinds[$kind]+=$size;
+        }
+        error_log(json_encode(['event'=>'westy_context_limit','where'=>$where,'bytes'=>$bytes,'base_bytes'=>$base,'messages'=>count($messages)]+$kinds,JSON_THROW_ON_ERROR));
+    }catch(Throwable){/* Logging cannot change the limit's outcome. */}
+}
+
 function portal_westy_run_replay(array $messages):string
 {
     $summaryBytes=8000;
@@ -67,6 +86,16 @@ function portal_westy_run_replay(array $messages):string
             if(is_array($envelope)&&is_array($envelope['result']??null)
                 &&(is_array($envelope['untrusted_observation']??null)||is_string($envelope['last_screen']??null)))$newest=[$mi,$pi];
         }
+    }
+    // Command output: the newest receipt keeps its whole output. Older receipts keep
+    // everything except the start of long output, so long tasks still fit after a pause.
+    $isOutput=static fn(mixed $data):bool=>is_array($data)&&is_array($data['untrusted_result']['progress']??null)
+        &&(is_string($data['untrusted_result']['progress']['stdout']??null)||is_string($data['untrusted_result']['progress']['stderr']??null));
+    $newestOutput=null;
+    foreach($messages as $mi=>$message){
+        if(($message['role']??'')!=='tool')continue;
+        foreach($message['content']??[] as $pi=>$part)
+            if(is_string($part['text']??null)&&str_contains($part['text'],'"untrusted_result"')&&$isOutput(json_decode($part['text'],true)))$newestOutput=[$mi,$pi];
     }
     // A computer-tool call's arguments can hold typed text. Its replay keeps the call's
     // identity for the receipt and the window or tab it addressed, never what it asked
@@ -98,6 +127,22 @@ function portal_westy_run_replay(array $messages):string
         $parts=[];
         foreach($message['content']??[] as $pi=>$part){
             if(($part['type']??'')!=='text')continue;
+            if($newestOutput!==[$mi,$pi]&&str_contains($part['text'],'"untrusted_result"')){
+                $data=json_decode($part['text'],true);
+                if($isOutput($data)){
+                    foreach(['stdout'=>2000,'stderr'=>500] as $field=>$limit){
+                        $output=$data['untrusted_result']['progress'][$field]??null;
+                        if(is_string($output)&&strlen($output)>$limit){
+                            $data['untrusted_result']['progress'][$field]=mb_strcut($output,-$limit,null,'UTF-8');
+                            $data['untrusted_result']['progress']['shortened']=true;
+                        }
+                    }
+                    if(($data['untrusted_result']['progress']['shortened']??false)===true)
+                        $data['untrusted_result']['guidance']='Earlier output: only its end was kept when the reply paused. Run the command again, or read the file you saved, if you need the rest.';
+                    $parts[]=['type'=>'text','text'=>json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE)];
+                    continue;
+                }
+            }
             $kept=str_contains($part['text'],'"last_screen"')?json_decode($part['text'],true):null;
             if(is_array($kept)&&is_array($kept['result']??null)&&is_string($kept['last_screen']??null)){
                 // A summary from an earlier pause stays only while it is still the newest reading.
@@ -135,7 +180,10 @@ function portal_westy_run_replay(array $messages):string
     }
     unset($message);
     $wire=json_encode($messages,JSON_THROW_ON_ERROR);
-    if(strlen($wire)>131072)throw new PortalWestyException('context_limit');
+    if(strlen($wire)>131072){
+        portal_westy_context_diagnostic('replay',strlen($wire),$messages);
+        throw new PortalWestyException('context_limit');
+    }
     return $wire;
 }
 function portal_westy_run_restore(string $wire):array

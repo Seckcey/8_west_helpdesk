@@ -374,6 +374,29 @@ $acknowledged[]=['role'=>'provider','output'=>[['type'=>'function_call','call_id
 $acknowledged[]=['role'=>'tool','call_id'=>'typed-ack','content'=>[['type'=>'text','text'=>json_encode(['result'=>['state'=>'returned'],'untrusted_observation'=>['text'=>'ACK_EVIDENCE']],JSON_THROW_ON_ERROR)]]];
 $ackWire=portal_westy_run_replay($acknowledged);
 check(str_contains($ackWire,'REAL_SCREEN')&&!str_contains($ackWire,'ACK_EVIDENCE'),'a typing acknowledgement does not replace the newest screen reading');
+// After a pause, older command output keeps its receipt and only the end of its output;
+// the newest keeps all of it, so long data tasks still fit.
+$outputs=[];
+foreach(['FIRST','SECOND','THIRD'] as $i=>$label){
+    $outputs[]=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>'cmd-'.$i,'name'=>'exec_command','arguments'=>'{"command":"x"}']]];
+    $outputs[]=['role'=>'tool','call_id'=>'cmd-'.$i,'content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>['state'=>'completed','process_id'=>'proc-'.$i,
+        'progress'=>['stdout'=>$label.'_START'.str_repeat('r',5000).$label.'_END','stderr'=>str_repeat('e',900).$label.'_ERR','exit_code'=>0]]],JSON_THROW_ON_ERROR)]]];
+}
+$outputs[]=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>'cmd-short','name'=>'read_process','arguments'=>'{}']]];
+$outputs[]=['role'=>'tool','call_id'=>'cmd-short','content'=>[['type'=>'text','text'=>json_encode(['untrusted_result'=>['state'=>'running','process_id'=>'proc-short',
+    'progress'=>['stdout'=>'SHORT_OUTPUT','stderr'=>'']]],JSON_THROW_ON_ERROR)]]];
+$outputWire=portal_westy_run_replay($outputs);
+check(!str_contains($outputWire,'FIRST_START')&&str_contains($outputWire,'FIRST_END')&&str_contains($outputWire,'FIRST_ERR')
+    &&!str_contains($outputWire,'SECOND_START')&&str_contains($outputWire,'SECOND_END')&&!str_contains($outputWire,'THIRD_START')
+    &&str_contains($outputWire,'THIRD_END')&&str_contains($outputWire,'SHORT_OUTPUT')&&substr_count($outputWire,'only its end was kept')===3
+    &&str_contains($outputWire,'proc-0')&&str_contains($outputWire,'exit_code')&&strlen($outputWire)<strlen(json_encode($outputs))-9000,
+    'older command output keeps its receipt and its end; the newest is kept whole');
+$grown=portal_westy_run_restore($outputWire);
+$grown[]=['role'=>'provider','output'=>[['type'=>'function_call','call_id'=>'cmd-new','name'=>'exec_command','arguments'=>'{"command":"y"}']]];
+check(portal_westy_run_replay(portal_westy_run_restore($outputWire))===$outputWire&&str_contains(portal_westy_run_replay($grown),'SHORT_OUTPUT'),
+    'shortening is stable across repeated pauses');
+check(str_contains(portal_westy_device_instructions(true,true),'save what you gather to a file on the computer as you go'),
+    'the playbook has Westy save gathered data to a file instead of re-reading old output');
 // An unreadable driver response after a returned receipt is still only an acknowledgement.
 $GLOBALS['wire']=[];$setupCua(['isError'=>false,'content'=>[['type'=>'image','mimeType'=>'image/png','data'=>'not base64!']]]);
 $unreadable=portal_westy_cua_tool($context,'cua_click',$observe+['element_token'=>'s0000002a:1'],static fn():bool=>true);
