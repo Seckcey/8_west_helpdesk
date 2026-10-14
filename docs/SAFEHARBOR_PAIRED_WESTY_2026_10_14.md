@@ -105,6 +105,14 @@ choice was changed, no raw database/profile/session write was used, and no chat,
 provider or device command was issued. Screenshots and the initial/OFF/restored
 choice receipt are retained in the task's paired-release evidence folder.
 
+The preserved “Ask me before each automatic computer check” choice was checked,
+so this account's `automatic_diagnostics` preference remains false. Under the
+reviewed Milepost #717 rule, that existing choice can still require approval
+even when YOLO is true. Tenant policy overrides, administrator/SYSTEM work and
+the existing safety-review approval rules also remain in force. The test did
+not turn off the account's explicit automatic-check approval preference or
+establish that all commands now run without prompts.
+
 ## Remaining acceptance and recovery boundaries
 
 This receipt proves the paired backend runtime and the normal signed-in
