@@ -25,7 +25,10 @@ deploy_fail() {
 #            leaf effect journaled BEFORE it happens (a failed or lost apply stays accountable, never replayed)
 #   commit   the immutable and current release records, as the ordinary path writes them
 #   inverse  the carrier's accepted-current-source leaves with exact prior owner/group/mode AND access ACL;
-#            created leaves removed only when unchanged; only journaled temps removed; the pre-operation
+#            a leaf is restored or removed only while it is still exactly the after-state apply journaled
+#            before its rename (identity, bytes, ACL, deploy owner/runtime group/0640, one link; a deleted leaf
+#            still absent); a leaf apply never reached keeps its verified prior state, unrewritten; any other
+#            leaf is preserved (HOLD) whatever the tree digest says; only journaled temps removed; the pre-operation
 #            deployed digest must be reproduced exactly, and only then the prior current release record
 #            returns (immutable records stay). Refused while an apply may still run.
 # The active-report-scheduler gate stays in every phase: the carrier holds that name inside its operation.
@@ -121,6 +124,17 @@ if [[ "${1:-}" == '--cold' ]]; then
         if [[ "$out" =~ ^user::[rwx-]{3},group::[rwx-]{3},other::[rwx-]{3}$ ]]; then printf -- '-\n'; else printf '%s\n' "$out"; fi
     }
     cold_journal() { printf '%s\n' "$1" >> "$COLD_PROGRESS" || deploy_fail 'cold-progress-journal-failed' 74; }
+    # True when <file> is exactly one regular single-link leaf with these bytes, owner:group:mode (numeric ids or names)
+    # and access ACL and, when given, this physical dev:inode identity, unchanged while it was read.
+    cold_leaf_is() { # <file> <sha256> <owner:group:mode> <acl> [dev:inode]
+        local seen id links ids names
+        [[ -f "$1" && ! -L "$1" ]] || return 1
+        seen="$(/usr/bin/stat -c '%d:%i %h %u:%g:%a %U:%G:%a %s %Z' -- "$1")" || return 1
+        read -r id links ids names _ <<< "$seen"
+        [[ "$links" == 1 && ( "$ids" == "$3" || "$names" == "$3" ) && ( -z "${5:-}" || "$id" == "$5" ) \
+            && "$(cold_sha "$1")" == "$2" && "$(cold_acl "$1")" == "$4" \
+            && "$(/usr/bin/stat -c '%d:%i %h %u:%g:%a %U:%G:%a %s %Z' -- "$1")" == "$seen" ]]
+    }
     cold_verify_inverse_map() {
         local op path sha uid gid mode acl extra want got
         [[ -f "$COLD_INVERSE" && ! -L "$COLD_INVERSE" && -f "$COLD_PLAN" ]] || deploy_fail 'cold-inverse-map-missing' 65
@@ -139,7 +153,7 @@ if [[ "${1:-}" == '--cold' ]]; then
         [[ "$want" == "$got" ]] || deploy_fail 'cold-inverse-map-does-not-cover-the-plan' 65
     }
     cold_install_leaf() { # <leaf-bytes> <relative> -> temp sibling + rename, target metadata, frontend read on public/
-        local bytes="$1" relative="$2" target="$COLD_APP_ROOT/$2" current part temp
+        local bytes="$1" relative="$2" target="$COLD_APP_ROOT/$2" current part temp identity digest access
         local -a parts=()
         current="$COLD_APP_ROOT"
         IFS=/ read -ra parts <<<"$(dirname -- "$relative")"
@@ -162,6 +176,11 @@ if [[ "${1:-}" == '--cold' ]]; then
         cold_journal "temp"$'\t'"${temp#"$COLD_APP_ROOT"/}"
         /usr/bin/install -o "$SAFEHARBOR_COLD_DEPLOY_OWNER" -g "$SAFEHARBOR_COLD_RUNTIME_GROUP" -m 0640 -- "$bytes" "$temp"
         if [[ "$relative" == public/* ]]; then /usr/bin/setfacl -m u:www-data:r-- -- "$temp"; fi
+        # The installed leaf (identity, bytes, access ACL), journaled before the rename makes it live: the inverse acts
+        # on this leaf only while it is still exactly this one, and a leaf without the record was never replaced.
+        identity="$(/usr/bin/stat -c '%d:%i' -- "$temp")" && digest="$(cold_sha "$temp")" && access="$(cold_acl "$temp")" \
+            || deploy_fail 'cold-progress-journal-failed' 74
+        cold_journal "installed"$'\t'"$relative"$'\t'"$identity"$'\t'"$digest"$'\t'"$access"
         /usr/bin/mv -f -T -- "$temp" "$target"
     }
 
@@ -311,6 +330,35 @@ if [[ "${1:-}" == '--cold' ]]; then
             cold_rc=0
             while IFS=$'\t' read -r op relative sha uid gid mode acl; do
                 live="$COLD_APP_ROOT/$relative"
+                # The leaf's last record decides, each journaled before the rename or removal it names: none (never
+                # reached: only its exact prior state is accepted, and it is left as it is), the apply's installed
+                # after-state or delete intent, or this inverse's own earlier restore/removal. Anything else is a later
+                # or foreign change and is preserved (HOLD); the tree digest below never runs over it.
+                last=''
+                if [[ -f "$COLD_PROGRESS" ]]; then
+                    last="$(LEAF="$relative" /usr/bin/awk -F'\t' '
+                        $1 == "installed" && $2 == ENVIRON["LEAF"] { r = $1 "\t" $3 "\t" $4 "\t" $5 }
+                        $1 == "leaf" && $2 == "delete" && $3 == ENVIRON["LEAF"] { r = "deleted" }
+                        ($1 == "restored" || $1 == "removed") && $2 == ENVIRON["LEAF"] { r = $1 "\t" $3 }
+                        END { print r }' "$COLD_PROGRESS")"
+                fi
+                IFS=$'\t' read -r kind identity digest access <<< "$last"
+                state=held
+                case "$op:$kind" in
+                    restore:) if cold_leaf_is "$live" "$sha" "$uid:$gid:${mode#0}" "$acl"; then state=done; fi ;;
+                    remove:|remove:removed) if [[ ! -e "$live" && ! -L "$live" ]]; then state=done; fi ;;
+                    restore:restored) if cold_leaf_is "$live" "$sha" "$uid:$gid:${mode#0}" "$acl" "$identity"; then state=done; fi ;;
+                    restore:deleted) if [[ ! -e "$live" && ! -L "$live" ]]; then state=applied; fi ;;
+                    restore:installed|remove:installed)
+                        if [[ "$identity" =~ ^[0-9]+:[0-9]+$ ]] && cold_leaf_is "$live" "$digest" \
+                            "$SAFEHARBOR_COLD_DEPLOY_OWNER:$SAFEHARBOR_COLD_RUNTIME_GROUP:640" "$access" "$identity"; then
+                            state=applied
+                        fi ;;
+                esac
+                case "$state" in
+                    done) continue ;;
+                    held) printf 'SAFEHARBOR_COLD_PRESERVED=%s\n' "$relative" >&2; cold_rc=2; continue ;;
+                esac
                 if [[ "$op" == restore ]]; then
                     accepted_leaf="$COLD_SLOT/recovery/$relative"
                     [[ -f "$accepted_leaf" && ! -L "$accepted_leaf" && "$(cold_sha "$accepted_leaf")" == "$sha" ]] \
@@ -325,16 +373,14 @@ if [[ "${1:-}" == '--cold' ]]; then
                     else
                         /usr/bin/setfacl --set="$acl" -- "$live.sh-cold.$$"
                     fi
+                    identity="$(/usr/bin/stat -c '%d:%i' -- "$live.sh-cold.$$")" || deploy_fail 'cold-progress-journal-failed' 74
+                    cold_journal "restored"$'\t'"$relative"$'\t'"$identity"
                     /usr/bin/mv -f -T -- "$live.sh-cold.$$" "$live"
                     [[ "$(cold_sha "$live")" == "$sha" && "$(/usr/bin/stat -c '%u:%g:%a' -- "$live")" == "$uid:$gid:${mode#0}" \
                         && "$(cold_acl "$live")" == "$acl" ]] || deploy_fail 'cold-inverse-not-exact' 74
-                elif [[ -e "$live" || -L "$live" ]]; then
-                    if [[ -f "$live" && ! -L "$live" && "$(cold_sha "$live")" == "$sha" ]]; then
-                        /usr/bin/rm -f -- "$live"
-                    else
-                        printf 'SAFEHARBOR_COLD_PRESERVED=%s\n' "$relative" >&2
-                        cold_rc=2
-                    fi
+                else
+                    cold_journal "removed"$'\t'"$relative"
+                    /usr/bin/rm -f -- "$live"
                 fi
             done < "$COLD_INVERSE"
             # Only the temp siblings this operation journaled, as regular files inside the physical app root; any other

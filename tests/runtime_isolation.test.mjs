@@ -513,6 +513,13 @@ test('cold installer: carrier-only phases precede the unchanged ordinary path an
   assert.match(cold, /cold-prior-record-not-restored/);
   assert.ok(cold.indexOf("cold-inverse-did-not-reproduce-the-previous-deployed-artifact") < cold.indexOf('cold_record=restored'),
     'the prior release record returns only after the previous source verified');
+  // MP-F2/SH-F1 (A105): the installed leaf is journaled before its rename, and the inverse acts only on that after-state.
+  const installAt = cold.indexOf('cold_install_leaf() {');
+  const install = cold.slice(installAt, cold.indexOf('\n    }\n', installAt));
+  assert.ok(install.indexOf('cold_journal "installed"') > 0
+    && install.indexOf('cold_journal "installed"') < install.indexOf('/usr/bin/mv -f -T -- "$temp" "$target"'));
+  assert.match(cold, /restore:installed\|remove:installed\)/);
+  assert.match(cold, /held\) printf 'SAFEHARBOR_COLD_PRESERVED=%s\\n' "\$relative" >&2; cold_rc=2; continue ;;/);
   // SH-R2-04: the active-scheduler gate stays in every cold phase; this file never removes or renames that name.
   assert.match(cold, /\[\[ ! -e "\$COLD_CRON_ACTIVE" && ! -L "\$COLD_CRON_ACTIVE" \]\] \|\| deploy_fail 'active-report-scheduler-present' 75/);
   assert.doesNotMatch(cold, /(?:rm|mv|unlink)\b[^\n]*COLD_CRON_ACTIVE/);
@@ -669,6 +676,9 @@ test('Linux root fixture: cold installer phases bind the plan, keep exact metada
     const journal = fs.readFileSync(f.progress, 'utf8');
     assert.match(journal, /^leaf\treplace\tlib\/render\.php$/m);
     assert.match(journal, /^temp\tlib\/s\/new\.php\.sh-cold\.[0-9]+$/m);
+    const westy = fs.statSync(path.join(f.app, 'lib/westy.php'));
+    assert.ok(journal.includes(`installed\tlib/westy.php\t${westy.dev}:${westy.ino}\t${crypto.createHash('sha256').update('<?php // westy v2\n').digest('hex')}\t-\n`),
+      'the installed identity, bytes and ACL are journaled');
     assert.match(fs.readFileSync(path.join(f.slot, 'created-dirs.list'), 'utf8'), /^lib\/s$/m);
     const out = f.ok('inverse');
     assert.match(out, /^SAFEHARBOR_COLD_APPLY=complete$/m);
@@ -704,6 +714,9 @@ test('Linux root fixture: a first-leaf failure stays accountable and an explicit
   const f = coldFixture();
   try {
     const before = f.snapshot();
+    const unreached = ['lib/westy.php', 'public/login.php', 'lib/old.php'];
+    const inodes = () => unreached.map((p) => fs.statSync(path.join(f.app, p)).ino);
+    const priorInodes = inodes();
     f.ok('prepare');
     f.join();
     // The injected fault: a regular file where the second planned leaf needs its new directory.
@@ -721,6 +734,7 @@ test('Linux root fixture: a first-leaf failure stays accountable and an explicit
     assert.match(out, /^SAFEHARBOR_COLD_APPLY=partial$/m);
     assert.match(out, /^SAFEHARBOR_COLD=inverse-exact$/m);
     assert.deepEqual(f.snapshot(), before);
+    assert.deepEqual(inodes(), priorInodes, 'leaves the failed apply never reached are verified, not rewritten');
     assert.equal(f.hash(), f.previous);
   } finally {
     f.cleanup();
@@ -803,6 +817,90 @@ test('Linux root fixture: commit then inverse returns the prior release record o
         assert.equal(now, committed);
       }
       assert.equal(fs.readFileSync(path.join(f.records, immutable[0]), 'utf8'), committed, `${label}: immutable history is kept`);
+    } finally {
+      f.cleanup();
+    }
+  }
+});
+
+/** A leaf's whole observable state: type, identity, link count, bytes, owner/group/mode and access ACL. */
+function leafState(f, rel) {
+  const p = path.join(f.app, rel);
+  if (!fs.existsSync(p)) return 'absent';
+  const s = fs.lstatSync(p);
+  if (!s.isFile()) return `${s.isDirectory() ? 'directory' : 'other'}|${s.ino}|${f.meta(p)}`;
+  return `file|${s.ino}|${s.nlink}|${fs.readFileSync(p, 'utf8')}|${f.meta(p)}|${f.acl(p)}`;
+}
+
+test('Linux root fixture: an inverse before any apply verifies every prior leaf and rewrites none; a changed or foreign leaf HOLDs', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const cases = {
+    'untouched': { change: () => {} },
+    'a prior leaf changed before any apply': { leaf: 'lib/westy.php', change: (f) => f.sh(`chmod 0600 '${f.app}/lib/westy.php'`) },
+    'a foreign file where the release creates a leaf': { leaf: 'public/new.php', change: (f) => fs.writeFileSync(path.join(f.app, 'public/new.php'), 'foreign\n') },
+  };
+  for (const [label, c] of Object.entries(cases)) {
+    const f = coldFixture();
+    try {
+      f.ok('prepare');
+      f.join();
+      c.change(f);
+      const prior = Object.fromEntries(['lib/render.php', 'lib/westy.php', 'public/login.php', 'lib/old.php', 'public/new.php']
+        .map((p) => [p, leafState(f, p)]));
+      const r = f.run('inverse');
+      assert.match(r.stdout, /^SAFEHARBOR_COLD_APPLY=not-started$/m, label);
+      for (const [p, s] of Object.entries(prior)) assert.equal(leafState(f, p), s, `${label}: ${p} was rewritten or removed`);
+      if (c.leaf) {
+        assert.equal(r.status, 2, `${label}:\n${r.stdout}\n${r.stderr}`);
+        assert.match(r.stderr, new RegExp(`^SAFEHARBOR_COLD_PRESERVED=${c.leaf.replace(/\./g, '\\.')}$`, 'm'), label);
+        assert.match(r.stdout, /^SAFEHARBOR_COLD=inverse-hold$/m, label);
+      } else {
+        assert.equal(r.status, 0, `${label}:\n${r.stdout}\n${r.stderr}`);
+        assert.match(r.stdout, /^SAFEHARBOR_COLD=inverse-exact$/m, label);
+        assert.equal(f.hash(), f.previous, label);
+      }
+    } finally {
+      f.cleanup();
+    }
+  }
+});
+
+test('Linux root fixture: a later owner change to an applied leaf is preserved as a HOLD, never overwritten or masked by the digest', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const cases = {
+    'replaced leaf rewritten in place to its prior bytes': { leaf: 'lib/westy.php', change: (f) => fs.writeFileSync(path.join(f.app, 'lib/westy.php'), '<?php // westy\n') },
+    'replaced leaf mode': { leaf: 'lib/westy.php', change: (f) => f.sh(`chmod 0600 '${f.app}/lib/westy.php'`) },
+    'replaced leaf owner': { leaf: 'lib/westy.php', change: (f) => f.sh(`chown 4321 '${f.app}/lib/westy.php'`) },
+    'replaced leaf ACL': { leaf: 'public/login.php', change: (f) => f.sh(`setfacl -m u:4321:r-- '${f.app}/public/login.php'`) },
+    'replaced leaf identity (same bytes, metadata and ACL)': { leaf: 'public/login.php',
+      change: (f) => f.sh(`cp -a '${f.app}/public/login.php' '${f.app}/public/login.owner' && mv -f '${f.app}/public/login.owner' '${f.app}/public/login.php'`) },
+    'replaced leaf hard-linked': { leaf: 'lib/westy.php', change: (f) => fs.linkSync(path.join(f.app, 'lib/westy.php'), path.join(f.app, 'lib/westy.link')) },
+    'replaced leaf became a directory': { leaf: 'lib/westy.php',
+      change: (f) => { fs.rmSync(path.join(f.app, 'lib/westy.php')); fs.mkdirSync(path.join(f.app, 'lib/westy.php')); } },
+    'deleted leaf recreated': { leaf: 'lib/old.php', change: (f) => fs.writeFileSync(path.join(f.app, 'lib/old.php'), '<?php // removed by the release\n') },
+    'created leaf bytes': { leaf: 'public/new.php', change: (f) => fs.appendFileSync(path.join(f.app, 'public/new.php'), '// later owner edit\n') },
+    'created leaf mode': { leaf: 'public/new.php', change: (f) => f.sh(`chmod 0600 '${f.app}/public/new.php'`) },
+    'created directory now holds data': { leaf: 'lib/s/', state: 'lib/s/owner.txt',
+      change: (f) => fs.writeFileSync(path.join(f.app, 'lib/s/owner.txt'), 'owner data\n') },
+  };
+  for (const [label, c] of Object.entries(cases)) {
+    const f = coldFixture();
+    try {
+      f.ok('prepare');
+      f.join();
+      f.ok('apply');
+      c.change(f);
+      const later = leafState(f, c.state || c.leaf);
+      const r = f.run('inverse');
+      assert.equal(r.status, 2, `${label}:\n${r.stdout}\n${r.stderr}`);
+      assert.match(r.stderr, new RegExp(`^SAFEHARBOR_COLD_PRESERVED=${c.leaf.replace(/\./g, '\\.')}$`, 'm'), label);
+      assert.match(r.stdout, /^SAFEHARBOR_COLD=inverse-hold$/m, label);
+      assert.doesNotMatch(r.stdout, /SAFEHARBOR_COLD_RELEASE_RECORD=/, `${label}: no record step over an unverified source`);
+      assert.equal(leafState(f, c.state || c.leaf), later, `${label}: the later state is kept exactly`);
+      // The leaves still exactly as applied are inverted exactly.
+      assert.equal(fs.readFileSync(path.join(f.app, 'lib/render.php'), 'utf8'), '<?php // css?v=20260101000000\n', label);
+      if (c.leaf !== 'public/new.php') assert.ok(!fs.existsSync(path.join(f.app, 'public/new.php')), label);
+      if (c.leaf === 'lib/s/') assert.ok(!fs.existsSync(path.join(f.app, 'lib/s/new.php')), `${label}: the unchanged created leaf is removed`);
     } finally {
       f.cleanup();
     }

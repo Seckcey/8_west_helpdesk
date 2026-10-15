@@ -138,7 +138,8 @@ is ID's `deploy/cold_window.py` (installed by root as
   digest. Before any effect it requires each selected leaf to still carry the
   owner/group/mode and access ACL the carrier joined; it then holds the slot's
   `apply.lock` for its whole life and journals every new directory, temp
-  sibling and leaf effect before it happens, so a failed or lost apply stays
+  sibling and leaf effect before it happens (an installed leaf's identity,
+  bytes and access ACL before its rename), so a failed or lost apply stays
   accountable and is never replayed. `commit` writes the immutable and current
   release records exactly as the ordinary path does. There is no broad
   recursive chmod/chown in cold mode. The active-scheduler gate stays in every
@@ -158,9 +159,17 @@ is ID's `deploy/cold_window.py` (installed by root as
   live bytes must be reproducible from the accepted source plus that stamp.
   `inverse` restores those exact bytes and prior owner/group/mode, and the
   exact prior access ACL the carrier recorded as the map's 7th field (a
-  public-read or custom entry survives; `-` means none), verified per leaf;
-  removes a created leaf only while it is unchanged (otherwise HOLD,
-  preserved), removes only the temp siblings its journal names (a foreign
+  public-read or custom entry survives; `-` means none), verified per leaf.
+  It restores or removes a leaf only while the leaf is still exactly the
+  after-state `apply` journaled: the same identity, bytes and access ACL, a
+  regular single-link file with the deploy owner, runtime group and 0640, or a
+  deleted leaf still absent. A leaf `apply` never reached (every leaf, when it
+  never started) keeps its verified prior state and is not rewritten. Any later
+  or foreign change to a leaf (bytes, type, owner/group/mode, ACL, identity, an
+  extra link, a recreated deleted leaf) is named and preserved as a HOLD and is
+  never overwritten or removed; the digest check that follows then does not
+  run, so a matching tree digest cannot hide it. It removes only the temp
+  siblings its journal names (a foreign
   `*.sh-cold.*` leaf is reported and kept), refuses while the apply lock is
   still held (an apply process may still act), and must reproduce the previous
   deployed-artifact digest recorded in `current-app-artifact.manifest`. Only
