@@ -1,6 +1,8 @@
 <?php
 /** Hermetic tenant-boundary, scope, and rendered-output portal tests. */
 declare(strict_types=1);
+// Keep CLI progress buffered while the real renderers send their normal response headers.
+ob_start();
 
 $PORTAL_DATA_TEST_CONFIG = [
     'portal' => ['reserved_identity_tenant_slugs' => []],
@@ -260,6 +262,30 @@ try{
     portal_data_check('same-size asset replacement with preserved timestamp changes the cache version',$firstVersion!==$secondVersion);
     portal_data_check('unchanged bytes retain a stable cache version',$secondVersion===portal_asset_version($asset));
 }finally{unlink($asset);}
+
+// Billing is a plain navigation link. ID rechecks its own authenticated customer and action authority.
+$billingLink='href="https://id.8westit.com/customer-billing.php"';
+portal_data_check('ordinary customer shell exposes plan and billing without customer selectors',
+    str_contains($rendered,$billingLink) && str_contains($rendered,'Plan and billing'));
+ob_start();portal_shell_start($context);$emptyNameShell=(string)ob_get_clean();
+portal_data_check('shell without a client display name uses a neutral account fallback',str_contains($emptyNameShell,'Your account'));
+foreach (['client_owner','client_admin','client_staff','client_viewer'] as $role) {
+    $workspaceContext=$context;$workspaceContext['identity']['role']=$role;
+    $originalContext=$workspaceContext;$originalSession=$_SESSION??[];
+    ob_start();portal_render_workspace($workspaceContext);$workspace=(string)ob_get_clean();
+    portal_data_check($role.' workspace keeps billing, devices, support, guide and sign-out navigation',
+        str_contains($workspace,$billingLink) && str_contains($workspace,'href="/portal/devices.php"')
+        && str_contains($workspace,'href="/portal/requests.php"') && str_contains($workspace,'href="/portal/guide.php"')
+        && str_contains($workspace,'action="/portal/logout.php"'));
+    portal_data_check($role.' billing navigation leaves identity and session unchanged',
+        $workspaceContext===$originalContext && ($_SESSION??[])===$originalSession
+        && !str_contains($workspace,'action="https://id.8westit.com/customer-checkout.php"'));
+    portal_data_check($role.' rendered workspace has no PHP diagnostics',
+        preg_match('/(?:Warning:|Fatal error:|Notice:)/',$workspace)!==1);
+    if($role==='client_viewer') portal_data_check('viewer workspace stays read-only',str_contains($workspace,'data-can-write="0"'));
+    $output=getenv('CUSTOMER_UI_CAPTURE_DIR');
+    if($role==='client_owner' && is_string($output) && is_dir($output)) file_put_contents($output.'/safeharbor-workspace.html',$workspace);
+}
 
 echo "Portal data: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

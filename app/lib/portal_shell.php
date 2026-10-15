@@ -56,7 +56,7 @@ function portal_icon(string $name): string
 function portal_shell_start(array $context): void
 {
     $identity = $context['identity'];
-    $client = (string)($context['binding']['client_name'] ?? 'Your business');
+    $client = (string)($context['binding']['client_name'] ?? 'Your account');
     $workspace=($context['workspace']??false)===true;
     $brand = portal_branding($context);
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH);
@@ -66,7 +66,7 @@ function portal_shell_start(array $context): void
 <header class="portal-top"><a href="/portal/" aria-label="<?= portal_h($brand['home']) ?>"><img src="<?= portal_h($brand['logo']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>" alt="<?= portal_h($brand['alt']) ?>"></a><span>8 West IT</span><button type="button" class="portal-icon-button portal-menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="portal-nav"><?= portal_icon('menu') ?></button><?php if($workspace): ?><div class="portal-workspace-title"><strong>Westy</strong><span>Private conversation</span></div><button type="button" class="portal-icon-button portal-mobile-new" data-chat-new aria-label="New chat"><?= portal_icon('edit') ?></button><?php endif; ?></header>
 <aside class="portal-sidebar" id="portal-nav"><?php if($workspace): ?><a class="portal-workspace-brand" href="/portal/" aria-label="<?= portal_h($brand['home']) ?>"><img src="<?= portal_h($brand['logo']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>" alt="<?= portal_h($brand['alt']) ?>"></a><button class="portal-new-chat" type="button" data-chat-new><?= portal_icon('edit') ?>New chat</button><?php else: ?><p class="portal-business"><?= portal_h($client) ?></p><?php endif; ?>
 <nav aria-label="Customer portal">
-<?php foreach ([['/portal/', 'Westy', 'chat'], ['/portal/devices.php', 'Your devices', 'device'], ['/portal/requests.php', 'Support requests', 'requests'], ['/portal/reports.php', 'Service summaries', 'requests']] as [$url, $label, $icon]): ?>
+<?php foreach ([['/portal/', 'Westy', 'chat'], ['/portal/devices.php', 'Your devices', 'device'], ['/portal/requests.php', 'Support requests', 'requests'], ['/portal/reports.php', 'Service summaries', 'requests'], ['https://id.8westit.com/customer-billing.php', 'Plan and billing', 'requests']] as [$url, $label, $icon]): ?>
 <a href="<?= portal_h($url) ?>"<?= $path === $url ? ' aria-current="page"' : '' ?>><?= portal_icon($icon) ?><span><?= portal_h($label) ?></span></a>
 <?php endforeach; ?>
 </nav><?php if($workspace): ?><section class="portal-chat-history" aria-label="Recent chats"><h2>Recent chats</h2><div id="portal-chat-history"></div></section><?php endif; ?><div class="portal-account"><strong><?= portal_h($identity['display_name']) ?></strong><span><?= portal_h(portal_role_label(portal_customer_role($identity))) ?></span><?php if(isset($identity['customer_access']) && !isset($_SESSION['desktop_companion_session'])): ?><a href="/portal/clients.php">Use Westy for another client</a><?php endif; ?><a href="/portal/guide.php">Portal guide</a><a href="/portal/guide.php#contact">Contact support</a><form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="btn-link">Sign out</button></form></div></aside>
