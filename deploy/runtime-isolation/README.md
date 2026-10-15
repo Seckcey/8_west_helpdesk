@@ -130,12 +130,23 @@ is ID's `deploy/cold_window.py` (installed by root as
   report lock passed as an inherited descriptor (verified to be the reviewed
   inode, and verified held: an independent descriptor cannot take it).
   `prepare` keeps the payload, scheduler, config and tree gates, verifies the
-  source artifact digest and writes the replace/create/delete plan. `apply`
+  source artifact digest, writes the replace/create/delete plan and keeps a
+  root-only copy of the exact current release record. `apply`
   writes exactly the planned leaves (deploy owner, runtime group, 0640, new
   directories 2750, frontend read only on public/ leaves it writes), verifies
   the source digest, keeps version normalization and records the deployed
-  digest. `commit` writes the immutable and current release records exactly as
-  the ordinary path does. There is no broad recursive chmod/chown in cold mode.
+  digest. Before any effect it requires each selected leaf to still carry the
+  owner/group/mode and access ACL the carrier joined; it then holds the slot's
+  `apply.lock` for its whole life and journals every new directory, temp
+  sibling and leaf effect before it happens, so a failed or lost apply stays
+  accountable and is never replayed. `commit` writes the immutable and current
+  release records exactly as the ordinary path does. There is no broad
+  recursive chmod/chown in cold mode. The active-scheduler gate stays in every
+  phase: with the report scheduler active, the carrier itself holds its cron
+  name and activation record inside the operation (renamed, never deleted)
+  before `prepare`, and returns them exactly only while the release record is
+  the one they bind; after a new release they stay held for re-enable through
+  the scheduler manager with that release's evidence.
 - **Accepted current source inverse.** The carrier pins the selected SH source
   `v2-sh-2c-current-source-inverse-20261015.tar` (9123840 bytes, `ce06dd76…`)
   with the SELECTED canonical sidecar
@@ -145,13 +156,22 @@ is ID's `deploy/cold_window.py` (installed by root as
   joined to the live baseline; for `lib/render.php`, `lib/westy.php` and
   `public/login.php` the live installer `?v=` stamp is recorded and the exact
   live bytes must be reproducible from the accepted source plus that stamp.
-  `inverse` restores those exact bytes and prior owner/group/mode, removes a
-  created leaf only while it is unchanged (otherwise HOLD, preserved), and must
-  reproduce the previous deployed-artifact digest recorded in
-  `current-app-artifact.manifest`. A leaf outside the accepted source (for
+  `inverse` restores those exact bytes and prior owner/group/mode, and the
+  exact prior access ACL the carrier recorded as the map's 7th field (a
+  public-read or custom entry survives; `-` means none), verified per leaf;
+  removes a created leaf only while it is unchanged (otherwise HOLD,
+  preserved), removes only the temp siblings its journal names (a foreign
+  `*.sh-cold.*` leaf is reported and kept), refuses while the apply lock is
+  still held (an apply process may still act), and must reproduce the previous
+  deployed-artifact digest recorded in `current-app-artifact.manifest`. Only
+  then does the exact prior current release record return, and only over the
+  record this operation committed (anything else is preserved, HOLD); the
+  immutable records stay. A leaf outside the accepted source (for
   example a changed derived brand asset) is named and HOLDs; nothing is
   overwritten silently. Attachments, support-mail state, report state and the
-  protected config stay in place.
+  protected config stay in place. An inverse after a failed or lost apply or
+  commit runs only when the root owner explicitly selects it through the
+  carrier's disposition; it is never automatic.
 
 The app tree digest `6f5e22d2…`, the full repository tree `a97f4bee…`, the app
 tree `3ab4f58b…` and the archive SHA-256 `ce06dd76…` are four distinct

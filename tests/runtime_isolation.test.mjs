@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -505,6 +505,17 @@ test('cold installer: carrier-only phases precede the unchanged ordinary path an
   assert.match(cold, /cold-inverse-did-not-reproduce-the-previous-deployed-artifact/);
   assert.match(cold, /cold-prepare-replayed/);
   assert.match(cold, /cold-apply-replayed/);
+  // SH-R2-01..03: exact ACL in the map and the inverse, partial-effect journal and apply lock, prior release record.
+  assert.match(cold, /read -r op path sha uid gid mode acl extra/);
+  assert.match(cold, /setfacl --set="\$acl"/);
+  assert.match(cold, /cold_journal "leaf"\$'\\t'"\$op"\$'\\t'"\$relative"/);
+  assert.match(cold, /flock --exclusive --nonblock "\$cold_lock_fd" \|\| deploy_fail 'cold-apply-may-still-run' 75/);
+  assert.match(cold, /cold-prior-record-not-restored/);
+  assert.ok(cold.indexOf("cold-inverse-did-not-reproduce-the-previous-deployed-artifact") < cold.indexOf('cold_record=restored'),
+    'the prior release record returns only after the previous source verified');
+  // SH-R2-04: the active-scheduler gate stays in every cold phase; this file never removes or renames that name.
+  assert.match(cold, /\[\[ ! -e "\$COLD_CRON_ACTIVE" && ! -L "\$COLD_CRON_ACTIVE" \]\] \|\| deploy_fail 'active-report-scheduler-present' 75/);
+  assert.doesNotMatch(cold, /(?:rm|mv|unlink)\b[^\n]*COLD_CRON_ACTIVE/);
   // Version normalization is kept; no recursive chown/chmod and no hasher path from the caller in cold mode.
   assert.match(cold, /\?v=\$version/);
   assert.doesNotMatch(cold, /chown -R|chmod -R|-exec \/usr\/bin\/chmod|--artifact-hasher/);
@@ -536,78 +547,284 @@ test('cold client: the artifact is pinned before any remote effect and Live need
     'the ordinary path prints Live only after verifying the installer receipt');
 });
 
-test('Linux root fixture: cold installer phases bind the plan, keep exact metadata and invert exactly', (t) => {
-  if (process.platform !== 'linux' || process.getuid() !== 0) {
-    t.skip('Linux root only: the cold installer requires real root, flock, setfacl and ownership; nothing is proven on this host');
-    return;
-  }
+const LINUX_ROOT = process.platform === 'linux' && process.getuid() === 0;
+const COLD_SKIP = 'Linux root only: the cold installer requires real root, flock, getfacl/setfacl and ownership; nothing is proven on this host';
+
+/**
+ * One fresh synthetic cold slot: the root-installed adapter copy, a live (previous) tree whose selected leaves carry a
+ * public-read ACL and a foreign/custom named user+group ACL, the current release record and a candidate artifact
+ * (it adds lib/s/new.php inside a new directory). join() stands in for the carrier's leaf join (the real join is the
+ * ID carrier's, covered by its model tests): accepted bytes plus the exact prior uid/gid/mode and numeric access ACL.
+ */
+function coldFixture() {
   const root = fs.mkdtempSync('/tmp/safeharbor-cold-test.');
   const op = 'd'.repeat(32);
-  const sh = (script, env = {}) => execFileSync('bash', ['-c', script], { encoding: 'utf8', env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', ...env } });
+  const base = { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' };
+  const sh = (script) => execFileSync('bash', ['-c', script], { encoding: 'utf8', env: base });
   const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
-  try {
-    fs.chmodSync(root, 0o755);
-    const adapter = path.join(root, 'usr/local/libexec/8west/cold-window.d/safeharbor');
-    const slot = path.join(root, 'var/lib/8west-cold-window', op, 'safeharbor');
-    const app = path.join(root, 'srv/8west/apps/safeharbor/current');
-    const lockDir = path.join(root, 'var/lib/safeharbor-report-scheduler');
-    const records = path.join(lockDir, 'releases');
-    for (const d of [adapter, slot, path.join(app, 'lib'), path.join(app, 'public'), path.join(app, 'config'), records]) fs.mkdirSync(d, { recursive: true });
-    fs.chmodSync(slot, 0o700); fs.chmodSync(records, 0o700);
-    fs.copyFileSync(INSTALLER, path.join(adapter, 'remote-install-safeharbor-app.sh'));
-    fs.copyFileSync(HASHER, path.join(adapter, 'hash-safeharbor-app-artifact.sh'));
-    // The live (previous) tree and the candidate tree.
-    const live = { 'lib/render.php': '<?php // css?v=20260101000000\n', 'lib/westy.php': '<?php // westy\n',
-      'public/login.php': '<?php // login?v=20260101000000\n', 'lib/old.php': '<?php // removed by the release\n' };
-    for (const [p, c] of Object.entries(live)) fs.writeFileSync(path.join(app, p), c);
-    fs.writeFileSync(path.join(app, 'config/config.php'), '<?php // private\n');
-    sh(`chown -R root:root '${app}' && find '${app}' -type d -exec chmod 2750 {} + && find '${app}' -type f -exec chmod 0640 {} +`);
-    const previous = sh(`bash '${HASHER}' '${app}'`).trim();
-    fs.writeFileSync(path.join(records, 'current-app-artifact.manifest'), `schema=safeharbor-deployed-app-artifact-v1\ndeployed_artifact_sha256=${previous}\n`);
-    fs.chmodSync(path.join(records, 'current-app-artifact.manifest'), 0o600);
-    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-cold-stage-'));
-    const cand = { 'lib/render.php': '<?php // css?v=abc\n', 'lib/westy.php': '<?php // westy v2\n',
-      'public/login.php': '<?php // login?v=abc\n', 'public/new.php': '<?php // new\n' };
-    for (const [p, c] of Object.entries(cand)) { fs.mkdirSync(path.join(stage, 'app', path.dirname(p)), { recursive: true }); fs.writeFileSync(path.join(stage, 'app', p), c); }
-    fs.mkdirSync(path.join(stage, 'app/config'), { recursive: true });
-    sh(`tar -czf '${slot}/artifact' -C '${stage}' app && chmod 0400 '${slot}/artifact'`);
-    const source = sh(`bash '${HASHER}' '${stage}/app'`).trim();
-    fs.writeFileSync(path.join(lockDir, 'business-reports-deploy.lock'), '');
-    const env = { SAFEHARBOR_COLD_TEST_ROOT: root, COLD_WINDOW_OPERATION: op, COLD_WINDOW_SLOT: slot,
-      SAFEHARBOR_COLD_APP_ROOT: '/srv/8west/apps/safeharbor/current', SAFEHARBOR_COLD_RUNTIME_GROUP: 'root',
-      SAFEHARBOR_COLD_DEPLOY_OWNER: 'root', SAFEHARBOR_COLD_HASHER: '/usr/local/libexec/8west/cold-window.d/safeharbor/hash-safeharbor-app-artifact.sh',
-      SAFEHARBOR_COLD_HASHER_SHA256: sha(HASHER), SAFEHARBOR_COLD_RELEASE_SHA: 'a'.repeat(40),
-      SAFEHARBOR_COLD_SOURCE_ARTIFACT_SHA256: source, SAFEHARBOR_COLD_LOCK_FD: '9' };
-    const run = (phase) => sh(`exec 9<'${lockDir}/business-reports-deploy.lock' && flock -x 9 && bash '${adapter}/remote-install-safeharbor-app.sh' --cold ${phase} --cold-slot '${slot}'`, env);
-    // Without the carrier's held lock the phase refuses.
-    assert.throws(() => sh(`exec 9<'${lockDir}/business-reports-deploy.lock' && bash '${adapter}/remote-install-safeharbor-app.sh' --cold prepare --cold-slot '${slot}'`, env));
-    run('prepare');
-    const plan = fs.readFileSync(path.join(slot, 'plan.tsv'), 'utf8');
-    for (const row of ['replace\tlib/render.php\t', 'replace\tlib/westy.php\t', 'replace\tpublic/login.php\t', 'create\tpublic/new.php\t', 'delete\tlib/old.php\t']) {
-      assert.ok(plan.includes(row), `plan lacks ${row}`);
-    }
-    assert.throws(() => run('apply'), 'apply refuses without the carrier inverse map');
-    // The carrier's leaf join: the previous live bytes (with their installer stamps) and exact prior metadata.
+  fs.chmodSync(root, 0o755);
+  const adapter = path.join(root, 'usr/local/libexec/8west/cold-window.d/safeharbor');
+  const slot = path.join(root, 'var/lib/8west-cold-window', op, 'safeharbor');
+  const app = path.join(root, 'srv/8west/apps/safeharbor/current');
+  const lockDir = path.join(root, 'var/lib/safeharbor-report-scheduler');
+  const records = path.join(lockDir, 'releases');
+  const record = path.join(records, 'current-app-artifact.manifest');
+  const lock = path.join(lockDir, 'business-reports-deploy.lock');
+  for (const d of [adapter, slot, path.join(app, 'lib'), path.join(app, 'public'), path.join(app, 'config'), records]) fs.mkdirSync(d, { recursive: true });
+  fs.chmodSync(slot, 0o700); fs.chmodSync(records, 0o700);
+  fs.copyFileSync(INSTALLER, path.join(adapter, 'remote-install-safeharbor-app.sh'));
+  fs.copyFileSync(HASHER, path.join(adapter, 'hash-safeharbor-app-artifact.sh'));
+  const live = { 'lib/render.php': '<?php // css?v=20260101000000\n', 'lib/westy.php': '<?php // westy\n',
+    'public/login.php': '<?php // login?v=20260101000000\n', 'lib/old.php': '<?php // removed by the release\n' };
+  for (const [p, c] of Object.entries(live)) fs.writeFileSync(path.join(app, p), c);
+  fs.writeFileSync(path.join(app, 'config/config.php'), '<?php // private\n');
+  sh(`chown -R root:root '${app}' && find '${app}' -type d -exec chmod 2750 {} + && find '${app}' -type f -exec chmod 0640 {} +`);
+  sh(`setfacl -m u:33:r-- '${app}/public/login.php' && setfacl -m u:4321:r--,g:2001:r-- '${app}/lib/westy.php'`);
+  const previous = sh(`bash '${HASHER}' '${app}'`).trim();
+  const priorRecord = `schema=safeharbor-deployed-app-artifact-v1\nrelease_sha=${'b'.repeat(40)}\ndeployed_artifact_sha256=${previous}\n`;
+  fs.writeFileSync(record, priorRecord); fs.chmodSync(record, 0o600);
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-cold-stage-'));
+  const cand = { 'lib/render.php': '<?php // css?v=abc\n', 'lib/s/new.php': '<?php // new in a new directory\n',
+    'lib/westy.php': '<?php // westy v2\n', 'public/login.php': '<?php // login?v=abc\n', 'public/new.php': '<?php // new\n' };
+  for (const [p, c] of Object.entries(cand)) { fs.mkdirSync(path.join(stage, 'app', path.dirname(p)), { recursive: true }); fs.writeFileSync(path.join(stage, 'app', p), c); }
+  fs.mkdirSync(path.join(stage, 'app/config'), { recursive: true });
+  sh(`tar -czf '${slot}/artifact' -C '${stage}' app && chmod 0400 '${slot}/artifact'`);
+  const source = sh(`bash '${HASHER}' '${stage}/app'`).trim();
+  fs.rmSync(stage, { recursive: true, force: true });
+  fs.writeFileSync(lock, '');
+  const env = { ...base, SAFEHARBOR_COLD_TEST_ROOT: root, COLD_WINDOW_OPERATION: op, COLD_WINDOW_SLOT: slot,
+    SAFEHARBOR_COLD_APP_ROOT: '/srv/8west/apps/safeharbor/current', SAFEHARBOR_COLD_RUNTIME_GROUP: 'root',
+    SAFEHARBOR_COLD_DEPLOY_OWNER: 'root', SAFEHARBOR_COLD_HASHER: '/usr/local/libexec/8west/cold-window.d/safeharbor/hash-safeharbor-app-artifact.sh',
+    SAFEHARBOR_COLD_HASHER_SHA256: sha(HASHER), SAFEHARBOR_COLD_RELEASE_SHA: 'a'.repeat(40),
+    SAFEHARBOR_COLD_SOURCE_ARTIFACT_SHA256: source, SAFEHARBOR_COLD_LOCK_FD: '9' };
+  const held = (phase) => `exec 9<'${lock}' && flock -x 9 && bash '${adapter}/remote-install-safeharbor-app.sh' --cold ${phase} --cold-slot '${slot}'`;
+  const run = (phase) => spawnSync('bash', ['-c', held(phase)], { encoding: 'utf8', env });
+  const ok = (phase) => {
+    const r = run(phase);
+    assert.equal(r.status, 0, `cold ${phase} failed (${r.status}):\n${r.stdout}\n${r.stderr}`);
+    return r.stdout;
+  };
+  const meta = (p) => sh(`stat -c '%u:%g:%a' -- '${p}'`).trim();
+  const acl = (p) => {
+    const out = sh(`getfacl --absolute-names --omit-header --numeric --no-effective -- '${p}' | sed '/^$/d' | paste -sd, -`).trim();
+    return /^user::[rwx-]{3},group::[rwx-]{3},other::[rwx-]{3}$/.test(out) ? '-' : out;
+  };
+  const snapshot = () => Object.fromEntries(Object.keys(live).map((p) => {
+    const f = path.join(app, p);
+    return [p, fs.existsSync(f) ? `${fs.readFileSync(f, 'utf8')}|${meta(f)}|${acl(f)}` : 'absent'];
+  }));
+  const join = () => {
     const lines = [];
-    for (const row of plan.trim().split('\n')) {
+    for (const row of fs.readFileSync(path.join(slot, 'plan.tsv'), 'utf8').trim().split('\n')) {
       const [op2, rel, digest] = row.split('\t');
-      if (op2 === 'create') { lines.push(`remove\t${rel}\t${digest}\t-\t-\t-`); continue; }
+      if (op2 === 'create') { lines.push(`remove\t${rel}\t${digest}\t-\t-\t-\t-`); continue; }
       fs.mkdirSync(path.join(slot, 'recovery', path.dirname(rel)), { recursive: true });
       fs.copyFileSync(path.join(app, rel), path.join(slot, 'recovery', rel));
-      lines.push(`restore\t${rel}\t${digest}\t0\t0\t0640`);
+      const [u, g, m] = meta(path.join(app, rel)).split(':');
+      lines.push(`restore\t${rel}\t${digest}\t${u}\t${g}\t0${m}\t${acl(path.join(app, rel))}`);
     }
     fs.writeFileSync(path.join(slot, 'inverse.tsv'), `${lines.join('\n')}\n`);
-    run('apply');
-    assert.match(fs.readFileSync(path.join(app, 'lib/westy.php'), 'utf8'), /westy v2/);
-    assert.ok(!fs.existsSync(path.join(app, 'lib/old.php')));
-    assert.doesNotMatch(fs.readFileSync(path.join(app, 'lib/render.php'), 'utf8'), /\?v=abc/, 'version normalization kept');
-    assert.equal((fs.statSync(path.join(app, 'public/new.php')).mode & 0o7777).toString(8), '640');
-    run('inverse');
-    for (const [p, c] of Object.entries(live)) assert.equal(fs.readFileSync(path.join(app, p), 'utf8'), c, `${p} not restored exactly`);
-    assert.ok(!fs.existsSync(path.join(app, 'public/new.php')), 'the created leaf survived the inverse');
-    assert.equal(sh(`bash '${HASHER}' '${app}'`).trim(), previous);
-    fs.rmSync(stage, { recursive: true, force: true });
+  };
+  const hash = () => sh(`bash '${HASHER}' '${app}'`).trim();
+  const cleanup = () => fs.rmSync(root, { recursive: true, force: true });
+  return { root, op, slot, app, lock, record, records, priorRecord, previous, cand, sh, run, ok, held, env, meta, acl,
+    snapshot, join, hash, cleanup, progress: path.join(slot, 'apply.progress'), applyLock: path.join(slot, 'apply.lock') };
+}
+
+const lockBusy = (file) => spawnSync('flock', ['-n', file, 'true']).status !== 0;
+function until(condition, what) {
+  const end = Date.now() + 10000;
+  while (!condition()) {
+    if (Date.now() > end) assert.fail(`timed out waiting for ${what}`);
+    execFileSync('sleep', ['0.1']);
+  }
+}
+
+test('Linux root fixture: cold installer phases bind the plan, keep exact metadata and ACLs and invert exactly', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const f = coldFixture();
+  try {
+    const before = f.snapshot();
+    assert.match(before['public/login.php'], /\|user::rw-,user:33:r--,group::r--,mask::r--,other::---$/);
+    assert.match(before['lib/westy.php'], /\|user::rw-,user:4321:r--,group::r--,group:2001:r--,mask::r--,other::---$/);
+    // Without the carrier's held lock the phase refuses.
+    assert.notEqual(spawnSync('bash', ['-c', f.held('prepare').replace(' && flock -x 9', '')], { encoding: 'utf8', env: f.env }).status, 0);
+    f.ok('prepare');
+    const plan = fs.readFileSync(path.join(f.slot, 'plan.tsv'), 'utf8');
+    for (const row of ['replace\tlib/render.php\t', 'replace\tlib/westy.php\t', 'replace\tpublic/login.php\t', 'create\tpublic/new.php\t',
+      'create\tlib/s/new.php\t', 'delete\tlib/old.php\t']) {
+      assert.ok(plan.includes(row), `plan lacks ${row}`);
+    }
+    assert.equal(fs.readFileSync(path.join(f.slot, 'prior-current-record'), 'utf8'), f.priorRecord);
+    assert.notEqual(f.run('apply').status, 0, 'apply refuses without the carrier inverse map');
+    f.join();
+    const map = fs.readFileSync(path.join(f.slot, 'inverse.tsv'), 'utf8');
+    assert.match(map, /^restore\tlib\/westy\.php\t[0-9a-f]{64}\t0\t0\t0640\tuser::rw-,user:4321:r--,group::r--,group:2001:r--,mask::r--,other::---$/m);
+    assert.match(map, /^restore\tlib\/render\.php\t[0-9a-f]{64}\t0\t0\t0640\t-$/m);
+    f.ok('apply');
+    assert.match(fs.readFileSync(path.join(f.app, 'lib/westy.php'), 'utf8'), /westy v2/);
+    assert.ok(!fs.existsSync(path.join(f.app, 'lib/old.php')));
+    assert.doesNotMatch(fs.readFileSync(path.join(f.app, 'lib/render.php'), 'utf8'), /\?v=abc/, 'version normalization kept');
+    assert.equal((fs.statSync(path.join(f.app, 'public/new.php')).mode & 0o7777).toString(8), '640');
+    const journal = fs.readFileSync(f.progress, 'utf8');
+    assert.match(journal, /^leaf\treplace\tlib\/render\.php$/m);
+    assert.match(journal, /^temp\tlib\/s\/new\.php\.sh-cold\.[0-9]+$/m);
+    assert.match(fs.readFileSync(path.join(f.slot, 'created-dirs.list'), 'utf8'), /^lib\/s$/m);
+    const out = f.ok('inverse');
+    assert.match(out, /^SAFEHARBOR_COLD_APPLY=complete$/m);
+    assert.match(out, /^SAFEHARBOR_COLD_RELEASE_RECORD=unchanged$/m);
+    assert.match(out, /^SAFEHARBOR_COLD=inverse-exact$/m);
+    assert.deepEqual(f.snapshot(), before, 'bytes, owner/group/mode and the public-read and custom ACLs are exact');
+    assert.ok(!fs.existsSync(path.join(f.app, 'public/new.php')) && !fs.existsSync(path.join(f.app, 'lib/s')));
+    assert.equal(f.hash(), f.previous);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    f.cleanup();
+  }
+});
+
+test('Linux root fixture: an ACL changed after the carrier join refuses the cold apply before any effect', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const f = coldFixture();
+  try {
+    f.ok('prepare');
+    f.join();
+    f.sh(`setfacl -x g:2001 '${f.app}/lib/westy.php'`);
+    const r = f.run('apply');
+    assert.equal(r.status, 75, r.stderr);
+    assert.match(r.stderr, /cold-live-drift-since-prepare/);
+    assert.equal(fs.readFileSync(path.join(f.app, 'lib/render.php'), 'utf8'), '<?php // css?v=20260101000000\n');
+    assert.ok(!fs.existsSync(f.progress) && !fs.existsSync(f.applyLock), 'no effect and no apply custody before the check');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('Linux root fixture: a first-leaf failure stays accountable and an explicitly selected inverse restores it exactly', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const f = coldFixture();
+  try {
+    const before = f.snapshot();
+    f.ok('prepare');
+    f.join();
+    // The injected fault: a regular file where the second planned leaf needs its new directory.
+    fs.writeFileSync(path.join(f.app, 'lib/s'), 'fault\n');
+    const r = f.run('apply');
+    assert.equal(r.status, 77, r.stderr);
+    assert.match(r.stderr, /cold-live-parent-not-directory/);
+    assert.equal(fs.readFileSync(path.join(f.app, 'lib/render.php'), 'utf8'), f.cand['lib/render.php'], 'the first leaf changed');
+    const journal = fs.readFileSync(f.progress, 'utf8');
+    assert.match(journal, /^leaf\treplace\tlib\/render\.php\ntemp\tlib\/render\.php\.sh-cold\.[0-9]+\nleaf\tcreate\tlib\/s\/new\.php$/m);
+    assert.ok(!fs.existsSync(path.join(f.slot, 'apply.env')));
+    assert.match(f.run('apply').stderr, /cold-apply-replayed/, 'a failed apply is never replayed');
+    fs.rmSync(path.join(f.app, 'lib/s'));
+    const out = f.ok('inverse');
+    assert.match(out, /^SAFEHARBOR_COLD_APPLY=partial$/m);
+    assert.match(out, /^SAFEHARBOR_COLD=inverse-exact$/m);
+    assert.deepEqual(f.snapshot(), before);
+    assert.equal(f.hash(), f.previous);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('Linux root fixture: after a lost apply result the inverse waits for the apply lock and removes only journaled temps', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const f = coldFixture();
+  let holder = null;
+  try {
+    const before = f.snapshot();
+    f.ok('prepare');
+    f.join();
+    f.ok('apply');
+    // What a lost result can leave behind: a journaled temp of an install that never renamed, and an apply child that
+    // still holds the apply lock.
+    const own = 'public/login.php.sh-cold.99999';
+    fs.appendFileSync(f.progress, `temp\t${own}\n`);
+    fs.writeFileSync(path.join(f.app, own), 'partial install\n');
+    holder = spawn('bash', ['-c', `exec 7<'${f.applyLock}'; flock -x 7; exec sleep 120`], { stdio: 'ignore' });
+    until(() => lockBusy(f.applyLock), 'the stand-in apply child to hold the apply lock');
+    let r = f.run('inverse');
+    assert.equal(r.status, 75, r.stderr);
+    assert.match(r.stderr, /cold-apply-may-still-run/);
+    assert.ok(fs.existsSync(path.join(f.app, 'public/new.php')) && fs.existsSync(path.join(f.app, own)), 'nothing touched');
+    holder.kill('SIGKILL');
+    until(() => !lockBusy(f.applyLock), 'the apply lock to be released');
+    const foreign = 'lib/westy.php.sh-cold.1';
+    fs.writeFileSync(path.join(f.app, foreign), 'foreign or unknown\n');
+    r = f.run('inverse');
+    assert.equal(r.status, 74, `a foreign leaf keeps the previous digest unreproducible:\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stderr, new RegExp(`^SAFEHARBOR_COLD_FOREIGN_TEMP_PRESERVED=${foreign.replace(/\./g, '\\.')}$`, 'm'));
+    assert.ok(!fs.existsSync(path.join(f.app, own)), 'the journaled operation temp is removed');
+    assert.equal(fs.readFileSync(path.join(f.app, foreign), 'utf8'), 'foreign or unknown\n', 'the foreign temp survives');
+    fs.rmSync(path.join(f.app, foreign));  // the owner's own disposition of the foreign leaf
+    const out = f.ok('inverse');
+    assert.match(out, /^SAFEHARBOR_COLD=inverse-exact$/m);
+    assert.deepEqual(f.snapshot(), before);
+    assert.equal(f.hash(), f.previous);
+  } finally {
+    if (holder && holder.exitCode === null) holder.kill('SIGKILL');
+    f.cleanup();
+  }
+});
+
+test('Linux root fixture: commit then inverse returns the prior release record only after the source verified', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const cases = {
+    'post-commit inverse': { change: () => {}, status: 0, record: 'prior' },
+    'a foreign current record': { change: (f) => fs.writeFileSync(f.record, 'schema=someone-else\n'), status: 2, record: 'foreign' },
+    'an unverified source': { change: (f) => fs.appendFileSync(path.join(f.app, 'public/new.php'), '// later owner edit\n'), status: 2, record: 'committed' },
+  };
+  for (const [label, c] of Object.entries(cases)) {
+    const f = coldFixture();
+    try {
+      f.ok('prepare');
+      f.join();
+      f.ok('apply');
+      f.ok('commit');
+      const committed = fs.readFileSync(f.record, 'utf8');
+      assert.notEqual(committed, f.priorRecord, label);
+      const immutable = fs.readdirSync(f.records).filter((n) => /^app-artifact\.a{40}\.[0-9a-f]{64}\.manifest$/.test(n));
+      assert.equal(immutable.length, 1, label);
+      c.change(f);
+      const foreign = fs.readFileSync(f.record, 'utf8');
+      const r = f.run('inverse');
+      assert.equal(r.status, c.status, `${label}:\n${r.stdout}\n${r.stderr}`);
+      const now = fs.readFileSync(f.record, 'utf8');
+      if (c.record === 'prior') {
+        assert.match(r.stdout, /^SAFEHARBOR_COLD_RELEASE_RECORD=restored$/m);
+        assert.equal(now, f.priorRecord);
+        assert.equal(f.meta(f.record), '0:0:600');
+        assert.equal(f.hash(), f.previous);
+      } else if (c.record === 'foreign') {
+        assert.match(r.stdout, /^SAFEHARBOR_COLD_RELEASE_RECORD=preserved$/m);
+        assert.equal(now, foreign, 'a record this operation did not commit is never overwritten');
+      } else {
+        assert.doesNotMatch(r.stdout, /SAFEHARBOR_COLD_RELEASE_RECORD=/, 'no record step before the source verified');
+        assert.equal(now, committed);
+      }
+      assert.equal(fs.readFileSync(path.join(f.records, immutable[0]), 'utf8'), committed, `${label}: immutable history is kept`);
+    } finally {
+      f.cleanup();
+    }
+  }
+});
+
+test('Linux root fixture: the active report scheduler name refuses every cold phase until the carrier holds it', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const f = coldFixture();
+  try {
+    const active = path.join(f.root, 'etc/cron.d/safeharbor-business-reports');
+    fs.mkdirSync(path.dirname(active), { recursive: true });
+    fs.writeFileSync(active, '*/5 * * * * www-data /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh\n');
+    const r = f.run('prepare');
+    assert.equal(r.status, 75, r.stderr);
+    assert.match(r.stderr, /active-report-scheduler-present/);
+    assert.ok(!fs.existsSync(path.join(f.slot, 'plan.tsv')));
+    // The carrier's supported hold renames the name inside its operation (never deletes it); the gate then passes.
+    fs.renameSync(active, `${active}.cold-hold-${f.op}`);
+    f.ok('prepare');
+    assert.ok(fs.existsSync(`${active}.cold-hold-${f.op}`));
+  } finally {
+    f.cleanup();
   }
 });
