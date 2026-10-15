@@ -760,7 +760,13 @@ test('Linux root fixture: a first-leaf failure stays accountable and an explicit
     assert.match(r.stderr, /cold-live-parent-not-directory/);
     assert.equal(fs.readFileSync(path.join(f.app, 'lib/render.php'), 'utf8'), f.cand['lib/render.php'], 'the first leaf changed');
     const journal = fs.readFileSync(f.progress, 'utf8');
-    assert.match(journal, /^leaf\treplace\tlib\/render\.php\ntemp\tlib\/render\.php\.sh-cold\.[0-9]+\nleaf\tcreate\tlib\/s\/new\.php$/m);
+    const lines = journal.split('\n');
+    const at = lines.indexOf('leaf\treplace\tlib/render.php');
+    assert.match(lines[at + 1], /^temp\tlib\/render\.php\.sh-cold\.[0-9]+$/);
+    const render = fs.statSync(path.join(f.app, 'lib/render.php'));
+    assert.deepEqual(lines.slice(at, at + 4), ['leaf\treplace\tlib/render.php', lines[at + 1],
+      `installed\tlib/render.php\t${render.dev}:${render.ino}\t${crypto.createHash('sha256').update(f.cand['lib/render.php']).digest('hex')}\t-`,
+      'leaf\tcreate\tlib/s/new.php'], 'the first leaf journals its temp, then its installed identity, bytes and ACL, before the next leaf');
     assert.ok(!fs.existsSync(path.join(f.slot, 'apply.env')));
     assert.match(f.run('apply').stderr, /cold-apply-replayed/, 'a failed apply is never replayed');
     fs.rmSync(path.join(f.app, 'lib/s'));
