@@ -576,6 +576,13 @@ test('cold client: the artifact is pinned before any remote effect and Live need
 
 const LINUX_ROOT = process.platform === 'linux' && process.getuid() === 0;
 const COLD_SKIP = 'Linux root only: the cold installer requires real root, flock, getfacl/setfacl and ownership; nothing is proven on this host';
+// The carrier's adapter hasher is root-installed with a fixed mode the installer pins (644|444|755|555). A plain copy
+// keeps the checkout's mode (libuv copyfile applies the source mode), so the fixture installs it with this mode.
+const COLD_HASHER_MODE = 0o644;
+function installAdapterFile(src, dest, mode) {
+  fs.copyFileSync(src, dest);
+  fs.chmodSync(dest, mode);
+}
 
 /**
  * One fresh synthetic cold slot: the root-installed adapter copy, a live (previous) tree whose selected leaves carry a
@@ -601,7 +608,9 @@ function coldFixture(extra = {}) {
   for (const d of [adapter, slot, path.join(app, 'lib'), path.join(app, 'public'), path.join(app, 'config'), records]) fs.mkdirSync(d, { recursive: true });
   fs.chmodSync(slot, 0o700); fs.chmodSync(records, 0o700);
   fs.copyFileSync(INSTALLER, path.join(adapter, 'remote-install-safeharbor-app.sh'));
-  fs.copyFileSync(HASHER, path.join(adapter, 'hash-safeharbor-app-artifact.sh'));
+  const hasher = path.join(adapter, 'hash-safeharbor-app-artifact.sh');
+  installAdapterFile(HASHER, hasher, COLD_HASHER_MODE);
+  assert.equal(sh(`stat -c '%u:%g:%a' -- '${hasher}'`).trim(), '0:0:644', 'the adapter hasher is root-installed 0644, whatever the checkout mode');
   const live = { 'lib/render.php': '<?php // css?v=20260101000000\n', 'lib/westy.php': '<?php // westy\n',
     'public/login.php': '<?php // login?v=20260101000000\n', 'lib/old.php': '<?php // removed by the release\n' };
   for (const [p, c] of Object.entries(live)) fs.writeFileSync(path.join(app, p), c);
@@ -655,7 +664,7 @@ function coldFixture(extra = {}) {
   };
   const hash = () => sh(`bash '${HASHER}' '${app}'`).trim();
   const cleanup = () => fs.rmSync(root, { recursive: true, force: true });
-  return { root, op, slot, app, lock, record, records, priorRecord, previous, cand, sh, run, ok, held, env, meta, acl,
+  return { root, op, slot, app, hasher, lock, record, records, priorRecord, previous, cand, sh, run, ok, held, env, meta, acl,
     snapshot, join, hash, cleanup, progress: path.join(slot, 'apply.progress'), applyLock: path.join(slot, 'apply.lock') };
 }
 
@@ -1071,6 +1080,39 @@ test('Linux root fixture: the active report scheduler name refuses every cold ph
     fs.renameSync(active, `${active}.cold-hold-${f.op}`);
     f.ok('prepare');
     assert.ok(fs.existsSync(`${active}.cold-hold-${f.op}`));
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('Linux root fixture: the adapter hasher is installed 0644 whatever the checkout mode, and any other mode still refuses', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  // SH r3 at 15977be5: the fixture's plain copy kept the checkout's hasher mode, so every cold phase refused at
+  // cold-hasher-not-pinned. A restrictive or group-writable checkout no longer reaches the installed copy.
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-cold-hasher-'));
+  try {
+    for (const mode of [0o600, 0o664]) {
+      const src = path.join(scratch, `checkout-${mode.toString(8)}.sh`);
+      const dest = path.join(scratch, `installed-${mode.toString(8)}.sh`);
+      fs.copyFileSync(HASHER, src); fs.chmodSync(src, mode);
+      installAdapterFile(src, dest, COLD_HASHER_MODE);
+      assert.equal((fs.statSync(dest).mode & 0o7777).toString(8), '644', `a ${mode.toString(8)} checkout installs 0644`);
+    }
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+  const f = coldFixture();
+  try {
+    // Same bytes and root owner: the mode alone decides, and the guard keeps its exact set and digest pin.
+    for (const mode of [0o600, 0o664, 0o640, 0o700]) {
+      fs.chmodSync(f.hasher, mode);
+      const r = f.run('prepare');
+      assert.equal(r.status, 65, `${mode.toString(8)}: ${r.stderr}`);
+      assert.match(r.stderr, /^SAFEHARBOR_DEPLOY_REFUSED=cold-hasher-not-pinned$/m);
+      assert.ok(!fs.existsSync(path.join(f.slot, 'plan.tsv')) && !fs.existsSync(path.join(f.slot, 'staged')), 'refused before any effect');
+    }
+    fs.chmodSync(f.hasher, COLD_HASHER_MODE);
+    f.ok('prepare');
   } finally {
     f.cleanup();
   }
