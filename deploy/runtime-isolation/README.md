@@ -139,8 +139,10 @@ is ID's `deploy/cold_window.py` (installed by root as
   owner/group/mode and access ACL the carrier joined; it then holds the slot's
   `apply.lock` for its whole life and journals every new directory, temp
   sibling and leaf effect before it happens (an installed leaf's identity,
-  bytes and access ACL before its rename), so a failed or lost apply stays
-  accountable and is never replayed. `commit` writes the immutable and current
+  bytes and access ACL before its rename; a new directory's identity, type,
+  owner/group/mode and access ACL right after its creation, before anything is
+  placed in it), so a failed or lost apply stays accountable and is never
+  replayed. `commit` writes the immutable and current
   release records exactly as the ordinary path does. There is no broad
   recursive chmod/chown in cold mode. The active-scheduler gate stays in every
   phase: with the report scheduler active, the carrier itself holds its cron
@@ -168,7 +170,11 @@ is ID's `deploy/cold_window.py` (installed by root as
   or foreign change to a leaf (bytes, type, owner/group/mode, ACL, identity, an
   extra link, a recreated deleted leaf) is named and preserved as a HOLD and is
   never overwritten or removed; the digest check that follows then does not
-  run, so a matching tree digest cannot hide it. It removes only the temp
+  run, so a matching tree digest cannot hide it. A directory `apply` created is
+  removed only while it is still exactly the journaled directory (identity,
+  type, owner/group/mode and access ACL), unchanged across a re-stat and empty;
+  a replaced, drifted or non-empty directory, or one without its creation
+  record, is named and preserved as a HOLD the same way. It removes only the temp
   siblings its journal names (a foreign
   `*.sh-cold.*` leaf is reported and kept), refuses while the apply lock is
   still held (an apply process may still act), and must reproduce the previous

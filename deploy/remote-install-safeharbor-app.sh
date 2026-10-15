@@ -22,13 +22,16 @@ deploy_fail() {
 #   apply    exact planned leaves only (deploy owner, runtime group, 0640, new directories 2750), version
 #            normalization kept, digest verified before and after stamping; the selected leaves' metadata/ACL
 #            must still be the carrier's joined values; held under apply.lock, every directory, temp sibling and
-#            leaf effect journaled BEFORE it happens (a failed or lost apply stays accountable, never replayed)
+#            leaf effect journaled BEFORE it happens (a failed or lost apply stays accountable, never replayed),
+#            and a new directory's identity, type, owner/group/mode and access ACL right after its creation
 #   commit   the immutable and current release records, as the ordinary path writes them
 #   inverse  the carrier's accepted-current-source leaves with exact prior owner/group/mode AND access ACL;
 #            a leaf is restored or removed only while it is still exactly the after-state apply journaled
 #            before its rename (identity, bytes, ACL, deploy owner/runtime group/0640, one link; a deleted leaf
 #            still absent); a leaf apply never reached keeps its verified prior state, unrewritten; any other
-#            leaf is preserved (HOLD) whatever the tree digest says; only journaled temps removed; the pre-operation
+#            leaf is preserved (HOLD) whatever the tree digest says; only journaled temps removed; a created
+#            directory is removed only while it is still exactly the journaled one, unchanged and empty, and is
+#            otherwise preserved (HOLD), as is one without its creation record; the pre-operation
 #            deployed digest must be reproduced exactly, and only then the prior current release record
 #            returns (immutable records stay). Refused while an apply may still run.
 # The active-report-scheduler gate stays in every phase: the carrier holds that name inside its operation.
@@ -153,7 +156,7 @@ if [[ "${1:-}" == '--cold' ]]; then
         [[ "$want" == "$got" ]] || deploy_fail 'cold-inverse-map-does-not-cover-the-plan' 65
     }
     cold_install_leaf() { # <leaf-bytes> <relative> -> temp sibling + rename, target metadata, frontend read on public/
-        local bytes="$1" relative="$2" target="$COLD_APP_ROOT/$2" current part temp identity digest access
+        local bytes="$1" relative="$2" target="$COLD_APP_ROOT/$2" current part temp identity digest access created
         local -a parts=()
         current="$COLD_APP_ROOT"
         IFS=/ read -ra parts <<<"$(dirname -- "$relative")"
@@ -168,6 +171,13 @@ if [[ "${1:-}" == '--cold' ]]; then
                 if [[ "${current#"$COLD_APP_ROOT"/}" == public || "${current#"$COLD_APP_ROOT"/}" == public/* ]]; then
                     /usr/bin/setfacl -m u:www-data:r-x -- "$current"
                 fi
+                # Its identity, type, owner/group/mode and access ACL as created, before anything is placed in it: the
+                # inverse removes only this exact directory, and one without this record is never assumed to be its own.
+                [[ -d "$current" && ! -L "$current" ]] || deploy_fail 'cold-live-parent-not-directory' 77
+                created="$(/usr/bin/stat -c $'%d:%i\t%F\t%u:%g:%a' -- "$current")" && access="$(cold_acl "$current")" \
+                    || deploy_fail 'cold-progress-journal-failed' 74
+                printf 'dir\t%s\t%s\t%s\n' "${current#"$COLD_APP_ROOT"/}" "$created" "$access" >> "$COLD_DIRS" \
+                    || deploy_fail 'cold-progress-journal-failed' 74
             fi
             [[ -d "$current" ]] || deploy_fail 'cold-live-parent-not-directory' 77
         done
@@ -404,13 +414,34 @@ if [[ "${1:-}" == '--cold' ]]; then
                 /usr/bin/grep -qxF -- "temp"$'\t'"$relative" "$COLD_PROGRESS" 2>/dev/null \
                     || printf 'SAFEHARBOR_COLD_FOREIGN_TEMP_PRESERVED=%s\n' "$relative" >&2
             done < <(/usr/bin/find "$COLD_APP_ROOT" -xdev -name '*.sh-cold.*' -print0)
+            # A created directory (deepest first): its last record decides. None and absent (journaled before creation,
+            # never created) or this inverse's own earlier removal and absent: nothing to do. Its creation record:
+            # removed only while it is still exactly that directory (identity, type, owner/group/mode, access ACL), empty
+            # and unchanged across a re-stat, its removal journaled first. Anything else (replaced, drifted, holding data,
+            # a creation without its record, recorded but gone) is preserved (HOLD).
             if [[ -f "$COLD_DIRS" ]]; then
-                while IFS= read -r relative; do
-                    [[ -n "$relative" ]] || continue
-                    # Journaled before creation: one a failed apply never created is no leaf to preserve.
-                    [[ -e "$COLD_APP_ROOT/$relative" || -L "$COLD_APP_ROOT/$relative" ]] || continue
-                    /usr/bin/rmdir -- "$COLD_APP_ROOT/$relative" 2>/dev/null || { printf 'SAFEHARBOR_COLD_PRESERVED=%s/\n' "$relative" >&2; cold_rc=2; }
-                done < <(/usr/bin/tac -- "$COLD_DIRS")
+                mapfile -t cold_created < <(/usr/bin/tac -- "$COLD_DIRS")  # read first: the inverse appends to this file
+                for relative in "${cold_created[@]}"; do
+                    [[ -n "$relative" && "$relative" != *$'\t'* ]] || continue  # a record, never a directory path
+                    live="$COLD_APP_ROOT/$relative"
+                    last="$(DIR="$relative" /usr/bin/awk -F'\t' '
+                        ($1 == "dir" || $1 == "removed") && $2 == ENVIRON["DIR"] { r = $1 "\t" $3 "\t" $4 "\t" $5 "\t" $6 }
+                        END { print r }' "$COLD_DIRS")"
+                    kind="${last%%$'\t'*}"; recorded="${last#*$'\t'}"
+                    state=held
+                    if [[ ! -e "$live" && ! -L "$live" ]]; then
+                        [[ "$kind" == dir ]] || state=done
+                    elif [[ "$kind" == dir && -d "$live" && ! -L "$live" ]]; then
+                        seen="$(/usr/bin/stat -c $'%d:%i\t%F\t%u:%g:%a\t%h %s %Y %Z' -- "$live")" || seen=''
+                        if [[ -n "$seen" && "${seen%$'\t'*}"$'\t'"$(cold_acl "$live")" == "$recorded" \
+                            && -z "$(/usr/bin/find "$live" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" \
+                            && "$(/usr/bin/stat -c $'%d:%i\t%F\t%u:%g:%a\t%h %s %Y %Z' -- "$live" 2>/dev/null)" == "$seen" ]]; then
+                            printf 'removed\t%s\n' "$relative" >> "$COLD_DIRS" || deploy_fail 'cold-progress-journal-failed' 74
+                            if /usr/bin/rmdir -- "$live" 2>/dev/null; then state=done; fi
+                        fi
+                    fi
+                    if [[ "$state" == held ]]; then printf 'SAFEHARBOR_COLD_PRESERVED=%s/\n' "$relative" >&2; cold_rc=2; fi
+                done
             fi
             [[ "$(cold_sha "$COLD_CONFIG")" == "$(cold_value config_sha256 "$COLD_PREPARED")" ]] || deploy_fail 'protected-config-changed' 74
             if (( cold_rc == 0 )); then

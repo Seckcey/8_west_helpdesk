@@ -520,6 +520,14 @@ test('cold installer: carrier-only phases precede the unchanged ordinary path an
     && install.indexOf('cold_journal "installed"') < install.indexOf('/usr/bin/mv -f -T -- "$temp" "$target"'));
   assert.match(cold, /restore:installed\|remove:installed\)/);
   assert.match(cold, /held\) printf 'SAFEHARBOR_COLD_PRESERVED=%s\\n' "\$relative" >&2; cold_rc=2; continue ;;/);
+  // A109: a created directory's identity, type, owner/group/mode and ACL are journaled right after install -d, before
+  // any leaf is placed in it; the inverse removes only that exact empty directory, its removal journaled first, and
+  // keeps no empty-only rmdir rule.
+  const dirRecord = install.indexOf("printf 'dir\\t%s\\t%s\\t%s\\n'");
+  assert.ok(dirRecord > install.indexOf('/usr/bin/install -d') && dirRecord < install.indexOf('cold_journal "temp"'));
+  const dirRemoved = cold.indexOf("printf 'removed\\t%s\\n' \"$relative\" >> \"$COLD_DIRS\"");
+  assert.ok(dirRemoved > 0 && dirRemoved < cold.indexOf('/usr/bin/rmdir -- "$live"'));
+  assert.doesNotMatch(cold, /rmdir -- "\$COLD_APP_ROOT\/\$relative" 2>\/dev\/null \|\|/);
   // SH-R2-04: the active-scheduler gate stays in every cold phase; this file never removes or renames that name.
   assert.match(cold, /\[\[ ! -e "\$COLD_CRON_ACTIVE" && ! -L "\$COLD_CRON_ACTIVE" \]\] \|\| deploy_fail 'active-report-scheduler-present' 75/);
   assert.doesNotMatch(cold, /(?:rm|mv|unlink)\b[^\n]*COLD_CRON_ACTIVE/);
@@ -679,7 +687,10 @@ test('Linux root fixture: cold installer phases bind the plan, keep exact metada
     const westy = fs.statSync(path.join(f.app, 'lib/westy.php'));
     assert.ok(journal.includes(`installed\tlib/westy.php\t${westy.dev}:${westy.ino}\t${crypto.createHash('sha256').update('<?php // westy v2\n').digest('hex')}\t-\n`),
       'the installed identity, bytes and ACL are journaled');
-    assert.match(fs.readFileSync(path.join(f.slot, 'created-dirs.list'), 'utf8'), /^lib\/s$/m);
+    const created = fs.statSync(path.join(f.app, 'lib/s'));
+    assert.ok(fs.readFileSync(path.join(f.slot, 'created-dirs.list'), 'utf8')
+      .includes(`lib/s\ndir\tlib/s\t${created.dev}:${created.ino}\tdirectory\t0:0:2750\t-\n`),
+    'the new directory is journaled before it exists and with its identity, owner/group/mode and ACL right after');
     const out = f.ok('inverse');
     assert.match(out, /^SAFEHARBOR_COLD_APPLY=complete$/m);
     assert.match(out, /^SAFEHARBOR_COLD_RELEASE_RECORD=unchanged$/m);
@@ -880,8 +891,6 @@ test('Linux root fixture: a later owner change to an applied leaf is preserved a
     'deleted leaf recreated': { leaf: 'lib/old.php', change: (f) => fs.writeFileSync(path.join(f.app, 'lib/old.php'), '<?php // removed by the release\n') },
     'created leaf bytes': { leaf: 'public/new.php', change: (f) => fs.appendFileSync(path.join(f.app, 'public/new.php'), '// later owner edit\n') },
     'created leaf mode': { leaf: 'public/new.php', change: (f) => f.sh(`chmod 0600 '${f.app}/public/new.php'`) },
-    'created directory now holds data': { leaf: 'lib/s/', state: 'lib/s/owner.txt',
-      change: (f) => fs.writeFileSync(path.join(f.app, 'lib/s/owner.txt'), 'owner data\n') },
   };
   for (const [label, c] of Object.entries(cases)) {
     const f = coldFixture();
@@ -890,17 +899,83 @@ test('Linux root fixture: a later owner change to an applied leaf is preserved a
       f.join();
       f.ok('apply');
       c.change(f);
-      const later = leafState(f, c.state || c.leaf);
+      const later = leafState(f, c.leaf);
       const r = f.run('inverse');
       assert.equal(r.status, 2, `${label}:\n${r.stdout}\n${r.stderr}`);
       assert.match(r.stderr, new RegExp(`^SAFEHARBOR_COLD_PRESERVED=${c.leaf.replace(/\./g, '\\.')}$`, 'm'), label);
       assert.match(r.stdout, /^SAFEHARBOR_COLD=inverse-hold$/m, label);
       assert.doesNotMatch(r.stdout, /SAFEHARBOR_COLD_RELEASE_RECORD=/, `${label}: no record step over an unverified source`);
-      assert.equal(leafState(f, c.state || c.leaf), later, `${label}: the later state is kept exactly`);
+      assert.equal(leafState(f, c.leaf), later, `${label}: the later state is kept exactly`);
       // The leaves still exactly as applied are inverted exactly.
       assert.equal(fs.readFileSync(path.join(f.app, 'lib/render.php'), 'utf8'), '<?php // css?v=20260101000000\n', label);
       if (c.leaf !== 'public/new.php') assert.ok(!fs.existsSync(path.join(f.app, 'public/new.php')), label);
-      if (c.leaf === 'lib/s/') assert.ok(!fs.existsSync(path.join(f.app, 'lib/s/new.php')), `${label}: the unchanged created leaf is removed`);
+    } finally {
+      f.cleanup();
+    }
+  }
+});
+
+/** The created directory's whole observable state: type, identity, owner/group/mode, access ACL and the entries other
+ * than the applied leaf the inverse still removes (or, for a file, its bytes). */
+function dirState(f, rel) {
+  const p = path.join(f.app, rel);
+  if (!fs.existsSync(p)) return 'absent';
+  const s = fs.lstatSync(p);
+  if (!s.isDirectory()) return `${s.isFile() ? `file|${fs.readFileSync(p, 'utf8')}` : 'other'}|${s.ino}|${f.meta(p)}`;
+  return `directory|${s.ino}|${f.meta(p)}|${f.acl(p)}|${fs.readdirSync(p).filter((n) => n !== 'new.php').sort().join(',')}`;
+}
+
+test('Linux root fixture: a created directory is removed only while it is exactly the journaled, empty directory; otherwise it HOLDs', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const dir = (f) => path.join(f.app, 'lib/s');
+  const cases = {
+    'own, unchanged and empty (and a repeated inverse)': { exact: true, change: () => {} },
+    'replaced by another directory (same owner, mode and ACL)': { change: (f) => f.sh(`mv '${dir(f)}' '${dir(f)}.old' && mkdir '${dir(f)}' `
+      + `&& chmod 2750 '${dir(f)}' && mv '${dir(f)}.old/new.php' '${dir(f)}/new.php' && rmdir '${dir(f)}.old'`) },
+    'became a regular file': { leafToo: true, change: (f) => { fs.rmSync(dir(f), { recursive: true }); fs.writeFileSync(dir(f), 'owner file\n'); } },
+    'owner (uid) drift': { change: (f) => f.sh(`chown 4321 '${dir(f)}'`) },
+    'group (gid) drift': { change: (f) => f.sh(`chgrp 2001 '${dir(f)}'`) },
+    'mode drift': { change: (f) => f.sh(`chmod 2700 '${dir(f)}'`) },
+    'access ACL drift': { change: (f) => f.sh(`setfacl -m u:4321:r-x '${dir(f)}'`) },
+    'holds data': { change: (f) => fs.writeFileSync(path.join(dir(f), 'owner.txt'), 'owner data\n') },
+    'missing creation proof (a crash between the creation and its record)': { change: (f) => {
+      const list = path.join(f.slot, 'created-dirs.list');
+      fs.writeFileSync(list, fs.readFileSync(list, 'utf8').split('\n').filter((l) => !l.startsWith('dir\tlib/s\t')).join('\n'));
+    } },
+  };
+  for (const [label, c] of Object.entries(cases)) {
+    const f = coldFixture();
+    try {
+      const before = f.snapshot();
+      f.ok('prepare');
+      f.join();
+      f.ok('apply');
+      const list = path.join(f.slot, 'created-dirs.list');
+      const s = fs.statSync(dir(f));
+      assert.ok(fs.readFileSync(list, 'utf8').includes(`lib/s\ndir\tlib/s\t${s.dev}:${s.ino}\tdirectory\t0:0:2750\t-\n`), label);
+      c.change(f);
+      const later = dirState(f, 'lib/s');
+      const r = f.run('inverse');
+      if (c.exact) {
+        assert.equal(r.status, 0, `${label}:\n${r.stdout}\n${r.stderr}`);
+        assert.match(r.stdout, /^SAFEHARBOR_COLD=inverse-exact$/m, label);
+        assert.ok(!fs.existsSync(dir(f)), `${label}: the own unchanged empty directory is removed`);
+        assert.match(fs.readFileSync(list, 'utf8'), /^removed\tlib\/s$/m, `${label}: its removal is journaled`);
+        const again = f.run('inverse');
+        assert.equal(again.status, 0, `${label}: a repeated inverse verifies its own removal:\n${again.stdout}\n${again.stderr}`);
+        assert.equal(f.hash(), f.previous, label);
+      } else {
+        assert.equal(r.status, 2, `${label}:\n${r.stdout}\n${r.stderr}`);
+        assert.match(r.stderr, /^SAFEHARBOR_COLD_PRESERVED=lib\/s\/$/m, label);
+        assert.match(r.stdout, /^SAFEHARBOR_COLD=inverse-hold$/m, label);
+        assert.doesNotMatch(r.stdout, /SAFEHARBOR_COLD_RELEASE_RECORD=/, `${label}: no record step over an unverified source`);
+        assert.equal(dirState(f, 'lib/s'), later, `${label}: the later state is kept exactly`);
+        if (c.leafToo) assert.match(r.stderr, /^SAFEHARBOR_COLD_PRESERVED=lib\/s\/new\.php$/m, `${label}: the gone leaf is named`);
+        else assert.ok(!fs.existsSync(path.join(dir(f), 'new.php')), `${label}: the unchanged created leaf is removed`);
+      }
+      // Every other entry is inverted exactly.
+      assert.deepEqual(f.snapshot(), before, label);
+      assert.ok(!fs.existsSync(path.join(f.app, 'public/new.php')), label);
     } finally {
       f.cleanup();
     }
