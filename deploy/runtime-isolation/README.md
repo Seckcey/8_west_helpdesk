@@ -1,0 +1,254 @@
+# Safeharbor private runtime isolation — offline candidate
+
+`render.mjs` turns one reviewed JSON input into deterministic candidate files for a
+dedicated Safeharbor PHP runtime. It is a review tool: Node standard library only,
+no framework, dependency, bundler or service. It never creates accounts, changes
+permissions, starts or reloads a service, edits cron or deploys, and every output
+carries `certified: false` plus the unmet compatibility facts that only a separate,
+owner-approved live acceptance can close.
+
+```bash
+node deploy/runtime-isolation/render.mjs --input INPUT.json --check
+node deploy/runtime-isolation/render.mjs --input INPUT.json --output /some/new/directory
+node --test tests/runtime_isolation.test.mjs
+```
+
+`--output` requires a new directory outside the repository. Exit `0` renders, `2`
+refuses with every reason as `code: detail`, `64` is a usage error. The input is a
+regular file (never a symlink) with a closed schema
+(`eightwest-runtime-isolation-input-v1`) and no repeated JSON keys.
+
+## The contract it enforces
+
+- **Identity:** dedicated `eightwest-safeharbor` user and private group, with a
+  non-root, non-overflow UID/GID distinct from the frontend, the deploy owner and
+  every declared sibling; no supplementary groups. One shared web UID with
+  different directory names does not isolate apps.
+- **Frontend:** `www-data` joins no app group. A `mod_php` frontend (or any PHP
+  handler outside FPM) fails the boundary because the web UID can reach every app
+  socket.
+- **Code:** `/srv/8west/apps/safeharbor/current` stays `ubuntu:eightwest-safeharbor`
+  with `2750` directories and `0640` files. It is never runtime-owned, group- or
+  world-writable, or world-readable. The DocumentRoot is exactly its `/public`
+  child, and the report-scheduler deploy lock stays outside it at
+  `/var/lib/safeharbor-report-scheduler`.
+- **Private directories:** `/var/lib/8west-php/safeharbor` with `sessions/` and
+  `tmp/` children, plus the existing cache contract: `/var/cache/8west/safeharbor`
+  and its `portal-revocations` child, both `0700` and owned by the Safeharbor
+  runtime UID, with the same JWKS/revocation path meanings. Shared `/tmp`, code
+  overlap and broad roots are refused. No cache configuration is edited.
+- **FPM socket:** only `/run/8west-php-safeharbor/fpm.sock`, `root:www-data 0660`,
+  in a `root:www-data 0710` directory. TCP listeners and listen ACL options are
+  refused. The socket group is never the app group or a sibling group.
+- **Handlers:** both `safeharbor.8westit.com` vhosts route PHP only through this
+  socket. Another root sent here is refused; static/proxy-only roots get PHP-source
+  denial.
+- **Cron/CLI:** every script in `app/cron/` is routed to `eightwest-safeharbor` or
+  explicitly unrouted with a reason (for example `business_reports.php`, which only
+  runs through `run_business_reports.sh`). An unaccounted script is an error.
+- **Config and issuer reads:** `config/config.php` is `ubuntu:eightwest-safeharbor
+  0640`, never frontend- or world-readable, never public. The suite JWKS, suite
+  revocation and portal revocation cache reads must be accounted for and stay held.
+
+An optional `observed` list carries a read-only metadata snapshot of the target.
+A configured path that crosses an observed symlink is refused; an existing private
+directory with other metadata is reported, never adopted; unobserved paths are
+listed as unmeasured.
+
+## Outputs
+
+`pool-safeharbor.conf`, `apache-safeharbor.conf` (an insert, not a complete vhost),
+`provision-private-dirs-safeharbor.sh`, `cron-safeharbor.env`, `facts.json` and
+`manifest.json`. The provisioning script verifies by default. It refuses when the
+identity checks fail, never re-owns or re-modes an existing path, never recurses,
+and contains no service, package, account, ACL or permission-change command.
+Running it is a separate live step.
+
+### Private-directory creation and its race
+
+`--apply-missing` creates each absent private tree (`/var/lib/8west-php/safeharbor`
+with `sessions/` and `tmp/`; `/var/cache/8west/safeharbor` with
+`portal-revocations/`) in an order the app UID cannot race:
+
+1. Every ancestor up to `/` must be a physical, root-owned directory without
+   group or other write. A symlinked, app-owned, group-writable or sticky
+   world-writable ancestor such as `/tmp` refuses before anything is created.
+2. The top is created `root:root 0700`, so only root can enter it.
+3. Its children are created `eightwest-safeharbor 0700` inside it.
+4. Only then is the top handed to `eightwest-safeharbor 0700` by a second
+   `install -d` on the directory this run created.
+
+If the top already exists app-owned, `--apply-missing` **refuses** to create a
+missing child, because the app UID could swap that path between the absence
+check and the creation, and no later check can undo what root did to a swapped
+target. Create such a child by a reviewed per-path step while the app identity
+is quiesced. A failed check after root-only creation leaves the top
+`root:root 0700` for review, which fails closed.
+
+Unsupported prerequisites, which the script does not enforce:
+
+- no other root process, package script or mount changes these paths during
+  the run;
+- the app UID holds no capabilities (`CAP_DAC_OVERRIDE`, `CAP_FOWNER`,
+  `CAP_CHOWN`) and has no root-equivalent helper.
+
+Checks of paths that already exist under an app-owned directory are a
+point-in-time read only. The Linux race fixture in
+`tests/runtime_isolation.test.mjs` swaps in symlinks as the app UID immediately
+before every `install` call. It runs only as root on Linux. A Windows or
+non-root skip proves nothing.
+
+## R2 cold window (T-20261013-05 run 19, cold-current-base `6dcf3960`)
+
+The Root-selected R2 contract replaces the earlier first-transition design
+(universal zero work before the first signal, an nft admission seal, a
+120-second whole attempt, a new pre-update backup copy). The single root carrier
+is ID's `deploy/cold_window.py` (installed by root as
+`/usr/local/libexec/8west/cold-window`); nothing here is installed or exercised.
+
+- **Producers and frontend.** One 7200-second operation from its first host
+  effect: by 15 minutes the carrier holds the report lock (a busy report run
+  refuses, it is never taken over), inhibits the named timers, stops only the
+  cron dispatcher (running jobs, including the business-report wrapper, keep
+  their identity and finish; skipped calendar ticks are recorded, never
+  replayed) and adopts a static-503 maintenance generation with the first of two
+  planned same-parent pidfd `USR1` reloads. By 45 minutes the captured Apache
+  generation, helpers and running scoped jobs have finished naturally, then one
+  `WINCH`. Apply, start, loopback acceptance, public reselection and commit by
+  90; 90-120 is reserved for the independent inverse; 120 is terminal.
+- **Client.** `SAFEHARBOR_DEPLOY_MODE=cold bash deploy/deploy.sh` builds the same
+  exact Git app (plus brand assets) as a reproducible archive, prints its digest,
+  release SHA and source artifact digest, and sends nothing until
+  `SAFEHARBOR_COLD_EXPECT_SHA256` equals the digest Root pinned in the permit.
+  It then streams only that archive to `sudo -n /usr/local/libexec/8west/
+  cold-window enter safeharbor`; no installer or hasher is uploaded, and `Live`
+  is printed only for the carrier's ACCEPTED receipt for this release. The
+  ordinary path now also prints `Live` only after the installer's own receipt
+  lines for this release.
+- **Installer cold phases.** The carrier runs its root-installed copy of
+  `remote-install-safeharbor-app.sh --cold PHASE --cold-slot SLOT` with the
+  report lock passed as an inherited descriptor (verified to be the reviewed
+  inode, and verified held: an independent descriptor cannot take it).
+  `prepare` keeps the payload, scheduler, config and tree gates, verifies the
+  source artifact digest and writes the replace/create/delete plan. `apply`
+  writes exactly the planned leaves (deploy owner, runtime group, 0640, new
+  directories 2750, frontend read only on public/ leaves it writes), verifies
+  the source digest, keeps version normalization and records the deployed
+  digest. `commit` writes the immutable and current release records exactly as
+  the ordinary path does. There is no broad recursive chmod/chown in cold mode.
+- **Accepted current source inverse.** The carrier pins the selected SH source
+  `v2-sh-2c-current-source-inverse-20261015.tar` (9123840 bytes, `ce06dd76…`)
+  with the SELECTED canonical sidecar
+  `v2-sh-2c-current-source-inverse-20261015.tar.canonical.manifest.json`
+  (110240 bytes, `3df11f56…`; `2c552151…:app`, app tree `3ab4f58b…`); the
+  original `1610…` sidecar is historical only. Each replaced/deleted leaf is
+  joined to the live baseline; for `lib/render.php`, `lib/westy.php` and
+  `public/login.php` the live installer `?v=` stamp is recorded and the exact
+  live bytes must be reproducible from the accepted source plus that stamp.
+  `inverse` restores those exact bytes and prior owner/group/mode, removes a
+  created leaf only while it is unchanged (otherwise HOLD, preserved), and must
+  reproduce the previous deployed-artifact digest recorded in
+  `current-app-artifact.manifest`. A leaf outside the accepted source (for
+  example a changed derived brand asset) is named and HOLDs; nothing is
+  overwritten silently. Attachments, support-mail state, report state and the
+  protected config stay in place.
+
+The app tree digest `6f5e22d2…`, the full repository tree `a97f4bee…`, the app
+tree `3ab4f58b…` and the archive SHA-256 `ce06dd76…` are four distinct
+identities; none substitutes for another. The later merged source `6dcf3960`
+is this branch's base, not the installed baseline `2c552151`.
+
+## Safeharbor runtime source ACK (donor branch record, not on this branch)
+
+The owner's literal source ACK (answers A5) moved the identity in source on the
+frozen runtime donor `c31fbb9e`. **Those ports are outside the 7-path R2
+envelope and are not imported on this cold-current-base branch**: here the
+report wrapper, scheduler manager, cron templates and the installer's ordinary
+path still pin `www-data`, and only the installer's carrier-run cold phases
+apply the server-pinned runtime group to the leaves they write. On the donor:
+
+- `app/cron/run_business_reports.sh`, `deploy/manage-business-report-scheduler.sh`
+  and `deploy/remote-install-safeharbor-app.sh` pin `eightwest-safeharbor` and
+  allow a test identity only under a physical `root:root 0755`
+  `/tmp/safeharbor-scheduler-test.*` root.
+- `deploy/safeharbor-business-reports.cron`, `deploy/safeharbor-westy-mail.cron`
+  and `deploy/safeharbor-portal-westy.cron` name `eightwest-safeharbor`.
+- `app/tests/business_reports_test.php:3115-3130` asserts these pins.
+- `app/tests/business_report_scheduler_linux_test.sh` runs under any existing
+  runtime UID, and `deploy/test_runtime_permissions.sh` reruns it as `nobody`
+  and checks the override refusals.
+
+The donor installer grants `www-data` traverse on the app root and read/traverse
+on `public/`. Traverse on `/srv/8west/apps/safeharbor` and its ancestors is a
+separate reviewed provision (under R2, an exact selected cold-window entry).
+
+The live host still runs the tree, protected config, report lock, installed
+crons and mod_php as `www-data`. So the donor's identity source **refuses** until a
+coordinated cutover does all of the following in one step:
+
+- regroups the tree, config and lock;
+- moves the host-only `/etc/cron.d/safeharbor` and `safeharbor-westy-billing`
+  entries;
+- regenerates the protected scheduler bundle (old activation evidence is never
+  edited);
+- moves the frontend to FPM.
+
+Do not merge this into a normal release before that cutover.
+
+### Freeze-profile pins: phase-correct proposal (not applied)
+
+`deploy/tenant_ai_freeze_profile.json` records **installed** bytes, so it keeps
+its current pins until the owner re-observes the host at cutover. The prospective
+values below are for review only. They must never replace the installed pins
+before those bytes are actually installed.
+
+| Pin | Current (installed, keep) | Target after cutover (if installed verbatim) |
+|---|---|---|
+| `/etc/cron.d/safeharbor-business-reports` | `0ccf6eb37945c35b30cd62fa752ca5ada155a88c12644cf517950c720b4068b6` | `08906c6d17be1c379f1c5760023a4904f42498cb331772a1dbe7d689a1a384de` |
+| `/etc/cron.d/safeharbor-westy-mail` | `8f6825528e42f8327fa79f96c72be0d14358e5a9a55ab0df652db2f20b2fec6d` | `34f78fb9599b99a8a475799253a0fa8b9d91fbcd10e511f2ac5117cd26e13e1a` |
+| `/etc/cron.d/safeharbor-portal-westy` | `7acf7b683ca579c085e995adcd75ac029bdb33dd4be6dcd5b193862b9359a7fd` | `6cb8de87be238c112cf203561fcd8c9ced94db1e60d575a4d26e31d61c2a43d1` |
+| `/etc/cron.d/safeharbor`, `safeharbor-westy-billing` | `0c5e962a…`, `5f0b091c…` | host-only files with no source template; the owner re-observes them after moving their user field |
+| report lock `business-reports-deploy.lock` gid | `33` (`www-data`) | the measured `eightwest-safeharbor` GID (prospective `1602` in samples; not a measured value) |
+| both vhosts | `8f56a2dd…` (le-ssl), `8bc24d73…` (port 80) | regenerated from the installed FPM-routed vhost at frontend cutover; no target is proposed |
+
+The three current cron pins equal the pre-change source templates byte for byte.
+The targets are the SHA-256 of the changed templates on the donor branch; this
+branch leaves the templates unchanged.
+
+### Still held
+
+The portal stream fixture change (`app/tests/portal_stream_http_test.php`) stays
+in the C private-cache lane. It exists for the held private-cache SDK, and the
+current `FileRevocationCache` performs no ownership check. Its forked child also
+exits through PHP shutdown inside a curl callback, which can close the parent's
+shared database connection. A future port should end the child with
+`pcntl_exec('/bin/true')` or `pcntl_exec('/bin/false')` instead of `exit()`.
+
+## Owner Linux checks (synthetic, isolated, unique resources)
+
+1. `node --test tests/runtime_isolation.test.mjs` **as root on Linux**, with
+   util-linux `setpriv`, so that the private-tree race fixture runs. Then run the
+   rendered `provision-private-dirs-safeharbor.sh` in verify and `--apply-missing`
+   mode against synthetic accounts and an empty synthetic root. Include existing
+   mismatched and symlinked paths and an existing app-owned top with a missing
+   child, and run `bash -n` on it.
+2. `php-fpm8.3 -t` on the rendered pool and a dedicated master: frontend connects,
+   `eightwest-safeharbor` workers and sibling UIDs (raw FastCGI included) cannot.
+3. `apache2ctl -t` with the insert in a synthetic vhost: PHP through FPM, code
+   beside the DocumentRoot denied, no PHP source from static roots.
+4. Compare the FPM php.ini upload/post/memory/time limits with the current mod_php
+   values so attachment limits are not silently lowered.
+5. As root on Linux, with a `www-data` user and `setfacl` present:
+   - `app/tests/business_report_scheduler_linux_test.sh` (default `www-data`
+     runtime);
+   - `deploy/test_runtime_permissions.sh` (the same suite as `nobody`, plus six
+     override refusals);
+   - `php app/tests/business_reports_test.php`;
+   - `bash -n` on the changed shell files;
+   - the cold-installer root fixture in `tests/runtime_isolation.test.mjs`
+     (it runs only as root on Linux and skips elsewhere).
+6. The exact-package finite guest stage for the carrier itself: maintenance
+   adoption, dispatcher-only cron stop, 150-second request and job survival,
+   independent inverse.
+
+   `app/tests/portal_stream_http_test.php` stays with the private-cache lane.
