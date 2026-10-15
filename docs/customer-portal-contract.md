@@ -1,5 +1,17 @@
 # Safeharbor customer portal contract
 
+**Plan and billing navigation (source change; release pending):** The existing
+customer sidebar, including the Westy workspace and mobile menu, links to
+`https://id.8westit.com/customer-billing.php`. Customers can review their plan
+and find the existing trial or subscription cancellation there. The link sends
+no customer, offer or tenant selector and starts no Checkout. ID rechecks its
+own signed-in customer: members retain read-only billing, authorized owners
+retain the existing actions, and existing obligations remain accessible when
+new sales are off. Staff delegation in Safeharbor does not become billing
+authority for the selected client. Portal devices, requests, guide, history and
+sign-out remain available. This source change does not activate billing or
+record production/customer acceptance.
+
 **October 3 sign-in return repair:** [automatic OIDC handoff and safe page
 return](customer-portal-login-return.md) defines the entry, deep-link and retry
 behavior. It preserves the identity/customer authorization boundary below;
