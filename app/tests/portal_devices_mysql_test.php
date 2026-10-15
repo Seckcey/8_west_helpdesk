@@ -289,10 +289,18 @@ check(str_contains($html,'Earlier answer, not checked again: the request for an 
 // body and answers from scripted replies. A missing reply is a transport failure, i.e. an unknown outcome.
 require_once __DIR__.'/../lib/eightwestid/eightwestid.php';
 $pcRuntime=sys_get_temp_dir().'/safeharbor-devices-'.bin2hex(random_bytes(8));
-foreach(['lib','config','public/portal','sessions','cache'] as $pcPart)mkdir($pcRuntime.'/'.$pcPart,0700,true);
+foreach(['lib','config','public/portal','public/assets/js','sessions','cache'] as $pcPart)mkdir($pcRuntime.'/'.$pcPart,0700,true);
 $pcSource=realpath(__DIR__.'/../lib');
 foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($pcSource,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::SELF_FIRST) as $pcFile){$pcPath=$pcRuntime.'/lib/'.substr($pcFile->getPathname(),strlen($pcSource)+1);$pcFile->isDir()?mkdir($pcPath,0700,true):copy($pcFile->getPathname(),$pcPath);}
 copy(__DIR__.'/../public/portal/devices.php',$pcRuntime.'/public/portal/devices.php');
+// The real page footer hashes these three canonical assets (portal_asset_version), so the disposable runtime carries
+// exact copies of the real files: no placeholder or hash stub. The finally below removes them with the runtime.
+$pcFooter=[];
+foreach(['portal-desktop.js','portal-computer-time.js','portal-westy.js'] as $pcAsset){
+    $pcFrom=__DIR__.'/../public/assets/js/'.$pcAsset;$pcTo=$pcRuntime.'/public/assets/js/'.$pcAsset;
+    if(!is_file($pcFrom)||!copy($pcFrom,$pcTo)||hash_file('sha256',$pcTo)!==hash_file('sha256',$pcFrom))throw new RuntimeException('Canonical portal asset unavailable: '.$pcAsset);
+    $pcFooter[$pcAsset]='<script src="/assets/js/'.$pcAsset.'?v='.substr((string)hash_file('sha256',$pcTo),0,20).'" defer></script>';
+}
 file_put_contents($pcRuntime.'/config/config.php','<?php return '.var_export(['app_env'=>'dev','force_https'=>false,
     'db'=>['host'=>$host,'port'=>(int)$port,'user'=>$user,'pass'=>$pass,'name'=>$database,'charset'=>'utf8mb4'],
     'portal'=>['enabled'=>true,'issuer'=>'https://id.example.test','client_id'=>'fixture','client_secret'=>str_repeat('x',48),'redirect_uri'=>'https://example.test/portal/callback.php','cookie_secure'=>false,'revocation_cache_dir'=>$pcRuntime.'/cache'],
@@ -335,16 +343,64 @@ $pcSent=static fn():array=>is_file($pcRuntime.'/mp-requests.log')?array_map(stat
 $pcPosts=static fn():array=>array_values(array_filter($pcSent(),static fn(array $sent):bool=>!in_array($sent['action'],['devices','enrollments'],true)));
 $pcLast=static function()use($pcPosts):?array{$posts=$pcPosts();return $posts===[]?null:$posts[count($posts)-1];};
 $pcSocket=stream_socket_server('tcp://127.0.0.1:0',$pcErrno,$pcErrstr);$pcAddress=stream_socket_get_name($pcSocket,false);fclose($pcSocket);
-$pcHttp=static function(?array $form=null)use($pcAddress,$pcId,$pcFeed,$pcRuntime):array{
+// One request to the actual controller, judged as a whole (A182): exactly one devices page closed by its real footer
+// assets, no PHP warning, notice, deprecation or fatal in the raw or HTML-normalized page, and nothing unexpected in this
+// request's own server-log segment. A closing </html> alone proves nothing: a failed footer is followed by an appended
+// error page that has one.
+$pcFetch=static function(?array $form=null)use($pcAddress,$pcId,$pcFeed,$pcRuntime,$pcFooter):array{
     $pcFeed();
+    $log=$pcRuntime.'/http.log';clearstatcache(true,$log);$offset=is_file($log)?(int)filesize($log):0;
     $c=curl_init('http://'.$pcAddress.'/portal/devices.php');
     curl_setopt_array($c,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>10,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_HTTPHEADER=>['Cookie: safeharbor_portal='.$pcId]]);
     if($form!==null){curl_setopt($c,CURLOPT_POST,true);curl_setopt($c,CURLOPT_POSTFIELDS,http_build_query($form));}
-    $html=(string)curl_exec($c);$status=(int)curl_getinfo($c,CURLINFO_RESPONSE_CODE);curl_close($c);
-    $clean=$status===200&&str_contains($html,'<h1>Your devices</h1>')&&preg_match('/(?:Warning|Notice|Deprecated|Fatal error):/',$html)===0;
-    if(!$clean)fwrite(STDERR,'Devices HTTP diagnostic: '.json_encode(['http'=>$status,'body'=>substr($html,0,4000),'log'=>substr((string)@file_get_contents($pcRuntime.'/http.log'),-4000)])."\n");
-    check($clean,'the actual devices.php controller renders the signed-in page without PHP warnings');
-    return [$status,$html];
+    $html=(string)curl_exec($c);$status=(int)curl_getinfo($c,CURLINFO_RESPONSE_CODE);$failure=curl_error($c);curl_close($c);
+    // The built-in server logs each request's completion line; wait for it so the segment covers this whole request.
+    $done='~\['.$status.'\]: '.($form===null?'GET':'POST').' /portal/devices\.php$~m';
+    for($n=0;$n<100;$n++){clearstatcache(true,$log);$segment=(string)file_get_contents($log,false,null,$offset);if(preg_match($done,$segment)===1)break;usleep(20000);}
+    $php='/\b(?:Warning|Notice|Deprecated|Fatal error|Parse error|Recoverable fatal error)\s*:/';
+    $text=html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
+    $problems=[];
+    if($status!==200)$problems[]='HTTP '.$status.($failure!==''?' ('.$failure.')':'');
+    if(preg_match($php,$html)===1||preg_match($php,$text)===1||str_contains($html,'xdebug-error'))$problems[]='a PHP diagnostic in the page';
+    if(preg_match_all('/<!doctype html>/i',$html)!==1||substr_count($html,'</html>')!==1||substr_count($html,'<title>')!==1
+        ||!str_contains($html,'<title>Your devices ')||substr_count($html,'<h1>Your devices</h1>')!==1)$problems[]='not exactly one devices page';
+    $at=0;
+    foreach($pcFooter as $asset=>$tag){$found=strpos($html,$tag,$at);if($found===false||substr_count($html,$tag)!==1){$problems[]='the real footer asset '.$asset.' is missing';break;}$at=$found;}
+    if(preg_match('~'.preg_quote($pcFooter['portal-westy.js'],'~').'\s*</body>\s*</html>\s*\z~',$html)!==1)$problems[]='the real footer does not close the page';
+    if(preg_match($done,$segment)!==1)$problems[]='no completion line for this request in the server log';
+    if(preg_match('/\bPHP (?:Warning|Notice|Deprecated|Fatal error|Parse error|Recoverable fatal error)\b/',$segment)===1)$problems[]='a PHP diagnostic in the server log';
+    if(str_contains($segment,'[safeharbor-portal-devices] request_failed'))$problems[]='a controller request_failed in the server log';
+    return ['status'=>$status,'html'=>$html,'text'=>$text,'log'=>$segment,'problems'=>$problems];
+};
+// The first cause, not the last bytes: the earliest PHP diagnostic or request failure in this request's log, else in the
+// page, with the page start, the page around that cause and the request's log segment.
+$pcDiagnose=static function(array $r):string{
+    $cause=$r['problems'][0]??'none';
+    foreach([$r['log'],$r['text']] as $source){
+        if(preg_match('/(?:PHP )?(?:Warning|Notice|Deprecated|Fatal error|Parse error|Recoverable fatal error)\s*:[^\n]*|\[safeharbor-portal-devices\] request_failed[^\n]*/',$source,$m)===1){$cause=trim($m[0]);break;}
+    }
+    $at=preg_match('/Warning|Notice|Deprecated|Fatal error|Parse error/',$r['html'],$m,PREG_OFFSET_CAPTURE)===1?$m[0][1]:0;
+    return json_encode(['http'=>$r['status'],'problems'=>$r['problems'],'first_cause'=>$cause,'page_start'=>substr($r['html'],0,1500),
+        'page_at_cause'=>substr($r['html'],max(0,$at-1500),3000),'log'=>substr($r['log'],0,8000)],JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE);
+};
+$pcHttp=static function(?array $form=null)use($pcFetch,$pcDiagnose,$pcRuntime):array{
+    // Before the first real request, the deliberate negative: without one real footer asset the controller still sends
+    // the devices heading before the footer fails, which the old status/heading/raw "Warning:" check could accept.
+    static $pcNegative=false;
+    if(!$pcNegative){
+        $pcNegative=true;
+        $asset=$pcRuntime.'/public/assets/js/portal-desktop.js';
+        if(!rename($asset,$asset.'.withheld'))throw new RuntimeException('Footer asset negative unavailable');
+        try{$r=$pcFetch();}finally{rename($asset.'.withheld',$asset);}
+        $refused=str_contains($r['html'],'<h1>Your devices</h1>')&&in_array('the real footer asset portal-desktop.js is missing',$r['problems'],true)
+            &&str_contains($r['log'],'[safeharbor-portal-devices] request_failed');
+        if(!$refused)fwrite(STDERR,'Devices HTTP negative diagnostic: '.$pcDiagnose($r)."\n");
+        check($refused,'a partial devices page without a real footer asset is refused, with the controller request failure in its own server log');
+    }
+    $r=$pcFetch($form);
+    if($r['problems']!==[])fwrite(STDERR,'Devices HTTP diagnostic: '.$pcDiagnose($r)."\n");
+    check($r['problems']===[],'the actual devices.php controller renders one complete page with its real footer and no PHP diagnostic or request failure');
+    return [$r['status'],$r['html']];
 };
 $pcProcess=proc_open([PHP_BINARY,'-d','session.save_path='.$pcRuntime.'/sessions','-S',$pcAddress,'-t',$pcRuntime.'/public'],
     [0=>['file','/dev/null','r'],1=>['file',$pcRuntime.'/http.log','a'],2=>['file',$pcRuntime.'/http.log','a']],$pcPipes);
