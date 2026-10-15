@@ -31,7 +31,9 @@ deploy_fail() {
 #            still absent); a leaf apply never reached keeps its verified prior state, unrewritten; any other
 #            leaf is preserved (HOLD) whatever the tree digest says; only journaled temps removed; a created
 #            directory is removed only while it is still exactly the journaled one, unchanged and empty, and is
-#            otherwise preserved (HOLD), as is one without its creation record; the pre-operation
+#            otherwise preserved (HOLD), as is one without its creation record; a leaf or directory whose
+#            parent chain is not physical (a symlinked component, or not canonically inside the app root) is
+#            preserved (HOLD) before anything is decided or done through it; the pre-operation
 #            deployed digest must be reproduced exactly, and only then the prior current release record
 #            returns (immutable records stay). Refused while an apply may still run.
 # The active-report-scheduler gate stays in every phase: the carrier holds that name inside its operation.
@@ -340,6 +342,19 @@ if [[ "${1:-}" == '--cold' ]]; then
             cold_rc=0
             while IFS=$'\t' read -r op relative sha uid gid mode acl; do
                 live="$COLD_APP_ROOT/$relative"
+                # First its physical ancestor chain, as cold_install_leaf requires for apply: no component below the app
+                # root is a symlink and the existing parent is its own physical path. A parent moved and replaced by a
+                # symlink can still show the same leaf, so nothing is decided or done through it (HOLD).
+                cold_ancestor="$COLD_APP_ROOT"
+                IFS=/ read -ra cold_parts <<< "$(/usr/bin/dirname -- "$relative")"
+                for part in "${cold_parts[@]}"; do
+                    [[ -n "$part" && "$part" != . ]] || continue
+                    cold_ancestor="$cold_ancestor/$part"
+                    [[ ! -L "$cold_ancestor" ]] || break
+                done
+                if [[ -L "$cold_ancestor" || ( -d "$cold_ancestor" && "$(cd -- "$cold_ancestor" 2>/dev/null && pwd -P)" != "$cold_ancestor" ) ]]; then
+                    printf 'SAFEHARBOR_COLD_PRESERVED=%s\n' "$relative" >&2; cold_rc=2; continue
+                fi
                 # The leaf's last record decides, each journaled before the rename or removal it names: none (never
                 # reached: only its exact prior state is accepted, and it is left as it is), the apply's installed
                 # after-state or delete intent, or this inverse's own earlier restore/removal. Anything else is a later
@@ -418,7 +433,8 @@ if [[ "${1:-}" == '--cold' ]]; then
             # never created) or this inverse's own earlier removal and absent: nothing to do. Its creation record:
             # removed only while it is still exactly that directory (identity, type, owner/group/mode, access ACL), empty
             # and unchanged across a re-stat, its removal journaled first. Anything else (replaced, drifted, holding data,
-            # a creation without its record, recorded but gone) is preserved (HOLD).
+            # a creation without its record, recorded but gone) is preserved (HOLD), and so is one whose parent chain is
+            # not physical (checked first, as for a leaf).
             if [[ -f "$COLD_DIRS" ]]; then
                 mapfile -t cold_created < <(/usr/bin/tac -- "$COLD_DIRS")  # read first: the inverse appends to this file
                 for relative in "${cold_created[@]}"; do
@@ -429,7 +445,16 @@ if [[ "${1:-}" == '--cold' ]]; then
                         END { print r }' "$COLD_DIRS")"
                     kind="${last%%$'\t'*}"; recorded="${last#*$'\t'}"
                     state=held
-                    if [[ ! -e "$live" && ! -L "$live" ]]; then
+                    cold_ancestor="$COLD_APP_ROOT"
+                    IFS=/ read -ra cold_parts <<< "$(/usr/bin/dirname -- "$relative")"
+                    for part in "${cold_parts[@]}"; do
+                        [[ -n "$part" && "$part" != . ]] || continue
+                        cold_ancestor="$cold_ancestor/$part"
+                        [[ ! -L "$cold_ancestor" ]] || break
+                    done
+                    if [[ -L "$cold_ancestor" || ( -d "$cold_ancestor" && "$(cd -- "$cold_ancestor" 2>/dev/null && pwd -P)" != "$cold_ancestor" ) ]]; then
+                        :  # a substituted or escaping ancestor: preserved untouched (HOLD)
+                    elif [[ ! -e "$live" && ! -L "$live" ]]; then
                         [[ "$kind" == dir ]] || state=done
                     elif [[ "$kind" == dir && -d "$live" && ! -L "$live" ]]; then
                         seen="$(/usr/bin/stat -c $'%d:%i\t%F\t%u:%g:%a\t%h %s %Y %Z' -- "$live")" || seen=''

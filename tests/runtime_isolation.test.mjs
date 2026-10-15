@@ -528,6 +528,18 @@ test('cold installer: carrier-only phases precede the unchanged ordinary path an
   const dirRemoved = cold.indexOf("printf 'removed\\t%s\\n' \"$relative\" >> \"$COLD_DIRS\"");
   assert.ok(dirRemoved > 0 && dirRemoved < cold.indexOf('/usr/bin/rmdir -- "$live"'));
   assert.doesNotMatch(cold, /rmdir -- "\$COLD_APP_ROOT\/\$relative" 2>\/dev\/null \|\|/);
+  // A110/A111: both inverse loops walk the physical ancestor chain first: before the leaf decision, its rm/install and
+  // rename, and before any rmdir; a substituted or escaping ancestor HOLDs the entry.
+  const inverse = cold.slice(cold.indexOf('        inverse)\n'));
+  const walk = '[[ ! -L "$cold_ancestor" ]] || break';
+  const leafWalk = inverse.indexOf(walk);
+  const dirWalk = inverse.indexOf(walk, leafWalk + 1);
+  assert.ok(leafWalk > 0 && leafWalk < inverse.indexOf('case "$op:$kind" in') && leafWalk < inverse.indexOf('/usr/bin/rm -f -- "$live"')
+    && leafWalk < inverse.indexOf('cold_journal "restored"'), 'the leaf ancestor walk precedes every leaf decision and action');
+  assert.ok(dirWalk > inverse.indexOf('mapfile -t cold_created') && dirWalk < inverse.indexOf('/usr/bin/rmdir -- "$live"'),
+    'the directory ancestor walk precedes every rmdir');
+  assert.equal(inverse.split('[[ -L "$cold_ancestor" || ( -d "$cold_ancestor" && "$(cd -- "$cold_ancestor" 2>/dev/null && pwd -P)" != "$cold_ancestor" ) ]]').length, 3);
+  assert.ok(inverse.includes(`!= "$cold_ancestor" ) ]]; then\n                    printf 'SAFEHARBOR_COLD_PRESERVED=%s\\n' "$relative" >&2; cold_rc=2; continue`));
   // SH-R2-04: the active-scheduler gate stays in every cold phase; this file never removes or renames that name.
   assert.match(cold, /\[\[ ! -e "\$COLD_CRON_ACTIVE" && ! -L "\$COLD_CRON_ACTIVE" \]\] \|\| deploy_fail 'active-report-scheduler-present' 75/);
   assert.doesNotMatch(cold, /(?:rm|mv|unlink)\b[^\n]*COLD_CRON_ACTIVE/);
@@ -570,8 +582,9 @@ const COLD_SKIP = 'Linux root only: the cold installer requires real root, flock
  * public-read ACL and a foreign/custom named user+group ACL, the current release record and a candidate artifact
  * (it adds lib/s/new.php inside a new directory). join() stands in for the carrier's leaf join (the real join is the
  * ID carrier's, covered by its model tests): accepted bytes plus the exact prior uid/gid/mode and numeric access ACL.
+ * <extra> adds candidate leaves (none by default).
  */
-function coldFixture() {
+function coldFixture(extra = {}) {
   const root = fs.mkdtempSync('/tmp/safeharbor-cold-test.');
   const op = 'd'.repeat(32);
   const base = { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' };
@@ -600,7 +613,7 @@ function coldFixture() {
   fs.writeFileSync(record, priorRecord); fs.chmodSync(record, 0o600);
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-cold-stage-'));
   const cand = { 'lib/render.php': '<?php // css?v=abc\n', 'lib/s/new.php': '<?php // new in a new directory\n',
-    'lib/westy.php': '<?php // westy v2\n', 'public/login.php': '<?php // login?v=abc\n', 'public/new.php': '<?php // new\n' };
+    'lib/westy.php': '<?php // westy v2\n', 'public/login.php': '<?php // login?v=abc\n', 'public/new.php': '<?php // new\n', ...extra };
   for (const [p, c] of Object.entries(cand)) { fs.mkdirSync(path.join(stage, 'app', path.dirname(p)), { recursive: true }); fs.writeFileSync(path.join(stage, 'app', p), c); }
   fs.mkdirSync(path.join(stage, 'app/config'), { recursive: true });
   sh(`tar -czf '${slot}/artifact' -C '${stage}' app && chmod 0400 '${slot}/artifact'`);
@@ -976,6 +989,67 @@ test('Linux root fixture: a created directory is removed only while it is exactl
       // Every other entry is inverted exactly.
       assert.deepEqual(f.snapshot(), before, label);
       assert.ok(!fs.existsSync(path.join(f.app, 'public/new.php')), label);
+    } finally {
+      f.cleanup();
+    }
+  }
+});
+
+/** A moved tree's whole observable state: every entry's type, identity, link count, owner/group/mode, ACL and bytes. */
+function treeState(f, top) {
+  const out = [];
+  const walk = (p) => {
+    const s = fs.lstatSync(p);
+    const type = s.isDirectory() ? 'directory' : s.isFile() ? 'file' : 'other';
+    out.push(`${path.relative(top, p)}|${type}|${s.ino}|${s.nlink}|${f.meta(p)}|${f.acl(p)}|${s.isFile() ? fs.readFileSync(p, 'utf8') : ''}`);
+    if (s.isDirectory()) for (const n of fs.readdirSync(p).sort()) walk(path.join(p, n));
+  };
+  walk(top);
+  return out.join('\n');
+}
+
+test('Linux root fixture: under a moved parent replaced by a symlink to its new location every entry HOLDs and nothing is done through it', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  // The moved leaves and directories keep their inodes, bytes, metadata and ACLs, so only the ancestor check can tell.
+  // A replaced leaf's parent existed before the apply, so case (b) moves a pre-existing parent.
+  const cases = {
+    '(a) a created leaf to remove, under the moved created lib/s': { anc: 'lib/s', held: ['lib/s/new.php', 'lib/s/'] },
+    '(b) a replaced leaf to restore, under the moved public': { anc: 'public', held: ['public/login.php', 'public/new.php'] },
+    '(c) a nested created directory, under the moved created lib/s': { anc: 'lib/s', extra: { 'lib/s/t/deep.php': '<?php // nested\n' },
+      held: ['lib/s/new.php', 'lib/s/t/deep.php', 'lib/s/t/', 'lib/s/'] },
+  };
+  for (const [label, c] of Object.entries(cases)) {
+    const f = coldFixture(c.extra);
+    try {
+      const before = f.snapshot();
+      f.ok('prepare');
+      f.join();
+      f.ok('apply');
+      if (c.extra) {
+        const s = fs.statSync(path.join(f.app, 'lib/s/t'));
+        assert.ok(fs.readFileSync(path.join(f.slot, 'created-dirs.list'), 'utf8')
+          .includes(`lib/s/t\ndir\tlib/s/t\t${s.dev}:${s.ino}\tdirectory\t0:0:2750\t-\n`), `${label}: the nested directory is journaled`);
+      }
+      const link = path.join(f.app, c.anc);
+      const moved = path.join(f.root, 'moved', c.anc.replace(/\//g, '-'));
+      fs.mkdirSync(path.dirname(moved), { recursive: true });
+      fs.renameSync(link, moved);
+      fs.symlinkSync(moved, link);
+      const later = treeState(f, moved);
+      const r = f.run('inverse');
+      assert.equal(r.status, 2, `${label}:\n${r.stdout}\n${r.stderr}`);
+      assert.match(r.stdout, /^SAFEHARBOR_COLD=inverse-hold$/m, label);
+      assert.doesNotMatch(r.stdout, /SAFEHARBOR_COLD_RELEASE_RECORD=/, `${label}: no record step over an unverified source`);
+      for (const h of c.held) {
+        assert.match(r.stderr, new RegExp(`^SAFEHARBOR_COLD_PRESERVED=${h.replace(/\./g, '\\.')}$`, 'm'), `${label}: ${h} is named`);
+      }
+      assert.equal(treeState(f, moved), later, `${label}: the moved directory and its contents are kept exactly`);
+      assert.ok(fs.lstatSync(link).isSymbolicLink() && fs.readlinkSync(link) === moved, `${label}: the symlink is kept`);
+      // Every entry outside the moved directory is inverted exactly.
+      const now = f.snapshot();
+      for (const p of Object.keys(before)) if (!p.startsWith(`${c.anc}/`)) assert.equal(now[p], before[p], `${label}: ${p}`);
+      if (c.anc !== 'public') assert.ok(!fs.existsSync(path.join(f.app, 'public/new.php')), `${label}: the created public leaf is removed`);
+      if (c.anc !== 'lib/s') assert.ok(!fs.existsSync(path.join(f.app, 'lib/s')), `${label}: the created lib/s is removed`);
     } finally {
       f.cleanup();
     }

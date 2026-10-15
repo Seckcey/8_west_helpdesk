@@ -174,7 +174,12 @@ is ID's `deploy/cold_window.py` (installed by root as
   removed only while it is still exactly the journaled directory (identity,
   type, owner/group/mode and access ACL), unchanged across a re-stat and empty;
   a replaced, drifted or non-empty directory, or one without its creation
-  record, is named and preserved as a HOLD the same way. It removes only the temp
+  record, is named and preserved as a HOLD the same way. Before any leaf or
+  directory is decided or acted on, its parent chain must be physical (no
+  symlinked component, the parent its own physical path inside the app root):
+  under a moved ancestor replaced by a symlink, each entry is named as a HOLD
+  even when the leaf behind it still matches, and the ancestor and everything
+  under it stay untouched. It removes only the temp
   siblings its journal names (a foreign
   `*.sh-cold.*` leaf is reported and kept), refuses while the apply lock is
   still held (an apply process may still act), and must reproduce the previous
