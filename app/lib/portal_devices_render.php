@@ -3,9 +3,19 @@ declare(strict_types=1);
 require_once __DIR__ . '/portal_render.php';
 require_once __DIR__ . '/portal_devices.php';
 
-function portal_render_devices(array $context, ?array $devices, array $enrollments, ?string $error = null, ?array $download = null, ?string $notice = null): void
+function portal_render_devices(array $context, ?array $devices, array $enrollments, ?string $error = null, ?array $download = null, ?string $notice = null, ?array $protection = null, ?array $employee = null, ?array $choices = null): void
 {
     $manage = portal_devices_can_manage($context);
+    // Protection requests are for the customer's own owner/admin only, never delegated access.
+    $request = $manage && !array_key_exists('customer_access', $context['identity'] ?? []);
+    $requestLabel = $employeeLabel = $choiceLabel = 'the selected computer';
+    foreach ($devices['items'] ?? [] as $device) {
+        if ($protection !== null && $device['reference'] === $protection['input']['device_reference']) $requestLabel = $device['label'];
+        if ($employee !== null && $device['reference'] === $employee['input']['device_reference']) $employeeLabel = $device['label'];
+        if ($choices !== null && $device['reference'] === $choices['device_reference']) $choiceLabel = $device['label'];
+    }
+    // A saved answer is shown as the earlier answer it is: never as a new check, an installation or a bill change.
+    $employeeState = $employee === null ? null : ($employee['result']['state'] ?? 'unknown');
     $context['chat_button_placement'] = 'inline';
     portal_page_start('Your devices', 'portal-devices-page', $context);
     ?>
@@ -44,6 +54,46 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
    <button type="submit" class="btn-primary">Create Windows setup link</button>
   </form><?php else: ?><p>Owners and admins can add devices. Your devices list shows the computers assigned to your account.</p><?php endif; ?>
   <p class="portal-hint">Adding a device does not order Bitdefender or create a charge.</p><a href="/portal/new.php">Need help with Mac or Linux?</a></section>
+  <?php if ($request): ?><section class="portal-device-setup" aria-labelledby="protection-heading"><h2 id="protection-heading">Protection request</h2>
+  <?php if ($protection !== null && $protection['result'] !== null): ?><div class="portal-device-notice is-success" role="status">Earlier answer, not checked again: <?= $protection['result']['state'] === 'recorded' ? 'the protection request for ' . portal_h($requestLabel) . ' was saved.' : 'a newer request for ' . portal_h($requestLabel) . ' replaced this one.' ?></div>
+  <?php elseif ($protection !== null): ?><div class="portal-device-notice" role="status">The protection request for <?= portal_h($requestLabel) ?> has no confirmed result. Retrying sends the same request with its original key, so it cannot create a second one.</div>
+   <form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="protection_retry"><button type="submit" class="btn-primary">Retry the same request</button></form><?php endif; ?>
+  <?php if (($devices['items'] ?? []) === []): ?><p>A protection request needs a computer listed on this page.</p>
+  <?php else: ?><p>Tell your support team which computer you want protected, and whether it is the same computer as an earlier record.</p>
+   <form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="protection_request"><input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>">
+    <div class="portal-chat-draft-fields"><label>Computer<select name="device_reference" required><option value="">Choose a computer</option><?php foreach ($devices['items'] as $device): ?><option value="<?= portal_h($device['reference']) ?>"><?= portal_h($device['label']) ?></option><?php endforeach; ?></select></label></div>
+    <fieldset><legend>Which computer is it?</legend>
+     <label class="portal-device-consent"><input type="radio" name="computer" value="new_computer" required><span>A new computer</span></label>
+     <label class="portal-device-consent"><input type="radio" name="computer" value="same_computer"><span>The same computer as an earlier record</span></label></fieldset>
+    <div class="portal-chat-draft-fields"><label>Earlier record, only for the same computer<select name="same_as_device_reference"><option value="">None: a new computer</option><?php foreach ($devices['items'] as $device): ?><option value="<?= portal_h($device['reference']) ?>"><?= portal_h($device['label']) ?></option><?php endforeach; ?></select></label></div>
+    <button type="submit" class="btn-primary">Send protection request</button>
+   </form><?php endif; ?>
+  <p class="portal-hint">Sending this request does not install protection or change your bill.</p></section>
+  <section class="portal-device-setup" aria-labelledby="employee-protection-heading"><h2 id="employee-protection-heading">Protection for an employee</h2>
+  <?php if ($employeeState === 'recorded' || $employeeState === 'superseded'): ?><div class="portal-device-notice is-success" role="status">Earlier answer, not checked again: <?= $employeeState === 'recorded' ? 'the request for an employee on ' . portal_h($employeeLabel) . ' was saved.' : 'a newer request for ' . portal_h($employeeLabel) . ' replaced this one.' ?></div>
+  <?php elseif ($employeeState === 'absent'): ?><div class="portal-device-notice" role="status">Earlier answer, not checked again: no request for an employee on <?= portal_h($employeeLabel) ?> was saved. You can send that same request again. If the employee list has expired, show the employees again and choose again instead; that is a new request.</div>
+   <form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="employee_retry"><button type="submit" class="btn-primary">Send the same request again</button></form>
+  <?php elseif ($employeeState === 'unknown'): ?><div class="portal-device-notice" role="status">The request for an employee on <?= portal_h($employeeLabel) ?> has no confirmed result. Checking its status asks about that same request and changes nothing.</div>
+   <form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="employee_status"><button type="submit" class="btn-primary">Check request status</button></form><?php endif; ?>
+  <?php if ($choices !== null): ?><p>Your account's current employees for <?= portal_h($choiceLabel) ?>. Choose one before <?= portal_h(portal_format_utc(gmdate('Y-m-d H:i:s', $choices['expires_at']))) ?>.</p>
+   <?php if ($choices['employees'] === []): ?><p>No employees are listed here.</p>
+   <?php else: ?><form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="employee_request"><input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>"><input type="hidden" name="device_reference" value="<?= portal_h($choices['device_reference']) ?>">
+    <div class="portal-chat-draft-fields"><label>Employee<select name="employee_reference" required><option value="">Choose an employee</option><?php foreach ($choices['employees'] as $member): ?><option value="<?= portal_h($member['employee_reference']) ?>"><?= portal_h($member['display_name']) ?></option><?php endforeach; ?></select></label></div>
+    <fieldset><legend>Which computer is it?</legend>
+     <label class="portal-device-consent"><input type="radio" name="computer" value="new_computer" required><span>A new computer</span></label>
+     <label class="portal-device-consent"><input type="radio" name="computer" value="same_computer"><span>The same computer as an earlier record</span></label></fieldset>
+    <div class="portal-chat-draft-fields"><label>Earlier record, only for the same computer<select name="same_as_device_reference"><option value="">None: a new computer</option><?php foreach ($devices['items'] ?? [] as $device): ?><option value="<?= portal_h($device['reference']) ?>"><?= portal_h($device['label']) ?></option><?php endforeach; ?></select></label></div>
+    <button type="submit" class="btn-primary">Send request for this employee</button>
+   </form><?php endif; ?>
+   <?php if ($choices['next_cursor'] !== null): ?><form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="employee_choices"><input type="hidden" name="device_reference" value="<?= portal_h($choices['device_reference']) ?>"><input type="hidden" name="cursor" value="<?= portal_h($choices['next_cursor']) ?>"><button type="submit" class="btn-link">More employees</button></form><?php endif; ?>
+   <a class="btn-link" href="/portal/devices.php">Choose a different computer</a>
+  <?php elseif (($devices['items'] ?? []) === []): ?><p>Choosing an employee needs a computer listed on this page.</p>
+  <?php else: ?><p>For a business account, choose the computer, then the employee who uses it from your account's current list.</p>
+   <form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="employee_choices"><input type="hidden" name="cursor" value="">
+    <div class="portal-chat-draft-fields"><label>Computer<select name="device_reference" required><option value="">Choose a computer</option><?php foreach ($devices['items'] as $device): ?><option value="<?= portal_h($device['reference']) ?>"><?= portal_h($device['label']) ?></option><?php endforeach; ?></select></label></div>
+    <button type="submit" class="btn-primary">Show employees</button>
+   </form><?php endif; ?>
+  <p class="portal-hint">Choosing an employee gives them no access to this account or computer. Sending this request does not install protection or change your bill.</p></section><?php endif; ?>
   <?php if ($manage && $enrollments !== []): ?><section class="portal-device-links"><h2>Installation links</h2><p class="portal-hint">Recent installation links. Revoking a link does not remove an installed agent.</p>
   <?php foreach ($enrollments as $grant): ?><article><div><strong><?= portal_h(['ready'=>'Ready to install','enrolled'=>'Computer enrolled','revoked'=>'Link revoked','expired'=>'Link expired'][$grant['state']] ?? 'Unavailable') ?></strong><span><?= portal_h(portal_format_utc($grant['created_at'])) ?></span></div>
    <?php if ($grant['state'] === 'ready'): ?><form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="reference" value="<?= portal_h($grant['reference']) ?>"><button name="action" value="enrollment_download" class="btn-link">Get setup link</button><button name="action" value="enrollment_revoke" class="btn-link">Revoke</button></form><?php endif; ?>

@@ -58,6 +58,30 @@ The page uses CSRF protection, no-store responses, no-referrer policy and escape
 labels. Lists expose only references, labels, states and dates. Do not place
 private link tokens in logs, screenshots, support tickets or release receipts.
 
+## Protection requests are separate
+
+A [protection request](customer-portal-contract.md#protection-request-source-only)
+is not a member or computer assignment. Only the account owner or an admin,
+signed in with their own account, can send one: employees, viewers and
+delegated access cannot. It grants no device access, role, installation or
+purchase authority. Assigning a computer to an employee sends no protection
+request, and a protection request assigns no computer.
+
+The [employee protection request](customer-portal-contract.md#employee-protection-request-source-only)
+lets that owner/admin name the employee who uses a computer.
+
+- The choice comes from the account's current member list, which Milepost
+  obtains from 8 West ID.
+- The page starts with a blank choice and can page beyond 20 people.
+- Choosing an employee is not member setup, an invitation or a computer
+  assignment. It gives that person no sign-in, account, device or
+  installation access, and changes no role.
+- The requesting owner/admin is kept separately from the chosen employee. The
+  account owner is not assumed to be the employee.
+
+Both requests are source only: the deployed Safeharbor runtime (2c) does not
+include them.
+
 ## Integration and release
 
 Release order is Milepost's reviewed assignment schema, readiness and enforcement

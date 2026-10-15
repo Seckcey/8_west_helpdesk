@@ -167,7 +167,26 @@ switch ($argv[3]) {
     case 'deviceserror':
     case 'devicesdownload':
     case 'devicesrevoked':
+    case 'devicesprotection':
+    case 'devicesprotectionunknown':
+    case 'devicesemployees':
+    case 'devicesemployeesnext':
+    case 'devicesemployeeunknown':
+    case 'devicesemployeeabsent':
+    case 'devicesemployeesaved':
         if(in_array($argv[3],['devicesviewer','devicesmobileviewer'],true))$context['identity']['role']='client_viewer';
+        // The session's one protection request: its original key and four inputs, and the answer if one arrived.
+        $protection=str_starts_with($argv[3],'devicesprotection')?['principal'=>[],'input'=>['device_reference'=>'1:'.str_repeat('a',64),'request_key'=>str_repeat('d',32),
+            'computer'=>'new_computer','same_as_device_reference'=>null],'result'=>$argv[3]==='devicesprotection'?['reference'=>str_repeat('9',32),'computer'=>'new_computer','state'=>'recorded']:null]:null;
+        // SBE: one page of the producer's opaque employee references (20, then the 21st), and the stored five facts.
+        $employeeRef=static fn(int $n):string=>'eyJlbXBsb3llZSI'.$n.'.cGF5bG9hZC0'.$n.'.c2lnbmF0dXJl_'.$n;
+        $choices=in_array($argv[3],['devicesemployees','devicesemployeesnext'],true)?['device_reference'=>'1:'.str_repeat('a',64),
+            'employees'=>array_map(static fn(int $n):array=>['display_name'=>'Employee '.$n,'employee_reference'=>$employeeRef($n)],$argv[3]==='devicesemployees'?range(1,20):[21]),
+            'next_cursor'=>$argv[3]==='devicesemployees'?'eyJjdXJzb3Ii.cGFnZS0y.c2lnbmF0dXJl-2':null,'issued_at'=>time(),'expires_at'=>time()+300]:null;
+        $employee=in_array($argv[3],['devicesemployeeunknown','devicesemployeeabsent','devicesemployeesaved'],true)?['principal'=>[],'input'=>['device_reference'=>'1:'.str_repeat('a',64),
+            'request_key'=>str_repeat('5',32),'computer'=>'new_computer','same_as_device_reference'=>null,'employee_reference'=>$employeeRef(21)],
+            'result'=>match($argv[3]){'devicesemployeeabsent'=>['reference'=>null,'computer'=>'new_computer','state'=>'absent'],
+                'devicesemployeesaved'=>['reference'=>str_repeat('4',32),'computer'=>'new_computer','state'=>'recorded'],default=>null}]:null;
         $devices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11',
             'connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in and inventory received.',
             'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-60),'troubleshooting'=>'support_request','hardware'=>['ram_gb'=>15.8,'observed_at'=>'2026-10-04T09:57:35Z','source'=>'agent_inventory']],
@@ -180,7 +199,7 @@ switch ($argv[3]) {
         portal_render_devices($context,$argv[3]==='deviceserror'?null:$devices,[$grant],
             $argv[3]==='deviceserror'?portal_devices_error('service_unavailable'):null,
             $argv[3]==='devicesdownload'?$grant+['download_url'=>'https://support.8westit.com/download.php?t='.str_repeat('d',64)]:null,
-            $argv[3]==='devicesrevoked'?'The installation link is no longer available.':null);
+            $argv[3]==='devicesrevoked'?'The installation link is no longer available.':null,$protection,$employee,$choices);
         break;
     case 'security':
     case 'securityreview':
@@ -257,7 +276,8 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['login','workspace','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
+  for (const name of ['login','workspace','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
+    'devicesemployees','devicesemployeesnext','devicesemployeeunknown','devicesemployeeabsent','devicesemployeesaved','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
       fixturePath,
@@ -294,7 +314,15 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
       const form = new URLSearchParams(route.request().postData());
       assert.equal(form.get('csrf'), 'c'.repeat(64));
       if (form.get('action') === 'enrollment_create') assert.equal(form.get('consent'), 'yes');
-      const body = form.get('action') === 'enrollment_revoke' ? pages.devicesrevoked : pages.devicesdownload;
+      // A first protection request answers with an unknown outcome; only its explicit retry is recorded.
+      const body = form.get('action') === 'enrollment_revoke' ? pages.devicesrevoked
+        : form.get('action') === 'protection_request' ? pages.devicesprotectionunknown
+        : form.get('action') === 'protection_retry' ? pages.devicesprotection
+        // Employee pages: the first list, then the 21st member; a request answers unknown, its status absent, the resend saved.
+        : form.get('action') === 'employee_choices' ? (form.get('cursor') === '' ? pages.devicesemployees : pages.devicesemployeesnext)
+        : form.get('action') === 'employee_request' ? pages.devicesemployeeunknown
+        : form.get('action') === 'employee_status' ? pages.devicesemployeeabsent
+        : form.get('action') === 'employee_retry' ? pages.devicesemployeesaved : pages.devicesdownload;
       return route.fulfill({contentType:'text/html',body});
     }
     if(url.pathname==='/portal/device_help.php'&&route.request().method()==='POST') {
@@ -757,7 +785,8 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
       assert.equal(await page.getByRole('navigation',{name:'Customer portal'}).getByRole('link',{name:'Your devices',exact:true}).getAttribute('aria-current'),'page');
       if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
       await page.getByRole('heading',{name:'Connected computers'}).waitFor();
-      await page.getByText('Front desk computer',{exact:true}).waitFor();
+      // The device card's own heading: request forms also list this label as select options.
+      await page.getByRole('heading',{name:'Front desk computer',exact:true}).waitFor();
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
       assert.equal(await page.locator('img').evaluateAll(images=>images.every(i=>i.complete&&i.naturalWidth>0)),true);
       await unobstructed(page);
@@ -790,6 +819,134 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
       await page.goto(`${ORIGIN}/portal/devices.php?fixture=deviceserror`);
       await page.getByRole('alert').getByText(/Device services are temporarily unavailable/).waitFor();
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+    }
+  } finally {await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('protection request submits four exact fields, retries only the same request and reloads without a POST or install', async () => {
+  const {pages,scratch}=await renderedFixtures();
+  const browser=await chromium.launch();
+  try {
+    for (const viewport of [{width:1365,height:900},{width:390,height:844}]) {
+      const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport);
+      page.setDefaultTimeout(10000);
+      const posts=[];page.on('request',r=>{if(r.method()==='POST'&&new URL(r.url()).pathname==='/portal/devices.php')posts.push(new URLSearchParams(r.postData()));});
+      await page.goto(`${ORIGIN}/portal/devices.php`);
+      const request=page.locator('section[aria-labelledby="protection-heading"]');
+      await request.getByRole('heading',{name:'Protection request',exact:true}).waitFor();
+      assert.deepEqual(await request.locator('select[name="device_reference"] option').evaluateAll(o=>o.map(e=>[e.value,e.textContent])),
+        [['','Choose a computer'],['1:'+'a'.repeat(64),'Front desk computer'],['2:'+'b'.repeat(64),'Warehouse laptop']]);
+      await request.getByRole('button',{name:'Send protection request',exact:true}).click();
+      assert.equal(posts.length,0,'an incomplete request sends nothing');
+      await request.locator('select[name="device_reference"]').selectOption('1:'+'a'.repeat(64));
+      await request.getByRole('radio',{name:'A new computer',exact:true}).check();
+      await request.getByRole('button',{name:'Send protection request',exact:true}).click();
+      await page.getByText(/has no confirmed result/).waitFor();
+      const sent=posts.at(-1);
+      assert.deepEqual([...sent.keys()].sort(),['action','computer','csrf','device_reference','request_key','same_as_device_reference']);
+      assert.equal(sent.get('action'),'protection_request');assert.equal(sent.get('computer'),'new_computer');
+      assert.equal(sent.get('device_reference'),'1:'+'a'.repeat(64));assert.match(sent.get('request_key'),/^[a-f0-9]{32}$/);
+      assert.equal(sent.get('same_as_device_reference'),'','a new computer leaves the earlier record empty; the server sends JSON null');
+      assert.equal(await page.getByText(/Earlier answer/).count(),0,'an unknown outcome is never shown as saved');
+      await page.getByRole('button',{name:'Retry the same request',exact:true}).click();
+      await page.getByText(/Earlier answer, not checked again: the protection request for Front desk computer was saved\./).waitFor();
+      assert.deepEqual([...posts.at(-1).keys()].sort(),['action','csrf'],'the retry sends no browser key or inputs; the server reuses its original ones');
+      assert.equal(posts.at(-1).get('action'),'protection_retry');
+      assert.equal(await page.getByRole('button',{name:'Retry the same request',exact:true}).count(),0);
+      assert.equal(await page.getByRole('heading',{name:'Install on your Windows computer'}).count(),0,'a recorded request shows no installation');
+      assert.equal(await page.getByRole('link',{name:'Download Milepost setup'}).count(),0);
+      // A distinct intent: the same computer as an earlier record, with its own new key.
+      await request.locator('select[name="device_reference"]').selectOption('1:'+'a'.repeat(64));
+      await request.getByRole('radio',{name:'The same computer as an earlier record',exact:true}).check();
+      await request.locator('select[name="same_as_device_reference"]').selectOption('2:'+'b'.repeat(64));
+      await request.getByRole('button',{name:'Send protection request',exact:true}).click();
+      await page.getByText(/has no confirmed result/).waitFor();
+      assert.equal(posts.at(-1).get('computer'),'same_computer');
+      assert.equal(posts.at(-1).get('same_as_device_reference'),'2:'+'b'.repeat(64));
+      assert.notEqual(posts.at(-1).get('request_key'),sent.get('request_key'),'a new intent carries a distinct key');
+      assert.ok(posts.every(p=>['protection_request','protection_retry'].includes(p.get('action'))),'no enrollment, order or install form was submitted');
+      const before=posts.length;
+      await page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesprotection`);
+      await page.getByText(/the protection request for Front desk computer was saved/).waitFor();
+      await page.reload();await page.getByText(/Earlier answer, not checked again/).waitFor();
+      await request.getByText('Sending this request does not install protection or change your bill.',{exact:true}).waitFor();
+      assert.equal(posts.length,before,'a GET reload never POSTs');
+      assert.equal(await page.getByRole('heading',{name:'Install on your Windows computer'}).count(),0);
+      assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+      if(process.env.PORTAL_DEVICE_EVIDENCE)await page.screenshot({path:path.join(process.env.PORTAL_DEVICE_EVIDENCE,`protection-request-${viewport.width}.png`),fullPage:true});
+      await page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesviewer`);
+      assert.equal(await page.getByRole('heading',{name:'Protection request',exact:true}).count(),0,'viewers have no protection request form');
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+    }
+  } finally {await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('employee protection picker starts blank, reaches members beyond 20, sends five exact fields and recovers only with the same facts', async () => {
+  const {pages,scratch}=await renderedFixtures();
+  const browser=await chromium.launch();
+  const cursor='eyJjdXJzb3Ii.cGFnZS0y.c2lnbmF0dXJl-2', ref=n=>`eyJlbXBsb3llZSI${n}.cGF5bG9hZC0${n}.c2lnbmF0dXJl_${n}`;
+  try {
+    for (const viewport of [{width:1365,height:900},{width:390,height:844}]) {
+      const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport);
+      page.setDefaultTimeout(10000);
+      const posts=[];page.on('request',r=>{if(r.method()==='POST'&&new URL(r.url()).pathname==='/portal/devices.php')posts.push(new URLSearchParams(r.postData()));});
+      await page.goto(`${ORIGIN}/portal/devices.php`);
+      const section=page.locator('section[aria-labelledby="employee-protection-heading"]');
+      await section.getByRole('heading',{name:'Protection for an employee',exact:true}).waitFor();
+      await section.getByText('Sending this request does not install protection or change your bill.',{exact:false}).waitFor();
+      await section.getByRole('button',{name:'Show employees',exact:true}).click();
+      assert.equal(posts.length,0,'no computer chosen sends nothing');
+      await section.locator('select[name="device_reference"]').selectOption('1:'+'a'.repeat(64));
+      await section.getByRole('button',{name:'Show employees',exact:true}).click();
+      await section.locator('select[name="employee_reference"]').waitFor();
+      assert.deepEqual([...posts.at(-1).keys()].sort(),['action','csrf','cursor','device_reference']);
+      assert.equal(posts.at(-1).get('action'),'employee_choices');
+      assert.equal(posts.at(-1).get('cursor'),'','the first page sends an empty cursor; the server sends JSON null');
+      const options=await section.locator('select[name="employee_reference"] option').evaluateAll(o=>o.map(e=>[e.value,e.textContent]));
+      assert.deepEqual(options[0],['','Choose an employee']);
+      assert.deepEqual(options.slice(1),Array.from({length:20},(_,i)=>[ref(i+1),`Employee ${i+1}`]),'all 20 are listed in the producer order');
+      assert.equal(await section.locator('select[name="employee_reference"]').inputValue(),'','nobody is preselected');
+      await section.getByRole('radio',{name:'A new computer',exact:true}).check();
+      await section.getByRole('button',{name:'Send request for this employee',exact:true}).click();
+      assert.equal(posts.length,1,'a blank employee choice sends nothing');
+      await section.getByRole('button',{name:'More employees',exact:true}).click();
+      await section.locator('select[name="employee_reference"] option',{hasText:'Employee 21'}).waitFor({state:'attached'});
+      assert.equal(posts.at(-1).get('cursor'),cursor,'the next page sends the original cursor unchanged');
+      assert.equal(posts.at(-1).get('device_reference'),'1:'+'a'.repeat(64));
+      assert.equal(await section.getByRole('button',{name:'More employees',exact:true}).count(),0);
+      await section.locator('select[name="employee_reference"]').selectOption(ref(21));
+      await section.getByRole('radio',{name:'A new computer',exact:true}).check();
+      await section.getByRole('button',{name:'Send request for this employee',exact:true}).click();
+      await section.getByText(/has no confirmed result/).waitFor();
+      const sent=posts.at(-1);
+      assert.deepEqual([...sent.keys()].sort(),['action','computer','csrf','device_reference','employee_reference','request_key','same_as_device_reference']);
+      assert.equal(sent.get('action'),'employee_request');assert.equal(sent.get('employee_reference'),ref(21));
+      assert.equal(sent.get('device_reference'),'1:'+'a'.repeat(64));assert.equal(sent.get('computer'),'new_computer');
+      assert.equal(sent.get('same_as_device_reference'),'');assert.match(sent.get('request_key'),/^[a-f0-9]{32}$/);
+      assert.equal(await section.getByRole('button',{name:'Send the same request again',exact:true}).count(),0,'an unknown outcome is checked before anything is sent again');
+      await section.getByRole('button',{name:'Check request status',exact:true}).click();
+      await section.getByText(/no request for an employee on Front desk computer was saved/).waitFor();
+      assert.deepEqual([...posts.at(-1).keys()].sort(),['action','csrf'],'the status check sends no browser facts; the server reuses the original five');
+      assert.equal(posts.at(-1).get('action'),'employee_status');
+      await section.getByRole('button',{name:'Send the same request again',exact:true}).click();
+      await section.getByText(/Earlier answer, not checked again: the request for an employee on Front desk computer was saved\./).waitFor();
+      assert.deepEqual([...posts.at(-1).keys()].sort(),['action','csrf']);
+      assert.equal(posts.at(-1).get('action'),'employee_retry');
+      assert.equal(await page.getByRole('heading',{name:'Install on your Windows computer'}).count(),0,'a saved request shows no installation');
+      assert.equal(await page.getByRole('link',{name:'Download Milepost setup'}).count(),0);
+      assert.ok(posts.every(p=>p.get('action').startsWith('employee_')),'no enrollment, order or install form was submitted');
+      const before=posts.length;
+      await page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesemployeeunknown`);
+      await section.getByText(/has no confirmed result/).waitFor();
+      await page.reload();await section.getByRole('button',{name:'Check request status',exact:true}).waitFor();
+      assert.equal(posts.length,before,'a GET reload never POSTs a request or a status check');
+      assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
+      if(process.env.PORTAL_DEVICE_EVIDENCE)await page.screenshot({path:path.join(process.env.PORTAL_DEVICE_EVIDENCE,`employee-protection-${viewport.width}.png`),fullPage:true});
+      await page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesviewer`);
+      assert.equal(await page.getByRole('heading',{name:'Protection for an employee',exact:true}).count(),0,'viewers have no employee picker');
       assert.deepEqual(consoleProblems,[]);
       await context.close();
     }

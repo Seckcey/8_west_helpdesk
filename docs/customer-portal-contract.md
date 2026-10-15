@@ -121,6 +121,212 @@ close/resolve operation. Portal
 tickets and replies therefore remain human-owned and cannot gain Milepost's
 one-use telemetry auto-close capability.
 
+## Protection request (source only)
+
+This section is source on `claude/T-20261013-04-sh-protection-request`. The
+deployed Safeharbor runtime (2c) does not include it, and nothing here records
+a deployment or customer acceptance.
+
+**Audience.** Only the account's own owner or admin (literally `client_owner`
+or `client_admin`), signed in with their own account. Delegated customer
+access, `client_staff` and `client_viewer` see no form. The proxy refuses them
+with 403 `owner_request_refused` before any service call; the page says only
+the account owner or an admin can send a request.
+
+**Form.** Your devices → Protection request. The choices are the
+server-returned device references on the current page, shown by their escaped
+labels: the computer, then "A new computer" or "The same computer as an earlier
+record" plus that earlier record. The browser never chooses the provider,
+customer, identity realm, subject, session or role.
+
+**Wire.** The existing signed `safeharbor-customer-devices-v1` envelope, action
+`protection_request`, with the server-derived scope. The input has exactly four
+required keys:
+
+- `device_reference`: an opaque `[1-9][0-9]{0,9}:[a-f0-9]{64}` reference;
+- `request_key`: 32 lowercase hex characters;
+- `computer`: `new_computer` or `same_computer`;
+- `same_as_device_reference`: always present. It is JSON `null` for a new
+  computer, and a different earlier opaque reference for the same computer.
+
+A missing or extra key, a wrong type, an unknown `computer`, an inconsistent
+null/string pair, a self-reference, or a malformed reference or key is refused
+with 400 locally, and nothing is sent. Milepost remains the authority for the
+reference, the earlier record's current alias, the tenant and the customer. The
+scope is rechecked after the transport. The result must be exactly `reference`
+(32 hex), `computer` (equal to the one sent) and `state` (`recorded` or
+`superseded`); anything else is refused as `service_unavailable`. Milepost's
+409 `beneficiary_changed` (the earlier record is linked to a different person)
+is shown with a neutral message that names no code, role or authority.
+
+**Recovery.** The page keeps one request per portal session: its original
+server key and its four inputs, bound to the signed-in subject, session version
+and binding. They are stored as the transport starts, after every local check.
+
+- If no confirmed result arrives, the page says so and offers "Retry the same
+  request". The retry resends that key and those inputs only: the browser sends
+  no key or input for it. There is no automatic retry and no new key.
+- Milepost replays a matching key with the same reference and state. It refuses
+  changed choices under that key (409 `owner_request_changed`). The page also
+  refuses a reused key with different choices before sending.
+- A GET reload never POSTs. It shows only the unconfirmed state, or the answer
+  received when the request was sent, labelled "Earlier answer, not checked
+  again".
+- Sending the form again is an explicit new intent with a distinct server key.
+  Other portal work is not blocked by an unconfirmed request.
+- A destroyed portal session loses the retry. A later new request then follows
+  Milepost's one-current-request-per-computer supersession.
+
+**Meaning.** The page tells the customer, in plain words: "Sending this request
+does not install protection or change your bill." A saved answer is shown as an
+earlier answer that was not checked again: the request "was saved", or "a newer
+request … replaced this one". The wire states stay `recorded`/`superseded`; the
+copy uses no ledger vocabulary and makes no staff promise. A request does not
+install Bitdefender, create a provider job, enroll a computer, take a payment,
+or prove entitlement, a license or hardware identity, and it grants no
+installation authority.
+
+- The tenant admin/technician reviewed INSTALL path and
+  `portal_devices.security_orders_enabled` are unchanged.
+- Milepost's `customer_protection.enabled=false` and empty keys gate benefit
+  INSTALL admission and start, not this form.
+- Safeharbor adds no flag, schema or key. The existing portal, device,
+  diagnostics, security and mobile flags are unchanged.
+- This request records the requesting owner/admin's subject. Naming an
+  employee is the separate employee request below; this form sends no employee
+  field.
+
+**Release and rollback.** The Milepost backend comes first: its owner-request
+storage, authenticated `protection_request` dispatch and identity compatibility
+must be verified before this consumer is deployed or exposed. A later release
+uses exact reviewed green main through the established release/report manager,
+with a working inverse captured from the current 2c runtime, config and report
+controls. Rollback reverts this Safeharbor action first, separately contains
+Milepost benefit starts, and retains the immutable request tables and history.
+It involves no license cancellation, uninstall or receipt erasure.
+
+## Employee protection request (source only)
+
+This section is source on the same branch. It consumes the joint Small
+Business Essentials contract that Milepost implements (producer
+`6813c442`). The deployed Safeharbor runtime (2c) does not include it, and
+nothing here records a deployment or customer acceptance.
+
+**Audience and authority.** The same gate as above: the account's own owner or
+admin, never delegated access, staff or viewers. The requesting owner/admin and
+the chosen employee stay separate people. The buyer or owner is never assumed
+to be the employee: an owner is the employee only if Milepost lists that person
+and the owner explicitly chooses them. The list comes from Milepost, which asks
+8 West ID privately. Safeharbor has no ID caller or key of its own.
+
+**Flow.** Your devices → Protection for an employee:
+
+1. Choose a computer and select "Show employees". This sends
+   `employee_protection_choices` with exactly `device_reference` and
+   `cursor` (JSON `null` for the first page).
+2. The page lists at most 20 employees, in Milepost's order, after an explicit
+   blank "Choose an employee". Nobody is preselected and there is no
+   first-member default. "More employees" sends the original `next_cursor`
+   back unchanged, so members beyond 20 are reachable. The page shows when
+   the list stops being usable.
+3. Choose the employee, "A new computer" or "The same computer as an earlier
+   record" (plus that record), and send. This sends
+   `employee_protection_request` with exactly five keys: the four Family keys
+   plus `employee_reference`.
+
+Display names are escaped text, never identity. Employee references and cursors
+are opaque signed tokens (three base64url parts, at most 3072 bytes). They are
+relayed exactly and never decoded; signed is not encrypted.
+
+**Wire.** Same envelope, scope and post-transport recheck as above.
+
+- Choices result: exactly `employees`, `next_cursor`, `issued_at` and
+  `expires_at`.
+  - At most 20 entries, each exactly `display_name` (non-empty, at most 190
+    UTF-8 bytes, no control characters) and `employee_reference`.
+  - No duplicate references; integer clocks with `expires_at` after
+    `issued_at`.
+  - A `next_cursor` only after a full page of 20.
+- Request result: exactly `reference` (32 hex), `computer` (equal to the one
+  sent) and `state` (`recorded` or `superseded`).
+- `employee_protection_status` sends the same five original facts. Its result
+  is that receipt, or a proven absence: exactly `reference: null`, the
+  original `computer`, and `state: absent`.
+
+Missing, extra or malformed inputs, including a blank employee, are refused
+locally with 400, and nothing is sent. Milepost's
+`employee_selection_unavailable`, `employee_selection_stale`,
+`employee_selection_refused`, `beneficiary_changed` and
+`owner_request_changed` are shown with neutral messages.
+
+**Size.** The test sends the largest five facts (10-digit device references
+and a 3072-byte employee reference). It asserts that the signed body stays
+within the unchanged 4096-byte request limit; larger bodies are still refused
+before sending. Milepost and ID bound a full page under the unchanged
+131072-byte response limit, and Safeharbor's transport still refuses anything
+larger. Nothing is truncated and no limit changed.
+
+**Recovery.** The page keeps one employee request per portal session, in its
+own slot beside the Family one. It stores the original key and five facts,
+bound to the signed-in subject, session version and binding, as the transport
+starts.
+
+- **No confirmed result.** The page offers only "Check request status". It
+  sends `employee_protection_status` with the stored five facts; the browser
+  sends none.
+- **A saved answer.** It is shown as an earlier answer, not checked again.
+- **A proven absence.** The page offers "Send the same request again", which
+  sends the same key and five facts. If the employee list has expired,
+  Milepost refuses, and the customer shows the employees again and chooses
+  again. That is an explicit new request with a new key.
+- **Changed facts under the stored key.** They are refused before sending,
+  and Milepost answers 409, never absence.
+- **No automatic action.** There is no automatic POST, retry, key rotation or
+  reference swap. A GET reload sends nothing.
+- **A new choice.** Choosing again is an explicit new intent with its own key.
+  It replaces the stored one; there is no blanket guard.
+
+**Meaning.** Choosing an employee gives them no access to the account or the
+computer, and no role, invitation or installation authority. A request installs
+nothing and changes no bill. The tenant admin/technician reviewed INSTALL path
+remains the only way to an installation; Milepost rechecks the beneficiary
+there. The literal owner/admin checks, delegated-access refusal, tenant, CSRF
+and INSTALL boundaries are unchanged. Safeharbor adds no flag, schema, key or
+role.
+
+**Release and rollback.** The order is:
+
+1. ID's member-selection service;
+2. Milepost's attribution storage and the three dispatch actions, verified;
+3. this consumer.
+
+Each needs its own release admission. Rollback removes the employee exposure
+first. It keeps the Family request and Milepost's immutable request and
+attribution history, with no license cancellation or erasure.
+
+**Evidence.** `app/tests/portal_devices_mysql_test.php` covers:
+
+- **Proxy and render contracts.** The real binding schema with a captured
+  transport, for the Family action and all three employee actions: actors,
+  exact wire, results, pagination, size, refusals and copy.
+- **The actual controller and session.** The real `app/public/portal/devices.php`
+  runs under PHP's built-in HTTP server, with the real bootstrap, revocation,
+  binding and CSRF checks and real session files. Only the disposable copy's
+  outbound Milepost transport is replaced, by a recorder (the
+  `portal_stream_http_test.php` pattern). For Family and employee requests it
+  shows:
+  - a first unknown outcome stores the original key and facts;
+  - an explicit retry or status check sends exactly those facts;
+  - a GET reload sends no protection POST;
+  - a CSRF failure, locally invalid input, changed facts under the key or a
+    changed principal sends nothing.
+
+  This is not Milepost, ID or live signed-in acceptance.
+
+`tools/shots/portal-contract.test.mjs` renders the real PHP UI. Its responses
+are mocked with `route.fulfill`, so it proves the rendered forms, picker
+paging, submitted fields and reload behavior, not the controller or session.
+
 ## OIDC authority
 
 Every vendored file under `lib/eightwestid/` is pinned by exact Git-blob digest
