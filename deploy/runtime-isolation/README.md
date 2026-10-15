@@ -7,6 +7,36 @@ permissions, starts or reloads a service, edits cron or deploys, and every outpu
 carries `certified: false` plus the unmet compatibility facts that only a separate,
 owner-approved live acceptance can close.
 
+## Selected Linux fixture qualification — October 15, 2026
+
+Source commit `30090fa5e0063dad60c31d5df509e3bd47c6b9eb`, tree
+`6a6e38b9c2c1d1388249f2dcf44f85520ad0e92b`, passed all 25 Node cases with
+zero failures and zero skips in a disposable, network-isolated Coastline Linux
+container. Both `bash -n` checks passed. All 590 exported source files matched
+before and after. Test 17 reached its corrected installed-journal assertion
+and the later partial inverse, replay refusal, untouched-inode and prior-hash
+assertions. The source export manifest SHA-256 was
+`ab70eb282515b11144b8c287e5837b56cef7f29a270d4893700ebc291e2200a1`.
+
+The owner-held receipt `sh30090-r6-actual-linux-qualified-20261015.json`
+is 17,473 bytes, SHA-256
+`5bcb2a3d371c06fd7ef0a4c461f193266c3df8aabb5a219320a04fe2b36283c9`.
+The run used the selected image `662773d56e2ad24cfff5d6b17324a4a1ceb39e53c37ff2479973ae46c2bc448c`,
+six capabilities (`CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `SETUID`,
+`SETGID`), 768 MiB memory and equal swap ceiling, one CPU, PID limit 128,
+a read-only root and no network. The operation completed in 20.982118 seconds
+inside its original 600-second window. Native process custody and exact
+container/task-directory cleanup passed; the owner's finite claim was released.
+
+This qualifies the selected source fixtures. It does not exercise a production
+cold window, the installed FPM/Apache services, real app UID or IPC boundaries,
+provider behavior, database/grants or customer acceptance. Those checks remain
+separate. Documentation changes after the qualified commit do not change its
+code or extend the receipt to a different implementation. Earlier failed runs
+remain historical evidence; this pass does not establish their cause.
+
+## Offline commands
+
 ```bash
 node deploy/runtime-isolation/render.mjs --input INPUT.json --check
 node deploy/runtime-isolation/render.mjs --input INPUT.json --output /some/new/directory

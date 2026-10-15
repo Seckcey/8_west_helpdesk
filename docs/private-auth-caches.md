@@ -1,5 +1,21 @@
 # Private authentication caches
 
+## Source status — October 15, 2026
+
+The cache implementation and component evidence below belong to held
+[PR #181](https://github.com/Seckcey/8_west_helpdesk/pull/181), head
+`8b7f0b2fcb70e03a95db2db79dc4f1857d4a4736`. They are not implemented by this
+runtime-isolation source candidate or established as deployed. This candidate
+adds the prospective private-directory renderer and cold installer contract;
+it imports none of PR #181's PHP, configuration or CI changes. Its selected
+Linux fixture qualification is recorded in the
+[runtime-isolation README](../deploy/runtime-isolation/README.md#selected-linux-fixture-qualification--october-15-2026).
+Actual private-root provisioning, effective UID, IPC/FPM, session/temp,
+cron/CLI and deploy compatibility must pass before conditional cache-source
+integration acceptance. Component fixtures alone do not meet that condition.
+
+## Held cache contract
+
 Suite JWKS and both revocation caches use a common Unix file primitive. It
 requires POSIX, a canonical absolute path with a pre-provisioned same-process-
 UID 0700 parent, and regular same-UID 0600 single-link files. Symlinks, unsafe
@@ -75,8 +91,9 @@ private IO 38, JWKS policy 24, real loopback TLS 6, runtime revocation IO/races
 The network-isolated Coastline container was removed after testing; synthetic
 TLS keys existed only in its removed tmpfs.
 
-CI runs all five Safeharbor commands above beside existing suite revocation
-validation. On a nonroot runner, private IO reports 31 passes and seven explicit
+The held cache PR adds all five Safeharbor commands above to CI beside existing
+suite revocation validation; this runtime-isolation candidate does not add those
+checks. On a nonroot runner, private IO reports 31 passes and seven explicit
 root-only skips; all 38 were exercised in the isolated root run. The subsequent
 skip-accounting edit changes output only. POSIX/OpenSSL/pcntl and TLS checks
 fail if their requirements are unavailable.
