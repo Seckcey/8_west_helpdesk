@@ -87,6 +87,14 @@ $CONFIG['suite'] = [
 
 require_once __DIR__ . '/../lib/auth.php';
 
+/** Test fixture provisioning only; runtime must never repair unsafe files. */
+function write_private_suite_cache_fixture(string $path, string $encoded): void
+{
+    if (file_put_contents($path, $encoded) !== strlen($encoded) || !chmod($path, 0600)) {
+        throw new RuntimeException('Private suite cache fixture could not be provisioned.');
+    }
+}
+
 function write_suite_revocation_fixture(array $payload): void
 {
     global $CONFIG;
@@ -99,7 +107,7 @@ function write_suite_revocation_fixture(array $payload): void
         $signature,
         $CONFIG['suite']['sso_secret'],
     );
-    file_put_contents(
+    write_private_suite_cache_fixture(
         $CONFIG['suite']['revocation_cache_path'],
         json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
     );
@@ -543,7 +551,7 @@ check('signed malformed v2 fails closed and durably trips the v2 latch',
     && is_array($latchedMalformedV2)
     && $latchedMalformedV2['versioned_observed'] === true
     && hash_equals($latchedMalformedV2['body'], $malformedV2Body));
-file_put_contents($twoStepCache, json_encode(suite_revocation_cache_envelope(
+write_private_suite_cache_fixture($twoStepCache, json_encode(suite_revocation_cache_envelope(
     time() - REVOCATION_CACHE_TTL - 1,
     true,
     $malformedV2Body,
@@ -566,7 +574,7 @@ $CONFIG['suite']['revocation_cache_path'] = $strictMalformedCache;
 $CONFIG['suite']['session_version_mode'] = 'strict';
 $malformedBody = '[]';
 $malformedSignature = hash_hmac('sha256', $malformedBody, $CONFIG['suite']['sso_secret']);
-file_put_contents($strictMalformedCache, json_encode(suite_revocation_cache_envelope(
+write_private_suite_cache_fixture($strictMalformedCache, json_encode(suite_revocation_cache_envelope(
     time(),
     false,
     $malformedBody,
@@ -587,7 +595,7 @@ $staleVersionedBody = json_encode([
     'authorizations' => [],
 ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 $staleSignature = hash_hmac('sha256', $staleVersionedBody, $CONFIG['suite']['sso_secret']);
-file_put_contents($staleCache, json_encode(suite_revocation_cache_envelope(
+write_private_suite_cache_fixture($staleCache, json_encode(suite_revocation_cache_envelope(
     time(),
     true,
     $staleVersionedBody,
@@ -599,7 +607,7 @@ check('signed stale v2 preserves established-session availability', revocation_l
 $missingModeCache = $suiteRevocationDir . '/missing-mode-v3.json';
 $CONFIG['suite']['revocation_cache_path'] = $missingModeCache;
 unset($CONFIG['suite']['session_version_mode']);
-file_put_contents($missingModeCache, json_encode(suite_revocation_cache_envelope(
+write_private_suite_cache_fixture($missingModeCache, json_encode(suite_revocation_cache_envelope(
     time(),
     false,
     $legacyBody,

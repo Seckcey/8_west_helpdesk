@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/suite_revocation_policy.php';
+require_once __DIR__ . '/eightwestid/private_file_cache.php';
 
 const REVOCATION_CACHE_TTL = 60;
 
@@ -125,16 +126,7 @@ function revocation_signature_from_headers(array $headers): ?string
 /** @return array|null */
 function revocation_read_cache(string $path, string $secret, int $now): ?array
 {
-    if (! is_file($path) || is_link($path)) {
-        return null;
-    }
-    $encoded = @file_get_contents(
-        $path,
-        false,
-        null,
-        0,
-        (SUITE_REVOCATION_MAX_BODY_BYTES * 2) + 16384,
-    );
+    $encoded = \EightWest\Id\Security\PrivateFileCache::read($path, (SUITE_REVOCATION_MAX_BODY_BYTES * 2) + 16384);
     if (! is_string($encoded)) {
         return null;
     }
@@ -159,29 +151,11 @@ function revocation_write_cache(
     if (! in_array($snapshotMode, ['legacy', 'versioned', 'invalid'], true)) {
         return 'failed';
     }
-    $directory = dirname($path);
-    if (is_link($directory)) {
-        return 'failed';
-    }
-    if (! is_dir($directory)
-        && ! @mkdir($directory, 0700, true)
-        && ! is_dir($directory)) {
-        return 'failed';
-    }
-    @chmod($directory, 0700);
-    if (is_link($path)) {
-        return 'failed';
-    }
-
     $lockPath = $path . '.lock';
-    if (is_link($lockPath)) {
-        return 'failed';
-    }
-    $lock = @fopen($lockPath, 'c+b');
+    $lock = \EightWest\Id\Security\PrivateFileCache::lock($lockPath);
     if (! is_resource($lock)) {
         return 'failed';
     }
-    @chmod($lockPath, 0600);
 
     try {
         if (! @flock($lock, LOCK_EX)) {
@@ -214,22 +188,9 @@ function revocation_write_cache(
             return 'failed';
         }
 
-        $temp = $directory . DIRECTORY_SEPARATOR
-            . '.' . basename($path) . '.' . bin2hex(random_bytes(8)) . '.tmp';
-        try {
-            if (@file_put_contents($temp, $encoded, LOCK_EX) === false) {
-                return 'failed';
-            }
-            @chmod($temp, 0600);
-            if (! @rename($temp, $path)) {
-                return 'failed';
-            }
-            @chmod($path, 0600);
-
-            return 'written';
-        } finally {
-            @unlink($temp);
-        }
+        return \EightWest\Id\Security\PrivateFileCache::write(
+            $path, $encoded, (SUITE_REVOCATION_MAX_BODY_BYTES * 2) + 16384,
+        ) ? 'written' : 'failed';
     } finally {
         @flock($lock, LOCK_UN);
         @fclose($lock);

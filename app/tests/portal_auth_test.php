@@ -310,12 +310,13 @@ portal_auth_expect(
 
 $kitBlobs = [
     'attempt_store.php' => 'be9d617a7836927396530672e2ceb57491375ef9',
-    'eightwestid.php' => '722f6fe7f8cca9279f47979d3630894217f2a795',
+    'eightwestid.php' => 'e3ed851232efe57da37ace71dc002a311f107c89',
     'errors.php' => '86ed368cada6aa6ac7778e519fcba665b5dbe024',
     'http.php' => 'b553cc7ab69aad3d763ce122f781f18ed39763cf',
     'jwt.php' => 'a7a68e2c9e37f620f568d51c759daa647321c0c7',
     'policy.php' => 'a2bebc9a5926e6b2c6270110e15718160dce66b2',
-    'revocations.php' => '66f44c093775530a6bdd0b804c002831b2f0bf39',
+    'private_file_cache.php' => 'aa9ef0fe1e62d6130e8fe66d04f60efb27f8671c',
+    'revocations.php' => '6d9b007198d170d481d68996f59e1c1e79438813',
 ];
 foreach ($kitBlobs as $file => $expected) {
     $content = file_get_contents(__DIR__ . '/../lib/eightwestid/' . $file);
