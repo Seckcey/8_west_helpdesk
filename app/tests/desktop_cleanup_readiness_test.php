@@ -22,6 +22,7 @@ foreach(['milepost'=>1601,'safeharbor'=>1602] as $job=>$id)$isolated['apps'][$jo
     'mode'=>'isolated','user'=>'eightwest-'.$job,'group'=>'eightwest-'.$job,'uid'=>$id,'gid'=>$id];
 $encode=static fn(array $value):string=>json_encode($value,JSON_THROW_ON_ERROR);
 cr_check(desktop_cleanup_identities($encode($legacy))===$legacy['apps'],'explicit legacy selection accepted');
+cr_check(desktop_cleanup_accounts_match($legacy['apps']),'explicit legacy selection does not depend on isolated account discovery');
 cr_check(desktop_cleanup_identities($encode($isolated))===$isolated['apps'],'explicit distinct isolated pairs accepted');
 $reordered=['apps'=>array_reverse($isolated['apps'],true),'schema'=>$isolated['schema']];
 foreach($reordered['apps'] as &$app)$app=array_reverse($app,true);unset($app);
@@ -73,7 +74,19 @@ $ancestorAcl=['user:'=>'rwx','user:33'=>'--x','group:'=>'r-x','mask:'=>'r-x','ot
 cr_check(desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$ancestorAcl,$legacy['apps']),'selected legacy ancestor traversal accepted without changing0750');
 $splitAncestor=$ancestorAcl;unset($splitAncestor['user:33']);$splitAncestor['user:1601']='--x';$splitAncestor['user:1602']='--x';
 cr_check(desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$splitAncestor,$isolated['apps']),'only both selected isolated identities traverse protected ancestor');
-cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$ancestorAcl+['user:44'=>'--x'],$legacy['apps']),'unselected ancestor traversal refuses');
+foreach([null,$legacy['apps']] as $selection){
+    cr_check(desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$ancestorAcl+['user:44'=>'--x','user:45'=>'r--','user:46'=>'r-x'],$selection),'additional root-selected read/traverse coexists before and after selector parsing');
+}
+cr_check(desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$splitAncestor+['user:44'=>'--x'],$isolated['apps']),'isolated selected apps coexist with another traversal-only worker');
+foreach(['-wx','rwx','rw-','-w-','---'] as $permissions){
+    cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$ancestorAcl+['user:44'=>$permissions],$legacy['apps']),'additional worker must have read/traverse without write: '.$permissions);
+}
+foreach(['r--','r-x'] as $permissions)cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,array_replace($ancestorAcl,['user:33'=>$permissions]),$legacy['apps']),'selected app remains exactly traversal only: '.$permissions);
+foreach(['group:44','default:user:44','unknown:44'] as $entry){
+    cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$ancestorAcl+[$entry=>'--x'],$legacy['apps']),'extra non-user ancestor ACL refuses '.$entry);
+}
+$missingSelected=$splitAncestor;unset($missingSelected['user:1602']);$missingSelected['user:44']='--x';
+cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$missingSelected,$isolated['apps']),'other traversal entries cannot replace a selected app');
 cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,array_replace($ancestorAcl,['user:33'=>'-wx']),null),'ancestor write refuses before selector read');
 cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$ancestorAcl+['default:user:'=>'rwx'],null),'ancestor default ACL refuses');
 $stat=['dev'=>1,'ino'=>2,'mode'=>0100600,'uid'=>33,'gid'=>33,'nlink'=>1,'size'=>10,'mtime'=>100,'ctime'=>100];

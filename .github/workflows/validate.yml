@@ -225,19 +225,52 @@ jobs:
           SAFEHARBOR_WESTY_TEST_USER: root
           SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
         run: |
-          test "$(id -u www-data):$(id -g www-data)" = 33:33
-          test -x /usr/bin/getfacl && test -x /usr/bin/setfacl
-          test ! -e /etc/8west && test ! -L /etc/8west
-          test ! -e /run/8west-desktop-cleanup && test ! -L /run/8west-desktop-cleanup
+          set -o pipefail
+          test "$(id -u www-data):$(id -g www-data)" = 33:33 || { echo 'FAIL readiness preflight: www-data UID/GID must be33:33' >&2; exit 1; }
+          test -x /usr/bin/getfacl || { echo 'FAIL readiness preflight: /usr/bin/getfacl unavailable' >&2; exit 1; }
+          test -x /usr/bin/setfacl || { echo 'FAIL readiness preflight: /usr/bin/setfacl unavailable' >&2; exit 1; }
+          { test ! -e /etc/8west && test ! -L /etc/8west; } || { echo 'FAIL readiness preflight: refusing existing /etc/8west authority' >&2; exit 1; }
+          { test ! -e /run/8west-desktop-cleanup && test ! -L /run/8west-desktop-cleanup; } || { echo 'FAIL readiness preflight: refusing existing cleanup runtime root' >&2; exit 1; }
           sudo install -d -o 0 -g 0 -m 0750 /etc/8west
           sudo install -d -o 0 -g 0 -m 0755 /etc/8west/php /run/8west-desktop-cleanup
           sudo setfacl -m u:33:--x,m::r-x /etc/8west
           sudo install -d -o 33 -g 33 -m 0700 /run/8west-desktop-cleanup/milepost /run/8west-desktop-cleanup/safeharbor
           printf '%s\n' '{"schema":"8west-selected-runtime-identities-v1","apps":{"milepost":{"mode":"legacy","user":"www-data","group":"www-data","uid":33,"gid":33},"safeharbor":{"mode":"legacy","user":"www-data","group":"www-data","uid":33,"gid":33}}}' | sudo tee /etc/8west/php/runtime-identities.json > /dev/null
           sudo chmod 0644 /etc/8west/php/runtime-identities.json
-          trap 'sudo rm -f /etc/8west/php/runtime-identities.json; sudo rmdir /run/8west-desktop-cleanup/milepost /run/8west-desktop-cleanup/safeharbor /run/8west-desktop-cleanup /etc/8west/php /etc/8west' EXIT
-          sudo -u www-data -g www-data test -r "$PWD/app/tests/portal_westy_runs_mysql_test.php"
-          sudo -u www-data -g www-data test -r "$PWD/app/tests/portal_westy_control_mysql_test.php"
+          fixture_checkout="$PWD"
+          fixture_copy=''
+          trap '
+            fixture_exit=$?
+            sudo rm -f /etc/8west/php/runtime-identities.json || fixture_exit=1
+            sudo rmdir /run/8west-desktop-cleanup/milepost /run/8west-desktop-cleanup/safeharbor /run/8west-desktop-cleanup /etc/8west/php /etc/8west || fixture_exit=1
+            if test -n "$fixture_copy"; then
+              case "$fixture_copy" in
+                /tmp/safeharbor-readiness-ci.????????)
+                  if test -d "$fixture_copy" && test ! -L "$fixture_copy" && test "$(realpath -e -- "$fixture_copy")" = "$fixture_copy"; then
+                    rm -rf -- "$fixture_copy" || fixture_exit=1
+                  else echo "FAIL readiness cleanup: copy path is no longer the owned physical directory" >&2; fixture_exit=1; fi ;;
+                *) echo "FAIL readiness cleanup: copy path outside task prefix" >&2; fixture_exit=1 ;;
+              esac
+            fi
+            exit "$fixture_exit"
+          ' EXIT
+          if ! sudo -u www-data -g www-data test -r "$fixture_checkout/app/tests/portal_westy_runs_mysql_test.php" \
+            || ! sudo -u www-data -g www-data test -r "$fixture_checkout/app/tests/portal_westy_control_mysql_test.php"; then
+            echo 'Readiness preflight: original checkout unreadable as33; preparing tracked-HEAD test copy'
+            if git cat-file -e HEAD:app/config/config.php 2>/dev/null; then
+              echo 'FAIL readiness copy: tracked runtime config is forbidden' >&2; exit 1
+            fi
+            fixture_copy="$(mktemp -d /tmp/safeharbor-readiness-ci.XXXXXXXX)"
+            case "$fixture_copy" in /tmp/safeharbor-readiness-ci.????????) ;; *) echo 'FAIL readiness copy: invalid task prefix' >&2; exit 1 ;; esac
+            { test ! -L "$fixture_copy" && test "$(realpath -e -- "$fixture_copy")" = "$fixture_copy"; } || { echo 'FAIL readiness copy: nonphysical task root' >&2; exit 1; }
+            chmod 0755 "$fixture_copy"
+            git archive --format=tar HEAD | tar -xf - -C "$fixture_copy"
+            test ! -e "$fixture_copy/app/config/config.php" || { echo 'FAIL readiness copy: runtime config present' >&2; exit 1; }
+            fixture_checkout="$fixture_copy"
+          fi
+          sudo -u www-data -g www-data test -r "$fixture_checkout/app/tests/portal_westy_runs_mysql_test.php" || { echo 'FAIL readiness preflight: selected runs script unreadable as33' >&2; exit 1; }
+          sudo -u www-data -g www-data test -r "$fixture_checkout/app/tests/portal_westy_control_mysql_test.php" || { echo 'FAIL readiness preflight: selected control script unreadable as33' >&2; exit 1; }
+          (cd "$fixture_checkout"
           sudo -u www-data -g www-data env \
             SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER="$SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER" \
             SAFEHARBOR_WESTY_TEST_DB="$SAFEHARBOR_WESTY_TEST_DB" \
@@ -246,8 +279,10 @@ jobs:
             SAFEHARBOR_WESTY_TEST_USER="$SAFEHARBOR_WESTY_TEST_USER" \
             SAFEHARBOR_WESTY_TEST_PASS="$SAFEHARBOR_WESTY_TEST_PASS" \
             php app/tests/portal_westy_runs_mysql_test.php
+          )
           php app/tests/endpoint_tool_runs_migration_mysql_test.php
           php app/tests/endpoint_tool_runs_v2_migration_mysql_test.php
+          (cd "$fixture_checkout"
           sudo -u www-data -g www-data env \
             SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER="$SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER" \
             SAFEHARBOR_WESTY_TEST_DB="$SAFEHARBOR_WESTY_TEST_DB" \
@@ -256,6 +291,7 @@ jobs:
             SAFEHARBOR_WESTY_TEST_USER="$SAFEHARBOR_WESTY_TEST_USER" \
             SAFEHARBOR_WESTY_TEST_PASS="$SAFEHARBOR_WESTY_TEST_PASS" \
             php app/tests/portal_westy_control_mysql_test.php
+          )
       - name: Reject shard runtime config after tests
         if: always()
         run: test ! -f app/config/config.php

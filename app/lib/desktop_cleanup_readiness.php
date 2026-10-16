@@ -43,6 +43,21 @@ function desktop_cleanup_identities(string $wire):?array
     return $r['apps'];
 }
 
+/** Validate already-selected isolated identities; NSS never selects a mode or supplies a fallback. */
+function desktop_cleanup_accounts_match(array $apps):bool
+{
+    if($apps['safeharbor']['mode']==='legacy')return true;
+    if(!function_exists('posix_getpwnam')||!function_exists('posix_getgrnam'))return false;
+    try{
+        foreach(['milepost','safeharbor'] as $job){
+            $user=posix_getpwnam('eightwest-'.$job);$group=posix_getgrnam('eightwest-'.$job);
+            if(!is_array($user)||!is_array($group)||($user['uid']??null)!==$apps[$job]['uid']
+                ||($user['gid']??null)!==$apps[$job]['gid']||($group['gid']??null)!==$apps[$job]['gid'])return false;
+        }
+        return true;
+    }catch(Throwable){return false;}
+}
+
 /** Numeric getfacl output. Duplicate/unknown entries never become an ACL proof. */
 function desktop_cleanup_acl_parse(string $wire):?array
 {
@@ -114,17 +129,15 @@ function desktop_cleanup_ancestor_acl(string $path,array $stat,?array $acl,?arra
     if($path==='/etc/8west'){
         if($stat['gid']!==0||($stat['mode']&07777)!==0750)return false;
         $expected=['user:'=>'rwx','group:'=>'r-x','mask:'=>'r-x','other:'=>'---'];
-        if($apps!==null){
-            foreach($apps as $app)$expected['user:'.$app['uid']]='--x';
-            return desktop_cleanup_acl_exact($acl,$expected);
-        }
-        // Before opening the selector, prove no effective write/default ACL.
-        // After parsing it, the second pass binds every named entry to its selected UID.
+        // Root may also grant other workers read/traverse without write. Their authorization
+        // belongs to the carrier's selected ACL policy, not this two-app record.
         foreach($acl as $key=>$value){
             if(isset($expected[$key])){if($expected[$key]!==$value)return false;}
-            elseif(!preg_match('/\Auser:[1-9][0-9]*\z/D',$key)||$value!=='--x')return false;
+            elseif(!preg_match('/\Auser:[1-9][0-9]*\z/D',$key)||!in_array($value,['r--','--x','r-x'],true))return false;
         }
-        return array_diff_key($expected,$acl)===[]&&count($acl)>=5&&count($acl)<=6;
+        if(array_diff_key($expected,$acl)!==[])return false;
+        if($apps!==null)foreach($apps as $app)if(($acl['user:'.$app['uid']]??null)!=='--x')return false;
+        return true;
     }
     if($path==='/etc/8west/php'&&($stat['gid']!==0||($stat['mode']&07777)!==0755))return false;
     $perms=static fn(int $bits):string=>(($bits&4)?'r':'-').(($bits&2)?'w':'-').(($bits&1)?'x':'-');
@@ -218,7 +231,7 @@ function desktop_cleanup_available():bool
     if(!function_exists('posix_geteuid')||!function_exists('posix_getegid'))return false;
     if(!desktop_cleanup_ancestors_safe('/etc/8west/php')||!desktop_cleanup_ancestors_safe('/run'))return false;
     $apps=desktop_cleanup_selected('/etc/8west/php/runtime-identities.json');
-    if($apps===null||!desktop_cleanup_ancestors_safe('/etc/8west/php',$apps))return false;
+    if($apps===null||!desktop_cleanup_accounts_match($apps)||!desktop_cleanup_ancestors_safe('/etc/8west/php',$apps))return false;
     $boot=@file_get_contents('/proc/sys/kernel/random/boot_id');
     return is_string($boot)&&desktop_cleanup_receipts_ready('/run/8west-desktop-cleanup',time(),trim($boot),$apps,posix_geteuid(),posix_getegid());
 }

@@ -44,24 +44,37 @@ shape is `{schema,apps}`, with schema `8west-selected-runtime-identities-v1`
 and exactly `milepost` and `safeharbor` app records, each containing
 `{mode,user,group,uid,gid}`. Property order is immaterial; duplicate, unknown,
 missing, mixed-mode or malformed fields make existing cleanup readiness
-unavailable. There is no account lookup, existence discovery or default mode.
+unavailable. Account or file existence never selects the mode or provides a fallback.
 Both `legacy` records select `www-data:www-data`, numeric `33:33`, even when
 new accounts already exist. Both `isolated` records select their literal
 `eightwest-milepost` / `eightwest-safeharbor` user and group names, with the
 carrier-resolved positive non-root UID/GID pairs: neither number may be 33,
 and both app UIDs and both primary GIDs must differ. Safeharbor checks its
-actual effective UID and GID against its selected pair. Supplementary groups
+actual effective UID and GID against its selected pair. For already-selected
+isolated mode only, runtime NSS lookups validate both fixed user names' UID and
+primary GID and both fixed group names' GID against the record. Missing or
+mismatched accounts make readiness unavailable; they never choose a mode,
+replace record numbers or allocate accounts. The pure parser and metadata
+fixtures do not establish real NSS bindings. Supplementary groups
 remain part of actual runtime qualification; the reader adds no allowlist.
 
 The selector is a physical single-link `root:root 0644` file, nonempty and at
 most 4096 bytes, with only its base ACL. Its ancestors must be physical,
 root-owned and nonwritable by other identities. The selected `/etc/8west`
 ancestor retains `root:root 0750`: owner `rwx`, base group `r-x`, other `---`,
-mask `r-x`, and only the selected app UID entries with `--x` (one entry for
-legacy 33, two for isolated). `/etc/8west/php` is `root:root 0755`, base ACL
+mask `r-x`, and mandatory selected app UID entries with `--x` (one entry for
+legacy 33, two for isolated). Additional root-selected numeric named users may
+have `r--`, `--x` or `r-x`, so other workers can coexist without write access.
+The actual Website inquiry grant is only `--x`; this reader does not request
+listing access for it. Write, named-group, default and unknown entries are refused. ID's selected
+ACL policy and full prior/after/inverse journal authorize those additional
+users; the closed two-app record does not discover or identify a third app.
+`/etc/8west/php` is `root:root 0755`, base ACL
 only; other ancestors have base ACLs only. The reader checks protected
-ancestry before opening the fixed record, then binds every traversal entry
-to the parsed selection. It never broadens or provisions these paths.
+ancestry before opening the fixed record, then requires both selected apps'
+traversal entries while retaining the same read/traverse-only rule for additional
+users. ACL parsing remains bounded without a two-app entry-count cap. The
+reader never broadens or provisions these paths.
 
 `/run/8west-desktop-cleanup` is physical `root:root 0755`, base ACL only.
 Each job directory and `status.json` must match its selected producer UID
@@ -106,7 +119,15 @@ in CI and uses only a random temporary tree. Its explicit own-UID 33 arguments
 check metadata, not actual UID 33 or two-UID execution. The existing MySQL runs and
 control include chains run as actual `www-data` UID/GID 33 against an explicitly
 provisioned legacy selector and job directories; migration commands retain
-their existing identity. They keep the real readiness reader and all existing
+their existing identity and original checkout. Every fixture preflight guard
+names its failing condition. If actual UID 33 cannot read either consumer
+script in the original checkout, only those consumers use a task-owned random
+`/tmp/safeharbor-readiness-ci.*` copy made by `git archive HEAD`. It contains
+tracked source only, no runtime config or untracked files. Only the new task
+root receives traversal permissions; the original checkout and runner home
+are never re-moded or re-owned. Both scripts must be readable as UID 33 in the
+chosen tree, and cleanup verifies the physical task prefix before deleting
+only its own copy. They keep the real readiness reader and all existing
 assertions. Windows parser/lint checks do not exercise Linux ACLs or fd3.
 Exact Linux distinct-UID access, atomic replacement, protected selector and
 forward/inverse acceptance remain pending in the one existing ID-owned route.
