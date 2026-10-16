@@ -7,8 +7,9 @@ selector and records why each job runs or skips.
 Documentation-only Markdown under docs, root README/AGENTS, and the deployment
 README skips application services and browsers. Markdown under app remains
 application input. Mobile projection/rendering and real customer-binding/HMAC
-checks now run in the existing PHP/MySQL job. Its service carries forward the
-former mobile job's exact `mysql:8.0.46` image digest; mobile retains its own
+checks run in `php-westy-portal`, one of five isolated PHP/MySQL shards
+summarized by the public `php` status. Each service carries forward the former
+mobile job's exact `mysql:8.0.46` image digest; mobile retains its own
 `safeharbor_westy_test_mobile` database prefix and step-scoped synthetic inputs.
 The separate `Customer mobile isolation` workflow is removed.
 
@@ -52,7 +53,7 @@ managed-provider migration code/catalogs. Only `deploy.sh`,
 
 Existing authentication, tenant/employee isolation, feedback, database,
 migration, time-entry, export, scheduler and browser test bodies are unchanged.
-The suite-revocation step stays separate and unchanged, preserving the held
+The suite-revocation step stays separate and unchanged in `php-core`, preserving the held
 security PR's private-cache/JWKS/TLS additions for its own integration.
 
 The selector compares the full exact Git diff, including deletions and both
@@ -71,6 +72,102 @@ Run the selector regression tests locally with:
 ```sh
 python -B .github/scripts/test_ci_changes.py
 ```
+
+## October 15 PHP sharding
+
+The public statuses `changes`, `browser-contracts`, `tool-runs-protected-cli`
+and `php` remain. Browser and protected CLI checks retain their commands,
+selection, setup and parallel execution. PHP now uses five independent jobs:
+
+| Job | Coverage moved from the former serial `php` job |
+| --- | --- |
+| `php-core` | All-app PHP lint; tenant AI receipts, catalog, desktop continuation, protected release and migration contracts; restricted signup; suite authentication, workspace/support intake, vendored chrome, drawer, revocation, admission, logout, token algorithms, roles and preferences; Logbook export; Westy controller and Graph transport contracts; portal authentication, rendering/branding, cleanup readiness, renewal provenance, ticket workflow and report archive; runtime-config rejection. |
+| `php-westy-control` | Desktop cleanup fixture-directory setup; tool continuation; endpoint tool-run v1/v2 migrations; control/terminal ownership and receipt contracts, including their nested fixtures. |
+| `php-westy-portal` | Workflow migration/replay and human ownership; approved email and durable mailbox progression; portal Westy and tenant AI delivery; device/employee access, customer bindings, workspace, HTTP streaming and security orders; private feedback ownership/replay/erasure; mobile projection and real binding isolation. |
+| `php-time` | Service goals/publication; time provenance, approvals, adjustments and migrations; overlap/version races; Coastmark v3 export, locking and least privilege; desktop renewal handoff/session authority. |
+| `php-customers` | Archived-report scheduler and deployment shell checks; report contacts/evidence; managed-customer activation/lifecycle; customer sync; signed alert intake; automatic-closure ownership; portal/service-goal/report migrations; Central private history/isolation/replay/erasure. |
+
+Each shard uses a separate `ubuntu-latest` hosted runner, checkout, ephemeral
+filesystem and pinned MySQL service with the original health check, credentials
+and initial database. Identical loopback ports and database names belong to
+different runners; no database, volume, config file, `/tmp`, `/run` directory or
+fixture output is shared between shards. Commands within a shard remain serial.
+Test bodies and their nested fixtures are unchanged. The fixture tests create
+their own databases and cleanup; they do not consume another shard's database.
+
+Whole test steps retain their environment and default shell. The former long
+Westy migration step is divided at complete command boundaries into three steps
+with the same environment. The cleanup-directory creation stays before tool-run
+and control tests that use it, on their runner. Config-copy steps retain their
+same-shell EXIT traps. Every shard ends with an `always()` assertion that
+`app/config/config.php` is absent, including when a test fails. This strengthens
+the original final assertion on `php-core` and adds four shard-local assertions. The current-main revocation step keeps its exact
+`php app/tests/suite_revocation_test.php` command as a reconciliation anchor for
+the separately held security-cache work; this CI change adds no held tests.
+
+### The `php` result
+
+`php` is an `always()` job depending explicitly on `changes` and all five PHP
+shards. `.github/scripts/ci_php_result.py` requires a successful selector and an
+explicit `php` output. When selected, every shard must report `success`.
+Failure, cancellation, unexpected skip, missing dependency/result or malformed
+selection fails the aggregate. There is no matrix fail-fast or allowed failure.
+
+When the selector explicitly outputs `false`, every PHP shard must be skipped.
+The aggregate then succeeds with the summary **“No PHP tests ran.”** This is an
+intentional selection result, not runtime proof. A cancelled workflow remains
+unqualified; do not use an older green run or a skipped lane as exact-head test
+evidence. `changes` runs the existing selector regression tests and the new
+aggregation truth cases before publishing its selection.
+
+The release process still requires the exact default-branch candidate and its
+successful workflow, as described in [the deployment runbook](../deploy/README.md).
+This workflow is a test gate; it does not deploy. GitHub reported no classic
+main-branch protection or applicable branch rules during the October 15 inspection;
+this change does not alter repository rules or the project's review/release gates.
+
+### Validation and timing evidence
+
+Local focused checks:
+
+```text
+python -B .github/scripts/test_ci_changes.py
+python -B .github/scripts/test_ci_php_result.py
+git diff --check
+```
+
+The selector tests cover real Git rename/delete diffs, documentation skips,
+unknown inputs, transitive browser/protected CLI dependencies and exact green
+predecessor rules. Aggregation tests execute the actual script for every shard's
+failure, cancellation, skip and missing-result cases, selector failures and bad
+outputs, absent/malformed JSON, and explicit intentional skips. These focused
+tests do not replace actual hosted PHP/MySQL/browser/protected CLI execution.
+
+Before/after parsed workflow comparison against base
+`6dcf396066a133956d93dc049c344e2fcff70df7` (workflow blob
+`a0e837ac8325cd529cce6289a6c0061843bae477`) found identical multisets of all
+106 nonempty PHP-job shell lines, including each line's environment, shell,
+working directory. Each original occurrence remains once;
+intentional repeated commands and nested fixture coverage remain. Additional execution consists of CI aggregation and its tests, four
+shard-local runtime-config assertions, and checkout/service setup on extra runners. Browser and protected CLI job definitions compare equal.
+
+Baseline [run 38799134564](https://github.com/Seckcey/8_west_helpdesk/actions/runs/38799134564),
+attempt 1, took 493 seconds end to end: serial PHP 480 seconds (29 seconds
+container initialization, 182 seconds Westy migration group, 68 seconds tenant
+AI group), browser 125 seconds (24 seconds Chromium setup), protected CLI
+45 seconds. This run belongs to a different source candidate; it establishes a
+bottleneck estimate, not a controlled benchmark. With runners available, the
+split targets roughly 150–180 seconds end to end, bounded by the slowest shard
+or browser lane plus selection/aggregation and setup. This is an estimate until
+the PR's exact-head hosted run finishes.
+
+Record actual run URL, exact source head/base, attempt, creation/start/completion,
+per-job queue delay, container/setup time and test-step duration in the PR handoff.
+Report retries separately. Runner availability, image pulls and queue/concurrency
+limits can reduce or erase wall-clock savings. Five MySQL initializations use
+more runner time than one; the goal is shorter feedback latency, not a claim of
+lower billed compute. No new caches or reduced security coverage are involved.
+
 
 ## October 10 cleanup evidence and limits
 

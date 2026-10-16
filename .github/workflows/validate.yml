@@ -29,6 +29,8 @@ jobs:
           fetch-depth: 0
       - name: Test CI change selection
         run: python3 -B .github/scripts/test_ci_changes.py
+      - name: Test PHP aggregation failure and intentional-skip cases
+        run: python3 -B .github/scripts/test_ci_php_result.py
       - name: Reject committed runtime config
         run: test ! -f app/config/config.php
       - name: Select validation jobs
@@ -68,7 +70,8 @@ jobs:
       - name: Test selected-computer timezone contracts
         run: node --test tools/shots/computer-time-contract.test.mjs
 
-  php:
+  # Each shard gets a separate hosted runner, checkout, MySQL service and /tmp.
+  php-core:
     needs: changes
     if: needs.changes.outputs.php == 'true'
     runs-on: ubuntu-latest
@@ -157,7 +160,96 @@ jobs:
           php app/tests/westy_workflow_test.php
           php app/tests/westy_billing_test.php
           php app/tests/westy_queue_owner_test.php
-      - name: Test Westy workflow migration, replay, and human ownership
+      - name: Test dedicated Westy Graph transport and reply intake
+        run: |
+          php app/tests/westy_mail_graph_test.php
+          php app/tests/westy_mail_poll_test.php
+      - name: Test suite token algorithms
+        run: php app/tests/suite_rs256_test.php
+      - name: Test suite roles
+        run: php app/tests/suite_roles_test.php
+      - name: Test suite preferences
+        run: php app/tests/suite_preferences_test.php
+      - name: Test customer portal authentication and revocation
+        run: |
+          php app/tests/portal_auth_test.php
+          php app/tests/portal_login_test.php
+      - name: Test customer portal boundary and rendering
+        run: |
+          php app/tests/portal_data_test.php
+          php app/tests/portal_companion_branding_test.php
+          php app/tests/tenant_branding_test.php
+      - name: Test desktop cleanup readiness without a database
+        run: php app/tests/desktop_cleanup_readiness_test.php
+      - name: Test desktop renewal provenance without a database
+        run: php app/tests/desktop_renewal_test.php
+      - name: Test customer portal ticket workflow
+        run: php app/tests/portal_ticket_workflow_test.php
+      - name: Test customer portal weekly archive access
+        run: php app/tests/portal_report_archive_test.php
+      - name: Reject committed runtime config
+        if: always()
+        run: test ! -f app/config/config.php
+
+  php-westy-control:
+    needs: changes
+    if: needs.changes.outputs.php == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+        env:
+          MYSQL_ROOT_PASSWORD: safeharbor-test-root
+          MYSQL_DATABASE: safeharbor_portal_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Westy tool continuation, migrations, and control ownership
+        env:
+          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
+          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_WESTY_TEST_PORT: 3306
+          SAFEHARBOR_WESTY_TEST_USER: root
+          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
+        run: |
+          sudo install -d -m 0700 -o "$(id -u)" /run/8west-desktop-cleanup
+          php app/tests/portal_westy_runs_mysql_test.php
+          php app/tests/endpoint_tool_runs_migration_mysql_test.php
+          php app/tests/endpoint_tool_runs_v2_migration_mysql_test.php
+          php app/tests/portal_westy_control_mysql_test.php
+      - name: Reject shard runtime config after tests
+        if: always()
+        run: test ! -f app/config/config.php
+
+  php-westy-portal:
+    needs: changes
+    if: needs.changes.outputs.php == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+        env:
+          MYSQL_ROOT_PASSWORD: safeharbor-test-root
+          MYSQL_DATABASE: safeharbor_portal_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Westy workflow, mail, and AI delivery ownership
         env:
           SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
           SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
@@ -172,11 +264,15 @@ jobs:
           php app/tests/westy_mail_poll_mysql_test.php
           php app/tests/portal_westy_mysql_test.php
           php app/tests/portal_westy_ai_delivery_mysql_test.php
-          sudo install -d -m 0700 -o "$(id -u)" /run/8west-desktop-cleanup
-          php app/tests/portal_westy_runs_mysql_test.php
-          php app/tests/endpoint_tool_runs_migration_mysql_test.php
-          php app/tests/endpoint_tool_runs_v2_migration_mysql_test.php
-          php app/tests/portal_westy_control_mysql_test.php
+      - name: Test portal device access, workspace, and security ownership
+        env:
+          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
+          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_WESTY_TEST_PORT: 3306
+          SAFEHARBOR_WESTY_TEST_USER: root
+          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
+        run: |
           php app/tests/portal_devices_mysql_test.php
           php app/tests/portal_employee_device_access_mysql_test.php
           php app/tests/portal_access_mysql_test.php
@@ -192,16 +288,41 @@ jobs:
           SAFEHARBOR_WESTY_TEST_USER: root
           SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
         run: php app/tests/portal_westy_feedback_mysql_test.php
-      - name: Test dedicated Westy Graph transport and reply intake
+      - name: Test customer mobile projection and real binding isolation
+        env:
+          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+          SAFEHARBOR_WESTY_TEST_PORT: '3306'
+          SAFEHARBOR_WESTY_TEST_USER: root
+          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
+          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test_mobile
         run: |
-          php app/tests/westy_mail_graph_test.php
-          php app/tests/westy_mail_poll_test.php
-      - name: Test suite token algorithms
-        run: php app/tests/suite_rs256_test.php
-      - name: Test suite roles
-        run: php app/tests/suite_roles_test.php
-      - name: Test suite preferences
-        run: php app/tests/suite_preferences_test.php
+          php app/tests/portal_mobile_test.php
+          php app/tests/portal_mobile_mysql_test.php
+      - name: Reject shard runtime config after tests
+        if: always()
+        run: test ! -f app/config/config.php
+
+  php-time:
+    needs: changes
+    if: needs.changes.outputs.php == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+        env:
+          MYSQL_ROOT_PASSWORD: safeharbor-test-root
+          MYSQL_DATABASE: safeharbor_portal_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
       - name: Test service goals
         run: php app/tests/service_goals_test.php
       - name: Test service-goal policy publication
@@ -250,19 +371,6 @@ jobs:
           SAFEHARBOR_COASTMARK_V3_TEST_USER: root
           SAFEHARBOR_COASTMARK_V3_TEST_PASS: safeharbor-test-root
         run: php app/tests/coastmark_time_export_mysql_test.php
-      - name: Test customer portal authentication and revocation
-        run: |
-          php app/tests/portal_auth_test.php
-          php app/tests/portal_login_test.php
-      - name: Test customer portal boundary and rendering
-        run: |
-          php app/tests/portal_data_test.php
-          php app/tests/portal_companion_branding_test.php
-          php app/tests/tenant_branding_test.php
-      - name: Test desktop cleanup readiness without a database
-        run: php app/tests/desktop_cleanup_readiness_test.php
-      - name: Test desktop renewal provenance without a database
-        run: php app/tests/desktop_renewal_test.php
       - name: Test desktop renewal handoff and session authority
         env:
           MILEPOST_TEST_DB_HOST: 127.0.0.1
@@ -270,10 +378,30 @@ jobs:
           MILEPOST_TEST_DB_ALLOW_DROP: 'YES'
           MILEPOST_TEST_DB_PASS: safeharbor-test-root
         run: php app/tests/desktop_renewal_mysql_test.php
-      - name: Test customer portal ticket workflow
-        run: php app/tests/portal_ticket_workflow_test.php
-      - name: Test customer portal weekly archive access
-        run: php app/tests/portal_report_archive_test.php
+      - name: Reject shard runtime config after tests
+        if: always()
+        run: test ! -f app/config/config.php
+
+  php-customers:
+    needs: changes
+    if: needs.changes.outputs.php == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+        env:
+          MYSQL_ROOT_PASSWORD: safeharbor-test-root
+          MYSQL_DATABASE: safeharbor_portal_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
       - name: Test scheduled archived business reports
         run: |
           bash -n app/cron/run_business_reports.sh
@@ -385,19 +513,22 @@ jobs:
           SAFEHARBOR_CENTRAL_TEST_USER: root
           SAFEHARBOR_CENTRAL_TEST_PASS: safeharbor-test-root
         run: php app/tests/central_issues_mysql_test.php
-      - name: Test customer mobile projection and real binding isolation
-        env:
-          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_WESTY_TEST_PORT: '3306'
-          SAFEHARBOR_WESTY_TEST_USER: root
-          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
-          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test_mobile
-        run: |
-          php app/tests/portal_mobile_test.php
-          php app/tests/portal_mobile_mysql_test.php
-      - name: Reject committed runtime config
+      - name: Reject shard runtime config after tests
+        if: always()
         run: test ! -f app/config/config.php
+
+  # Keep the existing public status even when selection fails or shards skip.
+  php:
+    needs: [changes, php-core, php-westy-control, php-westy-portal, php-time, php-customers]
+    if: ${{ always() }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require every selected PHP shard
+        env:
+          PHP_NEEDS: ${{ toJSON(needs) }}
+        run: python3 -B .github/scripts/ci_php_result.py
 
   tool-runs-protected-cli:
     needs: changes
