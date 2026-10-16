@@ -12,10 +12,19 @@ function cfg(string $key,mixed $default=null):mixed{global $config;$v=$config;fo
 $pdo=new PDO('mysql:host='.$host,'root',getenv('MILEPOST_TEST_DB_PASS')?:'',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
 function db():PDO{global $pdo;return $pdo;}
 $pdo->exec('CREATE DATABASE `'.$schema.'`');$pdo->exec('USE `'.$schema.'`');
-register_shutdown_function(static function()use($pdo,$schema,$cache){
- if($pdo->inTransaction())$pdo->rollBack();$pdo->exec('DROP DATABASE IF EXISTS `'.$schema.'`');
- foreach(glob($cache.'/*')?:[] as $file)unlink($file);if(is_dir($cache))rmdir($cache);
+$cacheCreated=false;
+register_shutdown_function(static function()use($pdo,$schema,$cache,&$cacheCreated){
+ try {
+  if($pdo->inTransaction())$pdo->rollBack();$pdo->exec('DROP DATABASE IF EXISTS `'.$schema.'`');
+ } finally {
+  if($cacheCreated){
+   @unlink($cache.'/'.hash('sha256',"https://id.example.test/oauth/revocations.php\0handoff-fixture").'.json');
+   @rmdir($cache);
+  }
+ }
 });
+if(!mkdir($cache,0700))throw new RuntimeException('Could not create private handoff cache directory');
+$cacheCreated=true;
 foreach([
  'CREATE TABLE tenants(id INT UNSIGNED PRIMARY KEY,slug VARCHAR(64))',
  'CREATE TABLE clients(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,name VARCHAR(128))',

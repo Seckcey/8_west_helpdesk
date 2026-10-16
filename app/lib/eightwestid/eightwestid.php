@@ -139,11 +139,15 @@ final class Client
         $this->attempts = $attempts ?? new PhpSessionAttemptStore(
             '_eightwest_id_attempts_' . substr(hash('sha256', $this->clientId), 0, 12),
         );
-        $cacheDirectory = is_string($config['revocation_cache_dir'] ?? null)
-            && trim($config['revocation_cache_dir']) !== ''
-            ? $config['revocation_cache_dir']
-            : sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'eightwest-id-revocations';
-        $this->revocationCache = $revocationCache ?? new FileRevocationCache($cacheDirectory);
+        if ($revocationCache !== null) {
+            $this->revocationCache = $revocationCache;
+        } else {
+            $cacheDirectory = $config['revocation_cache_dir'] ?? null;
+            if (!is_string($cacheDirectory) || trim($cacheDirectory) === '') {
+                throw new ConfigurationException('revocation_cache_dir must name a provisioned private cache directory.');
+            }
+            $this->revocationCache = new FileRevocationCache($cacheDirectory);
+        }
 
         // __Host- makes the browser reject Domain-scoped sibling-host cookies.
         // Its contract requires Secure, no Domain attribute, and Path=/.

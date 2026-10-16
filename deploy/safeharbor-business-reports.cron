@@ -7,4 +7,4 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=""
 
-*/5 * * * * www-data /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh
+*/5 * * * * eightwest-safeharbor /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh

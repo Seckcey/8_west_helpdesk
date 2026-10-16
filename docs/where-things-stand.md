@@ -1,5 +1,37 @@
 # Where things stand
 
+**October 16 — private runtime/cache source integration; production pending:**
+PR #238's executable source remains the reviewed `9d092fa4` composition.
+The minimum-release decision permits its normal documentation, CI and merge
+gates while retaining the existing joined run's failed result: 536 passes,
+three failures, zero holds and two paths not reached. The failures concern
+Website worker observation and ID session/cookie continuity; the captured
+output and its limits are recorded in the
+[deployment-acceptance record](suite-sso-deploy-acceptance.md#2026-10-16--minimum-release-source-integration).
+Source integration does not activate private runtimes or establish production
+acceptance. ID owns the joined deployment sequence and existing release
+procedure; the established HTTPS production acceptance remains separate.
+The last accepted installed source recorded here remains `6dcf3960`.
+
+**October 15 — composed runtime/cache source candidate; no activation here:**
+The candidate joins the reviewed cold source, dedicated-UID report/cron and
+ordinary-installer ports, and PR #181's unchanged cache PHP/tests on current CI.
+The current portal configuration and all other customer-portal source remain
+intact. The accepted installed source is `6dcf3960`, as recorded in the
+[deployment-acceptance record](suite-sso-deploy-acceptance.md#2026-10-15--runtimecache-source-composition);
+this composition did not probe or alter production. The earlier offline
+renderer and carrier-only Safeharbor cold installer at source
+`30090fa5e0063dad60c31d5df509e3bd47c6b9eb` passed the selected Linux fixture
+qualification: 25 Node cases, no failures or skips, two shell syntax checks,
+and exact source and cleanup verification. See the
+[qualification and remaining runtime gates](../deploy/runtime-isolation/README.md#selected-linux-fixture-qualification--october-15-2026).
+That receipt qualifies its exact donor, not this later composition. Actual
+joined private-root/effective-UID/IPC/FPM/session/temp/report/cron/CLI/deploy
+compatibility remains required before conditional integration acceptance.
+This is not an installed isolation boundary or production cold-window
+acceptance. Cache source, CI and historical component snapshots are identified in the
+[cache contract](private-auth-caches.md#source-status--october-15-2026).
+
 **October 14, 7:25 AM Pacific — original inactive event received and named ticket choices repaired:**
 The one authorized original Milepost event is now Safeharbor receipt 16, with its
 unchanged event ID and payload hash. Binding 7 / client 19 (`8WV-`) is inactive

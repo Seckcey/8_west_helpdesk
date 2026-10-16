@@ -6,25 +6,28 @@
 set -euo pipefail
 umask 027
 
-readonly EXPECTED_USER='www-data'
 readonly TEST_ROOT="${SAFEHARBOR_SCHEDULER_TEST_ROOT:-}"
 if [[ -n "$TEST_ROOT" ]]; then
-    [[ "$TEST_ROOT" == /tmp/safeharbor-scheduler-test.* \
-        && "$TEST_ROOT" != *'/../'* \
-        && "$TEST_ROOT" != *$'\n'* \
-        && -d "$TEST_ROOT" \
-        && ! -L "$TEST_ROOT" ]] || exit 64
+    [[ "$TEST_ROOT" =~ ^/tmp/safeharbor-scheduler-test[.][A-Za-z0-9]+$ \
+        && -d "$TEST_ROOT" && ! -L "$TEST_ROOT" \
+        && "$(cd -- "$TEST_ROOT" && pwd -P)" == "$TEST_ROOT" \
+        && "$(/usr/bin/stat -c '%U:%G:%a' -- "$TEST_ROOT")" == 'root:root:755' ]] || exit 64
     readonly ROOT_PREFIX="$TEST_ROOT"
     readonly DEPLOY_OWNER="${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-root}"
+    readonly EXPECTED_USER="${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-www-data}"
+    readonly EXPECTED_GROUP="${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-www-data}"
     readonly LOGGER_BIN="${SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN:-/usr/bin/logger}"
 else
-    [[ -z "${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-}${SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN:-}" ]] \
+    [[ -z "${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-}${SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN:-}${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-}${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-}" ]] \
         || exit 64
     readonly ROOT_PREFIX=''
     readonly DEPLOY_OWNER='ubuntu'
+    readonly EXPECTED_USER='eightwest-safeharbor'
+    readonly EXPECTED_GROUP='eightwest-safeharbor'
     readonly LOGGER_BIN='/usr/bin/logger'
 fi
 
+[[ "$EXPECTED_USER" =~ ^[a-z_][a-z0-9_-]*$ && "$EXPECTED_GROUP" =~ ^[a-z_][a-z0-9_-]*$ ]] || exit 64
 readonly APP_PARENT="$ROOT_PREFIX/srv/8west/apps/safeharbor"
 readonly APP_ROOT="$APP_PARENT/current"
 readonly PHP_BIN='/usr/bin/php'
@@ -68,7 +71,7 @@ require_physical_directory() {
 }
 
 [[ "$(/usr/bin/id -un)" == "$EXPECTED_USER" ]] \
-    || report_scheduler_fail 'refused: expected runtime user www-data' 77
+    || report_scheduler_fail "refused: expected runtime user $EXPECTED_USER" 77
 [[ -x "$PHP_BIN" ]] \
     || report_scheduler_fail 'refused: /usr/bin/php is unavailable' 69
 [[ -x "$LOGGER_BIN" ]] \
@@ -78,21 +81,21 @@ require_physical_directory() {
 [[ -x /usr/bin/mktemp && -x /usr/bin/rm ]] \
     || report_scheduler_fail 'refused: secure output staging is unavailable' 69
 
-require_metadata "$DEPLOY_LOCK_DIR" root www-data 750 'deploy lock directory'
-require_metadata "$DEPLOY_LOCK" root www-data 640 'deploy lock'
+require_metadata "$DEPLOY_LOCK_DIR" root "$EXPECTED_GROUP" 750 'deploy lock directory'
+require_metadata "$DEPLOY_LOCK" root "$EXPECTED_GROUP" 640 'deploy lock'
 exec 9<"$DEPLOY_LOCK" \
     || report_scheduler_fail 'refused: deploy lock cannot be opened' 75
 /usr/bin/flock --shared --nonblock 9 \
     || report_scheduler_fail 'skipped: Safeharbor deployment is in progress' 75
 
-require_metadata "$APP_PARENT" "$DEPLOY_OWNER" www-data 2750 'application parent'
-require_metadata "$APP_ROOT" "$DEPLOY_OWNER" www-data 2750 'application root'
+require_metadata "$APP_PARENT" "$DEPLOY_OWNER" "$EXPECTED_GROUP" 2750 'application parent'
+require_metadata "$APP_ROOT" "$DEPLOY_OWNER" "$EXPECTED_GROUP" 2750 'application root'
 require_physical_directory "$APP_PARENT" 'application parent'
 require_physical_directory "$APP_ROOT" 'application root'
-require_metadata "$APP_ROOT/cron" "$DEPLOY_OWNER" www-data 2750 'cron directory'
-require_metadata "$APP_ROOT/cron/run_business_reports.sh" "$DEPLOY_OWNER" www-data 640 'report wrapper'
-require_metadata "$REPORT_RUNNER" "$DEPLOY_OWNER" www-data 640 'report runner'
-require_metadata "$PROTECTED_CONFIG" "$DEPLOY_OWNER" www-data 640 'protected config'
+require_metadata "$APP_ROOT/cron" "$DEPLOY_OWNER" "$EXPECTED_GROUP" 2750 'cron directory'
+require_metadata "$APP_ROOT/cron/run_business_reports.sh" "$DEPLOY_OWNER" "$EXPECTED_GROUP" 640 'report wrapper'
+require_metadata "$REPORT_RUNNER" "$DEPLOY_OWNER" "$EXPECTED_GROUP" 640 'report runner'
+require_metadata "$PROTECTED_CONFIG" "$DEPLOY_OWNER" "$EXPECTED_GROUP" 640 'protected config'
 
 cd -- "$APP_ROOT" \
     || report_scheduler_fail 'refused: Safeharbor application root is not accessible' 72
@@ -103,7 +106,7 @@ report_output="$(/usr/bin/mktemp /tmp/safeharbor-business-reports.XXXXXXXXXX)" \
     || report_scheduler_fail 'refused: secure output staging failed' 74
 trap '/usr/bin/rm -f -- "$report_output"' EXIT
 [[ -f "$report_output" && ! -L "$report_output" \
-    && "$(/usr/bin/stat -c '%U:%G:%a' -- "$report_output")" == 'www-data:www-data:600' ]] \
+    && "$(/usr/bin/stat -c '%U:%G:%a' -- "$report_output")" == "$EXPECTED_USER:$EXPECTED_GROUP:600" ]] \
     || report_scheduler_fail 'refused: secure output staging metadata mismatch' 77
 
 # Run the business operation to completion before handing its output to the

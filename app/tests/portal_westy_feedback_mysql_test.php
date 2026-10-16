@@ -107,9 +107,17 @@ try{
     require_once __DIR__.'/../lib/jwt.php';
     $key=openssl_pkey_new(['private_key_bits'=>2048,'private_key_type'=>OPENSSL_KEYTYPE_RSA]);
     if($key===false)throw new RuntimeException('Synthetic RSA key unavailable');
-    $details=openssl_pkey_get_details($key);$jwksCache=tempnam(sys_get_temp_dir(),'feedback-jwks-');
-    file_put_contents($jwksCache,json_encode(['keys'=>[['kty'=>'RSA','alg'=>'RS256','kid'=>'feedback-test',
-        'n'=>b64url_encode($details['rsa']['n']),'e'=>b64url_encode($details['rsa']['e'])]]]));
+    $details=openssl_pkey_get_details($key);
+    $jwksDirectory=sys_get_temp_dir().'/feedback-jwks-'.bin2hex(random_bytes(5));
+    if(!mkdir($jwksDirectory,0700))throw new RuntimeException('Could not create private feedback JWKS directory');
+    $jwksCache=$jwksDirectory.'/jwks.json';
+    $jwksEnvelope=json_encode(['schema_version'=>1,'source'=>'https://id.example.test/.well-known/jwks.json',
+        'fetched_at'=>time(),'jwks'=>['keys'=>[['kty'=>'RSA','alg'=>'RS256','kid'=>'feedback-test',
+        'n'=>b64url_encode($details['rsa']['n']),'e'=>b64url_encode($details['rsa']['e'])]]]],
+        JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+    if(file_put_contents($jwksCache,$jwksEnvelope)!==strlen($jwksEnvelope)||!chmod($jwksCache,0600)){
+        throw new RuntimeException('Could not write private feedback JWKS envelope');
+    }
     $GLOBALS['feedbackReviewConfig']=['suite'=>['issuer'=>'https://id.example.test','token_algorithms'=>['RS256'],
         'jwks_url'=>'https://id.example.test/.well-known/jwks.json','jwks_cache_path'=>$jwksCache]];
     $claims=['iss'=>'https://id.example.test','sub'=>'t9u101','email'=>'owner@example.test','exp'=>time()+600,
@@ -313,6 +321,6 @@ try{
     echo "PASS $checks feedback checks\n";
 } finally {
     if(isset($pdo)&&$pdo->inTransaction())$pdo->rollBack();
-    if(isset($jwksCache))unlink($jwksCache);
+    if(isset($jwksCache)){if(is_file($jwksCache))unlink($jwksCache);rmdir($jwksDirectory);}
     $admin->exec('DROP DATABASE IF EXISTS `'.$database.'`');
 }

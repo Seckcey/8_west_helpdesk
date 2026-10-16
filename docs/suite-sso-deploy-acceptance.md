@@ -1,5 +1,71 @@
 # Suite SSO deployment acceptance — Safeharbor
 
+## 2026-10-16 — Minimum-release source integration
+
+The minimum-release decision admits PR #238 to normal source integration with
+its existing CI and review gates. Executable source remains `9d092fa4`, app
+tree `04d17821d8b847418ebfe2e2fa7ef1fcee7af0c5`; the integration update changes
+documentation only. ID retains the joined deployment and cold-window sequence.
+The accepted installed source remains `6dcf3960` until the actual release is
+applied and accepted through the established production procedure.
+
+Existing joined run 123 finished with 536 passes, three failures, zero holds
+and two paths not reached. Its failed result is retained. The Website worker
+observation requested a static route in an on-demand pool; a later captured PHP
+request separately showed UID/GID 1604. ID created a regular session file as
+1603:1603 mode 0600, but the plain-HTTP fixture did not retain cookie continuity
+with production Secure cookies. The exact cookie rejection mechanism is unknown
+because response headers were not retained. Neither observation establishes a
+need to weaken product cookie security or change pool idle behavior.
+
+The inquiry service's captured `226/NAMESPACE` failure occurred before PHP
+because the guest lacked `/srv/8west/secrets`, which its sandbox denies access
+to. This is a recorded guest prerequisite gap; the existing production release
+procedure owns any applicable missing-directory correction. The selected
+native mail-state component separately passed one test with no skips and two
+synthetic filesystem subcases. That component does not turn the joined run
+green or prove genuine production producer closure. Tail runtime-to-legacy
+and FPM-removal paths were not reached.
+
+ID retains the complete output (SHA-256
+`b8e13abb01f4a921769febccbfffc0d93a7b6e18eeaa3015f0246529c052974d`)
+and evidence index (SHA-256
+`1c8fa64cc642021aa875fd4aa0070ec0e84c30893a0e0bb8f9c21c65708dd0ea`).
+Final-main CI and executable material equality are source integration gates.
+Actual deployment, forward/inverse compatibility and established HTTPS
+production acceptance remain release-owner responsibilities. No production
+deployment or new test execution is claimed by this documentation update.
+
+## 2026-10-15 — Runtime/cache source composition
+
+The accepted ordinary release receipt records installed source
+`6dcf396066a133956d93dc049c344e2fcff70df7`, app tree
+`27e990b0dce9e1eb290d0c6c11aa26b0588e14fd`. The owner-held
+`SH-6DCF-ORDINARY-RELEASE-RECEIPT.json` is 4,131 bytes, SHA-256
+`da53a6f6a0f95499e017566ee4284b268f561a11762ba05d96febeb1f29ccf4d`.
+Its release/report/config/lock observations are retained evidence, not a fresh
+host probe. Current `71af0d8` has the same app tree; its later CI changes do not
+establish a new deployed application release. Older `2c552151` acceptance and
+inverse inputs remain historical.
+
+The new source candidate composes current main with the qualified cold donor
+`30090fa`/`5c21055`, reviewed `c31fbb9` dedicated-UID report/cron/ordinary
+installer ports, and unchanged cache PHP/tests from PR #181 at `8b7f0b2`.
+The current CI shards, mandatory failure aggregate, customer-portal source and
+`portal_westy.tools_enabled=true` are preserved. The private cache config paths
+and CI invocations are included in this candidate; no live config was edited.
+
+Historical component and cold-fixture receipts do not prove this composition's
+actual runtime compatibility. The existing ID-owned joined forward/inverse
+route must establish effective UID/groups, private roots, frontend IPC/FPM,
+sessions/temp, attachments/support mail, report/cron/CLI and deploy behavior.
+Use the [selected current source inverse](../deploy/runtime-isolation/README.md)
+joined to actual prior metadata; do not substitute an old `2c` archive, reset
+unknown delivery state, or invent another backup operation. Reviewed immutable
+source may qualify before normal merge, followed by final-main CI and executable
+equality. Production application and user-path acceptance remain separate.
+This source work grants no credentials, schema/grants, signing or provider action.
+
 ## 2026-08-12 — Canonical MSP-role repair (`PR #31`)
 
 Safeharbor PR [#31](https://github.com/Seckcey/8_west_helpdesk/pull/31)

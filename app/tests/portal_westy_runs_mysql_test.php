@@ -10,14 +10,29 @@ if(portal_westy_terminal_installed($pdo))$pdo->exec('ALTER TABLE portal_westy_to
 $settings['portal_westy']=['enabled'=>true,'ai_enabled'=>true,'tools_enabled'=>true,'hourly_limit'=>100,'daily_limit'=>500,'monthly_microusd'=>20000000];
 $settings['desktop_companion']=['endpoint'=>PORTAL_DESKTOP_ENDPOINT,'service_secret'=>str_repeat('e',64)];
 // These are actual readiness receipts, confined to this explicitly disposable container.
+if(!function_exists('posix_geteuid')||!function_exists('posix_getegid')||posix_geteuid()!==33||posix_getegid()!==33)
+    throw new RuntimeException('Readiness fixture requires explicit legacy runtime UID/GID33');
+$readinessSelection=desktop_cleanup_selected('/etc/8west/php/runtime-identities.json');
+if($readinessSelection===null||$readinessSelection['safeharbor']['mode']!=='legacy')
+    throw new RuntimeException('Readiness fixture requires the protected explicit legacy selector');
 $readinessFiles=[];
 register_shutdown_function(static function()use(&$readinessFiles):void{foreach($readinessFiles as $file)unlink($file);});
 foreach(['milepost','safeharbor'] as $job){
-    $dir='/run/8west-desktop-cleanup/'.$job;if(!is_dir($dir))mkdir($dir,0700,true);chmod($dir,0700);
-    if(file_exists($dir.'/status.json'))throw new RuntimeException('Refusing to replace existing cleanup authority');
-    $readinessFiles[]=$dir.'/status.json';
-    file_put_contents($dir.'/status.json',json_encode(['schema'=>1,'job'=>$job,'boot_id'=>trim(file_get_contents('/proc/sys/kernel/random/boot_id')),
-        'started_at'=>time()-1,'completed_at'=>time(),'exit_code'=>0,'successful_runs'=>2,'healthy'=>true]));chmod($dir.'/status.json',0600);
+    $dir='/run/8west-desktop-cleanup/'.$job;clearstatcache(true,$dir);$dirStat=lstat($dir);
+    if(!$dirStat||realpath($dir)!==$dir||($dirStat['mode']&0170000)!==0040000
+        ||($dirStat['mode']&07777)!==0700||$dirStat['uid']!==33||$dirStat['gid']!==33
+        ||!desktop_cleanup_acl_exact(desktop_cleanup_acl($dir),['user:'=>'rwx','group:'=>'---','other:'=>'---']))
+        throw new RuntimeException('Readiness fixture directory was not explicitly provisioned');
+    $file=$dir.'/status.json';
+    if(file_exists($file)||is_link($file))throw new RuntimeException('Refusing to replace existing cleanup authority');
+    $fd=fopen($file,'x');if($fd===false)throw new RuntimeException('Could not create fixture receipt');
+    $readinessFiles[]=$file;
+    try{
+        if(!chmod($file,0600))throw new RuntimeException('Could not protect fixture receipt');
+        $wire=json_encode(['schema'=>1,'job'=>$job,'boot_id'=>trim(file_get_contents('/proc/sys/kernel/random/boot_id')),
+            'started_at'=>time()-1,'completed_at'=>time(),'exit_code'=>0,'successful_runs'=>2,'healthy'=>true],JSON_THROW_ON_ERROR);
+        if(fwrite($fd,$wire)!==strlen($wire))throw new RuntimeException('Incomplete fixture receipt');
+    }finally{fclose($fd);}
 }
 check(desktop_cleanup_available(),'real isolated readiness receipts validate');
 $providerSelection=['version'=>1,'app'=>'safeharbor','local_tenant_key'=>'1','tenant_id'=>100,'tenant_slug'=>'provider-1',

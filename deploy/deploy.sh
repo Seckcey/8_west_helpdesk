@@ -29,7 +29,13 @@
 # the <Directory> blocks match the resolved path.
 #
 # Usage (from the repo root, Git Bash):
-#   KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+#   KEY=~/.ssh/milepost.pem bash deploy/deploy.sh                                   ordinary path (unchanged)
+#   SAFEHARBOR_DEPLOY_MODE=cold KEY=~/.ssh/milepost.pem bash deploy/deploy.sh       R2 root cold window
+#
+# Cold mode builds the same exact Git app artifact reproducibly and stops before any remote effect unless
+# SAFEHARBOR_COLD_EXPECT_SHA256 equals the digest Root pinned in the operation permit. It then streams only
+# that artifact to the fixed root carrier; no executable control or hasher is uploaded, and the installer runs
+# from its root-installed copy under the carrier's report lock. Live is printed only for an ACCEPTED receipt.
 #
 set -euo pipefail
 
@@ -37,9 +43,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER="${SERVER:-ubuntu@safeharbor.8westit.com}"
 DEST="${DEST:-/srv/8west/apps/safeharbor/current}"
 KEY="${KEY:-}"
+SAFEHARBOR_DEPLOY_MODE="${SAFEHARBOR_DEPLOY_MODE:-legacy}"
 REMOTE_INSTALLER="$ROOT/deploy/remote-install-safeharbor-app.sh"
 ARTIFACT_HASHER="$ROOT/deploy/hash-safeharbor-app-artifact.sh"
+readonly COLD_WINDOW='/usr/local/libexec/8west/cold-window'
 
+[[ "$SAFEHARBOR_DEPLOY_MODE" == legacy || "$SAFEHARBOR_DEPLOY_MODE" == cold ]] || {
+  printf 'SAFEHARBOR_DEPLOY_MODE must be legacy or cold.\n' >&2
+  exit 64
+}
 [[ "$DEST" == '/srv/8west/apps/safeharbor/current' ]] || {
   printf 'Refusing non-canonical Safeharbor destination: %s\n' "$DEST" >&2
   exit 64
@@ -141,6 +153,38 @@ require_clean_release
   exit 65
 }
 
+if [[ "$SAFEHARBOR_DEPLOY_MODE" == cold ]]; then
+  # Cold branch BEFORE any remote effect (no tee/chmod of uploaded controls, no hasher upload, no installer
+  # heredoc). The carrier binds this exact artifact, the release SHA and the source artifact digest from its
+  # root permit; its receipt, not this client, decides success. SSH loss never stops its custody.
+  COLD_ARCHIVE="$RELEASE_STAGING/safeharbor-app.cold.tar.gz"
+  tar --sort=name --format=gnu --owner=0 --group=0 --numeric-owner --mtime=@0 \
+    --exclude='app/config/config.php' -C "$RELEASE_STAGING" -cf - app | gzip -n -9 > "$COLD_ARCHIVE"
+  COLD_SHA="$(sha256sum "$COLD_ARCHIVE")"
+  COLD_SHA="${COLD_SHA%% *}"
+  printf '==> Cold artifact: %s %s bytes, release %s, source artifact %s\n' "$COLD_SHA" \
+    "$(wc -c < "$COLD_ARCHIVE" | tr -d ' ')" "$RELEASE_SHA" "$SOURCE_ARTIFACT_SHA"
+  if [[ "${SAFEHARBOR_COLD_EXPECT_SHA256:-}" != "$COLD_SHA" ]]; then
+    printf 'Nothing was sent. Root pins this digest in the cold permit; rerun with SAFEHARBOR_COLD_EXPECT_SHA256=%s\n' "$COLD_SHA" >&2
+    exit 3
+  fi
+  echo "==> Cold window: streaming the permit-bound artifact to the root carrier on $SERVER"
+  cold_rc=0
+  cold_receipt="$(ssh "${SSH_OPTS[@]}" "$SERVER" "sudo -n $COLD_WINDOW enter safeharbor" < "$COLD_ARCHIVE")" || cold_rc=$?
+  printf '%s\n' "$cold_receipt"
+  if (( cold_rc == 0 )) && grep -Fq '"state": "ACCEPTED"' <<< "$cold_receipt" \
+     && grep -Fq "\"safeharbor\": \"$RELEASE_SHA\"" <<< "$cold_receipt"; then
+    cleanup_release_staging
+    RELEASE_STAGING=''
+    trap - EXIT
+    echo "==> Live: https://safeharbor.8westit.com (cold window ACCEPTED $RELEASE_SHA)"
+    exit 0
+  fi
+  printf 'The cold window did not accept %s (exit %s); see the receipt above. An unfinished operation keeps root custody.\n' \
+    "$RELEASE_SHA" "$cold_rc" >&2
+  exit 1
+fi
+
 echo "==> Staging exact root-owned deploy controls on $SERVER"
 INSTALLER_SHA="$(sha256sum "$REMOTE_INSTALLER")"
 INSTALLER_SHA="${INSTALLER_SHA%% *}"
@@ -184,14 +228,22 @@ ssh "${SSH_OPTS[@]}" "$SERVER" \
 REMOTE_HASHER_STAGED=1
 
 echo "==> Uploading to $SERVER:$DEST under the report/deploy lock"
-tar -czf - -C "$RELEASE_STAGING" \
+INSTALL_RECEIPT="$(tar -czf - -C "$RELEASE_STAGING" \
   --exclude='app/config/config.php' \
   app | ssh "${SSH_OPTS[@]}" "$SERVER" \
   "sudo /usr/bin/bash '$REMOTE_INSTALLER_PATH' \
     --release-sha '$RELEASE_SHA' \
     --artifact-hasher '$REMOTE_HASHER_PATH' \
     --expect-hasher-sha256 '$HASHER_SHA' \
-    --expect-source-artifact-sha256 '$SOURCE_ARTIFACT_SHA'"
+    --expect-source-artifact-sha256 '$SOURCE_ARTIFACT_SHA'")"
+printf '%s\n' "$INSTALL_RECEIPT"
+# Live is reported only for the installer's own verified receipt for this exact release.
+grep -Fxq 'SAFEHARBOR_DEPLOY=installed-under-exclusive-report-lock' <<< "$INSTALL_RECEIPT" \
+  && grep -Fxq "SAFEHARBOR_RELEASE_SHA=$RELEASE_SHA" <<< "$INSTALL_RECEIPT" \
+  && grep -Eq '^SAFEHARBOR_DEPLOYED_ARTIFACT_SHA256=[0-9a-f]{64}$' <<< "$INSTALL_RECEIPT" || {
+  printf 'The installer did not return a verified receipt for %s; not reporting Live.\n' "$RELEASE_SHA" >&2
+  exit 74
+}
 
 ssh "${SSH_OPTS[@]}" "$SERVER" \
   "sudo /usr/bin/unlink -- '$REMOTE_INSTALLER_PATH' \
@@ -202,4 +254,4 @@ cleanup_release_staging
 RELEASE_STAGING=''
 trap - EXIT
 
-echo "==> Live: https://safeharbor.8westit.com"
+echo "==> Live: https://safeharbor.8westit.com (installer receipt verified for $RELEASE_SHA)"
