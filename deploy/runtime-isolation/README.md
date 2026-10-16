@@ -39,14 +39,20 @@ remain historical evidence; this pass does not establish their cause.
 
 ### Joined source composition — October 15, 2026
 
-The current-main composition retains the qualified `30090fa` cold renderer,
-templates and installer cold dispatcher, adds the reviewed `c31fbb9` report,
+The current-main composition retains the qualified `30090fa` cold renderer
+logic, templates and installer cold dispatcher, adds the reviewed `c31fbb9` report,
 cron and ordinary-installer UID ports, and includes PR #181's unchanged cache
 PHP/tests. Its CI uses the current shards and its config preserves
 `portal_westy.tools_enabled=true`. The existing ordinary-installer source test
 now expects the dedicated runtime group and public-only frontend ACLs; the
 other cold test cases and their refusal checks remain present. The historical
 25-case receipt above covers its exact donor, not this composed candidate.
+Four renderer fact descriptions now distinguish the composed private-cache,
+cron and scheduler source from last-observed live metadata and identify the
+carrier-selected current-source inverse. The renderer is therefore not
+byte-identical to the cold donor. Fact IDs, held config reads, `certified: false`,
+schema, guards and rendering algorithms are unchanged; description accuracy
+does not establish runtime acceptance.
 Real root/effective-UID/IPC/FPM/session/temp/report/cron/CLI/deploy qualification
 must use the existing joined forward/inverse route. A local non-root skip
 cannot replace that proof. No host or service change occurs during composition.
@@ -261,7 +267,7 @@ current CI baseline. This source work performs no new live-state observation.
 ## Safeharbor runtime source composition
 
 The reviewed UID/report/cron/ordinary-installer changes from frozen donor
-`c31fbb9e` are included in this 37-path composition. The newer cold renderer,
+`c31fbb9e` are included in this 37-path composition. The newer cold renderer logic,
 pool, provisioner and installer cold dispatcher remain from `30090fa`/`5c21055`;
 the older donor does not overwrite those fixes. The included source:
 
