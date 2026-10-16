@@ -107,10 +107,11 @@ return [
         // not an accepted suite-cookie algorithm.
         'token_algorithms' => ['RS256'],
         'jwks_url' => 'https://id.8westit.com/.well-known/jwks.json',
-        'jwks_cache_path' => '/tmp/safeharbor-ewid-jwks.json',
+        // Pre-provision 0700 for the isolated Safeharbor process UID; cache files are 0600.
+        'jwks_cache_path' => '/var/cache/8west/safeharbor/jwks.json',
         // Private, release-independent cache. The directory must be owned by
         // the web user and mode 0700; the cache file is written mode 0600.
-        'revocation_cache_path' => '/srv/8west/apps/safeharbor/shared/suite-revocations/snapshot-v3.json',
+        'revocation_cache_path' => '/var/cache/8west/safeharbor/suite-revocations-v3.json',
         // compat during consumer-first rollout; strict after the ID v2 feed
         // is accepted. Unknown values fail closed.
         'session_version_mode' => 'compat',
@@ -164,7 +165,7 @@ return [
         // Private persistent state outside the deploy tree, shared by workers.
         // oidc_v1 reuses a fresh feed for 60s, permits at most 5m stale during
         // an outage, then fails closed with no ticket data.
-        'revocation_cache_dir' => '/srv/8west/apps/safeharbor/shared/portal-revocations',
+        'revocation_cache_dir' => '/var/cache/8west/safeharbor/portal-revocations',
         // The fixed reserved set is 8west + internal. This additive list is
         // only for future centrally established reservations.
         'reserved_identity_tenant_slugs' => [],
