@@ -84,7 +84,11 @@ if [[ "${1:-}" == '--cold' ]]; then
         && "${SAFEHARBOR_COLD_RUNTIME_GROUP:-}" =~ ^[a-z_][a-z0-9_-]*$ \
         && "${SAFEHARBOR_COLD_DEPLOY_OWNER:-}" =~ ^[a-z_][a-z0-9_-]*$ \
         && "${SAFEHARBOR_COLD_LOCK_FD:-}" =~ ^[0-9]{1,4}$ ]] || deploy_fail 'cold-values-invalid' 64
-    /usr/bin/getent group "$SAFEHARBOR_COLD_RUNTIME_GROUP" >/dev/null || deploy_fail 'cold-runtime-group-missing' 77
+    # The carrier prepares against legacy metadata before creating the selected runtime identities.
+    # Every phase that applies, commits or inverts still requires the actual target group.
+    if [[ "$COLD_PHASE" != prepare ]]; then
+        /usr/bin/getent group "$SAFEHARBOR_COLD_RUNTIME_GROUP" >/dev/null || deploy_fail 'cold-runtime-group-missing' 77
+    fi
     /usr/bin/id "$SAFEHARBOR_COLD_DEPLOY_OWNER" >/dev/null 2>&1 || deploy_fail 'cold-deploy-owner-missing' 77
     [[ -f "$COLD_HASHER" && ! -L "$COLD_HASHER" && "$(cold_meta "$COLD_HASHER")" =~ ^root:root:(644|444|755|555)$ \
         && "$(cold_sha "$COLD_HASHER")" == "$SAFEHARBOR_COLD_HASHER_SHA256" ]] || deploy_fail 'cold-hasher-not-pinned' 65

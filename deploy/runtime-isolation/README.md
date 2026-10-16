@@ -293,7 +293,23 @@ is ID's `deploy/cold_window.py` (installed by root as
   inode, and verified held: an independent descriptor cannot take it).
   `prepare` keeps the payload, scheduler, config and tree gates, verifies the
   source artifact digest, writes the replace/create/delete plan and keeps a
-  root-only copy of the exact current release record. `apply`
+  root-only copy of the exact current release record. On a first transition,
+  `prepare` validates the carrier-selected runtime-group literal and existing
+  legacy `www-data` app/config metadata without requiring that future group
+  to exist yet. Staging stays root-owned; pinned controls, deploy-owner,
+  scheduler, inherited-lock and source checks remain unchanged. The carrier
+  creates identities before adapter `apply` and retains them until adapter
+  `inverse` completes. If a before-adapter identity mutation fails after
+  prepare, the carrier has not recorded the Safeharbor adapter-dispatch
+  marker: it does not call Safeharbor inverse, and app source is untouched.
+  Partial identity/report-freeze journal disposition remains the carrier's
+  responsibility, not source restoration or permission to replay an unknown
+  outcome. `apply`, `commit` and `inverse` still refuse a missing
+  runtime group before any effect; the adapter never creates an account,
+  infers a different group or falls back. The focused Linux fixture uses a
+  genuinely absent future group and existing legacy metadata; local Windows
+  skips do not qualify the actual first transition or carrier recovery route.
+  `apply`
   writes exactly the planned leaves (deploy owner, runtime group, 0640, new
   directories 2750, frontend read only on public/ leaves it writes), verifies
   the source digest, keeps version normalization and records the deployed

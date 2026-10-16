@@ -497,6 +497,9 @@ test('cold installer: carrier-only phases precede the reviewed ordinary UID path
   assert.ok(coldStart > 0 && ordinaryArgs > coldStart, 'the cold block must exit before the ordinary argument contract');
   const cold = source.slice(coldStart, ordinaryArgs);
   assert.match(cold, /case "\$COLD_PHASE" in prepare\|apply\|commit\|inverse\) ;; \*\) deploy_fail 'cold-phase-invalid' 64 ;; esac/);
+  assert.ok(cold.includes('if [[ "$COLD_PHASE" != prepare ]]; then\n'
+    + '        /usr/bin/getent group "$SAFEHARBOR_COLD_RUNTIME_GROUP" >/dev/null || deploy_fail \'cold-runtime-group-missing\' 77\n'
+    + '    fi'), 'only prepare defers the future-group existence prerequisite');
   assert.match(cold, /\[\[ "\$here" == "\$COLD_ADAPTER_DIR" \]\] \|\| deploy_fail 'cold-not-the-installed-adapter'/);
   assert.match(cold, /\/usr\/local\/libexec\/8west\/cold-window\.d\/safeharbor/);
   assert.match(cold, /\/proc\/self\/fd\/\$SAFEHARBOR_COLD_LOCK_FD/);
@@ -681,6 +684,45 @@ function until(condition, what) {
     execFileSync('sleep', ['0.1']);
   }
 }
+
+test('Linux root fixture: prepare accepts legacy metadata before the future group exists; effect phases still refuse', (t) => {
+  if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
+  const f = coldFixture();
+  try {
+    const futureGroup = `sh_future_${crypto.randomBytes(6).toString('hex')}`;
+    const lookup = (name) => spawnSync('/usr/bin/getent', ['group', name], { encoding: 'utf8', env: f.env });
+    assert.equal(lookup(futureGroup).status, 2, 'the selected future group is actually absent, never precreated');
+    const legacy = lookup('www-data');
+    assert.equal(legacy.status, 0, 'the existing legacy group is required for this first-transition fixture');
+    const legacyGid = Number(legacy.stdout.trim().split(':')[2]);
+    assert.ok(Number.isSafeInteger(legacyGid) && legacyGid > 0, 'the legacy group has a real nonroot GID');
+    const config = path.join(f.app, 'config/config.php');
+    fs.chownSync(f.app, 0, legacyGid); fs.chmodSync(f.app, 0o2750);
+    fs.chownSync(config, 0, legacyGid); fs.chmodSync(config, 0o640);
+    f.env.SAFEHARBOR_COLD_RUNTIME_GROUP = futureGroup;
+    const before = f.snapshot();
+    const appMeta = f.meta(f.app);
+    const configBefore = `${fs.readFileSync(config, 'utf8')}|${f.meta(config)}|${f.acl(config)}`;
+    assert.equal(appMeta, `0:${legacyGid}:2750`);
+    assert.match(f.ok('prepare'), /^SAFEHARBOR_COLD=prepared$/m);
+    f.join();
+    for (const phase of ['apply', 'commit', 'inverse']) {
+      const result = f.run(phase);
+      assert.equal(result.status, 77, `${phase} still requires the actual future group`);
+      assert.match(result.stderr, /SAFEHARBOR_DEPLOY_REFUSED=cold-runtime-group-missing/);
+      assert.ok(!fs.existsSync(f.progress) && !fs.existsSync(f.applyLock)
+        && !fs.existsSync(path.join(f.slot, 'apply.env')), 'missing-group refusal causes no apply effect or journal');
+    }
+    assert.equal(lookup(futureGroup).status, 2, 'no phase creates a group or silently adopts another one');
+    assert.deepEqual(f.snapshot(), before, 'prepare and refused phases preserve all live leaves and ACLs');
+    assert.equal(f.meta(f.app), appMeta);
+    assert.equal(`${fs.readFileSync(config, 'utf8')}|${f.meta(config)}|${f.acl(config)}`, configBefore);
+    assert.equal(fs.readFileSync(f.record, 'utf8'), f.priorRecord);
+    assert.equal(f.hash(), f.previous);
+  } finally {
+    f.cleanup();
+  }
+});
 
 test('Linux root fixture: cold installer phases bind the plan, keep exact metadata and ACLs and invert exactly', (t) => {
   if (!LINUX_ROOT) { t.skip(COLD_SKIP); return; }
