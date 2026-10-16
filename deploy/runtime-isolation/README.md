@@ -146,9 +146,11 @@ The current-main composition retains the qualified `30090fa` cold renderer
 logic and templates. The installer cold dispatcher has one later exception:
 `prepare` no longer requires the selected future runtime group to exist before
 the carrier creates it; `apply`, `commit` and `inverse` retain that prerequisite.
-The donor's Linux qualification does not cover this changed prepare behavior;
-the new absent-group Linux fixture and actual first transition remain to be
-qualified on the changed source. The composition adds the reviewed `c31fbb9` report,
+The donor's Linux qualification does not cover this changed prepare behavior.
+The added absent-group Linux case has no CI execution result; its local root
+skip is retained. Later joined execution and its coverage limits are recorded
+in the [minimum-release acceptance record](../../docs/suite-sso-deploy-acceptance.md#2026-10-16--minimum-release-source-integration).
+The composition adds the reviewed `c31fbb9` report,
 cron and ordinary-installer UID ports, and includes PR #181's unchanged cache
 PHP/tests. Its CI uses the current shards and its config preserves
 `portal_westy.tools_enabled=true`. The existing ordinary-installer source test
@@ -172,8 +174,11 @@ The 25-case renderer suite on Windows passed 13 cases and explicitly skipped
 match original PR #181 exactly; the installer cold dispatcher retains `5c21055`
 apart from the prepare-group prerequisite exception above, and its ordinary
 path matches the reviewed `c31fbb9` UID port. These checks
-establish source composition and local behavior only. The actual Linux-root,
-SDK/POSIX, scheduler and joined service qualification remains outstanding.
+establish source composition and local behavior only. The October 16
+minimum-release decision permits normal source integration while retaining
+the existing joined run's three failures and unreached inverse paths. Actual
+production compatibility and user-path acceptance remain with ID's existing
+release procedure; source integration does not establish an installed boundary.
 
 ```bash
 node deploy/runtime-isolation/render.mjs --input INPUT.json --check

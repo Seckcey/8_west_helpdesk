@@ -1,5 +1,41 @@
 # Suite SSO deployment acceptance — Safeharbor
 
+## 2026-10-16 — Minimum-release source integration
+
+The minimum-release decision admits PR #238 to normal source integration with
+its existing CI and review gates. Executable source remains `9d092fa4`, app
+tree `04d17821d8b847418ebfe2e2fa7ef1fcee7af0c5`; the integration update changes
+documentation only. ID retains the joined deployment and cold-window sequence.
+The accepted installed source remains `6dcf3960` until the actual release is
+applied and accepted through the established production procedure.
+
+Existing joined run 123 finished with 536 passes, three failures, zero holds
+and two paths not reached. Its failed result is retained. The Website worker
+observation requested a static route in an on-demand pool; a later captured PHP
+request separately showed UID/GID 1604. ID created a regular session file as
+1603:1603 mode 0600, but the plain-HTTP fixture did not retain cookie continuity
+with production Secure cookies. The exact cookie rejection mechanism is unknown
+because response headers were not retained. Neither observation establishes a
+need to weaken product cookie security or change pool idle behavior.
+
+The inquiry service's captured `226/NAMESPACE` failure occurred before PHP
+because the guest lacked `/srv/8west/secrets`, which its sandbox denies access
+to. This is a recorded guest prerequisite gap; the existing production release
+procedure owns any applicable missing-directory correction. The selected
+native mail-state component separately passed one test with no skips and two
+synthetic filesystem subcases. That component does not turn the joined run
+green or prove genuine production producer closure. Tail runtime-to-legacy
+and FPM-removal paths were not reached.
+
+ID retains the complete output (SHA-256
+`b8e13abb01f4a921769febccbfffc0d93a7b6e18eeaa3015f0246529c052974d`)
+and evidence index (SHA-256
+`1c8fa64cc642021aa875fd4aa0070ec0e84c30893a0e0bb8f9c21c65708dd0ea`).
+Final-main CI and executable material equality are source integration gates.
+Actual deployment, forward/inverse compatibility and established HTTPS
+production acceptance remain release-owner responsibilities. No production
+deployment or new test execution is claimed by this documentation update.
+
 ## 2026-10-15 — Runtime/cache source composition
 
 The accepted ordinary release receipt records installed source

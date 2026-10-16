@@ -1,5 +1,18 @@
 # Where things stand
 
+**October 16 — private runtime/cache source integration; production pending:**
+PR #238's executable source remains the reviewed `9d092fa4` composition.
+The minimum-release decision permits its normal documentation, CI and merge
+gates while retaining the existing joined run's failed result: 536 passes,
+three failures, zero holds and two paths not reached. The failures concern
+Website worker observation and ID session/cookie continuity; the captured
+output and its limits are recorded in the
+[deployment-acceptance record](suite-sso-deploy-acceptance.md#2026-10-16--minimum-release-source-integration).
+Source integration does not activate private runtimes or establish production
+acceptance. ID owns the joined deployment sequence and existing release
+procedure; the established HTTPS production acceptance remains separate.
+The last accepted installed source recorded here remains `6dcf3960`.
+
 **October 15 — composed runtime/cache source candidate; no activation here:**
 The candidate joins the reviewed cold source, dedicated-UID report/cron and
 ordinary-installer ports, and PR #181's unchanged cache PHP/tests on current CI.
