@@ -1,14 +1,22 @@
 # Where things stand
 
-**October 15 — private runtime source candidate; production unchanged:**
-The offline renderer and carrier-only Safeharbor cold installer at source
+**October 15 — composed runtime/cache source candidate; no activation here:**
+The candidate joins the reviewed cold source, dedicated-UID report/cron and
+ordinary-installer ports, and PR #181's unchanged cache PHP/tests on current CI.
+The current portal configuration and all other customer-portal source remain
+intact. The accepted installed source is `6dcf3960`, as recorded in the
+[deployment-acceptance record](suite-sso-deploy-acceptance.md#2026-10-15--runtimecache-source-composition);
+this composition did not probe or alter production. The earlier offline
+renderer and carrier-only Safeharbor cold installer at source
 `30090fa5e0063dad60c31d5df509e3bd47c6b9eb` passed the selected Linux fixture
 qualification: 25 Node cases, no failures or skips, two shell syntax checks,
 and exact source and cleanup verification. See the
 [qualification and remaining runtime gates](../deploy/runtime-isolation/README.md#selected-linux-fixture-qualification--october-15-2026).
-This is source preparation, not an installed isolation boundary or production
-cold-window acceptance. The separate cache PR #181 remains held; its source,
-CI and component snapshots are identified in the
+That receipt qualifies its exact donor, not this later composition. Actual
+joined private-root/effective-UID/IPC/FPM/session/temp/report/cron/CLI/deploy
+compatibility remains required before conditional integration acceptance.
+This is not an installed isolation boundary or production cold-window
+acceptance. Cache source, CI and historical component snapshots are identified in the
 [cache contract](private-auth-caches.md#source-status--october-15-2026).
 
 **October 14, 7:25 AM Pacific — original inactive event received and named ticket choices repaired:**

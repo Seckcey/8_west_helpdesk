@@ -14,15 +14,24 @@ readonly BUNDLE_MANIFEST="$SCRIPT_DIR/scheduler-bundle.manifest"
 
 readonly TEST_ROOT="${SAFEHARBOR_SCHEDULER_TEST_ROOT:-}"
 if [[ -n "$TEST_ROOT" ]]; then
+    [[ "${EUID}" -eq 0 ]] || exit 77
+    [[ "$TEST_ROOT" =~ ^/tmp/safeharbor-scheduler-test[.][A-Za-z0-9]+$ \
+        && -d "$TEST_ROOT" && ! -L "$TEST_ROOT" \
+        && "$(cd -- "$TEST_ROOT" && pwd -P)" == "$TEST_ROOT" \
+        && "$(/usr/bin/stat -c '%U:%G:%a' -- "$TEST_ROOT")" == 'root:root:755' ]] || exit 64
     readonly ROOT_PREFIX="$TEST_ROOT"
     readonly DEPLOY_OWNER="${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-root}"
+    readonly RUNTIME_USER="${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-www-data}"
+    readonly RUNTIME_GROUP="${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-www-data}"
 else
-    [[ -z "${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-}" ]] || {
+    [[ -z "${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-}${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-}${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-}" ]] || {
         printf 'SCHEDULER_REFUSED=test-owner-without-test-root\n' >&2
         exit 64
     }
     readonly ROOT_PREFIX=''
     readonly DEPLOY_OWNER='ubuntu'
+    readonly RUNTIME_USER='eightwest-safeharbor'
+    readonly RUNTIME_GROUP='eightwest-safeharbor'
 fi
 
 readonly CRON_ACTIVE="$ROOT_PREFIX/etc/cron.d/safeharbor-business-reports"
@@ -40,8 +49,7 @@ readonly DEPLOY_LOCK_DIR="$ROOT_PREFIX/var/lib/safeharbor-report-scheduler"
 readonly DEPLOY_LOCK="$DEPLOY_LOCK_DIR/business-reports-deploy.lock"
 readonly RELEASE_RECORD_DIR="$DEPLOY_LOCK_DIR/releases"
 readonly CURRENT_RELEASE_RECORD="$RELEASE_RECORD_DIR/current-app-artifact.manifest"
-readonly RUNTIME_USER='www-data'
-readonly RUNTIME_GROUP='www-data'
+[[ "$RUNTIME_USER" =~ ^[a-z_][a-z0-9_-]*$ && "$RUNTIME_GROUP" =~ ^[a-z_][a-z0-9_-]*$ ]] || exit 64
 
 scheduler_usage() {
     cat >&2 <<'USAGE'
@@ -219,7 +227,7 @@ require_source() {
             'SHELL=/bin/bash') ;;
             'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') ;;
             'MAILTO=""') ;;
-            '*/5 * * * * www-data /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh')
+            "*/5 * * * * $RUNTIME_USER /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh")
                 schedule_lines=$((schedule_lines + 1))
                 ;;
             *) scheduler_fail 'reviewed-cron-source-has-unexpected-line' 65 ;;

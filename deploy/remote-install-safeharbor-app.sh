@@ -528,21 +528,28 @@ readonly EXPECT_SOURCE_ARTIFACT_SHA256="$8"
 
 readonly TEST_ROOT="${SAFEHARBOR_SCHEDULER_TEST_ROOT:-}"
 if [[ -n "$TEST_ROOT" ]]; then
-    [[ "$TEST_ROOT" == /tmp/safeharbor-scheduler-test.* \
-        && "$TEST_ROOT" != *'/../'* \
-        && "$TEST_ROOT" != *$'\n'* \
-        && -d "$TEST_ROOT" \
-        && ! -L "$TEST_ROOT" \
-        && "$(/usr/bin/stat -c '%U:%G' -- "$TEST_ROOT")" == 'root:root' ]] \
+    [[ "$TEST_ROOT" =~ ^/tmp/safeharbor-scheduler-test[.][A-Za-z0-9]+$ \
+        && -d "$TEST_ROOT" && ! -L "$TEST_ROOT" \
+        && "$(cd -- "$TEST_ROOT" && pwd -P)" == "$TEST_ROOT" \
+        && "$(/usr/bin/stat -c '%U:%G:%a' -- "$TEST_ROOT")" == 'root:root:755' ]] \
         || deploy_fail 'unsafe-test-root' 64
     readonly ROOT_PREFIX="$TEST_ROOT"
     readonly DEPLOY_OWNER="${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-root}"
+    readonly RUNTIME_USER="${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-www-data}"
+    readonly RUNTIME_GROUP="${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-www-data}"
 else
-    [[ -z "${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-}" ]] \
+    [[ -z "${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-}" && -z "${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-}" && -z "${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-}" ]] \
         || deploy_fail 'test-owner-without-test-root' 64
     readonly ROOT_PREFIX=''
     readonly DEPLOY_OWNER='ubuntu'
+    readonly RUNTIME_USER='eightwest-safeharbor'
+    readonly RUNTIME_GROUP='eightwest-safeharbor'
 fi
+
+[[ "$RUNTIME_USER" =~ ^[a-z_][a-z0-9_-]*$ && "$RUNTIME_GROUP" =~ ^[a-z_][a-z0-9_-]*$ ]] \
+    || deploy_fail 'runtime-identity-invalid' 64
+/usr/bin/id "$RUNTIME_USER" >/dev/null 2>&1 || deploy_fail 'runtime-user-missing' 77
+/usr/bin/getent group "$RUNTIME_GROUP" >/dev/null || deploy_fail 'runtime-group-missing' 77
 
 readonly CRON_ACTIVE="$ROOT_PREFIX/etc/cron.d/safeharbor-business-reports"
 readonly APP_PARENT="$ROOT_PREFIX/srv/8west/apps/safeharbor"
@@ -558,7 +565,7 @@ for required_tool in /usr/bin/bash /usr/bin/cat /usr/bin/chmod /usr/bin/chown \
     /usr/bin/cmp /usr/bin/date /usr/bin/find /usr/bin/flock /usr/bin/install \
     /usr/bin/mktemp /usr/bin/mv /usr/bin/pgrep /usr/bin/sed \
     /usr/bin/rm /usr/bin/sha256sum /usr/bin/sort /usr/bin/stat /usr/bin/tar \
-    /usr/bin/unlink; do
+    /usr/bin/unlink /usr/bin/setfacl; do
     [[ -x "$required_tool" ]] || deploy_fail "required-tool-missing:$required_tool" 69
 done
 
@@ -588,29 +595,30 @@ verify_physical_directory() {
 }
 
 path_absent "$CRON_ACTIVE" || deploy_fail 'active-report-scheduler-present' 75
-verify_metadata "$APP_PARENT" "$DEPLOY_OWNER" www-data 2750 'application-parent'
-verify_metadata "$APP_ROOT" "$DEPLOY_OWNER" www-data 2750 'application-root'
+verify_metadata "$APP_PARENT" "$DEPLOY_OWNER" "$RUNTIME_GROUP" 2750 'application-parent'
+verify_metadata "$APP_ROOT" "$DEPLOY_OWNER" "$RUNTIME_GROUP" 2750 'application-root'
 verify_physical_directory "$APP_PARENT" 'application-parent'
 verify_physical_directory "$APP_ROOT" 'application-root'
-verify_metadata "$PROTECTED_CONFIG" "$DEPLOY_OWNER" www-data 640 'protected-config'
+verify_metadata "$PROTECTED_CONFIG" "$DEPLOY_OWNER" "$RUNTIME_GROUP" 640 'protected-config'
 
 # Adoption guard: before the shared/exclusive protocol existed, an old runner
 # could survive removal of the cron file without holding this lock. With the
 # active name absent, this exact process check is race-free for that one legacy
 # transition and never terminates the process.
-if /usr/bin/pgrep -u www-data -f \
-    "^/usr/bin/php $APP_ROOT/cron/business_reports[.]php$" >/dev/null 2>&1; then
+if /usr/bin/pgrep -u "$RUNTIME_USER" -f \
+    "^/usr/bin/php $APP_ROOT/cron/business_reports[.]php$" >/dev/null 2>&1 \
+    || /usr/bin/pgrep -u www-data -f "^/usr/bin/php $APP_ROOT/cron/business_reports[.]php$" >/dev/null 2>&1; then
     deploy_fail 'legacy-report-runner-in-flight' 75
 fi
 
 if path_absent "$DEPLOY_LOCK_DIR"; then
-    /usr/bin/install -d -o root -g www-data -m 0750 -- "$DEPLOY_LOCK_DIR"
+    /usr/bin/install -d -o root -g "$RUNTIME_GROUP" -m 0750 -- "$DEPLOY_LOCK_DIR"
 fi
-verify_metadata "$DEPLOY_LOCK_DIR" root www-data 750 'deploy-lock-directory'
+verify_metadata "$DEPLOY_LOCK_DIR" root "$RUNTIME_GROUP" 750 'deploy-lock-directory'
 if path_absent "$DEPLOY_LOCK"; then
-    /usr/bin/install -o root -g www-data -m 0640 -- /dev/null "$DEPLOY_LOCK"
+    /usr/bin/install -o root -g "$RUNTIME_GROUP" -m 0640 -- /dev/null "$DEPLOY_LOCK"
 fi
-verify_metadata "$DEPLOY_LOCK" root www-data 640 'deploy-lock'
+verify_metadata "$DEPLOY_LOCK" root "$RUNTIME_GROUP" 640 'deploy-lock'
 
 exec 9<"$DEPLOY_LOCK" || deploy_fail 'deploy-lock-open-failed' 75
 /usr/bin/flock --exclusive --nonblock 9 || deploy_fail 'report-runner-in-flight' 75
@@ -695,11 +703,14 @@ version="$(/usr/bin/date -u +%Y%m%d%H%M%S)"
     "$APP_ROOT/lib/render.php" \
     "$APP_ROOT/lib/westy.php" \
     "$APP_ROOT/public/login.php"
-/usr/bin/chown -R "$DEPLOY_OWNER:www-data" -- "$APP_ROOT"
+/usr/bin/chown -R "$DEPLOY_OWNER:$RUNTIME_GROUP" -- "$APP_ROOT"
 /usr/bin/find "$APP_ROOT" -xdev -type d -exec /usr/bin/chmod 2750 -- {} +
 /usr/bin/find "$APP_ROOT" -xdev -type f -exec /usr/bin/chmod 0640 -- {} +
+# Retain the frontend's public-only access after replacing source in this physical tree.
+/usr/bin/setfacl -m u:www-data:--x -- "$APP_ROOT"
+/usr/bin/setfacl -R -m u:www-data:r-X -- "$APP_ROOT/public"
 
-verify_metadata "$PROTECTED_CONFIG" "$DEPLOY_OWNER" www-data 640 'protected-config'
+verify_metadata "$PROTECTED_CONFIG" "$DEPLOY_OWNER" "$RUNTIME_GROUP" 640 'protected-config'
 config_after="$(/usr/bin/sha256sum -- "$PROTECTED_CONFIG")"
 config_after="${config_after%% *}"
 [[ "$config_after" == "$config_before" ]] \

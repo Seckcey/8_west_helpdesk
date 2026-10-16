@@ -3112,22 +3112,22 @@ $deploySource = file_get_contents(__DIR__ . '/../../deploy/deploy.sh') ?: '';
 $remoteDeployer = file_get_contents(__DIR__ . '/../../deploy/remote-install-safeharbor-app.sh') ?: '';
 $schedulerBehaviorTest = file_get_contents(__DIR__ . '/business_report_scheduler_linux_test.sh') ?: '';
 report_check(
-    'scheduler template has one exact www-data wrapper invocation',
+    'scheduler template has one exact eightwest-safeharbor wrapper invocation',
     substr_count(
         $schedulerTemplate,
-        '*/5 * * * * www-data /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh',
+        '*/5 * * * * eightwest-safeharbor /usr/bin/bash /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh',
     ) === 1
         && !str_contains($schedulerTemplate, 'business_reports.php'),
 );
 report_check(
     'scheduler wrapper pins runtime deployment metadata and holds the shared deploy lock',
-    str_contains($schedulerWrapper, "readonly EXPECTED_USER='www-data'")
+    str_contains($schedulerWrapper, "readonly EXPECTED_USER='eightwest-safeharbor'")
         && str_contains($schedulerWrapper, "readonly PHP_BIN='/usr/bin/php'")
         && str_contains($schedulerWrapper, '[[ "$(/usr/bin/id -un)" == "$EXPECTED_USER" ]]')
         && str_contains($schedulerWrapper, '[[ "$(pwd -P)" == "$APP_ROOT" ]]')
         && str_contains($schedulerWrapper, "readonly DEPLOY_LOCK=\"\$DEPLOY_LOCK_DIR/business-reports-deploy.lock\"")
         && str_contains($schedulerWrapper, '/usr/bin/flock --shared --nonblock 9')
-        && str_contains($schedulerWrapper, "require_metadata \"\$PROTECTED_CONFIG\" \"\$DEPLOY_OWNER\" www-data 640"),
+        && str_contains($schedulerWrapper, "require_metadata \"\$PROTECTED_CONFIG\" \"\$DEPLOY_OWNER\" \"\$EXPECTED_GROUP\" 640"),
 );
 report_check(
     'scheduler wrapper preserves PHP failure status even when its final logger call fails',

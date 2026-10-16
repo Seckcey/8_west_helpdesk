@@ -11,10 +11,16 @@ fi
     printf 'FAIL: run this isolated test with sudo/root.\n' >&2
     exit 77
 }
-/usr/bin/id www-data >/dev/null 2>&1 || {
-    printf 'FAIL: www-data test identity is unavailable.\n' >&2
+readonly TEST_RUNTIME_USER="${SAFEHARBOR_RUNTIME_FIXTURE_USER:-www-data}"
+[[ "$TEST_RUNTIME_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || exit 64
+# The installer grants the frontend (www-data) public-only ACLs, so both
+# identities must exist even when the runtime fixture uses a dedicated UID.
+/usr/bin/id "$TEST_RUNTIME_USER" >/dev/null 2>&1 && /usr/bin/id www-data >/dev/null 2>&1 || {
+    printf 'FAIL: %s runtime or www-data frontend test identity is unavailable.\n' "$TEST_RUNTIME_USER" >&2
     exit 67
 }
+readonly TEST_RUNTIME_GROUP="$(/usr/bin/id -gn "$TEST_RUNTIME_USER")"
+[[ "$TEST_RUNTIME_GROUP" =~ ^[a-z_][a-z0-9_-]*$ ]] || exit 64
 
 readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly MANAGER_SOURCE="$REPO_ROOT/deploy/manage-business-report-scheduler.sh"
@@ -57,6 +63,8 @@ readonly RELEASE_C='cccccccccccccccccccccccccccccccccccccccc'
 readonly TEST_ENV=(
     SAFEHARBOR_SCHEDULER_TEST_ROOT="$SANDBOX"
     SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER=root
+    SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER="$TEST_RUNTIME_USER"
+    SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP="$TEST_RUNTIME_GROUP"
 )
 
 passes=0
@@ -129,13 +137,13 @@ expect_deployer_failure() {
     "$SANDBOX/etc" "$CRON_DIR" "$SANDBOX/srv" "$SANDBOX/srv/8west" \
     "$SANDBOX/srv/8west/apps" "$SANDBOX/run" "$SANDBOX/var" "$SANDBOX/var/lib"
 /usr/bin/install -d -o root -g root -m 0700 -- "$SANDBOX/run/safeharbor-deploy"
-/usr/bin/install -d -o root -g www-data -m 2750 -- \
+/usr/bin/install -d -o root -g "$TEST_RUNTIME_GROUP" -m 2750 -- \
     "$APP_PARENT" "$APP_ROOT" "$APP_ROOT/cron" "$APP_ROOT/config" \
     "$APP_ROOT/lib" "$APP_ROOT/public"
-/usr/bin/install -d -o root -g www-data -m 0750 -- "$DEPLOY_LOCK_DIR"
-/usr/bin/install -o root -g www-data -m 0640 -- /dev/null "$DEPLOY_LOCK"
+/usr/bin/install -d -o root -g "$TEST_RUNTIME_GROUP" -m 0750 -- "$DEPLOY_LOCK_DIR"
+/usr/bin/install -o root -g "$TEST_RUNTIME_GROUP" -m 0640 -- /dev/null "$DEPLOY_LOCK"
 
-/usr/bin/install -o root -g www-data -m 0640 -- "$WRAPPER_SOURCE" \
+/usr/bin/install -o root -g "$TEST_RUNTIME_GROUP" -m 0640 -- "$WRAPPER_SOURCE" \
     "$APP_ROOT/cron/run_business_reports.sh"
 /usr/bin/printf '%s\n' \
     '<?php' \
@@ -152,7 +160,7 @@ expect_deployer_failure() {
 /usr/bin/printf '%s\n' '<?php function loaded_report_library(): bool { return true; }' \
     > "$APP_ROOT/lib/business_reports.php"
 /usr/bin/printf '%s\n' '<?php $asset = "?v=TEST";' > "$APP_ROOT/public/login.php"
-/usr/bin/chown -R root:www-data -- "$APP_PARENT"
+/usr/bin/chown -R "root:$TEST_RUNTIME_GROUP" -- "$APP_PARENT"
 /usr/bin/find "$APP_PARENT" -type d -exec /usr/bin/chmod 2750 -- {} +
 /usr/bin/find "$APP_PARENT" -type f -exec /usr/bin/chmod 0640 -- {} +
 
@@ -160,6 +168,8 @@ expect_deployer_failure() {
 /usr/bin/install -o root -g root -m 0600 -- "$MANAGER_SOURCE" \
     "$CONTROL_SOURCE/manage-business-report-scheduler.sh"
 /usr/bin/install -o root -g root -m 0600 -- "$TEMPLATE_SOURCE" \
+    "$CONTROL_SOURCE/safeharbor-business-reports.cron"
+/usr/bin/sed -i "s/ eightwest-safeharbor / $TEST_RUNTIME_USER /" \
     "$CONTROL_SOURCE/safeharbor-business-reports.cron"
 /usr/bin/install -o root -g root -m 0600 -- "$HASHER_SOURCE" \
     "$CONTROL_SOURCE/hash-safeharbor-app-artifact.sh"
@@ -291,15 +301,15 @@ expect_manager_failure 'digest mismatch rejects root-owned source tampering' \
 /usr/bin/install -o root -g root -m 0600 -- "$SANDBOX/cron.backup" \
     "$CONTROL_SOURCE/safeharbor-business-reports.cron"
 
-/usr/bin/chown www-data:www-data -- "$APP_ROOT/cron/business_reports.php"
+/usr/bin/chown "$TEST_RUNTIME_USER:$TEST_RUNTIME_GROUP" -- "$APP_ROOT/cron/business_reports.php"
 expect_manager_failure 'runtime-owned deployment file is rejected' \
     'report-runner-owner-or-mode-mismatch' preflight
-/usr/bin/chown root:www-data -- "$APP_ROOT/cron/business_reports.php"
+/usr/bin/chown "root:$TEST_RUNTIME_GROUP" -- "$APP_ROOT/cron/business_reports.php"
 
-/usr/bin/chown www-data:www-data -- "$APP_ROOT/cron"
+/usr/bin/chown "$TEST_RUNTIME_USER:$TEST_RUNTIME_GROUP" -- "$APP_ROOT/cron"
 expect_manager_failure 'runtime-owned deployment directory is rejected' \
     'deployment-directory-owner-or-mode-mismatch' preflight
-/usr/bin/chown root:www-data -- "$APP_ROOT/cron"
+/usr/bin/chown "root:$TEST_RUNTIME_GROUP" -- "$APP_ROOT/cron"
 
 /usr/bin/chmod 0660 -- "$APP_ROOT/cron/run_business_reports.sh"
 expect_manager_failure 'writable deployment file is rejected' \
@@ -311,12 +321,12 @@ check 'disabled scheduler file name contains a cron-ignored dot' \
     /usr/bin/test "${CRON_DISABLED##*/}" = 'safeharbor-business-reports.disabled'
 check 'disabled state verifies with no live activation record' run_manager verify disabled
 
-/usr/bin/install -o root -g www-data -m 0640 -- \
+/usr/bin/install -o root -g "$TEST_RUNTIME_GROUP" -m 0640 -- \
     "$APP_ROOT/lib/business_reports.php" "$SANDBOX/business_reports.php.backup"
 /usr/bin/printf '%s\n' '// root-owned loaded-library tamper' \
     >> "$APP_ROOT/lib/business_reports.php"
 check 'loaded-library tamper preserves reviewed owner and mode' \
-    /usr/bin/test "$(/usr/bin/stat -c '%U:%G:%a' "$APP_ROOT/lib/business_reports.php")" = 'root:www-data:640'
+    /usr/bin/test "$(/usr/bin/stat -c '%U:%G:%a' "$APP_ROOT/lib/business_reports.php")" = "root:$TEST_RUNTIME_GROUP:640"
 expect_manager_failure 'preflight rejects loaded-library content drift' \
     'deployed-artifact-digest-mismatch' preflight
 expect_manager_failure 'enable rejects loaded-library content drift' \
@@ -326,12 +336,12 @@ expect_manager_failure 'enable rejects loaded-library content drift' \
     --expect-client-id 14 \
     --expect-schedule-key lifestyle-weekly-canary \
     --expect-recipient frank@example.test
-/usr/bin/install -o root -g www-data -m 0640 -- \
+/usr/bin/install -o root -g "$TEST_RUNTIME_GROUP" -m 0640 -- \
     "$SANDBOX/business_reports.php.backup" "$APP_ROOT/lib/business_reports.php"
 check 'restored complete artifact passes preflight' run_manager preflight
 
 /usr/bin/printf '%s\n' '<?php return ["changed" => true];' > "$APP_ROOT/config/config.php"
-/usr/bin/chown root:www-data -- "$APP_ROOT/config/config.php"
+/usr/bin/chown "root:$TEST_RUNTIME_GROUP" -- "$APP_ROOT/config/config.php"
 /usr/bin/chmod 0640 -- "$APP_ROOT/config/config.php"
 expect_manager_failure 'activation rejects protected-config digest drift' \
     'activation-config-digest-mismatch' enable \
@@ -341,7 +351,7 @@ expect_manager_failure 'activation rejects protected-config digest drift' \
     --expect-schedule-key lifestyle-weekly-canary \
     --expect-recipient frank@example.test
 /usr/bin/printf '%s\n' '<?php return [];' > "$APP_ROOT/config/config.php"
-/usr/bin/chown root:www-data -- "$APP_ROOT/config/config.php"
+/usr/bin/chown "root:$TEST_RUNTIME_GROUP" -- "$APP_ROOT/config/config.php"
 /usr/bin/chmod 0640 -- "$APP_ROOT/config/config.php"
 
 expect_manager_failure 'enable rejects a mismatched explicit tenant expectation' \
@@ -385,7 +395,7 @@ expect_deployer_failure 'non-atomic deploy refuses while scheduler is active' \
 
 # Reproduce the dangerous both-path drift, then prove disable moves the active
 # entry regardless and does not terminate an already-running lock holder.
-/usr/bin/install -o root -g root -m 0644 -- "$TEMPLATE_SOURCE" "$CRON_DISABLED"
+/usr/bin/install -o root -g root -m 0644 -- "$CONTROL_SOURCE/safeharbor-business-reports.cron" "$CRON_DISABLED"
 /usr/bin/flock --close --shared "$DEPLOY_LOCK" -c '/usr/bin/sleep 30' &
 lock_holder=$!
 background_pids+=("$lock_holder")
@@ -409,7 +419,7 @@ check 'activation evidence is preserved under a unique root-only name' \
 check 'stopped state verifies after emergency disable' run_manager verify stopped
 check 'pre-existing exact disabled copy still verifies' run_manager verify disabled
 
-/usr/sbin/runuser -u www-data -- /usr/bin/env SAFEHARBOR_TEST_RUNNER_SLEEP=30 \
+/usr/sbin/runuser -u "$TEST_RUNTIME_USER" -- /usr/bin/env SAFEHARBOR_TEST_RUNNER_SLEEP=30 \
     /usr/bin/php "$APP_ROOT/cron/business_reports.php" >/dev/null 2>&1 &
 legacy_runner=$!
 background_pids+=("$legacy_runner")
@@ -456,7 +466,7 @@ write_control_bundle
 write_activation_evidence
 check 'postdeploy artifact-bound bundle and ownership pass preflight' run_manager preflight
 
-/usr/bin/install -d -o root -g www-data -m 2750 -- "$SANDBOX/test-bin"
+/usr/bin/install -d -o root -g "$TEST_RUNTIME_GROUP" -m 2750 -- "$SANDBOX/test-bin"
 /usr/bin/printf '%s\n' \
     '#!/usr/bin/env bash' \
     'priority=""' \
@@ -473,20 +483,38 @@ check 'postdeploy artifact-bound bundle and ownership pass preflight' run_manage
     'fi' \
     'exit 0' \
     > "$SANDBOX/test-bin/logger"
-/usr/bin/chown root:www-data -- "$SANDBOX/test-bin/logger"
+/usr/bin/chown "root:$TEST_RUNTIME_GROUP" -- "$SANDBOX/test-bin/logger"
 /usr/bin/chmod 0750 -- "$SANDBOX/test-bin/logger"
 
+readonly FIRST_WRAPPER_OUTPUT="$SANDBOX/check37-wrapper-output.txt"
+: > "$FIRST_WRAPPER_OUTPUT"
 set +e
-/usr/sbin/runuser -u www-data -- /usr/bin/env "${TEST_ENV[@]}" \
+/usr/sbin/runuser -u "$TEST_RUNTIME_USER" -- /usr/bin/env "${TEST_ENV[@]}" \
     SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN="$SANDBOX/test-bin/logger" \
     SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_LOGGER_FAIL_ERROR=1 \
-    /usr/bin/bash "$APP_ROOT/cron/run_business_reports.sh" >/dev/null 2>&1
+    /usr/bin/bash "$APP_ROOT/cron/run_business_reports.sh" >"$FIRST_WRAPPER_OUTPUT" 2>&1
 wrapper_status=$?
 set -e
+if [[ "$wrapper_status" -ne 42 ]]; then
+    printf 'CHECK37_DIAGNOSTIC actual_status=%s expected_status=42 runtime=%s uid=%s gid=%s output_bytes=%s\n' \
+        "$wrapper_status" "$TEST_RUNTIME_USER" "$(/usr/bin/id -u "$TEST_RUNTIME_USER")" \
+        "$(/usr/bin/id -g "$TEST_RUNTIME_USER")" "$(/usr/bin/stat -c %s -- "$FIRST_WRAPPER_OUTPUT")" >&2
+    /usr/bin/head -c 8192 -- "$FIRST_WRAPPER_OUTPUT" >&2
+    printf '\nCHECK37_METADATA\n' >&2
+    /usr/bin/stat -c '%n uid=%u gid=%g mode=%a type=%F' -- \
+        "$SANDBOX" "$DEPLOY_LOCK_DIR" "$DEPLOY_LOCK" "$APP_PARENT" \
+        "$APP_ROOT" "$APP_ROOT/cron" "$APP_ROOT/config" \
+        "$APP_ROOT/cron/run_business_reports.sh" "$APP_ROOT/cron/business_reports.php" \
+        "$APP_ROOT/config/config.php" "$SANDBOX/test-bin" "$SANDBOX/test-bin/logger" >&2
+    printf 'CHECK37_RUNNER_FINGERPRINTS deployed_then_payload\n' >&2
+    /usr/bin/sha256sum -- "$APP_ROOT/cron/run_business_reports.sh" \
+        "$PAYLOAD_ROOT/app/cron/run_business_reports.sh" "$APP_ROOT/cron/business_reports.php" \
+        "$PAYLOAD_ROOT/app/cron/business_reports.php" >&2
+fi
 check 'final logger failure preserves the PHP runner status' /usr/bin/test "$wrapper_status" -eq 42
 
 set +e
-/usr/sbin/runuser -u www-data -- /usr/bin/env "${TEST_ENV[@]}" \
+/usr/sbin/runuser -u "$TEST_RUNTIME_USER" -- /usr/bin/env "${TEST_ENV[@]}" \
     SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN="$SANDBOX/test-bin/logger" \
     SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_LOGGER_FAIL_NOTICE=1 \
     /usr/bin/bash "$APP_ROOT/cron/run_business_reports.sh" >/dev/null 2>&1
@@ -496,7 +524,7 @@ check 'simultaneous PHP and main logger failure preserves PHP status' \
     /usr/bin/test "$wrapper_status" -eq 42
 
 set +e
-/usr/sbin/runuser -u www-data -- /usr/bin/env "${TEST_ENV[@]}" \
+/usr/sbin/runuser -u "$TEST_RUNTIME_USER" -- /usr/bin/env "${TEST_ENV[@]}" \
     SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN="$SANDBOX/test-bin/logger" \
     SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_RUNNER_BYTES=1048576 \
     SAFEHARBOR_TEST_LOGGER_CLOSE_EARLY=1 \
@@ -507,7 +535,7 @@ check 'early-closing logger cannot contaminate PHP status' \
     /usr/bin/test "$wrapper_status" -eq 42
 
 set +e
-/usr/sbin/runuser -u www-data -- /usr/bin/env "${TEST_ENV[@]}" \
+/usr/sbin/runuser -u "$TEST_RUNTIME_USER" -- /usr/bin/env "${TEST_ENV[@]}" \
     SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN="$SANDBOX/test-bin/logger" \
     SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_RUNNER_BYTES=1048576 \
     SAFEHARBOR_TEST_LOGGER_CLOSE_MIDSTREAM=1 \
@@ -518,7 +546,7 @@ check 'mid-stream logger failure cannot contaminate PHP status' \
     /usr/bin/test "$wrapper_status" -eq 42
 
 set +e
-/usr/sbin/runuser -u www-data -- /usr/bin/env "${TEST_ENV[@]}" \
+/usr/sbin/runuser -u "$TEST_RUNTIME_USER" -- /usr/bin/env "${TEST_ENV[@]}" \
     SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN="$SANDBOX/test-bin/logger" \
     SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_TEST_LOGGER_FAIL_NOTICE=1 \
     /usr/bin/bash "$APP_ROOT/cron/run_business_reports.sh" >/dev/null 2>&1
@@ -545,6 +573,15 @@ expect_manager_failure 'old artifact manifest cannot preflight after locked depl
     'release-marker-digest-mismatch' preflight
 write_control_bundle
 check 'new artifact manifest validates the newly deployed release' run_manager preflight
+if [[ "$TEST_RUNTIME_USER" != www-data ]]; then
+    check 'dedicated runtime reads protected config' /usr/sbin/runuser -u "$TEST_RUNTIME_USER" -- /usr/bin/test -r "$APP_ROOT/config/config.php"
+    check 'frontend cannot read protected config' /usr/sbin/runuser -u www-data -- /usr/bin/test ! -r "$APP_ROOT/config/config.php"
+    check 'frontend cannot write application root' /usr/sbin/runuser -u www-data -- /usr/bin/test ! -w "$APP_ROOT"
+    # Frontend ancestors are a separate runtime-manifest provision; grant traverse in this fixture only.
+    /usr/bin/setfacl -m u:www-data:--x -- "$APP_PARENT"
+    check 'frontend reads public files after deployment' /usr/sbin/runuser -u www-data -- /usr/bin/test -r "$APP_ROOT/public/login.php"
+    check 'frontend still cannot read config after traverse provision' /usr/sbin/runuser -u www-data -- /usr/bin/test ! -r "$APP_ROOT/config/config.php"
+fi
 expect_manager_failure 'old activation evidence cannot reactivate after locked deployment' \
     'activation-release-mismatch' enable \
     --activation-evidence "$EVIDENCE_SOURCE/activation.env" \

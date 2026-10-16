@@ -37,6 +37,29 @@ remain historical evidence; this pass does not establish their cause.
 
 ## Offline commands
 
+### Joined source composition — October 15, 2026
+
+The current-main composition retains the qualified `30090fa` cold renderer,
+templates and installer cold dispatcher, adds the reviewed `c31fbb9` report,
+cron and ordinary-installer UID ports, and includes PR #181's unchanged cache
+PHP/tests. Its CI uses the current shards and its config preserves
+`portal_westy.tools_enabled=true`. The existing ordinary-installer source test
+now expects the dedicated runtime group and public-only frontend ACLs; the
+other cold test cases and their refusal checks remain present. The historical
+25-case receipt above covers its exact donor, not this composed candidate.
+Real root/effective-UID/IPC/FPM/session/temp/report/cron/CLI/deploy qualification
+must use the existing joined forward/inverse route. A local non-root skip
+cannot replace that proof. No host or service change occurs during composition.
+
+Local composition checks passed: all 243 hermetic business-report assertions,
+16 changed PHP files through `php -l`, and six shell scripts through `bash -n`.
+The 25-case renderer suite on Windows passed 13 cases and explicitly skipped
+12 Linux-root cases. Node syntax checks passed. The 14 cache PHP/test blobs
+match original PR #181 exactly; the installer cold dispatcher matches `5c21055`
+and its ordinary path matches the reviewed `c31fbb9` UID port. These checks
+establish source composition and local behavior only. The actual Linux-root,
+SDK/POSIX, scheduler and joined service qualification remains outstanding.
+
 ```bash
 node deploy/runtime-isolation/render.mjs --input INPUT.json --check
 node deploy/runtime-isolation/render.mjs --input INPUT.json --output /some/new/directory
@@ -180,12 +203,18 @@ is ID's `deploy/cold_window.py` (installed by root as
   before `prepare`, and returns them exactly only while the release record is
   the one they bind; after a new release they stay held for re-enable through
   the scheduler manager with that release's evidence.
-- **Accepted current source inverse.** The carrier pins the selected SH source
-  `v2-sh-2c-current-source-inverse-20261015.tar` (9123840 bytes, `ce06dd76…`)
-  with the SELECTED canonical sidecar
-  `v2-sh-2c-current-source-inverse-20261015.tar.canonical.manifest.json`
-  (110240 bytes, `3df11f56…`; `2c552151…:app`, app tree `3ab4f58b…`); the
-  original `1610…` sidecar is historical only. Each replaced/deleted leaf is
+- **Accepted current source inverse.** The selected baseline is
+  `6dcf396066a133956d93dc049c344e2fcff70df7:app`, tree
+  `27e990b0dce9e1eb290d0c6c11aa26b0588e14fd`. The owner-held
+  `suite-v21-sh-6dcf-current-source-inverse-20261015.tar` is 9,195,520 bytes,
+  SHA-256 `0ceaf69df2bce803113ab32f090dbdbbf133672ed803fb7a4b2ecffa5b0afc13`;
+  its `.canonical.manifest.json` sidecar is 107,259 bytes,
+  SHA-256 `a43d621c2d181710c9e3944d21883ed86759c1d429799985ff9a0544a4c879f5`.
+  The earlier `v2-sh-2c` archive and both of its sidecars are historical,
+  not the current inverse. A canonical source archive is not physical prior
+  metadata: ID's selected carrier input must join it to the actual baseline
+  and preserve the separately captured owner/group/mode/ACL evidence.
+  Each replaced/deleted leaf is
   joined to the live baseline; for `lib/render.php`, `lib/westy.php` and
   `public/login.php` the live installer `?v=` stamp is recorded and the exact
   live bytes must be reproducible from the accepted source plus that stamp.
@@ -223,19 +252,18 @@ is ID's `deploy/cold_window.py` (installed by root as
   commit runs only when the root owner explicitly selects it through the
   carrier's disposition; it is never automatic.
 
-The app tree digest `6f5e22d2…`, the full repository tree `a97f4bee…`, the app
-tree `3ab4f58b…` and the archive SHA-256 `ce06dd76…` are four distinct
-identities; none substitutes for another. The later merged source `6dcf3960`
-is this branch's base, not the installed baseline `2c552151`.
+Source artifact digests, repository trees, app trees and archive SHA-256 values
+are distinct identities; none substitutes for another. The old `2c552151`
+identities in earlier receipts are historical. The accepted installed-source
+receipt and current inverse now bind `6dcf3960`, while `71af0d8` supplies the
+current CI baseline. This source work performs no new live-state observation.
 
-## Safeharbor runtime source ACK (donor branch record, not on this branch)
+## Safeharbor runtime source composition
 
-The owner's literal source ACK (answers A5) moved the identity in source on the
-frozen runtime donor `c31fbb9e`. **Those ports are outside the 7-path R2
-envelope and are not imported on this cold-current-base branch**: here the
-report wrapper, scheduler manager, cron templates and the installer's ordinary
-path still pin `www-data`, and only the installer's carrier-run cold phases
-apply the server-pinned runtime group to the leaves they write. On the donor:
+The reviewed UID/report/cron/ordinary-installer changes from frozen donor
+`c31fbb9e` are included in this 37-path composition. The newer cold renderer,
+pool, provisioner and installer cold dispatcher remain from `30090fa`/`5c21055`;
+the older donor does not overwrite those fixes. The included source:
 
 - `app/cron/run_business_reports.sh`, `deploy/manage-business-report-scheduler.sh`
   and `deploy/remote-install-safeharbor-app.sh` pin `eightwest-safeharbor` and
@@ -248,13 +276,12 @@ apply the server-pinned runtime group to the leaves they write. On the donor:
   runtime UID, and `deploy/test_runtime_permissions.sh` reruns it as `nobody`
   and checks the override refusals.
 
-The donor installer grants `www-data` traverse on the app root and read/traverse
+The ordinary installer grants `www-data` traverse on the app root and read/traverse
 on `public/`. Traverse on `/srv/8west/apps/safeharbor` and its ancestors is a
 separate reviewed provision (under R2, an exact selected cold-window entry).
 
-The live host still runs the tree, protected config, report lock, installed
-crons and mod_php as `www-data`. So the donor's identity source **refuses** until a
-coordinated cutover does all of the following in one step:
+The prior deployment used the shared runtime. The composed ordinary identity
+checks refuse until a coordinated cold transition makes these inputs agree:
 
 - regroups the tree, config and lock;
 - moves the host-only `/etc/cron.d/safeharbor` and `safeharbor-westy-billing`
@@ -263,7 +290,10 @@ coordinated cutover does all of the following in one step:
   edited);
 - moves the frontend to FPM.
 
-Do not merge this into a normal release before that cutover.
+Actual joined compatibility qualifies the reviewed immutable candidate before
+conditional integration acceptance. Normal merge then requires final-main CI
+and executable equality; activation remains in the serialized ID-owned route.
+This source composition does not perform the transition.
 
 ### Freeze-profile pins: phase-correct proposal (not applied)
 
@@ -272,7 +302,7 @@ its current pins until the owner re-observes the host at cutover. The prospectiv
 values below are for review only. They must never replace the installed pins
 before those bytes are actually installed.
 
-| Pin | Current (installed, keep) | Target after cutover (if installed verbatim) |
+| Pin | Previously recorded installed value (reconfirm, do not overwrite here) | Target after cutover (if installed verbatim) |
 |---|---|---|
 | `/etc/cron.d/safeharbor-business-reports` | `0ccf6eb37945c35b30cd62fa752ca5ada155a88c12644cf517950c720b4068b6` | `08906c6d17be1c379f1c5760023a4904f42498cb331772a1dbe7d689a1a384de` |
 | `/etc/cron.d/safeharbor-westy-mail` | `8f6825528e42f8327fa79f96c72be0d14358e5a9a55ab0df652db2f20b2fec6d` | `34f78fb9599b99a8a475799253a0fa8b9d91fbcd10e511f2ac5117cd26e13e1a` |
@@ -281,18 +311,19 @@ before those bytes are actually installed.
 | report lock `business-reports-deploy.lock` gid | `33` (`www-data`) | the measured `eightwest-safeharbor` GID (prospective `1602` in samples; not a measured value) |
 | both vhosts | `8f56a2dd…` (le-ssl), `8bc24d73…` (port 80) | regenerated from the installed FPM-routed vhost at frontend cutover; no target is proposed |
 
-The three current cron pins equal the pre-change source templates byte for byte.
-The targets are the SHA-256 of the changed templates on the donor branch; this
-branch leaves the templates unchanged.
+The target templates are included unchanged from the reviewed donor. The
+installed observations above are historical inputs, not a new host probe;
+the runtime owner binds the actual installed bytes and metadata at cutover.
 
 ### Still held
 
-The portal stream fixture change (`app/tests/portal_stream_http_test.php`) stays
-in the C private-cache lane. It exists for the held private-cache SDK, and the
-current `FileRevocationCache` performs no ownership check. Its forked child also
-exits through PHP shutdown inside a curl callback, which can close the parent's
-shared database connection. A future port should end the child with
-`pcntl_exec('/bin/true')` or `pcntl_exec('/bin/false')` instead of `exit()`.
+`app/tests/portal_stream_http_test.php` is outside this exact 37-path composition
+and is unchanged from current main. The cache SDK now enforces runtime-UID
+ownership. The optional Apache fixture still writes/refreshes cache records
+from its parent and then assigns them to `www-data`; those operations must be
+reconciled with the assigned runtime UID before using that fixture as cache
+acceptance evidence. That separately owned test change must preserve current
+child-process/database behavior; no old fixture version is imported here.
 
 ## Owner Linux checks (synthetic, isolated, unique resources)
 

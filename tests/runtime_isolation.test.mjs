@@ -490,7 +490,7 @@ test('R2 cold facts stay open and the pool states FPM process control truthfully
   assert.match(pool, /^pm\.process_idle_timeout = 20s$/m);
 });
 
-test('cold installer: carrier-only phases precede the unchanged ordinary path and never broaden metadata', () => {
+test('cold installer: carrier-only phases precede the reviewed ordinary UID path and never broaden metadata', () => {
   const source = fs.readFileSync(INSTALLER, 'utf8');
   const coldStart = source.indexOf("if [[ \"${1:-}\" == '--cold' ]]; then");
   const ordinaryArgs = source.indexOf('[[ "$#" -eq 8 \\');
@@ -547,13 +547,17 @@ test('cold installer: carrier-only phases precede the unchanged ordinary path an
   assert.match(cold, /\?v=\$version/);
   assert.doesNotMatch(cold, /chown -R|chmod -R|-exec \/usr\/bin\/chmod|--artifact-hasher/);
   assert.doesNotMatch(cold, /systemctl|apache2ctl|reload/);
-  // The ordinary path keeps every existing gate exactly.
+  // The ordinary path keeps its gates while using the reviewed dedicated runtime group.
   const ordinary = source.slice(ordinaryArgs);
   for (const token of ['--artifact-hasher', 'active-report-scheduler-present', 'legacy-report-runner-in-flight',
     '/usr/bin/flock --exclusive --nonblock 9', 'staged-source-artifact-digest-mismatch',
-    'SAFEHARBOR_DEPLOY=installed-under-exclusive-report-lock', '/usr/bin/chown -R "$DEPLOY_OWNER:www-data" -- "$APP_ROOT"']) {
+    'SAFEHARBOR_DEPLOY=installed-under-exclusive-report-lock', '/usr/bin/chown -R "$DEPLOY_OWNER:$RUNTIME_GROUP" -- "$APP_ROOT"']) {
     assert.ok(ordinary.includes(token), `ordinary path lost ${token}`);
   }
+  assert.ok(ordinary.includes("readonly RUNTIME_USER='eightwest-safeharbor'"));
+  assert.ok(ordinary.includes("readonly RUNTIME_GROUP='eightwest-safeharbor'"));
+  assert.ok(ordinary.includes('/usr/bin/setfacl -m u:www-data:--x -- "$APP_ROOT"'));
+  assert.ok(ordinary.includes('/usr/bin/setfacl -R -m u:www-data:r-X -- "$APP_ROOT/public"'));
 });
 
 test('cold client: the artifact is pinned before any remote effect and Live needs a verified receipt', () => {
