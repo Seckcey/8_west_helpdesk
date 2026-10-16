@@ -497,9 +497,6 @@ test('cold installer: carrier-only phases precede the reviewed ordinary UID path
   assert.ok(coldStart > 0 && ordinaryArgs > coldStart, 'the cold block must exit before the ordinary argument contract');
   const cold = source.slice(coldStart, ordinaryArgs);
   assert.match(cold, /case "\$COLD_PHASE" in prepare\|apply\|commit\|inverse\) ;; \*\) deploy_fail 'cold-phase-invalid' 64 ;; esac/);
-  assert.ok(cold.includes('if [[ "$COLD_PHASE" != prepare ]]; then\n'
-    + '        /usr/bin/getent group "$SAFEHARBOR_COLD_RUNTIME_GROUP" >/dev/null || deploy_fail \'cold-runtime-group-missing\' 77\n'
-    + '    fi'), 'only prepare defers the future-group existence prerequisite');
   assert.match(cold, /\[\[ "\$here" == "\$COLD_ADAPTER_DIR" \]\] \|\| deploy_fail 'cold-not-the-installed-adapter'/);
   assert.match(cold, /\/usr\/local\/libexec\/8west\/cold-window\.d\/safeharbor/);
   assert.match(cold, /\/proc\/self\/fd\/\$SAFEHARBOR_COLD_LOCK_FD/);

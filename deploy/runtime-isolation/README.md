@@ -143,7 +143,12 @@ forward/inverse acceptance remain pending in the one existing ID-owned route.
 ### Joined source composition — October 15, 2026
 
 The current-main composition retains the qualified `30090fa` cold renderer
-logic, templates and installer cold dispatcher, adds the reviewed `c31fbb9` report,
+logic and templates. The installer cold dispatcher has one later exception:
+`prepare` no longer requires the selected future runtime group to exist before
+the carrier creates it; `apply`, `commit` and `inverse` retain that prerequisite.
+The donor's Linux qualification does not cover this changed prepare behavior;
+the new absent-group Linux fixture and actual first transition remain to be
+qualified on the changed source. The composition adds the reviewed `c31fbb9` report,
 cron and ordinary-installer UID ports, and includes PR #181's unchanged cache
 PHP/tests. Its CI uses the current shards and its config preserves
 `portal_westy.tools_enabled=true`. The existing ordinary-installer source test
@@ -164,8 +169,9 @@ Local composition checks passed: all 243 hermetic business-report assertions,
 16 changed PHP files through `php -l`, and six shell scripts through `bash -n`.
 The 25-case renderer suite on Windows passed 13 cases and explicitly skipped
 12 Linux-root cases. Node syntax checks passed. The 14 cache PHP/test blobs
-match original PR #181 exactly; the installer cold dispatcher matches `5c21055`
-and its ordinary path matches the reviewed `c31fbb9` UID port. These checks
+match original PR #181 exactly; the installer cold dispatcher retains `5c21055`
+apart from the prepare-group prerequisite exception above, and its ordinary
+path matches the reviewed `c31fbb9` UID port. These checks
 establish source composition and local behavior only. The actual Linux-root,
 SDK/POSIX, scheduler and joined service qualification remains outstanding.
 
@@ -386,9 +392,10 @@ current CI baseline. This source work performs no new live-state observation.
 ## Safeharbor runtime source composition
 
 The reviewed UID/report/cron/ordinary-installer changes from frozen donor
-`c31fbb9e` are included in this 37-path composition. The newer cold renderer logic,
-pool, provisioner and installer cold dispatcher remain from `30090fa`/`5c21055`;
-the older donor does not overwrite those fixes. The included source:
+`c31fbb9e` were included in the initial 37-path composition. The newer cold renderer logic,
+pool and provisioner remain from `30090fa`/`5c21055`; the installer cold dispatcher
+retains that source except for the later prepare-group prerequisite deferral.
+The older donor does not overwrite those fixes. The included source:
 
 - `app/cron/run_business_reports.sh`, `deploy/manage-business-report-scheduler.sh`
   and `deploy/remote-install-safeharbor-app.sh` pin `eightwest-safeharbor` and
