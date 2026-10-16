@@ -122,6 +122,24 @@ function desktop_cleanup_stat_same(array|false $a,array|false $b):bool
     return true;
 }
 
+/** Entry rotation may change directory bookkeeping, never its identity or exact ACL. */
+function desktop_cleanup_directory_same(array|false $a,array|false $b,?array $beforeAcl,?array $afterAcl):bool
+{
+    if(!$a||!$b||$beforeAcl===null||($a['mode']&0170000)!==0040000||($b['mode']&0170000)!==0040000)return false;
+    foreach(['dev','ino','mode','uid','gid'] as $key)if($a[$key]!==$b[$key])return false;
+    return desktop_cleanup_acl_exact($afterAcl,$beforeAcl);
+}
+
+/** Bracket the repeated fixed-path ACL query with stable directory identity checks. */
+function desktop_cleanup_directory_unchanged(string $path,array $before,array $beforeAcl):bool
+{
+    clearstatcache(true,$path);$named=@lstat($path);
+    $acl=desktop_cleanup_acl($path);
+    clearstatcache(true,$path);
+    return realpath($path)===$path&&desktop_cleanup_directory_same($before,$named,$beforeAcl,$acl)
+        &&desktop_cleanup_directory_same($before,@lstat($path),$beforeAcl,$acl);
+}
+
 /** The protected 0750 ancestor grants selected apps traversal, never listing or write. */
 function desktop_cleanup_ancestor_acl(string $path,array $stat,?array $acl,?array $apps):bool
 {
@@ -152,9 +170,9 @@ function desktop_cleanup_ancestors_safe(string $path,?array $apps=null):bool
         clearstatcache(true,$path);$before=@lstat($path);
         if(!$before||($before['mode']&0170000)!==0040000||$before['uid']!==0
             ||($before['mode']&0022)!==0||realpath($path)!==$path)return false;
-        if(!desktop_cleanup_ancestor_acl($path,$before,desktop_cleanup_acl($path),$apps))return false;
-        clearstatcache(true,$path);
-        if(!desktop_cleanup_stat_same($before,@lstat($path)))return false;
+        $acl=desktop_cleanup_acl($path);
+        if(!desktop_cleanup_ancestor_acl($path,$before,$acl,$apps)
+            ||!desktop_cleanup_directory_unchanged($path,$before,$acl))return false;
         if($path==='/')return true;
         $path=dirname($path);
     }while(true);
@@ -189,9 +207,8 @@ function desktop_cleanup_receipts_ready(string $directory,int $now,string $boot,
     clearstatcache(true,$directory);$root=@lstat($directory);
     if(!$root||($root['mode']&0170000)!==0040000||($root['mode']&07777)!==0755
         ||$root['uid']!==0||$root['gid']!==0||realpath($directory)!==$directory
-        ||!desktop_cleanup_acl_exact(desktop_cleanup_acl($directory),['user:'=>'rwx','group:'=>'r-x','other:'=>'r-x']))return false;
-    clearstatcache(true,$directory);
-    if(!desktop_cleanup_stat_same($root,@lstat($directory)))return false;
+        ||!desktop_cleanup_acl_exact($rootAcl=desktop_cleanup_acl($directory),['user:'=>'rwx','group:'=>'r-x','other:'=>'r-x']))return false;
+    if(!desktop_cleanup_directory_unchanged($directory,$root,$rootAcl))return false;
     foreach(['milepost','safeharbor'] as $job){
         $owner=$apps[$job];$peer=$apps[$job==='milepost'?'safeharbor':'milepost'];$isolated=$owner['mode']==='isolated';
         $dirAcl=['user:'=>'rwx','group:'=>'---','other:'=>'---'];
@@ -204,8 +221,7 @@ function desktop_cleanup_receipts_ready(string $directory,int $now,string $boot,
             ||$dirStat['uid']!==$owner['uid']||$dirStat['gid']!==$owner['gid']||($dirStat['mode']&07777)!==($isolated?0710:0700)
             ||!desktop_cleanup_acl_exact(desktop_cleanup_acl($dir),$dirAcl)
             ||is_link($file)||!is_file($file))return false;
-        clearstatcache(true,$dir);
-        if(!desktop_cleanup_stat_same($dirStat,@lstat($dir)))return false;
+        if(!desktop_cleanup_directory_unchanged($dir,$dirStat,$dirAcl))return false;
         $fd=@fopen($file,'rb');if($fd===false)return false;
         try{
             clearstatcache(true,$file);$stat=fstat($fd);$named=@lstat($file);
@@ -214,9 +230,10 @@ function desktop_cleanup_receipts_ready(string $directory,int $now,string $boot,
                 ||$stat['uid']!==$owner['uid']||$stat['gid']!==$owner['gid']||$stat['nlink']!==1||$stat['size']>1024
                 ||!desktop_cleanup_acl_exact(desktop_cleanup_acl($fd),$fileAcl))return false;
             $wire=stream_get_contents($fd,1025);
-            clearstatcache(true,$file);clearstatcache(true,$dir);clearstatcache(true,$directory);
-            if(!desktop_cleanup_stat_same($stat,fstat($fd))||!desktop_cleanup_stat_same($stat,@lstat($file))
-                ||!desktop_cleanup_stat_same($dirStat,@lstat($dir))||!desktop_cleanup_stat_same($root,@lstat($directory)))return false;
+            if(!desktop_cleanup_directory_unchanged($dir,$dirStat,$dirAcl)
+                ||!desktop_cleanup_directory_unchanged($directory,$root,$rootAcl))return false;
+            clearstatcache(true,$file);
+            if(!desktop_cleanup_stat_same($stat,fstat($fd))||!desktop_cleanup_stat_same($stat,@lstat($file)))return false;
             if(!is_string($wire)||strlen($wire)>1024
                 ||preg_match_all('/"[a-z_]+"\s*:/',$wire)!==8)return false;
             $r=json_decode($wire,true,4,JSON_THROW_ON_ERROR);

@@ -90,8 +90,16 @@ descriptor 3 and executes the fixed argument array
 `/usr/bin/getfacl -ncp -- /proc/self/fd/3` without a shell. Each query has a
 250 ms deadline, 8192-byte stdout and 1024-byte stderr limits; missing command,
 failed query, nonzero exit or any stderr yields unavailable. Descriptor and
-named-path device/inode/metadata checks bracket the read. Directory ACLs use
-fixed paths with pre/post stat checks: root owns the job-directory namespace,
+named-path device/inode/metadata checks bracket the read. Selector and status
+leaf comparisons retain full mode, ownership, link count, size, mtime and ctime
+checks. Directories instead compare device/inode, directory type, full mode,
+UID and GID, with exact ACL queries repeated before and after the receipt read.
+Each repeated ACL query is itself bracketed by stable directory identity checks.
+Directory size, mtime, ctime and entry link-count changes from legitimate
+previous-receipt or run bookkeeping rotation do not invalidate an unchanged
+valid current receipt. Mode, identity and ACL changes still refuse, including
+ACL drift with unchanged stat timestamps. Directory ACLs use fixed paths:
+root owns the job-directory namespace,
 app users cannot replace it, and trusted-root transitions are serialized by
 the carrier. This is not an atomic directory-descriptor claim or protection
 against malicious root. Producers remain trusted for their own health facts;

@@ -91,6 +91,19 @@ cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,array_replace($anc
 cr_check(!desktop_cleanup_ancestor_acl('/etc/8west',$ancestor,$ancestorAcl+['default:user:'=>'rwx'],null),'ancestor default ACL refuses');
 $stat=['dev'=>1,'ino'=>2,'mode'=>0100600,'uid'=>33,'gid'=>33,'nlink'=>1,'size'=>10,'mtime'=>100,'ctime'=>100];
 foreach(array_keys($stat) as $field)cr_check(!desktop_cleanup_stat_same($stat,array_replace($stat,[$field=>$stat[$field]+1])),'changed file identity/metadata refuses '.$field);
+$directoryStat=array_replace($stat,['mode'=>0040710]);
+foreach(['size','mtime','ctime','nlink'] as $field){
+    cr_check(desktop_cleanup_directory_same($directoryStat,array_replace($directoryStat,[$field=>$directoryStat[$field]+1]),$dirAcl,$dirAcl),'directory bookkeeping may change without invalidating receipt: '.$field);
+}
+foreach(['dev','ino','mode','uid','gid'] as $field){
+    cr_check(!desktop_cleanup_directory_same($directoryStat,array_replace($directoryStat,[$field=>$directoryStat[$field]+1]),$dirAcl,$dirAcl),'directory stable identity drift refuses '.$field);
+}
+cr_check(!desktop_cleanup_directory_same($directoryStat,array_replace($directoryStat,['mode'=>0100710]),$dirAcl,$dirAcl),'directory replaced by regular file refuses');
+cr_check(!desktop_cleanup_directory_same($directoryStat,false,$dirAcl,$dirAcl),'missing directory refuses');
+cr_check(!desktop_cleanup_directory_same($directoryStat,$directoryStat,$dirAcl,null),'directory ACL recheck unavailable refuses');
+$changedDirAcl=$dirAcl;unset($changedDirAcl['user:1601']);$changedDirAcl['user:1603']='--x';
+cr_check(!desktop_cleanup_directory_same($directoryStat,$directoryStat,$dirAcl,$changedDirAcl),'changed peer ACL refuses even with identical directory stat metadata');
+cr_check(!desktop_cleanup_directory_same($directoryStat,$directoryStat,$dirAcl,$dirAcl+['default:user:'=>'rwx']),'new directory default ACL refuses even with identical stat metadata');
 if(PHP_OS_FAMILY==='Linux'&&function_exists('posix_geteuid')){
     // Metadata fixture only: root provisions explicit33 ownership. Runtime tests
     // separately execute as real33; distinct runtime-UID acceptance is not claimed here.
@@ -113,6 +126,19 @@ if(PHP_OS_FAMILY==='Linux'&&function_exists('posix_geteuid')){
         foreach(['milepost','safeharbor'] as $job){mkdir($dir.'/'.$job,0700);chown($dir.'/'.$job,33);chgrp($dir.'/'.$job,33);file_put_contents($dir.'/'.$job.'/status.json',json_encode(array_replace($r,['job'=>$job])));chmod($dir.'/'.$job.'/status.json',0600);chown($dir.'/'.$job.'/status.json',33);chgrp($dir.'/'.$job.'/status.json',33);}
         $ready=static fn()=>desktop_cleanup_receipts_ready($dir,1002,$boot,$legacy['apps'],33,33);
         cr_check($ready(),'both actual files accepted');
+        // Deterministic bookkeeping rotation around the unchanged current status.
+        $jobDir=$dir.'/safeharbor';clearstatcache(true,$jobDir);$jobBefore=lstat($jobDir);
+        $jobAcl=desktop_cleanup_acl($jobDir);$leafBefore=hash_file('sha256',$jobDir.'/status.json');
+        file_put_contents($jobDir.'/previous.next','fixture previous receipt');
+        rename($jobDir.'/previous.next',$jobDir.'/previous.json');
+        touch($jobDir,$jobBefore['mtime']+2);
+        cr_check(desktop_cleanup_directory_unchanged($jobDir,$jobBefore,$jobAcl),'actual previous-receipt rotation preserves stable directory proof');
+        cr_check($ready()&&hash_file('sha256',$jobDir.'/status.json')===$leafBefore,'unchanged current receipt remains ready after bookkeeping rotation');
+        unlink($jobDir.'/previous.json');
+        rename($jobDir,$dir.'/saved-job');mkdir($jobDir,0700);chown($jobDir,33);chgrp($jobDir,33);
+        cr_check(!desktop_cleanup_directory_unchanged($jobDir,$jobBefore,$jobAcl),'actual job-directory replacement refuses despite same owner and mode');
+        rmdir($jobDir);rename($dir.'/saved-job',$jobDir);
+        chmod($jobDir,0750);cr_check(!desktop_cleanup_directory_unchanged($jobDir,$jobBefore,$jobAcl),'actual job-directory mode drift refuses');chmod($jobDir,0700);
         cr_check(!desktop_cleanup_receipts_ready($dir,1002,$boot,$legacy['apps'],34,33),'wrong own effective UID refuses');
         cr_check(!desktop_cleanup_receipts_ready($dir,1002,$boot,$legacy['apps'],33,34),'wrong own effective GID refuses');
         $file=$dir.'/safeharbor/status.json';
@@ -128,6 +154,8 @@ if(PHP_OS_FAMILY==='Linux'&&function_exists('posix_geteuid')){
         file_put_contents($file,'{"schema":1,'.substr(json_encode(array_replace($r,['job'=>'safeharbor'])),1));cr_check(!$ready(),'duplicate field refuses');
         unlink($file);cr_check(!$ready(),'missing peer refuses');
     }finally{
+        if(is_dir($dir.'/saved-job')){if(is_dir($dir.'/safeharbor'))rmdir($dir.'/safeharbor');rename($dir.'/saved-job',$dir.'/safeharbor');}
+        foreach(['previous.next','previous.json'] as $leaf)if(is_file($dir.'/safeharbor/'.$leaf))unlink($dir.'/safeharbor/'.$leaf);
         foreach(['milepost','safeharbor'] as $job){$p=$dir.'/'.$job.'/status.json';if(file_exists($p)||is_link($p))unlink($p);rmdir($dir.'/'.$job);}
         if(file_exists($dir.'/saved'))unlink($dir.'/saved');
         foreach([$selector,$dir.'/selector-link',$dir.'/selector-saved'] as $p)if(file_exists($p)||is_link($p))unlink($p);
