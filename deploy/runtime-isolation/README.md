@@ -37,6 +37,80 @@ remain historical evidence; this pass does not establish their cause.
 
 ## Offline commands
 
+### Desktop cleanup readiness and selected runtime identities
+
+The reader uses only `/etc/8west/php/runtime-identities.json`. Its closed JSON
+shape is `{schema,apps}`, with schema `8west-selected-runtime-identities-v1`
+and exactly `milepost` and `safeharbor` app records, each containing
+`{mode,user,group,uid,gid}`. Property order is immaterial; duplicate, unknown,
+missing, mixed-mode or malformed fields make existing cleanup readiness
+unavailable. There is no account lookup, existence discovery or default mode.
+Both `legacy` records select `www-data:www-data`, numeric `33:33`, even when
+new accounts already exist. Both `isolated` records select their literal
+`eightwest-milepost` / `eightwest-safeharbor` user and group names, with the
+carrier-resolved positive non-root UID/GID pairs: neither number may be 33,
+and both app UIDs and both primary GIDs must differ. Safeharbor checks its
+actual effective UID and GID against its selected pair. Supplementary groups
+remain part of actual runtime qualification; the reader adds no allowlist.
+
+The selector is a physical single-link `root:root 0644` file, nonempty and at
+most 4096 bytes, with only its base ACL. Its ancestors must be physical,
+root-owned and nonwritable by other identities. The selected `/etc/8west`
+ancestor retains `root:root 0750`: owner `rwx`, base group `r-x`, other `---`,
+mask `r-x`, and only the selected app UID entries with `--x` (one entry for
+legacy 33, two for isolated). `/etc/8west/php` is `root:root 0755`, base ACL
+only; other ancestors have base ACLs only. The reader checks protected
+ancestry before opening the fixed record, then binds every traversal entry
+to the parsed selection. It never broadens or provisions these paths.
+
+`/run/8west-desktop-cleanup` is physical `root:root 0755`, base ACL only.
+Each job directory and `status.json` must match its selected producer UID
+and primary GID. Explicit legacy uses base ACLs only, directory 0700/file 0600.
+Isolated directories have exactly owner `rwx`, named peer `--x`, base group
+`---`, mask `--x`, other `---` (stat 0710); status files have owner `rw-`,
+named peer `r--`, base group `---`, mask `r--`, other `---` (stat 0640).
+Extra/default ACLs, group access and peer write grants are rejected. These
+mode bits include the ACL mask; they are not evidence of group access alone.
+
+For selector and status ACLs, PHP passes the already-open stream to child
+descriptor 3 and executes the fixed argument array
+`/usr/bin/getfacl -ncp -- /proc/self/fd/3` without a shell. Each query has a
+250 ms deadline, 8192-byte stdout and 1024-byte stderr limits; missing command,
+failed query, nonzero exit or any stderr yields unavailable. Descriptor and
+named-path device/inode/metadata checks bracket the read. Directory ACLs use
+fixed paths with pre/post stat checks: root owns the job-directory namespace,
+app users cannot replace it, and trusted-root transitions are serialized by
+the carrier. This is not an atomic directory-descriptor claim or protection
+against malicious root. Producers remain trusted for their own health facts;
+peers can only traverse the directory and read its status. Milepost owns the
+shared producer, units, mount and tmpfiles changes, including full write/fsync
+and exact peer ACL on the temporary status inode before atomic replacement.
+Its private previous receipt, run lock and payload retain 0600 without peer ACL.
+
+Both receipts remain mandatory with the original schema, job and actual boot
+checks, two successful runs, maximum 45-second run and 90-second freshness,
+single-link/regular-file/inode checks, 1024-byte read limit and duplicate-field
+refusal. No route guard, cleanup dispatch, replay or task authority is added.
+
+ID owns installation and exact inverse through the existing joined generic
+entry. Observed record absence may become the isolated record during
+quiescence; create an explicit journaled legacy bootstrap only if new readers
+need it before forward. Never fabricate a prior record. Install the selected
+record and traversal ACL before new consumers/helpers. On inverse, quiesce
+new readers and restore old source/helpers first, then restore or remove only
+the operation's exact record/ACL from its journal. This durable public record
+does not substitute for ID's private profile or current carrier target.
+
+The existing no-DB readiness test runs with explicit root fixture provisioning
+in CI and uses only a random temporary tree. Its explicit own-UID 33 arguments
+check metadata, not actual UID 33 or two-UID execution. The existing MySQL runs and
+control include chains run as actual `www-data` UID/GID 33 against an explicitly
+provisioned legacy selector and job directories; migration commands retain
+their existing identity. They keep the real readiness reader and all existing
+assertions. Windows parser/lint checks do not exercise Linux ACLs or fd3.
+Exact Linux distinct-UID access, atomic replacement, protected selector and
+forward/inverse acceptance remain pending in the one existing ID-owned route.
+
 ### Joined source composition — October 15, 2026
 
 The current-main composition retains the qualified `30090fa` cold renderer

@@ -185,7 +185,7 @@ jobs:
           php app/tests/portal_companion_branding_test.php
           php app/tests/tenant_branding_test.php
       - name: Test desktop cleanup readiness without a database
-        run: php app/tests/desktop_cleanup_readiness_test.php
+        run: sudo php app/tests/desktop_cleanup_readiness_test.php
       - name: Test desktop renewal provenance without a database
         run: php app/tests/desktop_renewal_test.php
       - name: Test customer portal ticket workflow
@@ -225,11 +225,37 @@ jobs:
           SAFEHARBOR_WESTY_TEST_USER: root
           SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
         run: |
-          sudo install -d -m 0700 -o "$(id -u)" /run/8west-desktop-cleanup
-          php app/tests/portal_westy_runs_mysql_test.php
+          test "$(id -u www-data):$(id -g www-data)" = 33:33
+          test -x /usr/bin/getfacl && test -x /usr/bin/setfacl
+          test ! -e /etc/8west && test ! -L /etc/8west
+          test ! -e /run/8west-desktop-cleanup && test ! -L /run/8west-desktop-cleanup
+          sudo install -d -o 0 -g 0 -m 0750 /etc/8west
+          sudo install -d -o 0 -g 0 -m 0755 /etc/8west/php /run/8west-desktop-cleanup
+          sudo setfacl -m u:33:--x,m::r-x /etc/8west
+          sudo install -d -o 33 -g 33 -m 0700 /run/8west-desktop-cleanup/milepost /run/8west-desktop-cleanup/safeharbor
+          printf '%s\n' '{"schema":"8west-selected-runtime-identities-v1","apps":{"milepost":{"mode":"legacy","user":"www-data","group":"www-data","uid":33,"gid":33},"safeharbor":{"mode":"legacy","user":"www-data","group":"www-data","uid":33,"gid":33}}}' | sudo tee /etc/8west/php/runtime-identities.json > /dev/null
+          sudo chmod 0644 /etc/8west/php/runtime-identities.json
+          trap 'sudo rm -f /etc/8west/php/runtime-identities.json; sudo rmdir /run/8west-desktop-cleanup/milepost /run/8west-desktop-cleanup/safeharbor /run/8west-desktop-cleanup /etc/8west/php /etc/8west' EXIT
+          sudo -u www-data -g www-data test -r "$PWD/app/tests/portal_westy_runs_mysql_test.php"
+          sudo -u www-data -g www-data test -r "$PWD/app/tests/portal_westy_control_mysql_test.php"
+          sudo -u www-data -g www-data env \
+            SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER="$SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER" \
+            SAFEHARBOR_WESTY_TEST_DB="$SAFEHARBOR_WESTY_TEST_DB" \
+            SAFEHARBOR_WESTY_TEST_HOST="$SAFEHARBOR_WESTY_TEST_HOST" \
+            SAFEHARBOR_WESTY_TEST_PORT="$SAFEHARBOR_WESTY_TEST_PORT" \
+            SAFEHARBOR_WESTY_TEST_USER="$SAFEHARBOR_WESTY_TEST_USER" \
+            SAFEHARBOR_WESTY_TEST_PASS="$SAFEHARBOR_WESTY_TEST_PASS" \
+            php app/tests/portal_westy_runs_mysql_test.php
           php app/tests/endpoint_tool_runs_migration_mysql_test.php
           php app/tests/endpoint_tool_runs_v2_migration_mysql_test.php
-          php app/tests/portal_westy_control_mysql_test.php
+          sudo -u www-data -g www-data env \
+            SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER="$SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER" \
+            SAFEHARBOR_WESTY_TEST_DB="$SAFEHARBOR_WESTY_TEST_DB" \
+            SAFEHARBOR_WESTY_TEST_HOST="$SAFEHARBOR_WESTY_TEST_HOST" \
+            SAFEHARBOR_WESTY_TEST_PORT="$SAFEHARBOR_WESTY_TEST_PORT" \
+            SAFEHARBOR_WESTY_TEST_USER="$SAFEHARBOR_WESTY_TEST_USER" \
+            SAFEHARBOR_WESTY_TEST_PASS="$SAFEHARBOR_WESTY_TEST_PASS" \
+            php app/tests/portal_westy_control_mysql_test.php
       - name: Reject shard runtime config after tests
         if: always()
         run: test ! -f app/config/config.php
