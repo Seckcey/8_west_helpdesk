@@ -5,8 +5,11 @@
 The ID-owned Suite v2.1 manual forward continuation is deployed, with private
 application cache/session directories recorded as 0700 under their matching UID.
 The [release record](suite-sso-deploy-acceptance.md#2026-10-16--suite-v21-runtime-release)
-preserves the canonical carrier's UNKNOWN, completed commit/lock/report closure
-and three failed scheduled services. The suite is not fully healthy.
+preserves the canonical carrier's UNKNOWN and completed commit/lock/report closure.
+Its 2026-10-16 19:07 PDT recovery records all three initial scheduled failures
+resolved through existing role corrections and natural successes. Normal runtime
+is healthy; Frankie-owned provider/customer acceptance remains pending. The
+original failed snapshot remains historical.
 The October 15 section below records source composition before that execution;
 its component receipts do not replace production or customer acceptance.
 

@@ -3,7 +3,10 @@
 **October 16 release status:** ID's final native receipt records the Suite v2.1
 private runtime deployed through the separate manual forward continuation,
 Safeharbor commit and new-bound reporting restored, and all locks released.
-Two cleanup jobs and suite onboarding failed; the suite is not fully healthy.
+At 2026-10-16 19:07 PDT, normal runtime is healthy: the initial cleanup/onboarding
+failures were resolved through existing role corrections and natural scheduled
+successes. Their failed snapshot remains historical; Frankie-owned provider/customer
+acceptance remains pending.
 The canonical carrier remains UNKNOWN. Exact runtime identities and limits are in the
 [release record](../docs/suite-sso-deploy-acceptance.md#2026-10-16--suite-v21-runtime-release).
 The candidate/composition notes below retain their original source-only scope;
