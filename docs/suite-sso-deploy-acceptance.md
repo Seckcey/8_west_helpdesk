@@ -1,5 +1,83 @@
 # Suite SSO deployment acceptance — Safeharbor
 
+## 2026-10-16 — Suite v2.1 runtime release
+
+Status: **DEPLOYED_WITH_THREE_FAILED_PRODUCERS**, from ID's final native receipt
+for operation `fe6a424b14cc46c19f2d796b9d81aa3a`. This is a deployed manual
+forward continuation, not a fully healthy suite or an ACCEPTED canonical run.
+
+All four selected private FPM services are active. Actual runtime revisions are
+Safeharbor `9d092fa4b46670b49555d0fed5a57f31ddce9212`, Milepost
+`09e5c2adbc5699c484bd8d2b20351fb9ef633b15`, and ID
+`76e04342fabfd4303c62589d9a9732c37e552483`. Website selects
+`runtime-isolation-20261017-fe6a424b14cc46c19f2d796b9d81aa3a`.
+The controller source is `dcede8b81ca414457d6c7b399ca0ec584fe7e43e`.
+Worker UID/GID pairs are 1601/1601, 1602/1602, 1603/1603 and 1604/1604 for
+Milepost, Safeharbor, ID and Website; private cache/session directories are
+0700 under their matching application identity. The inquiry processor uses
+1605 and its intended scheduled run returned native exit 0.
+
+All five required public HTTPS paths returned 200 with their expected markers
+at 6:59 PM Pacific on October 16, including Website's inquiry endpoint.
+Website's private HTTP response was 301 enforcing HTTPS and is not claimed as
+a passing private HTTP check. The first actual A91 invocation remains a
+native-exit-3 `base_mode` refusal. The second separately authorized invocation
+returned native exit 0 with `worker_read=1`; no further private-input read,
+hash or installer invocation is part of this closeout.
+
+The canonical carrier's failed current-link record remains UNKNOWN. Website's
+successful manual current-link continuation and twelve selected rows are
+separate execution evidence. The cross-filesystem link failure remains a known
+generic-tool follow-up; no source fix or new test campaign is part of this
+release closeout. Earlier failed joined runs and their coverage limits remain
+historical failures.
+
+Normal Milepost and Safeharbor cold commits each returned native exit 0.
+Safeharbor's complete deployed artifact is
+`2d9ac33b025fc1d7f9a3d59fdeb1b7d961e95c76c412919bed1a983ab70f1767`;
+its immutable record under `/var/lib/safeharbor-report-scheduler/releases` is
+`app-artifact.9d092fa4b46670b49555d0fed5a57f31ddce9212.2d9ac33b025fc1d7f9a3d59fdeb1b7d961e95c76c412919bed1a983ab70f1767.manifest`.
+This supersedes the earlier `6dcf3960` installed-source observation. Merged
+PR #238 source `d4ad65df` has the same executable bytes as installed `9d092fa4`;
+its later status documentation is not a different deployed application.
+
+Cron and all six previously active timers resumed. Safeharbor's new-bound
+reporting preflight, install-disabled, verify-disabled, enable and verify-active
+all returned native exit 0 at 6:58 PM Pacific. The original real canary tuple,
+delivery/recipient timestamps and archive evidence were preserved; the new
+protected activation binds the actual release/artifact/config. No old activation
+was replayed and no new mail, canary or report generation was performed.
+
+Three normal scheduled services failed with native exit 1:
+`8west-desktop-cleanup@milepost.service`,
+`8west-desktop-cleanup@safeharbor.service` and
+`8west-suite-onboarding.service`. Their causes and preexisting-versus-regression
+status are not qualified. ID owns the bounded comparison of already captured
+before-status and error journals, with any authorized minimum runtime-access
+configuration correction. Outcomes from the active schedules remain pending;
+no manual replay or new investigation campaign is claimed.
+
+Original custody ended naturally with MainPID 0 and all nineteen locks released.
+A fresh same-owner root successor reacquired the nineteen genuine locks,
+completed the commits and report restoration, and released all nineteen.
+The successor caller exited 0, was reaped and closed SSH; final custody closure
+was 7:01 PM Pacific. The old slot, UNKNOWN journal, original start and deadline
+remain unchanged. Original Website link, ID rollback tree, accepted-source
+archives and inverse maps are retained. The installed private output is
+preserved; it is not an invitation to replay the installer.
+
+ID retains `manual-forward-release.json`, SHA-256
+`4e3dd4f740fe4245debfa8aa8225d6517c8ba55f539f2ef72cf8d3305f8b9392`,
+with native acceptance, runtime, producer and all lock-release records.
+Root evidence is under
+`/root/8west-suite-v21-fe6a424b14cc46c19f2d796b9d81aa3a/manual-disposition`.
+This documentation uses that supplied receipt; it performs no new host probe.
+
+Milepost's actual runtime revision is `09e5`; PR #713 is not claimed deployed,
+and no GitHub workflow execution is claimed by that runtime identity. Provider
+and customer acceptance remain Frankie-owned and pending. This documentation
+does not request another provider, mail or canary test.
+
 ## 2026-10-16 — Minimum-release source integration
 
 The minimum-release decision admits PR #238 to normal source integration with
