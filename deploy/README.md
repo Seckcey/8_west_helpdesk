@@ -1,12 +1,21 @@
 # Deploying Safeharbor to safeharbor.8westit.com
 
-**Private runtime isolation candidate, not installed:** the offline renderer in
+**October 16 release status:** ID's final native receipt records the Suite v2.1
+private runtime deployed through the separate manual forward continuation,
+Safeharbor commit and new-bound reporting restored, and all locks released.
+Two cleanup jobs and suite onboarding failed; the suite is not fully healthy.
+The canonical carrier remains UNKNOWN. Exact runtime identities and limits are in the
+[release record](../docs/suite-sso-deploy-acceptance.md#2026-10-16--suite-v21-runtime-release).
+The candidate/composition notes below retain their original source-only scope;
+they do not supersede that execution record.
+
+**October 15 source composition (historical):** the offline renderer in
 [`runtime-isolation/`](runtime-isolation/README.md) produces a reviewable
 dedicated-FPM candidate for an `eightwest-safeharbor` runtime, with the private
 `/var/cache/8west/safeharbor` cache and its `portal-revocations` child (both
 `0700`). It changes nothing on a host.
 
-**Source ACK, not cutover readiness:** on this branch the installer, scheduler
+**October 15 source ACK:** the installer, scheduler
 manager, report wrapper, report cron template and the Westy mail and portal
 maintenance cron templates pin `eightwest-safeharbor` instead of `www-data`.
 Source stays deployer-owned `2750/0640`; the installer grants the frontend

@@ -1,5 +1,15 @@
 # Private authentication caches
 
+## Release status — October 16, 2026
+
+The ID-owned Suite v2.1 manual forward continuation is deployed, with private
+application cache/session directories recorded as 0700 under their matching UID.
+The [release record](suite-sso-deploy-acceptance.md#2026-10-16--suite-v21-runtime-release)
+preserves the canonical carrier's UNKNOWN, completed commit/lock/report closure
+and three failed scheduled services. The suite is not fully healthy.
+The October 15 section below records source composition before that execution;
+its component receipts do not replace production or customer acceptance.
+
 ## Source status — October 15, 2026
 
 This composed source candidate includes the unchanged cache PHP and tests from

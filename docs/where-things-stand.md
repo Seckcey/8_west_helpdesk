@@ -1,5 +1,19 @@
 # Where things stand
 
+**October 16 — Suite v2.1 deployed; three scheduled jobs failed:**
+ID's final native receipt records Safeharbor source `9d092fa4` committed with
+private FPM UID/GID 1602, all four private FPM services active, and all five
+required public HTTPS paths passing with their expected markers. Cron and the
+six prior timers are active; Safeharbor reporting was rebound to the new release
+and enabled using the original real delivery evidence. All nineteen successor
+locks were released and custody closed. The canonical carrier remains UNKNOWN;
+the successful manual continuation is separate evidence. Cleanup jobs for
+Milepost and Safeharbor and suite onboarding failed; their causes and whether
+they predate this release are unqualified. The release is not fully healthy.
+See the exact runtime, artifact and remaining limits in the
+[release record](suite-sso-deploy-acceptance.md#2026-10-16--suite-v21-runtime-release).
+Frankie's provider and customer acceptance remain pending with him.
+
 **October 16 — private runtime/cache source integration; production pending:**
 PR #238's executable source remains the reviewed `9d092fa4` composition.
 The minimum-release decision permits its normal documentation, CI and merge
