@@ -2,6 +2,33 @@
 
 ## 2026-10-16 — Suite v2.1 runtime release
 
+### 2026-10-16 19:07 PDT — normal runtime recovery
+
+Current status: **DEPLOYED_NORMAL_RUNTIME_ACCEPTED_PROVIDER_CUSTOMER_PENDING**.
+ID's current native receipt `manual-forward-release-current.json` has SHA-256
+`9ade6e3e29d31b70536dcea0c2e35340570a09ec9ea5074d7082e92f08f6b3e1`.
+All three producer failures are resolved after minimum existing role-configuration
+corrections. Both cleanup jobs naturally exited 0 at 19:06 PDT with count 1 and
+healthy false, then at 19:07 PDT with count 2 and healthy true under the existing
+rule. Onboarding's natural 19:05 and 19:06 PDT runs exited 0 with Result success.
+No manual job runs, failure reset, source changes or new tests were used.
+
+The cause was stale `www-data` runtime identities in cleanup service/state and
+eleven known onboarding command bindings. ID corrected only those existing role
+settings, two tmpfiles rows and fixed job/receipt ownership. Receipt bytes,
+modes and inodes were preserved; other configuration stayed unchanged.
+Correction caller and lock FDs closed normally.
+Before-capture lacked prior Result, so no preexisting-failure claim is made.
+Application/runtime acceptance, active new-bound reports and custody closure
+below are unchanged. Canonical UNKNOWN and the separate successful manual record
+remain distinct; cross-filesystem repair remains a follow-up. Frankie-owned
+provider/customer acceptance is pending.
+
+### Initial failed snapshot — historical, superseded by recovery above
+
+The original `4e3dd4f740fe4245debfa8aa8225d6517c8ba55f539f2ef72cf8d3305f8b9392`
+receipt and its failures remain preserved below; they are not the current status.
+
 Status: **DEPLOYED_WITH_THREE_FAILED_PRODUCERS**, from ID's final native receipt
 for operation `fe6a424b14cc46c19f2d796b9d81aa3a`. This is a deployed manual
 forward continuation, not a fully healthy suite or an ACCEPTED canonical run.
