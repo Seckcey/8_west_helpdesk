@@ -40,5 +40,5 @@ try{
 <?php portal_page_end();
 }catch(Throwable $error){
     if(($_SERVER['REQUEST_METHOD']??'GET')==='POST')json_out(['ok'=>false,'reason'=>'connection_unavailable'],503);
-    portal_render_error(503,'Westy could not connect','Reconnect from the Westy tray menu and try again.');
+    portal_render_error(503,'Westy could not connect','Reconnect from the Westy icon (the system tray on Windows, the menu bar on a Mac) and try again.');
 }
