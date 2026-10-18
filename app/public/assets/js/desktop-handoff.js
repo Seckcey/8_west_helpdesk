@@ -8,7 +8,7 @@
   window.addEventListener('pagehide', () => { stopped = true; }, {once: true});
   async function poll() {
     if (stopped) return;
-    if (Date.now() > deadline) { status.textContent = 'Connection expired. Reconnect from the Westy tray menu.'; return; }
+    if (Date.now() > deadline) { status.textContent = 'Connection expired. Reconnect from the Westy icon in your system tray or menu bar.'; return; }
     try {
       const response = await fetch('/portal/desktop.php', {method: 'POST', credentials: 'same-origin', cache: 'no-store',
         headers: {'Content-Type': 'application/json', 'X-Portal-CSRF': root.dataset.csrf},

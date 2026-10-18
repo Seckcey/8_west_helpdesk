@@ -188,6 +188,8 @@ jobs:
         run: sudo php app/tests/desktop_cleanup_readiness_test.php
       - name: Test desktop renewal provenance without a database
         run: php app/tests/desktop_renewal_test.php
+      - name: Test Westy Companion for Mac instructions without a database
+        run: php app/tests/portal_westy_mac_companion_test.php
       - name: Test customer portal ticket workflow
         run: php app/tests/portal_ticket_workflow_test.php
       - name: Test customer portal weekly archive access
