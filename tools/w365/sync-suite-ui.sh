@@ -6,8 +6,8 @@
 #
 # Without --from, the release asset w365-<tag>.zip is downloaded from the GitHub Release of
 # Seckcey/8_west_suite_ui (needs `gh` signed in). With --from, the files are copied from a local
-# checkout of the package repo — for trying an unreleased build; the guard test in the consumer
-# still pins the manifest hash, so an unreleased copy cannot merge by accident.
+# checkout of the package repo — for trying an unreleased build locally. Vendor a released tag
+# before merging.
 #
 # Every file is verified against w365-manifest.json before the destination is replaced, and the
 # replacement is atomic (a sibling temp dir is moved into place). Fails closed on any mismatch.

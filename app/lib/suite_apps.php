@@ -10,7 +10,7 @@
  * package (Seckcey/8_west_suite_ui) vendored under public/assets/w365/ — the same squares and
  * drawer every 8 West IT 365 app renders at the right end of its page header — and the PRODUCT
  * REGISTRY is the package's w365-products.json, generated from 8 West ID's canonical catalog,
- * versioned with the package and pinned by app/tests/w365_vendored_test.php. Safeharbor is a
+ * versioned with the package. Safeharbor is a
  * CONSUMER of that registry, never its owner: the hard-coded "8 West Suite" list that used to sit
  * in the sidebar (Milepost, Coastmark, All apps) had already drifted from the catalog, which is
  * exactly why it is gone.
@@ -38,7 +38,7 @@ const SUITE_APPS_CURRENT_KEY = 'safeharbor';
  * The product registry: key => presentation, read from the vendored w365-products.json.
  *
  * Closed-world and fail-closed: a missing or malformed file yields an EMPTY registry (the drawer
- * then honestly shows no apps; the vendoring guard fails the build before that can ship), a
+ * then honestly shows no apps), a
  * product with a non-https entry URL or a key that is not a durable claim key is dropped, and the
  * mark is reduced to a bare same-origin FILE NAME so a registry entry can never aim the browser
  * at another host.

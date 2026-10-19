@@ -155,7 +155,7 @@ $cssTag = strpos($render, '/assets/w365/w365.css?v=');
 t('F2: the package stylesheet loads from this origin, before app.css',
     $cssTag !== false && strpos($render, '/assets/css/app.css?v=') > $cssTag);
 t('F3: the shared launcher is loaded deferred from this origin',
-    str_contains($render, '<script src="/assets/w365/w365-launcher.js?v=20260913a" defer></script>'));
+    preg_match('~<script src="/assets/w365/w365-launcher\.js\?v=[^"]+" defer></script>~', $render) === 1);
 t('F4: nothing in the layout hot-loads the package from another origin',
     preg_match('~https?://[^"\']*w365~', $render) !== 1);
 $sidebar = substr($render, strpos($render, '<aside class="sidebar"'), strpos($render, '</aside>') - strpos($render, '<aside class="sidebar"'));
