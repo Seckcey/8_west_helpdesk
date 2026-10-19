@@ -340,7 +340,7 @@ php app/tests/id_report_contacts_test.php
 # SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER=1 php app/tests/id_report_contacts_mysql_test.php
 php app/tests/suite_customer_sync_test.php
 # destructive only in safeharbor_customer_sync_test*: php app/tests/suite_customer_sync_mysql_test.php
-SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+bash deploy/deploy.sh                                    # how-to: deploy/README.md
 cd tools/shots && node walkthrough.mjs                   # visual verification
 ```
 
