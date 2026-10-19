@@ -83,6 +83,12 @@ bash deploy/deploy.sh                                 # also --check, --rollback
 cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/shots
 ```
 
+CI (`.github/workflows/validate.yml`) runs every test on every change: one PHP job
+against a throwaway in-memory MySQL, and one browser job. To add a test, add one
+`php app/tests/<name>_test.php` line to the step that matches what it needs (no
+settings file, a database, or a settings file). Tests that only check wording or
+file contents do not belong there.
+
 ## Rules that keep this repo coherent
 
 1. **One stack.** PHP + MySQL + Apache + hand-written assets, Milepost

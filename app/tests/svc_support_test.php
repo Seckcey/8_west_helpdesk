@@ -20,6 +20,7 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../lib/svc_auth.php';
 require_once __DIR__ . '/../lib/svc_support.php';
+require_once __DIR__ . '/sql_file.php';
 
 // Point the shared connection + config at the scratch database BEFORE the
 // first db() call, and give svc a self-contained test config.
@@ -77,13 +78,7 @@ function fresh_schema(bool $withTenant = true): void
         'migrations/002_svc_intake.sql',
         'migrations/009_support_intake.sql',
     ] as $f) {
-        $sql = (string)file_get_contents(__DIR__ . '/../db/' . $f);
-        foreach (explode(";\n", $sql) as $stmt) {
-            if (preg_match('/\b(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
-            if (trim($stmt) !== '') {
-                $pdo->exec($stmt);
-            }
-        }
+        test_execute_sql_file($pdo, __DIR__ . '/../db/' . $f);
     }
     if ($withTenant) {
         $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (1, '8 West IT, LLC', '8west')");

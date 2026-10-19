@@ -236,8 +236,7 @@ public/                    Apache docroot (page-per-file, like Milepost)
   together at the RIGHT END of the topbar, after Safeharbor's own controls —
   the same place, in the same order, in every 8 West IT 365 app. Markup,
   styling and behaviour are the shared package vendored, unedited, under
-  `public/assets/w365/` (pinned by `tests/w365_vendored_test.php`; bump with
-  `tools/w365/sync-suite-ui.sh`). The drawer lists only the apps the viewer is
+  `public/assets/w365/` (bump with `tools/w365/sync-suite-ui.sh`). The drawer lists only the apps the viewer is
   licensed for, from the verified `8west:products` claim filtered through the
   package registry, with Safeharbor left out of its own drawer; a local
   password login gets a sign-in prompt, never a guessed list. The account menu

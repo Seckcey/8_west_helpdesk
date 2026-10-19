@@ -7,6 +7,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require_once __DIR__ . '/../lib/intake.php';
+require_once __DIR__ . '/sql_file.php';
 
 $CONFIG['db']['name'] = 'safeharbor_test';
 
@@ -25,23 +26,9 @@ function check(string $name, bool $condition): void
     echo "FAIL {$checks} - {$name}\n";
 }
 
-function execute_sql_file(string $path, bool $skipPrivilegedTriggers = false): void
+function execute_sql_file(string $path): void
 {
-    $sql = (string) file_get_contents($path);
-    foreach (explode(";\n", $sql) as $statement) {
-        if ($skipPrivilegedTriggers && preg_match('/\b(?:DROP|CREATE)\s+TRIGGER\b/i', $statement)) {
-            continue;
-        }
-        if (trim($statement) !== '') {
-            if (preg_match('/^\s*SELECT\b/i', $statement)) {
-                $result = db()->query($statement);
-                $result->fetchAll();
-                $result->closeCursor();
-            } else {
-                db()->exec($statement);
-            }
-        }
-    }
+    test_execute_sql_file(db(), $path);
 }
 
 function fresh_schema(): void
@@ -57,7 +44,7 @@ function fresh_schema(): void
     $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
 
     foreach (['schema.sql', 'migrations/001_mail_queue.sql'] as $file) {
-        execute_sql_file(__DIR__ . '/../db/' . $file, true);
+        execute_sql_file(__DIR__ . '/../db/' . $file);
     }
 
     $pdo->exec("INSERT INTO tenants (id, name, slug) VALUES (1, 'Test MSP', 'test')");
@@ -132,7 +119,7 @@ db()->exec('DROP TABLE service_goal_policy_versions');
 // The app test identity cannot create triggers on a binary-logged server;
 // those four operator-owned statements are exercised separately with root.
 // Everything else runs through the same migration file here, then replays.
-execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql', true);
+execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql');
 check('migration upgrades the Phase 1 schema with baseline policy rows',
     (int) db()->query('SELECT COUNT(*) FROM service_goal_policy_versions')->fetchColumn() === 2
     && (int) db()->query('SELECT COUNT(*) FROM service_goal_policy_targets')->fetchColumn() === 8);
@@ -144,7 +131,7 @@ check('migration leaves historical tickets explicitly unversioned',
 db()->exec('ALTER TABLE tickets ALTER COLUMN service_goal_target_id SET DEFAULT 1');
 $wrongColumnRejected = false;
 try {
-    execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql', true);
+    execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql');
 } catch (PDOException $error) {
     $wrongColumnRejected = (int) ($error->errorInfo[1] ?? 0) === 1060;
 }
@@ -162,13 +149,13 @@ db()->exec(
 );
 $wrongIndexRejected = false;
 try {
-    execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql', true);
+    execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql');
 } catch (PDOException $error) {
     $wrongIndexRejected = (int) ($error->errorInfo[1] ?? 0) === 1061;
 }
 check('migration rejects a same-named unique ticket-pointer index', $wrongIndexRejected);
 db()->exec('ALTER TABLE tickets DROP INDEX ix_tickets_service_goal_target');
-execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql', true);
+execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql');
 
 check('migration postflight sees the exact ticket pointer column', (int) db()->query(
     "SELECT COUNT(*) FROM information_schema.columns
@@ -203,7 +190,7 @@ check('migration postflight sees the exact tenant-scoped foreign key', (string) 
         AND constraint_name = 'fk_tickets_service_goal_target'
         AND referenced_table_name = 'service_goal_policy_targets'"
 )->fetchColumn() === 'tenant_id=tenant_id,service_goal_target_id=id');
-execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql', true);
+execute_sql_file(__DIR__ . '/../db/migrations/010_service_goal_policies.sql');
 check('migration replay does not duplicate baseline policy rows',
     (int) db()->query('SELECT COUNT(*) FROM service_goal_policy_versions')->fetchColumn() === 2
     && (int) db()->query('SELECT COUNT(*) FROM service_goal_policy_targets')->fetchColumn() === 8);
