@@ -84,7 +84,7 @@ run_local() {
     [[ "$m" == *.sql ]] || die "--migrate takes .sql files only: $m"
   done
 
-  local repo host sha=none remote rc=0
+  local repo host sha=none remote rc=0 branch="${BRANCH:-main}"
   local ssh=(ssh -o BatchMode=yes) scp=(scp -q -o BatchMode=yes)
   repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   host="${DEPLOY_HOST:-milepost-ec2}"
@@ -92,24 +92,25 @@ run_local() {
   WORK="$(mktemp -d)"
   trap 'rm -rf -- "$WORK"' EXIT
 
-  git -C "$repo" fetch --quiet origin main
+  git -C "$repo" fetch --quiet origin "$branch"
   if [[ "${DEPLOY_LOCAL_SCRIPT:-}" == 1 ]]; then
-    echo "==> Using this checkout's deploy.sh, not origin/main's (DEPLOY_LOCAL_SCRIPT=1)"
+    echo "==> Using this checkout's deploy.sh, not origin/$branch's (DEPLOY_LOCAL_SCRIPT=1)"
     tr -d '\r' < "${BASH_SOURCE[0]}" > "$WORK/deploy.sh"   # a Windows checkout may carry CRLF endings
   else
-    git -C "$repo" show origin/main:deploy/deploy.sh > "$WORK/deploy.sh" 2> /dev/null \
-      || die 'origin/main has no deploy/deploy.sh'
+    git -C "$repo" show "origin/$branch:deploy/deploy.sh" > "$WORK/deploy.sh" 2> /dev/null \
+      || die "origin/$branch has no deploy/deploy.sh"
   fi
 
   if [[ "$mode" != rollback ]]; then
-    sha="$(git -C "$repo" rev-parse --verify --quiet "${target:-origin/main}^{commit}")" \
-      || die "unknown commit: ${target:-origin/main}"
-    git -C "$repo" merge-base --is-ancestor "$sha" origin/main \
-      || die "${sha:0:12} is not on main; only merged code is deployed"
+    sha="$(git -C "$repo" rev-parse --verify --quiet "${target:-origin/$branch}^{commit}")" \
+      || die "unknown commit: ${target:-origin/$branch}"
+    git -C "$repo" merge-base --is-ancestor "$sha" "origin/$branch" \
+      || die "${sha:0:12} is not on $branch; only merged code is deployed"
     echo "==> Packing $APP ${sha:0:12} from git"
     # shellcheck disable=SC2046  # git_paths is a fixed list of words
     git -C "$repo" -c core.autocrlf=false -c core.eol=lf archive --format=tar.gz "$sha" $(git_paths) \
       > "$WORK/release.tar.gz"
+    if declare -F build_locally > /dev/null; then build_locally "$WORK/release.tar.gz"; fi
     for m in "${migrations[@]}"; do
       git -C "$repo" cat-file -e "$sha:$m" 2> /dev/null || die "$m is not part of ${sha:0:12}"
       i=$((i + 1))
@@ -365,13 +366,28 @@ stage_release() {
 
 # Only plain files and folders with ordinary names may live in the parts the release owns.
 check_tree() { # <root>
-  local area
+  local area pre
   for area in "${AREAS[@]}"; do
     [[ -e "$1/$area" ]] || continue
-    if find "$1/$area" -mindepth 1 \( \( ! -type f ! -type d \) -o -name $'*[\n\t\\\\]*' \) -print -quit | grep -q .; then
+    pre=''
+    if [[ "$area" != . ]]; then pre="$area/"; fi
+    # Read the whole list (no early exit), so pipefail cannot turn a found problem into a pass.
+    if [[ -n "$(find "$1/$area" -mindepth 1 \( \( ! -type f ! -type d \) -o -name $'*[\n\t\\\\]*' \) \
+                  -printf "$pre%P\n" | not_kept)" ]]; then
       fail "$1/$area holds a link, special file or unusual file name; sort that out by hand first"
     fi
   done
+}
+
+not_kept() { # drop KEEP paths, and everything inside a KEEP folder, from the list on stdin
+  awk 'NR == FNR { if ($0 != "") keep[$0] = 1; next }
+       { p = $0
+         while (!(p in keep)) {
+           i = 0
+           for (j = length(p); j > 0; j--) if (substr(p, j, 1) == "/") { i = j; break }
+           if (i == 0) { print; next }
+           p = substr(p, 1, i - 1)
+         } }' <(printf '%s\n' "${KEEP[@]}") -
 }
 
 tree_list() { # <root> <f|d>: sorted paths inside the owned areas, minus KEEP
@@ -381,7 +397,7 @@ tree_list() { # <root> <f|d>: sorted paths inside the owned areas, minus KEEP
     pre=''
     if [[ "$area" != . ]]; then pre="$area/"; fi
     find "$1/$area" -mindepth 1 -type "$2" -printf "$pre%P\n"
-  done | { grep -vxF -f <(printf '%s\n' "${KEEP[@]}") || true; } | sort
+  done | not_kept | sort
 }
 
 file_hashes() { # <root> <list> <out>: one sha256 per listed file, in list order
@@ -651,7 +667,7 @@ live_version() {
   if [[ -f "$STATE_DIR/current.sha" ]]; then
     v="$(tr -d '\n' < "$STATE_DIR/current.sha")"
   elif [[ -n "$OLD_RELEASE_RECORD" && -f "$OLD_RELEASE_RECORD" ]]; then
-    v="$(sed -n 's/^release_sha=//p' "$OLD_RELEASE_RECORD")"
+    v="$(sed -n -e 's/^release_sha=//p' -e '/^[0-9a-f]\{40\}$/p' "$OLD_RELEASE_RECORD" | head -n 1)"
   fi
   [[ "$v" =~ ^[0-9a-f]{40}$ ]] || v=unknown
   printf '%s\n' "$v"
