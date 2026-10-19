@@ -83,7 +83,6 @@ function fresh_schema(bool $withTenant = true): void
             (string)file_get_contents(__DIR__ . '/../db/' . $f),
         );
         foreach (westy_test_sql_statements($sql) as $stmt) {
-            if (preg_match('/(?:^|\R)\s*(?:DROP|CREATE)\s+TRIGGER\b/i', $stmt)) continue;
             if (trim($stmt) !== '') {
                 $pdo->exec($stmt);
             }
@@ -366,11 +365,17 @@ westy_report_record(fail_payload());
 check('non_threshold_adds_no_line', count(messages($firstTicket)) === 3);
 
 /* ── 4. a resolved problem coming back opens generation 2, linked ─────────── */
-$effective = gmdate('Y-m-d H:i:s', time() - 1);
+// Publish Standard v2 the way the database allows: by an active owner, with a
+// reason, starting just ahead, its targets added before it starts. Then wait
+// until it is in force.
+db()->exec("INSERT INTO users (id, tenant_id, email, password_hash, full_name, role)
+            VALUES (900, 1, 'owner@8westit.com', 'x', 'Policy Owner', 'owner')");
+$effective = gmdate('Y-m-d H:i:s', time() + 2);
 db()->prepare(
     'INSERT INTO service_goal_policy_versions
-        (tenant_id, policy_key, version_no, display_name, effective_from, clock_mode, time_zone, pause_mode)
-     VALUES (1,"standard",2,"Standard",?,"elapsed","UTC","none")'
+        (tenant_id, policy_key, version_no, display_name, effective_from, clock_mode, time_zone, pause_mode,
+         created_by_user_id, reason)
+     VALUES (1,"standard",2,"Standard",?,"elapsed","UTC","none",900,"Westy report test")'
 )->execute([$effective]);
 $standardV2 = (int) db()->lastInsertId();
 $targetInsert = db()->prepare(
@@ -381,6 +386,7 @@ $targetInsert = db()->prepare(
 foreach (SERVICE_GOAL_PRIORITIES as $priority) {
     $targetInsert->execute([$standardV2, $priority]);
 }
+sleep(3);
 db()->prepare('UPDATE tickets SET status = "resolved", resolved_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$firstTicket]);
 $r4 = westy_report_record(fail_payload());
 check('return_after_resolve_opens_new_ticket', $r4['action'] === 'created' && (int)$r4['ticket'] !== $firstTicket);

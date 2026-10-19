@@ -14,7 +14,8 @@ define('APP_ROOT', dirname(__DIR__));
 $configPath = APP_ROOT . '/config/config.php';
 if (!is_file($configPath)) {
     http_response_code(500);
-    exit('Configuration missing. Copy config/config.sample.php to config/config.php.');
+    echo 'Configuration missing. Copy config/config.sample.php to config/config.php.';
+    exit(1); // so a script or test that runs without it fails instead of quietly passing
 }
 $CONFIG = require $configPath;
 

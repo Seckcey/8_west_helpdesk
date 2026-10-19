@@ -1,5 +1,8 @@
 name: Validate
 
+# Every change runs the same checks: a syntax check, then the real tests against one throwaway
+# MySQL, plus the browser tests. No job picking: everything runs every time.
+
 on:
   pull_request:
   push:
@@ -13,37 +16,261 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    runs-on: ubuntu-slim
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      php: ${{ steps.select.outputs.php }}
-      browser: ${{ steps.select.outputs.browser }}
-      protected_cli: ${{ steps.select.outputs.protected_cli }}
+  php:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DB_PASS: safeharbor-test-root
+      # Each test family gets its own database on the same throwaway server.
+      CUSTOMER_SIGNUP_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=signup_test_portal;charset=utf8mb4
+      CUSTOMER_SIGNUP_TEST_PASS: safeharbor-test-root
+      SUPPORT_MAIL_TEST_DSN: mysql:host=127.0.0.1;dbname=support_mail_test
+      SUPPORT_MAIL_TEST_PASS: safeharbor-test-root
+      SUPPORT_INTAKE_DISPOSABLE: '1'
+      SAFEHARBOR_SSO_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_SSO_TEST_DB: safeharbor_sso_test
+      SAFEHARBOR_SSO_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_SSO_TEST_PORT: 3306
+      SAFEHARBOR_SSO_TEST_USER: root
+      SAFEHARBOR_SSO_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
+      SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_WESTY_TEST_PORT: 3306
+      SAFEHARBOR_WESTY_TEST_USER: root
+      SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_TIME_TEST_DB: safeharbor_time_test
+      SAFEHARBOR_TIME_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_TIME_TEST_PORT: 3306
+      SAFEHARBOR_TIME_TEST_USER: root
+      SAFEHARBOR_TIME_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_TIME_ADJUSTMENT_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_TIME_ADJUSTMENT_TEST_DB: safeharbor_time_adjustment_test
+      SAFEHARBOR_TIME_ADJUSTMENT_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_TIME_ADJUSTMENT_TEST_PORT: 3306
+      SAFEHARBOR_TIME_ADJUSTMENT_TEST_USER: root
+      SAFEHARBOR_TIME_ADJUSTMENT_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_COASTMARK_V3_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_COASTMARK_V3_TEST_DB: safeharbor_coastmark_v3_test
+      SAFEHARBOR_COASTMARK_V3_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_COASTMARK_V3_TEST_PORT: 3306
+      SAFEHARBOR_COASTMARK_V3_TEST_USER: root
+      SAFEHARBOR_COASTMARK_V3_TEST_PASS: safeharbor-test-root
+      MILEPOST_TEST_DB_HOST: 127.0.0.1
+      MILEPOST_TEST_DB_NAME: milepost_safeharbor_test
+      MILEPOST_TEST_DB_ALLOW_DROP: 'YES'
+      MILEPOST_TEST_DB_PASS: safeharbor-test-root
+      SAFEHARBOR_SVC_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_SVC_TEST_DB: safeharbor_svc_test
+      SAFEHARBOR_SVC_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_SVC_TEST_PORT: 3306
+      SAFEHARBOR_SVC_TEST_USER: root
+      SAFEHARBOR_SVC_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_AUTO_CLOSE_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_AUTO_CLOSE_TEST_DB: safeharbor_auto_close_test
+      SAFEHARBOR_AUTO_CLOSE_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_AUTO_CLOSE_TEST_PORT: 3306
+      SAFEHARBOR_AUTO_CLOSE_TEST_USER: root
+      SAFEHARBOR_AUTO_CLOSE_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_PORTAL_TEST_DB: safeharbor_portal_test
+      SAFEHARBOR_PORTAL_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_PORTAL_TEST_PORT: 3306
+      SAFEHARBOR_PORTAL_TEST_USER: root
+      SAFEHARBOR_PORTAL_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_SERVICE_GOAL_TEST_DB: safeharbor_service_goal_test
+      SAFEHARBOR_SERVICE_GOAL_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_SERVICE_GOAL_TEST_PORT: 3306
+      SAFEHARBOR_SERVICE_GOAL_TEST_USER: root
+      SAFEHARBOR_SERVICE_GOAL_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_REPORT_TEST_DB: safeharbor_report_test
+      SAFEHARBOR_REPORT_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_REPORT_TEST_PORT: 3306
+      SAFEHARBOR_REPORT_TEST_USER: root
+      SAFEHARBOR_REPORT_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_ID_REPORT_TEST_DB: safeharbor_id_report_test
+      SAFEHARBOR_ID_REPORT_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_ID_REPORT_TEST_PORT: 3306
+      SAFEHARBOR_ID_REPORT_TEST_USER: root
+      SAFEHARBOR_ID_REPORT_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_CUSTOMER_SYNC_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_CUSTOMER_SYNC_TEST_DB: safeharbor_customer_sync_test
+      SAFEHARBOR_CUSTOMER_SYNC_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_CUSTOMER_SYNC_TEST_PORT: 3306
+      SAFEHARBOR_CUSTOMER_SYNC_TEST_USER: root
+      SAFEHARBOR_CUSTOMER_SYNC_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_ACTIVATION_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_ACTIVATION_TEST_DB: safeharbor_activation_test
+      SAFEHARBOR_ACTIVATION_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_ACTIVATION_TEST_PORT: 3306
+      SAFEHARBOR_ACTIVATION_TEST_USER: root
+      SAFEHARBOR_ACTIVATION_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_LIFECYCLE_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_LIFECYCLE_TEST_DB: safeharbor_lifecycle_test
+      SAFEHARBOR_LIFECYCLE_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_LIFECYCLE_TEST_PORT: 3306
+      SAFEHARBOR_LIFECYCLE_TEST_USER: root
+      SAFEHARBOR_LIFECYCLE_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_CENTRAL_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_CENTRAL_TEST_DB: safeharbor_central_test
+      SAFEHARBOR_CENTRAL_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_CENTRAL_TEST_PORT: 3306
+      SAFEHARBOR_CENTRAL_TEST_USER: root
+      SAFEHARBOR_CENTRAL_TEST_PASS: safeharbor-test-root
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Test CI change selection
-        run: python3 -B .github/scripts/test_ci_changes.py
-      - name: Test PHP aggregation failure and intentional-skip cases
-        run: python3 -B .github/scripts/test_ci_php_result.py
-      - name: Reject committed runtime config
+
+      - name: No server settings file in git
         run: test ! -f app/config/config.php
-      - name: Select validation jobs
-        id: select
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -B .github/scripts/ci_changes.py
-  browser-contracts:
-    needs: changes
-    if: needs.changes.outputs.browser == 'true'
+
+      - name: Syntax check (PHP and shell)
+        run: |
+          find app -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+          git ls-files -z '*.sh' | xargs -0 -r -n1 bash -n
+
+      # In memory and without the binary log: the schema loads in seconds instead of minutes.
+      - name: Start a throwaway MySQL
+        run: |
+          docker run -d --name mysql -p 127.0.0.1:3306:3306 --tmpfs /var/lib/mysql:rw,size=2g \
+            -e MYSQL_ROOT_PASSWORD="$DB_PASS" -e MYSQL_DATABASE=safeharbor_portal_test \
+            mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b \
+            --skip-log-bin --innodb-flush-log-at-trx-commit=0 --innodb-doublewrite=0
+          for i in $(seq 1 90); do
+            if mysqladmin ping -h 127.0.0.1 -uroot -p"$DB_PASS" --silent 2> /dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs mysql
+          exit 1
+
+      - name: Tests without a settings file
+        run: |
+          php app/tests/suite_auth_policy_test.php
+          php app/tests/suite_chrome_test.php
+          php app/tests/suite_revocation_test.php
+          php app/tests/private_file_cache_test.php
+          php app/tests/trusted_jwks_test.php
+          php app/tests/trusted_jwks_https_test.php
+          php app/tests/private_revocation_io_test.php
+          php app/tests/suite_logout_test.php
+          php app/tests/suite_rs256_test.php
+          php app/tests/suite_roles_test.php
+          php app/tests/suite_preferences_test.php
+          php app/tests/ai_federation_test.php
+          php app/tests/tenant_ai_catalog_test.php
+          php app/tests/portal_auth_test.php
+          php app/tests/portal_login_test.php
+          php app/tests/portal_data_test.php
+          php app/tests/portal_companion_branding_test.php
+          php app/tests/tenant_branding_test.php
+          php app/tests/portal_ticket_workflow_test.php
+          php app/tests/portal_report_archive_test.php
+          php app/tests/portal_computer_time_test.php
+          php app/tests/portal_westy_mac_companion_test.php
+          php app/tests/portal_westy_ai_receipt_test.php
+          php app/tests/portal_westy_desktop_continuation_test.php
+          php app/tests/portal_westy_desktop_diagnostics_test.php
+          php app/tests/portal_westy_desktop_recovery_test.php
+          php app/tests/desktop_renewal_test.php
+          php app/tests/desktop_return_path_test.php
+          php app/tests/client_operational_context_test.php
+          php app/tests/logbook_export_test.php
+          php app/tests/westy_workflow_test.php
+          php app/tests/westy_billing_test.php
+          php app/tests/westy_queue_owner_test.php
+          php app/tests/westy_mail_graph_test.php
+          php app/tests/westy_mail_poll_test.php
+          php app/tests/service_goals_test.php
+          php app/tests/service_goal_policy_admin_test.php
+          php app/tests/time_entries_test.php
+          php app/tests/time_entry_adjustments_test.php
+          php app/tests/coastmark_time_export_test.php
+          php app/tests/business_reports_test.php
+          php app/tests/id_report_contacts_test.php
+          php app/tests/managed_customer_id_evidence_test.php
+          php app/tests/managed_customer_activation_test.php
+          php app/tests/managed_customer_lifecycle_test.php
+          php app/tests/suite_customer_sync_test.php
+          php app/tests/ticket_auto_close_contract_test.php
+          sudo php app/tests/desktop_cleanup_readiness_test.php
+          sudo bash app/tests/business_report_scheduler_linux_test.sh
+
+      - name: Database tests
+        run: |
+          mysql -h 127.0.0.1 -uroot -p"$DB_PASS" -e 'CREATE DATABASE signup_test_portal CHARACTER SET utf8mb4 COLLATE utf8mb4_bin; CREATE DATABASE support_mail_test'
+          php app/tests/customer_signup_portal_mysql_test.php
+          php app/tests/suite_workspace_provisioning_test.php
+          php app/tests/support_addresses_test.php
+          php app/tests/support_mail_poll_test.php
+          php app/tests/support_mailer_test.php
+          php app/tests/westy_workflow_mysql_test.php
+          php app/tests/westy_email_mysql_test.php
+          php app/tests/westy_mail_mysql_test.php
+          php app/tests/westy_mail_poll_mysql_test.php
+          php app/tests/portal_westy_mysql_test.php
+          php app/tests/portal_westy_ai_delivery_mysql_test.php
+          php app/tests/portal_westy_feedback_mysql_test.php
+          php app/tests/portal_devices_mysql_test.php
+          php app/tests/portal_employee_device_access_mysql_test.php
+          php app/tests/portal_access_mysql_test.php
+          php app/tests/portal_workspace_mysql_test.php
+          php app/tests/portal_stream_http_test.php
+          php app/tests/portal_security_orders_test.php
+          SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_mobile php app/tests/portal_mobile_test.php
+          SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_mobile php app/tests/portal_mobile_mysql_test.php
+          php app/tests/portal_mysql_test.php
+          php app/tests/time_entries_mysql_test.php
+          php app/tests/time_corrections_mysql_test.php
+          php app/tests/time_entry_adjustments_mysql_test.php
+          php app/tests/coastmark_time_export_mysql_test.php
+          php app/tests/desktop_renewal_mysql_test.php
+          php app/tests/ticket_auto_close_mysql_test.php
+          php app/tests/service_goal_policy_mysql_test.php
+          php app/tests/business_reports_mysql_test.php
+          php app/tests/id_report_contacts_mysql_test.php
+          php app/tests/suite_customer_sync_mysql_test.php
+          php app/tests/managed_customer_activation_mysql_test.php
+          php app/tests/managed_customer_lifecycle_mysql_test.php
+          php app/tests/central_issues_mysql_test.php
+
+      # These run as the web server's user, the way the runtime does, from a copy it can read.
+      - name: Westy tests as the web user
+        run: |
+          sudo install -d -o 0 -g 0 -m 0750 /etc/8west
+          sudo install -d -o 0 -g 0 -m 0755 /etc/8west/php /run/8west-desktop-cleanup
+          sudo setfacl -m u:33:--x,m::r-x /etc/8west
+          sudo install -d -o 33 -g 33 -m 0700 /run/8west-desktop-cleanup/milepost /run/8west-desktop-cleanup/safeharbor
+          echo '{"schema":"8west-selected-runtime-identities-v1","apps":{"milepost":{"mode":"legacy","user":"www-data","group":"www-data","uid":33,"gid":33},"safeharbor":{"mode":"legacy","user":"www-data","group":"www-data","uid":33,"gid":33}}}' \
+            | sudo tee /etc/8west/php/runtime-identities.json > /dev/null
+          sudo chmod 0644 /etc/8west/php/runtime-identities.json
+          copy="$(mktemp -d)"
+          chmod 0755 "$copy"
+          git archive HEAD | tar -x -C "$copy"
+          cd "$copy"
+          keep=SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER,SAFEHARBOR_WESTY_TEST_DB,SAFEHARBOR_WESTY_TEST_HOST,SAFEHARBOR_WESTY_TEST_PORT,SAFEHARBOR_WESTY_TEST_USER,SAFEHARBOR_WESTY_TEST_PASS
+          sudo -u www-data -g www-data --preserve-env="$keep" php app/tests/portal_westy_runs_mysql_test.php
+          sudo -u www-data -g www-data --preserve-env="$keep" php app/tests/portal_westy_control_mysql_test.php
+
+      # Made from config.sample.php with the throwaway database login, and deleted afterwards.
+      - name: Tests that need a settings file
+        run: |
+          php -r '$c = require "app/config/config.sample.php"; $c["db"]["user"] = "root"; $c["db"]["pass"] = getenv("DB_PASS"); file_put_contents("app/config/config.php", "<?php\nreturn " . var_export($c, true) . ";\n");'
+          trap 'rm -f app/config/config.php' EXIT
+          mysql -h 127.0.0.1 -uroot -p"$DB_PASS" -e 'CREATE DATABASE safeharbor_test'
+          php app/tests/utf8_input_test.php
+          php app/tests/support_intake_scope_test.php
+          php app/tests/suite_sso_test.php
+          php app/tests/svc_intake_test.php
+          php app/tests/svc_support_test.php
+          php app/tests/westy_report_test.php
+          php app/tests/intake_service_goal_test.php
+          php app/tests/mail_loop_guard_test.php
+
+      - name: No settings file left behind
+        if: always()
+        run: test ! -f app/config/config.php
+
+  browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -53,584 +280,15 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: tools/shots/package-lock.json
-      - name: Install browser contract dependencies
+      - name: Install the browser test tools
         working-directory: tools/shots
-        run: npm ci --ignore-scripts
-      - name: Install Chromium for browser contracts
-        working-directory: tools/shots
-        run: npx playwright install --with-deps chromium
-      - name: Test technician-time retry contracts in a real browser
-        run: node tools/shots/time-contract.test.mjs
-      - name: Test customer portal usefulness in a real browser
-        run: node tools/shots/portal-contract.test.mjs
-      - name: Test private Westy reply Copy and feedback in a real browser
-        run: node tools/shots/portal-reply-actions.test.mjs
-      - name: Test Westy ownership and reply guidance in a real browser
-        run: node tools/shots/westy-workflow-contract.test.mjs
-      - name: Test selected-computer timezone contracts
-        run: node --test tools/shots/computer-time-contract.test.mjs
-
-  # Each shard gets a separate hosted runner, checkout, MySQL service and /tmp.
-  php-core:
-    needs: changes
-    if: needs.changes.outputs.php == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
-        env:
-          MYSQL_ROOT_PASSWORD: safeharbor-test-root
-          MYSQL_DATABASE: safeharbor_portal_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Lint PHP
-        run: find app -name '*.php' -print0 | xargs -0 -n1 php -l
-      - name: Test tenant AI receipts and protected release contracts
-        env:
-          TENANT_AI_TEST_DISPOSABLE_SERVER: '1'
-          TENANT_AI_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=tenant_ai_test_safeharbor;charset=utf8mb4
-          TENANT_AI_TEST_PASS: safeharbor-test-root
         run: |
-          find deploy -maxdepth 1 -name 'tenant_ai_*.php' -print0 | xargs -0 -n1 php -l
-          php app/tests/portal_westy_ai_receipt_test.php
-          php app/tests/tenant_ai_catalog_test.php
-          php app/tests/portal_westy_desktop_continuation_test.php
-          sudo env TENANT_AI_TEST_DISPOSABLE_SERVER=1 php app/tests/tenant_ai_release_lock_test.php
-          sudo env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy -p 'test_tenant_ai_*.py'
-          mysql --protocol=tcp -h 127.0.0.1 -uroot -psafeharbor-test-root -e 'CREATE DATABASE tenant_ai_test_safeharbor CHARACTER SET utf8mb4 COLLATE utf8mb4_bin'
-          php tools/capture_tenant_ai_schema.php > "$RUNNER_TEMP/tenant-ai-schema.json"
-          php app/tests/tenant_ai_migration_db_test.php
-      - name: Test verified business signup portal binding with restricted database account
-        env:
-          CUSTOMER_SIGNUP_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=signup_test_portal;charset=utf8mb4
-          CUSTOMER_SIGNUP_TEST_PASS: safeharbor-test-root
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Browser tests
         run: |
-          mysql --protocol=tcp -h 127.0.0.1 -uroot -psafeharbor-test-root -e 'CREATE DATABASE signup_test_portal CHARACTER SET utf8mb4 COLLATE utf8mb4_bin'
-          php app/tests/customer_signup_portal_mysql_test.php
-      - name: Test suite authentication policy
-        run: php app/tests/suite_auth_policy_test.php
-      - name: Test automatic workspace and isolated support intake
-        env:
-          SUPPORT_MAIL_TEST_DSN: mysql:host=127.0.0.1;dbname=support_mail_test
-          SUPPORT_MAIL_TEST_PASS: safeharbor-test-root
-          SUPPORT_INTAKE_DISPOSABLE: '1'
-        run: |
-          mysql --protocol=tcp -h 127.0.0.1 -uroot -psafeharbor-test-root -e 'CREATE DATABASE support_mail_test'
-          php app/tests/suite_workspace_provisioning_test.php
-          php app/tests/support_addresses_test.php
-          php app/tests/support_mail_poll_test.php
-          php app/tests/support_mailer_test.php
-          test ! -e app/config/config.php
-          cp app/config/config.sample.php app/config/config.php
-          trap 'rm -f app/config/config.php' EXIT
-          php app/tests/support_intake_scope_test.php
-      - name: Test the vendored 8 West IT 365 chrome is exactly the pinned release
-        run: php app/tests/w365_vendored_test.php
-      - name: Test the suite app drawer and account menu
-        run: php app/tests/suite_chrome_test.php
-      - name: Test suite authorization-session revocation
-        run: |
-          php app/tests/suite_revocation_test.php
-          php app/tests/private_file_cache_test.php
-          php app/tests/trusted_jwks_test.php
-          php app/tests/trusted_jwks_https_test.php
-          php app/tests/private_revocation_io_test.php
-      - name: Test suite admission before database writes
-        env:
-          SAFEHARBOR_SSO_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_SSO_TEST_DB: safeharbor_sso_test
-          SAFEHARBOR_SSO_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_SSO_TEST_PORT: 3306
-          SAFEHARBOR_SSO_TEST_USER: root
-          SAFEHARBOR_SSO_TEST_PASS: safeharbor-test-root
-        run: |
-          test ! -e app/config/config.php
-          cp app/config/config.sample.php app/config/config.php
-          trap 'rm -f app/config/config.php' EXIT
-          php app/tests/suite_sso_test.php
-      - name: Test central suite logout
-        run: php app/tests/suite_logout_test.php
-      - name: Test read-only Logbook knowledge export
-        run: php app/tests/logbook_export_test.php
-      - name: Test Westy controller workflow contract
-        run: |
-          php app/tests/westy_workflow_test.php
-          php app/tests/westy_billing_test.php
-          php app/tests/westy_queue_owner_test.php
-      - name: Test dedicated Westy Graph transport and reply intake
-        run: |
-          php app/tests/westy_mail_graph_test.php
-          php app/tests/westy_mail_poll_test.php
-      - name: Test suite token algorithms
-        run: php app/tests/suite_rs256_test.php
-      - name: Test suite roles
-        run: php app/tests/suite_roles_test.php
-      - name: Test suite preferences
-        run: php app/tests/suite_preferences_test.php
-      - name: Test customer portal authentication and revocation
-        run: |
-          php app/tests/portal_auth_test.php
-          php app/tests/portal_login_test.php
-      - name: Test customer portal boundary and rendering
-        run: |
-          php app/tests/portal_data_test.php
-          php app/tests/portal_companion_branding_test.php
-          php app/tests/tenant_branding_test.php
-      - name: Test desktop cleanup readiness without a database
-        run: sudo php app/tests/desktop_cleanup_readiness_test.php
-      - name: Test desktop renewal provenance without a database
-        run: php app/tests/desktop_renewal_test.php
-      - name: Test Westy Companion for Mac instructions without a database
-        run: php app/tests/portal_westy_mac_companion_test.php
-      - name: Test customer portal ticket workflow
-        run: php app/tests/portal_ticket_workflow_test.php
-      - name: Test customer portal weekly archive access
-        run: php app/tests/portal_report_archive_test.php
-      - name: Reject committed runtime config
-        if: always()
-        run: test ! -f app/config/config.php
-
-  php-westy-control:
-    needs: changes
-    if: needs.changes.outputs.php == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
-        env:
-          MYSQL_ROOT_PASSWORD: safeharbor-test-root
-          MYSQL_DATABASE: safeharbor_portal_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Test Westy tool continuation, migrations, and control ownership
-        env:
-          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
-          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_WESTY_TEST_PORT: 3306
-          SAFEHARBOR_WESTY_TEST_USER: root
-          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
-        run: |
-          set -o pipefail
-          test "$(id -u www-data):$(id -g www-data)" = 33:33 || { echo 'FAIL readiness preflight: www-data UID/GID must be33:33' >&2; exit 1; }
-          test -x /usr/bin/getfacl || { echo 'FAIL readiness preflight: /usr/bin/getfacl unavailable' >&2; exit 1; }
-          test -x /usr/bin/setfacl || { echo 'FAIL readiness preflight: /usr/bin/setfacl unavailable' >&2; exit 1; }
-          { test ! -e /etc/8west && test ! -L /etc/8west; } || { echo 'FAIL readiness preflight: refusing existing /etc/8west authority' >&2; exit 1; }
-          { test ! -e /run/8west-desktop-cleanup && test ! -L /run/8west-desktop-cleanup; } || { echo 'FAIL readiness preflight: refusing existing cleanup runtime root' >&2; exit 1; }
-          sudo install -d -o 0 -g 0 -m 0750 /etc/8west
-          sudo install -d -o 0 -g 0 -m 0755 /etc/8west/php /run/8west-desktop-cleanup
-          sudo setfacl -m u:33:--x,m::r-x /etc/8west
-          sudo install -d -o 33 -g 33 -m 0700 /run/8west-desktop-cleanup/milepost /run/8west-desktop-cleanup/safeharbor
-          printf '%s\n' '{"schema":"8west-selected-runtime-identities-v1","apps":{"milepost":{"mode":"legacy","user":"www-data","group":"www-data","uid":33,"gid":33},"safeharbor":{"mode":"legacy","user":"www-data","group":"www-data","uid":33,"gid":33}}}' | sudo tee /etc/8west/php/runtime-identities.json > /dev/null
-          sudo chmod 0644 /etc/8west/php/runtime-identities.json
-          fixture_checkout="$PWD"
-          fixture_copy=''
-          trap '
-            fixture_exit=$?
-            sudo rm -f /etc/8west/php/runtime-identities.json || fixture_exit=1
-            sudo rmdir /run/8west-desktop-cleanup/milepost /run/8west-desktop-cleanup/safeharbor /run/8west-desktop-cleanup /etc/8west/php /etc/8west || fixture_exit=1
-            if test -n "$fixture_copy"; then
-              case "$fixture_copy" in
-                /tmp/safeharbor-readiness-ci.????????)
-                  if test -d "$fixture_copy" && test ! -L "$fixture_copy" && test "$(realpath -e -- "$fixture_copy")" = "$fixture_copy"; then
-                    rm -rf -- "$fixture_copy" || fixture_exit=1
-                  else echo "FAIL readiness cleanup: copy path is no longer the owned physical directory" >&2; fixture_exit=1; fi ;;
-                *) echo "FAIL readiness cleanup: copy path outside task prefix" >&2; fixture_exit=1 ;;
-              esac
-            fi
-            exit "$fixture_exit"
-          ' EXIT
-          if ! sudo -u www-data -g www-data test -r "$fixture_checkout/app/tests/portal_westy_runs_mysql_test.php" \
-            || ! sudo -u www-data -g www-data test -r "$fixture_checkout/app/tests/portal_westy_control_mysql_test.php"; then
-            echo 'Readiness preflight: original checkout unreadable as33; preparing tracked-HEAD test copy'
-            if git cat-file -e HEAD:app/config/config.php 2>/dev/null; then
-              echo 'FAIL readiness copy: tracked runtime config is forbidden' >&2; exit 1
-            fi
-            fixture_copy="$(mktemp -d /tmp/safeharbor-readiness-ci.XXXXXXXX)"
-            case "$fixture_copy" in /tmp/safeharbor-readiness-ci.????????) ;; *) echo 'FAIL readiness copy: invalid task prefix' >&2; exit 1 ;; esac
-            { test ! -L "$fixture_copy" && test "$(realpath -e -- "$fixture_copy")" = "$fixture_copy"; } || { echo 'FAIL readiness copy: nonphysical task root' >&2; exit 1; }
-            chmod 0755 "$fixture_copy"
-            git archive --format=tar HEAD | tar -xf - -C "$fixture_copy"
-            test ! -e "$fixture_copy/app/config/config.php" || { echo 'FAIL readiness copy: runtime config present' >&2; exit 1; }
-            fixture_checkout="$fixture_copy"
-          fi
-          sudo -u www-data -g www-data test -r "$fixture_checkout/app/tests/portal_westy_runs_mysql_test.php" || { echo 'FAIL readiness preflight: selected runs script unreadable as33' >&2; exit 1; }
-          sudo -u www-data -g www-data test -r "$fixture_checkout/app/tests/portal_westy_control_mysql_test.php" || { echo 'FAIL readiness preflight: selected control script unreadable as33' >&2; exit 1; }
-          (cd "$fixture_checkout"
-          sudo -u www-data -g www-data env \
-            SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER="$SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER" \
-            SAFEHARBOR_WESTY_TEST_DB="$SAFEHARBOR_WESTY_TEST_DB" \
-            SAFEHARBOR_WESTY_TEST_HOST="$SAFEHARBOR_WESTY_TEST_HOST" \
-            SAFEHARBOR_WESTY_TEST_PORT="$SAFEHARBOR_WESTY_TEST_PORT" \
-            SAFEHARBOR_WESTY_TEST_USER="$SAFEHARBOR_WESTY_TEST_USER" \
-            SAFEHARBOR_WESTY_TEST_PASS="$SAFEHARBOR_WESTY_TEST_PASS" \
-            php app/tests/portal_westy_runs_mysql_test.php
-          )
-          php app/tests/endpoint_tool_runs_migration_mysql_test.php
-          php app/tests/endpoint_tool_runs_v2_migration_mysql_test.php
-          (cd "$fixture_checkout"
-          sudo -u www-data -g www-data env \
-            SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER="$SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER" \
-            SAFEHARBOR_WESTY_TEST_DB="$SAFEHARBOR_WESTY_TEST_DB" \
-            SAFEHARBOR_WESTY_TEST_HOST="$SAFEHARBOR_WESTY_TEST_HOST" \
-            SAFEHARBOR_WESTY_TEST_PORT="$SAFEHARBOR_WESTY_TEST_PORT" \
-            SAFEHARBOR_WESTY_TEST_USER="$SAFEHARBOR_WESTY_TEST_USER" \
-            SAFEHARBOR_WESTY_TEST_PASS="$SAFEHARBOR_WESTY_TEST_PASS" \
-            php app/tests/portal_westy_control_mysql_test.php
-          )
-      - name: Reject shard runtime config after tests
-        if: always()
-        run: test ! -f app/config/config.php
-
-  php-westy-portal:
-    needs: changes
-    if: needs.changes.outputs.php == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
-        env:
-          MYSQL_ROOT_PASSWORD: safeharbor-test-root
-          MYSQL_DATABASE: safeharbor_portal_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Test Westy workflow, mail, and AI delivery ownership
-        env:
-          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
-          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_WESTY_TEST_PORT: 3306
-          SAFEHARBOR_WESTY_TEST_USER: root
-          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
-        run: |
-          php app/tests/westy_workflow_mysql_test.php
-          php app/tests/westy_email_mysql_test.php
-          php app/tests/westy_mail_mysql_test.php
-          php app/tests/westy_mail_poll_mysql_test.php
-          php app/tests/portal_westy_mysql_test.php
-          php app/tests/portal_westy_ai_delivery_mysql_test.php
-      - name: Test portal device access, workspace, and security ownership
-        env:
-          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
-          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_WESTY_TEST_PORT: 3306
-          SAFEHARBOR_WESTY_TEST_USER: root
-          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
-        run: |
-          php app/tests/portal_devices_mysql_test.php
-          php app/tests/portal_employee_device_access_mysql_test.php
-          php app/tests/portal_access_mysql_test.php
-          php app/tests/portal_workspace_mysql_test.php
-          php app/tests/portal_stream_http_test.php
-          php app/tests/portal_security_orders_test.php
-      - name: Test private Westy feedback ownership, linkage, replay and erasure
-        env:
-          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test
-          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_WESTY_TEST_PORT: 3306
-          SAFEHARBOR_WESTY_TEST_USER: root
-          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
-        run: php app/tests/portal_westy_feedback_mysql_test.php
-      - name: Test customer mobile projection and real binding isolation
-        env:
-          SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_WESTY_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_WESTY_TEST_PORT: '3306'
-          SAFEHARBOR_WESTY_TEST_USER: root
-          SAFEHARBOR_WESTY_TEST_PASS: safeharbor-test-root
-          SAFEHARBOR_WESTY_TEST_DB: safeharbor_westy_test_mobile
-        run: |
-          php app/tests/portal_mobile_test.php
-          php app/tests/portal_mobile_mysql_test.php
-      - name: Reject shard runtime config after tests
-        if: always()
-        run: test ! -f app/config/config.php
-
-  php-time:
-    needs: changes
-    if: needs.changes.outputs.php == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
-        env:
-          MYSQL_ROOT_PASSWORD: safeharbor-test-root
-          MYSQL_DATABASE: safeharbor_portal_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Test service goals
-        run: php app/tests/service_goals_test.php
-      - name: Test service-goal policy publication
-        run: php app/tests/service_goal_policy_admin_test.php
-      - name: Test time provenance bridge
-        run: php app/tests/time_provenance_bridge_test.php
-      - name: Test approval-grade technician time
-        run: php app/tests/time_entries_test.php
-      - name: Test append-only approved-time adjustments
-        run: php app/tests/time_entry_adjustments_test.php
-      - name: Test approval-grade time migration and database guards
-        env:
-          SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_TIME_TEST_DB: safeharbor_time_test
-          SAFEHARBOR_TIME_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_TIME_TEST_PORT: 3306
-          SAFEHARBOR_TIME_TEST_USER: root
-          SAFEHARBOR_TIME_TEST_PASS: safeharbor-test-root
-        run: php app/tests/time_entries_mysql_test.php
-      - name: Test time corrections and measured overlap races
-        env:
-          SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_TIME_TEST_DB: safeharbor_time_test
-          SAFEHARBOR_TIME_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_TIME_TEST_PORT: 3306
-          SAFEHARBOR_TIME_TEST_USER: root
-          SAFEHARBOR_TIME_TEST_PASS: safeharbor-test-root
-        run: php app/tests/time_corrections_mysql_test.php
-      - name: Test approved-time adjustment migration, guards, and version race
-        env:
-          SAFEHARBOR_TIME_ADJUSTMENT_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_TIME_ADJUSTMENT_TEST_DB: safeharbor_time_adjustment_test
-          SAFEHARBOR_TIME_ADJUSTMENT_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_TIME_ADJUSTMENT_TEST_PORT: 3306
-          SAFEHARBOR_TIME_ADJUSTMENT_TEST_USER: root
-          SAFEHARBOR_TIME_ADJUSTMENT_TEST_PASS: safeharbor-test-root
-        run: php app/tests/time_entry_adjustments_mysql_test.php
-      - name: Test Coastmark approved-time export contract
-        run: php app/tests/coastmark_time_export_test.php
-      - name: Test Coastmark v3 export migration, locking, and least privilege
-        env:
-          SAFEHARBOR_COASTMARK_V3_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_COASTMARK_V3_TEST_DB: safeharbor_coastmark_v3_test
-          SAFEHARBOR_COASTMARK_V3_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_COASTMARK_V3_TEST_PORT: 3306
-          SAFEHARBOR_COASTMARK_V3_TEST_USER: root
-          SAFEHARBOR_COASTMARK_V3_TEST_PASS: safeharbor-test-root
-        run: php app/tests/coastmark_time_export_mysql_test.php
-      - name: Test desktop renewal handoff and session authority
-        env:
-          MILEPOST_TEST_DB_HOST: 127.0.0.1
-          MILEPOST_TEST_DB_NAME: milepost_safeharbor_test
-          MILEPOST_TEST_DB_ALLOW_DROP: 'YES'
-          MILEPOST_TEST_DB_PASS: safeharbor-test-root
-        run: php app/tests/desktop_renewal_mysql_test.php
-      - name: Reject shard runtime config after tests
-        if: always()
-        run: test ! -f app/config/config.php
-
-  php-customers:
-    needs: changes
-    if: needs.changes.outputs.php == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
-        env:
-          MYSQL_ROOT_PASSWORD: safeharbor-test-root
-          MYSQL_DATABASE: safeharbor_portal_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -psafeharbor-test-root"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Test scheduled archived business reports
-        run: |
-          bash -n app/cron/run_business_reports.sh
-          bash -n deploy/manage-business-report-scheduler.sh
-          bash -n deploy/hash-safeharbor-app-artifact.sh
-          bash -n deploy/remote-install-safeharbor-app.sh
-          bash -n deploy/deploy.sh
-          php app/tests/business_reports_test.php
-          sudo bash app/tests/business_report_scheduler_linux_test.sh
-      - name: Test 8 West ID report-contact client contract
-        run: php app/tests/id_report_contacts_test.php
-      - name: Test managed-customer activation contract
-        run: |
-          php app/tests/managed_customer_id_evidence_test.php
-          php app/tests/managed_customer_activation_test.php
-          php app/tests/managed_customer_lifecycle_test.php
-      - name: Test Milepost customer-sync contract
-        run: php app/tests/suite_customer_sync_test.php
-      - name: Test signed Milepost alert intake handler
-        env:
-          SAFEHARBOR_SVC_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_SVC_TEST_DB: safeharbor_svc_test
-          SAFEHARBOR_SVC_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_SVC_TEST_PORT: 3306
-          SAFEHARBOR_SVC_TEST_USER: root
-          SAFEHARBOR_SVC_TEST_PASS: safeharbor-test-root
-        run: |
-          test ! -e app/config/config.php
-          cp app/config/config.sample.php app/config/config.php
-          trap 'rm -f app/config/config.php' EXIT
-          php app/tests/svc_intake_test.php
-      - name: Test ticket automatic-closure ownership contract
-        run: php app/tests/ticket_auto_close_contract_test.php
-      - name: Test ticket automatic-closure migration and guards
-        env:
-          SAFEHARBOR_AUTO_CLOSE_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_AUTO_CLOSE_TEST_DB: safeharbor_auto_close_test
-          SAFEHARBOR_AUTO_CLOSE_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_AUTO_CLOSE_TEST_PORT: 3306
-          SAFEHARBOR_AUTO_CLOSE_TEST_USER: root
-          SAFEHARBOR_AUTO_CLOSE_TEST_PASS: safeharbor-test-root
-        run: php app/tests/ticket_auto_close_mysql_test.php
-      - name: Test customer portal migration and tenant isolation
-        env:
-          SAFEHARBOR_PORTAL_TEST_DB: safeharbor_portal_test
-          SAFEHARBOR_PORTAL_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_PORTAL_TEST_PORT: 3306
-          SAFEHARBOR_PORTAL_TEST_USER: root
-          SAFEHARBOR_PORTAL_TEST_PASS: safeharbor-test-root
-        run: php app/tests/portal_mysql_test.php
-      - name: Test service-goal policy migration and publication guards
-        env:
-          SAFEHARBOR_SERVICE_GOAL_TEST_DB: safeharbor_service_goal_test
-          SAFEHARBOR_SERVICE_GOAL_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_SERVICE_GOAL_TEST_PORT: 3306
-          SAFEHARBOR_SERVICE_GOAL_TEST_USER: root
-          SAFEHARBOR_SERVICE_GOAL_TEST_PASS: safeharbor-test-root
-        run: php app/tests/service_goal_policy_mysql_test.php
-      - name: Test business report migration and delivery state machine
-        env:
-          SAFEHARBOR_REPORT_TEST_DB: safeharbor_report_test
-          SAFEHARBOR_REPORT_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_REPORT_TEST_PORT: 3306
-          SAFEHARBOR_REPORT_TEST_USER: root
-          SAFEHARBOR_REPORT_TEST_PASS: safeharbor-test-root
-        run: php app/tests/business_reports_mysql_test.php
-      - name: Test ID report-contact evidence migration and runtime guards
-        env:
-          SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_ID_REPORT_TEST_DB: safeharbor_id_report_test
-          SAFEHARBOR_ID_REPORT_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_ID_REPORT_TEST_PORT: 3306
-          SAFEHARBOR_ID_REPORT_TEST_USER: root
-          SAFEHARBOR_ID_REPORT_TEST_PASS: safeharbor-test-root
-        run: php app/tests/id_report_contacts_mysql_test.php
-      - name: Test customer-sync migration, receipts, and preserved history
-        env:
-          SAFEHARBOR_CUSTOMER_SYNC_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_CUSTOMER_SYNC_TEST_DB: safeharbor_customer_sync_test
-          SAFEHARBOR_CUSTOMER_SYNC_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_CUSTOMER_SYNC_TEST_PORT: 3306
-          SAFEHARBOR_CUSTOMER_SYNC_TEST_USER: root
-          SAFEHARBOR_CUSTOMER_SYNC_TEST_PASS: safeharbor-test-root
-        run: php app/tests/suite_customer_sync_mysql_test.php
-      - name: Test managed-customer activation migration and worker race
-        env:
-          SAFEHARBOR_ACTIVATION_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_ACTIVATION_TEST_DB: safeharbor_activation_test
-          SAFEHARBOR_ACTIVATION_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_ACTIVATION_TEST_PORT: 3306
-          SAFEHARBOR_ACTIVATION_TEST_USER: root
-          SAFEHARBOR_ACTIVATION_TEST_PASS: safeharbor-test-root
-        run: php app/tests/managed_customer_activation_mysql_test.php
-      - name: Test managed-customer lifecycle migration, rollback, and worker race
-        env:
-          SAFEHARBOR_LIFECYCLE_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_LIFECYCLE_TEST_DB: safeharbor_lifecycle_test
-          SAFEHARBOR_LIFECYCLE_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_LIFECYCLE_TEST_PORT: 3306
-          SAFEHARBOR_LIFECYCLE_TEST_USER: root
-          SAFEHARBOR_LIFECYCLE_TEST_PASS: safeharbor-test-root
-        run: php app/tests/managed_customer_lifecycle_mysql_test.php
-      - name: Test Central private history, isolation, replay and erasure
-        env:
-          SAFEHARBOR_CENTRAL_TEST_DISPOSABLE_SERVER: '1'
-          SAFEHARBOR_CENTRAL_TEST_DB: safeharbor_central_test
-          SAFEHARBOR_CENTRAL_TEST_HOST: 127.0.0.1
-          SAFEHARBOR_CENTRAL_TEST_PORT: 3306
-          SAFEHARBOR_CENTRAL_TEST_USER: root
-          SAFEHARBOR_CENTRAL_TEST_PASS: safeharbor-test-root
-        run: php app/tests/central_issues_mysql_test.php
-      - name: Reject shard runtime config after tests
-        if: always()
-        run: test ! -f app/config/config.php
-
-  # Keep the existing public status even when selection fails or shards skip.
-  php:
-    needs: [changes, php-core, php-westy-control, php-westy-portal, php-time, php-customers]
-    if: ${{ always() }}
-    runs-on: ubuntu-slim
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Require every selected PHP shard
-        env:
-          PHP_NEEDS: ${{ toJSON(needs) }}
-        run: python3 -B .github/scripts/ci_php_result.py
-
-  tool-runs-protected-cli:
-    needs: changes
-    if: needs.changes.outputs.protected_cli == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    services:
-      mysql:
-        image: mysql:8.0.46
-        env:
-          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
-        ports:
-          - 3306:3306
-        volumes:
-          - /var/run/mysqld:/var/run/mysqld
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Execute root-only backup, apply, repeat, drift and lock contracts
-        run: |
-          sudo env SAFEHARBOR_TOOL_RUNS_CLI_TEST=1 \
-            SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER=1 \
-            SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_cli \
-            SAFEHARBOR_WESTY_TEST_HOST=127.0.0.1 \
-            SAFEHARBOR_WESTY_TEST_USER=root \
-            php app/tests/endpoint_tool_runs_cli_mysql_test.php
-          sudo env SAFEHARBOR_TOOL_RUNS_CLI_TEST=1 \
-            SAFEHARBOR_WESTY_TEST_DISPOSABLE_SERVER=1 \
-            SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_cli_v2 \
-            SAFEHARBOR_WESTY_TEST_HOST=127.0.0.1 \
-            SAFEHARBOR_WESTY_TEST_USER=root \
-            php app/tests/endpoint_tool_runs_v2_cli_mysql_test.php
+          node tools/shots/time-contract.test.mjs
+          node tools/shots/portal-contract.test.mjs
+          node tools/shots/portal-reply-actions.test.mjs
+          node tools/shots/westy-workflow-contract.test.mjs
+          node --test tools/shots/computer-time-contract.test.mjs

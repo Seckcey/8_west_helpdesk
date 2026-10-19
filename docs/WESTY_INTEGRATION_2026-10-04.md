@@ -112,7 +112,7 @@ or general capacity results. No paid calls or actual customer repairs were used.
 Release requires final ID/Milepost coupling, reviewed bindings and protected
 configuration, source-gap and in-flight checks, held locks, complete recovery
 evidence and actual scoped writer closure. Follow the schema-only window in
-[TENANT_AI_RELEASE.md](TENANT_AI_RELEASE.md), explicit accepted reopening, the
+TENANT_AI_RELEASE.md (since retired), explicit accepted reopening, the
 separately reviewed exact receipt DELETE grant, then a fresh source-release
 window. Do not change an original intent to accommodate later grants or source.
 

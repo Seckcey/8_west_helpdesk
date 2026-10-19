@@ -36,7 +36,7 @@ The idle heartbeat interval in the hosted Westy delivery guard now starts after 
 
 For that release, PR Validate `38316887302` and exact-main Validate `38317375398` passed the selected changes, PHP and protected CLI jobs; browser-contracts was skipped by the existing path selection. The owner reproduced the repeated-check regression on the old code, then passed 84 device and 326 delivery checks on the fixed app tree. Current deployed artifact `bc4c48449dbd4a07f6c4a3110f80c937a44a26aa0e87f2263db821809b8502b0` matches the immutable/current release record. Reporting is active with protected configuration, cron bytes, delivery scope and original provider/recipient/approval/archive clocks preserved. The compatible source inverse is `dc074fb7` with that same configuration. A documentation-only closeout does not move the runtime.
 
-Apply the additive `20261004_tenant_ai.sql` only through the [protected release procedure](TENANT_AI_RELEASE.md), with the portal-turn schema already present. The guarded schema catalog rejects incompatible existing tables, columns, indexes, foreign keys, checks, storage properties or triggers.
+`20261004_tenant_ai.sql` is applied in production. The one-off release kit that applied it has been retired; a later schema change ships with `bash deploy/deploy.sh --migrate <file.sql>` (see `deploy/README.md`).
 
 Validation includes the pure receipt fixture, restricted-runtime portal MySQL tests, suite SSO tests and exact-schema recovery fixtures. Tests use synthetic provider adapters and isolated databases; no paid calls, production grants, production schema or native packages are changed by this work. The coordinator owns final aggregate-source validation, merge, deployment and live acceptance.
 

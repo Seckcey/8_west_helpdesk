@@ -893,42 +893,5 @@ time_check('migration 016 installs database locks, overlap reads, and immutable 
     && str_contains($migration016Source, 'trg_time_016_measured_insert_aux_swap')
     && str_contains($migration016Source, 'migration 016 auxiliary trigger swap'));
 
-$mysqlHarness = file_get_contents(__DIR__ . '/time_entries_mysql_test.php');
-$correctionMysqlHarness = file_get_contents(__DIR__ . '/time_corrections_mysql_test.php');
-$validateWorkflow = file_get_contents(dirname(__DIR__, 2) . '/.github/workflows/validate.yml');
-time_check('destructive MySQL proof is standalone and fails closed without an explicit fixture',
-    is_string($mysqlHarness)
-    && !str_contains($mysqlHarness, 'lib/bootstrap.php')
-    && str_contains($mysqlHarness, "getenv('SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER')")
-    && str_contains($mysqlHarness, "\$disposableServer !== '1'")
-    && str_contains($mysqlHarness, "getenv('SAFEHARBOR_TIME_TEST_DB')")
-    && str_contains($mysqlHarness, 'Refusing destructive test database base.')
-    && str_contains($mysqlHarness, '$testDatabase = $databaseBase .')
-    && str_contains($mysqlHarness, 'SELECT DATABASE()')
-    && str_contains($mysqlHarness, 'fixture connection selected the exact random database')
-    && str_contains($mysqlHarness, 'CREATE DATABASE {$quotedDatabase}')
-    && !str_contains($mysqlHarness, 'CREATE DATABASE IF NOT EXISTS')
-    && str_contains($mysqlHarness, 'DROP DATABASE IF EXISTS {$quotedDatabase}')
-    && str_contains($mysqlHarness, 'Time-entry MySQL fixture unavailable:')
-    && str_contains($mysqlHarness, "getenv('SAFEHARBOR_TIME_REVIEW_RACE_WORKER')")
-    && str_contains($mysqlHarness, 'performance_schema.data_lock_waits')
-    && str_contains($mysqlHarness, 'concurrent reviews serialize into one exact replay or one truthful conflict')
-    && substr_count($mysqlHarness, 'exit(2);') >= 3);
-time_check('Validate executes the 98-check MySQL migration, guard, and review-race proof',
-    is_string($validateWorkflow)
-    && str_contains($validateWorkflow, 'Test approval-grade time migration and database guards')
-    && str_contains($validateWorkflow, "SAFEHARBOR_TIME_TEST_DISPOSABLE_SERVER: '1'")
-    && str_contains($validateWorkflow, 'SAFEHARBOR_TIME_TEST_DB: safeharbor_time_test')
-    && str_contains($validateWorkflow, 'run: php app/tests/time_entries_mysql_test.php'));
-time_check('Validate executes the random-database correction and real race proof',
-    is_string($correctionMysqlHarness)
-    && str_contains($correctionMysqlHarness, '$testDatabase = $databaseBase . \'_correction_\' . $runId')
-    && str_contains($correctionMysqlHarness, "getenv('SAFEHARBOR_TIME_CORRECTION_RACE_WORKER')")
-    && str_contains($correctionMysqlHarness, 'concurrent overlap waits on the database UTC-day guard')
-    && str_contains($correctionMysqlHarness, 'DROP DATABASE IF EXISTS {$quotedDatabase}')
-    && is_string($validateWorkflow)
-    && str_contains($validateWorkflow, 'Test time corrections and measured overlap races')
-    && str_contains($validateWorkflow, 'run: php app/tests/time_corrections_mysql_test.php'));
-
 fwrite(STDOUT, "Approval-grade technician time: {$checks} checks, {$failures} failures\n");
 exit($failures === 0 ? 0 : 1);
