@@ -56,7 +56,7 @@ prepare_release() { # <stage>: shape the unpacked archive into what the server r
 
 extra_checks() { :; }             # Safeharbor has no app-specific reason to refuse a deploy
 
-# ---- Nothing below this line is specific to Safeharbor ---------------------------------------------
+# ---- Everything below this line is the same in every 8 West app's deploy script -------------------
 
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
