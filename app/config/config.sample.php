@@ -392,8 +392,9 @@ return [
         'lease_seconds' => 120,
     ],
 
-    // File storage OUTSIDE the deploy tree (deploy.sh re-chmods current/ on
-    // every release; shared/ survives untouched). The web user needs write.
+    // File storage OUTSIDE the deploy tree (a deploy removes any file under
+    // current/ that is not in git; shared/ survives untouched). The app's
+    // runtime user needs write.
     'storage' => [
         'attachments_dir' => '/srv/8west/apps/safeharbor/shared/attachments',
     ],

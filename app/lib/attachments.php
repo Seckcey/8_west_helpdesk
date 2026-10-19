@@ -1,7 +1,7 @@
 <?php
 /**
  * Attachments — uploads on replies/notes + inbound email files. Bytes live
- * OUTSIDE the deploy tree (deploy.sh re-chmods current/ on every release);
+ * OUTSIDE the deploy tree (a deploy removes any file under current/ that is not in git);
  * the DB row maps a random stored_name back to the real filename. Serving
  * is always forced-download (never inline) via public/attachment.php.
  */

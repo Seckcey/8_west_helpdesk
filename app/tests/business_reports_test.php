@@ -3108,8 +3108,6 @@ $schedulerWrapper = file_get_contents(__DIR__ . '/../cron/run_business_reports.s
 $schedulerTemplate = file_get_contents(__DIR__ . '/../../deploy/safeharbor-business-reports.cron') ?: '';
 $schedulerManager = file_get_contents(__DIR__ . '/../../deploy/manage-business-report-scheduler.sh') ?: '';
 $artifactHasher = file_get_contents(__DIR__ . '/../../deploy/hash-safeharbor-app-artifact.sh') ?: '';
-$deploySource = file_get_contents(__DIR__ . '/../../deploy/deploy.sh') ?: '';
-$remoteDeployer = file_get_contents(__DIR__ . '/../../deploy/remote-install-safeharbor-app.sh') ?: '';
 $schedulerBehaviorTest = file_get_contents(__DIR__ . '/business_report_scheduler_linux_test.sh') ?: '';
 report_check(
     'scheduler template has one exact eightwest-safeharbor wrapper invocation',
@@ -3199,23 +3197,6 @@ report_check(
         && !str_contains($schedulerManager, '/usr/bin/wget')
         && !str_contains($schedulerManager, '/usr/bin/mail')
         && !str_contains($schedulerManager, '/usr/sbin/sendmail'),
-);
-report_check(
-    'normal application deploy is serialized and records a clean full artifact without activating cron',
-    str_contains($deploySource, 'remote-install-safeharbor-app.sh')
-        && str_contains($deploySource, 'require_clean_release')
-        && str_contains($deploySource, 'archive --format=tar "$RELEASE_SHA" app brand')
-        && str_contains($deploySource, '-C "$RELEASE_STAGING"')
-        && str_contains($deploySource, '--expect-source-artifact-sha256')
-        && str_contains($remoteDeployer, 'active-report-scheduler-present')
-        && str_contains($remoteDeployer, 'legacy-report-runner-in-flight')
-        && str_contains($remoteDeployer, '/usr/bin/flock --exclusive --nonblock 9')
-        && str_contains($remoteDeployer, 'staged-source-artifact-digest-mismatch')
-        && str_contains($remoteDeployer, 'source-artifact-digest-mismatch')
-        && str_contains($remoteDeployer, 'current-app-artifact.manifest')
-        && str_contains($remoteDeployer, 'SAFEHARBOR_DEPLOY=installed-under-exclusive-report-lock')
-        && !str_contains($deploySource, 'manage-business-report-scheduler.sh')
-        && !str_contains($remoteDeployer, '/usr/bin/install -o root -g root -m 0644 -- "$CRON_SOURCE"'),
 );
 report_check(
     'CI executes Linux scheduler lifecycle artifact logger and deploy-quiescence tests',

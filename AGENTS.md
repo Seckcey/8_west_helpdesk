@@ -77,7 +77,7 @@ reference (`/srv/8west/apps/milepost/current` on the box): page-per-file in
 
 # app — no build; lint, deploy, verify
 find app -name "*.php" -print0 | xargs -0 -n1 php -l
-SERVER=ubuntu@<origin-ip> KEY=~/.ssh/milepost.pem bash deploy/deploy.sh
+bash deploy/deploy.sh                                 # also --check, --rollback, --migrate (deploy/README.md)
 # UI verification: set an explicit local/staging target and account inputs first.
 # walkthrough uses BASE; westy-check uses SH_BASE. Both require SH_EMAIL/SH_PASSWORD.
 cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/shots
@@ -219,22 +219,18 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
 
 ## Ops lessons written in blood (2026-08-01/02)
 
-- **Pull before you sprint; deploy only from committed main.** Two
-  checkouts deployed to the box the same night and silently overwrote
-  each other's shared files. `git pull --ff-only` before work, commit,
-  then deploy.
-- **SSH uses the origin IP, not the domain.** safeharbor.8westit.com is
-  Cloudflare-proxied — port 22 times out on the hostname. Deploy with
-  `SERVER=ubuntu@<origin-ip> KEY=<milepost.pem> bash deploy/deploy.sh`
-  (Frank has the IP + key; the pem never enters git or chat).
-- **Migrations are manual and order-specific.** Never infer deploy-first from a
-  generic command: 007 and 010 through 016 were migration-first. For a
-  schema-changing release, require the exact green default-branch SHA, a fresh
-  verified root-only application/config/trigger-inclusive-DB/grant backup and
-  scratch restore, the Safeharbor-only endpoint/database write freeze, the
-  archived exact Git blob plus replay/postflight, then matching source deploy.
-  Never stop shared Apache or remove fail-closed migration guards manually; see
-  `deploy/README.md`.
+- **Deploy only merged code, and only with `bash deploy/deploy.sh`.** It packs
+  a commit from `main` straight from git, backs up what it changes, and puts
+  the backup back by itself if the site check fails (`deploy/README.md`).
+  Never edit the server's code by hand: two checkouts once deployed the same
+  night and silently overwrote each other's files.
+- **SSH uses the `milepost-ec2` alias (the origin IP), not the domain.**
+  safeharbor.8westit.com is Cloudflare-proxied, so port 22 times out on the
+  hostname. The key and the IP never enter git or chat.
+- **Database changes ship with `bash deploy/deploy.sh --migrate <file>`.** The
+  script dumps the database first and applies the SQL while Safeharbor is
+  stopped. Write each migration so the previous code still runs on the new
+  schema (add tables and columns; rename or drop in a later release).
   Recorded as applied: 001 mail_queue · 002 westy/onboarding ·
   003 canned_responses · 004 attachments/threading/resurface ·
   005 presence/merge/fulltext · 006 csat · 007 suite_subject ·
@@ -265,9 +261,10 @@ cd tools/shots && node walkthrough.mjs                # screenshots → C:/tmp/s
   rebuild: PDO runs `ERRMODE_EXCEPTION`, so `suite_sso_attempt()` throws on a
   host missing `users.suite_subject`.
 - **Attachment bytes live OUTSIDE the deploy tree** at
-  `/srv/8west/apps/safeharbor/shared/attachments` (www-data 770) because
-  deploy.sh re-chmods `current/` every release. Never store uploads
-  under `current/`.
+  `/srv/8west/apps/safeharbor/shared/attachments` because everything under
+  `current/` belongs to the release: a deploy removes any file there that is
+  not in git (only `config/config.php` is kept). Never store uploads under
+  `current/`.
 - **Every string that reaches the DB from the wild goes through
   `utf8_clean()`** — mis-encoded email bytes 500 a utf8mb4 insert.
 - **Westy's prompt names only REAL UI.** Ship a feature → update

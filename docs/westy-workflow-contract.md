@@ -146,13 +146,11 @@ keeps its DML grants plus EXECUTE on this one function (not database-wide EXECUT
 The operator must grant this specific permission after installing migration 025. Direct trigger metadata inspection would require
 [MySQL TRIGGER privilege](https://dev.mysql.com/doc/mysql-infoschema-excerpt/8.0/en/information-schema-triggers-table.html).
 
-Use the existing Safeharbor runbook: exact green default-branch SHA; verified
-root-only application/config/trigger-and-routine-inclusive database/grants backup and scratch
-restore; Safeharbor-only endpoint/database write freeze; migration replay and
-postflight; matching source deploy; restore existing report scheduler and
-protected gates. Do not run this migration with the shared web runtime account.
-It needs the operator's reviewed database privileges. Leave both producer and
-receiver disabled until the exact customer and device canary is approved.
+Ship it with `bash deploy/deploy.sh --migrate app/db/migrations/025_westy_workflow.sql`.
+The deploy script backs up the database first and applies the migration as the database
+administrator while Safeharbor is stopped, never as the web runtime account. Then add the
+EXECUTE grant above. Leave both producer and receiver disabled until the exact customer and
+device canary is approved.
 
 Rollback disables the producer and receiver first, preserves all three tables and
 all receipts, and restores the prior application. Never re-enable legacy
