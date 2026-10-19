@@ -1,5 +1,10 @@
 # Solved-ticket knowledge export to Logbook
 
+> **Retired 2026-10-19.** Logbook was discontinued and stopped. This export is
+> switched off (`logbook_export.enabled` is `false`, so the endpoint answers 404)
+> and service identity 6 is inactive. The page is kept as history; the code path
+> stays until a later cleanup removes it.
+
 The September 5 release is live with the dedicated source enabled and service
 identity 6 registered. Its first scoped Logbook import found no eligible
 Safeharbor candidates; zero is a valid source result, not a failed connection.
