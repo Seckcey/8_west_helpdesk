@@ -3,16 +3,13 @@
 **October 7 correction:** the previous paired backend release installed this
 integration at `8a4d78a3ade58ce308862a7666421e8c7a57a568`. The owner installed
 private Full 1.26.7 and reported connection, control and presentation failures.
-The proposed renewal and receipt correction is documented in
-[the acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md). It is not deployed
-or accepted on the laptop yet. The October 4 candidate status below records the
+The renewal and receipt correction that followed was deployed on October 7; laptop acceptance is separate. The October 4 candidate status below records the
 earlier source checkpoint; it is not current production status.
 
 The combined source has passed its portal, device, desktop and AI checks. It is
 not deployed or accepted on a Windows endpoint. It includes the Milepost desktop
 service, ordinary-user companion, portal shell integration and selected-provider
-adapter. The existing project coordinator owns integration and release sequencing;
-see [the final integration evidence and release gates](WESTY_INTEGRATION_2026-10-04.md).
+adapter.
 
 ## Customer flow
 

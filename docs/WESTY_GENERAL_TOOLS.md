@@ -34,7 +34,7 @@ below retain their original release identities and evidence timestamps.
 The narrow Safeharbor backend is deployed at `e50ad519…`; reports and current
 read-only readiness are verified. The paired private 1.26.12 package is signed
 and independently verified, while installation and physical acceptance remain
-pending. See the [exact release and recovery record](westy-control-repair-release-2026-10-08.md).
+pending.
 The source-test and earlier owner observations below retain their original dates.
 
 Application launch uses a 45-second transport deadline, matching its existing
@@ -111,7 +111,7 @@ Its functional source before coordinator documentation is Safeharbor
 `1324cf78a4db0e17983eeb7d407b60d7840a19d0`. This document describes that source;
 deployment, private signing and owner laptop acceptance are recorded separately.
 
-The preceding October 7 [acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
+The preceding October 7 acceptance repair
 was deployed at Safeharbor `979f9f2ae7055e029aa467a8784e6e9dd20acdd9`.
 Its one-current-output-card behavior and truthful receipts remain. The new source
 supports independent command sessions, durable result recovery and renewable

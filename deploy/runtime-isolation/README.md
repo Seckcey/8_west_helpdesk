@@ -149,7 +149,7 @@ the carrier creates it; `apply`, `commit` and `inverse` retain that prerequisite
 The donor's Linux qualification does not cover this changed prepare behavior.
 The added absent-group Linux case has no CI execution result; its local root
 skip is retained. Later joined execution and its coverage limits are recorded
-in the [minimum-release acceptance record](../../docs/suite-sso-deploy-acceptance.md#2026-10-16--minimum-release-source-integration).
+in the minimum-release acceptance record.
 The composition adds the reviewed `c31fbb9` report,
 cron and ordinary-installer UID ports, and includes PR #181's unchanged cache
 PHP/tests. Its CI uses the current shards and its config preserves

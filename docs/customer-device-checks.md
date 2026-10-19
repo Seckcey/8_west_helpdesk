@@ -1,7 +1,6 @@
 # Customer computer checks
 
-The [October 3 production receipt](customer-device-checks-release-2026-10-03.md)
-records the installed source and enabled diagnostics gates. Genuine customer
+Deployed October 3, 2026, with the diagnostics gates enabled. Genuine customer
 page acceptance and an explicitly approved physical check/repair remain pending.
 
 **Your devices → Computer checks** shows a single computer's health-check and

@@ -1,6 +1,6 @@
 # Suite workspace and support intake
 
-**Production activation, September 24:** eligible future-MSP enrollment and managed-client/integration reconciliation are **on**. See the [stopping point](IT_365_STOPPING_POINT_2026_09_24.md) for effective scope and remaining inputs; conservative installation defaults below are not the live state.
+**Production activation, September 24:** eligible future-MSP enrollment and managed-client/integration reconciliation are **on**. The conservative installation defaults below are not the live state; see [where things stand](where-things-stand.md).
 
 The local-only `cron/suite_workspace_provision.php --apply` accepts the bounded
 `8west.workspace.v1` manifest on stdin. It creates/reconciles one workspace and

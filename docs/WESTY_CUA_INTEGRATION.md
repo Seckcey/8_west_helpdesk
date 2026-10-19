@@ -1,7 +1,6 @@
 # Westy Cua desktop consumer
 
-MAIN's October 11 [application release receipt](SAFEHARBOR_1_26_20_RELEASE_2026_10_11.md)
-records this consumer deployed in Safeharbor source `497a765`. The source and
+This consumer was deployed on October 11 in Safeharbor source `497a765`. The source and
 synthetic evidence below is retained; native publication, installation and
 physical/provider/customer acceptance remain separate release evidence.
 

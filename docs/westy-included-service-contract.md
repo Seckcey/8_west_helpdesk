@@ -1,7 +1,7 @@
 # Automatic completion for covered service
 
 Deployed September 14, with the exact internal pilot activated. Gates still
-default off for other scopes. See [live evidence](WESTY_INTERNAL_PILOT_RELEASE_2026_09_14.md).
+default off for other scopes.
 
 Frankie wants Westy to finish routine service without a manual billing click.
 When a verified, still-resolved workflow has no human time entries, this path

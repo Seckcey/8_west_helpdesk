@@ -75,4 +75,4 @@ if [[ -d "$DEST" ]]; then rm -rf "$DEST.previous"; mv "$DEST" "$DEST.previous"; 
 mv "$staged" "$DEST"
 rm -rf "$DEST.previous"
 echo "vendored w365 $VERSION into $DEST"
-echo "manifest sha256: $(sha256_of "$DEST/w365-manifest.json")  (pin this in the consumer guard test)"
+echo "manifest sha256: $(sha256_of "$DEST/w365-manifest.json")"

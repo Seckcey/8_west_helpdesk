@@ -17,14 +17,8 @@ published; use an authorized 8 West ID or local account.
 config/config.sample.php   host config template (config.php is server-only, gitignored)
 db/schema.sql              MySQL schema (utf8mb4 / InnoDB, tenant-scoped)
 db/seed.php                CLI demo seed — php db/seed.php
-db/migrations/             numbered SQL migrations (010 versioned service
-                           goals, 011 approval-grade time, 012 customer portal,
-                           013 business reports, 014 guarded policy publication,
-                           015 default-off Milepost customer sync, and 016 time
-                           corrections/overlap guards, 017 ID report contact,
-                           018 ticket auto-close, and 019 client-scoped report
-                           contact are applied; 020 append-only approved-time
-                           adjustments is a not-applied release candidate)
+db/migrations/             SQL migrations, shipped with deploy.sh --migrate;
+                           which are live: docs/where-things-stand.md
 db/manage_service_goals.php
                            operator-only inspect/plan/publish for one exact
                            tenant + Standard/Premium policy; reviewed digest
@@ -319,28 +313,15 @@ public/                    Apache docroot (page-per-file, like Milepost)
 
 ## Develop
 
-There is no local build. Edit, lint, deploy, verify on the server:
+There is no local build. Edit, lint, push a pull request; CI runs every test
+(`.github/workflows/validate.yml` shows each command and the throwaway database
+it needs). Database tests drop and recreate their own scratch databases, so
+point them only at a disposable MySQL server, never the live one.
 
 ```bash
 find app -name "*.php" -print0 | xargs -0 -n1 php -l     # lint
-php app/tests/service_goal_policy_admin_test.php
-# destructive only in safeharbor_service_goal_test*: php app/tests/service_goal_policy_mysql_test.php
-php app/tests/portal_auth_test.php
-php app/tests/portal_data_test.php
-php app/tests/portal_ticket_workflow_test.php
-php app/tests/portal_report_archive_test.php
-node tools/shots/portal-contract.test.mjs
-# destructive only in safeharbor_portal_test*: php app/tests/portal_mysql_test.php
-php app/tests/business_reports_test.php
-# destructive only in safeharbor_report_test*: php app/tests/business_reports_mysql_test.php
-php app/tests/id_report_contacts_test.php
-# requires an acknowledged disposable loopback MySQL server; creates and
-# finally removes one random safeharbor_id_report_test* database and user:
-# SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER=1 php app/tests/id_report_contacts_mysql_test.php
-php app/tests/suite_customer_sync_test.php
-# destructive only in safeharbor_customer_sync_test*: php app/tests/suite_customer_sync_mysql_test.php
-bash deploy/deploy.sh                                    # how-to: deploy/README.md
-cd tools/shots && node walkthrough.mjs                   # visual verification
+php app/tests/portal_auth_test.php                       # any test that needs no database
+bash deploy/deploy.sh --check                            # then deploy: deploy/README.md
 ```
 
 Demo data may be reset only on a disposable sandbox whose server-only config

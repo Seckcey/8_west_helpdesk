@@ -65,7 +65,7 @@ try {
   if (Test-Path "$Dest.previous") { Remove-Item -Recurse -Force "$Dest.previous" }
   $pin = (Get-FileHash -Algorithm SHA256 (Join-Path $Dest 'w365-manifest.json')).Hash.ToLowerInvariant()
   Write-Host "vendored w365 $Version into $Dest"
-  Write-Host "manifest sha256: $pin  (pin this in the consumer guard test)"
+  Write-Host "manifest sha256: $pin"
 } finally {
   Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 }

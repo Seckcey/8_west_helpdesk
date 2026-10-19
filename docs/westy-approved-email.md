@@ -86,5 +86,4 @@ PR #125 is live as `3d9f080` after exact-main CI, protected backup/restore,
 migration/replay and signed-in desktop/phone acceptance. The internal customer
 scope is enabled. Case 614 uses the explicitly authorized endpoint contact
 `frank@8westit.com`; saved Draft #1 awaits exact-wording approval with no send
-attempt. No laptop command is authorized here. See the
-[September 17 release record](WESTY_APPROVED_EMAIL_RELEASE_2026_09_17.md).
+attempt. No laptop command is authorized here.

@@ -1,8 +1,7 @@
 # Helpdesk / PSA competitive research — August 2026
 
 Compiled 2026-08-01 to drive Safeharbor's v1.0 MVP scope. Companion to the
-phased plan in `8_West_Helpdesk_App_Idea_and_Phased_Rollout.docx` (Section 4
-of that doc was the July snapshot; this refresh adds UX-pattern and pricing
+July phased plan (its Section 4 was the July snapshot, and the plan is in git history; this refresh adds UX-pattern and pricing
 detail from ConnectWise, Autotask, HaloPSA, Syncro, Atera, SuperOps, DeskDay,
 Help Scout, Freshdesk, Zendesk, Front, Intercom, Plain, and Linear).
 

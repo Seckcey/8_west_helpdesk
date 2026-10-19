@@ -3,7 +3,6 @@
 The September 5 release is live with the dedicated source enabled and service
 identity 6 registered. Its first scoped Logbook import found no eligible
 Safeharbor candidates; zero is a valid source result, not a failed connection.
-See the [release receipt](customer-journey-release-2026-09-05.md).
 
 `POST /api/svc/logbook_export.php` implements Logbook's existing schema-1
 `solved_tickets` importer. It reads tickets and messages only; it never creates

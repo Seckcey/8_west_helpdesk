@@ -22,8 +22,7 @@ passed; the later UX release passed `34008894778`. The existing
 Lifestyle time-billing connection is enabled for ordinary staff use, and its
 weekly report scheduler was most recently recorded restored at
 `2026-09-07T06:20:54Z` with unchanged delivery settings and original confirmed
-archive evidence. See [current status](where-things-stand.md) for final artifacts
-and the [earlier release receipt](customer-journey-release-2026-09-05.md) for history.
+archive evidence. See [current status](where-things-stand.md).
 
 At `09:34:49Z`, the new live helper and signed receiver status confirmed existing
 entry 10 / claim 1 as **In Coastmark · version 0**, invoice 9 / line 17. This
@@ -114,8 +113,7 @@ For a newly approved customer, the dependency order is:
 
 The activation worker already exists. Broad rollout is an operational scope
 decision, not evidence that these features still need to be implemented.
-See the [release sequence](customer-service-tools-release-manifest-2026-08-30.md)
-and [customer receipt contract](milepost-customer-sync-contract.md).
+See the [customer receipt contract](milepost-customer-sync-contract.md).
 
 ## 2. Support and human-approved time
 

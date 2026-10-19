@@ -72,9 +72,8 @@ Pause reports and drain the correct Safeharbor surface before the non-atomic
 source replacement. Rebind the report bundle and activation evidence only to
 the new source/artifact/marker hashes, preserving the existing protected config,
 customer, schedule, sender, recipient and immutable delivery evidence. Control
-directories must be root:root 0700 without inherited setgid. Follow the established
-[deployment controls](../deploy/README.md) and
-[previous source-only recovery procedure](SSO_RECOVERY_2026_09_25.md).
+directories must be root:root 0700 without inherited setgid. Deploy with
+[the deploy runbook](../deploy/README.md).
 
 After installation, verify the exact live artifact, unchanged config and report
 scope, active scheduler, public entry redirect and callback failure behavior.
