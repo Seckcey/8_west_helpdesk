@@ -29,11 +29,11 @@ passes its check. Every deploy and rollback adds a line to
 | Versioned service goals | **Live on v2**: Standard 480/240/120/60 minutes, Premium 240/120/60/30, elapsed UTC time, no waiting pause |
 | Approval-grade technician time | **Live**, with append-only correction slips (migration 020); original approvals stay immutable |
 | Approved time → Coastmark draft lines | **Live for the existing Lifestyle connection**, including the staff Send to billing / Open in Coastmark buttons |
-| Logbook resolved-ticket knowledge | **Live**: service identity 6 reads exports for explicitly bound customers |
+| Logbook resolved-ticket knowledge | **Retired 2026-10-19** with Logbook: `logbook_export.enabled` is `false` and service identity 6 is inactive |
 | Customer portal | **Live for the approved Lifestyle binding**; intentionally on |
 | Scheduled archived business reports | **Live for the Lifestyle schedule** (Wednesday 9:00 AM Pacific); the runner is a cron file run as `eightwest-safeharbor` |
 | 8 West ID report contacts | Active for Ventures and eligible provider-owned onboarding |
-| New-MSP onboarding, managed-client lifecycle, per-MSP integration registration | **On**. Existing-client activation stays Ventures-only |
+| New-MSP onboarding, managed-client lifecycle | **On**. Existing-client activation stays Ventures-only. Per-MSP Logbook/Cloudline integration registration retired with those apps on 2026-10-19 |
 | Customer propagation | Milepost → 8 West ID → Safeharbor is deployed for eligible MSPs; broad workers stay off |
 | Tenant AI (Westy model choice per customer) | **Live**; see `docs/TENANT_AI.md` |
 | Westy guidance for Macs | **Live** since 2026-10-19 (`53c9fbb`): on a computer that reports macOS, Westy uses no Windows-only tools and offers steps, Contact support, or RustDesk help after the person accepts. It points people to *Remote support setup* in Westy Companion for Mac, which is **not published yet** |
