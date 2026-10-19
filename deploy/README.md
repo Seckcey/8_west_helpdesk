@@ -13,18 +13,22 @@ bash deploy/deploy.sh --rollback   # undo the last deploy
 
 1. Packs the commit straight from git. Only code that is on `main` can ship.
    `bash deploy/deploy.sh <commit>` ships an older commit from `main`, which is also how to go back
-   more than one step.
-2. On the server, backs up every file it is about to replace or remove, with owners, modes and ACLs,
-   into `/srv/8west/apps/safeharbor/deploy-state/backups/<time>-<from>-to-<to>/`. With `--migrate`
-   it also dumps the database there first.
-3. Pauses the cron files that run Safeharbor code and the 365 sign-up timer
-   (`8west-suite-onboarding.timer`), takes the business-report deploy lock, and waits for running
-   jobs to finish. After 10 minutes of waiting it stops without changing anything.
+   more than one step. The server always runs `origin/main`'s copy of `deploy.sh`, so what runs as root
+   is the reviewed script, not whatever is checked out (`DEPLOY_LOCAL_SCRIPT=1` overrides that for
+   testing a change to the script itself).
+2. On the server, takes a lock so only one deploy of any app runs on the box at a time, then backs up
+   every file it is about to replace or remove, with owners, modes and ACLs, into
+   `/srv/8west/apps/safeharbor/deploy-state/backups/<time>-<from>-to-<to>/`.
+3. Pauses the cron files that run Safeharbor code, the 365 sign-up timer
+   (`8west-suite-onboarding.timer`) and the every-minute desktop cleanup
+   (`8west-desktop-cleanup-safeharbor.timer`), takes the business-report deploy lock, and waits for
+   running jobs to finish. After 10 minutes of waiting it stops without changing anything.
 4. Stops `8west-php-safeharbor.service`. Only Safeharbor goes offline; every other site keeps running.
-5. Applies any `--migrate` SQL files in the order given, then copies the changed files in. Each file
-   gets the owner, mode and ACL of the file it replaces (a new file copies a neighbour), so the
-   private-runtime rules stay exactly as they are: `ubuntu:eightwest-safeharbor`, folders `2750`,
-   files `0640`, and the web server may read only `public/`.
+5. With `--migrate`, checks there is room, dumps the database into the backup folder, and applies the
+   SQL files in the order given. Then it copies the changed files in. Each file gets the owner, mode
+   and ACL of the file it replaces (a new file copies a neighbour), so the private-runtime rules stay
+   exactly as they are: `ubuntu:eightwest-safeharbor`, folders `2750`, files `0640`, and the web server
+   may read only `public/`.
 6. Checks that the runtime user can read every new file and that PHP parses it, starts the runtime,
    and loads `https://safeharbor.8westit.com/login.php` and one stylesheet through the server's own
    HTTPS.
@@ -43,7 +47,8 @@ Ship a database change together with its code:
 bash deploy/deploy.sh --migrate app/db/migrations/032_example.sql
 ```
 
-The script dumps the database first, applies the SQL while Safeharbor is stopped, then ships the code.
+Only `.sql` files are accepted. While Safeharbor is stopped, the script dumps the database, applies
+the SQL (it gives up rather than wait more than a minute for a table lock), then ships the code.
 Write migrations so the previous code still works with the new schema: add tables and columns, and
 leave renames or drops for a later release. `--rollback` puts the code back but never the database;
 the dump in the backup folder is there if a person decides the data must go back too. Keep
@@ -59,10 +64,14 @@ earlier commit as live. Run it again to step back one more deploy. To return to 
 
 - `bash deploy/deploy.sh --check` shows the live commit, what a deploy would change, which jobs it
   would pause, what is running right now, and whether the site passes its check.
-- A deploy refuses to start while another deploy or a cold-window operation is still open.
-- If a run was killed outright, the next run (even `--check`) resumes any jobs it left paused.
+- A deploy refuses to start while another deploy (of any app) or a cold-window operation is still
+  open.
 - If your connection drops mid-deploy, the server carries on and finishes or undoes the deploy by
   itself. Run `--check` a minute later to see where it ended.
+- If a deploy was killed outright (power cut, out of memory), it leaves
+  `deploy-state/in-progress` behind. `--check` warns about it and changes nothing; the next deploy or
+  `--rollback` first puts the version from before it back, resumes its paused jobs, and stops so you
+  can run your command again.
 
 ## Server facts
 
