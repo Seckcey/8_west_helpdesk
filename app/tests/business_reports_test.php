@@ -3106,9 +3106,6 @@ report_check(
 
 $schedulerWrapper = file_get_contents(__DIR__ . '/../cron/run_business_reports.sh') ?: '';
 $schedulerTemplate = file_get_contents(__DIR__ . '/../../deploy/safeharbor-business-reports.cron') ?: '';
-$schedulerManager = file_get_contents(__DIR__ . '/../../deploy/manage-business-report-scheduler.sh') ?: '';
-$artifactHasher = file_get_contents(__DIR__ . '/../../deploy/hash-safeharbor-app-artifact.sh') ?: '';
-$schedulerBehaviorTest = file_get_contents(__DIR__ . '/business_report_scheduler_linux_test.sh') ?: '';
 report_check(
     'scheduler template has one exact eightwest-safeharbor wrapper invocation',
     substr_count(
@@ -3140,75 +3137,8 @@ report_check(
         && str_contains($schedulerWrapper, 'exit "$php_status"'),
 );
 report_check(
-    'scheduler operations install disabled from a root-only full-artifact bundle',
-    str_contains($schedulerManager, 'readonly CRON_ACTIVE="$ROOT_PREFIX/etc/cron.d/safeharbor-business-reports"')
-        && str_contains($schedulerManager, 'readonly CRON_DISABLED="$ROOT_PREFIX/etc/cron.d/safeharbor-business-reports.disabled"')
-        && str_contains($schedulerManager, '/usr/bin/install -o root -g root -m 0644 -- "$CRON_SOURCE" "$CRON_DISABLED"')
-        && str_contains($schedulerManager, "verify_metadata \"\$SCRIPT_DIR\" root root 700")
-        && str_contains($schedulerManager, 'hasher_sha256,source_artifact_sha256,deployed_artifact_sha256,release_marker_sha256')
-        && str_contains($schedulerManager, 'safeharbor-business-report-scheduler-bundle-v2')
-        && str_contains($schedulerManager, "reviewed-cron-source-has-unexpected-line")
-        && str_contains($schedulerManager, "reviewed-cron-source-schedule-count-invalid"),
-);
-report_check(
-    'artifact hasher binds every deployed file and directory except protected config',
-    str_contains($artifactHasher, "! -path \"\$APP_ROOT/config/config.php\"")
-        && str_contains($artifactHasher, "printf 'D\\0%s\\0'")
-        && str_contains($artifactHasher, "printf 'F\\0%s\\0%s\\0'")
-        && str_contains($artifactHasher, '/usr/bin/sort -z')
-        && !str_contains($artifactHasher, 'cat "$APP_ROOT/config/config.php"'),
-);
-report_check(
-    'scheduler activation binds exact artifact config sender and canary tuple evidence',
-    str_contains($schedulerManager, "safeharbor-business-report-scheduler-activation-v2")
-        && str_contains($schedulerManager, "'reports@8westit.com'")
-        && str_contains($schedulerManager, 'protected_config_sha256')
-        && str_contains($schedulerManager, 'deployed_artifact_sha256')
-        && str_contains($schedulerManager, 'release_marker_sha256')
-        && str_contains($schedulerManager, 'bundle_manifest_sha256')
-        && str_contains($schedulerManager, '--activation-evidence')
-        && str_contains($schedulerManager, '--expect-tenant-slug')
-        && str_contains($schedulerManager, '--expect-client-id')
-        && str_contains($schedulerManager, '--expect-schedule-key')
-        && str_contains($schedulerManager, '--expect-recipient'),
-);
-report_check(
-    'scheduler operations verify exact content and remove only the disabled live-control file',
-    str_contains($schedulerManager, '/usr/bin/cmp -s -- "$CRON_SOURCE" "$target"')
-        && substr_count($schedulerManager, '/usr/bin/unlink -- "$CRON_DISABLED"') === 1
-        && !preg_match('/(?:^|[\s\/])rm(?:\s|$)/m', $schedulerManager)
-        && !str_contains($schedulerManager, '--recursive'),
-);
-report_check(
-    'scheduler emergency disable always quarantines active and activation evidence',
-    str_contains($schedulerManager, "quarantine_exact_path \"\$CRON_ACTIVE\" 'cron-active'")
-        && str_contains($schedulerManager, "quarantine_exact_path \"\$ACTIVATION_RECORD\" 'activation-record'")
-        && str_contains($schedulerManager, 'SCHEDULER_IN_FLIGHT=not-stopped-check-deploy-lock')
-        && str_contains($schedulerManager, 'deliberately does not kill or wait'),
-);
-report_check(
-    'scheduler operations hash but never parse print or execute protected config',
-    !str_contains($schedulerWrapper, 'source "$PROTECTED_CONFIG"')
-        && !str_contains($schedulerManager, 'source "$PROTECTED_CONFIG"')
-        && !str_contains($schedulerManager, '/usr/bin/php "$REPORT_RUNNER"')
-        && str_contains($schedulerManager, '/usr/bin/php -l "$REPORT_RUNNER"')
-        && str_contains($schedulerManager, 'config_hash="$(sha256_file "$PROTECTED_CONFIG")"')
-        && !str_contains($schedulerManager, '/usr/bin/curl')
-        && !str_contains($schedulerManager, '/usr/bin/wget')
-        && !str_contains($schedulerManager, '/usr/bin/mail')
-        && !str_contains($schedulerManager, '/usr/sbin/sendmail'),
-);
-report_check(
-    'CI executes Linux scheduler lifecycle artifact logger and deploy-quiescence tests',
-    str_contains($schedulerBehaviorTest, 'both-path emergency disable always removes active cron')
-        && str_contains($schedulerBehaviorTest, 'runtime-owned deployment file is rejected')
-        && str_contains($schedulerBehaviorTest, 'final logger failure preserves the PHP runner status')
-        && str_contains($schedulerBehaviorTest, 'simultaneous PHP and main logger failure preserves PHP status')
-        && str_contains($schedulerBehaviorTest, 'early-closing logger cannot contaminate PHP status')
-        && str_contains($schedulerBehaviorTest, 'mid-stream logger failure cannot contaminate PHP status')
-        && str_contains($schedulerBehaviorTest, 'preflight rejects loaded-library content drift')
-        && str_contains($schedulerBehaviorTest, 'old activation evidence cannot reactivate after locked deployment')
-        && str_contains($schedulerBehaviorTest, 'deploy refuses while a report run still holds the shared lock'),
+    'scheduler wrapper never sources protected config',
+    !str_contains($schedulerWrapper, 'source "$PROTECTED_CONFIG"'),
 );
 
 $deleteTables = [];

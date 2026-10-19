@@ -1,8 +1,7 @@
-# Safeharbor archived business reports. Managed only by
-# deploy/manage-business-report-scheduler.sh after an exact root-only activation
-# record binds the reviewed release/config, reports@8westit.com canary, and
-# tenant/client/schedule/recipient tuple. The wrapper also holds the shared side
-# of Safeharbor's deployment lock for its complete run.
+# Safeharbor archived business reports. Installed as /etc/cron.d/safeharbor-business-reports
+# (root:root 0644); rename it to safeharbor-business-reports.disabled to pause reports.
+# The wrapper holds the shared side of Safeharbor's deployment lock for its complete run.
+# See docs/business-reports-contract.md, "Scheduler".
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=""

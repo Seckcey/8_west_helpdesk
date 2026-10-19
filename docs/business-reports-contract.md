@@ -583,249 +583,54 @@ report body. `submitted` must be
 reported to operators as provider acceptance only. Recipient confirmation is a
 separate acceptance fact.
 
-## Scheduler and canary sequence
+## Scheduler
 
-`app/cron/business_reports.php` is bounded and protected by a MySQL advisory
-lock. Enumeration skips every active schedule whose exact schedule key,
-tenant, client, recipient, or canary flag is outside protected configuration.
-Generation and pending/expired delivery enumeration are independent, so an
-archive created while delivery is off can be handled after an explicit
-delivery gate change. Installing a cron entry is a separate production action;
-the repository deploy does not edit crontab.
+`app/cron/business_reports.php` is bounded and protected by a MySQL advisory lock. Enumeration
+skips every active schedule whose exact schedule key, tenant, client, recipient or canary flag is
+outside protected configuration. Generation and delivery are independent, so an archive created
+while delivery is off can be handled after the delivery gate changes.
 
-The release-ready operations bundle is deliberately separate from normal
-deployment:
+The schedule is one cron file, `deploy/safeharbor-business-reports.cron`, installed on the server
+as `/etc/cron.d/safeharbor-business-reports` (root:root 0644). Every five minutes it runs
+`app/cron/run_business_reports.sh` as `eightwest-safeharbor`; the PHP schedule decides whether a
+weekly period is due.
 
-- `app/cron/run_business_reports.sh` refuses any user except `www-data`, pins
-  the exact `ubuntu:www-data` 2750/0640 deployment metadata, and takes a shared
-  persistent root-owned lock at
-  `/var/lib/safeharbor-report-scheduler/business-reports-deploy.lock` before it
-  reads runner code. It preserves PHP's failure status even if the final
-  error-log call fails and records output under
-  `safeharbor-business-reports`;
-- `deploy/remote-install-safeharbor-app.sh` is staged by `deploy/deploy.sh` as
-  an exact SHA-256-verified root-only file alongside the reviewed complete-app
-  hasher. The local half refuses a dirty Git release and builds the app plus
-  derived brand files from that exact commit's Git archive. The remote half refuses
-  while the active cron name exists, refuses an exact legacy runner that
-  predates locking, takes the exclusive side of the same persistent lock,
-  verifies the incoming app in root-only staging against the clean source
-  digest before live extraction, preserves the
-  protected config, then records the complete post-cache-stamp artifact in a
-  root-only current marker plus a uniquely named immutable record. It never
-  installs or enables cron. A normal release must therefore stop scheduling
-  before the existing non-atomic app extraction;
-- `deploy/safeharbor-business-reports.cron` invokes only the wrapper every five
-  minutes. The PHP schedule still decides whether a weekly period is due; and
-- `deploy/manage-business-report-scheduler.sh` trusts only a root:root 0700
-  control directory whose manager, cron template, complete-app hasher, and
-  manifest are root:root 0600. The manifest binds the exact release, manager,
-  template, hasher, clean source artifact, complete deployed artifact,
-  immutable release marker, wrapper, and runner hashes. The manager holds the
-  shared deployment lock while it re-hashes the whole app (excluding only the
-  separately bound protected config). It also verifies the entire deployed
-  tree is `ubuntu:www-data` with directories 2750 and ordinary files 0640,
-  contains no symlinks or special files, and is not writable by `www-data`.
+- The wrapper refuses any other user, checks the deployed tree's owners and modes
+  (`ubuntu:eightwest-safeharbor`, folders 2750, files 0640) and takes the shared side of
+  `/var/lib/safeharbor-report-scheduler/business-reports-deploy.lock` (root:eightwest-safeharbor;
+  folder 0750, file 0640) before it reads runner code. While a deploy holds that lock it skips the
+  run with status 75. It keeps PHP's exit status even when logging fails, and logs under
+  `safeharbor-business-reports`. `app/tests/business_report_wrapper_linux_test.sh` proves each of
+  these.
+- `deploy/deploy.sh` takes the exclusive side of the same lock, waiting up to ten minutes for a
+  running report, and pauses the cron file while it changes files.
+- To pause reports, rename the cron file:
+  `sudo mv /etc/cron.d/safeharbor-business-reports /etc/cron.d/safeharbor-business-reports.disabled`
+  (cron ignores names with a dot); move it back to resume. Turning both report gates off in
+  protected configuration stops generation and delivery even while cron runs.
 
-Do not run the manager from `/tmp`, a user-owned checkout, or a directory that
-the deployment/runtime users can alter. From an exact clean reviewed release,
-stage the three control files under `/root`, then create the manifest from the
-deploy-created immutable release record without
-copying or displaying protected config:
+Before a first send, or any change to the sender, recipient, customer or schedule, a canary must
+prove that `reports@8westit.com` itself got Graph acceptance and that the recipient confirmed the
+exact archive. Rollout order:
 
-```bash
-# Run locally from the exact clean reviewed release. Stream bytes directly into
-# root-owned host files; never execute a user-owned /tmp copy with sudo.
-RELEASE_SHA="$(git rev-parse HEAD)"
-test "$RELEASE_SHA" = EXACT_40_HEX_RELEASE_SHA
-CONTROL_DIR=/root/safeharbor-report-scheduler-$RELEASE_SHA
-MANAGER_SHA="$(sha256sum deploy/manage-business-report-scheduler.sh)"
-MANAGER_SHA="${MANAGER_SHA%% *}"
-CRON_SHA="$(sha256sum deploy/safeharbor-business-reports.cron)"
-CRON_SHA="${CRON_SHA%% *}"
-HASHER_SHA="$(sha256sum deploy/hash-safeharbor-app-artifact.sh)"
-HASHER_SHA="${HASHER_SHA%% *}"
-
-ssh milepost-ec2 \
-  "sudo install -d -o root -g root -m 0700 '$CONTROL_DIR'"
-ssh milepost-ec2 \
-  "sudo tee '$CONTROL_DIR/manage-business-report-scheduler.sh' >/dev/null \
-   && sudo chown root:root '$CONTROL_DIR/manage-business-report-scheduler.sh' \
-   && sudo chmod 0600 '$CONTROL_DIR/manage-business-report-scheduler.sh'" \
-  < deploy/manage-business-report-scheduler.sh
-ssh milepost-ec2 \
-  "sudo tee '$CONTROL_DIR/safeharbor-business-reports.cron' >/dev/null \
-   && sudo chown root:root '$CONTROL_DIR/safeharbor-business-reports.cron' \
-   && sudo chmod 0600 '$CONTROL_DIR/safeharbor-business-reports.cron'" \
-  < deploy/safeharbor-business-reports.cron
-ssh milepost-ec2 \
-  "sudo tee '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' >/dev/null \
-   && sudo chown root:root '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' \
-   && sudo chmod 0600 '$CONTROL_DIR/hash-safeharbor-app-artifact.sh'" \
-  < deploy/hash-safeharbor-app-artifact.sh
-ssh milepost-ec2 \
-  "printf '%s  %s\n' '$MANAGER_SHA' \
-      '$CONTROL_DIR/manage-business-report-scheduler.sh' \
-      '$CRON_SHA' '$CONTROL_DIR/safeharbor-business-reports.cron' \
-      '$HASHER_SHA' '$CONTROL_DIR/hash-safeharbor-app-artifact.sh' \
-   | sudo sha256sum -c"
-
-ssh milepost-ec2 "sudo bash -s -- '$CONTROL_DIR' '$RELEASE_SHA'" <<'REMOTE'
-set -euo pipefail
-dir="$1"
-release="$2"
-manager_sha="$(sha256sum "$dir/manage-business-report-scheduler.sh")"
-cron_sha="$(sha256sum "$dir/safeharbor-business-reports.cron")"
-hasher_sha="$(sha256sum "$dir/hash-safeharbor-app-artifact.sh")"
-wrapper_sha="$(sha256sum /srv/8west/apps/safeharbor/current/cron/run_business_reports.sh)"
-runner_sha="$(sha256sum /srv/8west/apps/safeharbor/current/cron/business_reports.php)"
-marker=/var/lib/safeharbor-report-scheduler/releases/current-app-artifact.manifest
-test "$(stat -c '%U:%G:%a' "$marker")" = root:root:600
-marker_release="$(sed -n 's/^release_sha=//p' "$marker")"
-source_artifact="$(sed -n 's/^source_artifact_sha256=//p' "$marker")"
-deployed_artifact="$(sed -n 's/^deployed_artifact_sha256=//p' "$marker")"
-marker_hasher="$(sed -n 's/^hasher_sha256=//p' "$marker")"
-marker_sha="$(sha256sum "$marker")"
-test "$marker_release" = "$release"
-test "$marker_hasher" = "${hasher_sha%% *}"
-unique="${marker%/*}/app-artifact.$marker_release.$deployed_artifact.manifest"
-test "$(stat -c '%U:%G:%a' "$unique")" = root:root:600
-cmp -s "$marker" "$unique"
-printf '%s\n' \
-  schema=safeharbor-business-report-scheduler-bundle-v2 \
-  release_sha="$release" \
-  manager_sha256="${manager_sha%% *}" \
-  cron_sha256="${cron_sha%% *}" \
-  hasher_sha256="${hasher_sha%% *}" \
-  source_artifact_sha256="$source_artifact" \
-  deployed_artifact_sha256="$deployed_artifact" \
-  release_marker_sha256="${marker_sha%% *}" \
-  wrapper_sha256="${wrapper_sha%% *}" \
-  runner_sha256="${runner_sha%% *}" \
-  > "$dir/scheduler-bundle.manifest"
-chown root:root "$dir/scheduler-bundle.manifest"
-chmod 0600 "$dir/scheduler-bundle.manifest"
-REMOTE
-
-ssh milepost-ec2 \
-  "sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' preflight \
-   && sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' install-disabled \
-   && sudo bash '$CONTROL_DIR/manage-business-report-scheduler.sh' verify disabled"
-```
-
-These commands are production writes and still require normal release
-authorization. They do not run a report or expose/parse protected config. The
-manager hashes config only to bind evidence. Before first activation or a change
-to the sender/recipient/customer/schedule tuple, a canary must prove that
-`reports@8westit.com` itself received Graph acceptance and that the separately
-addressed recipient confirmed the exact archive. For an authorized release-only
-restoration with verified unchanged report configuration and delivery code,
-retain the original real canary timestamps, recipient and archive hash while
-rebinding the release/artifact/config fields and recording the actual review
-time. The September 5 restoration
-records that case; it did not send a replacement test email. The mailbox
-may have no human members because sending is application-only, but that does
-not substitute for the sender-specific canary.
-
-Store the canary receipt outside Git in one root:root 0700 directory. Its
-root:root 0600 activation file must contain exactly the following keys and real
-evidence values; never use placeholders at activation:
-
-```text
-schema=safeharbor-business-report-scheduler-activation-v2
-release_sha=EXACT_40_HEX_RELEASE_SHA
-bundle_manifest_sha256=SHA256_OF_SCHEDULER_BUNDLE_MANIFEST
-deployed_artifact_sha256=SHA256_OF_COMPLETE_DEPLOYED_APP_EXCLUDING_PROTECTED_CONFIG
-release_marker_sha256=SHA256_OF_CURRENT_IMMUTABLE_RELEASE_MARKER
-protected_config_sha256=SHA256_OF_CURRENT_PROTECTED_CONFIG
-sender=reports@8westit.com
-tenant_slug=EXACT_TENANT_SLUG
-client_id=EXACT_SAFEHARBOR_CLIENT_ID
-schedule_key=EXACT_SCHEDULE_KEY
-recipient=EXACT_CONFIRMED_RECIPIENT
-graph_status=202
-graph_accepted_at=YYYY-MM-DDTHH:MM:SSZ
-recipient_confirmation=confirmed
-recipient_confirmed_at=YYYY-MM-DDTHH:MM:SSZ
-archive_sha256=EXACT_CONFIRMED_ARCHIVE_SHA256
-protected_gates_reviewed_at=YYYY-MM-DDTHH:MM:SSZ
-```
-
-The enable command repeats the exact tuple as operator intent and refuses any
-artifact/config/release/tuple mismatch:
-
-```bash
-sudo bash manage-business-report-scheduler.sh enable \
-  --activation-evidence /root/ROOT_ONLY_CANARY_RECORD/activation.env \
-  --expect-tenant-slug EXACT_TENANT_SLUG \
-  --expect-client-id EXACT_SAFEHARBOR_CLIENT_ID \
-  --expect-schedule-key EXACT_SCHEDULE_KEY \
-  --expect-recipient EXACT_CONFIRMED_RECIPIENT
-sudo bash manage-business-report-scheduler.sh verify active
-sudo journalctl -t safeharbor-business-reports --since '15 minutes ago'
-```
-
-Emergency disable always moves the active cron name and activation record to
-unique root-only evidence paths, even if a dot-disabled file already exists.
-This prevents new launches; it does **not** kill or wait for an in-flight PHP
-process. Inspect the printed preservation paths and the deployment-lock holder
-before changing application files:
-
-```bash
-sudo bash manage-business-report-scheduler.sh disable
-sudo bash manage-business-report-scheduler.sh verify stopped
-```
-
-Every later code deploy must begin from `stopped`; the deploy helper then
-refuses an active name or shared-lock holder. A failed source-artifact check
-leaves the old marker in place and requires release recovery because extraction
-is still non-atomic. After a successful deployment, every old bundle and
-activation record is intentionally stale. Rebuild the root-only bundle manifest
-from the new immutable marker, rerun preflight, and create a new artifact/config-
-bound activation record using the applicable real delivery evidence above.
-Install disabled and restore the authorized exact schedule. This does not run
-a report itself. To remove the reviewed disabled control file after stop
-(quarantined evidence remains untouched):
-
-```bash
-sudo bash manage-business-report-scheduler.sh uninstall \
-  --confirm-remove-exact-scheduler-files
-sudo bash manage-business-report-scheduler.sh verify absent
-```
-
-Controlled rollout order:
-
-1. deploy migration and code with both gates false and empty allowlists;
-2. verify zero definitions, schedules, archives, deliveries, and attempts;
-3. choose one real tenant/client, verify its 8 West ID tenant contact and
-   protected stable-key binding, and record approval outside Git;
+1. deploy the code with both gates false and empty allowlists;
+2. verify zero definitions, schedules, archives, deliveries and attempts;
+3. choose one real tenant and client, verify its 8 West ID tenant contact and protected stable-key
+   binding, and record the approval outside Git;
 4. publish, run the no-write customer plan, prepare from ID, inspect the pinned
-   key/version/digest, allowlist that exact schedule/tenant/client/recipient
-   tuple, enable, and dry-run;
-5. enable generation only, create one archive, inspect its exact hash,
-   adjustment-id cutoff, and aggregate content, then leave delivery off;
-6. enable delivery for that exact canary, run one pinned delivery, record
-   provider submission evidence, and obtain separate recipient confirmation;
-7. disable the schedule immediately on mismatch or uncertainty; and
-8. only after the canary is accepted, install the reviewed scheduler entry and
-   observe at least one scheduled period before expanding an allowlist.
+   key/version/digest, allowlist that exact schedule/tenant/client/recipient tuple, enable, and
+   dry-run;
+5. enable generation only, create one archive, inspect its exact hash, adjustment-id cutoff and
+   aggregate content, then leave delivery off;
+6. enable delivery for that exact canary, run one pinned delivery, record the provider submission,
+   and get separate recipient confirmation;
+7. disable the schedule immediately on any mismatch or uncertainty; and
+8. only after the canary is accepted, install the cron file and watch at least one scheduled period
+   before widening an allowlist.
 
-## Current controlled-canary checkpoint
-
-The earlier 8 West IT preparation remains immutable historical evidence. The
-separate 8 West Lifestyle customer canaries completed migration, contact,
-archive, one-attempt delivery, provider-acceptance, and archive-3 recipient
-confirmation checks described above. Attempts 1 and 2 remain terminal
-`uncertain` and must never be retried. Archive 3 remains terminal `submitted`;
-the inbox confirmation is acceptance evidence, not permission to resubmit it.
-The logical schedules are stopped, both report gates and the contact endpoints
-are off, and no scheduler is installed.
-
-A future dedicated-sender canary requires a new archive and a separately
-reviewed authorization window. Its evidence must show both Graph acceptance
-and recipient confirmation while pinning `reports@8westit.com` as the exact
-sender. Only then may the source-only scheduler bundle be installed and
-activated under the sequence above.
+8 West Lifestyle canary attempts 1 and 2 are terminal `uncertain` and must never be retried.
+Archive 3 is terminal `submitted`; its inbox confirmation is acceptance evidence, not permission to
+resubmit it.
 
 ## Rollback and retention
 

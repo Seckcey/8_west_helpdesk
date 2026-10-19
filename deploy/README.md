@@ -86,6 +86,14 @@ earlier commit as live. Run it again to step back one more deploy. To return to 
 - SSH: `ssh milepost-ec2`. The alias points at the origin IP; the hostname sits behind Cloudflare
   and its port 22 times out. The key and the IP never go into git.
 
+## Report schedule
+
+Business reports run from one cron file, `/etc/cron.d/safeharbor-business-reports` (its source is
+`deploy/safeharbor-business-reports.cron`). Rename it to `safeharbor-business-reports.disabled` to
+pause reports; rename it back to resume. A deploy pauses it by itself and waits for a running report.
+The old release record in `/var/lib/safeharbor-report-scheduler/releases/` belonged to the retired
+installer; nothing reads it any more, and root may delete that folder.
+
 ## What the deploy never touches
 
 - `config/config.php`, which holds the database login and the `ai`, `suite` (8 West ID), `svc`, `portal`
