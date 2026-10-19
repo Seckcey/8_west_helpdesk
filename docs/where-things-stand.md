@@ -36,6 +36,7 @@ passes its check. Every deploy and rollback adds a line to
 | New-MSP onboarding, managed-client lifecycle, per-MSP integration registration | **On**. Existing-client activation stays Ventures-only |
 | Customer propagation | Milepost → 8 West ID → Safeharbor is deployed for eligible MSPs; broad workers stay off |
 | Tenant AI (Westy model choice per customer) | **Live**; see `docs/TENANT_AI.md` |
+| Westy guidance for Macs | **Live** since 2026-10-19 (`53c9fbb`): on a computer that reports macOS, Westy uses no Windows-only tools and offers steps, Contact support, or RustDesk help after the person accepts. It points people to *Remote support setup* in Westy Companion for Mac, which is **not published yet** |
 
 ## Who may call us
 
