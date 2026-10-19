@@ -2,7 +2,7 @@
 
 Source integrated in PR #214. MAIN records the reviewed runtime
 `55211b9a0f027844b8121e6807abe754f0d6601d` installed on October 11, with original
-reporting restored. See the [release and recovery evidence](SAFEHARBOR_CLIENT_LIFECYCLE_RELEASE_2026_10_11.md).
+reporting restored.
 The affected customer's actual delivery, signed-in selector and Frankie
 acceptance remain **Not tested**; broader relevant-change sync is unfinished.
 Tracker `LOCAL-b1eb60ff-c8f5-4f8a-86f4-c23f2c92d6bc` is titled

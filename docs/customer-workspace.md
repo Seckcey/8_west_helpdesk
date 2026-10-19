@@ -37,7 +37,7 @@ installer were delivered; successful laptop acceptance is not claimed. The
 connection repair above is a separate installed backend release whose private
 package and laptop acceptance remain pending at the checkpoint above.
 
-The preceding October 7 [companion acceptance repair](WESTY_ACCEPTANCE_REPAIR_2026-10-07.md)
+The preceding October 7 companion acceptance repair
 was deployed at Safeharbor `979f9f2ae7055e029aa467a8784e6e9dd20acdd9`, adding
 bounded approved-session renewal, truthful approval/connection status and one
 current output card per process. Its private Full 1.26.8 package was signed and

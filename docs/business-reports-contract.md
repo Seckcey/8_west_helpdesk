@@ -722,7 +722,7 @@ addressed recipient confirmed the exact archive. For an authorized release-only
 restoration with verified unchanged report configuration and delivery code,
 retain the original real canary timestamps, recipient and archive hash while
 rebinding the release/artifact/config fields and recording the actual review
-time. The [September 5 restoration](customer-journey-release-2026-09-05.md)
+time. The September 5 restoration
 records that case; it did not send a replacement test email. The mailbox
 may have no human members because sending is application-only, but that does
 not substitute for the sender-specific canary.

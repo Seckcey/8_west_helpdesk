@@ -34,9 +34,7 @@ Activity shows private issues, their state and last update. The owner can start 
 
 ## Release and evidence
 
-The private owner lane was deployed and accepted on September 23, 2026. See the
-[release record](central-history-release-2026-09-23.md) for the exact source,
-migration, backup/restore, grants, service denials and unchanged scheduler scope.
+The private owner lane was deployed and accepted on September 23, 2026.
 Assistant writing remains disabled; this acceptance does not prove model inference.
 
 Additive migration 029 and canonical fresh schema must match. Default-off code is releasable independently, but activation needs verified backups and scratch restore, the Safeharbor-only write freeze, exact green-main migration/replay/postflight, matching source deployment, dedicated service identity/configuration, and the independently matched account row. Preserve the report scheduler, mail, controller and billing activation scopes. Never stop shared Apache for this release.

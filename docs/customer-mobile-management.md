@@ -9,7 +9,6 @@ diagnostics. The provider integration contract lives in Milepost's
 **Production checkpoint — October 3, 2026, 5:07 AM Pacific:** source and both
 mobile gates are deployed; the report schedule is restored. Provider setup,
 genuine customer sign-in/navigation and physical-device acceptance remain pending.
-See the [release and recovery record](customer-mobile-release-2026-10-03.md).
 
 Existing customer bindings and current authorization remain required. New
 installations default off through `portal_mobile.enabled`; the page also needs

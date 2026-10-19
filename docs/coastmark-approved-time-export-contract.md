@@ -208,3 +208,20 @@ send, posting, journal, payment, Checkout, credit, or batch action.
 If any check fails, turn off both gates and the mapping. Preserve every claim,
 receipt, Coastmark event, and draft line. Use a forward fix; do not delete
 evidence or run either migration down after evidence exists.
+
+## Database identity for the claim tool
+
+The claim CLI never uses the web or cron database login. It has its own local account, whose username
+and password live only in the protected `coastmark_time_export` config block, with exactly these grants
+and no schema-wide grant:
+
+```text
+SELECT: tenants, clients, users, suite_customer_sync_bindings, time_entries,
+        time_entry_approval_adjustments, coastmark_time_export_claims,
+        coastmark_time_export_receipts
+INSERT: coastmark_time_export_claims, coastmark_time_export_receipts
+```
+
+No `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`, `INDEX`, `REFERENCES`, `TRIGGER` or `GRANT OPTION`.
+Never broaden it to make a failing check pass. Once any claim exists, never migrate migration 021 down
+or delete claim or receipt evidence; turning the connection off is done with its gates and mapping.

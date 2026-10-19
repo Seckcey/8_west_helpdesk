@@ -2,8 +2,7 @@
 
 The compatible Safeharbor consumer is deployed from
 `1294c84edb7252b8f38cb91f9c843e3bfa55cabd`; original reporting and writers were
-restored October 10, 2026, at 5:02:10 PM Pacific. See the
-[deployment and recovery record](SAFEHARBOR_1_26_19_EMPLOYEE_DEPLOYMENT_2026_10_10.md).
+restored October 10, 2026, at 5:02:10 PM Pacific.
 Milepost assignment enforcement preceded this release. At Safeharbor's handoff,
 8 West ID invitation exposure and customer publication remained pending their
 owners. The steps below describe the paired flow, not invitations sent or
@@ -98,8 +97,6 @@ is reverted. Retain assignment and invitation history and compatible Milepost
 enforcement: an older Milepost version can restore broader historical visibility.
 The release owner must verify that the exact inverse preserves employee/viewer
 boundaries; this document does not authorize a migration or live activation.
-The [1.26.19 source-readiness manifest](SAFEHARBOR_1_26_19_EMPLOYEE_READINESS.md)
-records the complete Safeharbor source gap and its remaining release evidence.
 
 Clock-first dependency `aa35b6e7b94c60ccf8b8c31aba8cb28834115ef1` supplies the
 accepted optional `computer_time` consumer. This work preserves its nullable,

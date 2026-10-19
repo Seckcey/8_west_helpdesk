@@ -4,68 +4,33 @@
 
 # Safeharbor
 
-See [independent customer access](docs/customer-subject-access.md) for existing ID
-accounts in a customer Westy workspace, client selection and the Milepost release dependency.
+**Every client issue, safely ashore.** Safeharbor is the help desk for
+[8 West IT 365](https://8westit.com/), built by 8 West IT, LLC. Technicians manage client requests,
+conversations, service goals, approved time and reports. It works with Milepost for device and alert
+context, Coastmark for draft invoice lines, and 8 West ID for sign-in.
 
-**Every client issue, safely ashore.** Safeharbor is the help desk for the
-[8 West IT 365 suite](https://8westit.com/), built by 8 West IT, LLC. It gives
-technicians a place to manage client requests, conversations, service goals,
-approved time, and reports. It works alongside Milepost for device and alert
-context, Coastmark for draft invoice lines, and 8 West ID for suite sign-in.
+Live at [safeharbor.8westit.com](https://safeharbor.8westit.com/) for authorized accounts; it is not a
+public demo. What is switched on: [docs/where-things-stand.md](docs/where-things-stand.md).
 
-**Current state (October 2, 2026):** The service is live at
-[safeharbor.8westit.com](https://safeharbor.8westit.com/). The core desk is
-feature-complete, while the four-week dogfood gate for the v1.0 stamp remains
-open. Managed onboarding is enabled for eligible new MSP signups; the first real
-new-MSP customer journey is still unproved. See the
-[current operating status](docs/where-things-stand.md) and
-[IT 365 stopping point](docs/IT_365_STOPPING_POINT_2026_09_24.md) for the exact
-scope and verification evidence.
+## What it does
 
-MSP-owned provider/model/effort configuration is documented in [Westy tenant AI](docs/TENANT_AI.md), including its default-off configuration and [protected release procedure](docs/TENANT_AI_RELEASE.md). Source availability alone does not establish production activation.
+- **Support requests:** technician queue, conversations, internal notes, saved replies, attachments,
+  search and customer feedback. Milepost alerts and partner apps can open scoped tickets.
+- **Service and work:** versioned first-response goals, technician time with human approval and
+  correction slips, operational and scheduled business reports.
+- **Customers:** a portal for new requests, replies, ticket details and report archives, with private
+  Westy chat, device enrollment and computer checks for enabled customers.
+- **Suite:** approved time can become a *draft* invoice line in Coastmark; Coastmark owns pricing and
+  every later invoice step. Westy advises; it never approves time or sends invoices.
 
-## What Safeharbor does
+## Repository
 
-- **Handle support requests:** A technician queue, ticket conversations,
-  internal notes, saved replies, attachments, search, and customer feedback.
-  Milepost alerts and supported suite apps can also create scoped tickets.
-- **Track service and work:** Versioned first-response service goals, technician
-  time with human approval and correction history, and operational reports.
-- **Give customers a place to follow up:** The approved Lifestyle customer
-  portal supports new requests, replies, ticket details, and report archives.
-  Broader customer acceptance remains a separate step.
-  The [Phase 1 dashboard](docs/customer-portal-release-2026-10-02.md) is deployed.
-  Private Westy conversation and reviewed ticket handoff are enabled for all
-  valid active customer bindings. Eight synthetic live Luna checks passed;
-  authenticated customer acceptance and six legacy customer identity bindings
-  remain open. See the [feature contract](docs/customer-portal-phase1.md).
-  [Device enrollment](docs/customer-device-enrollment-release-2026-10-03.md) and
-  [customer computer checks](docs/customer-device-checks-release-2026-10-03.md)
-  are also deployed and enabled. Genuine customer checks/repair acceptance is
-  pending; release verification issued no device command and preserved existing
-  staff-owned support holds.
-  The [customer workspace](docs/customer-workspace.md) is deployed with incremental
-  streaming, private chat history and guarded Milepost device tools enabled.
-  The [release record](docs/customer-workspace-release-2026-10-04.md) distinguishes
-  live activation and source checks from the pending genuine customer acceptance.
-- **Connect the suite carefully:** Approved time can be sent to an existing
-  Coastmark connection as a *draft* invoice line. Coastmark owns pricing and
-  every later invoice decision. Westy offers help and guidance; it does not
-  approve time or send invoices.
-
-## Access and repository guide
-
-Safeharbor requires an authorized account; the live app is not a public demo.
-For product inquiries, visit [8 West IT](https://8westit.com/).
-
-| Location | Purpose |
+| Path | What |
 |---|---|
-| [app/](app/) | PHP application; start with the [app guide](app/README.md) |
-| [brand/](brand/) | Approved logos and [brand usage guide](brand/README.md) |
-| [docs/](docs/) | Current status, product contracts, and release evidence |
-| [deploy/](deploy/) | Operator [deployment runbook](deploy/README.md) |
+| [app/](app/) | The PHP application ([app guide](app/README.md)) |
+| [brand/](brand/) | Logos and the [brand guide](brand/README.md) |
+| [docs/](docs/) | What is live, and the contracts other apps rely on |
+| [deploy/](deploy/) | The [deploy runbook](deploy/README.md): one script, with a backup and automatic undo |
 
-The application uses PHP 8.3, MySQL, Apache, and plain JavaScript; there is no
-frontend build step. Authorized contributors should read
-[AGENTS.md](AGENTS.md) and the current status before making changes. The
-deployment runbook owns release and rollback steps.
+PHP 8.3, MySQL, Apache and plain JavaScript, with no build step. Contributors and agents start with
+[AGENTS.md](AGENTS.md).
