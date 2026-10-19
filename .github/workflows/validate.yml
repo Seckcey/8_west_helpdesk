@@ -193,7 +193,7 @@ jobs:
           php app/tests/suite_customer_sync_test.php
           php app/tests/ticket_auto_close_contract_test.php
           sudo php app/tests/desktop_cleanup_readiness_test.php
-          sudo bash app/tests/business_report_scheduler_linux_test.sh
+          sudo bash app/tests/business_report_wrapper_linux_test.sh
 
       - name: Database tests
         run: |

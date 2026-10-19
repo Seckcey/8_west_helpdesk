@@ -18,9 +18,7 @@ This composed source candidate includes the unchanged cache PHP and tests from
 `8b7f0b2fcb70e03a95db2db79dc4f1857d4a4736`, with its cache configuration and CI
 invocations reconciled onto current main. It also includes the newer cold
 renderer/installer and the reviewed dedicated-UID report and cron source ports.
-This is source composition, not a deployed release. The cold donor's selected
-Linux fixture qualification is recorded in the
-[runtime-isolation README](../deploy/runtime-isolation/README.md#selected-linux-fixture-qualification--october-15-2026).
+This is source composition, not a deployed release.
 Actual private-root provisioning, effective UID, IPC/FPM, session/temp,
 cron/CLI and deploy compatibility must pass before conditional cache-source
 integration acceptance. Component fixtures alone do not meet that condition.
@@ -64,8 +62,7 @@ all FPM sockets does not establish isolation. Keep application code runtime-
 nonwritable, app identities separate and frontend IPC unavailable to siblings.
 
 Do not copy untrusted old temp caches or drop the one-way version latch. Inside
-the root cold maintenance window (R2; see
-[deploy/runtime-isolation/README.md](../deploy/runtime-isolation/README.md)),
+the root cold maintenance window (R2),
 after the whole shared frontend has been adopted into maintenance, retired
 naturally and closed, warm the provisioned cache from fresh authenticated
 issuer authority and verify its current versioned contract through the

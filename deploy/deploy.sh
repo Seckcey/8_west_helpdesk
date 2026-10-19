@@ -38,8 +38,7 @@ CHECK_ASSET=/assets/css/app.css
 PAUSE_TIMERS=(8west-suite-onboarding.timer 8west-desktop-cleanup-safeharbor.timer)
 # The business-report runner holds the shared side of this lock while a report runs.
 REPORT_LOCK=/var/lib/safeharbor-report-scheduler/business-reports-deploy.lock
-# Where the previous deploy tool recorded the live commit; read only while current.sha does not exist.
-OLD_RELEASE_RECORD=/var/lib/safeharbor-report-scheduler/releases/current-app-artifact.manifest
+OLD_RELEASE_RECORD=''              # the live commit is in deploy-state/current.sha
 
 git_paths() { echo app brand; }   # what goes into the release archive
 
