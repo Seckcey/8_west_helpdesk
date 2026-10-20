@@ -286,7 +286,10 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
         $q=$pdo->prepare('SELECT charged_microusd FROM portal_westy_budgets WHERE tenant_id=? AND client_id=? AND month_key=?'.portal_westy_lock($pdo));$q->execute([$s['tenant'],$s['client'],$month]);
         // Count every input byte as a token plus framing overhead, at cache-write
         // rate, across at most five rounds of this attempt's output/reasoning allowance.
-        $maxOutput=portal_westy_ai_output_allowance($aiSelection,$c['monthly_microusd']-(int)$q->fetchColumn());
+        // An MSP that ticked No limit in 8 West ID has no monthly cap; the reservation
+        // and charge are still recorded below.
+        $remaining=$c['monthly_microusd']-(int)$q->fetchColumn();
+        $maxOutput=($aiSnapshot['spend_limit']??null)==='none'?PORTAL_WESTY_AI_MAX_OUTPUT:portal_westy_ai_output_allowance($aiSelection,$remaining);
         if ($maxOutput===null) throw new PortalWestyException('cost_limit',429);
         $reserve=westy_tenant_ai_reserve($aiSelection,PORTAL_WESTY_AI_MAX_INPUT,$maxOutput,5);
         $q=$pdo->prepare('SELECT COUNT(*) FROM portal_westy_ai_attempts WHERE tenant_id=? AND client_id=? AND created_at>=?');$q->execute([$s['tenant'],$s['client'],gmdate('Y-m-d 00:00:00')]);

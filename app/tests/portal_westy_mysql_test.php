@@ -31,10 +31,13 @@ $checks=0;$failed=0;
 function check(string $name,bool $condition): void{global $checks,$failed;$checks++;if(!$condition)$failed++;echo ($condition?'ok ':'FAIL ').$checks.' - '.$name."\n";}
 function denied(string $name,callable $call,?string $reason=null): void{try{$call();check($name,false);}catch(Throwable $e){check($name,$reason===null||($e instanceof PortalWestyException&&$e->reason===$reason));}}
 // Explicit provider fixture: runtime tenant resolution has no test bypass.
+$tenantTestNoLimit=false;
 function tenant_test_resolver(int $tenant,string $action,?int $revision):array {
+    global $tenantTestNoLimit;
     return ['version'=>1,'app'=>'safeharbor','local_tenant_key'=>(string)$tenant,'tenant_id'=>$tenant*100,
         'tenant_slug'=>'provider-'.$tenant,'status'=>'active','revision'=>1,'credential_version'=>1,
-        'api_key'=>'sk-synthetic-test-adapter-no-network']+westy_tenant_ai_selection('openai','gpt-6-luna','low');
+        'api_key'=>'sk-synthetic-test-adapter-no-network']+($tenantTestNoLimit?['spend_limit'=>'none']:[])
+        +westy_tenant_ai_selection('openai','gpt-6-luna','low');
 }
 function tenant_test_state(PDO $pdo,array $context):array {
     return portal_westy_state($pdo,$context,aiResolver:'tenant_test_resolver');
@@ -160,7 +163,12 @@ $failedRequest=$message('Provider outage example');tenant_test_message($pdo,$a,$
 $q=$pdo->prepare('SELECT * FROM portal_westy_turns WHERE operation_key=?');$q->execute([$failedRequest['operation']]);$row=$q->fetch();check('unknown provider cost stays reserved',$row['charged_microusd']===$row['reserve_microusd']&&$row['state']==='unavailable');
 $config['hourly_limit']=1;denied('per-subject hourly cap',fn()=>tenant_test_message($pdo,$a,$message('Another'),$provider),'hourly_limit');$config['hourly_limit']=30;
 $config['daily_limit']=1;denied('business daily cap includes other subjects',fn()=>tenant_test_message($pdo,$same,$message('Another',$same),$provider),'daily_limit');$config['daily_limit']=500;
-$config['monthly_microusd']=1;denied('cost cap reserves before provider call',fn()=>tenant_test_message($pdo,$same,$message('Another',$same),$provider),'cost_limit');$config['monthly_microusd']=5000000;
+$config['monthly_microusd']=1;denied('cost cap reserves before provider call',fn()=>tenant_test_message($pdo,$same,$message('Another',$same),$provider),'cost_limit');
+$tenantTestNoLimit=true;$unlimited=$message('Another',$same);$count=$calls;tenant_test_message($pdo,$same,$unlimited,$provider);
+$q=$pdo->prepare('SELECT state,reserve_microusd FROM portal_westy_turns WHERE operation_key=?');$q->execute([$unlimited['operation']]);$row=$q->fetch();
+check('No limit from 8 West ID lifts the monthly cap',$calls===$count+1&&$row['state']==='complete'&&$captured['max_output_tokens']===PORTAL_WESTY_AI_MAX_OUTPUT);
+check('No limit still records the reservation',(int)$row['reserve_microusd']>1);
+$tenantTestNoLimit=false;denied('the cap returns when No limit is off',fn()=>tenant_test_message($pdo,$same,$message('Another',$same),$provider),'cost_limit');$config['monthly_microusd']=5000000;
 $config['ai_enabled']=false;check('AI-off preserves conversation read',count(tenant_test_state($pdo,$a)['turns'])>0);$direct=portal_create_ticket($pdo,1,11,'client_staff','Alex','Direct fallback','normal','Direct form works while AI is off.');check('direct customer form still writes when AI is off',$direct>0);$config['ai_enabled']=true;
 $rollback=$draft();portal_westy_save_draft($pdo,$a,$rollback);$before=(int)$pdo->query('SELECT COUNT(*) FROM tickets')->fetchColumn();
 $pdo->exec("CREATE TRIGGER westy_test_receipt_failure BEFORE UPDATE ON portal_westy_drafts FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic receipt failure'");

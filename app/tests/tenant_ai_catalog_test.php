@@ -80,8 +80,14 @@ check(is_array($providerPatch) && $providerPatch['id']==='westy-input-count-2026
 foreach($manifest['files'] as $path=>$expected){
     $bytes=str_replace("\r\n","\n",file_get_contents($root.'/'.$path));
     check(hash('sha256',$bytes)===$expected,'actual canonical LF hash '.$path);
-    if($path!=='app/lib/tenant_ai/tenant_ai_contract.php' && $path!=='app/lib/tenant_ai/tenant_ai_provider.php')check($expected===$manifest['upstream_files'][$path],'unchanged upstream adapter '.$path);
+    if(!in_array($path,['app/lib/tenant_ai/tenant_ai_contract.php','app/lib/tenant_ai/tenant_ai_provider.php','app/lib/tenant_ai/tenant_ai_client.php'],true))
+        check($expected===$manifest['upstream_files'][$path],'unchanged upstream adapter '.$path);
 }
+$clientPatch=$manifest['client_spend_limit_patch']??null;
+check(is_array($clientPatch) && $clientPatch['id']==='westy-spend-limit-2026-10-20.1'
+    && $clientPatch['files']===['app/lib/tenant_ai/tenant_ai_client.php']
+    && $clientPatch['sha256']===$manifest['files']['app/lib/tenant_ai/tenant_ai_client.php']
+    && $manifest['upstream_files']['app/lib/tenant_ai/tenant_ai_client.php']==='d3a0b40da042eff0812932cfecc208f2e6f2fbe5782fd6673c3ce4f8123d54a3','only the reviewed client spend-limit patch is recorded');
 check($manifest['files']['app/lib/tenant_ai/tenant_ai_contract.php']==='9a8dfa1bcb347924307e9abf9593efa7fb4901540f3b23e071c981b40a3a8f05'
     && $manifest['upstream_files']['app/lib/tenant_ai/tenant_ai_contract.php']==='3fb920e2358c0342f3dcd215c65443d25f8ec1fc2226b9b7f4122ed3ff4d96e9','ID-acknowledged patch bytes and original upstream hash both retained');
 check($manifest['files']['app/lib/tenant_ai/tenant_ai_provider.php']==='19ac3e43d96ef2fe011de556a3f06fdd9ba15b683a016e2472884e31c0e5be0a'
