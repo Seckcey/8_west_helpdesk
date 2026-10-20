@@ -516,14 +516,20 @@
     }finally{reader.releaseLock();}
   }
   form.addEventListener('submit',async event=>{
-    event.preventDefault();if(busy||!state?.ai_available||state.turns.some(t=>t.run?.state==='waiting')||!input.value.trim())return;
-    const text=input.value.trim(),operation=messageKey(),requestEpoch=accessEpoch;currentOperation=operation;let operationExpired=false;
+    event.preventDefault();if(!input.value.trim())return;
+    // A send that cannot start says why instead of doing nothing.
+    if(busy){say(errors.busy);return;}
+    if(!state?.ai_available){say(errors.ai_unavailable);return;}
+    if(state.turns.some(t=>t.run?.state==='waiting')){say('Westy is waiting for a computer check. Wait for it to finish or stop it, then send your message.');return;}
+    const text=input.value.trim(),operation=messageKey(),requestEpoch=accessEpoch;currentOperation=operation;let operationExpired=false,refusal=null,streamTimeout=null;
     const request={action:'message',operation,message:text,conversation:state.conversation,device_reference:devices.value||null};
     const turn={operation_key:operation,input_text:text,state:'pending',reply:{reply:'',sources:[],tools:[]},reason_code:''};
-    state.turns.push(turn);busy=true;stickToBottom=true;render(state);input.value='';input.style.height='';say('Connecting to Westy…');controls();
-    streamController=new AbortController();
-    const streamTimeout=setTimeout(()=>streamController?.abort(),165000);
+    // Everything after busy is set runs inside try, so no failure can leave the composer locked.
+    busy=true;
     try{
+      state.turns.push(turn);stickToBottom=true;render(state);input.value='';input.style.height='';say('Connecting to Westy…');controls();
+      streamController=new AbortController();
+      streamTimeout=setTimeout(()=>streamController?.abort(),165000);
       const response=await fetch('/portal/westy.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'text/event-stream','X-Portal-CSRF':root.dataset.csrf},body:JSON.stringify(request),signal:streamController.signal});
       await readStream(response,(event,data)=>{
         if(event==='accepted'){state.conversation=data.conversation;say('Westy is working…');}
@@ -532,7 +538,7 @@
         if(event==='done'){render(data.state);say(state.turns.some(t=>t.run?.state==='waiting')?'Waiting for the computer check…':'Reply finished.');}
       });
     }catch(error){
-      operationExpired=error.reason==='operation_expired';
+      operationExpired=error.reason==='operation_expired';refusal=errors[error.reason]?error.reason:null;
       // An explicit pre-admission refusal leaves the request unsent. Restore it
       // before announcing refresh guidance; receipt reconciliation may be slow.
       if(operationExpired&&state&&accessEpoch===requestEpoch&&state.conversation===request.conversation)input.value=text;
@@ -541,7 +547,10 @@
     }finally{
       clearTimeout(streamTimeout);
       busy=false;streamController=null;currentOperation=null;controls();
-      if(state){await refresh(true);if(state&&!state.turns.some(t=>t.operation_key===operation)){input.value=text;say(operationExpired?errors.operation_expired:'Your message was not saved. Review it before sending again.');}input.focus();scheduleRefresh();}
+      if(state){await refresh(true);if(state&&!state.turns.some(t=>t.operation_key===operation)){input.value=text;
+        // Keep the server's reason on screen, for example the chat budget; only the restored text is new.
+        say(operationExpired?errors.operation_expired:refusal?errors[refusal]+' Your message was not sent; it is back in the box.':'Your message was not saved. Review it before sending again.');}
+        input.focus();scheduleRefresh();}
     }
   });
   const desktopResumeAttempts=new Set();

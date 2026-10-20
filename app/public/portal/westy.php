@@ -18,7 +18,9 @@ $emit=static function(string $event,array $data):void{
     echo 'event: '.$event."\n".'data: '.json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n\n";
     flush();
 };
-$fail=static function(string $reason,int $status)use(&$streaming,$emit):never{
+$fail=static function(string $reason,int $status)use(&$streaming,$emit,$method):never{
+    // A refused send names its reason code for the operator; never the message or identity.
+    if($method==='POST')error_log('[safeharbor-portal-westy] refused reason='.$reason.' status='.$status.($streaming?' stream=1':''));
     if($streaming){$emit('error',['reason'=>$reason]);exit;}
     json_out(['ok'=>false,'reason'=>$reason],$status);
 };

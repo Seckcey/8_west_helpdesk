@@ -334,10 +334,8 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     $twice=static function(callable $ok):bool{if($ok())return true;usleep(300000);return $ok();};
     $requireAi=static function()use($pdo,$context,$aiSnapshot,$aiResolver,&$aiLost):void{
         if(!$aiLost){
-            $read=static fn():array=>portal_westy_ai_snapshot($pdo,$context,$aiSnapshot['revision'],'status',$aiResolver);
-            try{$fresh=$read();}
-            catch(Throwable){usleep(300000);try{$fresh=$read();}catch(Throwable){$fresh=null;}}
-            $aiLost=!is_array($fresh)||!portal_westy_ai_same_selection($aiSnapshot,$fresh);
+            $fresh=portal_westy_ai_read_twice(static fn()=>portal_westy_ai_snapshot($pdo,$context,$aiSnapshot['revision'],'status',$aiResolver));
+            $aiLost=$fresh===null||!portal_westy_ai_same_selection($aiSnapshot,$fresh);
         }
         if($aiLost)throw new PortalWestyException('ai_changed',503);
     };

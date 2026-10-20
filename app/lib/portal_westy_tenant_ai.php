@@ -56,6 +56,19 @@ function portal_westy_ai_display(array $resolved):?array
     return ['model'=>$entry['label'],'effort'=>$effort];
 }
 
+/** An authority read that failed (an exception, or the client's "unavailable" for an unanswered,
+ * unsigned or malformed reply) is read once more, 300 ms later. Null when neither read answered.
+ * Only an answer can show a change, and a changed answer is final at once. */
+function portal_westy_ai_read_twice(callable $read):?array
+{
+    for($attempt=0;$attempt<2;$attempt++){
+        if($attempt>0)usleep(300000);
+        try{$fresh=$read();}catch(Throwable){$fresh=null;}
+        if(is_array($fresh) && ($fresh['status']??null)!=='unavailable')return $fresh;
+    }
+    return null;
+}
+
 function portal_westy_ai_same_selection(array $before,array $after):bool
 {
     foreach(['status','revision','app','local_tenant_key','tenant_id','tenant_slug','provider','model','effort','catalog','credential_version'] as $field)
@@ -255,8 +268,8 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
     try {
         for($round=0;$round<5;$round++) {
             $alive(true);
-            $resolved=portal_westy_ai_snapshot($pdo,$context,$snapshot['revision'],'resolve',$resolver);
-            if(!portal_westy_ai_same_selection($snapshot,$resolved))
+            $resolved=portal_westy_ai_read_twice(static fn()=>portal_westy_ai_snapshot($pdo,$context,$snapshot['revision'],'resolve',$resolver));
+            if($resolved===null || !portal_westy_ai_same_selection($snapshot,$resolved))
                 throw new PortalWestyException('ai_changed');
             $selection=portal_westy_ai_selection($resolved,portal_westy_config());
             $tools=portal_westy_ai_tools($pdo,$context,$selection,$desktopAvailability);
@@ -292,8 +305,8 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             }
             $receipts[]=['round'=>$round+1,'ok'=>($result['ok']??false)===true,'usage'=>$roundUsage,'cost_micro_usd'=>$roundCost];
             $alive(true);
-            $fresh=portal_westy_ai_snapshot($pdo,$context,$snapshot['revision'],'status',$resolver);
-            if(!portal_westy_ai_same_selection($snapshot,$fresh))
+            $fresh=portal_westy_ai_read_twice(static fn()=>portal_westy_ai_snapshot($pdo,$context,$snapshot['revision'],'status',$resolver));
+            if($fresh===null || !portal_westy_ai_same_selection($snapshot,$fresh))
                 throw new PortalWestyException('ai_changed');
             if(!($result['ok']??false)){
                 $buffer->discard();
@@ -496,7 +509,10 @@ function portal_westy_ai_finish(PDO $pdo,array $scope,int $turnId,int $attemptId
     try {
         // Lock and recheck current customer authority before the account/turn locks.
         // Failure suppresses delivery but must not suppress the paid receipt.
-        if(is_callable($authorized)){try{$authorized=$authorized()===true;}catch(Throwable){$authorized=false;}}
+        // A lost AI connection is recorded as such, not as lost customer access.
+        $lost='access_changed';
+        if(is_callable($authorized)){try{$authorized=$authorized()===true;}catch(Throwable $denial){$authorized=false;
+            if($denial instanceof PortalWestyException && $denial->reason==='ai_changed')$lost='ai_changed';}}
         $q=$pdo->prepare('SELECT conversation_key FROM portal_westy_accounts WHERE scope_key=? AND tenant_id=? AND client_id=?'.portal_westy_lock($pdo));
         $q->execute([$scope['key'],$scope['tenant'],$scope['client']]);$currentConversation=$q->fetchColumn();
         $q=$pdo->prepare('SELECT * FROM portal_westy_turns WHERE id=? AND scope_key=? AND tenant_id=? AND client_id=?'.portal_westy_lock($pdo));
@@ -523,7 +539,7 @@ function portal_westy_ai_finish(PDO $pdo,array $scope,int $turnId,int $attemptId
             $output=$output!==null && $turn['output_tokens']!==null?$output+(int)$turn['output_tokens']:null;
         }
         $state=$turn['state']==='pending'?($available?'complete':'unavailable'):$turn['state'];
-        $undelivered=!$authorized?'access_changed':($currentConversation!==$conversation||$turn['conversation_key']!==$conversation
+        $undelivered=!$authorized?$lost:($currentConversation!==$conversation||$turn['conversation_key']!==$conversation
             ?'conversation_changed':($turn['input_text']===null?'content_unavailable':'conversation_expired'));
         $reason=$turn['state']==='pending'?($available?'':($deliver?($result['reason']??'provider_unavailable'):$undelivered)):$turn['reason_code'];
         $reply=$deliver?json_encode($result['data'],JSON_THROW_ON_ERROR):$turn['reply_json'];

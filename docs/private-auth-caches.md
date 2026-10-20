@@ -1,5 +1,19 @@
 # Private authentication caches
 
+## Portal revocation cache — October 20, 2026
+
+The live `portal.revocation_cache_dir` still pointed at an older folder owned by the shared web
+user, so every customer-portal identity check failed with "Identity validation is temporarily
+unavailable" and nothing in the log. It now points at
+`/var/cache/8west/safeharbor/portal-revocations`, as the deployment contract below requires. The
+previous configuration is kept at
+`/srv/8west/apps/safeharbor/deploy-state/backups/config.php.before-portal-revocation-cache-2026-10-20`.
+To check the live value:
+
+```bash
+ssh milepost-ec2 'sudo grep -n "revocation_cache_dir" /srv/8west/apps/safeharbor/current/config/config.php'
+```
+
 ## Release status — October 16, 2026
 
 The ID-owned Suite v2.1 manual forward continuation is deployed, with private
