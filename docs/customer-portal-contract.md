@@ -339,11 +339,11 @@ paging, submitted fields and reload behavior, not the controller or session.
 ## OIDC authority
 
 Every vendored file under `lib/eightwestid/` is pinned by exact Git-blob digest
-in `portal_auth_test.php`, so any unreviewed drift fails CI visibly. `jwt.php`
-and `revocations.php` are the exact maintained 8 West ID
-`client-kits/php/eightwestid/` blobs at ID commit
-`6cc31c71f9b1f9ac63218c932531ea885237f470`. The other package files
-originated at `f0ec49b6106791d0ba658ca16899562fbe5b3b86`.
+in `portal_auth_test.php`, so any unreviewed drift fails CI visibly. Each one is
+the exact 8 West ID `client-kits/php/eightwestid/` blob of the same name.
+`revocations.php` comes from 8 West ID pull request 188, which logs which step of
+a failed revocation refresh failed (`[8west-id] revocation_refresh_failed
+stage=fetch|cache_write`); the others match ID's `master` as of 2026-10-20.
 
 The issuer prerequisite through `ed49db95` is deployed in production. The
 maintained-kit revision above is the reviewed client update for this release
