@@ -31,7 +31,7 @@ $settings['portal_westy']=['enabled'=>true,'ai_enabled'=>true,'tools_enabled'=>f
 $selection=['version'=>1,'app'=>'safeharbor','local_tenant_key'=>'1','tenant_id'=>100,
     'tenant_slug'=>'provider-1','status'=>'active','revision'=>1,'credential_version'=>1,
     'api_key'=>'sk-synthetic-delivery-no-network']+westy_tenant_ai_selection('openai','gpt-6-luna','low');
-$receipt=$pdo->prepare('SELECT t.reply_json,t.state,a.charged_microusd,a.reserve_microusd,a.usage_json
+$receipt=$pdo->prepare('SELECT t.reply_json,t.state,t.reason_code,a.charged_microusd,a.reserve_microusd,a.usage_json
     FROM portal_westy_turns t JOIN portal_westy_ai_attempts a ON a.turn_id=t.id WHERE t.operation_key=?');
 foreach(['revision','removed','unavailable','exception'] as $change)foreach(['stream','buffered','final_flush','finish'] as $phase){
     $current=$selection;$calls=0;$events=[];$restored=false;$returned=false;$postStatus=0;
@@ -83,6 +83,7 @@ foreach(['revision','removed','unavailable','exception'] as $change)foreach(['st
         && json_decode($row['reply_json'],true)['reply']==='Previously authorized text.'
         && !str_contains($row['reply_json'],'FORBIDDEN_AFTER_AI_CHANGE') && $row['state']==='unavailable',
         'only text delivered with valid authority remains; no replay: '.$change.'/'.$phase);
+    check($row['reason_code']==='ai_changed','a lost AI connection is recorded as ai_changed, not as lost access: '.$change.'/'.$phase);
     check(in_array($phase,['stream','buffered'],true)
         ? $usage['known']===false && $row['charged_microusd']===$row['reserve_microusd']
         : ($phase==='final_flush' || $restored) && $usage['known']===true && (int)$row['charged_microusd']===170
@@ -91,6 +92,34 @@ foreach(['revision','removed','unavailable','exception'] as $change)foreach(['st
     $current=$selection;
     portal_westy_message($pdo,$a,$request,$provider,static fn()=>$a,$emit,aiResolver:$resolver);
     check($calls===1,'restored authority cannot retry the same operation: '.$change.'/'.$phase);
+}
+// One failed authority read (an unanswered or unsigned read, or an exception) is
+// read once more at every check, so the reply still finishes normally.
+foreach(['unavailable','exception'] as $blip)foreach(['round_start','streaming','after_round'] as $where){
+    $events=[];$calls=0;$streaming=false;$returned=false;$blipped=0;
+    $resolver=static function(int $tenant,string $action,?int $revision)use(&$streaming,&$returned,&$blipped,$blip,$where,$selection):array{
+        $due=match($where){'round_start'=>$action==='resolve'&&!$returned,
+            'streaming'=>$streaming&&$action==='status',default=>$returned&&$action==='status'};
+        if($due&&$blipped===0){
+            $blipped=1;
+            if($blip==='exception')throw new RuntimeException('Synthetic authority read failure');
+            return ['status'=>'unavailable'];
+        }
+        return $selection;
+    };
+    $request=['operation'=>'f1'.sprintf('%08x',time()).bin2hex(random_bytes(11)),
+        'message'=>'Synthetic transient authority read.',
+        'conversation'=>portal_westy_state($pdo,$a,aiResolver:$resolver)['conversation']];
+    $provider=static function($ai,$system,$messages,$options,$emit,$alive)use(&$calls,&$streaming,&$returned):array{
+        ++$calls;$streaming=true;$emit('Reply after one failed read.');$streaming=false;$returned=true;
+        return ['ok'=>true,'tool_calls'=>[],'usage'=>['input'=>900,'cached_input'=>0,
+            'cache_write'=>0,'cache_write_1h'=>0,'output'=>160]];
+    };
+    $emit=static function($event,$data)use(&$events):void{if($event==='delta')$events[]=$data['text'];};
+    portal_westy_message($pdo,$a,$request,$provider,static fn()=>$a,$emit,aiResolver:$resolver);
+    $receipt->execute([$request['operation']]);$row=$receipt->fetch();
+    check($blipped===1 && $calls===1 && $events===['Reply after one failed read.'] && $row['state']==='complete',
+        'one failed authority read is read again and the reply finishes: '.$blip.'/'.$where);
 }
 foreach(['failed_result','exception'] as $failure){
     $events=[];$calls=0;

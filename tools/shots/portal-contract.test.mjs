@@ -1064,6 +1064,33 @@ if (!SERVE_MODE) test('expired message operations preserve text and require refr
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
+if (!SERVE_MODE) test('a refused send keeps its reason on screen, restores the text and leaves the composer usable',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const state={enabled:true,ai_available:true,can_write:true,conversation:'b'.repeat(32),conversations:[],turns:[],draft:null};
+  const posts=[];
+  const handler=async route=>{
+    if(route.request().method()==='GET')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state})});
+    posts.push(route.request().postDataJSON());
+    // The live refusal path: the stream opens with padding, then names its reason before any turn exists.
+    return route.fulfill({contentType:'text/event-stream',body:': '+' '.repeat(2048)+'\n\nevent: error\ndata: '+JSON.stringify({reason:'cost_limit'})+'\n\n'});
+  };
+  try{
+    const {page,context,consoleProblems}=await openPortalPage(browser,pages,{width:390,height:844},handler);
+    await page.goto(`${ORIGIN}/portal/`);
+    const input=page.getByRole('textbox',{name:'Ask Westy about your computer'});
+    await input.fill('Check the vitals of this computer.');await input.press('Enter');
+    await page.getByText('Your business has reached its chat budget. Your message was not sent; it is back in the box.',{exact:true}).waitFor();
+    assert.equal(await input.inputValue(),'Check the vitals of this computer.');assert.equal(posts.length,1);
+    assert.equal(await page.getByText('Your message was not saved',{exact:false}).count(),0,'the refusal reason is not replaced by a generic line');
+    assert.equal(await input.isDisabled(),false);
+    await Promise.all([page.waitForRequest(r=>r.method()==='POST'&&r.url().includes('/portal/westy.php')),input.press('Enter')]);
+    await page.getByText('Your business has reached its chat budget. Your message was not sent; it is back in the box.',{exact:true}).waitFor();
+    assert.equal(posts.length,2,'the composer stays usable after a refusal');assert.notEqual(posts[0].operation,posts[1].operation);
+    assert.deepEqual(consoleProblems,[]);
+    await context.close();
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
 if (!SERVE_MODE) test('desktop continuation keeps the exact completed turn and never replays an uncertain resume',async()=>{
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
   const conversation='a'.repeat(32),operation='b'.repeat(32),posts=[];
