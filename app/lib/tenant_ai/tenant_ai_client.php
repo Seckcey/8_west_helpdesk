@@ -41,6 +41,8 @@ function westy_tenant_ai_resolve(array $config, string $app, string $localKey, s
         if ($data['status']==='active') {
             $fields=array_merge($fields,['provider','model','effort','catalog','credential_version']);
             if ($action==='resolve') $fields[]='api_key';
+            // The MSP may lift the host's monthly budget. Any other value keeps that budget.
+            if (($data['spend_limit']??null)==='none') $fields[]='spend_limit';
         }
         return array_intersect_key($data,array_flip($fields));
     } catch (Throwable) { return ['status'=>'unavailable']; }
