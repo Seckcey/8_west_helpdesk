@@ -2,6 +2,8 @@
 /** Hermetic customer-portal archive scope, verification, and rendering tests. */
 declare(strict_types=1);
 
+require_once __DIR__ . '/portal_requester_privacy_cases.php';
+
 function portal_csrf_token(): string
 {
     return str_repeat('c', 64);
@@ -215,14 +217,14 @@ $otherTenantArchiveId = portal_report_insert_archive(
 );
 
 $beforeRead = portal_report_digest($pdo);
-$archives = portal_report_archives($pdo, 1, 11, 24);
+$archives = portal_report_archives($pdo, 1, 11, 24, portal_requester_test_identity(1, 11, 'client_owner'));
 portal_report_check('archive list returns only the exact signed-in tenant and customer',
     count($archives) === 1 && (int)$archives[0]['id'] === $ownArchiveId);
 portal_report_check('archive list verifies and exposes only aggregate customer metrics',
     (int)$archives[0]['metrics']['tickets']['opened'] === 2
     && (int)$archives[0]['metrics']['approved_billable_time']['minutes'] === 90
     && !array_key_exists('recipient_email', $archives[0]));
-$archive = portal_report_archive($pdo, 1, 11, $ownArchiveId);
+$archive = portal_report_archive($pdo, 1, 11, $ownArchiveId, portal_requester_test_identity(1, 11, 'client_owner'));
 portal_report_check('archive detail preserves exact canonical text and hash',
     hash_equals(
         (string)$archive['content_sha256'],
@@ -231,15 +233,15 @@ portal_report_check('archive detail preserves exact canonical text and hash',
 portal_report_check('portal archive reads do not mutate report evidence',
     hash_equals($beforeRead, portal_report_digest($pdo)));
 portal_report_expect('same provider cannot read another customer archive', PortalDataNotFoundException::class,
-    fn() => portal_report_archive($pdo, 1, 11, $otherClientArchiveId));
+    fn() => portal_report_archive($pdo, 1, 11, $otherClientArchiveId, portal_requester_test_identity(1, 11, 'client_owner')));
 portal_report_expect('different provider cannot read another tenant archive', PortalDataNotFoundException::class,
-    fn() => portal_report_archive($pdo, 1, 11, $otherTenantArchiveId));
+    fn() => portal_report_archive($pdo, 1, 11, $otherTenantArchiveId, portal_requester_test_identity(1, 11, 'client_owner')));
 $pdo->exec("UPDATE business_report_schedule_versions
               SET schedule_timezone='UTC' WHERE id=1011");
 portal_report_expect(
     'archive timezone that differs from its immutable schedule fails closed',
     PortalDataConflictException::class,
-    fn() => portal_report_archive($pdo, 1, 11, $ownArchiveId),
+    fn() => portal_report_archive($pdo, 1, 11, $ownArchiveId, portal_requester_test_identity(1, 11, 'client_owner')),
 );
 $pdo->exec("UPDATE business_report_schedule_versions
               SET schedule_timezone='America/Los_Angeles' WHERE id=1011");
@@ -295,7 +297,7 @@ portal_report_check('portal report route is dark-first, GET-only, and has no mut
 $pdo->prepare('UPDATE business_report_archives SET report_text = report_text || ? WHERE id = ?')
     ->execute(["\nTAMPERED", $ownArchiveId]);
 portal_report_expect('changed archived bytes fail closed before rendering', PortalDataConflictException::class,
-    fn() => portal_report_archive($pdo, 1, 11, $ownArchiveId));
+    fn() => portal_report_archive($pdo, 1, 11, $ownArchiveId, portal_requester_test_identity(1, 11, 'client_owner')));
 
 echo "Portal report archives: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

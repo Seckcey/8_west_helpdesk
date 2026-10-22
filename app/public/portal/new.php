@@ -70,6 +70,7 @@ if ($method === 'POST') {
             $values['subject'],
             $values['priority'],
             $values['body'],
+            $context['identity'],
         );
         header('Location: /portal/ticket.php?id=' . $ticketId . '&created=1', true, 303);
         exit;

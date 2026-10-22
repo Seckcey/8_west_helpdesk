@@ -70,6 +70,7 @@ if ($method === 'POST') {
             portal_customer_role($context['identity']),
             (string)$context['identity']['display_name'],
             $draft,
+            $context['identity'],
         );
         header('Location: /portal/ticket.php?id=' . $ticketId . '&replied=1', true, 303);
         exit;
@@ -90,6 +91,7 @@ try {
         (int)$context['identity']['tenant_id'],
         (int)$context['identity']['client_id'],
         $ticketId,
+        $context['identity'],
     );
 } catch (PortalDataNotFoundException|PortalDataValidationException $error) {
     portal_render_error(404, 'Ticket not found', 'That ticket is not available for this business.');

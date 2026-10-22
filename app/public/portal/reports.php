@@ -34,6 +34,11 @@ if ($context === null) {
     exit;
 }
 
+if (!portal_client_admin($context['identity'])) {
+    portal_render_error(403, 'Client Admin access required', 'Service summaries are available to client owners and admins.');
+    exit;
+}
+
 $tenantId = (int)$context['identity']['tenant_id'];
 $clientId = (int)$context['identity']['client_id'];
 $rawArchiveId = $_GET['id'] ?? null;
@@ -46,10 +51,10 @@ if ($rawArchiveId !== null
 
 try {
     if ($rawArchiveId === null) {
-        portal_render_reports($context, portal_report_archives(db(), $tenantId, $clientId, 24));
+        portal_render_reports($context, portal_report_archives(db(), $tenantId, $clientId, 24, $context['identity']));
         exit;
     }
-    portal_render_report($context, portal_report_archive(db(), $tenantId, $clientId, (int)$rawArchiveId));
+    portal_render_report($context, portal_report_archive(db(), $tenantId, $clientId, (int)$rawArchiveId, $context['identity']));
 } catch (PortalDataNotFoundException|PortalDataValidationException $error) {
     portal_render_error(404, 'Service summary not found', 'That service summary is not available for this business.');
 } catch (Throwable $error) {

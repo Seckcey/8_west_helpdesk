@@ -1,7 +1,11 @@
 {
   "name": "w365",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "files": {
+    "marks/central.png": {
+      "sha256": "b63834f178972063d03ffa1c56df6a66919982752c8e3a51eba81a2d7c400254",
+      "bytes": 22778
+    },
     "marks/cloudline.png": {
       "sha256": "665a288b808361c20a2ec80e5201bf3a722692d166fc9fa40bc39bac70595f08",
       "bytes": 21188
@@ -27,15 +31,15 @@
       "bytes": 22439
     },
     "w365-launcher.js": {
-      "sha256": "4ff5a8f6d1cbe29b060980f0d2049f1d7933d4e89bab2d2c3eebd98317ab1431",
-      "bytes": 5236
+      "sha256": "c33ceb96867b7058a0f6aa07d106479efacbf87155876de9fe9518981b0c144c",
+      "bytes": 5282
     },
     "w365-products.json": {
-      "sha256": "ee689cfb69b4c206b00cd3c6a910c09c305aaee5c4b7e72aaaf4de72719a6ca9",
-      "bytes": 2086
+      "sha256": "03aeb9c25de7c6c56682c81eb54bb46e20dd3f7d1aa88e79cbc86c3e6cda4ba5",
+      "bytes": 2403
     },
     "w365.css": {
-      "sha256": "af9de3195519602d3c82f525306933e7c3c6d26c61b2aa562f51e5c57ae68bc9",
+      "sha256": "618c8ea19c95de3e0832a30af541e7b01e747e2370c3ae88a0ed229a5f0f4eda",
       "bytes": 9468
     }
   }

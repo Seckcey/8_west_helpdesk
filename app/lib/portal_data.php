@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/service_goals.php';
 require_once __DIR__ . '/managed_customer_status.php';
+require_once __DIR__ . '/portal_ticket_access.php';
 
 class PortalDataException extends RuntimeException
 {
@@ -365,8 +366,9 @@ function portal_transition_binding(
 }
 
 /** @return array{client:array<string,mixed>,counts:array<string,int>,tickets:list<array<string,mixed>>} */
-function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limit = 50): array
+function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limit = 50, ?array $identity = null): array
 {
+    $visibility = portal_ticket_visibility(portal_ticket_actor($identity, $tenantId, $clientId));
     if ($tenantId < 1 || $clientId < 1 || $limit < 1 || $limit > 100) {
         throw new PortalDataValidationException('The ticket-summary boundary is invalid.');
     }
@@ -389,7 +391,7 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
            FROM tickets t
           WHERE t.tenant_id = :tenant_id
             AND t.client_id = :client_id
-            AND t.merged_into_id IS NULL
+            AND t.merged_into_id IS NULL' . $visibility['sql'] . '
             AND NOT EXISTS (
                 SELECT 1 FROM tickets merged_source
                  WHERE merged_source.tenant_id = t.tenant_id
@@ -397,7 +399,7 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
             )
           GROUP BY t.status'
     );
-    $countStmt->execute(['tenant_id' => $tenantId, 'client_id' => $clientId]);
+    $countStmt->execute(['tenant_id' => $tenantId, 'client_id' => $clientId] + $visibility['params']);
     foreach ($countStmt->fetchAll() as $row) {
         if (isset($counts[$row['status']])) $counts[$row['status']] = (int)$row['total'];
     }
@@ -407,7 +409,7 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
            FROM tickets t
           WHERE t.tenant_id = :tenant_id
             AND t.client_id = :client_id
-            AND t.merged_into_id IS NULL
+            AND t.merged_into_id IS NULL" . $visibility['sql'] . "
             AND NOT EXISTS (
                 SELECT 1 FROM tickets merged_source
                  WHERE merged_source.tenant_id = t.tenant_id
@@ -423,7 +425,7 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
                    t.updated_at DESC, t.id DESC
           LIMIT {$limit}"
     );
-    $tickets->execute(['tenant_id' => $tenantId, 'client_id' => $clientId]);
+    $tickets->execute(['tenant_id' => $tenantId, 'client_id' => $clientId] + $visibility['params']);
 
     return [
         'client' => $clientRow,
@@ -521,8 +523,9 @@ function portal_report_archive_verified(array $row, int $tenantId, int $clientId
 }
 
 /** @return list<array<string,mixed>> */
-function portal_report_archives(PDO $pdo, int $tenantId, int $clientId, int $limit = 24): array
+function portal_report_archives(PDO $pdo, int $tenantId, int $clientId, int $limit = 24, ?array $identity = null): array
 {
+    portal_require_client_admin($identity, $tenantId, $clientId);
     require_once __DIR__ . '/business_reports.php';
     if ($tenantId < 1 || $clientId < 1 || $limit < 1 || $limit > 52) {
         throw new PortalDataValidationException('The service-summary boundary is invalid.');
@@ -554,8 +557,9 @@ function portal_report_archives(PDO $pdo, int $tenantId, int $clientId, int $lim
 }
 
 /** @return array<string,mixed> */
-function portal_report_archive(PDO $pdo, int $tenantId, int $clientId, int $archiveId): array
+function portal_report_archive(PDO $pdo, int $tenantId, int $clientId, int $archiveId, ?array $identity = null): array
 {
+    portal_require_client_admin($identity, $tenantId, $clientId);
     require_once __DIR__ . '/business_reports.php';
     if ($tenantId < 1 || $clientId < 1 || $archiveId < 1) {
         throw new PortalDataValidationException('The service-summary boundary is invalid.');
@@ -662,8 +666,9 @@ function portal_ticket_author(mixed $value): string
  *
  * @return array{ticket:array<string,mixed>,messages:list<array<string,mixed>>}
  */
-function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticketId): array
+function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticketId, ?array $identity = null): array
 {
+    $visibility = portal_ticket_visibility(portal_ticket_actor($identity, $tenantId, $clientId));
     if ($tenantId < 1 || $clientId < 1 || $ticketId < 1) {
         throw new PortalDataValidationException('The ticket boundary is invalid.');
     }
@@ -689,7 +694,7 @@ function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticke
           WHERE t.id = :ticket_id
             AND t.tenant_id = :tenant_id
             AND t.client_id = :client_id
-            AND t.merged_into_id IS NULL
+            AND t.merged_into_id IS NULL" . $visibility['sql'] . "
             AND NOT EXISTS (
                 SELECT 1 FROM tickets merged_source
                  WHERE merged_source.tenant_id = t.tenant_id
@@ -701,7 +706,7 @@ function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticke
         'ticket_id' => $ticketId,
         'tenant_id' => $tenantId,
         'client_id' => $clientId,
-    ]);
+    ] + $visibility['params']);
     $ticketRow = $ticket->fetch();
     if (! is_array($ticketRow)) {
         throw new PortalDataNotFoundException('That ticket is not available for this business.');
@@ -714,7 +719,7 @@ function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticke
           WHERE m.ticket_id = :ticket_id
             AND t.tenant_id = :tenant_id
             AND t.client_id = :client_id
-            AND t.merged_into_id IS NULL
+            AND t.merged_into_id IS NULL" . $visibility['sql'] . "
             AND NOT EXISTS (
                 SELECT 1 FROM tickets merged_source
                  WHERE merged_source.tenant_id = t.tenant_id
@@ -727,7 +732,7 @@ function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticke
         'ticket_id' => $ticketId,
         'tenant_id' => $tenantId,
         'client_id' => $clientId,
-    ]);
+    ] + $visibility['params']);
     return ['ticket' => $ticketRow, 'messages' => $messages->fetchAll()];
 }
 
@@ -740,12 +745,17 @@ function portal_create_ticket(
     mixed $subject,
     mixed $priority,
     mixed $body,
+    ?array $identity = null,
 ): int {
     if ($tenantId < 1 || $clientId < 1) {
         throw new PortalDataValidationException('The customer boundary is invalid.');
     }
     if (! portal_role_can_write_tickets($role)) {
         throw new PortalDataForbiddenException('This customer role cannot open tickets.');
+    }
+    $identity = portal_ticket_actor($identity, $tenantId, $clientId);
+    if (($identity['customer_access']['role'] ?? $identity['role']) !== $role) {
+        throw new PortalDataForbiddenException('The effective customer role changed.');
     }
     $authorName = portal_ticket_author($authorName);
     $subject = portal_ticket_subject($subject);
@@ -782,6 +792,9 @@ function portal_create_ticket(
             'updated_at' => $goal['opened_at'],
         ]);
         $ticketId = (int)$pdo->lastInsertId();
+        $requester = $pdo->prepare('INSERT INTO portal_ticket_requesters
+            (ticket_id, tenant_id, client_id, subject, identity_tenant_slug) VALUES (?, ?, ?, ?, ?)');
+        $requester->execute([$ticketId, $tenantId, $clientId, $identity['subject'], $identity['identity_tenant_slug']]);
         $message = $pdo->prepare(
             "INSERT INTO messages (ticket_id, author_name, kind, body)
              VALUES (:ticket_id, :author_name, 'client', :body)"
@@ -807,6 +820,7 @@ function portal_reply_to_ticket(
     string $role,
     string $authorName,
     mixed $body,
+    ?array $identity = null,
 ): int {
     if ($tenantId < 1 || $clientId < 1 || $ticketId < 1) {
         throw new PortalDataValidationException('The ticket boundary is invalid.');
@@ -814,8 +828,13 @@ function portal_reply_to_ticket(
     if (! portal_role_can_write_tickets($role)) {
         throw new PortalDataForbiddenException('This customer role cannot reply to tickets.');
     }
+    $identity = portal_ticket_actor($identity, $tenantId, $clientId);
+    if (($identity['customer_access']['role'] ?? $identity['role']) !== $role) {
+        throw new PortalDataForbiddenException('The effective customer role changed.');
+    }
     $authorName = portal_ticket_author($authorName);
     $body = portal_ticket_body($body);
+    $visibility = portal_ticket_visibility($identity);
     $pdo->beginTransaction();
     try {
         $driver = (string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
@@ -824,7 +843,7 @@ function portal_reply_to_ticket(
                        WHERE t.id = :ticket_id
                          AND t.tenant_id = :tenant_id
                          AND t.client_id = :client_id
-                         AND t.merged_into_id IS NULL
+                         AND t.merged_into_id IS NULL" . $visibility['sql'] . "
                          AND NOT EXISTS (
                              SELECT 1 FROM tickets merged_source
                               WHERE merged_source.tenant_id = t.tenant_id
@@ -836,7 +855,7 @@ function portal_reply_to_ticket(
             'ticket_id' => $ticketId,
             'tenant_id' => $tenantId,
             'client_id' => $clientId,
-        ]);
+        ] + $visibility['params']);
         $ticketRow = $ticket->fetch();
         if (! is_array($ticketRow)) {
             throw new PortalDataNotFoundException('That ticket is not available for this business.');
@@ -893,7 +912,7 @@ function portal_reply_to_ticket(
                 AND t.tenant_id = :tenant_id
                 AND t.client_id = :client_id
                 AND t.status <> 'resolved'
-                AND t.merged_into_id IS NULL
+                AND t.merged_into_id IS NULL" . $visibility['sql'] . "
                 AND t.updated_at >= :updated_at_floor
                 AND NOT EXISTS (
                     SELECT 1 FROM tickets merged_source
@@ -907,7 +926,7 @@ function portal_reply_to_ticket(
             'tenant_id' => $tenantId,
             'client_id' => $clientId,
             'updated_at_floor' => $touchAt,
-        ]);
+        ] + $visibility['params']);
         if ($confirm->fetchColumn() === false) {
             throw new PortalDataConflictException('The ticket changed while the reply was being saved. Try again.');
         }

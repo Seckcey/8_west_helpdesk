@@ -4,3 +4,6 @@
 app/db/migrations/desktop_portal_sessions_v1.sql text eol=lf
 deploy/desktop_sessions_migration.php text eol=lf
 deploy/desktop_sessions_migration_catalog.json text eol=lf
+
+# Published suite UI is byte-pinned; Git must not rewrite release asset line endings.
+app/public/assets/w365/** -text

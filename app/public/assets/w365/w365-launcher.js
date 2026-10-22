@@ -1,4 +1,4 @@
-/*! w365-launcher.js — 8 West IT 365 suite chrome behaviour, version 0.2.0.
+/*! w365-launcher.js — 8 West IT 365 suite chrome behaviour, version 0.4.0.
  *  VENDORED copy published from Seckcey/8_west_suite_ui; do not edit inside a product repo.
  *
  *  What it does, and only this:
@@ -13,7 +13,7 @@
 (function (global, document) {
   'use strict';
 
-  var VERSION = '0.2.0';
+  var VERSION = '0.4.0';
   var BOUND = 'data-w365-bound';
   var openPopover = null;
 
@@ -52,7 +52,7 @@
       panel.hidden = false;
       setExpanded(button, true);
       openPopover = { button: button, panel: panel };
-      var first = panel.querySelector(options.focusSelector);
+      var first = focusables(panel).filter(function (el) { return el.matches(options.focusSelector); })[0];
       if (first) first.focus();
     });
 

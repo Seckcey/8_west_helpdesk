@@ -161,6 +161,7 @@ jobs:
           php app/tests/portal_auth_test.php
           php app/tests/portal_login_test.php
           php app/tests/portal_data_test.php
+          php app/tests/portal_settings_test.php
           php app/tests/portal_companion_branding_test.php
           php app/tests/tenant_branding_test.php
           php app/tests/portal_ticket_workflow_test.php
@@ -219,6 +220,7 @@ jobs:
           SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_mobile php app/tests/portal_mobile_test.php
           SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_mobile php app/tests/portal_mobile_mysql_test.php
           php app/tests/portal_mysql_test.php
+          php app/tests/portal_requester_http_test.php
           php app/tests/time_entries_mysql_test.php
           php app/tests/time_corrections_mysql_test.php
           php app/tests/time_entry_adjustments_mysql_test.php
@@ -289,6 +291,8 @@ jobs:
         run: |
           node tools/shots/time-contract.test.mjs
           node tools/shots/portal-contract.test.mjs
+          node tools/shots/portal-settings.test.mjs
+          node tools/shots/suite-settings.test.mjs
           node tools/shots/portal-reply-actions.test.mjs
           node tools/shots/westy-workflow-contract.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs

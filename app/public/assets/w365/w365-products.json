@@ -2,6 +2,15 @@
     "source": "8_west_id/app/config/products.php",
     "products": [
         {
+            "key": "central",
+            "name": "Central",
+            "short_name": "Central",
+            "url": "https://central.8westit.com/login.php",
+            "desc": "AI-only protection and computer care",
+            "mark": "marks/central.png",
+            "release_stage": "pilot"
+        },
+        {
             "key": "milepost",
             "name": "Milepost",
             "short_name": "Milepost",

@@ -237,17 +237,17 @@ portal_data_check('writer dashboard offers a customer-scoped help action',
     str_contains($rendered, 'href="/portal/new.php"')
     && str_contains($rendered, 'Open support request'));
 portal_data_check('dashboard separates open, waiting, and recently resolved work',
-    str_contains($rendered, 'Business support requests')
+    str_contains($rendered, 'Your support requests')
     && str_contains($rendered, 'Needs your attention')
     && str_contains($rendered, 'Resolved')
     && str_contains($rendered, 'Waiting on you'));
 portal_data_check('dashboard links only to verified portal report pages',
-    str_contains($rendered, 'Service summaries')
+    !str_contains($rendered, 'href="/portal/reports.php"')
     && !str_contains($rendered, 'href="/reports.php')
     && !str_contains($rendered, 'recipient_email'));
 preg_match_all('/<script\b[^>]*>.*?<\/script\s*>/is', $rendered, $renderedScripts);
-portal_data_check('rendered portal is dark and loads only its exact customer chat, clock and desktop scripts',
-    str_contains($rendered, '<html lang="en" data-theme="dark">')
+portal_data_check('rendered portal uses ID presentation defaults and the existing customer scripts',
+    str_contains($rendered, '<html lang="en-US" data-theme="system"')
     && preg_match_all('/<script\b/i', $rendered) === 3
     && $renderedScripts[0] === [
         '<script src="/assets/js/portal-desktop.js?v='.substr(hash_file('sha256',__DIR__.'/../public/assets/js/portal-desktop.js'),0,20).'" defer></script>',
@@ -265,16 +265,16 @@ try{
 
 // Billing is a plain navigation link. ID rechecks its own authenticated customer and action authority.
 $billingLink='href="https://id.8westit.com/customer-billing.php"';
-portal_data_check('ordinary customer shell exposes plan and billing without customer selectors',
-    str_contains($rendered,$billingLink) && str_contains($rendered,'Plan and billing'));
+portal_data_check('ordinary member shell exposes personal settings without administration',
+    !str_contains($rendered,$billingLink) && str_contains($rendered,'My settings'));
 ob_start();portal_shell_start($context);$emptyNameShell=(string)ob_get_clean();
 portal_data_check('shell without a client display name uses a neutral account fallback',str_contains($emptyNameShell,'Your account'));
 foreach (['client_owner','client_admin','client_staff','client_viewer'] as $role) {
     $workspaceContext=$context;$workspaceContext['identity']['role']=$role;
     $originalContext=$workspaceContext;$originalSession=$_SESSION??[];
     ob_start();portal_render_workspace($workspaceContext);$workspace=(string)ob_get_clean();
-    portal_data_check($role.' workspace keeps billing, devices, support, guide and sign-out navigation',
-        str_contains($workspace,$billingLink) && str_contains($workspace,'href="/portal/devices.php"')
+    portal_data_check($role.' workspace keeps role-scoped billing, devices, support, guide and sign-out navigation',
+        str_contains($workspace,$billingLink) === in_array($role,['client_owner','client_admin'],true) && str_contains($workspace,'href="/portal/devices.php"')
         && str_contains($workspace,'href="/portal/requests.php"') && str_contains($workspace,'href="/portal/guide.php"')
         && str_contains($workspace,'action="/portal/logout.php"'));
     portal_data_check($role.' billing navigation leaves identity and session unchanged',

@@ -1,5 +1,15 @@
 # Safeharbor customer portal contract
 
+**Settings/access privacy change (source and staging, production pending):**
+[The settings and requester privacy release packet](settings-access-release.md)
+defines the new member-only request boundary, administrator-only report archives,
+ID My settings and optional verified Client Admin navigation. It supersedes the
+older client-wide member visibility and universal billing-link descriptions below
+for the candidate source. Historical requests are never matched by email/name.
+The additive requester migration requires the protected portal hold and a
+privacy-compatible forward repair after any old-source inverse. Live acceptance
+must be recorded separately.
+
 **Plan and billing navigation (source change; release pending):** The existing
 customer sidebar, including the Westy workspace and mobile menu, links to
 `https://id.8westit.com/customer-billing.php`. Customers can review their plan

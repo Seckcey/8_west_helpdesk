@@ -1,13 +1,12 @@
 <?php
-/**
- * My profile — your own name + password. (Email is the sign-in identity;
- * an admin changes it from Team when 8 West ID lands it'll move there.)
- */
+/** My settings; ID owns linked identities, local recovery remains local. */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/support_addresses.php';
 enforce_https();
 $user = require_login();
+
+$localAccount = suite_local_password_allowed($user);
 
 $error = '';
 $ok = '';
@@ -24,19 +23,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'save_name') {
+    if (!$localAccount) {
+        $error = 'Manage your name and sign-in security in 8 West ID My settings.';
+    } elseif ($action === 'save_name') {
         $name = trim((string)($_POST['full_name'] ?? ''));
         if ($name === '') {
             $error = 'Name can’t be empty.';
         } else {
-            db()->prepare('UPDATE users SET full_name = ?, initials = ? WHERE id = ?')
-                ->execute([$name, initials_of($name), (int)$user['id']]);
+            db()->prepare('UPDATE users SET full_name = ?, initials = ? WHERE id = ? AND tenant_id = ?')
+                ->execute([$name, initials_of($name), (int)$user['id'], (int)$user['tenant_id']]);
             $ok = 'Name updated.';
             $user['full_name'] = $name;
         }
     }
 
-    if ($action === 'change_password') {
+    if ($localAccount && $action === 'change_password') {
         $current = (string)($_POST['current_password'] ?? '');
         $new     = (string)($_POST['new_password'] ?? '');
         $confirm = (string)($_POST['confirm_password'] ?? '');
@@ -48,20 +49,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($new !== $confirm) {
             $error = 'New passwords don’t match.';
         } else {
-            db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')
-                ->execute([password_hash($new, PASSWORD_DEFAULT), (int)$user['id']]);
+            db()->prepare('UPDATE users SET password_hash = ? WHERE id = ? AND tenant_id = ?')
+                ->execute([password_hash($new, PASSWORD_DEFAULT), (int)$user['id'], (int)$user['tenant_id']]);
             $ok = 'Password changed.';
         }
     }
 }
 
-page_top($user, 'My profile', '');
+page_top($user, 'My settings', '');
 ?>
 <div class="page page-narrow">
   <div class="page-head">
     <div>
-      <h1 class="page-title">My profile</h1>
-      <p class="page-sub"><?= h($user['email']) ?> · <?= h($user['role']) ?> at 8 West IT, LLC</p>
+      <h1 class="page-title">My settings</h1>
+      <p class="page-sub"><?= h($user['email']) ?> · <?= h($user['role']) ?> · Safeharbor account</p>
     </div>
     <?= avatar($user, 44) ?>
   </div>
@@ -80,7 +81,9 @@ page_top($user, 'My profile', '');
   </div>
   <?php endif; ?>
 
-  <div class="rail-label">Display name</div>
+  <div class="card form-card"><p><a href="https://id.8westit.com/settings.php">My settings in 8 West ID</a> manages your suite profile, appearance, regional preferences and sign-in security.</p></div>
+  <?php if ($localAccount): ?>
+  <div class="rail-label">Local recovery account name</div>
   <div class="card form-card">
     <form method="post" action="/profile.php" class="form-grid">
       <?= csrf_field() ?>
@@ -90,12 +93,12 @@ page_top($user, 'My profile', '');
       </label>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary btn-sm">Save name</button>
-        <span class="reply-hint">Avatar initials update automatically. Email changes go through Team.</span>
+        <span class="reply-hint">Avatar initials update automatically. This name applies to your local Safeharbor recovery account.</span>
       </div>
     </form>
   </div>
 
-  <div class="rail-label" style="margin-top:20px">Change password</div>
+  <div class="rail-label" style="margin-top:20px">Local recovery password</div>
   <div class="card form-card">
     <form method="post" action="/profile.php" class="form-grid">
       <?= csrf_field() ?>
@@ -111,10 +114,11 @@ page_top($user, 'My profile', '');
       </label>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary btn-sm">Change password</button>
-        <span class="reply-hint">8 West ID single sign-on replaces this when the suite contract lands.</span>
+        <span class="reply-hint">Changes only the unlinked local Safeharbor recovery account. It does not change an 8 West ID password.</span>
       </div>
     </form>
   </div>
+  <?php else: ?><div class="card form-card"><p>This account signs in through 8 West ID. Its password, MFA, passkeys and recovery methods are managed there.</p></div><?php endif; ?>
 </div>
 <?php
 page_bottom(palette_data());

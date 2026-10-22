@@ -2,6 +2,7 @@
 /** Dark-by-default presentation for the customer help portal. */
 declare(strict_types=1);
 require_once __DIR__ . '/portal_shell.php';
+require_once __DIR__ . '/portal_preferences.php';
 
 function portal_h(mixed $value): string
 {
@@ -24,11 +25,17 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 {
     $GLOBALS['portal_view_context'] = $context;
     $brand = portal_branding($context);
+    $preferences = portal_personal_preferences($context['identity'] ?? []);
+    $GLOBALS['portal_view_preferences'] = $preferences;
     if ($context !== null) $bodyClass = trim('portal-app ' . $bodyClass);
     portal_security_headers();
     ?>
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="<?= portal_h($preferences['locale']) ?>" data-theme="<?= portal_h($preferences['theme']) ?>"
+      data-preferences-source="8west-id" data-density="<?= portal_h($preferences['density']) ?>"
+      data-contrast="<?= portal_h($preferences['contrast']) ?>" data-motion="<?= portal_h($preferences['motion']) ?>"
+      data-time-zone="<?= portal_h($preferences['time_zone']) ?>" data-date-format="<?= portal_h($preferences['date_format']) ?>"
+      data-time-format="<?= portal_h($preferences['time_format']) ?>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -36,9 +43,9 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <title><?= portal_h($title) ?> · <?= portal_h($brand['name']) ?></title>
 <link rel="icon" type="<?= portal_h($brand['favicon_type']) ?>" href="<?= portal_h($brand['favicon']) ?>">
 <link rel="stylesheet" href="/assets/css/app.css?v=5">
-<link rel="stylesheet" href="/assets/css/portal.css?v=3">
-<link rel="stylesheet" href="/assets/css/portal-devices.css?v=2">
-<link rel="stylesheet" href="/assets/css/portal-workspace.css?v=1">
+<link rel="stylesheet" href="/assets/css/portal.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal.css') ?>">
+<link rel="stylesheet" href="/assets/css/portal-devices.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-devices.css') ?>">
+<link rel="stylesheet" href="/assets/css/portal-workspace.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-workspace.css') ?>">
 <?php if(str_contains($bodyClass,'portal-security-page')): ?><link rel="stylesheet" href="/assets/css/portal-security.css?v=1"><?php endif; ?>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
@@ -165,7 +172,8 @@ function portal_format_utc(?string $utc): string
 {
     if ($utc === null || $utc === '') return 'Not available';
     $timestamp = strtotime($utc . ' UTC');
-    return $timestamp === false ? 'Not available' : gmdate('M j, Y · g:i A', $timestamp) . ' UTC';
+    return $timestamp === false ? 'Not available' : portal_personal_datetime($utc,
+        $GLOBALS['portal_view_preferences'] ?? suite_preferences_defaults());
 }
 
 function portal_role_label(string $role): string
@@ -300,24 +308,24 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
    <p class="portal-hint">Do not include passwords or verification codes.</p>
   </section>
   <section class="portal-attention" aria-labelledby="attention-heading"><h2 id="attention-heading">Needs your attention</h2>
-   <?php portal_render_ticket_list($waiting, 'Nothing needs a reply from your business right now.'); ?>
+   <?php portal_render_ticket_list($waiting, 'Nothing needs your reply right now.'); ?>
   </section>
   <section class="portal-requests" id="requests" aria-labelledby="requests-heading">
-   <div class="portal-section-title"><h2 id="requests-heading">Business support requests</h2><?php if ($canWrite): ?><a href="/portal/new.php">Open support request <?= portal_icon('arrow') ?></a><?php endif; ?></div>
-   <p class="portal-hint">Shared with your business and the support team. Showing up to 50 recent requests.</p>
+   <div class="portal-section-title"><h2 id="requests-heading"><?= portal_client_admin($identity) ? 'Client support requests' : 'Your support requests' ?></h2><?php if ($canWrite): ?><a href="/portal/new.php">Open support request <?= portal_icon('arrow') ?></a><?php endif; ?></div>
+   <p class="portal-hint"><?= portal_client_admin($identity) ? 'Client-wide view.' : 'Requests you opened.' ?> Showing up to 50 recent requests.</p>
    <div class="portal-counts" aria-label="Ticket counts"><?php foreach (['open'=>'Open','in_progress'=>'In progress','waiting'=>'Waiting on you','resolved'=>'Resolved'] as $status=>$label): ?><span><?= portal_h($label) ?> <strong><?= (int)($summary['counts'][$status] ?? 0) ?></strong></span><?php endforeach; ?></div>
    <?php portal_render_ticket_list($summary['tickets'], 'No support requests yet. When you need a hand, write a request and follow its progress here.'); ?>
   </section>
  </div>
  <aside class="portal-context-rail">
   <section id="contact"><h2>Need a person?</h2><p>Send a request directly to the support team.</p><a href="/portal/guide.php#contact">Contact support <?= portal_icon('arrow') ?></a></section>
-  <section><h2>Service summaries</h2>
+  <?php if (portal_client_admin($identity)): ?><section><h2>Service summaries</h2>
    <?php if ($reportArchives === null): ?><p>Service summaries are temporarily unavailable. Your tickets still work normally.</p>
    <?php elseif ($reportArchives === []): ?><p>No weekly service summaries have been archived for this business yet.</p>
    <?php else: portal_render_report_preview($reportArchives[0], true); endif; ?>
    <a href="/portal/reports.php">View all archived summaries <?= portal_icon('arrow') ?></a>
   </section>
-  <section><h2>Your privacy</h2><p>Support requests are shared with your business and the support team. Your Westy chat is private to you.</p><a href="/portal/guide.php#privacy">About your chat history</a></section>
+  <?php endif; ?><section><h2>Your privacy</h2><p>Your requests are visible to you, client owners/admins and the support team. Your Westy chat is private to you.</p><a href="/portal/guide.php#privacy">About your chat history</a></section>
  </aside>
 </main>
     <?php
@@ -462,7 +470,7 @@ function portal_render_new_ticket(array $context, ?string $error = null, array $
         <textarea name="body" maxlength="<?= PORTAL_TICKET_BODY_MAX_CHARACTERS ?>" required
                   placeholder="What were you trying to do, what happened instead, and who is affected?"><?= portal_h($values['body'] ?? '') ?></textarea>
       </label>
-      <p class="page-note span-2">This request will be visible to your business and the support team. Only the text in this form is sent. Do not include passwords, verification codes or secret keys.</p>
+      <p class="page-note span-2">This request will be visible to the requester, client owners/admins and the support team. Only the text in this form is sent. Do not include passwords, verification codes or secret keys.</p>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary">Send request</button>
         <a class="btn-link" href="/portal/">Cancel</a>
@@ -542,7 +550,7 @@ function portal_render_ticket(
           <textarea id="portal-reply" name="body" maxlength="<?= PORTAL_TICKET_BODY_MAX_CHARACTERS ?>" required
                     placeholder="Add an update or answer the technician’s question…"><?= portal_h($draft) ?></textarea>
           <div class="reply-foot">
-            <span class="reply-hint">Your reply is visible to your business and the support team.</span>
+            <span class="reply-hint">Your reply is visible to the requester, client owners/admins and the support team.</span>
             <button type="submit" class="btn-primary btn-sm">Send reply</button>
           </div>
         </form>
