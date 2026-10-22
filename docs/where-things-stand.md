@@ -64,6 +64,10 @@ the portal held false before the inverse and until a qualified forward repair,
 preserving all history. A later docs-only merge does not change deployed source
 `4021f45` and requires no production redeploy.
 
+The follow-on [settings UX candidate](settings-ux-release.md) improves Account,
+Team and profile presentation. It is a separate source change, not evidence that
+the deployed revision above has changed; no schema or feature activation is needed.
+
 ## Who may call us
 
 | Identity | Endpoint | Product | Active |

@@ -64,6 +64,25 @@ try {
           assert.equal(await page.getByRole('link', { name: 'Client Admin', exact: true }).count(), admin ? 1 : 0);
           assert.equal(await page.getByRole('link', { name: 'My settings', exact: true }).count(), 1);
           await page.getByRole('link', { name: 'My settings', exact: true }).waitFor({ state: 'visible' });
+          for (const action of await page.locator('.portal-account-action').all()) {
+            const box = await action.boundingBox();
+            assert.ok(box.height >= 44 && box.width >= 44, JSON.stringify(box));
+          }
+          const personal = page.getByRole('link', { name: 'My settings', exact: true });
+          await personal.focus();
+          await page.keyboard.press('Tab');
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await personal.evaluate(el => el === document.activeElement && getComputedStyle(el).outlineStyle !== 'none'), true);
+          assert.equal(await page.locator('.portal-account form').getAttribute('method'), 'post');
+          assert.equal(await page.locator('.portal-account form').getAttribute('action'), '/portal/logout.php');
+          assert.ok(await page.locator('.portal-account input[name="csrf"]').getAttribute('value'));
+          await page.getByRole('button', { name: 'Sign out', exact: true }).scrollIntoViewIfNeeded();
+          const logoutBox = await page.getByRole('button', { name: 'Sign out', exact: true }).boundingBox();
+          assert.ok(logoutBox.y >= 0 && logoutBox.y + logoutBox.height <= viewport.height + 1, JSON.stringify(logoutBox));
+          assert.equal(await page.getByRole('button', { name: 'Sign out', exact: true }).evaluate(el => {
+            const r = el.getBoundingClientRect();
+            return [r.left + 8, r.right - 8].every(x => el.contains(document.elementFromPoint(x, r.top + r.height / 2)));
+          }), true, 'Sign out target is not covered by the floating chat button');
           if (evidence) await page.screenshot({ path: path.join(evidence, `${fixture}-${viewport.width}.png`), fullPage: true });
           await page.getByRole('link', { name: 'My settings', exact: true }).click();
           await page.getByRole('heading', { name: 'My settings destination fixture' }).waitFor();

@@ -12,7 +12,9 @@
 .portal-workspace .portal-sidebar nav a[aria-current]{border-left-color:var(--accent)}
 .portal-chat-history{overflow:auto;min-height:0;margin-top:22px;padding:15px 0;border-top:1px solid var(--line);flex:1}.portal-chat-history h2{font-size:12px;font-weight:500;color:var(--muted);margin:0 14px 8px}
 .portal-chat-history button{width:100%;text-align:left;background:none;border:0;color:var(--muted-strong);padding:11px 14px;border-radius:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;cursor:pointer}.portal-chat-history button:hover,.portal-chat-history button[aria-current]{background:var(--hover);color:var(--text)}
-.portal-workspace .portal-account{padding:16px 12px;gap:4px;font-size:13px}.portal-workspace .portal-account>a{color:var(--muted);text-decoration:none;padding-top:6px}.portal-workspace .portal-account form{margin:0}.portal-workspace .portal-account .btn-link{min-height:28px;font-size:12px}
+.portal-workspace .portal-sidebar{overflow-y:auto}
+.portal-workspace .portal-account{padding:16px 0;font-size:14px}
+.portal-workspace .portal-chat-history{min-height:96px;flex-shrink:0}
 .portal-workspace .portal-content{position:fixed;left:248px;right:0;top:70px;bottom:0;margin:0;padding:0;min-height:0}
 .portal-workspace #portal-chat-home-slot{height:100%}.portal-workspace #portal-chat-panel{height:100%;max-height:none;border:0;border-radius:0;background:transparent;box-shadow:none;display:flex;flex-direction:column;position:relative;padding:0 32px}
 .portal-workspace .portal-chat-head{display:none}.portal-workspace #portal-chat-messages{flex:1;min-height:0;max-height:none;overflow:auto;padding:20px max(0px,calc((100% - 800px)/2)) 28px;scrollbar-gutter:stable;overscroll-behavior:contain}

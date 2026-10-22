@@ -866,6 +866,52 @@ img { display: block; }
 .role-owner, .role-admin { background: var(--accent-soft-bg); color: var(--cyan); }
 .urow-inactive { opacity: .5; }
 
+/* Settings presentation: native form controls and existing handlers. */
+.settings-page { overflow-wrap: anywhere; }
+.settings-page .settings-intro { margin-bottom: 20px; }
+.settings-page h2 { font-size: 18px; margin: 0 0 10px; }
+.settings-page .form-card p { font-size: 14px; line-height: 1.6; }
+.settings-page .settings-button { display: inline-flex; width: auto; min-height: 44px; padding: 10px 16px; text-decoration: none; color: var(--text); }
+.settings-page .btn-danger { color: var(--rose); }
+.settings-page .btn-primary { color: var(--p-navy-950); font-weight: 600; }
+.settings-page .btn-primary:hover { color: var(--p-navy-950); }
+.settings-page .form-actions { flex-wrap: wrap; }
+.settings-page .form-actions button { min-height: 44px; }
+.settings-page .form-actions .reply-hint { flex-basis: 100%; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.settings-page .field { font-size: 14px; }
+.settings-page .field input { min-height: 44px; }
+.settings-page .field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-page .form-ok, .settings-page .form-error { font-size: 14px; line-height: 1.5; padding: 12px 16px; }
+.settings-options { min-width: 0; border: 0; padding: 0; margin: 0; }
+.settings-options legend { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.settings-role-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.settings-color-choices { display: flex; flex-wrap: wrap; gap: 10px; }
+.settings-choice { position: relative; display: flex; min-width: 0; cursor: pointer; }
+.settings-choice input { position: absolute; top: 17px; left: 12px; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.settings-choice > span { display: flex; flex: 1; flex-direction: column; gap: 6px; min-height: 50px; padding: 14px 12px 14px 38px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--chip-bg); }
+.settings-choice strong { font-size: 14px; font-weight: 600; }
+.settings-choice small { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.settings-choice input:checked + span { border-color: var(--accent); background: var(--accent-soft-bg); box-shadow: inset 0 0 0 1px var(--accent); }
+.settings-choice input:focus-visible { outline: none; }
+.settings-choice input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
+.settings-color > span { flex-direction: row; align-items: center; gap: 8px; }
+.settings-color i { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); }
+.team-settings .urow { flex-wrap: wrap; }
+.team-settings .urow-name { font-size: 15px; }
+.team-settings .urow-sub { font-size: 13px; line-height: 1.5; }
+.team-settings .urow-status { font-size: 13px; color: var(--muted); }
+.team-settings .role-badge { font-size: 12px; color: var(--text); }
+.team-settings .urow-action { margin: 0; }
+.team-settings .urow-inactive { opacity: 1; }
+@media (max-width: 700px) {
+  .settings-role-choices { grid-template-columns: 1fr; }
+  .settings-page .page-head { align-items: flex-start; }
+  .settings-page .field input { font-size: 16px; }
+  .team-settings .urow-main { flex-basis: calc(100% - 50px); }
+  .team-settings .urow-action { flex-basis: 100%; }
+  .team-settings .urow-action button { width: 100%; }
+}
+
 /* demo cleanup card */
 .demo-card {
   margin-top: 20px; padding: 14px 16px;

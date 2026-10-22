@@ -60,7 +60,7 @@ function portal_shell_start(array $context): void
     // The controller has freshly checked the selected binding and any CSA membership.
     // ID rediscovers/rechecks its own target; this fixed link carries no authority.
     $clientAdmin = portal_client_admin($identity);
-    $client = (string)($context['binding']['client_name'] ?? 'Your account');
+    $client = trim((string)($context['binding']['client_name'] ?? '')) ?: 'Your client';
     $workspace=($context['workspace']??false)===true;
     $brand = portal_branding($context);
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH);
@@ -73,7 +73,21 @@ function portal_shell_start(array $context): void
 <?php foreach ([['/portal/', 'Westy', 'chat'], ['/portal/devices.php', 'Your devices', 'device'], ['/portal/requests.php', 'Support requests', 'requests'], ... (portal_client_admin($identity) ? [['/portal/reports.php', 'Service summaries', 'requests']] : [])] as [$url, $label, $icon]): ?>
 <a href="<?= portal_h($url) ?>"<?= $path === $url ? ' aria-current="page"' : '' ?>><?= portal_icon($icon) ?><span><?= portal_h($label) ?></span></a>
 <?php endforeach; ?>
-</nav><?php if($workspace): ?><section class="portal-chat-history" aria-label="Recent chats"><h2>Recent chats</h2><div id="portal-chat-history"></div></section><?php endif; ?><div class="portal-account"><strong><?= portal_h($identity['display_name']) ?></strong><span><?= portal_h(portal_role_label(portal_customer_role($identity))) ?></span><?php if(isset($identity['customer_access']) && !isset($_SESSION['desktop_companion_session'])): ?><a href="/portal/clients.php">Use Westy for another client</a><?php endif; ?><a href="https://id.8westit.com/settings.php">My settings</a><?php if ($clientAdmin): ?><a href="<?= portal_h(safeharbor_settings_panel_url('client_admin')) ?>">Client Admin</a><?php endif; ?><?php if (portal_client_admin($identity)): ?><a href="/portal/devices.php">Computer access</a><a href="https://id.8westit.com/customer-billing.php">Plan and billing</a><?php endif; ?><a href="/portal/guide.php">Portal guide</a><a href="/portal/guide.php#contact">Contact support</a><form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="btn-link">Sign out</button></form></div></aside>
+</nav><?php if($workspace): ?><section class="portal-chat-history" aria-label="Recent chats"><h2>Recent chats</h2><div id="portal-chat-history"></div></section><?php endif; ?>
+<section class="portal-account" aria-labelledby="portal-account-heading">
+  <h2 id="portal-account-heading">Account</h2>
+  <div class="portal-account-identity"><strong><?= portal_h($identity['display_name']) ?></strong><span><?= portal_h(portal_role_label(portal_customer_role($identity))) ?></span><span>Selected client: <?= portal_h($client) ?></span></div>
+  <?php if(isset($identity['customer_access']) && !isset($_SESSION['desktop_companion_session'])): ?><a class="portal-account-action" href="/portal/clients.php" aria-label="Switch client"><strong>Switch client</strong><span>Choose who to use Westy for</span></a><?php endif; ?>
+  <a class="portal-account-action" href="https://id.8westit.com/settings.php" aria-label="My settings"><strong>My settings</strong><span>Your preferences · 8 West ID</span></a>
+  <?php if ($clientAdmin): ?>
+  <a class="portal-account-action" href="<?= portal_h(safeharbor_settings_panel_url('client_admin')) ?>" aria-label="Client Admin"><strong>Client Admin</strong><span>Client settings · 8 West ID</span></a>
+  <a class="portal-account-action" href="/portal/devices.php" aria-label="Computer access"><strong>Computer access</strong><span>Devices for this client</span></a>
+  <a class="portal-account-action" href="https://id.8westit.com/customer-billing.php" aria-label="Plan and billing"><strong>Plan and billing</strong><span>Client billing · 8 West ID</span></a>
+  <?php endif; ?>
+  <a class="portal-account-action" href="/portal/guide.php">Portal guide</a>
+  <a class="portal-account-action" href="/portal/guide.php#contact">Contact support</a>
+  <form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="portal-account-action">Sign out</button></form>
+</section></aside>
 <div class="portal-content" id="portal-content" tabindex="-1">
 <?php
 }

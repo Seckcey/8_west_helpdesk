@@ -116,7 +116,7 @@ function portal_render_client_choices(array $principal,array $choices): void
 <?php if(!$choices): ?><p role="status">No customer access is currently assigned to this account. Ask your workspace administrator to review your access.</p><?php endif; ?>
 <div class="portal-report-list"><?php foreach($choices as $choice): ?>
 <section class="card login-card" aria-label="<?=portal_h($choice['binding']['client_name'])?>">
-<h2 class="page-title"><?=portal_h($choice['binding']['client_name'])?></h2>
+<h2 class="portal-client-name"><?=portal_h($choice['binding']['client_name'])?></h2>
 <p class="page-sub"><?=portal_h(portal_role_label($choice['access']['role']))?></p>
 <form method="post" class="login-form"><input type="hidden" name="csrf" value="<?=portal_h(portal_csrf_token())?>">
 <input type="hidden" name="reference" value="<?=portal_h($choice['access']['access']['reference'])?>">
@@ -179,11 +179,11 @@ function portal_format_utc(?string $utc): string
 function portal_role_label(string $role): string
 {
     return match ($role) {
-        'client_owner' => 'Customer owner',
-        'client_admin' => 'Customer admin',
-        'client_staff' => 'Customer staff',
-        'client_viewer' => 'Customer viewer',
-        default => 'Customer',
+        'client_owner' => 'Client owner',
+        'client_admin' => 'Client administrator',
+        'client_staff' => 'Member',
+        'client_viewer' => 'Viewer',
+        default => 'Client account',
     };
 }
 
