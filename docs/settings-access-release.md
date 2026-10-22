@@ -2,10 +2,18 @@
 
 Work unit: `SETTINGS-ACCESS-20261021`. This is a source/staging packet, **not a
 production acceptance record**. Safeharbor's Sergeant owns integration; the ID
-lead sequences the suite release. The reviewed shared UI release and this
-consumer's supported sync are separate dependencies. No vendor candidate is a
-published release. No production schema, configuration, grants or customer data
-were changed by this worker.
+lead sequences the suite release. The shared UI package was synced from the
+published, reviewed `v0.4.0` release using
+`tools/w365/sync-suite-ui.ps1 -Tag v0.4.0 -Dest app/public/assets/w365`.
+No vendor file was hand-edited. No production schema, configuration, grants
+or customer data were changed by this worker.
+
+Published package: [w365 v0.4.0](https://github.com/Seckcey/8_west_suite_ui/releases/tag/v0.4.0),
+tag commit `4b1d7108dcb0a7b053a149e48db142d2fedd180a`.
+ZIP SHA-256: `d4000f15baa079cdbcd160ee3a20dfbc4f74c8f188d90d3a61d79e4aadc39537`.
+Manifest SHA-256: `8f0e12f0448a04cd01539b59386258dfdb27cd2e515e304ab98e55cec213e3d5`.
+All 10 manifest entries and the exact file set are checked by the consumer test;
+Git preserves package bytes and the app refreshes asset cache URLs.
 
 ## User behavior
 
@@ -93,8 +101,10 @@ requests. Release/automatic inverse must retain a portal traffic hold:
 4. Confirm the live release identity, table shape and three guards while the
    hold remains in place. Review the exact-head test and consumer package
    receipts, then use the protected mechanism to restore the approved prior
-   portal flag. Perform signed-in owner/admin/member/viewer acceptance with
-   agreed test identities. Do not create real tickets to manufacture evidence.
+   portal flag. Live signed-in owner/admin/member/viewer acceptance belongs to Frankie,
+   using existing approved identities, and remains pending until his evidence.
+   Agents must not create real customer tickets/accounts/invitations or perform
+   real saves to manufacture acceptance. Migration permission remains separate.
 5. On failure or any inverse, keep/reapply the hold **before** restoring old
    source. `deploy.sh` preserves `config/config.php` on deploy and automatic
    inverse. Verify portal denial after the inverse; keep it held until a
@@ -124,6 +134,7 @@ provide fixture credentials; no production configuration is used.
 | `portal_requester_http_test.php` | Actual portal middleware/routes, member/admin/viewer responses, revoked-session refusal, portal-cookie denial on staff routes, portal traffic hold |
 | `portal_access_mysql_test.php`, `portal_employee_device_access_mysql_test.php` | Existing delegated membership generation/role checks and assigned-device removal boundaries |
 | `tools/shots/portal-settings.test.mjs` | Actual PHP/CSS/JS render, 1440 and 390 px, light/dark portal and Westy workspace, mobile menu and My settings destination; simulated ID endpoint |
+| `tools/shots/suite-settings.test.mjs` | Published launcher with actual staff menu: admin/technician, light/dark, desktop/mobile, keyboard focus/arrow/Escape |
 | `tools/shots/portal-contract.test.mjs` | Existing portal/browser interaction and authorization regression coverage |
 
 To repeat the inverse demonstration, unpack the reviewed previous source into

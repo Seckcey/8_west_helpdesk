@@ -129,7 +129,7 @@ function suite_chrome_drawer(): void
             <?php foreach ($drawer['apps'] as $app): ?>
               <a class="w365-tile" href="<?= h($app['url']) ?>" target="_blank" rel="noopener noreferrer"
                  title="<?= h($app['desc']) ?>">
-                <span class="w365-tile-mark"><?php if (($app['mark'] ?? '') !== ''): ?><img src="/assets/w365/marks/<?= h($app['mark']) ?>?v=20260913a" alt="" width="48" height="48" loading="lazy" data-initial="<?= h(suite_app_initial($app['name'])) ?>"><?php else: ?><?= h(suite_app_initial($app['name'])) ?><?php endif; ?></span>
+                <span class="w365-tile-mark"><?php if (($app['mark'] ?? '') !== ''): ?><img src="/assets/w365/marks/<?= h($app['mark']) ?>?v=w365v040" alt="" width="48" height="48" loading="lazy" data-initial="<?= h(suite_app_initial($app['name'])) ?>"><?php else: ?><?= h(suite_app_initial($app['name'])) ?><?php endif; ?></span>
                 <span class="w365-tile-name"><?= h($app['name']) ?></span>
               </a>
             <?php endforeach; ?>
@@ -259,8 +259,8 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the --w365-* hooks it reads are mapped to Safeharbor's semantic tokens there, which is how
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
-<link rel="stylesheet" href="/assets/w365/w365.css?v=20260913a">
-<link rel="stylesheet" href="/assets/css/app.css?v=20260913a">
+<link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
+<link rel="stylesheet" href="/assets/css/app.css?v=w365v040">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -319,8 +319,8 @@ function page_bottom(array $paletteData = []): void
 <script id="palette-data" type="application/json"><?= json_encode($paletteData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
-<script src="/assets/w365/w365-launcher.js?v=20260913a" defer></script>
-<script src="/assets/js/app.js?v=20260913a" defer></script>
+<script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
+<script src="/assets/js/app.js?v=w365v040" defer></script>
 </body>
 </html>
     <?php

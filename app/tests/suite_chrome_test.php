@@ -240,6 +240,27 @@ t('settings: missing current claim removes stale administration panel', !str_con
 t('settings: foreign identity removes stale administration panel', !str_contains(render_cluster(refresh_with($settingsClaims, $settingsSession, 't1u2'), $staff), '>MSP Admin</a>'));
 t('settings: staff retains one My settings link and Technician Workspace', substr_count($htmlSuite, '>My settings</a>') === 1 && str_contains($htmlSuite, '>Technician Workspace</a>'));
 
+$package=__DIR__.'/../public/assets/w365';
+$manifest=json_decode((string)file_get_contents($package.'/w365-manifest.json'),true,16,JSON_THROW_ON_ERROR);
+t('published package: reviewed v0.4.0 manifest pin', $manifest['version']==='0.4.0'
+    && hash_file('sha256',$package.'/w365-manifest.json')==='8f0e12f0448a04cd01539b59386258dfdb27cd2e515e304ab98e55cec213e3d5');
+$present=[];
+foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($package,FilesystemIterator::SKIP_DOTS)) as $file) {
+    $relative=str_replace('\\','/',substr($file->getPathname(),strlen($package)+1));
+    if($relative!=='w365-manifest.json')$present[]=$relative;
+}
+$listed=array_keys($manifest['files']);sort($listed);sort($present);
+t('published package: no missing or extra files', $listed===$present);
+foreach($manifest['files'] as $file=>$pin)t('published package: '.$file,
+    hash_file('sha256',$package.'/'.$file)===$pin['sha256'] && filesize($package.'/'.$file)===$pin['bytes']);
+$out=getenv('CUSTOMER_UI_CAPTURE_DIR');
+if(is_string($out)&&is_dir($out))foreach(['admin','tech'] as $role)foreach(['light','dark'] as $theme){
+    $syntheticSession=$settingsSession; $syntheticSession['suite_name']='Synthetic Technician';
+    $syntheticSession['suite_email']='synthetic@example.test';unset($syntheticSession['suite_avatar']);
+    $cluster=render_cluster($syntheticSession,[...$staff,'role'=>$role]);
+    file_put_contents($out.'/staff-'.$role.'-'.$theme.'.html','<!doctype html><html lang="en-US" data-theme="'.$theme.'"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Safeharbor staff settings fixture</title><link rel="stylesheet" href="/assets/w365/w365.css"><link rel="stylesheet" href="/assets/css/app.css"></head><body><header class="topbar"><span class="topbar-flex"></span><div class="w365-cluster">'.$cluster.'</div></header><main><h1>Technician Workspace</h1></main><script src="/assets/w365/w365-launcher.js" defer></script></body></html>');
+}
+
 echo "\n";
 if ($FAIL > 0) { echo "SUITE CHROME TESTS FAILED: $FAIL of " . ($PASS + $FAIL) . " checks failed.\n"; exit(1); }
 echo "SUITE CHROME TESTS PASSED: all $PASS checks passed.\n";

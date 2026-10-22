@@ -45,8 +45,8 @@ requester attribution. Ordinary members see their own requests; client owners
 and admins retain client-wide requests and archived reports. See the
 [release packet](settings-access-release.md) for exact boundaries, synthetic
 validation and the mandatory portal traffic hold across migration and any
-old-source inverse. Shared UI publication/sync, exact-head CI, protected
-production migration approval and signed-in acceptance are separate gates;
+old-source inverse. The published w365 v0.4.0 package is synced in the candidate.
+Exact-head CI, protected production migration approval and signed-in acceptance are separate gates;
 this source note does not change the live states above.
 
 ## Who may call us

@@ -289,12 +289,16 @@ check(str_contains($html,'Earlier answer, not checked again: the request for an 
 // body and answers from scripted replies. A missing reply is a transport failure, i.e. an unknown outcome.
 require_once __DIR__.'/../lib/eightwestid/eightwestid.php';
 $pcRuntime=sys_get_temp_dir().'/safeharbor-devices-'.bin2hex(random_bytes(8));
-foreach(['lib','config','public/portal','public/assets/js','sessions','cache'] as $pcPart)mkdir($pcRuntime.'/'.$pcPart,0700,true);
+foreach(['lib','config','public/portal','public/assets/js','public/assets/css','sessions','cache'] as $pcPart)mkdir($pcRuntime.'/'.$pcPart,0700,true);
 $pcSource=realpath(__DIR__.'/../lib');
 foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($pcSource,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::SELF_FIRST) as $pcFile){$pcPath=$pcRuntime.'/lib/'.substr($pcFile->getPathname(),strlen($pcSource)+1);$pcFile->isDir()?mkdir($pcPath,0700,true):copy($pcFile->getPathname(),$pcPath);}
 copy(__DIR__.'/../public/portal/devices.php',$pcRuntime.'/public/portal/devices.php');
 // The real page footer hashes these three canonical assets (portal_asset_version), so the disposable runtime carries
 // exact copies of the real files: no placeholder or hash stub. The finally below removes them with the runtime.
+foreach(['portal.css','portal-devices.css','portal-workspace.css'] as $pcAsset){
+    $pcFrom=__DIR__.'/../public/assets/css/'.$pcAsset;$pcTo=$pcRuntime.'/public/assets/css/'.$pcAsset;
+    if(!copy($pcFrom,$pcTo)||hash_file('sha256',$pcTo)!==hash_file('sha256',$pcFrom))throw new RuntimeException('Canonical portal CSS unavailable: '.$pcAsset);
+}
 $pcFooter=[];
 foreach(['portal-desktop.js','portal-computer-time.js','portal-westy.js'] as $pcAsset){
     $pcFrom=__DIR__.'/../public/assets/js/'.$pcAsset;$pcTo=$pcRuntime.'/public/assets/js/'.$pcAsset;
