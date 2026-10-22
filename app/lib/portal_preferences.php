@@ -2,7 +2,6 @@
 /** Presentation only. Preferences never grant workspace or client authority. */
 declare(strict_types=1);
 require_once __DIR__ . '/suite_preferences.php';
-require_once __DIR__ . '/settings_context.php';
 
 /** Read presentation claims without changing the portal session or its authority. */
 function portal_verified_suite_claims(array $identity): ?array
@@ -17,23 +16,6 @@ function portal_verified_suite_claims(array $identity): ?array
         && ($suite['issuer'] ?? 'https://id.8westit.com') !== portal_configured_issuer()) return null;
     [$claims] = jwt_verify_suite_reason($token, $suite);
     return is_array($claims) && ($claims['sub'] ?? null) === $identity['subject'] ? $claims : null;
-}
-
-function portal_settings_context_from_claims(array $identity, ?array $claims): array
-{
-    if ($claims === null || ($claims['sub'] ?? null) !== ($identity['subject'] ?? null)
-        || ($claims['8west:session_version'] ?? null) !== ($identity['session_version'] ?? null)
-        || ($claims['8west:role'] ?? null) !== ($identity['role'] ?? null)
-        || ($claims['8west:tenant'] ?? null) !== ($identity['identity_tenant_slug'] ?? null)
-        || ($claims['8west:tenant_id'] ?? null) !== ($identity['identity_tenant_id'] ?? null)) return [];
-    return safeharbor_settings_context($claims['8west:settings_context'] ?? null,
-        (string)$identity['subject'], (string)($identity['identity_tenant_slug'] ?? ''),
-        (string)($identity['identity_tenant_id'] ?? ''));
-}
-
-function portal_current_settings_context(array $identity): array
-{
-    return portal_settings_context_from_claims($identity, portal_verified_suite_claims($identity));
 }
 
 function portal_personal_preferences(array $identity): array

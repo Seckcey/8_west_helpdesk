@@ -14,10 +14,12 @@ were changed by this worker.
   time zone and date/clock preferences. Preferences affect presentation only.
   A same-subject verified suite cookie can refresh the OIDC presentation copy.
   Missing or malformed preferences use the existing shared defaults.
-- **Client Admin** needs both the effective client owner/admin role and the
-  exact verified v1 panel for the bound client. A home workspace context is
-  never reinterpreted as a delegated client. Missing/unknown context leaves
-  My settings available and grants no new administration link.
+- **Client Admin** uses the freshly checked selected client owner/admin role,
+  including delegated CSA membership. It links only to the fixed
+  `https://id.8westit.com/admin.php?panel=client_admin` destination. Home realm
+  and home role are unchanged. ID independently discovers the allowed client
+  and rechecks authorization on every read/write; no target, token or identity
+  authority is added to the URL. Staff/viewer memberships have no such entry.
 - Staff see **Technician Workspace**. **MSP Admin** additionally needs the
   verified panel and existing local owner/admin role. Team describes its actual
   scope: local Safeharbor access and recovery accounts. The ID People link also
@@ -44,14 +46,22 @@ capabilities or a different subject/workspace grant no panel. The client
 `primary_owner_status=verified` value describes ownership evidence, **not**
 whether this actor is the primary owner.
 
-The pinned OIDC client is unchanged. Safeharbor's adapter reads optional
-settings context from the existing RS256 suite cookie, matching its subject,
-session version, raw role and identity tenant to the authenticated OIDC session.
-The selected binding/effective membership still controls portal authorization.
-OIDC-only or older sessions work without the optional administration panel.
-The suite cookie is a distinct token type: the existing verifier refuses OIDC
-audience/nonce/authorized-party claims on that surface. Navigation is not an ID
-authorization grant; ID independently checks each destination.
+The pinned OIDC client is unchanged. Portal personal preferences come from the
+verified OIDC identity or a same-subject RS256 suite cookie. Staff navigation
+consumes the optional settings document; it never grants resource access.
+The selected binding and fresh effective membership control portal navigation
+and request visibility independently of the principal's home settings context.
+
+The accepted delegated Client Admin ingress is Milepost's
+`docs/suite-client-company-v1.md` at
+`a9ce7f9e19380bed780004ed5a4cd838bb6ae5ce` (`Seckcey/8westit_webapp`). ID's
+`settings_client_admin.php`/`client-people.php` adapter owns discovery and
+per-operation validation through that contract, including original JWT,
+subject, target, reference/generation, role, revocation and exact provider/client
+binding. Safeharbor adds navigation only. A CSA `client_owner` role is never ID
+primary-owner proof: appointing/removing administrators and closing a
+subscription remain separately reserved to ID's genuine ownership evidence.
+ID adapter publication/acceptance remains a suite release dependency.
 
 ## Additive schema and release hold
 

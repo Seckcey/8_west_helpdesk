@@ -57,12 +57,9 @@ function portal_icon(string $name): string
 function portal_shell_start(array $context): void
 {
     $identity = $context['identity'];
-    $settings = safeharbor_settings_context($context['settings_context'] ?? null,
-        (string)($identity['subject'] ?? ''), (string)($identity['identity_tenant_slug'] ?? ''),
-        (string)($identity['identity_tenant_id'] ?? ''));
-    $clientAdmin = portal_client_admin($identity) && in_array('client_admin', $settings['panels'] ?? [], true)
-        && ($settings['workspace']['kind'] ?? '') === 'client'
-        && ($settings['workspace']['tenant'] ?? '') === ($context['binding']['identity_tenant_slug'] ?? '');
+    // The controller has freshly checked the selected binding and any CSA membership.
+    // ID rediscovers/rechecks its own target; this fixed link carries no authority.
+    $clientAdmin = portal_client_admin($identity);
     $client = (string)($context['binding']['client_name'] ?? 'Your account');
     $workspace=($context['workspace']??false)===true;
     $brand = portal_branding($context);

@@ -24,15 +24,6 @@ foreach ([null, [...$doc,'version'=>2], [...$doc,'subject'=>'t9u52'], [...$doc,'
     [...$doc,'workspace'=>['tenant_id'=>'10','tenant'=>'synthetic-client','kind'=>'client']]] as $invalid) {
     settings_check(safeharbor_settings_context($invalid, 't9u51', 'synthetic-client', '9') === [], 'missing, foreign, unknown or malformed context grants no panel');
 }
-$claims = ['sub'=>$identity['subject'], '8west:session_version'=>$identity['session_version'],
-    '8west:role'=>$identity['role'], '8west:tenant'=>$identity['identity_tenant_slug'],
-    '8west:tenant_id'=>$identity['identity_tenant_id'], '8west:settings_context'=>$doc];
-settings_check(portal_settings_context_from_claims($identity, $claims) === $doc, 'verified cookie context matches the current OIDC session');
-foreach (['sub'=>'t9u52', '8west:session_version'=>'1.3', '8west:role'=>'client_owner',
-    '8west:tenant'=>'another-client', '8west:tenant_id'=>'10'] as $key=>$value) {
-    settings_check(portal_settings_context_from_claims($identity, [...$claims,$key=>$value]) === [], 'mismatched '.$key.' cannot grant an administration link');
-}
-settings_check(portal_settings_context_from_claims($identity, null) === [], 'OIDC-only session has no optional administration context');
 $prefs = EightWest\Id\default_preferences('t9u51', 'Synthetic Employee', 'light', null);
 $prefs['version'] = 3;
 $prefs['regional'] = ['locale'=>'en-GB','time_zone'=>'Europe/London','date_format'=>'dmy','time_format'=>'24h'];
@@ -48,7 +39,7 @@ foreach (['client_admin','client_staff','client_viewer'] as $role) {
     ob_start(); portal_render_dashboard($c,$summary,[]); $html = ob_get_clean();
     settings_check(str_contains($html,'lang="en-GB" data-theme="light"') && str_contains($html,'data-density="compact"'), $role.' adopts verified appearance and regional preferences');
     settings_check(str_contains($html,'>My settings</a>'), $role.' has one personal settings destination');
-    settings_check(str_contains($html,'>Client Admin</a>') === ($role==='client_admin'), $role.' navigation requires both effective role and verified panel');
+    settings_check(str_contains($html,'>Client Admin</a>') === ($role==='client_admin'), $role.' navigation follows freshly verified effective client role');
     settings_check(str_contains($html,'href="/portal/reports.php"') === ($role==='client_admin'), $role.' client-wide summaries are role scoped');
     $out = getenv('CUSTOMER_UI_CAPTURE_DIR');
     if (is_string($out) && is_dir($out)) file_put_contents($out.'/settings-'.$role.'-light.html',$html);
@@ -60,11 +51,15 @@ $c=$context; $c['identity']['customer_access']=['role'=>'client_staff'];
 ob_start(); portal_shell_start($c); $html=ob_get_clean();
 settings_check(!str_contains($html,'>Client Admin</a>'),'delegated member role defeats home administrator label');
 $c=$context; $c['binding']['identity_tenant_slug']='other-client';
+$c['identity']['role']='admin'; $c['identity']['customer_access']=['role'=>'client_admin'];
 ob_start(); portal_shell_start($c); $html=ob_get_clean();
-settings_check(!str_contains($html,'>Client Admin</a>'),'home context never becomes a delegated client panel');
+settings_check(str_contains($html,'href="https://id.8westit.com/admin.php?panel=client_admin"'),'freshly selected delegated client admin has fixed ID entry without home-role rewrite');
 $c=$context; unset($c['settings_context']);
 ob_start(); portal_shell_start($c); $html=ob_get_clean();
-settings_check(!str_contains($html,'>Client Admin</a>') && str_contains($html,'>My settings</a>'),'older tokens retain settings without gaining a panel');
+settings_check(str_contains($html,'>Client Admin</a>') && str_contains($html,'>My settings</a>'),'verified native client admin entry does not depend on optional home settings claim');
+$c['identity']['role']='client_staff';
+ob_start(); portal_shell_start($c); $html=ob_get_clean();
+settings_check(!str_contains($html,'>Client Admin</a>'),'missing context does not turn an ordinary member into an administrator');
 $c=$context; $c['identity']['preferences']['appearance']['theme']='dark';
 ob_start(); portal_render_dashboard($c,$summary,[]); $html=ob_get_clean();
 if (is_string($out) && is_dir($out)) file_put_contents($out.'/settings-admin-dark.html',$html);
