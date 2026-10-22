@@ -16,6 +16,7 @@ require_once __DIR__ . '/jwt.php';
 require_once __DIR__ . '/suite_auth_policy.php';
 require_once __DIR__ . '/suite_roles.php';
 require_once __DIR__ . '/suite_preferences.php';
+require_once __DIR__ . '/settings_context.php';
 require_once __DIR__ . '/suite_revocation_policy.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -77,7 +78,7 @@ function suite_sso_claims(): ?array
  */
 function suite_session_identity_forget(): void
 {
-    unset($_SESSION['suite_products'], $_SESSION['suite_name'], $_SESSION['suite_email']);
+    unset($_SESSION['suite_products'], $_SESSION['suite_name'], $_SESSION['suite_email'], $_SESSION['suite_settings_context']);
 }
 
 /**
@@ -116,6 +117,8 @@ function suite_sso_refresh_claims(?string $expectedSubject = null): void
         // list closed-world at render time, so an unknown product key shows
         // nothing. Written on EVERY request — including as [] — so a revoked
         // entitlement reaches the drawer with the next token, not eventually.
+        $_SESSION['suite_settings_context'] = safeharbor_settings_context($claims['8west:settings_context'] ?? null,
+            $claimSubject, (string)($claims['8west:tenant'] ?? ''), (string)($claims['8west:tenant_id'] ?? ''));
         $_SESSION['suite_products'] = is_array($claims['8west:products'] ?? null) ? $claims['8west:products'] : [];
         // The 8 West ID identity as the person sees it in every suite app: the
         // token's `name` and `email`, shown in the account menu instead of the

@@ -117,12 +117,12 @@ t('C3: the 8 West ID picture is rendered from id.8westit.com',
 t('C4: the button names the person for assistive technology',
     str_contains($htmlSuite, 'aria-label="Account menu for Frankie Gonzalez"'));
 t('C5: Suite settings is offered only with a suite session',
-    str_contains($htmlSuite, 'Suite settings') && !str_contains($htmlLocal, 'Suite settings'));
+    str_contains($htmlSuite, 'href="https://id.8westit.com/settings.php"') && !str_contains($htmlLocal, 'href="https://id.8westit.com/settings.php"'));
 t('C6: a local login shows the Safeharbor account name and its initials',
     str_contains($htmlLocal, '<strong>Local Person</strong>')
     && str_contains($htmlLocal, '<span class="w365-avatar" aria-hidden="true">LP</span>'));
 t('C7: Settings points at this app\'s profile page and Sign out at its logout',
-    str_contains($htmlSuite, 'href="/profile.php">Settings<') && str_contains($htmlSuite, 'href="/logout.php">Sign out<'));
+    str_contains($htmlLocal, 'href="/profile.php">My settings<') && !str_contains($htmlSuite, 'href="/profile.php"') && str_contains($htmlSuite, 'href="/logout.php">Sign out<'));
 t('C8: the owner role reads as Owner',
     str_contains(render_cluster($suite, ['full_name' => 'Frank', 'email' => 'a@b.test', 'role' => 'owner', 'suite_subject' => 't1u1']), '· Owner'));
 
@@ -177,6 +177,7 @@ t('F9: the old user-menu script is gone; the shared launcher wires the panels',
 // "verified" claim set, which is exactly what the real one returns: this suite proves the rules
 // about WHICH claims are adopted, not the signature check (suite_sso_test.php owns that).
 require_once __DIR__ . '/../lib/suite_preferences.php';
+require_once __DIR__ . '/../lib/settings_context.php';
 $auth = (string)file_get_contents(__DIR__ . '/../lib/auth.php');
 $STUB_CLAIMS = null;
 function suite_sso_claims(): ?array { global $STUB_CLAIMS; return $STUB_CLAIMS; }
@@ -227,6 +228,17 @@ t('G8: the theme and preference copies are untouched by the identity rules',
 
 t('G9: a local password login forgets the copied identity',
     preg_match('/function attempt_login[\s\S]*?suite_session_identity_forget\(\);/', $auth) === 1);
+
+$settingsDoc = ['version'=>1,'subject'=>'t1u1','workspace'=>['tenant_id'=>'1','tenant'=>'synthetic-provider','kind'=>'msp'],
+    'panels'=>['my_settings','technician_workspace','msp_admin'],'primary_owner_status'=>'not_applicable',
+    'capabilities'=>['manage_people'=>true,'appoint_client_admins'=>false,'close_subscription'=>false]];
+$settingsClaims = $tokenClaims + ['8west:tenant'=>'synthetic-provider','8west:tenant_id'=>'1','8west:settings_context'=>$settingsDoc];
+$settingsSession = refresh_with($settingsClaims, [], 't1u1');
+t('settings: administrator sees MSP Admin only with verified panel', str_contains(render_cluster($settingsSession, $staff), '>MSP Admin</a>'));
+t('settings: technician does not inherit an administrator panel', !str_contains(render_cluster($settingsSession, [...$staff,'role'=>'tech']), '>MSP Admin</a>'));
+t('settings: missing current claim removes stale administration panel', !str_contains(render_cluster(refresh_with($tokenClaims, $settingsSession, 't1u1'), $staff), '>MSP Admin</a>'));
+t('settings: foreign identity removes stale administration panel', !str_contains(render_cluster(refresh_with($settingsClaims, $settingsSession, 't1u2'), $staff), '>MSP Admin</a>'));
+t('settings: staff retains one My settings link and Technician Workspace', substr_count($htmlSuite, '>My settings</a>') === 1 && str_contains($htmlSuite, '>Technician Workspace</a>'));
 
 echo "\n";
 if ($FAIL > 0) { echo "SUITE CHROME TESTS FAILED: $FAIL of " . ($PASS + $FAIL) . " checks failed.\n"; exit(1); }

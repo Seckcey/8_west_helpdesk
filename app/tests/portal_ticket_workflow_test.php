@@ -2,6 +2,8 @@
 /** Hermetic customer create/read/reply workflow and tenant-isolation tests. */
 declare(strict_types=1);
 
+require_once __DIR__ . '/portal_requester_privacy_cases.php';
+
 function portal_csrf_token(): string
 {
     return str_repeat('c', 64);
@@ -75,6 +77,7 @@ $schema = [
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)',
 ];
 foreach ($schema as $statement) $pdo->exec($statement);
+$pdo->exec('CREATE TABLE portal_ticket_requesters (ticket_id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL, subject TEXT NOT NULL, identity_tenant_slug TEXT NOT NULL)');
 $pdo->exec("INSERT INTO tenants (id,name) VALUES (1,'Provider One'),(2,'Provider Two')");
 $pdo->exec("INSERT INTO clients (id,tenant_id,name,sla_tier) VALUES
     (11,1,'Acme Company','standard'),
@@ -96,12 +99,12 @@ portal_workflow_expect('author label still refuses a name beyond the OIDC admiss
     fn() => portal_ticket_author(str_repeat('A', 191)));
 portal_workflow_expect('viewer cannot bypass the controller to open a ticket', PortalDataForbiddenException::class,
     fn() => portal_create_ticket(
-        $pdo, 1, 11, 'client_viewer', 'Viewer', 'Should not open', 'normal', 'Should not be written.'
-    ));
+        $pdo, 1, 11, 'client_viewer', 'Viewer', 'Should not open', 'normal', 'Should not be written.',
+    portal_requester_test_identity(1, 11, 'client_viewer')));
 
 $ticketId = portal_create_ticket(
-    $pdo, 1, 11, 'client_staff', 'Customer One', 'Printer is offline', 'high', "Front desk cannot print.\r\nPlease help."
-);
+    $pdo, 1, 11, 'client_staff', 'Customer One', 'Printer is offline', 'high', "Front desk cannot print.\r\nPlease help.",
+    portal_requester_test_identity(1, 11, 'client_staff'));
 $ticket = $pdo->query("SELECT * FROM tickets WHERE id={$ticketId}")->fetch();
 portal_workflow_check('customer request creates one open portal ticket inside the exact boundary',
     is_array($ticket)
@@ -126,7 +129,7 @@ $pdo->exec("INSERT INTO messages (ticket_id,author_name,kind,body,created_at) VA
     ({$ticketId},'Private Technician','note','INTERNAL SECRET','2026-08-29 10:01:00'),
     ({$ticketId},'Milepost','system','AUTOMATION SECRET','2026-08-29 10:02:00'),
     ({$ticketId},'Support Tech','tech','I am checking the printer.','2026-08-29 10:03:00')");
-$detail = portal_ticket_detail($pdo, 1, 11, $ticketId);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId, portal_requester_test_identity(1, 11, 'client_owner'));
 portal_workflow_check('ticket detail includes only customer and technician conversation',
     array_column($detail['messages'], 'kind') === ['client', 'tech']
     && ! str_contains(json_encode($detail, JSON_THROW_ON_ERROR), 'INTERNAL SECRET')
@@ -136,18 +139,18 @@ portal_workflow_check('pre-open technician history cannot become the portal resp
 $futureResponse = gmdate('Y-m-d H:i:s', time() + 300);
 $pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body,created_at)
     VALUES (?,'Future Tech','tech','FUTURE RESPONSE',?)")->execute([$ticketId, $futureResponse]);
-$detail = portal_ticket_detail($pdo, 1, 11, $ticketId);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId, portal_requester_test_identity(1, 11, 'client_owner'));
 portal_workflow_check('future technician history cannot become the portal response milestone',
     $detail['ticket']['first_response_at'] === null);
 $pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body,created_at)
     VALUES (?,'Current Tech','tech','A real current response.',?)")->execute([$ticketId, $ticket['created_at']]);
-$detail = portal_ticket_detail($pdo, 1, 11, $ticketId);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId, portal_requester_test_identity(1, 11, 'client_owner'));
 portal_workflow_check('portal response milestone uses the first response inside the real ticket lifetime',
     $detail['ticket']['first_response_at'] === $ticket['created_at']);
 portal_workflow_expect('same-provider different customer cannot read the ticket', PortalDataNotFoundException::class,
-    fn() => portal_ticket_detail($pdo, 1, 12, $ticketId));
+    fn() => portal_ticket_detail($pdo, 1, 12, $ticketId, portal_requester_test_identity(1, 12, 'client_owner')));
 portal_workflow_expect('different provider cannot read the ticket', PortalDataNotFoundException::class,
-    fn() => portal_ticket_detail($pdo, 2, 21, $ticketId));
+    fn() => portal_ticket_detail($pdo, 2, 21, $ticketId, portal_requester_test_identity(2, 21, 'client_owner')));
 
 // Model a historical unsafe staff merge: a different customer's source stub
 // points at this customer's survivor and its customer message was moved there.
@@ -166,8 +169,8 @@ $pdo->exec("INSERT INTO messages (ticket_id,author_name,kind,body,created_at)
     VALUES ({$mergedTargetId},'Other Customer','client','CROSS CUSTOMER SECRET','2026-08-29 08:30:00')");
 portal_workflow_expect('merged survivor is hidden instead of leaking historical customer messages',
     PortalDataNotFoundException::class,
-    fn() => portal_ticket_detail($pdo, 1, 11, $mergedTargetId));
-$summaryAfterHistoricalMerge = portal_ticket_summary($pdo, 1, 11, 50);
+    fn() => portal_ticket_detail($pdo, 1, 11, $mergedTargetId, portal_requester_test_identity(1, 11, 'client_owner')));
+$summaryAfterHistoricalMerge = portal_ticket_summary($pdo, 1, 11, 50, portal_requester_test_identity(1, 11, 'client_owner'));
 portal_workflow_check('merged survivor is absent from the customer dashboard',
     !in_array($mergedTargetId, array_map(
         static fn(array $row): int => (int)$row['id'],
@@ -175,8 +178,8 @@ portal_workflow_check('merged survivor is absent from the customer dashboard',
     ), true));
 portal_workflow_expect('merged survivor also refuses a customer reply', PortalDataNotFoundException::class,
     fn() => portal_reply_to_ticket(
-        $pdo, 1, 11, $mergedTargetId, 'client_staff', 'Customer One', 'Must not cross the merge boundary.'
-    ));
+        $pdo, 1, 11, $mergedTargetId, 'client_staff', 'Customer One', 'Must not cross the merge boundary.',
+    portal_requester_test_identity(1, 11, 'client_staff')));
 
 $mergeSource = file_get_contents(__DIR__ . '/../public/api/ticket_merge.php');
 $lockedReadAt = is_string($mergeSource) ? strpos($mergeSource, 'SELECT id, subject, client_id, merged_into_id') : false;
@@ -199,7 +202,7 @@ portal_workflow_check('reply touch preserves a newer timestamp written by a data
     && str_contains($portalDataSource, 't.updated_at >= :updated_at_floor'));
 
 $pdo->exec("UPDATE tickets SET status='waiting' WHERE id={$ticketId}");
-$replyId = portal_reply_to_ticket($pdo, 1, 11, $ticketId, 'client_staff', 'Customer One', 'The printer is powered on now.');
+$replyId = portal_reply_to_ticket($pdo, 1, 11, $ticketId, 'client_staff', 'Customer One', 'The printer is powered on now.', portal_requester_test_identity(1, 11, 'client_staff'));
 $afterReply = $pdo->query("SELECT status,auto_close_eligible FROM tickets WHERE id={$ticketId}")->fetch();
 $reply = $pdo->query("SELECT * FROM messages WHERE id={$replyId}")->fetch();
 portal_workflow_check('customer reply returns a waiting ticket to the human queue',
@@ -212,8 +215,8 @@ portal_workflow_check('customer reply is a client message and cannot gain auto-c
 $pdo->prepare('UPDATE tickets SET updated_at = ? WHERE id = ?')->execute([gmdate('Y-m-d H:i:s'), $ticketId]);
 $sameSecondBefore = (string)$pdo->query("SELECT updated_at FROM tickets WHERE id={$ticketId}")->fetchColumn();
 $sameSecondReplyId = portal_reply_to_ticket(
-    $pdo, 1, 11, $ticketId, 'client_staff', 'Customer One', 'Immediate same-second follow-up.'
-);
+    $pdo, 1, 11, $ticketId, 'client_staff', 'Customer One', 'Immediate same-second follow-up.',
+    portal_requester_test_identity(1, 11, 'client_staff'));
 $sameSecondAfter = (string)$pdo->query("SELECT updated_at FROM tickets WHERE id={$ticketId}")->fetchColumn();
 portal_workflow_check('same-second open-ticket reply saves after proving the locked postcondition',
     strtotime($sameSecondAfter . ' UTC') >= strtotime($sameSecondBefore . ' UTC')
@@ -222,24 +225,24 @@ portal_workflow_check('same-second open-ticket reply saves after proving the loc
 $futureActivity = gmdate('Y-m-d H:i:s', time() + 300);
 $pdo->prepare('UPDATE tickets SET updated_at = ? WHERE id = ?')->execute([$futureActivity, $ticketId]);
 $skewReplyId = portal_reply_to_ticket(
-    $pdo, 1, 11, $ticketId, 'client_staff', 'Customer One', 'Clock-skew-safe follow-up.'
-);
+    $pdo, 1, 11, $ticketId, 'client_staff', 'Customer One', 'Clock-skew-safe follow-up.',
+    portal_requester_test_identity(1, 11, 'client_staff'));
 $afterSkewReply = (string)$pdo->query("SELECT updated_at FROM tickets WHERE id={$ticketId}")->fetchColumn();
 portal_workflow_check('customer reply never moves a later activity timestamp backward',
     strtotime($afterSkewReply . ' UTC') >= strtotime($futureActivity . ' UTC')
     && (string)$pdo->query("SELECT body FROM messages WHERE id={$skewReplyId}")->fetchColumn()
         === 'Clock-skew-safe follow-up.');
 portal_workflow_expect('different customer cannot reply to the ticket', PortalDataNotFoundException::class,
-    fn() => portal_reply_to_ticket($pdo, 1, 12, $ticketId, 'client_staff', 'Beta User', 'Cross-customer reply'));
+    fn() => portal_reply_to_ticket($pdo, 1, 12, $ticketId, 'client_staff', 'Beta User', 'Cross-customer reply', portal_requester_test_identity(1, 12, 'client_staff')));
 portal_workflow_expect('viewer cannot bypass the controller to reply', PortalDataForbiddenException::class,
     fn() => portal_reply_to_ticket(
-        $pdo, 1, 11, $ticketId, 'client_viewer', 'Viewer', 'Should not be written.'
-    ));
+        $pdo, 1, 11, $ticketId, 'client_viewer', 'Viewer', 'Should not be written.',
+    portal_requester_test_identity(1, 11, 'client_viewer')));
 
 $pdo->exec("UPDATE tickets SET status='resolved',resolved_at='2026-08-29 11:00:00' WHERE id={$ticketId}");
 $beforeResolvedReply = (int)$pdo->query("SELECT COUNT(*) FROM messages WHERE ticket_id={$ticketId}")->fetchColumn();
 portal_workflow_expect('resolved ticket cannot receive a portal reply', PortalDataConflictException::class,
-    fn() => portal_reply_to_ticket($pdo, 1, 11, $ticketId, 'client_staff', 'Customer One', 'One more thing'));
+    fn() => portal_reply_to_ticket($pdo, 1, 11, $ticketId, 'client_staff', 'Customer One', 'One more thing', portal_requester_test_identity(1, 11, 'client_staff')));
 portal_workflow_check('refused resolved reply writes no message',
     (int)$pdo->query("SELECT COUNT(*) FROM messages WHERE ticket_id={$ticketId}")->fetchColumn()
         === $beforeResolvedReply);
@@ -248,7 +251,7 @@ $context = [
     'identity' => ['display_name' => 'Customer One', 'role' => 'client_staff'],
     'binding' => ['client_name' => 'Acme Company'],
 ];
-$detail = portal_ticket_detail($pdo, 1, 11, $ticketId);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId, portal_requester_test_identity(1, 11, 'client_owner'));
 ob_start();
 portal_render_ticket($context, $detail);
 $writerHtml = (string)ob_get_clean();
@@ -261,7 +264,7 @@ portal_workflow_check('resolved ticket offers a new request but no reply mutatio
     && ! str_contains($writerHtml, 'Reply to the support team'));
 $context['identity']['role'] = 'client_viewer';
 $pdo->exec("UPDATE tickets SET status='open',resolved_at=NULL WHERE id={$ticketId}");
-$detail = portal_ticket_detail($pdo, 1, 11, $ticketId);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId, portal_requester_test_identity(1, 11, 'client_owner'));
 ob_start();
 portal_render_ticket($context, $detail);
 $viewerHtml = (string)ob_get_clean();
@@ -269,6 +272,8 @@ portal_workflow_check('viewer can read but receives no create or reply controls'
     str_contains($viewerHtml, 'I am checking the printer.')
     && ! str_contains($viewerHtml, 'href="/portal/new.php"')
     && ! str_contains($viewerHtml, '<form method="post" action="/portal/ticket.php'));
+
+portal_requester_privacy_cases($pdo, 'portal_workflow_check', 'portal_workflow_expect');
 
 echo "Portal ticket workflow: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

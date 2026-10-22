@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
             } else {
                 db()->prepare('INSERT INTO users (tenant_id, email, password_hash, full_name, initials, color, role) VALUES (?,?,?,?,?,?,?)')
                     ->execute([tenant_id(), $email, password_hash($pass, PASSWORD_DEFAULT), $name, initials_of($name), $color, $role]);
-                $ok = "{$name} added — they can sign in with {$email}.";
+                $ok = "{$name} added as a local Safeharbor account — they can sign in with {$email}.";
             }
         }
     }
@@ -61,20 +61,22 @@ page_top($user, 'Team', 'team');
   <div class="page-head">
     <div>
       <h1 class="page-title">Team</h1>
-      <p class="page-sub"><?= count(array_filter($rows, static fn($r) => (int)$r['is_active'] === 1)) ?> active techs at 8 West IT, LLC</p>
+      <p class="page-sub"><?= count(array_filter($rows, static fn($r) => (int)$r['is_active'] === 1)) ?> active Safeharbor accounts in this workspace</p>
     </div>
   </div>
 
   <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
   <?php if ($ok): ?><div class="form-ok"><?= h($ok) ?></div><?php endif; ?>
 
+  <div class="card form-card"><p>8 West ID owns suite identities, invitations and sign-in recovery.<?php if ($isAdmin && ($_SESSION['suite_settings_context']['capabilities']['manage_people'] ?? false) === true
+      && in_array('msp_admin', $_SESSION['suite_settings_context']['panels'] ?? [], true)): ?> <a href="https://id.8westit.com/users.php">Manage people in 8 West ID</a>.<?php endif; ?> This page controls local Safeharbor access and recovery accounts.</p></div>
   <div class="card list">
     <?php foreach ($rows as $r): $active = (int)$r['is_active'] === 1; ?>
     <div class="urow <?= $active ? '' : 'urow-inactive' ?>">
       <?= avatar($r, 30) ?>
       <span class="urow-main">
         <span class="urow-name"><?= h($r['full_name']) ?><?= (int)$r['id'] === (int)$user['id'] ? ' <span class="urow-sub">(you)</span>' : '' ?></span>
-        <span class="urow-sub"><?= h($r['email']) ?><?= $r['last_login_at'] ? ' · last sign-in ' . rel_time($r['last_login_at']) . ' ago' : '' ?></span>
+        <span class="urow-sub"><?= h($r['email']) ?> · <?= suite_local_password_allowed($r) ? 'Local recovery account' : '8 West ID account' ?><?= $r['last_login_at'] ? ' · last sign-in ' . rel_time($r['last_login_at']) . ' ago' : '' ?></span>
       </span>
       <span class="role-badge role-<?= h($r['role']) ?>"><?= h($r['role']) ?></span>
       <?php if ($isAdmin && (int)$r['id'] !== (int)$user['id']): ?>
@@ -82,7 +84,7 @@ page_top($user, 'Team', 'team');
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="<?= $active ? 'deactivate' : 'reactivate' ?>">
         <input type="hidden" name="user_id" value="<?= (int)$r['id'] ?>">
-        <button type="submit" class="btn-link"><?= $active ? 'Deactivate' : 'Reactivate' ?></button>
+        <button type="submit" class="btn-link"><?= $active ? 'Disable Safeharbor access' : 'Enable Safeharbor access' ?></button>
       </form>
       <?php endif; ?>
     </div>
@@ -90,7 +92,7 @@ page_top($user, 'Team', 'team');
   </div>
 
   <?php if ($isAdmin): ?>
-  <div class="rail-label" style="margin-top:24px">Add a teammate</div>
+  <div class="rail-label" style="margin-top:24px">Add a local recovery account</div>
   <div class="card form-card">
     <form method="post" action="/users.php" class="form-grid">
       <?= csrf_field() ?>
@@ -101,7 +103,7 @@ page_top($user, 'Team', 'team');
       <label class="field">Work email
         <input type="email" name="email" required placeholder="jordan@8westit.com">
       </label>
-      <label class="field">Temporary password
+      <label class="field">Local password
         <input type="text" name="password" required minlength="6" placeholder="6+ characters">
       </label>
       <label class="field">Role
@@ -121,8 +123,8 @@ page_top($user, 'Team', 'team');
         </div>
       </div>
       <div class="form-actions span-2">
-        <button type="submit" class="btn-primary">Add user</button>
-        <span class="reply-hint">They appear in assignment rotation immediately.</span>
+        <button type="submit" class="btn-primary">Add local account</button>
+        <span class="reply-hint">This creates a Safeharbor-only account, not an 8 West ID identity or invitation.</span>
       </div>
     </form>
   </div>

@@ -11,6 +11,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/eightwestid/eightwestid.php';
 require_once __DIR__ . '/portal_data.php';
 require_once __DIR__ . '/portal_access.php';
+require_once __DIR__ . '/portal_preferences.php';
 
 use EightWest\Id\Client as EightWestIdClient;
 use EightWest\Id\ConfigurationException as EightWestIdConfigurationException;
@@ -277,6 +278,7 @@ function portal_establish_identity(PDO $pdo, EightWestIdentity $identity, ?int $
         $issuedAt=$now??time();
         $principal=['subject'=>$identity->subject,'session_version'=>$identity->sessionVersion,
             'identity_tenant_slug'=>$identity->tenant,'role'=>$identity->role,'display_name'=>$identity->name,
+            'theme'=>$identity->theme,'preferences'=>$identity->preferences,'identity_tenant_id'=>$identity->tenantId,
             'issued_at'=>$issuedAt,'expires_at'=>$issuedAt+(int)portal_oidc_config()['session_lifetime_seconds']];
         $choices=portal_access_choices($pdo,$principal,$accessTransport);
         if(!$choices)throw new PortalAuthenticationRejectedException('No customer access has been assigned to this account.');
@@ -316,6 +318,9 @@ function portal_establish_identity(PDO $pdo, EightWestIdentity $identity, ?int $
         'identity_tenant_slug' => $slug,
         'role' => $identity->role,
         'display_name' => $identity->name,
+        'theme' => $identity->theme,
+        'preferences' => $identity->preferences,
+        'identity_tenant_id' => $identity->tenantId,
         'binding_id' => (int)$binding['id'],
         'tenant_id' => (int)$binding['tenant_id'],
         'client_id' => (int)$binding['client_id'],
@@ -417,7 +422,8 @@ function portal_authenticated_context(
         setcookie(PORTAL_LOGIN_GUARD_COOKIE, '', portal_login_guard_options(time() - 42000));
         unset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]);
     }
-    return ['identity' => $identity, 'binding' => $binding];
+    return ['identity' => $identity, 'binding' => $binding,
+        'settings_context' => portal_current_settings_context($identity)];
 }
 
 /** Reopen the original session read-only after SSE headers, without holding its lock.

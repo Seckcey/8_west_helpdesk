@@ -333,13 +333,8 @@ portal_auth_check('portal session stores exact signed revocation pair',
     is_string($authSource)
     && str_contains($authSource, "'subject' => \$identity->subject")
     && str_contains($authSource, "'session_version' => \$identity->sessionVersion"));
-portal_auth_check('local portal mapping and authorization ignore presentation and informational claims',
-    is_string($authSource)
-    && !str_contains($authSource, '$identity->preferences')
-    && !str_contains($authSource, '$identity->theme')
-    && !str_contains($authSource, '$identity->avatar')
-    && !str_contains($authSource, '$identity->email')
-    && !str_contains($authSource, '$identity->tenantId'));
+portal_auth_check('portal never infers client mapping from email',
+    is_string($authSource) && !str_contains($authSource, '$identity->email'));
 
 $indexSource = file_get_contents(__DIR__ . '/../public/portal/index.php');
 portal_auth_check('default-off gate runs before session and data access',

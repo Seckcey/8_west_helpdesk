@@ -123,3 +123,13 @@ Then sign in through 8 West ID and open a ticket.
 There is no automated rebuild. A rebuild needs a reviewed plan: least-privilege database grants (no
 database-wide `DELETE`), `schema.sql` plus `002_svc_intake.sql`, `009_support_intake.sql` and
 `018_ticket_auto_close_eligibility.sql`, the private runtime, and the vhosts in this folder.
+
+## Requester privacy migration
+
+For `portal_ticket_requesters_v1.sql`, follow the
+[settings/access release packet](../docs/settings-access-release.md). The
+previous application code exposes a wider member view: an ordinary source
+rollback is insufficient. Preserve `portal.enabled=false` in the server-only
+config across migration, deployment and automatic inverse, and reopen only the
+reviewed privacy-compatible source after protected approval and acceptance.
+Keep all attribution and audit history; no database restore/delete rollback.

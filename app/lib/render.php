@@ -194,9 +194,15 @@ function suite_chrome_account_menu(array $user): void
       <div class="w365-menu" id="w365-account-menu" data-w365-account-menu role="menu" hidden>
         <div class="w365-menu-who"><strong><?= h($name) ?></strong><span><?= h($secondary) ?><?= $roleLabel !== '' ? ' · ' . h($roleLabel) : '' ?></span></div>
         <?php if ($hasSuite): ?>
-          <a class="w365-menu-item" role="menuitem" href="https://id.8westit.com/settings.php" target="_blank" rel="noopener noreferrer">Suite settings</a>
+          <a class="w365-menu-item" role="menuitem" href="https://id.8westit.com/settings.php" target="_blank" rel="noopener noreferrer">My settings</a>
+        <?php else: ?>
+          <a class="w365-menu-item" role="menuitem" href="/profile.php">My settings</a>
         <?php endif; ?>
-        <a class="w365-menu-item" role="menuitem" href="/profile.php">Settings</a>
+        <a class="w365-menu-item" role="menuitem" href="/">Technician Workspace</a>
+        <?php if ($hasSuite && in_array($role, ['owner', 'admin'], true)
+            && in_array('msp_admin', $_SESSION['suite_settings_context']['panels'] ?? [], true)): ?>
+          <a class="w365-menu-item" role="menuitem" href="https://id.8westit.com/admin.php?panel=msp_admin">MSP Admin</a>
+        <?php endif; ?>
         <hr class="w365-menu-sep">
         <a class="w365-menu-item" role="menuitem" href="/logout.php">Sign out</a>
       </div>

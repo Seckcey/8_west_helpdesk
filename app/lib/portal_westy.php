@@ -51,7 +51,7 @@ function portal_westy_scope(PDO $pdo, array $context, bool $lock = false, ?calla
     $key=['safeharbor-portal-v1',...$ids,$i['subject']];
     if(isset($i['customer_access']))array_push($key,'customer-access-v1',$i['customer_access']['access']['reference'],$i['customer_access']['access']['generation']);
     return ['key'=>hash('sha256',json_encode($key,JSON_THROW_ON_ERROR)),
-        'tenant'=>$i['tenant_id'],'client'=>$i['client_id'],'binding'=>$i['binding_id'],'role'=>portal_customer_role($i),'name'=>$i['display_name']];
+        'tenant'=>$i['tenant_id'],'client'=>$i['client_id'],'binding'=>$i['binding_id'],'role'=>portal_customer_role($i),'name'=>$i['display_name'],'identity'=>$i];
 }
 
 function portal_westy_lock(PDO $pdo): string
@@ -134,7 +134,7 @@ function portal_westy_state(PDO $pdo, array $context, ?string $conversation = nu
 
 function portal_westy_receipt_url(PDO $pdo,array $s,int $ticket): ?string
 {
-    try { portal_ticket_detail($pdo,$s['tenant'],$s['client'],$ticket); return '/portal/ticket.php?id='.$ticket; }
+    try { portal_ticket_detail($pdo,$s['tenant'],$s['client'],$ticket,$s['identity']); return '/portal/ticket.php?id='.$ticket; }
     catch (PortalDataNotFoundException) { return null; }
 }
 
@@ -452,7 +452,7 @@ function portal_westy_handoff(PDO $pdo,array $context,array $request): int
         if($draft['state']==='sent'){ $pdo->commit();return (int)$draft['ticket_id']; }
         if(!portal_westy_config()['enabled'])throw new PortalWestyException('ai_unavailable',503);
         if($draft['state']!=='draft' || (int)$draft['revision']!==$request['revision'] || $draft['expires_at']<=gmdate('Y-m-d H:i:s') || $draft['conversation_key']!==$account['conversation_key'])throw new PortalWestyException('draft_changed');
-        $ticket=portal_create_ticket($pdo,$s['tenant'],$s['client'],$s['role'],$s['name'],$draft['subject'],$draft['priority'],$draft['body']);
+        $ticket=portal_create_ticket($pdo,$s['tenant'],$s['client'],$s['role'],$s['name'],$draft['subject'],$draft['priority'],$draft['body'],$s['identity']);
         $q=$pdo->prepare("UPDATE portal_westy_drafts SET state='sent',ticket_id=?,sent_at=?,subject=NULL,body=NULL WHERE draft_key=? AND scope_key=? AND state='draft'");$q->execute([$ticket,gmdate('Y-m-d H:i:s'),$key,$s['key']]);
         if($q->rowCount()!==1)throw new PortalWestyException('draft_changed');
         $pdo->commit();return $ticket;

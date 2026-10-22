@@ -145,8 +145,16 @@ denied('stale review cannot send changed draft',fn()=>portal_westy_handoff($pdo,
 $handoff['revision']=2;$before=(int)$pdo->query('SELECT COUNT(*) FROM tickets')->fetchColumn();
 $ticket=portal_westy_handoff($pdo,$a,$handoff);$again=portal_westy_handoff($pdo,$a,$handoff);
 check('double send and lost response reconcile to one ticket',$ticket===$again&&(int)$pdo->query('SELECT COUNT(*) FROM tickets')->fetchColumn()===$before+1);
-$detail=portal_ticket_detail($pdo,1,11,$ticket);check('same customer writer stores exact reviewed text',$detail['messages'][0]['body']===$edited['body']&&$detail['ticket']['channel']==='portal');
+$detail=portal_ticket_detail($pdo,1,11,$ticket, $a['identity']);check('same customer writer stores exact reviewed text',$detail['messages'][0]['body']===$edited['body']&&$detail['ticket']['channel']==='portal');
 $receipt=tenant_test_state($pdo,$a)['draft'];check('receipt has genuine ticket link and no private text',$receipt['ticket_url']==='/portal/ticket.php?id='.$ticket&&$receipt['subject']===null&&$receipt['body']===null);
+$attribution=$pdo->query('SELECT * FROM portal_ticket_requesters WHERE ticket_id='.(int)$ticket)->fetch();
+check('Westy handoff binds immutable requester and exact trusted client',
+    $attribution['subject']===$a['identity']['subject'] && $attribution['identity_tenant_slug']===$a['identity']['identity_tenant_slug']
+    && (int)$attribution['tenant_id']===1 && (int)$attribution['client_id']===11);
+$memberScope=portal_westy_scope($pdo,['identity'=>[...$same['identity'],'role'=>'client_staff']]);
+check('receipt URL cannot expose another same-client requester',portal_westy_receipt_url($pdo,$memberScope,$ticket)===null);
+$ownScope=portal_westy_scope($pdo,['identity'=>[...$a['identity'],'role'=>'client_staff']]);
+check('own handoff remains accessible after effective role becomes member',portal_westy_receipt_url($pdo,$ownScope,$ticket)==='/portal/ticket.php?id='.$ticket);
 denied('sent receipt is immutable',fn()=>$pdo->exec("UPDATE portal_westy_drafts SET ticket_id=ticket_id+1 WHERE draft_key='".$d['draft_key']."'"));
 denied('sent receipt cannot be deleted',fn()=>$pdo->exec("DELETE FROM portal_westy_drafts WHERE draft_key='".$d['draft_key']."'"));
 $q=$pdo->prepare("INSERT INTO messages(ticket_id,author_name,kind,body) VALUES(?,'Private staff','note','PRIVATE_NOTE_CANARY')");$q->execute([$ticket]);
@@ -169,7 +177,7 @@ $q=$pdo->prepare('SELECT state,reserve_microusd FROM portal_westy_turns WHERE op
 check('No limit from 8 West ID lifts the monthly cap',$calls===$count+1&&$row['state']==='complete'&&$captured['max_output_tokens']===PORTAL_WESTY_AI_MAX_OUTPUT);
 check('No limit still records the reservation',(int)$row['reserve_microusd']>1);
 $tenantTestNoLimit=false;denied('the cap returns when No limit is off',fn()=>tenant_test_message($pdo,$same,$message('Another',$same),$provider),'cost_limit');$config['monthly_microusd']=5000000;
-$config['ai_enabled']=false;check('AI-off preserves conversation read',count(tenant_test_state($pdo,$a)['turns'])>0);$direct=portal_create_ticket($pdo,1,11,'client_staff','Alex','Direct fallback','normal','Direct form works while AI is off.');check('direct customer form still writes when AI is off',$direct>0);$config['ai_enabled']=true;
+$config['ai_enabled']=false;check('AI-off preserves conversation read',count(tenant_test_state($pdo,$a)['turns'])>0);$direct=portal_create_ticket($pdo,1,11,'client_staff','Alex','Direct fallback','normal','Direct form works while AI is off.', [...$a['identity'],'role'=>'client_staff']);check('direct customer form still writes when AI is off',$direct>0);$config['ai_enabled']=true;
 $rollback=$draft();portal_westy_save_draft($pdo,$a,$rollback);$before=(int)$pdo->query('SELECT COUNT(*) FROM tickets')->fetchColumn();
 $pdo->exec("CREATE TRIGGER westy_test_receipt_failure BEFORE UPDATE ON portal_westy_drafts FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic receipt failure'");
 denied('receipt failure rolls ticket back',fn()=>portal_westy_handoff($pdo,$a,['draft_key'=>$rollback['draft_key'],'revision'=>1,'reviewed'=>true]));

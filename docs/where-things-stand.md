@@ -38,6 +38,17 @@ passes its check. Every deploy and rollback adds a line to
 | Tenant AI (Westy model choice per customer) | **Live**; see `docs/TENANT_AI.md`. A refused customer Westy send logs `[safeharbor-portal-westy] refused reason=…` in the `8west-php-safeharbor` journal, for example `cost_limit` when the customer's monthly budget is used up |
 | Westy guidance for Macs | **Live** since 2026-10-19 (`53c9fbb`): on a computer that reports macOS, Westy uses no Windows-only tools and offers steps, Contact support, or RustDesk help after the person accepts. It points people to *Remote support setup* in Westy Companion for Mac, which is **not published yet** |
 
+## Settings/access candidate — not yet live
+
+`SETTINGS-ACCESS-20261021` adds ID My settings/preferences and immutable portal
+requester attribution. Ordinary members see their own requests; client owners
+and admins retain client-wide requests and archived reports. See the
+[release packet](settings-access-release.md) for exact boundaries, synthetic
+validation and the mandatory portal traffic hold across migration and any
+old-source inverse. Shared UI publication/sync, exact-head CI, protected
+production migration approval and signed-in acceptance are separate gates;
+this source note does not change the live states above.
+
 ## Who may call us
 
 | Identity | Endpoint | Product | Active |

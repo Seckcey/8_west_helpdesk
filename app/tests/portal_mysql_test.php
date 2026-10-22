@@ -6,6 +6,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/portal_requester_privacy_cases.php';
+
 if (PHP_SAPI !== 'cli') exit(1);
 ob_start(); // The authentication checks below rotate real PHP sessions.
 
@@ -284,7 +286,7 @@ $_SESSION[PORTAL_SESSION_KEY]['client_id'] = 12;
 portal_mysql_check('mismatched local customer binding is refused', portal_authenticated_context($pdo, static fn() => false) === null);
 unset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]);
 
-$summary = portal_ticket_summary($pdo, 1, 11, 50);
+$summary = portal_ticket_summary($pdo, 1, 11, 50, portal_requester_test_identity(1, 11, 'client_owner'));
 $ticketIds = array_map(static fn(array $row): int => (int)$row['id'], $summary['tickets']);
 sort($ticketIds);
 portal_mysql_check('ticket summary hides merged stubs and their survivors',
@@ -296,7 +298,7 @@ portal_mysql_check('ticket summary field list has no message/contact/assignee/bi
         'id', 'subject', 'status', 'priority', 'created_at', 'updated_at', 'resolved_at',
     ]);
 portal_mysql_expect('merged survivor cannot expose moved conversation', PortalDataNotFoundException::class,
-    fn() => portal_ticket_detail($pdo, 1, 11, 1001));
+    fn() => portal_ticket_detail($pdo, 1, 11, 1001, portal_requester_test_identity(1, 11, 'client_owner')));
 
 $customerTicketId = portal_create_ticket(
     $pdo,
@@ -307,6 +309,7 @@ $customerTicketId = portal_create_ticket(
     'Portal-created request',
     'high',
     'A customer needs help from the portal.',
+    portal_requester_test_identity(1, 11, 'client_owner'),
 );
 $customerTicket = $pdo->query(
     "SELECT tenant_id,client_id,status,priority,channel,assignee_id,contact_id,
@@ -344,7 +347,7 @@ $validResponseAt = (string)$pdo->query(
     "SELECT created_at FROM messages
       WHERE ticket_id={$customerTicketId} AND body='customer-visible response'"
 )->fetchColumn();
-$customerDetail = portal_ticket_detail($pdo, 1, 11, $customerTicketId);
+$customerDetail = portal_ticket_detail($pdo, 1, 11, $customerTicketId, portal_requester_test_identity(1, 11, 'client_owner'));
 $visibleKinds = array_column($customerDetail['messages'], 'kind');
 portal_mysql_check('portal detail excludes internal notes and automation lines',
     count($visibleKinds) === 4
@@ -356,9 +359,9 @@ portal_mysql_check('portal milestone ignores pre-open and future technician time
     $validResponseAt !== ''
     && $customerDetail['ticket']['first_response_at'] === $validResponseAt);
 portal_mysql_expect('different customer cannot read portal ticket', PortalDataNotFoundException::class,
-    fn() => portal_ticket_detail($pdo, 1, 12, $customerTicketId));
+    fn() => portal_ticket_detail($pdo, 1, 12, $customerTicketId, portal_requester_test_identity(1, 12, 'client_owner')));
 $pdo->exec("UPDATE tickets SET status='waiting' WHERE id={$customerTicketId}");
-portal_reply_to_ticket($pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Customer follow-up');
+portal_reply_to_ticket($pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Customer follow-up', portal_requester_test_identity(1, 11, 'client_owner'));
 $customerStatus = $pdo->query(
     "SELECT status,auto_close_eligible FROM tickets WHERE id={$customerTicketId}"
 )->fetch();
@@ -378,6 +381,7 @@ $sameSecondReplyId = portal_reply_to_ticket(
     'client_owner',
     'Acme Customer',
     'Immediate same-second follow-up',
+    portal_requester_test_identity(1, 11, 'client_owner'),
 );
 $sameSecondAfter = (string)$pdo->query(
     "SELECT updated_at FROM tickets WHERE id={$customerTicketId}"
@@ -389,8 +393,8 @@ portal_mysql_check('same-second open-ticket reply cannot produce a false row-cou
 $futureActivity = gmdate('Y-m-d H:i:s', time() + 300);
 $pdo->prepare('UPDATE tickets SET updated_at=? WHERE id=?')->execute([$futureActivity, $customerTicketId]);
 $skewReplyId = portal_reply_to_ticket(
-    $pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Clock-skew-safe follow-up'
-);
+    $pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Clock-skew-safe follow-up',
+    portal_requester_test_identity(1, 11, 'client_owner'));
 $afterSkewReply = (string)$pdo->query(
     "SELECT updated_at FROM tickets WHERE id={$customerTicketId}"
 )->fetchColumn();
@@ -409,8 +413,8 @@ $pdo->exec("UPDATE tickets
     SET auto_close_eligible=1,updated_at=UTC_TIMESTAMP()
     WHERE id={$customerTicketId}");
 $triggerReplyId = portal_reply_to_ticket(
-    $pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Trigger-timestamp follow-up'
-);
+    $pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Trigger-timestamp follow-up',
+    portal_requester_test_identity(1, 11, 'client_owner'));
 $triggerTouched = $pdo->query(
     "SELECT updated_at,auto_close_eligible FROM tickets WHERE id={$customerTicketId}"
 )->fetch();
@@ -423,7 +427,7 @@ portal_mysql_check('reply preserves a newer production-shape message-trigger tim
 $pdo->exec('DROP TRIGGER portal_test_message_touch_before_insert');
 $pdo->exec("UPDATE tickets SET status='resolved',resolved_at=UTC_TIMESTAMP() WHERE id={$customerTicketId}");
 portal_mysql_expect('resolved portal ticket refuses a customer reply', PortalDataConflictException::class,
-    fn() => portal_reply_to_ticket($pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Should fail'));
+    fn() => portal_reply_to_ticket($pdo, 1, 11, $customerTicketId, 'client_owner', 'Acme Customer', 'Should fail', portal_requester_test_identity(1, 11, 'client_owner')));
 
 $sameActive = portal_transition_binding(
     $pdo, $bindingId, 'acme-id', 1, 11, 102, 'active', 'Idempotent retry.'
@@ -492,6 +496,25 @@ portal_mysql_check('malformed replay fails before dropping lifecycle guards',
         "SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_customer_portal_%'"
     )->fetchColumn() === 7);
+
+portal_requester_privacy_cases($pdo, 'portal_mysql_check', 'portal_mysql_expect');
+
+$requesterMigration = __DIR__.'/../db/migrations/portal_ticket_requesters_v1.sql';
+$requesterBefore = $pdo->query('SELECT * FROM portal_ticket_requesters ORDER BY ticket_id')->fetchAll();
+portal_execute_sql_file($pdo, $requesterMigration);
+portal_mysql_check('requester migration replays without changing attribution',
+    $requesterBefore === $pdo->query('SELECT * FROM portal_ticket_requesters ORDER BY ticket_id')->fetchAll());
+portal_mysql_check('replay preserves exactly three immutable requester guards',
+    (int)$pdo->query("SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_portal_requester_%'")->fetchColumn() === 3);
+$pdo->exec('ALTER TABLE portal_ticket_requesters ADD COLUMN unreviewed_column INT NULL');
+portal_mysql_expect('requester migration refuses incompatible existing shape', PDOException::class,
+    fn()=>portal_execute_sql_file($pdo, $requesterMigration));
+portal_mysql_check('incompatible replay preserves requester guards',
+    (int)$pdo->query("SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_portal_requester_%'")->fetchColumn() === 3);
+$pdo->exec('ALTER TABLE portal_ticket_requesters DROP COLUMN unreviewed_column');
+$firstRequester = (int)$requesterBefore[0]['ticket_id'];
+portal_mysql_expect('failed replay still rejects attribution deletion', PDOException::class,
+    fn()=>$pdo->exec('DELETE FROM portal_ticket_requesters WHERE ticket_id='.$firstRequester));
 
 echo "Portal MySQL: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

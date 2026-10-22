@@ -40,6 +40,7 @@ try {
         (int)$context['identity']['tenant_id'],
         (int)$context['identity']['client_id'],
         50,
+        $context['identity'],
     );
 } catch (Throwable $error) {
     error_log('[safeharbor-portal] summary_failed type=' . $error::class);
@@ -49,11 +50,12 @@ try {
 
 $reportArchives = null;
 try {
-    $reportArchives = portal_report_archives(
+    if (portal_client_admin($context['identity'])) $reportArchives = portal_report_archives(
         db(),
         (int)$context['identity']['tenant_id'],
         (int)$context['identity']['client_id'],
         3,
+        $context['identity'],
     );
 } catch (Throwable $error) {
     // A report verification/read failure must hide reports, but it must not
