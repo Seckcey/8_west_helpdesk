@@ -38,16 +38,31 @@ passes its check. Every deploy and rollback adds a line to
 | Tenant AI (Westy model choice per customer) | **Live**; see `docs/TENANT_AI.md`. A refused customer Westy send logs `[safeharbor-portal-westy] refused reason=…` in the `8west-php-safeharbor` journal, for example `cost_limit` when the customer's monthly budget is used up |
 | Westy guidance for Macs | **Live** since 2026-10-19 (`53c9fbb`): on a computer that reports macOS, Westy uses no Windows-only tools and offers steps, Contact support, or RustDesk help after the person accepts. It points people to *Remote support setup* in Westy Companion for Mac, which is **not published yet** |
 
-## Settings/access candidate — not yet live
+## Settings/access — deployed October 21, customer acceptance pending
 
-`SETTINGS-ACCESS-20261021` adds ID My settings/preferences and immutable portal
+`SETTINGS-ACCESS-20261021` is technically deployed at application source
+`4021f4507f4727259d0c67ae2a99ba5beaf97400`, recorded at **9:12:59 PM PDT on
+October 21, 2026** (`2026-10-22T04:12:59Z`). It adds ID My settings/preferences and
+immutable portal
 requester attribution. Ordinary members see their own requests; client owners
 and admins retain client-wide requests and archived reports. See the
-[release packet](settings-access-release.md) for exact boundaries, synthetic
-validation and the mandatory portal traffic hold across migration and any
-old-source inverse. The published w365 v0.4.0 package is synced in the candidate.
-Exact-head CI, protected production migration approval and signed-in acceptance are separate gates;
-this source note does not change the live states above.
+[release record](settings-access-release.md) for the operator's protected approval,
+exact source/schema/package verification, backups and synthetic validation.
+Both required PHP/browser jobs passed on the reviewed PR head and deployed main.
+All 386 runtime files matched the deploy-shaped source; the published w365 v0.4.0
+manifest matched. The additive requester table and all three guards were verified,
+with zero requester rows at postflight and no historical backfill or grant change.
+
+The portal was held for about 2 minutes 43 seconds, then restored to its original
+enabled state and exact config bytes. Runtime, timers and cron checks passed;
+origin/public login and assets returned 200 and customer routes redirected to
+sign-in. Full ID `30e70c6` was live first; suite owners verified Coastmark
+`7c398c1` and Milepost `74a03eea` source dependencies. **Genuine signed-in customer
+acceptance remains pending with Frankie using existing approved identities.**
+The old `0548f3e` source is not privacy-compatible: any source inverse requires
+the portal held false before the inverse and until a qualified forward repair,
+preserving all history. A later docs-only merge does not change deployed source
+`4021f45` and requires no production redeploy.
 
 ## Who may call us
 

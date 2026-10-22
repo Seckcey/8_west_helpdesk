@@ -1,14 +1,22 @@
 # Safeharbor customer portal contract
 
-**Settings/access privacy change (source and staging, production pending):**
-[The settings and requester privacy release packet](settings-access-release.md)
-defines the new member-only request boundary, administrator-only report archives,
+**Settings/access privacy change (deployed October 21, 2026; signed-in acceptance pending):**
+[The settings and requester privacy release record](settings-access-release.md)
+records production source `4021f4507f4727259d0c67ae2a99ba5beaf97400`, deployed at
+9:12:59 PM PDT (`2026-10-22T04:12:59Z`) by Safeharbor's Sergeant under protected
+approval. It defines the member-only request boundary, administrator-only report archives,
 ID My settings and optional verified Client Admin navigation. It supersedes the
 older client-wide member visibility and universal billing-link descriptions below
-for the candidate source. Historical requests are never matched by email/name.
-The additive requester migration requires the protected portal hold and a
-privacy-compatible forward repair after any old-source inverse. Live acceptance
-must be recorded separately.
+for the deployed source. Conflicting older source-pending checkpoints below are
+historical. Historical requests are never matched by email/name. The additive
+requester migration, live source/package and all three guards were verified;
+requester rows were zero at postflight. The protected portal hold lasted about
+2 minutes 43 seconds, then the original enabled config was restored. Signed-out
+origin/public checks passed. No customer activity was manufactured for acceptance.
+Any old-source inverse still requires the portal false before the inverse and
+held until a privacy-compatible forward repair, preserving all history.
+**Genuine signed-in customer acceptance remains pending with Frankie.** Later
+documentation-only merges do not change deployed application source `4021f45`.
 
 **Plan and billing navigation (source change; release pending):** The existing
 customer sidebar, including the Westy workspace and mobile menu, links to
