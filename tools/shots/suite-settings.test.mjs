@@ -27,7 +27,7 @@ try {
         page.on('console', message => { if (['error', 'warning'].includes(message.type())) problems.push(message.text()); });
         await page.route('**/*', async route => {
           const url = new URL(route.request().url());
-          if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: await readFile(path.join(scratch, `staff-${role}-${theme}.html`)) });
+          if (url.pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: await readFile(path.join(scratch, `staff-${role}-${theme}.html`)) });
           if (url.pathname.startsWith('/assets/') && !url.pathname.includes('..')) {
             const file = path.join(root, 'app/public', url.pathname);
             const types = { '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png' };

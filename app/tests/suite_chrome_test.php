@@ -258,7 +258,7 @@ if(is_string($out)&&is_dir($out))foreach(['admin','tech'] as $role)foreach(['lig
     $syntheticSession=$settingsSession; $syntheticSession['suite_name']='Synthetic Technician';
     $syntheticSession['suite_email']='synthetic@example.test';unset($syntheticSession['suite_avatar']);
     $cluster=render_cluster($syntheticSession,[...$staff,'role'=>$role]);
-    file_put_contents($out.'/staff-'.$role.'-'.$theme.'.html','<!doctype html><html lang="en-US" data-theme="'.$theme.'"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Safeharbor staff settings fixture</title><link rel="stylesheet" href="/assets/w365/w365.css"><link rel="stylesheet" href="/assets/css/app.css"></head><body><header class="topbar"><span class="topbar-flex"></span><div class="w365-cluster">'.$cluster.'</div></header><main><h1>Technician Workspace</h1></main><script src="/assets/w365/w365-launcher.js" defer></script></body></html>');
+    file_put_contents($out.'/staff-'.$role.'-'.$theme.'.html','<!doctype html><html lang="en-US" data-theme="'.$theme.'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Safeharbor staff settings fixture</title><link rel="stylesheet" href="/assets/w365/w365.css"><link rel="stylesheet" href="/assets/css/app.css"></head><body><header class="topbar"><span class="topbar-flex"></span><div class="w365-cluster">'.$cluster.'</div></header><main><h1>Technician Workspace</h1></main><script src="/assets/w365/w365-launcher.js" defer></script></body></html>');
 }
 
 echo "\n";
