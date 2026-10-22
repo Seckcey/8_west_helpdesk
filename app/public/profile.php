@@ -7,6 +7,7 @@ enforce_https();
 $user = require_login();
 
 $localAccount = suite_local_password_allowed($user);
+$roleLabel = ['owner' => 'Owner', 'admin' => 'Administrator', 'tech' => 'Technician'][$user['role']] ?? 'Team member';
 
 $error = '';
 $ok = '';
@@ -58,17 +59,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 page_top($user, 'My settings', '');
 ?>
-<div class="page page-narrow">
+<div class="page page-narrow settings-page">
   <div class="page-head">
     <div>
       <h1 class="page-title">My settings</h1>
-      <p class="page-sub"><?= h($user['email']) ?> · <?= h($user['role']) ?> · Safeharbor account</p>
+      <p class="page-sub"><?= h($user['email']) ?> · <?= h($roleLabel) ?> · Safeharbor account</p>
     </div>
     <?= avatar($user, 44) ?>
   </div>
 
-  <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
-  <?php if ($ok): ?><div class="form-ok"><?= h($ok) ?></div><?php endif; ?>
+  <?php if ($error): ?><div class="form-error" role="alert"><?= h($error) ?></div><?php endif; ?>
+  <?php if ($ok): ?><div class="form-ok" role="status"><?= h($ok) ?></div><?php endif; ?>
 
   <?php if ($supportAddress !== null): ?>
   <div class="rail-label">Your support inbox</div>
@@ -81,7 +82,7 @@ page_top($user, 'My settings', '');
   </div>
   <?php endif; ?>
 
-  <div class="card form-card"><p><a href="https://id.8westit.com/settings.php">My settings in 8 West ID</a> manages your suite profile, appearance, regional preferences and sign-in security.</p></div>
+  <div class="card form-card settings-intro"><h2>Your suite preferences</h2><p>Manage your profile, appearance, regional preferences and sign-in security in 8 West ID.</p><a class="btn-ghost settings-button" href="https://id.8westit.com/settings.php">My settings in 8 West ID</a></div>
   <?php if ($localAccount): ?>
   <div class="rail-label">Local recovery account name</div>
   <div class="card form-card">
@@ -93,6 +94,7 @@ page_top($user, 'My settings', '');
       </label>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary btn-sm">Save name</button>
+        <a class="btn-ghost settings-button" href="/profile.php">Cancel</a>
         <span class="reply-hint">Avatar initials update automatically. This name applies to your local Safeharbor recovery account.</span>
       </div>
     </form>
@@ -114,6 +116,7 @@ page_top($user, 'My settings', '');
       </label>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary btn-sm">Change password</button>
+        <a class="btn-ghost settings-button" href="/profile.php">Cancel</a>
         <span class="reply-hint">Changes only the unlinked local Safeharbor recovery account. It does not change an 8 West ID password.</span>
       </div>
     </form>

@@ -122,7 +122,7 @@ t('C6: a local login shows the Safeharbor account name and its initials',
     str_contains($htmlLocal, '<strong>Local Person</strong>')
     && str_contains($htmlLocal, '<span class="w365-avatar" aria-hidden="true">LP</span>'));
 t('C7: Settings points at this app\'s profile page and Sign out at its logout',
-    str_contains($htmlLocal, 'href="/profile.php">My settings<') && !str_contains($htmlSuite, 'href="/profile.php"') && str_contains($htmlSuite, 'href="/logout.php">Sign out<'));
+    str_contains($htmlLocal, 'href="/profile.php" aria-label="My settings"') && !str_contains($htmlSuite, 'href="/profile.php"') && str_contains($htmlSuite, 'href="/logout.php">Sign out<'));
 t('C8: the owner role reads as Owner',
     str_contains(render_cluster($suite, ['full_name' => 'Frank', 'email' => 'a@b.test', 'role' => 'owner', 'suite_subject' => 't1u1']), '· Owner'));
 
@@ -234,16 +234,16 @@ $settingsDoc = ['version'=>1,'subject'=>'t1u1','workspace'=>['tenant_id'=>'1','t
     'capabilities'=>['manage_people'=>true,'appoint_client_admins'=>false,'close_subscription'=>false]];
 $settingsClaims = $tokenClaims + ['8west:tenant'=>'synthetic-provider','8west:tenant_id'=>'1','8west:settings_context'=>$settingsDoc];
 $settingsSession = refresh_with($settingsClaims, [], 't1u1');
-t('settings: administrator sees MSP Admin only with verified panel', str_contains(render_cluster($settingsSession, $staff), '>MSP Admin</a>'));
-t('settings: technician does not inherit an administrator panel', !str_contains(render_cluster($settingsSession, [...$staff,'role'=>'tech']), '>MSP Admin</a>'));
-t('settings: missing current claim removes stale administration panel', !str_contains(render_cluster(refresh_with($tokenClaims, $settingsSession, 't1u1'), $staff), '>MSP Admin</a>'));
-t('settings: foreign identity removes stale administration panel', !str_contains(render_cluster(refresh_with($settingsClaims, $settingsSession, 't1u2'), $staff), '>MSP Admin</a>'));
-t('settings: staff retains one My settings link and Technician Workspace', substr_count($htmlSuite, '>My settings</a>') === 1 && str_contains($htmlSuite, '>Technician Workspace</a>'));
+t('settings: administrator sees MSP Admin only with verified panel', str_contains(render_cluster($settingsSession, $staff), '>MSP Admin</span>'));
+t('settings: technician does not inherit an administrator panel', !str_contains(render_cluster($settingsSession, [...$staff,'role'=>'tech']), '>MSP Admin</span>'));
+t('settings: missing current claim removes stale administration panel', !str_contains(render_cluster(refresh_with($tokenClaims, $settingsSession, 't1u1'), $staff), '>MSP Admin</span>'));
+t('settings: foreign identity removes stale administration panel', !str_contains(render_cluster(refresh_with($settingsClaims, $settingsSession, 't1u2'), $staff), '>MSP Admin</span>'));
+t('settings: staff retains one My settings link and Technician Workspace', substr_count($htmlSuite, '>My settings</span>') === 1 && str_contains($htmlSuite, '>Technician Workspace</span>'));
 
 $package=__DIR__.'/../public/assets/w365';
 $manifest=json_decode((string)file_get_contents($package.'/w365-manifest.json'),true,16,JSON_THROW_ON_ERROR);
-t('published package: reviewed v0.4.0 manifest pin', $manifest['version']==='0.4.0'
-    && hash_file('sha256',$package.'/w365-manifest.json')==='8f0e12f0448a04cd01539b59386258dfdb27cd2e515e304ab98e55cec213e3d5');
+t('published package: reviewed v0.5.0 manifest pin', $manifest['version']==='0.5.0'
+    && hash_file('sha256',$package.'/w365-manifest.json')==='0f1af949fe0b9cce01014bb8ac63b05af6936c858710a222c875cb8e36f61f0f');
 $present=[];
 foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($package,FilesystemIterator::SKIP_DOTS)) as $file) {
     $relative=str_replace('\\','/',substr($file->getPathname(),strlen($package)+1));

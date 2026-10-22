@@ -235,12 +235,20 @@ public/                    Apache docroot (page-per-file, like Milepost)
   package registry, with Safeharbor left out of its own drawer; a local
   password login gets a sign-in prompt, never a guessed list. The account menu
   is the ONE home for identity — the 8 West ID name, email and avatar,
-  refreshed from the token on every request — plus Suite settings, this app's
-  profile page and Sign out. Renderers: `suite_chrome_drawer()` and
+  refreshed from the token on every request. Personal and Workspaces groups offer
+  one My settings destination, Technician Workspace and an eligible MSP Admin
+  entry, followed by Sign out. Destination hints identify 8 West ID; settings
+  navigation stays in the same tab, while app-drawer tiles retain their existing
+  new-tab behavior. Renderers: `suite_chrome_drawer()` and
   `suite_chrome_account_menu()` in lib/render.php, entitlement filtering in
   lib/suite_apps.php, both exercised by `tests/suite_chrome_test.php`. There
   is deliberately no second app switcher or sign-out anywhere in the chrome.
-  profile.php: own name + password change. 8 West ID SSO is implemented in
+  `profile.php` offers local recovery name/password forms only for unlinked local
+  accounts; suite-linked identities use 8 West ID. Team shows human role labels,
+  native role/color radios, and immediate Enable/Disable access buttons. Cancel
+  reloads the page without a POST; success and error feedback have accessible
+  status/alert roles. See [settings UX](../docs/settings-ux-release.md) for validation
+  and release status. 8 West ID SSO is implemented in
   lib/auth.php (legacy suite cookie, now RS256 with bounded HS256 overlap;
   separate from OIDC — see docs/suite-sso-contract.md). Established suite
   sessions are checked against 8 West ID's signed revocation list on every

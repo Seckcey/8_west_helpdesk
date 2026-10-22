@@ -10,6 +10,9 @@ $user = require_login();
 
 $isAdmin = in_array($user['role'], ['owner', 'admin'], true);
 $COLORS = ['#2D8CFF', '#7DDCFF', '#F6C95B', '#62F6B0'];
+$roleLabels = ['tech' => 'Technician', 'admin' => 'Administrator', 'owner' => 'Owner'];
+$roleHelp = ['tech' => 'Work on support requests.', 'admin' => 'Manage support and local team access.', 'owner' => 'Owner access to this Safeharbor workspace.'];
+$colorLabels = ['Blue', 'Cyan', 'Gold', 'Mint'];
 $error = '';
 $ok = '';
 
@@ -57,7 +60,7 @@ $rows = $stmt->fetchAll();
 
 page_top($user, 'Team', 'team');
 ?>
-<div class="page page-narrow">
+<div class="page page-narrow settings-page team-settings">
   <div class="page-head">
     <div>
       <h1 class="page-title">Team</h1>
@@ -65,11 +68,11 @@ page_top($user, 'Team', 'team');
     </div>
   </div>
 
-  <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
-  <?php if ($ok): ?><div class="form-ok"><?= h($ok) ?></div><?php endif; ?>
+  <?php if ($error): ?><div class="form-error" role="alert"><?= h($error) ?></div><?php endif; ?>
+  <?php if ($ok): ?><div class="form-ok" role="status"><?= h($ok) ?></div><?php endif; ?>
 
-  <div class="card form-card"><p>8 West ID owns suite identities, invitations and sign-in recovery.<?php if ($isAdmin && ($_SESSION['suite_settings_context']['capabilities']['manage_people'] ?? false) === true
-      && in_array('msp_admin', $_SESSION['suite_settings_context']['panels'] ?? [], true)): ?> <a href="https://id.8westit.com/users.php">Manage people in 8 West ID</a>.<?php endif; ?> This page controls local Safeharbor access and recovery accounts.</p></div>
+  <div class="card form-card settings-intro"><h2>Safeharbor team access</h2><p>This page controls local Safeharbor access and recovery accounts. 8 West ID manages suite identities, sign-in links and sign-in recovery.</p><?php if ($isAdmin && ($_SESSION['suite_settings_context']['capabilities']['manage_people'] ?? false) === true
+      && in_array('msp_admin', $_SESSION['suite_settings_context']['panels'] ?? [], true)): ?><a class="btn-ghost settings-button" href="https://id.8westit.com/users.php">Manage people in 8 West ID</a><?php endif; ?></div>
   <div class="card list">
     <?php foreach ($rows as $r): $active = (int)$r['is_active'] === 1; ?>
     <div class="urow <?= $active ? '' : 'urow-inactive' ?>">
@@ -78,13 +81,14 @@ page_top($user, 'Team', 'team');
         <span class="urow-name"><?= h($r['full_name']) ?><?= (int)$r['id'] === (int)$user['id'] ? ' <span class="urow-sub">(you)</span>' : '' ?></span>
         <span class="urow-sub"><?= h($r['email']) ?> · <?= suite_local_password_allowed($r) ? 'Local recovery account' : '8 West ID account' ?><?= $r['last_login_at'] ? ' · last sign-in ' . rel_time($r['last_login_at']) . ' ago' : '' ?></span>
       </span>
-      <span class="role-badge role-<?= h($r['role']) ?>"><?= h($r['role']) ?></span>
+      <span class="role-badge role-<?= h($r['role']) ?>"><?= h($roleLabels[$r['role']] ?? 'Team member') ?></span>
+      <span class="urow-status"><?= $active ? 'Active' : 'Access disabled' ?></span>
       <?php if ($isAdmin && (int)$r['id'] !== (int)$user['id']): ?>
-      <form method="post" action="/users.php" style="display:inline">
+      <form method="post" action="/users.php" class="urow-action">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="<?= $active ? 'deactivate' : 'reactivate' ?>">
         <input type="hidden" name="user_id" value="<?= (int)$r['id'] ?>">
-        <button type="submit" class="btn-link"><?= $active ? 'Disable Safeharbor access' : 'Enable Safeharbor access' ?></button>
+        <button type="submit" class="<?= $active ? 'btn-danger' : 'btn-ghost' ?> settings-button" aria-label="<?= h(($active ? 'Disable Safeharbor access for ' : 'Enable Safeharbor access for ') . $r['full_name']) ?>"><?= $active ? 'Disable access' : 'Enable access' ?></button>
       </form>
       <?php endif; ?>
     </div>
@@ -106,37 +110,30 @@ page_top($user, 'Team', 'team');
       <label class="field">Local password
         <input type="text" name="password" required minlength="6" placeholder="6+ characters">
       </label>
-      <label class="field">Role
-        <select name="role">
-          <option value="tech">tech</option>
-          <option value="admin">admin</option>
-          <option value="owner">owner</option>
-        </select>
-      </label>
-      <div class="field span-2">Avatar color
-        <div class="swatches">
+      <fieldset class="settings-options span-2"><legend>Safeharbor role</legend>
+        <div class="settings-role-choices">
+          <?php foreach ($roleLabels as $value => $label): ?>
+          <label class="settings-choice"><input type="radio" name="role" value="<?= h($value) ?>" <?= $value === 'tech' ? 'checked' : '' ?>><span><strong><?= h($label) ?></strong><small><?= h($roleHelp[$value]) ?></small></span></label>
+          <?php endforeach; ?>
+        </div>
+      </fieldset>
+      <fieldset class="settings-options span-2"><legend>Avatar color</legend>
+        <div class="settings-color-choices">
           <?php foreach ($COLORS as $i => $c): ?>
-          <label class="swatch<?= $i === 0 ? ' swatch-on' : '' ?>" style="background:<?= $c ?>">
-            <input type="radio" name="color" value="<?= $c ?>" <?= $i === 0 ? 'checked' : '' ?> hidden>
+          <label class="settings-choice settings-color"><input type="radio" name="color" value="<?= $c ?>" <?= $i === 0 ? 'checked' : '' ?>>
+            <span><i style="background:<?= $c ?>" aria-hidden="true"></i><strong><?= h($colorLabels[$i]) ?></strong></span>
           </label>
           <?php endforeach; ?>
         </div>
-      </div>
+      </fieldset>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary">Add local account</button>
+        <a class="btn-ghost settings-button" href="/users.php">Cancel</a>
         <span class="reply-hint">This creates a Safeharbor-only account, not an 8 West ID identity or invitation.</span>
       </div>
     </form>
   </div>
   <?php endif; ?>
 </div>
-<script>
-document.querySelectorAll('.swatch input').forEach(function (r) {
-  r.addEventListener('change', function () {
-    document.querySelectorAll('.swatch').forEach(function (s) { s.classList.remove('swatch-on'); });
-    r.closest('.swatch').classList.add('swatch-on');
-  });
-});
-</script>
 <?php
 page_bottom(palette_data());

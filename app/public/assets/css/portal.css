@@ -16,3 +16,19 @@
 @media(prefers-reduced-motion:reduce){.portal-app *{scroll-behavior:auto!important;transition:none!important}}
 .portal-top img[src^="/portal/tenant-brand-logo.php?"],.portal-workspace-brand img[src^="/portal/tenant-brand-logo.php?"]{aspect-ratio:2172/724;object-fit:contain}
 .portal-chat-model{margin:0;padding:0 20px 14px;font-size:12px;color:var(--muted)}#portal-chat-root .portal-chat-model{padding:0 16px 10px}
+
+/* Account destinations remain links; sign out remains a CSRF-protected POST. */
+.portal-sidebar{overflow-y:auto}
+.portal-sidebar>nav,.portal-sidebar>.portal-business,.portal-account{flex-shrink:0}
+.portal-account{padding:24px 16px;gap:8px}
+.portal-account h2{font-size:13px;font-weight:600;color:var(--muted);margin:0}
+.portal-account-identity{display:grid;gap:2px;margin-bottom:6px;font-size:14px}
+.portal-account-identity span{font-size:12px;color:var(--muted)}
+.portal-account .portal-account-action{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:2px;width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--chip-bg);color:var(--text);font-size:14px;line-height:1.4;text-align:left;text-decoration:none;cursor:pointer}
+.portal-account-action strong{font-size:14px;font-weight:600}
+.portal-account-action span{font-size:12px;color:var(--muted)}
+.portal-account .portal-account-action:hover{background:var(--hover);border-color:var(--accent)}
+.portal-account .portal-account-action:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.portal-account form{margin:0}
+.portal-client-name{font-size:20px;line-height:1.4;overflow-wrap:anywhere;margin:0 0 8px}
+@media(max-width:760px){.portal-sidebar.is-open{z-index:50}}

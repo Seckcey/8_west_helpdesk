@@ -193,16 +193,23 @@ function suite_chrome_account_menu(array $user): void
       </button>
       <div class="w365-menu" id="w365-account-menu" data-w365-account-menu role="menu" hidden>
         <div class="w365-menu-who"><strong><?= h($name) ?></strong><span><?= h($secondary) ?><?= $roleLabel !== '' ? ' · ' . h($roleLabel) : '' ?></span></div>
+        <div class="w365-menu-group" role="group" aria-label="Personal">
+        <div class="w365-menu-label">Personal</div>
         <?php if ($hasSuite): ?>
-          <a class="w365-menu-item" role="menuitem" href="https://id.8westit.com/settings.php" target="_blank" rel="noopener noreferrer">My settings</a>
+          <a class="w365-menu-item" role="menuitem" href="https://id.8westit.com/settings.php" aria-label="My settings"><span>My settings</span><span class="w365-menu-hint">Your preferences · 8 West ID</span></a>
         <?php else: ?>
-          <a class="w365-menu-item" role="menuitem" href="/profile.php">My settings</a>
+          <a class="w365-menu-item" role="menuitem" href="/profile.php" aria-label="My settings"<?= parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) === '/profile.php' ? ' aria-current="page"' : '' ?>><span>My settings</span><span class="w365-menu-hint">Local Safeharbor account</span></a>
         <?php endif; ?>
-        <a class="w365-menu-item" role="menuitem" href="/">Technician Workspace</a>
+        </div>
+        <div class="w365-menu-group" role="group" aria-label="Workspaces">
+        <div class="w365-menu-label">Workspaces</div>
+        <div class="w365-menu-context">Your Safeharbor workspace</div>
+        <a class="w365-menu-item" role="menuitem" href="/" aria-label="Technician Workspace"<?= in_array(parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), ['/', '/index.php'], true) ? ' aria-current="page"' : '' ?>><span>Technician Workspace</span><span class="w365-menu-hint">Work queues · Safeharbor</span></a>
         <?php if ($hasSuite && in_array($role, ['owner', 'admin'], true)
             && in_array('msp_admin', $_SESSION['suite_settings_context']['panels'] ?? [], true)): ?>
-          <a class="w365-menu-item" role="menuitem" href="https://id.8westit.com/admin.php?panel=msp_admin">MSP Admin</a>
+          <a class="w365-menu-item" role="menuitem" href="https://id.8westit.com/admin.php?panel=msp_admin" aria-label="MSP Admin"><span>MSP Admin</span><span class="w365-menu-hint">MSP settings · 8 West ID</span></a>
         <?php endif; ?>
+        </div>
         <hr class="w365-menu-sep">
         <a class="w365-menu-item" role="menuitem" href="/logout.php">Sign out</a>
       </div>
