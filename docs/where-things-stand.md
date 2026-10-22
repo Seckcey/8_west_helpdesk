@@ -6,6 +6,13 @@ are in git history.
 
 ## The live version
 
+Current application source is **`c79cf5949165bc135546806ccf12a8c33c33ab48`**, deployed
+at **12:07:28 AM PDT on October 22, 2026** (`2026-10-22T07:07:28Z`). It includes the
+settings UX improvements and published shared menu v0.5.0. See the
+[technical release receipt](settings-ux-release.md). Genuine signed-in customer
+and provider acceptance remains pending with Frankie. Later documentation-only
+commits do not change this application release and need no production redeploy.
+
 ```bash
 bash deploy/deploy.sh --check
 ```
@@ -38,11 +45,35 @@ passes its check. Every deploy and rollback adds a line to
 | Tenant AI (Westy model choice per customer) | **Live**; see `docs/TENANT_AI.md`. A refused customer Westy send logs `[safeharbor-portal-westy] refused reason=…` in the `8west-php-safeharbor` journal, for example `cost_limit` when the customer's monthly budget is used up |
 | Westy guidance for Macs | **Live** since 2026-10-19 (`53c9fbb`): on a computer that reports macOS, Westy uses no Windows-only tools and offers steps, Contact support, or RustDesk help after the person accepts. It points people to *Remote support setup* in Westy Companion for Mac, which is **not published yet** |
 
-## Settings/access — deployed October 21, customer acceptance pending
+## Settings UX — current technical release, customer acceptance pending
 
-`SETTINGS-ACCESS-20261021` is technically deployed at application source
-`4021f4507f4727259d0c67ae2a99ba5beaf97400`, recorded at **9:12:59 PM PDT on
-October 21, 2026** (`2026-10-22T04:12:59Z`). It adds ID My settings/preferences and
+`SETTINGS-UX-CORE-20261021` shipped through the normal deployment script as
+`c79cf59`, replacing `4021f45`. Portal Account now has clear touch targets and
+destination/client hints; Team and profile have readable choices, action buttons,
+keyboard focus and save/error feedback. The staff menu uses shared UI v0.5.0.
+Existing routes, handlers, role/privacy checks and local-versus-suite behavior
+are preserved, with no new confirmation prompts, migration or flag change.
+
+PR #257 and deployed-main PHP/browser CI passed. The deployed tree exactly
+matched reviewed/tested `50a45f52`. Postflight at 07:08 UTC reported zero file or
+folder differences and a passing site check. Public/origin login, CSS and manifest
+returned `200`; customer and staff routes redirected to sign-in. Both served
+manifests matched the verified v0.5.0 package. Protected config and all six cron
+files were unchanged; the portal stayed enabled, PHP-FPM and both timers were
+active, and deployment markers/locks were clear. The normal readable changed-file
+backup retains privacy-compatible `4021f45`; no rollback occurred.
+
+The [release record](settings-ux-release.md) contains exact commits, CI runs,
+backup identity, synthetic evidence and completed test-resource cleanup.
+**Signed-out checks and synthetic saves do not replace Frankie's pending genuine
+signed-in customer/provider acceptance.**
+
+## Settings/access — October 21 release history and retained privacy limits
+
+`SETTINGS-ACCESS-20261021` first deployed application source
+`4021f4507f4727259d0c67ae2a99ba5beaf97400` at **9:12:59 PM PDT on
+October 21, 2026** (`2026-10-22T04:12:59Z`). The current `c79cf59` release preserves
+its ID My settings/preferences and
 immutable portal
 requester attribution. Ordinary members see their own requests; client owners
 and admins retain client-wide requests and archived reports. See the
@@ -61,12 +92,9 @@ sign-in. Full ID `30e70c6` was live first; suite owners verified Coastmark
 acceptance remains pending with Frankie using existing approved identities.**
 The old `0548f3e` source is not privacy-compatible: any source inverse requires
 the portal held false before the inverse and until a qualified forward repair,
-preserving all history. A later docs-only merge does not change deployed source
-`4021f45` and requires no production redeploy.
-
-The follow-on [settings UX candidate](settings-ux-release.md) improves Account,
-Team and profile presentation. It is a separate source change, not evidence that
-the deployed revision above has changed; no schema or feature activation is needed.
+preserving all history. The settings UX deployment did not change requester
+schema, guards or history. Its normal rollback target `4021f45` retains those
+privacy protections; the older `0548f3e` does not.
 
 ## Who may call us
 
