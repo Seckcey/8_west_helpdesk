@@ -874,7 +874,7 @@ img { display: block; }
 .settings-page .settings-button { display: inline-flex; width: auto; min-height: 44px; padding: 10px 16px; text-decoration: none; color: var(--text); }
 .settings-page .btn-danger { color: var(--rose); }
 .settings-page .btn-primary { color: var(--p-navy-950); font-weight: 600; }
-.settings-page .btn-primary:hover { color: var(--p-navy-950); }
+.settings-page .btn-primary:hover { background: var(--p-blue-400); color: var(--p-navy-950); }
 .settings-page .form-actions { flex-wrap: wrap; }
 .settings-page .form-actions button { min-height: 44px; }
 .settings-page .form-actions .reply-hint { flex-basis: 100%; color: var(--muted); font-size: 13px; line-height: 1.5; }

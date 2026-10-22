@@ -242,8 +242,8 @@ t('settings: staff retains one My settings link and Technician Workspace', subst
 
 $package=__DIR__.'/../public/assets/w365';
 $manifest=json_decode((string)file_get_contents($package.'/w365-manifest.json'),true,16,JSON_THROW_ON_ERROR);
-t('published package: reviewed v0.4.0 manifest pin', $manifest['version']==='0.4.0'
-    && hash_file('sha256',$package.'/w365-manifest.json')==='8f0e12f0448a04cd01539b59386258dfdb27cd2e515e304ab98e55cec213e3d5');
+t('published package: reviewed v0.5.0 manifest pin', $manifest['version']==='0.5.0'
+    && hash_file('sha256',$package.'/w365-manifest.json')==='0f1af949fe0b9cce01014bb8ac63b05af6936c858710a222c875cb8e36f61f0f');
 $present=[];
 foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($package,FilesystemIterator::SKIP_DOTS)) as $file) {
     $relative=str_replace('\\','/',substr($file->getPathname(),strlen($package)+1));

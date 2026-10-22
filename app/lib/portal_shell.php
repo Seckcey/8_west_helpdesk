@@ -60,7 +60,7 @@ function portal_shell_start(array $context): void
     // The controller has freshly checked the selected binding and any CSA membership.
     // ID rediscovers/rechecks its own target; this fixed link carries no authority.
     $clientAdmin = portal_client_admin($identity);
-    $client = trim((string)($context['binding']['client_name'] ?? '')) ?: 'Your client';
+    $client = trim((string)($context['binding']['client_name'] ?? '')) ?: 'Your account';
     $workspace=($context['workspace']??false)===true;
     $brand = portal_branding($context);
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH);

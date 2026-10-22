@@ -48,6 +48,25 @@ selection/focus, immediate access toggle, name-save feedback, duplicate-account
 and password errors, Cancel, and console/page errors. All browser requests are
 intercepted fixtures; no real ID navigation or account operation is performed.
 
+The shared UI was imported through `tools/w365/sync-suite-ui.ps1 -Tag v0.5.0
+-Dest app/public/assets/w365`, with no manual vendor edits. The published tag
+resolves to `80131ef982e5e8a2c2ca2b76b2ffc985227ce04c`. The downloaded ZIP SHA-256 is
+`1ad5263bc71f81e8864c7a8a863d89fac140a7de0971437f86870687dd8f8f13`; the manifest is
+`0f1af949fe0b9cce01014bb8ac63b05af6936c858710a222c875cb8e36f61f0f`.
+The existing sync tool verified all ten files. No obsolete host menu-button
+padding override was present. The menu's current-page state does not change any
+destination or authority.
+
 Containers run only in this worker's isolated Coastline task directory. Required
-GitHub PHP/browser CI remains the integration gate. Package identity, final
-validation and cleanup receipts will be recorded before handoff.
+GitHub PHP/browser CI remains the integration gate. Focused Coastline results after
+the package sync: portal settings 26 checks, portal data 61 checks, suite chrome 66
+checks, portal browser 12 cases and staff browser 16 cases passed. The initial PR
+PHP run found a changed neutral-label expectation; the established `Your account`
+fallback was restored and portal data passed. It was not treated as a passing run.
+The Browser plugin was unavailable; the repository's existing Playwright workflow
+was used. Screenshots are external review artifacts, not production captures.
+
+The worker's container `shux-01a16251-browser` and `/tmp/shux-01a16251` task files
+are temporary; final cleanup must remove those owned resources and retain the
+review evidence outside the repository before branch handoff. No service port,
+test database, test volume or custom network is used.
