@@ -244,13 +244,12 @@ ownership/current-hash rules as above; an absent portal stays absent. The digest
 initial receipt, provider and issuer, projection, all five anchor facts and the transport hashes. A
 lost acknowledgement replays the committed receipt; a changed proof for the same event conflicts.
 
-#### P9 Lifestyle identity-only restoration (frozen for SH owner review, A152)
+#### P9 Lifestyle identity-only restoration (frozen for SH owner review, A152/A166/A169)
 
-Nothing here is run by this source change. The reviewed one-off is one ordinary scheduled run:
-
-```bash
-php cron/managed_customer_lifecycle.php --scheduled
-```
+Nothing here is run by this source change. The ordinary `--scheduled` run is **not** this packet
+(A166). That run unions the explicit scope with every admitted candidate. It ignores `batch_size`,
+and it can claim 25 and reserve 10. P9 instead calls the existing functions once, for exactly one
+client.
 
 Preconditions, all owner-applied and owner-verified:
 - migrations 033 and 034 are applied, with the v3 validator exact;
@@ -262,20 +261,108 @@ Preconditions, all owner-applied and owner-verified:
 - `id_report_contacts` is enabled, with `tenant_bindings['8west']` naming the house tenant key whose
   number is the issuer ID signs.
 
-For Lifestyle this run makes:
-- one claim (a committed cursor, then one reservation);
-- one schema-3 request for that UUID, with the request timeout capped by the remaining time;
-- one identity-only restore as `tenant_actors['8west']` under the original configuration.
+The exact invocation runs from the `app/` directory, as the same runtime user and configuration as
+the cron child. It is fed on standard input, so no file, CLI flag, configuration key or timer is
+added. The three placeholders `P9_LIFESTYLE_UUID`, `P9_TENANT_ID` and `P9_V3_EVENT_ID` come from the
+protected packet, and client `14` is fixed:
+
+```php
+<?php
+declare(strict_types=1);
+require 'lib/bootstrap.php';
+require 'lib/managed_customer_lifecycle.php';
+require 'lib/managed_customer_id_evidence.php';
+
+const P9_CUSTOMER = 'P9_LIFESTYLE_UUID';      // protected packet
+const P9_TENANT = P9_TENANT_ID;                // protected packet (integer)
+const P9_CLIENT = 14;
+const P9_VERSION = 3;
+const P9_EVENT = 'P9_V3_EVENT_ID';             // protected packet
+
+try {
+    $pdo = db();
+    // The ORIGINAL configuration, loaded once and never modified. It alone carries authority.
+    $config = managed_customer_lifecycle_config(cfg('managed_customer_lifecycle', []));
+    // A selection-only in-memory copy for the existing candidate query. It is not authority.
+    $selection = array_replace($config, ['customer_ids' => [P9_CUSTOMER], 'batch_size' => 1]);
+    $candidates = managed_customer_lifecycle_candidates($pdo, $selection);
+    if (count($candidates) !== 1 || $config['restoration_enabled'] !== true
+        || !in_array(P9_CUSTOMER, $config['customer_ids'], true)
+        || (int)$candidates[0]['tenant_id'] !== P9_TENANT || (int)$candidates[0]['client_id'] !== P9_CLIENT
+        || $candidates[0]['customer_id'] !== P9_CUSTOMER || (int)$candidates[0]['source_version'] !== P9_VERSION
+        || $candidates[0]['last_event_id'] !== P9_EVENT || $candidates[0]['status'] !== 'active'
+        || $candidates[0]['provider_tenant_slug'] !== '8west') {
+        fwrite(STDERR, "p9: the candidate is not exactly the packet tuple; nothing done\n");
+        exit(1);
+    }
+    // Before/after evidence for this client's portal, report, contact and receipt rows and for people.
+    $surface = static function () use ($pdo): array {
+        $rows = [];
+        foreach (['customer_portal_bindings', 'customer_portal_binding_events', 'business_report_schedule_versions',
+            'business_report_id_client_contact_snapshots', 'business_report_id_client_bindings', 'contacts',
+            'managed_customer_lifecycle_receipts'] as $table) {
+            $query = $pdo->prepare("SELECT * FROM {$table} WHERE client_id = ? ORDER BY 1");
+            $query->execute([P9_CLIENT]);
+            $rows[$table] = $query->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $rows['users'] = $pdo->query('SELECT COUNT(*), MAX(id) FROM users')->fetch(PDO::FETCH_NUM);
+        return $rows;
+    };
+    // The scheduled loop's own semantics for one action: one reservation, a 30-second deadline.
+    $deadline = hrtime(true) / 1e9 + MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_SECONDS;
+    $remaining = static fn(): float => $deadline - hrtime(true) / 1e9;
+    $reserved = 0;
+    $mayTransition = static function () use (&$reserved, $remaining): bool {
+        if ($reserved >= 1 || $remaining() <= 0) return false;
+        $reserved++;
+        return true;
+    };
+    $before = $surface();
+    $result = managed_customer_lifecycle_scheduled_act(
+        $pdo, $config, $candidates[0], $mayTransition, $remaining, cfg('id_report_contacts', []),
+    );
+    $after = $surface();
+    $receipt = $pdo->prepare("SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts
+        WHERE customer_id = ? AND source_version = ? AND id_proof_scope = 'identity_lifecycle_only'");
+    $receipt->execute([P9_CUSTOMER, P9_VERSION]);
+    $ok = $reserved === 1 && ($result['action'] ?? null) === 'restored'
+        && ($result['proof_scope'] ?? null) === 'identity_lifecycle_only'
+        && ($result['portal_restored'] ?? null) === 0 && ($result['report_schedule_restored'] ?? null) === 0
+        && $after === $before && (int)$receipt->fetchColumn() === 1;
+    echo json_encode(['p9' => $ok ? 'restored' : 'unexpected', 'reserved' => $reserved, 'result' => $result,
+        'surface_unchanged' => $after === $before], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    exit($ok ? 0 : 1);
+} catch (Throwable $error) {
+    fwrite(STDERR, 'p9: refused ' . $error::class . ' ' . hash('sha256', $error->getMessage()) . "\n");
+    exit(1);
+}
+```
+
+What it does, and only this:
+- One existing candidate query, run over the selection copy. It must return exactly one row: the
+  packet's tenant, client 14, the same UUID, the current active source version 3 and its event. The
+  UUID must also be in the original approved scope. Any other result exits before any action. No
+  durable scheduler cursor is read or moved, and no other UUID is touched.
+- One `managed_customer_lifecycle_scheduled_act()` call, with the original untouched
+  configuration, the exact candidate and the existing ID configuration. That call reserves one
+  transition. It makes one schema-3 request for that UUID, with the timeout capped by the remaining
+  time, then one identity-only restore as `tenant_actors['8west']`. The restore keeps the existing
+  action locks, the deadline guard and the original-scope authority.
 
 The expected proof is the current restored version with its own anchor. The expected effect is one
-restore receipt with `id_proof_scope = identity_lifecycle_only`. The receipt is 0/0: the portal is
-left as it is unless a containment currently owns it disabled, and the report is not restored. No
-contact, report, schedule, account, invitation or mail row is written, and no receipt is retagged.
+restore receipt with `id_proof_scope = identity_lifecycle_only`. For Lifestyle's actual
+preserved-active state, the receipt is 0/0: no portal and no report restoration. The before/after
+snapshot must be identical, so there are zero portal, report, schedule, contact or person writes.
+No invitation or mail path is reachable from this call, and its writes are limited to
+`MANAGED_CUSTOMER_LIFECYCLE_WRITE_TABLES`. No receipt is retagged.
 
-Batch-one check: before the run, list what the scheduled claim would select (the explicit scope plus
-admitted lineages that still need containment or restoration). If anything other than Lifestyle is
-listed, it will be processed by the same rules in that run, up to the stated bounds. Run it only
-when that list is the reviewed one.
+The check runs after commit. A difference is evidence for owner review, not a rollback: exit 1 stops
+the packet. A rerun after success selects nothing (the restored version has its receipt), so it
+exits 1 with nothing done. Read the committed receipt back instead of retrying.
+
+The full-contact no-argument operation stays separate and is not used here. The Milepost v3-first
+order, both frozen senders, the exact original SH v2→v3 / ID v2→v3 events and the nonce-armed
+UNKNOWN/readback/recovery protocol are unchanged by this step.
 
 ## Migration and tests
 
