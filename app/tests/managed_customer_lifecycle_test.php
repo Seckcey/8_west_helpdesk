@@ -1475,22 +1475,31 @@ $ownedReports = [
 ];
 $deferredBefore = lifecycle_surface_rows($ownedPdo);
 $guardStages = [];
+// A159: an ordinary outer closure captures $guardStages BY REFERENCE; an arrow function would hand the
+// inner guard a private by-value copy and leave this observation empty.
 lifecycle_refuses(
     RuntimeException::class,
-    static fn() => managed_customer_lifecycle_identity_restore(
-        $ownedPdo, lifecycle_candidate($ownedPdo), lifecycle_identity_proof(), 101, $identityConfig, null, null,
-        static function (string $stage) use (&$guardStages): void {
-            $guardStages[] = $stage;
-            if ($stage === 'write') throw new RuntimeException('fixture deadline before the first write');
-        },
-    ),
+    static function () use ($ownedPdo, $identityConfig, &$guardStages) {
+        return managed_customer_lifecycle_identity_restore(
+            $ownedPdo, lifecycle_candidate($ownedPdo), lifecycle_identity_proof(), 101, $identityConfig, null, null,
+            static function (string $stage) use (&$guardStages): void {
+                $guardStages[] = $stage;
+                if ($stage === 'write') throw new RuntimeException('fixture deadline before the first write');
+            },
+        );
+    },
     'the write-stage guard did not stop the identity-only restore',
 );
+$writeStageFailures = array_keys(array_filter([
+    'guard stages were ' . json_encode($guardStages) => $guardStages !== ['authority', 'write'],
+    'surface rows changed' => lifecycle_surface_rows($ownedPdo) !== $deferredBefore,
+    'a restore receipt was written' => lifecycle_restore_count($ownedPdo) !== 0,
+    'the customer became operational' => managed_customer_operational($ownedPdo, 1, 11),
+]));
 lifecycle_check(
-    $guardStages === ['authority', 'write']
-        && lifecycle_surface_rows($ownedPdo) === $deferredBefore && lifecycle_restore_count($ownedPdo) === 0
-        && !managed_customer_operational($ownedPdo, 1, 11),
-    'a stop at the write-stage guard wrote a portal, schedule or receipt',
+    $writeStageFailures === [],
+    'a stop at the write-stage guard wrote a portal, schedule or receipt'
+        . ($writeStageFailures === [] ? '' : ' [' . implode('; ', $writeStageFailures) . ']'),
 );
 $owned = managed_customer_lifecycle_identity_restore(
     $ownedPdo, lifecycle_candidate($ownedPdo), lifecycle_identity_proof(), 101, $identityConfig,
