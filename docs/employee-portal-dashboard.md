@@ -109,12 +109,22 @@ Sections:
 - The renderer checks in `app/tests/portal_settings_test.php` and the browser
   checks in `tools/shots/portal-settings.test.mjs` and
   `tools/shots/portal-contract.test.mjs` (Home at 390 and 1440, member, viewer
-  and owner/admin) use **synthetic fixtures only**. The authoring worker could not
-  run PHP, MySQL or a browser, so none of these checks has been run yet. They
-  must pass on the exact candidate before review.
-- The immutable auth, data and requester-privacy tests must pass unchanged:
-  `portal_auth_test`, `portal_data_test`, `portal_requester_http_test` and the
-  MySQL portal suites.
+  and owner/admin) use **synthetic fixtures only**. The authoring worker did not
+  run them. On October 22, 2026 (Pacific), the Safeharbor owner qualified source
+  `71b66a830a0d9e0429f10ece36e57441272a3d82` on Coastline with patched Ubuntu PHP
+  `8.3.6-0ubuntu0.24.04.13`: all nine changed PHP files passed lint, the six
+  focused PHP suites passed 415 checks, the three real-MySQL suites passed 95,
+  and the full portal-contract and portal-settings browser suites passed 22
+  and 20 tests respectively. Auth, login, ticket-workflow, requester-privacy,
+  employee-device and customer-access coverage is included in those results.
+  Both required GitHub checks (`php` and `browser`) also passed at that source.
+- The owner regenerated the test archive with explicit LF settings and verified
+  all 497 archived files against their Git blobs before the complete rerun.
+  Earlier CRLF-converted exports are retained only as behavioral evidence.
+  Fresh desktop and mobile captures show the inline Westy trigger below the
+  help card without covering its text. These synthetic checks and captures do
+  not establish production sign-in, provider behavior or customer acceptance;
+  genuine signed-in acceptance remains with Frankie.
 - Home calls Milepost for the device list on every visit, with the existing
   12-second limit. A slow or failed Milepost read delays Home or shows the
   unavailable state; it never blocks the Westy route.
