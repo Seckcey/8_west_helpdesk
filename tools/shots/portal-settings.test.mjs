@@ -92,6 +92,71 @@ try {
       });
     }
   }
+  // Home: role-scoped actions, honest states, readable at 390px, keyboard focus visible.
+  for (const fixture of ['home-client_owner-light', 'home-client_staff-light', 'home-client_viewer-light', 'home-empty-dark']) {
+    for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+      await test(`member Home: ${fixture} ${viewport.width}`, async () => {
+        const context = await browser.newContext({ viewport });
+        const page = await context.newPage();
+        const problems = [];
+        page.on('pageerror', error => problems.push(error.message));
+        page.on('console', message => { if (['error', 'warning'].includes(message.type())) problems.push(message.text()); });
+        const html = await readFile(path.join(scratch, `settings-${fixture}.html`), 'utf8');
+        await page.route('**/*', async route => {
+          const url = new URL(route.request().url());
+          if (url.pathname === '/portal/' && url.search === '') return route.fulfill({ contentType: 'text/html', body: html });
+          if (url.pathname === '/portal/' && url.searchParams.get('view') === 'westy') return route.fulfill({ contentType: 'text/html', body: '<title>Westy fixture</title><h1>Westy workspace fixture</h1>' });
+          if (url.pathname === '/portal/westy.php') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, state: { enabled: false, ai_available: false, can_write: true, conversation: null, turns: [], draft: null } }) });
+          if (url.pathname.startsWith('/assets/') && !url.pathname.includes('..')) {
+            let file = path.join(root, 'app/public', url.pathname);
+            if (url.pathname === '/assets/brand/favicon.svg') file = path.join(root, 'brand/svg/favicon.svg');
+            const types = { '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
+            try { return await route.fulfill({ contentType: types[path.extname(file)] || 'application/octet-stream', body: await readFile(file) }); }
+            catch { problems.push('Missing fixture asset: ' + url.pathname); }
+          }
+          return route.fulfill({ status: 404, body: '' });
+        });
+        try {
+          await page.goto('http://safeharbor.test/portal/');
+          await page.getByRole('heading', { level: 1, name: /^Welcome/ }).waitFor();
+          assert.match(await page.title(), /^Home · /);
+          const owner = fixture.includes('owner');
+          const writer = !fixture.includes('viewer');
+          const metrics = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+          assert.ok(metrics.scroll <= metrics.width + 1, JSON.stringify(metrics));
+          assert.equal(await page.locator('img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0)), true);
+          const actions = page.getByRole('navigation', { name: 'Start here' });
+          assert.equal(await actions.getByRole('link', { name: /^Ask Westy/ }).getAttribute('href'), '/portal/?view=westy');
+          assert.equal(await actions.getByRole('link', { name: /^Write a request/ }).count(), writer ? 1 : 0);
+          assert.equal(await actions.getByRole('link', { name: /^My settings in 8 West ID/ }).getAttribute('href'), 'https://id.8westit.com/settings.php');
+          assert.equal(await page.getByRole('link', { name: 'Manage computer access', exact: true }).count(), owner ? 1 : 0);
+          assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), owner ? 1 : 0);
+          assert.equal(await page.getByRole('heading', { name: writer ? 'Needs your reply' : 'Waiting for a reply', exact: true }).count(), 1);
+          for (const target of await page.locator('.portal-overview-action, .portal-overview-button').all()) {
+            const box = await target.boundingBox();
+            assert.ok(box.height >= 44 && box.width >= 44, JSON.stringify(box));
+          }
+          if (viewport.width < 600) {
+            await page.getByRole('button', { name: 'Toggle navigation' }).click();
+            assert.equal(await page.getByRole('navigation', { name: 'Customer portal' }).getByRole('link', { name: 'Home', exact: true }).getAttribute('aria-current'), 'page');
+            await page.getByRole('button', { name: 'Toggle navigation' }).click();
+          } else {
+            assert.equal(await page.getByRole('navigation', { name: 'Customer portal' }).getByRole('link', { name: 'Home', exact: true }).getAttribute('aria-current'), 'page');
+          }
+          const ask = actions.getByRole('link', { name: /^Ask Westy/ });
+          await ask.focus();
+          await page.keyboard.press('Tab');
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await ask.evaluate(el => el === document.activeElement && getComputedStyle(el).outlineStyle !== 'none'), true);
+          if (evidence) await page.screenshot({ path: path.join(evidence, `${fixture}-${viewport.width}.png`), fullPage: true });
+          await page.keyboard.press('Enter');
+          await page.getByRole('heading', { name: 'Westy workspace fixture' }).waitFor();
+          assert.equal(new URL(page.url()).search, '?view=westy');
+          assert.deepEqual(problems, []);
+        } finally { await context.close(); }
+      });
+    }
+  }
 } finally {
   await browser.close();
   await rm(scratch, { recursive: true, force: true });

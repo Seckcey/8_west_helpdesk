@@ -233,6 +233,21 @@ switch ($argv[3]) {
         portal_render_security_orders($context,$device,$argv[3]==='security'?[]:[$order]);
         break;
     case 'workspace': portal_render_workspace($context); break;
+    case 'home':
+    case 'homemember':
+    case 'homeviewer':
+        // Home receives only what the controller's requester-safe reads returned; null is "unavailable".
+        if($argv[3]==='homemember')$context['identity']['role']='client_staff';
+        if($argv[3]==='homeviewer')$context['identity']['role']='client_viewer';
+        $homeDevices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11',
+            'connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in and inventory received.',
+            'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-60),'troubleshooting'=>'support_request']],'next_after'=>null];
+        portal_render_home($context,
+            $argv[3]==='homeviewer' ? ['client'=>['name'=>'8 West Lifestyle'],'counts'=>['open'=>0,'in_progress'=>0,'waiting'=>0,'resolved'=>0],'tickets'=>[]]
+                : ['client'=>['name'=>'8 West Lifestyle'],'counts'=>['open'=>0,'in_progress'=>1,'waiting'=>1,'resolved'=>1],'tickets'=>$tickets],
+            $argv[3]==='homemember' ? null : $homeDevices,
+            $argv[3]==='home' ? [$archive] : null);
+        break;
     case 'dashboard':
         portal_render_dashboard($context, [
             'client' => ['name' => '8 West Lifestyle'],
@@ -276,7 +291,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['login','workspace','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
+  for (const name of ['login','workspace','home','homemember','homeviewer','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
     'devicesemployees','devicesemployeesnext','devicesemployeeunknown','devicesemployeeabsent','devicesemployeesaved','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
@@ -357,7 +372,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
         ? route.fulfill({ status: 404, body: '' })
         : route.fulfill({ contentType: asset.contentType, body: asset.body });
     }
-    const body = url.pathname === '/portal/' ? pages[url.searchParams.get('fixture') === 'login' ? 'login' : 'workspace']
+    const body = url.pathname === '/portal/' ? pages[portalRootFixture(url)]
       : url.pathname === '/portal/requests.php' ? pages.dashboard
       : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
       : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
@@ -375,8 +390,14 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
   return { context, page, consoleProblems };
 }
 
+/** Existing fixtures keep serving the Westy workspace at /portal/; Home pages are opt-in. */
+function portalRootFixture(url) {
+  const fixture = url.searchParams.get('fixture');
+  return fixture === 'login' || ['home', 'homemember', 'homeviewer'].includes(fixture) ? fixture : 'workspace';
+}
+
 function fixtureForUrl(pages, url) {
-  return url.pathname === '/portal/' ? pages[url.searchParams.get('fixture') === 'login' ? 'login' : 'workspace']
+  return url.pathname === '/portal/' ? pages[portalRootFixture(url)]
     : url.pathname === '/portal/requests.php' ? pages.dashboard
     : url.pathname === '/portal/devices.php' ? pages[url.searchParams.get('fixture') || 'devices']
     : url.pathname === '/portal/mobile.php' ? pages[url.searchParams.get('fixture') || 'mobile']
@@ -508,6 +529,53 @@ if (SERVE_MODE) {
   }
 
 
+});
+
+if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions; Westy keeps its workspace', async () => {
+  const { pages, scratch } = await renderedFixtures();
+  const browser = await chromium.launch();
+  const evidence = process.env.PORTAL_HOME_EVIDENCE;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  try {
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      const { page, context, consoleProblems } = await openPortalPage(browser, pages, viewport);
+      await page.goto(`${ORIGIN}/portal/?fixture=home`);
+      assert.equal(await page.title(), 'Home · Safeharbor');
+      await page.getByRole('heading', { level: 1, name: 'Welcome, Frank at 8 West Lifestyle' }).waitFor();
+      await page.getByRole('heading', { name: 'Needs your reply', exact: true }).waitFor();
+      await page.getByRole('link', { name: /#102.*Front desk printer is offline/ }).waitFor();
+      await page.getByRole('heading', { name: 'Service summaries', exact: true }).waitFor();
+      await page.getByRole('link', { name: /Latest archived summary/ }).waitFor();
+      await page.getByText('Front desk computer', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('navigation', { name: 'Customer portal' }).getByRole('link', { name: 'Home', exact: true }).getAttribute('aria-current'), 'page');
+      assert.equal(await page.locator('img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0)), true);
+      assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= body.clientWidth), true);
+      if (evidence) await page.screenshot({ path: path.join(evidence, `home-admin-${viewport.width}.png`), fullPage: true });
+
+      await page.getByRole('navigation', { name: 'Start here' }).getByRole('link', { name: /^Ask Westy/ }).click();
+      await page.getByRole('textbox', { name: 'Ask Westy about your computer' }).waitFor();
+      assert.equal(new URL(page.url()).search, '?view=westy');
+      assert.equal(await page.getByRole('navigation', { name: 'Customer portal' }).getByRole('link', { name: 'Westy', exact: true }).getAttribute('aria-current'), 'page');
+
+      for (const [fixture, writer] of [['homemember', true], ['homeviewer', false]]) {
+        await page.goto(`${ORIGIN}/portal/?fixture=${fixture}`);
+        await page.getByRole('heading', { level: 1, name: 'Welcome, Frank at 8 West Lifestyle' }).waitFor();
+        assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
+        assert.equal(await page.getByRole('link', { name: 'Manage computer access', exact: true }).count(), 0);
+        assert.equal(await page.locator('a[href="https://id.8westit.com/customer-billing.php"]').count(), 0);
+        assert.equal(await page.getByRole('navigation', { name: 'Start here' }).getByRole('link', { name: /^Write a request/ }).count(), writer ? 1 : 0);
+        if (writer) await page.getByText('We can’t show your computers right now. Nothing about them has changed.').waitFor();
+        else await page.getByText('No support requests yet.', { exact: true }).waitFor();
+        assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= body.clientWidth), true);
+        if (evidence) await page.screenshot({ path: path.join(evidence, `${fixture}-${viewport.width}.png`), fullPage: true });
+      }
+      assert.deepEqual(consoleProblems, []);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+    await rm(scratch, { recursive: true, force: true });
+  }
 });
 
 if (!SERVE_MODE) test('mobile discovery honors its gate and preserves device navigation for admins and viewers', async () => {
