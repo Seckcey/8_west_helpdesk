@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/managed_customer_activation.php';
 require_once __DIR__ . '/managed_customer_status.php';
+require_once __DIR__ . '/suite_managed_provider.php';
 
 const MANAGED_CUSTOMER_LIFECYCLE_CONTEXT = 'safeharbor-managed-customer-lifecycle-v1';
 const MANAGED_CUSTOMER_LIFECYCLE_RESTORE_CONTEXT = 'safeharbor-managed-customer-lifecycle-restore-v1';
@@ -1382,4 +1383,235 @@ function managed_customer_lifecycle_run(
         }
     }
     return $results;
+}
+
+// A82 `--scheduled`: one fair, bounded run over the explicit approved scope plus admitted lineages.
+const MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_CLAIMS = 25;
+const MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_TRANSITIONS = 10;
+const MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_SECONDS = 30.0;
+
+/**
+ * The bounded scheduled run. Each claim commits the durable cursor before its customer is acted on,
+ * so a crash, kill, timeout or refusal still advances consideration. A claim failure (including an
+ * unknown cursor commit) stops the run with no action. The first claim is always made; later claims
+ * and every applied transition stop at the 30-second deadline, and actions receive the remaining
+ * time for their own database/HTTP bounds. At most 25 claims and 10 applied transitions per run.
+ *
+ * @param callable(list<int>):?array $claim
+ * @param callable(array,callable():bool,callable():float):array $act
+ * @param callable():float $clock monotonic seconds
+ * @return array{claims:int,transitions:int,results:list<array<string,mixed>>,stopped?:string}
+ */
+function managed_customer_lifecycle_scheduled_loop(callable $claim, callable $act, callable $clock): array
+{
+    $started = $clock();
+    $remaining = static fn(): float => MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_SECONDS - ($clock() - $started);
+    $transitions = 0;
+    $mayTransition = static function () use (&$transitions, $remaining): bool {
+        if ($transitions >= MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_TRANSITIONS || $remaining() <= 0) return false;
+        $transitions++;
+        return true;
+    };
+    $run = ['claims' => 0, 'transitions' => 0, 'results' => []];
+    $claimed = [];
+    while ($run['claims'] < MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_CLAIMS
+        && $transitions < MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_TRANSITIONS
+        && ($run['claims'] === 0 || $remaining() > 0)) {
+        try {
+            $candidate = $claim($claimed);
+        } catch (Throwable) {
+            $run['stopped'] = 'cursor_unavailable';
+            break;
+        }
+        if ($candidate === null) break;
+        $claimed[] = (int)$candidate['binding_id'];
+        $run['claims']++;
+        $customerId = (string)($candidate['customer_id'] ?? '');
+        $customerHash = preg_match(BUSINESS_REPORT_MILEPOST_CUSTOMER_UUID, $customerId) === 1
+            ? hash('sha256', $customerId)
+            : str_repeat('0', 64);
+        try {
+            $run['results'][] = $act($candidate, $mayTransition, $remaining);
+        } catch (Throwable $error) {
+            $run['results'][] = [
+                'action' => 'refused',
+                'customer_id_sha256' => $customerHash,
+                'error_class' => $error::class,
+                'error_sha256' => hash('sha256', $error->getMessage()),
+            ];
+        }
+    }
+    $run['transitions'] = $transitions;
+    return $run;
+}
+
+/**
+ * Claim the next scheduled binding after the singleton cursor, in stable binding-ID order, wrapping
+ * once and skipping bindings already claimed this run, then advance and commit the cursor. Eligible:
+ * the explicit approved `customer_ids` scope or a lineage with an immutable created/restored receipt,
+ * deduplicated by binding, that still needs containment or restoration. The cursor never proves
+ * authority or completion; the action rechecks everything under its own locks.
+ *
+ * @param list<int> $claimed
+ * @return array<string,mixed>|null
+ */
+function managed_customer_lifecycle_scheduled_claim(PDO $pdo, array $config, array $claimed = []): ?array
+{
+    if ($pdo->inTransaction()) {
+        throw new ManagedCustomerLifecycleGateException('The scheduled claim requires its own transaction.');
+    }
+    $explicit = $config['customer_ids'] === []
+        ? '0 = 1'
+        : 'binding.customer_id IN (' . implode(',', array_fill(0, count($config['customer_ids']), '?')) . ')';
+    $skip = $claimed === [] ? '' : ' AND binding.id NOT IN (' . implode(',', array_fill(0, count($claimed), '?')) . ')';
+    $next = $pdo->prepare(
+        "SELECT binding.id AS binding_id, binding.tenant_id, binding.client_id,
+                binding.customer_id, binding.source_version, binding.status,
+                binding.last_event_id, binding.last_request_sha256,
+                tenant.slug AS provider_tenant_slug
+           FROM suite_customer_sync_bindings binding
+           JOIN tenants tenant ON tenant.id = binding.tenant_id
+          WHERE binding.id > ?{$skip}
+            AND ({$explicit} OR EXISTS (
+                  SELECT 1 FROM suite_customer_sync_events admitted
+                   WHERE admitted.tenant_id = binding.tenant_id
+                     AND admitted.binding_id = binding.id
+                     AND admitted.admission IS NOT NULL))
+            AND (
+                 (binding.status = 'inactive' AND NOT EXISTS (
+                    SELECT 1 FROM managed_customer_lifecycle_receipts receipt
+                     WHERE receipt.customer_id = binding.customer_id
+                       AND receipt.source_version = binding.source_version
+                       AND receipt.action = 'contained'))
+                 OR (binding.status = 'active'
+                  AND EXISTS (
+                    SELECT 1 FROM suite_customer_sync_events inactive_event
+                     WHERE inactive_event.tenant_id = binding.tenant_id
+                       AND inactive_event.binding_id = binding.id
+                       AND inactive_event.status = 'inactive')
+                  AND NOT EXISTS (
+                    SELECT 1 FROM managed_customer_lifecycle_restore_receipts restored
+                     WHERE restored.customer_id = binding.customer_id
+                       AND restored.source_version = binding.source_version))
+            )
+          ORDER BY binding.id LIMIT 1"
+    );
+    $pdo->beginTransaction();
+    try {
+        $cursor = $pdo->query(
+            'SELECT last_binding_id FROM managed_customer_lifecycle_progress WHERE id = 1'
+            . managed_customer_lifecycle_lock_suffix($pdo)
+        )->fetchAll(PDO::FETCH_COLUMN);
+        if (count($cursor) !== 1) {
+            throw new ManagedCustomerLifecycleGateException('The scheduled lifecycle cursor is unavailable.');
+        }
+        $find = static function (int $after) use ($next, $claimed, $config): ?array {
+            $next->execute([$after, ...$claimed, ...$config['customer_ids']]);
+            $row = $next->fetch(PDO::FETCH_ASSOC);
+            $next->closeCursor();
+            return is_array($row) ? $row : null;
+        };
+        $after = (int)$cursor[0];
+        $candidate = $find($after) ?? ($after > 0 ? $find(0) : null);
+        if ($candidate !== null) {
+            $pdo->prepare(
+                'UPDATE managed_customer_lifecycle_progress
+                    SET last_binding_id = ?, updated_at = ' . ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
+                        ? "strftime('%Y-%m-%d %H:%M:%f', 'now')" : 'UTC_TIMESTAMP(6)') . '
+                  WHERE id = 1'
+            )->execute([(int)$candidate['binding_id']]);
+        }
+        if (!$pdo->commit()) {
+            throw new ManagedCustomerLifecycleGateException('The scheduled lifecycle cursor did not commit.');
+        }
+        return $candidate;
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) {
+            try { $pdo->rollBack(); } catch (Throwable) {}
+        }
+        throw $error;
+    }
+}
+
+/**
+ * Act on one claimed binding with the same apply/restore functions as the explicit mode, under a
+ * configuration scoped to exactly this UUID and its actual actor. Explicit scope uses the approved
+ * `tenant_actors` entry. An admitted lineage uses the configured house actor for `8west`, or else
+ * the currently admitted provider's verified owner; a withdrawn provider is refused.
+ *
+ * @return array<string,mixed>
+ */
+function managed_customer_lifecycle_scheduled_act(
+    PDO $pdo,
+    array $config,
+    array $candidate,
+    callable $mayTransition,
+    callable $remaining,
+    array $businessReportConfig = [],
+    array $idConfig = [],
+    ?callable $fetchEvidence = null,
+): array {
+    $customerId = managed_customer_activation_uuid((string)($candidate['customer_id'] ?? ''));
+    $slug = (string)($candidate['provider_tenant_slug'] ?? '');
+    $explicit = in_array($customerId, $config['customer_ids'], true);
+    if ($explicit || $slug === '8west') {
+        $actorId = $config['tenant_actors'][$slug] ?? null;
+    } else {
+        $provider = suite_managed_provider($pdo, $slug);
+        $actorId = is_array($provider) ? (int)$provider['owner_user_id'] : null;
+    }
+    if (!is_int($actorId) || $actorId < 1) {
+        throw new ManagedCustomerLifecycleGateException(
+            'No exact owner/admin actor or current provider admission for the claimed customer.',
+        );
+    }
+    $scoped = [
+        'enabled' => true,
+        'restoration_enabled' => $config['restoration_enabled'],
+        'customer_ids' => [$customerId],
+        'tenant_actors' => [$slug => $actorId],
+        'batch_size' => 1,
+    ];
+    $provenance = $explicit ? 'explicit' : 'admitted';
+    $deferred = ['action' => 'deferred', 'customer_id_sha256' => hash('sha256', $customerId),
+        'source_version' => (int)$candidate['source_version'], 'provenance' => $provenance];
+    if (($candidate['status'] ?? null) === 'active' && $config['restoration_enabled'] === true) {
+        $seconds = (int)floor($remaining());
+        if ($seconds < 1 || !$mayTransition()) return $deferred;
+        $boundedId = $idConfig;
+        $boundedId['timeout_seconds'] = max(1, min((int)($idConfig['timeout_seconds'] ?? 10), $seconds));
+        $fetchEvidence ??= 'managed_customer_id_evidence_fetch';
+        $evidence = $fetchEvidence($customerId, $boundedId);
+        if (!is_array($evidence)) {
+            throw new ManagedCustomerLifecycleGateException('Authenticated ID restoration evidence is invalid.');
+        }
+        return managed_customer_lifecycle_restore($pdo, $candidate, $evidence, $actorId, $scoped, $businessReportConfig)
+            + ['provenance' => $provenance];
+    }
+    if (!$mayTransition()) return $deferred;
+    return managed_customer_lifecycle_apply($pdo, $candidate, $actorId, $scoped) + ['provenance' => $provenance];
+}
+
+/** @return array{claims:int,transitions:int,results:list<array<string,mixed>>,stopped?:string} */
+function managed_customer_lifecycle_scheduled_run(
+    PDO $pdo,
+    array $rawConfig,
+    array $businessReportConfig = [],
+    array $idConfig = [],
+    ?callable $fetchEvidence = null,
+    ?callable $clock = null,
+): array {
+    $config = managed_customer_lifecycle_config($rawConfig);
+    if ($config['enabled'] !== true) {
+        throw new ManagedCustomerLifecycleGateException('Managed-customer lifecycle is disabled.');
+    }
+    return managed_customer_lifecycle_scheduled_loop(
+        static fn(array $claimed): ?array => managed_customer_lifecycle_scheduled_claim($pdo, $config, $claimed),
+        static fn(array $candidate, callable $mayTransition, callable $remaining): array =>
+            managed_customer_lifecycle_scheduled_act(
+                $pdo, $config, $candidate, $mayTransition, $remaining,
+                $businessReportConfig, $idConfig, $fetchEvidence,
+            ),
+        $clock ?? static fn(): float => hrtime(true) / 1e9,
+    );
 }

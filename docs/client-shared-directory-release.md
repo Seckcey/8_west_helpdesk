@@ -76,12 +76,19 @@ recovery steps.
 3. Check a linked active client, an inactive one, an unbound one and a client of another MSP
    tenant in a real browser on a disposable copy before production.
 4. Restoration stays off (`restoration_enabled` false) until the release lead's reviewed window.
+5. Migration 033 (schema-2 admission carrier and lifecycle cursor) is a separate later database-first
+   gate: `bash deploy/deploy.sh --migrate app/db/migrations/033_suite_customer_sync_admission.sql`.
+   Until it is applied, a schema-2 Milepost event is a retryable 500 and the report wrapper's
+   lifecycle child refuses for lack of its cursor; neither writes anything. Milepost must not mint
+   schema 2 for Safeharbor before 033 is applied. Never replay 015 after 033.
 
 ## Checks to run (owner)
 
 - `php app/tests/client_operational_context_test.php` and the existing customer-sync, lifecycle
   and identity-evidence suites in the normal CI jobs.
-- `php app/tests/managed_customer_lifecycle_test.php` and, on a disposable MySQL server,
-  `php app/tests/managed_customer_lifecycle_mysql_test.php` (024 + 032).
+- `php app/tests/managed_customer_lifecycle_test.php`, `php app/tests/managed_customer_lifecycle_scheduler_test.php`
+  and, on a disposable MySQL server, `php app/tests/managed_customer_lifecycle_mysql_test.php`
+  (024 + 032 + the scheduled mode) and `php app/tests/suite_customer_sync_mysql_test.php` (015 + 033).
+- `sudo bash app/tests/business_report_wrapper_linux_test.sh` for the wrapper's lifecycle child.
 - The browser job, including `node tools/shots/client-shared-directory.test.mjs`, and a visual check
   of the Clients list on desktop and narrow screens.

@@ -1820,6 +1820,72 @@ try {
         'human-held portal and schedule stay held under 032 while the exact source latch clears',
     );
 
+    // A82 `--scheduled` through the narrow runtime: the explicit scope plus an admitted provider
+    // lineage, one committed cursor claim before each action, the admitted owner as actor, a
+    // concurrent claim held off by the singleton lock, and a withdrawn provider refused then resumed.
+    // The narrow runtime gains only UPDATE on the scheduling row (the shared runtime has table DML).
+    $admin->exec("GRANT UPDATE ON {$quotedDatabase}.`managed_customer_lifecycle_progress` TO '{$runtimeUser}'@'%'");
+    $pdo->exec('UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()+INTERVAL 4 MINUTE WHERE tenant_id=1');
+    $scheduledCustomer = static fn(int $n): string => sprintf('a7000000-4444-4444-8444-%012d', $n);
+    $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES
+        (71,1,'Scheduled Admitted'),(72,3,'Scheduled Explicit'),(73,1,'Scheduled Unmarked'),(74,1,'Scheduled Later')");
+    $scheduledBinding = $pdo->prepare(
+        "INSERT INTO suite_customer_sync_bindings
+            (id,tenant_id,customer_id,client_id,source_version,display_name,status,
+             last_event_id,last_occurred_at,last_request_sha256,last_admission)
+         VALUES (?,?,?,?,1,?,'active',?,UTC_TIMESTAMP()-INTERVAL 1 HOUR,?,?)"
+    );
+    foreach ([[71, 1, 'Scheduled Admitted', 'created'], [72, 3, 'Scheduled Explicit', null],
+        [73, 1, 'Scheduled Unmarked', null]] as [$id, $tenantId, $name, $tag]) {
+        $scheduledBinding->execute([$id, $tenantId, $scheduledCustomer($id), $id, $name,
+            sprintf('b7000000-4444-4444-8444-%012d', $id), str_repeat(dechex($id % 16), 64), $tag]);
+        lifecycle_mysql_mark_inactive($pdo, $id, sprintf('c7000000-4444-4444-8444-%012d', $id), str_repeat(dechex(($id + 1) % 16), 64));
+    }
+    $scheduledConfig = [
+        'enabled' => true, 'restoration_enabled' => false, 'customer_ids' => [$scheduledCustomer(72)],
+        'tenant_actors' => ['provider-three' => 301], 'batch_size' => 5,
+    ];
+    $containedFor = static function (int $id) use ($pdo, $scheduledCustomer): array {
+        $receipt = $pdo->prepare("SELECT actor_user_id FROM managed_customer_lifecycle_receipts WHERE customer_id=? AND action='contained'");
+        $receipt->execute([$scheduledCustomer($id)]);
+        return $receipt->fetchAll(PDO::FETCH_COLUMN);
+    };
+    $cursor = static fn(): int => (int)$pdo->query('SELECT last_binding_id FROM managed_customer_lifecycle_progress WHERE id=1')->fetchColumn();
+    $firstClaim = managed_customer_lifecycle_scheduled_claim($runtime, managed_customer_lifecycle_config($scheduledConfig));
+    lifecycle_mysql_check((int)($firstClaim['binding_id'] ?? 0) === 71 && $cursor() === 71 && $containedFor(71) === [],
+        'a scheduled claim commits the cursor before any action');
+    $runtimeTwo = lifecycle_mysql_connection($database, $runtimeUser, $runtimePass);
+    $runtimeTwo->exec('SET SESSION innodb_lock_wait_timeout = 1');
+    $pdo->beginTransaction();
+    $pdo->query('SELECT last_binding_id FROM managed_customer_lifecycle_progress WHERE id=1 FOR UPDATE')->fetchAll();
+    $blocked = managed_customer_lifecycle_scheduled_run($runtimeTwo, $scheduledConfig);
+    $pdo->rollBack();
+    lifecycle_mysql_check(($blocked['stopped'] ?? null) === 'cursor_unavailable' && $blocked['claims'] === 0
+        && $cursor() === 71 && $containedFor(72) === [],
+        'a concurrent scheduled run waiting on the cursor lock takes no action');
+    $runtimeTwo = null;
+    $scheduled = managed_customer_lifecycle_scheduled_run($runtime, $scheduledConfig);
+    lifecycle_mysql_check(!isset($scheduled['stopped']) && $scheduled['claims'] === 2 && $scheduled['transitions'] === 2
+        && array_column($scheduled['results'], 'provenance') === ['explicit', 'admitted']
+        && array_column($scheduled['results'], 'action') === ['contained', 'contained']
+        && $containedFor(72) === [301] && $containedFor(71) === [101] && $containedFor(73) === []
+        && $cursor() === 71,
+        'the scheduled run resumes after the committed claim, wraps, and acts as each exact actor');
+    lifecycle_mysql_check(managed_customer_lifecycle_scheduled_run($runtime, $scheduledConfig)['claims'] === 0,
+        'contained scheduled customers are not claimed again');
+    $scheduledBinding->execute([74, 1, $scheduledCustomer(74), 74, 'Scheduled Later',
+        sprintf('b7000000-4444-4444-8444-%012d', 74), str_repeat('e', 64), 'created']);
+    lifecycle_mysql_mark_inactive($pdo, 74, sprintf('c7000000-4444-4444-8444-%012d', 74), str_repeat('f', 64));
+    $pdo->exec('UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()-INTERVAL 1 SECOND WHERE tenant_id=1');
+    $withdrawn = managed_customer_lifecycle_scheduled_run($runtime, $scheduledConfig);
+    $pdo->exec('UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()+INTERVAL 4 MINUTE WHERE tenant_id=1');
+    $renewed = managed_customer_lifecycle_scheduled_run($runtime, $scheduledConfig);
+    lifecycle_mysql_check(array_column($withdrawn['results'], 'action') === ['refused'] && $cursor() === 74
+        && array_column($renewed['results'], 'action') === ['contained'] && $containedFor(74) === [101],
+        'a withdrawn provider refuses its admitted customer and renewal resumes it');
+    lifecycle_mysql_refuses_with('denied', static fn() => $runtime->exec("UPDATE suite_customer_sync_bindings SET last_admission='restored' WHERE id=71"),
+        'the narrow runtime cannot write the admission carrier');
+
     $admin->exec("CREATE DATABASE {$quotedFreshDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $fresh = lifecycle_mysql_connection($freshDatabase);
     lifecycle_mysql_execute_file($fresh, __DIR__ . '/../db/schema.sql');

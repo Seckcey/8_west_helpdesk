@@ -2,9 +2,10 @@
 /**
  * POST /api/svc/customers.php — Milepost customer registry intake.
  *
- * Default-off, exact-service, destination-specific HMAC. The signed v1 body
- * resolves the destination Safeharbor tenant by slug; no session tenant and no
- * name/domain inference is permitted.
+ * Default-off, exact-service, destination-specific HMAC. The signed schema-1 or
+ * schema-2 (admission-tagged) body resolves the destination Safeharbor tenant by
+ * slug; no session tenant and no name/domain inference is permitted. A schema-2
+ * event before migration 033 is a retryable server error, never a partial write.
  */
 declare(strict_types=1);
 

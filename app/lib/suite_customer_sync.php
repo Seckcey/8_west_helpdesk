@@ -212,10 +212,18 @@ function suite_customer_sync_top_level_member_count(string $rawBody): int
         : $commas + 1;
 }
 
-/** @param array<string,mixed> $payload @return array<string,mixed> */
+/**
+ * Schema 1 is the original eight keys. Schema 2 (A58) is the same eight plus a ninth `admission`:
+ * `created` on active version 1, or `restored` on an active version 3 or later directly after an
+ * inactive one (the predecessor is proved against stored history).
+ *
+ * @param array<string,mixed> $payload @return array<string,mixed>
+ */
 function suite_customer_sync_validate(array $payload, ?int $now = null): array
 {
+    $admitted = ($payload['schema_version'] ?? null) === 2;
     $expectedKeys = [
+        ...($admitted ? ['admission'] : []),
         'customer_id', 'display_name', 'event_id', 'occurred_at',
         'schema_version', 'source_version', 'status', 'tenant_slug',
     ];
@@ -224,7 +232,7 @@ function suite_customer_sync_validate(array $payload, ?int $now = null): array
     if ($actualKeys !== $expectedKeys) {
         throw new SuiteCustomerSyncValidationException('payload_keys_invalid');
     }
-    if (!is_int($payload['schema_version']) || $payload['schema_version'] !== 1) {
+    if (!is_int($payload['schema_version']) || !in_array($payload['schema_version'], [1, 2], true)) {
         throw new SuiteCustomerSyncValidationException('schema_version_invalid');
     }
 
@@ -278,9 +286,17 @@ function suite_customer_sync_validate(array $payload, ?int $now = null): array
     if ($date->getTimestamp() > $now + SUITE_CUSTOMER_SYNC_TIMESTAMP_TOLERANCE) {
         throw new SuiteCustomerSyncValidationException('occurred_at_future');
     }
+    if ($admitted && !match ($payload['admission']) {
+        'created' => $sourceVersion === 1 && $status === 'active',
+        'restored' => $sourceVersion >= 3 && $status === 'active',
+        default => false,
+    }) {
+        throw new SuiteCustomerSyncValidationException('admission_invalid');
+    }
 
+    // Schema 1 output is unchanged; only schema 2 adds `admission`.
     return [
-        'schema_version' => 1,
+        'schema_version' => $payload['schema_version'],
         'tenant_slug' => $tenantSlug,
         'customer_id' => $customerId,
         'source_version' => $sourceVersion,
@@ -289,7 +305,37 @@ function suite_customer_sync_validate(array $payload, ?int $now = null): array
         'event_id' => $eventId,
         'occurred_at' => $occurredAt,
         'occurred_at_db' => $date->format('Y-m-d H:i:s'),
-    ];
+    ] + ($admitted ? ['admission' => $payload['admission']] : []);
+}
+
+/**
+ * Whether migration 033's carrier and receipt columns are installed. Only a positive answer is
+ * cached, for the life of that connection object.
+ */
+function suite_customer_sync_admission_available(PDO $pdo): bool
+{
+    static $installed = null;
+    $installed ??= new WeakMap();
+    if (isset($installed[$pdo])) return true;
+    if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+        $has = static function (string $table, string $column) use ($pdo): bool {
+            foreach ($pdo->query("PRAGMA table_info({$table})")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                if (($row['name'] ?? null) === $column) return true;
+            }
+            return false;
+        };
+        $available = $has('suite_customer_sync_bindings', 'last_admission')
+            && $has('suite_customer_sync_events', 'admission');
+    } else {
+        $available = (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.columns
+              WHERE table_schema = DATABASE()
+                AND ((table_name = 'suite_customer_sync_bindings' AND column_name = 'last_admission')
+                  OR (table_name = 'suite_customer_sync_events' AND column_name = 'admission'))"
+        )->fetchColumn() === 2;
+    }
+    if ($available) $installed[$pdo] = true;
+    return $available;
 }
 
 function suite_customer_sync_lock_clause(PDO $pdo): string
@@ -335,7 +381,8 @@ function suite_customer_sync_receipt_matches(
         && (string)$receipt['display_name'] === (string)$payload['display_name']
         && (string)$receipt['status'] === (string)$payload['status']
         && (string)$receipt['occurred_at'] === (string)$payload['occurred_at_db']
-        && (string)$receipt['request_sha256'] === $requestSha256;
+        && (string)$receipt['request_sha256'] === $requestSha256
+        && ($receipt['admission'] ?? null) === ($payload['admission'] ?? null);
 }
 
 /**
@@ -351,6 +398,12 @@ function suite_customer_sync_receive(PDO $pdo, array $payload, string $requestSh
     }
     if (preg_match('/\A[0-9a-f]{64}\z/D', $requestSha256) !== 1) {
         throw new SuiteCustomerSyncValidationException('request_digest_invalid');
+    }
+    // A schema-2 event needs migration 033's carrier; until then it is refused before any write.
+    $admission = $payload['admission'] ?? null;
+    $hasAdmission = suite_customer_sync_admission_available($pdo);
+    if ($admission !== null && !$hasAdmission) {
+        throw new SuiteCustomerSyncGateException('admission_unavailable');
     }
 
     $pdo->beginTransaction();
@@ -409,8 +462,8 @@ function suite_customer_sync_receive(PDO $pdo, array $payload, string $requestSh
                 'INSERT INTO suite_customer_sync_bindings
                     (tenant_id, customer_id, client_id, source_version,
                      display_name, status, last_event_id, last_occurred_at,
-                     last_request_sha256)
-                 VALUES (?, ?, ?, 1, ?, \'active\', ?, ?, ?)'
+                     last_request_sha256' . ($hasAdmission ? ', last_admission' : '') . ')
+                 VALUES (?, ?, ?, 1, ?, \'active\', ?, ?, ?' . ($hasAdmission ? ', ?' : '') . ')'
             );
             $bindingInsert->execute([
                 $tenantId,
@@ -420,6 +473,7 @@ function suite_customer_sync_receive(PDO $pdo, array $payload, string $requestSh
                 (string)$payload['event_id'],
                 (string)$payload['occurred_at_db'],
                 $requestSha256,
+                ...($hasAdmission ? [$admission] : []),
             ]);
         } else {
             if ((int)$binding['tenant_id'] !== $tenantId) {
@@ -434,6 +488,9 @@ function suite_customer_sync_receive(PDO $pdo, array $payload, string $requestSh
             }
             if (strcmp((string)$payload['occurred_at_db'], (string)$binding['last_occurred_at']) < 0) {
                 throw new SuiteCustomerSyncConflictException('event_time_conflict');
+            }
+            if ($admission === 'restored' && (string)$binding['status'] !== 'inactive') {
+                throw new SuiteCustomerSyncConflictException('admission_conflict');
             }
 
             $client = $pdo->prepare(
@@ -458,11 +515,12 @@ function suite_customer_sync_receive(PDO $pdo, array $payload, string $requestSh
                 ]);
             }
 
+            // The carrier is rewritten with every new version: NULL for schema 1, never inherited.
             $advance = $pdo->prepare(
                 'UPDATE suite_customer_sync_bindings
                     SET source_version = ?, display_name = ?, status = ?,
                         last_event_id = ?, last_occurred_at = ?,
-                        last_request_sha256 = ?
+                        last_request_sha256 = ?' . ($hasAdmission ? ', last_admission = ?' : '') . '
                   WHERE tenant_id = ? AND id = ? AND source_version = ?'
             );
             $advance->execute([
@@ -472,6 +530,7 @@ function suite_customer_sync_receive(PDO $pdo, array $payload, string $requestSh
                 (string)$payload['event_id'],
                 (string)$payload['occurred_at_db'],
                 $requestSha256,
+                ...($hasAdmission ? [$admission] : []),
                 $tenantId,
                 (int)$binding['id'],
                 (int)$binding['source_version'],

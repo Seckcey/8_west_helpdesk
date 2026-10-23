@@ -62,6 +62,41 @@ A lost acknowledgement replays the exact immutable receipt. Competing workers
 serialize on the same source binding and converge to one containment plus one
 replay.
 
+### The one scheduled mode (A82, migration 033)
+
+`php cron/managed_customer_lifecycle.php --scheduled` is the only mode the shared report job starts.
+The no-argument explicit mode and the P9 manual path are unchanged.
+
+**Scope.** The union of two sets, deduplicated by binding:
+- the explicit approved `customer_ids` scope, with its approved `tenant_actors`;
+- every lineage with an immutable created or restored receipt. A house lineage acts as
+  `tenant_actors['8west']`. A managed provider's lineage acts as that provider's current admitted
+  owner; a withdrawn provider is refused.
+
+**Claims.** A candidate still needs containment or restoration. Each claim locks the singleton
+`managed_customer_lifecycle_progress` row and takes the next eligible binding ID after
+`last_binding_id`, wrapping once and skipping bindings already claimed in this run. It advances the
+cursor and commits before any blocking database or HTTP action. The existing apply/restore functions
+then run under a configuration scoped to exactly that UUID and actor, and recheck the provider,
+actor, current source and receipts under their own locks.
+
+**Failure.** A missing singleton or an unknown cursor commit stops the run with no action. A crash,
+kill, timeout or refusal still moves consideration on. The cursor is never authority, status or
+completion evidence. Results carry only hashed UUIDs and error digests.
+
+**Bounds.** One run has at most 25 claims and 10 applied transitions in total, and a 30-second
+monotonic deadline. The first claim is always made; after the deadline no new claim or transition
+starts. A restoration's ID request timeout is capped at the remaining whole seconds, so with less
+than one second left it is deferred. For a fixed set of N candidates, healthy committed claims
+advance round-robin: every candidate is considered within N claim-runs, whatever earlier candidates
+refuse. There is no bound under a total database outage or unbounded arrivals.
+
+**Wrapper.** `run_business_reports.sh` starts this one child after the reports, under the same
+runtime user, five-minute cadence and shared deploy lock, with `timeout` (45 s TERM, then 5 s KILL).
+It reads the child's exit status before logging anything. A missing or unsafe stage, a refusal, a
+timeout and a logger failure each get a distinct bounded log line. The report run's exit status
+stays the wrapper's exit status.
+
 ## Identity proof and restoration latch
 
 The shared schema-2 adapter now requires the exact signed 20-member success

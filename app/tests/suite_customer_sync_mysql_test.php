@@ -139,6 +139,11 @@ function sync_mysql_execute_file(PDO $pdo, string $path): void
 {
     $sql = file_get_contents($path);
     if (!is_string($sql)) throw new RuntimeException("Cannot read {$path}");
+    sync_mysql_execute_sql($pdo, $sql);
+}
+
+function sync_mysql_execute_sql(PDO $pdo, string $sql): void
+{
     foreach (sync_mysql_statements($sql) as $statement) {
         $withoutComments = preg_replace('/\A(?:\s*--[^\n]*(?:\n|\z))+/', '', $statement) ?? $statement;
         if (preg_match('/^\s*SELECT\b/i', $withoutComments) === 1) {
@@ -230,6 +235,33 @@ $expectedTriggerFingerprints = [
     'trg_suite_customer_sync_events_no_update:suite_customer_sync_events:UPDATE:BEFORE:ROW:'
         . '4b42bdd7850f953ab63813a72c2943eee8fc83b2f951cc064f87717ddcbf8013',
 ];
+// Migration 033 replaces five of the eight with the admission-carrier bodies.
+$expectedAdmissionFingerprints = [
+    'trg_suite_customer_sync_binding_after_insert:suite_customer_sync_bindings:INSERT:AFTER:ROW:'
+        . '0c6e4fdecbbb7c8cac3927f9b0881b6def1dbcbb02d94068769d77acd43f3924',
+    'trg_suite_customer_sync_binding_after_update:suite_customer_sync_bindings:UPDATE:AFTER:ROW:'
+        . '0c6e4fdecbbb7c8cac3927f9b0881b6def1dbcbb02d94068769d77acd43f3924',
+    'trg_suite_customer_sync_binding_before_insert:suite_customer_sync_bindings:INSERT:BEFORE:ROW:'
+        . '6c2527f49d5df19ba416a765ea7befc7ebf623dc6b52ee4923e75147f768df55',
+    'trg_suite_customer_sync_binding_before_update:suite_customer_sync_bindings:UPDATE:BEFORE:ROW:'
+        . '1c5e496301c7fcb9267e4704b54068bf0b6683a181c0bdeb24d30f986d5570ae',
+    'trg_suite_customer_sync_binding_no_delete:suite_customer_sync_bindings:DELETE:BEFORE:ROW:'
+        . '08641adecd96e76139f1a0137efbf9a6488be28f03aa783eddef3d63b59f9956',
+    'trg_suite_customer_sync_event_before_insert:suite_customer_sync_events:INSERT:BEFORE:ROW:'
+        . 'aa795eb0a7a0b848532f99bebc2d066d77825e6e58d57db08e42c19bd05f74f8',
+    'trg_suite_customer_sync_events_no_delete:suite_customer_sync_events:DELETE:BEFORE:ROW:'
+        . '4b42bdd7850f953ab63813a72c2943eee8fc83b2f951cc064f87717ddcbf8013',
+    'trg_suite_customer_sync_events_no_update:suite_customer_sync_events:UPDATE:BEFORE:ROW:'
+        . '4b42bdd7850f953ab63813a72c2943eee8fc83b2f951cc064f87717ddcbf8013',
+];
+$syncColumnShape = static fn (PDO $db): array => $db->query(
+    "SELECT CONCAT_WS('|', table_name, ordinal_position, column_name, column_type, is_nullable,
+            COALESCE(column_default, '<null>'), COALESCE(character_set_name, '-'), COALESCE(collation_name, '-'))
+       FROM information_schema.columns
+      WHERE table_schema=DATABASE()
+        AND table_name IN ('suite_customer_sync_bindings','suite_customer_sync_events','managed_customer_lifecycle_progress')
+      ORDER BY table_name, ordinal_position"
+)->fetchAll(PDO::FETCH_COLUMN);
 
 try {
 $server = new PDO($serverDsn, $user, $pass, $options);
@@ -262,8 +294,13 @@ $legacyTriggerFingerprints = static fn (array $fingerprints): array => array_val
     $fingerprints,
     static fn (string $fingerprint): bool => !str_starts_with($fingerprint, 'trg_wm_binding_revoke:'),
 ));
-sync_mysql_check('fresh schema installs exact eight legacy trigger fingerprints',
-    $legacyTriggerFingerprints($freshTriggerFingerprints) === $expectedTriggerFingerprints);
+sync_mysql_check('fresh schema installs the exact eight migration-033 trigger fingerprints',
+    $legacyTriggerFingerprints($freshTriggerFingerprints) === $expectedAdmissionFingerprints);
+$freshColumnShape = $syncColumnShape($pdo);
+sync_mysql_check('fresh schema has both admission columns and the one cursor row',
+    in_array('suite_customer_sync_bindings|13|last_admission|enum(\'created\',\'restored\')|YES|<null>|ascii|ascii_bin', $freshColumnShape, true)
+    && in_array('suite_customer_sync_events|13|admission|enum(\'created\',\'restored\')|YES|<null>|ascii|ascii_bin', $freshColumnShape, true)
+    && $pdo->query('SELECT CONCAT(id,\':\',last_binding_id) FROM managed_customer_lifecycle_progress')->fetchAll(PDO::FETCH_COLUMN) === ['1:0']);
 sync_mysql_check('fresh schema installs the exact reviewed Westy binding revocation trigger',
     array_values(array_filter(
         $freshTriggerFingerprints,
@@ -314,6 +351,7 @@ $pdo->exec('DROP FUNCTION central_issue_schema_health');
 $pdo->exec('DROP TABLE managed_customer_lifecycle_restore_receipts');
 $pdo->exec('DROP TABLE managed_customer_lifecycle_receipts');
 $pdo->exec('DROP TABLE managed_customer_activation_receipts');
+$pdo->exec('DROP TABLE managed_customer_lifecycle_progress');
 $triggers = $pdo->query(
     "SELECT trigger_name FROM information_schema.triggers
       WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_suite_customer_sync_%'"
@@ -784,6 +822,190 @@ sync_mysql_check('under-privileged migration refusal leaves lifecycle guards ins
         "SELECT COUNT(*) FROM information_schema.triggers
           WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg_suite_customer_sync_%'"
     )->fetchColumn() === 8);
+
+// Migration 033 (A58/A82) over the populated 015 state. 027's reviewed binding consumer was dropped
+// with the rebuilt table; restore its exact schema definition first, as production has it.
+$schemaSource = (string)file_get_contents(__DIR__ . '/../db/schema.sql');
+if (preg_match('/CREATE TRIGGER trg_wm_binding_revoke .*?END(?=\$\$)/s', $schemaSource, $wmTrigger) !== 1) {
+    throw new RuntimeException('027 binding consumer definition missing');
+}
+$pdo->exec($wmTrigger[0]);
+$migration033Path = __DIR__ . '/../db/migrations/033_suite_customer_sync_admission.sql';
+$migration033 = (string)file_get_contents($migration033Path);
+$oldReceiptColumns = 'SELECT id,tenant_id,event_id,binding_id,customer_id,client_id,source_version,
+    display_name,status,occurred_at,request_sha256,received_at FROM suite_customer_sync_events ORDER BY id';
+$receiptsBefore033 = $pdo->query($oldReceiptColumns)->fetchAll();
+$swapGuards = static fn (): int => (int)$pdo->query(
+    "SELECT COUNT(*) FROM information_schema.triggers
+      WHERE trigger_schema=DATABASE() AND trigger_name LIKE 'trg\\_suite\\_customer\\_sync\\_admission\\_swap\\_%'"
+)->fetchColumn();
+sync_mysql_throws('DML-only runtime cannot execute migration 033', PDOException::class,
+    fn() => sync_mysql_execute_file($runtime, $migration033Path));
+sync_mysql_check('under-privileged 033 refusal changes nothing',
+    $swapGuards() === 0 && sync_mysql_trigger_fingerprints($pdo) !== []
+    && (int)$pdo->query("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='suite_customer_sync_bindings'")->fetchColumn() === 12);
+
+// Interrupted after the swap guards, after each column, after dropping the old guards, after the new
+// guards, after the cursor table and before the swap guards are removed: every write stays refused.
+$heldVersion = 5;
+foreach ([
+    "\nSET @sync_admission_swap_ok",
+    "\nSET @sync_admission_event_alter",
+    "\nDROP TRIGGER IF EXISTS trg_suite_customer_sync_binding_before_insert;",
+    "\nDELIMITER \$\$\nCREATE TRIGGER trg_suite_customer_sync_binding_before_insert",
+    "\nCREATE TABLE IF NOT EXISTS managed_customer_lifecycle_progress",
+    "\nINSERT INTO managed_customer_lifecycle_progress",
+    "\nDROP TRIGGER trg_suite_customer_sync_admission_swap_event_insert;",
+] as $index => $marker) {
+    $offset = strpos($migration033, $marker);
+    if ($offset === false) throw new RuntimeException("033 boundary {$index} missing");
+    sync_mysql_execute_sql($pdo, substr($migration033, 0, $offset));
+    sync_mysql_throws_containing("interrupted 033 point {$index} refuses an ordinary customer event",
+        PDOException::class,
+        function () use ($runtime, $heldVersion): void {
+            $request = sync_mysql_request([
+                'source_version' => $heldVersion,
+                'event_id' => 'c5c5c5c5-c5c5-4c5c-8c5c-c5c5c5c5c5c5',
+                'occurred_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 30),
+            ]);
+            suite_customer_sync_receive($runtime, $request['payload'], $request['sha']);
+        },
+        'Customer sync admission migration is incomplete');
+    sync_mysql_check("interrupted 033 point {$index} keeps all three swap guards and every receipt",
+        $swapGuards() === 3 && $receiptsBefore033 === $pdo->query($oldReceiptColumns)->fetchAll());
+}
+$pdo->exec('DROP TRIGGER trg_suite_customer_sync_admission_swap_event_insert');
+sync_mysql_throws('033 refuses a partial swap-guard set', PDOException::class,
+    fn() => sync_mysql_execute_file($pdo, $migration033Path));
+$pdo->exec("CREATE TRIGGER trg_suite_customer_sync_admission_swap_event_insert
+BEFORE INSERT ON suite_customer_sync_events
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT='Customer sync admission migration is incomplete';
+END");
+sync_mysql_execute_file($pdo, $migration033Path);
+sync_mysql_execute_file($pdo, $migration033Path);
+sync_mysql_check('completed and replayed 033 reaches the fresh-schema guards, columns and cursor exactly',
+    $swapGuards() === 0
+    && sync_mysql_trigger_fingerprints($pdo) === $freshTriggerFingerprints
+    && $syncColumnShape($pdo) === $freshColumnShape
+    && $pdo->query('SELECT CONCAT(id,\':\',last_binding_id) FROM managed_customer_lifecycle_progress')->fetchAll(PDO::FETCH_COLUMN) === ['1:0']);
+sync_mysql_check('033 rewrote no receipt and backfilled no admission',
+    $receiptsBefore033 === $pdo->query($oldReceiptColumns)->fetchAll()
+    && (int)$pdo->query('SELECT COUNT(*) FROM suite_customer_sync_events WHERE admission IS NOT NULL')->fetchColumn() === 0
+    && (int)$pdo->query('SELECT COUNT(*) FROM suite_customer_sync_bindings WHERE last_admission IS NOT NULL')->fetchColumn() === 0);
+sync_mysql_throws('migration 015 refuses to replay over 033', PDOException::class,
+    fn() => sync_mysql_execute_file($pdo, __DIR__ . '/../db/migrations/015_suite_customer_sync.sql'));
+sync_mysql_check('the refused 015 replay leaves the 033 guards',
+    sync_mysql_trigger_fingerprints($pdo) === $freshTriggerFingerprints);
+$pdo->exec('CREATE TRIGGER trg_sync_test_unexpected AFTER INSERT ON suite_customer_sync_bindings FOR EACH ROW SET @sync_test_unexpected = 1');
+sync_mysql_throws('033 refuses an unreviewed additive trigger', PDOException::class,
+    fn() => sync_mysql_execute_file($pdo, $migration033Path));
+$pdo->exec('DROP TRIGGER trg_sync_test_unexpected');
+$pdo->exec('DROP TRIGGER trg_suite_customer_sync_events_no_update');
+$pdo->exec("CREATE TRIGGER trg_suite_customer_sync_events_no_update
+    BEFORE UPDATE ON suite_customer_sync_events
+    FOR EACH ROW
+    BEGIN
+      IF 1 = 0 THEN
+        SIGNAL SQLSTATE '45000'
+          SET MESSAGE_TEXT = 'Customer sync event receipts are immutable';
+      END IF;
+    END");
+sync_mysql_throws('033 refuses a weakened immutability guard', PDOException::class,
+    fn() => sync_mysql_execute_file($pdo, $migration033Path));
+$pdo->exec('DROP TRIGGER trg_suite_customer_sync_events_no_update');
+$pdo->exec("CREATE TRIGGER trg_suite_customer_sync_events_no_update
+    BEFORE UPDATE ON suite_customer_sync_events
+    FOR EACH ROW
+    BEGIN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Customer sync event receipts are immutable';
+    END");
+sync_mysql_execute_file($pdo, $migration033Path);
+
+// The admission matrix through the production-shaped runtime: ordinary receive and binding DML only.
+$heldReplay = sync_mysql_request([
+    'source_version' => $heldVersion,
+    'event_id' => 'c5c5c5c5-c5c5-4c5c-8c5c-c5c5c5c5c5c5',
+    'occurred_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 30),
+]);
+sync_mysql_check('writes resume once 033 completes, as schema 1 with a NULL tag',
+    suite_customer_sync_receive($runtime, $heldReplay['payload'], $heldReplay['sha'])['source_version'] === $heldVersion
+    && $pdo->query("SELECT admission FROM suite_customer_sync_events WHERE event_id='c5c5c5c5-c5c5-4c5c-8c5c-c5c5c5c5c5c5'")->fetchColumn() === null);
+$admittedCustomer = '22222222-2222-4222-8222-222222222222';
+$admittedEvent = static fn (int $version, array $replace = []): array => sync_mysql_request(array_replace([
+    'customer_id' => $admittedCustomer,
+    'source_version' => $version,
+    'display_name' => 'Admitted Two',
+    'event_id' => sprintf('a2a2a2a2-a2a2-4a2a-8a2a-%012d', $version),
+    'occurred_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 3000 + 100 * $version),
+], $replace));
+$born = $admittedEvent(1, ['schema_version' => 2, 'admission' => 'created']);
+$bornAck = suite_customer_sync_receive($runtime, $born['payload'], $born['sha']);
+$tagOf = static fn (int $version): ?string => $pdo->query(
+    "SELECT admission FROM suite_customer_sync_events WHERE customer_id='{$admittedCustomer}' AND source_version={$version}"
+)->fetchColumn() ?: null;
+sync_mysql_check('a schema-2 birth stores its created tag through the trigger-owned carrier',
+    array_keys($bornAck) === ['ok','event_id','customer_id','source_version','status']
+    && $tagOf(1) === 'created'
+    && suite_customer_sync_receive($runtime, $born['payload'], $born['sha']) === $bornAck);
+$rename = $admittedEvent(2, ['display_name' => 'Admitted Two Renamed']);
+suite_customer_sync_receive($runtime, $rename['payload'], $rename['sha']);
+sync_mysql_check('a later schema-1 event clears the carrier and never inherits the tag',
+    $tagOf(2) === null
+    && $pdo->query("SELECT last_admission FROM suite_customer_sync_bindings WHERE customer_id='{$admittedCustomer}'")->fetchColumn() === null);
+sync_mysql_throws_containing('runtime binding DML cannot place a restored tag after an active version',
+    PDOException::class,
+    fn () => $runtime->exec("UPDATE suite_customer_sync_bindings
+        SET source_version=3, last_admission='restored',
+            last_event_id='a2a2a2a2-a2a2-4a2a-8a2a-000000000003',
+            last_request_sha256='" . str_repeat('3', 64) . "', last_occurred_at=UTC_TIMESTAMP()
+        WHERE customer_id='{$admittedCustomer}'"),
+    'Customer sync restored admission must directly follow an inactive version');
+sync_mysql_throws_containing('runtime binding DML cannot place a created tag on a later version',
+    PDOException::class,
+    fn () => $runtime->exec("UPDATE suite_customer_sync_bindings
+        SET source_version=3, last_admission='created',
+            last_event_id='a2a2a2a2-a2a2-4a2a-8a2a-000000000003',
+            last_request_sha256='" . str_repeat('3', 64) . "', last_occurred_at=UTC_TIMESTAMP()
+        WHERE customer_id='{$admittedCustomer}'"),
+    'Customer sync restored admission must directly follow an inactive version');
+sync_mysql_throws('a restore directly after an active version is refused', SuiteCustomerSyncConflictException::class,
+    function () use ($runtime, $admittedEvent): void {
+        $request = $admittedEvent(3, ['schema_version' => 2, 'admission' => 'restored']);
+        suite_customer_sync_receive($runtime, $request['payload'], $request['sha']);
+    }, 'admission_conflict');
+$inactive = $admittedEvent(3, ['status' => 'inactive']);
+suite_customer_sync_receive($runtime, $inactive['payload'], $inactive['sha']);
+$restored = $admittedEvent(4, ['schema_version' => 2, 'admission' => 'restored', 'display_name' => 'Admitted Two Restored']);
+suite_customer_sync_receive($runtime, $restored['payload'], $restored['sha']);
+sync_mysql_check('a schema-2 restore directly after inactive stores its restored tag',
+    $tagOf(3) === null && $tagOf(4) === 'restored');
+sync_mysql_throws('a created tag after version 1 never decodes', SuiteCustomerSyncValidationException::class,
+    fn () => $admittedEvent(5, ['schema_version' => 2, 'admission' => 'created']), 'admission_invalid');
+sync_mysql_throws('a schema-2 body without its tag never decodes', SuiteCustomerSyncValidationException::class,
+    fn () => $admittedEvent(5, ['schema_version' => 2]), 'payload_keys_invalid');
+$carrierAt4 = $pdo->query("SELECT CONCAT(source_version,':',COALESCE(last_admission,'-')) FROM suite_customer_sync_bindings WHERE customer_id='{$admittedCustomer}'")->fetchColumn();
+$runtime->exec("UPDATE suite_customer_sync_bindings
+    SET source_version=5, last_event_id='a2a2a2a2-a2a2-4a2a-8a2a-000000000005',
+        last_request_sha256='" . str_repeat('5', 64) . "', last_occurred_at=UTC_TIMESTAMP()
+    WHERE customer_id='{$admittedCustomer}'");
+sync_mysql_check('a version written without a new tag carries NULL, never the previous tag',
+    $carrierAt4 === '4:restored' && $tagOf(5) === null
+    && $pdo->query("SELECT last_admission FROM suite_customer_sync_bindings WHERE customer_id='{$admittedCustomer}'")->fetchColumn() === null);
+sync_mysql_throws_containing('runtime cannot manufacture a tagged receipt', PDOException::class,
+    fn () => $runtime->exec("INSERT INTO suite_customer_sync_events
+        (tenant_id,event_id,binding_id,customer_id,client_id,source_version,display_name,status,
+         occurred_at,request_sha256,admission)
+        SELECT tenant_id,'a2a2a2a2-a2a2-4a2a-8a2a-000000000009',id,customer_id,client_id,9,display_name,status,
+               last_occurred_at,'" . str_repeat('9', 64) . "','restored'
+          FROM suite_customer_sync_bindings WHERE customer_id='{$admittedCustomer}'"),
+    'Customer sync receipt must match the exact binding and client');
+sync_mysql_throws_containing('runtime cannot retag a stored receipt', PDOException::class,
+    fn () => $runtime->exec("UPDATE suite_customer_sync_events SET admission=NULL WHERE customer_id='{$admittedCustomer}' AND source_version=1"),
+    'Customer sync event receipts are immutable');
 
 } catch (Throwable $error) {
     $fatalError = $error;

@@ -164,6 +164,32 @@ the durable business-event time: an old event remains valid after an outage,
 but a new accepted version may not move backward and no event may be more
 than 300 seconds in the future.
 
+### Schema 2: the admission tag (migration 033)
+
+Schema 2 is the same eight keys with `"schema_version": 2` plus a ninth key, `admission`. Milepost
+mints it only for a canonical admitted birth or a same-UUID restore. The tag is valid in two positions
+only:
+
+- `created` on active version 1;
+- `restored` on an active version 3 or later whose immediately previous version is inactive.
+
+Any other position is HTTP 400 `admission_invalid`. A restore whose stored previous version is not
+inactive is HTTP 409 `admission_conflict`. The endpoint, key, HMAC and raw-body authentication are
+unchanged. The five-key success, schema 1 and exact replay of every older event are also unchanged.
+
+The receipt stays trigger-owned. The receiver writes the tag only into the new binding carrier
+`suite_customer_sync_bindings.last_admission`, set with each new version and NULL for schema 1. The
+before-update guard resets an unchanged carrier to NULL, so a version written without a new tag
+(including by an older receiver) never carries the previous one. The binding triggers copy the
+carrier into the immutable `suite_customer_sync_events.admission`, and the receipt validator checks it
+against the exact current tuple, request digest and position. The runtime keeps
+ordinary binding DML only and cannot write or retag a receipt. A later schema-1 rename or inactive
+version carries NULL and never enriches an older receipt; eligibility follows the earlier immutable
+admitted lineage. Old rows stay NULL, with no backfill.
+
+Until migration 033 is installed, a schema-2 event is refused as a retryable HTTP 500 before any
+write. Never replay 015 after 033; its preflight refuses the added columns.
+
 ## Exact responses
 
 An accepted event and an exact replay both return HTTP 200 with only these

@@ -29,6 +29,9 @@ cleanup() {
         /tmp/safeharbor-scheduler-test.*) /usr/bin/rm -rf -- "$SANDBOX" ;;
         *) printf 'REFUSED unsafe cleanup path: %s\n' "$SANDBOX" >&2 ;;
     esac
+    case "${MARKER:-}" in
+        /tmp/safeharbor-scheduler-marker.*) /usr/bin/rm -f -- "$MARKER" ;;
+    esac
 }
 trap cleanup EXIT
 /usr/bin/chown root:root -- "$SANDBOX"
@@ -55,11 +58,26 @@ readonly LOGGER="$SANDBOX/test-bin/logger"
     '$bytes = (int)(getenv("SAFEHARBOR_TEST_RUNNER_BYTES") ?: 0);' \
     'if ($bytes > 0) { fwrite(STDOUT, str_repeat("x", $bytes)); }' \
     'fwrite(STDOUT, "wrapper-test-runner\n");' \
+    '$marker = getenv("SAFEHARBOR_TEST_MARKER") ?: "";' \
+    'if ($marker !== "") { file_put_contents($marker, "report\n", FILE_APPEND); }' \
     'exit((int)(getenv("SAFEHARBOR_TEST_RUNNER_STATUS") ?: 0));' \
     > "$APP_ROOT/cron/business_reports.php"
+# A stub lifecycle child: records its argument, then exits or sleeps as the environment asks.
+/usr/bin/printf '%s\n' \
+    '<?php' \
+    '$marker = getenv("SAFEHARBOR_TEST_MARKER") ?: "";' \
+    'if ($marker !== "") { file_put_contents($marker, "lifecycle " . ($argv[1] ?? "-") . "\n", FILE_APPEND); }' \
+    'fwrite(STDOUT, "wrapper-test-lifecycle\n");' \
+    'sleep((int)(getenv("SAFEHARBOR_TEST_LIFECYCLE_SLEEP") ?: 0));' \
+    'exit((int)(getenv("SAFEHARBOR_TEST_LIFECYCLE_STATUS") ?: 0));' \
+    > "$APP_ROOT/cron/managed_customer_lifecycle.php"
 /usr/bin/printf '%s\n' '<?php return [];' > "$APP_ROOT/config/config.php"
-/usr/bin/chown "root:$TEST_RUNTIME_GROUP" -- "$APP_ROOT/cron/business_reports.php" "$APP_ROOT/config/config.php"
-/usr/bin/chmod 0640 -- "$APP_ROOT/cron/business_reports.php" "$APP_ROOT/config/config.php"
+/usr/bin/chown "root:$TEST_RUNTIME_GROUP" -- "$APP_ROOT/cron/business_reports.php" \
+    "$APP_ROOT/cron/managed_customer_lifecycle.php" "$APP_ROOT/config/config.php"
+/usr/bin/chmod 0640 -- "$APP_ROOT/cron/business_reports.php" \
+    "$APP_ROOT/cron/managed_customer_lifecycle.php" "$APP_ROOT/config/config.php"
+readonly MARKER="$(/usr/bin/mktemp /tmp/safeharbor-scheduler-marker.XXXXXXXX)"
+/usr/bin/chown "$TEST_RUNTIME_USER" -- "$MARKER"
 # A stub logger that can fail in each of the ways a real logger can.
 /usr/bin/printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -115,6 +133,39 @@ check 'mid-stream logger failure cannot contaminate PHP status' 42 \
     SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_RUNNER_BYTES=1048576 SAFEHARBOR_TEST_LOGGER_CLOSE_MIDSTREAM=1
 check 'a logger failure after a successful run is reported as 74' 74 \
     SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_TEST_LOGGER_FAIL_NOTICE=1
+
+# The bounded lifecycle child (A82) runs after the reports with --scheduled; it never changes the
+# report exit status, whether it succeeds, refuses, times out or is missing.
+: > "$MARKER"
+check 'reports then the scheduled lifecycle child both run' 0 \
+    SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_TEST_MARKER="$MARKER"
+[[ "$(/usr/bin/cat -- "$MARKER")" == $'report\nlifecycle --scheduled' ]] || {
+    printf 'not ok - the wrapper did not run reports first and then the lifecycle child with --scheduled\n' >&2
+    exit 1
+}
+check 'a refusing lifecycle child leaves a successful report run at 0' 0 \
+    SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_TEST_LIFECYCLE_STATUS=1
+check 'a refusing lifecycle child leaves a failed report run at its status' 42 \
+    SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_LIFECYCLE_STATUS=1
+check 'a timed-out lifecycle child is stopped and the report status stays' 0 \
+    SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_SCHEDULER_TEST_LIFECYCLE_SECONDS=1 SAFEHARBOR_TEST_LIFECYCLE_SLEEP=5
+check 'a lifecycle logger failure leaves the report status' 42 \
+    SAFEHARBOR_TEST_RUNNER_STATUS=42 SAFEHARBOR_TEST_LIFECYCLE_STATUS=1 SAFEHARBOR_TEST_LOGGER_FAIL_ERROR=1
+check 'an out-of-range lifecycle bound is refused before anything runs' 64 \
+    SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_SCHEDULER_TEST_LIFECYCLE_SECONDS=46
+/usr/bin/chmod 0660 -- "$APP_ROOT/cron/managed_customer_lifecycle.php"
+: > "$MARKER"
+check 'a runtime-writable lifecycle child is skipped and reports still run' 0 \
+    SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_TEST_MARKER="$MARKER"
+[[ "$(/usr/bin/cat -- "$MARKER")" == 'report' ]] || {
+    printf 'not ok - an unsafe lifecycle child ran or the reports did not\n' >&2
+    exit 1
+}
+/usr/bin/chmod 0640 -- "$APP_ROOT/cron/managed_customer_lifecycle.php"
+/usr/bin/mv -- "$APP_ROOT/cron/managed_customer_lifecycle.php" "$SANDBOX/lifecycle.parked"
+check 'a missing lifecycle stage is skipped and the report status stays' 42 \
+    SAFEHARBOR_TEST_RUNNER_STATUS=42
+/usr/bin/mv -- "$SANDBOX/lifecycle.parked" "$APP_ROOT/cron/managed_customer_lifecycle.php"
 
 # A deploy holds the exclusive side of the lock; a report run must skip instead of reading code.
 exec 8< "$LOCK"
