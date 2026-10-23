@@ -13,6 +13,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/managed_customer_activation.php';
 require_once __DIR__ . '/managed_customer_status.php';
 require_once __DIR__ . '/suite_managed_provider.php';
+require_once __DIR__ . '/managed_customer_id_evidence.php';
 
 const MANAGED_CUSTOMER_LIFECYCLE_CONTEXT = 'safeharbor-managed-customer-lifecycle-v1';
 const MANAGED_CUSTOMER_LIFECYCLE_RESTORE_CONTEXT = 'safeharbor-managed-customer-lifecycle-restore-v1';
@@ -1442,11 +1443,19 @@ function managed_customer_lifecycle_house_issuer(?array $houseBindings): ?int
  * separate full schema-2 contact operation. A currently owned disabled portal is re-enabled under the
  * same ownership/current-hash rules as the legacy restore, and an absent portal stays absent.
  *
- * Under the action locks it requires: the current active provider tenant and owner/admin actor; the
- * current issuer (the current managed provider for its slug, or the house slug mapping); an immutable
- * admitted receipt on this binding; a complete contiguous local history 1..current; the signed anchor
- * as the active version directly after the latest inactive one (a current `restored` is its own
- * anchor); and an existing report-ID map, when present, matching the signed key and slug.
+ * Authority (A151): the UUID is in the ORIGINAL approved lifecycle `customer_ids` scope of the
+ * configuration passed here, acting as its approved `tenant_actors` actor; or the binding carries an
+ * immutable admitted receipt, acting as the current managed provider's owner (or the house actor).
+ * An approved legacy lineage whose frozen receipts carry no admission tag (Lifestyle) qualifies by
+ * scope alone; its receipts are never retagged. Callers must pass the original configuration, never
+ * a list fabricated around the claimed UUID.
+ *
+ * Under the action locks it also requires: the current active provider tenant and owner/admin actor;
+ * the current issuer (the current managed provider for its slug, or the house slug mapping); a
+ * complete contiguous local history 1..current; the signed anchor as the active version directly after
+ * the latest inactive one; the A155 anchor consistency (a current `restored` is its own anchor in all
+ * five facts, an `observed_active` anchor is strictly earlier); and an existing report-ID map, when
+ * present, matching the signed key and slug.
  * $guard has the same 'authority'/'write' stages as in managed_customer_lifecycle_apply().
  *
  * @param array<string,mixed> $proof from managed_customer_id_identity_decode_response()
@@ -1495,7 +1504,15 @@ function managed_customer_lifecycle_identity_restore(
         || array_keys($anchor) !== ['source_version', 'receipt_id', 'event_id', 'transition_id', 'evidence_sha256']
         || !is_int($anchor['source_version']) || $anchor['source_version'] < 2
         || $anchor['source_version'] > $proof['source_version']
-        || ($proof['lifecycle_action'] === 'restored' && $anchor['source_version'] !== $proof['source_version'])
+        || !is_int($anchor['transition_id'])
+        || !managed_customer_id_identity_anchor_consistent([
+            'customer_source_version' => $proof['source_version'],
+            'customer_receipt_id' => $proof['customer_receipt_id'] ?? null,
+            'customer_event_id' => $proof['customer_event_id'] ?? null,
+            'lifecycle_transition_id' => $proof['lifecycle_transition_id'] ?? null,
+            'lifecycle_evidence_sha256' => $proof['lifecycle_evidence_sha256'] ?? null,
+            'lifecycle_action' => $proof['lifecycle_action'],
+        ], $anchor)
     ) {
         throw new ManagedCustomerLifecycleGateException(
             'A post-inactive customer requires an exact signed restoration anchor.',
@@ -1509,8 +1526,9 @@ function managed_customer_lifecycle_identity_restore(
     $candidateSourceVersion = (int)($candidate['source_version'] ?? 0);
     $candidateTenantSlug = (string)($candidate['provider_tenant_slug'] ?? '');
     $houseIssuer = managed_customer_lifecycle_house_issuer($houseBindings);
-    if (!in_array($customerId, $config['customer_ids'], true)
-        || $candidateBindingId < 1
+    // The original approved scope, or else an admission proved under the locks below.
+    $approved = in_array($customerId, $config['customer_ids'], true);
+    if ($candidateBindingId < 1
         || $candidateTenantId < 1
         || $candidateClientId < 1
         || $candidateSourceVersion < 2
@@ -1521,7 +1539,8 @@ function managed_customer_lifecycle_identity_restore(
         || !is_string($candidate['last_event_id'] ?? null)
         || !hash_equals((string)$proof['customer_event_id'], (string)$candidate['last_event_id'])
         || !hash_equals($candidateTenantSlug, (string)$proof['provider_tenant_slug'])
-        || ($config['tenant_actors'][$candidateTenantSlug] ?? null) !== $actorUserId
+        || (($approved || $candidateTenantSlug === '8west')
+            && ($config['tenant_actors'][$candidateTenantSlug] ?? null) !== $actorUserId)
         || ($candidateTenantSlug === '8west' && $houseIssuer !== $proof['issuer_suite_tenant_id'])
     ) {
         throw new ManagedCustomerLifecycleGateException(
@@ -1556,10 +1575,11 @@ function managed_customer_lifecycle_identity_restore(
         if ($guard !== null) $guard('authority');
         if ($candidateTenantSlug !== '8west') {
             // The current admitted provider, under this transaction's shared locks, never a cached one.
+            // An admitted lineage acts as that provider's owner; an approved one as its approved actor.
             $provider = suite_managed_provider($pdo, $candidateTenantSlug, true);
             if (!is_array($provider)
                 || (int)$provider['tenant_id'] !== $candidateTenantId
-                || (int)$provider['owner_user_id'] !== $actorUserId
+                || (!$approved && (int)$provider['owner_user_id'] !== $actorUserId)
                 || (int)$provider['issuer_tenant_id'] !== $proof['issuer_suite_tenant_id']) {
                 throw new ManagedCustomerLifecycleGateException(
                     'The identity-only restoration provider, owner or issuer is not current.',
@@ -1630,7 +1650,7 @@ function managed_customer_lifecycle_identity_restore(
         if (!is_array($currentEvent)
             || count($history) !== $candidateSourceVersion
             || (int)$currentEvent['id'] !== (int)$current['source_event_receipt_id']
-            || !$admitted
+            || (!$approved && !$admitted)
             || $latestInactive < 1
             || $anchor['source_version'] !== $latestInactive + 1
             || !is_array($anchorEvent)
@@ -1638,7 +1658,7 @@ function managed_customer_lifecycle_identity_restore(
             || !hash_equals((string)$anchorEvent['event_id'], (string)$anchor['event_id'])
         ) {
             throw new ManagedCustomerLifecycleGateException(
-                'The signed restoration anchor or admission does not match local history.',
+                'The signed restoration anchor, approved scope or admission does not match local history.',
             );
         }
 
@@ -2200,10 +2220,13 @@ function managed_customer_lifecycle_scheduled_claim(PDO $pdo, array $config, arr
  * `tenant_actors` entry. An admitted lineage uses the configured house actor for `8west`, or else
  * the currently admitted provider's verified owner; a withdrawn provider is refused.
  *
- * Restoration routing (A88), chosen before any proof or receipt: the explicit approved scope is the
- * separately authorized contact operation and keeps the full schema-2 restore that may release an
- * owned report. An admitted lineage outside it uses the schema-3 identity-only proof (migration
- * 034), which clears the identity latch and never writes reports. Neither downgrades into the other.
+ * Restoration routing (A88/A152), chosen before any proof or receipt: scheduled restoration is an
+ * identity/latch operation, for the approved scope and admitted lineages alike, so it always uses the
+ * schema-3 identity-only proof (migration 034) and never writes reports. Approved scope membership is
+ * business scope, not report-release intent. The full schema-2 contact restore, which may release an
+ * owned report, stays only in the separately run no-argument mode; neither path falls back into the
+ * other. The identity restore receives the original configuration, so its authority is the actual
+ * approved scope or a genuine admission, never the scoped list built here for apply.
  *
  * Current authority and time at action (A141/A143): the action's guard rechecks an admitted
  * lineage's provider, owner and admission under the action locks, and defers (rolling back, zero
@@ -2219,9 +2242,7 @@ function managed_customer_lifecycle_scheduled_act(
     array $candidate,
     callable $mayTransition,
     callable $remaining,
-    array $businessReportConfig = [],
     array $idConfig = [],
-    ?callable $fetchEvidence = null,
     ?callable $fetchIdentity = null,
 ): array {
     $customerId = managed_customer_activation_uuid((string)($candidate['customer_id'] ?? ''));
@@ -2257,7 +2278,7 @@ function managed_customer_lifecycle_scheduled_act(
     };
     try {
         if (($candidate['status'] ?? null) === 'active' && $config['restoration_enabled'] === true) {
-            if (!$explicit && !managed_customer_lifecycle_identity_restore_available($pdo)) {
+            if (!managed_customer_lifecycle_identity_restore_available($pdo)) {
                 throw new ManagedCustomerLifecycleGateException(
                     'Identity-only restoration (migration 034) is not installed.',
                 );
@@ -2266,26 +2287,15 @@ function managed_customer_lifecycle_scheduled_act(
             if ($seconds < 1 || !$mayTransition()) return $deferred;
             $boundedId = $idConfig;
             $boundedId['timeout_seconds'] = max(1, min((int)($idConfig['timeout_seconds'] ?? 10), $seconds));
-            if (!$explicit) {
-                $fetchIdentity ??= 'managed_customer_id_identity_fetch';
-                $proof = $fetchIdentity($customerId, $boundedId);
-                if (!is_array($proof)) {
-                    throw new ManagedCustomerLifecycleGateException('Authenticated ID identity-only proof is invalid.');
-                }
-                if ($remaining() <= 0) return $deferred;
-                $houseBindings = is_array($idConfig['tenant_bindings'] ?? null) ? $idConfig['tenant_bindings'] : null;
-                return managed_customer_lifecycle_identity_restore(
-                    $pdo, $candidate, $proof, $actorId, $scoped, $houseBindings, null, $guard,
-                ) + ['provenance' => $provenance];
-            }
-            $fetchEvidence ??= 'managed_customer_id_evidence_fetch';
-            $evidence = $fetchEvidence($customerId, $boundedId);
-            if (!is_array($evidence)) {
-                throw new ManagedCustomerLifecycleGateException('Authenticated ID restoration evidence is invalid.');
+            $fetchIdentity ??= 'managed_customer_id_identity_fetch';
+            $proof = $fetchIdentity($customerId, $boundedId);
+            if (!is_array($proof)) {
+                throw new ManagedCustomerLifecycleGateException('Authenticated ID identity-only proof is invalid.');
             }
             if ($remaining() <= 0) return $deferred;
-            return managed_customer_lifecycle_restore(
-                $pdo, $candidate, $evidence, $actorId, $scoped, $businessReportConfig, null, $guard,
+            $houseBindings = is_array($idConfig['tenant_bindings'] ?? null) ? $idConfig['tenant_bindings'] : null;
+            return managed_customer_lifecycle_identity_restore(
+                $pdo, $candidate, $proof, $actorId, $config, $houseBindings, null, $guard,
             ) + ['provenance' => $provenance];
         }
         if (!$mayTransition()) return $deferred;
@@ -2300,9 +2310,7 @@ function managed_customer_lifecycle_scheduled_act(
 function managed_customer_lifecycle_scheduled_run(
     PDO $pdo,
     array $rawConfig,
-    array $businessReportConfig = [],
     array $idConfig = [],
-    ?callable $fetchEvidence = null,
     ?callable $clock = null,
     ?callable $fetchIdentity = null,
 ): array {
@@ -2314,8 +2322,7 @@ function managed_customer_lifecycle_scheduled_run(
         static fn(array $claimed): ?array => managed_customer_lifecycle_scheduled_claim($pdo, $config, $claimed),
         static fn(array $candidate, callable $mayTransition, callable $remaining): array =>
             managed_customer_lifecycle_scheduled_act(
-                $pdo, $config, $candidate, $mayTransition, $remaining,
-                $businessReportConfig, $idConfig, $fetchEvidence, $fetchIdentity,
+                $pdo, $config, $candidate, $mayTransition, $remaining, $idConfig, $fetchIdentity,
             ),
         $clock ?? static fn(): float => hrtime(true) / 1e9,
     );

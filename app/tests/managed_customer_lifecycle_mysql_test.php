@@ -512,7 +512,8 @@ function lifecycle_mysql_insert_restore_receipt(PDO $pdo, array $facts): void
 }
 
 /**
- * A decoded schema-3 identity-only proof (managed_customer_id_identity_decode_response() shape).
+ * A decoded schema-3 identity-only proof (managed_customer_id_identity_decode_response() shape). A
+ * current `restored` proof is its own anchor in all five facts (A155), whatever anchor is passed.
  *
  * @return array<string,mixed>
  */
@@ -528,25 +529,29 @@ function lifecycle_mysql_identity_proof(
     string $provider = 'provider-one',
     int $issuer = 9,
 ): array {
+    $receipt = hash('sha256', 'identity-receipt:' . $customerId . ':' . $version);
+    $evidence = hash('sha256', 'identity-lifecycle:' . $customerId . ':' . $version);
+    $anchor = $action === 'restored'
+        ? ['source_version' => $version, 'receipt_id' => $receipt, 'event_id' => $eventId,
+            'transition_id' => $version + 30, 'evidence_sha256' => $evidence]
+        : ['source_version' => $anchorVersion,
+            'receipt_id' => hash('sha256', 'anchor-receipt:' . $customerId . ':' . $anchorVersion),
+            'event_id' => $anchorEvent,
+            'transition_id' => $anchorVersion + 30,
+            'evidence_sha256' => hash('sha256', 'anchor-lifecycle:' . $customerId . ':' . $anchorVersion)];
     return [
         'schema_version' => 3, 'proof_scope' => 'identity_lifecycle_only', 'customer_id' => $customerId,
         'provider_tenant_slug' => $provider, 'source_version' => $version,
-        'customer_receipt_id' => hash('sha256', 'identity-receipt:' . $customerId . ':' . $version),
+        'customer_receipt_id' => $receipt,
         'customer_event_id' => $eventId, 'initial_receipt_id' => hash('sha256', 'receipt:' . $customerId),
         'customer_status' => 'active', 'lifecycle_version' => 1, 'lifecycle_transition_id' => $version + 30,
         'lifecycle_action' => $action,
-        'lifecycle_evidence_sha256' => hash('sha256', 'identity-lifecycle:' . $customerId . ':' . $version),
+        'lifecycle_evidence_sha256' => $evidence,
         'identity_tenant_status' => 'active', 'identity_oauth_session_version' => $version + 40,
         'lifecycle_owned' => false, 'tenant_key' => $key, 'tenant_slug' => $slug,
         'issuer_suite_tenant_id' => $issuer,
         'projection_binding_sha256' => hash('sha256', 'projection:' . $customerId),
-        'restoration_anchor' => [
-            'source_version' => $anchorVersion,
-            'receipt_id' => hash('sha256', 'anchor-receipt:' . $customerId . ':' . $anchorVersion),
-            'event_id' => $anchorEvent,
-            'transition_id' => $anchorVersion + 30,
-            'evidence_sha256' => hash('sha256', 'anchor-lifecycle:' . $customerId . ':' . $anchorVersion),
-        ],
+        'restoration_anchor' => $anchor,
         'generated_at_db' => '2026-08-30 18:00:00',
         'request_nonce_sha256' => hash('sha256', 'identity-nonce:' . $customerId . ':' . $version),
         'response_sha256' => hash('sha256', 'identity-response:' . $customerId . ':' . $version),
@@ -2022,12 +2027,7 @@ try {
             ->fetchColumn();
     };
     $identityConfig = array_replace($scheduledConfig, ['restoration_enabled' => true]);
-    $legacyCalls = 0;
     $identityCalls = [];
-    $legacyFetch = static function () use (&$legacyCalls): array {
-        $legacyCalls++;
-        throw new ManagedCustomerActivationGateException('the schema-2 contact proof is not this route');
-    };
     $identityFetch = static function (string $customerId, array $idConfig) use (&$identityCalls, $identityProof): array {
         $identityCalls[] = $customerId;
         return $identityProof;
@@ -2041,12 +2041,12 @@ try {
         'the admitted v4 lineage starts contained and latched before 034',
     );
     $before034 = managed_customer_lifecycle_scheduled_run(
-        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch, null, $identityFetch,
+        $runtime, $identityConfig, ['timeout_seconds' => 10], null, $identityFetch,
     );
     lifecycle_mysql_check(
-        array_column($before034['results'], 'action') === ['refused'] && $identityCalls === [] && $legacyCalls === 0
+        array_column($before034['results'], 'action') === ['refused'] && $identityCalls === []
             && $identityCount() === 0 && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityBefore,
-        'before 034 an admitted restoration refuses before any ID request or write and never falls back to schema 2',
+        'before 034 an admitted restoration refuses before any ID request or write',
     );
 
     lifecycle_mysql_refuses(
@@ -2246,7 +2246,7 @@ try {
         return $identityProof;
     };
     $withdrawnDuringFetch = managed_customer_lifecycle_scheduled_run(
-        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch, null, $withdrawFetch,
+        $runtime, $identityConfig, ['timeout_seconds' => 10], null, $withdrawFetch,
     );
     $renewProvider();
     lifecycle_mysql_check(
@@ -2270,7 +2270,7 @@ try {
     };
     $raceStarted = microtime(true);
     $withdrawnRace = managed_customer_lifecycle_scheduled_run(
-        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch, null, $lockedFetch,
+        $runtime, $identityConfig, ['timeout_seconds' => 10], null, $lockedFetch,
     );
     $raceWaited = microtime(true) - $raceStarted;
     stream_get_contents($withdrawPipes[1]);
@@ -2294,7 +2294,7 @@ try {
         return $identityProof;
     };
     $lateRun = managed_customer_lifecycle_scheduled_run(
-        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch,
+        $runtime, $identityConfig, ['timeout_seconds' => 10],
         static function () use (&$lateClock): float { return $lateClock; }, $lateFetch,
     );
     lifecycle_mysql_check(
@@ -2307,7 +2307,7 @@ try {
     // The scheduled admitted route after 034: identity-only, never schema 2. The owned portal reopens;
     // the owned-disabled report is recorded and never released.
     $identityRun = managed_customer_lifecycle_scheduled_run(
-        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch, null, $identityFetch,
+        $runtime, $identityConfig, ['timeout_seconds' => 10], null, $identityFetch,
     );
     $identityRows = $pdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=1 AND client_id=61')
         ->fetchAll(PDO::FETCH_ASSOC);
@@ -2318,7 +2318,7 @@ try {
             && ($identityRun['results'][0]['proof_scope'] ?? null) === 'identity_lifecycle_only'
             && ($identityRun['results'][0]['portal_restored'] ?? null) === 1
             && ($identityRun['results'][0]['report_schedule_restored'] ?? null) === 0
-            && $identityCalls === [$identityOne] && $legacyCalls === 0
+            && $identityCalls === [$identityOne]
             && count($identityRows) === 1
             && managed_customer_lifecycle_identity_restore_receipt_valid($identityRows[0])
             && $identityRows[0]['id_tenant_key'] === null && $identityRows[0]['contact_version'] === null
@@ -2344,6 +2344,126 @@ try {
             && $identityCount() === 1
             && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityAfter,
         'a lost-ack identity-only replay writes nothing and returns the committed receipt',
+    );
+
+    // A151/A152: the approved legacy Lifestyle shape through the scheduled mode. A house lineage whose
+    // frozen v1/v2/v3 receipts carry no admission tag, with no local report-ID map, portal or schedule,
+    // restores identity-only by its original approved scope: one receipt, and zero contact, report,
+    // schedule, portal or user writes, with no retagging. An unmarked lineage outside that scope refuses.
+    $lifestyle = '77777777-7777-4777-8777-777777777777';
+    $lifestyleEvent = static fn(int $version): string => sprintf('77000000-0000-4000-8000-%012d', $version);
+    $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (4,'8 West IT','8west')");
+    $pdo->exec("INSERT INTO users
+        (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
+        (401,4,'owner-house@example.test','','House Owner','H','owner',1)");
+    $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (64,4,'Lifestyle Legacy'),(65,4,'Unapproved Legacy')");
+    $legacyBinding = $pdo->prepare(
+        "INSERT INTO suite_customer_sync_bindings
+            (id,tenant_id,customer_id,client_id,source_version,display_name,status,
+             last_event_id,last_occurred_at,last_request_sha256)
+         VALUES (?,4,?,?,1,?,'active',?,UTC_TIMESTAMP()-INTERVAL 1 HOUR,?)"
+    );
+    $unapproved = '99999999-7777-4777-8777-777777777777';
+    $unapprovedEvent = static fn(int $version): string => sprintf('79000000-0000-4000-8000-%012d', $version);
+    foreach ([[564, $lifestyle, 64, 'Lifestyle Legacy', $lifestyleEvent], [565, $unapproved, 65, 'Unapproved Legacy', $unapprovedEvent]]
+        as [$bindingId, $customerId, $clientId, $name, $eventOf]) {
+        $legacyBinding->execute([$bindingId, $customerId, $clientId, $name, $eventOf(1), hash('sha256', $eventOf(1))]);
+        lifecycle_mysql_mark_inactive($pdo, $bindingId, $eventOf(2), hash('sha256', $eventOf(2)));
+        lifecycle_mysql_mark_active($pdo, $bindingId, $eventOf(3), hash('sha256', $eventOf(3)));
+    }
+    $lifestyleConfig = ['enabled' => true, 'restoration_enabled' => true, 'customer_ids' => [$lifestyle],
+        'tenant_actors' => ['8west' => 401], 'batch_size' => 5];
+    $houseIdConfig = ['timeout_seconds' => 10, 'tenant_bindings' => ['8west' => 'ewid-t70']];
+    $lifestyleProof = lifecycle_mysql_identity_proof(
+        $lifestyle, 3, $lifestyleEvent(3), 'restored', 3, $lifestyleEvent(3), 'ewid-t99', 'lifestyle-legacy', '8west', 70,
+    );
+    $houseState = static fn(): array => [
+        $pdo->query('SELECT * FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+        $pdo->query('SELECT * FROM business_report_id_client_bindings WHERE tenant_id=4')->fetchAll(PDO::FETCH_ASSOC),
+        $pdo->query('SELECT id, admission FROM suite_customer_sync_events WHERE tenant_id=4 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+        lifecycle_mysql_surface_rows($pdo, 4, 64, managed_customer_activation_schedule_key($lifestyle)),
+    ];
+    $houseBefore = $houseState();
+    $lifestyleRun = managed_customer_lifecycle_scheduled_run(
+        $runtime, $lifestyleConfig, $houseIdConfig, null,
+        static fn(string $customerId, array $idConfig): array => $customerId === $lifestyle
+            ? $lifestyleProof : throw new RuntimeException('unexpected scheduled claim'),
+    );
+    $lifestyleRows = $pdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=4')
+        ->fetchAll(PDO::FETCH_ASSOC);
+    lifecycle_mysql_check(
+        array_column($lifestyleRun['results'], 'action') === ['restored']
+            && array_column($lifestyleRun['results'], 'provenance') === ['explicit']
+            && ($lifestyleRun['results'][0]['portal_restored'] ?? null) === 0
+            && ($lifestyleRun['results'][0]['report_schedule_restored'] ?? null) === 0
+            && count($lifestyleRows) === 1 && (int)$lifestyleRows[0]['client_id'] === 64
+            && managed_customer_lifecycle_identity_restore_receipt_valid($lifestyleRows[0])
+            && $lifestyleRows[0]['portal_binding_id'] === null && $lifestyleRows[0]['schedule_before_version_id'] === null
+            && (int)$lifestyleRows[0]['id_issuer_suite_tenant_id'] === 70
+            && $houseState() === $houseBefore
+            && managed_customer_operational($pdo, 4, 64),
+        'the approved unmarked Lifestyle-shaped lineage was not restored identity-only with zero other writes',
+    );
+    $unapprovedCandidate = $pdo->query("SELECT binding.id AS binding_id, binding.tenant_id, binding.client_id,
+            binding.customer_id, binding.source_version, binding.status, binding.last_event_id,
+            binding.last_request_sha256, tenant.slug AS provider_tenant_slug
+          FROM suite_customer_sync_bindings binding JOIN tenants tenant ON tenant.id=binding.tenant_id
+         WHERE binding.id=565")->fetch(PDO::FETCH_ASSOC);
+    lifecycle_mysql_refuses_with(
+        'approved scope or admission',
+        static fn() => managed_customer_lifecycle_identity_restore(
+            $runtime, $unapprovedCandidate,
+            lifecycle_mysql_identity_proof($unapproved, 3, $unapprovedEvent(3), 'restored', 3, $unapprovedEvent(3),
+                'ewid-t100', 'unapproved-legacy', '8west', 70),
+            401, $lifestyleConfig, $houseIdConfig['tenant_bindings'],
+        ),
+        'an unmarked lineage outside the original approved scope is refused identity-only restoration',
+    );
+    lifecycle_mysql_check(
+        (int)$pdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=4 AND client_id=65')
+            ->fetchColumn() === 0 && !managed_customer_operational($pdo, 4, 65),
+        'the refused unapproved lineage left a receipt or an open latch',
+    );
+
+    // A155 on the real validator: a direct current restore (Identity Two at v3) is accepted only when
+    // all five signed anchor facts equal the signed current facts.
+    $identityTwo = '88888888-8888-4888-8888-888888888888';
+    $twoEventOf = static fn(int $version): string => sprintf('88000000-0000-4000-8000-%012d', $version);
+    $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (62,1,'Identity Two')");
+    lifecycle_mysql_seed_active(
+        $pdo, $identityTwo, 62, 562, $twoEventOf(1), 'ewid-t98', 'identity-two', 1, 'provider-one', 101, 'created',
+    );
+    lifecycle_mysql_mark_inactive($pdo, 562, $twoEventOf(2), hash('sha256', $twoEventOf(2)));
+    lifecycle_mysql_mark_active($pdo, 562, $twoEventOf(3), hash('sha256', $twoEventOf(3)));
+    $twoFacts = lifecycle_mysql_identity_facts($pdo, 1, 62, 562, lifecycle_mysql_identity_proof(
+        $identityTwo, 3, $twoEventOf(3), 'restored', 3, $twoEventOf(3), 'ewid-t98', 'identity-two',
+    ), 101);
+    $pdo->beginTransaction();
+    try {
+        lifecycle_mysql_insert_identity_receipt($pdo, $twoFacts);
+        lifecycle_mysql_check(true, 'the 034 validator accepts an exact direct current restore');
+    } catch (Throwable $error) {
+        lifecycle_mysql_check(false, 'the 034 validator accepts an exact direct current restore (' . $error->getMessage() . ')');
+    } finally {
+        $pdo->rollBack();
+    }
+    foreach ([
+        'receipt' => ['id_restore_anchor_receipt_id' => hash('sha256', 'another receipt')],
+        'event' => ['id_restore_anchor_event_id' => $twoEventOf(9)],
+        'transition' => ['id_restore_anchor_transition_id' => 1],
+        'evidence' => ['id_restore_anchor_evidence_sha256' => hash('sha256', 'another evidence')],
+        'observed_active at the current anchor' => ['id_lifecycle_action' => 'observed_active'],
+    ] as $label => $forged) {
+        lifecycle_mysql_refuses_with(
+            'anchor does not match local history',
+            static fn() => lifecycle_mysql_insert_identity_receipt($pdo, array_replace($twoFacts, $forged)),
+            'the 034 validator refuses a direct restore whose anchor ' . $label . ' is not the current one',
+        );
+    }
+    lifecycle_mysql_check(
+        (int)$pdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=1 AND client_id=62')
+            ->fetchColumn() === 0,
+        'refused direct-anchor guard checks leave no row',
     );
 
     // The legacy contact restore still runs unchanged under the v3 validator.

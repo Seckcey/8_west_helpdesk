@@ -65,7 +65,7 @@ replay.
 ### The one scheduled mode (A82, migration 033)
 
 `php cron/managed_customer_lifecycle.php --scheduled` is the only mode the shared report job starts.
-The no-argument explicit mode and the P9 manual path are unchanged.
+The no-argument explicit mode is unchanged.
 
 **Scope.** The union of two sets, deduplicated by binding:
 - the explicit approved `customer_ids` scope, with its approved `tenant_actors`;
@@ -86,14 +86,17 @@ the action rechecks the current managed provider with shared locks (`suite_manag
 it must still be current, for the same tenant, with the scheduled actor as its owner. The binding must
 still carry an immutable admitted receipt. A withdrawal, lease expiry or owner change while the proof
 is being fetched, or while the action waits on that lock, therefore refuses with nothing written. The
-explicit scope, the no-argument mode and the P9 manual path keep their earlier checks.
+explicit scope and the no-argument mode keep their earlier checks.
 
-**Restoration routing (A88).** It is chosen before any proof is requested or any receipt is written.
-The explicit approved scope is the separately authorized contact operation and keeps the full
-schema-2 restore below, which may release an owned report. An admitted lineage outside that scope
-uses the schema-3 identity-only proof (migration 034, below), which never writes reports. Neither
-path falls back into the other. Without 034 installed, an admitted restoration is refused before any
-ID request or budget use.
+**Restoration routing (A88/A152).** It is chosen before any proof is requested or any receipt is
+written. Scheduled restoration is an identity/latch operation for the approved scope and admitted
+lineages alike, so it always uses the schema-3 identity-only proof (migration 034, below), which never
+writes reports. Approved scope membership is business scope, not report-release intent, and a
+report-ID map or list presence never requests a contact release. The full schema-2 contact restore,
+which may release an owned report, stays only in the separately run no-argument mode. Neither path
+falls back into the other. Without 034 installed, a scheduled restoration is refused before any ID
+request or budget use. The identity restore receives the original configuration: its authority is
+the actual approved scope or a genuine admission (A151), never a list built around the claimed UUID.
 
 **Failure.** A missing singleton or an unknown cursor commit stops the run with no action. A crash,
 kill, timeout or refusal still moves consideration on. The cursor is never authority, status or
@@ -210,15 +213,22 @@ restoration_anchor
 
 `proof_scope` is exactly `identity_lifecycle_only`. `restoration_anchor` is NULL or exactly
 `{source_version, receipt_id, event_id, transition_id, evidence_sha256}`; duplicate members are
-refused at the top level and inside the anchor. The current facts stay the actual current ones: a
-`restored` current action must be its own anchor, and `observed_active` needs an older anchor.
+refused at the top level and inside the anchor. The current facts stay the actual current ones.
+Anchor consistency (A155), checked by the parser, the restore and the v3 validator: a `restored`
+current action is its own anchor, so all five anchor facts equal the signed current version,
+receipt, event, transition and evidence; an `observed_active` current needs an anchor strictly
+earlier in both version and transition; a `restored` current with no anchor is refused. Only
+supplied signed facts are compared; nothing ID-private is computed.
 
 `managed_customer_lifecycle_identity_restore()` clears one post-inactive latch with that proof.
-Under its locks it requires:
+Its authority (A151) is either the UUID's membership in the original approved `customer_ids` scope,
+acting as its approved `tenant_actors` actor, or an immutable admitted (created/restored) receipt on
+the binding, acting as the current managed provider's owner (or the house actor). An approved legacy
+lineage whose frozen receipts carry no admission tag, such as Lifestyle, qualifies by scope alone;
+its receipts are never retagged. Under its locks it also requires:
 - the active provider tenant and owner/admin actor;
 - the current issuer: the current managed provider for its slug (the provider row read with shared
   locks), or for `8west` the nonsecret `id_report_contacts.tenant_bindings` mapping;
-- an immutable admitted (created/restored) receipt on the binding;
 - a complete contiguous local history 1..current, with the anchor as the active version directly
   after the latest inactive one; a newer inactive version invalidates an older anchor;
 - an existing report-ID map, when present, matching the signed key and slug. An absent map is never
@@ -233,6 +243,39 @@ ownership/current-hash rules as above; an absent portal stays absent. The digest
 `safeharbor-managed-customer-lifecycle-identity-restore-v1`, whose fields include the proof scope,
 initial receipt, provider and issuer, projection, all five anchor facts and the transport hashes. A
 lost acknowledgement replays the committed receipt; a changed proof for the same event conflicts.
+
+#### P9 Lifestyle identity-only restoration (frozen for SH owner review, A152)
+
+Nothing here is run by this source change. The reviewed one-off is one ordinary scheduled run:
+
+```bash
+php cron/managed_customer_lifecycle.php --scheduled
+```
+
+Preconditions, all owner-applied and owner-verified:
+- migrations 033 and 034 are applied, with the v3 validator exact;
+- ID serves the schema-3 identity purpose for the Lifestyle UUID through its protected identity list;
+  the old contact `customer_ids` are unchanged;
+- `managed_customer_lifecycle` has `enabled` and `restoration_enabled` true, the Lifestyle UUID in the
+  original approved `customer_ids`, and `tenant_actors['8west']` set to the reviewed active house
+  owner/admin;
+- `id_report_contacts` is enabled, with `tenant_bindings['8west']` naming the house tenant key whose
+  number is the issuer ID signs.
+
+For Lifestyle this run makes:
+- one claim (a committed cursor, then one reservation);
+- one schema-3 request for that UUID, with the request timeout capped by the remaining time;
+- one identity-only restore as `tenant_actors['8west']` under the original configuration.
+
+The expected proof is the current restored version with its own anchor. The expected effect is one
+restore receipt with `id_proof_scope = identity_lifecycle_only`. The receipt is 0/0: the portal is
+left as it is unless a containment currently owns it disabled, and the report is not restored. No
+contact, report, schedule, account, invitation or mail row is written, and no receipt is retagged.
+
+Batch-one check: before the run, list what the scheduled claim would select (the explicit scope plus
+admitted lineages that still need containment or restoration). If anything other than Lifestyle is
+listed, it will be processed by the same rules in that run, up to the stated bounds. Run it only
+when that list is the reviewed one.
 
 ## Migration and tests
 
@@ -308,7 +351,11 @@ domain. The new scope test, the CHECK's identity branch and the final digest com
 NULL-safe (A136): a NULL refuses instead of passing as UNKNOWN. The same swap-guard pattern as 032
 (`trg_mc_restore_identity_swap_insert`, exact body only) keeps every restore insert refused until
 the postflight passes. The preflight accepts the completed 032 state, an interrupted 034 or a
-completed 034, and pins the v3 body and the normalized CHECK. `app/db/schema.sql` carries the same
+completed 034, and pins the v3 body and the normalized CHECK. Validator pins are taken over the
+stored `ACTION_STATEMENT` as MySQL keeps it (A154). There, a `'\n'` string literal is a real newline,
+which the whitespace normalization removes. The v2 pin is the owner-measured engine value
+(`fa6a7220…`); the v3 pin is derived the same way. The CHECK pin is derived from MySQL's documented
+rendering and is not yet engine-measured. `app/db/schema.sql` carries the same
 table and v3 validator. Apply it the same way:
 
 ```bash

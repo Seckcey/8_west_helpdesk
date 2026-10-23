@@ -83,9 +83,10 @@ recovery steps.
    schema 2 for Safeharbor before 033 is applied. Never replay 015 after 033.
 6. Migration 034 (identity-only restore receipts, validator v3) is a further database-first gate after
    032: `bash deploy/deploy.sh --migrate app/db/migrations/034_managed_customer_identity_lifecycle_restore.sql`.
-   Until it is applied, the scheduled mode refuses an admitted lineage's restoration before any ID
-   request; the explicit scope's schema-2 restore is unaffected. ID must serve the schema-3 identity
-   purpose before restoration is enabled for an admitted lineage. Never replay 024 or 032 after 034.
+   Until it is applied, the scheduled mode refuses every restoration before any ID request; the
+   separately run no-argument schema-2 restore is unaffected. ID must serve the schema-3 identity
+   purpose before scheduled restoration is enabled. Never replay 024 or 032 after 034. The P9
+   Lifestyle one-off is frozen for owner review in the lifecycle contract.
 
 ## Checks to run (owner)
 

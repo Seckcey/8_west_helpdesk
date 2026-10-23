@@ -2424,7 +2424,14 @@ BEGIN
     IF anchor_matches<>1 OR later_inactive<>0
        OR NEW.id_restore_anchor_source_version>NEW.source_version
        OR (NEW.id_lifecycle_action='restored'
-           AND NEW.id_restore_anchor_source_version<>NEW.source_version) THEN
+           AND NOT (NEW.id_restore_anchor_source_version<=>NEW.source_version
+             AND NEW.id_restore_anchor_receipt_id<=>NEW.id_customer_receipt_id
+             AND NEW.id_restore_anchor_event_id<=>NEW.source_event_id
+             AND NEW.id_restore_anchor_transition_id<=>NEW.id_lifecycle_transition_id
+             AND NEW.id_restore_anchor_evidence_sha256<=>NEW.id_lifecycle_evidence_sha256))
+       OR (NEW.id_lifecycle_action='observed_active'
+           AND COALESCE(NEW.id_restore_anchor_source_version>=NEW.source_version
+             OR NEW.id_restore_anchor_transition_id>=NEW.id_lifecycle_transition_id, TRUE)) THEN
       SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT='Restore receipt anchor does not match local history';
     END IF;

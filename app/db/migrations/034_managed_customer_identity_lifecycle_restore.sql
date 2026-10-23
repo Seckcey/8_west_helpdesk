@@ -20,6 +20,8 @@
 -- `restored` action must be its own anchor. The identity-only digest is a new closed domain.
 -- The legacy domain and digests are unchanged. The new scope test, the CHECK's identity branch and
 -- the final digest comparison are NULL-safe (A136): a NULL there refuses, never passes as UNKNOWN.
+-- Validator pins are over the stored ACTION_STATEMENT as MySQL keeps it (A154): its '\n' string
+-- literals are real newlines there, which the whitespace normalization removes.
 --
 -- A swap guard refuses every restore-receipt insert from before the first change until the
 -- postflight passes. Accepted starting states: the completed 032 validator, an interrupted 034 (the
@@ -65,7 +67,7 @@ SET @mc_identity_v2_count = (
      AND trigger_name = 'trg_mc_restore_before_insert'
      AND action_timing = 'BEFORE' AND event_manipulation = 'INSERT' AND action_orientation = 'ROW'
      AND SHA2(REGEXP_REPLACE(REPLACE(LOWER(action_statement), '`', ''), '[[:space:]]+', ''), 256)
-         = 'c91a4b60d2de8b8ea31999731c788c880a960f2d83928830b3efd3c0a22b43bd'
+         = 'fa6a72200aefca50168859957da2015337bec81c8de4b46d0670c4110defb940'
 );
 SET @mc_identity_v3_count = (
   SELECT COUNT(*) FROM information_schema.triggers
@@ -74,7 +76,7 @@ SET @mc_identity_v3_count = (
      AND trigger_name = 'trg_mc_restore_before_insert'
      AND action_timing = 'BEFORE' AND event_manipulation = 'INSERT' AND action_orientation = 'ROW'
      AND SHA2(REGEXP_REPLACE(REPLACE(LOWER(action_statement), '`', ''), '[[:space:]]+', ''), 256)
-         = '8c69d038e33e35fee37368abd6f6feebdd71215666255011f52394bf4fa701bd'
+         = 'eb49a8cb57ace84034414bac400f9690cc81a87968293624b859f9d8b488ff93'
 );
 SET @mc_identity_validator_names = (
   SELECT COUNT(*) FROM information_schema.triggers
@@ -409,7 +411,14 @@ BEGIN
     IF anchor_matches<>1 OR later_inactive<>0
        OR NEW.id_restore_anchor_source_version>NEW.source_version
        OR (NEW.id_lifecycle_action='restored'
-           AND NEW.id_restore_anchor_source_version<>NEW.source_version) THEN
+           AND NOT (NEW.id_restore_anchor_source_version<=>NEW.source_version
+             AND NEW.id_restore_anchor_receipt_id<=>NEW.id_customer_receipt_id
+             AND NEW.id_restore_anchor_event_id<=>NEW.source_event_id
+             AND NEW.id_restore_anchor_transition_id<=>NEW.id_lifecycle_transition_id
+             AND NEW.id_restore_anchor_evidence_sha256<=>NEW.id_lifecycle_evidence_sha256))
+       OR (NEW.id_lifecycle_action='observed_active'
+           AND COALESCE(NEW.id_restore_anchor_source_version>=NEW.source_version
+             OR NEW.id_restore_anchor_transition_id>=NEW.id_lifecycle_transition_id, TRUE)) THEN
       SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT='Restore receipt anchor does not match local history';
     END IF;
@@ -751,7 +760,7 @@ SET @mc_identity_postflight_sql = IF(
       AND trigger_name = 'trg_mc_restore_before_insert'
       AND action_timing = 'BEFORE' AND event_manipulation = 'INSERT' AND action_orientation = 'ROW'
       AND SHA2(REGEXP_REPLACE(REPLACE(LOWER(action_statement), '`', ''), '[[:space:]]+', ''), 256)
-          = '8c69d038e33e35fee37368abd6f6feebdd71215666255011f52394bf4fa701bd') = 1
+          = 'eb49a8cb57ace84034414bac400f9690cc81a87968293624b859f9d8b488ff93') = 1
   AND (SELECT COUNT(*) FROM information_schema.triggers
     WHERE trigger_schema = DATABASE()
       AND event_object_table = 'managed_customer_lifecycle_restore_receipts'
@@ -796,7 +805,7 @@ SET @mc_identity_final_sql = IF(
   AND (SELECT COUNT(*) FROM information_schema.triggers
     WHERE trigger_schema = DATABASE() AND trigger_name = 'trg_mc_restore_before_insert'
       AND SHA2(REGEXP_REPLACE(REPLACE(LOWER(action_statement), '`', ''), '[[:space:]]+', ''), 256)
-          = '8c69d038e33e35fee37368abd6f6feebdd71215666255011f52394bf4fa701bd') = 1,
+          = 'eb49a8cb57ace84034414bac400f9690cc81a87968293624b859f9d8b488ff93') = 1,
   'DO 0',
   'SELECT * FROM information_schema.migration_034_managed_customer_identity_restore_final_failed'
 );

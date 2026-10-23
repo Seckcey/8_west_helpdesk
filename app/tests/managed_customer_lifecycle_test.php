@@ -345,12 +345,23 @@ function lifecycle_identity_sqlite(string $currentStatus = 'active', bool $porta
     return $pdo;
 }
 
-/** A decoded schema-3 identity-only proof (managed_customer_id_identity_decode_response() shape). */
+/**
+ * A decoded schema-3 identity-only proof (managed_customer_id_identity_decode_response() shape). A
+ * current `restored` proof is its own anchor in all five facts (A155); an `observed_active` one
+ * carries the actual earlier restored v3 anchor.
+ */
 function lifecycle_identity_proof(
     int $version = 3,
     string $eventId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     string $action = 'restored',
 ): array {
+    $current = [
+        'source_version' => $version,
+        'receipt_id' => str_repeat('1', 64),
+        'event_id' => $eventId,
+        'transition_id' => 9 + $version,
+        'evidence_sha256' => str_repeat('4', 64),
+    ];
     return [
         'schema_version' => 3,
         'proof_scope' => 'identity_lifecycle_only',
@@ -372,7 +383,7 @@ function lifecycle_identity_proof(
         'tenant_slug' => 'managed-one',
         'issuer_suite_tenant_id' => 44,
         'projection_binding_sha256' => str_repeat('f', 64),
-        'restoration_anchor' => [
+        'restoration_anchor' => $action === 'restored' ? $current : [
             'source_version' => 3,
             'receipt_id' => str_repeat('a', 64),
             'event_id' => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
@@ -1285,6 +1296,10 @@ $laterAnchor = $v4();
 $laterAnchor['restoration_anchor'] = array_replace($laterAnchor['restoration_anchor'],
     ['source_version' => 4, 'event_id' => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd']);
 $restoredOlder = lifecycle_identity_proof(4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'restored');
+$restoredOlder['restoration_anchor'] = $v4()['restoration_anchor'];
+// A155: an observed_active anchor must be strictly earlier than the current transition too.
+$sameTransition = $v4();
+$sameTransition['restoration_anchor']['transition_id'] = 13;
 $foreignProvider = $v4();
 $foreignProvider['provider_tenant_slug'] = 'provider-two';
 $foreignIssuer = $v4();
@@ -1295,6 +1310,7 @@ foreach ([
     'an anchor at the inactive version cleared the latch' => $inactiveAnchor,
     'an anchor that is not directly after the latest inactive version cleared the latch' => $laterAnchor,
     'a current restored action with an older anchor cleared the latch' => $restoredOlder,
+    'an observed_active anchor at the current transition cleared the latch' => $sameTransition,
     'another provider proof cleared the latch' => $foreignProvider,
     'another issuer proof cleared the latch' => $foreignIssuer,
     'a stale v3 proof cleared the v4 latch' => lifecycle_identity_proof(),
@@ -1311,6 +1327,24 @@ lifecycle_check(
     lifecycle_surface_rows($refusePdo) === $refuseBefore && lifecycle_restore_count($refusePdo) === 0
         && !managed_customer_operational($refusePdo, 1, 11),
     'a refused identity-only proof wrote a surface or receipt or cleared the latch',
+);
+// A155: a direct current restore names the same signed event in all five anchor facts.
+$consistencyPdo = lifecycle_identity_sqlite();
+$consistencyBefore = lifecycle_surface_rows($consistencyPdo);
+foreach (['receipt_id' => str_repeat('a', 64), 'transition_id' => 11, 'evidence_sha256' => str_repeat('d', 64)] as $field => $other) {
+    $mismatched = lifecycle_identity_proof();
+    $mismatched['restoration_anchor'][$field] = $other;
+    lifecycle_refuses(
+        ManagedCustomerLifecycleGateException::class,
+        static fn() => managed_customer_lifecycle_identity_restore(
+            $consistencyPdo, $identityCandidate, $mismatched, 101, $identityConfig,
+        ),
+        "a direct restored anchor whose {$field} is not the current signed fact was accepted",
+    );
+}
+lifecycle_check(
+    lifecycle_surface_rows($consistencyPdo) === $consistencyBefore && lifecycle_restore_count($consistencyPdo) === 0,
+    'an inconsistent direct anchor wrote a surface or receipt',
 );
 $newerPdo = lifecycle_identity_sqlite();
 lifecycle_sqlite_advance($newerPdo, 4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'inactive', str_repeat('d', 64));
@@ -1341,14 +1375,50 @@ lifecycle_refuses(
     ),
     'a gapped local history was accepted for an identity-only restore',
 );
-$unadmittedPdo = lifecycle_identity_sqlite();
-$unadmittedPdo->exec('UPDATE suite_customer_sync_events SET admission=NULL');
+// A151: an approved legacy lineage (Lifestyle-shaped: frozen receipts with no admission tag, no local
+// report-ID map) restores by the original approved scope alone, with zero report, contact, schedule
+// or person writes and no retagging. The same unmarked history outside the approved scope refuses,
+// directly or through a scheduled action that must not fabricate scope around the claimed UUID.
+$legacyPdo = lifecycle_identity_sqlite();
+$legacyPdo->exec('UPDATE suite_customer_sync_events SET admission=NULL');
+$legacyPdo->exec('DELETE FROM business_report_id_client_bindings');
+$legacyState = static fn(PDO $pdo): array => [
+    lifecycle_surface_rows($pdo),
+    $pdo->query('SELECT * FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+    $pdo->query('SELECT * FROM business_report_id_client_bindings')->fetchAll(PDO::FETCH_ASSOC),
+    $pdo->query('SELECT id, admission FROM suite_customer_sync_events ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+];
+$legacyBefore = $legacyState($legacyPdo);
+$legacyRestore = managed_customer_lifecycle_identity_restore(
+    $legacyPdo, $identityCandidate, lifecycle_identity_proof(), 101, $identityConfig,
+);
+$legacyReceipt = $legacyPdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts')->fetch(PDO::FETCH_ASSOC);
+lifecycle_check(
+    $legacyRestore['action'] === 'restored' && $legacyRestore['portal_restored'] === 0
+        && $legacyRestore['report_schedule_restored'] === 0
+        && $legacyState($legacyPdo) === $legacyBefore
+        && is_array($legacyReceipt) && managed_customer_lifecycle_identity_restore_receipt_valid($legacyReceipt)
+        && managed_customer_operational($legacyPdo, 1, 11),
+    'an approved unmarked legacy lineage without a report map was not restored identity-only with zero writes',
+);
+$unapprovedPdo = lifecycle_identity_sqlite();
+$unapprovedPdo->exec('UPDATE suite_customer_sync_events SET admission=NULL');
+$otherScope = lifecycle_config(['restoration_enabled' => true, 'customer_ids' => ['22222222-2222-4222-8222-222222222222']]);
 lifecycle_refuses(
     ManagedCustomerLifecycleGateException::class,
     static fn() => managed_customer_lifecycle_identity_restore(
-        $unadmittedPdo, $identityCandidate, lifecycle_identity_proof(), 101, $identityConfig,
+        $unapprovedPdo, $identityCandidate, lifecycle_identity_proof(), 101, $otherScope,
     ),
-    'a lineage without an immutable admission used the identity-only restore',
+    'an unmarked lineage outside the approved scope used the identity-only restore',
+);
+lifecycle_refuses(
+    ManagedCustomerLifecycleGateException::class,
+    static fn() => managed_customer_lifecycle_scheduled_act(
+        $unapprovedPdo, managed_customer_lifecycle_config($otherScope), $identityCandidate,
+        static fn(): bool => true, static fn(): float => 20.0, [],
+        static fn(string $customerId, array $idConfig): array => lifecycle_identity_proof(),
+    ),
+    'the scheduled action fabricated approved scope around an unmarked claimed UUID',
 );
 $withdrawnPdo = lifecycle_identity_sqlite();
 $withdrawnPdo->exec("UPDATE suite_managed_providers SET lease_until='2000-01-01 00:00:00'");
@@ -1360,7 +1430,7 @@ lifecycle_refuses(
     'a withdrawn provider restored by identity-only proof',
 );
 lifecycle_check(
-    lifecycle_restore_count($gapPdo) === 0 && lifecycle_restore_count($unadmittedPdo) === 0
+    lifecycle_restore_count($gapPdo) === 0 && lifecycle_restore_count($unapprovedPdo) === 0
         && lifecycle_restore_count($withdrawnPdo) === 0,
     'a refused identity-only authority check left a receipt',
 );

@@ -488,13 +488,29 @@ evidence_check(
 );
 $neverInactive = identity_decode(json_encode(identity_document(['restoration_anchor' => null]), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 evidence_check($neverInactive['restoration_anchor'] === null, 'schema-3 decode refused a valid never-inactive NULL anchor');
-$directAnchor = identity_document()['restoration_anchor'];
-$directAnchor['source_version'] = 4;
-$directAnchor['event_id'] = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+// A155: a direct current restore names the same ID event in all five anchor facts.
+$directAnchor = [
+    'source_version' => 4,
+    'receipt_id' => str_repeat('b', 64),
+    'event_id' => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    'transition_id' => 21,
+    'evidence_sha256' => str_repeat('c', 64),
+];
 $direct = identity_decode(json_encode(identity_document(['lifecycle_action' => 'restored', 'restoration_anchor' => $directAnchor]),
     JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
-evidence_check($direct['lifecycle_action'] === 'restored' && $direct['restoration_anchor']['source_version'] === 4,
+evidence_check($direct['lifecycle_action'] === 'restored' && $direct['restoration_anchor'] === $directAnchor,
     'schema-3 decode refused a direct current restored anchor');
+foreach (['receipt_id' => str_repeat('a', 64), 'transition_id' => 20, 'evidence_sha256' => str_repeat('d', 64),
+    'event_id' => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'] as $field => $other) {
+    identity_decode_refuses(['lifecycle_action' => 'restored', 'restoration_anchor' => array_replace($directAnchor, [$field => $other])],
+        "schema-3 decoder accepted a direct restored anchor whose {$field} is not the current one");
+}
+identity_decode_refuses(['lifecycle_action' => 'restored', 'restoration_anchor' => null],
+    'schema-3 decoder accepted a current restored action with no anchor');
+identity_decode_refuses(['restoration_anchor' => $directAnchor],
+    'schema-3 decoder accepted an observed_active current whose anchor is the current event');
+identity_decode_refuses(['restoration_anchor' => array_replace(identity_document()['restoration_anchor'], ['transition_id' => 21])],
+    'schema-3 decoder accepted an observed_active anchor that is not strictly earlier than the current transition');
 
 identity_decode_refuses(['schema_version' => 2], 'schema-3 decoder accepted schema 2');
 identity_decode_refuses(['purpose' => 'report_contact'], 'schema-3 decoder accepted another purpose');

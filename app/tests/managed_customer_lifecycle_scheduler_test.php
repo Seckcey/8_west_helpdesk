@@ -228,34 +228,36 @@ $fetch = static function (string $customerId, array $idConfig) use (&$fetched): 
     $fetched[] = [$customerId, $idConfig['timeout_seconds']];
     throw new ManagedCustomerActivationGateException('fixture transport stops here');
 };
-// A88 routing: an admitted lineage outside the explicit scope uses only the identity-only proof.
-$legacyFetched = [];
-$legacyFetch = static function (string $customerId, array $idConfig) use (&$legacyFetched): array {
-    $legacyFetched[] = [$customerId, $idConfig['timeout_seconds']];
-    throw new ManagedCustomerActivationGateException('legacy fixture transport stops here');
-};
+// A88/A152 routing: scheduled restoration is identity-only for an admitted lineage and the approved
+// scope alike; the schema-3 fetch is the only proof it requests.
 $deferred = managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $house, static fn(): bool => true,
-    static fn(): float => 0.4, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
+    static fn(): float => 0.4, ['timeout_seconds' => 10], $fetch);
 scheduler_check($deferred['action'] === 'deferred' && $deferred['provenance'] === 'admitted' && $fetched === [],
     'a restoration with under one second left was attempted');
 try {
     managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $house, static fn(): bool => true,
-        static fn(): float => 6.7, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
+        static fn(): float => 6.7, ['timeout_seconds' => 10], $fetch);
 } catch (ManagedCustomerActivationGateException) {
 }
 scheduler_check($fetched === [[scheduler_uuid(1), 6]], 'the ID request was not bounded by the remaining run time');
 $capped = managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $house, static fn(): bool => false,
-    static fn(): float => 20.0, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
+    static fn(): float => 20.0, ['timeout_seconds' => 10], $fetch);
 scheduler_check($capped['action'] === 'deferred' && count($fetched) === 1, 'a capped run still made an ID request');
-scheduler_check($legacyFetched === [], 'an admitted lineage requested the schema-2 contact proof');
 $explicitHouse = array_replace($house, ['customer_id' => scheduler_uuid(9)]);
 try {
     managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $explicitHouse, static fn(): bool => true,
-        static fn(): float => 20.0, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
+        static fn(): float => 20.0, ['timeout_seconds' => 10], $fetch);
 } catch (ManagedCustomerActivationGateException) {
 }
-scheduler_check($legacyFetched === [[scheduler_uuid(9), 10]] && count($fetched) === 1,
-    'the explicit approved scope did not keep the full schema-2 restore or used the identity-only proof');
+scheduler_check($fetched === [[scheduler_uuid(1), 6], [scheduler_uuid(9), 10]],
+    'the approved scope did not use the identity-only proof for its scheduled restoration');
+$actSource = (string)file_get_contents(__DIR__ . '/../lib/managed_customer_lifecycle.php');
+$actBody = preg_match('/function managed_customer_lifecycle_scheduled_act\(.*?\R\}\R/s', $actSource, $actMatch) === 1 ? $actMatch[0] : '';
+scheduler_check($actBody !== '' && !str_contains($actBody, 'managed_customer_id_evidence_fetch')
+    && !str_contains($actBody, 'managed_customer_lifecycle_restore(')
+    && str_contains($actBody, 'managed_customer_lifecycle_identity_restore(')
+    && str_contains($actBody, '$pdo, $candidate, $proof, $actorId, $config, $houseBindings, null, $guard'),
+    'the scheduled action can still reach the schema-2 contact restore or passes a fabricated scope');
 // A143: the scheduling deadline is rechecked after the proof fetch, on both routes, before any action.
 foreach (['admitted' => $house, 'explicit' => $explicitHouse] as $route => $routeCandidate) {
     $late = 20.0;
@@ -265,7 +267,7 @@ foreach (['admitted' => $house, 'explicit' => $explicitHouse] as $route => $rout
     };
     try {
         $lateResult = managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $routeCandidate, static fn(): bool => true,
-            static function () use (&$late): float { return $late; }, [], ['timeout_seconds' => 10], $lateFetch, $lateFetch);
+            static function () use (&$late): float { return $late; }, ['timeout_seconds' => 10], $lateFetch);
         scheduler_check($lateResult['action'] === 'deferred' && $lateResult['provenance'] === $route,
             "the {$route} route did not defer when the deadline passed during the proof fetch");
     } catch (Throwable $error) {
@@ -273,16 +275,18 @@ foreach (['admitted' => $house, 'explicit' => $explicitHouse] as $route => $rout
     }
 }
 $no034 = scheduler_sqlite([['id' => 1, 'admitted' => true]], true, false);
-$reserved = 0;
-try {
-    managed_customer_lifecycle_scheduled_act($no034, $actConfig, $house, static function () use (&$reserved): bool {
-        $reserved++;
-        return true;
-    }, static fn(): float => 20.0, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
-    scheduler_check(false, 'an admitted restoration ran without migration 034');
-} catch (ManagedCustomerLifecycleGateException) {
-    scheduler_check($reserved === 0 && count($fetched) === 1 && $legacyFetched === [[scheduler_uuid(9), 10]],
-        'a missing migration 034 reserved budget or made an ID request before refusing');
+foreach (['admitted' => $house, 'explicit' => $explicitHouse] as $route => $routeCandidate) {
+    $reserved = 0;
+    try {
+        managed_customer_lifecycle_scheduled_act($no034, $actConfig, $routeCandidate, static function () use (&$reserved): bool {
+            $reserved++;
+            return true;
+        }, static fn(): float => 20.0, ['timeout_seconds' => 10], $fetch);
+        scheduler_check(false, "a {$route} restoration ran without migration 034");
+    } catch (ManagedCustomerLifecycleGateException) {
+        scheduler_check($reserved === 0 && count($fetched) === 2,
+            "a missing migration 034 reserved budget or made an ID request before refusing the {$route} route");
+    }
 }
 
 // Wrapper and CLI wiring: one --scheduled child after the reports, RC taken before logging, bounded

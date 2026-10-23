@@ -22,10 +22,10 @@ try {
     }
     $failed = false;
     if ($scheduled) {
+        // Scheduled restoration is identity-only (A152): it never needs the report configuration.
         $run = managed_customer_lifecycle_scheduled_run(
             db(),
             $config,
-            cfg('business_reports', []),
             cfg('id_report_contacts', []),
         );
         $results = $run['results'];

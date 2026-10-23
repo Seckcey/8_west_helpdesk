@@ -318,6 +318,30 @@ function managed_customer_id_identity_request(
     ];
 }
 
+/**
+ * A155: the signed anchor against the signed current facts. A current `restored` action is its own
+ * anchor, so all five facts name the same ID event: version, receipt, event, transition and evidence.
+ * An `observed_active` current needs an anchor strictly earlier in both version and transition. This
+ * compares supplied signed facts only; it computes nothing ID-private.
+ *
+ * @param array<string,mixed> $current keys customer_source_version, customer_receipt_id,
+ *   customer_event_id, lifecycle_transition_id, lifecycle_evidence_sha256, lifecycle_action
+ * @param array<string,mixed> $anchor
+ */
+function managed_customer_id_identity_anchor_consistent(array $current, array $anchor): bool
+{
+    if ($current['lifecycle_action'] === 'restored') {
+        return $anchor['source_version'] === $current['customer_source_version']
+            && $anchor['receipt_id'] === $current['customer_receipt_id']
+            && $anchor['event_id'] === $current['customer_event_id']
+            && $anchor['transition_id'] === $current['lifecycle_transition_id']
+            && $anchor['evidence_sha256'] === $current['lifecycle_evidence_sha256'];
+    }
+    return $current['lifecycle_action'] === 'observed_active'
+        && $anchor['source_version'] < $current['customer_source_version']
+        && $anchor['transition_id'] < $current['lifecycle_transition_id'];
+}
+
 /** Count the members of the only nested object (restoration_anchor) so duplicate anchor keys cannot hide. */
 function managed_customer_id_identity_nested_member_count(string $rawBody): int
 {
@@ -428,6 +452,9 @@ function managed_customer_id_identity_decode_response(
         throw $invalid();
     }
     $anchor = $document['restoration_anchor'];
+    if ($anchor === null && $document['lifecycle_action'] === 'restored') {
+        throw $invalid();
+    }
     if ($anchor !== null) {
         if (!is_array($anchor) || array_is_list($anchor) || array_keys($anchor) !== MANAGED_CUSTOMER_ID_IDENTITY_ANCHOR_KEYS
             || managed_customer_id_identity_nested_member_count($rawBody) !== count(MANAGED_CUSTOMER_ID_IDENTITY_ANCHOR_KEYS)
@@ -437,9 +464,7 @@ function managed_customer_id_identity_decode_response(
             || !is_string($anchor['event_id']) || preg_match(MANAGED_CUSTOMER_EVENT_UUID_V4, $anchor['event_id']) !== 1
             || !$positive($anchor['transition_id'])
             || !$sha($anchor['evidence_sha256'])
-            || ($document['lifecycle_action'] === 'restored'
-                && ($anchor['source_version'] !== $document['customer_source_version']
-                    || $anchor['event_id'] !== $document['customer_event_id']))) {
+            || !managed_customer_id_identity_anchor_consistent($document, $anchor)) {
             throw $invalid();
         }
     }
