@@ -6,12 +6,16 @@ are in git history.
 
 ## The live version
 
-Current application source is **`c79cf5949165bc135546806ccf12a8c33c33ab48`**, deployed
-at **12:07:28 AM PDT on October 22, 2026** (`2026-10-22T07:07:28Z`). It includes the
-settings UX improvements and published shared menu v0.5.0. See the
-[technical release receipt](settings-ux-release.md). Genuine signed-in customer
-and provider acceptance remains pending with Frankie. Later documentation-only
-commits do not change this application release and need no production redeploy.
+Current application source is **`a63dc4ee43dcf32cb44401e2a0f265959e14b4fa`**, deployed
+at **11:31:06 PM PDT on October 22, 2026** (`2026-10-23T06:31:06Z`). Customers now
+have Home at `/portal/`, with their requests, computers and next actions; Westy's
+existing workspace is at `/portal/?view=westy`. Verified customer visits to the
+staff login are handed to the portal. See the
+[client access and portal release receipt](client-access-portal-release.md) and
+[Home guide](employee-portal-dashboard.md). The earlier settings UX improvements
+and shared menu v0.5.0 remain included. Genuine signed-in customer and provider
+acceptance remains pending with Frankie. Later documentation-only commits do not
+change this application release and need no production redeploy.
 
 ```bash
 bash deploy/deploy.sh --check
