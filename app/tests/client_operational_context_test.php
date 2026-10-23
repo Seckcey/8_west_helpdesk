@@ -60,15 +60,21 @@ catch (PDOException) {}
 operational_check('client deletion failure rolls back contact removal', !$pdo->inTransaction()
     && (int)$pdo->query('SELECT COUNT(*) FROM contacts WHERE client_id=14')->fetchColumn() === 1
     && (int)$pdo->query('SELECT COUNT(*) FROM clients WHERE id=14')->fetchColumn() === 1);
-// Directory and device links: Milepost's provider + customer UUID route, from the binding tenant's own slug.
-$deviceCustomer = '55555555-5555-4555-8555-555555555555';
+// Directory, device and billing links: the provider + customer UUID routes, from the binding tenant's own slug.
+// The customer UUID has hex letters, so its uppercase form is a genuinely different, noncanonical input.
+$deviceCustomer = '5a5b5c5d-5e5f-4a5b-8c5d-5e5f5a5b5c5d';
+operational_check('uppercase fixture differs from the canonical lowercase UUID', strtoupper($deviceCustomer) !== $deviceCustomer);
 operational_check('device URL is the exact provider + UUID Milepost route',
     client_operational_device_url('8west', $deviceCustomer)
         === 'https://support.8westit.com/client.php?provider=8west&customer_id=' . $deviceCustomer);
+operational_check('billing URL is the exact provider + UUID Coastmark route',
+    client_operational_billing_url('8west', $deviceCustomer)
+        === 'https://coastmark.8westit.com/clients?provider=8west&customer_id=' . $deviceCustomer);
 foreach ([['8West', $deviceCustomer], ['8west&id=1', $deviceCustomer], ['', $deviceCustomer],
           ['8west', strtoupper($deviceCustomer)], ['8west', $deviceCustomer . '&id=1'],
           ['8west', '55555555-5555-1555-8555-555555555555']] as [$badProvider, $badCustomer]) {
     operational_check('device URL refuses a noncanonical provider or customer', client_operational_device_url($badProvider, $badCustomer) === null);
+    operational_check('billing URL refuses a noncanonical provider or customer', client_operational_billing_url($badProvider, $badCustomer) === null);
 }
 $directoryPdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $directoryPdo->exec('CREATE TABLE tenants(id INTEGER PRIMARY KEY, slug TEXT);
@@ -94,31 +100,59 @@ foreach ($directoryRows as [$bindingId, $bindingTenant, $bindingClient, $binding
 $houseDirectory = client_operational_directory($directoryPdo, 1);
 operational_check('directory maps only this tenant\'s bound clients by local id',
     array_keys($houseDirectory) === [20, 23, 24]);
-operational_check('directory carries shared name, state and the provider-scoped device route',
+operational_check('directory carries shared name, state and the provider-scoped device and billing routes',
     $houseDirectory[20]['available'] && $houseDirectory[20]['display_name'] === 'Shared A'
     && $houseDirectory[20]['status'] === 'active' && $houseDirectory[20]['source_version'] === 3
-    && $houseDirectory[20]['device_url'] === client_operational_device_url('8west', $deviceCustomer));
+    && $houseDirectory[20]['device_url'] === client_operational_device_url('8west', $deviceCustomer)
+    && $houseDirectory[20]['billing_url'] === client_operational_billing_url('8west', $deviceCustomer));
 operational_check('directory keeps a drifted receipt bound but unavailable, with no links',
     $houseDirectory[23] === ['bound' => true, 'available' => false]);
 operational_check('directory and single-client context agree exactly',
     client_operational_context($directoryPdo, 1, 20) === $houseDirectory[20]
     && client_operational_context($directoryPdo, 1, 24) === $houseDirectory[24]
     && client_operational_context($directoryPdo, 1, 21) === ['bound' => false, 'available' => false]);
+operational_check('only a successful lookup with no binding makes a row unbound',
+    client_operational_directory_entry($houseDirectory, 21) === ['bound' => false, 'available' => false]
+    && client_operational_directory_entry($houseDirectory, 23) === ['bound' => true, 'available' => false]
+    && client_operational_directory_entry($houseDirectory, 20) === $houseDirectory[20]);
 $mspDirectory = client_operational_directory($directoryPdo, 2);
-operational_check('another MSP tenant gets only its own clients and its own provider route',
+operational_check('another MSP tenant gets only its own clients and its own provider routes',
     array_keys($mspDirectory) === [22]
-    && $mspDirectory[22]['device_url'] === client_operational_device_url('other-msp', '77777777-7777-4777-8777-777777777777'));
-operational_check('an unavailable tenant slug removes only the device link, not the shared context',
-    client_operational_context($pdo, 1, 10)['available'] && client_operational_context($pdo, 1, 10)['device_url'] === null);
+    && $mspDirectory[22]['device_url'] === client_operational_device_url('other-msp', '77777777-7777-4777-8777-777777777777')
+    && $mspDirectory[22]['billing_url'] === client_operational_billing_url('other-msp', '77777777-7777-4777-8777-777777777777'));
+operational_check('an unavailable tenant slug removes only the device and billing links, not the shared context',
+    client_operational_context($pdo, 1, 10)['available'] && client_operational_context($pdo, 1, 10)['device_url'] === null
+    && client_operational_context($pdo, 1, 10)['billing_url'] === null);
+// Client 20 is genuinely bound, but its receipt lookup fails (the receipt table is unreadable).
+$failingPdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$failingPdo->exec('CREATE TABLE tenants(id INTEGER PRIMARY KEY, slug TEXT);
+CREATE TABLE clients(id INTEGER PRIMARY KEY, tenant_id INTEGER, name TEXT);
+CREATE TABLE suite_customer_sync_bindings(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, customer_id TEXT, source_version INTEGER, display_name TEXT, status TEXT, last_event_id TEXT, last_occurred_at TEXT);
+INSERT INTO tenants VALUES(1,"8west");
+INSERT INTO clients VALUES(20,1,"Local A"),(21,1,"Unbound");');
+$failingPdo->prepare('INSERT INTO suite_customer_sync_bindings VALUES(?,?,?,?,?,?,?,?,?)')
+    ->execute([1, 1, 20, $deviceCustomer, 3, 'Shared A', 'active', '66666666-6666-4666-8666-666666666666', '2026-10-23 12:00:00']);
+$failedDirectory = client_operational_directory($failingPdo, 1);
+operational_check('a failed directory lookup is unknown, not an empty map of unbound clients', $failedDirectory === null);
+operational_check('a failed lookup never labels the actually bound client local, and fabricates no links',
+    client_operational_directory_entry($failedDirectory, 20) === ['bound' => null, 'available' => false]
+    && client_operational_directory_entry($failedDirectory, 21) === ['bound' => null, 'available' => false]
+    && client_operational_context($failingPdo, 1, 20) === ['bound' => null, 'available' => false]);
 $clientsPage = (string)file_get_contents(__DIR__ . '/../public/clients.php');
 $clientPage = (string)file_get_contents(__DIR__ . '/../public/client.php');
-operational_check('directory shows Support, active-only Devices and the existing Coastmark entry without an invented billing URL',
+operational_check('directory shows Support, active-only Devices and Billing, with the general Coastmark entry otherwise',
     str_contains($clientsPage, 'client_operational_directory(db(), $tenantId)')
+    && str_contains($clientsPage, 'client_operational_directory_entry($shared, (int)$c[\'id\'])')
     && str_contains($clientsPage, '>Support</a>') && str_contains($clientsPage, 'Devices ↗')
     && str_contains($clientsPage, "\$op['status'] === 'active' && is_string(\$op['device_url'] ?? null)")
+    && str_contains($clientsPage, "\$op['status'] === 'active' && is_string(\$op['billing_url'] ?? null)")
     && str_contains($clientsPage, 'href="https://coastmark.8westit.com/auth/suite"')
     && !str_contains($clientsPage . $clientPage, 'coastmark.8westit.com/clients')
     && str_contains($clientsPage, 'class="crow" data-client-id=')
-    && str_contains($clientPage, 'client_operational_context(db(), tenant_id(), $id)'));
+    && str_contains($clientPage, 'client_operational_context(db(), tenant_id(), $id)')
+    && str_contains($clientPage, "\$operational['status'] === 'active' && is_string(\$operational['billing_url'] ?? null)"));
+operational_check('only a proven-unbound row or page says local; unknown and drifted say unavailable',
+    preg_match("/elseif \\(\\\$op\\['bound'\\] !== false\\): \\?>\\s*<span class=\"crow-shared\">Shared details unavailable<\\/span>\\s*<\\?php else: \\?>\\s*<span class=\"crow-shared\">Local to Safeharbor/", $clientsPage) === 1
+    && preg_match("/elseif \\(\\\$operational\\['bound'\\] !== false\\): \\?>\\s*<p class=\"client-shared\">Shared details are temporarily unavailable/", $clientPage) === 1);
 
 echo "PASS: $checks operational context/removal checks\n";

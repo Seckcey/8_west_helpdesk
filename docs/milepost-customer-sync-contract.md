@@ -53,8 +53,10 @@ remain separate from a canonical active receipt.
 
 The Clients list reads every bound client's last accepted shared name and
 active/inactive state in one query, with the same binding/receipt agreement as
-the editor, and shows it beside the local name and domain. Unbound clients read
-"Local to Safeharbor"; a disagreeing receipt reads "Shared details unavailable".
+the editor, and shows it beside the local name and domain. A client reads
+"Local to Safeharbor" only when that lookup succeeded and found no binding. A
+failed lookup, or a binding whose receipt disagrees, reads "Shared details
+unavailable": a failure is never treated as proof that a client is unbound.
 Each row keeps its keyboard-selectable client link and adds three buttons:
 
 - **Support** opens the local client page;
@@ -63,12 +65,17 @@ Each row keeps its keyboard-selectable client link and adds three buttons:
   The provider is the binding tenant's own slug, which the receiver requires to
   equal the event's tenant slug. Milepost signs the user in and checks its own
   tenant before resolving anything, so the link carries no authority;
-- **Billing** opens Coastmark's existing suite entry, where the user selects the
-  client. A client-scoped Coastmark link waits for Coastmark's own route.
+- **Billing** (linked, available, active clients) opens Coastmark's
+  `https://coastmark.8westit.com/clients?provider=<slug>&customer_id=<UUID>`
+  (`client_operational_billing_url()`). It opens that client only once
+  Coastmark's provider + UUID route ships; Coastmark checks the user's
+  organization and its own audited binding first. Every other row opens
+  Coastmark's existing suite entry, where the user selects the client.
 
 The client page shows the same shared line and uses the client-scoped Milepost
-link for linked active clients. These links are presentation only: they must
-not be released before Milepost's provider + UUID route is live.
+and Coastmark links for linked active clients. These links are presentation
+only: they must not be released before Milepost's provider + UUID route is live,
+and the billing link opens a client only after Coastmark's route is live.
 
 Focused coverage: `app/tests/client_operational_context_test.php`; existing
 customer-sync/lifecycle fixtures continue to own ordered receipt and restoration

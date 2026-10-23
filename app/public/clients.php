@@ -70,6 +70,7 @@ $stmt->execute([$tenantId]);
 $rows = $stmt->fetchAll();
 $hasDemo = (bool)array_filter($rows, static fn($c) => str_ends_with((string)$c['domain'], '.example'));
 // Last accepted shared name/status from Milepost, kept apart from the local Safeharbor fields.
+// Null when the lookup failed: every row then reads unavailable, never local.
 $shared = client_operational_directory(db(), $tenantId);
 
 page_top($user, 'Clients', 'clients');
@@ -88,16 +89,19 @@ page_top($user, 'Clients', 'clients');
     </div>
   </div>
   <div class="card list">
-    <?php foreach ($rows as $c): $op = $shared[(int)$c['id']] ?? null; ?>
+    <?php foreach ($rows as $c):
+        $op = client_operational_directory_entry($shared, (int)$c['id']);
+        $billingUrl = $op['available'] && $op['status'] === 'active' && is_string($op['billing_url'] ?? null)
+            ? $op['billing_url'] : null; ?>
     <div class="crow-row">
       <a href="/client.php?id=<?= (int)$c['id'] ?>" class="crow" data-client-id="<?= (int)$c['id'] ?>">
         <span class="health-dot <?= $c['health'] === 'good' ? 'dot-mint' : 'dot-gold pulse' ?>" title="<?= h($c['health']) ?>"></span>
         <span class="crow-main">
           <span class="crow-name"><?= h($c['name']) ?></span>
           <span class="crow-sub"><?= h($c['domain']) ?></span>
-          <?php if (is_array($op) && $op['available']): ?>
+          <?php if ($op['available']): ?>
             <span class="crow-shared">Shared: <?= h($op['display_name']) ?> · <span class="crow-shared-<?= $op['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($op['status']) ?></span></span>
-          <?php elseif (is_array($op)): ?>
+          <?php elseif ($op['bound'] !== false): ?>
             <span class="crow-shared">Shared details unavailable</span>
           <?php else: ?>
             <span class="crow-shared">Local to Safeharbor</span>
@@ -108,10 +112,14 @@ page_top($user, 'Clients', 'clients');
       </a>
       <span class="crow-actions" aria-label="<?= h($c['name']) ?> apps">
         <a class="btn-chip" href="/client.php?id=<?= (int)$c['id'] ?>">Support</a>
-        <?php if (is_array($op) && $op['available'] && $op['status'] === 'active' && is_string($op['device_url'] ?? null)): ?>
+        <?php if ($op['available'] && $op['status'] === 'active' && is_string($op['device_url'] ?? null)): ?>
           <a class="btn-chip" href="<?= h($op['device_url']) ?>" target="_blank" rel="noopener">Devices ↗</a>
         <?php endif; ?>
-        <a class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>
+        <?php if ($billingUrl !== null): ?>
+          <a class="btn-chip" href="<?= h($billingUrl) ?>" target="_blank" rel="noopener" title="Opens this client in Coastmark">Billing ↗</a>
+        <?php else: ?>
+          <a class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>
+        <?php endif; ?>
       </span>
     </div>
     <?php endforeach; ?>

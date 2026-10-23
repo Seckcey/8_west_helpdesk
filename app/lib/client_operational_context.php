@@ -25,7 +25,22 @@ function client_operational_device_url(string $providerSlug, string $customerId)
         . http_build_query(['provider' => $providerSlug, 'customer_id' => $customerId], '', '&', PHP_QUERY_RFC3986);
 }
 
-/** This tenant's own slug, or null; only the device link depends on it. */
+/**
+ * Coastmark's provider + customer UUID billing route for one shared client. It opens that client
+ * only once Coastmark ships the route; Coastmark checks the signed-in user's organization and its
+ * own audited binding before showing anything.
+ */
+function client_operational_billing_url(string $providerSlug, string $customerId): ?string
+{
+    if (preg_match('/\A[a-z0-9][a-z0-9-]{0,63}\z/D', $providerSlug) !== 1
+        || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D', $customerId) !== 1) {
+        return null;
+    }
+    return 'https://coastmark.8westit.com/clients?'
+        . http_build_query(['provider' => $providerSlug, 'customer_id' => $customerId], '', '&', PHP_QUERY_RFC3986);
+}
+
+/** This tenant's own slug, or null; only the device and billing links depend on it. */
 function client_operational_provider_slug(PDO $pdo, int $tenantId): ?string
 {
     try {
@@ -41,12 +56,13 @@ function client_operational_provider_slug(PDO $pdo, int $tenantId): ?string
 /**
  * Shared metadata for every bound client of one tenant, keyed by local client id, using the same
  * receipt agreement as client_operational_context(). Unbound clients are absent from the map.
+ * Null means the lookup failed, which proves nothing about any client's binding.
  *
- * @return array<int,array<string,mixed>>
+ * @return array<int,array<string,mixed>>|null
  */
-function client_operational_directory(PDO $pdo, int $tenantId): array
+function client_operational_directory(PDO $pdo, int $tenantId): ?array
 {
-    if ($tenantId < 1) return [];
+    if ($tenantId < 1) return null;
     try {
         $query = $pdo->prepare(
             'SELECT binding.*, receipt.id AS receipt_id,
@@ -62,7 +78,7 @@ function client_operational_directory(PDO $pdo, int $tenantId): array
         $query->execute([$tenantId]);
         $rows = $query->fetchAll(PDO::FETCH_ASSOC);
     } catch (Throwable) {
-        return [];
+        return null;
     }
     $provider = client_operational_provider_slug($pdo, $tenantId);
     $directory = [];
@@ -73,6 +89,19 @@ function client_operational_directory(PDO $pdo, int $tenantId): array
         $directory[$clientId] = client_operational_from_binding($binding, $tenantId, $clientId, $provider);
     }
     return $directory;
+}
+
+/**
+ * One Clients-list row, in client_operational_context()'s shape. Only a successful lookup that
+ * found no binding is unbound (false); a failed lookup leaves the binding unknown (null).
+ *
+ * @param array<int,array<string,mixed>>|null $directory
+ * @return array<string,mixed>
+ */
+function client_operational_directory_entry(?array $directory, int $clientId): array
+{
+    if ($directory === null) return ['bound' => null, 'available' => false];
+    return $directory[$clientId] ?? ['bound' => false, 'available' => false];
 }
 
 /** @return array<string,mixed> */
@@ -142,6 +171,8 @@ function client_operational_from_binding(array $binding, int $tenantId, int $cli
             'occurred_at' => $time->format('Y-m-d\TH:i:s\Z'), 'edit_url' => $url,
             'device_url' => $provider === null ? null
                 : client_operational_device_url($provider, (string)$binding['customer_id']),
+            'billing_url' => $provider === null ? null
+                : client_operational_billing_url($provider, (string)$binding['customer_id']),
         ];
     } catch (Throwable) {
         return $unavailable;
