@@ -162,6 +162,7 @@ jobs:
           php app/tests/portal_login_test.php
           php app/tests/portal_data_test.php
           php app/tests/portal_settings_test.php
+          php app/tests/portal_customer_entry_test.php
           php app/tests/portal_companion_branding_test.php
           php app/tests/tenant_branding_test.php
           php app/tests/portal_ticket_workflow_test.php
