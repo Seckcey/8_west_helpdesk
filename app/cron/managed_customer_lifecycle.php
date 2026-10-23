@@ -30,8 +30,9 @@ try {
         );
         $results = $run['results'];
         $failed = isset($run['stopped']);
+        // `reserved` counts transition attempts reserved before each fetch/action, not commits (A141).
         echo json_encode(
-            ['mode' => 'scheduled', 'claims' => $run['claims'], 'transitions' => $run['transitions'],
+            ['mode' => 'scheduled', 'claims' => $run['claims'], 'reserved' => $run['reserved'],
                 'stopped' => $run['stopped'] ?? null],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
         ) . "\n";

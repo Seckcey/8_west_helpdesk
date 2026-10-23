@@ -135,14 +135,24 @@ $listClaim = static function (array $ids, ?int $failAt = null): callable {
 $applied = static fn(array $candidate, callable $mayTransition, callable $remaining): array =>
     $mayTransition() ? ['action' => 'contained'] : ['action' => 'deferred'];
 $run = managed_customer_lifecycle_scheduled_loop($listClaim(range(1, 30)), static fn(array $c, callable $m, callable $r): array => ['action' => 'skipped'], $clock);
-scheduler_check($run['claims'] === 25 && $run['transitions'] === 0, 'the 25-claim cap changed');
+scheduler_check($run['claims'] === 25 && $run['reserved'] === 0 && !array_key_exists('transitions', $run),
+    'the 25-claim cap changed or the run still reports applied transitions');
 $run = managed_customer_lifecycle_scheduled_loop($listClaim(range(1, 30)), $applied, $clock);
-scheduler_check($run['claims'] === 10 && $run['transitions'] === 10
+scheduler_check($run['claims'] === 10 && $run['reserved'] === 10
     && array_count_values(array_column($run['results'], 'action')) === ['contained' => 10],
-    'the 10-transition total cap changed');
+    'the 10-reservation total cap changed');
+// A141 counter truth: a reservation is an attempt. One reserved then refused still uses the budget.
+$reserveThenRefuse = static function (array $candidate, callable $mayTransition, callable $remaining): array {
+    $mayTransition();
+    throw new ManagedCustomerLifecycleGateException('refused after its reservation');
+};
+$run = managed_customer_lifecycle_scheduled_loop($listClaim(range(1, 30)), $reserveThenRefuse, $clock);
+scheduler_check($run['claims'] === 10 && $run['reserved'] === 10
+    && array_count_values(array_column($run['results'], 'action')) === ['refused' => 10],
+    'refused reserved attempts were not counted against the 10-attempt budget');
 $times = [0.0, 31.0];
 $run = managed_customer_lifecycle_scheduled_loop($listClaim(range(1, 30)), $applied, $clock);
-scheduler_check($run['claims'] === 1 && $run['transitions'] === 0 && $run['results'][0]['action'] === 'deferred',
+scheduler_check($run['claims'] === 1 && $run['reserved'] === 0 && $run['results'][0]['action'] === 'deferred',
     'the first claim was skipped or a transition ran past the deadline');
 $times = [0.0];
 $refuseFirst = static function (array $candidate, callable $mayTransition, callable $remaining): array {
@@ -246,6 +256,22 @@ try {
 }
 scheduler_check($legacyFetched === [[scheduler_uuid(9), 10]] && count($fetched) === 1,
     'the explicit approved scope did not keep the full schema-2 restore or used the identity-only proof');
+// A143: the scheduling deadline is rechecked after the proof fetch, on both routes, before any action.
+foreach (['admitted' => $house, 'explicit' => $explicitHouse] as $route => $routeCandidate) {
+    $late = 20.0;
+    $lateFetch = static function (string $customerId, array $idConfig) use (&$late): array {
+        $late = -0.5;
+        return ['schema_version' => 3];
+    };
+    try {
+        $lateResult = managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $routeCandidate, static fn(): bool => true,
+            static function () use (&$late): float { return $late; }, [], ['timeout_seconds' => 10], $lateFetch, $lateFetch);
+        scheduler_check($lateResult['action'] === 'deferred' && $lateResult['provenance'] === $route,
+            "the {$route} route did not defer when the deadline passed during the proof fetch");
+    } catch (Throwable $error) {
+        scheduler_check(false, "the {$route} route acted after the deadline passed during the proof fetch ({$error->getMessage()})");
+    }
+}
 $no034 = scheduler_sqlite([['id' => 1, 'admitted' => true]], true, false);
 $reserved = 0;
 try {

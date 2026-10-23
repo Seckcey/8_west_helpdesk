@@ -1404,18 +1404,23 @@ $ownedReports = [
     $ownedPdo->query('SELECT * FROM business_report_id_client_contact_snapshots ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
 ];
 $deferredBefore = lifecycle_surface_rows($ownedPdo);
+$guardStages = [];
 lifecycle_refuses(
     RuntimeException::class,
     static fn() => managed_customer_lifecycle_identity_restore(
         $ownedPdo, lifecycle_candidate($ownedPdo), lifecycle_identity_proof(), 101, $identityConfig, null, null,
-        static fn() => throw new RuntimeException('fixture deadline before the first write'),
+        static function (string $stage) use (&$guardStages): void {
+            $guardStages[] = $stage;
+            if ($stage === 'write') throw new RuntimeException('fixture deadline before the first write');
+        },
     ),
-    'the before-write seam did not stop the identity-only restore',
+    'the write-stage guard did not stop the identity-only restore',
 );
 lifecycle_check(
-    lifecycle_surface_rows($ownedPdo) === $deferredBefore && lifecycle_restore_count($ownedPdo) === 0
+    $guardStages === ['authority', 'write']
+        && lifecycle_surface_rows($ownedPdo) === $deferredBefore && lifecycle_restore_count($ownedPdo) === 0
         && !managed_customer_operational($ownedPdo, 1, 11),
-    'a stop at the before-write seam wrote a portal, schedule or receipt',
+    'a stop at the write-stage guard wrote a portal, schedule or receipt',
 );
 $owned = managed_customer_lifecycle_identity_restore(
     $ownedPdo, lifecycle_candidate($ownedPdo), lifecycle_identity_proof(), 101, $identityConfig,
@@ -1434,6 +1439,57 @@ lifecycle_check(
         && managed_customer_lifecycle_identity_restore_receipt_valid($ownedReceipt)
         && managed_customer_operational($ownedPdo, 1, 11),
     'identity-only restore was blocked by, or released, an owned-disabled report, or did not restore the owned portal',
+);
+
+// A141/A143 at action through the scheduled seam: a containment whose deadline has passed at the
+// write stage defers with zero writes; an admitted provider withdrawn after the scheduled lookup
+// refuses under the action locks; a current one contains as its owner.
+$deadlinePdo = lifecycle_sqlite();
+$deadlineBefore = lifecycle_surface_rows($deadlinePdo);
+$deadlineResult = managed_customer_lifecycle_scheduled_act(
+    $deadlinePdo, managed_customer_lifecycle_config(lifecycle_config()), lifecycle_candidate($deadlinePdo),
+    static fn(): bool => true, static fn(): float => -1.0,
+);
+lifecycle_check(
+    $deadlineResult['action'] === 'deferred' && $deadlineResult['provenance'] === 'explicit'
+        && lifecycle_surface_rows($deadlinePdo) === $deadlineBefore,
+    'a scheduled containment past its deadline at the write stage wrote a surface or receipt',
+);
+$admittedOnly = managed_customer_lifecycle_config(lifecycle_config(['customer_ids' => ['22222222-2222-4222-8222-222222222222']]));
+$withdrawPdo = lifecycle_identity_sqlite('inactive', true, true);
+$withdrawBefore = lifecycle_surface_rows($withdrawPdo);
+lifecycle_refuses(
+    ManagedCustomerLifecycleGateException::class,
+    static fn() => managed_customer_lifecycle_scheduled_act(
+        $withdrawPdo, $admittedOnly, lifecycle_candidate($withdrawPdo),
+        static function () use ($withdrawPdo): bool {
+            $withdrawPdo->exec("UPDATE suite_managed_providers SET lease_until='2000-01-01 00:00:00'");
+            return true;
+        },
+        static fn(): float => 20.0,
+    ),
+    'an admitted provider withdrawn after the scheduled lookup was acted on',
+);
+lifecycle_check(lifecycle_surface_rows($withdrawPdo) === $withdrawBefore,
+    'a refused admitted containment wrote a surface or receipt');
+$currentPdo = lifecycle_identity_sqlite('inactive', true, true);
+$currentResult = managed_customer_lifecycle_scheduled_act(
+    $currentPdo, $admittedOnly, lifecycle_candidate($currentPdo), static fn(): bool => true, static fn(): float => 20.0,
+);
+lifecycle_check(
+    $currentResult['action'] === 'contained' && $currentResult['provenance'] === 'admitted'
+        && (int)$currentPdo->query('SELECT actor_user_id FROM managed_customer_lifecycle_receipts')->fetchColumn() === 101,
+    'a current admitted provider lineage was not contained as its owner',
+);
+$unadmittedContain = lifecycle_identity_sqlite('inactive', true, true);
+$unadmittedContain->exec('UPDATE suite_customer_sync_events SET admission=NULL');
+lifecycle_refuses(
+    ManagedCustomerLifecycleGateException::class,
+    static fn() => managed_customer_lifecycle_scheduled_act(
+        $unadmittedContain, $admittedOnly, lifecycle_candidate($unadmittedContain),
+        static fn(): bool => true, static fn(): float => 20.0,
+    ),
+    'a scheduled admitted containment ran for a binding with no immutable admission',
 );
 
 $statusSource = file_get_contents(__DIR__ . '/../lib/managed_customer_status.php') ?: '';

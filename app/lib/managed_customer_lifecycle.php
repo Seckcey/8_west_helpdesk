@@ -31,6 +31,8 @@ class ManagedCustomerLifecycleException extends RuntimeException {}
 final class ManagedCustomerLifecycleValidationException extends ManagedCustomerLifecycleException {}
 final class ManagedCustomerLifecycleGateException extends ManagedCustomerLifecycleException {}
 final class ManagedCustomerLifecycleConflictException extends ManagedCustomerLifecycleException {}
+/** A scheduled action reached its deadline before writing; it rolled back and is reported as deferred. */
+final class ManagedCustomerLifecycleDeferredException extends ManagedCustomerLifecycleException {}
 
 /**
  * Keep the shared strict ID parser isolated from restored-only semantics.
@@ -331,6 +333,10 @@ function managed_customer_lifecycle_receipt_valid(array $receipt): bool
 /**
  * Atomically contain one exact current source event.
  *
+ * $guard (the scheduled mode's seam) is called with 'authority' right after the tenant and actor
+ * locks, and with 'write' before the first write and again before the receipt insert. It may throw
+ * to refuse or defer; the whole transaction then rolls back.
+ *
  * @return array<string,mixed>
  */
 function managed_customer_lifecycle_apply(
@@ -339,6 +345,7 @@ function managed_customer_lifecycle_apply(
     int $actorUserId,
     array $rawConfig,
     ?callable $fault = null,
+    ?callable $guard = null,
     int $retryAttempt = 0,
 ): array {
     $config = managed_customer_lifecycle_config($rawConfig);
@@ -400,6 +407,7 @@ function managed_customer_lifecycle_apply(
                 'Lifecycle actor must be an active owner or admin in the exact provider tenant.',
             );
         }
+        if ($guard !== null) $guard('authority');
 
         $sourceSql = "SELECT binding.id AS binding_id, binding.tenant_id, binding.client_id,
                              binding.customer_id, binding.source_version, binding.status,
@@ -511,6 +519,7 @@ function managed_customer_lifecycle_apply(
                 );
             }
         }
+        if ($guard !== null) $guard('write');
         $portalDisabledEventId = null;
         if ($portalWasActive === 1) {
             $update = managed_customer_lifecycle_write(
@@ -615,6 +624,7 @@ function managed_customer_lifecycle_apply(
             'source_request_sha256' => (string)$source['source_request_sha256'],
         ];
         $digest = managed_customer_lifecycle_receipt_sha256($facts);
+        if ($guard !== null) $guard('write');
         if ($fault !== null) $fault('before_receipt');
         managed_customer_lifecycle_write(
             $pdo,
@@ -657,6 +667,7 @@ function managed_customer_lifecycle_apply(
                 $actorUserId,
                 $rawConfig,
                 $fault,
+                $guard,
                 $retryAttempt + 1,
             );
         }
@@ -787,6 +798,7 @@ function managed_customer_lifecycle_surface_owner(
  * Clear one exact post-inactive source latch using signed restored-only ID
  * evidence. Human/pre-existing holds remain unchanged, and an already-active
  * surface with no current containment owner is preserved without any write.
+ * $guard has the same 'authority'/'write' stages as in managed_customer_lifecycle_apply().
  *
  * @return array<string,mixed>
  */
@@ -798,6 +810,7 @@ function managed_customer_lifecycle_restore(
     array $rawLifecycleConfig,
     array $rawBusinessReportConfig,
     ?callable $fault = null,
+    ?callable $guard = null,
     int $retryAttempt = 0,
 ): array {
     $config = managed_customer_lifecycle_config($rawLifecycleConfig);
@@ -862,6 +875,7 @@ function managed_customer_lifecycle_restore(
                 'Lifecycle restoration actor is not an active owner/admin.',
             );
         }
+        if ($guard !== null) $guard('authority');
 
         $source = $pdo->prepare(
             "SELECT binding.id AS binding_id, binding.tenant_id, binding.client_id,
@@ -1072,6 +1086,7 @@ function managed_customer_lifecycle_restore(
         }
         $scheduleCanRestore = $scheduleCurrentlyOwned;
 
+        if ($guard !== null) $guard('write');
         $portalActiveEventId = null;
         if ($portalCanRestore) {
             $portalUpdate = managed_customer_lifecycle_write(
@@ -1244,6 +1259,7 @@ function managed_customer_lifecycle_restore(
             'actor_user_id' => $actorUserId,
         ];
         $digest = managed_customer_lifecycle_restore_receipt_sha256($facts);
+        if ($guard !== null) $guard('write');
         if ($fault !== null) $fault('before_restore_receipt');
         managed_customer_lifecycle_write(
             $pdo,
@@ -1288,6 +1304,7 @@ function managed_customer_lifecycle_restore(
                 $rawLifecycleConfig,
                 $rawBusinessReportConfig,
                 $fault,
+                $guard,
                 $retryAttempt + 1,
             );
         }
@@ -1430,7 +1447,7 @@ function managed_customer_lifecycle_house_issuer(?array $houseBindings): ?int
  * admitted receipt on this binding; a complete contiguous local history 1..current; the signed anchor
  * as the active version directly after the latest inactive one (a current `restored` is its own
  * anchor); and an existing report-ID map, when present, matching the signed key and slug.
- * $beforeWrite runs once after every lock and read and before the first write; it may throw.
+ * $guard has the same 'authority'/'write' stages as in managed_customer_lifecycle_apply().
  *
  * @param array<string,mixed> $proof from managed_customer_id_identity_decode_response()
  * @param array<string,mixed>|null $houseBindings the id_report_contacts.tenant_bindings mapping
@@ -1444,7 +1461,7 @@ function managed_customer_lifecycle_identity_restore(
     array $rawLifecycleConfig,
     ?array $houseBindings = null,
     ?callable $fault = null,
-    ?callable $beforeWrite = null,
+    ?callable $guard = null,
     int $retryAttempt = 0,
 ): array {
     $config = managed_customer_lifecycle_config($rawLifecycleConfig);
@@ -1536,6 +1553,7 @@ function managed_customer_lifecycle_identity_restore(
                 'Lifecycle restoration actor is not an active owner/admin.',
             );
         }
+        if ($guard !== null) $guard('authority');
         if ($candidateTenantSlug !== '8west') {
             // The current admitted provider, under this transaction's shared locks, never a cached one.
             $provider = suite_managed_provider($pdo, $candidateTenantSlug, true);
@@ -1784,7 +1802,7 @@ function managed_customer_lifecycle_identity_restore(
             }
         }
 
-        if ($beforeWrite !== null) $beforeWrite();
+        if ($guard !== null) $guard('write');
 
         $portalActiveEventId = null;
         if ($portalCanRestore) {
@@ -1862,6 +1880,7 @@ function managed_customer_lifecycle_identity_restore(
         ];
         $digest = managed_customer_lifecycle_identity_restore_receipt_sha256($row);
         $row['evidence_sha256'] = $digest;
+        if ($guard !== null) $guard('write');
         if ($fault !== null) $fault('before_restore_receipt');
         // The report-ID carrier, contact facts and every schedule write column stay NULL (034 CHECK).
         managed_customer_lifecycle_write(
@@ -1896,7 +1915,7 @@ function managed_customer_lifecycle_identity_restore(
                 $rawLifecycleConfig,
                 $houseBindings,
                 $fault,
-                $beforeWrite,
+                $guard,
                 $retryAttempt + 1,
             );
         }
@@ -2002,28 +2021,32 @@ const MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_SECONDS = 30.0;
  * The bounded scheduled run. Each claim commits the durable cursor before its customer is acted on,
  * so a crash, kill, timeout or refusal still advances consideration. A claim failure (including an
  * unknown cursor commit) stops the run with no action. The first claim is always made; later claims
- * and every applied transition stop at the 30-second deadline, and actions receive the remaining
- * time for their own database/HTTP bounds. At most 25 claims and 10 applied transitions per run.
+ * and every transition reservation stop at the 30-second scheduling deadline, and actions receive the
+ * remaining time for their own bounds. At most 25 claims and 10 transition reservations per run.
+ *
+ * A reservation is taken before the action's proof fetch or locks (A141), so `reserved` counts
+ * attempts: it bounds writes (at most 10), but a reserved action may still be deferred, refused or
+ * fail, and its outcome is only in `results`. It is never a count of committed transitions.
  *
  * @param callable(list<int>):?array $claim
  * @param callable(array,callable():bool,callable():float):array $act
  * @param callable():float $clock monotonic seconds
- * @return array{claims:int,transitions:int,results:list<array<string,mixed>>,stopped?:string}
+ * @return array{claims:int,reserved:int,results:list<array<string,mixed>>,stopped?:string}
  */
 function managed_customer_lifecycle_scheduled_loop(callable $claim, callable $act, callable $clock): array
 {
     $started = $clock();
     $remaining = static fn(): float => MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_SECONDS - ($clock() - $started);
-    $transitions = 0;
-    $mayTransition = static function () use (&$transitions, $remaining): bool {
-        if ($transitions >= MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_TRANSITIONS || $remaining() <= 0) return false;
-        $transitions++;
+    $reserved = 0;
+    $mayTransition = static function () use (&$reserved, $remaining): bool {
+        if ($reserved >= MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_TRANSITIONS || $remaining() <= 0) return false;
+        $reserved++;
         return true;
     };
-    $run = ['claims' => 0, 'transitions' => 0, 'results' => []];
+    $run = ['claims' => 0, 'reserved' => 0, 'results' => []];
     $claimed = [];
     while ($run['claims'] < MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_CLAIMS
-        && $transitions < MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_TRANSITIONS
+        && $reserved < MANAGED_CUSTOMER_LIFECYCLE_SCHEDULED_TRANSITIONS
         && ($run['claims'] === 0 || $remaining() > 0)) {
         try {
             $candidate = $claim($claimed);
@@ -2049,8 +2072,38 @@ function managed_customer_lifecycle_scheduled_loop(callable $claim, callable $ac
             ];
         }
     }
-    $run['transitions'] = $transitions;
+    $run['reserved'] = $reserved;
     return $run;
+}
+
+/**
+ * A141: re-establish a scheduled admitted lineage's authority inside the action transaction, right
+ * after its tenant and actor locks and before any write. A managed provider must still be current
+ * (read with shared locks), for the same tenant and with the scheduled actor as its owner; the house
+ * acts as its configured actor, already locked. The binding must still carry an immutable admitted
+ * receipt. A withdrawal, lease expiry or owner change during the proof fetch therefore refuses.
+ */
+function managed_customer_lifecycle_admitted_authority(PDO $pdo, array $candidate, int $actorUserId): void
+{
+    $slug = (string)($candidate['provider_tenant_slug'] ?? '');
+    $tenantId = (int)($candidate['tenant_id'] ?? 0);
+    if ($slug !== '8west') {
+        $provider = suite_managed_provider($pdo, $slug, true);
+        if (!is_array($provider) || (int)$provider['tenant_id'] !== $tenantId
+            || (int)$provider['owner_user_id'] !== $actorUserId) {
+            throw new ManagedCustomerLifecycleGateException(
+                'The scheduled provider admission or owner is no longer current.',
+            );
+        }
+    }
+    $admitted = $pdo->prepare(
+        'SELECT COUNT(*) FROM suite_customer_sync_events
+          WHERE tenant_id = ? AND binding_id = ? AND admission IS NOT NULL'
+    );
+    $admitted->execute([$tenantId, (int)($candidate['binding_id'] ?? 0)]);
+    if ((int)$admitted->fetchColumn() < 1) {
+        throw new ManagedCustomerLifecycleGateException('The scheduled lineage has no immutable admission.');
+    }
 }
 
 /**
@@ -2152,6 +2205,12 @@ function managed_customer_lifecycle_scheduled_claim(PDO $pdo, array $config, arr
  * owned report. An admitted lineage outside it uses the schema-3 identity-only proof (migration
  * 034), which clears the identity latch and never writes reports. Neither downgrades into the other.
  *
+ * Current authority and time at action (A141/A143): the action's guard rechecks an admitted
+ * lineage's provider, owner and admission under the action locks, and defers (rolling back, zero
+ * writes) if the 30-second scheduling deadline has passed after the proof fetch, before the first
+ * write or before the receipt. The deadline governs scheduling only; a database wait or HTTP request
+ * already in progress is bounded by its own timeout and by the wrapper's 45 s TERM / 5 s KILL.
+ *
  * @return array<string,mixed>
  */
 function managed_customer_lifecycle_scheduled_act(
@@ -2189,39 +2248,55 @@ function managed_customer_lifecycle_scheduled_act(
     $provenance = $explicit ? 'explicit' : 'admitted';
     $deferred = ['action' => 'deferred', 'customer_id_sha256' => hash('sha256', $customerId),
         'source_version' => (int)$candidate['source_version'], 'provenance' => $provenance];
-    if (($candidate['status'] ?? null) === 'active' && $config['restoration_enabled'] === true) {
-        if (!$explicit && !managed_customer_lifecycle_identity_restore_available($pdo)) {
-            throw new ManagedCustomerLifecycleGateException(
-                'Identity-only restoration (migration 034) is not installed.',
-            );
+    $guard = static function (string $stage) use ($pdo, $candidate, $explicit, $actorId, $remaining): void {
+        if ($stage === 'authority' && !$explicit) {
+            managed_customer_lifecycle_admitted_authority($pdo, $candidate, $actorId);
+        } elseif ($stage === 'write' && $remaining() <= 0) {
+            throw new ManagedCustomerLifecycleDeferredException('The scheduling deadline passed before the write.');
         }
-        $seconds = (int)floor($remaining());
-        if ($seconds < 1 || !$mayTransition()) return $deferred;
-        $boundedId = $idConfig;
-        $boundedId['timeout_seconds'] = max(1, min((int)($idConfig['timeout_seconds'] ?? 10), $seconds));
-        if (!$explicit) {
-            $fetchIdentity ??= 'managed_customer_id_identity_fetch';
-            $proof = $fetchIdentity($customerId, $boundedId);
-            if (!is_array($proof)) {
-                throw new ManagedCustomerLifecycleGateException('Authenticated ID identity-only proof is invalid.');
+    };
+    try {
+        if (($candidate['status'] ?? null) === 'active' && $config['restoration_enabled'] === true) {
+            if (!$explicit && !managed_customer_lifecycle_identity_restore_available($pdo)) {
+                throw new ManagedCustomerLifecycleGateException(
+                    'Identity-only restoration (migration 034) is not installed.',
+                );
             }
-            $houseBindings = is_array($idConfig['tenant_bindings'] ?? null) ? $idConfig['tenant_bindings'] : null;
-            return managed_customer_lifecycle_identity_restore($pdo, $candidate, $proof, $actorId, $scoped, $houseBindings)
-                + ['provenance' => $provenance];
+            $seconds = (int)floor($remaining());
+            if ($seconds < 1 || !$mayTransition()) return $deferred;
+            $boundedId = $idConfig;
+            $boundedId['timeout_seconds'] = max(1, min((int)($idConfig['timeout_seconds'] ?? 10), $seconds));
+            if (!$explicit) {
+                $fetchIdentity ??= 'managed_customer_id_identity_fetch';
+                $proof = $fetchIdentity($customerId, $boundedId);
+                if (!is_array($proof)) {
+                    throw new ManagedCustomerLifecycleGateException('Authenticated ID identity-only proof is invalid.');
+                }
+                if ($remaining() <= 0) return $deferred;
+                $houseBindings = is_array($idConfig['tenant_bindings'] ?? null) ? $idConfig['tenant_bindings'] : null;
+                return managed_customer_lifecycle_identity_restore(
+                    $pdo, $candidate, $proof, $actorId, $scoped, $houseBindings, null, $guard,
+                ) + ['provenance' => $provenance];
+            }
+            $fetchEvidence ??= 'managed_customer_id_evidence_fetch';
+            $evidence = $fetchEvidence($customerId, $boundedId);
+            if (!is_array($evidence)) {
+                throw new ManagedCustomerLifecycleGateException('Authenticated ID restoration evidence is invalid.');
+            }
+            if ($remaining() <= 0) return $deferred;
+            return managed_customer_lifecycle_restore(
+                $pdo, $candidate, $evidence, $actorId, $scoped, $businessReportConfig, null, $guard,
+            ) + ['provenance' => $provenance];
         }
-        $fetchEvidence ??= 'managed_customer_id_evidence_fetch';
-        $evidence = $fetchEvidence($customerId, $boundedId);
-        if (!is_array($evidence)) {
-            throw new ManagedCustomerLifecycleGateException('Authenticated ID restoration evidence is invalid.');
-        }
-        return managed_customer_lifecycle_restore($pdo, $candidate, $evidence, $actorId, $scoped, $businessReportConfig)
+        if (!$mayTransition()) return $deferred;
+        return managed_customer_lifecycle_apply($pdo, $candidate, $actorId, $scoped, null, $guard)
             + ['provenance' => $provenance];
+    } catch (ManagedCustomerLifecycleDeferredException) {
+        return $deferred;
     }
-    if (!$mayTransition()) return $deferred;
-    return managed_customer_lifecycle_apply($pdo, $candidate, $actorId, $scoped) + ['provenance' => $provenance];
 }
 
-/** @return array{claims:int,transitions:int,results:list<array<string,mixed>>,stopped?:string} */
+/** @return array{claims:int,reserved:int,results:list<array<string,mixed>>,stopped?:string} */
 function managed_customer_lifecycle_scheduled_run(
     PDO $pdo,
     array $rawConfig,

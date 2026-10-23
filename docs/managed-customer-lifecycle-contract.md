@@ -77,8 +77,16 @@ The no-argument explicit mode and the P9 manual path are unchanged.
 `managed_customer_lifecycle_progress` row and takes the next eligible binding ID after
 `last_binding_id`, wrapping once and skipping bindings already claimed in this run. It advances the
 cursor and commits before any blocking database or HTTP action. The existing apply/restore functions
-then run under a configuration scoped to exactly that UUID and actor, and recheck the provider,
-actor, current source and receipts under their own locks.
+then run under a configuration scoped to exactly that UUID and actor, and recheck the actor, current
+source and receipts under their own locks.
+
+**Authority at action (A141).** The scheduled provenance is carried into the action through its
+guard seam. For an admitted lineage, right after the tenant and actor locks and before any write,
+the action rechecks the current managed provider with shared locks (`suite_managed_provider(..., true)`):
+it must still be current, for the same tenant, with the scheduled actor as its owner. The binding must
+still carry an immutable admitted receipt. A withdrawal, lease expiry or owner change while the proof
+is being fetched, or while the action waits on that lock, therefore refuses with nothing written. The
+explicit scope, the no-argument mode and the P9 manual path keep their earlier checks.
 
 **Restoration routing (A88).** It is chosen before any proof is requested or any receipt is written.
 The explicit approved scope is the separately authorized contact operation and keeps the full
@@ -91,12 +99,20 @@ ID request or budget use.
 kill, timeout or refusal still moves consideration on. The cursor is never authority, status or
 completion evidence. Results carry only hashed UUIDs and error digests.
 
-**Bounds.** One run has at most 25 claims and 10 applied transitions in total, and a 30-second
-monotonic deadline. The first claim is always made; after the deadline no new claim or transition
-starts. A restoration's ID request timeout is capped at the remaining whole seconds, so with less
-than one second left it is deferred. For a fixed set of N candidates, healthy committed claims
-advance round-robin: every candidate is considered within N claim-runs, whatever earlier candidates
-refuse. There is no bound under a total database outage or unbounded arrivals.
+**Bounds.** One run has at most 25 claims and 10 transition reservations in total, and a 30-second
+monotonic scheduling deadline. A reservation is taken before the action's proof fetch or locks, so
+the run's `reserved` count is attempts, not commits: it bounds writes to at most 10, but a reserved
+action may still be deferred, refused or fail, and only `results` shows each outcome. The first claim
+is always made; after the deadline no new claim or reservation starts. A restoration's ID request
+timeout is capped at the remaining whole seconds, so with less than one second left it is deferred.
+The deadline is rechecked after the proof fetch, before the first write and before the receipt
+(A143); if it has passed, the action rolls back and reports `deferred` with zero writes. The
+30-second deadline governs scheduling only. A database wait or HTTP request already in progress is
+bounded only by its own timeout and, in the end, by the wrapper's 45 s TERM and 5 s KILL; nothing
+here proves every such wait finishes inside the remaining 30 seconds. For a fixed set of N
+candidates, healthy committed claims advance round-robin: every candidate is considered within N
+claim-runs, whatever earlier candidates refuse. There is no bound under a total database outage or
+unbounded arrivals.
 
 **Wrapper.** `run_business_reports.sh` starts this one child after the reports, under the same
 runtime user, five-minute cadence and shared deploy lock, with `timeout` (45 s TERM, then 5 s KILL).
@@ -358,7 +374,15 @@ Focused coverage:
   anchors and issuers, a newer inactive version, no admission, a withdrawn provider, the house
   issuer, an existing versus absent map, an owned-disabled report kept as-is, and the before-write
   stop.
-- `managed_customer_lifecycle_scheduler_test.php`: the routing split and the pre-034 refusal.
+- `managed_customer_lifecycle_scheduler_test.php`: the routing split and the pre-034 refusal; the
+  reserved-attempt count (a refused reservation still uses the budget); and the post-fetch deadline
+  deferral on both routes.
+- A141/A143 at action: `managed_customer_lifecycle_test.php` covers a write-stage deadline deferral
+  with zero writes, an admitted provider withdrawn after the scheduled lookup, a current admitted
+  owner, and a lineage without admission. `managed_customer_lifecycle_mysql_test.php` covers, through
+  the least-privilege runtime, a withdrawal during the proof fetch, a withdrawal committed while the
+  action waits on the provider row lock (a real concurrent writer), and a deadline passing during the
+  fetch; each leaves no portal, report or restore-receipt write.
 
 No migration, configuration, cron installation, merge, deployment, portal
 reactivation, or report delivery is performed by this source slice.

@@ -625,6 +625,24 @@ function lifecycle_mysql_ticket_refuses(string $class, callable $operation, stri
     }
 }
 
+// A141: a concurrent provider withdrawal. It holds the provider row's exclusive lock, says so, waits,
+// then commits the expired lease.
+if (($argv[1] ?? '') === 'provider-withdraw-child') {
+    try {
+        $pdo = lifecycle_mysql_connection((string)$argv[2]);
+        $pdo->beginTransaction();
+        $pdo->exec('UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()-INTERVAL 1 SECOND WHERE tenant_id=1');
+        echo "locked\n";
+        flush();
+        usleep(1_000_000);
+        $pdo->commit();
+        exit(0);
+    } catch (Throwable $error) {
+        fwrite(STDERR, $error::class . ':' . $error->getMessage() . "\n");
+        exit(1);
+    }
+}
+
 if (($argv[1] ?? '') === 'ticket-sync-race-child') {
     try {
         $pdo = lifecycle_mysql_connection((string)$argv[2]);
@@ -1949,7 +1967,7 @@ try {
         'a concurrent scheduled run waiting on the cursor lock takes no action');
     $runtimeTwo = null;
     $scheduled = managed_customer_lifecycle_scheduled_run($runtime, $scheduledConfig);
-    lifecycle_mysql_check(!isset($scheduled['stopped']) && $scheduled['claims'] === 2 && $scheduled['transitions'] === 2
+    lifecycle_mysql_check(!isset($scheduled['stopped']) && $scheduled['claims'] === 2 && $scheduled['reserved'] === 2
         && array_column($scheduled['results'], 'provenance') === ['explicit', 'admitted']
         && array_column($scheduled['results'], 'action') === ['contained', 'contained']
         && $containedFor(72) === [301] && $containedFor(71) === [101] && $containedFor(73) === []
@@ -2216,6 +2234,74 @@ try {
     lifecycle_mysql_check(
         $identityCount() === 0 && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityBefore,
         'refused identity-only guard checks leave no row',
+    );
+
+    // A141: current authority at action. The provider is withdrawn while the proof is fetched; the
+    // action rechecks the current provider under its own locks and refuses, writing nothing.
+    $renewProvider = static fn() => $pdo->exec(
+        'UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()+INTERVAL 4 MINUTE WHERE tenant_id=1'
+    );
+    $withdrawFetch = static function (string $customerId, array $idConfig) use ($pdo, $identityProof): array {
+        $pdo->exec('UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()-INTERVAL 1 SECOND WHERE tenant_id=1');
+        return $identityProof;
+    };
+    $withdrawnDuringFetch = managed_customer_lifecycle_scheduled_run(
+        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch, null, $withdrawFetch,
+    );
+    $renewProvider();
+    lifecycle_mysql_check(
+        array_column($withdrawnDuringFetch['results'], 'action') === ['refused']
+            && ($withdrawnDuringFetch['results'][0]['error_class'] ?? null) === ManagedCustomerLifecycleGateException::class
+            && $identityCount() === 0 && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityBefore
+            && !managed_customer_operational($pdo, 1, 61),
+        'a provider withdrawn during the proof fetch is refused under the action locks with no write',
+    );
+    // The same withdrawal racing the action's shared lock: a concurrent writer holds the provider row
+    // when the action reaches its recheck, so the action waits and then sees the committed withdrawal.
+    $withdrawPipes = [];
+    $withdrawChild = proc_open([PHP_BINARY, __FILE__, 'provider-withdraw-child', $database],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $withdrawPipes);
+    if (!is_resource($withdrawChild)) throw new RuntimeException('Cannot start the provider withdrawal race.');
+    $lockedFetch = static function (string $customerId, array $idConfig) use ($withdrawPipes, $identityProof): array {
+        if (trim((string)fgets($withdrawPipes[1])) !== 'locked') {
+            throw new RuntimeException('The provider withdrawal race did not take its lock.');
+        }
+        return $identityProof;
+    };
+    $raceStarted = microtime(true);
+    $withdrawnRace = managed_customer_lifecycle_scheduled_run(
+        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch, null, $lockedFetch,
+    );
+    $raceWaited = microtime(true) - $raceStarted;
+    stream_get_contents($withdrawPipes[1]);
+    $withdrawError = stream_get_contents($withdrawPipes[2]);
+    fclose($withdrawPipes[1]); fclose($withdrawPipes[2]);
+    $withdrawExit = proc_close($withdrawChild);
+    $renewProvider();
+    lifecycle_mysql_check(
+        $withdrawExit === 0 && $withdrawError === ''
+            && array_column($withdrawnRace['results'], 'action') === ['refused']
+            && ($withdrawnRace['results'][0]['error_class'] ?? null) === ManagedCustomerLifecycleGateException::class
+            && $raceWaited >= 0.5
+            && $identityCount() === 0 && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityBefore,
+        'a withdrawal committed while the action waits on the provider lock is refused with no write'
+            . ($withdrawError === '' ? '' : ' (child: ' . trim($withdrawError) . ')'),
+    );
+    // A143: the scheduling deadline passes during the proof fetch; the action defers with zero writes.
+    $lateClock = 0.0;
+    $lateFetch = static function (string $customerId, array $idConfig) use (&$lateClock, $identityProof): array {
+        $lateClock = 31.0;
+        return $identityProof;
+    };
+    $lateRun = managed_customer_lifecycle_scheduled_run(
+        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch,
+        static function () use (&$lateClock): float { return $lateClock; }, $lateFetch,
+    );
+    lifecycle_mysql_check(
+        array_column($lateRun['results'], 'action') === ['deferred'] && $lateRun['reserved'] === 1
+            && $identityCount() === 0 && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityBefore
+            && !managed_customer_operational($pdo, 1, 61),
+        'a deadline that passes during the proof fetch defers with zero portal, report or restore-receipt writes',
     );
 
     // The scheduled admitted route after 034: identity-only, never schema 2. The owned portal reopens;

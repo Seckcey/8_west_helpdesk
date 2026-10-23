@@ -848,6 +848,20 @@ sync_mysql_check('under-privileged 033 refusal changes nothing',
 // Interrupted after the swap guards, after each column, after dropping the old guards, after the new
 // guards, after the cursor table and before the swap guards are removed: every write stays refused.
 $heldVersion = 5;
+// A143: one frozen v5 body, valid under the receiver's own event-time rule (not earlier than the v4
+// reactivation's stored time), reused byte for byte at every interruption point and for the replay,
+// so each refusal comes from the 033 guard and never from event_time_conflict.
+$heldOccurredAt = (string)$pdo->query(
+    "SELECT last_occurred_at FROM suite_customer_sync_bindings WHERE last_event_id='99999999-9999-4999-8999-999999999999'"
+)->fetchColumn();
+if (preg_match('/\A\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/D', $heldOccurredAt) !== 1) {
+    throw new RuntimeException('The v4 reactivation time fixture is missing.');
+}
+$heldRequest = sync_mysql_request([
+    'source_version' => $heldVersion,
+    'event_id' => 'c5c5c5c5-c5c5-4c5c-8c5c-c5c5c5c5c5c5',
+    'occurred_at' => str_replace(' ', 'T', $heldOccurredAt) . 'Z',
+]);
 foreach ([
     "\nSET @sync_admission_swap_ok",
     "\nSET @sync_admission_event_alter",
@@ -862,13 +876,8 @@ foreach ([
     sync_mysql_execute_sql($pdo, substr($migration033, 0, $offset));
     sync_mysql_throws_containing("interrupted 033 point {$index} refuses an ordinary customer event",
         PDOException::class,
-        function () use ($runtime, $heldVersion): void {
-            $request = sync_mysql_request([
-                'source_version' => $heldVersion,
-                'event_id' => 'c5c5c5c5-c5c5-4c5c-8c5c-c5c5c5c5c5c5',
-                'occurred_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 30),
-            ]);
-            suite_customer_sync_receive($runtime, $request['payload'], $request['sha']);
+        function () use ($runtime, $heldRequest): void {
+            suite_customer_sync_receive($runtime, $heldRequest['payload'], $heldRequest['sha']);
         },
         'Customer sync admission migration is incomplete');
     sync_mysql_check("interrupted 033 point {$index} keeps all three swap guards and every receipt",
@@ -926,11 +935,7 @@ $pdo->exec("CREATE TRIGGER trg_suite_customer_sync_events_no_update
 sync_mysql_execute_file($pdo, $migration033Path);
 
 // The admission matrix through the production-shaped runtime: ordinary receive and binding DML only.
-$heldReplay = sync_mysql_request([
-    'source_version' => $heldVersion,
-    'event_id' => 'c5c5c5c5-c5c5-4c5c-8c5c-c5c5c5c5c5c5',
-    'occurred_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 30),
-]);
+$heldReplay = $heldRequest;
 sync_mysql_check('writes resume once 033 completes, as schema 1 with a NULL tag',
     suite_customer_sync_receive($runtime, $heldReplay['payload'], $heldReplay['sha'])['source_version'] === $heldVersion
     && $pdo->query("SELECT admission FROM suite_customer_sync_events WHERE event_id='c5c5c5c5-c5c5-4c5c-8c5c-c5c5c5c5c5c5'")->fetchColumn() === null);

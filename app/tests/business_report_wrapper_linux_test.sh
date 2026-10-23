@@ -136,7 +136,10 @@ check 'a logger failure after a successful run is reported as 74' 74 \
 
 # The bounded lifecycle child (A82) runs after the reports with --scheduled; it never changes the
 # report exit status, whether it succeeds, refuses, times out or is missing.
-: > "$MARKER"
+# The marker belongs to the runtime user in sticky /tmp, where fs.protected_regular refuses root an
+# O_CREAT open of it. Clear the existing file without O_CREAT instead (A143).
+clear_marker() { /usr/bin/truncate --no-create --size=0 -- "$MARKER"; }
+clear_marker
 check 'reports then the scheduled lifecycle child both run' 0 \
     SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_TEST_MARKER="$MARKER"
 [[ "$(/usr/bin/cat -- "$MARKER")" == $'report\nlifecycle --scheduled' ]] || {
@@ -154,7 +157,7 @@ check 'a lifecycle logger failure leaves the report status' 42 \
 check 'an out-of-range lifecycle bound is refused before anything runs' 64 \
     SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_SCHEDULER_TEST_LIFECYCLE_SECONDS=46
 /usr/bin/chmod 0660 -- "$APP_ROOT/cron/managed_customer_lifecycle.php"
-: > "$MARKER"
+clear_marker
 check 'a runtime-writable lifecycle child is skipped and reports still run' 0 \
     SAFEHARBOR_TEST_RUNNER_STATUS=0 SAFEHARBOR_TEST_MARKER="$MARKER"
 [[ "$(/usr/bin/cat -- "$MARKER")" == 'report' ]] || {
