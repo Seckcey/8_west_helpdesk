@@ -50,6 +50,7 @@ function portal_icon(string $name): string
         'alert' => '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 3v1"/>',
         'close' => '<path d="m6 6 12 12M6 18 18 6"/>',
         'menu' => '<path d="M4 6h16M4 12h16M4 18h16"/>',
+        'person' => '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/>',
     ];
     return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' . ($paths[$name] ?? $paths['requests']) . '</svg>';
 }
@@ -65,12 +66,18 @@ function portal_shell_start(array $context): void
     $brand = portal_branding($context);
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH);
     if(in_array($path, ['/portal/device_help.php', '/portal/mobile.php', '/portal/security.php'], true))$path='/portal/devices.php';
+    if($path === '/portal/index.php')$path='/portal/';
+    // Westy is current whenever the controller rendered the workspace, whatever the URL
+    // (the Companion renders it at /portal/desktop.php). Home is the plain /portal/ page.
+    if($workspace)$path='/portal/?view=westy';
+    $nav = [['/portal/', 'Home', 'home'], ['/portal/?view=westy', 'Westy', 'chat'], ['/portal/devices.php', 'Your devices', 'device'],
+        ['/portal/requests.php', 'Support requests', 'requests'], ...($clientAdmin ? [['/portal/reports.php', 'Service summaries', 'requests']] : [])];
     ?>
 <a class="portal-skip" href="#portal-content">Skip to content</a>
 <header class="portal-top"><a href="/portal/" aria-label="<?= portal_h($brand['home']) ?>"><img src="<?= portal_h($brand['logo']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>" alt="<?= portal_h($brand['alt']) ?>"></a><span>8 West IT</span><button type="button" class="portal-icon-button portal-menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="portal-nav"><?= portal_icon('menu') ?></button><?php if($workspace): ?><div class="portal-workspace-title"><strong>Westy</strong><span>Private conversation</span></div><button type="button" class="portal-icon-button portal-mobile-new" data-chat-new aria-label="New chat"><?= portal_icon('edit') ?></button><?php endif; ?></header>
 <aside class="portal-sidebar" id="portal-nav"><?php if($workspace): ?><a class="portal-workspace-brand" href="/portal/" aria-label="<?= portal_h($brand['home']) ?>"><img src="<?= portal_h($brand['logo']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>" alt="<?= portal_h($brand['alt']) ?>"></a><button class="portal-new-chat" type="button" data-chat-new><?= portal_icon('edit') ?>New chat</button><?php else: ?><p class="portal-business"><?= portal_h($client) ?></p><?php endif; ?>
 <nav aria-label="Customer portal">
-<?php foreach ([['/portal/', 'Westy', 'chat'], ['/portal/devices.php', 'Your devices', 'device'], ['/portal/requests.php', 'Support requests', 'requests'], ... (portal_client_admin($identity) ? [['/portal/reports.php', 'Service summaries', 'requests']] : [])] as [$url, $label, $icon]): ?>
+<?php foreach ($nav as [$url, $label, $icon]): ?>
 <a href="<?= portal_h($url) ?>"<?= $path === $url ? ' aria-current="page"' : '' ?>><?= portal_icon($icon) ?><span><?= portal_h($label) ?></span></a>
 <?php endforeach; ?>
 </nav><?php if($workspace): ?><section class="portal-chat-history" aria-label="Recent chats"><h2>Recent chats</h2><div id="portal-chat-history"></div></section><?php endif; ?>
@@ -84,9 +91,9 @@ function portal_shell_start(array $context): void
   <a class="portal-account-action" href="/portal/devices.php" aria-label="Computer access"><strong>Computer access</strong><span>Devices for this client</span></a>
   <a class="portal-account-action" href="https://id.8westit.com/customer-billing.php" aria-label="Plan and billing"><strong>Plan and billing</strong><span>Client billing · 8 West ID</span></a>
   <?php endif; ?>
-  <a class="portal-account-action" href="/portal/guide.php">Portal guide</a>
-  <a class="portal-account-action" href="/portal/guide.php#contact">Contact support</a>
-  <form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="portal-account-action">Sign out</button></form>
+  <div class="portal-account-help"><a class="portal-account-action" href="/portal/guide.php">Portal guide</a>
+  <a class="portal-account-action" href="/portal/guide.php#contact">Contact support</a></div>
+  <form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="portal-account-action portal-account-signout">Sign out</button></form>
 </section></aside>
 <div class="portal-content" id="portal-content" tabindex="-1">
 <?php

@@ -18,6 +18,16 @@ held until a privacy-compatible forward repair, preserving all history.
 **Genuine signed-in customer acceptance remains pending with Frankie.** Later
 documentation-only merges do not change deployed application source `4021f45`.
 
+**Member Home and Westy route (source change; release pending):** `/portal/` is
+the signed-in Home. It shows the person's own requests (owners and admins keep
+the client-wide view), the computers Milepost lets them see, and next steps. A
+failed read is shown as unavailable, never as zero. The private Westy
+workspace itself is unchanged; its address is now `/portal/?view=westy`, and
+the sidebar, Home's Ask Westy action and the device-operation link point there.
+Both are served by `portal/index.php` behind the same portal gate, GET-only,
+sign-in and revocation checks. Details are in the
+[employee portal dashboard](employee-portal-dashboard.md) note.
+
 **Plan and billing navigation (source change; release pending):** The existing
 customer sidebar, including the Westy workspace and mobile menu, links to
 `https://id.8westit.com/customer-billing.php`. Customers can review their plan

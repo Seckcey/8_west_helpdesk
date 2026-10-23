@@ -30,5 +30,57 @@
 .portal-account .portal-account-action:hover{background:var(--hover);border-color:var(--accent)}
 .portal-account .portal-account-action:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .portal-account form{margin:0}
+.portal-account-help{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin-top:4px;padding-top:12px;border-top:1px solid var(--line)}
+.portal-account .portal-account-help .portal-account-action{align-items:center;text-align:center;font-size:13px}
+.portal-account .portal-account-signout{align-items:center;text-align:center;background:transparent;font-weight:600}
 .portal-client-name{font-size:20px;line-height:1.4;overflow-wrap:anywhere;margin:0 0 8px}
 @media(max-width:760px){.portal-sidebar.is-open{z-index:50}}
+
+/* Home: the signed-in person's overview. Navigation stays links styled as buttons.
+ * Contrast is estimated from the theme tokens: body and hint text >= 5.4:1, links on
+ * cards >= 4.7:1 and the primary action (navy on blue) 5.7:1, in dark and light. */
+.portal-overview{align-items:start}
+.portal-overview-hero{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px 22px;align-items:center;padding:28px;background:var(--bg-solid);border:1px solid var(--line);border-radius:20px}
+.portal-overview-avatar{width:64px;height:64px;border-radius:50%;object-fit:cover}
+.portal-overview-intro{min-width:0}
+.portal-overview-client{margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-strong);overflow-wrap:anywhere}
+.portal-overview-hero h1{font-size:clamp(25px,2.3vw,34px);line-height:1.25;letter-spacing:-.7px;margin:4px 0 6px;font-weight:650;overflow-wrap:anywhere}
+.portal-overview-context{margin:0;color:var(--muted);font-size:14px}
+.portal-overview-context strong{color:var(--text);font-weight:600}
+.portal-overview-actions{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:6px}
+.portal-overview .portal-overview-action{display:flex;align-items:center;gap:14px;min-height:76px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:var(--bg);color:var(--text);line-height:1.35;text-decoration:none}
+.portal-overview-action>span:last-child{display:grid;gap:3px;min-width:0}
+.portal-overview-action strong{font-size:15px;font-weight:600}
+.portal-overview-action strong+span{font-size:12.5px;color:var(--muted)}
+.portal-overview-action-icon{display:grid;place-items:center;width:42px;height:42px;flex:none;border-radius:12px;background:var(--bg-solid);color:var(--accent-2)}
+.portal-overview .portal-overview-action:hover{border-color:var(--accent-2)}
+.portal-overview .portal-overview-action.is-primary{background:var(--p-blue-500);border-color:var(--p-blue-500);color:var(--p-navy-950)}
+.portal-overview .portal-overview-action.is-primary:hover{background:var(--p-blue-400);border-color:var(--p-blue-400)}
+.portal-overview-action.is-primary strong+span{color:var(--p-navy-950)}
+.portal-overview-action.is-primary .portal-overview-action-icon{background:var(--p-navy-950);color:var(--p-cyan-300)}
+.portal-overview .portal-main-column,.portal-overview .portal-context-rail{display:grid;gap:20px;align-content:start}
+.portal-overview .portal-context-rail{border:0;padding:0}
+.portal-overview .portal-overview-card,.portal-overview .portal-context-rail .portal-overview-card{margin:0;min-width:0;padding:22px 24px;background:var(--bg-solid);border:1px solid var(--line);border-radius:16px}
+.portal-overview .portal-overview-card>h2{margin-bottom:10px}
+.portal-overview .portal-overview-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border:1px solid var(--accent-2);border-radius:10px;background:transparent;color:var(--text);font-size:14px;font-weight:600;line-height:1.35;text-align:center;text-decoration:none}
+.portal-overview .portal-overview-button:hover{background:var(--hover)}
+.portal-overview .portal-context-rail .portal-overview-button{width:100%}
+.portal-overview-buttons{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
+.portal-overview-buttons .portal-overview-button{flex:1 1 180px}
+.portal-overview .portal-overview-problem{margin:0 0 16px;padding-left:12px;border-left:3px solid var(--gold);color:var(--text)}
+.portal-overview-empty{padding:18px 0 4px;border-top:1px solid var(--line)}
+.portal-overview-empty p{margin:0 0 8px;color:var(--muted);font-size:14px}
+.portal-overview-empty strong{color:var(--text)}
+.portal-overview .portal-status{color:var(--muted-strong);white-space:nowrap}
+.portal-overview .portal-status::before{content:"";display:inline-block;width:8px;height:8px;margin-right:7px;border-radius:50%;background:var(--accent-2);vertical-align:1px}
+.portal-overview .portal-status-waiting::before{background:var(--gold)}
+.portal-overview .portal-status-resolved::before{background:var(--mint)}
+.portal-overview .portal-status-open::before{background:var(--muted)}
+.portal-overview-devices{list-style:none;margin:0 0 16px;padding:0}
+.portal-overview-devices li{display:grid;justify-items:start;gap:4px;padding:12px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
+.portal-overview-devices strong{font-size:14px;font-weight:600}
+.portal-overview-devices .portal-device-state,.portal-overview-devices .portal-hint{margin:0}
+/* Westy's trigger closes the rail on its own row in normal flow, so it cannot cover requests or help text. */
+.portal-overview #portal-chat-bubble{position:static;box-shadow:none;z-index:auto;grid-column:1/-1;justify-self:start}
+@media(max-width:1190px){.portal-overview .portal-context-rail{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
+@media(max-width:760px){.portal-overview-hero{padding:20px;gap:14px 16px}.portal-overview-avatar{width:48px;height:48px}.portal-overview-hero h1{font-size:25px}.portal-overview .portal-overview-action{min-height:64px}.portal-overview .portal-overview-card,.portal-overview .portal-context-rail .portal-overview-card{padding:18px}}

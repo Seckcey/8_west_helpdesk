@@ -287,5 +287,83 @@ foreach (['client_owner','client_admin','client_staff','client_viewer'] as $role
     if($role==='client_owner' && is_string($output) && is_dir($output)) file_put_contents($output.'/safeharbor-workspace.html',$workspace);
 }
 
+// Home gets only the controller's requester-safe reads; null means that read failed.
+function portal_data_home_section(string $html, string $heading): string
+{
+    $start = strpos($html, 'aria-labelledby="' . $heading . '"');
+    $end = $start === false ? false : strpos($html, '</section>', $start);
+    return $end === false ? '' : substr($html, $start, $end - $start);
+}
+
+function portal_data_render_home(array $context, string $role, ?array $summary, ?array $devices, ?array $archives): string
+{
+    $context['identity']['role'] = $role;
+    ob_start();
+    portal_render_home($context, $summary, $devices, $archives);
+    return (string)ob_get_clean();
+}
+
+$homeDevices = ['items' => [['label' => 'Front desk <pc>', 'connection' => 'reporting',
+    'connection_label' => 'Connected and reporting', 'last_seen_at' => null]], 'next_after' => null];
+$homeArchives = [['id' => 7, 'period_start' => '2026-10-12 00:00:00', 'period_end' => '2026-10-19 00:00:00',
+    'definition_version' => 1, 'metrics' => ['tickets' => ['opened' => 2, 'resolved' => 1]]]];
+foreach (['client_owner', 'client_admin', 'client_staff', 'client_viewer'] as $homeRole) {
+    $admin = in_array($homeRole, ['client_owner', 'client_admin'], true);
+    $writer = $homeRole !== 'client_viewer';
+    // Archives are passed for every role: Home itself must keep them owner/admin only.
+    $home = portal_data_render_home($context, $homeRole, $summary, $homeDevices, $homeArchives);
+    portal_data_check($homeRole . ' Home names the selected client and the signed-in role',
+        str_contains(portal_data_home_section($home, 'portal-home-heading'), 'Acme &lt;img src=x onerror=alert(1)&gt;')
+        && str_contains(portal_data_home_section($home, 'portal-home-heading'), '<strong>' . portal_role_label($homeRole) . '</strong>'));
+    portal_data_check($homeRole . ' Home escapes identity, client, request and computer text',
+        !str_contains($home, '<script>alert(1)</script>') && !str_contains($home, '<img src=x onerror=alert(1)>')
+        && !str_contains($home, '<script>ticket</script>') && !str_contains($home, '<pc>')
+        && str_contains($home, '&lt;script&gt;ticket&lt;/script&gt;') && str_contains($home, 'Front desk &lt;pc&gt;'));
+    portal_data_check($homeRole . ' Home links requests only to the customer portal detail route',
+        str_contains($home, 'href="/portal/ticket.php?id=42"') && !str_contains($home, 'href="/ticket.php'));
+    portal_data_check($homeRole . ' Home offers writing only to roles that can write tickets',
+        str_contains($home, 'href="/portal/new.php"') === $writer
+        && str_contains($home, 'data-can-write="' . ($writer ? '1' : '0') . '"')
+        && str_contains(portal_data_home_section($home, 'home-reply-heading'), '>' . ($writer ? 'Needs your reply' : 'Waiting for a reply') . '</h2>'));
+    portal_data_check($homeRole . ' Home shows summaries and client management only to owners and admins',
+        str_contains($home, 'href="/portal/reports.php?id=7"') === $admin
+        && (portal_data_home_section($home, 'home-summaries-heading') !== '') === $admin
+        && (portal_data_home_section($home, 'home-manage-heading') !== '') === $admin
+        && str_contains($home, 'customer-billing.php') === $admin
+        && str_contains($home, safeharbor_settings_panel_url('client_admin')) === $admin);
+    portal_data_check($homeRole . ' Home is not the Westy workspace and has no PHP diagnostics',
+        !str_contains($home, 'portal-chat-home-slot') && str_contains($home, 'href="/portal/?view=westy"')
+        && preg_match('/(?:Warning:|Fatal error:|Notice:|Deprecated:)/', $home) !== 1);
+}
+
+$delegated = $context;
+$delegated['identity']['customer_access'] = ['role' => 'client_viewer'];
+$delegatedHome = portal_data_render_home($delegated, 'admin', $summary, $homeDevices, $homeArchives);
+portal_data_check('delegated Home follows the selected client role, not the home administrator role',
+    !str_contains($delegatedHome, 'href="/portal/new.php"') && !str_contains($delegatedHome, 'customer-billing.php')
+    && portal_data_home_section($delegatedHome, 'home-summaries-heading') === ''
+    && str_contains(portal_data_home_section($delegatedHome, 'portal-home-heading'), '<strong>' . portal_role_label('client_viewer') . '</strong>'));
+
+$unavailable = portal_data_render_home($context, 'client_staff', null, null, null);
+$failedRequests = portal_data_home_section($unavailable, 'home-requests-heading');
+$failedDevices = portal_data_home_section($unavailable, 'home-devices-heading');
+portal_data_check('Home reports failed request and computer reads as unavailable, not as none',
+    str_contains($failedRequests, 'role="status"') && !str_contains($unavailable, 'aria-label="Request counts"')
+    && !str_contains($unavailable, 'portal-ticket-list')
+    && str_contains($failedDevices, 'role="status"') && !str_contains($failedDevices, '<ul'));
+$empty = portal_data_render_home($context, 'client_staff',
+    ['client' => ['name' => 'Acme'], 'counts' => ['open' => 0, 'in_progress' => 0, 'waiting' => 0, 'resolved' => 0], 'tickets' => []],
+    ['items' => [], 'next_after' => null], []);
+portal_data_check('Home shows true zero counts and no failure notice when the reads succeed empty',
+    portal_data_home_section($empty, 'home-requests-heading') === ''
+    && str_contains($empty, 'aria-label="Request counts"')
+    && !str_contains(portal_data_home_section($empty, 'home-recent-heading'), 'role="status"')
+    && !str_contains(portal_data_home_section($empty, 'home-devices-heading'), 'role="status"'));
+$summariesUnavailable = portal_data_home_section(portal_data_render_home($context, 'client_admin', $summary, $homeDevices, null), 'home-summaries-heading');
+$summariesEmpty = portal_data_home_section(portal_data_render_home($context, 'client_admin', $summary, $homeDevices, []), 'home-summaries-heading');
+portal_data_check('admin Home tells an unavailable summary read apart from an empty archive',
+    $summariesUnavailable !== '' && $summariesEmpty !== '' && $summariesUnavailable !== $summariesEmpty
+    && !str_contains($summariesUnavailable, '/portal/reports.php?id=') && !str_contains($summariesEmpty, '/portal/reports.php?id='));
+
 echo "Portal data: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);
