@@ -2,6 +2,7 @@
 /** Clients — every account at a glance. */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/client_operational_context.php';
 enforce_https();
 $user = require_login();
 $tenantId = (int)$user['tenant_id'];
@@ -68,6 +69,8 @@ $stmt = db()->prepare(
 $stmt->execute([$tenantId]);
 $rows = $stmt->fetchAll();
 $hasDemo = (bool)array_filter($rows, static fn($c) => str_ends_with((string)$c['domain'], '.example'));
+// Last accepted shared name/status from Milepost, kept apart from the local Safeharbor fields.
+$shared = client_operational_directory(db(), $tenantId);
 
 page_top($user, 'Clients', 'clients');
 ?>
@@ -85,16 +88,32 @@ page_top($user, 'Clients', 'clients');
     </div>
   </div>
   <div class="card list">
-    <?php foreach ($rows as $c): ?>
-    <a href="/client.php?id=<?= (int)$c['id'] ?>" class="crow" data-client-id="<?= (int)$c['id'] ?>">
-      <span class="health-dot <?= $c['health'] === 'good' ? 'dot-mint' : 'dot-gold pulse' ?>" title="<?= h($c['health']) ?>"></span>
-      <span class="crow-main">
-        <span class="crow-name"><?= h($c['name']) ?></span>
-        <span class="crow-sub"><?= h($c['domain']) ?></span>
+    <?php foreach ($rows as $c): $op = $shared[(int)$c['id']] ?? null; ?>
+    <div class="crow-row">
+      <a href="/client.php?id=<?= (int)$c['id'] ?>" class="crow" data-client-id="<?= (int)$c['id'] ?>">
+        <span class="health-dot <?= $c['health'] === 'good' ? 'dot-mint' : 'dot-gold pulse' ?>" title="<?= h($c['health']) ?>"></span>
+        <span class="crow-main">
+          <span class="crow-name"><?= h($c['name']) ?></span>
+          <span class="crow-sub"><?= h($c['domain']) ?></span>
+          <?php if (is_array($op) && $op['available']): ?>
+            <span class="crow-shared">Shared: <?= h($op['display_name']) ?> · <span class="crow-shared-<?= $op['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($op['status']) ?></span></span>
+          <?php elseif (is_array($op)): ?>
+            <span class="crow-shared">Shared details unavailable</span>
+          <?php else: ?>
+            <span class="crow-shared">Local to Safeharbor</span>
+          <?php endif; ?>
+        </span>
+        <span class="tier <?= $c['sla_tier'] === 'premium' ? 'tier-premium' : '' ?>"><?= h($c['sla_tier']) ?></span>
+        <span class="crow-open"><?= (int)$c['open_count'] ?> open</span>
+      </a>
+      <span class="crow-actions" aria-label="<?= h($c['name']) ?> apps">
+        <a class="btn-chip" href="/client.php?id=<?= (int)$c['id'] ?>">Support</a>
+        <?php if (is_array($op) && $op['available'] && $op['status'] === 'active' && is_string($op['device_url'] ?? null)): ?>
+          <a class="btn-chip" href="<?= h($op['device_url']) ?>" target="_blank" rel="noopener">Devices ↗</a>
+        <?php endif; ?>
+        <a class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>
       </span>
-      <span class="tier <?= $c['sla_tier'] === 'premium' ? 'tier-premium' : '' ?>"><?= h($c['sla_tier']) ?></span>
-      <span class="crow-open"><?= (int)$c['open_count'] ?> open</span>
-    </a>
+    </div>
     <?php endforeach; ?>
   </div>
 

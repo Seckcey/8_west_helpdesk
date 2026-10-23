@@ -60,4 +60,65 @@ catch (PDOException) {}
 operational_check('client deletion failure rolls back contact removal', !$pdo->inTransaction()
     && (int)$pdo->query('SELECT COUNT(*) FROM contacts WHERE client_id=14')->fetchColumn() === 1
     && (int)$pdo->query('SELECT COUNT(*) FROM clients WHERE id=14')->fetchColumn() === 1);
+// Directory and device links: Milepost's provider + customer UUID route, from the binding tenant's own slug.
+$deviceCustomer = '55555555-5555-4555-8555-555555555555';
+operational_check('device URL is the exact provider + UUID Milepost route',
+    client_operational_device_url('8west', $deviceCustomer)
+        === 'https://support.8westit.com/client.php?provider=8west&customer_id=' . $deviceCustomer);
+foreach ([['8West', $deviceCustomer], ['8west&id=1', $deviceCustomer], ['', $deviceCustomer],
+          ['8west', strtoupper($deviceCustomer)], ['8west', $deviceCustomer . '&id=1'],
+          ['8west', '55555555-5555-1555-8555-555555555555']] as [$badProvider, $badCustomer]) {
+    operational_check('device URL refuses a noncanonical provider or customer', client_operational_device_url($badProvider, $badCustomer) === null);
+}
+$directoryPdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$directoryPdo->exec('CREATE TABLE tenants(id INTEGER PRIMARY KEY, slug TEXT);
+CREATE TABLE clients(id INTEGER PRIMARY KEY, tenant_id INTEGER, name TEXT);
+CREATE TABLE suite_customer_sync_bindings(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, customer_id TEXT, source_version INTEGER, display_name TEXT, status TEXT, last_event_id TEXT, last_occurred_at TEXT);
+CREATE TABLE suite_customer_sync_events(id INTEGER PRIMARY KEY, binding_id INTEGER, tenant_id INTEGER, client_id INTEGER, customer_id TEXT, source_version INTEGER, display_name TEXT, status TEXT, event_id TEXT, occurred_at TEXT);
+INSERT INTO tenants VALUES(1,"8west"),(2,"other-msp");
+INSERT INTO clients VALUES(20,1,"Local A"),(21,1,"Unbound"),(22,2,"Other MSP client"),(23,1,"Drifted"),(24,1,"Inactive");');
+$directoryBinding = $directoryPdo->prepare('INSERT INTO suite_customer_sync_bindings VALUES(?,?,?,?,?,?,?,?,?)');
+$directoryEvent = $directoryPdo->prepare('INSERT INTO suite_customer_sync_events VALUES(?,?,?,?,?,?,?,?,?,?)');
+$directoryRows = [
+    [1, 1, 20, $deviceCustomer, 3, 'Shared A', 'active', '66666666-6666-4666-8666-666666666666'],
+    [2, 2, 22, '77777777-7777-4777-8777-777777777777', 1, 'Other shared', 'active', '88888888-8888-4888-8888-888888888888'],
+    [3, 1, 23, '99999999-9999-4999-8999-999999999999', 2, 'Drifted shared', 'active', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    [4, 1, 24, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 2, 'Inactive shared', 'inactive', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'],
+];
+foreach ($directoryRows as [$bindingId, $bindingTenant, $bindingClient, $bindingCustomer, $bindingVersion, $bindingName, $bindingStatus, $bindingEvent]) {
+    $directoryBinding->execute([$bindingId, $bindingTenant, $bindingClient, $bindingCustomer, $bindingVersion, $bindingName,
+        $bindingStatus, $bindingEvent, '2026-10-23 12:00:00']);
+    $directoryEvent->execute([$bindingId, $bindingId, $bindingTenant, $bindingClient, $bindingCustomer,
+        $bindingId === 3 ? $bindingVersion - 1 : $bindingVersion, $bindingName, $bindingStatus, $bindingEvent, '2026-10-23 12:00:00']);
+}
+$houseDirectory = client_operational_directory($directoryPdo, 1);
+operational_check('directory maps only this tenant\'s bound clients by local id',
+    array_keys($houseDirectory) === [20, 23, 24]);
+operational_check('directory carries shared name, state and the provider-scoped device route',
+    $houseDirectory[20]['available'] && $houseDirectory[20]['display_name'] === 'Shared A'
+    && $houseDirectory[20]['status'] === 'active' && $houseDirectory[20]['source_version'] === 3
+    && $houseDirectory[20]['device_url'] === client_operational_device_url('8west', $deviceCustomer));
+operational_check('directory keeps a drifted receipt bound but unavailable, with no links',
+    $houseDirectory[23] === ['bound' => true, 'available' => false]);
+operational_check('directory and single-client context agree exactly',
+    client_operational_context($directoryPdo, 1, 20) === $houseDirectory[20]
+    && client_operational_context($directoryPdo, 1, 24) === $houseDirectory[24]
+    && client_operational_context($directoryPdo, 1, 21) === ['bound' => false, 'available' => false]);
+$mspDirectory = client_operational_directory($directoryPdo, 2);
+operational_check('another MSP tenant gets only its own clients and its own provider route',
+    array_keys($mspDirectory) === [22]
+    && $mspDirectory[22]['device_url'] === client_operational_device_url('other-msp', '77777777-7777-4777-8777-777777777777'));
+operational_check('an unavailable tenant slug removes only the device link, not the shared context',
+    client_operational_context($pdo, 1, 10)['available'] && client_operational_context($pdo, 1, 10)['device_url'] === null);
+$clientsPage = (string)file_get_contents(__DIR__ . '/../public/clients.php');
+$clientPage = (string)file_get_contents(__DIR__ . '/../public/client.php');
+operational_check('directory shows Support, active-only Devices and the existing Coastmark entry without an invented billing URL',
+    str_contains($clientsPage, 'client_operational_directory(db(), $tenantId)')
+    && str_contains($clientsPage, '>Support</a>') && str_contains($clientsPage, 'Devices ↗')
+    && str_contains($clientsPage, "\$op['status'] === 'active' && is_string(\$op['device_url'] ?? null)")
+    && str_contains($clientsPage, 'href="https://coastmark.8westit.com/auth/suite"')
+    && !str_contains($clientsPage . $clientPage, 'coastmark.8westit.com/clients')
+    && str_contains($clientsPage, 'class="crow" data-client-id=')
+    && str_contains($clientPage, 'client_operational_context(db(), tenant_id(), $id)'));
+
 echo "PASS: $checks operational context/removal checks\n";

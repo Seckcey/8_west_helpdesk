@@ -47,6 +47,7 @@ page_top($user, 'New client', 'clients');
   <div class="page-head">
     <h1 class="page-title">New client</h1>
   </div>
+  <p class="rail-note">This adds a client to Safeharbor only. Shared clients are created in Milepost and appear here, linked, when Milepost sends them.</p>
   <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
   <div class="card form-card">
     <form method="post" action="/client_new.php" class="form-grid">

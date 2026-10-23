@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
+require_once __DIR__ . '/../lib/client_operational_context.php';
 enforce_https();
 $user = require_login();
 
@@ -71,6 +72,12 @@ $avgFirstResponse = $avgMin !== null
     ? ((int)$avgMin < 60 ? (int)$avgMin . 'm' : intdiv((int)$avgMin, 60) . 'h ' . ((int)$avgMin % 60) . 'm')
     : '—';
 
+// The shared name/status is Milepost's last accepted receipt, separate from the local fields above.
+$operational = client_operational_context(db(), tenant_id(), $id);
+$deviceUrl = $operational['available'] && $operational['status'] === 'active' && is_string($operational['device_url'] ?? null)
+    ? $operational['device_url']
+    : null;
+
 page_top($user, $client['name'], 'clients');
 ?>
 <div class="page">
@@ -82,11 +89,21 @@ page_top($user, $client['name'], 'clients');
     <span class="ticket-sub"><?= h($client['domain']) ?></span>
     <a href="/client_edit.php?id=<?= (int)$id ?>" class="btn-chip" style="margin-left:auto">Edit</a>
   </div>
+  <?php if ($operational['available']): ?>
+    <p class="client-shared">Shared client: <strong><?= h($operational['display_name']) ?></strong>
+      · <span class="crow-shared-<?= $operational['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($operational['status']) ?></span>
+      · last received from Milepost (source version <?= (int)$operational['source_version'] ?>)
+      · <a class="link" href="<?= h($operational['edit_url']) ?>" target="_blank" rel="noopener">Shared details ↗</a></p>
+  <?php elseif ($operational['bound'] === true): ?>
+    <p class="client-shared">Shared details are temporarily unavailable. Local details below are unaffected.</p>
+  <?php else: ?>
+    <p class="client-shared">Local to Safeharbor; not linked to a shared Milepost client.</p>
+  <?php endif; ?>
 
   <div class="stats">
     <div class="card stat"><div class="stat-k">Open tickets</div><div class="stat-v <?= count($open) > 2 ? 'stat-warn' : '' ?>"><?= count($open) ?></div></div>
     <div class="card stat"><div class="stat-k">Avg first response</div><div class="stat-v <?= $avgFirstResponse !== '—' ? 'stat-good' : 'stat-dim' ?>"><?= h($avgFirstResponse) ?></div></div>
-    <div class="card stat"><div class="stat-k">Devices</div><div class="stat-v stat-dim" style="font-size:15px">Not shown here</div><a class="link" href="https://support.8westit.com/" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:12px">View in Milepost ↗</a></div>
+    <div class="card stat"><div class="stat-k">Devices</div><div class="stat-v stat-dim" style="font-size:15px">Not shown here</div><a class="link" href="<?= h($deviceUrl ?? 'https://support.8westit.com/') ?>" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:12px"><?= $deviceUrl !== null ? 'View this client in Milepost ↗' : 'View in Milepost ↗' ?></a></div>
     <div class="card stat"><div class="stat-k">Balance</div><div class="stat-v stat-dim" style="font-size:15px">Not shown here</div><a class="link" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:12px">View in Coastmark ↗</a></div>
   </div>
 
@@ -127,9 +144,9 @@ page_top($user, $client['name'], 'clients');
       </div>
       <div class="rail-label">Suite</div>
       <div class="card rail-card rail-suite">
-        <p><span class="suite-dot"></span><a class="link" href="https://support.8westit.com/" target="_blank" rel="noopener">Find devices in Milepost ↗</a></p>
+        <p><span class="suite-dot"></span><a class="link" href="<?= h($deviceUrl ?? 'https://support.8westit.com/') ?>" target="_blank" rel="noopener"><?= $deviceUrl !== null ? 'Open this client’s devices in Milepost ↗' : 'Find devices in Milepost ↗' ?></a></p>
         <p><span class="suite-dot"></span><a class="link" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener">Review invoices in Coastmark ↗</a></p>
-        <p>Open the app, then select the client.</p>
+        <p><?= $deviceUrl !== null ? 'Milepost checks your access before showing devices. In Coastmark, select the client.' : 'Open the app, then select the client.' ?></p>
       </div>
     </div>
   </div>

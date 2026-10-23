@@ -10,6 +10,71 @@ function client_operational_edit_url(string $customerId, int $version): ?string
         . http_build_query(['customer_id' => $customerId, 'expected_version' => $version], '', '&', PHP_QUERY_RFC3986);
 }
 
+/**
+ * Milepost's provider + customer UUID device route for one shared client. The provider is the
+ * binding tenant's own slug (the receiver binds only an exactly matching tenant); Milepost still
+ * checks the signed-in user's tenant before showing anything.
+ */
+function client_operational_device_url(string $providerSlug, string $customerId): ?string
+{
+    if (preg_match('/\A[a-z0-9][a-z0-9-]{0,63}\z/D', $providerSlug) !== 1
+        || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D', $customerId) !== 1) {
+        return null;
+    }
+    return 'https://support.8westit.com/client.php?'
+        . http_build_query(['provider' => $providerSlug, 'customer_id' => $customerId], '', '&', PHP_QUERY_RFC3986);
+}
+
+/** This tenant's own slug, or null; only the device link depends on it. */
+function client_operational_provider_slug(PDO $pdo, int $tenantId): ?string
+{
+    try {
+        $query = $pdo->prepare('SELECT slug FROM tenants WHERE id = ?');
+        $query->execute([$tenantId]);
+        $slug = $query->fetchColumn();
+        return is_string($slug) && $slug !== '' ? $slug : null;
+    } catch (Throwable) {
+        return null;
+    }
+}
+
+/**
+ * Shared metadata for every bound client of one tenant, keyed by local client id, using the same
+ * receipt agreement as client_operational_context(). Unbound clients are absent from the map.
+ *
+ * @return array<int,array<string,mixed>>
+ */
+function client_operational_directory(PDO $pdo, int $tenantId): array
+{
+    if ($tenantId < 1) return [];
+    try {
+        $query = $pdo->prepare(
+            'SELECT binding.*, receipt.id AS receipt_id,
+                    receipt.binding_id AS receipt_binding, receipt.tenant_id AS receipt_tenant,
+                    receipt.client_id AS receipt_client, receipt.customer_id AS receipt_customer,
+                    receipt.source_version AS receipt_version, receipt.display_name AS receipt_name,
+                    receipt.status AS receipt_status, receipt.occurred_at AS receipt_time
+               FROM suite_customer_sync_bindings binding
+               LEFT JOIN suite_customer_sync_events receipt ON receipt.event_id = binding.last_event_id
+              WHERE binding.tenant_id = ?
+              ORDER BY binding.client_id'
+        );
+        $query->execute([$tenantId]);
+        $rows = $query->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable) {
+        return [];
+    }
+    $provider = client_operational_provider_slug($pdo, $tenantId);
+    $directory = [];
+    foreach ($rows as $binding) {
+        if (!is_array($binding)) continue;
+        $clientId = (int)($binding['client_id'] ?? 0);
+        if ($clientId < 1) continue;
+        $directory[$clientId] = client_operational_from_binding($binding, $tenantId, $clientId, $provider);
+    }
+    return $directory;
+}
+
 /** @return array<string,mixed> */
 function client_operational_context(PDO $pdo, int $tenantId, int $clientId): array
 {
@@ -29,7 +94,27 @@ function client_operational_context(PDO $pdo, int $tenantId, int $clientId): arr
         $query->execute([$tenantId, $clientId]);
         $binding = $query->fetch(PDO::FETCH_ASSOC);
         if (!is_array($binding)) return ['bound' => false, 'available' => false];
-        $unavailable['bound'] = true;
+        return client_operational_from_binding(
+            $binding,
+            $tenantId,
+            $clientId,
+            client_operational_provider_slug($pdo, $tenantId)
+        );
+    } catch (Throwable) {
+        return $unavailable;
+    }
+}
+
+/**
+ * One bound client's last accepted shared metadata, only when the binding and its receipt agree.
+ *
+ * @param array<string,mixed> $binding
+ * @return array<string,mixed>
+ */
+function client_operational_from_binding(array $binding, int $tenantId, int $clientId, ?string $provider): array
+{
+    $unavailable = ['bound' => true, 'available' => false];
+    try {
         $version = (int)$binding['source_version'];
         $url = client_operational_edit_url((string)$binding['customer_id'], $version);
         if ($url === null || !isset($binding['receipt_id'])
@@ -55,6 +140,8 @@ function client_operational_context(PDO $pdo, int $tenantId, int $clientId): arr
             'display_name' => $binding['display_name'], 'status' => $binding['status'],
             'source_version' => $version, 'event_id' => $binding['last_event_id'],
             'occurred_at' => $time->format('Y-m-d\TH:i:s\Z'), 'edit_url' => $url,
+            'device_url' => $provider === null ? null
+                : client_operational_device_url($provider, (string)$binding['customer_id']),
         ];
     } catch (Throwable) {
         return $unavailable;
