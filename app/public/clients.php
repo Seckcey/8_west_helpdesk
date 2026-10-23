@@ -119,7 +119,9 @@ page_top($user, 'Clients', 'clients');
     <?php endif; ?>
     <?php foreach ($section['rows'] as $c):
         $op = client_operational_directory_entry($shared, (int)$c['id']);
-        $current = $directory['primary'][(int)$c['id']] ?? null; ?>
+        $current = $directory['primary'][(int)$c['id']] ?? null;
+        // Any linked client keeps its own Coastmark history link, whatever its shared state.
+        $billingUrl = $op['available'] && is_string($op['billing_url'] ?? null) ? $op['billing_url'] : null; ?>
     <div class="crow-row">
       <a href="/client.php?id=<?= (int)$c['id'] ?>" class="crow" data-client-id="<?= (int)$c['id'] ?>">
         <span class="health-dot <?= $c['health'] === 'good' ? 'dot-mint' : 'dot-gold pulse' ?>" title="<?= h($c['health']) ?>"></span>
@@ -147,12 +149,17 @@ page_top($user, 'Clients', 'clients');
         <?php if ($op['available'] && $op['status'] === 'active' && is_string($op['device_url'] ?? null)): ?>
           <a class="btn-chip" href="<?= h($op['device_url']) ?>" target="_blank" rel="noopener">Devices ↗</a>
         <?php endif; ?>
-        <a class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>
+        <?php if ($billingUrl !== null): ?>
+          <a class="btn-chip" href="<?= h($billingUrl) ?>" target="_blank" rel="noopener" title="Opens this client in Coastmark">Billing ↗</a>
+        <?php else: ?>
+          <a class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>
+        <?php endif; ?>
       </span>
     </div>
     <?php endforeach; ?>
     <?php foreach ($section['pending'] as $customerId => $item):
-        $pendingDevices = $provider !== null ? client_operational_device_url($provider, (string)$customerId) : null; ?>
+        $pendingDevices = $provider !== null ? client_operational_device_url($provider, (string)$customerId) : null;
+        $pendingBilling = $provider !== null ? client_operational_billing_url($provider, (string)$customerId) : null; ?>
     <div class="crow-row" data-customer-pending="1">
       <span class="crow">
         <span class="health-dot dot-mint" title="active in Milepost"></span>
@@ -165,7 +172,11 @@ page_top($user, 'Clients', 'clients');
         <?php if ($pendingDevices !== null): ?>
           <a class="btn-chip" href="<?= h($pendingDevices) ?>" target="_blank" rel="noopener">Devices ↗</a>
         <?php endif; ?>
-        <a class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>
+        <?php if ($pendingBilling !== null): ?>
+          <a class="btn-chip" href="<?= h($pendingBilling) ?>" target="_blank" rel="noopener" title="Opens this client in Coastmark">Billing ↗</a>
+        <?php else: ?>
+          <a class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>
+        <?php endif; ?>
       </span>
     </div>
     <?php endforeach; ?>

@@ -216,9 +216,14 @@ foreach (['light', 'dark'] as $theme) {
         directory_ui_check(str_contains($html, 'The Milepost client directory is unavailable right now') === !$classified
             && str_contains($html, 'Milepost currently lists no shared businesses') === ($case === 'empty'),
             "$case $theme states unavailable and verified-empty differently");
+        $scoped = static fn(int $n): string => 'href="https://coastmark.8westit.com/clients?provider=8west&amp;customer_id=' . $uuid($n) . '"';
         directory_ui_check(str_contains($html, 'Valley Veterinary') === ($case === 'directory')
-            && !str_contains($html, 'Other MSP Client') && !str_contains($html, 'coastmark.8westit.com/clients'),
-            "$case $theme shows only this provider, pending Valley only from a verified directory, and the generic Billing entry");
+            && !str_contains($html, 'Other MSP Client') && !str_contains($html, $uuid(8)),
+            "$case $theme shows only this provider, and pending Valley only from a verified directory");
+        directory_ui_check(str_contains($html, $scoped(1)) && str_contains($html, $scoped(3)) && str_contains($html, $scoped(7))
+            && str_contains($html, $scoped(5)) === ($case === 'directory') && !str_contains($html, $scoped(6))
+            && substr_count($html, 'class="btn-chip" href="https://coastmark.8westit.com/auth/suite"') === 3,
+            "$case $theme gives every linked client, including inactive and removed history, its own Billing link and the rest the generic entry");
         if (is_string($out) && is_dir($out)) file_put_contents("$out/clients-$case-$theme.html", $html);
     }
     $GLOBALS['fixtureTransport'] = directory_ui_transport('directory', $houseRoster);

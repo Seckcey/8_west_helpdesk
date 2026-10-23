@@ -8,11 +8,11 @@ true before it ships. Update it when the release owner merges, deploys or checks
 
 | Surface | Change |
 | --- | --- |
-| Clients list | Each row keeps its local name, domain, SLA tier and open count, and adds the last received Milepost shared name and active/inactive state. "Local to Safeharbor" appears only when the lookup succeeded and found no binding; a failed lookup or a disagreeing receipt shows "Shared details unavailable". With Milepost's current client directory read for the request, **Businesses** lists linked clients Milepost lists as active (with the last received state beside it when Safeharbor lags) and active Milepost businesses not yet received, and **Retained and local** keeps everything else. An unavailable directory lists every client as before and says so; a verified empty one says that instead. Buttons: **Support** (local client page), **Devices** (linked active clients only), **Billing** (Coastmark's existing entry). |
-| Client page | A "Shared client" line with the shared name, state, source version and **Shared details** in Milepost, plus the client's current Milepost directory entry or "retained history". The devices card and the Suite rail open the client's own Milepost page for linked active clients; Balance and invoices open Coastmark's existing entry. |
+| Clients list | Each row keeps its local name, domain, SLA tier and open count, and adds the last received Milepost shared name and active/inactive state. "Local to Safeharbor" appears only when the lookup succeeded and found no binding; a failed lookup or a disagreeing receipt shows "Shared details unavailable". With Milepost's current client directory read for the request, **Businesses** lists linked clients Milepost lists as active (with the last received state beside it when Safeharbor lags) and active Milepost businesses not yet received, and **Retained and local** keeps everything else. An unavailable directory lists every client as before and says so; a verified empty one says that instead. Buttons: **Support** (local client page), **Devices** (linked active clients only), **Billing** (the client in Coastmark for every linked client, inactive and removed history included; Coastmark's existing entry for local or unreadable rows). |
+| Client page | A "Shared client" line with the shared name, state, source version and **Shared details** in Milepost, plus the client's current Milepost directory entry or "retained history". The devices card and the Suite rail open the client's own Milepost page for linked active clients; Balance and invoices open the client's own Coastmark page for every linked client. |
 | Edit client | Adds **Open this client's devices in Milepost** beside the existing shared-details button. |
 | New client | States that a client created here is local; shared clients come from Milepost. |
-| Westy | The prompt names the Clients sections and buttons and the client-scoped Milepost link. |
+| Westy | The prompt names the Clients sections and buttons and the client-scoped Milepost and Coastmark links. |
 | Styles | Client-directory styles only; the stylesheet cache token changes with them. |
 
 The shared name and state come from the existing binding and its matching immutable receipt
@@ -33,9 +33,15 @@ recovery steps.
 - **Devices**: `https://support.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`. The
   provider is the binding tenant's own slug. Milepost signs the user in first, then requires that
   slug to be the user's own active tenant and the UUID to be one of that tenant's current clients.
-- **Billing**: Coastmark's existing suite entry, `https://coastmark.8westit.com/auth/suite`, where
-  the user selects the client. The client-scoped Billing link is a separate, later cut that ships
-  only after Coastmark's provider + UUID route and every preserved binding are live.
+- **Billing**: for every linked client with an agreeing receipt, and for an active Milepost business
+  not yet received,
+  `https://coastmark.8westit.com/clients?provider=<slug>&customer_id=<UUID>`, built by
+  `client_operational_billing_url()` from the same slug and UUID. A shared inactive or removed state
+  does not remove it: Coastmark owns authorization and keeps retained accounting history
+  reachable. Local and unreadable rows use Coastmark's existing suite entry,
+  `https://coastmark.8westit.com/auth/suite`. This is the separate final cut (CUT2). Publish it only
+  after Coastmark's provider + UUID resolver is live and every preserved binding has been read back.
+  Old Coastmark ignores these query parameters.
 - **Support**: the local Safeharbor client page.
 - **Directory read**: Milepost's `suite-client-directory-v1` with this request's verified suite
   cookie, as described in the [customer-sync contract](milepost-customer-sync-contract.md). It is

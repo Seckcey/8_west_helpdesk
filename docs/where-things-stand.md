@@ -148,8 +148,9 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
    state beside local fields; Businesses and Retained and local from Milepost's current client
    directory; Support, Devices and Billing buttons) must not deploy before Milepost's
    `client.php?provider=…&customer_id=…` route and its `suite-client-directory-v1` read are live.
-   Billing still opens Coastmark's existing suite entry. See the
-   [release receipt](client-shared-directory-release.md).
+   The final cut's Billing link opens Coastmark's `clients?provider=…&customer_id=…` for every linked
+   client, and must not publish before Coastmark's resolver and every preserved binding are live. See
+   the [release receipt](client-shared-directory-release.md).
 
 ## Traps that have already cost time
 
