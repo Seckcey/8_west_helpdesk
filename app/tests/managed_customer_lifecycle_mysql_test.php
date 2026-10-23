@@ -1343,10 +1343,11 @@ try {
     };
     $v1Validator = 'safeharbor-managed-customer-lifecycle-restore-receipt-v1';
     $v2Validator = 'safeharbor-managed-customer-lifecycle-restore-receipt-v2';
-    $swapGuardSql = "CREATE TRIGGER trg_mc_restore_preserve_swap_insert
-        BEFORE INSERT ON managed_customer_lifecycle_restore_receipts FOR EACH ROW
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT='Managed-customer preserved-active restoration migration is incomplete'";
+    // The exact guard 032 installs; an interrupted run leaves precisely this definition.
+    $swapGuardBody = "BEGIN\n  SIGNAL SQLSTATE '45000'\n"
+        . "    SET MESSAGE_TEXT='Managed-customer preserved-active restoration migration is incomplete';\nEND";
+    $swapGuardSql = "CREATE TRIGGER trg_mc_restore_preserve_swap_insert\n"
+        . "BEFORE INSERT ON managed_customer_lifecycle_restore_receipts\nFOR EACH ROW\n" . $swapGuardBody;
     $restoreCount = static function (int $clientId) use ($pdo): int {
         $count = $pdo->prepare(
             'SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=3 AND client_id=?'
@@ -1422,6 +1423,47 @@ try {
         $restoreGuardsAre($v2Validator),
         'migration 032 applies and replays to the v2 validator and both immutability guards, with no swap guard',
     );
+
+    // A same-name swap guard is trusted only by its exact fail-closed definition. One that merely carries
+    // the marker, fires at the wrong time, or sits on another table is refused before the validator is
+    // dropped, so restore inserts never run unguarded.
+    $completedGuards = $restoreTriggers();
+    foreach ([
+        'a marker-only body' => "CREATE TRIGGER trg_mc_restore_preserve_swap_insert BEFORE INSERT
+            ON managed_customer_lifecycle_restore_receipts FOR EACH ROW
+            SET @mc_swap_marker='Managed-customer preserved-active restoration migration is incomplete'",
+        'the exact body after insert' => "CREATE TRIGGER trg_mc_restore_preserve_swap_insert\n"
+            . "AFTER INSERT ON managed_customer_lifecycle_restore_receipts\nFOR EACH ROW\n" . $swapGuardBody,
+        'the exact body on another table' => "CREATE TRIGGER trg_mc_restore_preserve_swap_insert\n"
+            . "BEFORE INSERT ON managed_customer_lifecycle_receipts\nFOR EACH ROW\n" . $swapGuardBody,
+    ] as $label => $wrongSwapSql) {
+        $pdo->exec($wrongSwapSql);
+        foreach ([false, true] as $validatorDropped) {
+            if ($validatorDropped) {
+                $validatorSql = (string)$pdo->query('SHOW CREATE TRIGGER trg_mc_restore_before_insert')
+                    ->fetch(PDO::FETCH_ASSOC)['SQL Original Statement'];
+                $pdo->exec('DROP TRIGGER trg_mc_restore_before_insert');
+            }
+            $wrongState = $restoreTriggers();
+            lifecycle_mysql_refuses(
+                PDOException::class,
+                static fn() => lifecycle_mysql_execute_file($pdo, $migration032),
+                'migration 032 refuses a swap guard with ' . $label
+                    . ($validatorDropped ? ' after the validator is gone' : ''),
+            );
+            lifecycle_mysql_check(
+                $restoreTriggers() === $wrongState,
+                'a refused 032 run with ' . $label . ' changes no restore-receipt trigger',
+            );
+            if ($validatorDropped) $pdo->exec($validatorSql);
+        }
+        $pdo->exec('DROP TRIGGER trg_mc_restore_preserve_swap_insert');
+        lifecycle_mysql_check($restoreTriggers() === $completedGuards, 'wrong swap guard fixture ' . $label . ' removed');
+    }
+    // Interrupted after the new validator but before the swap guard is dropped: exact replay converges.
+    $pdo->exec($swapGuardSql);
+    lifecycle_mysql_execute_file($pdo, $migration032);
+    lifecycle_mysql_check($restoreGuardsAre($v2Validator), 'exact 032 replay converges with the v2 validator and the swap guard');
 
     $pdo->exec($swapGuardSql);
     $pdo->exec('DROP TRIGGER trg_mc_restore_before_insert');
@@ -1508,6 +1550,42 @@ try {
             && $restoreCount(41) === 1
             && lifecycle_mysql_surface_rows($pdo, 3, 41, $oneKey) === $oneBefore,
         'a lost-ack preserved-active replay writes nothing and returns the committed receipt',
+    );
+
+    // Three: preserved-active never compares or rewrites the report contact. ID's current recipient differs
+    // from the active schedule's, even at the same contact version, and nothing is refused or written.
+    $preservedThree = '55555555-5555-4555-8555-555555555555';
+    $threeEvent = static fn(int $version): string => sprintf('53000000-0000-4000-8000-%012d', $version);
+    $threeKey = managed_customer_activation_schedule_key($preservedThree);
+    $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (43,3,'Preserved Three')");
+    $threeReport = lifecycle_mysql_report_config($preservedThree, 43, 'preserved-three@example.test', 'provider-three');
+    lifecycle_mysql_seed_active(
+        $pdo, $preservedThree, 43, 543, $threeEvent(1), 'ewid-t95', 'preserved-three', 3, 'provider-three', 301,
+    );
+    lifecycle_mysql_mark_inactive($pdo, 543, $threeEvent(2), hash('sha256', $threeEvent(2)));
+    lifecycle_mysql_mark_active($pdo, 543, $threeEvent(3), hash('sha256', $threeEvent(3)));
+    $threeEvidence = lifecycle_mysql_restore_evidence($preservedThree, 3, $threeEvent(3), 'ewid-t95', 'preserved-three');
+    $threeEvidence['contact_version'] = 1;
+    $threeEvidence['recipient_email'] = 'changed-three@example.test';
+    $threeBefore = lifecycle_mysql_surface_rows($pdo, 3, 43, $threeKey);
+    $threeResult = managed_customer_lifecycle_restore(
+        $runtime, lifecycle_mysql_candidate($pdo, $preservedThree), $threeEvidence, 301,
+        lifecycle_mysql_three_config($preservedThree, true), $threeReport,
+    );
+    $threeReceipt = $pdo->query(
+        'SELECT recipient_sha256, contact_version, schedule_restored, contact_snapshot_id
+           FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=3 AND client_id=43'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    lifecycle_mysql_check(
+        ($threeResult['action'] ?? null) === 'restored'
+            && ($threeResult['report_schedule_restored'] ?? null) === 0
+            && count($threeReceipt) === 1 && $threeReceipt[0]['contact_snapshot_id'] === null
+            && (string)$threeReceipt[0]['recipient_sha256'] === hash('sha256', 'changed-three@example.test')
+            && lifecycle_mysql_surface_rows($pdo, 3, 43, $threeKey) === $threeBefore
+            && (string)$pdo->query("SELECT recipient_email FROM business_report_schedule_versions
+                WHERE tenant_id=3 AND client_id=43 ORDER BY version_no DESC LIMIT 1")->fetchColumn() === 'preserved-three@example.test'
+            && managed_customer_operational($pdo, 3, 43),
+        'a differing ID contact on a preserved-active schedule is recorded as evidence, never refused, and changes no recipient, schedule or contact byte',
     );
 
     // Two: contain v2, restore the owned surfaces at v3, then a later active v4

@@ -154,10 +154,15 @@ changed. Its preflight accepts only the completed 024 guards, a completed 032,
 or an interrupted 032. It proves TRIGGER privilege, then installs
 `trg_mc_restore_preserve_swap_insert`, which refuses every restore-receipt
 insert until the new validator and both unchanged immutability guards pass the
-postflight; only then is the swap guard dropped. The no-update/no-delete guards
-are never touched. An interrupted run stays closed, and an exact replay
-converges. `app/db/schema.sql` carries the same v2 validator. 024 is never
-edited.
+postflight; only then is the swap guard dropped. The swap guard is recognized
+only by its exact fail-closed definition: a row-level BEFORE INSERT trigger on
+the restore-receipt table whose whole body is that SIGNAL, compared byte for
+byte. A marker string alone is not enough. A same-name trigger with any other
+body, timing, event or table refuses in the preflight and again before the old
+validator is dropped. The no-update/no-delete guards are never touched. An
+interrupted run stays closed, and an exact replay converges. Apply it from a
+canonical LF checkout, because the comparison is byte-exact.
+`app/db/schema.sql` carries the same v2 validator. 024 is never edited.
 
 Apply and recover through the existing deploy path, which backs the database
 up, stops the app and its jobs, and applies the database change before the
@@ -204,9 +209,15 @@ Focused coverage:
   least-privilege restore, and fresh-schema parity (024 + 032) on a disposable
   MySQL database. For 032 it covers:
   - DML-only refusal, replay, an interrupted swap and a refused unknown state;
+  - a wrong same-name swap guard (marker-only body, AFTER timing, other table),
+    refused with and without the validator and changing no trigger;
+  - exact replay from both interrupted points (validator gone, and v2 present
+    with the swap guard);
   - new code refused under 024;
   - preserved-active restoration with byte- and row-count-identical portal,
-    events, schedule, contacts and reports;
+    events, schedule, contacts and reports, including an ID contact that differs
+    from the active schedule's at the same version, which is recorded as evidence
+    and never refused;
   - replay, two competing workers and rollback;
   - stale, wrong-event, wrong-UUID and `observed_active` refusals;
   - forged owner or stale audit/version receipts refused by the guard;

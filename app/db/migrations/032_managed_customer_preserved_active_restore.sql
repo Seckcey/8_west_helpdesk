@@ -21,6 +21,17 @@
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 
+-- The swap guard is recognized only by its exact fail-closed definition (a
+-- row-level BEFORE INSERT on the restore-receipt table whose whole body is this
+-- SIGNAL), never by a marker string alone. A same-name trigger with any other
+-- body, timing, event or table refuses before the validator is touched.
+SET @mc_preserve_swap_body=CONCAT(
+  'BEGIN',CHAR(10),
+  '  SIGNAL SQLSTATE ''45000''',CHAR(10),
+  '    SET MESSAGE_TEXT=''Managed-customer preserved-active restoration migration is incomplete'';',CHAR(10),
+  'END'
+);
+
 -- Accepted starting states: the completed 024 guards (v1 validator) or a
 -- completed 032 (v2), each with no swap guard; or an interrupted 032, where the
 -- swap guard exists and the validator is v1, v2 or absent. Anything else,
@@ -63,7 +74,13 @@ SET @mc_preserve_swap_count=(
      AND event_object_table='managed_customer_lifecycle_restore_receipts'
      AND trigger_name='trg_mc_restore_preserve_swap_insert'
      AND action_timing='BEFORE' AND event_manipulation='INSERT'
-     AND action_statement LIKE '%Managed-customer preserved-active restoration migration is incomplete%'
+     AND action_orientation='ROW'
+     AND BINARY action_statement=BINARY @mc_preserve_swap_body
+);
+SET @mc_preserve_swap_name_count=(
+  SELECT COUNT(*) FROM information_schema.triggers
+   WHERE trigger_schema=DATABASE()
+     AND trigger_name='trg_mc_restore_preserve_swap_insert'
 );
 SET @mc_preserve_trigger_total=(
   SELECT COUNT(*) FROM information_schema.triggers
@@ -73,6 +90,7 @@ SET @mc_preserve_trigger_total=(
 SET @mc_preserve_preflight_sql=IF(
   @mc_preserve_table_ok=1 AND @mc_preserve_installed_ok=1
   AND @mc_preserve_immutable_ok=1
+  AND @mc_preserve_swap_name_count=@mc_preserve_swap_count
   AND ((@mc_preserve_swap_count=0 AND @mc_preserve_validator_count=1
         AND @mc_preserve_trigger_total=3)
     OR (@mc_preserve_swap_count=1
@@ -106,7 +124,12 @@ SET @mc_preserve_swap_ok=(
      AND event_object_table='managed_customer_lifecycle_restore_receipts'
      AND trigger_name='trg_mc_restore_preserve_swap_insert'
      AND action_timing='BEFORE' AND event_manipulation='INSERT'
-     AND action_statement LIKE '%Managed-customer preserved-active restoration migration is incomplete%'
+     AND action_orientation='ROW'
+     AND BINARY action_statement=BINARY @mc_preserve_swap_body
+) AND (
+  SELECT COUNT(*)=1 FROM information_schema.triggers
+   WHERE trigger_schema=DATABASE()
+     AND trigger_name='trg_mc_restore_preserve_swap_insert'
 );
 SET @mc_preserve_swap_sql=IF(
   @mc_preserve_swap_ok=1,
@@ -499,7 +522,8 @@ SET @mc_preserve_postflight_ok=(
        OR (trigger_name='trg_mc_restore_no_delete' AND event_manipulation='DELETE'
         AND action_statement LIKE '%safeharbor-managed-customer-lifecycle-restore-immutable-v1%')
        OR (trigger_name='trg_mc_restore_preserve_swap_insert' AND event_manipulation='INSERT'
-        AND action_statement LIKE '%Managed-customer preserved-active restoration migration is incomplete%')
+        AND action_orientation='ROW'
+        AND BINARY action_statement=BINARY @mc_preserve_swap_body)
      )
 ) AND (
   SELECT COUNT(*)=4 FROM information_schema.triggers
