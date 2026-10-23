@@ -49,6 +49,27 @@ deletion. Shared inactive state belongs in the canonical editor, which retains
 the relationship. Existing exact-current human access-restoration requirements
 remain separate from a canonical active receipt.
 
+### Clients directory and per-client app links (source candidate)
+
+The Clients list reads every bound client's last accepted shared name and
+active/inactive state in one query, with the same binding/receipt agreement as
+the editor, and shows it beside the local name and domain. Unbound clients read
+"Local to Safeharbor"; a disagreeing receipt reads "Shared details unavailable".
+Each row keeps its keyboard-selectable client link and adds three buttons:
+
+- **Support** opens the local client page;
+- **Devices** (linked, available, active clients only) opens Milepost's
+  `https://support.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`.
+  The provider is the binding tenant's own slug, which the receiver requires to
+  equal the event's tenant slug. Milepost signs the user in and checks its own
+  tenant before resolving anything, so the link carries no authority;
+- **Billing** opens Coastmark's existing suite entry, where the user selects the
+  client. A client-scoped Coastmark link waits for Coastmark's own route.
+
+The client page shows the same shared line and uses the client-scoped Milepost
+link for linked active clients. These links are presentation only: they must
+not be released before Milepost's provider + UUID route is live.
+
 Focused coverage: `app/tests/client_operational_context_test.php`; existing
 customer-sync/lifecycle fixtures continue to own ordered receipt and restoration
 semantics. Runtime convergence and real-user acceptance are separate release

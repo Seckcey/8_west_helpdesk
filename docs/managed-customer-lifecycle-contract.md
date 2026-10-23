@@ -105,6 +105,14 @@ surface transitions and evidence commit atomically. Any unsigned/non-200,
 stale, mismatched, `observed_active`, inactive, lifecycle-owned, old-source,
 or ambiguous state stays off.
 
+The Clients list and client page show a bound client's last received shared
+active/inactive state. That label reports the receipt only; it neither clears
+nor sets this latch, and it does not reopen a portal, report or schedule.
+A same-UUID Milepost restoration (original inactive v2, then active v3) still
+needs this restoration path for the exact current v3. Restoring an already
+active, never-contained portal is not supported by the current restore
+validator; that change is a separate reviewed migration.
+
 ## Migration and tests
 
 Migration `024_managed_customer_lifecycle.sql` is additive. It creates separate
