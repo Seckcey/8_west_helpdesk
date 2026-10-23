@@ -81,6 +81,11 @@ recovery steps.
    Until it is applied, a schema-2 Milepost event is a retryable 500 and the report wrapper's
    lifecycle child refuses for lack of its cursor; neither writes anything. Milepost must not mint
    schema 2 for Safeharbor before 033 is applied. Never replay 015 after 033.
+6. Migration 034 (identity-only restore receipts, validator v3) is a further database-first gate after
+   032: `bash deploy/deploy.sh --migrate app/db/migrations/034_managed_customer_identity_lifecycle_restore.sql`.
+   Until it is applied, the scheduled mode refuses an admitted lineage's restoration before any ID
+   request; the explicit scope's schema-2 restore is unaffected. ID must serve the schema-3 identity
+   purpose before restoration is enabled for an admitted lineage. Never replay 024 or 032 after 034.
 
 ## Checks to run (owner)
 
@@ -88,7 +93,7 @@ recovery steps.
   and identity-evidence suites in the normal CI jobs.
 - `php app/tests/managed_customer_lifecycle_test.php`, `php app/tests/managed_customer_lifecycle_scheduler_test.php`
   and, on a disposable MySQL server, `php app/tests/managed_customer_lifecycle_mysql_test.php`
-  (024 + 032 + the scheduled mode) and `php app/tests/suite_customer_sync_mysql_test.php` (015 + 033).
+  (024 + 032 + the scheduled mode + 034) and `php app/tests/suite_customer_sync_mysql_test.php` (015 + 033).
 - `sudo bash app/tests/business_report_wrapper_linux_test.sh` for the wrapper's lifecycle child.
 - The browser job, including `node tools/shots/client-shared-directory.test.mjs`, and a visual check
   of the Clients list on desktop and narrow screens.

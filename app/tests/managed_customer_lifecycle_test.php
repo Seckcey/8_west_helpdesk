@@ -292,6 +292,104 @@ function lifecycle_sqlite(string $currentStatus = 'inactive', bool $portalActive
     return $pdo;
 }
 
+/**
+ * The 034 shape: the nullable report-map carrier and contact facts, the identity metadata and anchor
+ * columns, the 033 immutable event admission (birth `created`), and one current managed provider for
+ * provider-one with issuer 44 whose owner is the allowlisted actor.
+ */
+function lifecycle_identity_sqlite(string $currentStatus = 'active', bool $portalActive = true, bool $scheduleActive = true): PDO
+{
+    $pdo = lifecycle_sqlite($currentStatus, $portalActive, $scheduleActive);
+    foreach ([
+        'DROP TABLE managed_customer_lifecycle_restore_receipts',
+        'CREATE TABLE managed_customer_lifecycle_restore_receipts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+            client_id INTEGER NOT NULL, source_binding_id INTEGER NOT NULL,
+            customer_id TEXT NOT NULL, source_event_receipt_id INTEGER NOT NULL,
+            source_event_id TEXT NOT NULL, source_version INTEGER NOT NULL,
+            source_request_sha256 TEXT NOT NULL, id_customer_receipt_id TEXT NOT NULL,
+            id_customer_status TEXT NOT NULL, id_lifecycle_version INTEGER NOT NULL,
+            id_lifecycle_transition_id INTEGER NOT NULL, id_lifecycle_action TEXT NOT NULL,
+            id_lifecycle_evidence_sha256 TEXT NOT NULL,
+            id_identity_tenant_status TEXT NOT NULL, id_oauth_session_version INTEGER NOT NULL,
+            id_lifecycle_owned INTEGER NOT NULL, id_tenant_key TEXT NULL,
+            identity_tenant_slug TEXT NOT NULL, contact_version INTEGER NULL,
+            recipient_sha256 TEXT NULL, id_response_generated_at TEXT NOT NULL,
+            id_request_nonce_sha256 TEXT NOT NULL, id_response_sha256 TEXT NOT NULL,
+            portal_owner_receipt_id INTEGER NULL, portal_binding_id INTEGER NULL,
+            portal_before_event_id INTEGER NULL, portal_active_event_id INTEGER NULL,
+            portal_restored INTEGER NOT NULL, portal_state_sha256 TEXT NULL,
+            schedule_owner_receipt_id INTEGER NULL, schedule_key TEXT NOT NULL,
+            schedule_before_version_id INTEGER NULL, schedule_prepared_version_id INTEGER NULL,
+            contact_snapshot_id INTEGER NULL, schedule_active_version_id INTEGER NULL,
+            schedule_restored INTEGER NOT NULL, schedule_state_sha256 TEXT NULL,
+            actor_user_id INTEGER NOT NULL, evidence_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            id_proof_scope TEXT NULL, id_initial_receipt_id TEXT NULL, id_provider_tenant_slug TEXT NULL,
+            id_issuer_suite_tenant_id INTEGER NULL, id_projection_binding_sha256 TEXT NULL,
+            id_projection_tenant_key TEXT NULL, id_restore_anchor_source_version INTEGER NULL,
+            id_restore_anchor_receipt_id TEXT NULL, id_restore_anchor_event_id TEXT NULL,
+            id_restore_anchor_transition_id INTEGER NULL, id_restore_anchor_evidence_sha256 TEXT NULL,
+            UNIQUE(customer_id,source_version), UNIQUE(source_event_receipt_id))',
+        'ALTER TABLE suite_customer_sync_events ADD COLUMN admission TEXT NULL',
+        "UPDATE suite_customer_sync_events SET admission='created' WHERE source_version=1",
+        'ALTER TABLE users ADD COLUMN suite_subject TEXT NULL',
+        "UPDATE users SET suite_subject='owner-subject-101' WHERE id=101",
+        'CREATE TABLE suite_managed_providers (
+            tenant_id INTEGER PRIMARY KEY, issuer_tenant_id INTEGER NOT NULL, provider_slug TEXT NOT NULL UNIQUE,
+            owner_user_id INTEGER NOT NULL, owner_subject TEXT NOT NULL, lease_until TEXT NOT NULL)',
+        "INSERT INTO suite_managed_providers VALUES (1,44,'provider-one',101,'owner-subject-101','2999-01-01 00:00:00')",
+    ] as $sql) {
+        $pdo->exec($sql);
+    }
+    return $pdo;
+}
+
+/** A decoded schema-3 identity-only proof (managed_customer_id_identity_decode_response() shape). */
+function lifecycle_identity_proof(
+    int $version = 3,
+    string $eventId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    string $action = 'restored',
+): array {
+    return [
+        'schema_version' => 3,
+        'proof_scope' => 'identity_lifecycle_only',
+        'customer_id' => '11111111-1111-4111-8111-111111111111',
+        'provider_tenant_slug' => 'provider-one',
+        'source_version' => $version,
+        'customer_receipt_id' => str_repeat('1', 64),
+        'customer_event_id' => $eventId,
+        'initial_receipt_id' => str_repeat('e', 64),
+        'customer_status' => 'active',
+        'lifecycle_version' => 1,
+        'lifecycle_transition_id' => 9 + $version,
+        'lifecycle_action' => $action,
+        'lifecycle_evidence_sha256' => str_repeat('4', 64),
+        'identity_tenant_status' => 'active',
+        'identity_oauth_session_version' => 5,
+        'lifecycle_owned' => false,
+        'tenant_key' => 'ewid-t91',
+        'tenant_slug' => 'managed-one',
+        'issuer_suite_tenant_id' => 44,
+        'projection_binding_sha256' => str_repeat('f', 64),
+        'restoration_anchor' => [
+            'source_version' => 3,
+            'receipt_id' => str_repeat('a', 64),
+            'event_id' => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            'transition_id' => 12,
+            'evidence_sha256' => str_repeat('d', 64),
+        ],
+        'generated_at_db' => '2026-08-30 17:00:00',
+        'request_nonce_sha256' => str_repeat('2', 64),
+        'response_sha256' => str_repeat('3', 64),
+    ];
+}
+
+function lifecycle_restore_count(PDO $pdo): int
+{
+    return (int)$pdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts')->fetchColumn();
+}
+
 function lifecycle_candidate(PDO $pdo): array
 {
     $rows = managed_customer_lifecycle_candidates($pdo, lifecycle_config());
@@ -1035,6 +1133,307 @@ lifecycle_check(
             'SELECT status FROM customer_portal_bindings WHERE tenant_id=1 AND client_id=11'
         )->fetchColumn() === 'disabled',
     'an earlier refused customer starved a later allowlisted containment',
+);
+
+// Schema-3 identity-only restoration (A88/A95/A97) on the 034 shape. It clears the identity latch,
+// never writes a report/contact/schedule row and never borrows the legacy contact digest.
+$identityConfig = lifecycle_config(['restoration_enabled' => true]);
+lifecycle_check(
+    !managed_customer_lifecycle_identity_restore_available(lifecycle_sqlite())
+        && managed_customer_lifecycle_identity_restore_available(lifecycle_identity_sqlite()),
+    'the migration 034 capability check is not exact',
+);
+lifecycle_check(
+    managed_customer_lifecycle_house_issuer(['8west' => 'ewid-t70']) === 70
+        && managed_customer_lifecycle_house_issuer(['8west' => 'ewid-t0']) === null
+        && managed_customer_lifecycle_house_issuer(['8west' => 70]) === null
+        && managed_customer_lifecycle_house_issuer(['other' => 'ewid-t70']) === null
+        && managed_customer_lifecycle_house_issuer(null) === null,
+    'the house issuer is not exactly the nonsecret 8west slug mapping',
+);
+
+// Direct current restored v3 (Lifestyle-like) with preserved active portal and report: zero writes.
+$identityPdo = lifecycle_identity_sqlite();
+$identityBefore = lifecycle_surface_rows($identityPdo);
+$identityCandidate = lifecycle_candidate($identityPdo);
+$identityResult = managed_customer_lifecycle_identity_restore(
+    $identityPdo, $identityCandidate, lifecycle_identity_proof(), 101, $identityConfig,
+);
+$identityReceipt = $identityPdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts')->fetch(PDO::FETCH_ASSOC);
+$identitySchedule = $identityPdo->query('SELECT * FROM business_report_schedule_versions WHERE id=802')->fetch(PDO::FETCH_ASSOC);
+lifecycle_check(
+    $identityResult['action'] === 'restored'
+        && $identityResult['proof_scope'] === 'identity_lifecycle_only'
+        && $identityResult['portal_restored'] === 0
+        && $identityResult['report_schedule_restored'] === 0
+        && lifecycle_surface_rows($identityPdo) === $identityBefore
+        && managed_customer_operational($identityPdo, 1, 11),
+    'an exact identity-only proof did not clear the latch with zero surface writes',
+);
+lifecycle_check(
+    is_array($identityReceipt)
+        && managed_customer_lifecycle_identity_restore_receipt_valid($identityReceipt)
+        && !managed_customer_lifecycle_restore_receipt_valid($identityReceipt)
+        && (string)$identityReceipt['id_proof_scope'] === 'identity_lifecycle_only'
+        && $identityReceipt['id_tenant_key'] === null
+        && $identityReceipt['contact_version'] === null
+        && $identityReceipt['recipient_sha256'] === null
+        && (string)$identityReceipt['id_projection_tenant_key'] === 'ewid-t91'
+        && (string)$identityReceipt['id_provider_tenant_slug'] === 'provider-one'
+        && (int)$identityReceipt['id_issuer_suite_tenant_id'] === 44
+        && (string)$identityReceipt['id_initial_receipt_id'] === str_repeat('e', 64)
+        && (int)$identityReceipt['id_restore_anchor_source_version'] === 3
+        && (string)$identityReceipt['id_restore_anchor_event_id'] === 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+        && (int)$identityReceipt['schedule_before_version_id'] === 802
+        && (string)$identityReceipt['schedule_state_sha256'] === managed_customer_lifecycle_schedule_sha256($identitySchedule)
+        && (int)$identityReceipt['schedule_restored'] === 0
+        && $identityReceipt['schedule_owner_receipt_id'] === null
+        && $identityReceipt['schedule_prepared_version_id'] === null
+        && $identityReceipt['contact_snapshot_id'] === null
+        && $identityReceipt['schedule_active_version_id'] === null,
+    'the identity-only receipt did not record the exact signed identity, anchor and actual schedule state without contact facts',
+);
+lifecycle_refuses(
+    ManagedCustomerLifecycleValidationException::class,
+    static fn() => managed_customer_lifecycle_identity_restore_receipt_sha256(
+        array_replace($identityReceipt, ['id_projection_tenant_key' => null]),
+    ),
+    'a NULL identity fact produced an identity-only digest',
+);
+$identityReplayProof = lifecycle_identity_proof();
+$identityReplayProof['request_nonce_sha256'] = str_repeat('5', 64);
+$identityReplayProof['response_sha256'] = str_repeat('6', 64);
+$identityReplay = managed_customer_lifecycle_identity_restore(
+    $identityPdo, $identityCandidate, $identityReplayProof, 101, $identityConfig,
+);
+lifecycle_check(
+    $identityReplay['action'] === 'restore_replayed'
+        && $identityReplay['evidence_sha256'] === (string)$identityReceipt['evidence_sha256']
+        && lifecycle_restore_count($identityPdo) === 1
+        && lifecycle_surface_rows($identityPdo) === $identityBefore,
+    'identity-only replay wrote again or changed the committed receipt',
+);
+$changedReplay = lifecycle_identity_proof();
+$changedReplay['projection_binding_sha256'] = str_repeat('0', 64);
+lifecycle_refuses(
+    ManagedCustomerLifecycleConflictException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        $identityPdo, $identityCandidate, $changedReplay, 101, $identityConfig,
+    ),
+    'a changed signed projection replayed as the committed identity-only restore',
+);
+lifecycle_refuses(
+    ManagedCustomerLifecycleConflictException::class,
+    static fn() => managed_customer_lifecycle_restore(
+        $identityPdo, $identityCandidate, lifecycle_base_evidence(), 101, $identityConfig, lifecycle_report_config(),
+    ),
+    'a schema-2 contact restore replayed over a committed identity-only receipt',
+);
+lifecycle_refuses(
+    ManagedCustomerLifecycleValidationException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        lifecycle_identity_sqlite(), $identityCandidate, lifecycle_base_evidence(), 101, $identityConfig,
+    ),
+    'schema-2 contact evidence was accepted as an identity-only proof',
+);
+
+// The queued restore→rename before the first SH tick (A92/A95): current v4 observed_active with the
+// actual restored anchor v3 clears the latch; a later active rename v5 reuses the same anchor.
+$queuedPdo = lifecycle_identity_sqlite();
+lifecycle_sqlite_advance($queuedPdo, 4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'active', str_repeat('d', 64));
+$queuedBefore = lifecycle_surface_rows($queuedPdo);
+$queued = managed_customer_lifecycle_identity_restore(
+    $queuedPdo, lifecycle_candidate($queuedPdo),
+    lifecycle_identity_proof(4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'observed_active'), 101, $identityConfig,
+);
+$queuedReceipt = $queuedPdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts')->fetch(PDO::FETCH_ASSOC);
+lifecycle_check(
+    $queued['action'] === 'restored'
+        && (int)$queuedReceipt['source_version'] === 4
+        && (string)$queuedReceipt['id_lifecycle_action'] === 'observed_active'
+        && (int)$queuedReceipt['id_restore_anchor_source_version'] === 3
+        && lifecycle_surface_rows($queuedPdo) === $queuedBefore
+        && managed_customer_operational($queuedPdo, 1, 11),
+    'a queued restore→rename with the actual restored anchor did not clear the latch with zero writes',
+);
+lifecycle_sqlite_advance($queuedPdo, 5, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'active', str_repeat('e', 64));
+$renamedAgain = managed_customer_lifecycle_identity_restore(
+    $queuedPdo, lifecycle_candidate($queuedPdo),
+    lifecycle_identity_proof(5, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'observed_active'), 101, $identityConfig,
+);
+lifecycle_check(
+    $renamedAgain['action'] === 'restored' && lifecycle_restore_count($queuedPdo) === 2
+        && lifecycle_surface_rows($queuedPdo) === $queuedBefore
+        && managed_customer_operational($queuedPdo, 1, 11),
+    'a later active rename with the same anchor wrote a surface or did not clear its own latch',
+);
+
+// Missing, forged, foreign, gapped and stale proofs refuse with no write and the latch kept.
+$refusePdo = lifecycle_identity_sqlite();
+lifecycle_sqlite_advance($refusePdo, 4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'active', str_repeat('d', 64));
+$refuseCandidate = lifecycle_candidate($refusePdo);
+$refuseBefore = lifecycle_surface_rows($refusePdo);
+$v4 = static fn(): array => lifecycle_identity_proof(4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'observed_active');
+$noAnchor = $v4();
+$noAnchor['restoration_anchor'] = null;
+$forgedAnchor = $v4();
+$forgedAnchor['restoration_anchor']['event_id'] = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+$inactiveAnchor = $v4();
+$inactiveAnchor['restoration_anchor'] = array_replace($inactiveAnchor['restoration_anchor'],
+    ['source_version' => 2, 'event_id' => 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb']);
+$laterAnchor = $v4();
+$laterAnchor['restoration_anchor'] = array_replace($laterAnchor['restoration_anchor'],
+    ['source_version' => 4, 'event_id' => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd']);
+$restoredOlder = lifecycle_identity_proof(4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'restored');
+$foreignProvider = $v4();
+$foreignProvider['provider_tenant_slug'] = 'provider-two';
+$foreignIssuer = $v4();
+$foreignIssuer['issuer_suite_tenant_id'] = 45;
+foreach ([
+    'observed_active alone with no anchor cleared a post-inactive latch' => $noAnchor,
+    'a forged anchor event cleared the latch' => $forgedAnchor,
+    'an anchor at the inactive version cleared the latch' => $inactiveAnchor,
+    'an anchor that is not directly after the latest inactive version cleared the latch' => $laterAnchor,
+    'a current restored action with an older anchor cleared the latch' => $restoredOlder,
+    'another provider proof cleared the latch' => $foreignProvider,
+    'another issuer proof cleared the latch' => $foreignIssuer,
+    'a stale v3 proof cleared the v4 latch' => lifecycle_identity_proof(),
+] as $label => $badProof) {
+    lifecycle_refuses(
+        ManagedCustomerLifecycleGateException::class,
+        static fn() => managed_customer_lifecycle_identity_restore(
+            $refusePdo, $refuseCandidate, $badProof, 101, $identityConfig,
+        ),
+        $label,
+    );
+}
+lifecycle_check(
+    lifecycle_surface_rows($refusePdo) === $refuseBefore && lifecycle_restore_count($refusePdo) === 0
+        && !managed_customer_operational($refusePdo, 1, 11),
+    'a refused identity-only proof wrote a surface or receipt or cleared the latch',
+);
+$newerPdo = lifecycle_identity_sqlite();
+lifecycle_sqlite_advance($newerPdo, 4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'inactive', str_repeat('d', 64));
+lifecycle_sqlite_advance($newerPdo, 5, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'active', str_repeat('e', 64));
+lifecycle_refuses(
+    ManagedCustomerLifecycleGateException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        $newerPdo, lifecycle_candidate($newerPdo),
+        lifecycle_identity_proof(5, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'observed_active'), 101, $identityConfig,
+    ),
+    'a newer inactive version did not invalidate the older anchor',
+);
+$newerDirect = lifecycle_identity_proof(5, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'restored');
+$newerDirect['restoration_anchor'] = array_replace($newerDirect['restoration_anchor'],
+    ['source_version' => 5, 'event_id' => 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee']);
+lifecycle_check(
+    managed_customer_lifecycle_identity_restore(
+        $newerPdo, lifecycle_candidate($newerPdo), $newerDirect, 101, $identityConfig,
+    )['action'] === 'restored' && managed_customer_operational($newerPdo, 1, 11),
+    'the actual new direct restored anchor after the newer inactive version was refused',
+);
+$gapPdo = lifecycle_identity_sqlite();
+$gapPdo->exec('UPDATE suite_customer_sync_events SET source_version=9 WHERE source_version=1');
+lifecycle_refuses(
+    ManagedCustomerLifecycleConflictException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        $gapPdo, $identityCandidate, lifecycle_identity_proof(), 101, $identityConfig,
+    ),
+    'a gapped local history was accepted for an identity-only restore',
+);
+$unadmittedPdo = lifecycle_identity_sqlite();
+$unadmittedPdo->exec('UPDATE suite_customer_sync_events SET admission=NULL');
+lifecycle_refuses(
+    ManagedCustomerLifecycleGateException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        $unadmittedPdo, $identityCandidate, lifecycle_identity_proof(), 101, $identityConfig,
+    ),
+    'a lineage without an immutable admission used the identity-only restore',
+);
+$withdrawnPdo = lifecycle_identity_sqlite();
+$withdrawnPdo->exec("UPDATE suite_managed_providers SET lease_until='2000-01-01 00:00:00'");
+lifecycle_refuses(
+    ManagedCustomerLifecycleGateException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        $withdrawnPdo, $identityCandidate, lifecycle_identity_proof(), 101, $identityConfig,
+    ),
+    'a withdrawn provider restored by identity-only proof',
+);
+lifecycle_check(
+    lifecycle_restore_count($gapPdo) === 0 && lifecycle_restore_count($unadmittedPdo) === 0
+        && lifecycle_restore_count($withdrawnPdo) === 0,
+    'a refused identity-only authority check left a receipt',
+);
+$houseProof = lifecycle_identity_proof();
+$houseProof['provider_tenant_slug'] = '8west';
+lifecycle_refuses(
+    ManagedCustomerLifecycleGateException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        lifecycle_identity_sqlite(), array_replace($identityCandidate, ['provider_tenant_slug' => '8west']), $houseProof, 101,
+        lifecycle_config(['restoration_enabled' => true, 'tenant_actors' => ['8west' => 101]]), ['8west' => 'ewid-t45'],
+    ),
+    'a house proof whose issuer differs from the nonsecret slug mapping was accepted',
+);
+
+// An existing report-ID map must match the signed key; an absent map uses the signed projection key.
+$mapPdo = lifecycle_identity_sqlite();
+$otherKey = lifecycle_identity_proof();
+$otherKey['tenant_key'] = 'ewid-t92';
+lifecycle_refuses(
+    ManagedCustomerLifecycleConflictException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        $mapPdo, $identityCandidate, $otherKey, 101, $identityConfig,
+    ),
+    'an existing report-ID map that differs from the signed key was ignored',
+);
+$mapPdo->exec('DELETE FROM business_report_id_client_bindings');
+$absentMap = managed_customer_lifecycle_identity_restore($mapPdo, $identityCandidate, $otherKey, 101, $identityConfig);
+lifecycle_check(
+    $absentMap['action'] === 'restored'
+        && (string)$mapPdo->query('SELECT id_projection_tenant_key FROM managed_customer_lifecycle_restore_receipts')->fetchColumn() === 'ewid-t92'
+        && (int)$mapPdo->query('SELECT COUNT(*) FROM business_report_id_client_bindings')->fetchColumn() === 0,
+    'an absent report-ID map was invented or blocked the signed identity-only restore',
+);
+
+// An owned-disabled report never blocks identity and is never released; the owned portal is restored.
+$ownedPdo = lifecycle_identity_sqlite('inactive', true, true);
+managed_customer_lifecycle_apply($ownedPdo, lifecycle_candidate($ownedPdo), 101, lifecycle_config());
+lifecycle_sqlite_advance($ownedPdo, 3, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'active', str_repeat('c', 64));
+$ownedReports = [
+    $ownedPdo->query('SELECT * FROM business_report_schedule_versions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+    $ownedPdo->query('SELECT * FROM business_report_id_client_contact_snapshots ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+];
+$deferredBefore = lifecycle_surface_rows($ownedPdo);
+lifecycle_refuses(
+    RuntimeException::class,
+    static fn() => managed_customer_lifecycle_identity_restore(
+        $ownedPdo, lifecycle_candidate($ownedPdo), lifecycle_identity_proof(), 101, $identityConfig, null, null,
+        static fn() => throw new RuntimeException('fixture deadline before the first write'),
+    ),
+    'the before-write seam did not stop the identity-only restore',
+);
+lifecycle_check(
+    lifecycle_surface_rows($ownedPdo) === $deferredBefore && lifecycle_restore_count($ownedPdo) === 0
+        && !managed_customer_operational($ownedPdo, 1, 11),
+    'a stop at the before-write seam wrote a portal, schedule or receipt',
+);
+$owned = managed_customer_lifecycle_identity_restore(
+    $ownedPdo, lifecycle_candidate($ownedPdo), lifecycle_identity_proof(), 101, $identityConfig,
+);
+$ownedReceipt = $ownedPdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts')->fetch(PDO::FETCH_ASSOC);
+lifecycle_check(
+    $owned['portal_restored'] === 1 && $owned['report_schedule_restored'] === 0
+        && (string)$ownedPdo->query('SELECT status FROM customer_portal_bindings WHERE id=601')->fetchColumn() === 'active'
+        && $ownedReports === [
+            $ownedPdo->query('SELECT * FROM business_report_schedule_versions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+            $ownedPdo->query('SELECT * FROM business_report_id_client_contact_snapshots ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+        ]
+        && (int)$ownedReceipt['schedule_before_version_id'] === 803
+        && $ownedReceipt['schedule_owner_receipt_id'] === null
+        && (int)$ownedReceipt['portal_owner_receipt_id'] > 0
+        && managed_customer_lifecycle_identity_restore_receipt_valid($ownedReceipt)
+        && managed_customer_operational($ownedPdo, 1, 11),
+    'identity-only restore was blocked by, or released, an owned-disabled report, or did not restore the owned portal',
 );
 
 $statusSource = file_get_contents(__DIR__ . '/../lib/managed_customer_status.php') ?: '';

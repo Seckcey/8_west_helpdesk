@@ -1,5 +1,5 @@
 <?php
-/** Disposable-MySQL migration (024, 032), interruption, rollback, and worker-race tests. */
+/** Disposable-MySQL migration (024, 032, 034), interruption, rollback, and worker-race tests. */
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') exit(1);
@@ -326,14 +326,16 @@ function lifecycle_mysql_seed_active(
     int $tenantId = 1,
     string $provider = 'provider-one',
     int $actorId = 101,
+    ?string $admission = null,
 ): void {
     $insert = $pdo->prepare(
         'INSERT INTO suite_customer_sync_bindings
             (id,tenant_id,customer_id,client_id,source_version,display_name,status,
-             last_event_id,last_occurred_at,last_request_sha256)
-         VALUES (?,?,?,?,1,?,\'active\',?,UTC_TIMESTAMP(),?)'
+             last_event_id,last_occurred_at,last_request_sha256,last_admission)
+         VALUES (?,?,?,?,1,?,\'active\',?,UTC_TIMESTAMP(),?,?)'
     );
-    $insert->execute([$bindingId, $tenantId, $customerId, $clientId, ucwords(str_replace('-', ' ', $slug)), $eventId, str_repeat((string)($clientId % 10), 64)]);
+    $insert->execute([$bindingId, $tenantId, $customerId, $clientId, ucwords(str_replace('-', ' ', $slug)), $eventId,
+        str_repeat((string)($clientId % 10), 64), $admission]);
     $activationConfig = array_replace(
         lifecycle_mysql_activation_config($customerId),
         ['tenant_actors' => [$provider => $actorId]],
@@ -507,6 +509,88 @@ function lifecycle_mysql_insert_restore_receipt(PDO $pdo, array $facts): void
         'INSERT INTO managed_customer_lifecycle_restore_receipts (' . implode(',', array_keys($facts))
         . ',evidence_sha256) VALUES (' . implode(',', array_fill(0, count($facts) + 1, '?')) . ')'
     )->execute([...array_values($facts), managed_customer_lifecycle_restore_receipt_sha256($facts)]);
+}
+
+/**
+ * A decoded schema-3 identity-only proof (managed_customer_id_identity_decode_response() shape).
+ *
+ * @return array<string,mixed>
+ */
+function lifecycle_mysql_identity_proof(
+    string $customerId,
+    int $version,
+    string $eventId,
+    string $action,
+    int $anchorVersion,
+    string $anchorEvent,
+    string $key,
+    string $slug,
+    string $provider = 'provider-one',
+    int $issuer = 9,
+): array {
+    return [
+        'schema_version' => 3, 'proof_scope' => 'identity_lifecycle_only', 'customer_id' => $customerId,
+        'provider_tenant_slug' => $provider, 'source_version' => $version,
+        'customer_receipt_id' => hash('sha256', 'identity-receipt:' . $customerId . ':' . $version),
+        'customer_event_id' => $eventId, 'initial_receipt_id' => hash('sha256', 'receipt:' . $customerId),
+        'customer_status' => 'active', 'lifecycle_version' => 1, 'lifecycle_transition_id' => $version + 30,
+        'lifecycle_action' => $action,
+        'lifecycle_evidence_sha256' => hash('sha256', 'identity-lifecycle:' . $customerId . ':' . $version),
+        'identity_tenant_status' => 'active', 'identity_oauth_session_version' => $version + 40,
+        'lifecycle_owned' => false, 'tenant_key' => $key, 'tenant_slug' => $slug,
+        'issuer_suite_tenant_id' => $issuer,
+        'projection_binding_sha256' => hash('sha256', 'projection:' . $customerId),
+        'restoration_anchor' => [
+            'source_version' => $anchorVersion,
+            'receipt_id' => hash('sha256', 'anchor-receipt:' . $customerId . ':' . $anchorVersion),
+            'event_id' => $anchorEvent,
+            'transition_id' => $anchorVersion + 30,
+            'evidence_sha256' => hash('sha256', 'anchor-lifecycle:' . $customerId . ':' . $anchorVersion),
+        ],
+        'generated_at_db' => '2026-08-30 18:00:00',
+        'request_nonce_sha256' => hash('sha256', 'identity-nonce:' . $customerId . ':' . $version),
+        'response_sha256' => hash('sha256', 'identity-response:' . $customerId . ':' . $version),
+    ];
+}
+
+/**
+ * The exact identity-only (034) facts for one client's current state, with the portal and schedule
+ * recorded as held at their latest state (restored 0), for direct guard checks. The report-ID carrier,
+ * contact facts and schedule write columns are omitted, so they insert as NULL.
+ *
+ * @param array<string,mixed> $proof
+ * @return array<string,mixed>
+ */
+function lifecycle_mysql_identity_facts(PDO $pdo, int $tenantId, int $clientId, int $bindingId, array $proof, int $actorId): array
+{
+    $facts = lifecycle_mysql_preserved_facts($pdo, $tenantId, $clientId, $bindingId,
+        $proof + ['contact_version' => 1, 'recipient_email' => 'unused@example.test'], $actorId);
+    unset($facts['id_tenant_key'], $facts['contact_version'], $facts['recipient_sha256'],
+        $facts['schedule_owner_receipt_id'], $facts['schedule_prepared_version_id'],
+        $facts['contact_snapshot_id'], $facts['schedule_active_version_id']);
+    $anchor = $proof['restoration_anchor'];
+    return $facts + [
+        'id_proof_scope' => 'identity_lifecycle_only',
+        'id_initial_receipt_id' => (string)$proof['initial_receipt_id'],
+        'id_provider_tenant_slug' => (string)$proof['provider_tenant_slug'],
+        'id_issuer_suite_tenant_id' => (int)$proof['issuer_suite_tenant_id'],
+        'id_projection_binding_sha256' => (string)$proof['projection_binding_sha256'],
+        'id_projection_tenant_key' => (string)$proof['tenant_key'],
+        'id_restore_anchor_source_version' => (int)$anchor['source_version'],
+        'id_restore_anchor_receipt_id' => (string)$anchor['receipt_id'],
+        'id_restore_anchor_event_id' => (string)$anchor['event_id'],
+        'id_restore_anchor_transition_id' => (int)$anchor['transition_id'],
+        'id_restore_anchor_evidence_sha256' => (string)$anchor['evidence_sha256'],
+    ];
+}
+
+/** @param array<string,mixed> $facts */
+function lifecycle_mysql_insert_identity_receipt(PDO $pdo, array $facts, ?string $digest = null): void
+{
+    $pdo->prepare(
+        'INSERT INTO managed_customer_lifecycle_restore_receipts (' . implode(',', array_keys($facts))
+        . ',evidence_sha256) VALUES (' . implode(',', array_fill(0, count($facts) + 1, '?')) . ')'
+    )->execute([...array_values($facts), $digest ?? managed_customer_lifecycle_identity_restore_receipt_sha256($facts)]);
 }
 
 /** @param list<int> $expected */
@@ -1886,6 +1970,317 @@ try {
     lifecycle_mysql_refuses_with('denied', static fn() => $runtime->exec("UPDATE suite_customer_sync_bindings SET last_admission='restored' WHERE id=71"),
         'the narrow runtime cannot write the admission carrier');
 
+    // Forward migration 034 and the schema-3 identity-only restore (A88/A95/A97). Identity One is an
+    // admitted provider-one lineage whose portal and report were contained at v2; v3 restored and a
+    // v4 rename then arrive before the next SH tick, so the current proof is observed_active with the
+    // actual restored anchor v3.
+    $migration034 = __DIR__ . '/../db/migrations/034_managed_customer_identity_lifecycle_restore.sql';
+    $v3Validator = 'safeharbor-managed-customer-lifecycle-restore-receipt-v3';
+    $identitySwapBody = "BEGIN\n  SIGNAL SQLSTATE '45000'\n"
+        . "    SET MESSAGE_TEXT='Managed-customer identity-only restoration migration is incomplete';\nEND";
+    $identitySwapSql = "CREATE TRIGGER trg_mc_restore_identity_swap_insert\n"
+        . "BEFORE INSERT ON managed_customer_lifecycle_restore_receipts\nFOR EACH ROW\n" . $identitySwapBody;
+    $identityOne = '66666666-6666-4666-8666-666666666666';
+    $identityEvent = static fn(int $version): string => sprintf('66000000-0000-4000-8000-%012d', $version);
+    $identityKey = managed_customer_activation_schedule_key($identityOne);
+    $pdo->exec('UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()+INTERVAL 4 MINUTE WHERE tenant_id=1');
+    $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (61,1,'Identity One')");
+    lifecycle_mysql_seed_active(
+        $pdo, $identityOne, 61, 561, $identityEvent(1), 'ewid-t96', 'identity-one', 1, 'provider-one', 101, 'created',
+    );
+    lifecycle_mysql_mark_inactive($pdo, 561, $identityEvent(2), hash('sha256', $identityEvent(2)));
+    $identityContained = managed_customer_lifecycle_apply(
+        $runtime, lifecycle_mysql_candidate($pdo, $identityOne), 101, lifecycle_mysql_config($identityOne),
+    );
+    lifecycle_mysql_mark_active($pdo, 561, $identityEvent(3), hash('sha256', $identityEvent(3)));
+    lifecycle_mysql_advance_active($pdo, 561, $identityEvent(4), hash('sha256', $identityEvent(4)));
+    $identityProof = lifecycle_mysql_identity_proof(
+        $identityOne, 4, $identityEvent(4), 'observed_active', 3, $identityEvent(3), 'ewid-t96', 'identity-one',
+    );
+    $identityBefore = lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey);
+    $identityCandidate = lifecycle_mysql_candidate($pdo, $identityOne);
+    $identityCount = static function () use ($pdo): int {
+        return (int)$pdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=1 AND client_id=61')
+            ->fetchColumn();
+    };
+    $identityConfig = array_replace($scheduledConfig, ['restoration_enabled' => true]);
+    $legacyCalls = 0;
+    $identityCalls = [];
+    $legacyFetch = static function () use (&$legacyCalls): array {
+        $legacyCalls++;
+        throw new ManagedCustomerActivationGateException('the schema-2 contact proof is not this route');
+    };
+    $identityFetch = static function (string $customerId, array $idConfig) use (&$identityCalls, $identityProof): array {
+        $identityCalls[] = $customerId;
+        return $identityProof;
+    };
+    lifecycle_mysql_check(
+        ($identityContained['action'] ?? null) === 'contained'
+            && (int)$pdo->query("SELECT COUNT(*) FROM suite_customer_sync_events
+                WHERE binding_id=561 AND admission='created' AND source_version=1")->fetchColumn() === 1
+            && !managed_customer_operational($pdo, 1, 61)
+            && !managed_customer_lifecycle_identity_restore_available($runtime),
+        'the admitted v4 lineage starts contained and latched before 034',
+    );
+    $before034 = managed_customer_lifecycle_scheduled_run(
+        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch, null, $identityFetch,
+    );
+    lifecycle_mysql_check(
+        array_column($before034['results'], 'action') === ['refused'] && $identityCalls === [] && $legacyCalls === 0
+            && $identityCount() === 0 && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityBefore,
+        'before 034 an admitted restoration refuses before any ID request or write and never falls back to schema 2',
+    );
+
+    lifecycle_mysql_refuses(
+        PDOException::class,
+        static fn() => lifecycle_mysql_execute_file($runtime, $migration034),
+        'DML-only lifecycle identity cannot apply privileged migration 034',
+    );
+    lifecycle_mysql_check($restoreGuardsAre($v2Validator), 'failed DML-only 034 leaves the 032 guards unchanged');
+    $legacyColumns = 'id,tenant_id,client_id,source_binding_id,customer_id,source_event_receipt_id,source_event_id,
+        source_version,source_request_sha256,id_customer_receipt_id,id_customer_status,id_lifecycle_version,
+        id_lifecycle_transition_id,id_lifecycle_action,id_lifecycle_evidence_sha256,id_identity_tenant_status,
+        id_oauth_session_version,id_lifecycle_owned,id_tenant_key,identity_tenant_slug,contact_version,
+        recipient_sha256,id_response_generated_at,id_request_nonce_sha256,id_response_sha256,
+        portal_owner_receipt_id,portal_binding_id,portal_before_event_id,portal_active_event_id,portal_restored,
+        portal_state_sha256,schedule_owner_receipt_id,schedule_key,schedule_before_version_id,
+        schedule_prepared_version_id,contact_snapshot_id,schedule_active_version_id,schedule_restored,
+        schedule_state_sha256,actor_user_id,evidence_sha256,created_at';
+    $legacyRows = $pdo->query("SELECT {$legacyColumns} FROM managed_customer_lifecycle_restore_receipts ORDER BY id")
+        ->fetchAll(PDO::FETCH_ASSOC);
+    lifecycle_mysql_execute_file($pdo, $migration034);
+    lifecycle_mysql_execute_file($pdo, $migration034);
+    $newColumnsNull = (int)$pdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts
+        WHERE id_proof_scope IS NOT NULL OR id_initial_receipt_id IS NOT NULL OR id_provider_tenant_slug IS NOT NULL
+           OR id_issuer_suite_tenant_id IS NOT NULL OR id_projection_binding_sha256 IS NOT NULL
+           OR id_projection_tenant_key IS NOT NULL OR id_restore_anchor_source_version IS NOT NULL
+           OR id_restore_anchor_receipt_id IS NOT NULL OR id_restore_anchor_event_id IS NOT NULL
+           OR id_restore_anchor_transition_id IS NOT NULL OR id_restore_anchor_evidence_sha256 IS NOT NULL')->fetchColumn();
+    $legacyValid = true;
+    foreach ($pdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $legacyRow) {
+        $legacyValid = $legacyValid && managed_customer_lifecycle_restore_receipt_valid($legacyRow);
+    }
+    lifecycle_mysql_check(
+        $restoreGuardsAre($v3Validator)
+            && (int)$pdo->query("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
+                AND table_name='managed_customer_lifecycle_restore_receipts'")->fetchColumn() === 53
+            && $legacyRows !== []
+            && $pdo->query("SELECT {$legacyColumns} FROM managed_customer_lifecycle_restore_receipts ORDER BY id")
+                ->fetchAll(PDO::FETCH_ASSOC) === $legacyRows
+            && $newColumnsNull === 0 && $legacyValid
+            && managed_customer_lifecycle_identity_restore_available($runtime),
+        'migration 034 applies and replays to the v3 validator, keeps every legacy row byte-exact and digest-valid, and adds only NULL new facts',
+    );
+
+    // The 034 swap guard is trusted only by its exact definition, as in 032.
+    $identityGuards = $restoreTriggers();
+    foreach ([
+        'a marker-only body' => "CREATE TRIGGER trg_mc_restore_identity_swap_insert BEFORE INSERT
+            ON managed_customer_lifecycle_restore_receipts FOR EACH ROW
+            SET @mc_swap_marker='Managed-customer identity-only restoration migration is incomplete'",
+        'the exact body after insert' => "CREATE TRIGGER trg_mc_restore_identity_swap_insert\n"
+            . "AFTER INSERT ON managed_customer_lifecycle_restore_receipts\nFOR EACH ROW\n" . $identitySwapBody,
+        'the exact body on another table' => "CREATE TRIGGER trg_mc_restore_identity_swap_insert\n"
+            . "BEFORE INSERT ON managed_customer_lifecycle_receipts\nFOR EACH ROW\n" . $identitySwapBody,
+    ] as $label => $wrongSwapSql) {
+        $pdo->exec($wrongSwapSql);
+        foreach ([false, true] as $validatorDropped) {
+            if ($validatorDropped) {
+                $validatorSql = (string)$pdo->query('SHOW CREATE TRIGGER trg_mc_restore_before_insert')
+                    ->fetch(PDO::FETCH_ASSOC)['SQL Original Statement'];
+                $pdo->exec('DROP TRIGGER trg_mc_restore_before_insert');
+            }
+            $wrongState = $restoreTriggers();
+            lifecycle_mysql_refuses(
+                PDOException::class,
+                static fn() => lifecycle_mysql_execute_file($pdo, $migration034),
+                'migration 034 refuses a swap guard with ' . $label . ($validatorDropped ? ' after the validator is gone' : ''),
+            );
+            lifecycle_mysql_check($restoreTriggers() === $wrongState,
+                'a refused 034 run with ' . $label . ' changes no restore-receipt trigger');
+            if ($validatorDropped) $pdo->exec($validatorSql);
+        }
+        $pdo->exec('DROP TRIGGER trg_mc_restore_identity_swap_insert');
+        lifecycle_mysql_check($restoreTriggers() === $identityGuards, 'wrong 034 swap guard fixture ' . $label . ' removed');
+    }
+    $pdo->exec($identitySwapSql);
+    lifecycle_mysql_execute_file($pdo, $migration034);
+    lifecycle_mysql_check($restoreGuardsAre($v3Validator), 'exact 034 replay converges with the v3 validator and the swap guard');
+    $pdo->exec($identitySwapSql);
+    $pdo->exec('DROP TRIGGER trg_mc_restore_before_insert');
+    lifecycle_mysql_refuses_with(
+        'identity-only restoration migration is incomplete',
+        static fn() => managed_customer_lifecycle_identity_restore(
+            $runtime, $identityCandidate, $identityProof, 101, lifecycle_mysql_restore_config($identityOne),
+        ),
+        'an interrupted 034 swap refuses an otherwise exact identity-only restoration',
+    );
+    lifecycle_mysql_check(
+        array_keys($restoreTriggers()) === [
+            'trg_mc_restore_identity_swap_insert', 'trg_mc_restore_no_delete', 'trg_mc_restore_no_update',
+        ]
+            && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityBefore && $identityCount() === 0,
+        'the interrupted 034 swap keeps update/delete immutability and writes nothing',
+    );
+    lifecycle_mysql_execute_file($pdo, $migration034);
+    lifecycle_mysql_check($restoreGuardsAre($v3Validator), 'exact 034 replay converges after an interrupted swap');
+    $pdo->exec('DROP TRIGGER trg_mc_restore_before_insert');
+    lifecycle_mysql_refuses(
+        PDOException::class,
+        static fn() => lifecycle_mysql_execute_file($pdo, $migration034),
+        'migration 034 refuses a missing validator without its swap guard',
+    );
+    lifecycle_mysql_check(
+        array_keys($restoreTriggers()) === ['trg_mc_restore_no_delete', 'trg_mc_restore_no_update'],
+        'the refused 034 preflight changes nothing',
+    );
+    $pdo->exec($identitySwapSql);
+    lifecycle_mysql_execute_file($pdo, $migration034);
+    lifecycle_mysql_check($restoreGuardsAre($v3Validator), '034 converges from its own interrupted state');
+
+    // Direct guard checks against the exact v4 identity facts (portal and report held, restored 0): the
+    // exact facts and digest pass; every NULL, carrier, contact, anchor, provider, issuer, map and digest
+    // drift refuses. The BEFORE INSERT validator fires before the CHECK constraints, so a drift it
+    // inspects refuses with its message; a NULL drift keeps the exact digest because PHP refuses to
+    // compute one; a drift only the CHECK sees keeps a recomputed digest so the CHECK is what refuses.
+    $identityFacts = lifecycle_mysql_identity_facts($pdo, 1, 61, 561, $identityProof, 101);
+    $identityDigest = managed_customer_lifecycle_identity_restore_receipt_sha256($identityFacts);
+    $pdo->beginTransaction();
+    try {
+        lifecycle_mysql_insert_identity_receipt($pdo, $identityFacts);
+        lifecycle_mysql_check(true, 'the 034 validator accepts the exact identity-only facts and PHP digest');
+    } catch (Throwable $error) {
+        lifecycle_mysql_check(false, 'the 034 validator accepts the exact identity-only facts and PHP digest (' . $error->getMessage() . ')');
+    } finally {
+        $pdo->rollBack();
+    }
+    $legacyShaped = array_diff_key($identityFacts, array_flip([
+        'id_proof_scope', 'id_initial_receipt_id', 'id_provider_tenant_slug', 'id_issuer_suite_tenant_id',
+        'id_projection_binding_sha256', 'id_projection_tenant_key', 'id_restore_anchor_source_version',
+        'id_restore_anchor_receipt_id', 'id_restore_anchor_event_id', 'id_restore_anchor_transition_id',
+        'id_restore_anchor_evidence_sha256',
+    ])) + ['id_tenant_key' => 'ewid-t96', 'contact_version' => 1, 'recipient_sha256' => str_repeat('a', 64),
+        'schedule_owner_receipt_id' => null, 'schedule_prepared_version_id' => null, 'contact_snapshot_id' => null,
+        'schedule_active_version_id' => null];
+    foreach ([
+        ['ck_mc_restore_proof_scope', ['id_tenant_key' => 'ewid-t96'], false, 'an identity row with the report-map carrier'],
+        ['ck_mc_restore_proof_scope', ['contact_version' => 1], false, 'an identity row with a contact version'],
+        ['ck_mc_restore_proof_scope', ['recipient_sha256' => str_repeat('a', 64)], false, 'an identity row with a recipient hash'],
+        ['anchor does not match local history', ['id_restore_anchor_event_id' => null], true, 'an identity row with a NULL anchor fact'],
+        ['provider or issuer is not exact', ['id_issuer_suite_tenant_id' => null], true, 'an identity row with a NULL issuer'],
+        ['requires exact active restored-only ID evidence', ['id_proof_scope' => null], true,
+            'observed_active identity metadata under the legacy NULL scope'],
+        ['anchor does not match local history', ['id_restore_anchor_source_version' => 5], false, 'an anchor after the current version'],
+        ['anchor does not match local history', ['id_restore_anchor_event_id' => $identityEvent(9)], false, 'a forged anchor event'],
+        ['anchor does not match local history', ['id_restore_anchor_source_version' => 4,
+            'id_restore_anchor_event_id' => $identityEvent(4)], false, 'an anchor that is not directly after the latest inactive version'],
+        ['anchor does not match local history', ['id_lifecycle_action' => 'restored'], false, 'a current restored action with an older anchor'],
+        ['provider or issuer is not exact', ['id_provider_tenant_slug' => 'provider-three'], false, 'another provider slug'],
+        ['provider or issuer is not exact', ['id_issuer_suite_tenant_id' => 10], false, 'another issuer'],
+        ['ID mapping is not exact', ['id_projection_tenant_key' => 'ewid-t97'], false, 'a signed key that differs from the existing map'],
+    ] as [$needle, $forged, $keepDigest, $label]) {
+        lifecycle_mysql_refuses_with(
+            $needle,
+            static fn() => lifecycle_mysql_insert_identity_receipt($pdo, array_replace($identityFacts, $forged),
+                $keepDigest ? $identityDigest : null),
+            'the 034 validator refuses ' . $label,
+        );
+    }
+    lifecycle_mysql_refuses_with(
+        'digest does not match exact facts',
+        static fn() => lifecycle_mysql_insert_identity_receipt($pdo, $identityFacts,
+            managed_customer_lifecycle_restore_receipt_sha256($legacyShaped)),
+        'the 034 validator refuses the legacy digest domain for an identity row',
+    );
+    lifecycle_mysql_refuses_with(
+        'requires exact active restored-only ID evidence',
+        static fn() => lifecycle_mysql_insert_restore_receipt($pdo, $legacyShaped),
+        'the NULL-safe 034 scope test refuses observed_active under the legacy NULL scope',
+    );
+    $legacyRestored = array_replace($legacyShaped, ['id_lifecycle_action' => 'restored']);
+    lifecycle_mysql_refuses_with(
+        'ck_mc_restore_proof_scope',
+        static fn() => lifecycle_mysql_insert_restore_receipt($pdo, $legacyRestored + ['id_initial_receipt_id' => str_repeat('e', 64)]),
+        'the 034 CHECK refuses identity metadata on an otherwise exact legacy row',
+    );
+    lifecycle_mysql_refuses_with(
+        'digest does not match exact facts',
+        static fn() => lifecycle_mysql_insert_restore_receipt($pdo, array_replace($legacyRestored, ['contact_version' => null])),
+        'the NULL-safe 034 digest comparison refuses a legacy row whose SQL digest is NULL',
+    );
+    lifecycle_mysql_refuses_with(
+        'ID mapping is not exact',
+        static fn() => lifecycle_mysql_insert_restore_receipt($pdo, array_replace($legacyRestored, ['id_tenant_key' => null])),
+        'the 034 validator refuses a legacy row with a NULL report-map carrier',
+    );
+    lifecycle_mysql_check(
+        $identityCount() === 0 && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityBefore,
+        'refused identity-only guard checks leave no row',
+    );
+
+    // The scheduled admitted route after 034: identity-only, never schema 2. The owned portal reopens;
+    // the owned-disabled report is recorded and never released.
+    $identityRun = managed_customer_lifecycle_scheduled_run(
+        $runtime, $identityConfig, [], ['timeout_seconds' => 10], $legacyFetch, null, $identityFetch,
+    );
+    $identityRows = $pdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=1 AND client_id=61')
+        ->fetchAll(PDO::FETCH_ASSOC);
+    $identityAfter = lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey);
+    lifecycle_mysql_check(
+        array_column($identityRun['results'], 'action') === ['restored']
+            && array_column($identityRun['results'], 'provenance') === ['admitted']
+            && ($identityRun['results'][0]['proof_scope'] ?? null) === 'identity_lifecycle_only'
+            && ($identityRun['results'][0]['portal_restored'] ?? null) === 1
+            && ($identityRun['results'][0]['report_schedule_restored'] ?? null) === 0
+            && $identityCalls === [$identityOne] && $legacyCalls === 0
+            && count($identityRows) === 1
+            && managed_customer_lifecycle_identity_restore_receipt_valid($identityRows[0])
+            && $identityRows[0]['id_tenant_key'] === null && $identityRows[0]['contact_version'] === null
+            && (string)$identityRows[0]['id_lifecycle_action'] === 'observed_active'
+            && (int)$identityRows[0]['id_restore_anchor_source_version'] === 3
+            && (int)$identityRows[0]['schedule_restored'] === 0
+            && $identityAfter['schedule'] === $identityBefore['schedule']
+            && $identityAfter['contacts'] === $identityBefore['contacts']
+            && $identityAfter['containment'] === $identityBefore['containment']
+            && (string)$pdo->query('SELECT status FROM customer_portal_bindings WHERE tenant_id=1 AND client_id=61')->fetchColumn() === 'active'
+            && managed_customer_operational($pdo, 1, 61),
+        'the scheduled admitted identity-only restore clears the latch, reopens the owned portal and writes no report, contact or schedule row',
+    );
+    $identityReplayProof = $identityProof;
+    $identityReplayProof['request_nonce_sha256'] = hash('sha256', 'identity-replay-nonce');
+    $identityReplayProof['response_sha256'] = hash('sha256', 'identity-replay-response');
+    $identityReplay = managed_customer_lifecycle_identity_restore(
+        $runtime, $identityCandidate, $identityReplayProof, 101, lifecycle_mysql_restore_config($identityOne),
+    );
+    lifecycle_mysql_check(
+        ($identityReplay['action'] ?? null) === 'restore_replayed'
+            && ($identityReplay['evidence_sha256'] ?? null) === (string)$identityRows[0]['evidence_sha256']
+            && $identityCount() === 1
+            && lifecycle_mysql_surface_rows($pdo, 1, 61, $identityKey) === $identityAfter,
+        'a lost-ack identity-only replay writes nothing and returns the committed receipt',
+    );
+
+    // The legacy contact restore still runs unchanged under the v3 validator.
+    lifecycle_mysql_mark_inactive($pdo, 541, $oneEvent(6), hash('sha256', $oneEvent(6)));
+    managed_customer_lifecycle_apply(
+        $runtime, lifecycle_mysql_candidate($pdo, $preservedOne), 301, lifecycle_mysql_three_config($preservedOne),
+    );
+    lifecycle_mysql_mark_active($pdo, 541, $oneEvent(7), hash('sha256', $oneEvent(7)));
+    $oneLegacy = managed_customer_lifecycle_restore(
+        $runtime, lifecycle_mysql_candidate($pdo, $preservedOne),
+        lifecycle_mysql_restore_evidence($preservedOne, 7, $oneEvent(7), 'ewid-t93', 'preserved-one'), 301,
+        lifecycle_mysql_three_config($preservedOne, true), $oneReport,
+    );
+    $oneLegacyRow = $pdo->query('SELECT * FROM managed_customer_lifecycle_restore_receipts
+        WHERE tenant_id=3 AND client_id=41 AND source_version=7')->fetch(PDO::FETCH_ASSOC);
+    lifecycle_mysql_check(
+        ($oneLegacy['action'] ?? null) === 'restored' && is_array($oneLegacyRow)
+            && $oneLegacyRow['id_proof_scope'] === null && (string)$oneLegacyRow['id_tenant_key'] === 'ewid-t93'
+            && managed_customer_lifecycle_restore_receipt_valid($oneLegacyRow)
+            && managed_customer_operational($pdo, 3, 41),
+        'the legacy schema-2 contact restore still writes its unchanged receipt and digest under the v3 validator',
+    );
+
     $admin->exec("CREATE DATABASE {$quotedFreshDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $fresh = lifecycle_mysql_connection($freshDatabase);
     lifecycle_mysql_execute_file($fresh, __DIR__ . '/../db/schema.sql');
@@ -1897,7 +2292,7 @@ try {
     );
     lifecycle_mysql_check(
         $replayedContract === $freshContract,
-        'fresh schema and replayed migrations 024 + 032 have exact table check index FK and trigger parity'
+        'fresh schema and replayed migrations 024 + 032 + 034 have exact table check index FK and trigger parity'
             . ($parityDifference === 'none' ? '' : ' (' . $parityDifference . ')'),
     );
 

@@ -26,7 +26,7 @@ function scheduler_uuid(int $n): string
  * Only the tables the scheduled claim reads. Each binding is (id, tenant, explicit-or-not by config,
  * admitted marker, status, inactive history, contained, restored).
  */
-function scheduler_sqlite(array $bindings, bool $singleton = true): PDO
+function scheduler_sqlite(array $bindings, bool $singleton = true, bool $identity034 = true): PDO
 {
     $pdo = new PDO('sqlite::memory:');
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -44,7 +44,8 @@ function scheduler_sqlite(array $bindings, bool $singleton = true): PDO
             id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id TEXT NOT NULL,
             source_version INTEGER NOT NULL, action TEXT NOT NULL)',
         'CREATE TABLE managed_customer_lifecycle_restore_receipts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id TEXT NOT NULL, source_version INTEGER NOT NULL)',
+            id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id TEXT NOT NULL, source_version INTEGER NOT NULL'
+            . ($identity034 ? ', id_proof_scope TEXT NULL)' : ')'),
         'CREATE TABLE managed_customer_lifecycle_progress (
             id INTEGER PRIMARY KEY CHECK (id = 1), last_binding_id INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL)',
@@ -217,19 +218,46 @@ $fetch = static function (string $customerId, array $idConfig) use (&$fetched): 
     $fetched[] = [$customerId, $idConfig['timeout_seconds']];
     throw new ManagedCustomerActivationGateException('fixture transport stops here');
 };
+// A88 routing: an admitted lineage outside the explicit scope uses only the identity-only proof.
+$legacyFetched = [];
+$legacyFetch = static function (string $customerId, array $idConfig) use (&$legacyFetched): array {
+    $legacyFetched[] = [$customerId, $idConfig['timeout_seconds']];
+    throw new ManagedCustomerActivationGateException('legacy fixture transport stops here');
+};
 $deferred = managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $house, static fn(): bool => true,
-    static fn(): float => 0.4, [], ['timeout_seconds' => 10], $fetch);
+    static fn(): float => 0.4, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
 scheduler_check($deferred['action'] === 'deferred' && $deferred['provenance'] === 'admitted' && $fetched === [],
     'a restoration with under one second left was attempted');
 try {
     managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $house, static fn(): bool => true,
-        static fn(): float => 6.7, [], ['timeout_seconds' => 10], $fetch);
+        static fn(): float => 6.7, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
 } catch (ManagedCustomerActivationGateException) {
 }
 scheduler_check($fetched === [[scheduler_uuid(1), 6]], 'the ID request was not bounded by the remaining run time');
 $capped = managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $house, static fn(): bool => false,
-    static fn(): float => 20.0, [], ['timeout_seconds' => 10], $fetch);
+    static fn(): float => 20.0, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
 scheduler_check($capped['action'] === 'deferred' && count($fetched) === 1, 'a capped run still made an ID request');
+scheduler_check($legacyFetched === [], 'an admitted lineage requested the schema-2 contact proof');
+$explicitHouse = array_replace($house, ['customer_id' => scheduler_uuid(9)]);
+try {
+    managed_customer_lifecycle_scheduled_act($actPdo, $actConfig, $explicitHouse, static fn(): bool => true,
+        static fn(): float => 20.0, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
+} catch (ManagedCustomerActivationGateException) {
+}
+scheduler_check($legacyFetched === [[scheduler_uuid(9), 10]] && count($fetched) === 1,
+    'the explicit approved scope did not keep the full schema-2 restore or used the identity-only proof');
+$no034 = scheduler_sqlite([['id' => 1, 'admitted' => true]], true, false);
+$reserved = 0;
+try {
+    managed_customer_lifecycle_scheduled_act($no034, $actConfig, $house, static function () use (&$reserved): bool {
+        $reserved++;
+        return true;
+    }, static fn(): float => 20.0, [], ['timeout_seconds' => 10], $legacyFetch, $fetch);
+    scheduler_check(false, 'an admitted restoration ran without migration 034');
+} catch (ManagedCustomerLifecycleGateException) {
+    scheduler_check($reserved === 0 && count($fetched) === 1 && $legacyFetched === [[scheduler_uuid(9), 10]],
+        'a missing migration 034 reserved budget or made an ID request before refusing');
+}
 
 // Wrapper and CLI wiring: one --scheduled child after the reports, RC taken before logging, bounded
 // TERM/KILL, report status still controlling; the no-argument explicit mode is unchanged.

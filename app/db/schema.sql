@@ -1876,15 +1876,16 @@ CREATE TABLE IF NOT EXISTS managed_customer_lifecycle_restore_receipts (
   id_customer_status            ENUM('active') NOT NULL,
   id_lifecycle_version          SMALLINT UNSIGNED NOT NULL,
   id_lifecycle_transition_id    BIGINT UNSIGNED NOT NULL,
-  id_lifecycle_action           ENUM('restored') NOT NULL,
+  -- Migration 034: observed_active, the identity-only NULL report-map carrier and NULL contact facts.
+  id_lifecycle_action           ENUM('restored','observed_active') NOT NULL,
   id_lifecycle_evidence_sha256  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   id_identity_tenant_status     ENUM('active') NOT NULL,
   id_oauth_session_version      BIGINT UNSIGNED NOT NULL,
   id_lifecycle_owned            TINYINT(1) NOT NULL,
-  id_tenant_key                 VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  id_tenant_key                 VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
   identity_tenant_slug          VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  contact_version               BIGINT UNSIGNED NOT NULL,
-  recipient_sha256              CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  contact_version               BIGINT UNSIGNED NULL,
+  recipient_sha256              CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
   id_response_generated_at      DATETIME NOT NULL,
   id_request_nonce_sha256       CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   id_response_sha256            CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -1905,6 +1906,18 @@ CREATE TABLE IF NOT EXISTS managed_customer_lifecycle_restore_receipts (
   actor_user_id                 INT UNSIGNED NOT NULL,
   evidence_sha256               CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   created_at                    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- Migration 034: signed identity-only proof metadata and the five restoration-anchor facts.
+  id_proof_scope                ENUM('identity_lifecycle_only') CHARACTER SET ascii COLLATE ascii_bin NULL DEFAULT NULL,
+  id_initial_receipt_id         CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  id_provider_tenant_slug       VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  id_issuer_suite_tenant_id     BIGINT UNSIGNED NULL,
+  id_projection_binding_sha256  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  id_projection_tenant_key      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  id_restore_anchor_source_version BIGINT UNSIGNED NULL,
+  id_restore_anchor_receipt_id  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  id_restore_anchor_event_id    CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  id_restore_anchor_transition_id BIGINT UNSIGNED NULL,
+  id_restore_anchor_evidence_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_mc_restore_customer_version (customer_id, source_version),
   UNIQUE KEY uq_mc_restore_source_event (source_event_receipt_id),
@@ -2022,6 +2035,35 @@ CREATE TABLE IF NOT EXISTS managed_customer_lifecycle_restore_receipts (
   ) ENFORCED,
   CONSTRAINT ck_mc_restore_evidence_hash CHECK (
     REGEXP_LIKE(evidence_sha256, _ascii'^[0-9a-f]{64}$')
+  ) ENFORCED,
+  CONSTRAINT ck_mc_restore_proof_scope CHECK (
+    (id_proof_scope IS NULL
+     AND id_lifecycle_action = 'restored'
+     AND id_tenant_key IS NOT NULL AND contact_version IS NOT NULL AND recipient_sha256 IS NOT NULL
+     AND id_initial_receipt_id IS NULL AND id_provider_tenant_slug IS NULL
+     AND id_issuer_suite_tenant_id IS NULL AND id_projection_binding_sha256 IS NULL
+     AND id_projection_tenant_key IS NULL
+     AND id_restore_anchor_source_version IS NULL AND id_restore_anchor_receipt_id IS NULL
+     AND id_restore_anchor_event_id IS NULL AND id_restore_anchor_transition_id IS NULL
+     AND id_restore_anchor_evidence_sha256 IS NULL)
+    OR (id_proof_scope IS NOT NULL AND id_proof_scope = 'identity_lifecycle_only'
+     AND id_lifecycle_action IN ('restored','observed_active')
+     AND id_tenant_key IS NULL AND contact_version IS NULL AND recipient_sha256 IS NULL
+     AND schedule_restored = 0 AND schedule_owner_receipt_id IS NULL
+     AND schedule_prepared_version_id IS NULL AND contact_snapshot_id IS NULL
+     AND schedule_active_version_id IS NULL
+     AND id_initial_receipt_id IS NOT NULL AND REGEXP_LIKE(id_initial_receipt_id, '^[0-9a-f]{64}$')
+     AND id_provider_tenant_slug IS NOT NULL AND REGEXP_LIKE(id_provider_tenant_slug, '^[a-z0-9][a-z0-9-]{0,63}$')
+     AND id_issuer_suite_tenant_id IS NOT NULL AND id_issuer_suite_tenant_id BETWEEN 1 AND 4294967295
+     AND id_projection_binding_sha256 IS NOT NULL AND REGEXP_LIKE(id_projection_binding_sha256, '^[0-9a-f]{64}$')
+     AND id_projection_tenant_key IS NOT NULL AND REGEXP_LIKE(id_projection_tenant_key, '^ewid-t[1-9][0-9]{0,9}$')
+     AND id_restore_anchor_source_version IS NOT NULL AND id_restore_anchor_source_version >= 2
+     AND id_restore_anchor_source_version <= source_version
+     AND id_restore_anchor_receipt_id IS NOT NULL AND REGEXP_LIKE(id_restore_anchor_receipt_id, '^[0-9a-f]{64}$')
+     AND id_restore_anchor_event_id IS NOT NULL
+     AND REGEXP_LIKE(id_restore_anchor_event_id, '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+     AND id_restore_anchor_transition_id IS NOT NULL AND id_restore_anchor_transition_id >= 1
+     AND id_restore_anchor_evidence_sha256 IS NOT NULL AND REGEXP_LIKE(id_restore_anchor_evidence_sha256, '^[0-9a-f]{64}$'))
   ) ENFORCED
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -2273,11 +2315,15 @@ CREATE TRIGGER trg_mc_restore_before_insert
 BEFORE INSERT ON managed_customer_lifecycle_restore_receipts
 FOR EACH ROW
 BEGIN
-  DECLARE guard_version VARCHAR(64) DEFAULT 'safeharbor-managed-customer-lifecycle-restore-receipt-v2';
+  DECLARE guard_version VARCHAR(64) DEFAULT 'safeharbor-managed-customer-lifecycle-restore-receipt-v3';
   DECLARE actor_matches INT DEFAULT 0;
   DECLARE source_matches INT DEFAULT 0;
   DECLARE inactive_history INT DEFAULT 0;
   DECLARE id_binding_matches INT DEFAULT 0;
+  DECLARE id_binding_present INT DEFAULT 0;
+  DECLARE provider_matches INT DEFAULT 0;
+  DECLARE anchor_matches INT DEFAULT 0;
+  DECLARE later_inactive INT DEFAULT 0;
   DECLARE portal_owner_matches INT DEFAULT 0;
   DECLARE portal_state_matches INT DEFAULT 0;
   DECLARE schedule_owner_matches INT DEFAULT 0;
@@ -2287,7 +2333,9 @@ BEGIN
   DECLARE expected_evidence_hash CHAR(64) DEFAULT NULL;
 
   IF NEW.id_customer_status<>'active' OR NEW.id_lifecycle_version<>1
-     OR NEW.id_lifecycle_action<>'restored'
+     OR NOT ((NEW.id_proof_scope IS NULL AND NEW.id_lifecycle_action='restored')
+          OR (NEW.id_proof_scope IS NOT NULL AND NEW.id_proof_scope='identity_lifecycle_only'
+              AND NEW.id_lifecycle_action IN ('restored','observed_active')))
      OR NEW.id_identity_tenant_status<>'active' OR NEW.id_lifecycle_owned<>0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT='Restore receipt requires exact active restored-only ID evidence';
@@ -2323,14 +2371,63 @@ BEGIN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT='Restore receipt must match the current active source after inactive history';
   END IF;
-  SELECT COUNT(*) INTO id_binding_matches
-    FROM business_report_id_client_bindings
-   WHERE tenant_id=NEW.tenant_id AND client_id=NEW.client_id
-     AND BINARY id_tenant_key=BINARY NEW.id_tenant_key
-     AND BINARY id_tenant_slug=BINARY NEW.identity_tenant_slug;
-  IF id_binding_matches<>1 THEN
-    SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT='Restore receipt ID mapping is not exact';
+  IF NEW.id_proof_scope IS NULL THEN
+    SELECT COUNT(*) INTO id_binding_matches
+      FROM business_report_id_client_bindings
+     WHERE tenant_id=NEW.tenant_id AND client_id=NEW.client_id
+       AND BINARY id_tenant_key=BINARY NEW.id_tenant_key
+       AND BINARY id_tenant_slug=BINARY NEW.identity_tenant_slug;
+    IF id_binding_matches<>1 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore receipt ID mapping is not exact';
+    END IF;
+  ELSE
+    SELECT COUNT(*) INTO id_binding_present
+      FROM business_report_id_client_bindings
+     WHERE tenant_id=NEW.tenant_id AND client_id=NEW.client_id;
+    SELECT COUNT(*) INTO id_binding_matches
+      FROM business_report_id_client_bindings
+     WHERE tenant_id=NEW.tenant_id AND client_id=NEW.client_id
+       AND BINARY id_tenant_key=BINARY NEW.id_projection_tenant_key
+       AND BINARY id_tenant_slug=BINARY NEW.identity_tenant_slug;
+    IF id_binding_present<>id_binding_matches THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore receipt ID mapping is not exact';
+    END IF;
+    SELECT COUNT(*) INTO provider_matches
+      FROM tenants
+     WHERE id=NEW.tenant_id AND BINARY slug=BINARY NEW.id_provider_tenant_slug;
+    IF provider_matches<>1
+       OR (BINARY NEW.id_provider_tenant_slug<>BINARY '8west' AND NOT EXISTS (
+         SELECT 1 FROM suite_managed_providers provider
+          WHERE provider.tenant_id=NEW.tenant_id
+            AND BINARY provider.provider_slug=BINARY NEW.id_provider_tenant_slug
+            AND provider.issuer_tenant_id=NEW.id_issuer_suite_tenant_id)) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore receipt provider or issuer is not exact';
+    END IF;
+    SELECT COUNT(*) INTO anchor_matches
+      FROM suite_customer_sync_events anchor_event
+      JOIN suite_customer_sync_events before_anchor
+        ON before_anchor.tenant_id=anchor_event.tenant_id
+       AND before_anchor.binding_id=anchor_event.binding_id
+       AND before_anchor.source_version=anchor_event.source_version-1
+       AND before_anchor.status='inactive'
+     WHERE anchor_event.tenant_id=NEW.tenant_id AND anchor_event.binding_id=NEW.source_binding_id
+       AND BINARY anchor_event.event_id=BINARY NEW.id_restore_anchor_event_id
+       AND anchor_event.source_version=NEW.id_restore_anchor_source_version
+       AND anchor_event.status='active';
+    SELECT COUNT(*) INTO later_inactive
+      FROM suite_customer_sync_events
+     WHERE tenant_id=NEW.tenant_id AND binding_id=NEW.source_binding_id
+       AND source_version>NEW.id_restore_anchor_source_version AND status='inactive';
+    IF anchor_matches<>1 OR later_inactive<>0
+       OR NEW.id_restore_anchor_source_version>NEW.source_version
+       OR (NEW.id_lifecycle_action='restored'
+           AND NEW.id_restore_anchor_source_version<>NEW.source_version) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Restore receipt anchor does not match local history';
+    END IF;
   END IF;
 
   IF NEW.portal_owner_receipt_id IS NOT NULL THEN
@@ -2595,33 +2692,65 @@ BEGIN
     END IF;
   END IF;
 
-  SET expected_evidence_hash=SHA2(CONCAT(
-    'safeharbor-managed-customer-lifecycle-restore-v1','\n',NEW.tenant_id,
-    '\n',NEW.client_id,'\n',NEW.source_binding_id,'\n',NEW.customer_id,
-    '\n',NEW.source_event_receipt_id,'\n',NEW.source_event_id,'\n',NEW.source_version,
-    '\n',NEW.source_request_sha256,'\n',NEW.id_customer_receipt_id,
-    '\n',NEW.id_customer_status,'\n',NEW.id_lifecycle_version,
-    '\n',NEW.id_lifecycle_transition_id,'\n',NEW.id_lifecycle_action,
-    '\n',NEW.id_lifecycle_evidence_sha256,'\n',NEW.id_identity_tenant_status,
-    '\n',NEW.id_oauth_session_version,'\n',NEW.id_lifecycle_owned,
-    '\n',NEW.id_tenant_key,'\n',NEW.identity_tenant_slug,'\n',NEW.contact_version,
-    '\n',NEW.recipient_sha256,'\n',CAST(NEW.id_response_generated_at AS CHAR),
-    '\n',NEW.id_request_nonce_sha256,'\n',NEW.id_response_sha256,
-    '\n',COALESCE(CAST(NEW.portal_owner_receipt_id AS CHAR),'-'),
-    '\n',COALESCE(CAST(NEW.portal_binding_id AS CHAR),'-'),
-    '\n',COALESCE(CAST(NEW.portal_before_event_id AS CHAR),'-'),
-    '\n',COALESCE(CAST(NEW.portal_active_event_id AS CHAR),'-'),
-    '\n',NEW.portal_restored,'\n',COALESCE(NEW.portal_state_sha256,'-'),
-    '\n',COALESCE(CAST(NEW.schedule_owner_receipt_id AS CHAR),'-'),
-    '\n',NEW.schedule_key,
-    '\n',COALESCE(CAST(NEW.schedule_before_version_id AS CHAR),'-'),
-    '\n',COALESCE(CAST(NEW.schedule_prepared_version_id AS CHAR),'-'),
-    '\n',COALESCE(CAST(NEW.contact_snapshot_id AS CHAR),'-'),
-    '\n',COALESCE(CAST(NEW.schedule_active_version_id AS CHAR),'-'),
-    '\n',NEW.schedule_restored,'\n',COALESCE(NEW.schedule_state_sha256,'-'),
-    '\n',NEW.actor_user_id
-  ),256);
-  IF BINARY expected_evidence_hash<>BINARY NEW.evidence_sha256 THEN
+  IF NEW.id_proof_scope IS NULL THEN
+    SET expected_evidence_hash=SHA2(CONCAT(
+      'safeharbor-managed-customer-lifecycle-restore-v1','\n',NEW.tenant_id,
+      '\n',NEW.client_id,'\n',NEW.source_binding_id,'\n',NEW.customer_id,
+      '\n',NEW.source_event_receipt_id,'\n',NEW.source_event_id,'\n',NEW.source_version,
+      '\n',NEW.source_request_sha256,'\n',NEW.id_customer_receipt_id,
+      '\n',NEW.id_customer_status,'\n',NEW.id_lifecycle_version,
+      '\n',NEW.id_lifecycle_transition_id,'\n',NEW.id_lifecycle_action,
+      '\n',NEW.id_lifecycle_evidence_sha256,'\n',NEW.id_identity_tenant_status,
+      '\n',NEW.id_oauth_session_version,'\n',NEW.id_lifecycle_owned,
+      '\n',NEW.id_tenant_key,'\n',NEW.identity_tenant_slug,'\n',NEW.contact_version,
+      '\n',NEW.recipient_sha256,'\n',CAST(NEW.id_response_generated_at AS CHAR),
+      '\n',NEW.id_request_nonce_sha256,'\n',NEW.id_response_sha256,
+      '\n',COALESCE(CAST(NEW.portal_owner_receipt_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.portal_binding_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.portal_before_event_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.portal_active_event_id AS CHAR),'-'),
+      '\n',NEW.portal_restored,'\n',COALESCE(NEW.portal_state_sha256,'-'),
+      '\n',COALESCE(CAST(NEW.schedule_owner_receipt_id AS CHAR),'-'),
+      '\n',NEW.schedule_key,
+      '\n',COALESCE(CAST(NEW.schedule_before_version_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.schedule_prepared_version_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.contact_snapshot_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.schedule_active_version_id AS CHAR),'-'),
+      '\n',NEW.schedule_restored,'\n',COALESCE(NEW.schedule_state_sha256,'-'),
+      '\n',NEW.actor_user_id
+    ),256);
+  ELSE
+    SET expected_evidence_hash=SHA2(CONCAT(
+      'safeharbor-managed-customer-lifecycle-identity-restore-v1','\n',NEW.tenant_id,
+      '\n',NEW.client_id,'\n',NEW.source_binding_id,'\n',NEW.customer_id,
+      '\n',NEW.source_event_receipt_id,'\n',NEW.source_event_id,'\n',NEW.source_version,
+      '\n',NEW.source_request_sha256,'\n',NEW.id_proof_scope,
+      '\n',NEW.id_customer_receipt_id,'\n',NEW.id_initial_receipt_id,
+      '\n',NEW.id_customer_status,'\n',NEW.id_lifecycle_version,
+      '\n',NEW.id_lifecycle_transition_id,'\n',NEW.id_lifecycle_action,
+      '\n',NEW.id_lifecycle_evidence_sha256,'\n',NEW.id_identity_tenant_status,
+      '\n',NEW.id_oauth_session_version,'\n',NEW.id_lifecycle_owned,
+      '\n',NEW.id_projection_tenant_key,'\n',NEW.identity_tenant_slug,
+      '\n',NEW.id_provider_tenant_slug,'\n',NEW.id_issuer_suite_tenant_id,
+      '\n',NEW.id_projection_binding_sha256,
+      '\n',NEW.id_restore_anchor_source_version,'\n',NEW.id_restore_anchor_receipt_id,
+      '\n',NEW.id_restore_anchor_event_id,'\n',NEW.id_restore_anchor_transition_id,
+      '\n',NEW.id_restore_anchor_evidence_sha256,
+      '\n',CAST(NEW.id_response_generated_at AS CHAR),
+      '\n',NEW.id_request_nonce_sha256,'\n',NEW.id_response_sha256,
+      '\n',COALESCE(CAST(NEW.portal_owner_receipt_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.portal_binding_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.portal_before_event_id AS CHAR),'-'),
+      '\n',COALESCE(CAST(NEW.portal_active_event_id AS CHAR),'-'),
+      '\n',NEW.portal_restored,'\n',COALESCE(NEW.portal_state_sha256,'-'),
+      '\n',NEW.schedule_key,
+      '\n',COALESCE(CAST(NEW.schedule_before_version_id AS CHAR),'-'),
+      '\n',NEW.schedule_restored,'\n',COALESCE(NEW.schedule_state_sha256,'-'),
+      '\n',NEW.actor_user_id
+    ),256);
+  END IF;
+  IF expected_evidence_hash IS NULL OR NEW.evidence_sha256 IS NULL
+     OR BINARY expected_evidence_hash<>BINARY NEW.evidence_sha256 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT='Restore evidence digest does not match exact facts';
   END IF;

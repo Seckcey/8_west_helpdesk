@@ -16,6 +16,7 @@ require_once __DIR__ . '/suite_managed_provider.php';
 
 const MANAGED_CUSTOMER_LIFECYCLE_CONTEXT = 'safeharbor-managed-customer-lifecycle-v1';
 const MANAGED_CUSTOMER_LIFECYCLE_RESTORE_CONTEXT = 'safeharbor-managed-customer-lifecycle-restore-v1';
+const MANAGED_CUSTOMER_LIFECYCLE_IDENTITY_RESTORE_CONTEXT = 'safeharbor-managed-customer-lifecycle-identity-restore-v1';
 const MANAGED_CUSTOMER_LIFECYCLE_MAX_CUSTOMERS = 25;
 const MANAGED_CUSTOMER_LIFECYCLE_MAX_BATCH = 25;
 const MANAGED_CUSTOMER_LIFECYCLE_WRITE_TABLES = [
@@ -1306,6 +1307,613 @@ function managed_customer_lifecycle_restore(
     }
 }
 
+/**
+ * Whether migration 034's identity-only restore columns are installed. Only a positive answer is
+ * cached, for the life of that connection object.
+ */
+function managed_customer_lifecycle_identity_restore_available(PDO $pdo): bool
+{
+    static $installed = null;
+    $installed ??= new WeakMap();
+    if (isset($installed[$pdo])) return true;
+    if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+        $available = false;
+        foreach ($pdo->query('PRAGMA table_info(managed_customer_lifecycle_restore_receipts)')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (($row['name'] ?? null) === 'id_proof_scope') $available = true;
+        }
+    } else {
+        $available = (int)$pdo->query(
+            "SELECT COUNT(*) FROM information_schema.columns
+              WHERE table_schema = DATABASE()
+                AND table_name = 'managed_customer_lifecycle_restore_receipts'
+                AND column_name = 'id_proof_scope'"
+        )->fetchColumn() === 1;
+    }
+    if ($available) $installed[$pdo] = true;
+    return $available;
+}
+
+/**
+ * The closed identity-only digest domain (A88/A95), in the exact field order of the 034 validator.
+ * Only the portal and schedule-state facts may be NULL ('-').
+ *
+ * @param array<string,mixed> $facts
+ */
+function managed_customer_lifecycle_identity_restore_receipt_sha256(array $facts): string
+{
+    $keys = [
+        'tenant_id', 'client_id', 'source_binding_id', 'customer_id',
+        'source_event_receipt_id', 'source_event_id', 'source_version', 'source_request_sha256',
+        'id_proof_scope', 'id_customer_receipt_id', 'id_initial_receipt_id',
+        'id_customer_status', 'id_lifecycle_version', 'id_lifecycle_transition_id',
+        'id_lifecycle_action', 'id_lifecycle_evidence_sha256', 'id_identity_tenant_status',
+        'id_oauth_session_version', 'id_lifecycle_owned', 'id_projection_tenant_key',
+        'identity_tenant_slug', 'id_provider_tenant_slug', 'id_issuer_suite_tenant_id',
+        'id_projection_binding_sha256', 'id_restore_anchor_source_version',
+        'id_restore_anchor_receipt_id', 'id_restore_anchor_event_id',
+        'id_restore_anchor_transition_id', 'id_restore_anchor_evidence_sha256',
+        'id_response_generated_at', 'id_request_nonce_sha256', 'id_response_sha256',
+        'portal_owner_receipt_id', 'portal_binding_id', 'portal_before_event_id',
+        'portal_active_event_id', 'portal_restored', 'portal_state_sha256',
+        'schedule_key', 'schedule_before_version_id', 'schedule_restored',
+        'schedule_state_sha256', 'actor_user_id',
+    ];
+    $nullable = [
+        'portal_owner_receipt_id', 'portal_binding_id', 'portal_before_event_id', 'portal_active_event_id',
+        'portal_state_sha256', 'schedule_before_version_id', 'schedule_state_sha256',
+    ];
+    $lines = [MANAGED_CUSTOMER_LIFECYCLE_IDENTITY_RESTORE_CONTEXT];
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $facts)) {
+            throw new ManagedCustomerLifecycleValidationException(
+                'Identity-only restoration receipt facts are incomplete.',
+            );
+        }
+        $value = $facts[$key];
+        if ($value === null && in_array($key, $nullable, true)) {
+            $lines[] = '-';
+        } elseif (is_int($value) || is_string($value)) {
+            $lines[] = (string)$value;
+        } else {
+            throw new ManagedCustomerLifecycleValidationException(
+                'Identity-only restoration receipt facts are invalid.',
+            );
+        }
+    }
+    return hash('sha256', implode("\n", $lines));
+}
+
+/** @param array<string,mixed> $receipt */
+function managed_customer_lifecycle_identity_restore_receipt_valid(array $receipt): bool
+{
+    if (($receipt['id_proof_scope'] ?? null) !== 'identity_lifecycle_only') return false;
+    foreach (['id_tenant_key', 'contact_version', 'recipient_sha256', 'schedule_owner_receipt_id',
+        'schedule_prepared_version_id', 'contact_snapshot_id', 'schedule_active_version_id'] as $absent) {
+        if (($receipt[$absent] ?? null) !== null) return false;
+    }
+    $facts = $receipt;
+    unset($facts['id'], $facts['evidence_sha256'], $facts['created_at']);
+    try {
+        $expected = managed_customer_lifecycle_identity_restore_receipt_sha256($facts);
+    } catch (Throwable) {
+        return false;
+    }
+    return (int)($receipt['schedule_restored'] ?? -1) === 0
+        && is_string($receipt['evidence_sha256'] ?? null)
+        && hash_equals($expected, (string)$receipt['evidence_sha256']);
+}
+
+/**
+ * The house issuer from the nonsecret id_report_contacts.tenant_bindings slug mapping, or null.
+ *
+ * @param array<string,mixed>|null $houseBindings
+ */
+function managed_customer_lifecycle_house_issuer(?array $houseBindings): ?int
+{
+    $key = $houseBindings['8west'] ?? null;
+    if (!is_string($key) || preg_match('/\Aewid-t([1-9][0-9]{0,9})\z/D', $key, $match) !== 1) return null;
+    $issuer = (int)$match[1];
+    return $issuer <= 4_294_967_295 ? $issuer : null;
+}
+
+/**
+ * Clear one exact post-inactive source latch with the signed schema-3 identity-only proof (A88/A95).
+ *
+ * It never reads or writes report contact data or report schedules. The schedule's actual latest
+ * version and state hash are recorded with schedule_restored 0, so report presence, a human hold or
+ * an owned-disabled report never blocks identity and is never released here; that release needs the
+ * separate full schema-2 contact operation. A currently owned disabled portal is re-enabled under the
+ * same ownership/current-hash rules as the legacy restore, and an absent portal stays absent.
+ *
+ * Under the action locks it requires: the current active provider tenant and owner/admin actor; the
+ * current issuer (the current managed provider for its slug, or the house slug mapping); an immutable
+ * admitted receipt on this binding; a complete contiguous local history 1..current; the signed anchor
+ * as the active version directly after the latest inactive one (a current `restored` is its own
+ * anchor); and an existing report-ID map, when present, matching the signed key and slug.
+ * $beforeWrite runs once after every lock and read and before the first write; it may throw.
+ *
+ * @param array<string,mixed> $proof from managed_customer_id_identity_decode_response()
+ * @param array<string,mixed>|null $houseBindings the id_report_contacts.tenant_bindings mapping
+ * @return array<string,mixed>
+ */
+function managed_customer_lifecycle_identity_restore(
+    PDO $pdo,
+    array $candidate,
+    array $proof,
+    int $actorUserId,
+    array $rawLifecycleConfig,
+    ?array $houseBindings = null,
+    ?callable $fault = null,
+    ?callable $beforeWrite = null,
+    int $retryAttempt = 0,
+): array {
+    $config = managed_customer_lifecycle_config($rawLifecycleConfig);
+    if ($config['enabled'] !== true || $config['restoration_enabled'] !== true) {
+        throw new ManagedCustomerLifecycleGateException(
+            'Managed-customer lifecycle restoration is disabled.',
+        );
+    }
+    if ($pdo->inTransaction()) {
+        throw new ManagedCustomerLifecycleGateException(
+            'Lifecycle restoration requires its own transaction.',
+        );
+    }
+    $anchor = $proof['restoration_anchor'] ?? null;
+    if (($proof['schema_version'] ?? null) !== 3
+        || ($proof['proof_scope'] ?? null) !== 'identity_lifecycle_only'
+        || ($proof['customer_status'] ?? null) !== 'active'
+        || ($proof['lifecycle_version'] ?? null) !== 1
+        || ($proof['identity_tenant_status'] ?? null) !== 'active'
+        || ($proof['lifecycle_owned'] ?? null) !== false
+        || !in_array($proof['lifecycle_action'] ?? null, ['restored', 'observed_active'], true)
+        || !is_string($proof['customer_id'] ?? null)
+        || !is_int($proof['source_version'] ?? null)
+        || !is_int($proof['issuer_suite_tenant_id'] ?? null)
+    ) {
+        throw new ManagedCustomerLifecycleValidationException(
+            'Authenticated ID identity-only proof is invalid.',
+        );
+    }
+    if (!is_array($anchor)
+        || array_keys($anchor) !== ['source_version', 'receipt_id', 'event_id', 'transition_id', 'evidence_sha256']
+        || !is_int($anchor['source_version']) || $anchor['source_version'] < 2
+        || $anchor['source_version'] > $proof['source_version']
+        || ($proof['lifecycle_action'] === 'restored' && $anchor['source_version'] !== $proof['source_version'])
+    ) {
+        throw new ManagedCustomerLifecycleGateException(
+            'A post-inactive customer requires an exact signed restoration anchor.',
+        );
+    }
+    $customerId = managed_customer_activation_uuid((string)$proof['customer_id']);
+    $scheduleKey = managed_customer_activation_schedule_key($customerId);
+    $candidateBindingId = (int)($candidate['binding_id'] ?? 0);
+    $candidateTenantId = (int)($candidate['tenant_id'] ?? 0);
+    $candidateClientId = (int)($candidate['client_id'] ?? 0);
+    $candidateSourceVersion = (int)($candidate['source_version'] ?? 0);
+    $candidateTenantSlug = (string)($candidate['provider_tenant_slug'] ?? '');
+    $houseIssuer = managed_customer_lifecycle_house_issuer($houseBindings);
+    if (!in_array($customerId, $config['customer_ids'], true)
+        || $candidateBindingId < 1
+        || $candidateTenantId < 1
+        || $candidateClientId < 1
+        || $candidateSourceVersion < 2
+        || ($candidate['status'] ?? null) !== 'active'
+        || !is_string($candidate['customer_id'] ?? null)
+        || !hash_equals($customerId, (string)$candidate['customer_id'])
+        || $candidateSourceVersion !== $proof['source_version']
+        || !is_string($candidate['last_event_id'] ?? null)
+        || !hash_equals((string)$proof['customer_event_id'], (string)$candidate['last_event_id'])
+        || !hash_equals($candidateTenantSlug, (string)$proof['provider_tenant_slug'])
+        || ($config['tenant_actors'][$candidateTenantSlug] ?? null) !== $actorUserId
+        || ($candidateTenantSlug === '8west' && $houseIssuer !== $proof['issuer_suite_tenant_id'])
+    ) {
+        throw new ManagedCustomerLifecycleGateException(
+            'Identity-only restoration candidate, event, provider, issuer or allowlist does not match.',
+        );
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $tenant = $pdo->prepare(
+            'SELECT id FROM tenants WHERE id = ? AND slug = ?'
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+        );
+        $tenant->execute([$candidateTenantId, $candidateTenantSlug]);
+        if ((int)$tenant->fetchColumn() !== $candidateTenantId) {
+            throw new ManagedCustomerLifecycleGateException(
+                'The exact lifecycle restoration tenant changed.',
+            );
+        }
+        $actor = $pdo->prepare(
+            "SELECT id FROM users
+              WHERE tenant_id = ? AND id = ? AND is_active = 1
+                AND role IN ('owner','admin')"
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+        );
+        $actor->execute([$candidateTenantId, $actorUserId]);
+        if ((int)$actor->fetchColumn() !== $actorUserId) {
+            throw new ManagedCustomerLifecycleGateException(
+                'Lifecycle restoration actor is not an active owner/admin.',
+            );
+        }
+        if ($candidateTenantSlug !== '8west') {
+            // The current admitted provider, under this transaction's shared locks, never a cached one.
+            $provider = suite_managed_provider($pdo, $candidateTenantSlug, true);
+            if (!is_array($provider)
+                || (int)$provider['tenant_id'] !== $candidateTenantId
+                || (int)$provider['owner_user_id'] !== $actorUserId
+                || (int)$provider['issuer_tenant_id'] !== $proof['issuer_suite_tenant_id']) {
+                throw new ManagedCustomerLifecycleGateException(
+                    'The identity-only restoration provider, owner or issuer is not current.',
+                );
+            }
+        }
+
+        $source = $pdo->prepare(
+            "SELECT binding.id AS binding_id, binding.tenant_id, binding.client_id,
+                    binding.customer_id, binding.source_version, binding.status,
+                    binding.last_event_id, binding.last_request_sha256,
+                    receipt.id AS source_event_receipt_id,
+                    receipt.event_id AS source_event_id,
+                    receipt.request_sha256 AS source_request_sha256
+               FROM suite_customer_sync_bindings binding
+               JOIN suite_customer_sync_events receipt
+                 ON receipt.tenant_id = binding.tenant_id
+                AND receipt.binding_id = binding.id
+                AND receipt.event_id = binding.last_event_id
+                AND receipt.customer_id = binding.customer_id
+                AND receipt.client_id = binding.client_id
+                AND receipt.source_version = binding.source_version
+                AND receipt.status = binding.status
+                AND receipt.request_sha256 = binding.last_request_sha256
+              WHERE binding.id = ? AND binding.tenant_id = ?
+                AND binding.client_id = ? AND binding.customer_id = ?"
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+        );
+        $source->execute([
+            $candidateBindingId, $candidateTenantId, $candidateClientId, $customerId,
+        ]);
+        $current = $source->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($current)
+            || (string)$current['status'] !== 'active'
+            || (int)$current['source_version'] !== $candidateSourceVersion
+            || !hash_equals((string)$current['source_event_id'], (string)$proof['customer_event_id'])
+            || !hash_equals((string)$current['last_event_id'], (string)$proof['customer_event_id'])
+        ) {
+            throw new ManagedCustomerLifecycleGateException(
+                'Signed identity-only restoration does not match the exact current source event.',
+            );
+        }
+
+        // The complete local history 1..current, its immutable admission and the anchor (A95).
+        $historyQuery = $pdo->prepare(
+            'SELECT id, event_id, customer_id, client_id, source_version, status, admission
+               FROM suite_customer_sync_events
+              WHERE tenant_id = ? AND binding_id = ?
+              ORDER BY source_version, id'
+        );
+        $historyQuery->execute([$candidateTenantId, $candidateBindingId]);
+        $history = $historyQuery->fetchAll(PDO::FETCH_ASSOC);
+        $admitted = false;
+        $latestInactive = 0;
+        foreach ($history as $index => $event) {
+            if ((int)$event['source_version'] !== $index + 1
+                || !hash_equals($customerId, (string)$event['customer_id'])
+                || (int)$event['client_id'] !== $candidateClientId) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Local customer history is not complete and contiguous.',
+                );
+            }
+            if ($event['admission'] !== null) $admitted = true;
+            if ((string)$event['status'] === 'inactive') $latestInactive = $index + 1;
+        }
+        $currentEvent = $history === [] ? null : $history[array_key_last($history)];
+        $anchorEvent = $history[$anchor['source_version'] - 1] ?? null;
+        if (!is_array($currentEvent)
+            || count($history) !== $candidateSourceVersion
+            || (int)$currentEvent['id'] !== (int)$current['source_event_receipt_id']
+            || !$admitted
+            || $latestInactive < 1
+            || $anchor['source_version'] !== $latestInactive + 1
+            || !is_array($anchorEvent)
+            || (string)$anchorEvent['status'] !== 'active'
+            || !hash_equals((string)$anchorEvent['event_id'], (string)$anchor['event_id'])
+        ) {
+            throw new ManagedCustomerLifecycleGateException(
+                'The signed restoration anchor or admission does not match local history.',
+            );
+        }
+
+        $existing = managed_customer_lifecycle_existing_restore_receipt(
+            $pdo,
+            $customerId,
+            $candidateSourceVersion,
+        );
+        if (is_array($existing)) {
+            $same = static fn(string $column, mixed $value): bool =>
+                is_string($existing[$column] ?? null) && is_string($value) && hash_equals($existing[$column], $value);
+            if (!managed_customer_lifecycle_identity_restore_receipt_valid($existing)
+                || !$same('source_event_id', (string)$proof['customer_event_id'])
+                || !$same('id_customer_receipt_id', $proof['customer_receipt_id'] ?? null)
+                || !$same('id_initial_receipt_id', $proof['initial_receipt_id'] ?? null)
+                || (int)$existing['id_lifecycle_transition_id'] !== (int)($proof['lifecycle_transition_id'] ?? 0)
+                || !$same('id_lifecycle_action', $proof['lifecycle_action'])
+                || !$same('id_lifecycle_evidence_sha256', $proof['lifecycle_evidence_sha256'] ?? null)
+                || (int)$existing['id_oauth_session_version'] !== (int)($proof['identity_oauth_session_version'] ?? 0)
+                || !$same('id_projection_tenant_key', $proof['tenant_key'] ?? null)
+                || !$same('identity_tenant_slug', $proof['tenant_slug'] ?? null)
+                || !$same('id_provider_tenant_slug', $proof['provider_tenant_slug'] ?? null)
+                || (int)$existing['id_issuer_suite_tenant_id'] !== $proof['issuer_suite_tenant_id']
+                || !$same('id_projection_binding_sha256', $proof['projection_binding_sha256'] ?? null)
+                || (int)$existing['id_restore_anchor_source_version'] !== $anchor['source_version']
+                || !$same('id_restore_anchor_receipt_id', $anchor['receipt_id'])
+                || !$same('id_restore_anchor_event_id', $anchor['event_id'])
+                || (int)$existing['id_restore_anchor_transition_id'] !== (int)$anchor['transition_id']
+                || !$same('id_restore_anchor_evidence_sha256', $anchor['evidence_sha256'])
+            ) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Existing restoration evidence conflicts with the signed identity-only proof.',
+                );
+            }
+            // As in the legacy replay, the originally committed signed transport receipt is retained.
+            $pdo->commit();
+            return [
+                'action' => 'restore_replayed',
+                'proof_scope' => 'identity_lifecycle_only',
+                'customer_id_sha256' => hash('sha256', $customerId),
+                'source_version' => $candidateSourceVersion,
+                'portal_restored' => (int)$existing['portal_restored'],
+                'report_schedule_restored' => 0,
+                'evidence_sha256' => (string)$existing['evidence_sha256'],
+            ];
+        }
+
+        // An existing local report-ID map is optional; when present it must match exactly.
+        $idBinding = $pdo->prepare(
+            'SELECT id_tenant_key, id_tenant_slug FROM business_report_id_client_bindings
+              WHERE tenant_id = ? AND client_id = ?'
+            . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+        );
+        $idBinding->execute([$candidateTenantId, $candidateClientId]);
+        foreach ($idBinding->fetchAll(PDO::FETCH_ASSOC) as $idBindingRow) {
+            if (!hash_equals((string)$idBindingRow['id_tenant_key'], (string)$proof['tenant_key'])
+                || !hash_equals((string)$idBindingRow['id_tenant_slug'], (string)$proof['tenant_slug'])) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Identity-only restoration report-ID map does not match the signed identity.',
+                );
+            }
+        }
+
+        $reason = 'Restore exact managed customer identity ' . hash('sha256', $customerId)
+            . ' source-version=' . $candidateSourceVersion
+            . ' lifecycle-transition=' . (int)$proof['lifecycle_transition_id'];
+
+        $portalQuery = $pdo->prepare(
+            'SELECT * FROM customer_portal_bindings
+              WHERE tenant_id = ? AND client_id = ?'
+            . managed_customer_lifecycle_lock_suffix($pdo)
+        );
+        $portalQuery->execute([$candidateTenantId, $candidateClientId]);
+        $portal = $portalQuery->fetch(PDO::FETCH_ASSOC);
+        if (is_array($portal)
+            && !hash_equals((string)$portal['identity_tenant_slug'], (string)$proof['tenant_slug'])
+        ) {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Lifecycle restoration portal identity mapping changed.',
+            );
+        }
+        if (is_array($portal) && !in_array((string)$portal['status'], ['active', 'disabled'], true)) {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Lifecycle restoration portal state is invalid.',
+            );
+        }
+        $portalBindingId = is_array($portal) ? (int)$portal['id'] : null;
+        $portalBeforeEventId = null;
+        $portalStateSha256 = null;
+        $portalOwner = null;
+        $portalCanRestore = false;
+        $portalPreservedActive = false;
+        if ($portalBindingId !== null) {
+            $portalEventQuery = $pdo->prepare(
+                'SELECT id, snapshot_json FROM customer_portal_binding_events
+                  WHERE tenant_id = ? AND client_id = ? AND binding_id = ?
+                  ORDER BY id DESC LIMIT 1'
+                . managed_customer_lifecycle_lock_suffix($pdo, 'share')
+            );
+            $portalEventQuery->execute([$candidateTenantId, $candidateClientId, $portalBindingId]);
+            $portalEvent = $portalEventQuery->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($portalEvent) || !is_string($portalEvent['snapshot_json'] ?? null)) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration portal audit is missing.',
+                );
+            }
+            $portalBeforeEventId = (int)$portalEvent['id'];
+            $portalStateSha256 = hash('sha256', (string)$portalEvent['snapshot_json']);
+            $portalOwner = managed_customer_lifecycle_surface_owner(
+                $pdo,
+                $candidateTenantId,
+                $candidateClientId,
+                $customerId,
+                'portal',
+                $portalBindingId,
+            );
+            $portalCurrentlyOwned = is_array($portalOwner)
+                && (int)$portalOwner['portal_state_event_id'] === $portalBeforeEventId
+                && hash_equals((string)$portalOwner['portal_state_sha256'], $portalStateSha256);
+            $portalPreservedActive = (string)$portal['status'] === 'active';
+            if ($portalPreservedActive && $portalCurrentlyOwned) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration portal ownership is ambiguous.',
+                );
+            }
+            $portalCanRestore = $portalCurrentlyOwned;
+        }
+
+        // The schedule is read for its actual state only; identity-only never writes it.
+        $latestSchedule = managed_customer_lifecycle_latest_schedule(
+            $pdo,
+            $candidateTenantId,
+            $scheduleKey,
+        );
+        if (is_array($latestSchedule)
+            && !in_array((string)$latestSchedule['status'], ['active', 'disabled'], true)
+        ) {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Lifecycle restoration report schedule state is invalid.',
+            );
+        }
+        $scheduleBeforeId = is_array($latestSchedule) ? (int)$latestSchedule['id'] : null;
+        $scheduleStateSha256 = is_array($latestSchedule)
+            ? managed_customer_lifecycle_schedule_sha256($latestSchedule)
+            : null;
+        if (is_array($latestSchedule) && (string)$latestSchedule['status'] === 'active') {
+            $scheduleOwner = managed_customer_lifecycle_surface_owner(
+                $pdo,
+                $candidateTenantId,
+                $candidateClientId,
+                $customerId,
+                'schedule',
+                $scheduleKey,
+            );
+            if (is_array($scheduleOwner)
+                && (int)$scheduleOwner['schedule_state_version_id'] === $scheduleBeforeId
+                && hash_equals((string)$scheduleOwner['schedule_state_sha256'], (string)$scheduleStateSha256)) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration report schedule ownership is ambiguous.',
+                );
+            }
+        }
+
+        if ($beforeWrite !== null) $beforeWrite();
+
+        $portalActiveEventId = null;
+        if ($portalCanRestore) {
+            $portalUpdate = managed_customer_lifecycle_write(
+                $pdo,
+                "UPDATE customer_portal_bindings
+                    SET status='active', last_changed_by_user_id=?, status_reason=?
+                  WHERE id=? AND tenant_id=? AND client_id=?
+                    AND identity_tenant_slug=? AND status='disabled'",
+                [
+                    $actorUserId, $reason, $portalBindingId, $candidateTenantId,
+                    $candidateClientId, $proof['tenant_slug'],
+                ],
+            );
+            if ($portalUpdate->rowCount() !== 1) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration portal transition was not exact.',
+                );
+            }
+            $portalActive = $pdo->prepare(
+                'SELECT id FROM customer_portal_binding_events
+                  WHERE tenant_id=? AND client_id=? AND binding_id=?
+                  ORDER BY id DESC LIMIT 1'
+            );
+            $portalActive->execute([$candidateTenantId, $candidateClientId, $portalBindingId]);
+            $portalActiveEventId = (int)$portalActive->fetchColumn();
+        }
+        if ($fault !== null) $fault('after_restore_portal');
+
+        $row = [
+            'tenant_id' => $candidateTenantId,
+            'client_id' => $candidateClientId,
+            'source_binding_id' => $candidateBindingId,
+            'customer_id' => $customerId,
+            'source_event_receipt_id' => (int)$current['source_event_receipt_id'],
+            'source_event_id' => (string)$current['source_event_id'],
+            'source_version' => $candidateSourceVersion,
+            'source_request_sha256' => (string)$current['source_request_sha256'],
+            'id_proof_scope' => 'identity_lifecycle_only',
+            'id_customer_receipt_id' => (string)$proof['customer_receipt_id'],
+            'id_initial_receipt_id' => (string)$proof['initial_receipt_id'],
+            'id_customer_status' => 'active',
+            'id_lifecycle_version' => 1,
+            'id_lifecycle_transition_id' => (int)$proof['lifecycle_transition_id'],
+            'id_lifecycle_action' => (string)$proof['lifecycle_action'],
+            'id_lifecycle_evidence_sha256' => (string)$proof['lifecycle_evidence_sha256'],
+            'id_identity_tenant_status' => 'active',
+            'id_oauth_session_version' => (int)$proof['identity_oauth_session_version'],
+            'id_lifecycle_owned' => 0,
+            'id_projection_tenant_key' => (string)$proof['tenant_key'],
+            'identity_tenant_slug' => (string)$proof['tenant_slug'],
+            'id_provider_tenant_slug' => (string)$proof['provider_tenant_slug'],
+            'id_issuer_suite_tenant_id' => $proof['issuer_suite_tenant_id'],
+            'id_projection_binding_sha256' => (string)$proof['projection_binding_sha256'],
+            'id_restore_anchor_source_version' => $anchor['source_version'],
+            'id_restore_anchor_receipt_id' => (string)$anchor['receipt_id'],
+            'id_restore_anchor_event_id' => (string)$anchor['event_id'],
+            'id_restore_anchor_transition_id' => (int)$anchor['transition_id'],
+            'id_restore_anchor_evidence_sha256' => (string)$anchor['evidence_sha256'],
+            'id_response_generated_at' => (string)$proof['generated_at_db'],
+            'id_request_nonce_sha256' => (string)$proof['request_nonce_sha256'],
+            'id_response_sha256' => (string)$proof['response_sha256'],
+            'portal_owner_receipt_id' => is_array($portalOwner) && !$portalPreservedActive
+                ? (int)$portalOwner['id'] : null,
+            'portal_binding_id' => $portalBindingId,
+            'portal_before_event_id' => $portalBeforeEventId,
+            'portal_active_event_id' => $portalActiveEventId,
+            'portal_restored' => $portalCanRestore ? 1 : 0,
+            'portal_state_sha256' => $portalStateSha256,
+            'schedule_key' => $scheduleKey,
+            'schedule_before_version_id' => $scheduleBeforeId,
+            'schedule_restored' => 0,
+            'schedule_state_sha256' => $scheduleStateSha256,
+            'actor_user_id' => $actorUserId,
+        ];
+        $digest = managed_customer_lifecycle_identity_restore_receipt_sha256($row);
+        $row['evidence_sha256'] = $digest;
+        if ($fault !== null) $fault('before_restore_receipt');
+        // The report-ID carrier, contact facts and every schedule write column stay NULL (034 CHECK).
+        managed_customer_lifecycle_write(
+            $pdo,
+            'INSERT INTO managed_customer_lifecycle_restore_receipts ('
+                . implode(',', array_keys($row)) . ') VALUES ('
+                . implode(',', array_fill(0, count($row), '?')) . ')',
+            array_values($row),
+        );
+        if ($fault !== null) $fault('after_restore_receipt');
+        $pdo->commit();
+        return [
+            'action' => 'restored',
+            'proof_scope' => 'identity_lifecycle_only',
+            'customer_id_sha256' => hash('sha256', $customerId),
+            'source_version' => $candidateSourceVersion,
+            'portal_restored' => $portalCanRestore ? 1 : 0,
+            'report_schedule_restored' => 0,
+            'evidence_sha256' => $digest,
+        ];
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if (managed_customer_lifecycle_retryable_database_error($error)
+            && $retryAttempt < 2
+        ) {
+            usleep(25_000 * ($retryAttempt + 1));
+            return managed_customer_lifecycle_identity_restore(
+                $pdo,
+                $candidate,
+                $proof,
+                $actorUserId,
+                $rawLifecycleConfig,
+                $houseBindings,
+                $fault,
+                $beforeWrite,
+                $retryAttempt + 1,
+            );
+        }
+        if ($error instanceof ManagedCustomerLifecycleException) {
+            throw $error;
+        }
+        if ($error instanceof PDOException && (string)$error->getCode() === '23000') {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Concurrent lifecycle restoration committed conflicting evidence.',
+                0,
+                $error,
+            );
+        }
+        throw $error;
+    }
+}
+
 /** @return list<array<string,mixed>> */
 function managed_customer_lifecycle_run(
     PDO $pdo,
@@ -1539,6 +2147,11 @@ function managed_customer_lifecycle_scheduled_claim(PDO $pdo, array $config, arr
  * `tenant_actors` entry. An admitted lineage uses the configured house actor for `8west`, or else
  * the currently admitted provider's verified owner; a withdrawn provider is refused.
  *
+ * Restoration routing (A88), chosen before any proof or receipt: the explicit approved scope is the
+ * separately authorized contact operation and keeps the full schema-2 restore that may release an
+ * owned report. An admitted lineage outside it uses the schema-3 identity-only proof (migration
+ * 034), which clears the identity latch and never writes reports. Neither downgrades into the other.
+ *
  * @return array<string,mixed>
  */
 function managed_customer_lifecycle_scheduled_act(
@@ -1550,6 +2163,7 @@ function managed_customer_lifecycle_scheduled_act(
     array $businessReportConfig = [],
     array $idConfig = [],
     ?callable $fetchEvidence = null,
+    ?callable $fetchIdentity = null,
 ): array {
     $customerId = managed_customer_activation_uuid((string)($candidate['customer_id'] ?? ''));
     $slug = (string)($candidate['provider_tenant_slug'] ?? '');
@@ -1576,10 +2190,25 @@ function managed_customer_lifecycle_scheduled_act(
     $deferred = ['action' => 'deferred', 'customer_id_sha256' => hash('sha256', $customerId),
         'source_version' => (int)$candidate['source_version'], 'provenance' => $provenance];
     if (($candidate['status'] ?? null) === 'active' && $config['restoration_enabled'] === true) {
+        if (!$explicit && !managed_customer_lifecycle_identity_restore_available($pdo)) {
+            throw new ManagedCustomerLifecycleGateException(
+                'Identity-only restoration (migration 034) is not installed.',
+            );
+        }
         $seconds = (int)floor($remaining());
         if ($seconds < 1 || !$mayTransition()) return $deferred;
         $boundedId = $idConfig;
         $boundedId['timeout_seconds'] = max(1, min((int)($idConfig['timeout_seconds'] ?? 10), $seconds));
+        if (!$explicit) {
+            $fetchIdentity ??= 'managed_customer_id_identity_fetch';
+            $proof = $fetchIdentity($customerId, $boundedId);
+            if (!is_array($proof)) {
+                throw new ManagedCustomerLifecycleGateException('Authenticated ID identity-only proof is invalid.');
+            }
+            $houseBindings = is_array($idConfig['tenant_bindings'] ?? null) ? $idConfig['tenant_bindings'] : null;
+            return managed_customer_lifecycle_identity_restore($pdo, $candidate, $proof, $actorId, $scoped, $houseBindings)
+                + ['provenance' => $provenance];
+        }
         $fetchEvidence ??= 'managed_customer_id_evidence_fetch';
         $evidence = $fetchEvidence($customerId, $boundedId);
         if (!is_array($evidence)) {
@@ -1600,6 +2229,7 @@ function managed_customer_lifecycle_scheduled_run(
     array $idConfig = [],
     ?callable $fetchEvidence = null,
     ?callable $clock = null,
+    ?callable $fetchIdentity = null,
 ): array {
     $config = managed_customer_lifecycle_config($rawConfig);
     if ($config['enabled'] !== true) {
@@ -1610,7 +2240,7 @@ function managed_customer_lifecycle_scheduled_run(
         static fn(array $candidate, callable $mayTransition, callable $remaining): array =>
             managed_customer_lifecycle_scheduled_act(
                 $pdo, $config, $candidate, $mayTransition, $remaining,
-                $businessReportConfig, $idConfig, $fetchEvidence,
+                $businessReportConfig, $idConfig, $fetchEvidence, $fetchIdentity,
             ),
         $clock ?? static fn(): float => hrtime(true) / 1e9,
     );

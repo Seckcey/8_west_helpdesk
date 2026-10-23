@@ -80,6 +80,13 @@ cursor and commits before any blocking database or HTTP action. The existing app
 then run under a configuration scoped to exactly that UUID and actor, and recheck the provider,
 actor, current source and receipts under their own locks.
 
+**Restoration routing (A88).** It is chosen before any proof is requested or any receipt is written.
+The explicit approved scope is the separately authorized contact operation and keeps the full
+schema-2 restore below, which may release an owned report. An admitted lineage outside that scope
+uses the schema-3 identity-only proof (migration 034, below), which never writes reports. Neither
+path falls back into the other. Without 034 installed, an admitted restoration is refused before any
+ID request or budget use.
+
 **Failure.** A missing singleton or an unknown cursor commit stops the run with no action. A crash,
 kill, timeout or refusal still moves consideration on. The cursor is never authority, status or
 completion evidence. Results carry only hashed UUIDs and error digests.
@@ -168,6 +175,49 @@ A same-UUID Milepost restoration (original inactive v2, then active v3) still
 needs this restoration path for the exact current v3. Preserving an already
 active, never-contained portal or schedule needs migration 032 below.
 
+### Identity-only restoration (A88/A95/A97, migration 034)
+
+The schema-3 proof has its own request, decoder and fetch functions in
+`managed_customer_id_evidence.php`; schema 2 is unchanged. The request is exactly
+`{"schema_version":3,"purpose":"identity_lifecycle","customer_id":"<uuid>"}` over the same
+endpoint, key, HMAC, nonce, freshness and size limits. The reply is the CLOSED25 object, in this
+order, with no contact field and no 24-key alias:
+
+```text
+ok, schema_version, purpose, customer_id, provider_tenant_slug, customer_source_version,
+customer_receipt_id, customer_event_id, initial_receipt_id, customer_status, lifecycle_version,
+lifecycle_transition_id, lifecycle_action, lifecycle_evidence_sha256, identity_tenant_status,
+identity_oauth_session_version, lifecycle_owned, identity_tenant_key, identity_tenant_slug,
+generated_at, request_nonce, issuer_suite_tenant_id, projection_binding_sha256, proof_scope,
+restoration_anchor
+```
+
+`proof_scope` is exactly `identity_lifecycle_only`. `restoration_anchor` is NULL or exactly
+`{source_version, receipt_id, event_id, transition_id, evidence_sha256}`; duplicate members are
+refused at the top level and inside the anchor. The current facts stay the actual current ones: a
+`restored` current action must be its own anchor, and `observed_active` needs an older anchor.
+
+`managed_customer_lifecycle_identity_restore()` clears one post-inactive latch with that proof.
+Under its locks it requires:
+- the active provider tenant and owner/admin actor;
+- the current issuer: the current managed provider for its slug (the provider row read with shared
+  locks), or for `8west` the nonsecret `id_report_contacts.tenant_bindings` mapping;
+- an immutable admitted (created/restored) receipt on the binding;
+- a complete contiguous local history 1..current, with the anchor as the active version directly
+  after the latest inactive one; a newer inactive version invalidates an older anchor;
+- an existing report-ID map, when present, matching the signed key and slug. An absent map is never
+  invented; the signed key is kept in `id_projection_tenant_key`.
+
+It never reads or writes report contact data or schedules. The schedule's actual latest version and
+state hash are recorded with `schedule_restored = 0`, so report presence, a human hold or an
+owned-disabled report never blocks identity and is never released here; releasing an owned report
+needs the separate full schema-2 operation, and a later same-event release after an identity-only
+receipt is a separate held operation. A currently owned disabled portal is re-enabled under the same
+ownership/current-hash rules as above; an absent portal stays absent. The digest is the closed domain
+`safeharbor-managed-customer-lifecycle-identity-restore-v1`, whose fields include the proof scope,
+initial receipt, provider and issuer, projection, all five anchor facts and the transport hashes. A
+lost acknowledgement replays the committed receipt; a changed proof for the same event conflicts.
+
 ## Migration and tests
 
 Migration `024_managed_customer_lifecycle.sql` is additive. It creates separate
@@ -223,6 +273,37 @@ bash deploy/deploy.sh --migrate app/db/migrations/032_managed_customer_preserved
 - Applying 032 in production, and enabling restoration for any customer, are
   separate owner-gated steps.
 
+Migration `034_managed_customer_identity_lifecycle_restore.sql` makes one atomic ALTER of the
+restore-receipt table, with no backfill and no old row rewritten:
+- it extends `id_lifecycle_action` to `observed_active`;
+- it makes `id_tenant_key`, `contact_version` and `recipient_sha256` nullable;
+- it appends the A88 metadata (`id_proof_scope`, `id_initial_receipt_id`, `id_provider_tenant_slug`,
+  `id_issuer_suite_tenant_id`, `id_projection_binding_sha256`, `id_projection_tenant_key`) and the
+  five `id_restore_anchor_*` columns;
+- it adds `ck_mc_restore_proof_scope`. A legacy NULL-scope row is exactly as before: `restored` only,
+  non-NULL report-map key, contact version and recipient hash, every new column NULL. An identity
+  row has a NULL carrier, contact version and recipient hash, writes no schedule or contact, and has
+  every metadata and anchor fact non-NULL and type-valid. There is no `id_contact_mode`.
+
+`fk_mc_restore_id_binding` is preserved and does not apply to a NULL carrier. The validator becomes
+v3 (`...-restore-receipt-v3`). Its legacy branch and digest are v2's. Its identity branch checks the
+optional map, the provider and issuer, and the anchor against local history, then the new digest
+domain. The new scope test, the CHECK's identity branch and the final digest comparison are
+NULL-safe (A136): a NULL refuses instead of passing as UNKNOWN. The same swap-guard pattern as 032
+(`trg_mc_restore_identity_swap_insert`, exact body only) keeps every restore insert refused until
+the postflight passes. The preflight accepts the completed 032 state, an interrupted 034 or a
+completed 034, and pins the v3 body and the normalized CHECK. `app/db/schema.sql` carries the same
+table and v3 validator. Apply it the same way:
+
+```bash
+bash deploy/deploy.sh --migrate app/db/migrations/034_managed_customer_identity_lifecycle_restore.sql
+```
+
+Never replay 024 or 032 after 034. 032's preflight recognizes only the v1/v2 validator markers, so
+it refuses the v3 validator before any change; 024's behavior over the 034 table shape has not been
+traced. New code before 034 refuses admitted restoration before any ID request. Old code after 034
+is unchanged: its legacy inserts never name the new columns, so they stay NULL.
+
 Focused coverage:
 
 - `managed_customer_lifecycle_test.php`: inactive/legacy boundaries, current
@@ -257,6 +338,27 @@ Focused coverage:
   - stale, wrong-event, wrong-UUID and `observed_active` refusals;
   - forged owner or stale audit/version receipts refused by the guard;
   - owned-disabled restoration and human holds under 032.
+
+  For 034 (still in the same file, then fresh parity 024 + 032 + 034) it covers:
+  - admitted restoration refused before 034 with no ID request;
+  - DML-only refusal, double apply, legacy rows byte-exact and digest-valid;
+  - wrong same-name swap guards, both interrupted points and a refused unknown state;
+  - the exact identity facts and PHP digest accepted by the v3 validator, with carrier, contact,
+    NULL, anchor, provider, issuer, map and digest-domain drift refused;
+  - the NULL-safe legacy scope test and digest comparison;
+  - the scheduled admitted identity-only restore of a queued restore→rename (current v4
+    `observed_active`, anchor v3), which reopens the owned portal, leaves the owned-disabled report
+    untouched, and replays;
+  - the legacy contact restore still writing its unchanged receipt.
+- `managed_customer_id_evidence_test.php` (schema 3): exact request bytes and headers, CLOSED25
+  decode with NULL/direct/older anchors, and refusal of every other schema, purpose, scope, owned
+  state, issuer, slug, anchor shape, contact field, 24-key alias and duplicate member.
+- `managed_customer_lifecycle_test.php` (034 shape in SQLite): zero-write direct restore, replay and
+  conflict, the queued rename and a later rename, missing/forged/inactive/gapped/older/foreign
+  anchors and issuers, a newer inactive version, no admission, a withdrawn provider, the house
+  issuer, an existing versus absent map, an owned-disabled report kept as-is, and the before-write
+  stop.
+- `managed_customer_lifecycle_scheduler_test.php`: the routing split and the pre-034 refusal.
 
 No migration, configuration, cron installation, merge, deployment, portal
 reactivation, or report delivery is performed by this source slice.
