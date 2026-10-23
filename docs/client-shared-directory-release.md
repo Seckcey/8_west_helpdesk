@@ -78,7 +78,7 @@ retained as history; the one-time P9 runtime completion is recorded below. Do no
     permission and its own audited binding. The link grants no authority.
   - **Before CUT2.** CUT1 opened the existing entry for every row.
 - **Support**: the local Safeharbor client page.
-- **Canonical Support target** (source candidate, A48/A51). Other suite apps link to
+- **Canonical Support target** (CUT1, A48/A51). Other suite apps link to
   `https://safeharbor.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`.
   - **Resolver.** Staff sign-in comes first. The provider only asserts the signed-in user's own
     tenant slug; it never selects a tenant. The UUID must have exactly one binding in that tenant
@@ -208,11 +208,17 @@ They are not results of this repository's tests.
   Detail, list and destination screenshots were visually inspected. No account, financial,
   form-save or provider/device action was performed; this is not customer acceptance. The two
   task-created tabs were closed.
-- **Preservation.** P9 receipt 1 and Valley binding 12 / receipt 19 remained exact. Valley
+- **Source-deploy readback.** P9 receipt 1 and Valley binding 12 / receipt 19 remained exact. Valley
   contact/portal/report/containment/restore surfaces stayed zero; people stayed 4 (max ID 7),
   and lifecycle cursor 0. The v3 validator and CHECK retained their measured pins.
-- **Scheduling closeout.** Safeharbor worker and schedule holds remain under the release lead
-  pending the ordered hook and scheduling restoration; deployment alone did not release them.
+- **Scheduling closeout.** After the lead verified the approved ID hook and restored the common
+  schedules, Safeharbor restored its five original cron filenames at 22:41:08Z, preserving every
+  original hash, inode, owner and mode. Only its originally active cleanup timer was started.
+  The lifecycle then activation holds were closed at 22:41:20Z; all owned descriptors were verified
+  absent. The first natural cleanup run had child exit 0 but was not yet healthy under the existing
+  two-success rule. Its next natural run at 22:42:00Z reported two successes, healthy true and
+  service exit 0. No job was manually invoked, and no common, ID or Milepost hold was changed
+  by the Safeharbor owner. The lead retains the cross-app sequencing record.
 - **CUT1 predecessor.** `9d1650ad` was live before CUT2. Migrations 032 → 033 → 034 passed and all 393 runtime files
   matched. Public login returned 200 with its expected title at `2026-10-23T20:07:25Z`.
 - **P9.** One corrected act ran (exit 0), giving receipt 1, portal 0 and report 0. All five anchor

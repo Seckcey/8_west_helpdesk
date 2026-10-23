@@ -171,8 +171,10 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
      all 393 runtime files matched. Public login/CSS passed after reopen. A bounded actual staff
      Billing click from Lifestyle client 14 resolved to one Coastmark Lifestyle result / Statement 7;
      existing local clients retained the generic entry. This is not customer acceptance.
-   - **Still held:** the broad scheduled lifecycle run and the other activation, report and cron
-     holds stay with the release lead.
+   - **Owned scheduling restored:** following the lead's hook/common restoration order, all five
+     original Safeharbor cron filenames and its previously active cleanup timer were restored;
+     both worker holds were released. The second natural cleanup run was healthy and exited 0
+     at 22:42:00Z. No manual scheduled lifecycle or P9 rerun was performed.
 
    See the [release receipt](client-shared-directory-release.md).
 
