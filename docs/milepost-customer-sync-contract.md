@@ -82,8 +82,11 @@ linked client. These links are presentation only: they must not be released
 before Milepost's provider + UUID route is live, and the Coastmark link only
 after Coastmark's provider + UUID resolver is live. The release lead reports
 that resolver live, with real signed-in GETs for all eight approved `8west`
-UUIDs resolving (a lead observation). CUT2 is source-ready, not deployed;
-until it is, Billing opens Coastmark's existing suite entry for every row.
+UUIDs resolving (a lead observation). CUT2 is live as `d746c19` / PR #262 after
+owner qualification, full PR/main CI and one stock source-only deploy. A bounded
+real staff-session Billing click from Safeharbor Lifestyle client 14 resolved
+to Coastmark's linked Lifestyle result and Statement 7. Local clients keep
+Coastmark's existing suite entry. See the release receipt for evidence limits.
 
 #### Current Milepost directory (request-current roster)
 
