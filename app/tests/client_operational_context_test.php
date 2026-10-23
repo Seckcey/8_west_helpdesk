@@ -240,6 +240,16 @@ operational_check('a complete exact reply decodes keyed by customer UUID',
     is_array($decoded) && $decoded['read_at'] === $sentAt && array_keys($decoded['customers']) === array_column($rosterItems, 'customer_id'));
 operational_check('a verified empty directory is a real empty roster',
     client_operational_roster_decode($reply([], []), $housePrincipal, $nonce, $sentAt, $sentAt)['customers'] === []);
+$escapedDuplicate = substr($reply(), 0, -1) . ',"ok":true}';
+operational_check('the escaped duplicate-key fixture really spells the key with a JSON escape',
+    str_ends_with($escapedDuplicate, ',"\\u006fk":true}'));
+$singleItem = $reply([], [$rosterItems[0]]);
+$objectRoster = str_replace('"customers":[', '"customers":{"0":', substr($singleItem, 0, -2)) . '}}';
+$listItem = json_encode(array_replace(json_decode($singleItem, true), ['customers' => [array_values($rosterItems[0])]]),
+    JSON_UNESCAPED_SLASHES);
+operational_check('the raw JSON type fixtures are what they claim',
+    str_ends_with($reply([], []), '"customers":[]}') && str_contains($objectRoster, '"customers":{"0":{')
+    && str_ends_with($objectRoster, '}}}') && str_contains($listItem, '"customers":[["'));
 $itemChange = static function (int $index, array $changes) use ($rosterItems): array {
     $items = $rosterItems; $items[$index] = array_replace($items[$index], $changes); return $items;
 };
@@ -259,7 +269,10 @@ foreach ([
     'read_at after the window' => $reply(['read_at' => $sentAt + 2 + 61]),
     'a duplicate top-level key' => substr($reply(), 0, -1) . ',"ok":true}',
     'a duplicate item key' => str_replace('"display_name":"Harbor"', '"display_name":"Harbor","display_name":"Other"', $reply()),
-    'an escaped duplicate key' => substr($reply(), 0, -1) . ',"ok":true}',
+    'an escaped duplicate key' => $escapedDuplicate,
+    'customers as an empty JSON object' => str_replace('"customers":[]', '"customers":{}', $reply([], [])),
+    'customers as a numeric-keyed JSON object' => $objectRoster,
+    'a customer as a JSON array' => $listItem,
     'an extra top-level key' => $reply(['customer_count' => 5]),
     'an extra item key' => $reply([], $extraKey),
     'a missing item key' => $reply([], $withoutKey),

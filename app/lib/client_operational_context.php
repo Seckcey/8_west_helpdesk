@@ -327,8 +327,15 @@ function client_operational_roster_decode(string $body, array $principal, string
     }
     try {
         $reply = json_decode($body, true, 8, JSON_THROW_ON_ERROR);
+        $native = json_decode($body, false, 8, JSON_THROW_ON_ERROR);
     } catch (JsonException) {
         return null;
+    }
+    // JSON types, not PHP shapes: an object such as {} or {"0":…} is never the customers array,
+    // and every customer must be a JSON object.
+    if (!$native instanceof stdClass || !is_array($native->customers ?? null)) return null;
+    foreach ($native->customers as $nativeItem) {
+        if (!$nativeItem instanceof stdClass) return null;
     }
     $keys = ['actor_subject', 'contract', 'customers', 'issuer_suite_tenant_id', 'ok', 'provider_tenant_id',
         'provider_tenant_slug', 'read_at', 'read_nonce'];
