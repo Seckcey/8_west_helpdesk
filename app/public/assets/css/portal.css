@@ -80,5 +80,7 @@
 .portal-overview-devices li{display:grid;justify-items:start;gap:4px;padding:12px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
 .portal-overview-devices strong{font-size:14px;font-weight:600}
 .portal-overview-devices .portal-device-state,.portal-overview-devices .portal-hint{margin:0}
+/* Westy's trigger closes the rail on its own row in normal flow, so it cannot cover requests or help text. */
+.portal-overview #portal-chat-bubble{position:static;box-shadow:none;z-index:auto;grid-column:1/-1;justify-self:start}
 @media(max-width:1190px){.portal-overview .portal-context-rail{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
 @media(max-width:760px){.portal-overview-hero{padding:20px;gap:14px 16px}.portal-overview-avatar{width:48px;height:48px}.portal-overview-hero h1{font-size:25px}.portal-overview .portal-overview-action{min-height:64px}.portal-overview .portal-overview-card,.portal-overview .portal-context-rail .portal-overview-card{padding:18px}}

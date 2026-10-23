@@ -357,6 +357,8 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
     $scope = $clientWide ? 'You see every support request and computer for ' . $client . '.'
         : ($canWrite ? 'You see the requests you opened and the computers assigned to you.'
             : 'You can read the requests opened under your account and see the computers assigned to you. Viewer access cannot write requests or replies.');
+    // Westy's trigger closes the rail in normal flow, so it never covers requests or help text.
+    $context['chat_button_placement'] = 'inline';
     portal_page_start('Home', '', $context);
     ?>
 <main class="portal-home portal-overview">
@@ -449,6 +451,7 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
    <a href="/portal/guide.php#contact">Contact support <?= portal_icon('arrow') ?></a>
    <p class="portal-hint">Your requests are visible to you, client owners/admins and the support team. Your Westy chat is private to you. <a href="/portal/guide.php#privacy">About your privacy</a></p>
   </section>
+  <?php portal_westy_button(); ?>
  </aside>
 </main>
     <?php
