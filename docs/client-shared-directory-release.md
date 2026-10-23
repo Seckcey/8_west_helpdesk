@@ -16,9 +16,17 @@ true before it ships. Update it when the release owner merges, deploys or checks
 | Styles | Client-directory styles only; the stylesheet cache token changes with them. |
 
 The shared name and state come from the existing binding and its matching immutable receipt
-(`client_operational_context.php`), never from the editable local name. No receiver, lifecycle,
-schema, configuration, cron or permission changes. Local fields, privacy rules and handlers are
-unchanged, and no new guard is added.
+(`client_operational_context.php`), never from the editable local name. The directory itself has
+no receiver, schema, configuration, cron or permission change. Local fields, privacy rules and
+handlers are unchanged, and no new guard is added.
+
+The same branch carries one separate lifecycle change for same-UUID restoration
+(`managed_customer_lifecycle.php` plus forward migration
+`032_managed_customer_preserved_active_restore.sql`, which replaces only the restore-receipt insert
+validator). An exact current restored source event can then clear the latch while keeping an
+already-active, never-contained portal and report schedule exactly as they are. The
+[lifecycle contract](managed-customer-lifecycle-contract.md) describes it, with its apply and
+recovery steps.
 
 ## Links and their authority
 
@@ -36,12 +44,19 @@ unchanged, and no new guard is added.
 ## Release order
 
 1. Milepost's provider + UUID device route is deployed and checked first.
-2. Then this Safeharbor change can deploy with `bash deploy/deploy.sh` (no migration).
+2. Then this Safeharbor change deploys with the reviewed database change, database first:
+   `bash deploy/deploy.sh --migrate app/db/migrations/032_managed_customer_preserved_active_restore.sql`.
+   Applying 032 is its own owner gate. If 032 is held back, the directory part still deploys with
+   plain `bash deploy/deploy.sh`; the new restore code then refuses to preserve an active surface,
+   which is fail-closed.
 3. Check a linked active client, an inactive one, an unbound one and a client of another MSP
    tenant in a real browser on a disposable copy before production.
+4. Restoration stays off (`restoration_enabled` false) until the release lead's reviewed window.
 
 ## Checks to run (owner)
 
 - `php app/tests/client_operational_context_test.php` and the existing customer-sync, lifecycle
   and identity-evidence suites in the normal CI jobs.
+- `php app/tests/managed_customer_lifecycle_test.php` and, on a disposable MySQL server,
+  `php app/tests/managed_customer_lifecycle_mysql_test.php` (024 + 032).
 - The browser job and a visual check of the Clients list on desktop and narrow screens.
