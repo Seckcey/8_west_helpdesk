@@ -286,7 +286,7 @@ operational_check('a complete exact reply decodes keyed by customer UUID',
     is_array($decoded) && $decoded['read_at'] === $sentAt && array_keys($decoded['customers']) === array_column($rosterItems, 'customer_id'));
 operational_check('a verified empty directory is a real empty roster',
     client_operational_roster_decode($reply([], []), $housePrincipal, $nonce, $sentAt, $sentAt)['customers'] === []);
-$escapedDuplicate = substr($reply(), 0, -1) . ',"ok":true}';
+$escapedDuplicate = substr($reply(), 0, -1) . ',"\\u006fk":true}';
 operational_check('the escaped duplicate-key fixture really spells the key with a JSON escape',
     str_ends_with($escapedDuplicate, ',"\\u006fk":true}'));
 $singleItem = $reply([], [$rosterItems[0]]);
