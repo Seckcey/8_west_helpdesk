@@ -20,6 +20,9 @@ assert.equal(rendered.status, 0, rendered.stdout + rendered.stderr);
 const uuid = n => `${n}a${n}b${n}c${n}d-${n}e${n}f-4a${n}b-8c${n}d-${n}e${n}f${n}a${n}b${n}c${n}d`;
 const devices = n => `https://support.8westit.com/client.php?provider=8west&customer_id=${uuid(n)}`;
 const billing = 'https://coastmark.8westit.com/auth/suite';
+// CUT2 (A227): Coastmark's client-scoped route for each linked or verified pending client.
+const scopedBilling = n => `https://coastmark.8westit.com/clients?provider=8west&customer_id=${uuid(n)}`;
+const scopedDestinations = [1, 2, 3, 4, 5, 7].map(scopedBilling);
 const tenantClients = ['Harbor Dental', 'Beta Canary', 'Copper Kettle', 'Email Intake', 'Northwind Partners',
   'Lagged Labs', 'Drifted Co', 'Removed Rentals'];
 const browser = await chromium.launch({ headless: true });
@@ -39,7 +42,7 @@ async function route(context, theme, listCase, problems) {
     if (url.hostname === 'support.8westit.com' && url.pathname === '/client.php') {
       return request.fulfill({ contentType: 'text/html', body: '<title>Synthetic Milepost destination</title><h1>Milepost devices destination fixture</h1>' });
     }
-    if (url.href === billing) {
+    if (url.href === billing || scopedDestinations.includes(url.href)) {
       return request.fulfill({ contentType: 'text/html', body: '<title>Synthetic Coastmark destination</title><h1>Coastmark destination fixture</h1>' });
     }
     if (url.hostname === 'safeharbor.test' && url.pathname.startsWith('/assets/') && !url.pathname.includes('..')) {
@@ -137,8 +140,18 @@ try {
           assert.equal(await page.getByRole('status').filter({ hasText: 'lists no shared businesses' }).count(), listCase === 'empty' ? 1 : 0);
           for (const name of tenantClients) assert.equal(await page.getByText(name, { exact: true }).count(), 1, name);
           assert.equal(await page.getByText('Other MSP Client').count(), 0);
-          assert.equal(await page.locator('a[href*="coastmark.8westit.com/clients"]').count(), 0);
-          for (const link of await page.getByRole('link', { name: 'Billing ↗' }).all()) assert.equal(await link.getAttribute('href'), billing);
+          // Each row's own Billing: linked clients (inactive and removed history included) and a verified
+          // pending business open their Coastmark client; local and drifted rows open Coastmark's entry.
+          const billingTargets = await page.locator('.crow-row').evaluateAll(rows => Object.fromEntries(rows.map(row => [
+            row.querySelector('[data-client-id]')?.dataset.clientId ?? 'pending',
+            [...row.querySelectorAll('a')].filter(link => link.textContent.trim() === 'Billing ↗').map(link => link.href),
+          ])));
+          assert.deepEqual(billingTargets, {
+            30: [scopedBilling(1)], 31: [scopedBilling(2)], 32: [scopedBilling(3)], 33: [billing], 34: [billing],
+            36: [scopedBilling(4)], 37: [billing], 38: [scopedBilling(7)],
+            ...(listCase === 'directory' ? { pending: [scopedBilling(5)] } : {}),
+          });
+          assert.equal(await page.locator('a[href^="https://coastmark.8westit.com/clients?"]').count(), listCase === 'directory' ? 6 : 5);
           if (listCase === 'directory') {
             const primary = page.locator('[aria-label="Businesses"]');
             const retained = page.locator('[aria-label="Retained and local"]');
@@ -167,6 +180,7 @@ try {
             await milepost.close();
             const [coastmark] = await Promise.all([context.waitForEvent('page'), harbor.getByRole('link', { name: 'Billing ↗' }).click()]);
             await coastmark.getByRole('heading', { name: 'Coastmark destination fixture' }).waitFor();
+            assert.equal(coastmark.url(), scopedBilling(1));
             await coastmark.close();
             await support.focus();
             await page.keyboard.press('Enter');
@@ -175,11 +189,13 @@ try {
             await layout(page, theme, viewport);
             assert.equal(await page.getByText('Milepost directory now:').count(), 1);
             assert.equal(await page.getByRole('link', { name: 'View this client in Milepost ↗' }).getAttribute('href'), devices(1));
-            assert.equal(await page.getByRole('link', { name: 'View in Coastmark ↗' }).getAttribute('href'), billing);
+            assert.equal(await page.getByRole('link', { name: 'View this client in Coastmark ↗' }).getAttribute('href'), scopedBilling(1));
+            assert.equal(await page.getByRole('link', { name: 'Review this client’s invoices in Coastmark ↗' }).getAttribute('href'), scopedBilling(1));
             if (evidence) await page.screenshot({ path: path.join(evidence, `client-business-${theme}-${viewport.width}.png`), fullPage: true });
             await page.goto('http://safeharbor.test/client.php?id=31');
             await page.getByRole('heading', { name: 'Beta Canary', exact: true, level: 1 }).waitFor();
             assert.equal(await page.getByText('Not in Milepost’s current client directory; kept here as retained history.').count(), 1);
+            assert.equal(await page.getByRole('link', { name: 'View this client in Coastmark ↗' }).getAttribute('href'), scopedBilling(2));
             await layout(page, theme, viewport);
             if (evidence) await page.screenshot({ path: path.join(evidence, `client-retained-${theme}-${viewport.width}.png`), fullPage: true });
           } else {

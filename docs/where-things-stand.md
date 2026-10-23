@@ -6,8 +6,13 @@ are in git history.
 
 ## The live version
 
-Current application source is **`a63dc4ee43dcf32cb44401e2a0f265959e14b4fa`**, deployed
-at **11:31:06 PM PDT on October 22, 2026** (`2026-10-23T06:31:06Z`). Customers now
+Current application source is **`9d1650adc3bbb8cd20a1a612cabf29f0c6350205`**, the shared client
+directory CUT1 ([PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261)), live since
+**October 23, 2026** (Safeharbor owner observation: migrations 032 → 033 → 034 passed, all 393
+runtime files matched, and public login returned 200 at `2026-10-23T20:07:25Z`). See
+the [shared directory release receipt](client-shared-directory-release.md). It replaced
+`a63dc4ee43dcf32cb44401e2a0f265959e14b4fa`, deployed at **11:31:06 PM PDT on October 22, 2026**
+(`2026-10-23T06:31:06Z`), whose portal release it keeps. Customers now
 have Home at `/portal/`, with their requests, computers and next actions; Westy's
 existing workspace is at `/portal/?view=westy`. Verified customer visits to the
 staff login are handed to the portal. See the
@@ -144,16 +149,25 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
    draft. Approving, sending, posting and payment stay deliberate Coastmark steps.
 6. **Customer creation is not broadly enabled across the suite.** Coastmark and the Control Panel have
    no automatic customer-provisioning lane yet.
-7. **Shared client directory CUT1 is a source candidate in [PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261), not live.** The Clients page change (shared name and
-   state beside local fields; Businesses and Retained and local from Milepost's current client
-   directory; Support, Devices and Billing buttons) must not deploy before Milepost's
-   `client.php?provider=…&customer_id=…` route and its `suite-client-directory-v1` read are live.
-   Its protected database-first order is 032 → 033 → 034 before the matching source release.
-   Scheduled identity restoration additionally needs ID's schema-3 purpose and the release lead's
-   reviewed window. The one-client Lifestyle packet is source-reviewed, not executed.
-   Billing still opens Coastmark's existing suite entry; scoped Billing remains a later cut after
-   Coastmark's live resolver and all eight profiles/bindings are verified. See the
-   [release receipt](client-shared-directory-release.md).
+7. **Shared client directory: CUT1 is live, and CUT2 Billing is source-ready, not deployed.** These
+   status facts are Safeharbor owner and release-lead observations.
+   - **CUT1** (above) shows the shared name and state beside local fields, Businesses and Retained
+     and local from Milepost's current client directory, and Support, Devices and Billing buttons.
+   - **P9**, the one-client Lifestyle identity-only restoration, is done; do not rerun it. The
+     first launch exited 255 before any action. The single corrected act exited 0, with one
+     `identity_lifecycle_only` receipt, no portal or report restoration, all five anchor checks
+     true and the physical state unchanged.
+   - **Valley** is linked: 8 West ID tenant 18 / transition 14 / OAuth 1, and Safeharbor client
+     24 / binding 12 / receipt 19, both normal HTTP 200.
+   - **CUT2** gives Billing Coastmark's `clients?provider=…&customer_id=…` route for linked
+     clients (inactive and removed history included) and verified pending businesses. Coastmark's
+     gate is green: its resolver is live and all eight approved UUIDs resolve for signed-in staff.
+     CUT2 still needs owner qualification, normal CI/merge and the lead's source-only runtime slot.
+     Until then Billing opens Coastmark's existing suite entry.
+   - **Still held:** the broad scheduled lifecycle run and the other activation, report and cron
+     holds stay with the release lead.
+
+   See the [release receipt](client-shared-directory-release.md).
 
 ## Traps that have already cost time
 
