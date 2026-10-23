@@ -49,7 +49,63 @@ deletion. Shared inactive state belongs in the canonical editor, which retains
 the relationship. Existing exact-current human access-restoration requirements
 remain separate from a canonical active receipt.
 
-Focused coverage: `app/tests/client_operational_context_test.php`; existing
+### Clients directory and per-client app links (source candidate)
+
+The Clients list reads every bound client's last accepted shared name and
+active/inactive state in one query, with the same binding/receipt agreement as
+the editor, and shows it beside the local name and domain. A client reads
+"Local to Safeharbor" only when that lookup succeeded and found no binding. A
+failed lookup, or a binding whose receipt disagrees, reads "Shared details
+unavailable": a failure is never treated as proof that a client is unbound.
+Each row keeps its keyboard-selectable client link and adds three buttons:
+
+- **Support** opens the local client page;
+- **Devices** (linked, available, active clients only) opens Milepost's
+  `https://support.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`.
+  The provider is the binding tenant's own slug, which the receiver requires to
+  equal the event's tenant slug. Milepost signs the user in and checks its own
+  tenant before resolving anything, so the link carries no authority;
+- **Billing** opens Coastmark's existing suite entry, where the user selects the
+  client.
+
+The client page shows the same shared line and uses the client-scoped Milepost
+link for linked active clients. These links are presentation only: they must not
+be released before Milepost's provider + UUID route is live.
+
+#### Current Milepost directory (request-current roster)
+
+`client_operational_roster()` reads Milepost's `suite-client-directory-v1` once
+per Clients or client page request and stores nothing:
+
+- **Credential:** the verified current suite cookie, only when its `sub` equals
+  this active account's own `users.suite_subject` and its tenant equals this
+  account's tenant slug. A local-only account never borrows a browser cookie. The
+  token stays in that request's memory and is sent only as the bearer token to the
+  fixed `https://support.8westit.com/suite_customer_metadata.php`.
+- **Transport:** POST, no redirects or retries, 8 s total and 3 s to connect, at
+  most 512 KiB. No token or body is logged.
+- **Expected issuer:** every present source must agree, and at least one must exist:
+  the verified `8west:tenant_id` claim, this tenant's own managed-provider
+  `issuer_tenant_id`, and for the house only the nonsecret
+  `id_report_contacts.tenant_bindings` mapping (`8west` → `ewid-t<N>`). Its HMAC
+  contact transport is never loaded. Nothing is inferred from a local numeric id.
+- **Reply:** exactly the A14 keys and items, this subject, provider, issuer and
+  nonce, an integer `read_at` within the request window ±60 s, and at most 256
+  byte-sorted unique customers. Duplicate keys, partial or oversized bodies,
+  non-200 responses, timeouts or any other value make the whole roster
+  unavailable. The account and provider are read again after the request; any
+  change makes it unavailable.
+- **Classification:** Businesses lists linked clients that the roster lists
+  active with `client_exists`, plus active Milepost businesses Safeharbor has not
+  received yet (shown, never created). Everything else stays under Retained and
+  local, unchanged, with Support. A linked active canary missing from the roster
+  stays retained. Nothing is inactivated or deleted by absence. A verified empty
+  roster says so, and an unavailable roster lists every client as before. The
+  read writes nothing.
+
+Focused coverage: `app/tests/client_operational_context_test.php` and the
+rendered fixture `tools/shots/client-shared-directory.test.mjs`
+(`app/tests/client_shared_directory_ui_test.php`); existing
 customer-sync/lifecycle fixtures continue to own ordered receipt and restoration
 semantics. Runtime convergence and real-user acceptance are separate release
 evidence, collected by the named release owner.
@@ -107,6 +163,32 @@ fresh HTTP request and always has the +/-300-second window. `occurred_at` is
 the durable business-event time: an old event remains valid after an outage,
 but a new accepted version may not move backward and no event may be more
 than 300 seconds in the future.
+
+### Schema 2: the admission tag (migration 033)
+
+Schema 2 is the same eight keys with `"schema_version": 2` plus a ninth key, `admission`. Milepost
+mints it only for a canonical admitted birth or a same-UUID restore. The tag is valid in two positions
+only:
+
+- `created` on active version 1;
+- `restored` on an active version 3 or later whose immediately previous version is inactive.
+
+Any other position is HTTP 400 `admission_invalid`. A restore whose stored previous version is not
+inactive is HTTP 409 `admission_conflict`. The endpoint, key, HMAC and raw-body authentication are
+unchanged. The five-key success, schema 1 and exact replay of every older event are also unchanged.
+
+The receipt stays trigger-owned. The receiver writes the tag only into the new binding carrier
+`suite_customer_sync_bindings.last_admission`, set with each new version and NULL for schema 1. The
+before-update guard resets an unchanged carrier to NULL, so a version written without a new tag
+(including by an older receiver) never carries the previous one. The binding triggers copy the
+carrier into the immutable `suite_customer_sync_events.admission`, and the receipt validator checks it
+against the exact current tuple, request digest and position. The runtime keeps
+ordinary binding DML only and cannot write or retag a receipt. A later schema-1 rename or inactive
+version carries NULL and never enriches an older receipt; eligibility follows the earlier immutable
+admitted lineage. Old rows stay NULL, with no backfill.
+
+Until migration 033 is installed, a schema-2 event is refused as a retryable HTTP 500 before any
+write. Never replay 015 after 033; its preflight refuses the added columns.
 
 ## Exact responses
 

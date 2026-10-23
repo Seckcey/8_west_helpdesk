@@ -60,9 +60,12 @@ function h(?string $s): string { return htmlspecialchars((string)$s, ENT_QUOTES,
 PHP;
 
 $source = realpath(__DIR__ . '/../public/login.php');
+// login.php also loads the ACTUAL Support target parser/launcher builder; it has no top-level effects.
+$contextSource = realpath(__DIR__ . '/../lib/client_operational_context.php');
 $runtime = sys_get_temp_dir() . '/safeharbor-customer-entry-' . bin2hex(random_bytes(8));
 foreach (['public', 'lib'] as $part) mkdir($runtime . '/' . $part, 0700, true);
 copy($source, $runtime . '/public/login.php');
+copy($contextSource, $runtime . '/lib/client_operational_context.php');
 file_put_contents($runtime . '/lib/auth.php', $stub);
 
 $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr); $address = stream_socket_get_name($socket, false); fclose($socket);
@@ -111,8 +114,9 @@ try {
         => entry_request($runtime, $address, $case, $method, $query, $post);
 
     /* ── A. The harness runs the real page. ───────────────────────────────────────────────────── */
-    t('A1: the runtime serves a byte-identical copy of app/public/login.php',
-        hash_file('sha256', $source) === hash_file('sha256', $runtime . '/public/login.php'));
+    t('A1: the runtime serves a byte-identical copy of app/public/login.php and its actual context helper',
+        hash_file('sha256', $source) === hash_file('sha256', $runtime . '/public/login.php')
+        && hash_file('sha256', $contextSource) === hash_file('sha256', $runtime . '/lib/client_operational_context.php'));
     $r = $req(['claims' => null]);
     t('A2: with no 8 West ID claims the exact page answers over HTTP with the staff password form',
         entry_staff_form($r) && in_array('suite_sso_claims', $r['trace'], true));
@@ -177,6 +181,52 @@ try {
         entry_staff_form($req(['claims' => $claims('client_owner'), 'user' => $staff], 'GET', '?reauth=1')));
     $r = $req(['claims' => $claims('msp_tech'), 'admit' => true]);
     t('C: a staff member the 8 West ID sign-in admits still goes to /', $r['status'] === 302 && $r['location'] === ['/']);
+
+    /* ── D. A48/A51: the canonical Support target and the narrow staff login return. ──────────── */
+    $target = '/client.php?provider=8west&customer_id=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    $launcher = 'https://id.8westit.com/launch.php?product=safeharbor&return='
+        . '%2Fclient.php%3Fprovider%3D8west%26customer_id%3D0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    $launcherHref = 'href="' . htmlspecialchars($launcher, ENT_QUOTES, 'UTF-8') . '"';
+    $nextField = 'name="next" value="' . htmlspecialchars($target, ENT_QUOTES, 'UTF-8') . '"';
+    $r = $req(['claims' => null], 'GET', '?next=' . rawurlencode($target));
+    t('D1: a guest with the Support target gets the staff form; Continue with 8 West ID is the fixed ID launcher hop',
+        entry_staff_form($r) && str_contains($r['body'], $launcherHref) && str_contains($r['body'], $nextField)
+        && !str_contains($r['body'], 'href="https://id.8westit.com"'));
+    foreach (['/tickets.php', '/client.php?id=7', '/client.php?provider=8west&customer_id=0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D',
+        '/client.php?customer_id=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d&provider=8west',
+        '/client.php?provider=8west&customer_id=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d&id=7',
+        '/client.php?provider=8west&customer_id=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d#top',
+        '/client.php?provider=8west%26customer_id%3D0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+        '/portal/client.php?provider=8west&customer_id=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+        '//evil.example/client.php?provider=8west&customer_id=0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d'] as $other) {
+        $r = $req(['claims' => null], 'GET', '?next=' . rawurlencode($other));
+        t("D2: any other next keeps the reviewed plain 8 West ID entry ($other)",
+            entry_staff_form($r) && str_contains($r['body'], 'href="https://id.8westit.com"') && !str_contains($r['body'], 'launch.php'));
+    }
+    $r = $req(['claims' => null, 'admit' => true], 'GET', '?next=' . rawurlencode($target));
+    t('D3: a staff member the fresh 8 West ID cookie admits returns to the exact Support target',
+        $r['status'] === 302 && $r['location'] === [$target] && entry_calls($r, 'suite_sso_attempt') === 1);
+    $r = $req(['claims' => null, 'user' => $staff], 'GET', '?next=' . rawurlencode($target));
+    t('D4: an existing staff session returns to the exact Support target with no new 8 West ID attempt',
+        $r['status'] === 302 && $r['location'] === [$target] && entry_calls($r, 'suite_sso_attempt') === 0);
+    $r = $req(['claims' => null, 'password' => true], 'POST', '', ['email' => 'tech@example.test', 'password' => 'right', 'next' => $target]);
+    t('D5: a successful staff password sign-in returns to the Support target',
+        in_array($r['status'], [302, 303], true) && $r['location'] === [$target] && entry_calls($r, 'csrf_check') === 1);
+    $r = $req(['claims' => null], 'POST', '', ['email' => 'tech@example.test', 'password' => 'wrong', 'next' => $target]);
+    t('D6: a failed password POST keeps the target and the launcher hop',
+        entry_staff_form($r) && str_contains($r['body'], $launcherHref) && str_contains($r['body'], $nextField));
+    foreach (['client_owner', 'client_viewer'] as $role) {
+        $r = $req(['claims' => $claims($role)], 'GET', '?next=' . rawurlencode($target));
+        t("D7[$role]: a customer role with the Support target still goes only to /portal/",
+            $r['status'] === 302 && $r['location'] === ['/portal/']);
+    }
+    foreach (['//evil.example/x', '/\\evil.example', "/x\r\nLocation: https://evil.example", 'https://evil.example'] as $unsafe) {
+        $r = $req(['claims' => null, 'user' => $staff], 'GET', '?next=' . rawurlencode($unsafe));
+        t('D8: an existing staff session never follows an unsafe next', $r['status'] === 302 && $r['location'] === ['/']);
+    }
+    $r = $req(['claims' => $claims('client_owner'), 'user' => $staff], 'GET', '?reauth=1&next=' . rawurlencode($target));
+    t('D9: reauth=1 with the Support target keeps the staff form and makes no 8 West ID attempt',
+        entry_staff_form($r) && entry_calls($r, 'suite_sso_attempt') === 0 && str_contains($r['body'], $launcherHref));
 } catch (Throwable $error) {
     t('no exception: ' . $error->getMessage(), false);
 } finally {

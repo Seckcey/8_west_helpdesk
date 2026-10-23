@@ -385,6 +385,216 @@ evidence_refuses(
     'schema-2 fetch accepted a changed endpoint or redirect',
 );
 
+// Schema 3 (A87/A88/A95/A97): the CLOSED25 identity-only proof, decoded by separate functions.
+/** @return array<string,mixed> */
+function identity_document(array $changes = []): array
+{
+    global $evidenceCustomer, $evidenceNonce, $evidenceNow;
+    return array_replace([
+        'ok' => true,
+        'schema_version' => 3,
+        'purpose' => 'identity_lifecycle',
+        'customer_id' => $evidenceCustomer,
+        'provider_tenant_slug' => 'managed-provider',
+        'customer_source_version' => 4,
+        'customer_receipt_id' => str_repeat('b', 64),
+        'customer_event_id' => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        'initial_receipt_id' => str_repeat('e', 64),
+        'customer_status' => 'active',
+        'lifecycle_version' => 1,
+        'lifecycle_transition_id' => 21,
+        'lifecycle_action' => 'observed_active',
+        'lifecycle_evidence_sha256' => str_repeat('c', 64),
+        'identity_tenant_status' => 'active',
+        'identity_oauth_session_version' => 6,
+        'lifecycle_owned' => false,
+        'identity_tenant_key' => 'ewid-t91',
+        'identity_tenant_slug' => 'managed-one',
+        'generated_at' => gmdate('Y-m-d\TH:i:s\Z', $evidenceNow),
+        'request_nonce' => $evidenceNonce,
+        'issuer_suite_tenant_id' => 44,
+        'projection_binding_sha256' => str_repeat('f', 64),
+        'proof_scope' => 'identity_lifecycle_only',
+        'restoration_anchor' => [
+            'source_version' => 3,
+            'receipt_id' => str_repeat('a', 64),
+            'event_id' => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            'transition_id' => 20,
+            'evidence_sha256' => str_repeat('d', 64),
+        ],
+    ], $changes);
+}
+
+function identity_decode(string $rawBody): array
+{
+    global $evidenceSecret, $evidenceCustomer, $evidenceNonce, $evidenceNow;
+    $response = evidence_response($rawBody);
+    return managed_customer_id_identity_decode_response(
+        $response['status'], $response['headers'], $response['body'],
+        $evidenceSecret, $evidenceCustomer, $evidenceNonce, $evidenceNow,
+    );
+}
+
+function identity_raw_refuses(string $rawBody, string $message): void
+{
+    evidence_refuses(ManagedCustomerActivationGateException::class, static fn() => identity_decode($rawBody), $message);
+}
+
+/** @param array<string,mixed> $changes */
+function identity_decode_refuses(array $changes, string $message): void
+{
+    identity_raw_refuses(json_encode(identity_document($changes), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), $message);
+}
+
+$identityRequest = managed_customer_id_identity_request($evidenceCustomer, $evidenceSecret, $evidenceNow, $evidenceNonce);
+$identityBody = '{"schema_version":3,"purpose":"identity_lifecycle","customer_id":"11111111-1111-4111-8111-111111111111"}';
+evidence_check($identityRequest['body'] === $identityBody, 'schema-3 canonical request bytes are not exact');
+evidence_check(
+    $identityRequest['headers'] === [
+        'Accept: application/json',
+        'Content-Type: application/json',
+        'X-8W-Service: safeharbor-reports',
+        'X-8W-Timestamp: ' . $evidenceNow,
+        'X-8W-Nonce: ' . $evidenceNonce,
+        'X-8W-Signature: ' . hash_hmac('sha256', managed_customer_id_evidence_request_preimage(
+            (string)$evidenceNow, $evidenceNonce, $identityBody), $evidenceSecret),
+    ],
+    'schema-3 request does not reuse the exact schema-2 headers, key and HMAC preimage',
+);
+evidence_check(
+    managed_customer_id_evidence_request($evidenceCustomer, $evidenceSecret, $evidenceNow, $evidenceNonce)['body'] === $expectedBody,
+    'schema-3 support changed the schema-2 request bytes',
+);
+evidence_check(count(MANAGED_CUSTOMER_ID_IDENTITY_KEYS) === 25
+    && array_slice(MANAGED_CUSTOMER_ID_IDENTITY_KEYS, -2) === ['proof_scope', 'restoration_anchor']
+    && !array_intersect(['contact_mode', 'contact_version', 'weekly_report_email', 'recipient_sha256'], MANAGED_CUSTOMER_ID_IDENTITY_KEYS),
+    'schema-3 keys are not CLOSED25 without contact fields');
+
+$identityRaw = json_encode(identity_document(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+$identity = identity_decode($identityRaw);
+evidence_check(
+    $identity['schema_version'] === 3 && $identity['proof_scope'] === 'identity_lifecycle_only'
+        && $identity['customer_id'] === $evidenceCustomer && $identity['provider_tenant_slug'] === 'managed-provider'
+        && $identity['source_version'] === 4 && $identity['customer_event_id'] === 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+        && $identity['initial_receipt_id'] === str_repeat('e', 64) && $identity['lifecycle_action'] === 'observed_active'
+        && $identity['tenant_key'] === 'ewid-t91' && $identity['tenant_slug'] === 'managed-one'
+        && $identity['issuer_suite_tenant_id'] === 44 && $identity['projection_binding_sha256'] === str_repeat('f', 64)
+        && $identity['restoration_anchor'] === identity_document()['restoration_anchor']
+        && $identity['generated_at_db'] === gmdate('Y-m-d H:i:s', $evidenceNow)
+        && $identity['request_nonce_sha256'] === hash('sha256', $evidenceNonce)
+        && $identity['response_sha256'] === hash('sha256', $identityRaw)
+        && !array_key_exists('contact_version', $identity) && !array_key_exists('recipient_email', $identity),
+    'schema-3 decode did not normalize the exact current facts and the separate anchor',
+);
+$neverInactive = identity_decode(json_encode(identity_document(['restoration_anchor' => null]), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+evidence_check($neverInactive['restoration_anchor'] === null, 'schema-3 decode refused a valid never-inactive NULL anchor');
+// A155: a direct current restore names the same ID event in all five anchor facts.
+$directAnchor = [
+    'source_version' => 4,
+    'receipt_id' => str_repeat('b', 64),
+    'event_id' => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    'transition_id' => 21,
+    'evidence_sha256' => str_repeat('c', 64),
+];
+$direct = identity_decode(json_encode(identity_document(['lifecycle_action' => 'restored', 'restoration_anchor' => $directAnchor]),
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+evidence_check($direct['lifecycle_action'] === 'restored' && $direct['restoration_anchor'] === $directAnchor,
+    'schema-3 decode refused a direct current restored anchor');
+foreach (['receipt_id' => str_repeat('a', 64), 'transition_id' => 20, 'evidence_sha256' => str_repeat('d', 64),
+    'event_id' => 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'] as $field => $other) {
+    identity_decode_refuses(['lifecycle_action' => 'restored', 'restoration_anchor' => array_replace($directAnchor, [$field => $other])],
+        "schema-3 decoder accepted a direct restored anchor whose {$field} is not the current one");
+}
+identity_decode_refuses(['lifecycle_action' => 'restored', 'restoration_anchor' => null],
+    'schema-3 decoder accepted a current restored action with no anchor');
+identity_decode_refuses(['restoration_anchor' => $directAnchor],
+    'schema-3 decoder accepted an observed_active current whose anchor is the current event');
+identity_decode_refuses(['restoration_anchor' => array_replace(identity_document()['restoration_anchor'], ['transition_id' => 21])],
+    'schema-3 decoder accepted an observed_active anchor that is not strictly earlier than the current transition');
+
+identity_decode_refuses(['schema_version' => 2], 'schema-3 decoder accepted schema 2');
+identity_decode_refuses(['purpose' => 'report_contact'], 'schema-3 decoder accepted another purpose');
+identity_decode_refuses(['proof_scope' => 'contact'], 'schema-3 decoder accepted another proof scope');
+identity_decode_refuses(['customer_id' => '33333333-3333-4333-8333-333333333333'], 'schema-3 decoder accepted another customer UUID');
+identity_decode_refuses(['lifecycle_owned' => true], 'schema-3 decoder accepted a lifecycle-owned state');
+identity_decode_refuses(['customer_status' => 'inactive'], 'schema-3 decoder accepted an inactive customer');
+identity_decode_refuses(['identity_tenant_status' => 'suspended'], 'schema-3 decoder accepted a suspended identity tenant');
+identity_decode_refuses(['lifecycle_action' => 'suspended'], 'schema-3 decoder accepted another lifecycle action');
+identity_decode_refuses(['initial_receipt_id' => str_repeat('E', 64)], 'schema-3 decoder accepted a noncanonical initial receipt');
+identity_decode_refuses(['projection_binding_sha256' => 'f'], 'schema-3 decoder accepted a short projection hash');
+identity_decode_refuses(['issuer_suite_tenant_id' => 0], 'schema-3 decoder accepted issuer zero');
+identity_decode_refuses(['issuer_suite_tenant_id' => 4_294_967_296], 'schema-3 decoder accepted an issuer above 4294967295');
+identity_decode_refuses(['issuer_suite_tenant_id' => '44'], 'schema-3 decoder accepted a string issuer');
+identity_decode_refuses(['provider_tenant_slug' => 'Managed-Provider'], 'schema-3 decoder accepted a noncanonical provider slug');
+identity_decode_refuses(['request_nonce' => '33333333-3333-4333-8333-333333333333'], 'schema-3 decoder accepted another request nonce');
+identity_decode_refuses(['generated_at' => gmdate('Y-m-d\TH:i:s\Z', $evidenceNow - 301)], 'schema-3 decoder accepted a stale proof');
+identity_decode_refuses(['restoration_anchor' => ['source_version' => 3]], 'schema-3 decoder accepted a partial anchor');
+identity_decode_refuses(['restoration_anchor' => [...identity_document()['restoration_anchor'], 'source_version' => 1]],
+    'schema-3 decoder accepted an anchor before any inactive receipt could exist');
+identity_decode_refuses(['restoration_anchor' => [...identity_document()['restoration_anchor'], 'source_version' => 5]],
+    'schema-3 decoder accepted an anchor after the current source version');
+identity_decode_refuses(['restoration_anchor' => [...identity_document()['restoration_anchor'], 'transition_id' => '20']],
+    'schema-3 decoder accepted a string anchor transition');
+identity_decode_refuses(['restoration_anchor' => [...identity_document()['restoration_anchor'], 'evidence_sha256' => str_repeat('D', 64)]],
+    'schema-3 decoder accepted a noncanonical anchor digest');
+identity_decode_refuses(['lifecycle_action' => 'restored'], 'schema-3 decoder accepted a current restored action with an older anchor');
+identity_decode_refuses(['restoration_anchor' => array_values(identity_document()['restoration_anchor'])],
+    'schema-3 decoder accepted an anchor list');
+$withContact = identity_document();
+$withContact['contact_version'] = 3;
+identity_raw_refuses(json_encode($withContact, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    'schema-3 decoder accepted an extra contact field');
+$without = identity_document();
+unset($without['restoration_anchor']);
+identity_raw_refuses(json_encode($without, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    'schema-3 decoder accepted the old 24-key alias');
+$nestedDuplicate = str_replace('"restoration_anchor":{', '"restoration_anchor":{"source_version":3,', $identityRaw);
+evidence_check($nestedDuplicate !== $identityRaw, 'schema-3 nested duplicate fixture did not change the body');
+identity_raw_refuses($nestedDuplicate, 'schema-3 decoder accepted a self-signed duplicate anchor member');
+identity_raw_refuses((string)preg_replace('/\A\{/', '{"ok":true,', $identityRaw, 1),
+    'schema-3 decoder accepted a self-signed duplicate top-level member');
+identity_raw_refuses(str_replace('{"ok":true,', '{"ok":true,"ok":true,', $identityRaw),
+    'schema-3 decoder accepted a self-signed escaped duplicate key');
+evidence_refuses(
+    ManagedCustomerActivationGateException::class,
+    static fn() => managed_customer_id_evidence_decode_response(200, evidence_response($identityRaw)['headers'], $identityRaw,
+        $evidenceSecret, $evidenceCustomer, $evidenceNonce, $evidenceNow),
+    'schema-2 decoder accepted the schema-3 identity proof',
+);
+
+$identityObserved = [];
+$identityFetched = managed_customer_id_identity_fetch(
+    $evidenceCustomer,
+    ['enabled' => true, 'endpoint' => ID_REPORT_CONTACT_ENDPOINT, 'hmac_secret' => $evidenceSecret, 'timeout_seconds' => 4],
+    static function (string $endpoint, array $headers, string $body, int $timeout, int $maxBytes) use (&$identityObserved, $identityRaw): array {
+        $identityObserved = compact('endpoint', 'body', 'timeout', 'maxBytes');
+        return evidence_response($identityRaw) + ['effective_url' => ID_REPORT_CONTACT_ENDPOINT, 'redirect_count' => 0];
+    },
+    $evidenceNow,
+    $evidenceNonce,
+);
+evidence_check($identityFetched === $identity
+    && $identityObserved === ['endpoint' => ID_REPORT_CONTACT_ENDPOINT, 'body' => $identityBody, 'timeout' => 4,
+        'maxBytes' => ID_REPORT_CONTACT_MAX_RESPONSE_BYTES],
+    'schema-3 fetch changed the fixed endpoint, body, timeout, bound or decoded proof');
+evidence_refuses(
+    ManagedCustomerActivationGateException::class,
+    static fn() => managed_customer_id_identity_fetch($evidenceCustomer, [], static fn() => throw new LogicException('called'),
+        $evidenceNow, $evidenceNonce),
+    'schema-3 fetch ran while the lookup is disabled',
+);
+evidence_refuses(
+    ManagedCustomerActivationGateException::class,
+    static fn() => managed_customer_id_identity_fetch(
+        $evidenceCustomer,
+        ['enabled' => true, 'endpoint' => ID_REPORT_CONTACT_ENDPOINT, 'hmac_secret' => $evidenceSecret],
+        static fn() => evidence_response($identityRaw) + ['effective_url' => ID_REPORT_CONTACT_ENDPOINT, 'redirect_count' => 1],
+        $evidenceNow,
+        $evidenceNonce,
+    ),
+    'schema-3 fetch accepted a redirect',
+);
+
 if ($evidenceFailures > 0) {
     fwrite(STDERR, "managed_customer_id_evidence_test: {$evidenceFailures} failure(s) / {$evidenceChecks} checks\n");
     exit(1);

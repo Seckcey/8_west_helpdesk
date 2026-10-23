@@ -360,6 +360,18 @@ return [
     // event UUID match Safeharbor's exact current immutable source receipt.
     // Only surfaces owned by the exact containment receipt can be reopened;
     // pre-existing or later human disables/holds remain unchanged.
+    //
+    // Modes (no new keys): `php cron/managed_customer_lifecycle.php` processes only
+    // `customer_ids` (at most `batch_size`). `--scheduled` is the one bounded run
+    // the report wrapper starts after the reports (migration 033). It covers
+    // `customer_ids` plus every lineage with an immutable created/restored
+    // receipt, in binding order from the durable cursor. A house lineage uses
+    // `tenant_actors['8west']`; a managed provider uses its currently admitted
+    // owner. Its restorations are identity-only (schema 3, migration 034) and
+    // never release reports; the no-argument mode keeps the schema-2 restore.
+    // The bounds are fixed in code: at most 25 claims and 10 reserved
+    // transition attempts, a 30 s scheduling deadline, and the wrapper's 45 s
+    // TERM then 5 s KILL.
     'managed_customer_lifecycle' => [
         'enabled' => false,
         'restoration_enabled' => false,

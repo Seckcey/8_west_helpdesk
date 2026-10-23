@@ -17,17 +17,20 @@ if [[ -n "$TEST_ROOT" ]]; then
     readonly EXPECTED_USER="${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-www-data}"
     readonly EXPECTED_GROUP="${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-www-data}"
     readonly LOGGER_BIN="${SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN:-/usr/bin/logger}"
+    readonly LIFECYCLE_SECONDS="${SAFEHARBOR_SCHEDULER_TEST_LIFECYCLE_SECONDS:-45}"
 else
-    [[ -z "${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-}${SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN:-}${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-}${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-}" ]] \
+    [[ -z "${SAFEHARBOR_SCHEDULER_TEST_DEPLOY_OWNER:-}${SAFEHARBOR_SCHEDULER_TEST_LOGGER_BIN:-}${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_USER:-}${SAFEHARBOR_SCHEDULER_TEST_RUNTIME_GROUP:-}${SAFEHARBOR_SCHEDULER_TEST_LIFECYCLE_SECONDS:-}" ]] \
         || exit 64
     readonly ROOT_PREFIX=''
     readonly DEPLOY_OWNER='ubuntu'
     readonly EXPECTED_USER='eightwest-safeharbor'
     readonly EXPECTED_GROUP='eightwest-safeharbor'
     readonly LOGGER_BIN='/usr/bin/logger'
+    readonly LIFECYCLE_SECONDS=45
 fi
 
 [[ "$EXPECTED_USER" =~ ^[a-z_][a-z0-9_-]*$ && "$EXPECTED_GROUP" =~ ^[a-z_][a-z0-9_-]*$ ]] || exit 64
+[[ "$LIFECYCLE_SECONDS" =~ ^[1-9][0-9]?$ && "$LIFECYCLE_SECONDS" -le 45 ]] || exit 64
 readonly APP_PARENT="$ROOT_PREFIX/srv/8west/apps/safeharbor"
 readonly APP_ROOT="$APP_PARENT/current"
 readonly PHP_BIN='/usr/bin/php'
@@ -36,6 +39,9 @@ readonly PROTECTED_CONFIG="$APP_ROOT/config/config.php"
 readonly DEPLOY_LOCK_DIR="$ROOT_PREFIX/var/lib/safeharbor-report-scheduler"
 readonly DEPLOY_LOCK="$DEPLOY_LOCK_DIR/business-reports-deploy.lock"
 readonly LOG_TAG='safeharbor-business-reports'
+readonly LIFECYCLE_RUNNER="$APP_ROOT/cron/managed_customer_lifecycle.php"
+readonly LIFECYCLE_TAG='safeharbor-managed-customer-lifecycle'
+readonly TIMEOUT_BIN='/usr/bin/timeout'
 
 report_scheduler_fail() {
     local message="$1"
@@ -68,6 +74,49 @@ require_physical_directory() {
     [[ -d "$path" && ! -L "$path" \
         && "$(cd -- "$path" && pwd -P)" == "$path" ]] \
         || report_scheduler_fail "refused: $label is not the exact physical directory" 77
+}
+
+lifecycle_log() {
+    local priority="$1"
+    local message="$2"
+    "$LOGGER_BIN" --stderr --tag "$LIFECYCLE_TAG" --priority "$priority" -- "$message" \
+        || printf '%s: %s\n' "$LIFECYCLE_TAG" "$message" >&2 \
+        || true
+}
+
+# One bounded managed-customer lifecycle child (A82) in its scheduled mode, after the reports, under
+# the same runtime user and shared deploy lock, with 45 s TERM then 5 s KILL. Its exit status is taken
+# before anything is logged. A missing or unsafe stage, refusal, timeout or logger failure is
+# logged separately and never changes the report exit status.
+run_lifecycle_stage() {
+    local lifecycle_output lifecycle_status
+    if [[ ! -f "$LIFECYCLE_RUNNER" || -L "$LIFECYCLE_RUNNER" \
+        || "$(/usr/bin/stat -c '%U:%G:%a' -- "$LIFECYCLE_RUNNER" 2>/dev/null)" != "$DEPLOY_OWNER:$EXPECTED_GROUP:640" ]]; then
+        lifecycle_log user.err 'lifecycle stage skipped: runner missing or unsafe'
+        return 0
+    fi
+    if [[ ! -x "$TIMEOUT_BIN" ]]; then
+        lifecycle_log user.err 'lifecycle stage skipped: timeout is unavailable'
+        return 0
+    fi
+    lifecycle_output="$(/usr/bin/mktemp /tmp/safeharbor-managed-customer-lifecycle.XXXXXXXXXX)" || {
+        lifecycle_log user.err 'lifecycle stage skipped: secure output staging failed'
+        return 0
+    }
+    "$TIMEOUT_BIN" --signal=TERM --kill-after=5 "$LIFECYCLE_SECONDS" \
+        "$PHP_BIN" "$LIFECYCLE_RUNNER" --scheduled >"$lifecycle_output" 2>&1
+    lifecycle_status=$?
+    if [[ "$lifecycle_status" -eq 124 || "$lifecycle_status" -eq 137 ]]; then
+        lifecycle_log user.err "lifecycle stage timed out with status $lifecycle_status"
+    elif [[ "$lifecycle_status" -ne 0 ]]; then
+        lifecycle_log user.err "lifecycle stage exited with status $lifecycle_status"
+    fi
+    /usr/bin/truncate --size='<65536' -- "$lifecycle_output" 2>/dev/null || true
+    "$LOGGER_BIN" --stderr --tag "$LIFECYCLE_TAG" --priority user.notice <"$lifecycle_output" \
+        || printf '%s: logger failed for lifecycle output\n' "$LIFECYCLE_TAG" >&2 \
+        || true
+    /usr/bin/rm -f -- "$lifecycle_output" || true
+    return 0
 }
 
 [[ "$(/usr/bin/id -un)" == "$EXPECTED_USER" ]] \
@@ -123,6 +172,7 @@ cleanup_status=$?
 if [[ "$cleanup_status" -eq 0 ]]; then
     trap - EXIT
 fi
+run_lifecycle_stage
 set -e
 
 if [[ "$logger_status" -ne 0 || "$cleanup_status" -ne 0 ]]; then

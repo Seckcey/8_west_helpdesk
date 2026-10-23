@@ -1,9 +1,22 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/auth.php';
+require_once __DIR__ . '/../lib/client_operational_context.php';
 enforce_https();
 
 $reauthRequired = (string)($_GET['reauth'] ?? '') === '1';
+// A48: validate the intended path BEFORE any current-user or 8 West ID branch, so an existing or newly
+// admitted STAFF session returns to it. The customer-role portal handoff below never uses it.
+$safeNext = static function (mixed $value): string {
+    if (! is_string($value)
+        || preg_match('/^\/(?![\/\\\\])/D', $value) !== 1
+        || preg_match('/[\x00-\x1F\x7F]/D', $value) === 1) {
+        return '/';
+    }
+
+    return $value;
+};
+$next = $safeNext($_GET['next'] ?? '/');
 $user = current_user();
 if (! $user && ! $reauthRequired && suite_sso_attempt()) {
     $user = current_user();
@@ -22,7 +35,7 @@ if (! $user && ! $reauthRequired && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
     }
 }
 if ($user && ! $reauthRequired) {
-    header('Location: /');
+    header('Location: ' . $next);
     exit;
 }
 
@@ -30,16 +43,6 @@ $error = $reauthRequired
     ? 'Your 8 West ID access changed. Sign in there again to continue.'
     : '';
 $email = 'frankie@8westit.com';
-$safeNext = static function (mixed $value): string {
-    if (! is_string($value)
-        || preg_match('/^\/(?![\/\\\\])/D', $value) !== 1
-        || preg_match('/[\x00-\x1F\x7F]/D', $value) === 1) {
-        return '/';
-    }
-
-    return $value;
-};
-$next = $safeNext($_GET['next'] ?? '/');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
@@ -51,6 +54,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $error = 'That email and password didn’t match. Try again.';
 }
+
+// A51: only a canonical Support target sends "Continue with 8 West ID" through ID's fixed launcher.
+$idEntry = client_operational_support_launcher_url($next) ?? 'https://id.8westit.com';
 
 header('Content-Type: text/html; charset=utf-8');
 ?>
@@ -85,7 +91,7 @@ header('Content-Type: text/html; charset=utf-8');
       <button type="submit" class="btn-primary">Sign in</button>
     </form>
     <div class="login-divider"><span></span>or<span></span></div>
-    <a class="btn-ghost" href="https://id.8westit.com" style="text-decoration:none; display:flex; align-items:center; justify-content:center; gap:8px;">
+    <a class="btn-ghost" href="<?= h($idEntry) ?>" style="text-decoration:none; display:flex; align-items:center; justify-content:center; gap:8px;">
       <img src="/assets/brand/safeharbor-mark.svg" alt="" class="sso-mark">
       Continue with 8 West ID
     </a>

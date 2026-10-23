@@ -144,6 +144,16 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
    draft. Approving, sending, posting and payment stay deliberate Coastmark steps.
 6. **Customer creation is not broadly enabled across the suite.** Coastmark and the Control Panel have
    no automatic customer-provisioning lane yet.
+7. **Shared client directory CUT1 is a source candidate in [PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261), not live.** The Clients page change (shared name and
+   state beside local fields; Businesses and Retained and local from Milepost's current client
+   directory; Support, Devices and Billing buttons) must not deploy before Milepost's
+   `client.php?provider=…&customer_id=…` route and its `suite-client-directory-v1` read are live.
+   Its protected database-first order is 032 → 033 → 034 before the matching source release.
+   Scheduled identity restoration additionally needs ID's schema-3 purpose and the release lead's
+   reviewed window. The one-client Lifestyle packet is source-reviewed, not executed.
+   Billing still opens Coastmark's existing suite entry; scoped Billing remains a later cut after
+   Coastmark's live resolver and all eight profiles/bindings are verified. See the
+   [release receipt](client-shared-directory-release.md).
 
 ## Traps that have already cost time
 

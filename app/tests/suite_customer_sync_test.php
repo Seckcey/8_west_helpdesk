@@ -248,6 +248,31 @@ sync_throws('future event time rejected', SuiteCustomerSyncValidationException::
     fn() => sync_request(['occurred_at' => '2030-01-01T00:00:00Z'], 1787760000));
 sync_check('old durable event time accepted', sync_request(['occurred_at' => '2020-01-01T00:00:00Z'])['payload']['occurred_at'] === '2020-01-01T00:00:00Z');
 
+// Schema 2 (A58): the same eight keys plus `admission`, valid only in its two positions.
+$admittedRequest = sync_request(['schema_version' => 2, 'admission' => 'created']);
+sync_check('a schema-2 birth decodes with its tag',
+    $admittedRequest['payload']['schema_version'] === 2 && $admittedRequest['payload']['admission'] === 'created');
+sync_check('a schema-2 restore on an active version 3 decodes',
+    sync_request(['schema_version' => 2, 'admission' => 'restored', 'source_version' => 3])['payload']['admission'] === 'restored');
+sync_check('schema-1 decoded output is unchanged',
+    $valid['payload']['schema_version'] === 1 && !array_key_exists('admission', $valid['payload'])
+    && array_keys($valid['payload']) === ['schema_version', 'tenant_slug', 'customer_id', 'source_version',
+        'display_name', 'status', 'event_id', 'occurred_at', 'occurred_at_db']);
+foreach ([
+    [['schema_version' => 2, 'admission' => 'created', 'source_version' => 2], 'admission_invalid'],
+    [['schema_version' => 2, 'admission' => 'created', 'status' => 'inactive'], 'admission_invalid'],
+    [['schema_version' => 2, 'admission' => 'restored'], 'admission_invalid'],
+    [['schema_version' => 2, 'admission' => 'restored', 'source_version' => 3, 'status' => 'inactive'], 'admission_invalid'],
+    [['schema_version' => 2, 'admission' => null], 'admission_invalid'],
+    [['schema_version' => 2, 'admission' => 'Created'], 'admission_invalid'],
+    [['schema_version' => 2], 'payload_keys_invalid'],
+    [['schema_version' => 1, 'admission' => 'created'], 'payload_keys_invalid'],
+    [['schema_version' => 3, 'admission' => 'created'], 'payload_keys_invalid'],
+] as [$change, $code]) {
+    sync_throws("schema-2 tag position is refused: {$code}", SuiteCustomerSyncValidationException::class,
+        fn() => sync_request($change), $code);
+}
+
 // Destination-specific authentication.
 $now = 1787760000;
 $timestamp = (string)$now;
@@ -421,6 +446,19 @@ sync_check('later active version reactivates and renames the same retained clien
     && $pdo->query("SELECT name FROM clients WHERE id={$clientId}")->fetchColumn()
         === '8 West IT Reactivated'
     && (int)$pdo->query('SELECT COUNT(*) FROM suite_customer_sync_events')->fetchColumn() === 4);
+
+// Without migration 033's carrier, a schema-2 event is refused before any write.
+$admittedCustomer = '33333333-3333-4333-8333-333333333333';
+sync_throws('a schema-2 event before migration 033 is refused before any write', SuiteCustomerSyncGateException::class,
+    function () use ($pdo, $admittedCustomer): void {
+        $request = sync_request(['schema_version' => 2, 'admission' => 'created', 'customer_id' => $admittedCustomer,
+            'event_id' => '33333333-aaaa-4aaa-8aaa-aaaaaaaaaaaa']);
+        suite_customer_sync_receive($pdo, $request['payload'], $request['sha']);
+    }, 'admission_unavailable');
+sync_check('the refused schema-2 event wrote no client, binding or receipt',
+    (int)$pdo->query("SELECT COUNT(*) FROM suite_customer_sync_bindings WHERE customer_id='{$admittedCustomer}'")->fetchColumn() === 0
+    && (int)$pdo->query('SELECT COUNT(*) FROM clients')->fetchColumn() === 1
+    && !$pdo->inTransaction());
 
 // Admit both legacy fixture tenants so this tests ownership after admission.
 $SYNC_TEST_CONFIG['suite_customer_sync']['tenant_slugs'] = ['8west', 'other'];

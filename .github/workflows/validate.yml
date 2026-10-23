@@ -192,6 +192,7 @@ jobs:
           php app/tests/managed_customer_id_evidence_test.php
           php app/tests/managed_customer_activation_test.php
           php app/tests/managed_customer_lifecycle_test.php
+          php app/tests/managed_customer_lifecycle_scheduler_test.php
           php app/tests/suite_customer_sync_test.php
           php app/tests/ticket_auto_close_contract_test.php
           sudo php app/tests/desktop_cleanup_readiness_test.php
@@ -293,6 +294,7 @@ jobs:
           node tools/shots/time-contract.test.mjs
           node tools/shots/portal-contract.test.mjs
           node tools/shots/portal-settings.test.mjs
+          node tools/shots/client-shared-directory.test.mjs
           node tools/shots/suite-settings.test.mjs
           node tools/shots/portal-reply-actions.test.mjs
           node tools/shots/westy-workflow-contract.test.mjs
