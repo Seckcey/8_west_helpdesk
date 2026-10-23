@@ -8,6 +8,19 @@ $user = current_user();
 if (! $user && ! $reauthRequired && suite_sso_attempt()) {
     $user = current_user();
 }
+// A signed-in customer belongs in the customer portal, not on the staff password form.
+// Only a verified client role with Safeharbor, only on GET; the portal's own 8 West ID
+// sign-in rechecks product, role, client binding and revocation. Nothing is carried over.
+if (! $user && ! $reauthRequired && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
+    $customerClaims = suite_sso_claims();
+    if (is_array($customerClaims)
+        && in_array($customerClaims['8west:role'] ?? null, ['client_owner', 'client_admin', 'client_staff', 'client_viewer'], true)
+        && is_array($customerClaims['8west:products'] ?? null)
+        && in_array('safeharbor', $customerClaims['8west:products'], true)) {
+        header('Location: /portal/');
+        exit;
+    }
+}
 if ($user && ! $reauthRequired) {
     header('Location: /');
     exit;
