@@ -76,6 +76,44 @@ async function layout(page, theme, viewport) {
   }
 }
 
+// A129: every directory row keeps a readable information column whose lines and chips neither overlap
+// nor overflow. On a narrow screen the app actions sit on their own line below the information; on a
+// wide one they stay on the same line, after it.
+async function rowLayout(page, narrow) {
+  const rows = await page.locator('.crow-row').evaluateAll(all => all.map(row => {
+    const box = el => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
+    };
+    const actions = row.querySelector('.crow-actions');
+    return {
+      label: row.querySelector('.crow-name')?.textContent ?? '',
+      row: box(row),
+      info: box(row.querySelector('.crow')),
+      main: box(row.querySelector('.crow-main')),
+      actions: actions && actions.children.length > 0 ? box(actions) : null,
+      parts: [...row.querySelectorAll('.crow-name, .crow-sub, .crow-shared, .tier, .crow-open')].map(el => ({
+        text: el.textContent.trim(), ...box(el), overflow: el.scrollWidth > el.clientWidth + 1,
+      })),
+    };
+  }));
+  assert.ok(rows.length > 0);
+  for (const row of rows) {
+    const detail = JSON.stringify(row);
+    assert.ok(row.main.width >= row.row.width * (narrow ? 0.6 : 0.3), 'information column is not readable: ' + detail);
+    for (const part of row.parts) assert.equal(part.overflow, false, `"${part.text}" overflows its box: ` + detail);
+    for (let i = 0; i < row.parts.length; i++) for (let j = i + 1; j < row.parts.length; j++) {
+      const [a, b] = [row.parts[i], row.parts[j]];
+      const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
+        && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+      assert.equal(overlap, false, `"${a.text}" overlaps "${b.text}": ` + detail);
+    }
+    if (row.actions === null) continue;
+    if (narrow) assert.ok(row.actions.top >= row.info.bottom - 1, 'actions are not on their own line below: ' + detail);
+    else assert.ok(row.actions.top < row.info.bottom && row.actions.left >= row.info.right - 1, 'actions left the row line: ' + detail);
+  }
+}
+
 try {
   for (const theme of ['light', 'dark']) for (const listCase of ['directory', 'empty', 'unavailable', 'other-provider']) {
     for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
@@ -91,6 +129,7 @@ try {
           await page.getByRole('heading', { name: 'Clients', exact: true, level: 1 }).waitFor();
           assert.equal(await page.title(), 'Clients · Safeharbor');
           await layout(page, theme, viewport);
+          await rowLayout(page, viewport.width <= 640);
           const classified = ['directory', 'empty'].includes(listCase);
           assert.equal(await page.getByRole('heading', { name: 'Businesses', exact: true }).count(), classified ? 1 : 0);
           assert.equal(await page.getByRole('heading', { name: 'Retained and local', exact: true }).count(), classified ? 1 : 0);
