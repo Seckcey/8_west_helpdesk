@@ -71,6 +71,20 @@ foreach ([['8West', $deviceCustomer], ['8west&id=1', $deviceCustomer], ['', $dev
           ['8west', strtoupper($deviceCustomer)], ['8west', $deviceCustomer . '&id=1'],
           ['8west', '55555555-5555-1555-8555-555555555555']] as [$badProvider, $badCustomer]) {
     operational_check('device URL refuses a noncanonical provider or customer', client_operational_device_url($badProvider, $badCustomer) === null);
+    operational_check('billing URL refuses a noncanonical provider or customer', client_operational_billing_url($badProvider, $badCustomer) === null);
+}
+// CUT2 (A227): Coastmark's fixed provider + lowercase UUIDv4 route, built only from validated values.
+operational_check('billing URL is the exact fixed provider + UUID Coastmark route',
+    client_operational_billing_url('8west', $deviceCustomer)
+        === 'https://coastmark.8westit.com/clients?provider=8west&customer_id=' . $deviceCustomer
+    && client_operational_billing_url('other-msp', '77777777-7777-4777-8777-777777777777')
+        === 'https://coastmark.8westit.com/clients?provider=other-msp&customer_id=77777777-7777-4777-8777-777777777777'
+    && client_operational_billing_url(str_repeat('m', 64), $deviceCustomer)
+        === 'https://coastmark.8westit.com/clients?provider=' . str_repeat('m', 64) . '&customer_id=' . $deviceCustomer);
+foreach ([['-8west', $deviceCustomer], [str_repeat('m', 65), $deviceCustomer], ["8west\n", $deviceCustomer],
+          ['8west', $deviceCustomer . "\n"], ['8west', str_replace('-', '', $deviceCustomer)],
+          ['8west', '5a5b5c5d-5e5f-4a5b-7c5d-5e5f5a5b5c5d'], ['8west', '']] as [$badProvider, $badCustomer]) {
+    operational_check('billing URL refuses a malformed slug or customer UUID', client_operational_billing_url($badProvider, $badCustomer) === null);
 }
 $directoryPdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $directoryPdo->exec('CREATE TABLE tenants(id INTEGER PRIMARY KEY, slug TEXT);
@@ -96,11 +110,14 @@ foreach ($directoryRows as [$bindingId, $bindingTenant, $bindingClient, $binding
 $houseDirectory = client_operational_directory($directoryPdo, 1);
 operational_check('directory maps only this tenant\'s bound clients by local id',
     array_keys($houseDirectory) === [20, 23, 24]);
-operational_check('directory carries shared name, state and the provider-scoped device route',
+operational_check('directory carries shared name, state and the provider-scoped device and billing routes',
     $houseDirectory[20]['available'] && $houseDirectory[20]['display_name'] === 'Shared A'
     && $houseDirectory[20]['status'] === 'active' && $houseDirectory[20]['source_version'] === 3
     && $houseDirectory[20]['device_url'] === client_operational_device_url('8west', $deviceCustomer)
-    && !array_key_exists('billing_url', $houseDirectory[20]));
+    && $houseDirectory[20]['billing_url'] === 'https://coastmark.8westit.com/clients?provider=8west&customer_id=' . $deviceCustomer);
+operational_check('a shared-inactive client keeps its own billing route to its retained accounting history',
+    $houseDirectory[24]['available'] && $houseDirectory[24]['status'] === 'inactive'
+    && $houseDirectory[24]['billing_url'] === client_operational_billing_url('8west', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'));
 operational_check('directory keeps a drifted receipt bound but unavailable, with no links',
     $houseDirectory[23] === ['bound' => true, 'available' => false]);
 operational_check('directory and single-client context agree exactly',
@@ -170,11 +187,19 @@ operational_check('the client page takes the Support route for any provider or c
     && str_contains($supportPage, 'if ($supportTarget) http_response_code(404);')
     && str_contains($supportPage, "SELECT * FROM clients WHERE id = ? AND tenant_id = ?"));
 $mspDirectory = client_operational_directory($directoryPdo, 2);
-operational_check('another MSP tenant gets only its own clients and its own provider route',
+operational_check('another MSP tenant gets only its own clients and its own provider routes',
     array_keys($mspDirectory) === [22]
-    && $mspDirectory[22]['device_url'] === client_operational_device_url('other-msp', '77777777-7777-4777-8777-777777777777'));
-operational_check('an unavailable tenant slug removes only the device link, not the shared context',
-    client_operational_context($pdo, 1, 10)['available'] && client_operational_context($pdo, 1, 10)['device_url'] === null);
+    && $mspDirectory[22]['device_url'] === client_operational_device_url('other-msp', '77777777-7777-4777-8777-777777777777')
+    && $mspDirectory[22]['billing_url'] === client_operational_billing_url('other-msp', '77777777-7777-4777-8777-777777777777'));
+operational_check('an unavailable tenant slug removes only the device and billing links, not the shared context',
+    client_operational_context($pdo, 1, 10)['available'] && client_operational_context($pdo, 1, 10)['device_url'] === null
+    && client_operational_context($pdo, 1, 10)['billing_url'] === null);
+$directoryPdo->exec("UPDATE tenants SET slug='Other-MSP' WHERE id=2");
+$malformedSlug = client_operational_context($directoryPdo, 2, 22);
+operational_check('a malformed tenant slug builds neither link and keeps the shared context',
+    $malformedSlug['available'] && $malformedSlug['display_name'] === 'Other shared'
+    && $malformedSlug['device_url'] === null && $malformedSlug['billing_url'] === null);
+$directoryPdo->exec("UPDATE tenants SET slug='other-msp' WHERE id=2");
 // Client 20 is genuinely bound, but its receipt lookup fails (the receipt table is unreadable).
 $failingPdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $failingPdo->exec('CREATE TABLE tenants(id INTEGER PRIMARY KEY, slug TEXT);
@@ -192,17 +217,22 @@ operational_check('a failed lookup never labels the actually bound client local,
     && client_operational_context($failingPdo, 1, 20) === ['bound' => null, 'available' => false]);
 $clientsPage = (string)file_get_contents(__DIR__ . '/../public/clients.php');
 $clientPage = (string)file_get_contents(__DIR__ . '/../public/client.php');
-operational_check('directory shows Support, active-only Devices and the existing generic Billing entry',
+operational_check('directory shows Support, active-only Devices, a linked or verified pending client\'s own Billing and the generic entry otherwise',
     str_contains($clientsPage, 'client_operational_directory(db(), $tenantId)')
     && str_contains($clientsPage, 'client_operational_directory_entry($shared, (int)$c[\'id\'])')
     && str_contains($clientsPage, '>Support</a>') && str_contains($clientsPage, 'Devices ↗')
     && str_contains($clientsPage, "\$op['status'] === 'active' && is_string(\$op['device_url'] ?? null)")
+    && str_contains($clientsPage, "\$billingUrl = \$op['available'] && is_string(\$op['billing_url'] ?? null) ? \$op['billing_url'] : null;")
+    && str_contains($clientsPage, '$pendingBilling = $provider !== null ? client_operational_billing_url($provider, (string)$customerId) : null;')
     && substr_count($clientsPage, 'href="https://coastmark.8westit.com/auth/suite"') === 2
     && !str_contains($clientsPage . $clientPage, 'coastmark.8westit.com/clients')
-    && !str_contains($clientsPage . $clientPage, 'billing_url')
     && str_contains($clientsPage, 'class="crow" data-client-id=')
     && str_contains($clientPage, 'client_operational_context(db(), tenant_id(), $id)')
-    && substr_count($clientPage, 'href="https://coastmark.8westit.com/auth/suite"') === 2);
+    && str_contains($clientPage, "\$billingUrl = \$operational['available'] && is_string(\$operational['billing_url'] ?? null)")
+    && substr_count($clientPage, "h(\$billingUrl ?? 'https://coastmark.8westit.com/auth/suite')") === 2);
+operational_check('Billing reads the receipt-agreed route only in that one assignment, with no active-state gate; only the helper builds it',
+    substr_count($clientsPage, "['billing_url']") === 2 && substr_count($clientPage, "['billing_url']") === 2
+    && substr_count($clientsPage, 'client_operational_billing_url(') === 1 && !str_contains($clientPage, 'client_operational_billing_url('));
 operational_check('both pages read the request-current directory once and classify only through the helper',
     substr_count($clientsPage, 'client_operational_roster(db(), $user)') === 1
     && str_contains($clientsPage, 'client_operational_roster_classify($shared, client_operational_bound_customers(db(), $tenantId), $roster)')

@@ -1,11 +1,17 @@
-# Client shared directory — CUT1 release receipt
+# Client shared directory — CUT1 and CUT2 release receipt
 
-**State: CUT1 source tracked in [PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261).
-Production release and verification are pending.** The reviewed application source is
-`15f7f68b7f7063b4f0487356bb8ec1f9ce1d087f`; later documentation commits do not change that
-application evidence. Exact-head hosted CI, merge and production release remain separate gates.
+**State: CUT1 ([PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261)) is merged as
+`9d1650adc3bbb8cd20a1a612cabf29f0c6350205` and, by the Safeharbor owner's observation, live.
+CUT2, the client-scoped Coastmark Billing link, is source-ready on
+`codex/client-shared-directory-billing-cut2` from that main; it is not deployed.** The reviewed
+CUT1 application source is `15f7f68b7f7063b4f0487356bb8ec1f9ce1d087f`; later documentation commits
+do not change that application evidence. CUT2 owner qualification passed at
+`fb7c71867e546952298efd271b3965aa7c4a8d74`; exact-head hosted CI, merge and production release
+remain separate gates.
 
 ## What changes
+
+CUT1:
 
 | Surface | Change |
 | --- | --- |
@@ -15,6 +21,17 @@ application evidence. Exact-head hosted CI, merge and production release remain 
 | New client | States that a client created here is local; shared clients come from Milepost. |
 | Westy | The prompt names the Clients sections and buttons and the client-scoped Milepost link. |
 | Styles | Client-directory styles only; the stylesheet cache token changes with them. |
+
+CUT2 changes only the Billing targets and their wording:
+
+| Surface | Change |
+| --- | --- |
+| Clients list | **Billing** opens the client's own Coastmark page for each linked client whose binding and immutable receipt agree, inactive and removed history included, and for an active business in this request's verified Milepost directory that Safeharbor has not received yet. Local, unavailable, drifted and malformed rows keep Coastmark's existing entry. Support and the active-only Devices button are unchanged. |
+| Client page | For a linked client, whatever its shared state, Balance reads **View this client in Coastmark** and the Suite rail **Review this client's invoices in Coastmark**, both to its own Coastmark page. Every other client keeps Coastmark's existing entry and wording. |
+| Westy | The prompt describes the same Billing targets. |
+
+CUT2 has no receiver, schema, styles, login, configuration, cron or permission change, and the
+page handlers are unchanged.
 
 The shared name and state come from the existing binding and its matching immutable receipt
 (`client_operational_context.php`), never from the editable local name. The directory itself has
@@ -34,19 +51,30 @@ This CUT1 also includes the related backend changes:
   the approved scope and admitted lineages; the separately run full-contact operation is unchanged.
 
 The [lifecycle contract](managed-customer-lifecycle-contract.md) owns the exact proof, authority,
-deadline, migration recovery and one-client Lifestyle invocation. Its source form is accepted;
-it is not a runtime go-ahead.
+deadline, migration recovery and one-client Lifestyle invocation. The accepted source form is
+retained as history; the one-time P9 runtime completion is recorded below. Do not rerun P9.
 
 ## Links and their authority
 
 - **Devices**: `https://support.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`. The
   provider is the binding tenant's own slug. Milepost signs the user in first, then requires that
   slug to be the user's own active tenant and the UUID to be one of that tenant's current clients.
-- **Billing**: Coastmark's existing suite entry, `https://coastmark.8westit.com/auth/suite`, where
-  the user selects the client. The client-scoped Billing link is a separate, later cut that ships
-  only after Coastmark's provider + UUID route and every preserved binding are live.
-  The later CUT2 must use the actual merged CUT1 base and the live, verified Coastmark destination.
-  This candidate retains the generic entry for every row.
+- **Billing** (CUT2): `https://coastmark.8westit.com/clients?provider=<slug>&customer_id=<UUID>`,
+  built only by `client_operational_billing_url()`. The slug must be 1–64 lower-case letters,
+  digits or hyphens, starting with a letter or digit, and the UUID a lower-case UUIDv4; anything
+  else builds no link.
+  - **Linked clients.** The provider is the binding tenant's own slug. The route comes with the same
+    binding/receipt agreement as the shared name, so a shared inactive or removed state keeps the
+    client's accounting-history route.
+  - **Pending businesses.** The route comes only from this request's verified directory for this
+    provider.
+  - **Fallback.** Local, unavailable (failed lookup), drifted (disagreeing receipt) or malformed
+    state opens Coastmark's existing suite entry, `https://coastmark.8westit.com/auth/suite`, where
+    the user selects the client. Another tenant's clients never appear, and another provider's
+    directory is unavailable.
+  - **Authority.** Coastmark itself requires the real staff session, organization, Clients
+    permission and its own audited binding. The link grants no authority.
+  - **Before CUT2.** CUT1 opens the existing entry for every row.
 - **Support**: the local Safeharbor client page.
 - **Canonical Support target** (source candidate, A48/A51). Other suite apps link to
   `https://safeharbor.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`.
@@ -93,13 +121,16 @@ it is not a runtime go-ahead.
    signed-in/provider/customer evidence separately from the fixture evidence below.
 7. Coastmark's resolver/writer publication and all eight preserved profiles/bindings are a separate
    release-lead stage. Only after its destination is live and verified may the later, narrowly
-   scoped Billing CUT2 be prepared on actual merged main.
+   scoped Billing CUT2 be prepared on actual merged main. The lead reports that gate green (see
+   the production record below), and CUT2 is now prepared on merged main `9d1650ad`. It ships
+   only after owner qualification and normal CI/merge, in the lead's serialized source-only
+   runtime slot, with no SQL.
 
 The existing runtime configuration, protected jobs, release ownership and approved release packet
 remain controlling. This page does not authorize a cron/configuration change, a broad lifecycle run,
 account provisioning or a customer/financial action.
 
-## Source qualification
+## CUT1 source qualification
 
 The Safeharbor owner executed these existing suites on immutable committed source in isolated
 Coastline containers. Relevant unchanged input bytes were reused across later documentation and
@@ -117,13 +148,60 @@ fixture-only commits; the corrected pure fixture was rerun at `15f7f68b`.
 
 The 24 captured images cover 1440×1000 and 390×844, light/dark, current/empty/unavailable/wrong-provider
 directories and business/retained details. The mobile overlap was corrected and visually reviewed.
-Billing remains generic, and keyboard Support plus synthetic Devices/Billing destinations were checked.
+Billing was generic in CUT1, and keyboard Support plus synthetic Devices/Billing destinations were checked.
 
 The renderer lifts auth/bootstrap and uses SQLite, a synthetic directory transport and synthetic link
 destinations. Captures show the app's inner-scroll viewport, not every scroll position. These checks
 do not establish protected normal CLI/runtime behavior, real ID/provider sessions, form saves or
 Frankie's customer acceptance. Hosted CI belongs to the actual PR head; its status is recorded on
 [PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261).
+
+## CUT2 source status
+
+The Safeharbor owner qualified immutable application/test source
+`fb7c71867e546952298efd271b3965aa7c4a8d74` on an isolated Coastline copy. These existing tests
+assert the CUT2 targets:
+- `app/tests/client_operational_context_test.php`: the exact route, malformed slug and UUID
+  refusals, the route in the agreeing binding/receipt context (inactive included), and no route
+  for a drifted receipt, an unreadable or malformed tenant slug, or a failed lookup.
+- `app/tests/client_shared_directory_ui_test.php`: each actual-page row's own Billing target for
+  every directory case, and the business, retained, inactive Support-target, local and drifted
+  client pages.
+- `tools/shots/client-shared-directory.test.mjs`: the same row targets in the browser, the exact
+  synthetic Coastmark destinations and popup URL, and the client-page links. Its existing mobile
+  geometry, keyboard/focus, theme and console/error assertions are unchanged.
+
+Owner results: **154 operational-context checks, 93 actual-page renderer checks and all 16 browser
+tests passed**, each with native exit 0 and no skipped or cancelled browser tests. All 505 tracked
+Git blobs matched before and after the run. The owner reviewed the 14 changed screenshots; the
+other 10 of 24 captures were byte-identical to previously reviewed captures. Desktop/mobile and
+light/dark captures showed no new layout finding.
+
+The fixtures use synthetic authentication, SQLite records, directory responses and destination
+pages. Captures show the inner-scroll viewport, not every scroll position. These results do not
+establish real signed-in/provider/customer acceptance or form-save behavior. The full unchanged
+PHP and browser workflows must pass on the exact final PR head, followed by normal merge and
+default-branch CI. Production remains CUT1 until the lead's serialized source-only runtime slot.
+The canonical source archive SHA-256 is
+`ae1af16a4c6ef46a61b9cb11d7c6da50d1328c1564f0481641ce4bc26619f837`; the qualification evidence
+archive is `acf650180f86cfe3ef50466edd11d4e2e4d53649a09ccd9bff2df7bd8d2cc657`.
+
+## Production record (owner and lead observations)
+
+These are runtime and signed-in observations reported by the Safeharbor owner and the release lead.
+They are not results of this repository's tests.
+- **CUT1.** `9d1650ad` is live. Migrations 032 → 033 → 034 passed and all 393 runtime files
+  matched. Public login returned 200 with its expected title at `2026-10-23T20:07:25Z`.
+- **P9.** One corrected act ran (exit 0), giving receipt 1, portal 0 and report 0. All five anchor
+  checks were true, and the physical-state aggregate was unchanged. See the
+  [lifecycle contract](managed-customer-lifecycle-contract.md) for the pre-act exit 255 and the
+  single `require_once` correction.
+- **Valley.** 8 West ID tenant 18 / transition 14 / OAuth 1; Safeharbor client 24 / binding 12 /
+  receipt 19. Both were normal HTTP 200 deliveries.
+- **Coastmark gate for CUT2.** Coastmark is healthy on `623` (image `653`). Three real principal
+  UI Adds made CM8, CM9 and CM10, with audits 406–408. CM3 stays inactive, with one r4 non-link
+  audit (409). All 90 financial hash/count groups were unchanged. Real signed-in GETs for all
+  eight approved `8west` UUIDs each resolved the linked client.
 
 ## Existing verification commands
 

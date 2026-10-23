@@ -97,6 +97,9 @@ eval(str_replace("__DIR__ . '/suite_apps.php'", var_export(__DIR__ . '/../lib/su
 
 $uuid = static fn(int $n): string => "{$n}a{$n}b{$n}c{$n}d-{$n}e{$n}f-4a{$n}b-8c{$n}d-{$n}e{$n}f{$n}a{$n}b{$n}c{$n}d";
 $event = static fn(int $n): string => sprintf('e1000000-0000-4000-8000-%012d', $n);
+// CUT2 (A227): Coastmark's client-scoped Billing route, and its generic entry for everything else.
+$scopedBilling = static fn(int $n): string => 'https://coastmark.8westit.com/clients?provider=8west&customer_id=' . $uuid($n);
+$genericBilling = 'https://coastmark.8westit.com/auth/suite';
 db()->exec("CREATE TABLE tenants(id INTEGER PRIMARY KEY, slug TEXT);
 CREATE TABLE users(id INTEGER PRIMARY KEY, tenant_id INTEGER, suite_subject TEXT, is_active INTEGER, full_name TEXT, initials TEXT, color TEXT);
 CREATE TABLE suite_managed_providers(tenant_id INTEGER PRIMARY KEY, issuer_tenant_id INTEGER, provider_slug TEXT);
@@ -218,8 +221,26 @@ foreach (['light', 'dark'] as $theme) {
             && str_contains($html, 'Milepost currently lists no shared businesses') === ($case === 'empty'),
             "$case $theme states unavailable and verified-empty differently");
         directory_ui_check(str_contains($html, 'Valley Veterinary') === ($case === 'directory')
-            && !str_contains($html, 'Other MSP Client') && !str_contains($html, 'coastmark.8westit.com/clients'),
-            "$case $theme shows only this provider, pending Valley only from a verified directory, and the generic Billing entry");
+            && !str_contains($html, 'Other MSP Client') && !str_contains($html, $uuid(8)),
+            "$case $theme shows only this provider, and pending Valley only from a verified directory");
+        // Each rendered row's own Billing targets, keyed by local client id (or "pending").
+        $billingTargets = [];
+        foreach (array_slice(explode('<div class="crow-row"', $html), 1) as $row) {
+            preg_match('/data-client-id="(\d+)"/', $row, $rowClient);
+            preg_match_all('/<a class="btn-chip" href="([^"]*)"[^>]*>Billing ↗<\/a>/u', $row, $rowBilling);
+            $billingTargets[$rowClient[1] ?? 'pending'] = array_map(
+                static fn(string $href): string => htmlspecialchars_decode($href, ENT_QUOTES), $rowBilling[1]);
+        }
+        $expectedBilling = [30 => [$scopedBilling(1)], 31 => [$scopedBilling(2)], 32 => [$scopedBilling(3)],
+            33 => [$genericBilling], 34 => [$genericBilling], 36 => [$scopedBilling(4)], 37 => [$genericBilling],
+            38 => [$scopedBilling(7)]] + ($case === 'directory' ? ['pending' => [$scopedBilling(5)]] : []);
+        ksort($billingTargets, SORT_STRING);
+        ksort($expectedBilling, SORT_STRING);
+        directory_ui_check($billingTargets === $expectedBilling
+            && str_contains($html, 'href="https://coastmark.8westit.com/clients?provider=8west&amp;customer_id=' . $uuid(1) . '"')
+            && substr_count($html, 'title="Opens this client in Coastmark">Billing ↗</a>') === ($case === 'directory' ? 6 : 5)
+            && substr_count($html, 'class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>') === 3,
+            "$case $theme gives each linked client (inactive and removed history included) and a verified pending business its own Billing route, and local and drifted rows the generic entry");
         if (is_string($out) && is_dir($out)) file_put_contents("$out/clients-$case-$theme.html", $html);
     }
     $GLOBALS['fixtureTransport'] = directory_ui_transport('directory', $houseRoster);
@@ -228,16 +249,35 @@ foreach (['light', 'dark'] as $theme) {
         directory_ui_check(str_contains($html, $clientId === 30 ? '<title>Harbor Dental · Safeharbor</title>' : '<title>Beta Canary · Safeharbor</title>')
             && str_contains($html, $clientId === 30 ? 'Milepost directory now:' : 'Not in Milepost’s current client directory'),
             "client $clientId $theme shows its current directory entry or retained history");
+        directory_ui_check(substr_count($html, 'href="' . h($scopedBilling($clientId === 30 ? 1 : 2)) . '"') === 2
+            && str_contains($html, '>View this client in Coastmark ↗</a>') && str_contains($html, '>Review this client’s invoices in Coastmark ↗</a>')
+            && str_contains($html, 'Milepost and Coastmark check your access before showing this client.')
+            && !str_contains($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"'),
+            "client $clientId $theme Balance and Suite open this client's own Coastmark route");
         if (is_string($out) && is_dir($out)) file_put_contents("$out/client-$case-$theme.html", $html);
+    }
+    // Local and drifted clients keep Coastmark's generic entry and wording.
+    foreach ([33 => 'Email Intake', 37 => 'Drifted Co'] as $clientId => $name) {
+        $html = directory_ui_page('client.php', ['id' => (string)$clientId]);
+        directory_ui_check(str_contains($html, '<title>' . $name . ' · Safeharbor</title>')
+            && substr_count($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"') === 2
+            && str_contains($html, '>View in Coastmark ↗</a>') && str_contains($html, '>Review invoices in Coastmark ↗</a>')
+            && str_contains($html, 'Open the app, then select the client.')
+            && !str_contains($html, 'coastmark.8westit.com/clients'),
+            "client $clientId $theme keeps Coastmark's generic Billing entry");
     }
     // A48: the canonical provider + UUID Support target renders the same bound client page, retained
     // inactive history included. (A miss ends the page with exit, so misses are unit-tested instead.)
-    foreach ([[$uuid(1), 'Harbor Dental', 30], [$uuid(3), 'Copper Kettle', 32]] as [$customer, $name, $clientId]) {
+    foreach ([[1, 'Harbor Dental', 30], [3, 'Copper Kettle', 32]] as [$n, $name, $clientId]) {
+        $customer = $uuid($n);
         $html = directory_ui_page('client.php', ['provider' => '8west', 'customer_id' => $customer]);
         directory_ui_check(client_operational_support_client(db(), 1, 'provider=8west&customer_id=' . $customer) === $clientId
             && str_contains($html, '<title>' . $name . ' · Safeharbor</title>') && !str_contains($html, 'Unknown client.')
-            && !str_contains($html, 'coastmark.8westit.com/clients'),
-            "the Support target for $name renders that bound client's page with the generic Billing entry ($theme)");
+            && substr_count($html, 'href="' . h($scopedBilling($n)) . '"') === 2
+            && !str_contains($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"')
+            && str_contains($html, $n === 1 ? 'Milepost and Coastmark check your access before showing this client.'
+                : 'Coastmark checks your access before showing this client. In Milepost, select the client.'),
+            "the Support target for $name renders that bound client's page with its own Billing route ($theme)");
     }
 }
 directory_ui_check(directory_ui_tables() === $before, 'rendering the directory and client pages wrote nothing');

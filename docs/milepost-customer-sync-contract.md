@@ -65,12 +65,25 @@ Each row keeps its keyboard-selectable client link and adds three buttons:
   The provider is the binding tenant's own slug, which the receiver requires to
   equal the event's tenant slug. Milepost signs the user in and checks its own
   tenant before resolving anything, so the link carries no authority;
-- **Billing** opens Coastmark's existing suite entry, where the user selects the
-  client.
+- **Billing** (CUT2) opens Coastmark's fixed
+  `https://coastmark.8westit.com/clients?provider=<slug>&customer_id=<UUID>`
+  (`client_operational_billing_url()`: lower-case slug, lower-case UUIDv4) for
+  a linked client whose binding and receipt agree, inactive and removed history
+  included, and for an active business in the request's verified directory that
+  Safeharbor has not received yet. Local, unavailable, drifted or malformed
+  state opens Coastmark's existing suite entry, where the user selects the
+  client. Coastmark checks the real staff session, organization, Clients
+  permission and its own audited binding first, so this link carries no
+  authority either.
 
 The client page shows the same shared line and uses the client-scoped Milepost
-link for linked active clients. These links are presentation only: they must not
-be released before Milepost's provider + UUID route is live.
+link for linked active clients and the client-scoped Coastmark link for every
+linked client. These links are presentation only: they must not be released
+before Milepost's provider + UUID route is live, and the Coastmark link only
+after Coastmark's provider + UUID resolver is live. The release lead reports
+that resolver live, with real signed-in GETs for all eight approved `8west`
+UUIDs resolving (a lead observation). CUT2 is source-ready, not deployed;
+until it is, Billing opens Coastmark's existing suite entry for every row.
 
 #### Current Milepost directory (request-current roster)
 

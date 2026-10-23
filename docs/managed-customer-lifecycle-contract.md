@@ -244,10 +244,11 @@ ownership/current-hash rules as above; an absent portal stays absent. The digest
 initial receipt, provider and issuer, projection, all five anchor facts and the transport hashes. A
 lost acknowledgement replays the committed receipt; a changed proof for the same event conflicts.
 
-#### P9 Lifestyle identity-only restoration (source form accepted; runtime pending)
+#### P9 Lifestyle identity-only restoration (accepted source form and completed runtime record)
 
-The Safeharbor owner accepted this source form at `15f7f68b`. Nothing here is run by this source
-change, and acceptance is not a runtime go-ahead. The ordinary `--scheduled` run is **not** this packet
+The Safeharbor owner accepted this source form at `15f7f68b`. It is retained as runbook history;
+the one-time runtime completion is recorded below and must not be rerun. Source acceptance alone
+did not authorize execution. The ordinary `--scheduled` run is **not** this packet
 (A166). That run unions the explicit scope with every admitted candidate. It ignores `batch_size`,
 and it can claim 25 and reserve 10. P9 instead calls the existing functions once, for exactly one
 client.
@@ -275,7 +276,7 @@ protected packet, and client `14` is fixed:
 declare(strict_types=1);
 require 'lib/bootstrap.php';
 require 'lib/managed_customer_lifecycle.php';
-require 'lib/managed_customer_id_evidence.php';
+require_once 'lib/managed_customer_id_evidence.php';
 
 const P9_CUSTOMER = 'P9_LIFESTYLE_UUID';      // protected packet
 const P9_TENANT = P9_TENANT_ID;                // protected packet (integer)
@@ -368,6 +369,22 @@ The full-contact no-argument operation stays separate and is not used here. The 
 order, both frozen senders, the exact original SH v2→v3 / ID v2→v3 events and the nonce-armed
 UNKNOWN/readback/recovery protocol are unchanged by this step.
 
+P9 runtime record, 2026-10-23 (Safeharbor owner and release-lead observations, not test results):
+- **Pre-act exit 255.** The first standard-input launch used a plain `require` for the evidence
+  library, which `lib/managed_customer_lifecycle.php` already loads with `require_once`. PHP stopped
+  with a duplicate-declaration error, exit 255, before `try`, `db()`, the candidate query, the proof
+  fetch or the act. It wrote no restore receipt, and the client's physical state was unchanged.
+- **One corrected act.** The only change was that final include, now `require_once` above (loader
+  correction SHA-256 `290030e8d206a627ab3468baed0def755fd8aaec23b3e86b7a9ac681e4f094e8`). Every other
+  packet byte, the original authority, the one reservation and 30-second deadline, and every
+  anchor and deadline check stayed the same. The single real act exited 0.
+- **Effect.** Exactly one `identity_lifecycle_only` restore receipt; zero portal and zero report
+  restoration surfaces; all five API-anchor checks true; the physical-state aggregate
+  `2ab753d68a0ffed277729df47f4a001455ce7b520705e76c3e192c22140824a0` was unchanged.
+- **Evidence** is in the Safeharbor visual root: the success readback `csd-sh-p9-success-readback.json`
+  (prefix `f6189446`), the corrected-execution record (prefix `56af5c46`) and the loader-correction
+  record (prefix `e8891799`). P9 is complete; do not run it again. Read the committed receipt back.
+
 ## Migration and tests
 
 Migration `024_managed_customer_lifecycle.sql` is additive. It creates separate
@@ -445,9 +462,9 @@ the postflight passes. The preflight accepts the completed 032 state, an interru
 completed 034, and pins the v3 body and the normalized CHECK. Validator pins are taken over the
 stored `ACTION_STATEMENT` as MySQL keeps it (A154). There, a `'\n'` string literal is a real newline,
 which the whitespace normalization removes. The v2 pin is the owner-measured engine value
-(`fa6a7220…`); the v3 pin is derived the same way. The CHECK pin is derived from MySQL's documented
-rendering and is not yet engine-measured. `app/db/schema.sql` carries the same
-table and v3 validator. Apply it the same way:
+(`fa6a7220…`); the v3 pin is derived the same way. The CHECK pin was verified against MySQL's
+stored expression in the engine fixture and the production postflight (`5e63b58a…`).
+`app/db/schema.sql` carries the same table and v3 validator. Apply it the same way:
 
 ```bash
 bash deploy/deploy.sh --migrate app/db/migrations/034_managed_customer_identity_lifecycle_restore.sql
