@@ -1,5 +1,5 @@
 <?php
-/** Disposable-MySQL migration, interruption, rollback, and worker-race tests. */
+/** Disposable-MySQL migration (024, 032), interruption, rollback, and worker-race tests. */
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') exit(1);
@@ -30,6 +30,18 @@ function lifecycle_mysql_refuses(string $class, callable $operation, string $mes
         lifecycle_mysql_check(false, $message);
     } catch (Throwable $error) {
         lifecycle_mysql_check($error instanceof $class || $error instanceof PDOException, $message);
+    }
+}
+
+/** The refusal must carry this exact guard or gate message. */
+function lifecycle_mysql_refuses_with(string $needle, callable $operation, string $message): void
+{
+    try {
+        $operation();
+        lifecycle_mysql_check(false, $message);
+    } catch (Throwable $error) {
+        lifecycle_mysql_check(str_contains($error->getMessage(), $needle),
+            $message . ' (' . $error::class . ')');
     }
 }
 
@@ -272,14 +284,27 @@ function lifecycle_mysql_restore_evidence(
 }
 
 /** @return array<string,mixed> */
-function lifecycle_mysql_report_config(string $customerId, int $clientId, string $email): array
-{
+function lifecycle_mysql_report_config(
+    string $customerId,
+    int $clientId,
+    string $email,
+    string $provider = 'provider-one',
+): array {
     return [
         'generation_enabled' => false, 'delivery_enabled' => false, 'canary_only' => true,
         'graph_sender' => '', 'schedule_keys' => ['managed-weekly-v3:' . $customerId],
-        'tenant_slugs' => ['provider-one'], 'client_keys' => ['safeharbor-client:' . $clientId],
+        'tenant_slugs' => [$provider], 'client_keys' => ['safeharbor-client:' . $clientId],
         'recipient_emails' => [$email], 'lease_seconds' => 120,
     ];
+}
+
+/** Lifecycle allowlist for the separate preserved-active provider tenant. */
+function lifecycle_mysql_three_config(string $customerId, bool $restore = false): array
+{
+    return array_replace(lifecycle_mysql_config($customerId), [
+        'restoration_enabled' => $restore,
+        'tenant_actors' => ['provider-three' => 301],
+    ]);
 }
 
 /** @return array<string,mixed> */
@@ -290,27 +315,38 @@ function lifecycle_mysql_candidate(PDO $pdo, string $customerId): array
     return $rows[0];
 }
 
-function lifecycle_mysql_seed_active(PDO $pdo, string $customerId, int $clientId, int $bindingId, string $eventId, string $key, string $slug): void
-{
+function lifecycle_mysql_seed_active(
+    PDO $pdo,
+    string $customerId,
+    int $clientId,
+    int $bindingId,
+    string $eventId,
+    string $key,
+    string $slug,
+    int $tenantId = 1,
+    string $provider = 'provider-one',
+    int $actorId = 101,
+): void {
     $insert = $pdo->prepare(
         'INSERT INTO suite_customer_sync_bindings
             (id,tenant_id,customer_id,client_id,source_version,display_name,status,
              last_event_id,last_occurred_at,last_request_sha256)
-         VALUES (?,1,?,?,1,?,\'active\',?,UTC_TIMESTAMP(),?)'
+         VALUES (?,?,?,?,1,?,\'active\',?,UTC_TIMESTAMP(),?)'
     );
-    $insert->execute([$bindingId, $customerId, $clientId, ucwords(str_replace('-', ' ', $slug)), $eventId, str_repeat((string)($clientId % 10), 64)]);
-    $candidate = managed_customer_activation_candidates(
-        $pdo,
+    $insert->execute([$bindingId, $tenantId, $customerId, $clientId, ucwords(str_replace('-', ' ', $slug)), $eventId, str_repeat((string)($clientId % 10), 64)]);
+    $activationConfig = array_replace(
         lifecycle_mysql_activation_config($customerId),
-    )[0] ?? null;
+        ['tenant_actors' => [$provider => $actorId]],
+    );
+    $candidate = managed_customer_activation_candidates($pdo, $activationConfig)[0] ?? null;
     if (!is_array($candidate)) throw new RuntimeException('Activation seed candidate missing.');
     managed_customer_activation_apply(
         $pdo,
         $candidate,
         lifecycle_mysql_activation_evidence($customerId, $key, $slug, $eventId),
-        101,
-        lifecycle_mysql_activation_config($customerId),
-        lifecycle_mysql_report_config($customerId, $clientId, $slug . '@example.test'),
+        $actorId,
+        $activationConfig,
+        lifecycle_mysql_report_config($customerId, $clientId, $slug . '@example.test', $provider),
     );
 }
 
@@ -336,6 +372,141 @@ function lifecycle_mysql_mark_active(PDO $pdo, int $bindingId, string $eventId, 
     );
     $update->execute([$eventId, $hash, $bindingId]);
     if ($update->rowCount() !== 1) throw new RuntimeException('Active transition fixture failed.');
+}
+
+/** A later active source version (for example a rename) after an active one. */
+function lifecycle_mysql_advance_active(PDO $pdo, int $bindingId, string $eventId, string $hash): void
+{
+    $update = $pdo->prepare(
+        "UPDATE suite_customer_sync_bindings
+            SET source_version=source_version+1, last_event_id=?,
+                last_occurred_at=UTC_TIMESTAMP(), last_request_sha256=?
+          WHERE id=? AND status='active'"
+    );
+    $update->execute([$eventId, $hash, $bindingId]);
+    if ($update->rowCount() !== 1) throw new RuntimeException('Active advance fixture failed.');
+}
+
+/**
+ * Every portal, report, contact and containment row one client's restoration
+ * could write, for byte and row-count comparison.
+ *
+ * @return array<string,list<array<string,mixed>>>
+ */
+function lifecycle_mysql_surface_rows(PDO $pdo, int $tenantId, int $clientId, string $scheduleKey): array
+{
+    $queries = [
+        'portal' => 'SELECT * FROM customer_portal_bindings WHERE tenant_id=? AND client_id=? ORDER BY id',
+        'portal_events' => 'SELECT * FROM customer_portal_binding_events WHERE tenant_id=? AND client_id=? ORDER BY id',
+        'schedule' => 'SELECT * FROM business_report_schedule_versions WHERE tenant_id=? AND client_id=? ORDER BY id',
+        'contacts' => 'SELECT * FROM business_report_id_client_contact_snapshots WHERE tenant_id=? AND client_id=? ORDER BY id',
+        'report_archives' => 'SELECT * FROM business_report_archives WHERE tenant_id=? AND client_id=? ORDER BY id',
+        'containment' => 'SELECT * FROM managed_customer_lifecycle_receipts WHERE tenant_id=? AND client_id=? ORDER BY id',
+    ];
+    $rows = [];
+    foreach ($queries as $name => $sql) {
+        $statement = $pdo->prepare($sql);
+        $statement->execute([$tenantId, $clientId]);
+        $rows[$name] = $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+    $deliveries = $pdo->prepare(
+        'SELECT delivery.* FROM business_report_deliveries delivery
+           JOIN business_report_schedule_versions schedule
+             ON schedule.tenant_id=delivery.tenant_id AND schedule.id=delivery.schedule_version_id
+          WHERE delivery.tenant_id=? AND BINARY schedule.schedule_key=BINARY ? ORDER BY delivery.id'
+    );
+    $deliveries->execute([$tenantId, $scheduleKey]);
+    $rows['report_deliveries'] = $deliveries->fetchAll(PDO::FETCH_ASSOC);
+    return $rows;
+}
+
+/**
+ * The exact preserved-active restore facts for one client's current state, as the
+ * runtime would compute them, for direct guard checks.
+ *
+ * @param array<string,mixed> $evidence
+ * @return array<string,mixed>
+ */
+function lifecycle_mysql_preserved_facts(PDO $pdo, int $tenantId, int $clientId, int $bindingId, array $evidence, int $actorId): array
+{
+    $customerId = (string)$evidence['customer_id'];
+    $scheduleKey = managed_customer_activation_schedule_key($customerId);
+    $source = $pdo->prepare(
+        'SELECT receipt.id, receipt.event_id, receipt.source_version, receipt.request_sha256
+           FROM suite_customer_sync_bindings binding
+           JOIN suite_customer_sync_events receipt
+             ON receipt.tenant_id=binding.tenant_id AND receipt.binding_id=binding.id
+            AND receipt.event_id=binding.last_event_id
+          WHERE binding.tenant_id=? AND binding.id=?'
+    );
+    $source->execute([$tenantId, $bindingId]);
+    $current = $source->fetch(PDO::FETCH_ASSOC);
+    $portal = $pdo->prepare('SELECT id FROM customer_portal_bindings WHERE tenant_id=? AND client_id=?');
+    $portal->execute([$tenantId, $clientId]);
+    $portalId = (int)$portal->fetchColumn();
+    $event = $pdo->prepare(
+        'SELECT id, snapshot_json FROM customer_portal_binding_events
+          WHERE tenant_id=? AND client_id=? AND binding_id=? ORDER BY id DESC LIMIT 1'
+    );
+    $event->execute([$tenantId, $clientId, $portalId]);
+    $latestEvent = $event->fetch(PDO::FETCH_ASSOC);
+    $schedule = $pdo->prepare(
+        'SELECT * FROM business_report_schedule_versions
+          WHERE tenant_id=? AND schedule_key=? ORDER BY version_no DESC LIMIT 1'
+    );
+    $schedule->execute([$tenantId, $scheduleKey]);
+    $latestSchedule = $schedule->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($current) || $portalId < 1 || !is_array($latestEvent) || !is_array($latestSchedule)) {
+        throw new RuntimeException('Preserved-active facts fixture is incomplete.');
+    }
+    return [
+        'tenant_id' => $tenantId, 'client_id' => $clientId, 'source_binding_id' => $bindingId,
+        'customer_id' => $customerId,
+        'source_event_receipt_id' => (int)$current['id'],
+        'source_event_id' => (string)$current['event_id'],
+        'source_version' => (int)$current['source_version'],
+        'source_request_sha256' => (string)$current['request_sha256'],
+        'id_customer_receipt_id' => (string)$evidence['customer_receipt_id'],
+        'id_customer_status' => (string)$evidence['customer_status'],
+        'id_lifecycle_version' => (int)$evidence['lifecycle_version'],
+        'id_lifecycle_transition_id' => (int)$evidence['lifecycle_transition_id'],
+        'id_lifecycle_action' => (string)$evidence['lifecycle_action'],
+        'id_lifecycle_evidence_sha256' => (string)$evidence['lifecycle_evidence_sha256'],
+        'id_identity_tenant_status' => (string)$evidence['identity_tenant_status'],
+        'id_oauth_session_version' => (int)$evidence['identity_oauth_session_version'],
+        'id_lifecycle_owned' => 0,
+        'id_tenant_key' => (string)$evidence['tenant_key'],
+        'identity_tenant_slug' => (string)$evidence['tenant_slug'],
+        'contact_version' => (int)$evidence['contact_version'],
+        'recipient_sha256' => hash('sha256', (string)$evidence['recipient_email']),
+        'id_response_generated_at' => (string)$evidence['generated_at_db'],
+        'id_request_nonce_sha256' => (string)$evidence['request_nonce_sha256'],
+        'id_response_sha256' => (string)$evidence['response_sha256'],
+        'portal_owner_receipt_id' => null,
+        'portal_binding_id' => $portalId,
+        'portal_before_event_id' => (int)$latestEvent['id'],
+        'portal_active_event_id' => null,
+        'portal_restored' => 0,
+        'portal_state_sha256' => hash('sha256', (string)$latestEvent['snapshot_json']),
+        'schedule_owner_receipt_id' => null,
+        'schedule_key' => $scheduleKey,
+        'schedule_before_version_id' => (int)$latestSchedule['id'],
+        'schedule_prepared_version_id' => null,
+        'contact_snapshot_id' => null,
+        'schedule_active_version_id' => null,
+        'schedule_restored' => 0,
+        'schedule_state_sha256' => managed_customer_lifecycle_schedule_sha256($latestSchedule),
+        'actor_user_id' => $actorId,
+    ];
+}
+
+/** @param array<string,mixed> $facts */
+function lifecycle_mysql_insert_restore_receipt(PDO $pdo, array $facts): void
+{
+    $pdo->prepare(
+        'INSERT INTO managed_customer_lifecycle_restore_receipts (' . implode(',', array_keys($facts))
+        . ',evidence_sha256) VALUES (' . implode(',', array_fill(0, count($facts) + 1, '?')) . ')'
+    )->execute([...array_values($facts), managed_customer_lifecycle_restore_receipt_sha256($facts)]);
 }
 
 /** @param list<int> $expected */
@@ -447,6 +618,43 @@ if (($argv[1] ?? '') === 'restore-race-child') {
             101,
             lifecycle_mysql_restore_config($customerId),
             lifecycle_mysql_report_config($customerId, 11, 'managed-one@example.test'),
+            $delay ? static function (string $stage): void {
+                if ($stage === 'after_restore_portal') usleep(700_000);
+            } : null,
+        );
+        echo json_encode($result, JSON_THROW_ON_ERROR) . "\n";
+        exit(0);
+    } catch (Throwable $error) {
+        fwrite(STDERR, $error::class . ':' . $error->getMessage() . "\n");
+        exit(1);
+    }
+}
+
+if (($argv[1] ?? '') === 'preserved-race-child') {
+    $database = (string)($argv[2] ?? '');
+    $delay = (string)($argv[3] ?? '0') === '1';
+    $customerId = '44444444-4444-4444-8444-444444444444';
+    try {
+        $pdo = lifecycle_mysql_connection($database);
+        $evidence = lifecycle_mysql_restore_evidence(
+            $customerId,
+            4,
+            '42000000-0000-4000-8000-000000000004',
+            'ewid-t94',
+            'preserved-two',
+        );
+        if (!$delay) {
+            $evidence['generated_at_db'] = '2026-08-30 17:00:01';
+            $evidence['request_nonce_sha256'] = hash('sha256', 'second-preserved-nonce');
+            $evidence['response_sha256'] = hash('sha256', 'second-preserved-response');
+        }
+        $result = managed_customer_lifecycle_restore(
+            $pdo,
+            lifecycle_mysql_candidate($pdo, $customerId),
+            $evidence,
+            301,
+            lifecycle_mysql_three_config($customerId, true),
+            lifecycle_mysql_report_config($customerId, 42, 'preserved-two@example.test', 'provider-three'),
             $delay ? static function (string $stage): void {
                 if ($stage === 'after_restore_portal') usleep(700_000);
             } : null,
@@ -1113,6 +1321,427 @@ try {
     $pdo->exec('UPDATE suite_managed_providers SET lease_until=UTC_TIMESTAMP()+INTERVAL 1 MINUTE WHERE tenant_id=1');
     lifecycle_mysql_ticket_choices($pdo, [13], 'enrolled provider available again');
 
+    // Forward migration 032 and preserved-active restoration. A separate provider
+    // tenant keeps the tenant-1 ticket-choice cohort above unchanged.
+    $migration032 = __DIR__ . '/../db/migrations/032_managed_customer_preserved_active_restore.sql';
+    $restoreTriggers = static fn(): array => $pdo->query(
+        "SELECT trigger_name, action_statement FROM information_schema.triggers
+          WHERE trigger_schema=DATABASE()
+            AND event_object_table='managed_customer_lifecycle_restore_receipts'
+          ORDER BY trigger_name"
+    )->fetchAll(PDO::FETCH_KEY_PAIR);
+    $restoreGuardsAre = static function (string $validatorMarker) use ($restoreTriggers): bool {
+        $triggers = $restoreTriggers();
+        return array_keys($triggers) === [
+                'trg_mc_restore_before_insert', 'trg_mc_restore_no_delete', 'trg_mc_restore_no_update',
+            ]
+            && str_contains((string)$triggers['trg_mc_restore_before_insert'], $validatorMarker)
+            && str_contains((string)$triggers['trg_mc_restore_no_update'],
+                'safeharbor-managed-customer-lifecycle-restore-immutable-v1')
+            && str_contains((string)$triggers['trg_mc_restore_no_delete'],
+                'safeharbor-managed-customer-lifecycle-restore-immutable-v1');
+    };
+    $v1Validator = 'safeharbor-managed-customer-lifecycle-restore-receipt-v1';
+    $v2Validator = 'safeharbor-managed-customer-lifecycle-restore-receipt-v2';
+    $swapGuardSql = "CREATE TRIGGER trg_mc_restore_preserve_swap_insert
+        BEFORE INSERT ON managed_customer_lifecycle_restore_receipts FOR EACH ROW
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT='Managed-customer preserved-active restoration migration is incomplete'";
+    $restoreCount = static function (int $clientId) use ($pdo): int {
+        $count = $pdo->prepare(
+            'SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=3 AND client_id=?'
+        );
+        $count->execute([$clientId]);
+        return (int)$count->fetchColumn();
+    };
+
+    $pdo->exec("INSERT INTO tenants (id,name,slug) VALUES (3,'Provider Three','provider-three')");
+    $pdo->exec("INSERT INTO clients (id,tenant_id,name) VALUES (41,3,'Preserved One'),(42,3,'Preserved Two')");
+    $pdo->exec("INSERT INTO users
+        (id,tenant_id,email,password_hash,full_name,initials,role,is_active) VALUES
+        (301,3,'owner-three@example.test','','Owner Three','O','owner',1)");
+    $definitionThree = $pdo->prepare(
+        'INSERT INTO business_report_definition_versions
+            (tenant_id,definition_key,version_no,report_type,contract_json,
+             contract_sha256,created_by_user_id,reason) VALUES (3,?,?,?,?,?,301,?)'
+    );
+    foreach ([1,2,3] as $version) {
+        $definitionThree->execute([
+            BUSINESS_REPORT_DEFINITION_KEY, $version, BUSINESS_REPORT_TYPE,
+            business_report_contract_json($version), business_report_contract_sha256($version),
+            'v' . $version,
+        ]);
+    }
+
+    // One: a Lifestyle-shaped customer whose active portal and schedule were never
+    // contained (inactive v2 arrived while it was off the lifecycle allowlist).
+    $preservedOne = '33333333-3333-4333-8333-333333333333';
+    $oneEvent = static fn(int $version): string => sprintf('31000000-0000-4000-8000-%012d', $version);
+    $oneKey = managed_customer_activation_schedule_key($preservedOne);
+    $oneReport = lifecycle_mysql_report_config($preservedOne, 41, 'preserved-one@example.test', 'provider-three');
+    lifecycle_mysql_seed_active(
+        $pdo, $preservedOne, 41, 541, $oneEvent(1), 'ewid-t93', 'preserved-one', 3, 'provider-three', 301,
+    );
+    lifecycle_mysql_mark_inactive($pdo, 541, $oneEvent(2), hash('sha256', $oneEvent(2)));
+    lifecycle_mysql_mark_active($pdo, 541, $oneEvent(3), hash('sha256', $oneEvent(3)));
+    $oneCandidate = lifecycle_mysql_candidate($pdo, $preservedOne);
+    $oneEvidence = lifecycle_mysql_restore_evidence($preservedOne, 3, $oneEvent(3), 'ewid-t93', 'preserved-one');
+    $oneBefore = lifecycle_mysql_surface_rows($pdo, 3, 41, $oneKey);
+    lifecycle_mysql_check(
+        !managed_customer_operational($pdo, 3, 41)
+            && (string)$pdo->query('SELECT status FROM customer_portal_bindings WHERE tenant_id=3 AND client_id=41')->fetchColumn() === 'active'
+            && (string)$pdo->query("SELECT status FROM business_report_schedule_versions
+                WHERE tenant_id=3 AND client_id=41 ORDER BY version_no DESC LIMIT 1")->fetchColumn() === 'active'
+            && $oneBefore['containment'] === [],
+        'never-contained exact current v3 starts latched with active portal and schedule',
+    );
+    lifecycle_mysql_check($restoreGuardsAre($v1Validator), 'restore guards are still the 024 v1 set before 032');
+    lifecycle_mysql_refuses_with(
+        'Restore portal transition or preserved hold is not exact',
+        static fn() => managed_customer_lifecycle_restore(
+            $runtime, $oneCandidate, $oneEvidence, 301,
+            lifecycle_mysql_three_config($preservedOne, true), $oneReport,
+        ),
+        'the 024 validator refuses a preserved-active receipt from the new runtime',
+    );
+    lifecycle_mysql_check(
+        lifecycle_mysql_surface_rows($pdo, 3, 41, $oneKey) === $oneBefore
+            && $restoreCount(41) === 0 && !managed_customer_operational($pdo, 3, 41),
+        'new code before 032 writes nothing and keeps the latch',
+    );
+
+    lifecycle_mysql_refuses(
+        PDOException::class,
+        static fn() => lifecycle_mysql_execute_file($runtime, $migration032),
+        'DML-only lifecycle identity cannot apply privileged migration 032',
+    );
+    lifecycle_mysql_check($restoreGuardsAre($v1Validator), 'failed DML-only 032 leaves the 024 guards unchanged');
+    lifecycle_mysql_execute_file($pdo, $migration032);
+    lifecycle_mysql_execute_file($pdo, $migration032);
+    lifecycle_mysql_check(
+        $restoreGuardsAre($v2Validator),
+        'migration 032 applies and replays to the v2 validator and both immutability guards, with no swap guard',
+    );
+
+    $pdo->exec($swapGuardSql);
+    $pdo->exec('DROP TRIGGER trg_mc_restore_before_insert');
+    lifecycle_mysql_refuses_with(
+        'preserved-active restoration migration is incomplete',
+        static fn() => managed_customer_lifecycle_restore(
+            $runtime, $oneCandidate, $oneEvidence, 301,
+            lifecycle_mysql_three_config($preservedOne, true), $oneReport,
+        ),
+        'an interrupted 032 swap refuses an otherwise exact restoration',
+    );
+    lifecycle_mysql_check(
+        array_keys($restoreTriggers()) === [
+            'trg_mc_restore_no_delete', 'trg_mc_restore_no_update', 'trg_mc_restore_preserve_swap_insert',
+        ]
+            && lifecycle_mysql_surface_rows($pdo, 3, 41, $oneKey) === $oneBefore && $restoreCount(41) === 0,
+        'the interrupted swap keeps update/delete immutability and writes nothing',
+    );
+    lifecycle_mysql_execute_file($pdo, $migration032);
+    lifecycle_mysql_check($restoreGuardsAre($v2Validator), 'exact 032 replay converges after an interrupted swap');
+
+    $pdo->exec('DROP TRIGGER trg_mc_restore_before_insert');
+    lifecycle_mysql_refuses(
+        PDOException::class,
+        static fn() => lifecycle_mysql_execute_file($pdo, $migration032),
+        'migration 032 refuses a missing validator without its swap guard',
+    );
+    lifecycle_mysql_check(
+        array_keys($restoreTriggers()) === ['trg_mc_restore_no_delete', 'trg_mc_restore_no_update'],
+        'the refused 032 preflight changes nothing',
+    );
+    $pdo->exec($swapGuardSql);
+    lifecycle_mysql_execute_file($pdo, $migration032);
+    lifecycle_mysql_check($restoreGuardsAre($v2Validator), '032 converges from its own interrupted state');
+
+    $oneResults = managed_customer_lifecycle_run(
+        $runtime,
+        lifecycle_mysql_three_config($preservedOne, true),
+        $oneReport,
+        [],
+        static fn(string $customerId, array $config): array => $oneEvidence,
+    );
+    $oneReceipt = $pdo->query(
+        'SELECT * FROM managed_customer_lifecycle_restore_receipts WHERE tenant_id=3 AND client_id=41'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $oneFacts = lifecycle_mysql_preserved_facts($pdo, 3, 41, 541, $oneEvidence, 301);
+    lifecycle_mysql_check(
+        count($oneResults) === 1
+            && ($oneResults[0]['action'] ?? null) === 'restored'
+            && ($oneResults[0]['portal_restored'] ?? null) === 0
+            && ($oneResults[0]['report_schedule_restored'] ?? null) === 0
+            && count($oneReceipt) === 1
+            && (int)$oneReceipt[0]['portal_restored'] === 0
+            && (int)$oneReceipt[0]['schedule_restored'] === 0
+            && $oneReceipt[0]['portal_owner_receipt_id'] === null
+            && $oneReceipt[0]['portal_active_event_id'] === null
+            && $oneReceipt[0]['schedule_owner_receipt_id'] === null
+            && $oneReceipt[0]['schedule_prepared_version_id'] === null
+            && $oneReceipt[0]['contact_snapshot_id'] === null
+            && $oneReceipt[0]['schedule_active_version_id'] === null
+            && (int)$oneReceipt[0]['portal_before_event_id'] === $oneFacts['portal_before_event_id']
+            && (string)$oneReceipt[0]['portal_state_sha256'] === $oneFacts['portal_state_sha256']
+            && (int)$oneReceipt[0]['schedule_before_version_id'] === $oneFacts['schedule_before_version_id']
+            && (string)$oneReceipt[0]['schedule_state_sha256'] === $oneFacts['schedule_state_sha256']
+            && (string)$oneReceipt[0]['evidence_sha256'] === managed_customer_lifecycle_restore_receipt_sha256($oneFacts),
+        'exact current v3 records restored=0 against the locked latest audit, version and hashes with no owner or transition',
+    );
+    lifecycle_mysql_check(
+        lifecycle_mysql_surface_rows($pdo, 3, 41, $oneKey) === $oneBefore
+            && managed_customer_operational($pdo, 3, 41),
+        'restore-first preserves the portal, events, schedule, contacts, reports and containment rows byte for byte and clears the latch',
+    );
+    $oneReplayEvidence = $oneEvidence;
+    $oneReplayEvidence['generated_at_db'] = '2026-08-30 17:00:01';
+    $oneReplayEvidence['request_nonce_sha256'] = hash('sha256', 'preserved-one-replay-nonce');
+    $oneReplayEvidence['response_sha256'] = hash('sha256', 'preserved-one-replay-response');
+    $oneReplay = managed_customer_lifecycle_restore(
+        $runtime, $oneCandidate, $oneReplayEvidence, 301,
+        lifecycle_mysql_three_config($preservedOne, true), $oneReport,
+    );
+    lifecycle_mysql_check(
+        ($oneReplay['action'] ?? null) === 'restore_replayed'
+            && ($oneReplay['evidence_sha256'] ?? null) === (string)$oneReceipt[0]['evidence_sha256']
+            && $restoreCount(41) === 1
+            && lifecycle_mysql_surface_rows($pdo, 3, 41, $oneKey) === $oneBefore,
+        'a lost-ack preserved-active replay writes nothing and returns the committed receipt',
+    );
+
+    // Two: contain v2, restore the owned surfaces at v3, then a later active v4
+    // re-latches and is restored over the earlier cycle with zero surface writes.
+    $preservedTwo = '44444444-4444-4444-8444-444444444444';
+    $twoEvent = static fn(int $version): string => sprintf('42000000-0000-4000-8000-%012d', $version);
+    $twoKey = managed_customer_activation_schedule_key($preservedTwo);
+    $twoReport = lifecycle_mysql_report_config($preservedTwo, 42, 'preserved-two@example.test', 'provider-three');
+    lifecycle_mysql_seed_active(
+        $pdo, $preservedTwo, 42, 542, $twoEvent(1), 'ewid-t94', 'preserved-two', 3, 'provider-three', 301,
+    );
+    lifecycle_mysql_mark_inactive($pdo, 542, $twoEvent(2), hash('sha256', $twoEvent(2)));
+    $twoContained = managed_customer_lifecycle_apply(
+        $runtime, lifecycle_mysql_candidate($pdo, $preservedTwo), 301, lifecycle_mysql_three_config($preservedTwo),
+    );
+    lifecycle_mysql_mark_active($pdo, 542, $twoEvent(3), hash('sha256', $twoEvent(3)));
+    $twoOwned = managed_customer_lifecycle_run(
+        $runtime,
+        lifecycle_mysql_three_config($preservedTwo, true),
+        $twoReport,
+        [],
+        static fn(string $customerId, array $config): array
+            => lifecycle_mysql_restore_evidence($preservedTwo, 3, $twoEvent(3), 'ewid-t94', 'preserved-two'),
+    );
+    $twoContainment = $pdo->query(
+        'SELECT * FROM managed_customer_lifecycle_receipts WHERE tenant_id=3 AND client_id=42'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    lifecycle_mysql_check(
+        ($twoContained['action'] ?? null) === 'contained'
+            && ($twoOwned[0]['action'] ?? null) === 'restored'
+            && ($twoOwned[0]['portal_restored'] ?? null) === 1
+            && ($twoOwned[0]['report_schedule_restored'] ?? null) === 1
+            && count($twoContainment) === 1
+            && (string)$twoContainment[0]['action'] === 'contained'
+            && managed_customer_operational($pdo, 3, 42),
+        'owned-disabled restoration under 032 reopens exactly the contained surfaces without a second containment',
+    );
+    lifecycle_mysql_advance_active($pdo, 542, $twoEvent(4), hash('sha256', $twoEvent(4)));
+    lifecycle_mysql_check(!managed_customer_operational($pdo, 3, 42), 'a later active v4 re-latches the customer');
+    $twoCandidate = lifecycle_mysql_candidate($pdo, $preservedTwo);
+    $twoEvidence = lifecycle_mysql_restore_evidence($preservedTwo, 4, $twoEvent(4), 'ewid-t94', 'preserved-two');
+    $twoBefore = lifecycle_mysql_surface_rows($pdo, 3, 42, $twoKey);
+    $twoObserved = $twoEvidence;
+    $twoObserved['lifecycle_action'] = 'observed_active';
+    $twoWrongCustomer = $twoEvidence;
+    $twoWrongCustomer['customer_id'] = $preservedOne;
+    foreach ([
+        'stale v3 evidence cannot clear the v4 latch'
+            => lifecycle_mysql_restore_evidence($preservedTwo, 3, $twoEvent(3), 'ewid-t94', 'preserved-two'),
+        'evidence for another event cannot clear the v4 latch'
+            => lifecycle_mysql_restore_evidence($preservedTwo, 4, $twoEvent(5), 'ewid-t94', 'preserved-two'),
+        'evidence for another customer UUID cannot clear the v4 latch' => $twoWrongCustomer,
+        'observed-active evidence cannot clear the v4 latch' => $twoObserved,
+    ] as $label => $badEvidence) {
+        lifecycle_mysql_refuses(
+            ManagedCustomerLifecycleGateException::class,
+            static fn() => managed_customer_lifecycle_restore(
+                $runtime, $twoCandidate, $badEvidence, 301,
+                lifecycle_mysql_three_config($preservedTwo, true), $twoReport,
+            ),
+            $label,
+        );
+    }
+    lifecycle_mysql_refuses(
+        RuntimeException::class,
+        static fn() => managed_customer_lifecycle_restore(
+            $runtime, $twoCandidate, $twoEvidence, 301,
+            lifecycle_mysql_three_config($preservedTwo, true), $twoReport,
+            static function (string $stage): void {
+                if ($stage === 'before_restore_receipt') throw new RuntimeException('fixture preserved crash');
+            },
+        ),
+        'injected preserved-active interruption is observed',
+    );
+    lifecycle_mysql_check(
+        lifecycle_mysql_surface_rows($pdo, 3, 42, $twoKey) === $twoBefore
+            && $restoreCount(42) === 1 && !managed_customer_operational($pdo, 3, 42),
+        'refused or interrupted v4 restoration writes nothing and keeps the latch',
+    );
+
+    // Direct guard checks against the exact v4 facts: the exact facts pass; a
+    // consumed owner receipt or a stale audit/version is never preserved-active authority.
+    $twoFacts = lifecycle_mysql_preserved_facts($pdo, 3, 42, 542, $twoEvidence, 301);
+    $pdo->beginTransaction();
+    try {
+        lifecycle_mysql_insert_restore_receipt($pdo, $twoFacts);
+        lifecycle_mysql_check(true, 'the 032 validator accepts the exact preserved-active facts');
+    } catch (Throwable $error) {
+        lifecycle_mysql_check(false, 'the 032 validator accepts the exact preserved-active facts (' . $error->getMessage() . ')');
+    } finally {
+        $pdo->rollBack();
+    }
+    $twoDisabledEvent = $pdo->prepare('SELECT id, snapshot_json FROM customer_portal_binding_events WHERE id=?');
+    $twoDisabledEvent->execute([(int)$twoContainment[0]['portal_disabled_event_id']]);
+    $twoStaleEvent = $twoDisabledEvent->fetch(PDO::FETCH_ASSOC);
+    $twoActivationSchedule = $pdo->prepare(
+        "SELECT * FROM business_report_schedule_versions
+          WHERE tenant_id=3 AND schedule_key=? AND status='active' ORDER BY version_no LIMIT 1"
+    );
+    $twoActivationSchedule->execute([$twoKey]);
+    $twoStaleSchedule = $twoActivationSchedule->fetch(PDO::FETCH_ASSOC);
+    foreach ([
+        ['Restore portal transition or preserved hold is not exact',
+            ['portal_owner_receipt_id' => (int)$twoContainment[0]['id']],
+            'a consumed containment owner cannot back a preserved-active portal'],
+        ['Restore portal transition or preserved hold is not exact',
+            ['portal_before_event_id' => (int)$twoStaleEvent['id'],
+             'portal_state_sha256' => hash('sha256', (string)$twoStaleEvent['snapshot_json'])],
+            'a stale portal audit cannot back a preserved-active portal'],
+        ['Restore schedule transition or preserved hold is not exact',
+            ['schedule_owner_receipt_id' => (int)$twoContainment[0]['id']],
+            'a consumed containment owner cannot back a preserved-active schedule'],
+        ['Restore schedule transition or preserved hold is not exact',
+            ['schedule_before_version_id' => (int)$twoStaleSchedule['id'],
+             'schedule_state_sha256' => managed_customer_lifecycle_schedule_sha256($twoStaleSchedule)],
+            'a stale active schedule version cannot back a preserved-active schedule'],
+    ] as [$needle, $forged, $label]) {
+        lifecycle_mysql_refuses_with(
+            $needle,
+            static fn() => lifecycle_mysql_insert_restore_receipt($pdo, array_replace($twoFacts, $forged)),
+            $label,
+        );
+    }
+    lifecycle_mysql_check(
+        $restoreCount(42) === 1 && lifecycle_mysql_surface_rows($pdo, 3, 42, $twoKey) === $twoBefore,
+        'forged preserved-active receipts leave no row',
+    );
+
+    $preservedCommandA = [PHP_BINARY, __FILE__, 'preserved-race-child', $database, '1'];
+    $preservedCommandB = [PHP_BINARY, __FILE__, 'preserved-race-child', $database, '0'];
+    $preservedPipesA = []; $preservedPipesB = [];
+    $preservedProcessA = proc_open($preservedCommandA, [1=>['pipe','w'],2=>['pipe','w']], $preservedPipesA);
+    usleep(100_000);
+    $preservedProcessB = proc_open($preservedCommandB, [1=>['pipe','w'],2=>['pipe','w']], $preservedPipesB);
+    if (!is_resource($preservedProcessA) || !is_resource($preservedProcessB)) {
+        throw new RuntimeException('Could not start preserved-active restoration race workers.');
+    }
+    $preservedStdoutA = stream_get_contents($preservedPipesA[1]);
+    $preservedStderrA = stream_get_contents($preservedPipesA[2]);
+    $preservedStdoutB = stream_get_contents($preservedPipesB[1]);
+    $preservedStderrB = stream_get_contents($preservedPipesB[2]);
+    fclose($preservedPipesA[1]); fclose($preservedPipesA[2]);
+    fclose($preservedPipesB[1]); fclose($preservedPipesB[2]);
+    $preservedExitA = proc_close($preservedProcessA);
+    $preservedExitB = proc_close($preservedProcessB);
+    $preservedRaceA = json_decode(trim((string)$preservedStdoutA), true);
+    $preservedRaceB = json_decode(trim((string)$preservedStdoutB), true);
+    $preservedActions = is_array($preservedRaceA) && is_array($preservedRaceB)
+        ? [(string)($preservedRaceA['action'] ?? ''), (string)($preservedRaceB['action'] ?? '')]
+        : [];
+    sort($preservedActions);
+    lifecycle_mysql_check(
+        $preservedExitA === 0 && $preservedExitB === 0
+            && $preservedActions === ['restore_replayed', 'restored'],
+        'two real workers over the earlier owned cycle serialize to one preserved-active receipt and one replay'
+            . (($preservedStderrA . $preservedStderrB) === ''
+                ? ''
+                : ' (worker error: ' . trim($preservedStderrA . $preservedStderrB) . ')'),
+    );
+    $twoReceipt = $pdo->prepare(
+        'SELECT * FROM managed_customer_lifecycle_restore_receipts
+          WHERE tenant_id=3 AND client_id=42 AND source_version=4'
+    );
+    $twoReceipt->execute();
+    $twoReceiptRow = $twoReceipt->fetch(PDO::FETCH_ASSOC);
+    lifecycle_mysql_check(
+        is_array($twoReceiptRow)
+            && (int)$twoReceiptRow['portal_restored'] === 0 && (int)$twoReceiptRow['schedule_restored'] === 0
+            && $twoReceiptRow['portal_owner_receipt_id'] === null
+            && $twoReceiptRow['schedule_owner_receipt_id'] === null
+            && $restoreCount(42) === 2
+            && lifecycle_mysql_surface_rows($pdo, 3, 42, $twoKey) === $twoBefore
+            && managed_customer_operational($pdo, 3, 42),
+        'the later exact restore keeps the earlier receipts and makes zero portal, report, contact or schedule writes',
+    );
+
+    // Human holds stay held under 032: contain v4 of One, then a person re-enables
+    // and holds the portal and holds the schedule before exact restored v5 evidence.
+    lifecycle_mysql_mark_inactive($pdo, 541, $oneEvent(4), hash('sha256', $oneEvent(4)));
+    $oneContained = managed_customer_lifecycle_apply(
+        $runtime, lifecycle_mysql_candidate($pdo, $preservedOne), 301, lifecycle_mysql_three_config($preservedOne),
+    );
+    lifecycle_mysql_mark_active($pdo, 541, $oneEvent(5), hash('sha256', $oneEvent(5)));
+    $pdo->exec("UPDATE customer_portal_bindings
+        SET status='active', status_reason='human review', last_changed_by_user_id=301
+      WHERE tenant_id=3 AND client_id=41");
+    $pdo->exec("UPDATE customer_portal_bindings
+        SET status='disabled', status_reason='human hold', last_changed_by_user_id=301
+      WHERE tenant_id=3 AND client_id=41");
+    $oneLatestSchedule = $pdo->prepare(
+        'SELECT * FROM business_report_schedule_versions
+          WHERE tenant_id=3 AND schedule_key=? ORDER BY version_no DESC LIMIT 1'
+    );
+    $oneLatestSchedule->execute([$oneKey]);
+    $oneHeldFrom = $oneLatestSchedule->fetch(PDO::FETCH_ASSOC);
+    $pdo->prepare(
+        "INSERT INTO business_report_schedule_versions
+            (tenant_id,schedule_key,version_no,definition_version_id,client_id,recipient_email,
+             schedule_timezone,delivery_weekday,delivery_local_time,canary,status,
+             created_by_user_id,reason)
+         VALUES (3,?,?,?,41,?,?,?,?,?,'disabled',301,'human hold')"
+    )->execute([
+        $oneKey, (int)$oneHeldFrom['version_no'] + 1, (int)$oneHeldFrom['definition_version_id'],
+        (string)$oneHeldFrom['recipient_email'], (string)$oneHeldFrom['schedule_timezone'],
+        (int)$oneHeldFrom['delivery_weekday'], (string)$oneHeldFrom['delivery_local_time'],
+        (int)$oneHeldFrom['canary'],
+    ]);
+    $oneHeldBefore = lifecycle_mysql_surface_rows($pdo, 3, 41, $oneKey);
+    $oneHeld = managed_customer_lifecycle_run(
+        $runtime,
+        lifecycle_mysql_three_config($preservedOne, true),
+        $oneReport,
+        [],
+        static fn(string $customerId, array $config): array
+            => lifecycle_mysql_restore_evidence($preservedOne, 5, $oneEvent(5), 'ewid-t93', 'preserved-one'),
+    );
+    $oneHeldReceipt = $pdo->query(
+        'SELECT * FROM managed_customer_lifecycle_restore_receipts
+          WHERE tenant_id=3 AND client_id=41 AND source_version=5'
+    )->fetch(PDO::FETCH_ASSOC);
+    lifecycle_mysql_check(
+        ($oneContained['action'] ?? null) === 'contained'
+            && ($oneHeld[0]['action'] ?? null) === 'restored'
+            && ($oneHeld[0]['portal_restored'] ?? null) === 0
+            && ($oneHeld[0]['report_schedule_restored'] ?? null) === 0
+            && is_array($oneHeldReceipt)
+            && (int)$oneHeldReceipt['portal_owner_receipt_id'] > 0
+            && (int)$oneHeldReceipt['schedule_owner_receipt_id'] > 0
+            && lifecycle_mysql_surface_rows($pdo, 3, 41, $oneKey) === $oneHeldBefore
+            && (string)$pdo->query('SELECT status FROM customer_portal_bindings WHERE tenant_id=3 AND client_id=41')->fetchColumn() === 'disabled'
+            && managed_customer_operational($pdo, 3, 41),
+        'human-held portal and schedule stay held under 032 while the exact source latch clears',
+    );
+
     $admin->exec("CREATE DATABASE {$quotedFreshDatabase} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $fresh = lifecycle_mysql_connection($freshDatabase);
     lifecycle_mysql_execute_file($fresh, __DIR__ . '/../db/schema.sql');
@@ -1124,7 +1753,7 @@ try {
     );
     lifecycle_mysql_check(
         $replayedContract === $freshContract,
-        'fresh schema and replayed migration 024 have exact table check index FK and trigger parity'
+        'fresh schema and replayed migrations 024 + 032 have exact table check index FK and trigger parity'
             . ($parityDifference === 'none' ? '' : ' (' . $parityDifference . ')'),
     );
 

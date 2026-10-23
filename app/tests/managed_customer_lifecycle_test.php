@@ -299,6 +299,75 @@ function lifecycle_candidate(PDO $pdo): array
     return $rows[0];
 }
 
+/** Every row a restoration could write, for byte and row-count comparison. */
+function lifecycle_surface_rows(PDO $pdo): array
+{
+    $rows = [];
+    foreach ([
+        'customer_portal_bindings', 'customer_portal_binding_events',
+        'business_report_schedule_versions', 'business_report_id_client_contact_snapshots',
+        'managed_customer_lifecycle_receipts',
+    ] as $table) {
+        $rows[$table] = $pdo->query("SELECT * FROM {$table} ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+    }
+    return $rows;
+}
+
+/** Append the next immutable source event and advance the binding to it. */
+function lifecycle_sqlite_advance(PDO $pdo, int $version, string $eventId, string $status, string $hash): void
+{
+    $pdo->prepare(
+        "INSERT INTO suite_customer_sync_events
+            (event_id,tenant_id,binding_id,customer_id,client_id,source_version,
+             display_name,status,occurred_at,request_sha256)
+         VALUES (?,1,501,'11111111-1111-4111-8111-111111111111',11,?,'Managed One',?,
+                 '2026-08-30 16:00:00',?)"
+    )->execute([$eventId, $version, $status, $hash]);
+    $update = $pdo->prepare(
+        'UPDATE suite_customer_sync_bindings
+            SET source_version=?, status=?, last_event_id=?, last_request_sha256=?
+          WHERE id=501 AND source_version=?'
+    );
+    $update->execute([$version, $status, $eventId, $hash, $version - 1]);
+    if ($update->rowCount() !== 1) throw new RuntimeException('source advance fixture failed');
+}
+
+/** @return array<string,mixed> */
+function lifecycle_evidence_for(int $version, string $eventId): array
+{
+    $evidence = lifecycle_base_evidence();
+    $evidence['source_version'] = $version;
+    $evidence['customer_event_id'] = $eventId;
+    return $evidence;
+}
+
+/** Insert a digest-valid containment receipt for the current source event with forged surface facts. */
+function lifecycle_forge_owner(PDO $pdo, array $surface): void
+{
+    $event = $pdo->query(
+        'SELECT id, event_id, source_version, request_sha256 FROM suite_customer_sync_events
+          ORDER BY id DESC LIMIT 1'
+    )->fetch(PDO::FETCH_ASSOC);
+    $facts = array_replace([
+        'tenant_id' => 1, 'client_id' => 11, 'source_binding_id' => 501,
+        'customer_id' => '11111111-1111-4111-8111-111111111111',
+        'source_event_receipt_id' => (int)$event['id'], 'source_event_id' => (string)$event['event_id'],
+        'source_version' => (int)$event['source_version'], 'source_status' => 'active',
+        'action' => 'reactivation_blocked', 'portal_binding_id' => 601, 'portal_was_active' => 0,
+        'portal_before_event_id' => null, 'portal_state_event_id' => null,
+        'portal_disabled_event_id' => null, 'portal_state_sha256' => null,
+        'schedule_key' => managed_customer_activation_schedule_key('11111111-1111-4111-8111-111111111111'),
+        'schedule_was_active' => 0, 'schedule_active_version_id' => null,
+        'schedule_state_version_id' => null, 'schedule_disabled_version_id' => null,
+        'schedule_state_sha256' => null, 'actor_user_id' => 101,
+        'source_request_sha256' => (string)$event['request_sha256'],
+    ], $surface);
+    $pdo->prepare(
+        'INSERT INTO managed_customer_lifecycle_receipts (' . implode(',', array_keys($facts))
+        . ',evidence_sha256) VALUES (' . implode(',', array_fill(0, count($facts) + 1, '?')) . ')'
+    )->execute([...array_values($facts), managed_customer_lifecycle_receipt_sha256($facts)]);
+}
+
 $defaults = managed_customer_lifecycle_config([]);
 lifecycle_check($defaults['enabled'] === false, 'lifecycle is not default-off');
 lifecycle_check($defaults['restoration_enabled'] === false, 'restoration is not default-off');
@@ -645,7 +714,10 @@ lifecycle_check(
     'a later human disable/hold was overwritten or prevented an otherwise exact source release',
 );
 
+// Exact current v3 for a customer whose portal and schedule were never contained:
+// the worker restores first and preserves both active surfaces without a write.
 $runRestorePdo = lifecycle_sqlite('active', true, true);
+$runRestoreBefore = lifecycle_surface_rows($runRestorePdo);
 $runRestoreResults = managed_customer_lifecycle_run(
     $runRestorePdo,
     lifecycle_config(['restoration_enabled' => true]),
@@ -658,11 +730,262 @@ $runRestoreResults = managed_customer_lifecycle_run(
         return lifecycle_base_evidence();
     },
 );
+$runRestoreReceipt = $runRestorePdo->query(
+    'SELECT * FROM managed_customer_lifecycle_restore_receipts'
+)->fetch(PDO::FETCH_ASSOC);
+$runRestoreSchedule = $runRestorePdo->query(
+    'SELECT * FROM business_report_schedule_versions WHERE id=802'
+)->fetch(PDO::FETCH_ASSOC);
 lifecycle_check(
     count($runRestoreResults) === 1
         && ($runRestoreResults[0]['action'] ?? null) === 'restored'
+        && ($runRestoreResults[0]['portal_restored'] ?? null) === 0
+        && ($runRestoreResults[0]['report_schedule_restored'] ?? null) === 0
         && managed_customer_operational($runRestorePdo, 1, 11),
-    'bounded worker did not contain then restored-only release an active-after-inactive customer',
+    'bounded worker did not restore-first an already-active, never-contained customer',
+);
+lifecycle_check(
+    lifecycle_surface_rows($runRestorePdo) === $runRestoreBefore,
+    'preserved-active restoration wrote a portal, audit, schedule, contact or containment row',
+);
+lifecycle_check(
+    is_array($runRestoreReceipt)
+        && managed_customer_lifecycle_restore_receipt_valid($runRestoreReceipt)
+        && (string)$runRestoreReceipt['source_event_id'] === 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+        && (int)$runRestoreReceipt['portal_restored'] === 0
+        && $runRestoreReceipt['portal_owner_receipt_id'] === null
+        && $runRestoreReceipt['portal_active_event_id'] === null
+        && (int)$runRestoreReceipt['portal_before_event_id'] === 2
+        && (string)$runRestoreReceipt['portal_state_sha256'] === hash('sha256', '{"status":"active"}')
+        && (int)$runRestoreReceipt['schedule_restored'] === 0
+        && $runRestoreReceipt['schedule_owner_receipt_id'] === null
+        && $runRestoreReceipt['schedule_prepared_version_id'] === null
+        && $runRestoreReceipt['contact_snapshot_id'] === null
+        && $runRestoreReceipt['schedule_active_version_id'] === null
+        && (int)$runRestoreReceipt['schedule_before_version_id'] === 802
+        && is_array($runRestoreSchedule)
+        && (string)$runRestoreReceipt['schedule_state_sha256']
+            === managed_customer_lifecycle_schedule_sha256($runRestoreSchedule),
+    'preserved-active receipt did not pin the exact latest audit, version and hashes with no owner or transition',
+);
+
+$runBlockedPdo = lifecycle_sqlite('active', true, true);
+$runBlockedResults = managed_customer_lifecycle_run($runBlockedPdo, lifecycle_config());
+lifecycle_check(
+    count($runBlockedResults) === 1
+        && ($runBlockedResults[0]['action'] ?? null) === 'reactivation_blocked'
+        && (string)$runBlockedPdo->query('SELECT status FROM customer_portal_bindings')->fetchColumn() === 'disabled'
+        && (string)$runBlockedPdo->query(
+            'SELECT status FROM business_report_schedule_versions ORDER BY version_no DESC LIMIT 1'
+        )->fetchColumn() === 'disabled'
+        && (int)$runBlockedPdo->query(
+            'SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts'
+        )->fetchColumn() === 0
+        && !managed_customer_operational($runBlockedPdo, 1, 11),
+    'with restoration disabled the worker did not keep an active-after-inactive customer contained',
+);
+
+$runRefusedPdo = lifecycle_sqlite('active', true, true);
+$runRefusedBefore = lifecycle_surface_rows($runRefusedPdo);
+$runRefusedResults = managed_customer_lifecycle_run(
+    $runRefusedPdo,
+    lifecycle_config(['restoration_enabled' => true]),
+    lifecycle_report_config(),
+    [],
+    static fn(string $customerId, array $config): array => $observedEvidence,
+);
+lifecycle_check(
+    count($runRefusedResults) === 1
+        && ($runRefusedResults[0]['action'] ?? null) === 'refused'
+        && ($runRefusedResults[0]['error_class'] ?? null) === ManagedCustomerLifecycleGateException::class
+        && lifecycle_surface_rows($runRefusedPdo) === $runRefusedBefore
+        && (int)$runRefusedPdo->query(
+            'SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts'
+        )->fetchColumn() === 0
+        && !managed_customer_operational($runRefusedPdo, 1, 11),
+    'observed-active evidence through the worker cleared the latch or touched a surface',
+);
+
+// A receipt that claims to own the current active state is ambiguous, never authority.
+$forgedPortalPdo = lifecycle_sqlite('active', true, true);
+lifecycle_forge_owner($forgedPortalPdo, [
+    'portal_was_active' => 1, 'portal_before_event_id' => 2, 'portal_state_event_id' => 2,
+    'portal_disabled_event_id' => 2, 'portal_state_sha256' => hash('sha256', '{"status":"active"}'),
+]);
+$forgedPortalBefore = lifecycle_surface_rows($forgedPortalPdo);
+lifecycle_refuses(
+    ManagedCustomerLifecycleConflictException::class,
+    static fn() => managed_customer_lifecycle_restore(
+        $forgedPortalPdo,
+        lifecycle_candidate($forgedPortalPdo),
+        lifecycle_base_evidence(),
+        101,
+        lifecycle_config(['restoration_enabled' => true]),
+        lifecycle_report_config(),
+    ),
+    'forged current ownership of an active portal was accepted',
+);
+$forgedSchedulePdo = lifecycle_sqlite('active', true, true);
+lifecycle_forge_owner($forgedSchedulePdo, [
+    'schedule_was_active' => 1, 'schedule_active_version_id' => 802,
+    'schedule_state_version_id' => 802, 'schedule_disabled_version_id' => 802,
+    'schedule_state_sha256' => managed_customer_lifecycle_schedule_sha256(
+        $forgedSchedulePdo->query('SELECT * FROM business_report_schedule_versions WHERE id=802')
+            ->fetch(PDO::FETCH_ASSOC),
+    ),
+]);
+$forgedScheduleBefore = lifecycle_surface_rows($forgedSchedulePdo);
+lifecycle_refuses(
+    ManagedCustomerLifecycleConflictException::class,
+    static fn() => managed_customer_lifecycle_restore(
+        $forgedSchedulePdo,
+        lifecycle_candidate($forgedSchedulePdo),
+        lifecycle_base_evidence(),
+        101,
+        lifecycle_config(['restoration_enabled' => true]),
+        lifecycle_report_config(),
+    ),
+    'forged current ownership of an active report schedule was accepted',
+);
+lifecycle_check(
+    lifecycle_surface_rows($forgedPortalPdo) === $forgedPortalBefore
+        && lifecycle_surface_rows($forgedSchedulePdo) === $forgedScheduleBefore
+        && (int)$forgedPortalPdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts')->fetchColumn() === 0
+        && (int)$forgedSchedulePdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts')->fetchColumn() === 0
+        && !managed_customer_operational($forgedPortalPdo, 1, 11)
+        && !managed_customer_operational($forgedSchedulePdo, 1, 11),
+    'ambiguous ownership refusal wrote a surface or receipt or cleared the latch',
+);
+
+$preserveFaultPdo = lifecycle_sqlite('active', true, true);
+$preserveFaultBefore = lifecycle_surface_rows($preserveFaultPdo);
+$preserveFaultReached = false;
+$preserveFault = static function (string $point) use (&$preserveFaultReached): void {
+    if ($point === 'before_restore_receipt') {
+        $preserveFaultReached = true;
+        throw new RuntimeException('fixture preserved-active interruption');
+    }
+};
+lifecycle_refuses(
+    RuntimeException::class,
+    static fn() => managed_customer_lifecycle_restore(
+        $preserveFaultPdo,
+        lifecycle_candidate($preserveFaultPdo),
+        lifecycle_base_evidence(),
+        101,
+        lifecycle_config(['restoration_enabled' => true]),
+        lifecycle_report_config(),
+        $preserveFault,
+    ),
+    'interruption before the preserved-active receipt did not fail',
+);
+lifecycle_check(
+    $preserveFaultReached
+        && lifecycle_surface_rows($preserveFaultPdo) === $preserveFaultBefore
+        && (int)$preserveFaultPdo->query(
+            'SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts'
+        )->fetchColumn() === 0
+        && !managed_customer_operational($preserveFaultPdo, 1, 11),
+    'preserved-active interruption left a receipt or a write, or cleared the latch',
+);
+
+// A legitimate owned cycle, then a later current active source version:
+// contain v2, restore the owned surfaces at v3, then v4 preserves them.
+$cyclePdo = lifecycle_sqlite('inactive', true, true);
+managed_customer_lifecycle_apply($cyclePdo, lifecycle_candidate($cyclePdo), 101, lifecycle_config());
+lifecycle_sqlite_advance($cyclePdo, 3, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'active', str_repeat('c', 64));
+$cycleOwned = managed_customer_lifecycle_run(
+    $cyclePdo,
+    lifecycle_config(['restoration_enabled' => true]),
+    lifecycle_report_config(),
+    [],
+    static fn(string $customerId, array $config): array
+        => lifecycle_evidence_for(3, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+);
+lifecycle_check(
+    ($cycleOwned[0]['action'] ?? null) === 'restored'
+        && ($cycleOwned[0]['portal_restored'] ?? null) === 1
+        && ($cycleOwned[0]['report_schedule_restored'] ?? null) === 1
+        && (int)$cyclePdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_receipts')->fetchColumn() === 1
+        && managed_customer_operational($cyclePdo, 1, 11),
+    'owned-disabled restoration without a v3 containment receipt changed',
+);
+lifecycle_sqlite_advance($cyclePdo, 4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'active', str_repeat('d', 64));
+lifecycle_check(
+    !managed_customer_operational($cyclePdo, 1, 11),
+    'a later active source version reused the earlier restoration receipt',
+);
+$cycleCandidate = lifecycle_candidate($cyclePdo);
+$cycleBefore = lifecycle_surface_rows($cyclePdo);
+$wrongCustomerEvidence = lifecycle_evidence_for(4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+$wrongCustomerEvidence['customer_id'] = '22222222-2222-4222-8222-222222222222';
+foreach ([
+    'stale v3 evidence cleared the v4 latch' => lifecycle_evidence_for(3, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+    'evidence for another event cleared the v4 latch' => lifecycle_evidence_for(4, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+    'evidence for another customer UUID cleared the v4 latch' => $wrongCustomerEvidence,
+] as $label => $badEvidence) {
+    lifecycle_refuses(
+        ManagedCustomerLifecycleGateException::class,
+        static fn() => managed_customer_lifecycle_restore(
+            $cyclePdo,
+            $cycleCandidate,
+            $badEvidence,
+            101,
+            lifecycle_config(['restoration_enabled' => true]),
+            lifecycle_report_config(),
+        ),
+        $label,
+    );
+}
+lifecycle_check(
+    lifecycle_surface_rows($cyclePdo) === $cycleBefore
+        && (int)$cyclePdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts')->fetchColumn() === 1
+        && !managed_customer_operational($cyclePdo, 1, 11),
+    'refused v4 evidence wrote a surface or receipt or cleared the latch',
+);
+$cycleResults = managed_customer_lifecycle_run(
+    $cyclePdo,
+    lifecycle_config(['restoration_enabled' => true]),
+    lifecycle_report_config(),
+    [],
+    static fn(string $customerId, array $config): array
+        => lifecycle_evidence_for(4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
+);
+$cycleReceipt = $cyclePdo->query(
+    'SELECT * FROM managed_customer_lifecycle_restore_receipts WHERE source_version=4'
+)->fetch(PDO::FETCH_ASSOC);
+lifecycle_check(
+    ($cycleResults[0]['action'] ?? null) === 'restored'
+        && ($cycleResults[0]['portal_restored'] ?? null) === 0
+        && ($cycleResults[0]['report_schedule_restored'] ?? null) === 0
+        && lifecycle_surface_rows($cyclePdo) === $cycleBefore
+        && is_array($cycleReceipt)
+        && managed_customer_lifecycle_restore_receipt_valid($cycleReceipt)
+        && $cycleReceipt['portal_owner_receipt_id'] === null
+        && $cycleReceipt['schedule_owner_receipt_id'] === null
+        && (int)$cycleReceipt['portal_before_event_id'] === 4
+        && (int)$cycleReceipt['schedule_before_version_id'] === 805
+        && (int)$cyclePdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts')->fetchColumn() === 2
+        && managed_customer_operational($cyclePdo, 1, 11),
+    'a later exact restore over the earlier owned cycle did not preserve active surfaces with zero writes',
+);
+$cycleReplayEvidence = lifecycle_evidence_for(4, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+$cycleReplayEvidence['request_nonce_sha256'] = str_repeat('7', 64);
+$cycleReplayEvidence['response_sha256'] = str_repeat('8', 64);
+$cycleReplay = managed_customer_lifecycle_restore(
+    $cyclePdo,
+    $cycleCandidate,
+    $cycleReplayEvidence,
+    101,
+    lifecycle_config(['restoration_enabled' => true]),
+    lifecycle_report_config(),
+);
+lifecycle_check(
+    $cycleReplay['action'] === 'restore_replayed'
+        && $cycleReplay['evidence_sha256'] === (string)$cycleReceipt['evidence_sha256']
+        && lifecycle_surface_rows($cyclePdo) === $cycleBefore
+        && (int)$cyclePdo->query('SELECT COUNT(*) FROM managed_customer_lifecycle_restore_receipts')->fetchColumn() === 2,
+    'preserved-active replay wrote again or changed the committed receipt',
 );
 
 lifecycle_refuses(

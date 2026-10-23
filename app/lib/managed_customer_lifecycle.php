@@ -783,7 +783,8 @@ function managed_customer_lifecycle_surface_owner(
 
 /**
  * Clear one exact post-inactive source latch using signed restored-only ID
- * evidence. Human/pre-existing holds remain unchanged.
+ * evidence. Human/pre-existing holds remain unchanged, and an already-active
+ * surface with no current containment owner is preserved without any write.
  *
  * @return array<string,mixed>
  */
@@ -981,12 +982,7 @@ function managed_customer_lifecycle_restore(
                 'Lifecycle restoration portal identity mapping changed.',
             );
         }
-        if (is_array($portal) && (string)$portal['status'] === 'active') {
-            throw new ManagedCustomerLifecycleConflictException(
-                'An unowned active portal cannot clear the inactive latch.',
-            );
-        }
-        if (is_array($portal) && (string)$portal['status'] !== 'disabled') {
+        if (is_array($portal) && !in_array((string)$portal['status'], ['active', 'disabled'], true)) {
             throw new ManagedCustomerLifecycleConflictException(
                 'Lifecycle restoration portal state is invalid.',
             );
@@ -996,6 +992,7 @@ function managed_customer_lifecycle_restore(
         $portalStateSha256 = null;
         $portalOwner = null;
         $portalCanRestore = false;
+        $portalPreservedActive = false;
         if ($portalBindingId !== null) {
             $portalEventQuery = $pdo->prepare(
                 'SELECT id, snapshot_json FROM customer_portal_binding_events
@@ -1020,9 +1017,19 @@ function managed_customer_lifecycle_restore(
                 'portal',
                 $portalBindingId,
             );
-            $portalCanRestore = is_array($portalOwner)
+            // Current ownership: the containment's disabled audit is still the
+            // latest audit, with the same hash. An older, superseded containment
+            // receipt is history, not authority over a later state.
+            $portalCurrentlyOwned = is_array($portalOwner)
                 && (int)$portalOwner['portal_state_event_id'] === $portalBeforeEventId
                 && hash_equals((string)$portalOwner['portal_state_sha256'], $portalStateSha256);
+            $portalPreservedActive = (string)$portal['status'] === 'active';
+            if ($portalPreservedActive && $portalCurrentlyOwned) {
+                throw new ManagedCustomerLifecycleConflictException(
+                    'Lifecycle restoration portal ownership is ambiguous.',
+                );
+            }
+            $portalCanRestore = $portalCurrentlyOwned;
         }
 
         $latestSchedule = managed_customer_lifecycle_latest_schedule(
@@ -1030,12 +1037,9 @@ function managed_customer_lifecycle_restore(
             $candidateTenantId,
             $scheduleKey,
         );
-        if (is_array($latestSchedule) && (string)$latestSchedule['status'] === 'active') {
-            throw new ManagedCustomerLifecycleConflictException(
-                'An unowned active report schedule cannot clear the inactive latch.',
-            );
-        }
-        if (is_array($latestSchedule) && (string)$latestSchedule['status'] !== 'disabled') {
+        if (is_array($latestSchedule)
+            && !in_array((string)$latestSchedule['status'], ['active', 'disabled'], true)
+        ) {
             throw new ManagedCustomerLifecycleConflictException(
                 'Lifecycle restoration report schedule state is invalid.',
             );
@@ -1054,9 +1058,17 @@ function managed_customer_lifecycle_restore(
                 $scheduleKey,
             )
             : null;
-        $scheduleCanRestore = is_array($scheduleOwner)
+        $scheduleCurrentlyOwned = is_array($scheduleOwner)
             && (int)$scheduleOwner['schedule_state_version_id'] === $scheduleBeforeId
             && hash_equals((string)$scheduleOwner['schedule_state_sha256'], (string)$scheduleStateSha256);
+        $schedulePreservedActive = is_array($latestSchedule)
+            && (string)$latestSchedule['status'] === 'active';
+        if ($schedulePreservedActive && $scheduleCurrentlyOwned) {
+            throw new ManagedCustomerLifecycleConflictException(
+                'Lifecycle restoration report schedule ownership is ambiguous.',
+            );
+        }
+        $scheduleCanRestore = $scheduleCurrentlyOwned;
 
         $portalActiveEventId = null;
         if ($portalCanRestore) {
@@ -1210,13 +1222,16 @@ function managed_customer_lifecycle_restore(
             'id_response_generated_at' => (string)$evidence['generated_at_db'],
             'id_request_nonce_sha256' => (string)$evidence['request_nonce_sha256'],
             'id_response_sha256' => (string)$evidence['response_sha256'],
-            'portal_owner_receipt_id' => is_array($portalOwner) ? (int)$portalOwner['id'] : null,
+            // A preserved active surface has no applicable owner to record.
+            'portal_owner_receipt_id' => is_array($portalOwner) && !$portalPreservedActive
+                ? (int)$portalOwner['id'] : null,
             'portal_binding_id' => $portalBindingId,
             'portal_before_event_id' => $portalBeforeEventId,
             'portal_active_event_id' => $portalActiveEventId,
             'portal_restored' => $portalCanRestore ? 1 : 0,
             'portal_state_sha256' => $portalStateSha256,
-            'schedule_owner_receipt_id' => is_array($scheduleOwner) ? (int)$scheduleOwner['id'] : null,
+            'schedule_owner_receipt_id' => is_array($scheduleOwner) && !$schedulePreservedActive
+                ? (int)$scheduleOwner['id'] : null,
             'schedule_key' => $scheduleKey,
             'schedule_before_version_id' => $scheduleBeforeId,
             'schedule_prepared_version_id' => $schedulePreparedId,
@@ -1318,15 +1333,13 @@ function managed_customer_lifecycle_run(
                     'No exact owner/admin actor is allowlisted for the provider tenant.',
                 );
             }
-            $contained = managed_customer_lifecycle_apply(
-                $pdo,
-                $candidate,
-                $actorId,
-                $config,
-            );
             if (($candidate['status'] ?? null) === 'active'
                 && $config['restoration_enabled'] === true
             ) {
+                // Restore first, without containing: containment would disable
+                // active surfaces that exact restoration preserves. Restore
+                // validates the signed exact-current evidence before any
+                // surface is read; a refusal leaves the latch and surfaces as-is.
                 if ($fetchEvidence === null) {
                     if (!function_exists('managed_customer_id_evidence_fetch')) {
                         throw new ManagedCustomerLifecycleGateException(
@@ -1350,7 +1363,12 @@ function managed_customer_lifecycle_run(
                     $businessReportConfig,
                 );
             } else {
-                $results[] = $contained;
+                $results[] = managed_customer_lifecycle_apply(
+                    $pdo,
+                    $candidate,
+                    $actorId,
+                    $config,
+                );
             }
             $completed++;
             if ($completed >= $config['batch_size']) break;

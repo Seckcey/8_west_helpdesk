@@ -2221,7 +2221,7 @@ CREATE TRIGGER trg_mc_restore_before_insert
 BEFORE INSERT ON managed_customer_lifecycle_restore_receipts
 FOR EACH ROW
 BEGIN
-  DECLARE guard_version VARCHAR(64) DEFAULT 'safeharbor-managed-customer-lifecycle-restore-receipt-v1';
+  DECLARE guard_version VARCHAR(64) DEFAULT 'safeharbor-managed-customer-lifecycle-restore-receipt-v2';
   DECLARE actor_matches INT DEFAULT 0;
   DECLARE source_matches INT DEFAULT 0;
   DECLARE inactive_history INT DEFAULT 0;
@@ -2355,6 +2355,29 @@ BEGIN
                                          WHERE latest.tenant_id=portal.tenant_id
                                            AND latest.client_id=portal.client_id
                                            AND latest.binding_id=portal.id);
+      IF portal_state_matches=0 THEN
+        SELECT COUNT(*) INTO portal_state_matches
+          FROM customer_portal_bindings portal
+         WHERE portal.tenant_id=NEW.tenant_id AND portal.client_id=NEW.client_id
+           AND portal.id=NEW.portal_binding_id AND portal.status='active'
+           AND NEW.portal_owner_receipt_id IS NULL AND NEW.portal_active_event_id IS NULL
+           AND NEW.portal_before_event_id=(SELECT MAX(latest.id)
+                                            FROM customer_portal_binding_events latest
+                                           WHERE latest.tenant_id=portal.tenant_id
+                                             AND latest.client_id=portal.client_id
+                                             AND latest.binding_id=portal.id)
+           AND NOT EXISTS (
+             SELECT 1 FROM managed_customer_lifecycle_receipts owner_receipt
+              WHERE owner_receipt.tenant_id=NEW.tenant_id
+                AND owner_receipt.client_id=NEW.client_id
+                AND owner_receipt.source_binding_id=NEW.source_binding_id
+                AND BINARY owner_receipt.customer_id=BINARY NEW.customer_id
+                AND owner_receipt.portal_was_active=1
+                AND owner_receipt.portal_binding_id=portal.id
+                AND owner_receipt.portal_state_event_id=NEW.portal_before_event_id
+                AND BINARY owner_receipt.portal_state_sha256=BINARY NEW.portal_state_sha256
+           );
+      END IF;
     END IF;
     IF portal_state_matches<>1 THEN
       SIGNAL SQLSTATE '45000'
@@ -2402,6 +2425,23 @@ BEGIN
        AND schedule.client_id=NEW.client_id
        AND BINARY schedule.schedule_key=BINARY NEW.schedule_key
        AND schedule.status='disabled';
+    IF schedule_state_matches=0 AND NEW.schedule_restored=0 THEN
+      SELECT COUNT(*),MAX(SHA2(CONCAT(
+               'safeharbor-managed-customer-schedule-state-v1','\n',schedule.id,
+               '\n',schedule.tenant_id,'\n',schedule.schedule_key,'\n',schedule.version_no,
+               '\n',schedule.definition_version_id,'\n',schedule.client_id,
+               '\n',schedule.recipient_email,'\n',schedule.schedule_timezone,
+               '\n',schedule.delivery_weekday,'\n',schedule.delivery_local_time,
+               '\n',schedule.canary,'\n',schedule.status,'\n',schedule.created_by_user_id,
+               '\n',schedule.reason
+             ),256))
+        INTO schedule_state_matches,expected_schedule_hash
+        FROM business_report_schedule_versions schedule
+       WHERE schedule.tenant_id=NEW.tenant_id AND schedule.id=NEW.schedule_before_version_id
+         AND schedule.client_id=NEW.client_id
+         AND BINARY schedule.schedule_key=BINARY NEW.schedule_key
+         AND schedule.status='active';
+    END IF;
     IF schedule_state_matches<>1
        OR BINARY expected_schedule_hash<>BINARY NEW.schedule_state_sha256 THEN
       SIGNAL SQLSTATE '45000'
@@ -2470,6 +2510,32 @@ BEGIN
                                     FROM business_report_schedule_versions latest
                                    WHERE latest.tenant_id=NEW.tenant_id
                                      AND BINARY latest.schedule_key=BINARY NEW.schedule_key);
+      IF schedule_state_matches=0 THEN
+        SELECT COUNT(*) INTO schedule_state_matches
+          FROM business_report_schedule_versions schedule
+         WHERE schedule.tenant_id=NEW.tenant_id
+           AND schedule.id=NEW.schedule_before_version_id
+           AND schedule.client_id=NEW.client_id
+           AND BINARY schedule.schedule_key=BINARY NEW.schedule_key
+           AND schedule.status='active'
+           AND NEW.schedule_owner_receipt_id IS NULL AND NEW.schedule_prepared_version_id IS NULL
+           AND NEW.contact_snapshot_id IS NULL AND NEW.schedule_active_version_id IS NULL
+           AND schedule.version_no=(SELECT MAX(latest.version_no)
+                                      FROM business_report_schedule_versions latest
+                                     WHERE latest.tenant_id=NEW.tenant_id
+                                       AND BINARY latest.schedule_key=BINARY NEW.schedule_key)
+           AND NOT EXISTS (
+             SELECT 1 FROM managed_customer_lifecycle_receipts owner_receipt
+              WHERE owner_receipt.tenant_id=NEW.tenant_id
+                AND owner_receipt.client_id=NEW.client_id
+                AND owner_receipt.source_binding_id=NEW.source_binding_id
+                AND BINARY owner_receipt.customer_id=BINARY NEW.customer_id
+                AND owner_receipt.schedule_was_active=1
+                AND BINARY owner_receipt.schedule_key=BINARY NEW.schedule_key
+                AND owner_receipt.schedule_state_version_id=NEW.schedule_before_version_id
+                AND BINARY owner_receipt.schedule_state_sha256=BINARY NEW.schedule_state_sha256
+           );
+      END IF;
     END IF;
     IF schedule_state_matches<>1 THEN
       SIGNAL SQLSTATE '45000'
