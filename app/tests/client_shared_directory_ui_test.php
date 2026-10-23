@@ -173,6 +173,7 @@ function directory_ui_page(string $page, array $get): string
     $_GET = $get;
     $_POST = [];
     $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['QUERY_STRING'] = http_build_query($get, '', '&', PHP_QUERY_RFC3986);
     ob_start();
     try {
         eval(substr($source, strlen('<?php')));
@@ -228,6 +229,15 @@ foreach (['light', 'dark'] as $theme) {
             && str_contains($html, $clientId === 30 ? 'Milepost directory now:' : 'Not in Milepost’s current client directory'),
             "client $clientId $theme shows its current directory entry or retained history");
         if (is_string($out) && is_dir($out)) file_put_contents("$out/client-$case-$theme.html", $html);
+    }
+    // A48: the canonical provider + UUID Support target renders the same bound client page, retained
+    // inactive history included. (A miss ends the page with exit, so misses are unit-tested instead.)
+    foreach ([[$uuid(1), 'Harbor Dental', 30], [$uuid(3), 'Copper Kettle', 32]] as [$customer, $name, $clientId]) {
+        $html = directory_ui_page('client.php', ['provider' => '8west', 'customer_id' => $customer]);
+        directory_ui_check(client_operational_support_client(db(), 1, 'provider=8west&customer_id=' . $customer) === $clientId
+            && str_contains($html, '<title>' . $name . ' · Safeharbor</title>') && !str_contains($html, 'Unknown client.')
+            && !str_contains($html, 'coastmark.8westit.com/clients'),
+            "the Support target for $name renders that bound client's page with the generic Billing entry ($theme)");
     }
 }
 directory_ui_check(directory_ui_tables() === $before, 'rendering the directory and client pages wrote nothing');

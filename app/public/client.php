@@ -7,12 +7,19 @@ require_once __DIR__ . '/../lib/client_operational_context.php';
 enforce_https();
 $user = require_login();
 
-$id = (int)($_GET['id'] ?? 0);
+// A48: after staff sign-in, the canonical ?provider=<slug>&customer_id=<UUID> Support target resolves
+// to this tenant's one bound client. Any provider or customer_id parameter takes this path only, so a
+// mixed or malformed selector never falls back to ?id=. Numeric ?id= stays the local route.
+$supportTarget = isset($_GET['provider']) || isset($_GET['customer_id']);
+$id = $supportTarget
+    ? (client_operational_support_client(db(), tenant_id(), (string)($_SERVER['QUERY_STRING'] ?? '')) ?? 0)
+    : (int)($_GET['id'] ?? 0);
 $stmt = db()->prepare('SELECT * FROM clients WHERE id = ? AND tenant_id = ?');
 $stmt->execute([$id, tenant_id()]);
 $client = $stmt->fetch();
 
 if (!$client) {
+    if ($supportTarget) http_response_code(404);
     page_top($user, 'Not found', 'clients');
     echo '<div class="page"><div class="card empty"><p>Unknown client.</p><a class="link" href="/clients.php">← All clients</a></div></div>';
     page_bottom();

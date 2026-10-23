@@ -111,6 +111,64 @@ operational_check('only a successful lookup with no binding makes a row unbound'
     client_operational_directory_entry($houseDirectory, 21) === ['bound' => false, 'available' => false]
     && client_operational_directory_entry($houseDirectory, 23) === ['bound' => true, 'available' => false]
     && client_operational_directory_entry($houseDirectory, 20) === $houseDirectory[20]);
+// A48/A51: the canonical Support target, its fixed ID launcher hop and the provider + UUID resolver.
+$supportTarget = '/client.php?provider=8west&customer_id=' . $deviceCustomer;
+operational_check('the canonical Support target is exactly the provider + UUID local path',
+    client_operational_support_target($supportTarget) === $supportTarget
+    && client_operational_support_target('/client.php?provider=' . str_repeat('m', 64) . '&customer_id=' . $deviceCustomer) !== null);
+operational_check('only a canonical target builds the fixed 8 West ID launcher hop',
+    client_operational_support_launcher_url($supportTarget)
+        === 'https://id.8westit.com/launch.php?product=safeharbor&return=' . rawurlencode($supportTarget)
+    && client_operational_support_launcher_url('/tickets.php') === null && client_operational_support_launcher_url(null) === null);
+foreach (['client.php?provider=8west&customer_id=' . $deviceCustomer, '/client.php?id=20',
+    '/client.php?provider=8west&customer_id=' . strtoupper($deviceCustomer),
+    '/client.php?provider=8West&customer_id=' . $deviceCustomer, '/client.php?provider=-8west&customer_id=' . $deviceCustomer,
+    '/client.php?provider=' . str_repeat('m', 65) . '&customer_id=' . $deviceCustomer,
+    '/client.php?customer_id=' . $deviceCustomer . '&provider=8west',
+    '/client.php?provider=8west&provider=8west&customer_id=' . $deviceCustomer,
+    '/client.php?provider=8west&customer_id=' . $deviceCustomer . '&id=20',
+    '/client.php?id=20&provider=8west&customer_id=' . $deviceCustomer,
+    '/client.php?provider=8west&customer_id=' . $deviceCustomer . '#top',
+    '/client.php?provider=8west%26customer_id%3D' . $deviceCustomer,
+    "/client.php?provider=8west&customer_id=$deviceCustomer\n",
+    '/client.php?provider=8west&customer_id=55555555-5555-1555-8555-555555555555',
+    'https://safeharbor.8westit.com/client.php?provider=8west&customer_id=' . $deviceCustomer, ['x'], 7] as $badTarget) {
+    operational_check('a noncanonical Support target is refused', client_operational_support_target($badTarget) === null
+        && client_operational_support_launcher_url($badTarget) === null);
+}
+$supportQuery = static fn(string $provider, string $customer): string => 'provider=' . $provider . '&customer_id=' . $customer;
+operational_check('the Support route resolves the exact UUID to this tenant\'s one bound client, retained inactive history too',
+    client_operational_support_client($directoryPdo, 1, $supportQuery('8west', $deviceCustomer)) === 20
+    && client_operational_support_client($directoryPdo, 1, $supportQuery('8west', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')) === 24
+    && client_operational_support_client($directoryPdo, 2, $supportQuery('other-msp', '77777777-7777-4777-8777-777777777777')) === 22);
+foreach ([
+    'drifted receipt' => [1, $supportQuery('8west', '99999999-9999-4999-8999-999999999999')],
+    'another tenant\'s UUID' => [1, $supportQuery('8west', '77777777-7777-4777-8777-777777777777')],
+    'provider is not this tenant' => [1, $supportQuery('other-msp', $deviceCustomer)],
+    'other tenant asserting the house' => [2, $supportQuery('8west', $deviceCustomer)],
+    'unknown UUID' => [1, $supportQuery('8west', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd')],
+    'uppercase UUID' => [1, $supportQuery('8west', strtoupper($deviceCustomer))],
+    'reordered' => [1, 'customer_id=' . $deviceCustomer . '&provider=8west'],
+    'mixed id' => [1, $supportQuery('8west', $deviceCustomer) . '&id=20'],
+    'leading id' => [1, 'id=20&' . $supportQuery('8west', $deviceCustomer)],
+    'duplicate' => [1, 'provider=8west&provider=8west&customer_id=' . $deviceCustomer],
+    'encoded' => [1, 'provider=8west&customer_id=' . str_replace('-', '%2D', $deviceCustomer)],
+    'empty' => [1, ''],
+    'no tenant' => [0, $supportQuery('8west', $deviceCustomer)],
+] as $label => [$supportTenant, $query]) {
+    operational_check("the Support route is the same miss for every refusal: $label",
+        client_operational_support_client($directoryPdo, $supportTenant, $query) === null);
+}
+$directoryPdo->exec("INSERT INTO suite_customer_sync_bindings VALUES(9,1,21,'$deviceCustomer',3,'Shared A','active','66666666-6666-4666-8666-666666666666','2026-10-23 12:00:00')");
+operational_check('an ambiguous UUID with two bindings resolves to nothing',
+    client_operational_support_client($directoryPdo, 1, $supportQuery('8west', $deviceCustomer)) === null);
+$directoryPdo->exec('DELETE FROM suite_customer_sync_bindings WHERE id=9');
+$supportPage = (string)file_get_contents(__DIR__ . '/../public/client.php');
+operational_check('the client page takes the Support route for any provider or customer_id parameter, after sign-in, with a 404 miss',
+    preg_match('/\$user = require_login\(\);[\s\S]*\$supportTarget = isset\(\$_GET\[\'provider\'\]\) \|\| isset\(\$_GET\[\'customer_id\'\]\);/', $supportPage) === 1
+    && str_contains($supportPage, "client_operational_support_client(db(), tenant_id(), (string)(\$_SERVER['QUERY_STRING'] ?? '')) ?? 0")
+    && str_contains($supportPage, 'if ($supportTarget) http_response_code(404);')
+    && str_contains($supportPage, "SELECT * FROM clients WHERE id = ? AND tenant_id = ?"));
 $mspDirectory = client_operational_directory($directoryPdo, 2);
 operational_check('another MSP tenant gets only its own clients and its own provider route',
     array_keys($mspDirectory) === [22]

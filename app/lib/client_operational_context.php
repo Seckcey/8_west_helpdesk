@@ -25,6 +25,54 @@ function client_operational_device_url(string $providerSlug, string $customerId)
         . http_build_query(['provider' => $providerSlug, 'customer_id' => $customerId], '', '&', PHP_QUERY_RFC3986);
 }
 
+const CLIENT_OPERATIONAL_SUPPORT_LAUNCHER = 'https://id.8westit.com/launch.php?product=safeharbor&return=';
+
+/**
+ * A48: the canonical staff Support target, exactly /client.php?provider=<lowercase slug of at most 64>
+ * &customer_id=<lowercase UUIDv4>, at most 160 bytes. Absolute, encoded, reordered, duplicated, mixed
+ * or numeric forms, fragments and controls are not Support targets.
+ */
+function client_operational_support_target(mixed $value): ?string
+{
+    return is_string($value) && strlen($value) <= 160
+        && preg_match('/\A\/client\.php\?provider=[a-z0-9][a-z0-9-]{0,63}&customer_id=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D', $value) === 1
+        ? $value : null;
+}
+
+/** A51: for a canonical Support target only, the fixed 8 West ID launcher hop back to it; otherwise null. */
+function client_operational_support_launcher_url(mixed $next): ?string
+{
+    $target = client_operational_support_target($next);
+    return $target === null ? null : CLIENT_OPERATIONAL_SUPPORT_LAUNCHER . rawurlencode($target);
+}
+
+/**
+ * A48: resolve the exact query provider=<slug>&customer_id=<UUID> (nothing else) to this tenant's one
+ * bound client. The provider only asserts the signed-in user's own tenant, never selects one. The UUID
+ * must have exactly one binding in that tenant whose immutable receipt agrees; retained inactive history
+ * resolves too. Every miss is null, the same for each. Read only.
+ */
+function client_operational_support_client(PDO $pdo, int $tenantId, string $queryString): ?int
+{
+    if ($tenantId < 1 || client_operational_support_target('/client.php?' . $queryString) === null
+        || preg_match('/\Aprovider=([a-z0-9][a-z0-9-]{0,63})&customer_id=([0-9a-f-]{36})\z/D', $queryString, $match) !== 1) {
+        return null;
+    }
+    $provider = client_operational_provider_slug($pdo, $tenantId);
+    if ($provider === null || !hash_equals($provider, $match[1])) return null;
+    try {
+        $query = $pdo->prepare('SELECT client_id FROM suite_customer_sync_bindings WHERE tenant_id = ? AND customer_id = ? LIMIT 2');
+        $query->execute([$tenantId, $match[2]]);
+        $clients = $query->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable) {
+        return null;
+    }
+    if (count($clients) !== 1 || (int)$clients[0] < 1) return null;
+    $clientId = (int)$clients[0];
+    $context = client_operational_context($pdo, $tenantId, $clientId);
+    return ($context['available'] ?? false) === true && ($context['customer_id'] ?? null) === $match[2] ? $clientId : null;
+}
+
 /** This tenant's own slug, or null; only the device link and the directory read depend on it. */
 function client_operational_provider_slug(PDO $pdo, int $tenantId): ?string
 {

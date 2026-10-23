@@ -42,6 +42,24 @@ recovery steps.
   - The later cut reuses the `6006d577` diff on its own owner-bound branch. This branch's tip keeps
     the generic entry.
 - **Support**: the local Safeharbor client page.
+- **Canonical Support target** (source candidate, A48/A51). Other suite apps link to
+  `https://safeharbor.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`.
+  - **Resolver.** Staff sign-in comes first. The provider only asserts the signed-in user's own
+    tenant slug; it never selects a tenant. The UUID must have exactly one binding in that tenant
+    whose immutable receipt agrees, and it then opens that client's normal page, retained inactive
+    history included.
+  - **Refusals.** A malformed, reordered, duplicated, encoded or mixed (`id=`) query, another
+    tenant's UUID, an ambiguous or drifted binding, or an unknown UUID gets the same 404 page. A GET
+    writes nothing. Numeric `?id=` and the contact POST handlers are unchanged.
+  - **Login return.** `login.php` validates `next` before its current-user and 8 West ID branches, so
+    an existing or newly admitted staff session returns to it. The customer-role GET handoff still
+    goes only to `/portal/`.
+  - **8 West ID button.** For a canonical target only, **Continue with 8 West ID** becomes the fixed
+    `https://id.8westit.com/launch.php?product=safeharbor&return=<encoded target>`. ID signs the user
+    in, refreshes the suite cookie and returns to this `login.php?next=<target>`. Every other `next`
+    keeps the plain `https://id.8westit.com` entry.
+  - **Release gate.** This must be deployed and checked, with ID's matching launcher, before any
+    consumer shows a Support link.
 - **Directory read**: Milepost's `suite-client-directory-v1` with this request's verified suite
   cookie, as described in the [customer-sync contract](milepost-customer-sync-contract.md). It is
   never stored, and it decides only the Businesses / Retained and local presentation.
