@@ -162,7 +162,8 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
    - **CUT2** gives Billing Coastmark's `clients?provider=…&customer_id=…` route for linked
      clients (inactive and removed history included) and verified pending businesses. Coastmark's
      gate is green: its resolver is live and all eight approved UUIDs resolve for signed-in staff.
-     CUT2 still needs owner qualification, normal CI/merge and the lead's source-only runtime slot.
+     Owner qualification passed at `fb7c718` (154 operational, 93 renderer and 16 browser tests);
+     normal CI/merge and the lead's source-only runtime slot remain pending.
      Until then Billing opens Coastmark's existing suite entry.
    - **Still held:** the broad scheduled lifecycle run and the other activation, report and cron
      holds stay with the release lead.

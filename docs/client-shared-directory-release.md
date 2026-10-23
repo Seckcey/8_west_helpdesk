@@ -5,8 +5,9 @@
 CUT2, the client-scoped Coastmark Billing link, is source-ready on
 `codex/client-shared-directory-billing-cut2` from that main; it is not deployed.** The reviewed
 CUT1 application source is `15f7f68b7f7063b4f0487356bb8ec1f9ce1d087f`; later documentation commits
-do not change that application evidence. CUT2's owner qualification, exact-head hosted CI, merge and
-production release remain separate gates.
+do not change that application evidence. CUT2 owner qualification passed at
+`fb7c71867e546952298efd271b3965aa7c4a8d74`; exact-head hosted CI, merge and production release
+remain separate gates.
 
 ## What changes
 
@@ -50,8 +51,8 @@ This CUT1 also includes the related backend changes:
   the approved scope and admitted lineages; the separately run full-contact operation is unchanged.
 
 The [lifecycle contract](managed-customer-lifecycle-contract.md) owns the exact proof, authority,
-deadline, migration recovery and one-client Lifestyle invocation. Its source form is accepted;
-it is not a runtime go-ahead.
+deadline, migration recovery and one-client Lifestyle invocation. The accepted source form is
+retained as history; the one-time P9 runtime completion is recorded below. Do not rerun P9.
 
 ## Links and their authority
 
@@ -157,8 +158,9 @@ Frankie's customer acceptance. Hosted CI belongs to the actual PR head; its stat
 
 ## CUT2 source status
 
-CUT2 was written from source and static review only, with nothing executed. These existing tests
-now assert the CUT2 targets:
+The Safeharbor owner qualified immutable application/test source
+`fb7c71867e546952298efd271b3965aa7c4a8d74` on an isolated Coastline copy. These existing tests
+assert the CUT2 targets:
 - `app/tests/client_operational_context_test.php`: the exact route, malformed slug and UUID
   refusals, the route in the agreeing binding/receipt context (inactive included), and no route
   for a drifted receipt, an unreadable or malformed tenant slug, or a failed lookup.
@@ -169,8 +171,20 @@ now assert the CUT2 targets:
   synthetic Coastmark destinations and popup URL, and the client-page links. Its existing mobile
   geometry, keyboard/focus, theme and console/error assertions are unchanged.
 
-No result is recorded for them yet. The Safeharbor owner runs them and the unchanged full PHP and
-browser CI on the exact CUT2 commit before it is published.
+Owner results: **154 operational-context checks, 93 actual-page renderer checks and all 16 browser
+tests passed**, each with native exit 0 and no skipped or cancelled browser tests. All 505 tracked
+Git blobs matched before and after the run. The owner reviewed the 14 changed screenshots; the
+other 10 of 24 captures were byte-identical to previously reviewed captures. Desktop/mobile and
+light/dark captures showed no new layout finding.
+
+The fixtures use synthetic authentication, SQLite records, directory responses and destination
+pages. Captures show the inner-scroll viewport, not every scroll position. These results do not
+establish real signed-in/provider/customer acceptance or form-save behavior. The full unchanged
+PHP and browser workflows must pass on the exact final PR head, followed by normal merge and
+default-branch CI. Production remains CUT1 until the lead's serialized source-only runtime slot.
+The canonical source archive SHA-256 is
+`ae1af16a4c6ef46a61b9cb11d7c6da50d1328c1564f0481641ce4bc26619f837`; the qualification evidence
+archive is `acf650180f86cfe3ef50466edd11d4e2e4d53649a09ccd9bff2df7bd8d2cc657`.
 
 ## Production record (owner and lead observations)
 

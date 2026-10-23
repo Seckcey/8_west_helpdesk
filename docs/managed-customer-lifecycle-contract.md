@@ -244,10 +244,11 @@ ownership/current-hash rules as above; an absent portal stays absent. The digest
 initial receipt, provider and issuer, projection, all five anchor facts and the transport hashes. A
 lost acknowledgement replays the committed receipt; a changed proof for the same event conflicts.
 
-#### P9 Lifestyle identity-only restoration (source form accepted; runtime pending)
+#### P9 Lifestyle identity-only restoration (accepted source form and completed runtime record)
 
-The Safeharbor owner accepted this source form at `15f7f68b`. Nothing here is run by this source
-change, and acceptance is not a runtime go-ahead. The ordinary `--scheduled` run is **not** this packet
+The Safeharbor owner accepted this source form at `15f7f68b`. It is retained as runbook history;
+the one-time runtime completion is recorded below and must not be rerun. Source acceptance alone
+did not authorize execution. The ordinary `--scheduled` run is **not** this packet
 (A166). That run unions the explicit scope with every admitted candidate. It ignores `batch_size`,
 and it can claim 25 and reserve 10. P9 instead calls the existing functions once, for exactly one
 client.
@@ -461,9 +462,9 @@ the postflight passes. The preflight accepts the completed 032 state, an interru
 completed 034, and pins the v3 body and the normalized CHECK. Validator pins are taken over the
 stored `ACTION_STATEMENT` as MySQL keeps it (A154). There, a `'\n'` string literal is a real newline,
 which the whitespace normalization removes. The v2 pin is the owner-measured engine value
-(`fa6a7220…`); the v3 pin is derived the same way. The CHECK pin is derived from MySQL's documented
-rendering and is not yet engine-measured. `app/db/schema.sql` carries the same
-table and v3 validator. Apply it the same way:
+(`fa6a7220…`); the v3 pin is derived the same way. The CHECK pin was verified against MySQL's
+stored expression in the engine fixture and the production postflight (`5e63b58a…`).
+`app/db/schema.sql` carries the same table and v3 validator. Apply it the same way:
 
 ```bash
 bash deploy/deploy.sh --migrate app/db/migrations/034_managed_customer_identity_lifecycle_restore.sql
