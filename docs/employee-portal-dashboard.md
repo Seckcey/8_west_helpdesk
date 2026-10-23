@@ -120,7 +120,6 @@ Sections:
   unavailable state; it never blocks the Westy route.
 - Not changed: authentication, sessions, roles, the requester filter, device
   authority, Westy execution, the database schema and configuration.
-- Follow-up: `app/lib/portal_device_operations_render.php` still links "Open
-  your Westy conversation" to `/portal/`. That now opens Home, where Ask Westy is
-  the first action; pointing it at `/portal/?view=westy` is a one-line change
-  for its owner.
+- Fixed: "Open your Westy conversation" in
+  `app/lib/portal_device_operations_render.php` now links to
+  `/portal/?view=westy`, not Home.
