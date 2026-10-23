@@ -145,10 +145,10 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
 6. **Customer creation is not broadly enabled across the suite.** Coastmark and the Control Panel have
    no automatic customer-provisioning lane yet.
 7. **Shared client directory links are source only, not live.** The Clients page change (shared name and
-   state beside local fields; Support, Devices and Billing buttons) must not deploy before Milepost's
-   `client.php?provider=…&customer_id=…` route is live. For linked active clients Billing links to
-   Coastmark's `clients?provider=…&customer_id=…`, which opens the client only once Coastmark ships that
-   route. See the
+   state beside local fields; Businesses and Retained and local from Milepost's current client
+   directory; Support, Devices and Billing buttons) must not deploy before Milepost's
+   `client.php?provider=…&customer_id=…` route and its `suite-client-directory-v1` read are live.
+   Billing still opens Coastmark's existing suite entry. See the
    [release receipt](client-shared-directory-release.md).
 
 ## Traps that have already cost time

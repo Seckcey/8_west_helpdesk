@@ -77,9 +77,9 @@ $operational = client_operational_context(db(), tenant_id(), $id);
 $deviceUrl = $operational['available'] && $operational['status'] === 'active' && is_string($operational['device_url'] ?? null)
     ? $operational['device_url']
     : null;
-$billingUrl = $operational['available'] && $operational['status'] === 'active' && is_string($operational['billing_url'] ?? null)
-    ? $operational['billing_url']
-    : null;
+// Milepost's current directory, read for this request only. It describes, never changes, this client.
+$roster = $operational['available'] ? client_operational_roster(db(), $user) : ['available' => false];
+$current = $roster['available'] ? ($roster['customers'][(string)$operational['customer_id']] ?? null) : null;
 
 page_top($user, $client['name'], 'clients');
 ?>
@@ -97,6 +97,15 @@ page_top($user, $client['name'], 'clients');
       · <span class="crow-shared-<?= $operational['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($operational['status']) ?></span>
       · last received from Milepost (source version <?= (int)$operational['source_version'] ?>)
       · <a class="link" href="<?= h($operational['edit_url']) ?>" target="_blank" rel="noopener">Shared details ↗</a></p>
+    <?php if ($current !== null): ?>
+      <p class="client-shared">Milepost directory now: <strong><?= h($current['display_name']) ?></strong>
+        · <span class="crow-shared-<?= $current['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($current['status']) ?></span>
+        <?= $current['client_exists'] ? '' : '· removed in Milepost ' ?>(source version <?= (int)$current['source_version'] ?>)</p>
+    <?php elseif ($roster['available']): ?>
+      <p class="client-shared">Not in Milepost’s current client directory; kept here as retained history.</p>
+    <?php else: ?>
+      <p class="client-shared">Milepost’s current client directory is unavailable right now.</p>
+    <?php endif; ?>
   <?php elseif ($operational['bound'] !== false): ?>
     <p class="client-shared">Shared details are temporarily unavailable. Local details below are unaffected.</p>
   <?php else: ?>
@@ -107,7 +116,7 @@ page_top($user, $client['name'], 'clients');
     <div class="card stat"><div class="stat-k">Open tickets</div><div class="stat-v <?= count($open) > 2 ? 'stat-warn' : '' ?>"><?= count($open) ?></div></div>
     <div class="card stat"><div class="stat-k">Avg first response</div><div class="stat-v <?= $avgFirstResponse !== '—' ? 'stat-good' : 'stat-dim' ?>"><?= h($avgFirstResponse) ?></div></div>
     <div class="card stat"><div class="stat-k">Devices</div><div class="stat-v stat-dim" style="font-size:15px">Not shown here</div><a class="link" href="<?= h($deviceUrl ?? 'https://support.8westit.com/') ?>" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:12px"><?= $deviceUrl !== null ? 'View this client in Milepost ↗' : 'View in Milepost ↗' ?></a></div>
-    <div class="card stat"><div class="stat-k">Balance</div><div class="stat-v stat-dim" style="font-size:15px">Not shown here</div><a class="link" href="<?= h($billingUrl ?? 'https://coastmark.8westit.com/auth/suite') ?>" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:12px"><?= $billingUrl !== null ? 'View this client in Coastmark ↗' : 'View in Coastmark ↗' ?></a></div>
+    <div class="card stat"><div class="stat-k">Balance</div><div class="stat-v stat-dim" style="font-size:15px">Not shown here</div><a class="link" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:12px">View in Coastmark ↗</a></div>
   </div>
 
   <div class="ticket-grid">
@@ -148,8 +157,8 @@ page_top($user, $client['name'], 'clients');
       <div class="rail-label">Suite</div>
       <div class="card rail-card rail-suite">
         <p><span class="suite-dot"></span><a class="link" href="<?= h($deviceUrl ?? 'https://support.8westit.com/') ?>" target="_blank" rel="noopener"><?= $deviceUrl !== null ? 'Open this client’s devices in Milepost ↗' : 'Find devices in Milepost ↗' ?></a></p>
-        <p><span class="suite-dot"></span><a class="link" href="<?= h($billingUrl ?? 'https://coastmark.8westit.com/auth/suite') ?>" target="_blank" rel="noopener"><?= $billingUrl !== null ? 'Review this client’s invoices in Coastmark ↗' : 'Review invoices in Coastmark ↗' ?></a></p>
-        <p><?= $deviceUrl !== null && $billingUrl !== null ? 'Milepost and Coastmark check your access before showing this client.' : 'Open the app, then select the client.' ?></p>
+        <p><span class="suite-dot"></span><a class="link" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener">Review invoices in Coastmark ↗</a></p>
+        <p><?= $deviceUrl !== null ? 'Milepost checks your access before showing devices. In Coastmark, select the client.' : 'Open the app, then select the client.' ?></p>
       </div>
     </div>
   </div>

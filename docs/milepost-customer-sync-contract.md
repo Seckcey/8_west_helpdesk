@@ -65,19 +65,47 @@ Each row keeps its keyboard-selectable client link and adds three buttons:
   The provider is the binding tenant's own slug, which the receiver requires to
   equal the event's tenant slug. Milepost signs the user in and checks its own
   tenant before resolving anything, so the link carries no authority;
-- **Billing** (linked, available, active clients) opens Coastmark's
-  `https://coastmark.8westit.com/clients?provider=<slug>&customer_id=<UUID>`
-  (`client_operational_billing_url()`). It opens that client only once
-  Coastmark's provider + UUID route ships; Coastmark checks the user's
-  organization and its own audited binding first. Every other row opens
-  Coastmark's existing suite entry, where the user selects the client.
+- **Billing** opens Coastmark's existing suite entry, where the user selects the
+  client.
 
 The client page shows the same shared line and uses the client-scoped Milepost
-and Coastmark links for linked active clients. These links are presentation
-only: they must not be released before Milepost's provider + UUID route is live,
-and the billing link opens a client only after Coastmark's route is live.
+link for linked active clients. These links are presentation only: they must not
+be released before Milepost's provider + UUID route is live.
 
-Focused coverage: `app/tests/client_operational_context_test.php`; existing
+#### Current Milepost directory (request-current roster)
+
+`client_operational_roster()` reads Milepost's `suite-client-directory-v1` once
+per Clients or client page request and stores nothing:
+
+- **Credential:** the verified current suite cookie, only when its `sub` equals
+  this active account's own `users.suite_subject` and its tenant equals this
+  account's tenant slug. A local-only account never borrows a browser cookie. The
+  token stays in that request's memory and is sent only as the bearer token to the
+  fixed `https://support.8westit.com/suite_customer_metadata.php`.
+- **Transport:** POST, no redirects or retries, 8 s total and 3 s to connect, at
+  most 512 KiB. No token or body is logged.
+- **Expected issuer:** every present source must agree, and at least one must exist:
+  the verified `8west:tenant_id` claim, this tenant's own managed-provider
+  `issuer_tenant_id`, and for the house only the nonsecret
+  `id_report_contacts.tenant_bindings` mapping (`8west` → `ewid-t<N>`). Its HMAC
+  contact transport is never loaded. Nothing is inferred from a local numeric id.
+- **Reply:** exactly the A14 keys and items, this subject, provider, issuer and
+  nonce, an integer `read_at` within the request window ±60 s, and at most 256
+  byte-sorted unique customers. Duplicate keys, partial or oversized bodies,
+  non-200 responses, timeouts or any other value make the whole roster
+  unavailable. The account and provider are read again after the request; any
+  change makes it unavailable.
+- **Classification:** Businesses lists linked clients that the roster lists
+  active with `client_exists`, plus active Milepost businesses Safeharbor has not
+  received yet (shown, never created). Everything else stays under Retained and
+  local, unchanged, with Support. A linked active canary missing from the roster
+  stays retained. Nothing is inactivated or deleted by absence. A verified empty
+  roster says so, and an unavailable roster lists every client as before. The
+  read writes nothing.
+
+Focused coverage: `app/tests/client_operational_context_test.php` and the
+rendered fixture `tools/shots/client-shared-directory.test.mjs`
+(`app/tests/client_shared_directory_ui_test.php`); existing
 customer-sync/lifecycle fixtures continue to own ordered receipt and restoration
 semantics. Runtime convergence and real-user acceptance are separate release
 evidence, collected by the named release owner.
