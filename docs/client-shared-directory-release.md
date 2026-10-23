@@ -1,8 +1,9 @@
-# Client shared directory — release receipt
+# Client shared directory — CUT1 release receipt
 
-**State: source candidate on branch `claude/T-20261023-01-client-shared-directory`. Not merged,
-deployed or verified in production.** This page records what the change does and what must be
-true before it ships. Update it when the release owner merges, deploys or checks it.
+**State: CUT1 source tracked in [PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261).
+Production release and verification are pending.** The reviewed application source is
+`15f7f68b7f7063b4f0487356bb8ec1f9ce1d087f`; later documentation commits do not change that
+application evidence. Exact-head hosted CI, merge and production release remain separate gates.
 
 ## What changes
 
@@ -20,13 +21,21 @@ The shared name and state come from the existing binding and its matching immuta
 no receiver, schema, configuration, cron or permission change. Local fields, privacy rules and
 handlers are unchanged, and no new guard is added.
 
-The same branch carries one separate lifecycle change for same-UUID restoration
-(`managed_customer_lifecycle.php` plus forward migration
-`032_managed_customer_preserved_active_restore.sql`, which replaces only the restore-receipt insert
-validator). An exact current restored source event can then clear the latch while keeping an
-already-active, never-contained portal and report schedule exactly as they are. The
-[lifecycle contract](managed-customer-lifecycle-contract.md) describes it, with its apply and
-recovery steps.
+This CUT1 also includes the related backend changes:
+
+- **032** permits exact same-UUID restoration while preserving already-active surfaces.
+- **033** adds the per-event admission carrier and immutable receipt field, plus the singleton
+  lifecycle scheduling cursor. Existing receipt rows remain untagged.
+- **034** adds identity-only restore receipts and the schema-3 ID proof with its restoration anchor.
+  The original approved clients qualify without retagging their history. This path never restores
+  reports or writes contacts, schedules, accounts, invitations or mail.
+- The existing report wrapper runs one bounded `--scheduled` lifecycle child after the reports.
+  It preserves the report exit status. Scheduled restoration uses identity-only proof for both
+  the approved scope and admitted lineages; the separately run full-contact operation is unchanged.
+
+The [lifecycle contract](managed-customer-lifecycle-contract.md) owns the exact proof, authority,
+deadline, migration recovery and one-client Lifestyle invocation. Its source form is accepted;
+it is not a runtime go-ahead.
 
 ## Links and their authority
 
@@ -36,11 +45,8 @@ recovery steps.
 - **Billing**: Coastmark's existing suite entry, `https://coastmark.8westit.com/auth/suite`, where
   the user selects the client. The client-scoped Billing link is a separate, later cut that ships
   only after Coastmark's provider + UUID route and every preserved binding are live.
-  - Branch history: commit `6006d577` added that scoped link here before the owner froze this branch
-    at the generic-Billing cut. A later forward commit on this branch restores the generic entry,
-    with no reset or rewrite.
-  - The later cut reuses the `6006d577` diff on its own owner-bound branch. This branch's tip keeps
-    the generic entry.
+  The later CUT2 must use the actual merged CUT1 base and the live, verified Coastmark destination.
+  This candidate retains the generic entry for every row.
 - **Support**: the local Safeharbor client page.
 - **Canonical Support target** (source candidate, A48/A51). Other suite apps link to
   `https://safeharbor.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`.
@@ -66,29 +72,60 @@ recovery steps.
 
 ## Release order
 
-1. Milepost's provider + UUID device route and its `suite-client-directory-v1` read are deployed and
-   checked first.
-2. Then this Safeharbor change deploys with the reviewed database change, database first:
-   `bash deploy/deploy.sh --migrate app/db/migrations/032_managed_customer_preserved_active_restore.sql`.
-   Applying 032 is its own owner gate. If 032 is held back, the directory part still deploys with
-   plain `bash deploy/deploy.sh`; the new restore code then refuses to preserve an active surface,
-   which is fail-closed.
-3. Check a linked active client, an inactive one, an unbound one and a client of another MSP
-   tenant in a real browser on a disposable copy before production.
-4. Restoration stays off (`restoration_enabled` false) until the release lead's reviewed window.
-5. Migration 033 (schema-2 admission carrier and lifecycle cursor) is a separate later database-first
-   gate: `bash deploy/deploy.sh --migrate app/db/migrations/033_suite_customer_sync_admission.sql`.
-   Until it is applied, a schema-2 Milepost event is a retryable 500 and the report wrapper's
-   lifecycle child refuses for lack of its cursor; neither writes anything. Milepost must not mint
-   schema 2 for Safeharbor before 033 is applied. Never replay 015 after 033.
-6. Migration 034 (identity-only restore receipts, validator v3) is a further database-first gate after
-   032: `bash deploy/deploy.sh --migrate app/db/migrations/034_managed_customer_identity_lifecycle_restore.sql`.
-   Until it is applied, the scheduled mode refuses every restoration before any ID request; the
-   separately run no-argument schema-2 restore is unaffected. ID must serve the schema-3 identity
-   purpose before scheduled restoration is enabled. Never replay 024 or 032 after 034. The P9
-   Lifestyle one-off is frozen for owner review in the lifecycle contract.
+1. Complete the documentation review and normal exact-head CI/merge gates. Deploy only the matching
+   committed main release, through the release lead's existing protected procedure and packet.
+2. Milepost's provider + UUID device route and `suite-client-directory-v1` read must be live and
+   checked before the Safeharbor links and directory are released. The matching ID launcher and
+   Safeharbor Support destination must be live before another app publishes the new Support link.
+3. In the protected Safeharbor window, apply **032 → 033 → 034, database first**, then deploy the
+   matching source. These are all part of this CUT1; there is no directory-only fallback in this
+   release. Use the existing `deploy/deploy.sh --migrate` procedure for each exact archived SQL file
+   and its documented replay/postflight checks. Never replay 015 after 033, or 024/032 after 034.
+4. Keep scheduled restoration off until ID's schema-3 identity purpose and its exact customer
+   authority are live and the release lead opens the reviewed restoration window. Applying a
+   schema or merging source does not enable that purpose or authorize a restore.
+5. Use the accepted **one-client Lifestyle packet**, not the global `--scheduled` run, for P9.
+   Fill and verify its protected current tuple and actual preserved-active 0/0 state first.
+   The Milepost v3-first order, both frozen senders, exact original SH/ID v2→v3 events and
+   nonce-armed UNKNOWN/readback/recovery rules remain controlling. No invitation or financial
+   operation belongs to this step.
+6. Verify the actual Safeharbor release and relevant user paths, recording runtime and genuine
+   signed-in/provider/customer evidence separately from the fixture evidence below.
+7. Coastmark's resolver/writer publication and all eight preserved profiles/bindings are a separate
+   release-lead stage. Only after its destination is live and verified may the later, narrowly
+   scoped Billing CUT2 be prepared on actual merged main.
 
-## Checks to run (owner)
+The existing runtime configuration, protected jobs, release ownership and approved release packet
+remain controlling. This page does not authorize a cron/configuration change, a broad lifecycle run,
+account provisioning or a customer/financial action.
+
+## Source qualification
+
+The Safeharbor owner executed these existing suites on immutable committed source in isolated
+Coastline containers. Relevant unchanged input bytes were reused across later documentation and
+fixture-only commits; the corrected pure fixture was rerun at `15f7f68b`.
+
+| Check | Result |
+| --- | --- |
+| Lifecycle, identity evidence and scheduler PHP suites | 101 / 90 / 25 passed |
+| Lifecycle MySQL 8.0.46 | 197 passed, including 034 apply/replay/interruption/parity, NULL checks, original unmarked scope, anchor matching, authority races and deadline deferral |
+| Customer-sync MySQL 8.0.46 | 88 passed, including 033 interruption/replay and immutable admission |
+| Existing Linux report wrapper | 20 passed, including child refusal/timeout and report exit-status preservation |
+| Actual-page synthetic renderer / existing Playwright test | 73 renderer checks and 16 browser cases passed |
+| Mobile regression control | New layout assertions reject the old CSS in all eight mobile cases; its eight desktop cases pass |
+| Shared operational context / staff-login HTTP fixture | 137 / 62 passed |
+
+The 24 captured images cover 1440×1000 and 390×844, light/dark, current/empty/unavailable/wrong-provider
+directories and business/retained details. The mobile overlap was corrected and visually reviewed.
+Billing remains generic, and keyboard Support plus synthetic Devices/Billing destinations were checked.
+
+The renderer lifts auth/bootstrap and uses SQLite, a synthetic directory transport and synthetic link
+destinations. Captures show the app's inner-scroll viewport, not every scroll position. These checks
+do not establish protected normal CLI/runtime behavior, real ID/provider sessions, form saves or
+Frankie's customer acceptance. Hosted CI belongs to the actual PR head; its status is recorded on
+[PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261).
+
+## Existing verification commands
 
 - `php app/tests/client_operational_context_test.php` and the existing customer-sync, lifecycle
   and identity-evidence suites in the normal CI jobs.

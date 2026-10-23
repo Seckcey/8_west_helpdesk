@@ -244,14 +244,18 @@ ownership/current-hash rules as above; an absent portal stays absent. The digest
 initial receipt, provider and issuer, projection, all five anchor facts and the transport hashes. A
 lost acknowledgement replays the committed receipt; a changed proof for the same event conflicts.
 
-#### P9 Lifestyle identity-only restoration (frozen for SH owner review, A152/A166/A169)
+#### P9 Lifestyle identity-only restoration (source form accepted; runtime pending)
 
-Nothing here is run by this source change. The ordinary `--scheduled` run is **not** this packet
+The Safeharbor owner accepted this source form at `15f7f68b`. Nothing here is run by this source
+change, and acceptance is not a runtime go-ahead. The ordinary `--scheduled` run is **not** this packet
 (A166). That run unions the explicit scope with every admitted candidate. It ignores `batch_size`,
 and it can claim 25 and reserve 10. P9 instead calls the existing functions once, for exactly one
 client.
 
 Preconditions, all owner-applied and owner-verified:
+- the protected current tuple and Lifestyle's actual preserved-active 0/0 state are verified under
+  the existing sender and lifecycle custody before this call; a different state returns to owner
+  review without running this packet;
 - migrations 033 and 034 are applied, with the v3 validator exact;
 - ID serves the schema-3 identity purpose for the Lifestyle UUID through its protected identity list;
   the old contact `customer_ids` are unchanged;
