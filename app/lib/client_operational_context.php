@@ -25,22 +25,7 @@ function client_operational_device_url(string $providerSlug, string $customerId)
         . http_build_query(['provider' => $providerSlug, 'customer_id' => $customerId], '', '&', PHP_QUERY_RFC3986);
 }
 
-/**
- * Coastmark's provider + customer UUID billing route for one shared client. Coastmark checks the
- * signed-in user's organization and its own audited binding before showing anything, and keeps
- * retained accounting history reachable whatever the shared active/inactive state.
- */
-function client_operational_billing_url(string $providerSlug, string $customerId): ?string
-{
-    if (preg_match('/\A[a-z0-9][a-z0-9-]{0,63}\z/D', $providerSlug) !== 1
-        || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D', $customerId) !== 1) {
-        return null;
-    }
-    return 'https://coastmark.8westit.com/clients?'
-        . http_build_query(['provider' => $providerSlug, 'customer_id' => $customerId], '', '&', PHP_QUERY_RFC3986);
-}
-
-/** This tenant's own slug, or null; only the device and billing links and the directory read depend on it. */
+/** This tenant's own slug, or null; only the device link and the directory read depend on it. */
 function client_operational_provider_slug(PDO $pdo, int $tenantId): ?string
 {
     try {
@@ -171,8 +156,6 @@ function client_operational_from_binding(array $binding, int $tenantId, int $cli
             'occurred_at' => $time->format('Y-m-d\TH:i:s\Z'), 'edit_url' => $url,
             'device_url' => $provider === null ? null
                 : client_operational_device_url($provider, (string)$binding['customer_id']),
-            'billing_url' => $provider === null ? null
-                : client_operational_billing_url($provider, (string)$binding['customer_id']),
         ];
     } catch (Throwable) {
         return $unavailable;
