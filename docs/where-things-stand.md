@@ -6,13 +6,17 @@ are in git history.
 
 ## The live version
 
-Current application source is **`9d1650adc3bbb8cd20a1a612cabf29f0c6350205`**, the shared client
-directory CUT1 ([PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261)), live since
-**October 23, 2026** (Safeharbor owner observation: migrations 032 → 033 → 034 passed, all 393
-runtime files matched, and public login returned 200 at `2026-10-23T20:07:25Z`). See
-the [shared directory release receipt](client-shared-directory-release.md). It replaced
-`a63dc4ee43dcf32cb44401e2a0f265959e14b4fa`, deployed at **11:31:06 PM PDT on October 22, 2026**
-(`2026-10-23T06:31:06Z`), whose portal release it keeps. Customers now
+Current application source is **`d746c193b83de33996a037cbd8e747583ccc1db4`**, shared client
+directory CUT2 ([PR #262](https://github.com/Seckcey/8_west_helpdesk/pull/262)), live since
+**October 23, 2026 at 22:23:12Z**. Full PR and main CI passed; the stock source-only deploy exited
+0 and all 393 runtime files matched. The lead restored public access and verified login/title/CSS
+at `2026-10-23T22:24:36Z`. A bounded existing staff-session Billing click from Lifestyle client 14
+resolved to the exact Coastmark client (Statement 7); local Billing fallback was observed too.
+See the [shared directory release receipt](client-shared-directory-release.md) for evidence limits.
+This replaced CUT1 `9d1650ad`, which installed migrations 032 → 033 → 034 earlier that day;
+CUT2 applies no SQL. The prior portal release `a63dc4ee43dcf32cb44401e2a0f265959e14b4fa`,
+deployed at **11:31:06 PM PDT on October 22, 2026** (`2026-10-23T06:31:06Z`), remains included.
+Customers now
 have Home at `/portal/`, with their requests, computers and next actions; Westy's
 existing workspace is at `/portal/?view=westy`. Verified customer visits to the
 staff login are handed to the portal. See the
@@ -149,7 +153,7 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
    draft. Approving, sending, posting and payment stay deliberate Coastmark steps.
 6. **Customer creation is not broadly enabled across the suite.** Coastmark and the Control Panel have
    no automatic customer-provisioning lane yet.
-7. **Shared client directory: CUT1 is live, and CUT2 Billing is source-ready, not deployed.** These
+7. **Shared client directory: CUT2 Billing is live as `d746c19` (PR #262).** These
    status facts are Safeharbor owner and release-lead observations.
    - **CUT1** (above) shows the shared name and state beside local fields, Businesses and Retained
      and local from Milepost's current client directory, and Support, Devices and Billing buttons.
@@ -162,11 +166,15 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
    - **CUT2** gives Billing Coastmark's `clients?provider=…&customer_id=…` route for linked
      clients (inactive and removed history included) and verified pending businesses. Coastmark's
      gate is green: its resolver is live and all eight approved UUIDs resolve for signed-in staff.
-     Owner qualification passed at `fb7c718` (154 operational, 93 renderer and 16 browser tests);
-     normal CI/merge and the lead's source-only runtime slot remain pending.
-     Until then Billing opens Coastmark's existing suite entry.
-   - **Still held:** the broad scheduled lifecycle run and the other activation, report and cron
-     holds stay with the release lead.
+     Owner qualification passed at `fb7c718` (154 operational, 93 renderer and 16 browser tests),
+     followed by full final-head and merged-main CI. One source-only stock deployment exited 0;
+     all 393 runtime files matched. Public login/CSS passed after reopen. A bounded actual staff
+     Billing click from Lifestyle client 14 resolved to one Coastmark Lifestyle result / Statement 7;
+     existing local clients retained the generic entry. This is not customer acceptance.
+   - **Owned scheduling restored:** following the lead's hook/common restoration order, all five
+     original Safeharbor cron filenames and its previously active cleanup timer were restored;
+     both worker holds were released. The second natural cleanup run was healthy and exited 0
+     at 22:42:00Z. No manual scheduled lifecycle or P9 rerun was performed.
 
    See the [release receipt](client-shared-directory-release.md).
 

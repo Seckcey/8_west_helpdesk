@@ -1,13 +1,15 @@
 # Client shared directory — CUT1 and CUT2 release receipt
 
-**State: CUT1 ([PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261)) is merged as
-`9d1650adc3bbb8cd20a1a612cabf29f0c6350205` and, by the Safeharbor owner's observation, live.
-CUT2, the client-scoped Coastmark Billing link, is source-ready on
-`codex/client-shared-directory-billing-cut2` from that main; it is not deployed.** The reviewed
-CUT1 application source is `15f7f68b7f7063b4f0487356bb8ec1f9ce1d087f`; later documentation commits
-do not change that application evidence. CUT2 owner qualification passed at
-`fb7c71867e546952298efd271b3965aa7c4a8d74`; exact-head hosted CI, merge and production release
-remain separate gates.
+**State: CUT2 ([PR #262](https://github.com/Seckcey/8_west_helpdesk/pull/262)) is merged as
+`d746c193b83de33996a037cbd8e747583ccc1db4` and live as of 2026-10-23T22:23:12Z.** Public access
+was restored and externally verified at 22:24:36Z. CUT1 ([PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261))
+was the preceding live release `9d1650adc3bbb8cd20a1a612cabf29f0c6350205`.
+
+The qualified CUT2 application/test source is `fb7c71867e546952298efd271b3965aa7c4a8d74`;
+the final PR head `cf5270f895032707cc35d618ad93a62f4eded41e` adds factual documentation only.
+PR workflow `40031794183` and merged-main push workflow `40032462755` passed every PHP and browser
+step. CUT1 application source was `15f7f68b7f7063b4f0487356bb8ec1f9ce1d087f`.
+Documentation-only closeout commits do not change these application/runtime identities.
 
 ## What changes
 
@@ -74,9 +76,9 @@ retained as history; the one-time P9 runtime completion is recorded below. Do no
     directory is unavailable.
   - **Authority.** Coastmark itself requires the real staff session, organization, Clients
     permission and its own audited binding. The link grants no authority.
-  - **Before CUT2.** CUT1 opens the existing entry for every row.
+  - **Before CUT2.** CUT1 opened the existing entry for every row.
 - **Support**: the local Safeharbor client page.
-- **Canonical Support target** (source candidate, A48/A51). Other suite apps link to
+- **Canonical Support target** (CUT1, A48/A51). Other suite apps link to
   `https://safeharbor.8westit.com/client.php?provider=<slug>&customer_id=<UUID>`.
   - **Resolver.** Staff sign-in comes first. The provider only asserts the signed-in user's own
     tenant slug; it never selects a tenant. The UUID must have exactly one binding in that tenant
@@ -122,9 +124,9 @@ retained as history; the one-time P9 runtime completion is recorded below. Do no
 7. Coastmark's resolver/writer publication and all eight preserved profiles/bindings are a separate
    release-lead stage. Only after its destination is live and verified may the later, narrowly
    scoped Billing CUT2 be prepared on actual merged main. The lead reports that gate green (see
-   the production record below), and CUT2 is now prepared on merged main `9d1650ad`. It ships
-   only after owner qualification and normal CI/merge, in the lead's serialized source-only
-   runtime slot, with no SQL.
+   the production record below). CUT2 was prepared on merged main `9d1650ad`, passed owner
+   qualification and normal PR/main CI, then shipped as `d746c19` in the lead's serialized
+   source-only runtime slot, with no SQL.
 
 The existing runtime configuration, protected jobs, release ownership and approved release packet
 remain controlling. This page does not authorize a cron/configuration change, a broad lifecycle run,
@@ -156,7 +158,7 @@ do not establish protected normal CLI/runtime behavior, real ID/provider session
 Frankie's customer acceptance. Hosted CI belongs to the actual PR head; its status is recorded on
 [PR #261](https://github.com/Seckcey/8_west_helpdesk/pull/261).
 
-## CUT2 source status
+## CUT2 qualification record
 
 The Safeharbor owner qualified immutable application/test source
 `fb7c71867e546952298efd271b3965aa7c4a8d74` on an isolated Coastline copy. These existing tests
@@ -179,9 +181,9 @@ light/dark captures showed no new layout finding.
 
 The fixtures use synthetic authentication, SQLite records, directory responses and destination
 pages. Captures show the inner-scroll viewport, not every scroll position. These results do not
-establish real signed-in/provider/customer acceptance or form-save behavior. The full unchanged
-PHP and browser workflows must pass on the exact final PR head, followed by normal merge and
-default-branch CI. Production remains CUT1 until the lead's serialized source-only runtime slot.
+establish real signed-in/provider/customer acceptance or form-save behavior. The unchanged full
+PHP and browser workflows subsequently passed every step at final PR head `cf5270f` and merged-main
+`d746c19`. The separate bounded real staff-session observation is recorded below.
 The canonical source archive SHA-256 is
 `ae1af16a4c6ef46a61b9cb11d7c6da50d1328c1564f0481641ce4bc26619f837`; the qualification evidence
 archive is `acf650180f86cfe3ef50466edd11d4e2e4d53649a09ccd9bff2df7bd8d2cc657`.
@@ -190,7 +192,34 @@ archive is `acf650180f86cfe3ef50466edd11d4e2e4d53649a09ccd9bff2df7bd8d2cc657`.
 
 These are runtime and signed-in observations reported by the Safeharbor owner and the release lead.
 They are not results of this repository's tests.
-- **CUT1.** `9d1650ad` is live. Migrations 032 → 033 → 034 passed and all 393 runtime files
+
+- **CUT2.** One stock source-only deploy of `d746c19` completed at 22:23:12Z, native exit 0,
+  with eight changed files and no SQL or configuration change. All 393 runtime files matched the
+  exact deployment transforms. Protected configuration bytes and metadata were unchanged.
+  New Safeharbor FPM process 2878212 was healthy; loopback login and CSS passed. The lead restored
+  the two exact original vhosts and externally observed login 200, the expected title and CSS 200
+  at 22:24:36Z. Ordinary changed-file recovery material remains at
+  `/srv/8west/apps/safeharbor/deploy-state/backups/20261023T222312Z-9d1650adc3bb-to-d746c193b83d`.
+- **Bounded live UI.** In the existing Frankie staff session, Lifestyle client 14 displayed its
+  exact provider/UUID Billing links. An actual Billing click opened Coastmark
+  `/clients?provider=8west&customer_id=f22fc65c-70ca-439e-b703-f85c82da885d`, with the linked-client
+  banner, one Lifestyle result and Statement `/clients/7/statement`. Safeharbor Clients showed
+  all eight active shared businesses; existing local clients retained `/auth/suite` Billing.
+  Detail, list and destination screenshots were visually inspected. No account, financial,
+  form-save or provider/device action was performed; this is not customer acceptance. The two
+  task-created tabs were closed.
+- **Source-deploy readback.** P9 receipt 1 and Valley binding 12 / receipt 19 remained exact. Valley
+  contact/portal/report/containment/restore surfaces stayed zero; people stayed 4 (max ID 7),
+  and lifecycle cursor 0. The v3 validator and CHECK retained their measured pins.
+- **Scheduling closeout.** After the lead verified the approved ID hook and restored the common
+  schedules, Safeharbor restored its five original cron filenames at 22:41:08Z, preserving every
+  original hash, inode, owner and mode. Only its originally active cleanup timer was started.
+  The lifecycle then activation holds were closed at 22:41:20Z; all owned descriptors were verified
+  absent. The first natural cleanup run had child exit 0 but was not yet healthy under the existing
+  two-success rule. Its next natural run at 22:42:00Z reported two successes, healthy true and
+  service exit 0. No job was manually invoked, and no common, ID or Milepost hold was changed
+  by the Safeharbor owner. The lead retains the cross-app sequencing record.
+- **CUT1 predecessor.** `9d1650ad` was live before CUT2. Migrations 032 → 033 → 034 passed and all 393 runtime files
   matched. Public login returned 200 with its expected title at `2026-10-23T20:07:25Z`.
 - **P9.** One corrected act ran (exit 0), giving receipt 1, portal 0 and report 0. All five anchor
   checks were true, and the physical-state aggregate was unchanged. See the
