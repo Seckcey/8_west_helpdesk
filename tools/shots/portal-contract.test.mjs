@@ -536,9 +536,22 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
   const browser = await chromium.launch();
   const evidence = process.env.PORTAL_HOME_EVIDENCE;
   if (evidence) await mkdir(evidence, { recursive: true });
+  // Home's one Westy trigger is in normal flow, outside every card, so it cannot cover requests or help text.
+  const westyInFlow = async page => {
+    assert.equal(await page.locator('#portal-chat-bubble').count(), 1);
+    assert.equal(await page.evaluate(() => {
+      const bubble = document.getElementById('portal-chat-bubble'), b = bubble.getBoundingClientRect();
+      return getComputedStyle(bubble).position === 'static' && [...document.querySelectorAll('.portal-overview-hero,.portal-overview-card')].every(e => {
+        const r = e.getBoundingClientRect(); return r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom;
+      });
+    }), true, 'Westy trigger stays in the Home flow, outside every card');
+  };
   try {
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       const { page, context, consoleProblems } = await openPortalPage(browser, pages, viewport);
+      // At 390px the customer navigation is behind the real menu toggle, as on a phone.
+      const compact = viewport.width < 600;
+      const menu = page.getByRole('button', { name: 'Toggle navigation' });
       await page.goto(`${ORIGIN}/portal/?fixture=home`);
       assert.equal(await page.title(), 'Home · Safeharbor');
       await page.getByRole('heading', { level: 1, name: 'Welcome, Frank at 8 West Lifestyle' }).waitFor();
@@ -547,15 +560,32 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
       await page.getByRole('heading', { name: 'Service summaries', exact: true }).waitFor();
       await page.getByRole('link', { name: /Latest archived summary/ }).waitFor();
       await page.getByText('Front desk computer', { exact: true }).waitFor();
+      if (compact) await menu.click();
       assert.equal(await page.getByRole('navigation', { name: 'Customer portal' }).getByRole('link', { name: 'Home', exact: true }).getAttribute('aria-current'), 'page');
+      if (compact) {
+        await menu.click();
+        assert.equal(await menu.getAttribute('aria-expanded'), 'false', 'menu is closed again before the Home actions');
+      }
       assert.equal(await page.locator('img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0)), true);
       assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= body.clientWidth), true);
       if (evidence) await page.screenshot({ path: path.join(evidence, `home-admin-${viewport.width}.png`), fullPage: true });
+      await westyInFlow(page);
+      const chat = page.locator('#portal-chat-bubble');
+      await chat.click();
+      await page.getByRole('region', { name: 'Private conversation with Westy' }).or(page.getByRole('dialog', { name: 'Private conversation with Westy' })).waitFor();
+      await page.getByRole('button', { name: 'Close Westy', exact: true }).click();
+      assert.equal(await chat.evaluate(e => e === document.activeElement), true);
 
       await page.getByRole('navigation', { name: 'Start here' }).getByRole('link', { name: /^Ask Westy/ }).click();
       await page.getByRole('textbox', { name: 'Ask Westy about your computer' }).waitFor();
       assert.equal(new URL(page.url()).search, '?view=westy');
+      // The workspace header carries the same toggle; its drawer also hides the navigation at 390px.
+      if (compact) await menu.click();
       assert.equal(await page.getByRole('navigation', { name: 'Customer portal' }).getByRole('link', { name: 'Westy', exact: true }).getAttribute('aria-current'), 'page');
+      if (compact) {
+        await menu.click();
+        assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+      }
 
       for (const [fixture, writer] of [['homemember', true], ['homeviewer', false]]) {
         await page.goto(`${ORIGIN}/portal/?fixture=${fixture}`);
@@ -567,6 +597,7 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
         if (writer) await page.getByText('We can’t show your computers right now. Nothing about them has changed.').waitFor();
         else await page.getByText('No support requests yet.', { exact: true }).waitFor();
         assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= body.clientWidth), true);
+        await westyInFlow(page);
         if (evidence) await page.screenshot({ path: path.join(evidence, `${fixture}-${viewport.width}.png`), fullPage: true });
       }
       assert.deepEqual(consoleProblems, []);
