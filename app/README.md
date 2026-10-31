@@ -257,7 +257,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   sessions are checked against 8 West ID's signed revocation list on every
   authenticated request through a 60-second cache.
 - CSRF: every POST form carries `csrf_field()`, every API checks the
-  `X-CSRF` header (helpers in lib/auth.php).
+  `X-CSRF` header (helpers in lib/auth.php). An empty token never matches,
+  even in a session that holds none, and signing in (8 West ID or password)
+  starts a fresh token, so one issued before sign-in stops working.
 - Customer portal: independent from staff auth and dark unless the host sets
   `portal.enabled=true`. It admits only exact `client_*` roles carrying the
   `safeharbor` entitlement, resolves a normalized identity tenant slug only
