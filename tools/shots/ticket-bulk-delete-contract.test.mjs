@@ -193,6 +193,43 @@ test('a dropped connection does not claim the batch changed nothing', async (t) 
   assert.deepEqual(errors, []);
 });
 
+test('a lost answer for a batch the server did finish still ends with the right count', async (t) => {
+  const batches = [
+    { ok: true, deleted: 1, run_deleted: 1, kept: [], next_after_id: 101, done: false, files_failed: 0 },
+    { ok: true, deleted: 1, run_deleted: 2, kept: [], next_after_id: 103, done: true, files_failed: 0 },   // answer lost
+    { ok: true, deleted: 0, run_deleted: 2, kept: [], next_after_id: 103, done: true, files_failed: 0 },   // the retry finds it gone
+  ];
+  const { page, errors } = await fixture(t, { batches, dropAt: 1 });
+  await openConfirm(page);
+  await page.getByLabel('Type DELETE 2 to confirm').fill('DELETE 2');
+  await page.getByRole('button', { name: 'Delete 2 tickets' }).click();
+  await page.getByRole('heading', { name: 'Delete stopped' }).waitFor();
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await page.getByRole('heading', { name: 'Deleted 2 tickets.' }).waitFor();
+  assert.deepEqual(errors, []);
+});
+
+test('clicking a checkbox moves the highlight there, so x and Enter act on that row', async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.getByRole('checkbox', { name: 'Select ticket #103' }).check();
+  assert.equal(await page.locator('.trow.trow-sel').getAttribute('data-ticket-id'), '103');
+  await page.keyboard.press('x');
+  assert.equal(await page.getByRole('checkbox', { name: 'Select ticket #103' }).isChecked(), false);
+  assert.equal(await page.getByRole('checkbox', { name: 'Select ticket #101' }).isChecked(), false);
+  await page.getByRole('checkbox', { name: 'Select ticket #102' }).focus();
+  assert.equal(await page.locator('.trow.trow-sel').getAttribute('data-ticket-id'), '102');
+  await page.keyboard.press('Enter');
+  await page.waitForURL(/ticket\.php/);
+  assert.deepEqual(errors, []);
+});
+
+test('tickets someone else has open right now are called out', async (t) => {
+  const { page, errors } = await fixture(t, { preview: { ...PREVIEW, effects: { ...PREVIEW.effects, open_elsewhere: 2 } } });
+  await openConfirm(page);
+  assert.match(await page.locator('.delete-panel').innerText(), /2 of these tickets are open for someone else right now\./);
+  assert.deepEqual(errors, []);
+});
+
 test('an unlogged timer on a ticket about to go is called out', async (t) => {
   const { page, errors } = await fixture(t, { timer: { ticketId: 103, startedAt: Date.now() - 60000, tenantId: '1', userId: '1', state: 'active', entryKey: 'fixture-entry' } });
   await openConfirm(page);

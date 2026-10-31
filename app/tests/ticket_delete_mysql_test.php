@@ -40,6 +40,15 @@ function td_refuse(callable $fn, string|int $expect, string $name): void
     }
     td_check(false, $name . ' (accepted)');
 }
+/** A connection whose COMMIT takes effect but whose answer is lost on the way back. */
+final class TdCommitAnswerLostPdo extends PDO
+{
+    public function commit(): bool
+    {
+        parent::commit();
+        throw new PDOException('Synthetic: connection lost while COMMIT was answered');
+    }
+}
 
 $server = new PDO("mysql:host=$host;port=$port;charset=utf8mb4", $rootUser, $rootPass, $options);
 $database = $base . '_' . bin2hex(random_bytes(6));
@@ -142,6 +151,9 @@ try {
     $pdo->exec("INSERT INTO mail_queue (to_addr, subject, body_text, ticket_id, attempts, max_attempts, last_error)
         VALUES ('client@fixture.invalid', 'Failed', 'Body', 1010, 5, 5, 'SMTP 550 mailbox unavailable')");
     $pdo->exec('INSERT INTO ticket_presence (ticket_id, user_id) VALUES (1010, 101)');
+    // Someone else has A1 open right now (counted); A2 was last viewed ten minutes ago (not counted).
+    $pdo->exec('INSERT INTO ticket_presence (ticket_id, user_id) VALUES (1001, 102)');
+    $pdo->exec('INSERT INTO ticket_presence (ticket_id, user_id, last_seen) VALUES (1002, 103, UTC_TIMESTAMP() - INTERVAL 10 MINUTE)');
     $pdo->prepare("INSERT INTO westy_reports (tenant_id, fingerprint, external_key, app, kind, ticket_id, system_message_id)
         VALUES (1, 'fp-1010', 'westy:fixture:1010', 'safeharbor', 'fail', 1010, ?)")->execute([$bNote]);
     // C1 -> C2: unprotected merge pair. M1 -> M2 -> M3: a chain that crosses batch boundaries.
@@ -230,8 +242,9 @@ try {
     foreach ($preview['kept_sample'] as $row) $sampleReasons[$row['id']] = $row['reason'];
     td_check($sampleReasons === $expectedKept, 'preview: every kept ticket is listed with its reason');
     td_check($preview['effects'] === ['messages' => 10, 'attachments' => 4, 'csat' => 1, 'mail_unsent' => 1, 'mail_sent' => 1,
-            'westy_reports' => 1, 'alert_tickets' => 4],
-        'preview: effects, with mail that already failed for good not counted as queued ' . json_encode($preview['effects']));
+            'westy_reports' => 1, 'alert_tickets' => 4, 'open_elsewhere' => 1],
+        'preview: effects, with mail that already failed for good not counted as queued and only a fresh view by someone else counted as open '
+        . json_encode($preview['effects']));
     td_check($preview['permissions'] === ['attachments' => true, 'csat' => true], 'preview: the test account may remove attachments and surveys');
     td_check($state($pdo) === $before, 'preview: no table changed');
 
@@ -341,6 +354,30 @@ try {
     td_check(($seen['message'] ?? null) === 1205, 'lock probe: a reply cannot land on a ticket being deleted (got ' . json_encode($seen['message'] ?? null) . ')');
     td_check(isset($seen['new_ticket']) && $seen['new_ticket_wait'] < 0.5,
         'lock probe: a brand-new ticket is created at once while a batch runs, so no gap locks (' . round($seen['new_ticket_wait'] ?? -1, 3) . 's)');
+    // A merge stub outside the batch window comes in through the merge closure. It is locked through
+    // (tenant_id, id) like the rest, so a portal requester row (whose foreign key uses that index) waits.
+    $ticket(601, 1, 12, 'portal');
+    $ticket(602, 1, 12, 'portal', 'resolved', 601);
+    $stubSeen = [];
+    $stubProbe = ticket_delete_batch($runtime, 1, 101, ticket_delete_scope(['ids' => [601, 602]]), 0, bin2hex(random_bytes(16)), $files, 1,
+        static function (array $doomed) use ($other, &$stubSeen): void {
+            $stubSeen['doomed'] = $doomed;
+            try {
+                $other->prepare("INSERT INTO portal_ticket_requesters (ticket_id, tenant_id, client_id, subject, identity_tenant_slug)
+                    VALUES (602, 1, 12, 't1u8', 'synthetic-two')")->execute();
+                $stubSeen['portal'] = 'inserted';
+            } catch (PDOException $e) { $stubSeen['portal'] = (int)($e->errorInfo[1] ?? 0); }
+            try {
+                $other->prepare("INSERT INTO westy_workflows (tenant_id, client_id, customer_id, ticket_id, workflow_key, alert_key, state,
+                        version, summary, started_at, updated_at)
+                    VALUES (1, 12, ?, 602, ?, 'alert:602', 'working', 1, 'Synthetic workflow', UTC_TIMESTAMP(), UTC_TIMESTAMP())")
+                    ->execute([sprintf('00000000-0000-4000-8000-%012d', 602), sprintf('11111111-1111-4111-8111-%012d', 602)]);
+                $stubSeen['westy'] = 'inserted';
+            } catch (PDOException $e) { $stubSeen['westy'] = (int)($e->errorInfo[1] ?? 0); }
+        });
+    td_check(($stubSeen['portal'] ?? null) === 1205 && ($stubSeen['westy'] ?? null) === 1205
+        && ($stubSeen['doomed'] ?? null) === [601, 602] && $stubProbe['deleted'] === 2,
+        'lock probe: a merge stub pulled in from outside the batch window is locked too ' . json_encode($stubSeen));
     $pdo->prepare('DELETE FROM tickets WHERE id = ?')->execute([$seen['new_ticket']]);
     $before = $state($pdo);
 
@@ -352,6 +389,8 @@ try {
     $workflowBefore = $pdo->query('SELECT state, version FROM westy_workflows WHERE ticket_id = 1050')->fetch();
     $full = $run($runtime, 1, 101, $page, $runKey, $files, 2);
     td_check($full['deleted'] === 12, 'full run: 12 tickets deleted in batches of 2 (' . $full['deleted'] . ' in ' . $full['batches'] . ' batches)');
+    td_check(ticket_delete_run_total($pdo, 1, $runKey) === 12 && ticket_delete_run_total($pdo, 2, $runKey) === 0,
+        'full run: the run total comes from the audit rows, per tenant');
     td_check($full['kept'] === $expectedKept, 'full run: kept exactly the protected set ' . json_encode($full['kept']));
     td_check($full['files_failed'] === 2, 'full run: the directory and the malformed name are reported, not removed');
     td_check($tenantOneIds($pdo) === [1040, 1050, 1060, 1070, 1080, 1081, 1090, $y], 'full run: only kept tickets and the late arrival remain');
@@ -439,6 +478,19 @@ try {
     for ($id = 6001; $id <= 6120; $id++) { $ticket($id, 1, 12, 'email', 'resolved', 6000); $stubs[] = $id; }
     $bigRun = $run($runtime, 1, 101, ['ids' => array_merge([6000], $stubs)], bin2hex(random_bytes(16)), $files, 100);
     td_check($bigRun['deleted'] === 121 && $bigRun['kept'] === [], 'a merge group of 121 goes whole even with batches of 100 (' . $bigRun['batches'] . ' batches)');
+
+    // ---------------------------------------------------------------- an unconfirmed COMMIT
+    $ticket(7001, 1, 12);
+    $lostFile = bin2hex(random_bytes(20));
+    file_put_contents($files . '/' . $lostFile, 'fixture');
+    $attachment(7001, $message(7001), $lostFile);
+    $lossy = new TdCommitAnswerLostPdo("mysql:host=$host;port=$port;dbname=$database;charset=utf8mb4", $rootUser, $rootPass, $options);
+    $lossy->exec("SET time_zone = '+00:00'");
+    td_refuse(fn() => ticket_delete_batch($lossy, 1, 101, ticket_delete_scope(['ids' => [7001]]), 0, bin2hex(random_bytes(16)), $files),
+        TicketDeleteCommitUnknownException::class, 'a COMMIT whose answer is lost is reported as unknown, never as "nothing changed"');
+    td_check((int)$pdo->query('SELECT COUNT(*) FROM tickets WHERE id = 7001')->fetchColumn() === 0
+        && (int)$pdo->query('SELECT COUNT(*) FROM ticket_deletions WHERE ticket_id = 7001')->fetchColumn() === 1
+        && is_file($files . '/' . $lostFile), 'after an unconfirmed COMMIT that did commit, the rows are gone and the file is kept for a manual clean-up');
 
     // ---------------------------------------------------------------- the migration matches schema.sql
     $pdo->exec('DROP TRIGGER trg_ticket_deletions_no_update');

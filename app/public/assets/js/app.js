@@ -567,6 +567,12 @@
       return true;
     }
     picks.forEach((box) => box.addEventListener("change", paint));
+    // The highlight follows the checkbox just used, so x and Enter act on that row, not an older one.
+    picks.forEach((box) => ["focus", "change"].forEach((type) => box.addEventListener(type, () => {
+      const wrap = box.closest(".trow-pick");
+      const index = wrap ? rows.indexOf($(".trow", wrap)) : -1;
+      if (index >= 0 && index !== sel) { sel = index; paintSel(); }
+    })));
     if (allBox) allBox.addEventListener("change", () => {
       picks.forEach((box) => { box.checked = allBox.checked; });
       paint();
@@ -727,6 +733,7 @@
       const fx = preview.effects || {};
       if (fx.attachments > 0) panel.appendChild(make("p", "delete-note", `${plural(fx.attachments, "attachment file", "attachment files")} will be removed from storage.`));
       if (fx.mail_unsent > 0) panel.appendChild(make("p", "delete-note", `${plural(fx.mail_unsent, "queued email", "queued emails")} will be cancelled.`));
+      if (fx.open_elsewhere > 0) panel.appendChild(make("p", "delete-error", `${plural(fx.open_elsewhere, "of these tickets is", "of these tickets are")} open for someone else right now. Their unsaved notes and running timers there will be lost.`));
       panel.appendChild(make("p", "delete-note", "If Milepost raises an alert again later, it opens a new ticket. A customer who replies to an old email about a deleted ticket starts a new ticket."));
       const timer = readTimer();
       if (timer && (preview.deletable_ids || []).includes(Number(timer.ticketId))) {
@@ -822,7 +829,8 @@
             action: "delete", scope: { ids: preview.deletable_ids },
             after_id: afterId, run_key: preview.run_key, confirm: typed,
           });
-          deleted += Number(r.deleted) || 0;
+          // The server counts the run from its own records, so a batch whose answer was lost still counts.
+          deleted = r.run_deleted == null ? deleted + (Number(r.deleted) || 0) : Number(r.run_deleted) || 0;
           filesFailed += Number(r.files_failed) || 0;
           (r.kept || []).forEach((k) => keptLater.set(Number(k.id), String(k.reason)));
           if (!r.done && !(Number(r.next_after_id) > afterId)) throw new Error("The delete stopped making progress.");
@@ -1077,8 +1085,10 @@
         break;
       case "enter":
       case "o":
-        // Enter on a focused link, button or form control does what that control does.
+        // Enter on a focused link, button or form control does what that control does; on a row's
+        // checkbox it opens that row, which the highlight now follows.
         if (key === "enter" && e.target !== document.body && e.target.closest
+          && !(e.target.classList && e.target.classList.contains("bulk-pick"))
           && e.target.closest("a[href], button, input, select, textarea, summary, label, [role='button']")) break;
         if (row) { e.preventDefault(); row.click(); }
         break;

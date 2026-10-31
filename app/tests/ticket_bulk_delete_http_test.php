@@ -128,12 +128,14 @@ try {
 
     // The real thing, then a replay.
     [$status, $json] = $http('POST', $api, 101, $delete);
-    $check($status === 200 && $json['deleted'] === 3 && $json['done'] === true && $json['next_after_id'] === 7004, 'the confirmed delete removes exactly the 3');
+    $check($status === 200 && $json['deleted'] === 3 && $json['run_deleted'] === 3 && $json['done'] === true && $json['next_after_id'] === 7004,
+        'the confirmed delete removes exactly the 3, and the run total says so');
     $check($ticketIds() === [7003], 'only the ticket with time remains');
     $audit = $pdo->query('SELECT COUNT(*) AS n, MIN(deleted_by_user_id) AS actor, COUNT(DISTINCT run_key) AS runs FROM ticket_deletions')->fetch();
     $check((int)$audit['n'] === 3 && (int)$audit['actor'] === 101 && (int)$audit['runs'] === 1, 'three audit records name the owner and the run');
     [$status, $json] = $http('POST', $api, 101, $delete);
-    $check($status === 200 && $json['deleted'] === 0 && $json['done'] === true, 'replaying the batch is harmless');
+    $check($status === 200 && $json['deleted'] === 0 && $json['run_deleted'] === 3 && $json['done'] === true,
+        'replaying the batch is harmless, and the run total still counts the earlier batch');
 
     // The queue page: owners get the controls, technicians get today's page.
     $pdo->exec("INSERT INTO tickets (id, tenant_id, client_id, subject, channel, sla_due_at) VALUES (7005, 1, 11, 'Synthetic queue row', 'email', UTC_TIMESTAMP())");

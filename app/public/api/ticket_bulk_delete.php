@@ -72,17 +72,22 @@ try {
     foreach ($batch['failed_files'] as $name) {
         error_log(sprintf('[safeharbor-ticket-delete] run=%s attachment file not removed: %s', $runKey, $name));
     }
-    json_out(['ok' => true, 'deleted' => $batch['deleted'], 'kept' => $batch['kept'],
-        'next_after_id' => $batch['next_after_id'], 'done' => $batch['done'], 'files_failed' => $batch['files_failed']]);
+    // The batch is saved by now; a failed count must not turn that into an error, so the browser adds up instead.
+    try { $runDeleted = ticket_delete_run_total(db(), $tenantId, $runKey); } catch (Throwable) { $runDeleted = null; }
+    json_out(['ok' => true, 'deleted' => $batch['deleted'], 'run_deleted' => $runDeleted,
+        'kept' => $batch['kept'], 'next_after_id' => $batch['next_after_id'], 'done' => $batch['done'], 'files_failed' => $batch['files_failed']]);
 } catch (JsonException|TicketDeleteValidationException $error) {
     json_out(['ok' => false, 'error' => $error instanceof JsonException ? 'Request must be valid JSON.' : $error->getMessage()], 422);
 } catch (TicketDeleteForbiddenException $error) {
     json_out(['ok' => false, 'error' => $error->getMessage()], 403);
 } catch (TicketDeleteNotInstalledException $error) {
     json_out(['ok' => false, 'code' => 'not_installed', 'error' => $error->getMessage()], 503);
+} catch (TicketDeleteCommitUnknownException $error) {
+    json_out(['ok' => false, 'code' => 'commit_unknown',
+        'error' => 'We could not confirm whether the last batch finished. Try again: it carries on safely from where the run got to.'], 503);
 } catch (PDOException $error) {
-    // Every database error reaches here before the batch commits (file clean-up after COMMIT never
-    // throws), so "nothing in this batch was changed" is true.
+    // A commit that may have happened arrives above as TicketDeleteCommitUnknownException, and file
+    // clean-up after COMMIT never throws, so every database error here came before anything was saved.
     $driverCode = (int)($error->errorInfo[1] ?? 0);
     $sqlState = (string)($error->errorInfo[0] ?? '');
     error_log('[safeharbor-ticket-delete] failed PDOException ' . $sqlState . ' ' . $driverCode);
@@ -93,7 +98,7 @@ try {
         json_out(['ok' => false, 'code' => 'grant_missing', 'error' => 'The database account is missing a permission this delete needs. Nothing in this batch was changed.'], 503);
     }
     if ($sqlState === '42S02') {
-        json_out(['ok' => false, 'code' => 'not_installed', 'error' => 'Bulk delete is not installed yet (migration 035).'], 503);
+        json_out(['ok' => false, 'code' => 'not_installed', 'error' => 'A table bulk delete needs is missing (migration 035, or a table it protects). Nothing in this batch was changed.'], 503);
     }
     json_out(['ok' => false, 'error' => 'Delete stopped — nothing in this batch was changed.'], 500);
 } catch (Throwable $error) {

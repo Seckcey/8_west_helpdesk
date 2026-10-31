@@ -59,6 +59,17 @@ final class TicketDeleteValidationException extends InvalidArgumentException {}
 final class TicketDeleteForbiddenException extends RuntimeException {}
 final class TicketDeleteNotInstalledException extends RuntimeException {}
 
+/** COMMIT failed without saying whether it took effect, so the batch may or may not be gone. Its
+ * attachment files are kept and named in the log: removing them is only safe once the rows are. */
+final class TicketDeleteCommitUnknownException extends RuntimeException
+{
+    /** @param list<string> $storedNames */
+    public function __construct(public readonly array $storedNames, Throwable $previous)
+    {
+        parent::__construct('ticket_delete_commit_unknown', 0, $previous);
+    }
+}
+
 function ticket_delete_allowed(array $user): bool
 {
     return in_array((string)($user['role'] ?? ''), TICKET_DELETE_ROLES, true);
@@ -228,9 +239,15 @@ function ticket_delete_assess(PDO $pdo, int $tenantId, array $rows, array $scope
                 . ' WHERE tenant_id = ? AND merged_into_id IN (' . ticket_delete_in(count($chunk)) . ')'
                 . ($lock ? ' FOR UPDATE' : ''));
             $q->execute(array_merge([$tenantId], $chunk));
+            $stubs = [];
             foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $id = (int)$row['id'];
-                if (!isset($group[$id])) { $group[$id] = $row; $found[] = $id; }
+                if (!isset($group[$id])) { $group[$id] = $row; $found[] = $id; $stubs[] = $id; }
+            }
+            // Stubs are locked through (tenant_id, id) as well, like every other ticket in the group,
+            // so new time, Westy or portal history for one of them waits for the batch.
+            if ($lock && $stubs !== []) {
+                foreach (ticket_delete_rows($pdo, $tenantId, $stubs, true) as $id => $row) $group[$id] = $row;
             }
         }
         $extra += count($found);
@@ -373,6 +390,12 @@ function ticket_delete_preview(PDO $pdo, int $tenantId, int $actorId, array $sco
     }
     $alerts = 0;
     foreach ($deletable as $id) if (($assessment['rows'][$id]['channel'] ?? '') === 'alert') $alerts++;
+    // Someone else viewing or typing on a ticket in the last two minutes may have a running timer or a
+    // draft there; timers are saved only when stopped.
+    $openElsewhere = $deletable !== [] && ticket_delete_table_exists($pdo, 'ticket_presence')
+        ? ticket_delete_count($pdo, 'SELECT COUNT(DISTINCT ticket_id) FROM ticket_presence WHERE user_id <> ?'
+            . ' AND last_seen >= NOW() - INTERVAL 2 MINUTE AND ticket_id IN ({ids})', [$actorId], $deletable)
+        : 0;
 
     return [
         'total'          => count($scope['ids']),
@@ -390,6 +413,7 @@ function ticket_delete_preview(PDO $pdo, int $tenantId, int $actorId, array $sco
             'mail_sent'     => $mailSent,
             'westy_reports' => $deletable === [] ? 0 : ticket_delete_count($pdo, 'SELECT COUNT(*) FROM westy_reports WHERE tenant_id = ? AND ticket_id IN ({ids})', [$tenantId], $deletable),
             'alert_tickets' => $alerts,
+            'open_elsewhere' => $openElsewhere,
         ],
         'permissions'    => $perms,
         'reasons'        => TICKET_DELETE_REASONS,
@@ -417,6 +441,13 @@ function ticket_delete_batch(PDO $pdo, int $tenantId, int $actorId, array $scope
         try {
             $result = ticket_delete_batch_once($pdo, $tenantId, $actorId, $scope, $afterId, $runKey, $limit, $afterAssess);
             break;
+        } catch (TicketDeleteCommitUnknownException $error) {
+            // Never retried: the rows may already be gone. Try again from the browser is still safe.
+            try { if ($pdo->inTransaction()) $pdo->rollBack(); } catch (Throwable) {}
+            $names = array_values(array_unique($error->storedNames));
+            error_log('[safeharbor-ticket-delete] run=' . $runKey . ' commit unconfirmed; attachment files kept: '
+                . ($names === [] ? 'none' : implode(',', $names)));
+            throw $error;
         } catch (PDOException $error) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             $retryable = in_array((int)($error->errorInfo[1] ?? 0), [1205, 1213], true)
@@ -577,11 +608,24 @@ function ticket_delete_batch_once(PDO $pdo, int $tenantId, int $actorId, array $
     if ($affected('DELETE FROM tickets WHERE tenant_id = ? AND id IN ({ids})', [$tenantId], $doomed) !== count($doomed)) {
         throw new RuntimeException('ticket_delete_ticket_count_changed');
     }
-    $pdo->commit();
+    try {
+        $pdo->commit();
+    } catch (Throwable $error) {
+        throw new TicketDeleteCommitUnknownException($storedNames, $error);
+    }
 
     $result['deleted'] = count($doomed);
     $result['stored_names'] = $storedNames;
     return $result;
+}
+
+/** How many tickets this run has deleted so far, from its own audit rows: right even after a batch
+ * whose answer never reached the browser. */
+function ticket_delete_run_total(PDO $pdo, int $tenantId, string $runKey): int
+{
+    $q = $pdo->prepare('SELECT COUNT(*) FROM ticket_deletions WHERE tenant_id = ? AND run_key = ?');
+    $q->execute([$tenantId, $runKey]);
+    return (int)$q->fetchColumn();
 }
 
 /**

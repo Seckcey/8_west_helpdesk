@@ -9,14 +9,19 @@ migration `035_ticket_bulk_delete.sql`.
 
 1. On the Queue, tick tickets (or press `x` on the current row), or tick the box in the column header
    to select every ticket on the page. "Select all" means exactly the rows the page shows, so a
-   ticket that arrives or changes afterwards is never included.
+   ticket that arrives or changes afterwards is never included. The row highlight follows the last
+   checkbox you used, so `x` and Enter act on that row.
 2. Press **Delete…** (or `d`). Safeharbor shows how many tickets it will delete, which it must keep
-   and why, how many attachment files go and how many queued emails are cancelled. It also warns if
-   your own timer is still running on one of them, because that time could no longer be logged.
+   and why, how many attachment files go and how many queued emails are cancelled. It warns if your
+   own timer is still running on one of them, because that time could no longer be logged, and if
+   someone else has one of them open (viewed or typed in the last two minutes): their unsaved notes
+   and running timers there would be lost too.
 3. Type `DELETE <count>` exactly and confirm. The delete runs in batches of 100 tickets; keep the tab
    open. **Stop after this batch** stops cleanly. If the server refuses a batch, nothing in it changed;
-   if the connection drops, the last batch may or may not have finished. Either way **Try again**
-   carries on safely from the last confirmed batch.
+   if the connection drops, or the database cannot confirm its COMMIT, the last batch may or may not
+   have finished. Either way **Try again** carries on safely from the last confirmed batch, and the
+   final count comes from the run's own `ticket_deletions` rows, so a batch whose answer was lost
+   still counts.
 
 One delete can name up to 10,000 tickets.
 
@@ -73,7 +78,11 @@ attachment rows, surveys and conversation mappings, cancel and detach mail, clea
 pointers, remove messages, remove the tickets. Each row count must match what was locked, or the
 batch rolls back. A deadlock or lock timeout is retried up to three times. The attachment files are
 removed after COMMIT and outside the retry; if that clean-up itself fails, the names go to the server
-log and the batch still reports what it deleted.
+log and the batch still reports what it deleted. If COMMIT itself fails without saying whether it
+took effect, the batch is not retried, its files are kept (removing them is only safe once their rows
+are gone) and their names go to the server log under "commit unconfirmed"; the browser says the batch
+may or may not have finished. Merge stubs that come in from outside the batch's window are locked
+through `uq_tickets_tenant_id` as well.
 
 Two rules for anyone changing this code:
 
@@ -94,6 +103,7 @@ probe fails if the batch ever takes gap locks again.
   poller (`cron/graph_poll.php`) records a message as processed before it files it; if the ticket
   is deleted while the reply waits on the batch's lock, filing fails and the poller will not retry.
   The fix belongs in the poller: record and file in one transaction, as `support_mail_poll` does.
+  Until then, pause the poller's cron entry while a large clear runs (see the runbook below).
 - **Westy's triggers on message deletes look tickets up by `ticket_id` alone,** while
   `westy_workflows` and `westy_mail_conversations` are indexed by `(tenant_id, ticket_id)`, so each
   removed message scans both tables. They are small today, and READ COMMITTED keeps the scans from
@@ -145,8 +155,11 @@ names in `/srv/8west/apps/safeharbor/shared/attachments` with `SELECT stored_nam
    database first; note the backup path). If the clear happens on another day, take a fresh dump
    first.
 3. Smoke test: an owner sees checkboxes on the Queue; a technician does not.
-4. To clear the queue: Queue → press `1` (All) → tick the header box → **Delete…** → check the
-   preview → type the phrase → keep the tab open until it says Deleted.
+4. To clear the queue: comment out the `cron/graph_poll.php` line in Safeharbor's cron file for the
+   few minutes of the run (mail waits in the mailbox and is fetched afterwards). Then Queue → press
+   `1` (All) → tick the header box → **Delete…** → check the preview, including any "open for someone
+   else" warning → type the phrase → keep the tab open until it says Deleted. Restore the cron line
+   and confirm the next poll runs.
 
 Read-only production counts on October 31, 2026: 2,947 tickets, of which 18 must stay (3 with
 technician time, 15 with Westy workflows). One ticket has an attachment and one has a survey; with
