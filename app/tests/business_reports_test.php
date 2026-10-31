@@ -3156,9 +3156,11 @@ foreach ($iterator as $file) {
 $deleteTables = array_values(array_unique($deleteTables));
 sort($deleteTables);
 report_check('runtime DELETE grant allowlist matches every production delete path exactly', $deleteTables === [
+    'attachments',
     'canned_responses',
     'clients',
     'contacts',
+    'csat',
     'email_threads',
     'messages',
     'portal_desktop_bindings',

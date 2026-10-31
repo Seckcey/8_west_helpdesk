@@ -6,8 +6,10 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
+require_once __DIR__ . '/../lib/ticket_delete.php';
 enforce_https();
 $user = require_login();
+$canDelete = ticket_delete_allowed($user);
 
 $FILTERS = ['all' => 'All', 'open' => 'Open', 'in_progress' => 'In Progress', 'waiting' => 'Waiting', 'resolved' => 'Resolved'];
 $filter = $_GET['f'] ?? 'all';
@@ -55,11 +57,7 @@ page_top($user, 'Queue', 'queue');
   </div>
 
   <div class="card list">
-    <div class="trow trow-head" role="row">
-      <span class="trow-pri">Pri</span><span class="trow-num">#</span><span class="trow-main">Ticket</span>
-      <span class="trow-status">Status</span><span class="trow-tech">Owner</span><span class="trow-sla">SLA</span>
-      <span class="trow-age">Age</span>
-    </div>
+    <?= ticket_head_row($canDelete && $rows) ?>
     <?php if (!$rows): ?>
       <div class="empty">
         <img src="/assets/brand/safeharbor-logo-square-20260907.png" alt="" class="empty-mark">
@@ -67,9 +65,12 @@ page_top($user, 'Queue', 'queue');
       </div>
     <?php endif; ?>
     <?php foreach ($rows as $t): ?>
-      <?= ticket_row($t) ?>
+      <?= $canDelete ? ticket_pick_row($t) : ticket_row($t) ?>
     <?php endforeach; ?>
   </div>
+  <?php if ($canDelete && $rows): ?>
+    <?= ticket_bulk_bar($FILTERS[$filter], count($rows)) ?>
+  <?php endif; ?>
 
   <p class="keyhints">
     <span><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move</span>
@@ -78,6 +79,7 @@ page_top($user, 'Queue', 'queue');
     <span><kbd class="kbd">p</kbd> priority</span>
     <span><kbd class="kbd">a</kbd> assign to me</span>
     <span><kbd class="kbd">e</kbd> start timer</span>
+    <?php if ($canDelete && $rows): ?><span><kbd class="kbd">x</kbd> select</span><span><kbd class="kbd">d</kbd> delete selected</span><?php endif; ?>
     <span class="keyhints-right">⌘K for everything else</span>
   </p>
 </div>

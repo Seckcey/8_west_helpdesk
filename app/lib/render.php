@@ -90,6 +90,44 @@ function ticket_row(array $t, bool $linkWrap = true): string
 }
 
 /**
+ * A queue row with a selection checkbox, for owners and admins (bulk delete). The checkbox sits
+ * beside the row's link, never inside it: a control inside an <a> is invalid and would navigate.
+ */
+function ticket_pick_row(array $t): string
+{
+    $id = (int)$t['id'];
+    // autocomplete=off: after a delete the rows shift, so a restored tick would land on another ticket.
+    return '<div class="trow-pick"><label class="pick"><input type="checkbox" class="bulk-pick" value="' . $id . '"'
+        . ' autocomplete="off" aria-label="Select ticket #' . $id . '"></label>' . ticket_row($t) . '</div>';
+}
+
+/** The queue's column header, with "select every ticket in this view" when rows are pickable. */
+function ticket_head_row(bool $pickable): string
+{
+    $head = '<div class="trow trow-head" role="row">'
+        . '<span class="trow-pri">Pri</span><span class="trow-num">#</span><span class="trow-main">Ticket</span>'
+        . '<span class="trow-status">Status</span><span class="trow-tech">Owner</span><span class="trow-sla">SLA</span>'
+        . '<span class="trow-age">Age</span>'
+        . '</div>';
+    if (!$pickable) return $head;
+    return '<div class="trow-pick trow-pick-head"><label class="pick"><input type="checkbox" id="bulk-all" autocomplete="off"'
+        . ' aria-label="Select every ticket in this view"><span class="pick-all-label">Select all</span></label>' . $head . '</div>';
+}
+
+/**
+ * The bar that appears once tickets are selected. A delete always names the tickets it means: the
+ * ticked rows, or with "select all" every row this page shows, never a live filter.
+ */
+function ticket_bulk_bar(string $filterLabel, int $total): string
+{
+    return '<div id="bulk-bar" class="bulk-bar" hidden data-filter-label="' . h($filterLabel) . '" data-total="' . $total . '">'
+        . '<span class="bulk-count" aria-live="polite"></span>'
+        . '<button type="button" class="btn-danger btn-sm" id="bulk-delete">Delete…</button>'
+        . '<button type="button" class="btn-link" id="bulk-clear">Clear selection</button>'
+        . '</div>';
+}
+
+/**
  * The 8 West IT 365 app drawer — the 3x3 squares, in the shared w365 markup that every suite app
  * renders in the same place (the right end of the page header, before the account menu).
  *
@@ -267,7 +305,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261023b">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261031a">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -327,7 +365,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=w365v040" defer></script>
+<script src="/assets/js/app.js?v=w365v040c" defer></script>
 </body>
 </html>
     <?php

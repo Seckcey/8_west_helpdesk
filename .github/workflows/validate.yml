@@ -118,6 +118,12 @@ jobs:
       SAFEHARBOR_CENTRAL_TEST_PORT: 3306
       SAFEHARBOR_CENTRAL_TEST_USER: root
       SAFEHARBOR_CENTRAL_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_TICKET_DELETE_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_TICKET_DELETE_TEST_DB: safeharbor_ticket_delete_test
+      SAFEHARBOR_TICKET_DELETE_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_TICKET_DELETE_TEST_PORT: 3306
+      SAFEHARBOR_TICKET_DELETE_TEST_USER: root
+      SAFEHARBOR_TICKET_DELETE_TEST_PASS: safeharbor-test-root
     steps:
       - uses: actions/checkout@v4
 
@@ -177,6 +183,7 @@ jobs:
           php app/tests/desktop_return_path_test.php
           php app/tests/client_operational_context_test.php
           php app/tests/logbook_export_test.php
+          php app/tests/ticket_bulk_delete_render_test.php
           php app/tests/westy_workflow_test.php
           php app/tests/westy_billing_test.php
           php app/tests/westy_queue_owner_test.php
@@ -236,6 +243,8 @@ jobs:
           php app/tests/managed_customer_activation_mysql_test.php
           php app/tests/managed_customer_lifecycle_mysql_test.php
           php app/tests/central_issues_mysql_test.php
+          php app/tests/ticket_delete_mysql_test.php
+          php app/tests/ticket_bulk_delete_http_test.php
 
       # These run as the web server's user, the way the runtime does, from a copy it can read.
       - name: Westy tests as the web user
@@ -298,4 +307,5 @@ jobs:
           node tools/shots/suite-settings.test.mjs
           node tools/shots/portal-reply-actions.test.mjs
           node tools/shots/westy-workflow-contract.test.mjs
+          node tools/shots/ticket-bulk-delete-contract.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs

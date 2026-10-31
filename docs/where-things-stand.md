@@ -177,6 +177,11 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
      at 22:42:00Z. No manual scheduled lifecycle or P9 rerun was performed.
 
    See the [release receipt](client-shared-directory-release.md).
+8. **Bulk ticket delete is built but not released.** It needs migration 035 and two table grants
+   (`DELETE` on `attachments` and `csat`); owners and admins only. Frank asked for the current queue
+   to be cleared; with the grants, about 2,929 of the 2,947 tickets go and 18 stay (3 with technician
+   time, 15 with Westy workflows). Runbook: [ticket-bulk-delete.md](ticket-bulk-delete.md). After the
+   clear, record a receipt here with counts and the run key only.
 
 ## Traps that have already cost time
 
