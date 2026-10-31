@@ -445,8 +445,13 @@ function ticket_delete_batch(PDO $pdo, int $tenantId, int $actorId, array $scope
             // Never retried: the rows may already be gone. Try again from the browser is still safe.
             try { if ($pdo->inTransaction()) $pdo->rollBack(); } catch (Throwable) {}
             $names = array_values(array_unique($error->storedNames));
-            error_log('[safeharbor-ticket-delete] run=' . $runKey . ' commit unconfirmed; attachment files kept: '
-                . ($names === [] ? 'none' : implode(',', $names)));
+            // The cause tells the two cases apart: a lost reply (2006, 2013) may have committed, so the
+            // kept files may be orphans; a refused COMMIT rolled back, so they are still in use.
+            $cause = $error->getPrevious();
+            error_log(sprintf('[safeharbor-ticket-delete] run=%s tenant=%d actor=%d commit unconfirmed (%s%s); attachment files kept: %s',
+                $runKey, $tenantId, $actorId, $cause ? $cause::class : 'unknown',
+                $cause instanceof PDOException ? ' ' . ($cause->errorInfo[0] ?? '') . ' ' . ($cause->errorInfo[1] ?? '') : '',
+                $names === [] ? 'none' : implode(',', $names)));
             throw $error;
         } catch (PDOException $error) {
             if ($pdo->inTransaction()) $pdo->rollBack();

@@ -216,10 +216,27 @@ test('clicking a checkbox moves the highlight there, so x and Enter act on that 
   await page.keyboard.press('x');
   assert.equal(await page.getByRole('checkbox', { name: 'Select ticket #103' }).isChecked(), false);
   assert.equal(await page.getByRole('checkbox', { name: 'Select ticket #101' }).isChecked(), false);
+  // A tick without focus (how Safari clicks a checkbox) moves the highlight too.
+  await page.getByRole('checkbox', { name: 'Select ticket #101' }).evaluate((box) => box.click());
+  assert.equal(await page.locator('.trow.trow-sel').getAttribute('data-ticket-id'), '101');
+  // Moving focus onto another checkbox moves it; Enter then opens exactly that row.
+  await page.getByRole('checkbox', { name: 'Select ticket #101' }).focus();
   await page.getByRole('checkbox', { name: 'Select ticket #102' }).focus();
   assert.equal(await page.locator('.trow.trow-sel').getAttribute('data-ticket-id'), '102');
   await page.keyboard.press('Enter');
-  await page.waitForURL(/ticket\.php/);
+  await page.waitForURL(/ticket\.php\?id=102$/);
+  assert.deepEqual(errors, []);
+});
+
+test('the window regaining focus does not pull the highlight back to an old checkbox', async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.getByRole('checkbox', { name: 'Select ticket #101' }).check();
+  await page.keyboard.press('j');
+  await page.keyboard.press('j');
+  assert.equal(await page.locator('.trow.trow-sel').getAttribute('data-ticket-id'), '103');
+  // What a browser does when the window comes back: focus fires again on the still-focused box.
+  await page.getByRole('checkbox', { name: 'Select ticket #101' }).evaluate((box) => box.dispatchEvent(new FocusEvent('focus', { relatedTarget: null })));
+  assert.equal(await page.locator('.trow.trow-sel').getAttribute('data-ticket-id'), '103');
   assert.deepEqual(errors, []);
 });
 

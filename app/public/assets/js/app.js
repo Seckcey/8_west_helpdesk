@@ -568,7 +568,11 @@
     }
     picks.forEach((box) => box.addEventListener("change", paint));
     // The highlight follows the checkbox just used, so x and Enter act on that row, not an older one.
-    picks.forEach((box) => ["focus", "change"].forEach((type) => box.addEventListener(type, () => {
+    // Focus counts only when it arrives from another element: the window regaining focus refocuses
+    // the old checkbox and must not pull the highlight back to it. Safari does not focus a clicked
+    // checkbox, so change covers clicks there.
+    picks.forEach((box) => ["focus", "change"].forEach((type) => box.addEventListener(type, (event) => {
+      if (type === "focus" && !event.relatedTarget) return;
       const wrap = box.closest(".trow-pick");
       const index = wrap ? rows.indexOf($(".trow", wrap)) : -1;
       if (index >= 0 && index !== sel) { sel = index; paintSel(); }
