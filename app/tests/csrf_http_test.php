@@ -5,10 +5,11 @@
  * under .invalid that can never resolve, and a signed revocation snapshot in the runtime's private
  * cache). No live identity, mail or network.
  *
- * An empty token is never a match. A session can hold no token: 8 West ID can open one inside the very
- * request that posts, an older session may never have rendered a page, and a first-time visitor has
- * none. A post that sends no token must get through none of them. Signing in also starts a fresh token,
- * so a token issued before sign-in (on the sign-in page) never works afterwards.
+ * An empty token is never a match. A session can hold no token (a first-time visitor's, or a signed-in
+ * one from before sign-in started tokens that never rendered a page), and a post that sends no token
+ * must get through none of them. Signing in starts a fresh token, so a session 8 West ID opens inside
+ * the very request that posts already holds one nobody else knows, and a token issued before sign-in
+ * (on the sign-in page) never works afterwards.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/sql_file.php';
@@ -97,9 +98,8 @@ try {
         '8west:session_version' => '1.1']));
     $suite = ['ewid_token' => "$head.$claims." . $b64(hash_hmac('sha256', "$head.$claims", $secret, true))];
 
-    // Two signed-in sessions as files: one that has never been given a token (a session from before
-    // tokens were checked this strictly, or one 8 West ID opened on a request that rendered no page),
-    // and one that has.
+    // Two signed-in sessions as files: one that holds no token (as a session from before sign-in
+    // started tokens may, if it never rendered a page) and one that does.
     $token = bin2hex(random_bytes(32));
     $tokenless = ['PHPSESSID' => bin2hex(random_bytes(16))];
     $tokened = ['PHPSESSID' => bin2hex(random_bytes(16))];
@@ -140,8 +140,9 @@ try {
     $reset = static fn() => $pdo->exec("UPDATE tickets SET priority = 'low' WHERE id = 7001");
     $pageToken = static fn(string $html): string => preg_match('/<body[^>]* data-csrf="([0-9a-f]{64})"/', $html, $m) === 1 ? $m[1] : '';
     $formToken = static fn(string $html): string => preg_match('/name="csrf" value="([0-9a-f]{64})"/', $html, $m) === 1 ? $m[1] : '';
-    // Development settings print PHP warnings into the page, so a clean page means a clean run.
-    $clean = static fn(string $body): bool => preg_match('/<b>(Warning|Notice|Deprecated|Fatal error)<\/b>/', $body) !== 1;
+    // Development settings print PHP warnings into the page (as HTML or plain text, per html_errors), so a
+    // clean page means a clean run.
+    $clean = static fn(string $body): bool => preg_match('/(?:<b>|^)(?:Warning|Notice|Deprecated|Fatal error)(?:<\/b>)?:/m', $body) !== 1;
     $signIn = static fn(array $fields): string => http_build_query($fields + ['email' => 'u101@fixture.invalid', 'password' => $password, 'next' => '/']);
 
     // A signed-in session that holds no token: sending none, or an empty one, is no match.
