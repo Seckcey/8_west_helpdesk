@@ -331,6 +331,7 @@ function suite_sso_attempt(): bool
     if (!(int)$user['is_active']) return suite_sso_refuse('user_inactive', $subject);
 
     session_regenerate_id(true);
+    csrf_rotate();
     $_SESSION['user_id'] = (int)$user['id'];
     $_SESSION['tenant_id'] = $tenantId;
     $_SESSION['suite_mfa_policy'] = $policy['compliant'] ? 'compliant' : $policy['reason'];
@@ -355,6 +356,7 @@ function attempt_login(string $email, string $password): bool
         return false;
     }
     session_regenerate_id(true);
+    csrf_rotate();
     $_SESSION['user_id'] = (int)$user['id'];
     $_SESSION['tenant_id'] = (int)$user['tenant_id'];
     // A local password login is not a suite session: drop every copied claim so
@@ -380,17 +382,33 @@ function csrf_token(): string
     return $_SESSION['csrf'];
 }
 
+/**
+ * A new token for a session that has just signed in. A token issued before sign-in (on the sign-in
+ * page, or in a session somebody else started) never authorizes anything afterwards, and a session
+ * 8 West ID opens in the middle of an API call holds a token from its first request.
+ */
+function csrf_rotate(): void
+{
+    $_SESSION['csrf'] = bin2hex(random_bytes(32));
+}
+
 /** Hidden form input. */
 function csrf_field(): string
 {
     return '<input type="hidden" name="csrf" value="' . csrf_token() . '">';
 }
 
-/** Verify a POSTed token (form field or X-CSRF header); 419 + exit on miss. */
+/**
+ * Verify a POSTed token (form field or X-CSRF header); 419 + exit on miss.
+ *
+ * Both sides must be non-empty strings. hash_equals('', '') is true, and a session can hold no token
+ * (one that never rendered a page, or a first-time visitor's), so an empty token is never a match.
+ */
 function csrf_check(): void
 {
+    $expected = $_SESSION['csrf'] ?? '';
     $sent = $_POST['csrf'] ?? ($_SERVER['HTTP_X_CSRF'] ?? '');
-    if (!hash_equals($_SESSION['csrf'] ?? '', (string)$sent)) {
+    if (!is_string($expected) || $expected === '' || !is_string($sent) || $sent === '' || !hash_equals($expected, $sent)) {
         http_response_code(419);
         exit('Session expired — go back and try again.');
     }
