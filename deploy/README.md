@@ -121,8 +121,17 @@ Then sign in through 8 West ID and open a ticket.
 ## Rebuilding the server
 
 There is no automated rebuild. A rebuild needs a reviewed plan: least-privilege database grants (no
-database-wide `DELETE`), `schema.sql` plus `002_svc_intake.sql`, `009_support_intake.sql` and
-`018_ticket_auto_close_eligibility.sql`, the private runtime, and the vhosts in this folder.
+database-wide `DELETE`; table DELETE grants exactly as `app/tests/business_reports_test.php` lists,
+including `attachments` and `csat` for bulk ticket delete), `schema.sql` plus `002_svc_intake.sql`,
+`009_support_intake.sql` and `018_ticket_auto_close_eligibility.sql`, the private runtime, and the
+vhosts in this folder.
+
+## Bulk ticket delete
+
+Migration `035_ticket_bulk_delete.sql` plus two table grants, `DELETE` on `attachments` and `csat`
+for `'safeharbor'@'localhost'` (check with `SHOW GRANTS`). Without the grants, tickets with an
+attachment or a survey are kept and say why. Contract, statement order and the clear-the-queue
+runbook: [`docs/ticket-bulk-delete.md`](../docs/ticket-bulk-delete.md).
 
 ## Requester privacy migration
 

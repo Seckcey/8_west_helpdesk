@@ -20,9 +20,9 @@ Ordinary chat does not load a desktop session or require companion configuration
 
 `portal_westy_maintenance.php` clears expired content under the existing exact-scope/advisory-lock rules. A pending AI attempt is retained while live; after 180 seconds, an erased/expired parent can finalize it as unavailable with unknown usage while preserving the full reservation. Completed attempt metadata can be deleted only after its parent is expired, content-free and older than **90 days plus 60 seconds**. Deletion is bounded to 1,000 attempt rows per pass, before parent cleanup. Immutable ticket handoff receipts remain protected.
 
-The reviewed runtime posture keeps schema-wide SELECT/INSERT/UPDATE and the existing table-specific DELETE grants. The only additional DELETE target for this feature is `portal_westy_ai_attempts`. The complete tested DELETE allowlist is:
+The reviewed runtime posture keeps schema-wide SELECT/INSERT/UPDATE and the existing table-specific DELETE grants. The only additional DELETE target for this feature is `portal_westy_ai_attempts`. The complete tested DELETE allowlist is the list that `app/tests/business_reports_test.php` asserts (it is the source of truth; bulk ticket delete added `attachments` and `csat`):
 
-`canned_responses`, `clients`, `contacts`, `email_threads`, `messages`, `portal_westy_accounts`, `portal_westy_budgets`, `portal_westy_drafts`, `portal_westy_turns`, `svc_rate_buckets`, `svc_support_rate`, `tickets`, `portal_westy_ai_attempts`.
+`attachments`, `canned_responses`, `clients`, `contacts`, `csat`, `email_threads`, `messages`, `portal_desktop_bindings`, `portal_desktop_handoffs`, `portal_westy_accounts`, `portal_westy_ai_attempts`, `portal_westy_budgets`, `portal_westy_drafts`, `portal_westy_reply_feedback`, `portal_westy_tool_runs`, `portal_westy_turns`, `svc_rate_buckets`, `svc_support_rate`, `tickets`.
 
 Do not grant schema-wide DELETE. The restricted-account fixture verifies real denial for `time_entries`, `business_report_archives`, `customer_portal_bindings` and `tenants`, and verifies the new receipt trigger's boundary at 90 days +59/+60/+61 seconds. Runtime grant changes require the release owner's exact reviewed plan; the release helper itself never changes grants.
 

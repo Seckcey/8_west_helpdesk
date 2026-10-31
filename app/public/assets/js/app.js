@@ -109,6 +109,8 @@
       const error = new Error(payload && typeof payload.error === "string" ? payload.error : "API " + res.status);
       error.status = res.status;
       error.code = payload && typeof payload.code === "string" ? payload.code : "";
+      // The server answered (with its own JSON), as opposed to a dropped connection or a gateway.
+      error.fromServer = payload !== null && typeof payload === "object";
       throw error;
     }
     if (!payload || typeof payload !== "object") throw new Error("Invalid server response");
@@ -526,6 +528,350 @@
   const currentRow = () => rows[sel];
 
   /* ------------------------------------------------------------------ */
+  /* Bulk delete (queue, owners and admins; docs/ticket-bulk-delete.md)  */
+  /* ------------------------------------------------------------------ */
+  // A delete always names its tickets: the ticked rows, or with "select all" every row this page
+  // shows, never a live filter. The preview answers with the ids it can delete, and the run sends
+  // exactly that list, so it never reaches a ticket nobody saw or goes past the confirmed count.
+  const BULK_URL = "/api/ticket_bulk_delete.php";
+  const BULK_MAX_IDS = 10000;
+  let bulkDialogOpen = false;
+  const bulkBar = page === "queue" ? $("#bulk-bar") : null;
+
+  function make(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
+  const bulk = bulkBar ? (() => {
+    const picks = $$(".bulk-pick");
+    const allBox = $("#bulk-all");
+    const counter = $(".bulk-count", bulkBar);
+    const list = $(".card.list");
+    const filterLabel = bulkBar.dataset.filterLabel || "All";
+
+    const picked = () => picks.filter((box) => box.checked);
+    function paint() {
+      const n = picked().length;
+      picks.forEach((box) => {
+        const wrap = box.closest(".trow-pick");
+        if (wrap) wrap.classList.toggle("picked", box.checked);
+      });
+      if (allBox) {
+        allBox.checked = n > 0 && n === picks.length;
+        allBox.indeterminate = n > 0 && n < picks.length;
+      }
+      bulkBar.hidden = n === 0;
+      if (list) list.classList.toggle("bulk-on", n > 0);
+      counter.textContent = n > 0 && n === picks.length
+        ? `All ${plural(n, "ticket", "tickets")} in ${filterLabel} are selected.`
+        : `${n.toLocaleString()} selected`;
+    }
+    function clear() {
+      picks.forEach((box) => { box.checked = false; });
+      paint();
+    }
+    function openForSelection() {
+      const ids = picked().map((box) => Number(box.value));
+      if (!ids.length) return false;
+      if (ids.length > BULK_MAX_IDS) { toast(`Select up to ${BULK_MAX_IDS.toLocaleString()} tickets at a time.`); return true; }
+      openDeleteDialog(ids);
+      return true;
+    }
+    picks.forEach((box) => box.addEventListener("change", paint));
+    // The highlight follows the checkbox just used, so x and Enter act on that row, not an older one.
+    // Focus counts only when it arrives from another element: the window regaining focus refocuses
+    // the old checkbox and must not pull the highlight back to it. Safari does not focus a clicked
+    // checkbox, so change covers clicks there.
+    picks.forEach((box) => ["focus", "change"].forEach((type) => box.addEventListener(type, (event) => {
+      if (type === "focus" && !event.relatedTarget) return;
+      const wrap = box.closest(".trow-pick");
+      const index = wrap ? rows.indexOf($(".trow", wrap)) : -1;
+      if (index >= 0 && index !== sel) { sel = index; paintSel(); }
+    })));
+    if (allBox) allBox.addEventListener("change", () => {
+      picks.forEach((box) => { box.checked = allBox.checked; });
+      paint();
+    });
+    $("#bulk-clear").addEventListener("click", clear);
+    $("#bulk-delete").addEventListener("click", openForSelection);
+    // Start empty, whatever the browser restores after a reload or Back: the rows may have shifted.
+    clear();
+    window.addEventListener("pageshow", (event) => { if (event.persisted) clear(); });
+    return {
+      toggle(row) {
+        const wrap = row && row.closest(".trow-pick");
+        const box = wrap && $(".bulk-pick", wrap);
+        if (!box) return false;
+        box.checked = !box.checked;
+        box.dispatchEvent(new Event("change"));
+        return true;
+      },
+      clear,
+      openForSelection,
+      hasSelection: () => picked().length > 0,
+    };
+  })() : null;
+
+  function openDeleteDialog(ids) {
+    if (bulkDialogOpen) return;
+    bulkDialogOpen = true;
+    const opener = $("#bulk-delete");
+    const overlay = make("div", "palette-overlay");
+    overlay.id = "delete-overlay";
+    const panel = make("div", "palette delete-panel");
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-labelledby", "delete-title");
+    panel.tabIndex = -1;
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    let preview = null;
+    let running = false;
+    let stopRequested = false;
+    let afterId = 0;
+    let deleted = 0;
+    let filesFailed = 0;
+    let typed = "";
+    const keptLater = new Map();
+    const subjects = new Map();
+
+    const onUnload = (e) => { if (running) { e.preventDefault(); e.returnValue = ""; } };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (!running) close(deleted > 0);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = $$("a[href], button:not([disabled]), input:not([disabled])", panel);
+      if (!focusable.length || !panel.contains(document.activeElement)) {
+        e.preventDefault();
+        (focusable[0] || panel).focus();
+        return;
+      }
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === panel)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("beforeunload", onUnload);
+    document.addEventListener("keydown", onKey);
+
+    function close(reload) {
+      window.removeEventListener("beforeunload", onUnload);
+      document.removeEventListener("keydown", onKey);
+      overlay.remove();
+      bulkDialogOpen = false;
+      if (reload) {
+        if (bulk) bulk.clear();
+        window.location.reload();
+        return;
+      }
+      if (opener) opener.focus();
+    }
+    function screen(title, sub) {
+      panel.replaceChildren();
+      const h = make("h2", "", title);
+      h.id = "delete-title";
+      panel.appendChild(h);
+      if (sub) panel.appendChild(make("p", "delete-sub", sub));
+      panel.focus();
+    }
+    function actions(...buttons) {
+      const row = make("div", "delete-actions");
+      buttons.forEach((b) => row.appendChild(b));
+      panel.appendChild(row);
+      return row;
+    }
+    function button(label, className, onClick) {
+      const b = make("button", className, label);
+      b.type = "button";
+      b.addEventListener("click", onClick);
+      return b;
+    }
+    function reasonLabel(code) {
+      return (preview && preview.reasons && preview.reasons[code]) || code;
+    }
+    // entries: [id, reason] pairs to list (first 50 shown); tally: {reason: count} for the whole set.
+    function keptList(heading, entries, totalKept, tally) {
+      const box = make("div", "delete-kept");
+      box.appendChild(make("h3", "", heading));
+      const byReason = make("ul");
+      Object.entries(tally).forEach(([reason, n]) =>
+        byReason.appendChild(make("li", "", `${Number(n).toLocaleString()} · ${reasonLabel(reason)}`)));
+      box.appendChild(byReason);
+      const items = make("ul");
+      entries.slice(0, 50).forEach(([id, reason]) => {
+        const li = make("li");
+        const link = make("a", "", `#${id}`);
+        link.href = `/ticket.php?id=${encodeURIComponent(id)}`;
+        li.appendChild(link);
+        const subject = subjects.get(id);
+        li.appendChild(document.createTextNode(` ${subject ? subject + " " : ""}— ${reasonLabel(reason)}`));
+        items.appendChild(li);
+      });
+      box.appendChild(items);
+      if (totalKept > Math.min(entries.length, 50)) {
+        box.appendChild(make("p", "delete-note", `and ${(totalKept - Math.min(entries.length, 50)).toLocaleString()} more`));
+      }
+      if (tally.grant_attachments || tally.grant_csat) {
+        box.appendChild(make("p", "delete-note", "An administrator has to grant a database permission before tickets with attachments or surveys can be deleted."));
+      }
+      if (tally.merge_unselected) {
+        box.appendChild(make("p", "delete-note", "To delete merged tickets, select every ticket in the merge."));
+      }
+      panel.appendChild(box);
+    }
+
+    function showConfirm() {
+      const d = preview.deletable, s = preview.total, k = preview.kept;
+      (preview.kept_sample || []).forEach((t) => subjects.set(t.id, t.subject));
+      const sample = (preview.kept_sample || []).map((t) => [t.id, t.reason]);
+      if (d === 0) {
+        screen("Nothing here can be deleted");
+        const found = s - preview.not_found;
+        panel.appendChild(make("p", "", found === 0
+          ? "The selected tickets no longer exist."
+          : found === 1 ? "The selected ticket can't be deleted; the reason is below."
+          : `None of the ${found.toLocaleString()} selected tickets can be deleted; the reasons are below.`));
+        if (k > 0) keptList("Kept — will not be deleted:", sample, k, preview.kept_by_reason || {});
+        const done = button("Close", "btn-link", () => close(false));
+        actions(done);
+        done.focus();
+        return;
+      }
+      screen(`Permanently delete ${plural(d, "ticket", "tickets")}?`,
+        k > 0 ? `${s.toLocaleString()} selected · ${k.toLocaleString()} will be kept` : `${s.toLocaleString()} selected`);
+      panel.appendChild(make("p", "", "This removes each ticket with its replies, internal notes, attachments and satisfaction survey, and cancels any email still waiting to go out. Ticket numbers are never reused. Safeharbor cannot undo this."));
+      if (k > 0) keptList("Kept — will not be deleted:", sample, k, preview.kept_by_reason || {});
+      if (preview.not_found > 0) panel.appendChild(make("p", "delete-note", `${plural(preview.not_found, "selected ticket no longer exists", "selected tickets no longer exist")}.`));
+      const fx = preview.effects || {};
+      if (fx.attachments > 0) panel.appendChild(make("p", "delete-note", `${plural(fx.attachments, "attachment file", "attachment files")} will be removed from storage.`));
+      if (fx.mail_unsent > 0) panel.appendChild(make("p", "delete-note", `${plural(fx.mail_unsent, "queued email", "queued emails")} will be cancelled.`));
+      if (fx.open_elsewhere > 0) panel.appendChild(make("p", "delete-error", `${plural(fx.open_elsewhere, "of these tickets is", "of these tickets are")} open for someone else right now. Their unsaved notes and running timers there will be lost.`));
+      panel.appendChild(make("p", "delete-note", "If Milepost raises an alert again later, it opens a new ticket. A customer who replies to an old email about a deleted ticket starts a new ticket."));
+      const timer = readTimer();
+      if (timer && (preview.deletable_ids || []).includes(Number(timer.ticketId))) {
+        panel.appendChild(make("p", "delete-error", `Your timer on #${timer.ticketId} hasn't been logged yet. Once #${timer.ticketId} is deleted that time can't be logged, so stop and log it first.`));
+      }
+      const label = make("label", "delete-confirm");
+      label.appendChild(document.createTextNode(`Type ${preview.phrase} to confirm`));
+      const input = make("input");
+      input.type = "text";
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.setAttribute("autocapitalize", "characters");
+      label.appendChild(input);
+      panel.appendChild(label);
+      const go = button(`Delete ${plural(d, "ticket", "tickets")}`, "btn-danger", () => {
+        if (input.value.trim() !== preview.phrase) return;
+        typed = input.value.trim();
+        run();
+      });
+      go.disabled = true;
+      input.addEventListener("input", () => { go.disabled = input.value.trim() !== preview.phrase; });
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !go.disabled) { e.preventDefault(); go.click(); } });
+      actions(button("Cancel", "btn-link", () => close(false)), go);
+      input.focus();
+    }
+
+    function showRunning() {
+      screen("Deleting tickets…", "Keep this tab open until it finishes.");
+      const status = make("p", "", `${deleted.toLocaleString()} of ${preview.deletable.toLocaleString()} deleted`);
+      status.setAttribute("aria-live", "polite");
+      const bar = make("progress");
+      bar.max = Math.max(1, preview.deletable);
+      bar.value = deleted;
+      bar.setAttribute("aria-label", "Delete progress");
+      panel.appendChild(bar);
+      panel.appendChild(status);
+      const stop = button("Stop after this batch", "btn-link", () => {
+        if (stopRequested) return;
+        stopRequested = true;
+        stop.setAttribute("aria-disabled", "true");
+        stop.textContent = "Stopping after this batch…";
+      });
+      actions(stop);
+      stop.focus();
+      return { status, bar };
+    }
+
+    function showResult(stopped) {
+      screen(stopped
+        ? `Stopped. Deleted ${deleted.toLocaleString()} of ${preview.deletable.toLocaleString()}; the rest were not touched.`
+        : `Deleted ${plural(deleted, "ticket", "tickets")}.`);
+      // Kept: what the preview already kept, plus anything that picked up protected history mid-run.
+      const entries = (preview.kept_sample || []).map((t) => [t.id, t.reason]);
+      const tally = Object.assign({}, preview.kept_by_reason || {});
+      Array.from(keptLater.entries()).sort((a, b) => a[0] - b[0]).forEach(([id, reason]) => {
+        entries.push([id, reason]);
+        tally[reason] = (tally[reason] || 0) + 1;
+      });
+      const totalKept = preview.kept + keptLater.size;
+      if (totalKept > 0) keptList(`Kept ${totalKept.toLocaleString()}:`, entries, totalKept, tally);
+      if (filesFailed > 0) panel.appendChild(make("p", "delete-error", `${plural(filesFailed, "attachment file", "attachment files")} could not be removed from the server; their names are in the server log.`));
+      const done = button("Done", "btn-primary btn-sm", () => close(true));
+      actions(done);
+      done.focus();
+    }
+
+    function showError(error, canRetry) {
+      let message;
+      if (error && error.status === 419) { message = "Your session expired. Reload the page and try again."; canRetry = false; }
+      else if (error && error.code === "preview_expired") { message = "This confirmation expired. Close and press Delete… again."; canRetry = false; }
+      else if (error && error.fromServer) message = error.message;
+      else {
+        // No answer from the server: the batch may or may not have committed. Trying again is safe,
+        // because the run carries on from the last confirmed batch and skips tickets already gone.
+        message = "The connection dropped before the last batch answered, so it may or may not have finished. Try again carries on safely.";
+      }
+      screen("Delete stopped");
+      panel.appendChild(make("p", "delete-error", message));
+      if (deleted > 0) panel.appendChild(make("p", "", `${plural(deleted, "ticket was", "tickets were")} deleted before this.`));
+      const buttons = [button("Close", "btn-link", () => close(deleted > 0))];
+      if (canRetry) buttons.push(button("Try again", "btn-danger", () => run()));
+      actions(...buttons);
+      buttons[buttons.length - 1].focus();
+    }
+
+    async function run() {
+      running = true;
+      stopRequested = false;
+      const view = showRunning();
+      try {
+        for (;;) {
+          const r = await api(BULK_URL, {
+            action: "delete", scope: { ids: preview.deletable_ids },
+            after_id: afterId, run_key: preview.run_key, confirm: typed,
+          });
+          // The server counts the run from its own records, so a batch whose answer was lost still counts.
+          deleted = r.run_deleted == null ? deleted + (Number(r.deleted) || 0) : Number(r.run_deleted) || 0;
+          filesFailed += Number(r.files_failed) || 0;
+          (r.kept || []).forEach((k) => keptLater.set(Number(k.id), String(k.reason)));
+          if (!r.done && !(Number(r.next_after_id) > afterId)) throw new Error("The delete stopped making progress.");
+          afterId = Number(r.next_after_id);
+          view.bar.value = deleted;
+          view.status.textContent = `${deleted.toLocaleString()} of ${preview.deletable.toLocaleString()} deleted`;
+          if (r.done) { running = false; showResult(false); return; }
+          if (stopRequested) { running = false; showResult(true); return; }
+        }
+      } catch (error) {
+        running = false;
+        showError(error, true);
+      }
+    }
+
+    screen("Checking what can be deleted…");
+    api(BULK_URL, { action: "preview", scope: { ids } })
+      .then((p) => { preview = p; showConfirm(); })
+      .catch((error) => showError(error, false));
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Palette                                                             */
   /* ------------------------------------------------------------------ */
   let paletteOpen = false;
@@ -697,8 +1043,10 @@
   /* ------------------------------------------------------------------ */
   /* Keyboard model                                                      */
   /* ------------------------------------------------------------------ */
+  // A focused bulk-select checkbox is not typing: j/k/s/p/a/e keep working after a click on one.
   const isTyping = (el) =>
-    el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+    el && !(el.classList && (el.classList.contains("bulk-pick") || el.id === "bulk-all"))
+    && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 
   let pendingG = false;
 
@@ -714,6 +1062,9 @@
       else if (key === "enter") { e.preventDefault(); if (palItems[palIndex]) palItems[palIndex].run(); }
       return;
     }
+
+    // The bulk delete dialog owns the keyboard while it is open (its own Escape and Tab handling).
+    if (bulkDialogOpen) return;
 
     if (helpOpen && key === "escape") { e.preventDefault(); toggleHelp(); return; }
 
@@ -753,10 +1104,22 @@
         break;
       case "enter":
       case "o":
+        // Enter on a focused link, button or form control does what that control does; on a row's
+        // checkbox it opens that row, which the highlight now follows.
+        if (key === "enter" && e.target !== document.body && e.target.closest
+          && !(e.target.classList && e.target.classList.contains("bulk-pick"))
+          && e.target.closest("a[href], button, input, select, textarea, summary, label, [role='button']")) break;
         if (row) { e.preventDefault(); row.click(); }
         break;
       case "escape":
-        if (page === "queue" && window.location.pathname !== "/") { e.preventDefault(); nav("/"); }
+        if (bulk && bulk.hasSelection()) { e.preventDefault(); bulk.clear(); }
+        else if (page === "queue" && window.location.pathname !== "/") { e.preventDefault(); nav("/"); }
+        break;
+      case "x":
+        if (bulk && row && bulk.toggle(row)) e.preventDefault();
+        break;
+      case "d":
+        if (bulk && bulk.openForSelection()) e.preventDefault();
         break;
       case "s":
       case "p":
@@ -1497,7 +1860,8 @@
       <div class="help-grid">
         <div><h4>Queue</h4>
           <p><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move · <kbd class="kbd">↵</kbd> open</p>
-          <p><kbd class="kbd">1</kbd>–<kbd class="kbd">5</kbd> filters</p></div>
+          <p><kbd class="kbd">1</kbd>–<kbd class="kbd">5</kbd> filters</p>${bulk ? `
+          <p><kbd class="kbd">x</kbd> select · <kbd class="kbd">d</kbd> delete selected</p>` : ""}</div>
         <div><h4>Any ticket</h4>
           <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">a</kbd> assign me</p>
           <p><kbd class="kbd">e</kbd> timer · <kbd class="kbd">r</kbd> reply · <kbd class="kbd">n</kbd> note</p></div>
