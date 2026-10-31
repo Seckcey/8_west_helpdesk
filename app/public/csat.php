@@ -41,18 +41,26 @@ $error = '';
 
 if ($row !== null && $isPost) {
     $id = (int)$row['id'];
-    $held = $FACES[(int)$row['score']] ?? null;
-    if ($row['responded_at'] === null) {
+    $answered = $row['responded_at'] !== null;
+    if (!$answered) {
         if ($pick === null) {
             $status = 422;
             $error = 'Pick a face first, then press Send.';
         } else {
-            // If another tab answered a moment ago, that answer stands and this one changes nothing.
             $first = db()->prepare('UPDATE csat SET score = ?, comment = ?, responded_at = UTC_TIMESTAMP() WHERE id = ? AND responded_at IS NULL');
             $first->execute([$pick, $typed, $id]);
-            if ($first->rowCount() === 1) $notes[] = $typed === '' ? 'We got your rating.' : 'We got your rating and your comment.';
+            if ($first->rowCount() === 1) {
+                $notes[] = $typed === '' ? 'We got your rating.' : 'We got your rating and your comment.';
+            } else {
+                // Another Send (a double click, a second tab) answered between the read above and this
+                // write. Its answer time stands, and this Send counts like one that came just after it.
+                $row = csat_find($token);
+                $answered = $row !== null;
+            }
         }
-    } else {
+    }
+    if ($answered) {
+        $held = $FACES[(int)$row['score']] ?? null;
         $saved = $refused = false;
         if ($pick !== null && $pick !== (int)$row['score']) {
             // Only the score moves; responded_at keeps the first answer time.
@@ -62,7 +70,7 @@ if ($row !== null && $isPost) {
             $refused = !$saved;
             if ($saved) $notes[] = 'Your rating is now ' . $FACES[$pick][0] . ' ' . $FACES[$pick][1] . '.';
         }
-        if ($typed !== '') {
+        if ($typed !== '' && $typed !== $row['comment']) {
             $comment = db()->prepare("UPDATE csat SET comment = ? WHERE id = ? AND comment = ''");
             $comment->execute([$typed, $id]);
             if ($comment->rowCount() === 1) {
@@ -76,6 +84,16 @@ if ($row !== null && $isPost) {
             $notes[] = 'A rating can only be changed in the first ' . CSAT_CHANGE_DAYS . ' days'
                 . ($held ? ', so it stays ' . $held[0] . ' ' . $held[1] . '.' : '.');
             if (!$saved) $status = 409;
+        }
+        // Nothing new (the recorded face again, or a double click repeating a Send): say so rather
+        // than show the same page again.
+        if ($notes === []) {
+            if ($pick === null) {
+                $status = 422;
+                $error = 'Type a comment first, then press Send.';
+            } else {
+                $notes[] = 'That’s already your rating, so nothing changed.';
+            }
         }
     }
     $row = csat_find($token);   // show what is recorded now
