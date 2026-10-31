@@ -142,7 +142,7 @@ public/                    Apache docroot (page-per-file, like Milepost)
   reports.php              Real numbers: first response, response-target attainment, aging,
                            approved billable time (+ owner/admin CSV)
   snippets.php             Saved replies ("/" in the composer; merge fields)
-  csat.php                 One-tap resolution survey (token-authed, public)
+  csat.php                 Resolution survey; Send records (token-authed, public)
   attachment.php           Forced-download attachment serving
   login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
   portal/                  Default-off customer OIDC surface: tenant-scoped help
@@ -206,8 +206,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
   ticket/client provenance cannot change.
 - Waiting = parked with a 72h leash (resurface_at); housekeeping
   (piggybacked on mail_dispatch) reopens it; any client reply clears it.
-- Resolving a ticket with a human contact emails a one-tap CSAT survey
-  (csat.php, token-authed). Machine addresses never get mail — the
+- Resolving a ticket with a human contact emails a 3-face CSAT survey
+  (csat.php, token-authed). Opening a link only picks a face; the rating
+  is recorded when the customer presses Send (POST), so mail scanners
+  that open every link can't answer. A rating can change for 7 days and
+  keeps its first answer time. Machine addresses never get mail — the
   bounce-loop guards in intake/mailer are law.
 - Every wild string is `utf8_clean()`ed before insert (mis-encoded email
   bytes 500 a utf8mb4 write otherwise).

@@ -152,7 +152,7 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
       <?php endif; ?>
     </span>
     <?php if ($ticketCount === 0 && $operational['bound'] !== true): ?>
-    <form method="post" action="/client_edit.php?id=<?= (int)$id ?>" onsubmit="return confirm('Delete <?= h($client['name']) ?> and its contacts? No undo.');">
+    <form method="post" action="/client_edit.php?id=<?= (int)$id ?>" data-confirm="<?= h('Delete ' . $client['name'] . ' and its contacts? No undo.') ?>">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="delete">
       <button type="submit" class="btn-danger">Delete client</button>

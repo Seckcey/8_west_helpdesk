@@ -95,7 +95,7 @@ page_top($user, 'Saved replies', 'queue');
         <span class="msg-when">by <?= h($s['author'] ?? '—') ?></span>
       </div>
       <?php if ($isAdmin || (int)$s['created_by'] === (int)$user['id']): ?>
-      <form method="post" action="/snippets.php" onsubmit="return confirm('Delete this saved reply?')">
+      <form method="post" action="/snippets.php" data-confirm="Delete this saved reply?">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="delete">
         <input type="hidden" name="snippet_id" value="<?= (int)$s['id'] ?>">

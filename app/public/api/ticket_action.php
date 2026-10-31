@@ -81,8 +81,10 @@ switch ($field) {
 }
 
 /**
- * One-click CSAT on resolve: first resolve of a ticket with a real human
- * contact queues the 3-face survey email. Idempotent (unique per ticket);
+ * CSAT on resolve: first resolve of a ticket with a real human contact queues
+ * the 3-face survey email. Each link opens csat.php with that face picked;
+ * nothing is recorded until the customer presses Send there, so mail scanners
+ * that open links can't answer for them. Idempotent (unique per ticket);
  * machine addresses never get one.
  */
 function csat_send(array $ticket): void
@@ -106,7 +108,7 @@ function csat_send(array $ticket): void
         mail_queue(
             $email,
             '[#' . (int)$ticket['id'] . '] Resolved: ' . $ticket['subject'],
-            "Hi {$first},\n\nYour ticket is resolved. How did we do? One tap answers:\n\n"
+            "Hi {$first},\n\nYour ticket is resolved. How did we do? Pick one, then press Send on the page that opens:\n\n"
               . "  Great:  {$base}&s=3\n  Okay:   {$base}&s=2\n  Rough:  {$base}&s=1\n\n"
               . "Reply to this email any time to reopen the ticket.\n— Safeharbor by 8 West IT",
             (int)$ticket['id']

@@ -1304,14 +1304,30 @@ img { display: block; }
 /* CSAT public page */
 .csat-card { text-align: center; }
 .csat-sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
-.csat-faces { display: flex; justify-content: center; gap: 18px; padding: 8px 0 4px; }
-.csat-face { font-size: 40px; transition: transform 120ms ease; text-decoration: none; }
-.csat-face:hover { transform: scale(1.25); }
-.csat-comment textarea {
-  width: 100%; padding: 8px 10px; margin-bottom: 10px;
+.csat-hint { color: var(--text); font-size: 13px; margin: -6px 0 14px; }
+/* The faces are radio cards (the .settings-choice pattern): a link only picks one; Send records it. */
+.csat-form { display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.csat-faces { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.csat-faces legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.csat-face { position: relative; display: flex; min-width: 0; cursor: pointer; }
+.csat-face input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.csat-face > span {
+  display: flex; flex: 1; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--chip-bg);
+  color: var(--muted); font-size: 13px;
+}
+.csat-emoji { font-size: 36px; line-height: 1; transition: transform 120ms ease; }
+.csat-face:hover .csat-emoji { transform: scale(1.15); }
+.csat-face input:checked + span { border-color: var(--accent); background: var(--accent-soft-bg); box-shadow: inset 0 0 0 1px var(--accent); color: var(--text-strong); font-weight: 600; }
+.csat-face input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
+.csat-comment { font-size: 12.5px; color: var(--muted); }
+.csat-form textarea {
+  width: 100%; max-width: 100%; padding: 8px 10px; resize: vertical;
   border: 1px solid var(--line); border-radius: var(--radius-sm);
   background: var(--input-bg); color: var(--text); font: inherit; font-size: 13px;
 }
+.csat-form textarea:focus { outline: none; border-color: var(--accent); }
+.csat-form .btn-primary { justify-content: center; }
 
 /* "?" shortcut overlay */
 .help-panel { max-width: 640px; padding-bottom: 8px; }
