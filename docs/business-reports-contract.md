@@ -224,7 +224,9 @@ Version 1 reports:
   `generated_at`, classified as operational approval evidence rather than a
   statement of export or invoice status; and
 - CSAT surveys created in the window, with only responses received by
-  `generated_at` included in response count and average.
+  `generated_at` included in response count and average. A response keeps
+  its first answer time; a customer may change its score for 7 days after
+  that, and a report uses the score held when it is generated.
 
 Definition v1 predates append-only approved-time adjustments and must not
 silently change its meaning. New generation therefore fails closed when the

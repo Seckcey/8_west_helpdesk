@@ -190,7 +190,7 @@ page_top($user, 'Clients', 'clients');
       Bluefin, Copper Kettle, Northwind, Driftwood) and their tickets can be removed in one click
       once you've added your real clients.
     </span>
-    <form method="post" action="/clients.php" onsubmit="return confirm('Remove all demo clients and their tickets? No undo.');">
+    <form method="post" action="/clients.php" data-confirm="Remove all demo clients and their tickets? No undo.">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="purge_demo">
       <button type="submit" class="btn-danger">Remove demo data</button>

@@ -64,6 +64,21 @@
      Escape, outside click, focus return and the arrow keys. Nothing to re-implement here. */
 
   /* ------------------------------------------------------------------ */
+  /* Confirm before removing                                            */
+  /* ------------------------------------------------------------------ */
+  /* A form with data-confirm="…" posts only after OK. The question is an attribute, never script,
+     so no name (an apostrophe, or a sender name that looks like code) can skip the prompt or run.
+     Capture phase, so the answer comes before any other submit handler sees the form. */
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.dataset.confirm) return;
+    if (!confirm(form.dataset.confirm)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+
+  /* ------------------------------------------------------------------ */
   /* Toasts                                                              */
   /* ------------------------------------------------------------------ */
   function toast(text) {

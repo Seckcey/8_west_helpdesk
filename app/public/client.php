@@ -149,7 +149,7 @@ page_top($user, $client['name'], 'clients');
             <div class="rail-list-name"><?= h($c['name']) ?></div>
             <div class="rail-list-sub"><?= h($c['email']) ?></div>
           </div>
-          <form method="post" action="/client.php?id=<?= (int)$id ?>" onsubmit="return confirm('Remove <?= h($c['name']) ?>?');">
+          <form method="post" action="/client.php?id=<?= (int)$id ?>" data-confirm="<?= h('Remove ' . $c['name'] . '?') ?>">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="remove_contact">
             <input type="hidden" name="contact_id" value="<?= (int)$c['id'] ?>">
