@@ -334,6 +334,7 @@ jobs:
           node tools/shots/time-contract.test.mjs
           node tools/shots/portal-contract.test.mjs
           node tools/shots/portal-settings.test.mjs
+          node tools/shots/portal-signout.test.mjs
           node tools/shots/client-shared-directory.test.mjs
           node tools/shots/destructive-confirm.test.mjs
           node tools/shots/cross-site-session.test.mjs

@@ -373,7 +373,7 @@ portal_auth_check('logout default-off gate runs before method and session handli
     && $logoutSessionPosition !== false
     && $logoutPortalGatePosition < $logoutMethodPosition
     && $logoutPortalGatePosition < $logoutSessionPosition);
-portal_auth_check('logout is POST plus CSRF and destroys local state before redirect',
+portal_auth_check('logout is POST, checks a signed-in customer\'s token and destroys local state before redirect',
     is_string($logoutSource)
     && str_contains($logoutSource, "REQUEST_METHOD'] ?? 'GET') !== 'POST'")
     && str_contains($logoutSource, 'portal_csrf_valid(')

@@ -111,7 +111,8 @@ Deployed Phase 5A exposes only:
 It has no ticket detail route and exposes zero messages, internal notes,
 attachments, replies, uploads, contacts, assignees, technician time, service
 goal internals, AI, billing, invoice posting, device/endpoint control, or other
-tenant context. The only POST is CSRF-protected local/central sign-out.
+tenant context. The only POST is local/central sign-out, CSRF-protected while a
+local session is live.
 
 Phase 5B and the stacked usefulness slice add only these customer-owned
 operations:
@@ -404,6 +405,14 @@ The confidential authorization-code flow is the maintained `oidc_v1` contract:
 - exact accepted application roles `client_owner`, `client_admin`,
   `client_staff`, and `client_viewer`; and
 - fixed central logout `<issuer>/logout.php` after local-session destruction.
+  Chromium and WebKit apply `form-action` to every redirect after a form is
+  sent, so pages with the account menu allow the issuer's exact origin; other
+  portal pages keep `form-action 'self'`. The sign-out token protects a live
+  local session. A post with no live session (a double-click's second post, a
+  tab left open) still goes to the issuer, whose `/logout.php` takes no token.
+  A forged post from another site arrives without the portal cookie, so it takes
+  that route too: the portal session and cookie stay, and the customer loses
+  only their 8 West ID sign-in, as any link to that address already costs them.
 
 The kit validates the broader suite role vocabulary because other applications
 use it. Safeharbor then applies the closed four-role customer gate above.

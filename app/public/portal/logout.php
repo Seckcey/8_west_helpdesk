@@ -35,7 +35,9 @@ if (($paired || ($_POST['window'] ?? null) === 'companion')
     exit;
 }
 
-if (! portal_csrf_valid($_POST['csrf'] ?? null)) {
+// The token protects a signed-in customer from a forged sign-out. With nobody signed in here, a double-click's second
+// post or a tab left open must still reach 8 West ID, whose /logout.php takes no token, or the customer stays signed in there.
+if (portal_local_identity() !== null && ! portal_csrf_valid($_POST['csrf'] ?? null)) {
     portal_render_error(403, 'Request rejected', 'The sign-out request expired. Return to the portal and try again.');
     exit;
 }
