@@ -884,13 +884,14 @@
     try { return JSON.parse(el.textContent); } catch { return { tickets: [], clients: [] }; }
   }
 
+  // Lower scores rank first and null means no match: the prefix bonus takes a real match below zero.
   function fuzzy(query, text) {
     const q = query.toLowerCase(), t = text.toLowerCase();
     if (!q) return 0;
     let ti = 0, score = 0;
     for (const ch of q) {
       const found = t.indexOf(ch, ti);
-      if (found === -1) return -1;
+      if (found === -1) return null;
       score += found - ti;
       ti = found + 1;
     }
@@ -944,7 +945,7 @@
     if (!query.trim()) return all;
     const filtered = all
       .map((item) => ({ item, score: fuzzy(query, `${item.title} ${item.hint || ""}`) }))
-      .filter((x) => x.score >= 0)
+      .filter((x) => x.score !== null)
       .sort((a, b) => a.score - b.score)
       .map((x) => x.item);
     // Server results (bodies + resolved) ride below — already matched server-side
