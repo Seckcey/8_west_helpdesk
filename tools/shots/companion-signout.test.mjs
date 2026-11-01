@@ -128,6 +128,23 @@ try {
     assert.deepEqual(window.dialogs, [], 'a prompt the Windows web view cannot show would stop the sign-out there');
   });
 
+  await test('a double-click leaves nothing private on screen and never tries to leave', async (t) => {
+    const window = await companionWindow(t);
+    const { page, asked, sessionFile } = window;
+    await page.getByRole('button', { name: 'Toggle navigation' }).click();
+    const button = page.getByRole('button', { name: 'Sign out', exact: true });
+    await button.scrollIntoViewIfNeeded();
+    const box = await button.boundingBox();
+    const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+    // The second post replaces the first, and by the time it is answered the session and its marker have gone.
+    await page.mouse.click(x, y);
+    await sleep(40);
+    await page.mouse.click(x, y);
+    await page.getByText('Synthetic Customer').first().waitFor({ state: 'detached', timeout: 10000 });
+    assert.deepEqual(asked.filter((url) => !url.startsWith(`${APP}/`)), [], 'something tried to leave the window');
+    assert.equal(existsSync(sessionFile), false, 'the session is still on the server');
+  });
+
   await test('the signed-out page offers the browser, not another sign-in here', async (t) => {
     const window = await companionWindow(t);
     await window.signOut();
