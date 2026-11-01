@@ -55,6 +55,35 @@ The workspace has one composer and no duplicate floating chat bubble. The custom
 widget on other portal pages shares the same conversation; the staff widget is a
 separate surface with its existing permissions.
 
+## Signing out of a Companion window
+
+A Companion window signs in through the customer's browser, so its web view never
+holds an 8 West ID cookie, and its shell refuses to leave the Safeharbor origin.
+Sign out there therefore does not hand off to the issuer. It tells Milepost to end
+the pairing (`sign_out`), which stops any computer work, destroys the local session
+and lands on `/portal/signed-out.php` in the window. Windows then hides the page and
+offers Reconnect; a Mac replaces it with a new Connect Westy page once the window is
+in front. Neither needs a new Companion release.
+
+The browser's own Safeharbor and 8 West ID sessions are left alone: they are in
+another cookie jar, may be serving other apps, and opening a browser unasked would
+be a surprise. The signed-out page says so and links to the portal in the browser,
+whose Sign out ends both. Windows hides that page about a second after the pairing
+ends, so on Windows the customer rarely has time to read this until a Companion
+release keeps the page on screen.
+
+If Milepost cannot confirm the pairing ended, the customer is still signed out; the
+page says the connection ends on its own within 30 minutes, because only the session
+that just ended could have renewed its lease. A post with no live session, such as a
+double-click's second post, lands on the same page and makes no claim about the
+connection. Choosing Sign out also skips the unsent-text prompt, which the Windows
+web view cannot show.
+
+A browser that opens a pairing's address while signed in also counts as a Companion
+window. Its Sign out does not reach 8 West ID, so that browser has to sign out again
+from the portal, where the marker has gone. This is rare, and a window that wrongly
+tried the issuer would leave the private page on screen, so the marker decides.
+
 ## Streaming and recovery
 
 The provider adapter consumes live text events and sends the first complete text
