@@ -365,7 +365,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=w365v040g" defer></script>
+<script src="/assets/js/app.js?v=w365v040h" defer></script>
 </body>
 </html>
     <?php
