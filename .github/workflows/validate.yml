@@ -136,6 +136,12 @@ jobs:
       SAFEHARBOR_CSRF_TEST_PORT: 3306
       SAFEHARBOR_CSRF_TEST_USER: root
       SAFEHARBOR_CSRF_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_LOGOUT_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_LOGOUT_TEST_DB: safeharbor_logout_test
+      SAFEHARBOR_LOGOUT_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_LOGOUT_TEST_PORT: 3306
+      SAFEHARBOR_LOGOUT_TEST_USER: root
+      SAFEHARBOR_LOGOUT_TEST_PASS: safeharbor-test-root
     steps:
       - uses: actions/checkout@v4
 
@@ -243,6 +249,7 @@ jobs:
           SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_mobile php app/tests/portal_mobile_mysql_test.php
           php app/tests/portal_mysql_test.php
           php app/tests/portal_requester_http_test.php
+          php app/tests/portal_companion_signout_http_test.php
           php app/tests/csat_http_test.php
           php app/tests/time_entries_mysql_test.php
           php app/tests/time_corrections_mysql_test.php
@@ -261,6 +268,7 @@ jobs:
           php app/tests/ticket_bulk_delete_http_test.php
           php app/tests/cross_site_session_http_test.php
           php app/tests/csrf_http_test.php
+          php app/tests/staff_logout_http_test.php
 
       # These run as the web server's user, the way the runtime does, from a copy it can read.
       - name: Westy tests as the web user
@@ -323,7 +331,10 @@ jobs:
           node tools/shots/destructive-confirm.test.mjs
           node tools/shots/cross-site-session.test.mjs
           node tools/shots/suite-settings.test.mjs
+          node tools/shots/staff-signout.test.mjs
+          node tools/shots/westy-session.test.mjs
           node tools/shots/portal-reply-actions.test.mjs
+          node tools/shots/companion-signout.test.mjs
           node tools/shots/westy-workflow-contract.test.mjs
           node tools/shots/ticket-bulk-delete-contract.test.mjs
           node tools/shots/palette-search.test.mjs

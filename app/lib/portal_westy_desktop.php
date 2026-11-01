@@ -35,7 +35,7 @@ function portal_desktop_request(array $context,string $action,array $input,?call
     // Everything that fails before the transport call proves this request did not
     // run, so it is a rejected request, never an uncertain one.
     try{
-        if(!in_array($action,['stop','state','renew','result','cua_result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','terminal_tasks','terminal_task_result','terminal_task_cancel','control_result','control_cancel'],true)&&!desktop_cleanup_available())
+        if(!in_array($action,['stop','sign_out','state','renew','result','cua_result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','terminal_tasks','terminal_task_result','terminal_task_cancel','control_result','control_cancel'],true)&&!desktop_cleanup_available())
             throw new PortalDesktopException('cleanup_unavailable',503,true);
         $config=cfg('desktop_companion',[]);
         if(!is_array($config)||($config['endpoint']??null)!==PORTAL_DESKTOP_ENDPOINT

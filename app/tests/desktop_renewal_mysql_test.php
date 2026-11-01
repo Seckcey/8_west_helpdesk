@@ -101,4 +101,27 @@ try{$failedConsume=false;try{portal_desktop_handoff_take($pdo,$failed);}catch(PD
     hs_check($failedConsume&&!isset($_SESSION[PORTAL_SESSION_KEY])&&!isset($_SESSION['desktop_companion_session'])
         &&!isset($_SESSION['desktop_renewal'])&&!isset($_SESSION['desktop_renewal_registered']),'failed durable consume clears identity marker and all provenance');
 }finally{$pdo->exec('DROP TRIGGER renewal_consume_failure');}
+// Signing out of a Companion window: one signed request naming this pairing, and never fatal.
+hs_feed();$_SESSION[PORTAL_SESSION_KEY]=hs_identity();$_SESSION['desktop_companion_session']=$pair;$signOuts=[];
+$signOutReply=static function(int $status,array $reply)use(&$signOuts):callable{
+    return static function(string $body)use(&$signOuts,$status,$reply):array{
+        $signOuts[]=json_decode($body,true,32,JSON_THROW_ON_ERROR);
+        return ['status'=>$status,'body'=>json_encode($reply,JSON_THROW_ON_ERROR)];
+    };
+};
+$ended=['contract'=>PORTAL_DESKTOP_CONTEXT,'ok'=>true,'result'=>['session_id'=>$pair,'state'=>'revoked']];
+hs_check(portal_desktop_sign_out($signOutReply(200,$ended)),'Milepost confirming the pairing ended is reported as ended');
+hs_check(count($signOuts)===1&&$signOuts[0]['action']==='sign_out'&&$signOuts[0]['input']===['session_id'=>$pair]
+    &&$signOuts[0]['scope']['subject']===hs_identity()['subject'],'sign-out names exactly this pairing and this person');
+hs_check(!portal_desktop_sign_out($signOutReply(200,['contract'=>PORTAL_DESKTOP_CONTEXT,'ok'=>true,'result'=>['session_id'=>$pair,'state'=>'paired']])),'a pairing still open is not reported as ended');
+hs_check(!portal_desktop_sign_out($signOutReply(400,['ok'=>false,'reason'=>'unsupported_action'])),'a Milepost without the action is unconfirmed, not fatal');
+hs_check(!portal_desktop_sign_out(static function():array{throw new PortalDesktopException('connection_unknown');}),'a lost connection is unconfirmed, not fatal');
+hs_check(portal_local_identity()!==null,'none of that ends the session by itself: logout.php does, whatever the answer');
+unlink($cache.'/'.hash('sha256',"https://id.example.test/oauth/revocations.php\0handoff-fixture").'.json');$signOuts=[];
+hs_check(portal_desktop_sign_out($signOutReply(200,$ended))&&count($signOuts)===1,'an unavailable issuer feed cannot hold up signing out: Milepost rechecks the person');
+hs_feed();
+unset($_SESSION['desktop_companion_session']);$signOuts=[];
+hs_check(!portal_desktop_sign_out($signOutReply(200,$ended))&&$signOuts===[],'a session with no pairing sends nothing');
+$_SESSION['desktop_companion_session']=$pair;unset($_SESSION[PORTAL_SESSION_KEY]);
+hs_check(!portal_desktop_sign_out($signOutReply(200,$ended))&&$signOuts===[],'an ended session cannot name a pairing');
 portal_destroy_session();echo "PASS $checks renewable handoff and session database assertions\n";ob_end_flush();

@@ -146,6 +146,34 @@ function portal_render_error(int $status, string $title, string $message): void
     portal_page_end();
 }
 
+/** Where a Companion window lands after Sign out: its shell stays on this origin, so this page does too. */
+function portal_render_signed_out(bool $connectionOpen): void
+{
+    $brand = portal_branding();
+    portal_page_start('Signed out', 'login-body');
+    ?>
+<main class="login-wrap">
+  <header class="login-head">
+    <img class="suite-login-logo" src="<?= portal_h($brand['logo']) ?>" alt="<?= portal_h($brand['alt']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>">
+    <h1 class="login-name"><?= portal_h($brand['name']) ?></h1>
+  </header>
+  <section class="card login-card" aria-labelledby="portal-signed-out-heading">
+    <h2 id="portal-signed-out-heading" class="page-title">You’re signed out of Westy</h2>
+    <div class="login-form">
+    <?php if ($connectionOpen): ?>
+      <p class="page-sub" role="status">Your private chat is closed, but Westy could not confirm that this computer disconnected. The connection ends on its own within 30 minutes. To end it now, quit Westy from its icon (the system tray on Windows, the menu bar on a Mac).</p>
+    <?php else: ?>
+      <p class="page-sub" role="status">Your private chat is closed and this computer is no longer connected to your account. To connect again, open Westy from its icon (the system tray on Windows, the menu bar on a Mac).</p>
+    <?php endif; ?>
+      <p class="page-sub">Your web browser keeps its own sign-in. On a shared computer, sign out there too.</p>
+      <a class="btn-ghost" target="_blank" rel="noopener noreferrer" href="/portal/">Open the customer portal in your browser</a>
+    </div>
+  </section>
+</main>
+    <?php
+    portal_page_end();
+}
+
 function portal_status_label(string $status): string
 {
     return match ($status) {
