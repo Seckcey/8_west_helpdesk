@@ -67,7 +67,7 @@ async function fixture(t) {
       const to = url.searchParams.get('to');
       const body = url.searchParams.get('link') !== null
         ? `<!doctype html><title>elsewhere</title><a href="${to}">go</a>`
-        : `<!doctype html><title>elsewhere</title><form method="post" action="${to}"><input type="hidden" name="x" value="1"></form><script>document.forms[0].submit()</script>`;
+        : `<!doctype html><title>elsewhere</title><form method="post" action="${to}"><input type="hidden" name="${url.searchParams.get('field') ?? 'x'}" value="${url.searchParams.get('value') ?? '1'}"></form><script>document.forms[0].submit()</script>`;
       return route.fulfill({ contentType: 'text/html; charset=utf-8', body });
     });
   }
@@ -136,6 +136,18 @@ for (const [how, app, sent] of [
     assert.ok(before, 'a first post from our own page started a portal session');
 
     await posted(page, ELSEWHERE, `${app}/portal/desktop.php`);
+    assert.equal(await portal(context, app), before, 'the browser kept its portal cookie');
+  });
+
+  test(`a forged Companion sign-out leaves the portal cookie alone, told ${how}`, async (t) => {
+    const { context, page } = await fixture(t);
+    await page.goto(`${app}/login.php`);
+    await page.evaluate(() => fetch('/portal/desktop.php', { method: 'POST' }));
+    const before = await portal(context, app);
+    assert.ok(before, 'a first post from our own page started a portal session');
+
+    await page.goto(`${ELSEWHERE}/?field=window&value=companion&to=${encodeURIComponent(`${app}/portal/logout.php`)}`, { waitUntil: 'commit' });
+    await page.waitForURL(`${app}/portal/signed-out.php?connection=open`);
     assert.equal(await portal(context, app), before, 'the browser kept its portal cookie');
   });
 }

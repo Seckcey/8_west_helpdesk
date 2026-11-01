@@ -211,6 +211,11 @@ try {
         $check($clean($r['body']), "and $page answers it without a PHP warning");
     }
     $check($http('POST', '/portal/logout.php', [], ['Origin: https://forged.example'], 'x=1')['portals'] === [], 'with no Sec-Fetch-Site, an Origin from another site sets no portal cookie');
+    // The Companion sign-out needs no token once there is no identity, and a forged post arrives with neither cookie nor identity.
+    foreach (['Sec-Fetch-Site' => $forged, 'Origin' => ['Origin: https://forged.example']] as $how => $headers) {
+        $r = $http('POST', '/portal/logout.php', [], $headers, 'window=companion');
+        $check($r['status'] === 302 && str_starts_with($r['location'], '/portal/signed-out.php') && $r['portals'] === [] && $clean($r['body']), "a forged Companion sign-out, told by $how, deletes no portal cookie");
+    }
     $r = $http('POST', '/portal/desktop.php', [], $own, 'x=1');
     $first = $r['portals'][0] ?? '';
     $check(count($r['portals']) === 1 && $first !== '' && $first !== 'deleted', 'a first post from the portal\'s own page gets a portal cookie');
