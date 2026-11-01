@@ -333,6 +333,39 @@ try {
     assert.deepEqual(await rows(page), ['Sign out', '#7 Sign-in loop', 'Saved replies', '#900 Signal booster install']);
     assert.deepEqual(await selected(page), ['Sign out']);
   });
+
+  // A word only in a message body: the local list holds the ticket, but its row does not match, so deep search shows it.
+  await test('a word only in the body of a local ticket finds it through deep search, and Enter opens it', async (t) => {
+    const page = await palette(t, [{ id: 42, subject: 'Printer is down', status: 'open', client: 'Acme Dental' }]);
+    await search(page, 'toner');
+    await row(page, 42).waitFor({ timeout: 5000 });
+    assert.deepEqual(await rows(page), ['#42 Printer is down']);
+    assert.deepEqual(await page.locator('.palette-group').allTextContents(), ['All tickets (deep search)']);
+    assert.equal(await enterOpens(page), '/ticket.php?id=42');
+  });
+
+  await test('deep search adds a local ticket the filter missed, and none the filter showed', async (t) => {
+    const page = await palette(t, [
+      { id: 7, subject: 'Sign-in loop', status: 'open', client: 'Harbor Logistics' },
+      { id: 42, subject: 'Printer is down', status: 'open', client: 'Acme Dental' },
+      { id: 900, subject: 'Old router swap', status: 'resolved', client: 'Acme Dental' },
+    ]);
+    await search(page, 'Sign');
+    await row(page, 900).waitFor({ timeout: 5000 });
+    assert.deepEqual(await rows(page), ['Sign out', '#7 Sign-in loop', 'Saved replies', '#42 Printer is down', '#900 Old router swap']);
+  });
+
+  await test('a local ticket\'s number shows it once, ahead of the deep rows', async (t) => {
+    const page = await palette(t);
+    await answering(page, (q) => (q === '#42' ? [{ id: 42, subject: 'Printer is down', status: 'open', client: 'Acme Dental' }] : []));
+    const answered = page.waitForResponse(/q=%2342$/);
+    await search(page, '#42');
+    await answered;
+    await page.waitForTimeout(100);
+    assert.deepEqual(await rows(page), ['#42 Printer is down']);
+    assert.deepEqual(await page.locator('.palette-group').allTextContents(), ['Tickets']);
+    assert.equal(await enterOpens(page), '/ticket.php?id=42');
+  });
 } finally {
   await browser.close();
 }
