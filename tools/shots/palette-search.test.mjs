@@ -161,12 +161,12 @@ try {
     });
   }
 
-  for (const query of ['ab', '#a', '#', 'a7', '7a']) {
-    await test(`"${query}" is short text, so deep search is not asked`, async (t) => {
+  for (const query of ['ab', '#a', '#', 'a7', '7a', '0', '#0', '07']) {
+    await test(`"${query}" is short and not a ticket's number, so deep search is not asked`, async (t) => {
       const asked = [];
       const page = await palette(t);
       await answering(page, (q) => { asked.push(q); return []; });
-      await search(page, query);
+      await page.locator('.palette-input').fill(query);
       await page.waitForTimeout(600);
       assert.deepEqual(asked, []);
     });
@@ -212,6 +212,27 @@ try {
     await page.keyboard.press('Enter');
     release();
     await row(page, 7002).waitFor();
+    assert.equal(await enterOpens(page), '/ticket.php?id=7002');
+  });
+
+  await test('a late answer for "#700" does not show once the box says "#7002"', async (t) => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const page = await palette(t);
+    await answering(page, async (q) => {
+      if (q === '#700') { await held; return [oldTicket(700)]; }
+      return q === '#7002' ? [oldTicket(7002)] : [];
+    });
+    const asked = page.waitForRequest(/q=%23700$/);
+    await search(page, '#700');
+    await asked;
+    await page.keyboard.press('2');
+    await row(page, 7002).waitFor();
+    const late = page.waitForResponse(/q=%23700$/);
+    release();
+    await late;
+    await page.waitForTimeout(300);
+    assert.deepEqual(await rows(page), ['#7002 Old ticket']);
     assert.equal(await enterOpens(page), '/ticket.php?id=7002');
   });
 

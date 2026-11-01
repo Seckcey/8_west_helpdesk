@@ -133,19 +133,21 @@ try {
         'a number returns the same row shape as any other result');
 
     $finds('with or without #', [['#7002', [7002, 7201, 7202]], ['7002', [7002, 7201, 7202]], ['#7050', [7050]], ['7050', [7050]], ['  #7050  ', [7050]]]);
-    $finds('short numbers', [['#7', [7]], ['7', [7]], ['#42', [42]], ['42', [42]], ['#007', [7]], ['0042', [42]]]);
+    $finds('short numbers', [['#7', [7]], ['7', [7]], ['#42', [42]], ['42', [42]]]);
     $finds('its own subject does not move it or repeat it', [['7601', [7601, 7602]]]);
 
     [, $raw] = $search('7777');
     $capped = array_column(json_decode($raw, true)['results'] ?? [], 'id');
     $check(count($capped) === 15 && $capped[0] === 7777 && count(array_unique($capped)) === 15, 'the cap of 15 keeps the number ahead of the subjects that mention it');
 
-    $finds('only that exact number', [['70', []], ['#70', [7201]], ['700', [7201]], ['70021', []], ['#70021', []], ['#7002x', []], ['x7002', []], ['0', []], ['#0', []]]);
-    $finds('numbers no ticket can have', [['4294967296', []], ['9999999999', []], ['99999999999', []], [str_repeat('7', 200), []]]);
+    $finds('only that exact number', [['70', []], ['#70', [7201]], ['700', [7201]], ['70021', []], ['#70021', []], ['#7002x', []], ['x7002', []], ['0', []], ['#0', []], ['#007', []], ['0042', []]]);
+    // 4294967303 is ticket 7 if anything on the way cuts it to 32 bits.
+    $finds('numbers no ticket can have', [['4294967303', []], ['9999999999', []], ['99999999999', []], [str_repeat('7', 200), []]]);
 
     $finds('words after the number narrow it', [['#7050 Buried', [7050]], ['7050 Buried', [7050]], ['#7050  Buried', [7050]], ['#7050 vlan change', [7050]],
-        ['#7050 BURIED OPEN', [7050]], ['#7050 Dental', [7050]], ['#7002 Old', [7002, 7202]], ['#7 Early', [7]]]);
-    $finds('words it does not have rule it out', [['#7050 zzzz', []], ['#7050 vlan buried', []], ['#7050 Early', []], ['#7050 %', []], ['#7050 _', []], ['#7002 zzzz', [7202]]]);
+        ['#7050 BURIED OPEN', [7050]], ['#7050 Dental', [7050]], ['#7050 buried change', [7050]], ['#7050 vlan Dental', [7050]], ['#7050 vlan buried', [7050]],
+        ['#7002 Old', [7002, 7202]], ['#7 Early', [7]]]);
+    $finds('a word it does not have rules it out', [['#7050 zzzz', []], ['#7050 vlan zzzz', []], ['#7050 Early', []], ['#7050 %', []], ['#7050 _', []], ['#7002 zzzz', [7202]]]);
     $finds('words go to the database as data', [["7050 ' OR '1'='1", []], ["#7050' OR 1=1 -- ", []], ['7050 ") OR 1=1 -- ', []], ["#7050 \xFF", []]]);
 
     $finds('text search still works', [['Old resolved', [7002]], ['router swap', [7002]], ['Buried', [7050]], ['wombatgear', [7202]]]);
