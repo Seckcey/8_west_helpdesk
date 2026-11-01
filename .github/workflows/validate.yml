@@ -118,6 +118,12 @@ jobs:
       SAFEHARBOR_CENTRAL_TEST_PORT: 3306
       SAFEHARBOR_CENTRAL_TEST_USER: root
       SAFEHARBOR_CENTRAL_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_TICKET_SEARCH_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_TICKET_SEARCH_TEST_DB: safeharbor_ticket_search_test
+      SAFEHARBOR_TICKET_SEARCH_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_TICKET_SEARCH_TEST_PORT: 3306
+      SAFEHARBOR_TICKET_SEARCH_TEST_USER: root
+      SAFEHARBOR_TICKET_SEARCH_TEST_PASS: safeharbor-test-root
       SAFEHARBOR_TICKET_DELETE_TEST_DISPOSABLE_SERVER: '1'
       SAFEHARBOR_TICKET_DELETE_TEST_DB: safeharbor_ticket_delete_test
       SAFEHARBOR_TICKET_DELETE_TEST_HOST: 127.0.0.1
@@ -250,6 +256,7 @@ jobs:
           php app/tests/managed_customer_activation_mysql_test.php
           php app/tests/managed_customer_lifecycle_mysql_test.php
           php app/tests/central_issues_mysql_test.php
+          php app/tests/ticket_search_http_test.php
           php app/tests/ticket_delete_mysql_test.php
           php app/tests/ticket_bulk_delete_http_test.php
           php app/tests/csrf_http_test.php
