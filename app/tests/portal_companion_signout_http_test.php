@@ -84,6 +84,7 @@ try {
     [$status,$body,$headers]=$http('/portal/logout.php',['csrf'=>$csrf,'window'=>'companion']);
     $check($status===302 && str_contains($headers,'Location: /portal/signed-out.php?connection=open') && !str_contains($headers,'id.example.test'),
         'Sign out stays on this origin, and says so when the connection could not be confirmed closed');
+    clearstatcache(); // The server process deleted the file this process last saw.
     $check(str_contains($headers,'safeharbor_portal=deleted') && str_contains($headers,'Cache-Control: no-store') && !is_file($sessionFile),'the window really is signed out');
     [$status,$body]=$http('/portal/?view=westy');
     $check(!str_contains($body,$name),'going back to the portal shows nothing private');
