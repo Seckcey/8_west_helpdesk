@@ -38,7 +38,7 @@ const shell = (uid, title, linkTo) => `<!doctype html><meta charset="utf-8"><tit
     </form>
   </section>
 </div>
-<a id="signout" href="/logout.php">Sign out</a>
+<form method="post" action="/logout.php"><input type="hidden" name="csrf" value="test"><button id="signout" type="submit">Sign out</button></form>
 <script src="/assets/js/westy.js"></script>`;
 
 const results = [];
@@ -84,7 +84,7 @@ const panelOpen = (page) => page.evaluate(() =>
   await page.click('#westy-bubble');
   await page.fill('#westy-input', 'How do I move through the queue?');
   await page.click('#westy-send');
-  await page.waitForTimeout(300);
+  await page.waitForFunction(() => document.getElementById('westy-log').textContent.includes('Press j and k'));
 
   const before = await transcript(page);
   check('a question and an answer are on screen', before.length >= 2, JSON.stringify(before));
