@@ -22,6 +22,22 @@ if (! portal_csrf_valid($_POST['csrf'] ?? null)) {
     exit;
 }
 
+// A Companion window never signed in at 8 West ID and its shell will not leave this origin, so a redirect there leaves
+// the private page on screen. Its sign-out ends here, on a page it can show. The form's field keeps a double-click's
+// second post on that page too: by then the session, and with it the marker, has gone.
+$paired = isset($_SESSION['desktop_companion_session']);
+if ($paired || ($_POST['window'] ?? null) === 'companion') {
+    $ended = true;
+    if ($paired) {
+        require_once __DIR__ . '/../../lib/portal_desktop_sessions.php';
+        $ended = portal_desktop_sign_out();
+    }
+    portal_destroy_session();
+    header('Cache-Control: no-store');
+    header('Location: /portal/signed-out.php' . ($ended ? '' : '?connection=open'), true, 302);
+    exit;
+}
+
 try {
     $destination = portal_central_logout_url();
 } catch (PortalAuthConfigurationException $error) {

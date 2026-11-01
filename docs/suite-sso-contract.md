@@ -157,6 +157,10 @@ expiry.
    arrays containing JSON objects. A signed versioned response with an
    object-shaped container fails closed and still commits the one-way v2 latch;
    a later correctly signed legacy response cannot restore compatibility mode.
+   The Westy Companion window is the one exception to the handoff: it never held
+   the suite cookie and its shell stays on Safeharbor's origin, so it signs out
+   locally and shows a signed-out page
+   ([customer workspace](customer-workspace.md#signing-out-of-a-companion-window)).
 5. **Deep links carry context, not credentials.** Cross-product links
    (`Milepost device → Safeharbor ticket`) pass ids only; the receiving app
    re-authorizes from its own cookie.

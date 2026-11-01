@@ -9,7 +9,7 @@ require_once __DIR__.'/tenant_branding.php';
 function portal_branding(?array $context = null): array
 {
     $pair = $_SESSION['desktop_companion_session'] ?? null;
-    $companion = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH) === '/portal/desktop.php'
+    $companion = in_array(parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH), ['/portal/desktop.php', '/portal/signed-out.php'], true)
         || (is_string($pair) && preg_match('/\A[a-f0-9]{32}\z/D', $pair) === 1);
     $brand = $companion
         ? ['name'=>'Westy Companion', 'home'=>'Westy home', 'alt'=>'Westy Companion — 8 West IT',
@@ -93,7 +93,7 @@ function portal_shell_start(array $context): void
   <?php endif; ?>
   <div class="portal-account-help"><a class="portal-account-action" href="/portal/guide.php">Portal guide</a>
   <a class="portal-account-action" href="/portal/guide.php#contact">Contact support</a></div>
-  <form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><button type="submit" class="portal-account-action portal-account-signout">Sign out</button></form>
+  <form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><?php if(isset($_SESSION['desktop_companion_session'])): ?><input type="hidden" name="window" value="companion"><?php endif; ?><button type="submit" class="portal-account-action portal-account-signout">Sign out</button></form>
 </section></aside>
 <div class="portal-content" id="portal-content" tabindex="-1">
 <?php

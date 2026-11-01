@@ -144,6 +144,22 @@ function portal_desktop_attach(PDO $pdo,array $context,string $pair,?callable $b
     if(portal_desktop_renewal_proof($context['identity'])===null)unset($_SESSION['desktop_renewal'],$_SESSION['desktop_renewal_registered']);
     return $state;
 }
+/** Signing out of a Companion window ends its computer connection too, while this session can still name the pairing.
+ * Sent once and never fatal: the person is signed out either way, and only the session ending now could renew the lease. */
+function portal_desktop_sign_out(?callable $transport=null):bool
+{
+    try{
+        $pair=$_SESSION['desktop_companion_session']??null;
+        if(!portal_desktop_id($pair))return false;
+        $context=portal_authenticated_context(db());
+        if($context===null)return false;
+        $state=portal_desktop_request($context,'sign_out',['session_id'=>$pair],$transport);
+        return in_array($state['state']??null,['revoked','expired'],true);
+    }catch(Throwable $error){
+        error_log('[safeharbor-portal] companion_sign_out_unconfirmed reason='.($error instanceof PortalDesktopException?$error->reason:$error::class));
+        return false;
+    }
+}
 function portal_desktop_list(PDO $pdo,array $context):array
 {
     $scope=portal_westy_scope($pdo,$context);

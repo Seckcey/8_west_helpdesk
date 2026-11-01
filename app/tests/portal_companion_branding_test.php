@@ -23,6 +23,7 @@ function brand_render(string $uri, array $session, string $view = 'workspace'): 
     if ($view === 'login') portal_render_login();
     elseif ($view === 'error') portal_render_error(503, 'Westy could not connect', 'Reconnect and try again.');
     elseif ($view === 'connect') { portal_page_start('Connect Westy'); portal_page_end(); }
+    elseif ($view === 'signed-out') portal_render_signed_out(false);
     else portal_render_workspace($context);
     $html = (string)ob_get_clean();
     brand_check($_SESSION === $session, 'branding must never change session state');
@@ -58,6 +59,9 @@ $connect = brand_render('/portal/desktop.php?pair='.$pair, [], 'connect');
 brand_check(str_contains($connect, 'Connect Westy · Westy Companion</title>') && str_contains($connect, 'type="image/png"'), 'pre-sign-in Companion has Westy title and favicon');
 $error = brand_render('/portal/desktop.php?pair='.$pair, [], 'error');
 brand_check(str_contains($error, $newLogo) && !str_contains($error, $ordinaryLogo), 'Companion connection error retains Westy branding');
+$signedOut = brand_render('/portal/signed-out.php', [], 'signed-out');
+brand_check(str_contains($signedOut, 'Signed out · Westy Companion</title>') && str_contains($signedOut, $newLogo) && !str_contains($signedOut, $ordinaryLogo), 'the signed-out page keeps Westy branding with no session left');
+brand_check(!str_contains($signedOut, 'Synthetic'), 'the signed-out page shows nothing about who was signed in');
 $ordinaryError = brand_render('/portal/devices.php', [], 'error');
 brand_check(str_contains($ordinaryError, $ordinaryLogo) && !str_contains($ordinaryError, $newLogo), 'ordinary errors use the supplied customer artwork');
 $login = brand_render('/portal/', [], 'login');

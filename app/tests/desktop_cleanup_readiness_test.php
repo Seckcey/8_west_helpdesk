@@ -167,10 +167,10 @@ require_once __DIR__.'/../lib/portal_westy_desktop.php';
 // the normal authorization path from an early cleanup refusal.
 function cfg(string $key,mixed $default=null):mixed{return $default;}
 cr_check(!desktop_cleanup_available(),'test host has no live cleanup authority');
-foreach(['start','bind','observe','observation','action','stop','state','result'] as $action){
+foreach(['start','bind','observe','observation','action','stop','sign_out','state','result'] as $action){
     try{portal_desktop_request([],$action,[]);throw new RuntimeException('request unexpectedly allowed');}
     catch(PortalDesktopException $e){
-        $expected=in_array($action,['stop','state','result'],true)?'connection_unavailable':'cleanup_unavailable';
+        $expected=in_array($action,['stop','sign_out','state','result'],true)?'connection_unavailable':'cleanup_unavailable';
         cr_check($e->reason===$expected&&$e->status===503,'gate '.$action);
     }
 }
