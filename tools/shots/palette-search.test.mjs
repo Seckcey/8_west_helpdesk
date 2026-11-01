@@ -355,7 +355,7 @@ try {
     assert.deepEqual(await rows(page), ['Sign out', '#7 Sign-in loop', 'Saved replies', '#42 Printer is down', '#900 Old router swap']);
   });
 
-  await test('a local ticket\'s number shows it once, ahead of the deep rows', async (t) => {
+  await test('a local ticket\'s number shows it once, as its local row', async (t) => {
     const page = await palette(t);
     await answering(page, (q) => (q === '#42' ? [{ id: 42, subject: 'Printer is down', status: 'open', client: 'Acme Dental' }] : []));
     const answered = page.waitForResponse(/q=%2342$/);
