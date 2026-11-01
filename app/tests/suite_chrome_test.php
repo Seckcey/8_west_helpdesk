@@ -28,7 +28,8 @@ function t(string $name, bool $cond): void
     else { $FAIL++; echo "FAIL  $name\n"; }
 }
 
-// The one helper the lifted renderers call. Same escaping contract as lib/bootstrap.php.
+// The helpers the lifted renderers call. h() has the same escaping contract as lib/bootstrap.php.
+function csrf_field(): string { return '<input type="hidden" name="csrf" value="synthetic-csrf">'; }
 if (!function_exists('h')) {
     function h(?string $s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 }
@@ -121,8 +122,10 @@ t('C5: Suite settings is offered only with a suite session',
 t('C6: a local login shows the Safeharbor account name and its initials',
     str_contains($htmlLocal, '<strong>Local Person</strong>')
     && str_contains($htmlLocal, '<span class="w365-avatar" aria-hidden="true">LP</span>'));
-t('C7: Settings points at this app\'s profile page and Sign out at its logout',
-    str_contains($htmlLocal, 'href="/profile.php" aria-label="My settings"') && !str_contains($htmlSuite, 'href="/profile.php"') && str_contains($htmlSuite, 'href="/logout.php">Sign out<'));
+t('C7: Settings points at this app\'s profile page and Sign out posts the token to its logout',
+    str_contains($htmlLocal, 'href="/profile.php" aria-label="My settings"') && !str_contains($htmlSuite, 'href="/profile.php"')
+    && !str_contains($htmlSuite, 'href="/logout.php"')
+    && preg_match('~<form method="post" action="/logout\.php"><input type="hidden" name="csrf" value="synthetic-csrf"><button type="submit" class="w365-menu-item" role="menuitem">Sign out</button></form>~', $htmlSuite) === 1);
 t('C8: the owner role reads as Owner',
     str_contains(render_cluster($suite, ['full_name' => 'Frank', 'email' => 'a@b.test', 'role' => 'owner', 'suite_subject' => 't1u1']), '· Owner'));
 
