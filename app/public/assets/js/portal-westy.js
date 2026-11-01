@@ -636,7 +636,11 @@
   bubble?.addEventListener('click',()=>panel.hidden?openPanel():closePanel());
   document.getElementById('portal-chat-close')?.addEventListener('click',closePanel);
   document.querySelectorAll('[data-portal-chat-prompt]').forEach(b=>b.addEventListener('click',()=>{if(panel.hidden)openPanel();input.value=b.dataset.portalChatPrompt;input.focus();}));
-  window.addEventListener('beforeunload',event=>{if(editing||input.value.trim()){event.preventDefault();event.returnValue='';}});
+  // Choosing Sign out skips the unsent-text prompt. The Companion's Windows web view has no prompt to show and just stays
+  // put, so with text in the composer Sign out would do nothing and the session would stay alive.
+  let signingOut=false;
+  document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit',()=>{signingOut=true;});
+  window.addEventListener('beforeunload',event=>{if(!signingOut&&(editing||input.value.trim())){event.preventDefault();event.returnValue='';}});
   // Browser storage never contains conversation text, identity or device receipts.
   window.addEventListener('pagehide',clearPrivate);
   window.addEventListener('pageshow',event=>{if(event.persisted){refresh();loadDevices();loadPreference();loadToolPreferences();}});

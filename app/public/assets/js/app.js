@@ -932,7 +932,7 @@
       { group: "Actions", title: "Go to Service goals", hint: "g s", run: () => nav("/service_goals.php") },
       { group: "Actions", title: "Go to Team", run: () => nav("/users.php") },
       { group: "Actions", title: "Saved replies", hint: "manage / snippets", run: () => nav("/snippets.php") },
-      { group: "Actions", title: "Sign out", run: () => nav("/logout.php") },
+      { group: "Actions", title: "Sign out", run: signOut },
     ];
     const tickets = data.tickets.map((t) => ({
       group: "Tickets",
@@ -969,6 +969,23 @@
   function nav(url) {
     closePalette();
     window.location.href = url;
+  }
+
+  /* Signing out takes a post with the page's token, like the account menu's button. requestSubmit
+     fires the submit event, which is how Westy knows to clear its transcript. */
+  function signOut() {
+    closePalette();
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/logout.php";
+    form.hidden = true;
+    const token = document.createElement("input");
+    token.type = "hidden";
+    token.name = "csrf";
+    token.value = document.body.dataset.csrf || "";
+    form.appendChild(token);
+    document.body.appendChild(form);
+    form.requestSubmit();
   }
 
   function renderPaletteList(query) {

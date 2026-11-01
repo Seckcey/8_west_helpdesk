@@ -25,9 +25,14 @@ try {
         const problems = [];
         page.on('pageerror', error => problems.push(error.message));
         page.on('console', message => { if (['error', 'warning'].includes(message.type())) problems.push(message.text()); });
+        const signOuts = [];
         await page.route('**/*', async route => {
           const url = new URL(route.request().url());
           if (url.pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: await readFile(path.join(scratch, `staff-${role}-${theme}.html`)) });
+          if (url.pathname === '/logout.php') {
+            signOuts.push({ method: route.request().method(), body: route.request().postData() });
+            return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>Signed out</title>' });
+          }
           if (url.pathname.startsWith('/assets/') && !url.pathname.includes('..')) {
             const file = path.join(root, 'app/public', url.pathname);
             const types = { '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png' };
@@ -52,6 +57,21 @@ try {
           assert.equal(await button.getAttribute('aria-expanded'), 'false');
           assert.equal(await button.evaluate(el => el === document.activeElement), true);
           assert.deepEqual(problems, []);
+          // Sign out is a form button that looks and moves like every other item in the menu.
+          await button.click();
+          await page.keyboard.press('ArrowUp');
+          const signOut = page.getByRole('menuitem', { name: 'Sign out', exact: true });
+          assert.equal(await signOut.evaluate(el => el === document.activeElement), true);
+          const look = item => item.evaluate(el => {
+            const style = getComputedStyle(el), box = el.getBoundingClientRect();
+            return { font: style.font, color: style.color, background: style.backgroundColor, border: style.border, radius: style.borderRadius,
+              padding: style.padding, align: style.textAlign, cursor: style.cursor, left: box.left, width: box.width };
+          });
+          assert.deepEqual(await look(signOut), await look(page.getByRole('menuitem', { name: 'Technician Workspace' })));
+          if (viewport.width === 1440) await page.keyboard.press('Enter');
+          else await signOut.click();
+          await page.waitForURL('**/logout.php');
+          assert.deepEqual(signOuts, [{ method: 'POST', body: 'csrf=synthetic-csrf' }]);
         } finally { await context.close(); }
       });
     }
