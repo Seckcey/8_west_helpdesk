@@ -36,7 +36,7 @@ $copyTree = static function(string $source,string $target): void {
 $install = static function(string $app) use ($copyTree,$runtime): void {
     $copyTree($app.'/lib',$runtime.'/lib');
     $copyTree($app.'/public/assets',$runtime.'/public/assets');
-    foreach (['portal/requests.php','portal/ticket.php','portal/new.php','portal/reports.php','portal/westy.php',
+    foreach (['portal/requests.php','portal/ticket.php','portal/new.php','portal/reports.php','portal/westy.php','portal/logout.php',
         'portal/devices.php','portal/index.php','portal/login.php','portal/callback.php','attachment.php',
         'api/search.php','ticket.php','reports_export.php','profile.php','users.php'] as $route) copy($app.'/public/'.$route,$runtime.'/public/'.$route);
 };
@@ -115,8 +115,26 @@ try {
     [$status,$body]=$http('/portal/ticket.php?id='.$own,['csrf'=>$csrf,'body'=>'Revoked forbidden']);
     $check(!str_contains($body,'Own message') && $status!==303,'revoked session cannot read or mutate the request');
     $feed(); $seed($member);
+    $csp=static fn(string $formAction): string => "Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'; form-action $formAction; base-uri 'none'; frame-ancestors 'none'\r\n";
+    [$status,$body,$headers]=$http('/portal/requests.php');
+    $check($status===200 && str_contains($body,'action="/portal/logout.php"') && str_contains($headers,$csp("'self' https://id.example.test")),'a page with Sign out lets its form reach the issuer');
+    [$status,,$headers]=$http('/portal/logout.php');
+    $check($status===405 && str_contains($headers,$csp("'self'")),'a page without Sign out keeps forms on this origin');
+    $sessionFile=$runtime.'/sessions/sess_'.$session;
+    $sessionLive=static function() use($sessionFile): bool { clearstatcache(); return is_file($sessionFile); };
+    $toIssuer="Location: https://id.example.test/logout.php\r\n";
+    [$status,,$headers]=$http('/portal/logout.php',['csrf'=>str_repeat('d',64)]);
+    $check($status===403 && !str_contains($headers,'Location:') && $sessionLive(),'a live session is not ended without its token');
+    [$status,,$headers]=$http('/portal/logout.php',['csrf'=>$csrf]);
+    $check($status===302 && str_contains($headers,$toIssuer) && !$sessionLive(),'sign-out ends the local session, then hands off to the issuer');
+    [$status,,$headers]=$http('/portal/logout.php',['csrf'=>$csrf]);
+    $check($status===302 && str_contains($headers,$toIssuer),'a second post with no session left still reaches the issuer');
+    $seed([...$member,'expires_at'=>time()-1]);
+    [$status,,$headers]=$http('/portal/logout.php',['csrf'=>str_repeat('d',64)]);
+    $check($status===302 && str_contains($headers,$toIssuer) && !$sessionLive(),'an expired session is cleared and handed off whatever token its tab holds');
+    $seed($member);
     $saveConfig(false); $holdHash=hash_file('sha256',$runtime.'/config/config.php');
-    $holdRoutes=['/portal/requests.php','/portal/ticket.php?id='.$own,'/portal/new.php','/portal/reports.php','/portal/westy.php','/portal/devices.php','/portal/index.php','/portal/login.php','/portal/callback.php'];
+    $holdRoutes=['/portal/requests.php','/portal/ticket.php?id='.$own,'/portal/new.php','/portal/reports.php','/portal/westy.php','/portal/logout.php','/portal/devices.php','/portal/index.php','/portal/login.php','/portal/callback.php'];
     foreach($holdRoutes as $route) $check($http($route)[0]===404,'candidate portal traffic hold denies '.$route);
     $check($http('/portal/?view=westy')[0]===404,'candidate portal traffic hold denies the Westy route');
     $old=getenv('SAFEHARBOR_SETTINGS_OLD_APP');

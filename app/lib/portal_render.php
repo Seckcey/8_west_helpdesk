@@ -9,12 +9,29 @@ function portal_h(mixed $value): string
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-function portal_security_headers(): void
+/** 8 West ID's exact origin, with the same fixed fallback as logout.php if the configured issuer can't be used. */
+function portal_issuer_origin(): string
 {
+    try {
+        $issuer = function_exists('portal_configured_issuer') ? parse_url(portal_configured_issuer()) : [];
+    } catch (PortalAuthConfigurationException) {
+        $issuer = [];
+    }
+    if (empty($issuer['host'])) return 'https://id.8westit.com';
+    return 'https://' . $issuer['host'] . (isset($issuer['port']) ? ':' . $issuer['port'] : '');
+}
+
+/**
+ * Chromium and WebKit apply form-action to every redirect after a form is sent. Sign out ends at 8 West ID, and so
+ * does a GET form sent once the session has ended, so only pages with the account menu allow its origin.
+ */
+function portal_security_headers(bool $accountMenu): void
+{
+    $formAction = "'self'" . ($accountMenu ? ' ' . portal_issuer_origin() : '');
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-store, private');
     header('Pragma: no-cache');
-    header("Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'; form-action {$formAction}; base-uri 'none'; frame-ancestors 'none'");
     header('Referrer-Policy: no-referrer');
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
@@ -28,7 +45,7 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
     $preferences = portal_personal_preferences($context['identity'] ?? []);
     $GLOBALS['portal_view_preferences'] = $preferences;
     if ($context !== null) $bodyClass = trim('portal-app ' . $bodyClass);
-    portal_security_headers();
+    portal_security_headers($context !== null);
     ?>
 <!doctype html>
 <html lang="<?= portal_h($preferences['locale']) ?>" data-theme="<?= portal_h($preferences['theme']) ?>"

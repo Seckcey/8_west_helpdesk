@@ -141,6 +141,9 @@ expiry.
    `/logout.php`; the issuer clears the shared suite cookie and lands on the
    hosted 8 West ID login page. This prevents the current product from
    immediately signing the user back in with the still-valid suite cookie.
+   A page that sends a Content-Security-Policy and posts its sign-out form must
+   allow the issuer's origin in `form-action`: Chromium and WebKit apply it to
+   the redirect, block the handoff and leave the page where it was.
    It does **not** directly terminate already-established local sessions in
    other products. Safeharbor separately checks 8 West ID's signed revocation
    snapshot on every authenticated request through a 60-second cache. An
