@@ -878,10 +878,15 @@
   let palIndex = 0;
   let palItems = [];
 
+  // A page can leave out either list, or hand over nothing usable: the rest of the palette still works.
   function paletteData() {
     const el = $("#palette-data");
-    if (!el) return { tickets: [], clients: [] };
-    try { return JSON.parse(el.textContent); } catch { return { tickets: [], clients: [] }; }
+    let data = null;
+    if (el) { try { data = JSON.parse(el.textContent); } catch { /* no lists to offer */ } }
+    return {
+      tickets: Array.isArray(data?.tickets) ? data.tickets : [],
+      clients: Array.isArray(data?.clients) ? data.clients : [],
+    };
   }
 
   // Lower scores rank first and null means no match: the prefix bonus takes a real match below zero.

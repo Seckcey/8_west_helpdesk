@@ -142,4 +142,4 @@ page_top($user,'Westy email','queue');
 </section>
 <?php endif; ?>
 </div>
-<?php page_bottom(); ?>
+<?php page_bottom(palette_data()); ?>
