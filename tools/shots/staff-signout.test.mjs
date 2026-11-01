@@ -78,7 +78,7 @@ try {
   await test('the ⌘K action posts the page token and clears the transcript', async (t) => {
     const signOut = await fixture(t);
     await signOut.page.keyboard.press('Control+k');
-    await signOut.page.locator('.palette-input').fill('out');
+    await signOut.page.locator('.palette-input').fill('Sign out');
     await signOut.page.keyboard.press('Enter');
     await signedOut(signOut, 'csrf=page-token');
   });
