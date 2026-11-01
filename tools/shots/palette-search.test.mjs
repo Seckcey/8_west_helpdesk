@@ -227,14 +227,6 @@ try {
   });
   const oldTicket = (id) => ({ id, subject: 'Old ticket', status: 'resolved', client: 'Acme Dental' });
   const row = (page, id) => page.locator('.palette-item-main', { hasText: new RegExp(`^#${id} `) });
-  const enterOpens = async (page) => {
-    const [frame] = await Promise.all([
-      page.waitForEvent('framenavigated', { timeout: 5000 }),
-      page.keyboard.press('Enter'),
-    ]);
-    const url = new URL(frame.url());
-    return url.pathname + url.search;
-  };
 
   for (const [query, id] of [
     ['#9', 9],
