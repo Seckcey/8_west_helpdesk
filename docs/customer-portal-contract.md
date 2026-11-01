@@ -410,6 +410,9 @@ The confidential authorization-code flow is the maintained `oidc_v1` contract:
   portal pages keep `form-action 'self'`. The sign-out token protects a live
   local session. A post with no live session (a double-click's second post, a
   tab left open) still goes to the issuer, whose `/logout.php` takes no token.
+  A forged post from another site arrives without the portal cookie, so it takes
+  that route too: the portal session and cookie stay, and the customer loses
+  only their 8 West ID sign-in, as any link to that address already costs them.
 
 The kit validates the broader suite role vocabulary because other applications
 use it. Safeharbor then applies the closed four-role customer gate above.
