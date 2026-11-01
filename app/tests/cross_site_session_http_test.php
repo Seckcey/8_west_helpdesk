@@ -79,7 +79,7 @@ try {
     ]);
     $config['portal'] = array_replace($config['portal'], [
         'enabled' => true, 'issuer' => $issuer, 'client_id' => 'fixture-client', 'client_secret' => bin2hex(random_bytes(16)),
-        'redirect_uri' => 'http://127.0.0.1/portal/callback.php', 'cookie_secure' => false, 'revocation_cache_dir' => $runtime . '/cache/portal',
+        'redirect_uri' => 'https://safeharbor.fixture.invalid/portal/callback.php', 'cookie_secure' => false, 'revocation_cache_dir' => $runtime . '/cache/portal',
     ]);
     file_put_contents($runtime . '/config/config.php', '<?php return ' . var_export($config, true) . ';');
 
@@ -127,8 +127,9 @@ try {
         $response = substr($raw, 0, $size);
         preg_match_all('/^Set-Cookie:\s*PHPSESSID=([^;\r\n]*)/mi', $response, $sessions);
         preg_match_all('/^Set-Cookie:\s*safeharbor_portal=([^;\r\n]*)/mi', $response, $portals);
+        preg_match_all('/^Set-Cookie:\s*__Host-ewid_oidc_[0-9a-f]+=([^;\r\n]*)/mi', $response, $states);
         return ['status' => $status, 'body' => substr($raw, $size), 'location' => preg_match('/^Location:\s*(\S+)/mi', $response, $to) === 1 ? $to[1] : '',
-            'sessions' => $sessions[1], 'portals' => $portals[1]];
+            'sessions' => $sessions[1], 'portals' => $portals[1], 'states' => $states[1]];
     };
     // What a browser sends with a form on another site, and with a form on our own page.
     $forged = ['Sec-Fetch-Site: cross-site', 'Sec-Fetch-Mode: navigate', 'Origin: https://forged.example'];
@@ -228,6 +229,66 @@ try {
     file_put_contents($runtime . '/sessions/sess_' . $customer['safeharbor_portal'], '_safeharbor_portal_csrf|' . serialize($portalToken));
     $r = $http('POST', '/portal/logout.php', $customer, $forged, http_build_query(['csrf' => $portalToken]));
     $check($r['status'] === 302 && in_array('deleted', $r['portals'], true), 'a post from another site that does carry the portal cookie stays in that session');
+
+    // A signed-in customer's portal session, as a file, and the cookie their browser holds for it.
+    $customerName = 'Fixture Customer ' . bin2hex(random_bytes(3));
+    $signedIn = static function (array $extra = []) use ($runtime, $customerName): array {
+        $id = bin2hex(random_bytes(16));
+        file_put_contents($runtime . '/sessions/sess_' . $id, '_safeharbor_portal_identity|' . serialize(array_replace([
+            'subject' => 't1u201', 'session_version' => '1.1', 'identity_tenant_slug' => 'fixture-dental', 'role' => 'client_owner',
+            'display_name' => $customerName, 'binding_id' => 1, 'tenant_id' => 1, 'client_id' => 11,
+            'issued_at' => time() - 60, 'expires_at' => time() + 3600,
+        ], $extra)) . '_safeharbor_portal_csrf|' . serialize(bin2hex(random_bytes(32))));
+        return ['safeharbor_portal' => $id];
+    };
+    $stillSignedIn = static fn(array $cookie): bool => is_file($runtime . '/sessions/sess_' . $cookie['safeharbor_portal'])
+        && str_contains((string)file_get_contents($runtime . '/sessions/sess_' . $cookie['safeharbor_portal']), $customerName);
+
+    // A link is a GET, and a GET carries the Lax portal cookie, so any site can send a signed-in customer to the
+    // callback. Only a callback carrying this browser's own state may end its session.
+    $stateCookie = '__Host-ewid_oidc_' . substr(hash('sha256', $config['portal']['client_id']), 0, 16);
+    $link = ['Sec-Fetch-Site: cross-site', 'Sec-Fetch-Mode: navigate', 'Sec-Fetch-Dest: document'];
+    $pending = bin2hex(random_bytes(16));
+    foreach ([
+        'no state' => ['/portal/callback.php', []],
+        'a code and no state' => ['/portal/callback.php?code=forged', []],
+        'an empty state' => ['/portal/callback.php?code=forged&state=', []],
+        'a state while no sign-in is under way' => ['/portal/callback.php?code=forged&state=' . $pending . '&iss=' . rawurlencode($issuer), []],
+        'a state that is not the one under way' => ['/portal/callback.php?code=forged&state=forged&iss=' . rawurlencode($issuer), [$stateCookie => $pending]],
+        'an error and no state' => ['/portal/callback.php?error=access_denied', [$stateCookie => $pending]],
+    ] as $case => [$route, $extra]) {
+        $cookie = $signedIn();
+        $r = $http('GET', $route, $cookie + $extra, $link);
+        $check($r['status'] === 401 && $r['portals'] === [] && $clean($r['body']), "a link from another site to the callback with $case deletes no portal cookie");
+        $check($stillSignedIn($cookie), 'and the customer is still signed in');
+        if ($extra !== []) $check($r['states'] === [], 'and the sign-in under way in that browser is left to finish');
+    }
+    // A callback that does carry this browser's state is its own sign-in. When that fails, the session it was in ends.
+    $cookie = $signedIn();
+    $r = $http('GET', '/portal/callback.php?code=x&state=' . $pending . '&iss=' . rawurlencode('https://forged.example'), $cookie + [$stateCookie => $pending], $link);
+    $check($r['status'] === 401 && in_array('deleted', $r['portals'], true) && !$stillSignedIn($cookie), 'a failed callback carrying this browser\'s own state still ends the session');
+    $check(in_array('deleted', $r['states'], true), 'and clears the finished sign-in\'s state');
+
+    // A forged Companion sign-out redirects to the signed-out page, and the GET there carries the Lax portal cookie.
+    // Any site can also link straight to that page. It must not tell a signed-in customer they are signed out.
+    $cookie = $signedIn();
+    $r = $http('POST', '/portal/logout.php', [], $forged, 'window=companion');
+    $check($r['status'] === 302 && str_starts_with($r['location'], '/portal/signed-out.php'), 'a forged Companion sign-out sends the browser to the signed-out page');
+    foreach ([$r['location'], '/portal/signed-out.php', '/portal/signed-out.php?connection=open'] as $page) {
+        $r = $http('GET', $page, $cookie, $link);
+        $check($r['status'] === 200 && stripos($r['body'], 'signed out') === false && str_contains($r['body'], 'href="/portal/"') && $clean($r['body']),
+            "$page tells a customer who is still signed in that they are, and links to the portal");
+        $check(!str_contains($r['body'], $customerName) && $r['portals'] === [] && $stillSignedIn($cookie), 'without naming them, touching their cookie or ending their session');
+    }
+    foreach ([
+        'no portal cookie' => [],
+        'a cookie for no session' => ['safeharbor_portal' => bin2hex(random_bytes(16))],
+        'a cookie that is not a session id' => ['safeharbor_portal' => '../../etc'],
+        'an expired session' => $signedIn(['issued_at' => time() - 7200, 'expires_at' => time() - 60]),
+    ] as $case => $cookie) {
+        $r = $http('GET', '/portal/signed-out.php', $cookie, $link);
+        $check($r['status'] === 200 && stripos($r['body'], 'signed out of Westy') !== false && $r['portals'] === [] && $clean($r['body']), "with $case the signed-out page says so and sets no cookie");
+    }
 
     // Pages with no browser session at all answer a post from another site as they answer anything else.
     foreach (['/csat.php', '/api/svc/support.php', '/api/svc/alerts.php', '/api/svc/westy.php', '/api/svc/customers.php'] as $page) {

@@ -2,7 +2,10 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { request } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -25,16 +28,18 @@ const settings = spawnSync('php', ['-r', `
   $c = require $argv[1];
   $c['app_env'] = 'dev';
   $c['force_https'] = false;
-  $c['portal'] = array_replace($c['portal'], ['enabled' => true, 'issuer' => 'https://id.fixture.invalid', 'cookie_secure' => false, 'revocation_cache_dir' => $argv[3]]);
+  $c['portal'] = array_replace($c['portal'], ['enabled' => true, 'issuer' => 'https://id.fixture.invalid', 'cookie_secure' => false, 'revocation_cache_dir' => $argv[3],
+    'client_id' => 'fixture-client', 'client_secret' => bin2hex(random_bytes(24)), 'redirect_uri' => 'https://safeharbor.fixture.invalid/portal/callback.php']);
   file_put_contents($argv[2], '<?php return ' . var_export($c, true) . ';');
 `, path.join(root, 'app/config/config.sample.php'), path.join(runtime, 'config/config.php'), path.join(runtime, 'cache')], { encoding: 'utf8' });
 assert.equal(settings.status, 0, settings.stdout + settings.stderr);
 
-const port = await new Promise((resolve, reject) => {
+const freePort = () => new Promise((resolve, reject) => {
   const probe = createServer();
   probe.on('error', reject);
   probe.listen(0, '127.0.0.1', () => { const free = probe.address().port; probe.close(() => resolve(free)); });
 });
+const port = await freePort();
 const server = spawn('php', ['-d', `session.save_path=${path.join(runtime, 'sessions')}`, '-S', `127.0.0.1:${port}`, '-t', path.join(runtime, 'public')], { stdio: 'ignore' });
 for (let tries = 0; ; tries++) {
   const up = await fetch(`http://127.0.0.1:${port}/__seen.php`).then((r) => r.ok, () => false);
@@ -49,16 +54,36 @@ const FETCH_METADATA = `http://127.0.0.1:${port}`;
 const ORIGIN_ONLY = `http://app.fixture.test:${port}`;
 const SIBLING = `http://other.fixture.test:${port}`;
 const ELSEWHERE = 'http://forged.example';
+// The same app over https, the way production runs, in front of the same server: a throwaway self-signed
+// certificate, and X-Forwarded-Proto so the app knows. The browser contexts that use it accept the certificate.
+const tlsKey = path.join(runtime, 'tls-key.pem');
+const tlsCert = path.join(runtime, 'tls-cert.pem');
+const tls = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', tlsKey, '-out', tlsCert, '-days', '1',
+  '-subj', '/CN=app.fixture.test', '-addext', 'subjectAltName=DNS:app.fixture.test'], { encoding: 'utf8' });
+assert.equal(tls.status, 0, tls.stdout + tls.stderr);
+const securePort = await freePort();
+const front = createHttpsServer({ key: await readFile(tlsKey), cert: await readFile(tlsCert) }, (incoming, outgoing) => {
+  const upstream = request({ host: '127.0.0.1', port, method: incoming.method, path: incoming.url,
+    headers: { ...incoming.headers, 'x-forwarded-proto': 'https' } }, (answer) => {
+    outgoing.writeHead(answer.statusCode, answer.headers);
+    answer.pipe(outgoing);
+  });
+  upstream.on('error', () => outgoing.destroy());
+  incoming.pipe(upstream);
+});
+await new Promise((resolve) => front.listen(securePort, '127.0.0.1', resolve));
+const SECURE = `https://app.fixture.test:${securePort}`;
 const browser = await chromium.launch({ headless: true, args: ['--host-resolver-rules=MAP *.fixture.test 127.0.0.1'] });
 
 after(async () => {
   await browser.close();
+  front.close();
   server.kill();
   await rm(runtime, { recursive: true, force: true });
 });
 
-async function fixture(t) {
-  const context = await browser.newContext();
+async function fixture(t, options = {}) {
+  const context = await browser.newContext(options);
   t.after(() => context.close());
   const page = await context.newPage();
   for (const site of [ELSEWHERE, SIBLING]) {
@@ -85,6 +110,19 @@ async function posted(page, site, to) {
 async function seen(page, site, app) {
   const response = await posted(page, site, `${app}/__seen.php`);
   return response.json();
+}
+// A signed-in customer's portal session, written as a file the way PHP stores one, and its cookie in the browser.
+async function signedIn(context, app, name) {
+  const id = randomBytes(16).toString('hex');
+  const made = spawnSync('php', ['-r', `
+    file_put_contents($argv[1], '_safeharbor_portal_identity|' . serialize(['subject' => 't1u201', 'session_version' => '1.1',
+      'identity_tenant_slug' => 'fixture-dental', 'role' => 'client_owner', 'display_name' => $argv[2], 'binding_id' => 1,
+      'tenant_id' => 1, 'client_id' => 11, 'issued_at' => time() - 60, 'expires_at' => time() + 3600])
+      . '_safeharbor_portal_csrf|' . serialize(bin2hex(random_bytes(32))));
+  `, path.join(runtime, 'sessions', `sess_${id}`), name], { encoding: 'utf8' });
+  assert.equal(made.status, 0, made.stdout + made.stderr);
+  await context.addCookies([{ name: 'safeharbor_portal', value: id, domain: new URL(app).hostname, path: '/portal', httpOnly: true, sameSite: 'Lax' }]);
+  return id;
 }
 const cookie = async (context, url, name) => (await context.cookies(url)).find((c) => c.name === name)?.value ?? null;
 const session = (context, app) => cookie(context, app, 'PHPSESSID');
@@ -165,6 +203,59 @@ test('a form on a sibling site carries the session cookie and leaves it alone', 
   assert.equal(response.status(), 419);
   assert.equal(await session(context, ORIGIN_ONLY), before, 'the browser kept its session cookie');
   await page.goto(`${ORIGIN_ONLY}/login.php`);
+  assert.equal(await formToken(page), token, 'and is still in that session on its next visit');
+});
+
+// A link is a GET, so it carries the Lax portal cookie. Only a callback with this browser's own sign-in state may end the session.
+test('a link on another site to the sign-in callback leaves a signed-in customer signed in', async (t) => {
+  const { context, page } = await fixture(t);
+  const id = await signedIn(context, FETCH_METADATA, 'Fixture Customer');
+  const callback = `${FETCH_METADATA}/portal/callback.php`;
+  await page.goto(`${ELSEWHERE}/?link=1&to=${encodeURIComponent(callback)}`);
+  const [response] = await Promise.all([page.waitForResponse((r) => r.url() === callback), page.click('a')]);
+  assert.equal(response.status(), 401, 'the callback refuses it');
+  assert.equal(await portal(context, FETCH_METADATA), id, 'the browser kept its portal cookie');
+  await page.goto(`${FETCH_METADATA}/portal/signed-out.php`);
+  assert.equal(await page.getByText(/signed out/i).count(), 0, 'and the session it names is still signed in');
+});
+
+// A forged Companion sign-out ends nothing, but it lands on the signed-out page. That page must not say otherwise.
+test('a forged Companion sign-out tells a customer who is still signed in that they are', async (t) => {
+  const { context, page } = await fixture(t);
+  const id = await signedIn(context, FETCH_METADATA, 'Fixture Customer');
+  await page.goto(`${ELSEWHERE}/?field=window&value=companion&to=${encodeURIComponent(`${FETCH_METADATA}/portal/logout.php`)}`, { waitUntil: 'commit' });
+  await page.waitForURL(`${FETCH_METADATA}/portal/signed-out.php?connection=open`);
+  await page.getByRole('heading', { level: 2 }).waitFor();
+  assert.equal(await page.getByText(/signed out/i).count(), 0, 'the page makes no signed-out claim');
+  assert.equal(await page.getByText('Fixture Customer').count(), 0, 'and names nobody');
+  assert.equal(await page.locator('a[href="/portal/"]').count(), 1, 'and links to the portal');
+  assert.equal(await portal(context, FETCH_METADATA), id, 'the browser kept its portal cookie');
+
+  await context.clearCookies();
+  await page.reload();
+  assert.ok(await page.getByText(/signed out/i).count() > 0, 'with no portal session, the same page says signed out');
+});
+
+// A sibling host on plain http is the same site by name only. Chromium calls its post to an https page
+// cross-site and withholds the Lax cookies, so the app must not answer it with a new session cookie either.
+test('a form on a plain-http sibling leaves the https session and portal cookies alone', async (t) => {
+  const { context, page } = await fixture(t, { ignoreHTTPSErrors: true });
+  await page.goto(`${SECURE}/login.php`);
+  const before = await session(context, SECURE);
+  const token = await formToken(page);
+  await page.evaluate(() => fetch('/portal/desktop.php', { method: 'POST' }));
+  const portalBefore = await portal(context, SECURE);
+  assert.ok(before, 'the sign-in page started a session');
+  assert.ok(portalBefore, 'a first post from our own page started a portal session');
+
+  assert.deepEqual(await seen(page, SIBLING, SECURE), { site: 'cross-site', origin: SIBLING, cookies: [] },
+    'the post arrives as a cross-site post without the session cookies');
+
+  assert.equal((await posted(page, SIBLING, `${SECURE}/login.php`)).status(), 419);
+  await posted(page, SIBLING, `${SECURE}/portal/desktop.php`);
+  assert.equal(await session(context, SECURE), before, 'the browser kept its session cookie');
+  assert.equal(await portal(context, SECURE), portalBefore, 'and its portal cookie');
+  await page.goto(`${SECURE}/login.php`);
   assert.equal(await formToken(page), token, 'and is still in that session on its next visit');
 });
 
