@@ -907,8 +907,11 @@
   let serverTimer = null;
   function scheduleServerSearch(q) {
     if (serverTimer) clearTimeout(serverTimer);
+    // Rows belong to the query that found them: "#700"'s must not open on "#7002".
+    serverResults = [];
     q = q.trim();
-    if (q.length < 3) { serverResults = []; return; }
+    // Text needs 3 characters; a ticket's number can be shorter.
+    if (q.length < 3 && !/^#?[1-9]\d*$/.test(q)) return;
     serverTimer = setTimeout(async () => {
       try {
         const res = await fetch("/api/search.php?q=" + encodeURIComponent(q), { credentials: "same-origin" });

@@ -158,7 +158,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   api/westy_chat.php       Westy chat (advise-only; rate-limited via assistant_log)
   api/westy_onboard.php    Marks the first-run welcome as done (users.onboarded_at)
   api/presence.php         Collision-detection heartbeat (viewing/typing chips)
-  api/search.php           Deep search (subjects + FULLTEXT bodies, resolved incl.)
+  api/search.php           Deep search (ticket numbers + subjects + FULLTEXT
+                           bodies, resolved incl.)
   api/ticket_merge.php     Merge a ticket into a survivor (stub left behind)
   api/svc/alerts.php       Signed Milepost alert intake — live; 404s only while
                            the svc.enabled kill switch is false
@@ -192,7 +193,7 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `s` status · `p` priority · `a` assign · `e` timer · `r` reply ·
   `n` internal note · `/` saved replies · `g q/t/c` navigate ·
   `⌘K` palette (3+ chars = deep search over message bodies, resolved
-  included) · `?` shortcut card.
+  included; a ticket's number finds it at any length) · `?` shortcut card.
 - Composer: Reply/Internal note tabs on one box (notes never email, never
   change status); `/` inserts saved replies with merge fields resolved
   ({contact.first_name} {client.name} {ticket.id} {tech.first_name});

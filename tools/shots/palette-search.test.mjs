@@ -220,6 +220,109 @@ try {
     });
   }
 
+  // A ticket's number. The stub answers by query, so a row only shows if that exact text reached it.
+  const answering = (page, answer) => page.route('**/api/search.php*', async (route) => {
+    const q = new URL(route.request().url()).searchParams.get('q');
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, results: await answer(q) }) });
+  });
+  const oldTicket = (id) => ({ id, subject: 'Old ticket', status: 'resolved', client: 'Acme Dental' });
+  const row = (page, id) => page.locator('.palette-item-main', { hasText: new RegExp(`^#${id} `) });
+
+  for (const [query, id] of [
+    ['#9', 9],
+    ['9', 9],
+    ['#88', 88],
+    ['88', 88],
+    ['#7002', 7002],
+    ['7002', 7002],
+    ['#7002 Old', 7002],
+    ['7002 Old', 7002],
+  ]) {
+    await test(`"${query}" reaches deep search whole, and Enter opens ticket ${id}`, async (t) => {
+      const page = await palette(t);
+      await answering(page, (q) => (q === query ? [oldTicket(id)] : []));
+      await search(page, query);
+      await row(page, id).waitFor();
+      assert.deepEqual(await selected(page), [`#${id} Old ticket`]);
+      assert.equal(await enterOpens(page), `/ticket.php?id=${id}`);
+    });
+  }
+
+  for (const query of ['ab', '#a', '#', 'a7', '7a', '0', '#0', '07']) {
+    await test(`"${query}" is short and not a ticket's number, so deep search is not asked`, async (t) => {
+      const asked = [];
+      const page = await palette(t);
+      await answering(page, (q) => { asked.push(q); return []; });
+      await page.locator('.palette-input').fill(query);
+      await page.waitForTimeout(600);
+      assert.deepEqual(asked, []);
+    });
+  }
+
+  for (const [query, id, subject] of [
+    ['#7', 7, 'Sign-in loop'],
+    ['7', 7, 'Sign-in loop'],
+    ['#42', 42, 'Printer is down'],
+    ['42', 42, 'Printer is down'],
+  ]) {
+    await test(`"${query}" shows a local ticket once, when deep search finds it too`, async (t) => {
+      const page = await palette(t);
+      await answering(page, () => [{ id, subject, status: 'open', client: 'Acme Dental' }, oldTicket(900)]);
+      await search(page, query);
+      await row(page, 900).waitFor();
+      assert.deepEqual(await rows(page), [`#${id} ${subject}`, '#900 Old ticket']);
+    });
+  }
+
+  await test('the exact number stays below a loose local match, which Enter opens', async (t) => {
+    const page = await palette(t);
+    await answering(page, (q) => (q === '#4' ? [oldTicket(4)] : []));
+    await search(page, '#4');
+    await row(page, 4).waitFor();
+    assert.deepEqual(await rows(page), ['#42 Printer is down', '#4 Old ticket']);
+    assert.equal(await enterOpens(page), '/ticket.php?id=42');
+  });
+
+  await test('a row found for "#700" goes as soon as the number changes, so Enter cannot open it', async (t) => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const page = await palette(t);
+    await answering(page, async (q) => {
+      if (q === '#700') return [oldTicket(700)];
+      await held;
+      return q === '#7002' ? [oldTicket(7002)] : [];
+    });
+    await search(page, '#700');
+    await row(page, 700).waitFor();
+    await page.keyboard.press('2');
+    assert.deepEqual(await rows(page), []);
+    await page.keyboard.press('Enter');
+    release();
+    await row(page, 7002).waitFor();
+    assert.equal(await enterOpens(page), '/ticket.php?id=7002');
+  });
+
+  await test('a late answer for "#700" does not show once the box says "#7002"', async (t) => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const page = await palette(t);
+    await answering(page, async (q) => {
+      if (q === '#700') { await held; return [oldTicket(700)]; }
+      return q === '#7002' ? [oldTicket(7002)] : [];
+    });
+    const asked = page.waitForRequest(/q=%23700$/);
+    await search(page, '#700');
+    await asked;
+    await page.keyboard.press('2');
+    await row(page, 7002).waitFor();
+    const late = page.waitForResponse(/q=%23700$/);
+    release();
+    await late;
+    await page.waitForTimeout(300);
+    assert.deepEqual(await rows(page), ['#7002 Old ticket']);
+    assert.equal(await enterOpens(page), '/ticket.php?id=7002');
+  });
+
   await test('deep search results stay below local matches and skip local tickets', async (t) => {
     const page = await palette(t, [
       { id: 7, subject: 'Sign-in loop', status: 'open', client: 'Harbor Logistics' },
