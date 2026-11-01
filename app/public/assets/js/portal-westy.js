@@ -636,11 +636,14 @@
   bubble?.addEventListener('click',()=>panel.hidden?openPanel():closePanel());
   document.getElementById('portal-chat-close')?.addEventListener('click',closePanel);
   document.querySelectorAll('[data-portal-chat-prompt]').forEach(b=>b.addEventListener('click',()=>{if(panel.hidden)openPanel();input.value=b.dataset.portalChatPrompt;input.focus();}));
-  // Choosing Sign out skips the unsent-text prompt. The Companion's Windows web view has no prompt to show and just stays
-  // put, so with text in the composer Sign out would do nothing and the session would stay alive.
+  // Unsent text asks before the page is left, except on Sign out and in a Companion window. The Companion's Windows web
+  // view has script dialogs turned off: it never shows the prompt and just stays put, so with text in the composer every
+  // link, reload and Sign out would do nothing. The server marks a Companion session's sign-out form (portal_shell_start).
+  const signOutForm=document.querySelector('form[action="/portal/logout.php"]');
+  const companionWindow=signOutForm?.querySelector('input[name="window"]')?.value==='companion';
   let signingOut=false;
-  document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit',()=>{signingOut=true;});
-  window.addEventListener('beforeunload',event=>{if(!signingOut&&(editing||input.value.trim())){event.preventDefault();event.returnValue='';}});
+  signOutForm?.addEventListener('submit',()=>{signingOut=true;});
+  window.addEventListener('beforeunload',event=>{if(!companionWindow&&!signingOut&&(editing||input.value.trim())){event.preventDefault();event.returnValue='';}});
   // Browser storage never contains conversation text, identity or device receipts.
   window.addEventListener('pagehide',clearPrivate);
   window.addEventListener('pageshow',event=>{if(event.persisted){refresh();loadDevices();loadPreference();loadToolPreferences();}});
