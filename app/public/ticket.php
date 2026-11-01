@@ -65,7 +65,7 @@ if ($ticket) {
 if (!$ticket) {
     page_top($user, 'Not found', 'queue');
     echo '<div class="page"><div class="card empty"><p>Ticket #' . $id . ' drifted out of the harbor.</p><a class="link" href="/">← Back to queue</a></div></div>';
-    page_bottom();
+    page_bottom(palette_data());
     exit;
 }
 
