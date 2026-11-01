@@ -18,6 +18,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 
 $client = null;
 $failure = null;
+$foreign = false;
 try {
     portal_session_start();
     $client = portal_oidc_client();
@@ -31,9 +32,12 @@ try {
     if(isset($_SESSION[PORTAL_ACCESS_PENDING_KEY]))$destination='/portal/clients.php';
 } catch (Throwable $error) {
     $failure = $error;
-    portal_destroy_session();
+    // Any site can link here, and the link carries the Lax portal cookie. A callback without this browser's own state
+    // is not its sign-in, so it leaves the session, and any sign-in under way, as they were.
+    $foreign = portal_callback_is_foreign($error);
+    if (! $foreign) portal_destroy_session();
 } finally {
-    if ($client !== null) $client->clearStateCookie();
+    if ($client !== null && ! $foreign) $client->clearStateCookie();
 }
 
 if ($failure !== null) {

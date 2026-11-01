@@ -1031,11 +1031,15 @@
     if (selEl) selEl.scrollIntoView({ block: "nearest" });
   }
 
+  // A page without a palette (the sign-in page) never counts one as open: an open palette owns Enter and the arrows.
+  const paletteRoot = () => $("#palette-root");
+
   function openPalette() {
     if (paletteOpen) return;
+    const root = paletteRoot();
+    if (!root) return;
     paletteOpen = true;
     palIndex = 0;
-    const root = $("#palette-root");
     root.innerHTML = `
       <div class="palette-overlay">
         <div class="palette" role="dialog" aria-label="Command palette">
@@ -1096,7 +1100,8 @@
 
     if (helpOpen && key === "escape") { e.preventDefault(); toggleHelp(); return; }
 
-    if (mod && key === "k") { e.preventDefault(); paletteOpen ? closePalette() : openPalette(); return; }
+    // Where there is no palette the shortcut is left to the browser.
+    if (mod && key === "k") { if (!paletteRoot()) return; e.preventDefault(); paletteOpen ? closePalette() : openPalette(); return; }
 
     // Ctrl/Cmd+Enter sends the reply (works on any page where the box exists)
     if (mod && key === "enter") {

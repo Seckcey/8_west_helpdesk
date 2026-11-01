@@ -563,6 +563,37 @@ function portal_central_logout_url(): string
     return portal_configured_issuer() . '/logout.php';
 }
 
+/** A callback with no state, or not the state this browser's own sign-in is waiting for, did not come from that sign-in. */
+function portal_callback_is_foreign(Throwable $error): bool
+{
+    return $error instanceof EightWestIdPolicyException && $error->reason() === 'state_mismatch';
+}
+
+/**
+ * Whether the portal session this request's cookie names is still signed in: a live identity, or a sign-in still
+ * choosing its customer. Read without keeping a session of its own: no cookie is sent and no session data is saved,
+ * whatever the cookie holds. For a page that must never set a cookie.
+ */
+function portal_peek_signed_in(): bool
+{
+    $id = $_COOKIE[PORTAL_SESSION_NAME] ?? null;
+    if (! is_string($id) || preg_match('/\A[A-Za-z0-9,-]{22,256}\z/D', $id) !== 1
+        || session_status() !== PHP_SESSION_NONE || headers_sent()) {
+        return false;
+    }
+    ini_set('session.use_cookies', '0');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_strict_mode', '1');
+    session_name(PORTAL_SESSION_NAME);
+    session_id($id);
+    if (! session_start(['read_and_close' => true, 'cache_limiter' => ''])) return false;
+    $pending = $_SESSION[PORTAL_ACCESS_PENDING_KEY] ?? null;
+    $signedIn = portal_local_identity() !== null
+        || (is_array($pending) && is_int($pending['expires_at'] ?? null) && $pending['expires_at'] > time());
+    $_SESSION = [];
+    return $signedIn;
+}
+
 function portal_callback_failure_reason(Throwable $error): string
 {
     if ($error instanceof EightWestIdPolicyException) return $error->reason();
