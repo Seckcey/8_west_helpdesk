@@ -563,6 +563,36 @@ function portal_central_logout_url(): string
     return portal_configured_issuer() . '/logout.php';
 }
 
+/** A callback with no state, or not the state this browser's own sign-in is waiting for, did not come from that sign-in. */
+function portal_callback_is_foreign(Throwable $error): bool
+{
+    return $error instanceof EightWestIdPolicyException && $error->reason() === 'state_mismatch';
+}
+
+/**
+ * The live identity in the portal session this request's cookie names, read without starting a session of its own:
+ * nothing is written and no cookie is sent, whatever the cookie holds. For a page that must never set a cookie.
+ *
+ * @return array<string,mixed>|null
+ */
+function portal_peek_local_identity(): ?array
+{
+    $id = $_COOKIE[PORTAL_SESSION_NAME] ?? null;
+    if (! is_string($id) || preg_match('/\A[A-Za-z0-9,-]{22,256}\z/D', $id) !== 1
+        || session_status() !== PHP_SESSION_NONE || headers_sent()) {
+        return null;
+    }
+    ini_set('session.use_cookies', '0');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_strict_mode', '1');
+    session_name(PORTAL_SESSION_NAME);
+    session_id($id);
+    if (! session_start(['read_and_close' => true, 'cache_limiter' => ''])) return null;
+    $identity = portal_local_identity();
+    $_SESSION = [];
+    return $identity;
+}
+
 function portal_callback_failure_reason(Throwable $error): string
 {
     if ($error instanceof EightWestIdPolicyException) return $error->reason();

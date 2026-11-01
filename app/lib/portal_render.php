@@ -191,6 +191,29 @@ function portal_render_signed_out(bool $connectionOpen): void
     portal_page_end();
 }
 
+/** The signed-out page's answer to a browser that is still signed in. It names nobody, like the page it stands in for. */
+function portal_render_still_signed_in(): void
+{
+    $brand = portal_branding();
+    portal_page_start('Still signed in', 'login-body');
+    ?>
+<main class="login-wrap">
+  <header class="login-head">
+    <img class="suite-login-logo" src="<?= portal_h($brand['logo']) ?>" alt="<?= portal_h($brand['alt']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>">
+    <h1 class="login-name"><?= portal_h($brand['name']) ?></h1>
+  </header>
+  <section class="card login-card" aria-labelledby="portal-still-signed-in-heading">
+    <h2 id="portal-still-signed-in-heading" class="page-title">You’re still signed in</h2>
+    <div class="login-form">
+      <p class="page-sub" role="status">Opening this page didn’t end your sign-in, and nothing in your account has changed.</p>
+      <a class="btn-ghost" href="/portal/">Go to the customer portal</a>
+    </div>
+  </section>
+</main>
+    <?php
+    portal_page_end();
+}
+
 function portal_status_label(string $status): string
 {
     return match ($status) {

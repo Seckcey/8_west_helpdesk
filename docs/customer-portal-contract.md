@@ -400,7 +400,11 @@ The confidential authorization-code flow is the maintained `oidc_v1` contract:
 - authorization `/oauth/authorize.php`, token `/oauth/token.php`, and
   client-authenticated revocation inventory `/oauth/revocations.php`;
 - exact registered HTTPS callback, PKCE S256, transaction state + nonce,
-  `client_secret_basic`, RS256, and scopes `openid profile email`;
+  `client_secret_basic`, RS256, and scopes `openid profile email`. A callback
+  that fails after its state matched this browser's state cookie ends the local
+  session. One with no state or another state (any site can link to the
+  callback, and the link carries the Lax portal cookie) changes nothing: the
+  session and any sign-in under way are left as they were;
 - exact product entitlement `safeharbor` and role contract `suite_roles_v1`;
 - exact accepted application roles `client_owner`, `client_admin`,
   `client_staff`, and `client_viewer`; and

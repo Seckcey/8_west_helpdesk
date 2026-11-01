@@ -79,6 +79,12 @@ double-click's second post, lands on the same page and makes no claim about the
 connection. Choosing Sign out also skips the unsent-text prompt, which the Windows
 web view cannot show.
 
+Any site can put the signed-out page on screen, with a link or with a forged post
+carrying `window=companion`, which ends nothing because the portal cookie does not
+come with it. The page reads the session its cookie names without starting one or
+sending a cookie, and while that session still has a live identity it says the
+customer is still signed in and links to the portal instead.
+
 A browser that opens a pairing's address while signed in also counts as a Companion
 window. Its Sign out does not reach 8 West ID, so that browser has to sign out again
 from the portal, where the marker has gone. This is rare, and a window that wrongly

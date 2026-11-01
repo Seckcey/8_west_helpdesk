@@ -17,4 +17,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 }
 
 // Starts no session: the page says nothing about who is looking, and what follows a sign-out must not set a cookie.
+// Any site can send a browser here, by a link or by a forged Companion sign-out that ends nothing, and the GET carries
+// the Lax portal cookie. So the page only says "signed out" once the session that cookie names has no live identity.
+if (portal_peek_local_identity() !== null) {
+    portal_render_still_signed_in();
+    exit;
+}
 portal_render_signed_out(($_GET['connection'] ?? null) === 'open');
