@@ -939,6 +939,7 @@
     ];
     const tickets = data.tickets.map((t) => ({
       group: "Tickets",
+      ticketId: t.id,
       title: `#${t.id} ${t.subject}`,
       hint: t.client,
       run: () => nav(`/ticket.php?id=${t.id}`),
@@ -956,10 +957,11 @@
       .filter((x) => x.score !== null)
       .sort((a, b) => a.score - b.score)
       .map((x) => x.item);
-    // Server results (bodies + resolved) ride below — already matched server-side
-    const localIds = new Set(data.tickets.map((t) => t.id));
+    // Server results (bodies + resolved) ride below, already matched server-side. Only tickets the local filter
+    // showed are left out: a local ticket found by a word in its messages has no other row.
+    const shownIds = new Set(filtered.filter((item) => item.ticketId !== undefined).map((item) => item.ticketId));
     const deep = serverResults
-      .filter((r) => !localIds.has(r.id))
+      .filter((r) => !shownIds.has(r.id))
       .map((r) => ({
         group: "All tickets (deep search)",
         title: `#${r.id} ${r.subject}`,

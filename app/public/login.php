@@ -104,7 +104,7 @@ header('Content-Type: text/html; charset=utf-8');
     by 8 West IT, LLC · Part of the 8 West IT Total Business Suite
   </p>
   <p class="login-foot">Your appearance follows your global 8 West ID settings after sign-in.</p>
-<script src="/assets/js/app.js?v=w365v040j" defer></script>
+<script src="/assets/js/app.js?v=w365v040k" defer></script>
 </div>
 </body>
 </html>
