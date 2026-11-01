@@ -85,7 +85,8 @@ function westy_chat_system_prompt(): string
          . 'New advice, computer work and purchases still need separate authority. Staff edits or changed permissions stop that email delegation. '
          . 'SEARCH: the Ctrl+K palette fuzzy-finds open tickets, clients, and actions instantly, and for '
          . 'queries of 3+ characters it ALSO deep-searches every message body including resolved tickets '
-         . '("All tickets" group). '
+         . '("All tickets" group). A ticket number, with or without the #, finds that exact ticket at any length, '
+         . 'open or resolved; a ticket outside the instant list appears below the instant matches. '
          . 'NEW TICKET: pick the client (the currently effective policy version is captured once — '
          . 'Premium v1 is 2 elapsed hours and Standard v1 is 8), optional contact, subject, priority, '
          . 'channel, and an optional initial technician response that counts as the first response. '
@@ -204,7 +205,7 @@ function westy_bubble_render(): void
     </form>
   </section>
 </div>
-<script src="/assets/js/westy.js?v=1" defer></script>
+<script src="/assets/js/westy.js?v=2" defer></script>
 <?php /* Shared suite layout: drag + resize, served live from the Westy package
          so a fix reaches every 8 West IT 365 app without a deploy here. It
          loads its own stylesheet, so this is one tag and not two.

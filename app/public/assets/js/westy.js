@@ -356,11 +356,11 @@
   restore();
 
   /* Signing out must not leave a transcript for the next person at this
-   * machine. Capture phase, so it still runs when the click lands on a child
-   * of the link and before the navigation. */
-  document.addEventListener('click', function (ev) {
+   * machine. Every way of signing out is a form post (account menu, ⌘K, the
+   * sign-out page), so watch the submit. Capture phase, so it runs before the post. */
+  document.addEventListener('submit', function (ev) {
     var t = ev.target;
-    if (t && t.closest && t.closest('a[href*="logout"]')) {
+    if (t && t.matches && t.matches('form[action="/logout.php"]')) {
       try { sessionStorage.removeItem(STORE); } catch (e) {}
     }
   }, true);

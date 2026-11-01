@@ -118,18 +118,36 @@ jobs:
       SAFEHARBOR_CENTRAL_TEST_PORT: 3306
       SAFEHARBOR_CENTRAL_TEST_USER: root
       SAFEHARBOR_CENTRAL_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_TICKET_SEARCH_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_TICKET_SEARCH_TEST_DB: safeharbor_ticket_search_test
+      SAFEHARBOR_TICKET_SEARCH_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_TICKET_SEARCH_TEST_PORT: 3306
+      SAFEHARBOR_TICKET_SEARCH_TEST_USER: root
+      SAFEHARBOR_TICKET_SEARCH_TEST_PASS: safeharbor-test-root
       SAFEHARBOR_TICKET_DELETE_TEST_DISPOSABLE_SERVER: '1'
       SAFEHARBOR_TICKET_DELETE_TEST_DB: safeharbor_ticket_delete_test
       SAFEHARBOR_TICKET_DELETE_TEST_HOST: 127.0.0.1
       SAFEHARBOR_TICKET_DELETE_TEST_PORT: 3306
       SAFEHARBOR_TICKET_DELETE_TEST_USER: root
       SAFEHARBOR_TICKET_DELETE_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_CROSS_SITE_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_CROSS_SITE_TEST_DB: safeharbor_cross_site_test
+      SAFEHARBOR_CROSS_SITE_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_CROSS_SITE_TEST_PORT: 3306
+      SAFEHARBOR_CROSS_SITE_TEST_USER: root
+      SAFEHARBOR_CROSS_SITE_TEST_PASS: safeharbor-test-root
       SAFEHARBOR_CSRF_TEST_DISPOSABLE_SERVER: '1'
       SAFEHARBOR_CSRF_TEST_DB: safeharbor_csrf_test
       SAFEHARBOR_CSRF_TEST_HOST: 127.0.0.1
       SAFEHARBOR_CSRF_TEST_PORT: 3306
       SAFEHARBOR_CSRF_TEST_USER: root
       SAFEHARBOR_CSRF_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_LOGOUT_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_LOGOUT_TEST_DB: safeharbor_logout_test
+      SAFEHARBOR_LOGOUT_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_LOGOUT_TEST_PORT: 3306
+      SAFEHARBOR_LOGOUT_TEST_USER: root
+      SAFEHARBOR_LOGOUT_TEST_PASS: safeharbor-test-root
     steps:
       - uses: actions/checkout@v4
 
@@ -158,6 +176,7 @@ jobs:
       - name: Tests without a settings file
         run: |
           php app/tests/suite_auth_policy_test.php
+          php app/tests/session_cookie_policy_test.php
           php app/tests/suite_chrome_test.php
           php app/tests/suite_revocation_test.php
           php app/tests/private_file_cache_test.php
@@ -236,6 +255,7 @@ jobs:
           SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_mobile php app/tests/portal_mobile_mysql_test.php
           php app/tests/portal_mysql_test.php
           php app/tests/portal_requester_http_test.php
+          php app/tests/portal_companion_signout_http_test.php
           php app/tests/csat_http_test.php
           php app/tests/time_entries_mysql_test.php
           php app/tests/time_corrections_mysql_test.php
@@ -250,9 +270,12 @@ jobs:
           php app/tests/managed_customer_activation_mysql_test.php
           php app/tests/managed_customer_lifecycle_mysql_test.php
           php app/tests/central_issues_mysql_test.php
+          php app/tests/ticket_search_http_test.php
           php app/tests/ticket_delete_mysql_test.php
           php app/tests/ticket_bulk_delete_http_test.php
+          php app/tests/cross_site_session_http_test.php
           php app/tests/csrf_http_test.php
+          php app/tests/staff_logout_http_test.php
 
       # These run as the web server's user, the way the runtime does, from a copy it can read.
       - name: Westy tests as the web user
@@ -314,8 +337,12 @@ jobs:
           node tools/shots/portal-signout.test.mjs
           node tools/shots/client-shared-directory.test.mjs
           node tools/shots/destructive-confirm.test.mjs
+          node tools/shots/cross-site-session.test.mjs
           node tools/shots/suite-settings.test.mjs
+          node tools/shots/staff-signout.test.mjs
+          node tools/shots/westy-session.test.mjs
           node tools/shots/portal-reply-actions.test.mjs
+          node tools/shots/companion-signout.test.mjs
           node tools/shots/westy-workflow-contract.test.mjs
           node tools/shots/ticket-bulk-delete-contract.test.mjs
           node tools/shots/palette-search.test.mjs

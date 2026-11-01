@@ -18,6 +18,7 @@ require_once __DIR__ . '/suite_roles.php';
 require_once __DIR__ . '/suite_preferences.php';
 require_once __DIR__ . '/settings_context.php';
 require_once __DIR__ . '/suite_revocation_policy.php';
+require_once __DIR__ . '/session_cookie_policy.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_set_cookie_params([
@@ -25,6 +26,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
         'samesite' => 'Lax',
         'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
     ]);
+    session_withhold_cookie_from_cross_site_post();
     session_start();
 }
 
@@ -140,15 +142,15 @@ function suite_sso_refresh_claims(?string $expectedSubject = null): void
     unset($_SESSION['suite_avatar_email']);
 }
 
-/** The signed-in user, or redirect to /login.php. */
-function require_login(): array
+/** The signed-in user, or redirect to /login.php, which comes back to $next (by default, this address). */
+function require_login(?string $next = null): array
 {
     $user = current_user();
     if (!$user && suite_sso_attempt()) {
         $user = current_user();
     }
     if (!$user) {
-        $next = $_SERVER['REQUEST_URI'] ?? '/';
+        $next ??= $_SERVER['REQUEST_URI'] ?? '/';
         header('Location: /login.php?next=' . urlencode($next));
         exit;
     }
@@ -399,16 +401,22 @@ function csrf_field(): string
 }
 
 /**
- * Verify a POSTed token (form field or X-CSRF header); 419 + exit on miss.
+ * Does this request carry the session's token (form field or X-CSRF header)?
  *
  * Both sides must be non-empty strings. hash_equals('', '') is true, and a session can hold no token
  * (one that never rendered a page, or a first-time visitor's), so an empty token is never a match.
  */
-function csrf_check(): void
+function csrf_valid(): bool
 {
     $expected = $_SESSION['csrf'] ?? '';
     $sent = $_POST['csrf'] ?? ($_SERVER['HTTP_X_CSRF'] ?? '');
-    if (!is_string($expected) || $expected === '' || !is_string($sent) || $sent === '' || !hash_equals($expected, $sent)) {
+    return is_string($expected) && $expected !== '' && is_string($sent) && $sent !== '' && hash_equals($expected, $sent);
+}
+
+/** Verify a POSTed token; 419 + exit on miss. */
+function csrf_check(): void
+{
+    if (!csrf_valid()) {
         http_response_code(419);
         exit('Session expired — go back and try again.');
     }

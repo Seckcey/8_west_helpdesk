@@ -68,6 +68,9 @@ lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            the tenant and user on first arrival, refreshes the
                            database-resolved tenant session, syncs theme/avatar,
                            and audits every deny via suite_sso_refuse()
+lib/session_cookie_policy.php
+                           no session cookie for a POST from another site, so it
+                           can't replace the real one (staff and portal sessions)
 lib/revocation.php         signed 8 West ID revocation-list enforcement for
                            established suite sessions (60s cache; logged,
                            bounded fail-open when the issuer is unavailable)
@@ -144,7 +147,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   snippets.php             Saved replies ("/" in the composer; merge fields)
   csat.php                 Resolution survey; Send records (token-authed, public)
   attachment.php           Forced-download attachment serving
-  login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
+  login.php, logout.php    Session auth (CSRF-protected like all forms/APIs;
+                           signing out takes a post, never a plain link)
   portal/                  Default-off customer OIDC surface: tenant-scoped help
                            dashboard, ticket create/detail/reply, verified
                            weekly archives + safe logout
@@ -154,7 +158,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   api/westy_chat.php       Westy chat (advise-only; rate-limited via assistant_log)
   api/westy_onboard.php    Marks the first-run welcome as done (users.onboarded_at)
   api/presence.php         Collision-detection heartbeat (viewing/typing chips)
-  api/search.php           Deep search (subjects + FULLTEXT bodies, resolved incl.)
+  api/search.php           Deep search (ticket numbers + subjects + FULLTEXT
+                           bodies, resolved incl.)
   api/ticket_merge.php     Merge a ticket into a survivor (stub left behind)
   api/svc/alerts.php       Signed Milepost alert intake — live; 404s only while
                            the svc.enabled kill switch is false
@@ -188,7 +193,7 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `s` status · `p` priority · `a` assign · `e` timer · `r` reply ·
   `n` internal note · `/` saved replies · `g q/t/c` navigate ·
   `⌘K` palette (3+ chars = deep search over message bodies, resolved
-  included) · `?` shortcut card.
+  included; a ticket's number finds it at any length) · `?` shortcut card.
 - Composer: Reply/Internal note tabs on one box (notes never email, never
   change status); `/` inserts saved replies with merge fields resolved
   ({contact.first_name} {client.name} {ticket.id} {tech.first_name});
@@ -260,6 +265,10 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `X-CSRF` header (helpers in lib/auth.php). An empty token never matches,
   even in a session that holds none, and signing in (8 West ID or password)
   starts a fresh token, so one issued before sign-in stops working.
+- Session cookies: a POST from another site gets no session cookie back, so it
+  can't replace the one the browser holds. It arrives without that SameSite=Lax
+  cookie; lib/session_cookie_policy.php tells it by `Sec-Fetch-Site`, or by
+  `Origin` where that is missing. Staff and portal sessions both use it.
 - Customer portal: independent from staff auth and dark unless the host sets
   `portal.enabled=true`. It admits only exact `client_*` roles carrying the
   `safeharbor` entitlement, resolves a normalized identity tenant slug only

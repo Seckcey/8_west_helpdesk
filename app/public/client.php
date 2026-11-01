@@ -22,7 +22,7 @@ if (!$client) {
     if ($supportTarget) http_response_code(404);
     page_top($user, 'Not found', 'clients');
     echo '<div class="page"><div class="card empty"><p>Unknown client.</p><a class="link" href="/clients.php">← All clients</a></div></div>';
-    page_bottom();
+    page_bottom(palette_data());
     exit;
 }
 

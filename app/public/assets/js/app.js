@@ -878,10 +878,15 @@
   let palIndex = 0;
   let palItems = [];
 
+  // A page can leave out either list, or hand over nothing usable: the rest of the palette still works.
   function paletteData() {
     const el = $("#palette-data");
-    if (!el) return { tickets: [], clients: [] };
-    try { return JSON.parse(el.textContent); } catch { return { tickets: [], clients: [] }; }
+    let data = null;
+    if (el) { try { data = JSON.parse(el.textContent); } catch { /* no lists to offer */ } }
+    return {
+      tickets: Array.isArray(data?.tickets) ? data.tickets : [],
+      clients: Array.isArray(data?.clients) ? data.clients : [],
+    };
   }
 
   // Lower scores rank first and null means no match: the prefix bonus takes a real match below zero.
@@ -902,8 +907,11 @@
   let serverTimer = null;
   function scheduleServerSearch(q) {
     if (serverTimer) clearTimeout(serverTimer);
+    // Rows belong to the query that found them: "#700"'s must not open on "#7002".
+    serverResults = [];
     q = q.trim();
-    if (q.length < 3) { serverResults = []; return; }
+    // Text needs 3 characters; a ticket's number can be shorter.
+    if (q.length < 3 && !/^#?[1-9]\d*$/.test(q)) return;
     serverTimer = setTimeout(async () => {
       try {
         const res = await fetch("/api/search.php?q=" + encodeURIComponent(q), { credentials: "same-origin" });
@@ -927,7 +935,7 @@
       { group: "Actions", title: "Go to Service goals", hint: "g s", run: () => nav("/service_goals.php") },
       { group: "Actions", title: "Go to Team", run: () => nav("/users.php") },
       { group: "Actions", title: "Saved replies", hint: "manage / snippets", run: () => nav("/snippets.php") },
-      { group: "Actions", title: "Sign out", run: () => nav("/logout.php") },
+      { group: "Actions", title: "Sign out", run: signOut },
     ];
     const tickets = data.tickets.map((t) => ({
       group: "Tickets",
@@ -964,6 +972,23 @@
   function nav(url) {
     closePalette();
     window.location.href = url;
+  }
+
+  /* Signing out takes a post with the page's token, like the account menu's button. requestSubmit
+     fires the submit event, which is how Westy knows to clear its transcript. */
+  function signOut() {
+    closePalette();
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/logout.php";
+    form.hidden = true;
+    const token = document.createElement("input");
+    token.type = "hidden";
+    token.name = "csrf";
+    token.value = document.body.dataset.csrf || "";
+    form.appendChild(token);
+    document.body.appendChild(form);
+    form.requestSubmit();
   }
 
   function renderPaletteList(query) {

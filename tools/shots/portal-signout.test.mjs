@@ -187,6 +187,23 @@ try {
     assert.equal(await localCookie(), true);
     assert.equal(existsSync(sessionFile), true);
   });
+
+  // With no token to check, a forged post reaches 8 West ID as a plain link to its /logout.php can. It costs nothing here.
+  await test('a post from another site leaves the portal session alone', async (t) => {
+    const { context, page, sessionFile, localCookie } = await signedInPage(t);
+    const session = async () => (await context.cookies(`${APP}/portal/`)).find((cookie) => cookie.name === 'safeharbor_portal')?.value;
+    const before = await session();
+    await page.route('http://forged.example/', (route) => route.fulfill({
+      contentType: 'text/html',
+      body: `<!doctype html><form method="post" action="${LOGOUT}"></form><script>document.forms[0].submit()</script>`,
+    }));
+    await page.goto('http://forged.example/', { waitUntil: 'commit' });
+    await page.waitForURL(`${ISSUER}/login.php`, { timeout: 10000 });
+    assert.equal(logouts.length, 1);
+    assert.equal(await localCookie(), true);
+    assert.equal(await session(), before, 'the browser kept its portal cookie');
+    assert.match(readFileSync(sessionFile, 'utf8'), /Synthetic Customer/, 'the session on the server is still the customer\'s');
+  });
 } finally {
   await browser?.close();
   server?.kill();

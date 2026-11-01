@@ -90,4 +90,4 @@ page_top($user,'Westy advice email','queue');
  <?php endforeach; ?>
  <?php endif; ?>
 </div>
-<?php page_bottom(); ?>
+<?php page_bottom(palette_data()); ?>

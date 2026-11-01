@@ -17,6 +17,24 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 }
 
 portal_session_start();
+// A Companion window never signed in at 8 West ID and its shell will not leave this origin, so a redirect there leaves
+// the private page on screen. Its sign-out ends here, on a page it can show. The token protects a live session. A post
+// with none (a double-click's second post, whose session and marker have gone) has nothing left to end from here, so
+// the form's field brings it to the same page, which then makes no claim about the connection.
+$paired = isset($_SESSION['desktop_companion_session']);
+if (($paired || ($_POST['window'] ?? null) === 'companion')
+    && (portal_local_identity() === null || portal_csrf_valid($_POST['csrf'] ?? null))) {
+    $ended = false;
+    if ($paired) {
+        require_once __DIR__ . '/../../lib/portal_desktop_sessions.php';
+        $ended = portal_desktop_sign_out();
+    }
+    portal_destroy_session();
+    header('Cache-Control: no-store');
+    header('Location: /portal/signed-out.php' . ($ended ? '' : '?connection=open'), true, 302);
+    exit;
+}
+
 // The token protects a signed-in customer from a forged sign-out. With nobody signed in here, a double-click's second
 // post or a tab left open must still reach 8 West ID, whose /logout.php takes no token, or the customer stays signed in there.
 if (portal_local_identity() !== null && ! portal_csrf_valid($_POST['csrf'] ?? null)) {
