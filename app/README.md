@@ -68,6 +68,9 @@ lib/auth.php               session auth (bcrypt + CSRF) and 8 West ID suite SSO:
                            the tenant and user on first arrival, refreshes the
                            database-resolved tenant session, syncs theme/avatar,
                            and audits every deny via suite_sso_refuse()
+lib/session_cookie_policy.php
+                           no session cookie for a POST from another site, so it
+                           can't replace the real one (staff and portal sessions)
 lib/revocation.php         signed 8 West ID revocation-list enforcement for
                            established suite sessions (60s cache; logged,
                            bounded fail-open when the issuer is unavailable)
@@ -261,6 +264,10 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `X-CSRF` header (helpers in lib/auth.php). An empty token never matches,
   even in a session that holds none, and signing in (8 West ID or password)
   starts a fresh token, so one issued before sign-in stops working.
+- Session cookies: a POST from another site gets no session cookie back, so it
+  can't replace the one the browser holds. It arrives without that SameSite=Lax
+  cookie; lib/session_cookie_policy.php tells it by `Sec-Fetch-Site`, or by
+  `Origin` where that is missing. Staff and portal sessions both use it.
 - Customer portal: independent from staff auth and dark unless the host sets
   `portal.enabled=true`. It admits only exact `client_*` roles carrying the
   `safeharbor` entitlement, resolves a normalized identity tenant slug only

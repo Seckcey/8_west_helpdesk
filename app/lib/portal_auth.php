@@ -12,6 +12,7 @@ require_once __DIR__ . '/eightwestid/eightwestid.php';
 require_once __DIR__ . '/portal_data.php';
 require_once __DIR__ . '/portal_access.php';
 require_once __DIR__ . '/portal_preferences.php';
+require_once __DIR__ . '/session_cookie_policy.php';
 
 use EightWest\Id\Client as EightWestIdClient;
 use EightWest\Id\ConfigurationException as EightWestIdConfigurationException;
@@ -226,12 +227,16 @@ function portal_session_start(): void
     ini_set('session.use_only_cookies', '1');
     ini_set('session.use_strict_mode', '1');
     session_name(PORTAL_SESSION_NAME);
-    session_set_cookie_params([
-        'path' => '/portal',
-        'secure' => $cookieSecure,
-        'httponly' => true,
-        'samesite' => 'Lax',
-    ]);
+    // PHP warns about these once cookies are off, and they stay off if this session starts again in the same request.
+    if (ini_get('session.use_cookies')) {
+        session_set_cookie_params([
+            'path' => '/portal',
+            'secure' => $cookieSecure,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    }
+    session_withhold_cookie_from_cross_site_post();
     if (! session_start()) {
         throw new PortalAuthException('The customer portal session could not be started.');
     }

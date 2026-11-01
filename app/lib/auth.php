@@ -18,6 +18,7 @@ require_once __DIR__ . '/suite_roles.php';
 require_once __DIR__ . '/suite_preferences.php';
 require_once __DIR__ . '/settings_context.php';
 require_once __DIR__ . '/suite_revocation_policy.php';
+require_once __DIR__ . '/session_cookie_policy.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_set_cookie_params([
@@ -25,6 +26,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
         'samesite' => 'Lax',
         'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
     ]);
+    session_withhold_cookie_from_cross_site_post();
     session_start();
 }
 

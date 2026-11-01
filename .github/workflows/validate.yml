@@ -124,6 +124,12 @@ jobs:
       SAFEHARBOR_TICKET_DELETE_TEST_PORT: 3306
       SAFEHARBOR_TICKET_DELETE_TEST_USER: root
       SAFEHARBOR_TICKET_DELETE_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_CROSS_SITE_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_CROSS_SITE_TEST_DB: safeharbor_cross_site_test
+      SAFEHARBOR_CROSS_SITE_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_CROSS_SITE_TEST_PORT: 3306
+      SAFEHARBOR_CROSS_SITE_TEST_USER: root
+      SAFEHARBOR_CROSS_SITE_TEST_PASS: safeharbor-test-root
       SAFEHARBOR_CSRF_TEST_DISPOSABLE_SERVER: '1'
       SAFEHARBOR_CSRF_TEST_DB: safeharbor_csrf_test
       SAFEHARBOR_CSRF_TEST_HOST: 127.0.0.1
@@ -164,6 +170,7 @@ jobs:
       - name: Tests without a settings file
         run: |
           php app/tests/suite_auth_policy_test.php
+          php app/tests/session_cookie_policy_test.php
           php app/tests/suite_chrome_test.php
           php app/tests/suite_revocation_test.php
           php app/tests/private_file_cache_test.php
@@ -259,6 +266,7 @@ jobs:
           php app/tests/central_issues_mysql_test.php
           php app/tests/ticket_delete_mysql_test.php
           php app/tests/ticket_bulk_delete_http_test.php
+          php app/tests/cross_site_session_http_test.php
           php app/tests/csrf_http_test.php
           php app/tests/staff_logout_http_test.php
 
@@ -321,6 +329,7 @@ jobs:
           node tools/shots/portal-settings.test.mjs
           node tools/shots/client-shared-directory.test.mjs
           node tools/shots/destructive-confirm.test.mjs
+          node tools/shots/cross-site-session.test.mjs
           node tools/shots/suite-settings.test.mjs
           node tools/shots/staff-signout.test.mjs
           node tools/shots/westy-session.test.mjs
