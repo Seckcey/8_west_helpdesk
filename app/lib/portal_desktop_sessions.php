@@ -149,11 +149,10 @@ function portal_desktop_attach(PDO $pdo,array $context,string $pair,?callable $b
 function portal_desktop_sign_out(?callable $transport=null):bool
 {
     try{
-        $pair=$_SESSION['desktop_companion_session']??null;
-        if(!portal_desktop_id($pair))return false;
-        $context=portal_authenticated_context(db());
-        if($context===null)return false;
-        $state=portal_desktop_request($context,'sign_out',['session_id'=>$pair],$transport);
+        $pair=$_SESSION['desktop_companion_session']??null;$identity=portal_local_identity();
+        if(!portal_desktop_id($pair)||$identity===null)return false;
+        // Milepost rechecks the person itself, so a slow issuer feed cannot hold up signing out.
+        $state=portal_desktop_request(['identity'=>$identity],'sign_out',['session_id'=>$pair],$transport);
         return in_array($state['state']??null,['revoked','expired'],true);
     }catch(Throwable $error){
         error_log('[safeharbor-portal] companion_sign_out_unconfirmed reason='.($error instanceof PortalDesktopException?$error->reason:$error::class));

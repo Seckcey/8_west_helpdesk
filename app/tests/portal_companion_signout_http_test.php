@@ -32,8 +32,18 @@ $app = realpath(__DIR__.'/..');
 $copyTree($app.'/lib',$runtime.'/lib');
 $copyTree($app.'/public/assets',$runtime.'/public/assets');
 foreach (['index.php','logout.php','signed-out.php'] as $route) copy($app.'/public/portal/'.$route,$runtime.'/public/portal/'.$route);
-// No desktop_companion block: Milepost is out of reach, so every request stops before any network call.
+// Only this disposable copy answers for Milepost, from a file each case writes. Nothing reaches the live service.
+$askedFile=$runtime.'/milepost-asked.json'; $answerFile=$runtime.'/milepost-answer.json';
+$desktop=file_get_contents($runtime.'/lib/portal_westy_desktop.php');
+$replaced=str_replace('function portal_desktop_transport(','function portal_desktop_transport_replaced(',$desktop,$seams);
+if($seams!==1)throw new RuntimeException('Milepost transport seam unavailable');
+file_put_contents($runtime.'/lib/portal_westy_desktop.php',$replaced."\nfunction portal_desktop_transport(string \$body,array \$headers):array{file_put_contents("
+    .var_export($askedFile,true).",\$body);return json_decode(file_get_contents(".var_export($answerFile,true)."),true,8,JSON_THROW_ON_ERROR);}\n");
+$pdo->prepare('INSERT INTO suite_customer_sync_bindings(tenant_id,customer_id,client_id,source_version,display_name,status,last_event_id,last_occurred_at,last_request_sha256) VALUES(?,?,?,1,?,"active",?,?,?)')
+    ->execute([$identity['tenant_id'],sprintf('00000000-0000-4000-8000-%012d',$identity['client_id']),$identity['client_id'],$a['binding']['client_name'],
+        sprintf('00000000-0000-4000-8000-%012d',100+$identity['client_id']),gmdate('Y-m-d H:i:s'),str_repeat('a',64)]);
 $config = ['app_env'=>'dev','force_https'=>false,
+    'desktop_companion'=>['endpoint'=>'https://support.8westit.com/api/svc/desktop_sessions.php','service_secret'=>str_repeat('d',64)],
     'db'=>['host'=>$host,'port'=>(int)$port,'user'=>$user,'pass'=>$pass,'name'=>$database,'charset'=>'utf8mb4'],
     'portal'=>['enabled'=>true,'issuer'=>'https://id.example.test','client_id'=>'fixture','client_secret'=>str_repeat('x',48),
         'redirect_uri'=>'https://example.test/portal/callback.php','cookie_secure'=>false,'revocation_cache_dir'=>$runtime.'/cache']];
@@ -73,23 +83,46 @@ try {
     [$status,$body]=$http('/portal/?view=westy');
     $check($status===200 && str_contains($body,$name) && !str_contains($body,'name="window"'),'a browser session has the ordinary sign-out form');
     [$status,,$headers]=$http('/portal/logout.php',['csrf'=>$csrf]);
-    $check($status===302 && str_contains($headers,'Location: https://id.example.test/logout.php') && !is_file($sessionFile),'a browser session still hands off to 8 West ID');
+    $check($status===302 && str_contains($headers,'Location: https://id.example.test/logout.php') && !is_file($sessionFile) && !is_file($askedFile),'a browser session still hands off to 8 West ID and never asks Milepost');
 
     $pair=str_repeat('a',32);
+    $milepost=static function(int $status,array $reply) use ($answerFile,$askedFile): void {
+        @unlink($askedFile);clearstatcache();
+        file_put_contents($answerFile,json_encode(['status'=>$status,'body'=>json_encode($reply)]));
+    };
+    $reply=static fn(string $state): array => ['contract'=>'safeharbor-desktop-sessions-v1','ok'=>true,'result'=>['session_id'=>$pair,'state'=>$state]];
     $seed($pair);
     [$status,$body]=$http('/portal/?view=westy');
     $check($status===200 && str_contains($body,$name) && str_contains($body,'name="window" value="companion"'),'a Companion session marks its sign-out form');
+    $milepost(200,$reply('revoked'));
     [$status,$body]=$http('/portal/logout.php',['csrf'=>str_repeat('f',64),'window'=>'companion']);
-    $check($status===403 && is_file($sessionFile),'a wrong token signs nobody out of the window');
+    clearstatcache();
+    $check($status===403 && is_file($sessionFile) && !is_file($askedFile),'a wrong token signs nobody out of the window and asks Milepost nothing');
+    [$status,$body]=$http('/portal/logout.php',['window'=>'companion']);
+    clearstatcache();
+    $check($status===403 && is_file($sessionFile) && !is_file($askedFile),'the form field alone cannot end a live session');
     [$status,$body,$headers]=$http('/portal/logout.php',['csrf'=>$csrf,'window'=>'companion']);
-    $check($status===302 && str_contains($headers,'Location: /portal/signed-out.php?connection=open') && !str_contains($headers,'id.example.test'),
-        'Sign out stays on this origin, and says so when the connection could not be confirmed closed');
+    $check($status===302 && str_contains($headers,"Location: /portal/signed-out.php\r\n") && !str_contains($headers,'id.example.test'),'Milepost confirming the pairing ended lands on the plain signed-out page, on this origin');
+    $asked=json_decode((string)file_get_contents($askedFile),true);
+    $check(($asked['action']??null)==='sign_out' && ($asked['input']??null)===['session_id'=>$pair] && ($asked['scope']['subject']??null)===$identity['subject'],'Milepost was asked to end exactly this pairing for exactly this person');
     clearstatcache(); // The server process deleted the file this process last saw.
     $check(str_contains($headers,'safeharbor_portal=deleted') && str_contains($headers,'Cache-Control: no-store') && !is_file($sessionFile),'the window really is signed out');
     [$status,$body]=$http('/portal/?view=westy');
     $check(!str_contains($body,$name),'going back to the portal shows nothing private');
-    [$status,$body,$headers]=$http('/portal/logout.php',['csrf'=>$csrf,'window'=>'companion']);
-    $check(!str_contains($headers,'id.example.test') && !str_contains($body,$name),'a double-click\'s second post never tries to leave the window');
+    $milepost(200,$reply('revoked'));
+    [$status,$body,$headers]=$http('/portal/logout.php',['window'=>'companion']);
+    clearstatcache();
+    $check($status===302 && str_contains($headers,"Location: /portal/signed-out.php?connection=open\r\n") && !str_contains($body,$name) && !is_file($askedFile),
+        'a double-click\'s second post stays in the window, asks nothing and claims nothing about the connection');
+    foreach (['a Milepost without the action'=>[400,['ok'=>false,'reason'=>'unsupported_action']],'a pairing still open'=>[200,$reply('paired')],
+        'an unreadable answer'=>[200,['ok'=>true]]] as $case=>[$answerStatus,$answerBody]) {
+        $seed($pair);
+        $milepost($answerStatus,$answerBody);
+        [$status,$body,$headers]=$http('/portal/logout.php',['csrf'=>$csrf,'window'=>'companion']);
+        clearstatcache();
+        $check($status===302 && str_contains($headers,"Location: /portal/signed-out.php?connection=open\r\n") && str_contains($headers,'safeharbor_portal=deleted') && !is_file($sessionFile),
+            'with '.$case.' the person is still signed out and the page says it could not confirm');
+    }
 
     [$status,$body,$headers]=$http('/portal/signed-out.php');
     $check($status===200 && str_contains($body,'signed out of Westy') && str_contains($body,'no longer connected') && !str_contains($body,'could not confirm'),'the signed-out page says what ended');

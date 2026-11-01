@@ -117,6 +117,9 @@ hs_check(!portal_desktop_sign_out($signOutReply(200,['contract'=>PORTAL_DESKTOP_
 hs_check(!portal_desktop_sign_out($signOutReply(400,['ok'=>false,'reason'=>'unsupported_action'])),'a Milepost without the action is unconfirmed, not fatal');
 hs_check(!portal_desktop_sign_out(static function():array{throw new PortalDesktopException('connection_unknown');}),'a lost connection is unconfirmed, not fatal');
 hs_check(portal_local_identity()!==null,'none of that ends the session by itself: logout.php does, whatever the answer');
+unlink($cache.'/'.hash('sha256',"https://id.example.test/oauth/revocations.php\0handoff-fixture").'.json');$signOuts=[];
+hs_check(portal_desktop_sign_out($signOutReply(200,$ended))&&count($signOuts)===1,'an unavailable issuer feed cannot hold up signing out: Milepost rechecks the person');
+hs_feed();
 unset($_SESSION['desktop_companion_session']);$signOuts=[];
 hs_check(!portal_desktop_sign_out($signOutReply(200,$ended))&&$signOuts===[],'a session with no pairing sends nothing');
 $_SESSION['desktop_companion_session']=$pair;unset($_SESSION[PORTAL_SESSION_KEY]);
