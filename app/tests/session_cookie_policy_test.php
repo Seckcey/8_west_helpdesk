@@ -6,6 +6,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/session_cookie_policy.php';
+require_once __DIR__ . '/../lib/portal_auth.php';
 
 $here = 'safeharbor.test';
 $cases = [
@@ -49,6 +50,22 @@ foreach ($cases as $name => [$want, $method, $host, $fetchSite, $origin]) {
         static fn(?string $value): bool => $value !== null);
     if (session_request_is_cross_site_post($server) !== $want) $failures[] = $name . ': expected ' . ($want ? 'cross-site' : 'not cross-site');
 }
+
+// Withholding lasts the whole request, and the portal's session can start again after being destroyed in it.
+$_SERVER = ['REQUEST_METHOD' => 'POST', 'HTTP_HOST' => $here, 'HTTP_SEC_FETCH_SITE' => 'cross-site'];
+$_COOKIE = [];
+session_save_path(sys_get_temp_dir());
+set_error_handler(static function (int $level, string $message) use (&$failures): bool {
+    $failures[] = "starting the portal's session raised: $message";
+    return true;
+});
+portal_session_start();
+portal_destroy_session();
+portal_session_start();
+if (ini_get('session.use_cookies') !== '0') $failures[] = 'a cross-site post without its cookie should leave session cookies off';
+session_destroy();
+restore_error_handler();
+
 if ($failures !== []) {
     fwrite(STDERR, 'FAIL: ' . count($failures) . ' of ' . count($cases) . " cases\n" . implode("\n", $failures) . "\n");
     exit(1);

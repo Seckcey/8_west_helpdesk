@@ -7,9 +7,9 @@
  * navigation. The real one is gone: a password account is signed out, and an 8 West ID person is signed straight
  * back in with every open tab stale. Any website can do that to anybody.
  *
- * Such a request never needs the cookie. Anything a POST does needs a token from a session the browser already
- * holds, or proves itself some other way, and the GET after any redirect does carry the Lax cookie, so the
- * person simply carries on in their own session.
+ * Such a request never needs the cookie. It has no session of the person's to act in, so a page that checks a
+ * token refuses it, and the GET after any redirect does carry the Lax cookie, so the person simply carries on in
+ * their own session.
  */
 declare(strict_types=1);
 
@@ -30,9 +30,9 @@ function session_request_is_cross_site_post(array $server): bool
 }
 
 /**
- * Call just before session_start(), once the session's name is set. The session still runs, so nothing after it
- * needs to know, but it ends with the request: no cookie goes out, and the code that deletes a session's cookie
- * checks this same setting.
+ * Call just before session_start(), once the session's name and cookie settings are in place: PHP warns about
+ * setting them after this turns cookies off. The session still runs for this request, so the page carries on, but
+ * it ends there: no cookie goes out, and the code that deletes a session's cookie checks this same setting.
  */
 function session_withhold_cookie_from_cross_site_post(): void
 {

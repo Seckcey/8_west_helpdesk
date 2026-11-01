@@ -8,9 +8,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// A self-submitting form on another site, in a real browser with a real cookie jar, against the real sign-in
-// page and the real portal sign-out on PHP's built-in server. No database: neither needs one until somebody
-// has signed in. cross_site_session_http_test.php covers the other pages and signed-in people, header by header.
+// A self-submitting form on another site, in a real browser with a real cookie jar, against the real pages on
+// PHP's built-in server. No database: the sign-in page, the queue's redirect and portal/desktop.php's answer to a
+// bad post don't need one. cross_site_session_http_test.php covers the other pages and signed-in people, header by header.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const runtime = await mkdtemp(path.join(tmpdir(), 'safeharbor-cross-site-'));
 await cp(path.join(root, 'app/lib'), path.join(runtime, 'lib'), { recursive: true });
@@ -114,16 +114,28 @@ for (const [how, app, sent] of [
     assert.equal(await formToken(page), token, 'with the same token');
   });
 
+  test(`the redirect after a form on another site lands in the person's own session, told ${how}`, async (t) => {
+    const { context, page } = await fixture(t);
+    await page.goto(`${app}/login.php`);
+    const before = await session(context, app);
+    const token = await formToken(page);
+
+    const answer = page.waitForResponse((response) => response.url() === `${app}/` && response.request().method() === 'POST');
+    await page.goto(`${ELSEWHERE}/?to=${encodeURIComponent(`${app}/`)}`, { waitUntil: 'commit' });
+    assert.equal((await answer).status(), 302);
+    await page.waitForURL(`${app}/login.php?next=%2F`);
+    assert.equal(await session(context, app), before, 'the browser kept its session cookie');
+    assert.equal(await formToken(page), token, 'and the page after the redirect is in that session');
+  });
+
   test(`a form on another site leaves the portal cookie alone, told ${how}`, async (t) => {
     const { context, page } = await fixture(t);
     await page.goto(`${app}/login.php`);
-    const status = await page.evaluate(() => fetch('/portal/logout.php', { method: 'POST' }).then((r) => r.status));
+    await page.evaluate(() => fetch('/portal/desktop.php', { method: 'POST' }));
     const before = await portal(context, app);
-    assert.equal(status, 403);
     assert.ok(before, 'a first post from our own page started a portal session');
 
-    const response = await posted(page, ELSEWHERE, `${app}/portal/logout.php`);
-    assert.equal(response.status(), 403);
+    await posted(page, ELSEWHERE, `${app}/portal/desktop.php`);
     assert.equal(await portal(context, app), before, 'the browser kept its portal cookie');
   });
 }

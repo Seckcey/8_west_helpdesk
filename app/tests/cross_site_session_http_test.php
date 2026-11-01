@@ -148,7 +148,7 @@ try {
         $check($clean($r['body']), "and $page answers it without a PHP warning");
     }
     $r = $http('POST', '/', [], $forged, 'x=1');
-    $check($r['status'] === 302 && $r['location'] === '/login.php?next=%2F', 'the app answers it as it answers anybody not signed in, and the redirect will carry the real cookie');
+    $check($r['status'] === 302 && $r['location'] === '/login.php?next=%2F', 'the app answers it as it answers anybody not signed in');
     $check($http('POST', '/login.php', [], $forged, 'x=1')['status'] === 419, 'the sign-in form still refuses it for its missing token');
     $r = $http('GET', '/', $person);
     $check($r['status'] === 200 && $pageToken($r['body']) === $token && $r['sessions'] === [], 'the person\'s own session and token are as they were');
@@ -158,7 +158,7 @@ try {
     $check($r['status'] === 302 && $r['sessions'] === [], 'with no Sec-Fetch-Site, an Origin from another site sets no session cookie');
     $check($http('POST', '/', [], ['Origin: null'], 'x=1')['sessions'] === [], 'with no Sec-Fetch-Site, an Origin of null sets no session cookie');
 
-    // A first POST from anywhere else still gets its session, and that session carries on.
+    // A first POST from anywhere else still gets its session.
     foreach ([
         'our own page' => $own,
         'a sibling app' => ['Sec-Fetch-Site: same-site', 'Origin: https://id.fixture.invalid'],
@@ -169,8 +169,7 @@ try {
         $r = $http('POST', '/login.php', [], $headers, 'x=1');
         $first = $r['sessions'][0] ?? '';
         $check($r['status'] === 419 && count($r['sessions']) === 1 && $first !== '' && $first !== 'deleted', "a first post from $from gets a session cookie");
-        $next = $http('GET', '/login.php', ['PHPSESSID' => $first]);
-        $check($next['status'] === 200 && $next['sessions'] === [], 'and that session carries on');
+        $check(is_file($runtime . '/sessions/sess_' . $first), 'and the session it names was saved');
     }
 
     // A link on another site is a GET: a first visit gets a session, and the sign-in form works.
@@ -211,15 +210,19 @@ try {
         $check($r['portals'] === [], "a post from another site to $page sets no portal cookie and deletes none");
         $check($clean($r['body']), "and $page answers it without a PHP warning");
     }
-    $check($http('POST', '/portal/logout.php', [], $forged, 'x=1')['status'] === 403, 'the portal still refuses it for its missing token');
     $check($http('POST', '/portal/logout.php', [], ['Origin: https://forged.example'], 'x=1')['portals'] === [], 'with no Sec-Fetch-Site, an Origin from another site sets no portal cookie');
-    $r = $http('POST', '/portal/logout.php', [], $own, 'x=1');
-    $customer = ['safeharbor_portal' => $r['portals'][0] ?? ''];
-    $check($r['status'] === 403 && $customer['safeharbor_portal'] !== '' && $customer['safeharbor_portal'] !== 'deleted', 'a first post from the portal\'s own page gets a portal cookie');
-    $r = $http('POST', '/portal/logout.php', $customer, $own, 'x=1');
-    $check($r['status'] === 403 && $r['portals'] === [], 'and that session carries on');
-    $r = $http('POST', '/portal/logout.php', $customer, $forged, 'x=1');
-    $check($r['status'] === 403 && $r['portals'] === [], 'a post from another site that does carry the portal cookie stays in that session');
+    $r = $http('POST', '/portal/desktop.php', [], $own, 'x=1');
+    $first = $r['portals'][0] ?? '';
+    $check(count($r['portals']) === 1 && $first !== '' && $first !== 'deleted', 'a first post from the portal\'s own page gets a portal cookie');
+    // Strict mode refuses an id it has no session for, so a second post that gets no new cookie stayed in the first's session.
+    $check($http('POST', '/portal/desktop.php', ['safeharbor_portal' => $first], $own, 'x=1')['portals'] === [], 'and that session carries on');
+
+    // A browser that ignores SameSite sends the portal cookie across sites too. Nothing is replaced, so that session's token still works.
+    $portalToken = bin2hex(random_bytes(32));
+    $customer = ['safeharbor_portal' => bin2hex(random_bytes(16))];
+    file_put_contents($runtime . '/sessions/sess_' . $customer['safeharbor_portal'], '_safeharbor_portal_csrf|' . serialize($portalToken));
+    $r = $http('POST', '/portal/logout.php', $customer, $forged, http_build_query(['csrf' => $portalToken]));
+    $check($r['status'] === 302 && in_array('deleted', $r['portals'], true), 'a post from another site that does carry the portal cookie stays in that session');
 
     // Pages with no browser session at all answer a post from another site as they answer anything else.
     foreach (['/csat.php', '/api/svc/support.php', '/api/svc/alerts.php', '/api/svc/westy.php', '/api/svc/customers.php'] as $page) {
