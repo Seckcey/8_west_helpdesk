@@ -216,24 +216,25 @@ test('a link on another site to the sign-in callback leaves a signed-in customer
   assert.equal(response.status(), 401, 'the callback refuses it');
   assert.equal(await portal(context, FETCH_METADATA), id, 'the browser kept its portal cookie');
   await page.goto(`${FETCH_METADATA}/portal/signed-out.php`);
-  assert.equal(await page.getByText(/signed out/i).count(), 0, 'and the session it names is still signed in');
+  assert.equal(await page.locator('#portal-still-signed-in-heading').count(), 1, 'and the session it names is still signed in');
 });
 
 // A forged Companion sign-out ends nothing, but it lands on the signed-out page. That page must not say otherwise.
-test('a forged Companion sign-out tells a customer who is still signed in that they are', async (t) => {
+test('a forged Companion sign-out does not tell a customer who is still signed in that they were signed out', async (t) => {
   const { context, page } = await fixture(t);
   const id = await signedIn(context, FETCH_METADATA, 'Fixture Customer');
   await page.goto(`${ELSEWHERE}/?field=window&value=companion&to=${encodeURIComponent(`${FETCH_METADATA}/portal/logout.php`)}`, { waitUntil: 'commit' });
   await page.waitForURL(`${FETCH_METADATA}/portal/signed-out.php?connection=open`);
   await page.getByRole('heading', { level: 2 }).waitFor();
-  assert.equal(await page.getByText(/signed out/i).count(), 0, 'the page makes no signed-out claim');
+  assert.equal(await page.locator('#portal-signed-out-heading').count(), 0, 'the page makes no signed-out claim');
+  assert.equal(await page.locator('#portal-still-signed-in-heading').count(), 1, 'it says this did not sign them out');
   assert.equal(await page.getByText('Fixture Customer').count(), 0, 'and names nobody');
   assert.equal(await page.locator('a[href="/portal/"]').count(), 1, 'and links to the portal');
   assert.equal(await portal(context, FETCH_METADATA), id, 'the browser kept its portal cookie');
 
   await context.clearCookies();
   await page.reload();
-  assert.ok(await page.getByText(/signed out/i).count() > 0, 'with no portal session, the same page says signed out');
+  assert.equal(await page.locator('#portal-signed-out-heading').count(), 1, 'with no portal session, the same page says signed out');
 });
 
 // A sibling host on plain http is the same site by name only. Chromium calls its post to an https page

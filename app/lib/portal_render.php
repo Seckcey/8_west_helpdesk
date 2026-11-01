@@ -191,11 +191,14 @@ function portal_render_signed_out(bool $connectionOpen): void
     portal_page_end();
 }
 
-/** The signed-out page's answer to a browser that is still signed in. It names nobody, like the page it stands in for. */
+/**
+ * The signed-out page's answer to a browser that is still signed in. It names nobody, like the page it stands in for,
+ * and claims only what this page knows: opening it ended nothing. 8 West ID may still have revoked the sign-in.
+ */
 function portal_render_still_signed_in(): void
 {
     $brand = portal_branding();
-    portal_page_start('Still signed in', 'login-body');
+    portal_page_start('Not signed out', 'login-body');
     ?>
 <main class="login-wrap">
   <header class="login-head">
@@ -203,9 +206,9 @@ function portal_render_still_signed_in(): void
     <h1 class="login-name"><?= portal_h($brand['name']) ?></h1>
   </header>
   <section class="card login-card" aria-labelledby="portal-still-signed-in-heading">
-    <h2 id="portal-still-signed-in-heading" class="page-title">You’re still signed in</h2>
+    <h2 id="portal-still-signed-in-heading" class="page-title">This page didn’t sign you out</h2>
     <div class="login-form">
-      <p class="page-sub" role="status">Opening this page didn’t end your sign-in, and nothing in your account has changed.</p>
+      <p class="page-sub" role="status">Your portal sign-in is as it was. Go back to the portal to carry on.</p>
       <a class="btn-ghost" href="/portal/">Go to the customer portal</a>
     </div>
   </section>

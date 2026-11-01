@@ -81,9 +81,11 @@ web view cannot show.
 
 Any site can put the signed-out page on screen, with a link or with a forged post
 carrying `window=companion`, which ends nothing because the portal cookie does not
-come with it. The page reads the session its cookie names without starting one or
-sending a cookie, and while that session still has a live identity it says the
-customer is still signed in and links to the portal instead.
+come with it. The page reads the session its cookie names without sending a cookie
+or saving session data. While that session still has a live identity, or a sign-in
+still choosing its customer, the page says opening it did not sign the customer out
+and links to the portal instead. It does not check 8 West ID's revocation list, so it
+claims only that this page ended nothing.
 
 A browser that opens a pairing's address while signed in also counts as a Companion
 window. Its Sign out does not reach 8 West ID, so that browser has to sign out again

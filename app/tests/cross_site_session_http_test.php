@@ -271,13 +271,26 @@ try {
 
     // A forged Companion sign-out redirects to the signed-out page, and the GET there carries the Lax portal cookie.
     // Any site can also link straight to that page. It must not tell a signed-in customer they are signed out.
+    $notSignedOut = static fn(string $body): bool => str_contains($body, 'id="portal-still-signed-in-heading"') && !str_contains($body, 'id="portal-signed-out-heading"');
+    $saysSignedOut = static fn(string $body): bool => str_contains($body, 'id="portal-signed-out-heading"') && !str_contains($body, 'id="portal-still-signed-in-heading"');
+    // A sign-in at 8 West ID that is still choosing its customer: the forged post ends that no more than a full session.
+    $choosing = static function (int $expiresAt) use ($runtime): array {
+        $id = bin2hex(random_bytes(16));
+        file_put_contents($runtime . '/sessions/sess_' . $id, '_safeharbor_customer_access_pending|' . serialize(['principal' => ['subject' => 't1u202'],
+            'destination' => '/portal/', 'expires_at' => $expiresAt]) . '_safeharbor_portal_csrf|' . serialize(bin2hex(random_bytes(32))));
+        return ['safeharbor_portal' => $id];
+    };
+    $cookie = $choosing(time() + 600);
+    $r = $http('GET', '/portal/signed-out.php', $cookie, $link);
+    $check($r['status'] === 200 && $notSignedOut($r['body']) && $r['portals'] === [] && is_file($runtime . '/sessions/sess_' . $cookie['safeharbor_portal']),
+        'a sign-in still choosing its customer is not told it was signed out either');
     $cookie = $signedIn();
     $r = $http('POST', '/portal/logout.php', [], $forged, 'window=companion');
     $check($r['status'] === 302 && str_starts_with($r['location'], '/portal/signed-out.php'), 'a forged Companion sign-out sends the browser to the signed-out page');
     foreach ([$r['location'], '/portal/signed-out.php', '/portal/signed-out.php?connection=open'] as $page) {
         $r = $http('GET', $page, $cookie, $link);
-        $check($r['status'] === 200 && stripos($r['body'], 'signed out') === false && str_contains($r['body'], 'href="/portal/"') && $clean($r['body']),
-            "$page tells a customer who is still signed in that they are, and links to the portal");
+        $check($r['status'] === 200 && $notSignedOut($r['body']) && str_contains($r['body'], 'href="/portal/"') && $clean($r['body']),
+            "$page does not tell a customer who is still signed in that they were signed out, and links to the portal");
         $check(!str_contains($r['body'], $customerName) && $r['portals'] === [] && $stillSignedIn($cookie), 'without naming them, touching their cookie or ending their session');
     }
     foreach ([
@@ -285,9 +298,10 @@ try {
         'a cookie for no session' => ['safeharbor_portal' => bin2hex(random_bytes(16))],
         'a cookie that is not a session id' => ['safeharbor_portal' => '../../etc'],
         'an expired session' => $signedIn(['issued_at' => time() - 7200, 'expires_at' => time() - 60]),
+        'an expired choice of customer' => $choosing(time() - 60),
     ] as $case => $cookie) {
         $r = $http('GET', '/portal/signed-out.php', $cookie, $link);
-        $check($r['status'] === 200 && stripos($r['body'], 'signed out of Westy') !== false && $r['portals'] === [] && $clean($r['body']), "with $case the signed-out page says so and sets no cookie");
+        $check($r['status'] === 200 && $saysSignedOut($r['body']) && $r['portals'] === [] && $clean($r['body']), "with $case the signed-out page says so and sets no cookie");
     }
 
     // Pages with no browser session at all answer a post from another site as they answer anything else.

@@ -570,27 +570,28 @@ function portal_callback_is_foreign(Throwable $error): bool
 }
 
 /**
- * The live identity in the portal session this request's cookie names, read without starting a session of its own:
- * nothing is written and no cookie is sent, whatever the cookie holds. For a page that must never set a cookie.
- *
- * @return array<string,mixed>|null
+ * Whether the portal session this request's cookie names is still signed in: a live identity, or a sign-in still
+ * choosing its customer. Read without keeping a session of its own: no cookie is sent and no session data is saved,
+ * whatever the cookie holds. For a page that must never set a cookie.
  */
-function portal_peek_local_identity(): ?array
+function portal_peek_signed_in(): bool
 {
     $id = $_COOKIE[PORTAL_SESSION_NAME] ?? null;
     if (! is_string($id) || preg_match('/\A[A-Za-z0-9,-]{22,256}\z/D', $id) !== 1
         || session_status() !== PHP_SESSION_NONE || headers_sent()) {
-        return null;
+        return false;
     }
     ini_set('session.use_cookies', '0');
     ini_set('session.use_only_cookies', '1');
     ini_set('session.use_strict_mode', '1');
     session_name(PORTAL_SESSION_NAME);
     session_id($id);
-    if (! session_start(['read_and_close' => true, 'cache_limiter' => ''])) return null;
-    $identity = portal_local_identity();
+    if (! session_start(['read_and_close' => true, 'cache_limiter' => ''])) return false;
+    $pending = $_SESSION[PORTAL_ACCESS_PENDING_KEY] ?? null;
+    $signedIn = portal_local_identity() !== null
+        || (is_array($pending) && is_int($pending['expires_at'] ?? null) && $pending['expires_at'] > time());
     $_SESSION = [];
-    return $identity;
+    return $signedIn;
 }
 
 function portal_callback_failure_reason(Throwable $error): string
