@@ -144,7 +144,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   snippets.php             Saved replies ("/" in the composer; merge fields)
   csat.php                 Resolution survey; Send records (token-authed, public)
   attachment.php           Forced-download attachment serving
-  login.php, logout.php    Session auth (CSRF-protected like all forms/APIs)
+  login.php, logout.php    Session auth (CSRF-protected like all forms/APIs;
+                           signing out takes a post, never a plain link)
   portal/                  Default-off customer OIDC surface: tenant-scoped help
                            dashboard, ticket create/detail/reply, verified
                            weekly archives + safe logout

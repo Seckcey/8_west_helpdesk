@@ -249,7 +249,7 @@ function suite_chrome_account_menu(array $user): void
         <?php endif; ?>
         </div>
         <hr class="w365-menu-sep">
-        <a class="w365-menu-item" role="menuitem" href="/logout.php">Sign out</a>
+        <form method="post" action="/logout.php"><?= csrf_field() ?><button type="submit" class="w365-menu-item" role="menuitem">Sign out</button></form>
       </div>
     </div>
     <?php
