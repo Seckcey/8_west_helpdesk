@@ -1,8 +1,8 @@
 # Westy alert-to-ticket workflow
 
 This document defines the original v1 controller contract and the prepared v2
-assignee handback extension. The original September release evidence is retained
-in [the workflow release packet](westy-workflow-release-packet.md).
+assignee handback extension. The established application and migration procedure
+is in [the deployment runbook](../deploy/README.md).
 
 **The v2 extension is in source/test preparation.** Its production migration,
 application release and any particular ticket's return to Westy are separate
