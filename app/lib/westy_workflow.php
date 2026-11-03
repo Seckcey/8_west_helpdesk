@@ -164,7 +164,9 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
         $prior = westy_workflow_row($pdo, 'SELECT request_sha256,response_json FROM westy_workflow_receipts WHERE tenant_id = ? AND event_key = ?', [$tid,$p['event_key']]);
         if ($prior) {
             if (!hash_equals($prior['request_sha256'], $requestHash)) throw new WestyWorkflowConflict('event_key_conflict');
-            $result = json_decode($prior['response_json'], true, 16, JSON_THROW_ON_ERROR);
+            $result = ($p['schema_version'] ?? null) === 2
+                ? westy_workflow_v2_replay($pdo,$tid,$p,$requestHash)
+                : json_decode($prior['response_json'], true, 16, JSON_THROW_ON_ERROR);
             $result['replayed'] = true; $pdo->commit(); return $result;
         }
         $ticket = westy_workflow_row($pdo, 'SELECT * FROM tickets WHERE tenant_id = ? AND external_key = ?' . $lock, [$tid,$p['alert_key']]);

@@ -268,4 +268,5 @@ $pdo->prepare('INSERT INTO westy_workflow_receipts(tenant_id,workflow_id,event_k
 $pdo->prepare('UPDATE westy_workflow_grants SET consumed_event_key=?,continuation_key=?,consumed_at=? WHERE tenant_id=1 AND grant_key=?')
     ->execute([$badResume['event_key'],$badResume['continuation_key'],gmdate('Y-m-d H:i:s'),$badGrant['grant_key']]);
 ww_error(fn()=>ww_send($pdo,$settings,$badStatus),'workflow_v2_receipt_unavailable','partial stored receipt refuses status instead of reconstructing acceptance');
+ww_error(fn()=>ww_send($pdo,$settings,$badResume),'workflow_v2_receipt_unavailable','exact direct replay refuses the same partial receipt and association');
 echo 'PASS ' . $checks . ' Westy workflow checks (' . $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) . ").\n";

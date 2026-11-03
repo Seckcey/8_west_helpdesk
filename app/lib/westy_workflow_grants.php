@@ -184,6 +184,39 @@ function westy_workflow_grant_action(PDO $pdo, int $tenantId, int $actorId, arra
     }
 }
 
+/** Validate immutable storage for both status and replay; never infer proof from current ownership. */
+function westy_workflow_original_receipt(array $run, array $accepted, string $tenantSlug): array
+{
+    foreach (['tenant_id','client_id','customer_id','ticket_id','workflow_key','alert_key'] as $key) {
+        if ((string)$accepted[$key] !== (string)$run[$key]) throw new RuntimeException('workflow_v2_receipt_unavailable');
+    }
+    if ((int)$accepted['workflow_id'] !== (int)$run['id'] || (int)$accepted['expected_version'] < 1
+        || (int)$accepted['version'] !== (int)$accepted['expected_version']+1
+        || $accepted['consumed_event_key'] !== $accepted['event_key'] || $accepted['cancelled_at'] !== null
+        || $accepted['consumed_at'] !== $accepted['received_at']) throw new RuntimeException('workflow_v2_receipt_unavailable');
+    $original = json_decode($accepted['response_json'],true,16,JSON_THROW_ON_ERROR);
+    $expected = ['schema_version'=>2] + westy_workflow_result(array_replace($run,['version'=>(int)$accepted['version'],'state'=>'working']),'resume',$accepted['event_key'])
+        + ['event_key'=>$accepted['event_key'],'tenant_slug'=>$tenantSlug,'customer_id'=>$run['customer_id'],'alert_key'=>$run['alert_key'],
+            'grant_key'=>$accepted['grant_key'],'continuation_key'=>$accepted['continuation_key'],
+            'accepted_at'=>str_replace(' ','T',$accepted['received_at']).'Z','request_sha256'=>$accepted['request_sha256']];
+    if (!is_array($original) || count($original) !== count($expected)) throw new RuntimeException('workflow_v2_receipt_unavailable');
+    foreach ($expected as $key=>$value) {
+        if (!array_key_exists($key,$original) || $original[$key] !== $value) throw new RuntimeException('workflow_v2_receipt_unavailable');
+    }
+    return $original;
+}
+
+function westy_workflow_v2_replay(PDO $pdo, int $tenantId, array $p, string $requestHash): array
+{
+    $run = westy_workflow_row($pdo,'SELECT * FROM westy_workflows WHERE tenant_id=? AND workflow_key=?',[$tenantId,$p['workflow_key']]);
+    $accepted = westy_workflow_row($pdo,"SELECT g.*,r.event_key,r.version,r.received_at,r.request_sha256,r.response_json FROM westy_workflow_grants g JOIN westy_workflow_receipts r ON r.tenant_id=g.tenant_id AND r.workflow_id=g.workflow_id AND r.event_key=g.consumed_event_key AND r.action='resume' WHERE g.tenant_id=? AND g.consumed_event_key=?",[$tenantId,$p['event_key']]);
+    if (!$run || !$accepted || $p['action'] !== 'resume' || $accepted['grant_key'] !== $p['grant_key']
+        || $accepted['continuation_key'] !== $p['continuation_key'] || (int)$accepted['expected_version'] !== $p['expected_version']
+        || $run['customer_id'] !== $p['customer_id'] || $run['alert_key'] !== $p['alert_key']
+        || !hash_equals($accepted['request_sha256'],$requestHash)) throw new RuntimeException('workflow_v2_receipt_unavailable');
+    return westy_workflow_original_receipt($run,$accepted,$p['tenant_slug']);
+}
+
 /** Called under the service transaction's tenant/binding/ticket/workflow locks. No writes. */
 function westy_workflow_v2_status(PDO $pdo, int $tenantId, array $binding, array $ticket, array $run, array $p): array
 {
@@ -192,19 +225,8 @@ function westy_workflow_v2_status(PDO $pdo, int $tenantId, array $binding, array
     $pending = westy_workflow_row($pdo,'SELECT * FROM westy_workflow_grants WHERE tenant_id=? AND pending_workflow_id=? ORDER BY id'.westy_workflow_lock($pdo),[$tenantId,$run['id']]);
     $available = $pending && westy_workflow_return_eligible($run,$ticket,$binding,$actor) && westy_workflow_grant_matches($pending,$run,$ticket)
         && !westy_workflow_has_closure($pdo,$tenantId,(int)$run['id']);
-    $accepted = westy_workflow_row($pdo,"SELECT g.grant_key,g.continuation_key,r.event_key,r.version,r.received_at,r.request_sha256,r.response_json FROM westy_workflow_grants g JOIN westy_workflow_receipts r ON r.tenant_id=g.tenant_id AND r.workflow_id=g.workflow_id AND r.event_key=g.consumed_event_key AND r.action='resume' WHERE g.tenant_id=? AND g.workflow_id=? AND g.consumed_at IS NOT NULL ORDER BY r.version DESC LIMIT 1",[$tenantId,$run['id']]);
-    $original = $accepted ? json_decode($accepted['response_json'],true,16,JSON_THROW_ON_ERROR) : null;
-    if ($accepted) {
-        // Validate stored proof; never synthesize a missing receipt from the current run.
-        $expected = ['schema_version'=>2] + westy_workflow_result(array_replace($run,['version'=>(int)$accepted['version'],'state'=>'working']),'resume',$accepted['event_key'])
-            + ['event_key'=>$accepted['event_key'],'tenant_slug'=>$p['tenant_slug'],'customer_id'=>$run['customer_id'],'alert_key'=>$run['alert_key'],
-                'grant_key'=>$accepted['grant_key'],'continuation_key'=>$accepted['continuation_key'],
-                'accepted_at'=>str_replace(' ','T',$accepted['received_at']).'Z','request_sha256'=>$accepted['request_sha256']];
-        if (!is_array($original) || count($original) !== count($expected)) throw new RuntimeException('workflow_v2_receipt_unavailable');
-        foreach ($expected as $key=>$value) {
-            if (!array_key_exists($key,$original) || $original[$key] !== $value) throw new RuntimeException('workflow_v2_receipt_unavailable');
-        }
-    }
+    $accepted = westy_workflow_row($pdo,"SELECT g.*,r.event_key,r.version,r.received_at,r.request_sha256,r.response_json FROM westy_workflow_grants g JOIN westy_workflow_receipts r ON r.tenant_id=g.tenant_id AND r.workflow_id=g.workflow_id AND r.event_key=g.consumed_event_key AND r.action='resume' WHERE g.tenant_id=? AND g.workflow_id=? AND g.consumed_at IS NOT NULL ORDER BY r.version DESC LIMIT 1",[$tenantId,$run['id']]);
+    $original = $accepted ? westy_workflow_original_receipt($run,$accepted,$p['tenant_slug']) : null;
     return ['schema_version'=>2] + westy_workflow_result($run,'status',null)
         + array_intersect_key($p,array_flip(['event_key','tenant_slug','customer_id','alert_key']))
         + ['binding'=>['client_id'=>(int)$binding['client_id'],'status'=>'active'],
