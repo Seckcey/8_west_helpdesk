@@ -1282,8 +1282,9 @@
   })();
 
   /* rail buttons (ticket page) */
-  $$(".rail-btn[data-action], .westy-workflow-actions [data-action]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
+  document.addEventListener("click", async (event) => {
+      const btn = event.target.closest(".rail-btn[data-action], .westy-workflow-actions [data-action]");
+      if (!btn || btn.disabled) return;
       const action = btn.dataset.action;
       const id = btn.dataset.id;
       if (action === "assignee") {
@@ -1297,7 +1298,6 @@
         const current = currentFieldValue(field, id);
         if (current) ticketAction(id, field, cycle(order, current));
       }
-    });
   });
 
   /* timer buttons */

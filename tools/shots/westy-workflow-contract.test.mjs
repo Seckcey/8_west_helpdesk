@@ -93,7 +93,7 @@ function grantCard(control, state = 'needs_human', key = '') {
 function grantPage(control, state, key) {
   return PAGE.replace(card, grantCard(control, state, key)).replace('<span data-assignee>Westy</span>', '<span data-assignee>Fixture technician</span>');
 }
-async function grantFixture(t, { width = 1280, lost = false, stale = false, conflict = false } = {}) {
+async function grantFixture(t, { width = 1280, lost = false, stale = false, conflict = false, accepted = false } = {}) {
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -112,11 +112,16 @@ async function grantFixture(t, { width = 1280, lost = false, stale = false, conf
       assert.match(body.grant_key, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
       if (conflict) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'version_conflict' }) });
       control = body.action === 'create' ? 'cancel' : (stale ? '' : 'create'); key = body.grant_key;
+      if (accepted) { control = ''; state = 'working'; }
       if (lost && requests.length === 1) return route.abort('failed');
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ...body, assignee_id: 1,
         grant_state: body.action === 'create' ? 'pending' : 'cancelled', created_at: '2026-11-03T00:00:00Z', cancelled_at: body.action === 'cancel' ? '2026-11-03T00:01:00Z' : null }) });
     }
-    if (req.url().includes('/api/ticket_action.php')) throw new Error('Grant must not invoke ordinary ticket assignment');
+    if (req.url().includes('/api/ticket_action.php')) {
+      assert.equal(accepted, true, 'grant must not invoke ordinary ticket assignment');
+      assert.deepEqual(req.postDataJSON(), { id: '42', field: 'assignee', value: 'me' });
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, toast: 'Assigned to you', chip: 'In Progress', pri: 'Normal', sla: 'On track', assignee_html: 'Fixture technician' }) });
+    }
     if (req.url().includes('/api/')) return route.fulfill({ contentType: 'application/json', body: '{"ok":true}' });
     return route.fulfill({ contentType: 'text/html', body: grantPage(control, state, key) });
   });
@@ -177,5 +182,16 @@ test('conflict never paints grant intent as ownership transfer', async t => {
   await page.getByText('The request no longer matches this workflow. Refresh the ticket to review its current state.', { exact: true }).waitFor();
   assert.equal(await page.locator('.westy-workflow-card').getAttribute('data-workflow-state'), 'needs_human');
   assert.equal(await page.locator('[data-assignee]').innerText(), 'Fixture technician');
+  assert.deepEqual(errors, []);
+});
+
+test('fresh accepted card keeps ordinary takeover working without reloading the draft', async t => {
+  const { page, requests, errors } = await grantFixture(t, { accepted: true });
+  await page.getByRole('button', { name: 'Return to Westy', exact: true }).click();
+  await page.getByRole('button', { name: 'Take over ticket', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Take over ticket', exact: true }).click();
+  await page.getByRole('heading', { name: 'A technician owns this ticket' }).waitFor();
+  assert.equal(requests.length, 1);
+  assert.equal(await page.locator('#reply-box').inputValue(), 'Keep the technician draft.');
   assert.deepEqual(errors, []);
 });
