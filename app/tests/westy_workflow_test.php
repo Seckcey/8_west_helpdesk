@@ -107,4 +107,166 @@ $pdo->exec('UPDATE svc_identities SET is_active=1 WHERE tenant_id=1');
 $card=westy_workflow_card(['ticket_id'=>1,'workflow_key'=>ww_key(1),'state'=>'working','summary'=>'<script>alert(1)</script>']);
 ww_check(!str_contains($card,'<script>') && str_contains($card,'&lt;script&gt;'),'summary is HTML escaped');
 ww_check(str_contains($card,'Take over ticket') && str_contains($card,'support.8westit.com/westy_diag.php?workflow='),'real takeover and Milepost route shown');
+// V2 is an explicit capability, with the original V1 cases above unchanged.
+require_once __DIR__.'/../lib/westy_workflow_grants.php';
+function ww_error(callable $action, string $message, string $name): void {
+    try { $action(); } catch (Throwable $e) { ww_check($e->getMessage()===$message,$name.' ('.$e->getMessage().')'); return; }
+    ww_check(false,$name.' did not refuse');
+}
+function ww_object(mixed $value): mixed {
+    if (!is_array($value)) return $value;
+    if (!array_is_list($value)) ksort($value);
+    return array_map('ww_object',$value);
+}
+function ww_same(array $a,array $b): bool { return ww_object($a)===ww_object($b); }
+function ww_snapshot(PDO $db, bool $grants = true): array {
+    $out=[];
+    foreach (array_merge(['tickets','westy_workflows','westy_workflow_receipts','messages','westy_billing_outbox'],$grants?['westy_workflow_grants']:[]) as $table)
+        $out[$table]=$db->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    return $out;
+}
+function ww_human_case(PDO $db,array $settings,array $base,int $seed): array {
+    $claim=array_replace($base,['event_key'=>ww_key($seed),'workflow_key'=>ww_key($seed+1),'alert_key'=>'alert:'.($seed+2)]);
+    $created=ww_send($db,$settings,$claim);
+    $human=ww_send($db,$settings,array_replace($claim,['event_key'=>ww_key($seed+3),'action'=>'escalate','expected_version'=>1,'assignee_id'=>1]));
+    $local=['action'=>'create','ticket_id'=>$created['ticket_id'],'workflow_key'=>$claim['workflow_key'],'expected_version'=>$human['version'],'grant_key'=>ww_key($seed+4)];
+    $resume=['schema_version'=>2,'action'=>'resume','event_key'=>ww_key($seed+5),'workflow_key'=>$claim['workflow_key'],'tenant_slug'=>$claim['tenant_slug'],
+        'customer_id'=>$claim['customer_id'],'alert_key'=>$claim['alert_key'],'expected_version'=>$human['version'],'grant_key'=>$local['grant_key'],
+        'continuation_key'=>ww_key($seed+6),'summary'=>'Prior commands confirmed unsent; non-executing intent frozen.','occurred_at'=>gmdate('Y-m-d\TH:i:s\Z')];
+    $status=array_replace($resume,['action'=>'status','event_key'=>ww_key($seed+7),'expected_version'=>0,'grant_key'=>null,'continuation_key'=>null,'summary'=>'']);
+    return [$local,$resume,$status];
+}
+$v2status=['schema_version'=>2,'action'=>'status','event_key'=>ww_key(2900),'workflow_key'=>$p['workflow_key'],'tenant_slug'=>'8west','customer_id'=>$customer,
+    'alert_key'=>$p['alert_key'],'expected_version'=>0,'grant_key'=>null,'continuation_key'=>null,'summary'=>'','occurred_at'=>gmdate('Y-m-d\TH:i:s\Z')];
+ww_check(westy_workflow_request(json_encode($v2status))===$v2status,'v2 exact status envelope');
+foreach (['grant_key'=>ww_key(2901),'continuation_key'=>ww_key(2902),'expected_version'=>1,'summary'=>'not empty','assignee_id'=>null,'job_id'=>null,'schema_version'=>3] as $key=>$value)
+    ww_refuses(fn()=>westy_workflow_request(json_encode(array_replace($v2status,[$key=>$value]))),'v2 rejects invalid status '.$key);
+ww_refuses(fn()=>westy_workflow_request(substr(json_encode($v2status),0,-1).',"grant_key":null}'),'v2 rejects duplicate nullable fields');
+$oldRows=ww_snapshot($pdo,false);
+ww_refuses(fn()=>ww_send($pdo,$settings,$v2status),'v2 explicitly refuses absent migration');
+if ($mysql) {
+    ww_sql($pdo,__DIR__.'/../db/migrations/036_westy_workflow_resume.sql');
+    westy_workflow_resume_schema_ready($pdo);
+    ww_sql($pdo,__DIR__.'/../db/migrations/036_westy_workflow_resume.sql');
+} else {
+    $pdo->exec("CREATE TABLE westy_workflow_grants(id INTEGER PRIMARY KEY,tenant_id INTEGER,workflow_id INTEGER,client_id INTEGER,customer_id TEXT,ticket_id INTEGER,workflow_key TEXT,alert_key TEXT,grant_key TEXT,assignee_id INTEGER,expected_version INTEGER,create_sha256 TEXT,create_response TEXT,created_at TEXT,cancelled_by INTEGER,cancelled_at TEXT,cancel_sha256 TEXT,cancel_response TEXT,consumed_event_key TEXT,continuation_key TEXT,consumed_at TEXT,pending_workflow_id INTEGER GENERATED ALWAYS AS (CASE WHEN cancelled_at IS NULL AND consumed_at IS NULL THEN workflow_id ELSE NULL END) STORED,UNIQUE(tenant_id,grant_key),UNIQUE(tenant_id,pending_workflow_id),UNIQUE(tenant_id,consumed_event_key),UNIQUE(tenant_id,continuation_key))");
+}
+ww_check(ww_snapshot($pdo,false)===$oldRows,'initial and repeated additive DDL preserve all old records and exact receipt bytes');
+[$local,$resume,$fresh]=ww_human_case($pdo,$settings,$p,3000);
+$pdo->exec("INSERT INTO users(id,tenant_id,is_active,role) VALUES(5,1,1,'tech')");
+ww_check(westy_workflow_request(json_encode($resume))===$resume,'v2 exact resume envelope');
+foreach (['expected_version'=>0,'grant_key'=>null,'continuation_key'=>$resume['event_key'],'assignee_id'=>1,'summary'=>'','action'=>'claim'] as $key=>$value)
+    ww_refuses(fn()=>westy_workflow_request(json_encode(array_replace($resume,[$key=>$value]))),'v2 invalid resume '.$key);
+ww_check(westy_workflow_grant_request(json_encode($local))===$local,'local exact envelope');
+foreach (['expected_version'=>'2','ticket_id'=>0,'grant_key'=>'bad','action'=>'resume','extra'=>null] as $key=>$value)
+    ww_refuses(fn()=>westy_workflow_grant_request(json_encode(array_replace($local,[$key=>$value]))),'local malformed '.$key);
+ww_refuses(fn()=>westy_workflow_grant_request(substr(json_encode($local),0,-1).',"action":"create"}'),'local duplicate member');
+$before=ww_snapshot($pdo);
+$s=ww_send($pdo,$settings,$fresh);
+$fixture=json_decode(file_get_contents(__DIR__.'/../../docs/contracts/westy-workflow-v2.json'),true,32,JSON_THROW_ON_ERROR);
+$actualKeys=array_keys($s); $expectedKeys=$fixture['status_response_fields']; sort($actualKeys); sort($expectedKeys);
+ww_check($actualKeys===$expectedKeys && count($s)===18,'v2 status complete exact response fields');
+ww_check($s['pending_grant']===null && $s['accepted_continuation']===null && $s['receipt_id']===null && $s['replayed']===false,'status explicit nulls and no write receipt');
+ww_check(ww_snapshot($pdo)===$before,'status without grant is read only');
+ww_error(fn()=>westy_workflow_grant_action($pdo,1,5,$local),'return_not_available','only exact current assignee can grant');
+ww_error(fn()=>westy_workflow_grant_action($pdo,2,2,$local),'workflow_not_found','local tenant isolation');
+ww_error(fn()=>westy_workflow_grant_action($pdo,1,3,$local),'assignee_unavailable','inactive actor cannot grant');
+$cardRun=westy_workflow_row($pdo,'SELECT * FROM westy_workflows WHERE tenant_id=1 AND workflow_key=?',[$local['workflow_key']]);
+$cardTicket=westy_workflow_row($pdo,'SELECT * FROM tickets WHERE tenant_id=1 AND id=?',[$local['ticket_id']]);
+ww_check(westy_workflow_grant_controls($pdo,$cardRun,$cardTicket,['tenant_id'=>1,'id'=>1],true)===['grant_control'=>'create','grant_version'=>2],'real eligible assignee gets create control');
+ww_check(westy_workflow_grant_controls($pdo,$cardRun,$cardTicket,['tenant_id'=>1,'id'=>5],true)===[],'other technician never sees return control');
+ww_check(westy_workflow_grant_controls($pdo,$cardRun,$cardTicket,['tenant_id'=>1,'id'=>1],false)===[],'existing disabled integration does not offer new grants');
+$create=westy_workflow_grant_action($pdo,1,1,$local);
+ww_check(westy_workflow_grant_controls($pdo,$cardRun,$cardTicket,['tenant_id'=>1,'id'=>1],false)['grant_control']==='cancel','original creator can withdraw intent even while controller disabled');
+ww_check(ww_snapshot($pdo,false)===array_diff_key($before,['westy_workflow_grants'=>true]),'grant changes no ticket/run/receipt/message/billing');
+ww_check(ww_same($create,westy_workflow_grant_action($pdo,1,1,array_reverse($local,true))),'canonical exact create retry returns frozen result');
+ww_error(fn()=>westy_workflow_grant_action($pdo,1,1,array_replace($local,['expected_version'=>3])),'grant_key_conflict','changed same-key facts conflict');
+ww_error(fn()=>westy_workflow_grant_action($pdo,1,1,array_replace($local,['grant_key'=>ww_key(3010)])),'pending_grant_exists','one pending per exact workflow');
+$before=ww_snapshot($pdo); $s=ww_send($pdo,$settings,$fresh);
+ww_check($s['pending_grant']===['grant_key'=>$local['grant_key'],'assignee_id'=>1,'expected_version'=>2,'created_at'=>$create['created_at']],'discover exact durable pending grant');
+ww_check(ww_snapshot($pdo)===$before,'grant discovery writes nothing');
+$cancel=array_replace($local,['action'=>'cancel']);
+ww_error(fn()=>westy_workflow_grant_action($pdo,1,5,$cancel),'grant_key_conflict','another technician cannot cancel');
+$cancelled=westy_workflow_grant_action($pdo,1,1,$cancel);
+ww_check(ww_same($cancelled,westy_workflow_grant_action($pdo,1,1,$cancel)),'cancel retry frozen');
+ww_error(fn()=>ww_send($pdo,$settings,$resume),'grant_conflict','cancelled grant cannot consume');
+ww_check(ww_same(westy_workflow_grant_action($pdo,1,1,$local),$create),'old create retry never uncancels');
+ww_check(ww_send($pdo,$settings,$fresh)['pending_grant']===null,'cancel removed only from discovery');
+$local['grant_key']=ww_key(3011); $resume['grant_key']=$local['grant_key'];
+$create2=westy_workflow_grant_action($pdo,1,1,$local);
+foreach (['customer_id'=>$otherCustomer,'alert_key'=>'alert:999999','workflow_key'=>ww_key(999998),'grant_key'=>ww_key(999997)] as $key=>$value) {
+    $expected=match($key){'customer_id'=>'active_customer_binding_required','alert_key'=>'workflow_scope_conflict','workflow_key'=>'workflow_not_found',default=>'grant_conflict'};
+    ww_error(fn()=>ww_send($pdo,$settings,array_replace($resume,[$key=>$value])),$expected,'v2 exact '.$key.' binding');
+}
+$before=ww_snapshot($pdo);
+// Deliberate whitespace proves the receipt binds exact raw bytes, not a JSON re-encoding.
+$rawResume=" \n".json_encode($resume,JSON_THROW_ON_ERROR)."\n";
+$resumeHash=hash('sha256',$rawResume);
+$accepted=westy_workflow_receive($pdo,$settings,westy_workflow_request($rawResume),$resumeHash);
+$keys=array_keys($accepted); $expected=$fixture['resume_response_fields']; sort($keys); sort($expected);
+ww_check($keys===$expected && count($accepted)===18,'resume exact frozen response shape');
+ww_check($accepted['version']===3 && $accepted['state']==='working' && $accepted['request_sha256']===$resumeHash && $accepted['replayed']===false,'resume one trigger-accounted V increment plus exact request hash');
+$run=westy_workflow_row($pdo,'SELECT * FROM westy_workflows WHERE tenant_id=1 AND workflow_key=?',[$resume['workflow_key']]);
+$ticket=westy_workflow_row($pdo,'SELECT * FROM tickets WHERE tenant_id=1 AND id=?',[$local['ticket_id']]);
+ww_check($ticket['status']==='in_progress' && $ticket['assignee_id']===null && (int)$ticket['auto_close_eligible']===0,'same ticket returned without legacy closure');
+foreach ($before['westy_workflows'] as $old) if ($old['workflow_key']===$run['workflow_key']) {
+    foreach (['id','tenant_id','client_id','customer_id','ticket_id','workflow_key','alert_key','started_at'] as $key) ww_check($run[$key]===$old[$key],'resume preserves '.$key);
+}
+$saved=westy_workflow_row($pdo,'SELECT response_json FROM westy_workflow_receipts WHERE tenant_id=1 AND event_key=?',[$resume['event_key']]);
+ww_check(ww_same(json_decode($saved['response_json'],true),$accepted),'complete original receipt persisted');
+$after=ww_snapshot($pdo);
+$replayed=westy_workflow_receive($pdo,$settings,westy_workflow_request($rawResume),$resumeHash);
+ww_check(ww_same($replayed,array_replace($accepted,['replayed'=>true])) && ww_snapshot($pdo)===$after,'exact resume retry only flips returned replay marker');
+ww_error(fn()=>ww_send($pdo,$settings,$resume),'event_key_conflict','same decoded request with different bytes cannot reuse event');
+ww_error(fn()=>westy_workflow_grant_action($pdo,1,1,array_replace($local,['action'=>'cancel'])),'grant_not_cancellable','consumed cannot cancel');
+ww_check(ww_same(westy_workflow_grant_action($pdo,1,1,$local),$create2),'consumed create retry returns its original result without reuse');
+$historical=ww_send($pdo,$settings,$fresh);
+ww_check(ww_same($historical['accepted_continuation'],['grant_key'=>$resume['grant_key'],'continuation_key'=>$resume['continuation_key'],'event_key'=>$resume['event_key'],'version'=>3,'accepted_at'=>$accepted['accepted_at'],'request_sha256'=>$resumeHash,'original_receipt'=>$accepted]),'fresh status recovers original receipt and request hash');
+$expired=$resume; $expired['occurred_at']=gmdate('Y-m-d\TH:i:s\Z',time()-86401);
+ww_error(fn()=>westy_workflow_request(json_encode($expired)),'invalid_occurred_at','resume validity never extended for recovery');
+$late=array_replace($fresh,['event_key'=>ww_key(3015),'occurred_at'=>gmdate('Y-m-d\TH:i:s\Z')]);
+ww_check(ww_send($pdo,$settings,$late)['accepted_continuation']===$historical['accepted_continuation'],'fresh status is independent of old request freshness');
+$pdo->prepare('UPDATE tickets SET assignee_id=5 WHERE tenant_id=1 AND id=?')->execute([$local['ticket_id']]);
+$owned=ww_send($pdo,$settings,$fresh);
+ww_check($owned['state']==='human_owned' && $owned['version']===4 && $owned['ticket']['assignee_id']===5 && $owned['accepted_continuation']===$historical['accepted_continuation'],'historical proof never overwrites later human ownership');
+ww_check(westy_workflow_receive($pdo,$settings,westy_workflow_request($rawResume),$resumeHash)===$replayed,'old immutable replay remains only historical');
+foreach (['ticket','message','time','binding','actor'] as $i=>$kind) {
+    [$local2,$resume2,$status2]=ww_human_case($pdo,$settings,$p,4000+$i*100);
+    westy_workflow_grant_action($pdo,1,1,$local2);
+    $beforeGrant=$pdo->query('SELECT * FROM westy_workflow_grants ORDER BY id')->fetchAll();
+    $id=$local2['ticket_id'];
+    if ($kind==='ticket') { $pdo->exec("UPDATE tickets SET assignee_id=5,priority='urgent' WHERE id=$id"); $pdo->exec("UPDATE tickets SET priority='normal' WHERE id=$id"); }
+    if ($kind==='message') $pdo->exec("INSERT INTO messages(ticket_id,author_name,kind,body) VALUES($id,'Human','note','Human work')");
+    if ($kind==='time') $pdo->exec("INSERT INTO time_entries(tenant_id,ticket_id) VALUES(1,$id)");
+    if ($kind==='binding') $pdo->exec("UPDATE suite_customer_sync_bindings SET status='inactive' WHERE tenant_id=1");
+    if ($kind==='actor') $pdo->exec('UPDATE users SET is_active=0 WHERE id=1');
+    if ($kind==='binding') ww_error(fn()=>ww_send($pdo,$settings,$status2),'active_customer_binding_required','inactive binding refuses complete v2 status');
+    else ww_check(ww_send($pdo,$settings,$status2)['pending_grant']===null,'stale '.$kind.' grant hidden');
+    ww_error(fn()=>ww_send($pdo,$settings,$resume2),match($kind){'binding'=>'active_customer_binding_required','actor'=>'return_not_available',default=>'version_conflict'},$kind.' defeats consumption');
+    ww_check($pdo->query('SELECT * FROM westy_workflow_grants ORDER BY id')->fetchAll()===$beforeGrant,'invalid discovery/consume preserves stale record '.$kind);
+    if ($kind==='actor') { ww_error(fn()=>westy_workflow_grant_action($pdo,1,1,array_replace($local2,['action'=>'cancel'])),'assignee_unavailable','inactive creator cannot cancel'); $pdo->exec('UPDATE users SET is_active=1 WHERE id=1'); }
+    ww_error(fn()=>westy_workflow_grant_action($pdo,1,1,array_replace($local2,['action'=>'cancel','expected_version'=>99])),'grant_key_conflict','cancel binds original grant version');
+    $cancel2=array_replace($local2,['action'=>'cancel']);
+    $result2=westy_workflow_grant_action($pdo,1,1,$cancel2);
+    ww_check(ww_same($result2,westy_workflow_grant_action($pdo,1,1,$cancel2)),'original creator can cancel despite changed '.$kind);
+    if ($kind==='binding') $pdo->exec("UPDATE suite_customer_sync_bindings SET status='active' WHERE tenant_id=1");
+}
+[$local3,$resume3,$status3]=ww_human_case($pdo,$settings,$p,5000);
+westy_workflow_grant_action($pdo,1,1,$local3);
+[$otherLocal,$otherResume,$otherStatus]=ww_human_case($pdo,$settings,$p,5100);
+ww_check(westy_workflow_grant_action($pdo,1,1,$otherLocal)['grant_state']==='pending','pending intent never blocks another workflow');
+$pdo->prepare("UPDATE westy_workflows SET closed_at=?,job_id=1 WHERE tenant_id=1 AND workflow_key=?")->execute([gmdate('Y-m-d H:i:s'),$resume3['workflow_key']]);
+ww_error(fn()=>ww_send($pdo,$settings,$resume3),'return_not_available','prior closure evidence defeats grant');
+ww_check(ww_send($pdo,$settings,$status3)['pending_grant']===null,'closure evidence excludes pending discovery');
+ww_check(count(ww_snapshot($pdo)['westy_billing_outbox'])===count($oldRows['westy_billing_outbox']),'continuations create no financial work');
+// A separately seeded damaged historical fixture must not produce partial v2 proof.
+[$badGrant,$badResume,$badStatus]=ww_human_case($pdo,$settings,$p,5200);
+westy_workflow_grant_action($pdo,1,1,$badGrant);
+$badRun=westy_workflow_row($pdo,'SELECT * FROM westy_workflows WHERE tenant_id=1 AND workflow_key=?',[$badResume['workflow_key']]);
+$pdo->prepare('INSERT INTO westy_workflow_receipts(tenant_id,workflow_id,event_key,request_sha256,action,version,response_json,received_at) VALUES(1,?,?,?,?,3,?,?)')
+    ->execute([$badRun['id'],$badResume['event_key'],hash('sha256',json_encode($badResume)),'resume','{"schema_version":2}',gmdate('Y-m-d H:i:s')]);
+$pdo->prepare('UPDATE westy_workflow_grants SET consumed_event_key=?,continuation_key=?,consumed_at=? WHERE tenant_id=1 AND grant_key=?')
+    ->execute([$badResume['event_key'],$badResume['continuation_key'],gmdate('Y-m-d H:i:s'),$badGrant['grant_key']]);
+ww_error(fn()=>ww_send($pdo,$settings,$badStatus),'workflow_v2_receipt_unavailable','partial stored receipt refuses status instead of reconstructing acceptance');
+ww_error(fn()=>ww_send($pdo,$settings,$badResume),'workflow_v2_receipt_unavailable','exact direct replay refuses the same partial receipt and association');
 echo 'PASS ' . $checks . ' Westy workflow checks (' . $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) . ").\n";

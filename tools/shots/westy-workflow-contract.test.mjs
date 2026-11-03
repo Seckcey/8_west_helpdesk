@@ -85,3 +85,113 @@ test('phone workflow fits and Reply keeps the truthful no-contact explanation', 
   assert.equal(link, 'https://support.8westit.com/westy_diag.php?workflow=22222222-2222-4222-8222-222222222222');
   assert.deepEqual(errors, []);
 });
+
+const GRANT_KEY = '88888888-8888-4888-8888-888888888888';
+function grantCard(control, state = 'needs_human', key = '') {
+  return execFileSync('php', ['-r', `require $argv[1]; echo westy_workflow_card(['ticket_id'=>42,'workflow_key'=>'22222222-2222-4222-8222-222222222222','state'=>$argv[3],'summary'=>'Earlier commands were not dispatched.','grant_control'=>$argv[2],'grant_key'=>$argv[4],'grant_version'=>2]);`, path.join(ROOT, 'app/lib/westy_workflow.php'), control, state, key], { encoding: 'utf8' });
+}
+function grantPage(control, state, key) {
+  return PAGE.replace(card, grantCard(control, state, key)).replace('<span data-assignee>Westy</span>', '<span data-assignee>Fixture technician</span>');
+}
+async function grantFixture(t, { width = 1280, lost = false, stale = false, conflict = false, accepted = false } = {}) {
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  const errors = [], requests = [], dialogs = [];
+  let control = stale ? 'cancel' : 'create', state = stale ? 'human_owned' : 'needs_human', key = stale ? GRANT_KEY : '';
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+  await page.route('http://safeharbor.test/**', async route => {
+    const req = route.request();
+    if (req.url().includes('/api/westy_workflow_grant.php')) {
+      const body = req.postDataJSON(); requests.push(body);
+      assert.equal(req.headers()['x-csrf'], 'fixture');
+      assert.equal(body.ticket_id, 42);
+      assert.equal(body.workflow_key, '22222222-2222-4222-8222-222222222222');
+      assert.equal(body.expected_version, 2);
+      assert.match(body.grant_key, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      if (conflict) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'version_conflict' }) });
+      control = body.action === 'create' ? 'cancel' : (stale ? '' : 'create'); key = body.grant_key;
+      if (accepted) { control = ''; state = 'working'; }
+      if (lost && requests.length === 1) return route.abort('failed');
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ...body, assignee_id: 1,
+        grant_state: body.action === 'create' ? 'pending' : 'cancelled', created_at: '2026-11-03T00:00:00Z', cancelled_at: body.action === 'cancel' ? '2026-11-03T00:01:00Z' : null }) });
+    }
+    if (req.url().includes('/api/ticket_action.php')) {
+      assert.equal(accepted, true, 'grant must not invoke ordinary ticket assignment');
+      assert.deepEqual(req.postDataJSON(), { id: '42', field: 'assignee', value: 'me' });
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, toast: 'Assigned to you', chip: 'In Progress', pri: 'Normal', sla: 'On track', assignee_html: 'Fixture technician' }) });
+    }
+    if (req.url().includes('/api/')) return route.fulfill({ contentType: 'application/json', body: '{"ok":true}' });
+    return route.fulfill({ contentType: 'text/html', body: grantPage(control, state, key) });
+  });
+  await page.goto('http://safeharbor.test/ticket.php?id=42');
+  await page.getByPlaceholder('Write a reply').fill('Keep the technician draft.');
+  return { page, requests, errors, dialogs };
+}
+
+for (const width of [1280, 390]) {
+  test(`assignee grant and cancellation preserve ownership and draft at ${width}px`, async t => {
+    const { page, requests, errors, dialogs } = await grantFixture(t, { width });
+    await page.getByRole('button', { name: 'Return to Westy', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel return request', exact: true }).waitFor();
+    assert.equal(await page.locator('.westy-workflow-card').getAttribute('data-workflow-state'), 'needs_human');
+    assert.equal(await page.locator('[data-assignee]').innerText(), 'Fixture technician');
+    assert.equal(await page.locator('#reply-box').inputValue(), 'Keep the technician draft.');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    if (process.env.SAFEHARBOR_GRANT_SHOTS) {
+      await mkdir(process.env.SAFEHARBOR_GRANT_SHOTS, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.SAFEHARBOR_GRANT_SHOTS, `safeharbor-grant-${width}.png`), fullPage: true });
+    }
+    await page.getByRole('button', { name: 'Cancel return request', exact: true }).click();
+    await page.getByRole('button', { name: 'Return to Westy', exact: true }).waitFor();
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].grant_key, requests[1].grant_key);
+    assert.equal(requests[1].action, 'cancel');
+    assert.equal(await page.locator('#reply-box').inputValue(), 'Keep the technician draft.');
+    assert.deepEqual(dialogs, []);
+    assert.deepEqual(errors, []);
+  });
+}
+
+test('lost create response retries exact intent then reads current card', async t => {
+  const { page, requests, errors } = await grantFixture(t, { lost: true });
+  await page.getByRole('button', { name: 'Return to Westy', exact: true }).click();
+  await page.getByText('The request could not be confirmed. Retry to check the same request. Your draft is unchanged.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Return to Westy', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel return request', exact: true }).waitFor();
+  assert.deepEqual(requests[0], requests[1]);
+  assert.equal(await page.locator('#reply-box').inputValue(), 'Keep the technician draft.');
+  assert.deepEqual(errors, []);
+});
+
+test('original creator cancels stale grant using original version', async t => {
+  const { page, requests, errors } = await grantFixture(t, { stale: true });
+  await page.getByRole('button', { name: 'Cancel return request', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('[data-workflow-grant]'));
+  assert.equal(requests[0].grant_key, GRANT_KEY);
+  assert.equal(requests[0].expected_version, 2);
+  assert.equal(await page.locator('.westy-workflow-card').getAttribute('data-workflow-state'), 'human_owned');
+  assert.equal(await page.locator('#reply-box').inputValue(), 'Keep the technician draft.');
+  assert.deepEqual(errors, []);
+});
+
+test('conflict never paints grant intent as ownership transfer', async t => {
+  const { page, errors } = await grantFixture(t, { conflict: true });
+  await page.getByRole('button', { name: 'Return to Westy', exact: true }).click();
+  await page.getByText('The request no longer matches this workflow. Refresh the ticket to review its current state.', { exact: true }).waitFor();
+  assert.equal(await page.locator('.westy-workflow-card').getAttribute('data-workflow-state'), 'needs_human');
+  assert.equal(await page.locator('[data-assignee]').innerText(), 'Fixture technician');
+  assert.deepEqual(errors, []);
+});
+
+test('fresh accepted card keeps ordinary takeover working without reloading the draft', async t => {
+  const { page, requests, errors } = await grantFixture(t, { accepted: true });
+  await page.getByRole('button', { name: 'Return to Westy', exact: true }).click();
+  await page.getByRole('button', { name: 'Take over ticket', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Take over ticket', exact: true }).click();
+  await page.getByRole('heading', { name: 'A technician owns this ticket' }).waitFor();
+  assert.equal(requests.length, 1);
+  assert.equal(await page.locator('#reply-box').inputValue(), 'Keep the technician draft.');
+  assert.deepEqual(errors, []);
+});
