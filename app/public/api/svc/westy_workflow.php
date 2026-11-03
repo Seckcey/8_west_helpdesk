@@ -18,5 +18,5 @@ catch (InvalidArgumentException $error) { json_out(['ok'=>false,'error'=>$error-
 catch (Throwable $error) {
     if ($error->getMessage() === 'unauthorized') json_out(['ok'=>false,'error'=>'unauthorized'],401);
     error_log('Westy workflow receiver: ' . $error::class);
-    json_out(['ok'=>false,'error'=>'workflow unavailable'],503);
+    json_out(['ok'=>false,'error'=>($payload['schema_version'] ?? null) === 2 ? 'workflow_v2_unavailable' : 'workflow unavailable'],503);
 }

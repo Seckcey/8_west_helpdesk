@@ -1,0 +1,158 @@
+{
+  "schema": "safeharbor-westy-workflow-v2-contract",
+  "endpoint": "/api/svc/westy_workflow.php",
+  "service": "milepost-workflow",
+  "hmac_context": "safeharbor-westy-workflow-v1",
+  "request_fields": [
+    "schema_version",
+    "action",
+    "event_key",
+    "workflow_key",
+    "tenant_slug",
+    "customer_id",
+    "alert_key",
+    "expected_version",
+    "grant_key",
+    "continuation_key",
+    "summary",
+    "occurred_at"
+  ],
+  "status_response_fields": [
+    "schema_version",
+    "ok",
+    "action",
+    "event_key",
+    "workflow_key",
+    "tenant_slug",
+    "customer_id",
+    "alert_key",
+    "ticket_id",
+    "ticket_url",
+    "version",
+    "state",
+    "receipt_id",
+    "replayed",
+    "binding",
+    "ticket",
+    "pending_grant",
+    "accepted_continuation"
+  ],
+  "resume_response_fields": [
+    "schema_version",
+    "ok",
+    "action",
+    "event_key",
+    "workflow_key",
+    "tenant_slug",
+    "customer_id",
+    "alert_key",
+    "ticket_id",
+    "ticket_url",
+    "version",
+    "state",
+    "receipt_id",
+    "replayed",
+    "grant_key",
+    "continuation_key",
+    "accepted_at",
+    "request_sha256"
+  ],
+  "status_fixed": {
+    "schema_version": 2,
+    "ok": true,
+    "action": "status",
+    "receipt_id": null,
+    "replayed": false
+  },
+  "resume_fixed": {
+    "schema_version": 2,
+    "ok": true,
+    "action": "resume",
+    "state": "working"
+  },
+  "binding_fields": [
+    "client_id",
+    "status"
+  ],
+  "ticket_fields": [
+    "client_id",
+    "status",
+    "assignee_id",
+    "merged_into_id",
+    "resolved_at"
+  ],
+  "pending_grant_fields": [
+    "grant_key",
+    "assignee_id",
+    "expected_version",
+    "created_at"
+  ],
+  "accepted_continuation_fields": [
+    "grant_key",
+    "continuation_key",
+    "event_key",
+    "version",
+    "accepted_at",
+    "request_sha256",
+    "original_receipt"
+  ],
+  "local_endpoint": "/api/westy_workflow_grant.php",
+  "local_request_fields": [
+    "action",
+    "ticket_id",
+    "workflow_key",
+    "expected_version",
+    "grant_key"
+  ],
+  "local_response_fields": [
+    "ok",
+    "action",
+    "ticket_id",
+    "workflow_key",
+    "grant_key",
+    "expected_version",
+    "assignee_id",
+    "grant_state",
+    "created_at",
+    "cancelled_at"
+  ],
+  "local_results": {
+    "create": "Frozen pending result; no ownership transfer. Exact canonical request and original actor return the same object even after cancellation or consumption.",
+    "cancel": "Frozen cancelled result; expected_version binds original grant, not current run. Consumed grants conflict."
+  },
+  "utc_format": "YYYY-MM-DDTHH:MM:SSZ",
+  "receipt_storage": "Original resume response including replayed=false and SHA256 of exact received raw request bytes. Replays change only returned replayed to true.",
+  "recovery": "Fresh read-only v2 status returns latest accepted immutable association and full original receipt. Later current ownership always wins.",
+  "migration": "036_westy_workflow_resume.sql",
+  "production_state": "source_preparation_only",
+  "examples": {
+    "status_request": {
+      "schema_version": 2,
+      "action": "status",
+      "event_key": "00000384-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "workflow_key": "00000385-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "tenant_slug": "8west",
+      "customer_id": "00000386-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "alert_key": "alert:903",
+      "expected_version": 0,
+      "grant_key": null,
+      "continuation_key": null,
+      "summary": "",
+      "occurred_at": "2026-11-03T00:00:00Z"
+    },
+    "resume_request": {
+      "schema_version": 2,
+      "action": "resume",
+      "event_key": "00000388-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "workflow_key": "00000385-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "tenant_slug": "8west",
+      "customer_id": "00000386-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "alert_key": "alert:903",
+      "expected_version": 2,
+      "grant_key": "00000389-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "continuation_key": "0000038a-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "summary": "Prior commands confirmed unsent; non-executing intent frozen.",
+      "occurred_at": "2026-11-03T00:00:00Z"
+    }
+  }
+}

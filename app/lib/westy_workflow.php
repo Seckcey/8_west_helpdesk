@@ -8,6 +8,7 @@ const WESTY_WORKFLOW_SERVICE = 'milepost-workflow';
 const WESTY_WORKFLOW_CONTEXT = 'safeharbor-westy-workflow-v1';
 const WESTY_WORKFLOW_UUID = '/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/D';
 const WESTY_WORKFLOW_FIELDS = ['schema_version','event_key','workflow_key','tenant_slug','customer_id','alert_key','action','expected_version','summary','occurred_at','evidence_sha256','verification_method','job_id','job_completed_at','alert_resolved_at','assignee_id'];
+const WESTY_WORKFLOW_V2_FIELDS = ['schema_version','action','event_key','workflow_key','tenant_slug','customer_id','alert_key','expected_version','grant_key','continuation_key','summary','occurred_at'];
 final class WestyWorkflowConflict extends RuntimeException {}
 
 function westy_workflow_settings(array $config): array
@@ -55,25 +56,38 @@ function westy_workflow_request(string $body, ?int $now = null): array
     try { $p = json_decode($body, true, 4, JSON_THROW_ON_ERROR); }
     catch (JsonException) { throw new InvalidArgumentException('invalid_json'); }
     if (!is_array($p) || array_is_list($p)) throw new InvalidArgumentException('invalid_payload');
-    $keys = array_keys($p); $expected = WESTY_WORKFLOW_FIELDS;
+    $v2 = ($p['schema_version'] ?? null) === 2;
+    $keys = array_keys($p); $expected = $v2 ? WESTY_WORKFLOW_V2_FIELDS : WESTY_WORKFLOW_FIELDS;
     sort($keys); sort($expected);
     // Flat scalars only: counting key separators outside quoted values detects
     // duplicate members that json_decode would otherwise silently replace.
     $withoutStrings = preg_replace('/"(?:[^"\\\\]|\\\\.)*"/s', '""', $body);
     if ($keys !== $expected || substr_count((string)$withoutStrings, ':') !== count($keys)) throw new InvalidArgumentException('invalid_fields');
-    if ($p['schema_version'] !== 1 || !is_int($p['expected_version']) || $p['expected_version'] < 0) throw new InvalidArgumentException('invalid_version');
+    if ((!$v2 && $p['schema_version'] !== 1) || !is_int($p['expected_version']) || $p['expected_version'] < 0) throw new InvalidArgumentException('invalid_version');
     foreach (['event_key','workflow_key','customer_id'] as $key) {
         if (!is_string($p[$key]) || preg_match(WESTY_WORKFLOW_UUID, $p[$key]) !== 1) throw new InvalidArgumentException('invalid_' . $key);
     }
     if (!is_string($p['tenant_slug']) || preg_match('/\A[a-z0-9][a-z0-9-]{0,63}\z/D', $p['tenant_slug']) !== 1) throw new InvalidArgumentException('invalid_tenant');
     if (!is_string($p['alert_key']) || preg_match('/\Aalert:([1-9][0-9]{0,19})\z/D', $p['alert_key'], $alert) !== 1
         || (strlen($alert[1]) === 20 && strcmp($alert[1], '18446744073709551615') > 0)) throw new InvalidArgumentException('invalid_alert');
-    if (!in_array($p['action'], ['claim','progress','escalate','resolve','status'], true)) throw new InvalidArgumentException('invalid_action');
+    if (!in_array($p['action'], $v2 ? ['status','resume'] : ['claim','progress','escalate','resolve','status'], true)) throw new InvalidArgumentException('invalid_action');
     if (!is_string($p['summary']) || !mb_check_encoding($p['summary'], 'UTF-8') || mb_strlen($p['summary']) > 2000
         || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $p['summary']) === 1) throw new InvalidArgumentException('invalid_summary');
     if ($p['action'] !== 'status' && trim($p['summary']) === '') throw new InvalidArgumentException('summary_required');
     if (!westy_workflow_date($p['occurred_at']) || abs(($now ?? time()) - strtotime($p['occurred_at'])) > 86400
         || strtotime($p['occurred_at']) > ($now ?? time()) + 30) throw new InvalidArgumentException('invalid_occurred_at');
+    if ($v2) {
+        if ($p['action'] === 'status') {
+            if ($p['expected_version'] !== 0 || $p['grant_key'] !== null || $p['continuation_key'] !== null || $p['summary'] !== '') throw new InvalidArgumentException('invalid_status');
+        } else {
+            if ($p['expected_version'] < 1) throw new InvalidArgumentException('invalid_version');
+            foreach (['grant_key','continuation_key'] as $key) {
+                if (!is_string($p[$key]) || preg_match(WESTY_WORKFLOW_UUID, $p[$key]) !== 1) throw new InvalidArgumentException('invalid_' . $key);
+            }
+            if (count(array_unique([$p['event_key'],$p['grant_key'],$p['continuation_key']])) !== 3) throw new InvalidArgumentException('distinct_keys_required');
+        }
+        return $p;
+    }
     foreach (['job_id','assignee_id'] as $key) {
         if ($p[$key] !== null && (!is_int($p[$key]) || $p[$key] < 1)) throw new InvalidArgumentException('invalid_' . $key);
     }
@@ -122,6 +136,10 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
 {
     $settings = westy_workflow_settings($settings);
     westy_workflow_schema_ready($pdo);
+    if (($p['schema_version'] ?? null) === 2) {
+        require_once __DIR__ . '/westy_workflow_grants.php';
+        westy_workflow_resume_schema_ready($pdo);
+    }
     $managed = !in_array($p['tenant_slug'], ['8west', 'internal'], true);
     if ($managed && ($settings['managed_providers_enabled'] ?? false) !== true) throw new RuntimeException('unauthorized');
     if ($pdo->inTransaction()) throw new RuntimeException('transaction_ownership_required');
@@ -155,9 +173,17 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
         if ($ticket && (int)$ticket['client_id'] !== (int)$binding['client_id']) throw new WestyWorkflowConflict('ticket_customer_conflict');
         if ($p['action'] === 'status') {
             if (!$run) throw new WestyWorkflowConflict('workflow_not_found');
+            if (($p['schema_version'] ?? null) === 2) {
+                $result = westy_workflow_v2_status($pdo,$tid,$binding,$ticket,$run,$p);
+                $pdo->commit(); return $result;
+            }
             $result = westy_workflow_result($run, 'status', null) + array_intersect_key($p, array_flip(['event_key','tenant_slug','customer_id','alert_key'])); $pdo->commit(); return $result;
         }
         $now = gmdate('Y-m-d H:i:s');
+        if (($p['schema_version'] ?? null) === 2) {
+            $result = westy_workflow_resume($pdo,$tid,$binding,$ticket,$run,$p,$requestHash,$now);
+            $pdo->commit(); return $result;
+        }
         if ($p['action'] === 'claim') {
             if ($run || $p['expected_version'] !== 0) throw new WestyWorkflowConflict('workflow_already_claimed');
             if ($ticket) {
@@ -283,8 +309,17 @@ function westy_workflow_card(array $run): string
     if ($state === 'working') {
         $html .= '<button type="button" class="btn-ghost btn-sm" data-action="assignee" data-id="' . (int)$run['ticket_id'] . '">Take over ticket</button>';
     }
+    $grantControl = $run['grant_control'] ?? '';
+    if (in_array($grantControl,['create','cancel'],true)) {
+        $html .= '<button type="button" class="btn-primary btn-sm" data-workflow-grant="'.$escape($grantControl).'" data-ticket-id="'.(int)$run['ticket_id'].'"'
+            . ' data-workflow-key="'.$escape($run['workflow_key']).'" data-version="'.(int)$run['grant_version'].'" data-grant-key="'.$escape($run['grant_key'] ?? '').'">'
+            . ($grantControl === 'create' ? 'Return to Westy' : 'Cancel return request') . '</button>';
+    }
     if (!$included && ($state === 'resolved' || !empty($run['closed_at']))) $html .= '<a class="btn-ghost btn-sm" href="/time.php">Review time &amp; billing</a>';
     $html .= '</div>';
+    if ($grantControl === 'create') $html .= '<p class="rail-note">You stay assigned until Milepost confirms the earlier commands were not sent and Westy accepts your return request.</p>';
+    elseif (in_array($grantControl,['pending','cancel'],true)) $html .= '<p class="rail-note">A return request is recorded. It does not change the current owner. Its creator can cancel it until Westy accepts it.</p>';
+    if ($grantControl !== '') $html .= '<p class="rail-note" data-workflow-grant-notice role="status" aria-live="polite"></p>';
     if (isset($run['billing_state'])) {
         $billingLabels = ['waiting_for_time'=>'Billing is waiting for approved time and its Coastmark export.', 'ready'=>'Billing handoff is ready.',
             'sending'=>'Checking the billing handoff.', 'uncertain'=>'Billing receipt is being reconciled. No invoice email has been sent by Safeharbor.',

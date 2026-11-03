@@ -153,6 +153,7 @@
         $("#westy-workflow-title", workflow).textContent = "A technician owns this ticket";
         $("p", workflow).textContent = "The ticket was changed by a technician. Westy cannot close it automatically.";
         $(".westy-workflow-actions [data-action]", workflow)?.remove();
+        $("[data-workflow-grant='create']", workflow)?.remove();
       }
       return true;
     } catch (e) {
@@ -160,6 +161,51 @@
       return false;
     }
   }
+
+  // Grant intent has its own endpoint and repaint. It never implies a ticket transfer.
+  async function refreshWorkflowCard(ticketId) {
+    const res = await fetch("/ticket.php?id=" + encodeURIComponent(ticketId), { cache: "no-store" });
+    if (!res.ok || res.redirected) throw new Error("Could not refresh workflow");
+    const fresh = new DOMParser().parseFromString(await res.text(), "text/html");
+    const card = fresh.querySelector(".westy-workflow-card");
+    const current = $(".westy-workflow-card");
+    if (!card || !current || fresh.querySelector("#thread")?.dataset.ticketId !== String(ticketId)) throw new Error("Workflow unavailable");
+    current.replaceWith(card);
+  }
+
+  document.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-workflow-grant]");
+    if (!btn || btn.disabled) return;
+    const card = btn.closest(".westy-workflow-card");
+    const notice = card?.querySelector("[data-workflow-grant-notice]");
+    const action = btn.dataset.workflowGrant;
+    if (!card || !["create", "cancel"].includes(action)) return;
+    btn.disabled = true;
+    try {
+      // Retain this exact key on an uncertain response. A reload discovers durable intent.
+      if (!btn.dataset.grantKey) {
+        const bytes = crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 15) | 64;
+        bytes[8] = (bytes[8] & 63) | 128;
+        const hex = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+        btn.dataset.grantKey = [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join("-");
+      }
+      const body = { action, ticket_id: Number(btn.dataset.ticketId), workflow_key: btn.dataset.workflowKey,
+        expected_version: Number(btn.dataset.version), grant_key: btn.dataset.grantKey };
+      const r = await api("/api/westy_workflow_grant.php", body);
+      if (r.ok !== true || r.action !== action || r.ticket_id !== body.ticket_id || r.workflow_key !== body.workflow_key
+          || r.grant_key !== body.grant_key || r.expected_version !== body.expected_version
+          || r.grant_state !== (action === "create" ? "pending" : "cancelled")) throw new Error("Unconfirmed grant response");
+      if (notice) notice.textContent = action === "create" ? "Return request recorded. Refreshing its current state…" : "Return request cancelled. Refreshing…";
+      // Fetch only fresh card markup; never reload or replace the technician's draft.
+      try { await refreshWorkflowCard(body.ticket_id); }
+      catch { if (notice) notice.textContent = "Request recorded. Refresh the ticket to see its current state. Your draft is unchanged."; }
+    } catch (error) {
+      if (notice) notice.textContent = error.status === 409
+        ? "The request no longer matches this workflow. Refresh the ticket to review its current state."
+        : "The request could not be confirmed. Retry to check the same request. Your draft is unchanged.";
+    } finally { btn.disabled = false; }
+  });
 
   /* ------------------------------------------------------------------ */
   /* Timer (local until the server acknowledges this exact entry key)    */

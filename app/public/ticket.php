@@ -8,6 +8,7 @@ require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/mailer.php';
 require_once __DIR__ . '/../lib/attachments.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
+require_once __DIR__ . '/../lib/westy_workflow_grants.php';
 enforce_https();
 $user = require_login();
 
@@ -55,7 +56,10 @@ $westyWorkflow = null;
 if ($ticket) {
     try {
         $westyWorkflow = westy_workflow_ticket(db(), (int)$user['tenant_id'], $id);
-        if ($westyWorkflow) $westyWorkflow['ticket_id'] = $id;
+        if ($westyWorkflow) {
+            $westyWorkflow['ticket_id'] = $id;
+            $westyWorkflow += westy_workflow_grant_controls(db(),$westyWorkflow,$ticket,$user,cfg('westy_workflow.enabled',false) === true);
+        }
         $ticket['westy_owned'] = ($westyWorkflow['state'] ?? '') === 'working';
     } catch (Throwable $error) {
         error_log('Westy workflow card unavailable: ' . $error::class);
