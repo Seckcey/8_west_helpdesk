@@ -104,12 +104,23 @@ The grant binds the authenticated actor and exact tenant, customer, client,
 ticket, workflow, assignee and version. An exact retry returns the saved result;
 changed facts under that key conflict.
 
+Local create/cancel responses contain exactly `ok`, `action`, `ticket_id`,
+`workflow_key`, `grant_key`, `expected_version`, `assignee_id`, `grant_state`,
+`created_at` and `cancelled_at`. The grant state is `pending` or `cancelled`;
+`cancelled_at` is null on the original create result. There is no local replay
+marker. Retrying a create after consumption still returns its original
+historical result; it never creates new permission. After success the UI
+refreshes only the workflow card from current server state and preserves the
+composer draft.
+
 The original active grant creator can cancel their own pending intent in the
 same tenant, including after assignment or workflow version has changed.
 Cancellation compares the request with the grant's original version, not the
 ticket's newer version. It changes only that grant. Identical cancellation
 retries return the saved result; a consumed grant cannot be cancelled or used
-again. At most one pending grant belongs to an exact tenant/workflow. This rule
+again. The existing integration-enabled setting applies to creation;
+cancellation remains available when that integration is off. At most one
+pending grant belongs to an exact tenant/workflow. This rule
 does not block other tickets, workflows, ordinary human work or unrelated jobs.
 
 The existing takeover triggers invalidate the narrowed grant: a covered ticket,
