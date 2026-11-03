@@ -6,6 +6,21 @@ are in git history.
 
 ## The live version
 
+### In preparation: assignee-controlled Westy continuation
+
+The v2 handback extension is being implemented and tested in isolated source
+work. It will let the current assignee record a one-use return intent for an
+eligible `needs_human` case without immediately changing assignment or status.
+The receiver consumes that intent only for the exact fresh continuation; the
+same ticket, original workflow and old execution history remain.
+
+This is **source/test preparation**, not a production migration, application
+release or actual ticket handback. No production recipe choice or endpoint
+execution is established by these artifacts. See the
+[v2 contract and recovery boundary](westy-workflow-contract.md#prepared-v2-assignee-handback).
+
+### Recorded live release
+
 Current application source is **`d746c193b83de33996a037cbd8e747583ccc1db4`**, shared client
 directory CUT2 ([PR #262](https://github.com/Seckcey/8_west_helpdesk/pull/262)), live since
 **October 23, 2026 at 22:23:12Z**. Full PR and main CI passed; the stock source-only deploy exited

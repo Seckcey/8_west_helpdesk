@@ -1,15 +1,21 @@
 # Westy alert-to-ticket workflow
 
-This is a release candidate built on September 7, 2026. It is **not enabled or
-deployed** by this change. Existing alert intake, support intake, reporting,
-portal, and approved-time billing keep their own contracts and gates.
+This document defines the original v1 controller contract and the prepared v2
+assignee handback extension. The original September release evidence is retained
+in [the workflow release packet](westy-workflow-release-packet.md).
+
+**The v2 extension is in source/test preparation.** Its production migration,
+application release and any particular ticket's return to Westy are separate
+decisions. This document does not establish that they happened. Existing alert
+intake, support intake, reporting, portal and approved-time billing keep their
+own contracts and gates.
 
 Milepost owns alerts, agent jobs, device authorization and dangerous-command
 approval. Safeharbor owns customer-bound tickets, assignment, human takeover,
 workflow evidence and closure. Coastmark owns agreements, rates, draft invoices
 and approved delivery. These services use their own databases.
 
-## Service contract
+## Existing v1 service contract
 
 `POST /api/svc/westy_workflow.php` uses a separate exact registered service
 `milepost-workflow`, active in the signed provider tenant. It requires all of
@@ -71,6 +77,183 @@ an old successful claim receipt does not mean the ticket is still owned.
 server. Stop on ownership conflict. Resolve an ambiguous response through a
 fresh status request or exact frozen replay; never issue a second event key to
 conceal an uncertain first result.
+
+## Prepared v2 assignee handback
+
+The extension keeps one ticket and its original workflow identity, customer,
+alert, start time and history. It supports only an unresolved, unmerged
+`needs_human` case with a current active assignee and active customer binding.
+It does not return a `human_owned` or previously closed workflow to automation.
+The signed Milepost controller must establish that the prior commands covered
+by a continuation were never dispatched; Safeharbor does not inspect the
+producer's execution database or claim that evidence independently.
+
+### The assignee's grant
+
+The ticket card offers **Return to Westy** to the current assignee through the
+normal signed-in, CSRF-protected application path. The action records an exact
+one-use intent; it does not unassign the ticket, change its status or advance
+the workflow version. It adds no confirmation dialog. It creates no command,
+technician time, customer reply, financial record or mail.
+
+`POST /api/westy_workflow_grant.php` accepts exactly `action`, `ticket_id`,
+`workflow_key`, `expected_version` and `grant_key`. The action is `create` or
+`cancel`; `ticket_id` and the original version are positive integers, and keys are
+lowercase UUIDv4 values. For creation, `grant_key` is the local idempotency key.
+The grant binds the authenticated actor and exact tenant, customer, client,
+ticket, workflow, assignee and version. An exact retry returns the saved result;
+changed facts under that key conflict.
+
+The original active grant creator can cancel their own pending intent in the
+same tenant, including after assignment or workflow version has changed.
+Cancellation compares the request with the grant's original version, not the
+ticket's newer version. It changes only that grant. Identical cancellation
+retries return the saved result; a consumed grant cannot be cancelled or used
+again. At most one pending grant belongs to an exact tenant/workflow. This rule
+does not block other tickets, workflows, ordinary human work or unrelated jobs.
+
+The existing takeover triggers invalidate the narrowed grant: a covered ticket,
+non-system message or time-entry write starting in `needs_human` changes the
+workflow to `human_owned` and advances its version. Changing a field back does
+not restore the old state/version. A stale grant stays in history, can be
+cancelled by its creator, is omitted from discovery and cannot be consumed.
+No generic `human_owned` handback or broad revocation hooks are added.
+
+### V2 service envelopes and discovery
+
+V2 uses the same signed service endpoint, exact `milepost-workflow` identity,
+HMAC context and raw-byte authentication described above. V1 requests and
+responses retain their existing exact shapes and behavior. A missing or partial
+v2 capability fails explicitly; a producer must not silently fall back to v1.
+See [the v2 machine fixture](contracts/westy-workflow-v2.json).
+
+Both v2 actions have exactly these fields:
+
+`schema_version`, `action`, `event_key`, `workflow_key`, `tenant_slug`,
+`customer_id`, `alert_key`, `expected_version`, `grant_key`, `continuation_key`,
+`summary`, `occurred_at`.
+
+The schema version is integer `2`. Identity, UUID, UTF-8, duplicate-member,
+body-size and timestamp rules remain strict. No job, recovery or caller-supplied
+assignee fields belong in this envelope.
+
+| Action | Fixed or version-bound values | Effect |
+|---|---|---|
+| `status` | `expected_version=0`, both grant/continuation keys `null`, summary empty | Read current binding, ticket, eligible pending grant and accepted continuation; no writes or consumption. |
+| `resume` | Current grant-bound version, exact grant UUID, fresh continuation UUID, nonempty summary | Consume the assignee's grant and atomically return the same case to Westy. |
+
+The exact v2 status response contains `schema_version`, `ok`, `action`,
+`event_key`, `workflow_key`, `tenant_slug`, `customer_id`, `alert_key`,
+`ticket_id`, `ticket_url`, `version`, `state`, `receipt_id`, `replayed`,
+`binding`, `ticket`, `pending_grant` and `accepted_continuation`.
+It has `schema_version=2`, `action=status`, `receipt_id=null` and
+`replayed=false`. Its request event key is a read identity, not a write receipt.
+
+| Status member | Exact contents |
+|---|---|
+| `binding` | `client_id`, `status=active` |
+| `ticket` | `client_id`, `status`, nullable `assignee_id`, `merged_into_id`, `resolved_at` |
+| `pending_grant` | `null`, or `grant_key`, `assignee_id`, `expected_version`, `created_at` |
+| `accepted_continuation` | `null`, or `grant_key`, `continuation_key`, `event_key`, `version`, `accepted_at`, `request_sha256`, `original_receipt` |
+
+The pending grant is exposed only while unconsumed, uncancelled and still
+matching the current assignee, version, `needs_human` state, unresolved/unmerged
+ticket and active binding. Status does not modify stale grants. Binding or
+scope conflicts return an error rather than a partially populated success.
+
+### Atomic resume and immutable acceptance
+
+Before sending `resume`, Milepost durably freezes only a **non-executing**
+continuation intent, its event/grant/continuation UUIDs, exact request bytes and
+request hash. A fresh active diagnostic session must not exist yet: an ordinary
+worker could otherwise discover and dispatch it before acceptance.
+
+The receiver checks the exact grant, current assignee, active actor/binding,
+scope, state and version under the shared lock order:
+tenant, service identity when applicable, customer binding, ticket, workflow,
+actor/assignee, grant. Creation, cancellation, discovery and consumption
+serialize through the workflow row; historical grant reads use deterministic
+ordering.
+
+Consumption returns the same ticket to In Progress, clears its assignment as
+explicitly requested, leaves legacy auto-close eligibility zero and makes the
+same workflow `working` at exactly `expected_version + 1`. The transaction
+accounts for its own ticket takeover trigger, consumes the grant once, binds
+the continuation/event/request hash, appends attributed system history and
+stores an immutable `resume` receipt. Existing triggers are not disabled.
+
+The exact resume success response contains `schema_version`, `ok`, `action`,
+`event_key`, `workflow_key`, `tenant_slug`, `customer_id`, `alert_key`,
+`ticket_id`, `ticket_url`, `version`, `state`, `receipt_id`, `replayed`,
+`grant_key`, `continuation_key`, `accepted_at` and `request_sha256`.
+Its action/state are `resume`/`working`; `receipt_id` equals the event UUID.
+The hash covers the exact frozen resume request bytes. The original complete
+response is stored with `replayed=false`; an exact direct replay changes only
+the returned replay marker to `true`, under the existing authentication and
+request-validity rules. A changed body conflicts, and a consumed grant cannot
+authorize a different event or continuation.
+
+V2 status reads the latest consumed grant's original receipt and association
+from immutable storage, without reconstructing acceptance from current state.
+The embedded original receipt remains `replayed=false`. Its association fields
+must match that receipt. Historical acceptance remains visible after later
+human takeover or escalation, and never authorizes execution by itself.
+
+### Lost responses, local finalization and Stop
+
+Milepost validates the original/replayed receipt, or the authoritative original
+receipt embedded in fresh v2 status, against its saved request hash, fixed
+identifiers, complete scope, ticket and expected resulting version. A fresh
+status can recover that proof after a lost response, local commit failure or
+expiration of the original resume request. It does not extend replay validity,
+alter the frozen body or mint replacement resume identifiers.
+
+Only validated acceptance plus fresh ownership, Stop, policy, binding and
+actual execution checks may create a fresh active session. In its own local
+transaction Milepost preserves an attributed prior-binding hash and creates
+the fresh session/current-pointer association with compare-and-swap. The old
+closed session, probes, jobs, actions and queue items remain unchanged. A local
+commit with an uncertain outcome is reconciled against the same continuation
+identity before another creation is attempted.
+
+Before new execution, fresh status must match the exact binding, ticket,
+accepted grant/continuation/event and accepted version. The current version may
+be newer, but the current workflow must still be `working`, with In Progress
+status and no assignee, merge or resolution. The local current session must
+still belong to that continuation. A later `needs_human` or `human_owned`
+state stops this continuation even though historical acceptance is visible.
+
+If Stop arrives after remote acceptance and before local dispatch, preserve
+the accepted association and stopped local intent; create no active session
+and dispatch nothing. If fresh status still shows Westy ownership, use the
+existing exact-version v1 `escalate` action with truthful stopped-before-dispatch
+evidence. If a human already took ownership, respect it. Preserve an uncertain
+escalation's frozen request for reconciliation; do not replace its key or
+advance a version to bypass conflict. Old jobs/generations and unknown results
+are never replayed or reclassified to manufacture a fresh continuation.
+
+### Prepared migration and production boundary
+
+The new artifact `036_westy_workflow_resume.sql` adds only required `resume`
+receipt-enum support and dedicated one-use grant persistence/binding indexes.
+The canonical fresh-install schema mirrors it. Migration 025 remains historical
+and unchanged; there is no backfill, deletion of existing history or broad
+takeover-trigger change.
+
+Qualification must cover v1 compatibility, exact v2 fields/null shapes,
+grant creation/cancellation/retry, human-write/version races, consumed-grant
+reuse refusal, immutable receipt/hash readback, late recovery, and initial,
+replayed and partial migration behavior using synthetic data and ordinary
+runtime privileges. Container tests run on Coastline through its shared slot
+and heavy-test mutex, one stack at a time. Required CI remains in force.
+
+Production migration and matching receiver capability must precede v2 producer
+publication. Rollback planning retains grant and receipt history; an old
+application is not permission to remove a consumed grant, downgrade away a
+stored `resume` receipt, replay old work or transfer a human assignment.
+The exact production preflight, rollback, case handback, recipe choices and
+endpoint actions remain in the final approval packet. Source/test preparation
+alone establishes none of those outcomes.
 
 ## Ownership and user experience
 
