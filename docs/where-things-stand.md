@@ -6,23 +6,29 @@ are in git history.
 
 ## The live version
 
-### In preparation: assignee-controlled Westy continuation
+### Live: assignee-controlled Westy continuation
 
-The v2 handback extension is being implemented and tested in isolated source
-work. It will let the current assignee record a one-use return intent for an
+Application source **`7be64ab4fb69e4692be5df7ed735486079aee312`** and migration
+**036** are installed, released at **4:39:45 PM PST on November 3, 2026**
+(`2026-11-04T00:39:45Z`). This replaced the verified running `ab4b0769` release.
+The current assignee can record a one-use return intent for an
 eligible `needs_human` case without immediately changing assignment or status.
 The receiver consumes that intent only for the exact fresh continuation; the
 same ticket, original workflow and old execution history remain.
 
-This is **source/test preparation**, not a production migration, application
-release or actual ticket handback. No production recipe choice or endpoint
-execution is established by these artifacts. See the
-[v2 contract and recovery boundary](westy-workflow-contract.md#prepared-v2-assignee-handback).
+All 412 published files matched the prepared Git release. The installed v2
+readiness validator and existing workflow health function passed under the
+ordinary runtime identity. Protected configuration and runtime privileges were
+unchanged, all paused jobs and timers were restored, and release locks were
+released. This is receiver installation evidence; it does not establish a
+particular handback, device repair, alert recovery or client rollout. See the
+[release record](westy-workflow-resume-release-2026-11-03.md) and
+[v2 contract and recovery boundary](westy-workflow-contract.md#v2-assignee-handback).
 
-### Recorded live release
+### Earlier shared-directory release
 
-Current application source is **`d746c193b83de33996a037cbd8e747583ccc1db4`**, shared client
-directory CUT2 ([PR #262](https://github.com/Seckcey/8_west_helpdesk/pull/262)), live since
+The shared client directory CUT2 source was **`d746c193b83de33996a037cbd8e747583ccc1db4`**
+([PR #262](https://github.com/Seckcey/8_west_helpdesk/pull/262)), live since
 **October 23, 2026 at 22:23:12Z**. Full PR and main CI passed; the stock source-only deploy exited
 0 and all 393 runtime files matched. The lead restored public access and verified login/title/CSS
 at `2026-10-23T22:24:36Z`. A bounded existing staff-session Billing click from Lifestyle client 14

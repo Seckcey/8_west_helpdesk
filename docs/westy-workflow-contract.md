@@ -1,12 +1,13 @@
 # Westy alert-to-ticket workflow
 
-This document defines the original v1 controller contract and the prepared v2
+This document defines the original v1 controller contract and the installed v2
 assignee handback extension. The established application and migration procedure
 is in [the deployment runbook](../deploy/README.md).
 
-**The v2 extension is in source/test preparation.** Its production migration,
-application release and any particular ticket's return to Westy are separate
-decisions. This document does not establish that they happened. Existing alert
+**Migration 036 and the v2 receiver are installed as `7be64ab4`.** See the
+[November 3 release record](westy-workflow-resume-release-2026-11-03.md) for
+source, schema and cleanup evidence. Installation does not establish a particular
+ticket's handback or a successful repair. Existing alert
 intake, support intake, reporting, portal and approved-time billing keep their
 own contracts and gates.
 
@@ -78,7 +79,9 @@ server. Stop on ownership conflict. Resolve an ambiguous response through a
 fresh status request or exact frozen replay; never issue a second event key to
 conceal an uncertain first result.
 
-## Prepared v2 assignee handback
+<a id="prepared-v2-assignee-handback"></a>
+
+## V2 assignee handback
 
 The extension keeps one ticket and its original workflow identity, customer,
 alert, start time and history. It supports only an unresolved, unmerged
@@ -243,9 +246,9 @@ escalation's frozen request for reconciliation; do not replace its key or
 advance a version to bypass conflict. Old jobs/generations and unknown results
 are never replayed or reclassified to manufacture a fresh continuation.
 
-### Prepared migration and production boundary
+### Migration and production boundary
 
-The new artifact `036_westy_workflow_resume.sql` adds only required `resume`
+Migration `036_westy_workflow_resume.sql` adds only required `resume`
 receipt-enum support and dedicated one-use grant persistence/binding indexes.
 The canonical fresh-install schema mirrors it. Migration 025 remains historical
 and unchanged; there is no backfill, deletion of existing history or broad
@@ -262,9 +265,10 @@ Production migration and matching receiver capability must precede v2 producer
 publication. Rollback planning retains grant and receipt history; an old
 application is not permission to remove a consumed grant, downgrade away a
 stored `resume` receipt, replay old work or transfer a human assignment.
-The exact production preflight, rollback, case handback, recipe choices and
-endpoint actions remain in the final approval packet. Source/test preparation
-alone establishes none of those outcomes.
+The November 3 release installed the compatible receiver and schema through the
+approved unchanged publisher. Any case handback, recipe choice or endpoint
+action requires its own applicable authorization and current ownership/execution
+checks. Installation alone establishes none of those outcomes.
 
 ## Ownership and user experience
 
