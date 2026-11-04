@@ -210,6 +210,7 @@ jobs:
           php app/tests/logbook_export_test.php
           php app/tests/ticket_bulk_delete_render_test.php
           php app/tests/westy_workflow_test.php
+          php app/tests/westy_hardware_test.php
           php app/tests/westy_billing_test.php
           php app/tests/westy_queue_owner_test.php
           php app/tests/westy_mail_graph_test.php
@@ -238,7 +239,9 @@ jobs:
           php app/tests/support_addresses_test.php
           php app/tests/support_mail_poll_test.php
           php app/tests/support_mailer_test.php
+          php app/tests/mail_submission_evidence_test.php
           php app/tests/westy_workflow_mysql_test.php
+          php app/tests/westy_hardware_mysql_test.php
           php app/tests/westy_email_mysql_test.php
           php app/tests/westy_mail_mysql_test.php
           php app/tests/westy_mail_poll_mysql_test.php

@@ -4,6 +4,10 @@ This document defines the original v1 controller contract and the installed v2
 assignee handback extension. The established application and migration procedure
 is in [the deployment runbook](../deploy/README.md).
 
+The additive [hardware outcome contract](westy-hardware-outcomes.md) is source
+preparation only. It records unresolved hardware advice and a durable notice
+without changing the strict v1/v2 envelopes or granting continuation authority.
+
 **Migration 036 and the v2 receiver are installed as `7be64ab4`.** See the
 [November 3 release record](westy-workflow-resume-release-2026-11-03.md) for
 source, schema and cleanup evidence. Installation does not establish a particular

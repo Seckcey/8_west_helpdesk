@@ -10,6 +10,10 @@ if (PHP_SAPI !== 'cli') exit('CLI only.');
 
 require_once __DIR__ . '/../lib/mailer.php';
 require_once __DIR__ . '/../lib/support_addresses.php';
+require_once __DIR__ . '/../lib/westy_hardware.php';
+
+// Hardware notices own their max_attempts=0 rows; legacy mail never retries them.
+westy_hardware_dispatch_due(db(),(array)cfg('westy_workflow',[]));
 
 $due = db()->query(
     'SELECT * FROM mail_queue

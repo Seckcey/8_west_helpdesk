@@ -49,6 +49,7 @@ const TICKET_DELETE_REASONS = [
 const TICKET_DELETE_GUARDED = [
     'time_entries'             => 'time',
     'westy_workflows'          => 'westy_workflow',
+    'westy_hardware_notices'   => 'westy_workflow',
     'westy_email_drafts'       => 'westy_email',
     'westy_mail_conversations' => 'westy_mail',
     'portal_ticket_requesters' => 'portal_requester',
