@@ -107,8 +107,18 @@ Read-only snapshots after the 19:14 and 19:15 cron ticks verified:
 This is actual missing-contact acceptance. Positive-contact customer delivery and
 native device repair remain separate, unproved paths. Observed row counts and the
 second scheduled tick establish no duplicate activity here; no deliberate live
-event replay was performed. The separate internal-device pilot is still pending
-its actual result and accurate ticket outcome.
+event replay was performed.
+
+At the 19:15 snapshot, the separate internal-device pilot still showed `working`
+version 1. A requested read-only check at 19:24:30 UTC established that its normal
+30-minute recovery window had subsequently expired: the original pilot workflow
+had accepted an `escalate` receipt at 19:17:02 UTC and become `needs_human` version 2,
+with the same ticket open and assigned to its technician. Its initial claim was
+retained, two system messages were present, and no grant or technician time was
+added. Job/recovery verification fields remain null; this is an inconclusive
+handoff, with no verified repair. No manual ticket or workflow action was used.
+Receiver receipt: `receiver-pilot3103-after-grace-20261104T192432Z.json`, SHA256
+`b33d645a4e669a034ba52b6f6240716117df1f4a3a44970da09afeee361a1888`.
 
 ## Outbound worker identity correction
 
