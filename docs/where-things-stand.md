@@ -15,11 +15,19 @@ ticket, human assignment and history, deduplicates unchanged decisions and uses
 Milepost's signed current device-contact resolver before customer mail. Missing
 contact and unavailable verification are separate outcomes.
 
-All 418 published files match the prepared Git release; four new tables and eight
-history triggers are installed. Configuration and runtime permissions are unchanged,
-and paused jobs and timers were restored. **Milepost producer publication and the
-actual conditional ticket/notice outcome remain pending.** Receiver installation
-and synthetic mail tests do not establish customer-email delivery or device repair.
+At installation, all 418 published files matched the prepared Git release; four new
+tables and eight history triggers were installed. Milepost's producer and saved-result
+parser correction are now published. **The original hardware case has its upgrade
+options and one verified `no_device_contact` notice**, completed by the normal worker
+at **19:14:01 UTC**. No email was queued or submitted. The ticket remains open and
+human owned; its earlier messages, receipts and grants are preserved.
+
+The outbound cron account was corrected to the existing private runtime account,
+`eightwest-safeharbor`, at **19:13:25 UTC**. Its normal next two minute ticks ran
+without duplicate notes or attempts. Application configuration and permissions,
+other cron entries and the two old sent-mail records are unchanged. This acceptance
+covers the missing-contact branch; positive-contact delivery and device repair
+remain unproved. Other legacy cron identities need a separate impact review.
 See the [release evidence and rollback record](westy-hardware-release-2026-11-04.md).
 
 ### Included: assignee-controlled Westy continuation
