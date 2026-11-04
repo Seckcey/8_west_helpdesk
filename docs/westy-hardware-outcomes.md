@@ -1,6 +1,10 @@
 # Hardware upgrade outcomes
 
-**Agreed source contract. Not released or activated.**
+**Receiver installed as `3f3b128a` with migration 037 on November 4, 2026.**
+Milepost producer publication and the actual conditional ticket/notice outcome are
+pending. The [release record](westy-hardware-release-2026-11-04.md) states what was
+verified. The machine fixture remains the frozen source agreement; its
+`production_state` describes its preparation date, not current deployment status.
 The existing v1 and v2 envelopes remain exact and unchanged. This adds
 hardware findings through the signed workflow controller, outside the advice
 chat bubble. It grants no command, continuation, purchase or deletion authority.
@@ -159,12 +163,13 @@ semantic deduplication, human ownership and grant preservation, signed contact
 scope/freshness, absent/ambiguous/unavailable recipients, binding/claim races,
 provider uncertainty, Graph lost replies and loopback SMTP disconnects before
 final acceptance and after 250. Legacy workflow and support-mail regressions
-pass. Full PR CI and lead review remain separate release gates.
+passed, together with the actual Milepost producer/resolver and Safeharbor consumer
+interoperability check. Full PR and merged-main CI passed before publication.
 
 ## Delivery boundaries
 
-Only source, synthetic tests and an open PR are authorized for this worker.
-The Safeharbor Sergeant owns documentation review, normal integration,
-migration/release and actual ticket/email verification, serialized with the
-Milepost release lead. No production mail, device action, purchase or file
-deletion is established by this document or synthetic tests.
+The Safeharbor Sergeant owns the receiver release and actual ticket/notice
+verification, serialized with the Milepost release lead. The receiver is installed;
+actual producer acceptance remains a separate step. No production mail, device
+repair, purchase or file deletion is established by synthetic tests or receiver
+installation. Preserve newly accepted findings and notice attempts during recovery.

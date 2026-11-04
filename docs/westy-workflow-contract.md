@@ -4,11 +4,13 @@ This document defines the original v1 controller contract and the installed v2
 assignee handback extension. The established application and migration procedure
 is in [the deployment runbook](../deploy/README.md).
 
-The additive [hardware outcome contract](westy-hardware-outcomes.md) is source
-preparation only. It records unresolved hardware advice and a durable notice
-without changing the strict v1/v2 envelopes or granting continuation authority.
+The additive [hardware outcome receiver](westy-hardware-outcomes.md) and migration
+037 are installed as `3f3b128a`. They record unresolved hardware advice and a durable
+notice without changing the strict v1/v2 envelopes or granting continuation authority.
+The [November 4 release record](westy-hardware-release-2026-11-04.md) separates
+receiver installation from pending producer publication and live notice acceptance.
 
-**Migration 036 and the v2 receiver are installed as `7be64ab4`.** See the
+**Migration 036 and the v2 receiver first shipped as `7be64ab4` and remain included.** See the
 [November 3 release record](westy-workflow-resume-release-2026-11-03.md) for
 source, schema and cleanup evidence. Installation does not establish a particular
 ticket's handback or a successful repair. Existing alert

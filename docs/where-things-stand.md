@@ -6,19 +6,27 @@ are in git history.
 
 ## The live version
 
-### In preparation: hardware upgrade outcomes and device-linked notices
+### Live receiver: hardware upgrade outcomes and device-linked notices
 
-The [schema 3 hardware outcome receiver](westy-hardware-outcomes.md) and additive
-migration 037 are in source/test preparation. They retain the original unresolved
-ticket, human assignment and history, deduplicate unchanged decisions and use
+Application source **`3f3b128ab508872fb97da6596b86d3e8a827c4cd`** and additive
+migration **037** were published on **November 4, 2026, 13:25:16–24 UTC**.
+The [schema 3 receiver](westy-hardware-outcomes.md) retains the original unresolved
+ticket, human assignment and history, deduplicates unchanged decisions and uses
 Milepost's signed current device-contact resolver before customer mail. Missing
-contact and unavailable verification are separate outcomes. This is not a
-production migration, customer-email delivery or device repair receipt.
+contact and unavailable verification are separate outcomes.
 
-### Live: assignee-controlled Westy continuation
+All 418 published files match the prepared Git release; four new tables and eight
+history triggers are installed. Configuration and runtime permissions are unchanged,
+and paused jobs and timers were restored. **Milepost producer publication and the
+actual conditional ticket/notice outcome remain pending.** Receiver installation
+and synthetic mail tests do not establish customer-email delivery or device repair.
+See the [release evidence and rollback record](westy-hardware-release-2026-11-04.md).
 
-Application source **`7be64ab4fb69e4692be5df7ed735486079aee312`** and migration
-**036** are installed, released at **4:39:45 PM PST on November 3, 2026**
+### Included: assignee-controlled Westy continuation
+
+The continuation receiver first shipped as source
+**`7be64ab4fb69e4692be5df7ed735486079aee312`** with migration **036**, at
+**4:39:45 PM PST on November 3, 2026**
 (`2026-11-04T00:39:45Z`). This replaced the verified running `ab4b0769` release.
 The current assignee can record a one-use return intent for an
 eligible `needs_human` case without immediately changing assignment or status.
