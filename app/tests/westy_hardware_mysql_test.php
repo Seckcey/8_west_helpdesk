@@ -32,6 +32,15 @@ function hw_case(PDO $pdo,int $id,string $state='human_owned'): array {
 }
 function hw_count(PDO $p,string $table): int { return (int)$p->query('SELECT COUNT(*) FROM '.$table)->fetchColumn(); }
 function hw_due(PDO $p,int $id): void { $p->prepare('UPDATE westy_hardware_notices SET next_try_at=? WHERE id=?')->execute([gmdate('Y-m-d H:i:s',time()-1),$id]); }
+/** Inject a competing committed decision at the durable-intent/revalidation boundary. */
+class HardwareBoundaryPDO extends PDO {
+    public int $begins=0;
+    public mixed $beforeSubmission=null;
+    public function beginTransaction():bool {
+        if(++$this->begins===3 && $this->beforeSubmission!==null)($this->beforeSubmission)();
+        return parent::beginTransaction();
+    }
+}
 function hw_race(PDO $pdo,array $login,array $payloads): array {
     $code= <<<'PHP'
 function utf8_clean(string $v):string{return $v;}
@@ -156,6 +165,28 @@ try {
     hw_refuse(fn()=>hw_send($pdo,$rollback),'persistence failure aborts complete transaction');
     hw_check($counts===[hw_count($pdo,'messages'),hw_count($pdo,'westy_hardware_notices'),hw_count($pdo,'westy_hardware_receipts')],'failed finding leaves no note, notice or receipt');
     $pdo->exec('DROP TRIGGER fixture_hardware_failure');
+    $superseded=hw_case($pdo,16);$old=hw_send($pdo,$superseded);$beforeCalls=$calls;
+    $boundary=new HardwareBoundaryPDO($login['dsn'],$login['user'],$login['pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+    $boundary->beforeSubmission=static function()use($pdo,$superseded){hw_send($pdo,array_replace($superseded,['event_key'=>hw_key(1601),'finding_key'=>hw_key(1602),'decision_revision'=>2,'upgrade_options'=>'The owner now prefers technician assessment for a replacement computer instead of a drive upgrade.']));};
+    hw_check(westy_hardware_dispatch($boundary,$old['notice_id'],hw_settings(),hw_resolver(),$sender)==='superseded' && $calls===$beforeCalls,'new decision after durable intent prevents stale options at actual provider boundary');
+    $query=$pdo->prepare('SELECT outcome,outcome_code FROM westy_hardware_mail_attempts WHERE notice_id=?');$query->execute([$old['notice_id']]);$attempt=$query->fetch();
+    hw_check($attempt['outcome']==='failed' && $attempt['outcome_code']==='decision_superseded_before_submission','known non-submission retained for superseded durable attempt');
+    $crash=hw_send($pdo,hw_case($pdo,17));
+    $child= <<<'PHP'
+function utf8_clean(string $v):string{return $v;}
+require $argv[1];require $argv[2];$in=json_decode(stream_get_contents(STDIN),true,16,JSON_THROW_ON_ERROR);
+$p=new PDO($in['login']['dsn'],$in['login']['user'],$in['login']['pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+westy_hardware_dispatch($p,$in['notice'],hw_settings(),hw_resolver(),static function(){echo "durable-attempt\n";flush();exit(17);});
+PHP;
+    $process=proc_open([PHP_BINARY,'-r',$child,__DIR__.'/../lib/westy_hardware.php',__DIR__.'/fixtures/westy_hardware.php'],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes);
+    if(!is_resource($process))throw new RuntimeException('crash fixture did not start');
+    fwrite($pipes[0],json_encode(['login'=>$login,'notice'=>$crash['notice_id']],JSON_THROW_ON_ERROR));fclose($pipes[0]);stream_set_timeout($pipes[1],10);
+    $out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);
+    hw_check(proc_close($process)===17 && trim($out)==='durable-attempt' && $err==='','sender process dies after persisted attempt before result');
+    $beforeCalls=$calls;
+    hw_check(westy_hardware_dispatch($pdo,$crash['notice_id'],hw_settings(),hw_resolver(),$sender)==='sending' && $calls===$beforeCalls,'interrupted in-flight attempt cannot be blindly retried');
+    $pdo->prepare('UPDATE westy_hardware_notices SET updated_at=? WHERE id=?')->execute([gmdate('Y-m-d H:i:s',time()-121),$crash['notice_id']]);
+    hw_check(westy_hardware_dispatch($pdo,$crash['notice_id'],hw_settings(),hw_resolver(),$sender)==='uncertain' && $calls===$beforeCalls,'aged interrupted attempt becomes uncertain without another provider call');
     foreach (['westy_hardware_findings','westy_hardware_receipts'] as $table) {
         hw_refuse(fn()=> $pdo->exec("UPDATE $table SET tenant_id=2"),'immutable '.$table.' cannot move tenant');
         hw_refuse(fn()=> $pdo->exec("DELETE FROM $table"),'immutable '.$table.' cannot delete history');

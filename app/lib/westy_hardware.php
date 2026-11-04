@@ -301,8 +301,11 @@ function westy_hardware_dispatch(PDO $pdo, int $noticeId, array $settings, ?call
         $scope = westy_hardware_scope($pdo,$settings,$source);
         westy_hardware_unresolved($scope);
         $notice = westy_workflow_row($pdo,'SELECT * FROM westy_hardware_notices WHERE tenant_id=? AND id=?'.$lock,[$tid,$noticeId]);
+        $latest = westy_workflow_row($pdo,'SELECT MAX(decision_revision) AS revision FROM westy_hardware_notices WHERE tenant_id=? AND workflow_id=? AND issue_key=?',[$tid,$notice['workflow_id'],$notice['issue_key']]);
         if ($notice['state'] !== 'sending' || $notice['claim_key'] !== $claim || strtotime($contact['expires_at']) <= time()) {
             $evidence = ['outcome'=>'failed','transport'=>'none','provider_http'=>null,'outcome_code'=>'scope_changed_before_submission'];
+        } elseif ((int)$latest['revision'] > (int)$notice['decision_revision']) {
+            $evidence = ['outcome'=>'failed','transport'=>'none','provider_http'=>null,'outcome_code'=>'decision_superseded_before_submission'];
         } else {
             $evidence = ['outcome'=>'uncertain','transport'=>'none','provider_http'=>null,'outcome_code'=>'submission_unknown'];
             try {
@@ -314,7 +317,7 @@ function westy_hardware_dispatch(PDO $pdo, int $noticeId, array $settings, ?call
             } catch (Throwable) { $evidence = ['outcome'=>'uncertain','transport'=>'none','provider_http'=>null,'outcome_code'=>'submission_unknown']; }
         }
         westy_hardware_complete_attempt($pdo,$tid,$noticeId,$attemptId,(int)$mailId,$evidence,(int)$notice['send_attempts']);
-        $pdo->commit(); return $evidence['outcome'];
+        $pdo->commit(); return $evidence['outcome_code'] === 'decision_superseded_before_submission' ? 'superseded' : $evidence['outcome'];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         if ($attemptId === null) return westy_hardware_verification_failed($pdo,$tid,$noticeId,$claim,'local_binding_changed');
@@ -336,8 +339,9 @@ function westy_hardware_complete_attempt(PDO $pdo, int $tid, int $noticeId, int 
     $now = gmdate('Y-m-d H:i:s');
     $pdo->prepare('UPDATE westy_hardware_mail_attempts SET outcome=?,transport=?,provider_http=?,outcome_code=?,completed_at=? WHERE tenant_id=? AND id=? AND completed_at IS NULL')
         ->execute([$evidence['outcome'],$evidence['transport'],$evidence['provider_http'],$evidence['outcome_code'],$now,$tid,$attemptId]);
+    $state = $evidence['outcome_code'] === 'decision_superseded_before_submission' ? 'superseded' : $evidence['outcome'];
     $pdo->prepare('UPDATE westy_hardware_notices SET state=?,detail_code=?,claim_key=NULL,claim_until=NULL,next_try_at=?,updated_at=? WHERE tenant_id=? AND id=?')
-        ->execute([$evidence['outcome'],$evidence['outcome_code'],gmdate('Y-m-d H:i:s',time()+max(1,$attempts**2)*60),$now,$tid,$noticeId]);
+        ->execute([$state,$evidence['outcome_code'],gmdate('Y-m-d H:i:s',time()+max(1,$attempts**2)*60),$now,$tid,$noticeId]);
     $pdo->prepare('UPDATE mail_queue SET attempts=?,last_error=?,sent_at=? WHERE id=? AND max_attempts=0')
         ->execute([$attempts,$evidence['outcome_code'],$evidence['outcome'] === 'provider_accepted' ? $now : null,$mailId]);
 }
