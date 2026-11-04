@@ -56,6 +56,10 @@ function westy_workflow_request(string $body, ?int $now = null): array
     try { $p = json_decode($body, true, 4, JSON_THROW_ON_ERROR); }
     catch (JsonException) { throw new InvalidArgumentException('invalid_json'); }
     if (!is_array($p) || array_is_list($p)) throw new InvalidArgumentException('invalid_payload');
+    if (($p['schema_version'] ?? null) === 3) {
+        require_once __DIR__.'/westy_hardware.php';
+        return westy_hardware_request($body,$now);
+    }
     $v2 = ($p['schema_version'] ?? null) === 2;
     $keys = array_keys($p); $expected = $v2 ? WESTY_WORKFLOW_V2_FIELDS : WESTY_WORKFLOW_FIELDS;
     sort($keys); sort($expected);
@@ -134,6 +138,10 @@ function westy_workflow_result(array $run, string $action, ?string $receiptId, b
 /** One local transaction; zero network, mail, AI, financial, or endpoint calls. */
 function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $requestHash): array
 {
+    if (($p['schema_version'] ?? null) === 3) {
+        require_once __DIR__.'/westy_hardware.php';
+        return westy_hardware_receive($pdo,$settings,$p,$requestHash);
+    }
     $settings = westy_workflow_settings($settings);
     westy_workflow_schema_ready($pdo);
     if (($p['schema_version'] ?? null) === 2) {

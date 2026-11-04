@@ -273,20 +273,31 @@ function mailer_send_graph(
 }
 
 /** Send one email NOW (used by the dispatch cron). Returns true on success. */
-function mail_send(string $to, string $subject, string $bodyText, ?string &$error = null, ?string $replyTo = null): bool
+function mail_send(string $to, string $subject, string $bodyText, ?string &$error = null, ?string $replyTo = null, ?array &$evidence = null, ?callable $graphHttpPost = null): bool
 {
+    $evidence = ['outcome'=>'failed','transport'=>'none','provider_http'=>null,'outcome_code'=>'invalid_reply_address'];
     if ($replyTo !== null && !filter_var($replyTo, FILTER_VALIDATE_EMAIL)) { $error = 'Invalid reply address'; return false; }
     // Transport order (Milepost parity): Graph → SMTP → PHP mail()
     $g = mailer_graph_config();
-    if ($g !== null) return mailer_send_graph($g, $to, $subject, $bodyText, $error, null, $replyTo);
+    if ($g !== null) {
+        $evidence = ['outcome'=>'uncertain','transport'=>'graph','provider_http'=>null,'outcome_code'=>'graph_send_unknown_response'];
+        $result = mailer_send_graph_result($g, $to, $subject, $bodyText, $graphHttpPost, $replyTo);
+        $evidence = mailer_graph_submission_evidence($result);
+        $ok = $evidence['outcome'] === 'provider_accepted';
+        $error = $ok ? null : graph_result_error($result);
+        return $ok;
+    }
 
     $smtp = cfg('mail.smtp') ?? [];
     $host = trim((string)($smtp['host'] ?? ''));
     if ($host === '') {
+        $evidence = ['outcome'=>'uncertain','transport'=>'php_mail','provider_http'=>null,'outcome_code'=>'php_mail_unknown'];
         // PHP mail() fallback — fine for a quick start, like Milepost.
         $headers = 'From: ' . mail_from_header() . "\r\n" . 'Content-Type: text/plain; charset=utf-8';
         if ($replyTo !== null) $headers .= "\r\nReply-To: <" . $replyTo . '>';
         $ok = mail($to, mail_subject($subject), $bodyText, $headers);
+        $evidence['outcome'] = $ok ? 'provider_accepted' : 'failed';
+        $evidence['outcome_code'] = $ok ? 'php_mail_accepted' : 'php_mail_rejected';
         if (!$ok) $error = 'PHP mail() rejected the message';
         return $ok;
     }
@@ -296,6 +307,7 @@ function mail_send(string $to, string $subject, string $bodyText, ?string &$erro
     $user    = (string)($smtp['user'] ?? '');
     $pass    = (string)($smtp['pass'] ?? '');
     $timeout = 20;
+    $evidence = ['outcome'=>'failed','transport'=>'smtp','provider_http'=>null,'outcome_code'=>'smtp_before_submission'];
 
     $remote = ($secure === 'ssl' ? 'ssl://' : '') . $host . ':' . $port;
     $sock = @stream_socket_client($remote, $errno, $errstr, $timeout);
@@ -353,13 +365,50 @@ function mail_send(string $to, string $subject, string $bodyText, ?string &$erro
     // dot-stuff + CRLF-normalize
     $body = preg_replace('/\r?\n/', "\r\n", $bodyText);
     $body = preg_replace('/^\./m', '..', $body);
+    // From this point, a lost reply cannot distinguish acceptance from failure.
+    $evidence['outcome'] = 'uncertain';
+    $evidence['outcome_code'] = 'smtp_submission_unknown';
     fwrite($sock, $headers . "\r\n\r\n" . $body . "\r\n.\r\n");
     $r = $read();
+    if (str_starts_with($r, '250')) {
+        $evidence['outcome'] = 'provider_accepted';
+        $evidence['outcome_code'] = 'smtp_accepted';
+    }
     $cmd('QUIT');
     fclose($sock);
 
-    if (!str_starts_with($r, '250')) { $error = 'send refused: ' . trim($r); return false; }
+    if (!str_starts_with($r, '250')) {
+        if (preg_match('/\A[45][0-9]{2} /', $r)) {
+            $evidence['outcome'] = 'failed';
+            $evidence['outcome_code'] = 'smtp_submission_rejected';
+        }
+        $error = 'send refused: ' . trim($r); return false;
+    }
+    $evidence['outcome'] = 'provider_accepted';
+    $evidence['outcome_code'] = 'smtp_accepted';
     return true;
+}
+
+/** Submission evidence is never proof of delivery to the recipient. */
+function mailer_graph_submission_evidence(array $result): array
+{
+    $http = $result['provider_http'] ?? null;
+    $code = $result['outcome_code'] ?? 'graph_send_unknown_response';
+    $accepted = ($result['outcome'] ?? null) === 'submitted' && $http === 202 && $code === 'graph_accepted';
+    $notSubmitted = str_starts_with($code, 'graph_token_') || $code === 'graph_payload_invalid'
+        || ($code === 'graph_send_rejected' && is_int($http) && $http >= 400 && $http < 500 && $http !== 408);
+    return ['outcome'=>$accepted ? 'provider_accepted' : ($notSubmitted ? 'failed' : 'uncertain'),
+        'transport'=>'graph','provider_http'=>$http,'outcome_code'=>$code];
+}
+
+/** Existing transport selection, with bounded evidence for durable dispatchers. */
+function mail_send_result(string $to, string $subject, string $body, ?string $replyTo = null, ?callable $graphHttpPost = null): array
+{
+    $error = null;
+    $evidence = ['outcome'=>'uncertain','transport'=>'none','provider_http'=>null,'outcome_code'=>'submission_unknown'];
+    try { mail_send($to, $subject, $body, $error, $replyTo, $evidence, $graphHttpPost); }
+    catch (Throwable) { /* Never expose transport exception text or blindly replay. */ }
+    return $evidence;
 }
 
 function mail_from_header(): string

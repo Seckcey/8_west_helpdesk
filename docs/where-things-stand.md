@@ -6,6 +6,15 @@ are in git history.
 
 ## The live version
 
+### In preparation: hardware upgrade outcomes and device-linked notices
+
+The [schema 3 hardware outcome receiver](westy-hardware-outcomes.md) and additive
+migration 037 are in source/test preparation. They retain the original unresolved
+ticket, human assignment and history, deduplicate unchanged decisions and use
+Milepost's signed current device-contact resolver before customer mail. Missing
+contact and unavailable verification are separate outcomes. This is not a
+production migration, customer-email delivery or device repair receipt.
+
 ### Live: assignee-controlled Westy continuation
 
 Application source **`7be64ab4fb69e4692be5df7ed735486079aee312`** and migration
