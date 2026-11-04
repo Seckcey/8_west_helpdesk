@@ -7,8 +7,10 @@ is in [the deployment runbook](../deploy/README.md).
 The additive [hardware outcome receiver](westy-hardware-outcomes.md) and migration
 037 are installed as `3f3b128a`. They record unresolved hardware advice and a durable
 notice without changing the strict v1/v2 envelopes or granting continuation authority.
-The [November 4 release record](westy-hardware-release-2026-11-04.md) separates
-receiver installation from pending producer publication and live notice acceptance.
+The [November 4 release record](westy-hardware-release-2026-11-04.md) records
+receiver and producer publication, followed by the actual same-ticket upgrade
+options and missing-contact notice. Positive-contact delivery and device repair
+are separate acceptance boundaries.
 
 **Migration 036 and the v2 receiver first shipped as `7be64ab4` and remain included.** See the
 [November 3 release record](westy-workflow-resume-release-2026-11-03.md) for

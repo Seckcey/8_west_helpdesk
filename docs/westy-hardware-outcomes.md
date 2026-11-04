@@ -1,9 +1,13 @@
 # Hardware upgrade outcomes
 
 **Receiver installed as `3f3b128a` with migration 037 on November 4, 2026.**
-Milepost producer publication and the actual conditional ticket/notice outcome are
-pending. The [release record](westy-hardware-release-2026-11-04.md) states what was
-verified. The machine fixture remains the frozen source agreement; its
+The Milepost producer is published. The original hardware case received upgrade
+options and one `no_device_contact` result through the normal scheduled worker,
+with no queued email or provider attempt. The ticket remains unresolved and human
+owned. The [release record](westy-hardware-release-2026-11-04.md) documents this
+acceptance and the outbound cron identity correction; positive-contact delivery
+and device repair remain unproved. The machine fixture remains the frozen source
+agreement; its
 `production_state` describes its preparation date, not current deployment status.
 The existing v1 and v2 envelopes remain exact and unchanged. This adds
 hardware findings through the signed workflow controller, outside the advice
