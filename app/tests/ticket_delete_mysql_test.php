@@ -90,7 +90,7 @@ try {
     $referencing = $pdo->query("SELECT DISTINCT table_name FROM information_schema.key_column_usage
         WHERE table_schema = DATABASE() AND referenced_table_name = 'tickets' ORDER BY table_name")->fetchAll(PDO::FETCH_COLUMN);
     td_check($referencing === ['attachments', 'csat', 'email_threads', 'mail_queue', 'messages', 'portal_ticket_requesters',
-            'portal_westy_drafts', 'ticket_presence', 'time_entries', 'westy_email_drafts', 'westy_mail_conversations', 'westy_workflows'],
+            'portal_westy_drafts', 'ticket_presence', 'time_entries', 'westy_email_drafts', 'westy_hardware_notices', 'westy_mail_conversations', 'westy_workflows'],
         'every foreign key to tickets is handled: ' . implode(',', $referencing));
     td_check(array_diff(array_keys(TICKET_DELETE_GUARDED), $referencing) === [], 'every guarded table really references tickets');
 
@@ -168,7 +168,10 @@ try {
     $timeEntry($pdo, 1040);
     $ticket(1050, 1, 11, 'alert', 'in_progress');
     $workflow(1050, 11);
-    $message(1050, 'tech');
+    $workflowMessage = $message(1050, 'tech');
+    $pdo->prepare("INSERT INTO westy_hardware_notices(tenant_id,client_id,workflow_id,ticket_id,device_id,device_binding_key,issue_key,decision_revision,source_json,message_id,created_at,updated_at)
+        SELECT 1,11,id,1050,9,?, ?,1,'{}',?,UTC_TIMESTAMP(),UTC_TIMESTAMP() FROM westy_workflows WHERE tenant_id=1 AND ticket_id=1050")
+        ->execute([str_repeat('a',64),'22222222-2222-4222-8222-222222222222',$workflowMessage]);
     $ticket(1060, 1, 12, 'portal');
     $pdo->exec("INSERT INTO portal_ticket_requesters (ticket_id, tenant_id, client_id, subject, identity_tenant_slug) VALUES (1060, 1, 12, 't1u7', 'synthetic-one')");
     // J merged into D. L (with time) merged into K.
@@ -193,7 +196,7 @@ try {
     $message(2001);
 
     $tables = ['tickets', 'messages', 'attachments', 'csat', 'email_threads', 'mail_queue', 'ticket_presence', 'time_entries',
-        'time_entry_events', 'westy_workflows', 'westy_reports', 'portal_ticket_requesters', 'ticket_deletions', 'westy_mail_conversation_revocations'];
+        'time_entry_events', 'westy_workflows', 'westy_hardware_notices', 'westy_reports', 'portal_ticket_requesters', 'ticket_deletions', 'westy_mail_conversation_revocations'];
     $state = static function (PDO $pdo) use ($tables): array {
         $out = [];
         foreach ($tables as $table) {
@@ -419,6 +422,8 @@ try {
     td_check((int)$pdo->query('SELECT COUNT(*) FROM messages WHERE ticket_id = 1050')->fetchColumn() === 1
         && $pdo->query('SELECT state, version FROM westy_workflows WHERE ticket_id = 1050')->fetch() == $workflowBefore,
         'protected: the Westy workflow ticket kept its message and its workflow state');
+    td_check((int)$pdo->query('SELECT COUNT(*) FROM westy_hardware_notices WHERE tenant_id=1 AND ticket_id=1050')->fetchColumn() === 1,
+        'protected: immutable hardware notice intent remains on its original ticket');
     td_check((int)$pdo->query('SELECT COUNT(*) FROM time_entry_events')->fetchColumn() === $eventsBefore
         && (int)$pdo->query('SELECT COUNT(*) FROM westy_mail_conversation_revocations')->fetchColumn() === $revocationsBefore,
         'protected: no time or mailbox history was written by the delete');

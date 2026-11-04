@@ -147,7 +147,7 @@ the fresh schema carries the same objects. Existing workflow enums, receipts,
 grants, privileges, configuration and schedules are unchanged. The established
 mail dispatcher processes these intents; there is no second sender or cron.
 
-The release owner uses `bash deploy/deploy.sh --migrate 037_westy_hardware_outcomes.sql`
+The release owner uses `bash deploy/deploy.sh --migrate app/db/migrations/037_westy_hardware_outcomes.sql`
 with normal backups, source/CI gates and release locks. Ship the receiver before
 the producer. The contact resolver must be installed before recipient selection;
 outage stays verification failure. Source rollback retains all four tables,
