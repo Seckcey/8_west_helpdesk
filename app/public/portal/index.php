@@ -35,14 +35,13 @@ if ($context === null) {
     exit;
 }
 
-// The Westy workspace is unchanged; only its address moved off Home.
-if (($_GET['view'] ?? null) === 'westy') {
+// Direct employee sign-in lands in the existing Westy workspace.
+if (($_GET['view'] ?? null) === 'westy' || portal_employee_workspace_default($context)) {
     portal_render_workspace($context);
     exit;
 }
 
-// Home reads only through the existing requester-safe helpers, with the signed-in
-// identity: members get their own requests, owners and admins the client-wide view.
+// The remaining Home views use the same requester-safe reads.
 $identity = $context['identity'];
 $summary = null;
 try {
@@ -62,7 +61,7 @@ try {
 
 $reportArchives = null;
 try {
-    if (portal_client_admin($identity)) $reportArchives = portal_report_archives(
+    if (!portal_direct_customer_browser($context) && portal_client_admin($identity)) $reportArchives = portal_report_archives(
         db(),
         (int)$identity['tenant_id'],
         (int)$identity['client_id'],

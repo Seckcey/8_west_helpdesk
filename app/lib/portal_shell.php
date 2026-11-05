@@ -6,11 +6,26 @@ require_once __DIR__.'/portal_desktop_controls.php';
 require_once __DIR__.'/tenant_branding.php';
 
 /** Presentation only: this never creates or validates authentication authority. */
-function portal_branding(?array $context = null): array
+function portal_companion_page(): bool
 {
     $pair = $_SESSION['desktop_companion_session'] ?? null;
-    $companion = in_array(parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH), ['/portal/desktop.php', '/portal/signed-out.php'], true)
+    return in_array(parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH), ['/portal/desktop.php', '/portal/signed-out.php'], true)
         || (is_string($pair) && preg_match('/\A[a-f0-9]{32}\z/D', $pair) === 1);
+}
+
+function portal_direct_customer_browser(array $context): bool
+{
+    return !isset($context['identity']['customer_access']) && !portal_companion_page();
+}
+
+function portal_employee_workspace_default(array $context): bool
+{
+    return portal_direct_customer_browser($context) && portal_customer_role($context['identity']) === 'client_staff';
+}
+
+function portal_branding(?array $context = null): array
+{
+    $companion = portal_companion_page();
     $brand = $companion
         ? ['name'=>'Westy Companion', 'home'=>'Westy home', 'alt'=>'Westy Companion — 8 West IT',
             'logo'=>'/assets/brand/westy-companion/westy-horizontal-logo-v1.png', 'width'=>2172, 'height'=>724,
@@ -61,17 +76,22 @@ function portal_shell_start(array $context): void
     // The controller has freshly checked the selected binding and any CSA membership.
     // ID rediscovers/rechecks its own target; this fixed link carries no authority.
     $clientAdmin = portal_client_admin($identity);
+    $direct = portal_direct_customer_browser($context);
+    $employeeHome = portal_employee_workspace_default($context);
     $client = trim((string)($context['binding']['client_name'] ?? '')) ?: 'Your account';
     $workspace=($context['workspace']??false)===true;
     $brand = portal_branding($context);
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH);
     if(in_array($path, ['/portal/device_help.php', '/portal/mobile.php', '/portal/security.php'], true))$path='/portal/devices.php';
     if($path === '/portal/index.php')$path='/portal/';
-    // Westy is current whenever the controller rendered the workspace, whatever the URL
-    // (the Companion renders it at /portal/desktop.php). Home is the plain /portal/ page.
-    if($workspace)$path='/portal/?view=westy';
-    $nav = [['/portal/', 'Home', 'home'], ['/portal/?view=westy', 'Westy', 'chat'], ['/portal/devices.php', 'Your devices', 'device'],
-        ['/portal/requests.php', 'Support requests', 'requests'], ...($clientAdmin ? [['/portal/reports.php', 'Service summaries', 'requests']] : [])];
+    $westyUrl = $employeeHome ? '/portal/' : '/portal/?view=westy';
+    if ($workspace) $path = $westyUrl;
+    if ($direct && in_array($path, ['/portal/new.php', '/portal/ticket.php', '/portal/reports.php'], true)) $path = '/portal/requests.php';
+    $nav = $employeeHome ? [] : [['/portal/', 'Home', 'home']];
+    $nav[] = [$westyUrl, 'Westy', 'chat'];
+    $nav[] = ['/portal/devices.php', 'Your devices', 'device'];
+    $nav[] = ['/portal/requests.php', $direct ? 'Support Requests' : 'Support requests', 'requests'];
+    if (!$direct && $clientAdmin) $nav[] = ['/portal/reports.php', 'Service summaries', 'requests'];
     ?>
 <a class="portal-skip" href="#portal-content">Skip to content</a>
 <header class="portal-top"><a href="/portal/" aria-label="<?= portal_h($brand['home']) ?>"><img src="<?= portal_h($brand['logo']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>" alt="<?= portal_h($brand['alt']) ?>"></a><span>8 West IT</span><button type="button" class="portal-icon-button portal-menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="portal-nav"><?= portal_icon('menu') ?></button><?php if($workspace): ?><div class="portal-workspace-title"><strong>Westy</strong><span>Private conversation</span></div><button type="button" class="portal-icon-button portal-mobile-new" data-chat-new aria-label="New chat"><?= portal_icon('edit') ?></button><?php endif; ?></header>
@@ -92,7 +112,7 @@ function portal_shell_start(array $context): void
   <a class="portal-account-action" href="https://id.8westit.com/customer-billing.php" aria-label="Plan and billing"><strong>Plan and billing</strong><span>Client billing · 8 West ID</span></a>
   <?php endif; ?>
   <div class="portal-account-help"><a class="portal-account-action" href="/portal/guide.php">Portal guide</a>
-  <a class="portal-account-action" href="/portal/guide.php#contact">Contact support</a></div>
+  <?php if (!$direct): ?><a class="portal-account-action" href="/portal/guide.php#contact">Contact support</a><?php endif; ?></div>
   <form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><?php if(isset($_SESSION['desktop_companion_session'])): ?><input type="hidden" name="window" value="companion"><?php endif; ?><button type="submit" class="portal-account-action portal-account-signout">Sign out</button></form>
 </section></aside>
 <div class="portal-content" id="portal-content" tabindex="-1">
@@ -121,7 +141,7 @@ function portal_westy_widget(array $context): void
 <div id="portal-chat-draft" hidden></div><p id="portal-chat-status" role="status" aria-live="polite"></p>
 <form id="portal-chat-form" class="portal-composer" method="post" action="/portal/westy.php"><label class="sr-only" for="portal-chat-input">Ask Westy about your computer</label><textarea id="portal-chat-input" disabled name="message" rows="2" maxlength="2000" placeholder="Ask Westy about your computer…" required></textarea><div class="portal-composer-foot"><label class="portal-device-choice" for="portal-chat-device"><?= portal_icon('device') ?><span class="sr-only">Computer for this chat</span><select id="portal-chat-device"><option value="">Choose a computer</option></select></label><span class="portal-keyboard-hint">Enter to send · Shift+Enter for a new line</span><button type="button" class="portal-icon-button" id="portal-chat-stop" aria-label="Stop reply" hidden>■</button><button type="submit" class="btn-primary" id="portal-chat-send" disabled aria-label="Send message"><?= portal_icon('arrow') ?></button></div><p id="portal-chat-model" class="portal-chat-model" hidden></p></form>
 <?php portal_desktop_controls(); ?>
-<div class="portal-chat-foot"><a href="/portal/guide.php#privacy">Private to you</a><span>·</span><?php if ($canWrite): ?><a href="/portal/new.php">Contact support</a><?php else: ?><span>Viewer access · requests are read-only</span><?php endif; ?></div>
+<div class="portal-chat-foot"><a href="/portal/guide.php#privacy">Private to you</a><?php if (!$canWrite): ?><span>·</span><span>Viewer access · requests are read-only</span><?php elseif (!portal_direct_customer_browser($context)): ?><span>·</span><a href="/portal/new.php">Contact support</a><?php endif; ?></div>
 </section></div>
 <script src="/assets/js/portal-computer-time.js?v=<?= portal_asset_version(__DIR__.'/../public/assets/js/portal-computer-time.js') ?>" defer></script>
 <script src="/assets/js/portal-westy.js?v=<?= portal_asset_version(__DIR__.'/../public/assets/js/portal-westy.js') ?>" defer></script>

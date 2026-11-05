@@ -26,7 +26,6 @@ const PORTAL_ASSETS = {
   '/assets/brand/8-west-it-westy.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/brand/8-west-it-westy.png'))],
   '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
 };
-const PORTAL_RENDER_SOURCE = await readFile(path.join(ROOT, 'app/lib/portal_render.php'), 'utf8');
 const ORIGIN = 'http://safeharbor.test';
 const SERVE_MODE = process.argv.includes('--serve');
 // Exported by Milepost's actual disposable MySQL/poll/result workflow. Never live data.
@@ -233,11 +232,19 @@ switch ($argv[3]) {
         portal_render_security_orders($context,$device,$argv[3]==='security'?[]:[$order]);
         break;
     case 'workspace': portal_render_workspace($context); break;
+    case 'workspaceemployee':
+        $context['identity']=['display_name'=>'Synthetic Employee','role'=>'client_staff'];
+        $context['binding']['client_name']='Example Company';
+        portal_render_workspace($context);
+        break;
     case 'home':
     case 'homemember':
     case 'homeviewer':
         // Home receives only what the controller's requester-safe reads returned; null is "unavailable".
-        if($argv[3]==='homemember')$context['identity']['role']='client_staff';
+        if($argv[3]==='homemember'){
+            $context['identity']['role']='tech';
+            $context['identity']['customer_access']=['role'=>'client_staff'];
+        }
         if($argv[3]==='homeviewer')$context['identity']['role']='client_viewer';
         $homeDevices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11',
             'connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in and inventory received.',
@@ -249,6 +256,11 @@ switch ($argv[3]) {
             $argv[3]==='home' ? [$archive] : null);
         break;
     case 'dashboard':
+    case 'dashboardemployee':
+    case 'dashboardviewer':
+        $_SERVER['REQUEST_URI']='/portal/requests.php';
+        if($argv[3]==='dashboardemployee')$context['identity']['role']='client_staff';
+        if($argv[3]==='dashboardviewer')$context['identity']['role']='client_viewer';
         portal_render_dashboard($context, [
             'client' => ['name' => '8 West Lifestyle'],
             'counts' => ['open' => 0, 'in_progress' => 1, 'waiting' => 1, 'resolved' => 1],
@@ -291,7 +303,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['login','workspace','home','homemember','homeviewer','dashboard', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
+  for (const name of ['login','workspace','workspaceemployee','home','homemember','homeviewer','dashboard','dashboardemployee','dashboardviewer', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
     'devicesemployees','devicesemployeesnext','devicesemployeeunknown','devicesemployeeabsent','devicesemployeesaved','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
@@ -459,19 +471,15 @@ if (SERVE_MODE) {
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 } else test('customer portal makes support work and verified weekly archives easy to use', async () => {
-  assert.match(PORTAL_RENDER_SOURCE, /Waiting for your reply/);
-  assert.match(PORTAL_RENDER_SOURCE, /Open support request/);
-  assert.match(PORTAL_RENDER_SOURCE, /Read the exact archived summary/);
-
   const { pages, scratch } = await renderedFixtures();
   const browser = await chromium.launch();
   try {
     const desktop = await openPortalPage(browser, pages, { width: 1365, height: 850 });
     await desktop.page.goto(`${ORIGIN}/portal/requests.php`);
     assert.equal(await desktop.page.title(), 'Your support · Safeharbor');
-    await desktop.page.getByRole('heading', { name: 'Support requests',exact:true }).waitFor();
+    await desktop.page.getByRole('heading', { name: 'Support Requests',exact:true }).waitFor();
     await desktop.page.getByRole('heading', { name: 'Needs your attention' }).waitFor();
-    await desktop.page.getByRole('link', { name: 'Open support request' }).first().waitFor();
+    assert.equal(await desktop.page.getByRole('link', { name: 'New support request', exact:true }).count(), 1);
     await desktop.page.getByRole('heading', { name: 'Service summaries' }).waitFor();
     assert.equal(await desktop.page.locator('img').evaluateAll(images=>images.every(image=>image.complete&&image.naturalWidth>0)),true);
     assert.equal(await desktop.page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth), true);
@@ -481,7 +489,7 @@ if (SERVE_MODE) {
     await desktop.page.getByLabel('Send the update the support team needs').waitFor();
     assert.equal(await desktop.page.getByText('INTERNAL SECRET', { exact: true }).count(), 0);
 
-    await desktop.page.getByRole('link', { name: 'Support requests',exact:true }).click();
+    await desktop.page.getByRole('link', { name: 'Support Requests',exact:true }).click();
     await desktop.page.getByRole('link', { name: /Latest archived summary/ }).click();
     await desktop.page.getByRole('heading', { name: 'Aug 17 – Aug 23, 2026' }).waitFor();
     await desktop.page.getByText('145 minutes · 2.42 hours').waitFor();
@@ -492,7 +500,7 @@ if (SERVE_MODE) {
 
     const mobile = await openPortalPage(browser, pages, { width: 390, height: 844 });
     await mobile.page.goto(`${ORIGIN}/portal/requests.php`);
-    await mobile.page.getByRole('link', { name: 'Open support request' }).first().waitFor();
+    await mobile.page.getByRole('link', { name: 'New support request', exact:true }).waitFor();
     await mobile.page.getByRole('heading', { name: 'Service summaries' }).waitFor();
     assert.equal(await mobile.page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth), true);
     assert.deepEqual(mobile.consoleProblems, []);
@@ -557,8 +565,8 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
       await page.getByRole('heading', { level: 1, name: 'Welcome, Frank at 8 West Lifestyle' }).waitFor();
       await page.getByRole('heading', { name: 'Needs your reply', exact: true }).waitFor();
       await page.getByRole('link', { name: /#102.*Front desk printer is offline/ }).waitFor();
-      await page.getByRole('heading', { name: 'Service summaries', exact: true }).waitFor();
-      await page.getByRole('link', { name: /Latest archived summary/ }).waitFor();
+      assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
+      await page.getByRole('link', { name: 'Manage computer access', exact: true }).waitFor();
       await page.getByText('Front desk computer', { exact: true }).waitFor();
       if (compact) await menu.click();
       assert.equal(await page.getByRole('navigation', { name: 'Customer portal' }).getByRole('link', { name: 'Home', exact: true }).getAttribute('aria-current'), 'page');
@@ -594,6 +602,7 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
         assert.equal(await page.getByRole('link', { name: 'Manage computer access', exact: true }).count(), 0);
         assert.equal(await page.locator('a[href="https://id.8westit.com/customer-billing.php"]').count(), 0);
         assert.equal(await page.getByRole('navigation', { name: 'Start here' }).getByRole('link', { name: /^Write a request/ }).count(), writer ? 1 : 0);
+        assert.equal(await page.locator('a[aria-label="Switch client"]').count(), writer ? 1 : 0);
         if (writer) await page.getByText('We can’t show your computers right now. Nothing about them has changed.').waitFor();
         else await page.getByText('No support requests yet.', { exact: true }).waitFor();
         assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= body.clientWidth), true);
@@ -602,6 +611,76 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
       }
       assert.deepEqual(consoleProblems, []);
       await context.close();
+    }
+  } finally {
+    await browser.close();
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+if (!SERVE_MODE) test('direct employee Westy leads to one support action, with no viewer write action', async () => {
+  const { pages, scratch } = await renderedFixtures();
+  const browser = await chromium.launch();
+  const evidence = process.env.PORTAL_HOME_EVIDENCE;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const workspaceApi = async route => {
+    assert.equal(route.request().method(), 'GET');
+    return route.fulfill({ json: { ok: true, state: {
+      enabled: true, ai_available: true, can_write: true, conversation: null, turns: [], draft: null,
+      devices: [{ reference: '1:' + 'a'.repeat(64), label: 'Front desk computer', connection: 'reporting' }],
+    } } });
+  };
+  try {
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      const { page, context, consoleProblems } = await openPortalPage(browser,
+        { ...pages, workspace: pages.workspaceemployee, dashboard: pages.dashboardemployee }, viewport, workspaceApi);
+      await page.goto(ORIGIN + '/portal/');
+      await page.locator('#portal-chat-input:enabled').waitFor();
+      await page.waitForFunction(() => document.getElementById('portal-chat-device').selectedIndex === 1);
+      if (evidence) await page.screenshot({ path: path.join(evidence, `synthetic-after-employee-westy-${viewport.width}.png`) });
+      if (viewport.width === 390) {
+        await page.getByRole('button', { name: 'Toggle navigation' }).click();
+        if (evidence) await page.screenshot({ path: path.join(evidence, 'synthetic-after-employee-menu-390.png') });
+      }
+      const nav = page.getByRole('navigation', { name: 'Customer portal' });
+      assert.equal(await nav.getByRole('link', { name: 'Westy', exact: true }).getAttribute('aria-current'), 'page');
+      assert.equal(await nav.getByRole('link', { name: 'Home', exact: true }).count(), 0);
+      await nav.getByRole('link', { name: 'Your devices', exact: true }).waitFor();
+      await page.getByRole('link', { name: 'My settings', exact: true }).waitFor();
+      assert.equal(await page.getByRole('link', { name: 'Switch client', exact: true }).count(), 0);
+      const support = nav.getByRole('link', { name: 'Support Requests', exact: true });
+      assert.equal(await support.count(), 1);
+      await support.click();
+      const create = page.getByRole('link', { name: 'New support request', exact: true });
+      await create.waitFor();
+      assert.equal(await page.locator('a[href="/portal/new.php"]').count(), 1);
+      assert.equal(await page.locator('main a[href="/portal/ticket.php?id=102"]').count(), 1);
+      assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
+      assert.equal(await page.locator('#portal-chat-bubble').evaluate(bubble => getComputedStyle(bubble).position), 'static');
+      const contrast = await create.evaluate(link => {
+        const luminance = rgb => rgb.match(/\d+/g).slice(0, 3).map(Number)
+          .map(value => value / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+          .reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0);
+        const style = getComputedStyle(link);
+        const colors = [luminance(style.color), luminance(style.backgroundColor)];
+        return (Math.max(...colors) + 0.05) / (Math.min(...colors) + 0.05);
+      });
+      assert.ok(contrast >= 4.5, `New support request contrast was ${contrast.toFixed(2)}:1`);
+      if (evidence) await page.screenshot({ path: path.join(evidence, `synthetic-after-employee-requests-${viewport.width}.png`) });
+      await create.click();
+      await page.getByRole('heading', { name: 'What can we help with?' }).waitFor();
+      await page.getByRole('link', { name: 'Cancel', exact: true }).click();
+      await create.waitFor();
+      assert.deepEqual(consoleProblems, []);
+      await context.close();
+
+      const viewer = await openPortalPage(browser, { ...pages, dashboard: pages.dashboardviewer }, viewport);
+      await viewer.page.goto(ORIGIN + '/portal/requests.php');
+      await viewer.page.getByRole('heading', { name: 'Support Requests', exact: true }).waitFor();
+      assert.equal(await viewer.page.locator('a[href="/portal/new.php"]').count(), 0);
+      assert.equal(await viewer.page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
+      assert.deepEqual(viewer.consoleProblems, []);
+      await viewer.context.close();
     }
   } finally {
     await browser.close();

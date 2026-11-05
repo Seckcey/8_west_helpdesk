@@ -82,11 +82,13 @@ try {
     };
     [$status,$body]=$http('/portal/requests.php');
     $check($status===200 && str_contains($body,'OWN_REQUEST_CANARY') && !str_contains($body,'OTHER_REQUEST_CANARY') && !str_contains($body,'LEGACY_REQUEST_CANARY'),'actual member list excludes other employee and historical requests');
-    [$status,$body]=$http('/portal/');
-    $check($status===200 && str_contains($body,'OWN_REQUEST_CANARY') && !str_contains($body,'OTHER_REQUEST_CANARY') && !str_contains($body,'LEGACY_REQUEST_CANARY'),'actual member Home shows own requests and excludes other employee and historical requests');
-    $check(!str_contains($body,'portal-chat-home-slot') && !str_contains($body,'href="/portal/reports.php"') && !str_contains($body,'customer-billing.php'),'actual member Home is not the workspace and offers no client administration');
-    [$status,$body]=$http('/portal/?view=westy');
-    $check($status===200 && str_contains($body,'id="portal-chat-home-slot"') && !str_contains($body,'CANARY'),'actual Westy route renders the private workspace without request records');
+    $check(substr_count($body,'href="/portal/new.php"')===1 && !str_contains($body,'href="/portal/reports.php"'),'actual member list offers one new request action and no service summaries');
+    foreach (['/portal/','/portal/index.php','/portal/?view=westy'] as $route) {
+        [$status,$body]=$http($route);
+        $check($status===200 && str_contains($body,'id="portal-chat-home-slot"') && !str_contains($body,'CANARY')
+            && !str_contains($body,'href="/portal/clients.php"') && !str_contains($body,'customer-billing.php')
+            && !str_contains($body,'href="/portal/new.php"'),'actual employee landing and Westy alias are private and keep request creation in Support Requests '.$route);
+    }
     foreach ([$foreign,$legacy] as $id) {
         [$status,$body]=$http('/portal/ticket.php?id='.$id);
         $check($status===404 && !str_contains($body,'CANARY'),'actual direct detail refuses unavailable request '.$id);
@@ -102,11 +104,13 @@ try {
     }
     $seed([...$member,'role'=>'client_admin']);
     [$status,$body]=$http('/portal/requests.php');
-    $check($status===200 && str_contains($body,'OTHER_REQUEST_CANARY') && str_contains($body,'LEGACY_REQUEST_CANARY'),'actual client administrator retains client-wide requests');
+    $check($status===200 && str_contains($body,'OTHER_REQUEST_CANARY') && str_contains($body,'LEGACY_REQUEST_CANARY')
+        && str_contains($body,'href="/portal/reports.php"'),'actual client administrator retains client-wide requests and summary access in Support Requests');
     [$status,$body]=$http('/portal/');
     $check($status===200 && str_contains($body,'OWN_REQUEST_CANARY') && str_contains($body,'OTHER_REQUEST_CANARY') && str_contains($body,'LEGACY_REQUEST_CANARY')
-        && str_contains($body,'href="/portal/reports.php"'),'actual client administrator Home keeps the client-wide view');
+        && str_contains($body,'Manage ') && !str_contains($body,'href="/portal/reports.php"'),'actual client administrator Home keeps client-wide requests and management');
     $seed([...$member,'role'=>'client_viewer']);
+    $check($http('/portal/new.php')[0]===403,'actual viewer cannot open the request form');
     $check($http('/portal/ticket.php?id='.$own,['csrf'=>$csrf,'body'=>'Viewer forbidden'])[0]===403,'actual viewer cannot reply');
     [$status,$body]=$http('/portal/');
     $check($status===200 && str_contains($body,'OWN_REQUEST_CANARY') && !str_contains($body,'OTHER_REQUEST_CANARY') && !str_contains($body,'LEGACY_REQUEST_CANARY')
