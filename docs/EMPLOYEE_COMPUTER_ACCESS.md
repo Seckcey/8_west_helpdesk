@@ -21,13 +21,17 @@ change private-link behavior, or establish deployment/customer acceptance.
 3. The owner privately shares that separate link with the employee. The first
    signed-in employee in the same verified business to use it receives access.
 4. The employee signs into their customer portal and chooses Use this computer.
-   If signed out, sign in first and reopen the private link. The token is not
-   carried through the OIDC login return URL.
+   If signed out, sign in first and reopen the original private link. The sign-in
+   return URL carries no private code. For a link with #token=, the page fills
+   the confirmation form and clears the fragment from the address bar. If
+   JavaScript is unavailable, copy the code after #token= and paste it into
+   Private access code, then choose Use this computer.
 5. The computer appears in that employee's Your devices list. Owners can revoke
    the assignment from Computer access.
 
 Both links expire after 48 hours if unused. Accepted computer assignments remain
-active until revoked. No email is sent. An owner with a separate customer-profile
+active until revoked. Safeharbor computer links are shared manually. The ID
+invitation has its own delivery settings. An owner with a separate customer-profile
 overlay keeps their original account role; the portal does not make that account
 a client identity administrator. The ID People shortcut appears only for an
 actual client owner/admin without that overlay.
@@ -82,6 +86,20 @@ Both requests are source only: the deployed Safeharbor runtime (2c) does not
 include them.
 
 ## Integration and release
+
+Install and verify the Safeharbor release that reads both link formats before
+changing the issuer. That first release continues to create query links. The
+second release switches new links to a fragment, which the browser places in
+the existing explicit CSRF-protected redemption POST. Opening a link leaves
+the assignment pending until the employee submits the form. Older links still
+carry the code in the query on their initial request.
+
+After fragment issuance starts, keep the dual reader in place through any
+rollback. Use the reader release as the inverse of the issuer change. Retain
+legacy query redemption for at least 48 hours after the last query issuer stops,
+including any rollback that issues query links. Verify POST-body handling at
+the edge and complete the signed-in owner and employee acceptance before
+customer issuance.
 
 Release order is Milepost's reviewed assignment schema, readiness and enforcement
 first, the complete compatible Safeharbor consumer second, and 8 West ID's
