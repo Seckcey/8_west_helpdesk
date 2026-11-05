@@ -1017,7 +1017,7 @@ function portal_devices_request(mixed $pdo, array $context, string $action, arra
     const owner = render('client_owner', controller, 'POST', {
       action: 'device_access_create', csrf, device_reference: reference, request_key: 'e'.repeat(32),
     });
-    assert.ok(owner.html.includes('https://safeharbor.8westit.com' + controller + '?token=' + code), 'reader release still issues legacy links');
+    assert.ok(owner.html.includes('https://safeharbor.8westit.com' + controller + '#token=' + code), 'new links carry the code in the fragment');
 
     browser = await chromium.launch();
     for (const javaScriptEnabled of [true, false]) {

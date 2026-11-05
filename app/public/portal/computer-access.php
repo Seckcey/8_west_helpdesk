@@ -37,7 +37,7 @@ try {
                 $result = portal_devices_request(db(), $context, $action,
                     ['device_reference' => $device, 'request_key' => $_POST['request_key'] ?? '']);
                 if ($result['token'] !== null) {
-                    $link = 'https://safeharbor.8westit.com/portal/computer-access.php?token=' . $result['token'];
+                    $link = 'https://safeharbor.8westit.com/portal/computer-access.php#token=' . $result['token'];
                     $notice = 'Share this private link with the member who should use this computer. It expires in 48 hours. No email has been sent.';
                 } else {
                     $notice = 'This link was already created. Check access below; it was not replaced or sent again.';
