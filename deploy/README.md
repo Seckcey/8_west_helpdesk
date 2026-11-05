@@ -110,7 +110,13 @@ installer; nothing reads it any more, and root may delete that folder.
 Both Safeharbor vhost templates log the request method, path and protocol without
 the query string. The access log keeps its existing file, columns and rotation,
 with a dash in the Referer column. The error format omits Referer and keeps the
-module message. Check those messages and any forwarding or edge logs separately.
+module message. Check those messages, errors before vhost selection, and any
+forwarding or edge logs separately.
+
+On Ubuntu Apache 2.4.58, a malformed path with an invalid percent escape can
+put the raw query into the `AH10244` module message. The fixture reports this
+case separately. Use `--require-clean-errors` when qualifying a release that
+requires query-free module messages.
 
 The app deploy does not install vhosts. Qualify the reviewed templates with
 `python3 tools/test-apache-logging.py` on disposable Ubuntu Apache. For an

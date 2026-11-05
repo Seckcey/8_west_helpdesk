@@ -98,6 +98,7 @@ def exercise(root, http_port, tls_port, include_id):
         ("sh-tls", True, "safeharbor.8westit.com", "GET", devices, 200),
         ("sh-post", True, "safeharbor.8westit.com", "POST", devices, 200),
         ("sh-encoded", True, "www.safeharbor.8westit.com", "GET", "/portal/%63omputer-access.php", 200),
+        ("sh-malformed", True, "safeharbor.8westit.com", "GET", "/portal/%ZZcomputer-access.php", 400),
         ("sh-normalized", True, "safeharbor.8westit.com", "GET", "/portal//./computer-access.php", 200),
         ("sh-path-info", True, "safeharbor.8westit.com", "GET", devices + "/extra", 200),
         ("sh-rewrite", True, "safeharbor.8westit.com", "GET", "/fixture-rewrite", 200),
@@ -111,6 +112,7 @@ def exercise(root, http_port, tls_port, include_id):
             ("id-tls", True, "id.8westit.com", "GET", invite, 200),
             ("id-post", True, "id.8westit.com", "POST", invite, 200),
             ("id-encoded", True, "id.8westit.com", "GET", "/%61ccept-employee-invite.php", 200),
+            ("id-malformed", True, "id.8westit.com", "GET", "/%ZZaccept-employee-invite.php", 400),
             ("id-reset", True, "id.8westit.com", "GET", "/reset.php", 200),
             ("id-denied", True, "id.8westit.com", "GET", "/fixture-denied/id", 403),
         ])
@@ -128,16 +130,28 @@ def exercise(root, http_port, tls_port, include_id):
             canonical_port = 443 if tls else 80
             verify_access(shared_access, agent, method, status, f"{host}:{canonical_port}", agent != "control")
 
-    for filename, site in [("safeharbor-8westit-error.log", "sh")] + ([("error.log", "id")] if include_id else []):
+    error_cases = [("safeharbor-8westit-error.log", "sh", "/portal/%ZZcomputer-access.php")]
+    if include_id:
+        error_cases.append(("error.log", "id", "/%ZZaccept-employee-invite.php"))
+    raw_query_sites = []
+    for filename, site, malformed_path in error_cases:
         errors = (log_dir / filename).read_text()
         assert re.search(rf"AH01630: [^\n]+/fixture-denied/{site}(?:\n|$)", errors), errors
-        assert QUERY not in errors and REFERER not in errors, site
-    return len(cases)
+        assert REFERER not in errors, errors
+        query_lines = [line for line in errors.splitlines() if QUERY in line]
+        if query_lines:
+            # Apache can copy the malformed target into the module message (%M).
+            # Report it separately from the access format and Referer checks.
+            expected = f"AH10244: invalid URI path ({malformed_path}?{QUERY}=value)"
+            assert len(query_lines) == 1 and "[core:error]" in query_lines[0] and expected in query_lines[0], query_lines
+            raw_query_sites.append(site)
+    return len(cases), raw_query_sites
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--id-logging", type=Path, help="reviewed ID logging directives for both synthetic vhosts")
+    parser.add_argument("--require-clean-errors", action="store_true", help="fail if a module message includes a query marker")
     options = parser.parse_args()
     http_port, tls_port = free_port(), free_port()
     assert http_port != tls_port, "fixture ports collided"
@@ -204,8 +218,12 @@ CustomLog "{root}/logs/other_vhosts_access.log" vhost_combined
                         time.sleep(0.1)
                 else:
                     raise RuntimeError("disposable Apache did not open its listener")
-                count = exercise(root, http_port, tls_port, options.id_logging is not None)
-                print(f"PASS {count} synthetic Apache requests with access and error log checks")
+                count, raw_query_sites = exercise(root, http_port, tls_port, options.id_logging is not None)
+                print(f"PASS {count} synthetic Apache requests for access logging, error Referer and retained diagnostics", flush=True)
+                if raw_query_sites:
+                    print(f"[core:error] AH10244 contains the synthetic query in the module message for: {', '.join(raw_query_sites)}", flush=True)
+                    if options.require_clean_errors:
+                        raise SystemExit("FAIL strict module-message query check")
             finally:
                 server.terminate()
                 server.wait(timeout=5)
