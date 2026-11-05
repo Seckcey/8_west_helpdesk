@@ -1062,6 +1062,10 @@ function portal_devices_request(mixed $pdo, array $context, string $action, arra
           await page.waitForFunction(() => location.hash === '');
           assert.equal(await page.locator('input[name="token"]').inputValue(), code);
           assert.equal(await page.getByLabel('Private access code').isVisible(), false);
+          await page.evaluate(value => { location.hash = 'token=' + value + '&unexpected=1'; }, code);
+          const manualCode = page.getByLabel('Private access code');
+          await manualCode.waitFor();
+          assert.equal(await manualCode.inputValue(), '', 'a malformed fragment clears the prior code');
           await page.evaluate(value => { location.hash = 'token=' + value; }, secondCode);
           await page.waitForFunction(value => !location.hash && document.querySelector('input[name="token"]').value === value, secondCode);
           assert.deepEqual(await page.evaluate(() => [localStorage.length, sessionStorage.length, document.cookie]), [0, 0, '']);
@@ -1081,12 +1085,9 @@ function portal_devices_request(mixed $pdo, array $context, string $action, arra
         assert.equal(await page.locator('input[name="token"]').inputValue(), code);
         assert.equal(serviceCalls.length, 1, 'legacy GET also requires confirmation');
         await page.getByRole('button', { name: 'Use this computer' }).click();
+        await page.getByRole('link', { name: 'Open Your devices' }).waitFor();
         assert.deepEqual(submissions[1], { query: '', form: { csrf, action: 'device_access_redeem', token: code } });
-        if (javaScriptEnabled) {
-          await open(code + '&unexpected=1');
-          assert.equal(await page.getByLabel('Private access code').inputValue(), '');
-          assert.equal(serviceCalls.length, 2, 'malformed fragment remains unsubmitted');
-        }
+        assert.equal(serviceCalls.length, 2);
       } finally {
         await context.close();
       }
