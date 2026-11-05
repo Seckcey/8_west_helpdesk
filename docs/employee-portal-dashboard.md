@@ -1,8 +1,30 @@
 # Customer portal Home and the Westy route
 
-**Status:** source change on branch `claude/T-20261022-01-client-access-portal`
-(base `597f39e`). Not deployed. No signed-in customer, browser or live acceptance
-has been recorded for it.
+## Direct customer browser
+
+An employee who signs in as a member lands in Westy at `/portal/`. The sidebar
+offers Westy, Your devices, Support Requests and My settings. Your devices uses
+the existing Milepost-filtered list. Westy continues to use its existing private
+workspace and device chooser. The `/portal/?view=westy` link still works.
+
+Support Requests groups the recent list, status counts and items waiting for a
+reply. Writers use **New support request** there. Viewers keep read-only access.
+Client owners and admins find their service summaries under Support Requests
+and retain client-wide Home, People, billing and computer management. The
+original ticket, form, archive and device URLs remain available under their
+existing access checks. The delegated staff chooser and Companion workspace
+keep their existing navigation and entry paths.
+
+For a new employee, the client owner or admin uses People in 8 West ID to set up
+the account. The separate Computer access link grants the signed-in employee
+access to the selected computer. For an employee who already has an account,
+the owner or admin can share the computer link directly. 8 West ID enforces
+invitation authorization.
+
+## October 22 release record
+
+The sections below describe the original Home release. See the
+[release receipt](client-access-portal-release.md) for deployment evidence.
 
 ## What changed
 

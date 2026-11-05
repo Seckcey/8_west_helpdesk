@@ -49,7 +49,8 @@ $wrong = $identity; $wrong['preferences']['sub'] = 't9u52';
 settings_check(portal_personal_preferences($wrong)['locale'] === 'en-US','another subject cannot supply personal preferences');
 $c=$context; $c['identity']['customer_access']=['role'=>'client_staff'];
 ob_start(); portal_shell_start($c); $html=ob_get_clean();
-settings_check(!str_contains($html,'>Client Admin</strong>'),'delegated member role defeats home administrator label');
+settings_check(!str_contains($html,'>Client Admin</strong>') && str_contains($html,'aria-label="Switch client"')
+    && !portal_employee_workspace_default($c),'delegated member keeps the chooser without inheriting client administration or the employee landing page');
 $c=$context; $c['binding']['identity_tenant_slug']='other-client';
 $c['identity']['role']='admin'; $c['identity']['customer_access']=['role'=>'client_admin'];
 ob_start(); portal_shell_start($c); $html=ob_get_clean();
@@ -59,7 +60,8 @@ ob_start(); portal_shell_start($c); $html=ob_get_clean();
 settings_check(str_contains($html,'>Client Admin</strong>') && str_contains($html,'>My settings</strong>'),'verified native client admin entry does not depend on optional home settings claim');
 $c['identity']['role']='client_staff';
 ob_start(); portal_shell_start($c); $html=ob_get_clean();
-settings_check(!str_contains($html,'>Client Admin</strong>'),'missing context does not turn an ordinary member into an administrator');
+settings_check(!str_contains($html,'>Client Admin</strong>') && !str_contains($html,'aria-label="Switch client"')
+    && portal_employee_workspace_default($c),'direct employees land in Westy without a client chooser or administration');
 $c=$context; $c['identity']['preferences']['appearance']['theme']='dark';
 ob_start(); portal_render_dashboard($c,$summary,[]); $html=ob_get_clean();
 if (is_string($out) && is_dir($out)) file_put_contents($out.'/settings-admin-dark.html',$html);
@@ -82,19 +84,19 @@ $homeDevices = ['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front 
 $home = static function (array $c, ?array $summary, ?array $devices, ?array $archives = []): string {
     ob_start(); portal_render_home($c, $summary, $devices, $archives); return (string)ob_get_clean();
 };
-foreach (['client_owner','client_admin','client_staff','client_viewer'] as $role) {
+foreach (['client_owner','client_admin','client_viewer'] as $role) {
     $c = $context; $c['identity']['role'] = $role;
     $admin = in_array($role, ['client_owner','client_admin'], true);
     $writer = $role !== 'client_viewer';
     $html = $home($c, $homeSummary, $homeDevices);
     settings_check(str_contains($html,'<title>Home · Safeharbor</title>') && str_contains($html,'href="/portal/" aria-current="page"')
         && !str_contains($html,'href="/portal/?view=westy" aria-current'), $role.' Home is the current destination');
-    settings_check(is_int(strpos($html,'<span>Home</span>')) && strpos($html,'<span>Home</span>') < (int)strpos($html,'<span>Westy</span>'), $role.' navigation starts at Home');
+    settings_check(str_contains($html,'<span>Home</span>'), $role.' navigation offers Home');
     settings_check(str_contains($html,'class="portal-overview-action is-primary" href="/portal/?view=westy"'), $role.' Ask Westy opens the unchanged workspace route');
-    settings_check(str_contains($html,'>Write a request</strong>') === $writer && str_contains($html,'>Needs your reply</h2>') === $writer, $role.' write and reply wording follows the ticket-write role');
+    settings_check(!str_contains($html,'href="/portal/new.php"') && str_contains($html,'>Needs your reply</h2>') === $writer, $role.' Home keeps role-specific reply wording and directs creation to Support Requests');
     settings_check(str_contains($html,'>My settings in 8 West ID</strong>') && substr_count($html,'href="https://id.8westit.com/settings.php"') === 2, $role.' own settings use the one fixed 8 West ID destination');
-    settings_check(str_contains($html,'href="/portal/reports.php"') === $admin && str_contains($html,'href="https://id.8westit.com/customer-billing.php"') === $admin
-        && str_contains($html,'Manage computer access') === $admin && str_contains($html,'>Service summaries</h2>') === $admin, $role.' summaries, billing and client management stay owner/admin only');
+    settings_check(!str_contains($html,'href="/portal/reports.php"') && str_contains($html,'href="https://id.8westit.com/customer-billing.php"') === $admin
+        && str_contains($html,'Manage computer access') === $admin, $role.' Home keeps authorized management and groups summaries under Support Requests');
     settings_check(str_contains($html, $admin ? 'Client-wide view.' : 'Requests you opened.') && str_contains($html, $admin ? 'every support request and computer for Synthetic Client' : 'assigned to you'), $role.' request and computer scope is stated');
     settings_check(str_contains($html,'Showing 1 of 3.') && str_contains($html,'Home shows 2 of 4.'), $role.' counts come from the summary, not from the shortened list');
     settings_check(str_contains($html,'Synthetic waiting &lt;request&gt;') && str_contains($html,'Front desk &lt;computer&gt;') && !str_contains($html,'<computer>'), $role.' records are escaped');
@@ -110,11 +112,12 @@ $html = $home($c, null, null, null);
 settings_check(str_contains($html,'We can’t show your support requests right now.') && str_contains($html,'We can’t show your computers right now.')
     && str_contains($html,'>Open Your devices</a>') && !str_contains($html,'No support requests yet.') && !str_contains($html,'No computers are assigned'),
     'unavailable requests and computers are said so, never shown as none');
+$c['identity']['role']='client_viewer';
 $html = $home($c, ['client'=>['name'=>'Synthetic Client'],'counts'=>['open'=>0,'in_progress'=>0,'waiting'=>0,'resolved'=>0],'tickets'=>[]], ['items'=>[],'next_after'=>null]);
-settings_check(str_contains($html,'Nothing needs your reply right now.') && str_contains($html,'No support requests yet.') && str_contains($html,'No computers are assigned to you yet.'),
-    'member empty states are helpful and honest');
+settings_check(str_contains($html,'No request is waiting for a reply.') && str_contains($html,'No support requests yet.') && str_contains($html,'No computers are assigned to you yet.'),
+    'viewer empty states are helpful and honest');
 if (is_string($out) && is_dir($out)) file_put_contents($out.'/settings-home-empty-dark.html',str_replace('data-theme="light"','data-theme="dark"',$html));
-$c=$context; $c['identity']['role']='client_admin';
+$c=$context; $c['identity']['role']='tech'; $c['identity']['customer_access']=['role'=>'client_admin'];
 $html = $home($c, $homeSummary, ['items'=>array_fill(0,4,$homeDevices['items'][0]),'next_after'=>9], null);
 settings_check(str_contains($html,'Service summaries are temporarily unavailable.') && str_contains($html,'More than 4 computers') && substr_count($html,'Front desk &lt;computer&gt;') === 3
     && str_contains($html,'>See all computers</a>'), 'admin Home keeps summary failures and partial computer pages honest');

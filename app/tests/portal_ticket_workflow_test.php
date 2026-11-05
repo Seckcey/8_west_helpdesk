@@ -259,8 +259,9 @@ portal_workflow_check('writer sees customer conversation and no private evidence
     str_contains($writerHtml, 'I am checking the printer.')
     && ! str_contains($writerHtml, 'INTERNAL SECRET')
     && ! str_contains($writerHtml, 'AUTOMATION SECRET'));
-portal_workflow_check('resolved ticket offers a new request but no reply mutation form',
-    str_contains($writerHtml, 'href="/portal/new.php"')
+portal_workflow_check('resolved ticket returns to Support Requests without another create action or a reply form',
+    str_contains($writerHtml, '<a href="/portal/requests.php" class="backlink">')
+    && ! str_contains($writerHtml, 'href="/portal/new.php"')
     && ! str_contains($writerHtml, 'Reply to the support team'));
 $context['identity']['role'] = 'client_viewer';
 $pdo->exec("UPDATE tickets SET status='open',resolved_at=NULL WHERE id={$ticketId}");

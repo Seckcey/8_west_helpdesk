@@ -234,8 +234,8 @@ portal_data_check('rendered portal has sign-out and the private chat composer',
     && str_contains($rendered, 'action="/portal/logout.php"')
     && str_contains($rendered, 'name="csrf"'));
 portal_data_check('writer dashboard offers a customer-scoped help action',
-    str_contains($rendered, 'href="/portal/new.php"')
-    && str_contains($rendered, 'Open support request'));
+    substr_count($rendered, 'href="/portal/new.php"') === 1
+    && str_contains($rendered, 'New support request'));
 portal_data_check('dashboard separates open, waiting, and recently resolved work',
     str_contains($rendered, 'Your support requests')
     && str_contains($rendered, 'Needs your attention')
@@ -310,7 +310,7 @@ $homeArchives = [['id' => 7, 'period_start' => '2026-10-12 00:00:00', 'period_en
 foreach (['client_owner', 'client_admin', 'client_staff', 'client_viewer'] as $homeRole) {
     $admin = in_array($homeRole, ['client_owner', 'client_admin'], true);
     $writer = $homeRole !== 'client_viewer';
-    // Archives are passed for every role: Home itself must keep them owner/admin only.
+    // Even if archives are passed, the direct browser groups them in Support Requests.
     $home = portal_data_render_home($context, $homeRole, $summary, $homeDevices, $homeArchives);
     portal_data_check($homeRole . ' Home names the selected client and the signed-in role',
         str_contains(portal_data_home_section($home, 'portal-home-heading'), 'Acme &lt;img src=x onerror=alert(1)&gt;')
@@ -321,13 +321,13 @@ foreach (['client_owner', 'client_admin', 'client_staff', 'client_viewer'] as $h
         && str_contains($home, '&lt;script&gt;ticket&lt;/script&gt;') && str_contains($home, 'Front desk &lt;pc&gt;'));
     portal_data_check($homeRole . ' Home links requests only to the customer portal detail route',
         str_contains($home, 'href="/portal/ticket.php?id=42"') && !str_contains($home, 'href="/ticket.php'));
-    portal_data_check($homeRole . ' Home offers writing only to roles that can write tickets',
-        str_contains($home, 'href="/portal/new.php"') === $writer
+    portal_data_check($homeRole . ' Home keeps creation in Support Requests and preserves role-specific reply wording',
+        !str_contains($home, 'href="/portal/new.php"')
         && str_contains($home, 'data-can-write="' . ($writer ? '1' : '0') . '"')
         && str_contains(portal_data_home_section($home, 'home-reply-heading'), '>' . ($writer ? 'Needs your reply' : 'Waiting for a reply') . '</h2>'));
-    portal_data_check($homeRole . ' Home shows summaries and client management only to owners and admins',
-        str_contains($home, 'href="/portal/reports.php?id=7"') === $admin
-        && (portal_data_home_section($home, 'home-summaries-heading') !== '') === $admin
+    portal_data_check($homeRole . ' Home keeps authorized client management and groups summaries in Support Requests',
+        !str_contains($home, 'href="/portal/reports.php?id=7"')
+        && portal_data_home_section($home, 'home-summaries-heading') === ''
         && (portal_data_home_section($home, 'home-manage-heading') !== '') === $admin
         && str_contains($home, 'customer-billing.php') === $admin
         && str_contains($home, safeharbor_settings_panel_url('client_admin')) === $admin);
@@ -359,9 +359,10 @@ portal_data_check('Home shows true zero counts and no failure notice when the re
     && str_contains($empty, 'aria-label="Request counts"')
     && !str_contains(portal_data_home_section($empty, 'home-recent-heading'), 'role="status"')
     && !str_contains(portal_data_home_section($empty, 'home-devices-heading'), 'role="status"'));
-$summariesUnavailable = portal_data_home_section(portal_data_render_home($context, 'client_admin', $summary, $homeDevices, null), 'home-summaries-heading');
-$summariesEmpty = portal_data_home_section(portal_data_render_home($context, 'client_admin', $summary, $homeDevices, []), 'home-summaries-heading');
-portal_data_check('admin Home tells an unavailable summary read apart from an empty archive',
+$delegated['identity']['customer_access']['role'] = 'client_admin';
+$summariesUnavailable = portal_data_home_section(portal_data_render_home($delegated, 'admin', $summary, $homeDevices, null), 'home-summaries-heading');
+$summariesEmpty = portal_data_home_section(portal_data_render_home($delegated, 'admin', $summary, $homeDevices, []), 'home-summaries-heading');
+portal_data_check('delegated admin Home tells an unavailable summary read apart from an empty archive',
     $summariesUnavailable !== '' && $summariesEmpty !== '' && $summariesUnavailable !== $summariesEmpty
     && !str_contains($summariesUnavailable, '/portal/reports.php?id=') && !str_contains($summariesEmpty, '/portal/reports.php?id='));
 

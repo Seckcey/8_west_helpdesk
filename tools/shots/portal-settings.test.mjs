@@ -43,7 +43,7 @@ try {
         });
         try {
           await page.goto('http://safeharbor.test/portal/requests.php');
-          await page.getByRole('heading', { name: fixture.startsWith('workspace') ? 'What can I help you with?' : 'Support requests', exact: true }).waitFor();
+          await page.getByRole('heading', { name: fixture.startsWith('workspace') ? 'What can I help you with?' : 'Support Requests', exact: true }).waitFor();
           assert.match(await page.title(), fixture.startsWith('workspace') ? /Westy/ : /Your support/);
           assert.equal(await page.locator('html').getAttribute('lang'), 'en-GB');
           assert.equal(await page.locator('html').getAttribute('data-theme'), fixture.endsWith('dark') ? 'dark' : 'light');
@@ -93,7 +93,7 @@ try {
     }
   }
   // Home: role-scoped actions, honest states, readable at 390px, keyboard focus visible.
-  for (const fixture of ['home-client_owner-light', 'home-client_staff-light', 'home-client_viewer-light', 'home-empty-dark']) {
+  for (const fixture of ['home-client_owner-light', 'home-client_viewer-light', 'home-empty-dark']) {
     for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
       await test(`member Home: ${fixture} ${viewport.width}`, async () => {
         const context = await browser.newContext({ viewport });
@@ -121,16 +121,16 @@ try {
           await page.getByRole('heading', { level: 1, name: /^Welcome/ }).waitFor();
           assert.match(await page.title(), /^Home · /);
           const owner = fixture.includes('owner');
-          const writer = !fixture.includes('viewer');
+          const writer = owner;
           const metrics = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
           assert.ok(metrics.scroll <= metrics.width + 1, JSON.stringify(metrics));
           assert.equal(await page.locator('img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0)), true);
           const actions = page.getByRole('navigation', { name: 'Start here' });
           assert.equal(await actions.getByRole('link', { name: /^Ask Westy/ }).getAttribute('href'), '/portal/?view=westy');
-          assert.equal(await actions.getByRole('link', { name: /^Write a request/ }).count(), writer ? 1 : 0);
+          assert.equal(await actions.getByRole('link', { name: /^Write a request/ }).count(), 0);
           assert.equal(await actions.getByRole('link', { name: /^My settings in 8 West ID/ }).getAttribute('href'), 'https://id.8westit.com/settings.php');
           assert.equal(await page.getByRole('link', { name: 'Manage computer access', exact: true }).count(), owner ? 1 : 0);
-          assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), owner ? 1 : 0);
+          assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
           assert.equal(await page.getByRole('heading', { name: writer ? 'Needs your reply' : 'Waiting for a reply', exact: true }).count(), 1);
           for (const target of await page.locator('.portal-overview-action, .portal-overview-button').all()) {
             const box = await target.boundingBox();
