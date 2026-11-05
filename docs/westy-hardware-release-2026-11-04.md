@@ -5,7 +5,9 @@ The schema 3 hardware outcome receiver and migration 037 are installed as
 from 13:25:16 to 13:25:24 UTC and exited successfully. Milepost's producer is now
 published. The original hardware case received upgrade options at 18:53:15 UTC
 and a verified missing-contact notice at 19:14:01 UTC through the normal worker.
-The ticket remains unresolved; no email was queued or submitted.
+The ticket remains unresolved. No device-contact email was queued or submitted
+in this November 4 acceptance. The separate November 5 staff fallback later
+delivered the options to Frankie; see its [release record](westy-hardware-staff-release-2026-11-05.md).
 
 ## Source and validation
 
