@@ -6,6 +6,11 @@ are in git history.
 
 ## The live version
 
+The [staff fallback for hardware options](westy-hardware-staff-notices.md) is
+in source preparation with migration 038. It is a separate receipt for eligible
+staff when no device contact is recorded. The existing acceptance below does
+not establish staff submission or delivery.
+
 ### Live receiver: hardware upgrade outcomes and device-linked notices
 
 Application source **`3f3b128ab508872fb97da6596b86d3e8a827c4cd`** and additive

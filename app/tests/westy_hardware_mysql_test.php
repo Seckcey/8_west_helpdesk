@@ -83,13 +83,13 @@ try {
         'CREATE TABLE suite_customer_sync_events(tenant_id INT UNSIGNED,binding_id INT UNSIGNED,status VARCHAR(16))',
         'CREATE TABLE managed_customer_lifecycle_restore_receipts(tenant_id INT UNSIGNED,source_binding_id INT UNSIGNED,client_id INT UNSIGNED,customer_id CHAR(36),source_version INT,source_event_id VARCHAR(64))',
         'CREATE TABLE suite_managed_providers(tenant_id INT UNSIGNED)',
-        "CREATE TABLE users(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,is_active INT,role VARCHAR(16) DEFAULT 'tech')",
+        "CREATE TABLE users(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,is_active INT,role VARCHAR(16) DEFAULT 'tech',email VARCHAR(190))",
         "CREATE TABLE tickets(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,tenant_id INT UNSIGNED,client_id INT UNSIGNED,subject VARCHAR(190),priority VARCHAR(16),status VARCHAR(16) DEFAULT 'open',assignee_id INT UNSIGNED NULL,merged_into_id INT UNSIGNED NULL,channel VARCHAR(16),external_key VARCHAR(128),auto_close_eligible INT,created_at DATETIME,updated_at DATETIME,resolved_at DATETIME NULL,UNIQUE(tenant_id,id),UNIQUE(tenant_id,external_key))",
         'CREATE TABLE messages(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,ticket_id INT UNSIGNED,author_name VARCHAR(128),kind VARCHAR(16),body TEXT,created_at DATETIME)',
         'CREATE TABLE time_entries(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,tenant_id INT UNSIGNED,ticket_id INT UNSIGNED)',
     ] as $sql) $pdo->exec($sql.' ENGINE=InnoDB');
     foreach (['025_westy_workflow.sql','036_westy_workflow_resume.sql','001_mail_queue.sql','037_westy_hardware_outcomes.sql'] as $file) test_execute_sql_file($pdo,__DIR__.'/../db/migrations/'.$file);
-    $pdo->exec("INSERT INTO tenants VALUES(1,'8west'),(2,'other');INSERT INTO clients VALUES(1,1),(2,2);INSERT INTO users VALUES(1,1,1,'owner');INSERT INTO svc_identities VALUES(1,1,'milepost-workflow',1)");
+    $pdo->exec("INSERT INTO tenants VALUES(1,'8west'),(2,'other');INSERT INTO clients VALUES(1,1),(2,2);INSERT INTO users VALUES(1,1,1,'owner','owner@example.test');INSERT INTO svc_identities VALUES(1,1,'milepost-workflow',1)");
     $pdo->prepare("INSERT INTO suite_customer_sync_bindings(tenant_id,client_id,customer_id,status) VALUES(1,1,?,'active')")->execute([hw_key(900)]);
     $p=hw_case($pdo,1);$before=$pdo->query('SELECT * FROM westy_workflows')->fetchAll();$receipt=hw_send($pdo,$p);
     hw_check($receipt['state']==='human_owned' && $receipt['version']===6 && $before===$pdo->query('SELECT * FROM westy_workflows')->fetchAll(),'human-owned workflow and version remain unchanged');
@@ -196,6 +196,7 @@ PHP;
     hw_check($before===$pdo->query('SELECT * FROM westy_hardware_receipts ORDER BY id')->fetchAll(),'037 replay retains immutable receipts');
     hw_check(hw_count($pdo,'westy_billing_outbox')===0 && hw_count($pdo,'time_entries')===0,'no closure, financial work, time, or command is created');
     echo "PASS {$checks} MySQL hardware outcome and notice checks.\n";
+    require __DIR__.'/fixtures/westy_hardware_staff_cases.php';
 } finally {
     if($pdo->inTransaction())$pdo->rollBack();
     if($pdo->query('SELECT DATABASE()')->fetchColumn()!==$database)throw new RuntimeException('cleanup scope changed');

@@ -55,3 +55,6 @@ if ($due) echo "[" . gmdate('c') . " mail_dispatch: {$sent} sent, {$failed} defe
 require_once __DIR__ . '/../lib/housekeeping.php';
 $hk = housekeeping_run();
 if ($hk > 0) echo "[" . gmdate('c') . " housekeeping: {$hk} waiting tickets resurfaced]\n";
+
+require_once __DIR__ . '/../lib/westy_hardware_staff.php';
+westy_hardware_staff_dispatch_due(db(),(array)cfg('westy_workflow',[]));
