@@ -110,3 +110,64 @@ separate components were deployed or that a device was repaired.
 Operator evidence retains the one-invocation logs, exact pre/postflight manifests,
 source and database readbacks, queue/attempt snapshots and connected Outlook
 receipt. Mailbox identifiers and protected configuration remain outside Git.
+
+
+## Device-owner sender coverage at 10:32 UTC
+
+A bounded follow-up found that the separate device-linked sender selected support
+Graph only when the ticket had an eligible support Reply-To alias. With no alias,
+it selected the same default mailbox whose read-only probe returned HTTP 404.
+Reply routing and the verified device recipient are different facts. The source
+was corrected to select configured support Graph independently of the optional
+reply alias, preserving a valid alias, unavailable/disabled behavior, held content,
+recipient authority, submission evidence and uncertain-result no-resend behavior.
+Global mail configuration and legacy intake were unchanged.
+
+[PR #287](https://github.com/Seckcey/8_west_helpdesk/pull/287), reviewed head
+`c294a5e234670fcdf0f8ae269a618a3a37daf921`, merged as
+**`6e5e34bef61a8c0a82d191cb17ca7aa65885df66`**, identical tree
+`08cb8051e746a586dd74dd99e1630fdb77ef223c`. The earlier PR #286 was documentation
+only; it was the only intervening source revision after the staff-sender release.
+The [PR run](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42009850442)
+and [merged-main run](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42010711135)
+each passed both jobs and all 20 steps on the first attempt before publication.
+
+The pre-fix sender selection reproduced the 404 through the real dispatcher with
+a synthetic linked contact and fake HTTP transport. All six corrected scenarios
+passed: no reply alias, valid alias, disabled support, unavailable support Graph,
+definitive rejection and lost response without resend. Existing hardware, staff,
+staff-sender, signed-contact and mail-evidence checks also passed. The preliminary
+Windows archive had 509 CRLF-only differences; its evidence was retained and one
+final Coastline run used the publisher's canonical LF format. All 553 archive
+files matched Git and the remote extraction. Canonical archive SHA-256:
+`0f9dff7b05dc9bb0f24ed92ce3180b32f348cf8d6335e2975e0e5f0b3cbd9df2`.
+The test resources and original Coastline mutex were released at 10:24:24 UTC.
+
+The unchanged stock publisher ran once at **10:32:32–10:32:38 UTC
+(2:32:32–2:32:38 AM PST)** in the coordinated Safeharbor window. It changed the
+hardware sender, its existing test entry and three cache-version substitutions,
+added one fixture and removed no files. No migration, new database dump,
+configuration, grant, cron or wire-contract change occurred. All **423** runtime
+files matched the prepared release; origin health returned HTTP 200 and the
+private service was active.
+
+The protected source inverse is
+`20261105T103235Z-789eaca0bf92-to-6e5e34bef61a` under the same backup root above.
+Readback verified five original files totaling **101,262 bytes**, archive SHA-256
+`0c85b5d775888cc605e33a6dbdd10d06939e80553ee5420d42f7a85db0689cf1`.
+Normal retention removed only the reviewed
+`20261022T070723Z-4021f4507f47-to-c79cf5949165` directory: a 266,240-byte source
+archive and 895 bytes of metadata, with no database archive. The other nine
+existing directory identities remained, including both recent database recoveries
+and the staff-sender inverse. Both database hashes and gzip readbacks passed again.
+
+Immediate and post-release inventory contained only the original
+`no_device_contact` notice; there was no linked-device notice awaiting delivery.
+No customer test email, contact, case, device action, forced cron or queue reset
+was created. Actual postflight configuration provided the support Graph mailbox
+with a null ticket reply alias; no send was invoked by that read. Staff notice 1,
+queue 34, all five attempts and the original case/messages/receipts/grants remained
+exactly unchanged. This establishes deployed source and synthetic route acceptance,
+not live device-owner mailbox delivery. The earlier actual staff mailbox receipt
+remains valid. Configuration, six cron files, timers and the original host mutex
+were preserved; no paused or in-progress marker remained and the window was released.

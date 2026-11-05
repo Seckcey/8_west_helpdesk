@@ -1,8 +1,9 @@
 # Staff fallback for hardware upgrade options
 
 Safeharbor installed staff fallback with migration 038 in `072c9b1` on
-November 5, 2026 at 1:07:21 AM PST (09:07:21 UTC). The sender correction is live
-in `789eaca0bf922c5aa26789a8b4bb47b053afbff7`. The normal 1:40:02 AM PST tick
+November 5, 2026 at 1:07:21 AM PST (09:07:21 UTC). The staff sender correction
+first shipped in `789eaca0bf922c5aa26789a8b4bb47b053afbff7` and remains included
+in current source `6e5e34bef61a8c0a82d191cb17ca7aa65885df66`. The normal 1:40:02 AM PST tick
 received Graph HTTP 202 for the existing staff notice; connected Outlook search
 verified the matching email received by Frankie at 1:40:04 AM PST. The four
 prior default-mailbox rejections and original missing-contact history remain.
