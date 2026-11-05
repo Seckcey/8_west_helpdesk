@@ -351,19 +351,21 @@ function westy_hardware_complete_attempt(PDO $pdo, int $tid, int $noticeId, int 
         ->execute([$attempts,$evidence['outcome_code'],$evidence['outcome'] === 'provider_accepted' ? $now : null,$mailId]);
 }
 
-/** Reuse the established support reply route and the ordinary mail transport. */
-function westy_hardware_send(PDO $pdo, array $notice, string $to, string $subject, string $body): array
+/** Select the support sender independently from the optional ticket reply address. */
+function westy_hardware_send(PDO $pdo, array $notice, string $to, string $subject, string $body, ?callable $graphHttpPost = null): array
 {
     require_once __DIR__.'/mailer.php';
     require_once __DIR__.'/support_addresses.php';
     $config = (array)cfg('support_addresses',[]);
     $reply = support_ticket_reply_address($pdo,(int)$notice['ticket_id'],$config,(string)($config['mailbox'] ?? ''));
-    if ($reply !== null) {
-        $graph = support_graph_config($config,mailer_graph_config());
-        if ($graph === null) return ['outcome'=>'failed','transport'=>'none','provider_http'=>null,'outcome_code'=>'support_transport_unavailable'];
-        return mailer_graph_submission_evidence(mailer_send_graph_result($graph,$to,$subject,$body,null,$reply));
+    $graph = support_graph_config($config,mailer_graph_config());
+    if ($graph !== null) {
+        return mailer_graph_submission_evidence(mailer_send_graph_result($graph,$to,$subject,$body,$graphHttpPost,$reply));
     }
-    return mail_send_result($to,$subject,$body);
+    if ($reply !== null) {
+        return ['outcome'=>'failed','transport'=>'none','provider_http'=>null,'outcome_code'=>'support_transport_unavailable'];
+    }
+    return mail_send_result($to,$subject,$body,null,$graphHttpPost);
 }
 
 function westy_hardware_dispatch_due(PDO $pdo, array $config): void

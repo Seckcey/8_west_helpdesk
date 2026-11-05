@@ -55,6 +55,13 @@ covers the missing-contact branch; positive-contact delivery and device repair
 remain unproved. Other legacy cron identities need a separate impact review.
 See the [release evidence and rollback record](westy-hardware-release-2026-11-04.md).
 
+The installed device-owner sender selects the ordinary mailbox when a ticket
+has no support reply address. The November 5 read-only Graph mailbox check
+returned HTTP 404 for the ordinary mailbox and HTTP 200 for the configured
+support mailbox. The pending correction selects the support mailbox
+independently of Reply-To. The live check found zero linked-device notices
+awaiting delivery.
+
 ### Included: assignee-controlled Westy continuation
 
 The continuation receiver first shipped as source
