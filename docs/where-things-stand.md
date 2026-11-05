@@ -8,18 +8,28 @@ are in git history.
 
 ### Live hardware staff fallback
 
-Safeharbor published `072c9b19551f9405ae0b3c67513a57e575008a1c` with migration
-**038** on **November 5, 2026 at 1:07:21 AM PST** (09:07:21 UTC).
-The normal 1:08:02 AM PST tick created staff receipt **1**, queue **34**, and
-attempt **1** for case **3096**. Graph definitively rejected submission with
-HTTP **404** from the default mailbox. Inbox delivery remains pending.
+Safeharbor installed migration **038** with `072c9b1` on **November 5, 2026 at
+1:07:21 AM PST** (09:07:21 UTC). The staff-only sender correction is live as
+**`789eaca0bf922c5aa26789a8b4bb47b053afbff7`**, published at **1:39:55 AM PST**
+(09:39:55 UTC). All 422 runtime files matched the prepared release.
 
-Case 3096 is still open, assigned to Frankie, and human owned at workflow
-version 7. Original hardware notice **1** remains `no_device_contact`.
-The separate staff queue retains the recommendation with body SHA-256
+The normal **1:40:02 AM PST** tick submitted the existing staff notice through
+the configured Safeharbor support mailbox. Graph accepted attempt **5** with
+HTTP **202**. Connected Outlook search found the matching hardware-options email
+to Frankie, received at **1:40:04 AM PST** (09:40:04 UTC). It was unread when
+checked. This verifies mailbox receipt, not human review or a hardware repair.
+
+Case **3096** remains open, assigned to Frankie, and human owned at workflow
+version **7**. Original hardware notice **1** remains `no_device_contact`.
+Separate staff receipt **1** is `provider_accepted`; queue **34** has its normal
+`sent_at`. The four earlier definitive Graph 404 attempts remain unchanged.
+The original recommendation, missing-contact note and workflow history are intact.
+The frozen queue body SHA-256 is
 `82163390c1214ac624fd8ae8498a23495a88f37b07bd71032eabceaa9bb88033`.
-The staff-only sender correction uses the configured support mailbox and is
-pending publication. See the [staff fallback guide](westy-hardware-staff-notices.md).
+No queue reset, manual dispatcher call, contact change or device action was used.
+
+See the [staff fallback guide](westy-hardware-staff-notices.md) and
+[November 5 release evidence](westy-hardware-staff-release-2026-11-05.md).
 
 ### Included: hardware upgrade outcomes and device-linked notices
 

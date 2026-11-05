@@ -1,11 +1,13 @@
 # Staff fallback for hardware upgrade options
 
 Safeharbor installed staff fallback with migration 038 in `072c9b1` on
-November 5, 2026 at 1:07:21 AM PST (09:07:21 UTC). The first scheduled staff
-attempt received a definitive Graph HTTP 404 from the default mailbox. The
-[live status](where-things-stand.md#live-hardware-staff-fallback) records the
-original case, its separate staff receipt, and the sender correction pending
-publication.
+November 5, 2026 at 1:07:21 AM PST (09:07:21 UTC). The sender correction is live
+in `789eaca0bf922c5aa26789a8b4bb47b053afbff7`. The normal 1:40:02 AM PST tick
+received Graph HTTP 202 for the existing staff notice; connected Outlook search
+verified the matching email received by Frankie at 1:40:04 AM PST. The four
+prior default-mailbox rejections and original missing-contact history remain.
+See [live status](where-things-stand.md#live-hardware-staff-fallback) and the
+[release evidence](westy-hardware-staff-release-2026-11-05.md).
 
 The outbound cron discovers eligible existing and new hardware recommendations
 after Milepost verifies `no_device_contact`. Staff notices are tracked
@@ -20,8 +22,8 @@ The notice never chooses a client, a device contact, a different tenant, or an
 address from the recommendation text.
 
 The existing `mail_dispatch.php` minute job discovers missing-contact decisions
-and handles known failures or interrupted claims. The pending sender
-correction uses the enabled `support_addresses.mailbox` through the existing
+and handles known failures or interrupted claims. The staff sender
+uses the enabled `support_addresses.mailbox` through the existing
 Graph app when that route is configured. It uses the ordinary
 `mail_send_result` transport when the support route is unavailable before
 submission. A support submission records that provider result for the existing
@@ -83,7 +85,7 @@ The first normal tick after publication can claim eligible historic
 `no_device_contact` notices. Check the actual candidate set, sender, assignee
 and queue state before the release window and verify the resulting staff receipt
 on the normal schedule. For source rollback keep both tables, all attempts and
-held queue rows. The old source does not process these rows. Do not lower the
+held queue rows. Source predating migration 038 does not process these rows. Do not lower the
 queue hold or replay an uncertain send. The release owner handles migration
 recovery and production approval; synthetic acceptance does not establish a live
 staff send.
