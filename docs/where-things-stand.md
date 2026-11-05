@@ -6,12 +6,22 @@ are in git history.
 
 ## The live version
 
-The [staff fallback for hardware options](westy-hardware-staff-notices.md) is
-in source preparation with migration 038. It is a separate receipt for eligible
-staff when no device contact is recorded. The existing acceptance below does
-not establish staff submission or delivery.
+### Live hardware staff fallback
 
-### Live receiver: hardware upgrade outcomes and device-linked notices
+Safeharbor published `072c9b19551f9405ae0b3c67513a57e575008a1c` with migration
+**038** on **November 5, 2026 at 1:07:21 AM PST** (09:07:21 UTC).
+The normal 1:08:02 AM PST tick created staff receipt **1**, queue **34**, and
+attempt **1** for case **3096**. Graph definitively rejected submission with
+HTTP **404** from the default mailbox. Inbox delivery remains pending.
+
+Case 3096 is still open, assigned to Frankie, and human owned at workflow
+version 7. Original hardware notice **1** remains `no_device_contact`.
+The separate staff queue retains the recommendation with body SHA-256
+`82163390c1214ac624fd8ae8498a23495a88f37b07bd71032eabceaa9bb88033`.
+The staff-only sender correction uses the configured support mailbox and is
+pending publication. See the [staff fallback guide](westy-hardware-staff-notices.md).
+
+### Included: hardware upgrade outcomes and device-linked notices
 
 Application source **`3f3b128ab508872fb97da6596b86d3e8a827c4cd`** and additive
 migration **037** were published on **November 4, 2026, 13:25:16–24 UTC**.
@@ -24,7 +34,7 @@ At installation, all 418 published files matched the prepared Git release; four 
 tables and eight history triggers were installed. Milepost's producer and saved-result
 parser correction are now published. **The original hardware case has its upgrade
 options and one verified `no_device_contact` notice**, completed by the normal worker
-at **19:14:01 UTC**. No email was queued or submitted. The ticket remains open and
+at **19:14:01 UTC**. The device contact lane had zero queued emails or submissions. The ticket remains open and
 human owned; its earlier messages, receipts and grants are preserved.
 
 The outbound cron account was corrected to the existing private runtime account,

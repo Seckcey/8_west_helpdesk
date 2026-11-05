@@ -74,6 +74,18 @@ function westy_hardware_staff_message(array $source, int $ticketId): array
         ."\n\nSafeharbor case #".$ticketId.": https://safeharbor.8westit.com/ticket.php?id=".$ticketId];
 }
 
+function westy_hardware_staff_send(string $email, string $subject, string $body, ?callable $httpPost = null): array
+{
+    require_once __DIR__.'/mailer.php';
+    require_once __DIR__.'/support_addresses.php';
+    $supportConfig = (array)cfg('support_addresses', []);
+    $supportGraph = support_graph_config($supportConfig, mailer_graph_config());
+    if ($supportGraph !== null) {
+        return mailer_graph_submission_evidence(mailer_send_graph_result($supportGraph, $email, $subject, $body, $httpPost));
+    }
+    return mail_send_result($email, $subject, $body, null, $httpPost);
+}
+
 function westy_hardware_staff_evidence(callable $sender, string $email, string $subject, string $body): array
 {
     try {
@@ -181,8 +193,7 @@ function westy_hardware_staff_dispatch(PDO $pdo, int $tenantId, int $noticeId, a
             $result = ['outcome'=>'failed','transport'=>'none','provider_http'=>null,'outcome_code'=>$problem];
             $state = 'suppressed';
         } else {
-            if ($sender === null) require_once __DIR__.'/mailer.php';
-            $result = westy_hardware_staff_evidence($sender ?? 'mail_send_result',$staff['recipient_email'],$subject,$body);
+            $result = westy_hardware_staff_evidence($sender ?? 'westy_hardware_staff_send',$staff['recipient_email'],$subject,$body);
             $state = $result['outcome'];
         }
         westy_hardware_staff_finish($pdo,$tenantId,$staff,$result,$state);
