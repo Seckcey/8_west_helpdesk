@@ -1,10 +1,15 @@
 # Staff fallback for hardware upgrade options
 
-This source change adds a staff notice after Safeharbor accepts a hardware
-recommendation and Milepost verifies `no_device_contact`. It also picks up
-eligible existing notices when the normal outbound cron runs. Migration 038
-does not send mail, backfill a receipt, or change the original finding, options
-message, missing-contact message, notice, ticket, or client-contact rules.
+Safeharbor installed staff fallback with migration 038 in `072c9b1` on
+November 5, 2026 at 1:07:21 AM PST (09:07:21 UTC). The first scheduled staff
+attempt received a definitive Graph HTTP 404 from the default mailbox. The
+[live status](where-things-stand.md#live-hardware-staff-fallback) records the
+original case, its separate staff receipt, and the sender correction pending
+publication.
+
+The outbound cron discovers eligible existing and new hardware recommendations
+after Milepost verifies `no_device_contact`. Staff notices are tracked
+separately from the original finding and device contact history.
 
 The current active assigned owner, admin, or technician in the ticket's tenant
 takes precedence if their recorded email is a valid person address. Otherwise
@@ -15,9 +20,13 @@ The notice never chooses a client, a device contact, a different tenant, or an
 address from the recommendation text.
 
 The existing `mail_dispatch.php` minute job discovers missing-contact decisions
-and handles known failures or interrupted claims. It uses the current ordinary
-`mail_send_result` transport and sends the stored summary and upgrade options
-with the original ticket link. The staff receipt links to the original notice,
+and handles known failures or interrupted claims. The pending sender
+correction uses the enabled `support_addresses.mailbox` through the existing
+Graph app when that route is configured. It uses the ordinary
+`mail_send_result` transport when the support route is unavailable before
+submission. A support submission records that provider result for the existing
+staff retry rules. The message contains the stored summary, upgrade options,
+and original ticket link. The staff receipt links to the original notice,
 which retains the recommendation and missing-contact message IDs. Each staff
 receipt binds one tenant, recipient user ID, role, recorded email and held
 `mail_queue` identity. The queue row uses `max_attempts=0` so the legacy
@@ -67,7 +76,8 @@ references the existing tenant-scoped hardware notice, so the existing hardware
 ticket retention still protects the case and both kinds of notice; there is
 no new direct ticket foreign key. The runtime needs the same existing
 schema-scoped SELECT, INSERT and UPDATE on Safeharbor tables and mail queue.
-No new account, DELETE, DDL, config, mail route, grant, or cron identity is needed.
+The sender correction is a source-only update using the configured support
+mailbox and the existing Graph credentials and cron identity.
 
 The first normal tick after publication can claim eligible historic
 `no_device_contact` notices. Check the actual candidate set, sender, assignee
