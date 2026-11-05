@@ -9,9 +9,11 @@ are in git history.
 ### Live hardware staff fallback
 
 Safeharbor installed migration **038** with `072c9b1` on **November 5, 2026 at
-1:07:21 AM PST** (09:07:21 UTC). The staff-only sender correction is live as
-**`789eaca0bf922c5aa26789a8b4bb47b053afbff7`**, published at **1:39:55 AM PST**
-(09:39:55 UTC). All 422 runtime files matched the prepared release.
+1:07:21 AM PST** (09:07:21 UTC). The staff-only sender correction first shipped
+as `789eaca0bf922c5aa26789a8b4bb47b053afbff7` at **1:39:55 AM PST**.
+Current application source is **`6e5e34bef61a8c0a82d191cb17ca7aa65885df66`**,
+published at **2:32:38 AM PST** (10:32:38 UTC), including the device-owner sender
+correction below. All **423** runtime files match the prepared release.
 
 The normal **1:40:02 AM PST** tick submitted the existing staff notice through
 the configured Safeharbor support mailbox. Graph accepted attempt **5** with
@@ -55,12 +57,18 @@ covers the missing-contact branch; positive-contact delivery and device repair
 remain unproved. Other legacy cron identities need a separate impact review.
 See the [release evidence and rollback record](westy-hardware-release-2026-11-04.md).
 
-The installed device-owner sender selects the ordinary mailbox when a ticket
-has no support reply address. The November 5 read-only Graph mailbox check
-returned HTTP 404 for the ordinary mailbox and HTTP 200 for the configured
-support mailbox. The pending correction selects the support mailbox
-independently of Reply-To. The live check found zero linked-device notices
-awaiting delivery.
+The device-owner sender correction is installed in `6e5e34b`. It selects the
+configured support Graph mailbox independently of an optional ticket Reply-To,
+while preserving a valid reply alias and the existing unavailable/disabled
+support behavior. Six synthetic dispatcher scenarios passed on the exact LF
+source bytes, including a lost provider response with no resend. Exact PR and
+merged-main checks passed before publication.
+
+The live inventory had zero linked-device notices awaiting delivery, so no
+customer test email or new case was created. Postflight verified the deployed
+sender, configured support route, health and unchanged staff delivery history.
+This is source and synthetic route acceptance; live device-owner delivery remains
+unverified. See the [November 5 release record](westy-hardware-staff-release-2026-11-05.md#device-owner-sender-coverage-at-1032-utc).
 
 ### Included: assignee-controlled Westy continuation
 
