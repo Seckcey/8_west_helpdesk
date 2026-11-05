@@ -6,10 +6,34 @@ are in git history.
 
 ## The live version
 
-### Live employee portal simplification
+### Live private computer links
 
-Current application source is **`abaf228dd0837327d01e556eae5b3d2666390b5b`**,
-published on **November 5, 2026 at 12:34:26 PM PST** (20:34:26 UTC) from
+Current application source is **`754c92d06a8fc905a7ed0d11ae9b295ccef90821`**,
+verified on **November 5, 2026 at 1:40:04 PM PST** (21:40:04 UTC).
+The compatible reader from [PR #291](https://github.com/Seckcey/8_west_helpdesk/pull/291)
+was published and verified first; [PR #292](https://github.com/Seckcey/8_west_helpdesk/pull/292)
+then switched newly created computer links to `#token=`. The browser fills the
+existing confirmation form and clears that fragment. Redemption still requires
+the employee's explicit, CSRF-protected submission. Older query links remain
+supported. See the [release and rollback record](EMPLOYEE_COMPUTER_ACCESS.md#november-5-private-link-release).
+
+Both exact-main Validate runs passed. All **424** managed files matched at each
+stage. Login, stylesheet and served-script checks passed; all six cron files and
+both timers were restored, pause markers cleared and deployment/report locks
+released. Both immediate stock inverses and the separately protected historical
+recovery copy were verified. No schema, application configuration or Apache
+change was applied.
+
+Origin and Cloudflare POST-body handling and Frankie's signed-in owner/employee
+acceptance remain open before customer issuance. Anonymous health and synthetic
+browser tests do not establish those outcomes. Apache logging PR #290 remains
+draft/held after its malformed-request fixture exposed a synthetic query value
+in the preserved error diagnostic; it was not installed.
+
+### Included: employee portal simplification
+
+Application source **`abaf228dd0837327d01e556eae5b3d2666390b5b`**
+was published on **November 5, 2026 at 12:34:26 PM PST** (20:34:26 UTC) from
 [PR #289](https://github.com/Seckcey/8_west_helpdesk/pull/289).
 Employees land in Westy, with Your devices, one Support Requests entry and My
 settings. Owner/admin management, viewer restrictions, delegated staff and
@@ -22,10 +46,6 @@ login and stylesheet checks passed; all six cron files and both timers were
 restored, with no held deployment lock or pause marker. No schema or Apache
 change was applied. Signed-in employee/owner acceptance remains with Frankie;
 synthetic browser coverage and anonymous health checks do not establish it.
-
-The private-link transport change is separate and not included in this release.
-The proposed Apache logging change is held after its malformed-request fixture
-showed a query value in the preserved error diagnostic; it was not installed.
 
 ### Included: hardware staff fallback
 
