@@ -114,9 +114,14 @@ The same transaction stores the finding, receipt, ticket note and one durable
 notice intent. Its mail queue link stays null until a valid current recipient
 is verified. Under the notice claim, atomically create and link the queue row
 with that recipient and `max_attempts=0`: the legacy dispatcher cannot send or
-retry it. The hardware dispatcher alone owns its claim and submission, using
-the existing Graph, SMTP or PHP mail transport. An unresolved intent is not
-described as an email already queued to a person.
+retry it. The hardware dispatcher alone owns its claim and submission.
+
+The device-linked sender uses the enabled support Graph mailbox with or
+without a ticket reply address. A valid support reply address is included as
+Reply-To. If the case has a reply address and support Graph is unavailable,
+the dispatcher records `support_transport_unavailable` before submission.
+If both the support Graph route and the ticket reply address are unavailable,
+it uses the ordinary Graph, SMTP or PHP mail selection.
 
 Before submission, Milepost resolves the current exact device-linked contact
 under the same tenant/customer/device/alert lineage. Do not infer a recipient from a ticket contact, billing

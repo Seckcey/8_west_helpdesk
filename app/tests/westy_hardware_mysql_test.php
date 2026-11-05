@@ -197,6 +197,7 @@ PHP;
     hw_check(hw_count($pdo,'westy_billing_outbox')===0 && hw_count($pdo,'time_entries')===0,'no closure, financial work, time, or command is created');
     echo "PASS {$checks} MySQL hardware outcome and notice checks.\n";
     require __DIR__.'/fixtures/westy_hardware_staff_cases.php';
+    require __DIR__.'/fixtures/westy_hardware_device_sender_cases.php';
 } finally {
     if($pdo->inTransaction())$pdo->rollBack();
     if($pdo->query('SELECT DATABASE()')->fetchColumn()!==$database)throw new RuntimeException('cleanup scope changed');
