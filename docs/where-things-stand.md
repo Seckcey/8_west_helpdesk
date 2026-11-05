@@ -6,14 +6,36 @@ are in git history.
 
 ## The live version
 
-### Live hardware staff fallback
+### Live employee portal simplification
+
+Current application source is **`abaf228dd0837327d01e556eae5b3d2666390b5b`**,
+published on **November 5, 2026 at 12:34:26 PM PST** (20:34:26 UTC) from
+[PR #289](https://github.com/Seckcey/8_west_helpdesk/pull/289).
+Employees land in Westy, with Your devices, one Support Requests entry and My
+settings. Owner/admin management, viewer restrictions, delegated staff and
+Companion entry paths are preserved. See the [portal release record](employee-portal-dashboard.md#november-5-release-record).
+
+Exact-main [Validate 42102282535](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42102282535)
+passed. One stock publication replaced 15 files, added/deleted none, and all
+**423** runtime files matched the prepared release. At 20:35:40 UTC the runtime,
+login and stylesheet checks passed; all six cron files and both timers were
+restored, with no held deployment lock or pause marker. No schema or Apache
+change was applied. Signed-in employee/owner acceptance remains with Frankie;
+synthetic browser coverage and anonymous health checks do not establish it.
+
+The private-link transport change is separate and not included in this release.
+The proposed Apache logging change is held after its malformed-request fixture
+showed a query value in the preserved error diagnostic; it was not installed.
+
+### Included: hardware staff fallback
 
 Safeharbor installed migration **038** with `072c9b1` on **November 5, 2026 at
 1:07:21 AM PST** (09:07:21 UTC). The staff-only sender correction first shipped
 as `789eaca0bf922c5aa26789a8b4bb47b053afbff7` at **1:39:55 AM PST**.
-Current application source is **`6e5e34bef61a8c0a82d191cb17ca7aa65885df66`**,
-published at **2:32:38 AM PST** (10:32:38 UTC), including the device-owner sender
-correction below. All **423** runtime files match the prepared release.
+The device-owner sender correction below shipped in
+**`6e5e34bef61a8c0a82d191cb17ca7aa65885df66`** at **2:32:38 AM PST**
+(10:32:38 UTC). All **423** runtime files matched that prepared release;
+the correction remains included in the current portal release above.
 
 The normal **1:40:02 AM PST** tick submitted the existing staff notice through
 the configured Safeharbor support mailbox. Graph accepted attempt **5** with
