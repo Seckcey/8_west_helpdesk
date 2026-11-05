@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -937,6 +937,164 @@ if (!SERVE_MODE) test('Secure Plus requires separate order and installation cons
       await context.close();
     }
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+
+if (!SERVE_MODE) test('computer access accepts fragments and legacy links through the explicit CSRF form', async () => {
+  const scratch = await mkdtemp(path.join(tmpdir(), 'safeharbor-computer-access-'));
+  const lib = path.join(scratch, 'app/lib');
+  const portal = path.join(scratch, 'app/public/portal');
+  const assets = path.join(scratch, 'app/public/assets/js');
+  const controller = '/portal/computer-access.php';
+  const script = '/assets/js/portal-computer-access.js';
+  const code = 'a'.repeat(64);
+  const secondCode = 'b'.repeat(64);
+  const csrf = 'c'.repeat(64);
+  const reference = '1:' + 'd'.repeat(64);
+  await Promise.all([lib, portal, assets].map(directory => mkdir(directory, { recursive: true })));
+  await Promise.all([
+    copyFile(path.join(ROOT, 'app/public', controller), path.join(portal, 'computer-access.php')),
+    copyFile(path.join(ROOT, 'app/public', script), path.join(assets, 'portal-computer-access.js')),
+    writeFile(path.join(lib, 'portal_auth.php'), '<?php'),
+    writeFile(path.join(lib, 'portal_devices.php'), '<?php'),
+    writeFile(path.join(lib, 'portal_render.php'), '<?php require $argv[1];'),
+    writeFile(path.join(lib, 'bootstrap.php'), String.raw`<?php
+$input = json_decode($argv[2], true, 8, JSON_THROW_ON_ERROR);
+$_SERVER['REQUEST_METHOD'] = $input['method'];
+$_SERVER['REQUEST_URI'] = $input['uri'];
+parse_str(parse_url($input['uri'], PHP_URL_QUERY) ?? '', $_GET);
+$_POST = $input['form'];
+$calls = [];
+register_shutdown_function(static function () use (&$calls): void {
+    fwrite(STDERR, json_encode($calls, JSON_THROW_ON_ERROR));
+});
+function cfg(string $key, mixed $default = null): mixed { return $default; }
+function enforce_https(): void {}
+function db(): mixed { return null; }
+function portal_enabled(): bool { return true; }
+function portal_safe_return_path(mixed $value): string { return '/portal/'; }
+function portal_csrf_token(): string { return str_repeat('c', 64); }
+function portal_csrf_valid(mixed $value): bool { return $value === portal_csrf_token(); }
+function portal_authenticated_context(mixed $pdo): ?array {
+    global $input;
+    return $input['role'] === '' ? null : [
+        'identity' => ['role' => $input['role'], 'display_name' => 'Fixture member'],
+        'binding' => ['client_name' => 'Fixture company'],
+    ];
+}
+function portal_devices_can_manage(array $context): bool { return $context['identity']['role'] === 'client_owner'; }
+class PortalDevicesException extends RuntimeException {
+    public function __construct(public readonly string $reason, int $status) { parent::__construct($reason, $status); }
+}
+function portal_devices_error(string $reason): string { return 'Fixture refusal: ' . $reason; }
+function portal_devices_request(mixed $pdo, array $context, string $action, array $values): array {
+    global $calls;
+    $calls[] = ['action' => $action, 'role' => $context['identity']['role'], 'values' => $values];
+    return match ($action) {
+        'device_access_create' => ['token' => str_repeat('a', 64)],
+        'device_access_redeem' => ['state' => 'active'],
+        'device_access_list' => ['items' => [], 'next_after' => null],
+        default => throw new LogicException('Unexpected fixture service action'),
+    };
+}
+`),
+  ]);
+
+  function render(role, uri = controller, method = 'GET', form = {}) {
+    const result = spawnSync('php', [path.join(portal, 'computer-access.php'),
+      path.join(ROOT, 'app/lib/portal_render.php'), JSON.stringify({ role, uri, method, form })], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return { html: result.stdout, calls: JSON.parse(result.stderr) };
+  }
+
+  let browser;
+  try {
+    for (const action of [undefined, 'unknown', 'device_access_redeem']) {
+      const result = render('client_staff', controller, 'POST', { action, token: code, csrf: action === 'device_access_redeem' ? 'bad' : csrf });
+      assert.deepEqual(result.calls, [], 'missing action, unknown action or stale CSRF cannot redeem');
+      assert.match(result.html, /Fixture refusal: (role|sign_in)/);
+    }
+    const owner = render('client_owner', controller, 'POST', {
+      action: 'device_access_create', csrf, device_reference: reference, request_key: 'e'.repeat(32),
+    });
+    assert.ok(owner.html.includes('https://safeharbor.8westit.com' + controller + '?token=' + code), 'reader release still issues legacy links');
+
+    browser = await chromium.launch();
+    for (const javaScriptEnabled of [true, false]) {
+      const context = await browser.newContext({ javaScriptEnabled });
+      const page = await context.newPage();
+      let role = javaScriptEnabled ? '' : 'client_viewer';
+      const submissions = [];
+      const serviceCalls = [];
+      const network = [];
+      await page.route('**/*', async route => {
+        const request = route.request();
+        const url = new URL(request.url());
+        network.push({ path: url.pathname, query: url.search, method: request.method() });
+        if (url.pathname === controller) {
+          const form = Object.fromEntries(new URLSearchParams(request.postData() ?? ''));
+          if (request.method() === 'POST') submissions.push({ query: url.search, form });
+          const result = render(role, url.pathname + url.search, request.method(), form);
+          serviceCalls.push(...result.calls);
+          return route.fulfill({ contentType: 'text/html', body: result.html });
+        }
+        if (url.pathname === script) {
+          return route.fulfill({ contentType: 'text/javascript', body: await readFile(path.join(assets, 'portal-computer-access.js')) });
+        }
+        if (url.pathname === '/portal/login.php') return route.fulfill({ contentType: 'text/html', body: 'Fixture sign-in' });
+        if (url.pathname === '/assets/css/app.css') return route.fulfill({ contentType: 'text/css', body: APP_CSS });
+        if (PORTAL_ASSETS[url.pathname]) {
+          const [contentType, body] = PORTAL_ASSETS[url.pathname];
+          return route.fulfill({ contentType, body });
+        }
+        return route.fulfill({ status: 204, body: '' });
+      });
+      try {
+        const open = fragment => page.goto(ORIGIN + controller + '#token=' + fragment);
+        if (javaScriptEnabled) {
+          await open(code);
+          const login = page.getByRole('link', { name: 'Continue with 8 West ID' });
+          assert.equal(new URL(await login.getAttribute('href'), ORIGIN).searchParams.get('next'), '/portal/');
+          assert.equal(await page.locator('input[name="token"]').count(), 0);
+          await login.click();
+          role = 'client_staff';
+          await open(code);
+          await page.waitForFunction(() => location.hash === '');
+          assert.equal(await page.locator('input[name="token"]').inputValue(), code);
+          assert.equal(await page.getByLabel('Private access code').isVisible(), false);
+          await page.evaluate(value => { location.hash = 'token=' + value; }, secondCode);
+          await page.waitForFunction(value => !location.hash && document.querySelector('input[name="token"]').value === value, secondCode);
+          assert.deepEqual(await page.evaluate(() => [localStorage.length, sessionStorage.length, document.cookie]), [0, 0, '']);
+        } else {
+          await open(code);
+          await page.getByLabel('Private access code').fill(code);
+        }
+        assert.deepEqual(serviceCalls, [], 'opening or copying a link never redeems it');
+        assert.ok(network.every(request => !request.query.includes(code) && !request.query.includes(secondCode)));
+        const expected = javaScriptEnabled ? secondCode : code;
+        await page.getByRole('button', { name: 'Use this computer' }).click();
+        await page.getByRole('link', { name: 'Open Your devices' }).waitFor();
+        assert.deepEqual(submissions, [{ query: '', form: { csrf, action: 'device_access_redeem', token: expected } }]);
+        assert.deepEqual(serviceCalls, [{ action: 'device_access_redeem', role, values: { token: expected, display_name: 'Fixture member' } }]);
+
+        await page.goto(ORIGIN + controller + '?token=' + code);
+        assert.equal(await page.locator('input[name="token"]').inputValue(), code);
+        assert.equal(serviceCalls.length, 1, 'legacy GET also requires confirmation');
+        await page.getByRole('button', { name: 'Use this computer' }).click();
+        assert.deepEqual(submissions[1], { query: '', form: { csrf, action: 'device_access_redeem', token: code } });
+        if (javaScriptEnabled) {
+          await open(code + '&unexpected=1');
+          assert.equal(await page.getByLabel('Private access code').inputValue(), '');
+          assert.equal(serviceCalls.length, 2, 'malformed fragment remains unsubmitted');
+        }
+      } finally {
+        await context.close();
+      }
+    }
+  } finally {
+    await browser?.close();
+    await rm(scratch, { recursive: true, force: true });
+  }
 });
 
 if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and responsive states', async () => {

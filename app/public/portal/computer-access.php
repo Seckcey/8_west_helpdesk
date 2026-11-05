@@ -91,15 +91,26 @@ try {
       </article><?php endforeach; ?>
       <?php if ($access['next_after'] !== null): ?><a href="/portal/computer-access.php?device=<?= rawurlencode($device) ?>&amp;after=<?= (int)$access['next_after'] ?>">Next access records</a><?php endif; ?>
     </section>
-  <?php elseif (!$manage && $token !== '' && !$redeemed): ?>
+  <?php elseif (!$manage && !$redeemed): ?>
     <section class="portal-device-setup"><h2>Use your assigned computer</h2><p>This private link grants your signed-in account access to one computer in <?= portal_h($fresh['binding']['client_name']) ?>. Your account's existing permissions, including read-only access, still apply.</p>
       <form method="post" action="/portal/computer-access.php">
         <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="device_access_redeem">
-        <input type="hidden" name="token" value="<?= portal_h($token) ?>"><button class="btn-primary" type="submit">Use this computer</button>
+        <?php if ($token !== ''): ?>
+          <input type="hidden" name="token" value="<?= portal_h($token) ?>">
+        <?php else: ?>
+          <div class="field" id="computer-access-code-entry">
+            <label for="computer-access-code">Private access code</label>
+            <input id="computer-access-code" name="token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false"
+                   required maxlength="64" pattern="[a-f0-9]{64}" aria-describedby="computer-access-code-help">
+            <p id="computer-access-code-help" class="portal-hint">Copy the code after #token= from your original private link and paste it here.</p>
+          </div>
+          <script defer src="/assets/js/portal-computer-access.js?v=<?= portal_asset_version(__DIR__.'/../assets/js/portal-computer-access.js') ?>"></script>
+        <?php endif; ?>
+        <button class="btn-primary" type="submit">Use this computer</button>
       </form>
     </section>
   <?php elseif ($redeemed): ?><a class="btn-primary" href="/portal/devices.php">Open Your devices</a>
-  <?php else: ?><p><?= $manage ? 'Choose Computer access beside a computer in Your devices. Owners and administrators already have access to the computers in Your devices.' : 'Ask an owner or administrator for a private computer access link.' ?></p><?php endif; ?>
+  <?php else: ?><p>Choose Computer access beside a computer in Your devices. Owners and administrators already have access to the computers in Your devices.</p><?php endif; ?>
 </main>
 <?php portal_page_end();
 } catch (Throwable $failure) {

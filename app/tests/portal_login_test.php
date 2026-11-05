@@ -112,6 +112,7 @@ foreach (['/portal/', '/portal/ticket.php?id=42', '/portal/reports.php?id=7',
 foreach ([null, [], '', 'https://evil.test/portal/', '//evil.test/portal/', '/\\evil.test',
     '/portal/../login.php', '/portal/%2e%2e/login.php', '/portal/%252e%252e/login.php',
     '/portal/callback.php?code=bad', '/portal/login.php', '/portal/logout.php', '/portal/westy.php',
+    '/portal/computer-access.php?token=' . str_repeat('a', 64), '/portal/computer-access.php#token=' . str_repeat('a', 64),
     '/login.php', '/portal/;https://evil.test', '/portal/?q=%0d%0aLocation:evil',
     '/portal/?q=%250d%250a', '/portal/?q=%5c', '/portal/?q=ok#bad', '/portal/?q=' . str_repeat('x', 2050),
     '/portal/?q=%252525252F'] as $path) {
