@@ -21,6 +21,49 @@ access to the selected computer. For an employee who already has an account,
 the owner or admin can share the computer link directly. 8 West ID enforces
 invitation authorization.
 
+## November 5 release record
+
+[PR #289](https://github.com/Seckcey/8_west_helpdesk/pull/289) was published as
+`abaf228dd0837327d01e556eae5b3d2666390b5b` on November 5, 2026 at
+**20:34:26 UTC / 12:34:26 PM PST**, replacing `6e5e34b`.
+Exact PR Validate `42100994634` and
+[main Validate 42102282535](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42102282535)
+passed. The merge tree matched reviewed head `0b98db17`.
+
+Coastline qualification passed 41 focused browser cases, 300 focused PHP
+assertions and 39 actual HTTP assertions with a synthetic MySQL fixture.
+Desktop 1440px and mobile 390px captures were inspected. Coverage includes
+employee root/index/Westy alias entry, requester privacy, the single request
+creation action and viewer refusal. These are synthetic checks, not a customer
+sign-in or a live computer-link redemption.
+
+One stock check and one stock deploy replaced 15 files (eight application UI
+files, four packaged tests and three normal cache stamps), with no added or
+removed file. All 423 installed file hashes matched the prepared release.
+Postflight at **20:35:40 UTC** verified login, stylesheet HTTP 200, anonymous
+portal HTTP 302, active PHP runtime and Apache, restored six cron files and two
+timers, unchanged file metadata, and released locks with no pause/cold markers.
+Only Safeharbor's PHP runtime was stopped; no Apache operation or migration ran.
+The shared host window was handed back early. Signed-in employee and owner
+acceptance remains with Frankie; no customer, mail or device action was submitted.
+
+The new source inverse is
+`/srv/8west/apps/safeharbor/deploy-state/backups/20261105T203423Z-6e5e34bef61a-to-abaf228dd083/files.tar`
+(245760 bytes, SHA-256
+`787b5b72ed78eea445d222925257dac47bdc87ff7b5e1aebd9729f6af1ec201d`).
+All 15 archived original files and their ownership/modes were verified, with
+exact from/to identities. Routine retention removed only the reviewed
+`20261023T063103Z-c79cf5949165-to-a63dc4ee43dc` source inverse; ten remain.
+The distinct `20261023T200121Z-a63dc4ee43dc-to-9d1650adc3bb` source/database
+recovery is protected and retained. It is now the oldest backup: reconcile its
+custody before any subsequent stock publication so normal pruning cannot remove it.
+
+The local sealed `safeharbor-employee-portal-publication.json` receipt has
+SHA-256 `d0afca49ca6ca0f2bd88abf2fa4d2eb4cc371747e6f7315586b754f56c1fbed2`.
+It records the stock output, before/after metadata, 423 runtime hashes and
+inverse verification. Private-link transport, invitation permissions and
+Apache logging are separate work, not evidence supplied by this UI release.
+
 ## October 22 release record
 
 The sections below describe the original Home release. See the
