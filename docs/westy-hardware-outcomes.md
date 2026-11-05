@@ -1,5 +1,8 @@
 # Hardware upgrade outcomes
 
+See the separate [staff fallback](westy-hardware-staff-notices.md) for the
+optional staff receipt after an accepted missing-device-contact outcome.
+
 **Receiver installed as `3f3b128a` with migration 037 on November 4, 2026.**
 The Milepost producer is published. The original hardware case received upgrade
 options and one `no_device_contact` result through the normal scheduled worker,

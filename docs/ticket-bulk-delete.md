@@ -48,7 +48,7 @@ ticket next time it fires.
 | Reason shown | Rule behind it |
 |---|---|
 | Technician time is logged on it | Time entries are immutable billing evidence; a trigger refuses to remove them |
-| Westy troubleshooting history | `westy_workflows` rows are immutable |
+| Westy troubleshooting history | Immutable workflows and hardware notices protect their ticket and linked staff receipts |
 | Westy email history | `westy_email_drafts` rows are immutable |
 | Westy mailbox history | `westy_mail_conversations` rows are immutable |
 | Customer-portal requester record | `portal_ticket_requesters` rows are immutable |

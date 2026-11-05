@@ -25,9 +25,9 @@ function westy_hardware_request(string $raw, ?int $now = null): array
 {
     $now ??= time();
     $preview = json_decode($raw,true);
-    $status = ($preview['action'] ?? null) === 'hardware_status';
+    $status = in_array($preview['action'] ?? null,['hardware_status','hardware_staff_status'],true);
     $p = westy_hardware_decode($raw,array_merge(WESTY_HARDWARE_COMMON,$status ? ['finding_key'] : WESTY_HARDWARE_FACTS));
-    if ($p['schema_version'] !== 3 || $p['action'] !== ($status ? 'hardware_status' : 'hardware_outcome')) throw new InvalidArgumentException('invalid_action');
+    if ($p['schema_version'] !== 3 || (!$status && $p['action'] !== 'hardware_outcome')) throw new InvalidArgumentException('invalid_action');
     foreach (array_merge(['event_key','workflow_key','customer_id','finding_key'],$status ? [] : ['issue_key']) as $key) {
         if (!is_string($p[$key]) || preg_match(WESTY_WORKFLOW_UUID,$p[$key]) !== 1) throw new InvalidArgumentException('invalid_'.$key);
     }
@@ -145,6 +145,11 @@ function westy_hardware_receive(PDO $pdo, array $settings, array $p, string $req
     try {
         $scope = westy_hardware_scope($pdo,$settings,$p);
         $tid = $scope['tenant_id']; $run = $scope['run']; $ticket = $scope['ticket'];
+        if ($p['action'] === 'hardware_staff_status') {
+            require_once __DIR__.'/westy_hardware_staff.php';
+            $result = westy_hardware_staff_status($pdo,$scope,$p);
+            $pdo->commit(); return $result;
+        }
         if ($p['action'] === 'hardware_status') {
             $finding = westy_workflow_row($pdo,'SELECT * FROM westy_hardware_findings WHERE tenant_id=? AND finding_key=? AND workflow_id=?',[$tid,$p['finding_key'],$run['id']]);
             if (!$finding) throw new WestyWorkflowConflict('hardware_finding_not_found');
