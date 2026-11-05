@@ -55,8 +55,18 @@ All 15 archived original files and their ownership/modes were verified, with
 exact from/to identities. Routine retention removed only the reviewed
 `20261023T063103Z-c79cf5949165-to-a63dc4ee43dc` source inverse; ten remain.
 The distinct `20261023T200121Z-a63dc4ee43dc-to-9d1650adc3bb` source/database
-recovery is protected and retained. It is now the oldest backup: reconcile its
-custody before any subsequent stock publication so normal pruning cannot remove it.
+recovery was protected and retained. Before the subsequent private-link release,
+its exact 11 files were copied with their metadata to
+`/srv/8west/apps/safeharbor/deploy-state/protected-recovery/20261023T200121Z-a63dc4ee43dc-to-9d1650adc3bb`.
+Independent readback of both copies verified every hash and recorded permission,
+owner, timestamp and distinct inode. Safeharbor, the shared-host release lead and
+the suite owner accepted the durable mapping. The protected copy is outside stock
+rollback discovery and retention; immediate release inverses remain in `backups`.
+The sibling `.custody.json` receipt has SHA-256
+`594e53eaa19ebccdf4d6174ff4aab72e472d4ad8a34743fb38c173947ffd9988`.
+Historical sealed references retain their original paths and use this mapping.
+This preserves the accepted historical recovery bytes; it is not a new database
+capture, restore test or current-system recovery claim.
 
 The local sealed `safeharbor-employee-portal-publication.json` receipt has
 SHA-256 `d0afca49ca6ca0f2bd88abf2fa4d2eb4cc371747e6f7315586b754f56c1fbed2`.

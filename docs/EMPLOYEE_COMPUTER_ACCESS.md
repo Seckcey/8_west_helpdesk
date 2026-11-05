@@ -1,6 +1,6 @@
 # Employee accounts and assigned computers
 
-The compatible Safeharbor consumer is deployed from
+The compatible Safeharbor consumer first deployed from
 `1294c84edb7252b8f38cb91f9c843e3bfa55cabd`; original reporting and writers were
 restored October 10, 2026, at 5:02:10 PM Pacific.
 Milepost assignment enforcement preceded this release. At Safeharbor's handoff,
@@ -8,9 +8,10 @@ Milepost assignment enforcement preceded this release. At Safeharbor's handoff,
 owners. The steps below describe the paired flow, not invitations sent or
 employee/device/customer acceptance.
 
-Source-only wording update: the customer portal uses member/People labels for
-these existing accounts and assignments. This does not add roles or permissions,
-change private-link behavior, or establish deployment/customer acceptance.
+The current customer portal uses member/People labels for these accounts and
+assignments. Employees land in Westy following the
+[November 5 portal release](employee-portal-dashboard.md#november-5-release-record).
+Account invitations and computer assignment remain separate actions.
 
 ## Owner and employee steps
 
@@ -82,8 +83,71 @@ lets that owner/admin name the employee who uses a computer.
 - The requesting owner/admin is kept separately from the chosen employee. The
   account owner is not assumed to be the employee.
 
-Both requests are source only: the deployed Safeharbor runtime (2c) does not
-include them.
+Protection-request activation has its own release record. The private computer
+link change does not establish that either protection request is enabled.
+
+## November 5 private-link release
+
+Both stages are live. [PR #291](https://github.com/Seckcey/8_west_helpdesk/pull/291)
+published reader `16f4eb0763bc33ec4137e85ca72199d32739b43b` over the portal release
+`abaf228dd0837327d01e556eae5b3d2666390b5b`. Its full 424-file readback passed at
+21:39:30 UTC. [PR #292](https://github.com/Seckcey/8_west_helpdesk/pull/292)
+then published issuer **`754c92d06a8fc905a7ed0d11ae9b295ccef90821`**; all 424
+managed files and 23 directories matched at **21:40:04 UTC**. New computer links
+use fragments; both redemption formats remain available. The first eligible
+same-business employee, one-use link and 48-hour lifetime rules are unchanged.
+
+Exact-main [reader Validate 42107558559](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42107558559)
+passed on attempt 2. Its first browser job timed out during dependency setup,
+before tests ran; one unchanged browser-only retry passed, retaining the PHP
+success. Exact-main [issuer Validate 42111878471](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42111878471)
+passed on attempt 1. Coastline reader qualification passed 24 portal browser
+cases and 67 login checks; issuer coverage also verified the new link format.
+Coverage includes legacy links, JavaScript and manual code entry, signed-out
+reopening, no automatic submission, and required action/CSRF checks.
+
+Stock deployment replaced five files and added one for the reader, then replaced
+four for the issuer, including normal release stamps. Neither stage deleted
+application files. Login, stylesheet and served-JavaScript checks passed.
+All six paused cron files were restored with their bytes and metadata intact,
+both timers were active, and deployment/report locks were probed and released.
+No pause markers or active writers remained at handback. No schema, application
+configuration, Apache or customer account/device operation was performed.
+
+The retained stock inverses are under
+`/srv/8west/apps/safeharbor/deploy-state/backups/`:
+
+| Stage | Inverse directory | `files.tar` bytes / SHA-256 |
+| --- | --- | --- |
+| Reader | `20261105T213837Z-abaf228dd083-to-16f4eb0763bc` | 81920 / `4b4d683d5a75750aeb929e813590b831882c6353d95face5331c0e6b18781c89` |
+| Issuer | `20261105T213955Z-16f4eb0763bc-to-754c92d06a8f` | 71680 / `13ac5ebfb44a4dfbbbc23d02ebf86644219f2a0ffb2bc01b67bc4735d000b703` |
+
+The issuer inverse returns to the dual reader. Do not remove legacy query
+redemption until at least 48 hours after the last query issuance, including any
+rollback that resumes query issuance. The reader inverse exists for recovery;
+using it requires review of outstanding fragment links and issuance state.
+
+Before publication, the historical source/database recovery set was copied to
+the [protected recovery location](employee-portal-dashboard.md#november-5-release-record)
+and independently accepted by Safeharbor, Milepost and the suite coordinator.
+Reader retention removed only its verified original stock duplicate
+`20261023T200121Z-a63dc4ee43dc-to-9d1650adc3bb`; issuer retention removed only the
+separately reviewed source-only inverse
+`20261023T222312Z-9d1650adc3bb-to-d746c193b83d`. The protected copy and both new
+inverses remained intact. This was preservation of historical recovery evidence,
+not a fresh database backup or restore test.
+
+The sealed worker evidence index is `safeharbor-private-link-live-handoff.json`,
+SHA-256 `f885c0cfd5a268b82274a6831c847db82a9838aa3edd05f5656cac9c08c7296c`.
+It identifies and hashes the stock checks, publications and full readbacks.
+The final issuer proof SHA-256 is
+`6c43916bc776b3a924a256dacaedfbf3cdbc437892ab3c6f40a93b836d40c93d`.
+
+**Customer issuance and acceptance remain separate:** origin and Cloudflare
+POST-body handling and Frankie's signed-in owner/employee acceptance are still
+open. No real customer link, email or assignment was created for these probes.
+Apache logging PR #290 remains draft/held and was not installed. The ID invitation
+flow is owned and released separately; these receipts establish Safeharbor only.
 
 ## Integration and release
 
