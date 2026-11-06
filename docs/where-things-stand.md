@@ -6,9 +6,39 @@ are in git history.
 
 ## The live version
 
-### Retired unused Westy transports
+### Shared launcher v0.5.1
 
-Current application source is **`019087648a9d5447031bd067baeb4dd9a6303775`**,
+Current application source is **`48a1790e06b84eb7c540867f92d76dc683b92a16`**,
+published on **November 5, 2026 at 9:28:38 PM PST** (November 6, 05:28:38 UTC).
+[PR #298](https://github.com/Seckcey/8_west_helpdesk/pull/298) imports the published
+w365 v0.5.1 package through the normal sync tool. Logbook and Cloudline are removed
+from the display catalog; active launch routes, durable product keys, entitlement
+and role behavior, and all seven marks are preserved.
+
+PR and merged-main PHP/browser CI passed, together with 68 focused renderer checks
+and eight synthetic desktop/phone role/theme cases. One stock deployment replaced
+exactly eight files: four package files, the shipped renderer/pin test and three
+normal asset stamps. All **424 files and 23 directories** matched the prepared
+release, including file hashes read as the private runtime user. Origin and public
+paths served the exact v0.5.1 manifest and five-product catalog; health checks passed.
+
+Configuration and all six cron files retained their bytes and metadata; both
+timers were restored, other recorded PHP/Apache states were unchanged, and locks
+and markers were clear. The natural **9:30 PM** report and shared-worker dispatches
+ran, reports logged zero generated/submitted/uncertain/error outcomes, and scheduled
+lifecycle work reported zero claims. The existing Westy-mail and portal-maintenance
+actor input-file errors were identical in the 9:20 PM and 9:30 PM samples; this
+release did not repair or replay those jobs.
+
+The new eight-file inverse, both protected historical recovery sets, the retained
+#296 inverse and the single qualified source-only retention age-out were verified.
+No schema, configuration or permission change occurred. Genuine signed-in
+owner/employee acceptance and the separate Guide, Apache and mail work remain open.
+See the [launcher release and rollback record](launcher-package-051.md#november-5-production-release).
+
+### Included: retired unused Westy transports
+
+Application source **`019087648a9d5447031bd067baeb4dd9a6303775`** was
 verified on **November 5, 2026 at 8:32:24 PM PST** (November 6, 04:32:24 UTC).
 [PR #296](https://github.com/Seckcey/8_west_helpdesk/pull/296) removes only the two
 unused direct HTTP transports, `portal_westy_provider()` and
@@ -40,7 +70,7 @@ error was present every minute in the inspected 8:24–8:32 PM pre-deployment lo
 That existing job issue was reported separately and was not changed or replayed
 by this cleanup.
 
-The immediate source inverse is
+The source inverse retained from this release is
 `deploy-state/backups/20261106T043210Z-754c92d06a8f-to-019087648a9d`.
 Its 71,680-byte `files.tar` contains exactly the five previous files, with SHA-256
 `09f8a1db22a26f59ed86024072f18309cf1272ab4f5dbf6821434bfd78a4e3eb`.
@@ -205,7 +235,7 @@ existing workspace is at `/portal/?view=westy`. Verified customer visits to the
 staff login are handed to the portal. See the
 [client access and portal release receipt](client-access-portal-release.md) and
 [Home guide](employee-portal-dashboard.md). The earlier settings UX improvements
-and shared menu v0.5.0 remain included. Genuine signed-in customer and provider
+remain included; the shared menu package is now v0.5.1 as recorded above. Genuine signed-in customer and provider
 acceptance remains pending with Frankie. Later documentation-only commits do not
 change this application release and need no production redeploy.
 
@@ -246,7 +276,8 @@ passes its check. Every deploy and rollback adds a line to
 `SETTINGS-UX-CORE-20261021` shipped through the normal deployment script as
 `c79cf59`, replacing `4021f45`. Portal Account now has clear touch targets and
 destination/client hints; Team and profile have readable choices, action buttons,
-keyboard focus and save/error feedback. The staff menu uses shared UI v0.5.0.
+keyboard focus and save/error feedback. That release imported shared UI v0.5.0;
+the current launcher package is v0.5.1 as recorded above.
 Existing routes, handlers, role/privacy checks and local-versus-suite behavior
 are preserved, with no new confirmation prompts, migration or flag change.
 
