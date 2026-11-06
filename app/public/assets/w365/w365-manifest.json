@@ -1,6 +1,6 @@
 {
   "name": "w365",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "files": {
     "marks/central.png": {
       "sha256": "b63834f178972063d03ffa1c56df6a66919982752c8e3a51eba81a2d7c400254",
@@ -31,15 +31,15 @@
       "bytes": 22439
     },
     "w365-launcher.js": {
-      "sha256": "4193a5ff11064f1fa689540916f229217fb4063f7429a62dfd20415b5ce00d03",
+      "sha256": "9203e8007a1a586fe7c8b3cb4a08793d310170f12ea8248a3a28ebdca00d7709",
       "bytes": 5282
     },
     "w365-products.json": {
-      "sha256": "03aeb9c25de7c6c56682c81eb54bb46e20dd3f7d1aa88e79cbc86c3e6cda4ba5",
-      "bytes": 2403
+      "sha256": "74b9369a75daaa39a1833f4cf14f5a430ec5b17476f79897330bc28d6f8505e0",
+      "bytes": 1709
     },
     "w365.css": {
-      "sha256": "33de36d4d15761247804d4534c72a9d4c1e522bd5fd5a6a510fa72e76049fe87",
+      "sha256": "2c05c0bedc7167cdbf950117a7aba7508877a9ec469a70e87561bf9e0e73dce4",
       "bytes": 10368
     }
   }
