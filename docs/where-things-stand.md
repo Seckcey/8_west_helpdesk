@@ -6,9 +6,44 @@ are in git history.
 
 ## The live version
 
-### Shared launcher v0.5.1
+### Retired Logbook export removed
 
-Current application source is **`48a1790e06b84eb7c540867f92d76dc683b92a16`**,
+Current application source is **`a33dd91422128fc97afb299ba2c9918c4cb1a737`**,
+published by the stock deployment on **November 6, 2026 at 10:42:32 AM PST**
+(18:42:32 UTC). [PR #300](https://github.com/Seckcey/8_west_helpdesk/pull/300)
+removes the five unused export runtime files, their dedicated test and sample
+configuration block. The export was already disabled; private configuration,
+keys, service identities and database records were not changed.
+
+Exact merged-main [Validate](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42264765706)
+passed. The single stock release deleted six files and replaced four, including
+three normal asset stamps. All **418 files and 23 directories** matched the
+prepared release, including all file hashes read as the private runtime user.
+The ten-file live rollback archive preserves the original bytes, numeric owners,
+modes, exact timestamps and both extended ACLs. Private configuration, all six
+active cron files, both timers, other PHP/Apache states and the required ID tool
+pair were preserved. Origin and public login/CSS returned 200, root/portal
+redirected to sign-in, and the removed export returned 404.
+
+Before deployment, the approved November 4 database-bearing recovery archive was
+copied to protected recovery. Two independent witnesses matched all eleven
+original/copy files while the original remained present. Normal stock rotation
+then removed only that approved original; its protected copy, both older protected
+sets and the other nine original backups remained exact. This was historical
+preservation, not a database restore or a new database backup. See the
+[release and recovery record](logbook-export-contract.md#november-6-production-release-and-preservation).
+The natural **10:45 AM and 10:50 AM PST** reports recorded zero generated,
+submitted, uncertain and error outcomes; lifecycle claims were zero. Shared jobs
+dispatched normally, and two new onboarding and desktop-cleanup cycles succeeded.
+The existing Westy-mail and portal-maintenance input-file errors remained unchanged
+in the actual pre/post samples, including the 10:50 AM maintenance cycle. They were
+not repaired or replayed. Final technical handback at **10:50:38 AM PST** found no
+retained deployment process, lock, marker or paused cron file.
+Signed-in customer acceptance and the separate Guide work remain outside this release.
+
+### Included: shared launcher v0.5.1
+
+The preceding application source was **`48a1790e06b84eb7c540867f92d76dc683b92a16`**,
 published on **November 5, 2026 at 9:28:38 PM PST** (November 6, 05:28:38 UTC).
 [PR #298](https://github.com/Seckcey/8_west_helpdesk/pull/298) imports the published
 w365 v0.5.1 package through the normal sync tool. Logbook and Cloudline are removed
@@ -268,7 +303,7 @@ passes its check. Every deploy and rollback adds a line to
 | Versioned service goals | **Live on v2**: Standard 480/240/120/60 minutes, Premium 240/120/60/30, elapsed UTC time, no waiting pause |
 | Approval-grade technician time | **Live**, with append-only correction slips (migration 020); original approvals stay immutable |
 | Approved time → Coastmark draft lines | **Live for the existing Lifestyle connection**, including the staff Send to billing / Open in Coastmark buttons |
-| Logbook resolved-ticket knowledge | **Retired 2026-10-19** with Logbook: `logbook_export.enabled` is `false` and service identity 6 is inactive. November 6 removes the five-file export chain in **source only; deployment pending**. [Removal inventory and required ID recovery pair](logbook-export-contract.md#november-6-source-removal-and-recovery-boundary) |
+| Logbook resolved-ticket knowledge | **Retired 2026-10-19** with Logbook; private export configuration and inactive service identity 6 are retained. The five-file export chain was **removed from production November 6** in `a33dd914`; public export returns 404. [Removal inventory and required ID recovery pair](logbook-export-contract.md#november-6-source-removal-and-recovery-boundary) |
 | Customer portal | **Live for the approved Lifestyle binding**; intentionally on. Its 8 West ID revocation cache is `/var/cache/8west/safeharbor/portal-revocations` (`portal.revocation_cache_dir`, corrected 2026-10-20) |
 | Scheduled archived business reports | **Live for the Lifestyle schedule** (Wednesday 9:00 AM Pacific); the runner is a cron file run as `eightwest-safeharbor` |
 | 8 West ID report contacts | Active for Ventures and eligible provider-owned onboarding |
