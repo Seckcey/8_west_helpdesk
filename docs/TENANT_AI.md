@@ -6,6 +6,15 @@ Safeharbor resolves AI configuration from the customer's provider MSP in 8 West 
 
 ## Chat, usage and replay
 
+Portal requests enter `portal_westy_message()` and `portal_westy_ai_run()`, which
+dispatches through `westy_tenant_ai_stream()` in `lib/tenant_ai/tenant_ai_stream.php`.
+The unused direct HTTP functions `portal_westy_provider()` and
+`portal_westy_provider_stream()` have been removed. Their files remain loaded in
+the same order: the guidance/workspace body builders, stored-draft parser,
+`PortalWestySseParser` and active `PortalWestyTextBuffer` remain available. This
+source cleanup changes no provider selection, tools, permissions, usage accounting
+or cancellation behavior and requires no configuration or schema change.
+
 The portal checks current customer identity and provider binding before a turn, before each provider/tool round, before saving/emitting streamed output and again at final delivery. Provider/model/effort, catalog, AI revision and credential version must remain consistent. Once an attempt observes an AI connection change or authority outage, it suppresses further output even if the connection returns. Text already delivered with valid authority remains available. Final accounting retains known usage or the unknown reservation; it does not retry the request.
 
 Each turn reserves a bounded amount before network I/O. `portal_westy_ai_attempts` records the attempt sequence, selected provider/model/catalog/revisions, usage receipts and reserved/charged microdollars. There are at most five rounds. Raw desktop images, accessibility text, credentials and provider continuation payloads stay out of durable chat/receipt storage. A paused computer task's saved continuation (not chat or receipts) keeps one text summary of its newest Cua screen reading, at most 8,000 bytes and never a screenshot, and the pid, window_id, target_id and tab_id each Cua call addressed (never its text, tokens or refs), until the run resumes, ends, stops or expires. Tool operations retain their existing identity, device, approval and idempotency boundaries.

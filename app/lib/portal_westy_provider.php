@@ -59,23 +59,3 @@ function portal_westy_provider_parse(int $http, string $body): array
     return ['ok'=>true,'data'=>$data, 'input_tokens'=>is_int($input) && $input>=0 ? $input : null,
         'output_tokens'=>is_int($output) && $output>=0 ? $output : null];
 }
-
-function portal_westy_provider(array $body, string $key): array
-{
-    $response = '';
-    $curl = curl_init('https://api.openai.com/v1/responses');
-    curl_setopt_array($curl, [CURLOPT_POST=>true, CURLOPT_FOLLOWLOCATION=>false,
-        CURLOPT_CONNECTTIMEOUT=>5, CURLOPT_TIMEOUT=>20, CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,
-        CURLOPT_HTTPHEADER=>['Content-Type: application/json','Authorization: Bearer '.$key],
-        CURLOPT_POSTFIELDS=>json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
-        CURLOPT_WRITEFUNCTION=>static function ($ch, string $chunk) use (&$response): int {
-            if (strlen($response)+strlen($chunk)>131072) return 0;
-            $response.=$chunk; return strlen($chunk);
-        },
-    ]);
-    $ok = curl_exec($curl);
-    $http = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
-    curl_close($curl);
-    // Neither error bodies nor network details/credentials enter application logs.
-    return $ok === false ? ['ok'=>false,'reason'=>'provider_unavailable'] : portal_westy_provider_parse($http,$response);
-}
