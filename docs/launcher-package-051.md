@@ -86,6 +86,18 @@ Those existing actor issues were left unchanged; their dispatch is not success
 evidence for maintenance or mailbox processing. Technical custody was returned to
 the shared release lead after these checks.
 
+### Limited signed-in staff launcher acceptance
+
+On **November 5, 2026**, the release lead independently checked the actual
+Safeharbor Queue in a fresh, signed-in operator Chrome tab. The operator opened
+the 8 West IT 365 drawer. Its complete visible list contained Control Panel,
+Coastmark, Milepost and **8 West IT 365 home**, with no Logbook or Cloudline.
+No link or form was submitted; only the new test tab was closed.
+
+This verifies the drawer display for that signed-in staff/operator session.
+It does not establish destination navigation or genuine owner, employee,
+invitation, device or provider acceptance; those remain open.
+
 ### Rollback and retention
 
 The immediate source inverse is

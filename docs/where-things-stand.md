@@ -22,6 +22,12 @@ normal asset stamps. All **424 files and 23 directories** matched the prepared
 release, including file hashes read as the private runtime user. Origin and public
 paths served the exact v0.5.1 manifest and five-product catalog; health checks passed.
 
+On **November 5**, the release lead also verified the actual signed-in staff Queue
+drawer in a fresh Chrome tab: Control Panel, Coastmark, Milepost and suite home,
+with no Logbook or Cloudline. No link or form was submitted. This is limited
+staff/operator drawer-display acceptance; owner, employee, invitation, device
+and provider acceptance remain open.
+
 Configuration and all six cron files retained their bytes and metadata; both
 timers were restored, other recorded PHP/Apache states were unchanged, and locks
 and markers were clear. The natural **9:30 PM** report and shared-worker dispatches
