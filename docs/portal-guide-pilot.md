@@ -87,6 +87,35 @@ the canonical slot and existing heavy mutex; no Docker Desktop or production
 browser is used. No real account, invitation, ticket, mail, private link or
 device operation is performed.
 
+November 5 synthetic qualification completed at **6:47:56 PM PST**
+(November 6, 02:47:56 UTC). All 234 Guide checks and all 14 role/viewport flows
+passed on the final presentation candidate. Desktop/mobile screenshots were
+inspected; Guide-only ordered-list padding and bold-label weight correct the
+global reset's effect on the approved formatting. The existing time, Mac,
+desktop diagnostic and continuation/Cua suites also passed. The first hosted
+PHP job passed, including actual provider dispatch; final exact-head CI is
+recorded in the PR. Two browser-fixture defects (a missing synthetic sign-in
+helper and an incorrect assumption about the direct customer's existing Guide
+link) were corrected without changing application behavior.
+
+With a 2,000-character first message, real base+Cua definitions serialize to
+25,747 bytes on the legacy Guide, 26,505 for employees and 26,376 for owners.
+Base+terminal/recovery is 23,777 / 24,535 / 24,406 respectively. The compact
+Guide adds 758 / 495 / 629 bytes for employee / viewer / owner. Ordinary base
+tools plus six 500-character user/assistant history pairs use 22,115 employee
+bytes and 21,986 owner bytes, below the existing 28,000-byte trimming threshold.
+The combined tool-definition fixture already exceeds the ordinary 32,000-byte
+limit on the unchanged baseline; this integration does not change that limit
+or claim to repair that pre-existing condition.
+
+Final Coastline test source tree:
+`9e88a7326522f0b360045d337d093dd00040199a` (subsequent documentation records these
+results). Final run log SHA-256:
+`131540994648af7cad92da344362fc8b4b5467ce4398d9ace3407c39cc671ac3`.
+Eight synthetic PNGs and logs are retained outside the repository with the
+review handoff. The task's container and temporary kit were removed, no volumes
+or ports were created, and both canonical test locks were released and checked.
+
 The current internal suite record supersedes the older release document's
 open origin/Cloudflare status: configured POST-body review is complete for the
 inspected paths. Actual redemption and signed-in owner/employee acceptance

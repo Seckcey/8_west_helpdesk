@@ -46,6 +46,7 @@ function portal_enabled(): bool { return true; }
 function db(): mixed { return null; }
 function portal_csrf_token(): string { return str_repeat('c',64); }
 function portal_safe_return_path(mixed $value): string { return '/portal/'; }
+function portal_login_can_start_automatically(string $method, array $cookies): bool { return false; }
 function portal_authenticated_context(mixed $pdo): ?array {
     global $input;
     if ($input['role'] === '') return null;
@@ -72,7 +73,7 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
     browser = await chromium.launch({headless:true});
     for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
       for (const [name, input] of Object.entries(cases)) {
-        const context = await browser.newContext({viewport});
+        const context = await browser.newContext({viewport,colorScheme:'dark'});
         const page = await context.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
@@ -90,8 +91,8 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
           return route.fulfill({contentType:'text/html',body:render(path.basename(url.pathname), {...input,uri:url.pathname+url.search})});
         });
         await page.goto(ORIGIN+'/portal/requests.php');
-        // Existing request-page Guide action and account Guide link are retained, without new navigation.
-        await page.locator('main a[href="/portal/guide.php"]').first().click();
+        // Direct customers have the privacy Guide link; delegated/Companion also have the shortcut.
+        await page.locator('main a[href^="/portal/guide.php"]').first().click();
         assert.equal(new URL(page.url()).pathname,'/portal/guide.php');
         assert.match(await page.title(), /Portal guide/);
         assert.equal(await page.getByRole('heading',{level:1}).textContent(),'How this portal works');
@@ -111,10 +112,15 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
           assert.equal(await page.locator('#private-computer-link .portal-eyebrow').textContent(),'Employee');
         }
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow');
+        if (input.ids.length) {
+          assert.ok(await page.locator('main ol').first().evaluate(el=>parseFloat(getComputedStyle(el).paddingLeft)>=20),'ordered steps keep markers inside the content edge');
+          assert.ok(await page.locator('main strong').first().evaluate(el=>Number(getComputedStyle(el).fontWeight)>=600),'approved bold labels remain visually emphasized');
+        }
         if (evidence && ['employee','viewer','owner'].includes(name)) {
+          await page.evaluate(()=>window.scrollTo(0,0));
           await page.screenshot({path:path.join(evidence,`${name}-${viewport.width}.png`)});
           if (name==='owner') {
-            await page.locator('#give-computer-access').scrollIntoViewIfNeeded();
+            await page.locator('#give-computer-access').evaluate(el=>el.scrollIntoView({block:'start'}));
             await page.screenshot({path:path.join(evidence,`owner-article-${viewport.width}.png`)});
           }
         }

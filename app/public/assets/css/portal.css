@@ -89,4 +89,4 @@
 @media(max-width:1190px){.portal-overview .portal-context-rail{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
 @media(max-width:760px){.portal-overview-hero{padding:20px;gap:14px 16px}.portal-overview-avatar{width:48px;height:48px}.portal-overview-hero h1{font-size:25px}.portal-overview .portal-overview-action{min-height:64px}.portal-overview .portal-overview-card,.portal-overview .portal-context-rail .portal-overview-card{padding:18px}}
 
-.portal-guide li{color:var(--muted);line-height:1.85;margin:10px 0}.portal-guide code{overflow-wrap:anywhere}
+.portal-guide ol{padding-left:1.5rem}.portal-guide li{color:var(--muted);line-height:1.85;margin:10px 0}.portal-guide strong{font-weight:600}.portal-guide code{overflow-wrap:anywhere}
