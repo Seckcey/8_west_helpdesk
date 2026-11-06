@@ -70,7 +70,7 @@ function render_cluster(array $session, array $user): string
 $local = ['full_name' => 'Local Person', 'email' => 'local@example.test', 'role' => 'tech', 'suite_subject' => null];
 $staff = ['full_name' => 'Frank', 'email' => 'safeharbor-account@example.test', 'role' => 'admin', 'suite_subject' => 't1u1'];
 $suite = [
-    'suite_products' => ['safeharbor', 'milepost', 'coastmark', 'logbook'],
+    'suite_products' => ['safeharbor', 'milepost', 'coastmark', 'logbook', 'missioncontrol'],
     'suite_name' => 'Frankie Gonzalez',
     'suite_email' => 'frank@8westventures.com',
     'suite_avatar' => 'https://id.8westit.com/uploads/avatars/u1-0123456789abcdef0123456789abcdef.png',
@@ -91,9 +91,15 @@ t('A: a name carrying markup is escaped, not injected',
 
 /* ── B. The drawer: entitlement-driven, current app excluded, honest states, same-origin marks. ── */
 t('B1: a suite session lists the OTHER licensed apps (Safeharbor itself excluded)',
-    substr_count($htmlSuite, 'class="w365-tile"') === 3
-    && str_contains($htmlSuite, '>Milepost<') && str_contains($htmlSuite, '>Logbook<')
+    substr_count($htmlSuite, 'class="w365-tile"') === 2
+    && str_contains($htmlSuite, '>Milepost<') && str_contains($htmlSuite, '>Coastmark<')
     && !str_contains($htmlSuite, '>Safeharbor<'));
+t('B1a: retired entitlements do not render Logbook or Cloudline tiles',
+    !str_contains($htmlSuite, '>Logbook<') && !str_contains($htmlSuite, '>Cloudline<')
+    && !str_contains($htmlSuite, 'https://logbook.') && !str_contains($htmlSuite, 'https://cloudline.'));
+t('B1b: retired-only other entitlements retain the existing empty-drawer state',
+    str_contains(render_cluster(['suite_products' => ['safeharbor', 'logbook', 'missioncontrol']], $staff),
+        'No other 8 West IT 365 apps are licensed'));
 t('B2: every tile mark is a same-origin file under /assets/w365/marks/',
     preg_match_all('/<img[^>]*src="([^"]+)"/', $htmlSuite, $m) > 0
     && count(array_filter($m[1], static fn (string $src): bool =>
@@ -245,8 +251,8 @@ t('settings: staff retains one My settings link and Technician Workspace', subst
 
 $package=__DIR__.'/../public/assets/w365';
 $manifest=json_decode((string)file_get_contents($package.'/w365-manifest.json'),true,16,JSON_THROW_ON_ERROR);
-t('published package: reviewed v0.5.0 manifest pin', $manifest['version']==='0.5.0'
-    && hash_file('sha256',$package.'/w365-manifest.json')==='0f1af949fe0b9cce01014bb8ac63b05af6936c858710a222c875cb8e36f61f0f');
+t('published package: reviewed v0.5.1 manifest pin', $manifest['version']==='0.5.1'
+    && hash_file('sha256',$package.'/w365-manifest.json')==='6e53239e4b4973a7adc0385724b8f3ccc02c88adf3eaa2772907bce129dd74cf');
 $present=[];
 foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($package,FilesystemIterator::SKIP_DOTS)) as $file) {
     $relative=str_replace('\\','/',substr($file->getPathname(),strlen($package)+1));
@@ -259,6 +265,7 @@ foreach($manifest['files'] as $file=>$pin)t('published package: '.$file,
 $out=getenv('CUSTOMER_UI_CAPTURE_DIR');
 if(is_string($out)&&is_dir($out))foreach(['admin','tech'] as $role)foreach(['light','dark'] as $theme){
     $syntheticSession=$settingsSession; $syntheticSession['suite_name']='Synthetic Technician';
+    $syntheticSession['suite_products']=['central','milepost','safeharbor','coastmark','coastline_control_panel','logbook','missioncontrol'];
     $syntheticSession['suite_email']='synthetic@example.test';unset($syntheticSession['suite_avatar']);
     $cluster=render_cluster($syntheticSession,[...$staff,'role'=>$role]);
     file_put_contents($out.'/staff-'.$role.'-'.$theme.'.html','<!doctype html><html lang="en-US" data-theme="'.$theme.'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Safeharbor staff settings fixture</title><link rel="stylesheet" href="/assets/w365/w365.css"><link rel="stylesheet" href="/assets/css/app.css"></head><body><header class="topbar"><span class="topbar-flex"></span><div class="w365-cluster">'.$cluster.'</div></header><main><h1>Technician Workspace</h1></main><script src="/assets/w365/w365-launcher.js" defer></script></body></html>');
