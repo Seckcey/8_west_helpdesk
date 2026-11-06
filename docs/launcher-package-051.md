@@ -88,7 +88,7 @@ the shared release lead after these checks.
 
 ### Limited signed-in staff launcher acceptance
 
-On **November 5, 2026**, the release lead independently checked the actual
+On **November 5, 2026**, the suite coordinator independently checked the actual
 Safeharbor Queue in a fresh, signed-in operator Chrome tab. The operator opened
 the 8 West IT 365 drawer. Its complete visible list contained Control Panel,
 Coastmark, Milepost and **8 West IT 365 home**, with no Logbook or Cloudline.

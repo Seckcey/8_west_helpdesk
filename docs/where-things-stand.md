@@ -22,7 +22,7 @@ normal asset stamps. All **424 files and 23 directories** matched the prepared
 release, including file hashes read as the private runtime user. Origin and public
 paths served the exact v0.5.1 manifest and five-product catalog; health checks passed.
 
-On **November 5**, the release lead also verified the actual signed-in staff Queue
+On **November 5**, the suite coordinator also verified the actual signed-in staff Queue
 drawer in a fresh Chrome tab: Control Panel, Coastmark, Milepost and suite home,
 with no Logbook or Cloudline. No link or form was submitted. This is limited
 staff/operator drawer-display acceptance; owner, employee, invitation, device
