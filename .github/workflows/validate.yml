@@ -207,7 +207,6 @@ jobs:
           php app/tests/desktop_renewal_test.php
           php app/tests/desktop_return_path_test.php
           php app/tests/client_operational_context_test.php
-          php app/tests/logbook_export_test.php
           php app/tests/ticket_bulk_delete_render_test.php
           php app/tests/westy_workflow_test.php
           php app/tests/westy_hardware_test.php

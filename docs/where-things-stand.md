@@ -268,7 +268,7 @@ passes its check. Every deploy and rollback adds a line to
 | Versioned service goals | **Live on v2**: Standard 480/240/120/60 minutes, Premium 240/120/60/30, elapsed UTC time, no waiting pause |
 | Approval-grade technician time | **Live**, with append-only correction slips (migration 020); original approvals stay immutable |
 | Approved time → Coastmark draft lines | **Live for the existing Lifestyle connection**, including the staff Send to billing / Open in Coastmark buttons |
-| Logbook resolved-ticket knowledge | **Retired 2026-10-19** with Logbook: `logbook_export.enabled` is `false` and service identity 6 is inactive |
+| Logbook resolved-ticket knowledge | **Retired 2026-10-19** with Logbook: `logbook_export.enabled` is `false` and service identity 6 is inactive. November 6 removes the five-file export chain in **source only; deployment pending**. [Removal inventory and required ID recovery pair](logbook-export-contract.md#november-6-source-removal-and-recovery-boundary) |
 | Customer portal | **Live for the approved Lifestyle binding**; intentionally on. Its 8 West ID revocation cache is `/var/cache/8west/safeharbor/portal-revocations` (`portal.revocation_cache_dir`, corrected 2026-10-20) |
 | Scheduled archived business reports | **Live for the Lifestyle schedule** (Wednesday 9:00 AM Pacific); the runner is a cron file run as `eightwest-safeharbor` |
 | 8 West ID report contacts | Active for Ventures and eligible provider-owned onboarding |
