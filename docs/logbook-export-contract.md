@@ -1,9 +1,9 @@
 # Solved-ticket knowledge export to Logbook
 
 > **Retired 2026-10-19.** Logbook was discontinued and stopped. This export is
-> switched off (`logbook_export.enabled` is `false`, so the endpoint answers 404)
-> and service identity 6 is inactive. **November 6 source cleanup: the dedicated
-> export chain is removed in source only; production removal is not yet verified.**
+> switched off and service identity 6 is inactive. **November 6 production cleanup:
+> the dedicated export chain is removed in `a33dd914`; public export returns 404.**
+> Private configuration and service identities remain unchanged.
 > The earlier contract below is retained as history, not activation instructions.
 
 ## November 6 source removal and recovery boundary
@@ -58,7 +58,7 @@ the natural-cycle receipt SHA-256 is
 
 **Recovery must retain this same new tool pair.** ID current source `1027430bd94a`
 and its supported application inverse `73cf8ba93971` were qualified with that pair.
-After Safeharbor's files are removed from production, the old tool pair is an
+With Safeharbor's files removed from production, the old tool pair is an
 **unsupported recovery**: a whole-host restore must overlay and verify the new
 pair **before the onboarding timer resumes**. Keeping an archive does not grant
 authority to run the old integration or re-enable Logbook.
@@ -67,16 +67,75 @@ Safeharbor's stock `deploy/deploy.sh` keeps private `config/config.php`, include
 deleted runtime files in the deployment backup's `deleted` and `files.list`,
 and restores them from `files.tar` during its source inverse. The pre-removal
 #298 eight-file and #296 five-file inverse inventories did not contain these
-export files or private config. A future removal deployment must verify its own
-exact deletion/backup inventory and the ID pair above; those older inventories
-are not the removal's rollback receipt. Since the stock release ships `app/`,
-the expected removal inventory also includes `tests/logbook_export_test.php`
+export files or private config. The November 6 removal verified its own exact
+deletion/backup inventory and the ID pair above; those older inventories are
+not the removal's rollback receipt. Since the stock release ships `app/`,
+the actual removal inventory also includes `tests/logbook_export_test.php`
 (six files deleted in total) and the changed `config/config.sample.php`; paths
 inside `current/` omit the repository's `app/` prefix. No directory is removed.
 Restoring Safeharbor source does not
 authorize restoring the old ID tools or changing disabled export settings.
-Integration, allocation, stock deployment and live postflight remain with the
-release owner. This source assignment performs none of them.
+Integration, allocation, stock deployment and live postflight followed the
+separately approved preservation and release sequence below.
+
+## November 6 production release and preservation
+
+PR [#300](https://github.com/Seckcey/8_west_helpdesk/pull/300) merged as
+`a33dd91422128fc97afb299ba2c9918c4cb1a737`; exact-main
+[Validate 42264765706](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42264765706)
+passed. One stock deployment completed **November 6 at 18:42:32 UTC
+(10:42:32 AM PST)**. All 418 prepared runtime files and 23 directories matched,
+including the runtime user's reads. Six files were deleted and four replaced:
+the sample configuration and three stock asset stamps. No migration ran.
+
+The new stock inverse is
+`deploy-state/backups/20261106T184229Z-48a1790e06b8-to-a33dd9142212/`.
+Its `files.list` and `files.tar` contain exactly the ten deleted/replaced preimages;
+the tar SHA256 is `d4b08357b75443d1bcfa0136e416ee584492e4a598bd340b58023a288c61493e`.
+All ten file hashes, numeric ownership, modes and nanosecond timestamps matched the
+fresh baseline. The extended ACLs on `public/login.php` and the removed export
+endpoint matched. This verifies the archived inverse; no production restore was
+performed. An older derived evidence summary rounded four timestamp integers;
+comparison of the retained raw captures established no host drift. The actual
+inverse was checked against exact integer timestamps.
+
+Before release, the owner explicitly approved preservation and subsequent normal
+rotation of `20261104T003940Z-ab4b07690b3f-to-7be64ab4fb69`. A single copy placed
+all eleven files, including the historical database snapshot, under
+`deploy-state/protected-recovery/` with the same basename. Its sibling custody
+receipt SHA256 is
+`4e0e1db567e6e4a164e324f1594741348e1e9c866b565c29565fe4289527d7e3`.
+The source and copy have separate inodes and matching bytes/metadata. Two
+independent witnesses accepted them at **18:31:48 UTC** and **18:32:13 UTC**, while
+the original was present. Only then did the separate stock release run.
+
+The stock ten-backup policy aged out only that approved original. Its protected
+copy and receipt, the October 23 and November 1 protected sets/receipts, and all
+nine remaining original backup sets were unchanged after deployment. Historical
+retention does not authorize restoring the database, reactivating the export or
+using the unsupported old ID tool pair. No private key, configuration or database
+record was changed, and the protected database contents were not downloaded.
+
+Postflight preserved private configuration, all six active cron files, both
+timers, the required ID tool pair and the other PHP/Apache service states. Origin
+and public login/CSS returned 200, root/portal redirected to sign-in and the
+removed export returned 404. Signed-in customer acceptance was not exercised.
+
+Natural reports at **18:45 and 18:50 UTC** recorded `GENERATED=0`, `SUBMITTED=0`,
+`UNCERTAIN=0` and `ERRORS=0`; scheduled lifecycle claims were zero. The shared,
+portal and due dunning jobs dispatched naturally. Onboarding completed at
+**18:43:10** and **18:44:19 UTC**, each with `ready=1/pending=0/failed=0/held=0`;
+desktop cleanup completed at **18:43:00** and **18:44:00 UTC** with exit 0.
+No job was forced or replayed.
+
+The pre-existing Westy-mail failure to open `cron/westy_mail_poll.php` remained
+identical before and after deployment. The natural portal-maintenance runs at
+**18:40:02** and **18:50:02 UTC** likewise reported the same missing
+`db/maintain_portal_westy.php` input. These actors were not repaired and are not
+claimed healthy by this release. Technical handback at **18:50:38 UTC
+(10:50:38 AM PST)** verified no retained deployment/adapter process, deploy or
+cold-window marker, paused cron or owned lock descriptor. Root-only execution
+evidence remains retained; no further host cleanup was performed.
 
 ## Historical September contract (retired)
 
