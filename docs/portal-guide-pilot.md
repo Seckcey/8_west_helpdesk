@@ -147,3 +147,20 @@ business and computer, manual sharing, signed-in redemption, signed-out sign-in
 and reopening the original link, resulting assigned access, and revocation.
 Synthetic controller, browser and injected-transport checks establish only their
 fixture boundaries; they do not establish live ID sign-in or Milepost assignment.
+
+The later November 6 walkthrough-preparation refresh includes main
+`ebbc99edf1391d0cb0eaf1b7926307e4392b91f9`, preserving PR #300's retired export
+removal and PR #301's release/recovery records. The recorded deployed application
+is `a33dd91422128fc97afb299ba2c9918c4cb1a737`; the intervening main changes are
+documentation only. The Guide candidate adds no schema, configuration or service
+change. Actual publication still requires the walkthrough evidence, final merged
+source/CI and a fresh release-owner check of the live source, jobs, locks and
+rollback/retention state. No production preflight or deployment is implied by
+this isolated preparation.
+
+An existing ID account invitation is distinct from a Safeharbor computer-access
+link. An unused computer-access link is one-use: choose the already-signed-in or
+signed-out/sign-in/reopen path before redemption. A single successful first use
+does not establish both paths. Preserve any unexercised case explicitly; do not
+create another account or link merely to fill an evidence gap. Keep private codes
+out of shared notes and screenshots.
