@@ -6,10 +6,97 @@ are in git history.
 
 ## The live version
 
-### Live private computer links
+### Shared launcher v0.5.1
 
-Current application source is **`754c92d06a8fc905a7ed0d11ae9b295ccef90821`**,
-verified on **November 5, 2026 at 1:40:04 PM PST** (21:40:04 UTC).
+Current application source is **`48a1790e06b84eb7c540867f92d76dc683b92a16`**,
+published on **November 5, 2026 at 9:28:38 PM PST** (November 6, 05:28:38 UTC).
+[PR #298](https://github.com/Seckcey/8_west_helpdesk/pull/298) imports the published
+w365 v0.5.1 package through the normal sync tool. Logbook and Cloudline are removed
+from the display catalog; active launch routes, durable product keys, entitlement
+and role behavior, and all seven marks are preserved.
+
+PR and merged-main PHP/browser CI passed, together with 68 focused renderer checks
+and eight synthetic desktop/phone role/theme cases. One stock deployment replaced
+exactly eight files: four package files, the shipped renderer/pin test and three
+normal asset stamps. All **424 files and 23 directories** matched the prepared
+release, including file hashes read as the private runtime user. Origin and public
+paths served the exact v0.5.1 manifest and five-product catalog; health checks passed.
+
+On **November 5**, the suite coordinator also verified the actual signed-in staff Queue
+drawer in a fresh Chrome tab: Control Panel, Coastmark, Milepost and suite home,
+with no Logbook or Cloudline. No link or form was submitted. This is limited
+staff/operator drawer-display acceptance; owner, employee, invitation, device
+and provider acceptance remain open.
+
+Configuration and all six cron files retained their bytes and metadata; both
+timers were restored, other recorded PHP/Apache states were unchanged, and locks
+and markers were clear. The natural **9:30 PM** report and shared-worker dispatches
+ran, reports logged zero generated/submitted/uncertain/error outcomes, and scheduled
+lifecycle work reported zero claims. The existing Westy-mail and portal-maintenance
+actor input-file errors were identical in the 9:20 PM and 9:30 PM samples; this
+release did not repair or replay those jobs.
+
+The new eight-file inverse, both protected historical recovery sets, the retained
+#296 inverse and the single qualified source-only retention age-out were verified.
+No schema, configuration or permission change occurred. Genuine signed-in
+owner/employee acceptance and the separate Guide, Apache and mail work remain open.
+See the [launcher release and rollback record](launcher-package-051.md#november-5-production-release).
+
+### Included: retired unused Westy transports
+
+Application source **`019087648a9d5447031bd067baeb4dd9a6303775`** was
+verified on **November 5, 2026 at 8:32:24 PM PST** (November 6, 04:32:24 UTC).
+[PR #296](https://github.com/Seckcey/8_west_helpdesk/pull/296) removes only the two
+unused direct HTTP transports, `portal_westy_provider()` and
+`portal_westy_provider_stream()`. The active tenant-AI dispatcher, body builders,
+parsers, text buffer, include order and customer behavior are preserved. The
+unpublished Guide draft remains separate. See [the runtime path](TENANT_AI.md#chat-usage-and-replay).
+
+[PR Validate](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42159654655)
+and [merged-main Validate](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42160581071)
+passed both PHP and browser jobs. Offline tests also passed for the retained
+helpers, UTF-8 streaming boundaries, catalog, usage receipts and continuation/Cua
+behavior, including all 234 Guide checks in a separate draft-composition tree.
+No paid-provider or real customer operation was used for this release.
+
+One stock deployment replaced five files: the two transport files and three
+asset-version stamps. All **424 files and 23 directories** matched the prepared
+release. Origin login/CSS and public login checks returned 200; the protected
+portal redirected to sign-in. Configuration and all six cron files retained
+their bytes and metadata; both timers were restored. Only Safeharbor PHP restarted.
+Apache and the other app runtimes were unchanged; deployment/report locks and
+pause markers were clear. No runtime files were added or removed, and no schema,
+configuration or permission changes were applied.
+
+The next natural report cycle at **8:35:02 PM PST** logged zero generated,
+submitted, uncertain or error outcomes; scheduled lifecycle work also completed
+with zero claims. Shared cron dispatches resumed. The separate Westy mail cron
+continued reporting that it could not open `cron/westy_mail_poll.php`; the same
+error was present every minute in the inspected 8:24–8:32 PM pre-deployment logs.
+That existing job issue was reported separately and was not changed or replayed
+by this cleanup.
+
+The source inverse retained from this release is
+`deploy-state/backups/20261106T043210Z-754c92d06a8f-to-019087648a9d`.
+Its 71,680-byte `files.tar` contains exactly the five previous files, with SHA-256
+`09f8a1db22a26f59ed86024072f18309cf1272ab4f5dbf6821434bfd78a4e3eb`.
+It returns to `754c92d`, retaining the private-link and requester-privacy behavior;
+no database restore is part of this inverse.
+
+Before normal retention, the approved historical recovery directory
+`20261101T205815Z-d746c193b83d-to-8e888fffa263` was copied intact under
+`deploy-state/protected-recovery/`. Independent readback verified all 11 files,
+1,548,109 bytes and preserved metadata. Its custody receipt SHA-256 is
+`71306736bac8f921c52851926a658089457a4f5ca12420a523809e561f3e660d`.
+Stock retention removed only that original stock directory; ten stock backups
+remain. The new protected copy and the previously protected October 23 recovery
+were verified unchanged after deployment. This preserves historical recovery;
+it is not a new current database backup or a restore test.
+
+### Included: private computer links
+
+Private computer-link source **`754c92d06a8fc905a7ed0d11ae9b295ccef90821`**
+was verified on **November 5, 2026 at 1:40:04 PM PST** (21:40:04 UTC).
 The compatible reader from [PR #291](https://github.com/Seckcey/8_west_helpdesk/pull/291)
 was published and verified first; [PR #292](https://github.com/Seckcey/8_west_helpdesk/pull/292)
 then switched newly created computer links to `#token=`. The browser fills the
@@ -24,9 +111,13 @@ released. Both immediate stock inverses and the separately protected historical
 recovery copy were verified. No schema, application configuration or Apache
 change was applied.
 
-Origin and Cloudflare POST-body handling and Frankie's signed-in owner/employee
-acceptance remain open before customer issuance. Anonymous health and synthetic
-browser tests do not establish those outcomes. Apache logging PR #290 remains
+The scoped origin and Cloudflare POST-body handling review completed on November 5:
+no configured POST-body capture was found on the inspected ingress/origin paths.
+This is configuration/source evidence, not a synthetic POST or a claim about
+provider-internal handling; revalidate if logging or ingress configuration changes.
+Frankie's signed-in owner/employee acceptance remains open before customer
+issuance. Anonymous health and synthetic browser tests do not establish that
+acceptance. Apache logging PR #290 remains
 draft/held after its malformed-request fixture exposed a synthetic query value
 in the preserved error diagnostic; it was not installed.
 
@@ -150,7 +241,7 @@ existing workspace is at `/portal/?view=westy`. Verified customer visits to the
 staff login are handed to the portal. See the
 [client access and portal release receipt](client-access-portal-release.md) and
 [Home guide](employee-portal-dashboard.md). The earlier settings UX improvements
-and shared menu v0.5.0 remain included. Genuine signed-in customer and provider
+remain included; the shared menu package is now v0.5.1 as recorded above. Genuine signed-in customer and provider
 acceptance remains pending with Frankie. Later documentation-only commits do not
 change this application release and need no production redeploy.
 
@@ -191,7 +282,8 @@ passes its check. Every deploy and rollback adds a line to
 `SETTINGS-UX-CORE-20261021` shipped through the normal deployment script as
 `c79cf59`, replacing `4021f45`. Portal Account now has clear touch targets and
 destination/client hints; Team and profile have readable choices, action buttons,
-keyboard focus and save/error feedback. The staff menu uses shared UI v0.5.0.
+keyboard focus and save/error feedback. That release imported shared UI v0.5.0;
+the current launcher package is v0.5.1 as recorded above.
 Existing routes, handlers, role/privacy checks and local-versus-suite behavior
 are preserved, with no new confirmation prompts, migration or flag change.
 
