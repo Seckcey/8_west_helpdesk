@@ -271,9 +271,9 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
             }
         }
         $aiTools=portal_westy_ai_tools($pdo,$context,$aiSelection);
-        $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>PORTAL_WESTY_AI_MAX_OUTPUT]);
+        $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools,$context),$messages,['tools'=>$aiTools,'max_output_tokens'=>PORTAL_WESTY_AI_MAX_OUTPUT]);
         while (!$runResume && strlen(json_encode($body,JSON_THROW_ON_ERROR))>28000 && count($messages)>1) {
-            array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools),$messages,['tools'=>$aiTools,'max_output_tokens'=>PORTAL_WESTY_AI_MAX_OUTPUT]);
+            array_shift($messages); $body=westy_tenant_ai_body($aiSelection,portal_westy_ai_instructions($aiTools,$context),$messages,['tools'=>$aiTools,'max_output_tokens'=>PORTAL_WESTY_AI_MAX_OUTPUT]);
         }
         $bytes=strlen(json_encode($body,JSON_THROW_ON_ERROR));
         if ($bytes>($runResume?131072:32000)) {

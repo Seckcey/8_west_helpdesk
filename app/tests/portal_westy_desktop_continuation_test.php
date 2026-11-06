@@ -27,7 +27,7 @@ function portal_westy_shell_definitions():array{return [];}
 function portal_westy_recovery_definitions():array{return [];}
 function portal_westy_scope(PDO $pdo,array $context,bool $lock=false):array{return $GLOBALS['admissionScope']??['tenant'=>1];}
 function portal_westy_config():array{return $GLOBALS['admissionConfig']??[];}
-function portal_guide_articles():array{return [];}
+function portal_guide_westy_articles():array{return [];}
 function portal_devices_can_operate(array $context):bool{return true;}
 function portal_devices_keys(array $input,array $keys):bool{$actual=array_keys($input);sort($actual);sort($keys);return $actual===$keys;}
 function portal_westy_run_wait(PDO $pdo,array $context,string $operation,array $pending,array $messages):void

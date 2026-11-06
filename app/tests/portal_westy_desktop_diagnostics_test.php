@@ -19,7 +19,7 @@ function portal_westy_shell_definitions():array{return [];}
 function portal_westy_recovery_definitions():array{return [];}
 function portal_westy_scope(PDO $pdo,array $context):array{return ['tenant'=>1];}
 function portal_westy_config():array{return [];}
-function portal_guide_articles():array{return [];}
+function portal_guide_westy_articles():array{return [];}
 function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array {
     if($action!=='state')throw new RuntimeException('unexpected service operation');
     if($GLOBALS['stateFailure'])throw new RuntimeException('PRIVATE_EXCEPTION_SECRET');

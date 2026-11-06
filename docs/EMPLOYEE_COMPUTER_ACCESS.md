@@ -143,9 +143,13 @@ It identifies and hashes the stock checks, publications and full readbacks.
 The final issuer proof SHA-256 is
 `6c43916bc776b3a924a256dacaedfbf3cdbc437892ab3c6f40a93b836d40c93d`.
 
-**Customer issuance and acceptance remain separate:** origin and Cloudflare
-POST-body handling and Frankie's signed-in owner/employee acceptance are still
-open. No real customer link, email or assignment was created for these probes.
+**Customer issuance and acceptance remain separate:** the scoped configured
+origin and Cloudflare POST-body review completed on November 5, with no configured
+capture found on the inspected paths. This is configuration/source evidence;
+provider-internal handling is not claimed. Revalidate if ingress or logging
+configuration changes. Frankie's real signed-in owner/employee link redemption,
+assignment and revocation acceptance remains open. No real customer link, email
+or assignment was created for these probes.
 Apache logging PR #290 remains draft/held and was not installed. The ID invitation
 flow is owned and released separately; these receipts establish Safeharbor only.
 
