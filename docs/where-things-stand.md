@@ -6,10 +6,61 @@ are in git history.
 
 ## The live version
 
-### Live private computer links
+### Retired unused Westy transports
 
-Current application source is **`754c92d06a8fc905a7ed0d11ae9b295ccef90821`**,
-verified on **November 5, 2026 at 1:40:04 PM PST** (21:40:04 UTC).
+Current application source is **`019087648a9d5447031bd067baeb4dd9a6303775`**,
+verified on **November 5, 2026 at 8:32:24 PM PST** (November 6, 04:32:24 UTC).
+[PR #296](https://github.com/Seckcey/8_west_helpdesk/pull/296) removes only the two
+unused direct HTTP transports, `portal_westy_provider()` and
+`portal_westy_provider_stream()`. The active tenant-AI dispatcher, body builders,
+parsers, text buffer, include order and customer behavior are preserved. The
+unpublished Guide draft remains separate. See [the runtime path](TENANT_AI.md#chat-usage-and-replay).
+
+[PR Validate](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42159654655)
+and [merged-main Validate](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42160581071)
+passed both PHP and browser jobs. Offline tests also passed for the retained
+helpers, UTF-8 streaming boundaries, catalog, usage receipts and continuation/Cua
+behavior, including all 234 Guide checks in a separate draft-composition tree.
+No paid-provider or real customer operation was used for this release.
+
+One stock deployment replaced five files: the two transport files and three
+asset-version stamps. All **424 files and 23 directories** matched the prepared
+release. Origin login/CSS and public login checks returned 200; the protected
+portal redirected to sign-in. Configuration and all six cron files retained
+their bytes and metadata; both timers were restored. Only Safeharbor PHP restarted.
+Apache and the other app runtimes were unchanged; deployment/report locks and
+pause markers were clear. No runtime files were added or removed, and no schema,
+configuration or permission changes were applied.
+
+The next natural report cycle at **8:35:02 PM PST** logged zero generated,
+submitted, uncertain or error outcomes; scheduled lifecycle work also completed
+with zero claims. Shared cron dispatches resumed. The separate Westy mail cron
+continued reporting that it could not open `cron/westy_mail_poll.php`; the same
+error was present every minute in the inspected 8:24–8:32 PM pre-deployment logs.
+That existing job issue was reported separately and was not changed or replayed
+by this cleanup.
+
+The immediate source inverse is
+`deploy-state/backups/20261106T043210Z-754c92d06a8f-to-019087648a9d`.
+Its 71,680-byte `files.tar` contains exactly the five previous files, with SHA-256
+`09f8a1db22a26f59ed86024072f18309cf1272ab4f5dbf6821434bfd78a4e3eb`.
+It returns to `754c92d`, retaining the private-link and requester-privacy behavior;
+no database restore is part of this inverse.
+
+Before normal retention, the approved historical recovery directory
+`20261101T205815Z-d746c193b83d-to-8e888fffa263` was copied intact under
+`deploy-state/protected-recovery/`. Independent readback verified all 11 files,
+1,548,109 bytes and preserved metadata. Its custody receipt SHA-256 is
+`71306736bac8f921c52851926a658089457a4f5ca12420a523809e561f3e660d`.
+Stock retention removed only that original stock directory; ten stock backups
+remain. The new protected copy and the previously protected October 23 recovery
+were verified unchanged after deployment. This preserves historical recovery;
+it is not a new current database backup or a restore test.
+
+### Included: private computer links
+
+Private computer-link source **`754c92d06a8fc905a7ed0d11ae9b295ccef90821`**
+was verified on **November 5, 2026 at 1:40:04 PM PST** (21:40:04 UTC).
 The compatible reader from [PR #291](https://github.com/Seckcey/8_west_helpdesk/pull/291)
 was published and verified first; [PR #292](https://github.com/Seckcey/8_west_helpdesk/pull/292)
 then switched newly created computer links to `#token=`. The browser fills the
@@ -24,9 +75,13 @@ released. Both immediate stock inverses and the separately protected historical
 recovery copy were verified. No schema, application configuration or Apache
 change was applied.
 
-Origin and Cloudflare POST-body handling and Frankie's signed-in owner/employee
-acceptance remain open before customer issuance. Anonymous health and synthetic
-browser tests do not establish those outcomes. Apache logging PR #290 remains
+The scoped origin and Cloudflare POST-body handling review completed on November 5:
+no configured POST-body capture was found on the inspected ingress/origin paths.
+This is configuration/source evidence, not a synthetic POST or a claim about
+provider-internal handling; revalidate if logging or ingress configuration changes.
+Frankie's signed-in owner/employee acceptance remains open before customer
+issuance. Anonymous health and synthetic browser tests do not establish that
+acceptance. Apache logging PR #290 remains
 draft/held after its malformed-request fixture exposed a synthetic query value
 in the preserved error diagnostic; it was not installed.
 
