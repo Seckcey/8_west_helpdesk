@@ -40,7 +40,9 @@ retired integration callers. ID's owner installed the following pair under
 receipts recorded `complete_new`, preserved protected metadata, healthy
 `ready=1/pending=0/failed=0/held=0` cycles, and no retired registrations,
 credential files or new leases. The old configured helper and configuration
-remain archived/retained and unreferenced by those bounded installed callers.
+remain **installed and unchanged**. The revised caller pair no longer imports
+or invokes the legacy integration; the retained `integrations.enabled=true`
+configuration is deliberately ignored by those callers.
 
 | Installed tool | Required SHA-256 |
 |---|---|
