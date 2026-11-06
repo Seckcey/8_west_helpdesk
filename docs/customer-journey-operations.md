@@ -1,16 +1,18 @@
 # Customer journey operations
 
-**Updated through the 2026-09-07 UTC release records.** This runbook describes the live
+**September 7 release history; Logbook status corrected November 6, 2026.**
+For the current release and gates, use [Where things stand](where-things-stand.md).
+The retained September evidence below describes the then-live
 8 West Lifestyle path and how an operator repeats its bounded steps. It does
 not replace the cross-application release manifest or authorize a new customer,
 recipient, invitation, financial decision, or production configuration change.
 The scope is Safeharbor and its explicit service contracts; 8 West ID,
 Milepost, and Coastmark retain their own repositories and ownership.
 
-## Current operating state
+## September operating evidence and Logbook retirement correction
 
-Safeharbor's latest [production and scheduler record](where-things-stand.md)
-names `56fced51319875e60041cf51655fde5208981a58` after the September 7 UTC
+Safeharbor's September 7 production and scheduler record
+named `56fced51319875e60041cf51655fde5208981a58` after the September 7 UTC
 branding release, validated by exact-main run `34089879825`. It supersedes
 the UX release `8c1769a` and earlier `e8f9a812d53e30cf150eb1615d58be8b2756dd64`
 application marker. The September 5 release deployed
@@ -44,8 +46,8 @@ submitted, and the browser console was clear.
 | Support work | Versioned first-response promises, technician time, human approval, and append-only adjustment slips are installed | Normal Safeharbor permissions and exact client scope apply |
 | Draft billing | Claim 1 represents approved time entry 10, source version 0; its accepted receipt names Coastmark event 1, draft invoice 9, line 17 | Both Safeharbor export gates and the existing Coastmark receiver/mapping 3 are enabled; use the Time page controls |
 | Weekly report | Managed schedule version 2 / row 17 is active for Wednesday 09:00 Pacific; runner restoration recorded September 6 UTC | Only the approved Lifestyle schedule; `canary_only=true` |
-| Knowledge source | Logbook schema-1 resolved-ticket export is enabled with service identity 6 | Only explicitly linked customers in the configured tenant; eligible technician text becomes a reviewable Logbook draft |
-| Workflow documentation | Logbook's visual network/workflow editor is live at `053c0ab`; [guide](https://github.com/Seckcey/8_west_logbook/blob/main/docs/operations/diagram-editor-guide.md) | Diagrams describe work; they do not execute Safeharbor approvals, ticket changes, report sends or billing |
+| Knowledge source | **Retired October 19:** export disabled, service identity 6 inactive; dedicated chain removed from production November 6 in `a33dd914`, with private configuration and identities retained | No active Logbook export; public endpoint returns 404. See the [removal and ID recovery dependency](logbook-export-contract.md#november-6-source-removal-and-recovery-boundary) |
+| Workflow documentation | Logbook retired October 19; `053c0ab` and its [guide](https://github.com/Seckcey/8_west_logbook/blob/main/docs/operations/diagram-editor-guide.md) are historical evidence | Historical diagrams do not execute Safeharbor approvals, ticket changes, report sends or billing |
 | Scheduled delivery | Archive 5 covers August 24–31, generated `2026-09-02 16:00:02Z`, submitted `16:00:03Z` | Graph acceptance verified; inbox receipt for archive 5 was not independently verified |
 
 The active schedule key is
