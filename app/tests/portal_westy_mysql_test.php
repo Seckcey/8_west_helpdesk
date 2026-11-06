@@ -66,6 +66,7 @@ check('native session schema is absent in the ordinary-chat fixture',
 check('optional terminal v2 schema is absent in the ordinary-chat fixture',!portal_westy_terminal_installed($pdo));
 $request=$message('Help me write a printer request.');tenant_test_message($pdo,$a,$request,$provider);tenant_test_message($pdo,$a,$request,$provider);
 check('exact message replay calls provider once',$calls===1);
+check('actual provider dispatch receives authenticated owner guide',str_contains($captured['instructions'],json_encode(portal_guide_westy_articles($a),JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)) && str_contains($captured['instructions'],'Give an employee access to one computer'));
 $beforeNative=$calls;$nativeConversation=tenant_test_state($pdo,$a)['conversation'];
 denied('missing native capability returns typed unavailable',fn()=>tenant_test_message($pdo,$a,
     ['action'=>'desktop_resume','operation'=>$request['operation'],'conversation'=>$nativeConversation],$provider),'desktop_unavailable');
