@@ -123,3 +123,27 @@ remain separate and pending. Apache PR #290 and other held work are unchanged.
 The draft must not be treated as publication or as evidence that these checks
 passed. Invitation-label alignment is a separate change; any resulting
 customer article wording update belongs to the original article author.
+
+## November 6 readiness refresh
+
+The draft now includes Safeharbor main
+`e1cfba387610f5f09d7c8e87a8de1d526843f2a0`, including the retired transport removal
+and launcher v0.5.1. The merge preserves all six approved article hashes and
+audiences. The only overlapping implementation file is `portal_westy_stream.php`;
+its optional authenticated Guide context remains, and the retired transport
+functions remain absent. Full normal Validate runs on the refreshed draft head.
+
+Source comparison also covers the reported serving Settings releases: 8 West ID
+`1027430bd94a4424a3dcc9b71c5053121bdc2054` and Milepost
+`49f1fee9ca85f090a1fd367bfeb761f5d1e45a85`. ID presents People under Settings while
+retaining `users.php` and its `employee-invitations` anchor. Safeharbor's native
+Owner/Admin invitation shortcut and all article-facing employee/private-link
+labels remain unchanged. Milepost's Settings navigation does not change the
+computer-assignment workflow. No approved customer wording change is needed.
+
+These comparisons are source evidence, not a new production probe or real-account
+walkthrough. The existing owner/employee acceptance requirement remains: correct
+business and computer, manual sharing, signed-in redemption, signed-out sign-in
+and reopening the original link, resulting assigned access, and revocation.
+Synthetic controller, browser and injected-transport checks establish only their
+fixture boundaries; they do not establish live ID sign-in or Milepost assignment.
