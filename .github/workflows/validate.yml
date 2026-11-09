@@ -199,6 +199,7 @@ jobs:
           php app/tests/portal_ticket_workflow_test.php
           php app/tests/portal_report_archive_test.php
           php app/tests/portal_computer_time_test.php
+          php app/tests/portal_guide_test.php
           php app/tests/portal_westy_mac_companion_test.php
           php app/tests/portal_westy_ai_receipt_test.php
           php app/tests/portal_westy_desktop_continuation_test.php
@@ -336,6 +337,7 @@ jobs:
         run: |
           node tools/shots/time-contract.test.mjs
           node tools/shots/portal-contract.test.mjs
+          node tools/shots/portal-guide.test.mjs
           node tools/shots/portal-settings.test.mjs
           node tools/shots/portal-signout.test.mjs
           node tools/shots/client-shared-directory.test.mjs

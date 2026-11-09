@@ -86,13 +86,13 @@ final class PortalWestySseParser
     }
 }
 
-function portal_westy_workspace_body(array $messages, bool $tools): array
+function portal_westy_workspace_body(array $messages, bool $tools,?array $context=null): array
 {
     return [
         'model'=>'gpt-6-luna', 'service_tier'=>'default', 'store'=>false, 'background'=>false,
         'stream'=>true, 'reasoning'=>['effort'=>'low'], 'max_output_tokens'=>1200,
         'include'=>['reasoning.encrypted_content'],
-        'instructions'=>portal_westy_device_instructions(),
+        'instructions'=>portal_westy_device_instructions(context:$context),
         'input'=>$messages,
         'tools'=>$tools ? portal_westy_tool_definitions() : [],
         'parallel_tool_calls'=>false,
