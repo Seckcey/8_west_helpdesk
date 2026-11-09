@@ -21,10 +21,71 @@ access to the selected computer. For an employee who already has an account,
 the owner or admin can share the computer link directly. 8 West ID enforces
 invitation authorization.
 
-The navigation cleanup in source (publication pending) removes only the redundant
+The published navigation cleanup removes only the redundant
 Account shortcut to Your devices. Owners and admins use **Your devices → Computer
 access** on the intended device card. The contextual **Manage computer access**
 action on Home and all existing role checks remain unchanged.
+
+## November 9 cleanup release record
+
+[PR #303](https://github.com/Seckcey/8_west_helpdesk/pull/303) and
+[PR #304](https://github.com/Seckcey/8_west_helpdesk/pull/304) were published together
+as `25c14565f76836b8c2fa76e115a8dcaf7c5dc709` on November 9, 2026 at
+**23:13:50 UTC / 3:13:50 PM PST**, replacing `27f991ee5ff4a033bc4be38ed4462507711af2cd`.
+One canonical check and one stock deployment completed successfully; no retry,
+migration, private configuration change or Apache operation occurred.
+
+The exact merged-main [Validate 42686491635](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42686491635)
+passed PHP and browser checks. The scoped navigation fixtures preserve primary
+Your devices, the per-device Computer access action, Home's contextual action
+and role behavior while removing the Account alias. Reviewed desktop/mobile
+fixtures are synthetic evidence. Authenticated production navigation remains
+**unwitnessed** because no existing authorized session was available; no new
+credentials, sign-in or mutable walkthrough was used. The accepted production
+basis is the exact deployed source, runtime verification and signed-out health,
+alongside those synthetic role/layout checks.
+
+Postflight verified all 419 files and 23 directories, including reads and hashes
+as runtime UID 1602, and 215 shipped Guide checks with zero database writes and
+zero provider requests. Eleven replacement files retained their permissions, ownership and
+ACLs; 408 unchanged files retained their full metadata, and the obsolete module
+was absent. Private configuration, six cron files, both timers, other service
+states and the installed ID tool pair matched the preflight. Public and origin
+login/styles returned 200; root, Guide and devices redirected signed-out users.
+
+The new immediate source inverse is
+`deploy-state/backups/20261109T231346Z-27f991ee5ff4-to-25c14565f768`.
+Its `files.tar` SHA-256 is
+`004c6d4772925d69bb4677ce02e4d32a631850e68f0ebbdede1909942d161b8b`.
+Independent verification matched all twelve original files (eleven replacements
+plus the deleted module), exact bytes, numeric owners/modes, nanosecond mtimes
+and the login ACL. There are no additions to remove and no database snapshot
+in this no-migration inverse. No archive extraction or restore was performed.
+
+Before stock retention, the separately approved original
+`20261105T090717Z-3f3b128ab508-to-072c9b19551f` was copied into
+`deploy-state/protected-recovery/` with its custody receipt. Both independent
+physical witnesses matched original and copy while the original was present.
+Only that original aged out in normal retention. Its protected copy and receipt,
+all four prior protected sets/receipts and the other nine original stock backups
+remained exact. The protected copy retains historical recovery bytes.
+Verification compared the archive in place. No current database backup or
+restore test was performed.
+
+The naturally scheduled 23:15 and 23:20 UTC report/shared work dispatched and
+drained. The actual desktop-cleanup target, `8west-desktop-cleanup@safeharbor.service`,
+completed successive post-release runs including 23:20; onboarding succeeded at
+23:20:29. The first post-release ten-minute portal-maintenance observation at
+23:20 and Westy-mail observations retained their pre-existing missing-input
+fingerprints. Both are recorded as pre-existing errors. This release observed
+their scheduled runs. No repair or replay was performed.
+The lead's 23:20:32 readback found all four original locks free, no app cron
+processes, active FPM/Apache/timers and quiet paired services. Worker technical
+handback was confirmed with no retained worker resource claim; the retained
+root custody evidence was left untouched. Shared stock custody formally closed
+at **2026-11-09 23:24:23 UTC / 3:24:23 PM PST** after app-owner acceptance.
+Recovery reachability remains through 00:13:43 UTC on November 10 (4:13:43 PM PST
+on November 9); no active release allocation remains.
 
 ## November 5 release record
 
