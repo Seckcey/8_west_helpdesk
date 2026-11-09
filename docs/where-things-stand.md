@@ -6,9 +6,40 @@ are in git history.
 
 ## The live version
 
+### Approved portal Guide published
+
+Current application source is **`27f991ee5ff4a033bc4be38ed4462507711af2cd`**,
+published by the stock deployment on **November 9, 2026 at 10:44 AM PST**
+(18:44 UTC). [PR #295](https://github.com/Seckcey/8_west_helpdesk/pull/295)
+publishes the six unchanged Astra/Max-approved articles through the existing
+Guide and supplies matching compact references to active Westy instructions.
+Employee, viewer and native Owner/Admin selections follow the signed-in role;
+delegated access and Companion retain the existing Guide. No action permissions,
+models, tools or transport behavior changed.
+
+Exact merged-main PHP/browser CI passed. The single stock release replaced
+fourteen files and added two tests; all **420 files and 23 directories** matched,
+including runtime-user hashes and 234 DB/provider-free Guide checks. The actual
+rollback preserves fourteen original files, exact timestamps and three ACLs and
+removes the two additions. Private configuration, six active cron files, both
+timers, other services and the installed ID tool pair were preserved. Public and
+origin login/CSS checks passed. The separately approved recovery copy passed two
+independent original-plus-copy checks before normal retention removed only its
+original. All four protected sets and the other nine original backups stayed
+exact. See the [Guide release and acceptance record](portal-guide-pilot.md#november-9-production-release)
+for the precise customer and runtime evidence boundaries.
+
+The existing signed-in Member saw all five employee articles and opened Westy's
+privacy help link without a provider request. Direct Owner browser verification
+was unavailable and is not claimed. The 10:45 and 10:50 AM reports and shared
+jobs drained normally; new onboarding and desktop-cleanup cycles succeeded.
+Known Westy-mail/portal-maintenance input errors matched their earlier baseline
+and were not repaired or replayed. Final checks found no retained deployment
+process, lock, marker or paused cron file before technical handback.
+
 ### Retired Logbook export removed
 
-Current application source is **`a33dd91422128fc97afb299ba2c9918c4cb1a737`**,
+The preceding application source was **`a33dd91422128fc97afb299ba2c9918c4cb1a737`**,
 published by the stock deployment on **November 6, 2026 at 10:42:32 AM PST**
 (18:42:32 UTC). [PR #300](https://github.com/Seckcey/8_west_helpdesk/pull/300)
 removes the five unused export runtime files, their dedicated test and sample
