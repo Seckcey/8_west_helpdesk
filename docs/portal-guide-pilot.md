@@ -1,16 +1,17 @@
-# Portal Guide pilot — prepublication integration
+# Portal Guide pilot
 
-This candidate integrates the six approved articles into `/portal/guide.php` and
-the current Westy instructions. It is draft source work, not a published Guide.
+The six approved articles are published in `/portal/guide.php`, with matching
+compact references in the current Westy instructions. Application source
+`27f991ee5ff4a033bc4be38ed4462507711af2cd` went live on November 9, 2026 at
+**10:44 AM Pacific** through the normal stock deployment.
 The scoped real signed-in Client Owner/Admin and employee acceptance was
 completed on November 9, as recorded below. The protected recovery copy and both
-independent custody checks also completed that day. Publication remains pending
-normal integration and release gates. Synthetic tests do not establish
-real-account acceptance.
+independent custody checks also completed that day before normal rotation of the
+approved original. Synthetic tests do not establish real-account acceptance.
 
 The November 5 and 6 entries below preserve the earlier preparation status.
-Their pending real-acceptance statements are superseded by the November 9 record;
-they are not additional unresolved walkthrough requirements.
+Their pending real-acceptance and publication statements are superseded by the
+November 9 records; they are not additional unresolved walkthrough requirements.
 
 ## Content and applicability
 
@@ -220,4 +221,74 @@ unchanged. The new custody receipt SHA-256 is
 Root-only execution evidence was retained and copy-only technical custody was
 handed back. This operation did not deploy the Guide, rotate a backup, restore
 data or change application/runtime settings. Normal rotation of only the exact
-approved original remains part of a separately qualified stock release.
+approved original was subsequently performed by the separately qualified stock
+release below.
+
+## November 9 production release
+
+[PR #295](https://github.com/Seckcey/8_west_helpdesk/pull/295) merged as
+`27f991ee5ff4a033bc4be38ed4462507711af2cd`. Its tree exactly matched the reviewed
+PR head. Exact merged-main [Validate](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42675388815)
+passed both PHP and browser jobs. The gap from serving source
+`a33dd91422128fc97afb299ba2c9918c4cb1a737` to the preceding main contained only
+three factual documentation changes; the application delta was the reviewed
+Guide work and the three normal asset stamps.
+
+The single stock preflight ran at **18:43:37–18:43:41 UTC**, followed by one
+stock deployment at **18:43:54–18:44:00 UTC**. Both returned zero. The release
+replaced fourteen files and added two tests, with no deletions, directory,
+schema, private-configuration or cron changes. All **420 files and 23
+directories** matched the prepared release; every file was also read and hashed
+as the private runtime user. All fourteen replacement owners, groups, modes and
+ACLs were preserved. The two new tests inherited the reviewed neighboring
+permissions; all 404 unchanged files retained their complete metadata.
+
+The actual inverse is
+`20261109T184357Z-a33dd9142212-to-27f991ee5ff4`. Its fourteen preimages match
+the physical originals in bytes, numeric owners, modes, nanosecond timestamps
+and all three extended ACLs. Its addition-removal list contains exactly the two
+new tests. This was a no-migration release: no database dump or restore occurred.
+Normal retention removed only the approved `20261104T132518Z` original after
+the two independent preservation checks above. Its protected copy, all three
+older protected sets and receipts, and the other nine original backups remained
+exact. The required installed ID onboarding tool pair remained unchanged; any
+whole-host recovery must restore and verify that pair before resuming onboarding.
+
+Private configuration, six active cron files, both timers, other PHP services
+and Apache states were unchanged after the deployment resumed its jobs. Origin
+and public login, app CSS and portal CSS returned 200; anonymous root and Guide
+requests redirected normally. No paused cron file remained. The deployed
+DB/provider-free Guide test passed all **234 checks** as the runtime user,
+including the six approved title/body hashes, employee/viewer/native Owner/admin
+and overlay selection, and matching compact Westy instruction indexes. No
+provider request, new grant, ticket, device command or database write was made
+by these publication checks. Native Owner UI was unavailable to the supported
+browser tools; runtime role fixtures do not constitute a fresh live Owner view.
+
+The suite coordinator directly verified the existing signed-in test Member in
+8 West Ventures after publication. **Account → Portal guide** opened the real
+Guide with the five employee article titles and their expected anchors:
+`sign-in`, `assigned-computers`, `requests`, `updates` and
+`private-computer-link`. The Owner-only article was absent. Westy's existing
+**Private to you** help link opened `/portal/guide.php#privacy` with the correct
+heading and the same Member identity. No provider prompt or new authentication,
+ticket, grant or device action was used. Native Owner publication coverage is
+the deployed catalog/role evidence above, separate from the earlier ID-verified
+and human-attested Owner link lifecycle.
+
+The shared release lead observed the natural **18:45 and 18:50 UTC** reports:
+zero generated, submitted, uncertain and error outcomes, with zero lifecycle
+claims. Due shared jobs and portal workers dispatched and drained normally. Six
+new onboarding cycles completed successfully after publication, including the
+18:50:27 cycle; desktop cleanup also succeeded at 18:50. The existing Westy-mail
+and first post-release portal-maintenance input-file error fingerprints matched
+the pre-release baseline. They were not repaired or replayed, and no new scoped
+report/shared-job error appeared.
+
+Final worker checks at **18:50:28–18:50:29 UTC** found the expected live source,
+four original mutexes unheld, no deployment marker, no retained stock/copy
+process and no paused cron file. The release lead independently verified active
+timers and health. Technical custody was handed back after these observations
+and Member acceptance. The root-only preservation evidence remains retained.
+This documentation closeout changes no application bytes and requires no
+additional production deployment.
