@@ -165,9 +165,6 @@ check('untrusted message has only user role',end($captured['input'])['role']==='
 $count=$calls;denied('obvious credentials never reach provider',fn()=>tenant_test_message($pdo,$a,$message('My password is example-secret'),$provider),'sensitive_text');check('secret refusal adds no provider call',$calls===$count);
 denied('PEM private key marker is refused before storage',fn()=>tenant_test_message($pdo,$a,$message('-----BEGIN RSA PRIVATE KEY-----'),$provider),'sensitive_text');
 denied('API credential marker is refused before storage',fn()=>tenant_test_message($pdo,$a,$message('sk-syntheticexample0123456789'),$provider),'sensitive_text');
-$bad=portal_westy_provider_parse(200,json_encode(['status'=>'completed','output'=>[['type'=>'message','content'=>[['type'=>'output_text','text'=>json_encode(['reply'=>'Bad','sources'=>['evil-url'],'draft_subject'=>'','draft_body'=>''])]]]]]));check('unknown source IDs are rejected',$bad['ok']===false);
-check('429 provider response becomes safe reason',portal_westy_provider_parse(429,'sensitive provider detail')['reason']==='provider_rate_limit');
-check('incomplete model response is not shown',portal_westy_provider_parse(200,'{"status":"incomplete"}')['ok']===false);
 $failedRequest=$message('Provider outage example');tenant_test_message($pdo,$a,$failedRequest,static fn()=>['ok'=>false,'reason'=>'provider_unavailable']);
 $q=$pdo->prepare('SELECT * FROM portal_westy_turns WHERE operation_key=?');$q->execute([$failedRequest['operation']]);$row=$q->fetch();check('unknown provider cost stays reserved',$row['charged_microusd']===$row['reserve_microusd']&&$row['state']==='unavailable');
 $config['hourly_limit']=1;denied('per-subject hourly cap',fn()=>tenant_test_message($pdo,$a,$message('Another'),$provider),'hourly_limit');$config['hourly_limit']=30;

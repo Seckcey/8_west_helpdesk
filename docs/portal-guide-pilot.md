@@ -32,7 +32,7 @@ review packet, outside the Guide and provider instructions.
 | Direct viewer (`client_viewer`) | E2, E4, E5 |
 | Original native `client_owner` or `client_admin`, no `customer_access` overlay | E3, E4, E5, O1 issue/manual-share link |
 | Delegated customer access or Companion session | Existing Guide |
-| No context (legacy guidance/parser callers) | Existing Guide |
+| No context (legacy Guide callers) | Existing Guide |
 
 The original article author confirmed E5 may be read by native owners as an
 employee reference. Its **Employee** heading and full prerequisites remain
@@ -64,12 +64,13 @@ existing computer-check diagnostic material is retained. E3/E4 replace the
 corresponding short entries only for their applicable audiences. Other legacy
 service, privacy and contact content remains unchanged.
 
-The legacy closed guidance body/parser has no active request caller. Its
-context-free Guide call intentionally keeps the existing source-ID enum and
-stored-draft parser compatibility; it does not gain pilot owner instructions.
-The active tenant-AI request path passes its authenticated context explicitly.
-The older streaming body builder accepts optional context with the same
-legacy default. No legacy transport modernization is included.
+The unused legacy closed guidance body/parser was subsequently removed after
+verifying that saved replies and drafts are read directly from persisted fields
+(see [chat, usage and replay](TENANT_AI.md#chat-usage-and-replay)). Historical
+Guide source IDs remain available. The active tenant-AI request path passes its
+authenticated context explicitly. The unused older streaming body builder and
+SSE parser were removed with the same cleanup; active provider instructions and
+stream buffering are unchanged.
 
 ## Verification and publication handoff
 

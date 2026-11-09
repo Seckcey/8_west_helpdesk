@@ -8,11 +8,24 @@ Safeharbor resolves AI configuration from the customer's provider MSP in 8 West 
 
 Portal requests enter `portal_westy_message()` and `portal_westy_ai_run()`, which
 dispatches through `westy_tenant_ai_stream()` in `lib/tenant_ai/tenant_ai_stream.php`.
-The unused direct HTTP functions `portal_westy_provider()` and
-`portal_westy_provider_stream()` have been removed. Their files remain loaded in
-the same order: the guidance/workspace body builders, stored-draft parser,
-`PortalWestySseParser` and active `PortalWestyTextBuffer` remain available. This
-source cleanup changes no provider selection, tools, permissions, usage accounting
+The unused direct HTTP transports, legacy closed JSON guidance builder/parser,
+workspace body builder and old SSE parser have been removed. `portal_westy.php` includes `portal_guide.php` directly in the
+same position, before `portal_westy_stream.php`, which retains the active
+`PortalWestyTextBuffer` and shared device-instruction include. Current provider
+request building and SSE parsing remain in the tenant-AI dispatcher.
+
+Stored conversations do not contain provider response envelopes requiring that
+parser. `portal_westy_state()` decodes `portal_westy_turns.reply_json` directly;
+message history and resumed turns read the same persisted reply fields. The
+browser renders saved source IDs against the Guide labels and offers saved
+`draft_subject`/`draft_body` as editable suggestions. Historical Guide IDs remain.
+Saved drafts and sent receipts are read from `portal_westy_drafts`; saving and
+sending use its subject/body/priority, revision and ticket ID under the existing
+scope and review checks. Exact turn replay returns the saved state, while tool
+continuation uses `portal_westy_run_restore()` for its separate replay structure.
+None of these paths calls the retired provider parser or changes old records.
+
+This cleanup changes no provider selection, tools, permissions, usage accounting
 or cancellation behavior and requires no configuration or schema change.
 
 The portal checks current customer identity and provider binding before a turn, before each provider/tool round, before saving/emitting streamed output and again at final delivery. Provider/model/effort, catalog, AI revision and credential version must remain consistent. Once an attempt observes an AI connection change or authority outage, it suppresses further output even if the connection returns. Text already delivered with valid authority remains available. Final accounting retains known usage or the unknown reservation; it does not retry the request.

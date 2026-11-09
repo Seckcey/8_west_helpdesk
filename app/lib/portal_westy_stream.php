@@ -1,5 +1,5 @@
 <?php
-/** Responses SSE transport. Only visible output deltas leave this adapter. */
+/** Active customer-stream text buffering and shared device instructions. */
 declare(strict_types=1);
 require_once __DIR__.'/portal_westy_device_instructions.php';
 
@@ -57,44 +57,4 @@ final class PortalWestyTextBuffer
         $this->pending = '';
         $this->queuedAt = 0;
     }
-}
-
-final class PortalWestySseParser
-{
-    private string $buffer = '';
-    private int $bytes = 0;
-    public function feed(string $chunk, callable $event): void
-    {
-        $this->bytes += strlen($chunk);
-        if ($this->bytes > 524288) throw new RuntimeException('provider_limit');
-        $this->buffer .= $chunk;
-        while (preg_match('/\r?\n\r?\n/',$this->buffer,$separator,PREG_OFFSET_CAPTURE)===1) {
-            $end=$separator[0][1];
-            $frame = substr($this->buffer, 0, $end);
-            $this->buffer = substr($this->buffer, $end + strlen($separator[0][0]));
-            $data = [];
-            foreach (explode("\n", $frame) as $line) {
-                if (str_starts_with($line, 'data:')) $data[] = rtrim(ltrim(substr($line, 5), ' '),"\r");
-            }
-            if ($data === []) continue;
-            $json = implode("\n", $data);
-            if ($json === '[DONE]') continue;
-            $value = json_decode($json, true, 32, JSON_THROW_ON_ERROR);
-            if (!is_array($value)) throw new RuntimeException('provider_invalid');
-            $event($value);
-        }
-    }
-}
-
-function portal_westy_workspace_body(array $messages, bool $tools,?array $context=null): array
-{
-    return [
-        'model'=>'gpt-6-luna', 'service_tier'=>'default', 'store'=>false, 'background'=>false,
-        'stream'=>true, 'reasoning'=>['effort'=>'low'], 'max_output_tokens'=>1200,
-        'include'=>['reasoning.encrypted_content'],
-        'instructions'=>portal_westy_device_instructions(context:$context),
-        'input'=>$messages,
-        'tools'=>$tools ? portal_westy_tool_definitions() : [],
-        'parallel_tool_calls'=>false,
-    ];
 }
