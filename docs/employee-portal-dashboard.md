@@ -21,6 +21,11 @@ access to the selected computer. For an employee who already has an account,
 the owner or admin can share the computer link directly. 8 West ID enforces
 invitation authorization.
 
+The navigation cleanup in source (publication pending) removes only the redundant
+Account shortcut to Your devices. Owners and admins use **Your devices → Computer
+access** on the intended device card. The contextual **Manage computer access**
+action on Home and all existing role checks remain unchanged.
+
 ## November 5 release record
 
 [PR #289](https://github.com/Seckcey/8_west_helpdesk/pull/289) was published as

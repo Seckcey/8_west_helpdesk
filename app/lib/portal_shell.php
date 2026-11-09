@@ -108,7 +108,6 @@ function portal_shell_start(array $context): void
   <a class="portal-account-action" href="https://id.8westit.com/settings.php" aria-label="My settings"><strong>My settings</strong><span>Your preferences · 8 West ID</span></a>
   <?php if ($clientAdmin): ?>
   <a class="portal-account-action" href="<?= portal_h(safeharbor_settings_panel_url('client_admin')) ?>" aria-label="Client Admin"><strong>Client Admin</strong><span>Client settings · 8 West ID</span></a>
-  <a class="portal-account-action" href="/portal/devices.php" aria-label="Computer access"><strong>Computer access</strong><span>Devices for this client</span></a>
   <a class="portal-account-action" href="https://id.8westit.com/customer-billing.php" aria-label="Plan and billing"><strong>Plan and billing</strong><span>Client billing · 8 West ID</span></a>
   <?php endif; ?>
   <div class="portal-account-help"><a class="portal-account-action" href="/portal/guide.php">Portal guide</a>

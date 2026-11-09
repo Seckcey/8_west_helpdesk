@@ -287,6 +287,24 @@ foreach (['client_owner','client_admin','client_staff','client_viewer'] as $role
     if($role==='client_owner' && is_string($output) && is_dir($output)) file_put_contents($output.'/safeharbor-workspace.html',$workspace);
 }
 
+foreach ([false, true] as $delegatedAccess) {
+    foreach (['client_owner', 'client_admin', 'client_staff', 'client_viewer'] as $role) {
+        $navContext = $context;
+        $navContext['identity']['role'] = $delegatedAccess ? 'admin' : $role;
+        if ($delegatedAccess) $navContext['identity']['customer_access'] = ['role' => $role];
+        ob_start();portal_shell_start($navContext);$shell = (string)ob_get_clean();
+        $admin = in_array($role, ['client_owner', 'client_admin'], true);
+        portal_data_check(($delegatedAccess ? 'delegated ' : 'native ') . $role . ' keeps one devices destination and role-scoped account actions',
+            substr_count($shell, 'href="/portal/devices.php"') === 1
+            && str_contains($shell, '<span>Your devices</span>')
+            && !str_contains($shell, 'aria-label="Computer access"')
+            && str_contains($shell, 'aria-label="Client Admin"') === $admin
+            && str_contains($shell, $billingLink) === $admin
+            && str_contains($shell, 'aria-label="Switch client"') === $delegatedAccess
+            && str_contains($shell, 'aria-label="My settings"'));
+    }
+}
+
 // Home gets only the controller's requester-safe reads; null means that read failed.
 function portal_data_home_section(string $html, string $heading): string
 {
