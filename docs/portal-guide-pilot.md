@@ -3,9 +3,10 @@
 This candidate integrates the six approved articles into `/portal/guide.php` and
 the current Westy instructions. It is draft source work, not a published Guide.
 The scoped real signed-in Client Owner/Admin and employee acceptance was
-completed on November 9, as recorded below. Publication remains pending the
-protected recovery copy, independent custody checks and normal integration and
-release gates. Synthetic tests do not establish real-account acceptance.
+completed on November 9, as recorded below. The protected recovery copy and both
+independent custody checks also completed that day. Publication remains pending
+normal integration and release gates. Synthetic tests do not establish
+real-account acceptance.
 
 The November 5 and 6 entries below preserve the earlier preparation status.
 Their pending real-acceptance statements are superseded by the November 9 record;
@@ -208,3 +209,15 @@ acceptance record does not itself merge or deploy the Guide. The exact
 independent original-plus-copy checks must precede normal rotation of only that
 approved original. Final source, CI, rollback and live release verification remain
 with their existing integration and release owners.
+
+The approved copy-only operation subsequently completed once on November 9 at
+**10:24:11 AM Pacific**. The worker's separate readback and two independent
+owner checks matched all eleven original/copy files and their metadata, with
+distinct copy inodes. Both independent checks occurred while the original
+remained present. The three earlier protected recovery sets and receipts were
+unchanged. The new custody receipt SHA-256 is
+`2ecad7310fbb466b0ef35601bac0dc567f35443ca23c3ad05dd5f6aa3a08d3ff`.
+Root-only execution evidence was retained and copy-only technical custody was
+handed back. This operation did not deploy the Guide, rotate a backup, restore
+data or change application/runtime settings. Normal rotation of only the exact
+approved original remains part of a separately qualified stock release.
