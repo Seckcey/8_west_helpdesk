@@ -68,8 +68,9 @@ The unused legacy closed guidance body/parser was subsequently removed after
 verifying that saved replies and drafts are read directly from persisted fields
 (see [chat, usage and replay](TENANT_AI.md#chat-usage-and-replay)). Historical
 Guide source IDs remain available. The active tenant-AI request path passes its
-authenticated context explicitly. The older streaming body builder accepts
-optional context with the same legacy default.
+authenticated context explicitly. The unused older streaming body builder and
+SSE parser were removed with the same cleanup; active provider instructions and
+stream buffering are unchanged.
 
 ## Verification and publication handoff
 

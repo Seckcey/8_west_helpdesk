@@ -23,9 +23,6 @@ $defs=portal_westy_tool_definitions();
 $fixtures=json_decode(file_get_contents(__DIR__.'/fixtures/customer_workspace/operations.json'),true,32,JSON_THROW_ON_ERROR);
 foreach($fixtures['operations'] as $name=>$fixture)check(portal_device_operations_result('repair_approve',$fixture)===$fixture,'actual Milepost synthetic projection accepted: '.$name);
 check(array_column($defs,'name')===['list_computers','read_computer_status','start_health_check','prepare_temp_cleanup','propose_print_repair'],'model receives only five reviewed tools and no approval or arbitrary-command capability');
-$parser=new PortalWestySseParser();$parsed=[];$stream="event: response.output_text.delta\r\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\r\n\r\n: ping\n\ndata: {\"type\":\"response.completed\"}\n\n";
-foreach(str_split($stream,1) as $byte)$parser->feed($byte,static function($item)use(&$parsed){$parsed[]=$item;});
-check(count($parsed)===2&&$parsed[0]['delta']==='Hello','SSE parser handles real frame and CRLF boundaries split across individual bytes');
 $resolver=static function(int $tenant,string $action,?int $revision):array{
     return ['version'=>1,'app'=>'safeharbor','local_tenant_key'=>(string)$tenant,'tenant_id'=>$tenant*100,
         'tenant_slug'=>'provider-'.$tenant,'status'=>'active','revision'=>1,'credential_version'=>1,

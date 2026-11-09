@@ -1,5 +1,5 @@
 <?php
-/** DB/provider-free checks for approved text, audience selection and both instruction builders. */
+/** DB/provider-free checks for approved text, audience selection and active provider instructions. */
 declare(strict_types=1);
 require_once __DIR__.'/../lib/portal_guide.php';
 require_once __DIR__.'/../lib/portal_westy_stream.php';
@@ -63,7 +63,6 @@ foreach ($cases as $label => [$context, $ids]) {
         guide_check(str_contains($instructions, 'Reviewed portal guide: '.$serialized), $label.' active provider guide matches page selection');
         guide_check(str_contains($instructions, 'Give an employee access to one computer') === in_array('give-computer-access',$ids,true), $label.' owner-only context does not leak');
     }
-    guide_check(str_contains(portal_westy_workspace_body([],false,$context)['instructions'], $serialized), $label.' streaming body uses same guide');
 }
 $_SESSION['desktop_companion_session'] = str_repeat('b',32);
 guide_check(portal_guide_articles(['identity'=>['role'=>'client_owner']]) === $legacy, 'server Companion session retains legacy guide');

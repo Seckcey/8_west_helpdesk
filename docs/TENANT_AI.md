@@ -8,10 +8,11 @@ Safeharbor resolves AI configuration from the customer's provider MSP in 8 West 
 
 Portal requests enter `portal_westy_message()` and `portal_westy_ai_run()`, which
 dispatches through `westy_tenant_ai_stream()` in `lib/tenant_ai/tenant_ai_stream.php`.
-The unused direct HTTP transports and their legacy closed JSON guidance builder/parser
-have been removed. `portal_westy.php` includes `portal_guide.php` directly in the
-same position, before the retained streaming helpers. `portal_westy_workspace_body`,
-`PortalWestySseParser` and active `PortalWestyTextBuffer` remain available.
+The unused direct HTTP transports, legacy closed JSON guidance builder/parser,
+workspace body builder and old SSE parser have been removed. `portal_westy.php` includes `portal_guide.php` directly in the
+same position, before `portal_westy_stream.php`, which retains the active
+`PortalWestyTextBuffer` and shared device-instruction include. Current provider
+request building and SSE parsing remain in the tenant-AI dispatcher.
 
 Stored conversations do not contain provider response envelopes requiring that
 parser. `portal_westy_state()` decodes `portal_westy_turns.reply_json` directly;
