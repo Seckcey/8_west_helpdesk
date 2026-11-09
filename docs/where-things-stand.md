@@ -6,9 +6,56 @@ are in git history.
 
 ## The live version
 
+### Unused Westy helpers and duplicate navigation removed
+
+Current application source is **`25c14565f76836b8c2fa76e115a8dcaf7c5dc709`**,
+published by one stock deployment on **November 9, 2026 at 3:13:50 PM PST**
+(23:13:50 UTC). [PR #303](https://github.com/Seckcey/8_west_helpdesk/pull/303)
+removes the unused legacy JSON guidance module and two helpers from the retired
+direct streaming transport. [PR #304](https://github.com/Seckcey/8_west_helpdesk/pull/304)
+removes only the duplicate Account shortcut to Your devices. Active Westy
+streaming, saved replies/drafts/replay, approved Guide text, roles and the
+per-device Computer access action are preserved.
+
+Exact merged-main [Validate 42686491635](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42686491635)
+passed both PHP and browser jobs. The release replaced eleven files, deleted
+one unused module and added none. All **419 files and 23 directories** matched
+the candidate, including all file hashes read as the private runtime user and
+215 Guide checks with zero database writes and zero provider requests.
+The actual twelve-file inverse preserves original bytes, numeric ownership,
+modes, nanosecond timestamps and the login ACL. Configuration, six cron files, both timers, other services and the ID tool
+pair were preserved. Origin/public login and styles returned 200. Signed-out
+root, Guide and devices returned 302.
+
+The exact approved November 5 09:07:17 UTC database-bearing archive was
+protected before release. Two independent physical checks passed while the
+original remained. Stock retention then removed only that approved original.
+All five protected sets and receipts and the other nine originals stayed exact.
+The protected copy retains historical recovery bytes. Verification compared
+the archive in place. No database restore or migration ran.
+See the [cleanup release record](employee-portal-dashboard.md#november-9-cleanup-release-record)
+for inverse identity, retention and acceptance boundaries.
+
+Authenticated production navigation was **not witnessed** because no existing
+authorized session was available. Acceptance uses exact live runtime/health and the
+reviewed-head synthetic desktop, mobile and role evidence. No fresh sign-in,
+mutable walkthrough, provider request or customer action was performed.
+
+The natural 3:15 and 3:20 PM report/shared cycles dispatched and drained.
+The actual `8west-desktop-cleanup@safeharbor.service` completed successfully,
+including its 3:20 PM run, and onboarding succeeded at 3:20:29 PM. The separate
+3:20 PM portal-maintenance input-file error and Westy-mail error matched their
+pre-release fingerprints. Both remain recorded as pre-existing errors.
+At 3:20:32 PM, the four original locks were free, app workers were quiet, and the runtime,
+Apache and both timers were active. Shared stock custody closed at
+**23:24:23 UTC / 3:24:23 PM PST** after worker technical handback and app-owner
+acceptance. At handback on November 9, the executor committed to recovery
+reachability through 00:13:43 UTC on November 10 (4:13:43 PM PST on November 9).
+That commitment did not extend the release allocation.
+
 ### Approved portal Guide published
 
-Current application source is **`27f991ee5ff4a033bc4be38ed4462507711af2cd`**,
+The preceding application source was **`27f991ee5ff4a033bc4be38ed4462507711af2cd`**,
 published by the stock deployment on **November 9, 2026 at 10:44 AM PST**
 (18:44 UTC). [PR #295](https://github.com/Seckcey/8_west_helpdesk/pull/295)
 publishes the six unchanged Astra/Max-approved articles through the existing
