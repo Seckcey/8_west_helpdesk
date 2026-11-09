@@ -147,9 +147,12 @@ The final issuer proof SHA-256 is
 origin and Cloudflare POST-body review completed on November 5, with no configured
 capture found on the inspected paths. This is configuration/source evidence;
 provider-internal handling is not claimed. Revalidate if ingress or logging
-configuration changes. Frankie's real signed-in owner/employee link redemption,
-assignment and revocation acceptance remains open. No real customer link, email
-or assignment was created for these probes.
+configuration changes. Real signed-in owner/employee link redemption, assignment
+and revocation acceptance was still open at that release; the scoped November 9
+walkthrough subsequently completed it. Its human-attested Owner/link steps,
+directly observed Member visibility and automated-only alternate path are recorded
+in the [Guide acceptance record](portal-guide-pilot.md#november-9-scoped-real-account-acceptance).
+No real customer link, email or assignment was created for the November 5 probes.
 Apache logging PR #290 remains draft/held and was not installed. The ID invitation
 flow is owned and released separately; these receipts establish Safeharbor only.
 

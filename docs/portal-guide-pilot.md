@@ -2,9 +2,14 @@
 
 This candidate integrates the six approved articles into `/portal/guide.php` and
 the current Westy instructions. It is draft source work, not a published Guide.
-Publication remains held for the already-required real signed-in Client
-Owner/Admin and employee acceptance, including private-link redemption,
-assignment and revocation. Synthetic tests do not establish that acceptance.
+The scoped real signed-in Client Owner/Admin and employee acceptance was
+completed on November 9, as recorded below. Publication remains pending the
+protected recovery copy, independent custody checks and normal integration and
+release gates. Synthetic tests do not establish real-account acceptance.
+
+The November 5 and 6 entries below preserve the earlier preparation status.
+Their pending real-acceptance statements are superseded by the November 9 record;
+they are not additional unresolved walkthrough requirements.
 
 ## Content and applicability
 
@@ -164,3 +169,42 @@ signed-out/sign-in/reopen path before redemption. A single successful first use
 does not establish both paths. Preserve any unexercised case explicitly; do not
 create another account or link merely to fill an evidence gap. Keep private codes
 out of shared notes and screenshots.
+
+## November 9 scoped real-account acceptance
+
+The suite coordinator reported the completed 8 West Ventures walkthrough to the
+Safeharbor integration owner. The native Owner identity was independently
+established by the ID owner. Frankie attested that the exact test computer's link
+was displayed in the native Owner session, shared privately and redeemed manually
+in the separate test Member session. These issuance, sharing, redemption and Owner
+status steps are human-attested; they are not claimed as new Safeharbor operator
+browser observations. The coordinator directly observed the Member's computer
+list change from empty to the intended computer, then return to empty after
+Frankie confirmed revocation of that exact Owner record. No device command or
+repair was performed.
+
+One authorized, labelled support request, **#3108 — Guide walkthrough test
+2026-11-09**, was created at **10:14 AM Pacific**. The coordinator verified it in
+the employee list. After staff set the request to Waiting through the normal
+workflow, the employee saw **Waiting for your reply** and sent one authorized
+reply at **10:17 AM Pacific**. The saved confirmation and both conversation
+messages persisted, and the status returned to Open. Staff verified the reply
+and resolved the same request through the normal workflow. A fresh employee view
+showed Resolved, both messages readable and no **Send reply** button. No note,
+assignee, priority or unrelated-ticket change was part of this test.
+
+This accepts E1's actual Member entry, business and landing; E2's observed empty,
+assigned and revoked visibility; E3/E4's request, reply and resolved experience;
+and E5/O1's selected signed-in private-link lifecycle within the evidence above.
+It does not claim live viewer execution, an unavailable-device service response,
+or a second fresh redemption. Frankie selected the completed signed-in path plus
+the existing automated signed-out/sign-in/reopen coverage; that alternate path
+remains **automated-only**, not a second real-account success. No second grant is
+required by this recorded acceptance disposition.
+
+The six Astra/Max-approved titles, bodies and audiences remain unchanged. This
+acceptance record does not itself merge or deploy the Guide. The exact
+`20261104T132518Z-7be64ab4fb69-to-3f3b128ab508` historical recovery copy and two
+independent original-plus-copy checks must precede normal rotation of only that
+approved original. Final source, CI, rollback and live release verification remain
+with their existing integration and release owners.
