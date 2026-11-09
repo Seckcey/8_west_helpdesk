@@ -32,7 +32,7 @@ action on Home and all existing role checks remain unchanged.
 [PR #304](https://github.com/Seckcey/8_west_helpdesk/pull/304) were published together
 as `25c14565f76836b8c2fa76e115a8dcaf7c5dc709` on November 9, 2026 at
 **23:13:50 UTC / 3:13:50 PM PST**, replacing `27f991ee5ff4a033bc4be38ed4462507711af2cd`.
-One canonical check and one stock deployment completed successfully; no retry,
+One canonical check and one stock deployment completed successfully. No retry,
 migration, private configuration change or Apache operation occurred.
 
 The exact merged-main [Validate 42686491635](https://github.com/Seckcey/8_west_helpdesk/actions/runs/42686491635)
@@ -40,18 +40,18 @@ passed PHP and browser checks. The scoped navigation fixtures preserve primary
 Your devices, the per-device Computer access action, Home's contextual action
 and role behavior while removing the Account alias. Reviewed desktop/mobile
 fixtures are synthetic evidence. Authenticated production navigation remains
-**unwitnessed** because no existing authorized session was available; no new
+**unwitnessed** because no existing authorized session was available. No new
 credentials, sign-in or mutable walkthrough was used. The accepted production
 basis is the exact deployed source, runtime verification and signed-out health,
 alongside those synthetic role/layout checks.
 
 Postflight verified all 419 files and 23 directories, including reads and hashes
 as runtime UID 1602, and 215 shipped Guide checks with zero database writes and
-zero provider requests. Eleven replacement files retained their permissions, ownership and
-ACLs; 408 unchanged files retained their full metadata, and the obsolete module
-was absent. Private configuration, six cron files, both timers, other service
+zero provider requests. Eleven replacement files retained their permissions,
+ownership and ACLs. The 408 unchanged files retained their full metadata, and
+the obsolete module was absent. Private configuration, six cron files, both timers, other service
 states and the installed ID tool pair matched the preflight. Public and origin
-login/styles returned 200; root, Guide and devices redirected signed-out users.
+login and styles returned 200. Root, Guide and devices redirected signed-out users.
 
 The new immediate source inverse is
 `deploy-state/backups/20261109T231346Z-27f991ee5ff4-to-25c14565f768`.
@@ -74,18 +74,18 @@ restore test was performed.
 
 The naturally scheduled 23:15 and 23:20 UTC report/shared work dispatched and
 drained. The actual desktop-cleanup target, `8west-desktop-cleanup@safeharbor.service`,
-completed successive post-release runs including 23:20; onboarding succeeded at
+completed successive post-release runs including 23:20. Onboarding succeeded at
 23:20:29. The first post-release ten-minute portal-maintenance observation at
-23:20 and Westy-mail observations retained their pre-existing missing-input
-fingerprints. Both are recorded as pre-existing errors. This release observed
-their scheduled runs. No repair or replay was performed.
+23:20 and the scheduled Westy-mail runs retained their missing-input fingerprints.
+Both remain recorded as pre-existing errors. No repair or replay was performed.
 The lead's 23:20:32 readback found all four original locks free, no app cron
 processes, active FPM/Apache/timers and quiet paired services. Worker technical
-handback was confirmed with no retained worker resource claim; the retained
+handback was confirmed with no retained worker resource claim. The retained
 root custody evidence was left untouched. Shared stock custody formally closed
 at **2026-11-09 23:24:23 UTC / 3:24:23 PM PST** after app-owner acceptance.
-Recovery reachability remains through 00:13:43 UTC on November 10 (4:13:43 PM PST
-on November 9); no active release allocation remains.
+At handback on November 9, the executor committed to recovery reachability
+through 00:13:43 UTC on November 10 (4:13:43 PM PST on November 9). That commitment
+did not extend the release allocation.
 
 ## November 5 release record
 

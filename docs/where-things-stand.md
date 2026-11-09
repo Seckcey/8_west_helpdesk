@@ -22,23 +22,22 @@ passed both PHP and browser jobs. The release replaced eleven files, deleted
 one unused module and added none. All **419 files and 23 directories** matched
 the candidate, including all file hashes read as the private runtime user and
 215 Guide checks with zero database writes and zero provider requests.
-The actual twelve-file inverse preserves
-original bytes, numeric ownership, modes, nanosecond timestamps and the login
-ACL. Configuration, six cron files, both timers, other services and the ID tool
-pair were preserved. Origin/public login and styles returned 200; signed-out
+The actual twelve-file inverse preserves original bytes, numeric ownership,
+modes, nanosecond timestamps and the login ACL. Configuration, six cron files, both timers, other services and the ID tool
+pair were preserved. Origin/public login and styles returned 200. Signed-out
 root, Guide and devices returned 302.
 
 The exact approved November 5 09:07:17 UTC database-bearing archive was
 protected before release. Two independent physical checks passed while the
-original remained. Stock retention then removed only that approved original;
-all five protected sets and receipts and the other nine originals stayed exact.
+original remained. Stock retention then removed only that approved original.
+All five protected sets and receipts and the other nine originals stayed exact.
 The protected copy retains historical recovery bytes. Verification compared
 the archive in place. No database restore or migration ran.
 See the [cleanup release record](employee-portal-dashboard.md#november-9-cleanup-release-record)
 for inverse identity, retention and acceptance boundaries.
 
-Authenticated production navigation was **not witnessed**: no existing authorized
-session was available. Acceptance uses exact live runtime/health and the
+Authenticated production navigation was **not witnessed** because no existing
+authorized session was available. Acceptance uses exact live runtime/health and the
 reviewed-head synthetic desktop, mobile and role evidence. No fresh sign-in,
 mutable walkthrough, provider request or customer action was performed.
 
@@ -46,13 +45,13 @@ The natural 3:15 and 3:20 PM report/shared cycles dispatched and drained.
 The actual `8west-desktop-cleanup@safeharbor.service` completed successfully,
 including its 3:20 PM run, and onboarding succeeded at 3:20:29 PM. The separate
 3:20 PM portal-maintenance input-file error and Westy-mail error matched their
-pre-release fingerprints. Both are recorded as pre-existing errors. This release
-observed their scheduled runs. At 3:20:32 PM,
-the four original locks were free, app workers were quiet, and the runtime,
+pre-release fingerprints. Both remain recorded as pre-existing errors.
+At 3:20:32 PM, the four original locks were free, app workers were quiet, and the runtime,
 Apache and both timers were active. Shared stock custody closed at
 **23:24:23 UTC / 3:24:23 PM PST** after worker technical handback and app-owner
-acceptance. Agreed recovery reachability through 00:13:43 UTC on November 10
-(4:13:43 PM PST on November 9) is separate from the closed allocation.
+acceptance. At handback on November 9, the executor committed to recovery
+reachability through 00:13:43 UTC on November 10 (4:13:43 PM PST on November 9).
+That commitment did not extend the release allocation.
 
 ### Approved portal Guide published
 
