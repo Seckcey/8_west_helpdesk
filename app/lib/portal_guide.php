@@ -16,7 +16,7 @@ function portal_guide_audience(?array $context): string
     };
 }
 
-/** No context preserves historical source IDs for the stored-draft guidance parser. */
+/** No context preserves the legacy Guide catalog and historical source IDs. */
 function portal_guide_articles(?array $context = null): array
 {
     $legacy = portal_guide_legacy_articles();

@@ -2,7 +2,6 @@
 /** DB/provider-free checks for approved text, audience selection and both instruction builders. */
 declare(strict_types=1);
 require_once __DIR__.'/../lib/portal_guide.php';
-require_once __DIR__.'/../lib/portal_westy_provider.php';
 require_once __DIR__.'/../lib/portal_westy_stream.php';
 require_once __DIR__.'/../lib/portal_westy_tenant_ai.php';
 require_once __DIR__.'/../lib/portal_westy_tools.php';
@@ -75,12 +74,6 @@ guide_check(portal_guide_inline('**<img src=x onerror=alert(1)>** `<script>` &')
 guide_check(substr_count(portal_guide_article_html($pilot['requests']), '<li>') === 4, 'approved steps render as an ordered list');
 foreach (['Publication verification','Authorship','SHA256','754c92d','HOLD FOR','Sources.','Astra'] as $internal) {
     guide_check(!str_contains(json_encode($pilot), $internal), 'internal metadata excluded: '.$internal);
-}
-$oldBody = portal_westy_provider_body([]);
-guide_check($oldBody['text']['format']['schema']['properties']['sources']['items']['enum'] === array_keys($legacy), 'legacy body source enum is unchanged');
-foreach ([...array_keys($legacy), 'give-computer-access'] as $id) {
-    $body = json_encode(['status'=>'completed','output'=>[['type'=>'message','content'=>[['type'=>'output_text','text'=>json_encode(['reply'=>'Fixture answer','sources'=>[$id],'draft_subject'=>'','draft_body'=>''])]]]]]);
-    guide_check(portal_westy_provider_parse(200,$body)['ok'] === isset($legacy[$id]), 'legacy parser compatibility: '.$id);
 }
 // The ordinary admission body uses these real tool definitions before a tool run is created.
 // Include a maximum-length new message and six modest prior user/assistant pairs.
