@@ -914,8 +914,6 @@ if (!SERVE_MODE) test('Secure Plus requires separate order and installation cons
       if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
       assert.equal(await page.getByRole('navigation',{name:'Customer portal'}).getByRole('link',{name:'Your devices',exact:true}).getAttribute('aria-current'),'page');
       assert.equal(await page.locator('#portal-nav a[href="/portal/devices.php"]').count(),1,'one primary devices link, without an Account duplicate');
-      assert.deepEqual(await page.locator('.portal-device-card a').filter({hasText:'Computer access'}).evaluateAll(links=>links.map(link=>link.getAttribute('href'))),
-        ['/portal/computer-access.php?device=1%3A'+'a'.repeat(64),'/portal/computer-access.php?device=2%3A'+'b'.repeat(64)]);
       if(viewport.width<700)await page.getByRole('button',{name:'Toggle navigation'}).click();
       if(process.env.PORTAL_SECURITY_EVIDENCE)await page.screenshot({path:path.join(process.env.PORTAL_SECURITY_EVIDENCE,'security-installed-'+viewport.width+'.png'),fullPage:true});
       await page.goto(ORIGIN+'/portal/security.php?fixture=securityunknown');
@@ -1127,6 +1125,8 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
       await page.getByRole('heading',{name:'Connected computers'}).waitFor();
       // The device card's own heading: request forms also list this label as select options.
       await page.getByRole('heading',{name:'Front desk computer',exact:true}).waitFor();
+      assert.deepEqual(await page.locator('.portal-device-card a').filter({hasText:'Computer access'}).evaluateAll(links=>links.map(link=>link.getAttribute('href'))),
+        ['/portal/computer-access.php?device=1%3A'+'a'.repeat(64),'/portal/computer-access.php?device=2%3A'+'b'.repeat(64)]);
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
       assert.equal(await page.locator('img').evaluateAll(images=>images.every(i=>i.complete&&i.naturalWidth>0)),true);
       await unobstructed(page);
