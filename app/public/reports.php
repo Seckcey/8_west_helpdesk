@@ -140,7 +140,7 @@ page_top($user, 'Reports', 'reports');
       <p class="page-sub">Real numbers, computed live — nothing here is decorative</p>
     </div>
     <?php if ($canExportTime): ?>
-      <div class="filters">
+      <div class="page-actions">
         <a class="btn-chip" href="/reports_export.php?days=30">⭳ Approved billable CSV (30d)</a>
       </div>
     <?php endif; ?>

@@ -71,12 +71,15 @@ header('Content-Type: text/html; charset=utf-8');
 <link rel="stylesheet" href="/assets/css/app.css?v=4">
 </head>
 <body class="login-body">
-<div class="login-wrap">
+<div class="login-split">
+<div class="login-brand">
   <div class="login-head">
     <img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-login-logo" width="1851" height="513">
     <h1 class="login-name">Safeharbor</h1>
     <p class="login-tag">Every client issue, safely ashore.</p>
   </div>
+</div>
+<div class="login-wrap">
   <div class="card login-card">
     <?php if ($error): ?><p class="login-error"><?= h($error) ?></p><?php endif; ?>
     <form method="post" action="/login.php" class="login-form">
@@ -91,7 +94,7 @@ header('Content-Type: text/html; charset=utf-8');
       <button type="submit" class="btn-primary">Sign in</button>
     </form>
     <div class="login-divider"><span></span>or<span></span></div>
-    <a class="btn-ghost" href="<?= h($idEntry) ?>" style="text-decoration:none; display:flex; align-items:center; justify-content:center; gap:8px;">
+    <a class="btn-ghost" href="<?= h($idEntry) ?>">
       <img src="/assets/brand/safeharbor-mark.svg" alt="" class="sso-mark">
       Continue with 8 West ID
     </a>
@@ -105,6 +108,7 @@ header('Content-Type: text/html; charset=utf-8');
   </p>
   <p class="login-foot">Your appearance follows your global 8 West ID settings after sign-in.</p>
 <script src="/assets/js/app.js?v=w365v040k" defer></script>
+</div>
 </div>
 </body>
 </html>

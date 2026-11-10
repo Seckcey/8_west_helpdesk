@@ -59,11 +59,11 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <meta name="theme-color" content="#061936">
 <title><?= portal_h($title) ?> · <?= portal_h($brand['name']) ?></title>
 <link rel="icon" type="<?= portal_h($brand['favicon_type']) ?>" href="<?= portal_h($brand['favicon']) ?>">
-<link rel="stylesheet" href="/assets/css/app.css?v=5">
+<link rel="stylesheet" href="/assets/css/app.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/app.css') ?>">
 <link rel="stylesheet" href="/assets/css/portal.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal.css') ?>">
 <link rel="stylesheet" href="/assets/css/portal-devices.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-devices.css') ?>">
 <link rel="stylesheet" href="/assets/css/portal-workspace.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-workspace.css') ?>">
-<?php if(str_contains($bodyClass,'portal-security-page')): ?><link rel="stylesheet" href="/assets/css/portal-security.css?v=1"><?php endif; ?>
+<?php if(str_contains($bodyClass,'portal-security-page')): ?><link rel="stylesheet" href="/assets/css/portal-security.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-security.css') ?>"><?php endif; ?>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
     <?php
@@ -100,12 +100,15 @@ function portal_render_login(?string $message = null): void
     $returnPath = portal_safe_return_path($_SERVER['REQUEST_URI'] ?? '/portal/');
     portal_page_start('Customer portal', 'login-body');
     ?>
-<main class="login-wrap">
+<div class="login-split">
+<div class="login-brand">
   <header class="login-head">
     <img class="suite-login-logo" src="<?= portal_h($brand['logo']) ?>" alt="<?= portal_h($brand['alt']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>">
     <h1 class="login-name"><?= portal_h($brand['name']) ?></h1>
     <p class="login-tag">Ask for help and follow every customer-visible update</p>
   </header>
+</div>
+<main class="login-wrap">
   <section class="card login-card" aria-labelledby="portal-sign-in-heading">
     <h2 id="portal-sign-in-heading" class="page-title">Customer sign in</h2>
     <p class="page-sub">Continue with your organization’s 8 West ID account.</p>
@@ -118,6 +121,7 @@ function portal_render_login(?string $message = null): void
   </section>
   <p class="login-foot">Use the portal to open, read, and reply to support tickets. Device control, internal notes, technician time, and billing stay private.</p>
 </main>
+</div>
     <?php
     portal_page_end();
 }

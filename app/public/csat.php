@@ -134,15 +134,19 @@ header('Content-Type: text/html; charset=utf-8');
 <title><?= h($title) ?> · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
-<link rel="stylesheet" href="/assets/css/app.css?v=5">
+<?php $csatCss = __DIR__ . '/assets/css/app.css'; /* content hash, like portal_asset_version(); a copy without assets keeps the old key */ ?>
+<link rel="stylesheet" href="/assets/css/app.css?v=<?= is_file($csatCss) ? substr((string)hash_file('sha256', $csatCss), 0, 20) : '5' ?>">
 </head>
 <body class="login-body">
-<main class="login-wrap">
+<div class="login-split">
+<div class="login-brand">
   <div class="login-head">
     <img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-login-logo" width="1851" height="513">
     <h1 class="login-name"><?= h($title) ?></h1>
     <p class="login-tag"><?= h($lead) ?></p>
   </div>
+</div>
+<main class="login-wrap">
   <div class="card login-card csat-card">
     <?php if ($row === null): ?>
       <p class="csat-sub">No worries — nothing was recorded.</p>
@@ -174,5 +178,6 @@ header('Content-Type: text/html; charset=utf-8');
     <?php endif; ?>
   </div>
 </main>
+</div>
 </body>
 </html>

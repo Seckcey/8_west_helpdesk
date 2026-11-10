@@ -6,7 +6,7 @@
 .portal-content{margin-left:236px;min-height:calc(100vh - 76px);padding:40px 36px 110px}.portal-content>.page{padding:0;max-width:1150px;margin:0 auto}.portal-home{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:28px;max-width:1400px;margin:auto}.portal-main-column{min-width:0}.portal-ask h1{font-size:clamp(25px,2.3vw,34px);line-height:1.25;letter-spacing:-.7px;margin:0 0 26px;font-weight:650}.portal-home h2{font-size:21px;line-height:1.4;letter-spacing:-.25px;margin:0 0 16px;font-weight:600}
 .portal-shortcuts{display:flex;gap:10px;margin:16px 0 10px;flex-wrap:wrap}.portal-shortcuts>*{display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:10px 13px;min-height:46px;color:var(--text)!important;background:transparent;border:1px solid var(--line);border-radius:8px;font-size:13px;text-decoration:none;cursor:pointer}.portal-shortcuts>*:hover{border-color:var(--accent-2);background:var(--hover)}.portal-hint{font-size:12px;color:var(--muted);margin:8px 0 16px}.portal-attention,.portal-requests{margin-top:34px;scroll-margin-top:20px}.portal-section-title{display:flex;align-items:center;justify-content:space-between;gap:16px}.portal-section-title>a{white-space:nowrap;font-size:13px;text-decoration:none}.portal-counts{display:flex;gap:20px;flex-wrap:wrap;padding:8px 0 16px;color:var(--muted);font-size:12px}.portal-counts strong{color:var(--text);margin-left:4px}
 .portal-home .portal-ticket-list{border:none;background:transparent;border-radius:0;box-shadow:none}.portal-home .portal-ticket-link{padding:17px 2px;border-top:1px solid var(--line);border-bottom:0;border-radius:0;text-decoration:none}.portal-home .portal-ticket-link:last-child{border-bottom:1px solid var(--line)}.portal-home .portal-ticket-row{gap:12px}.portal-home .rail-list-name{font-size:15px;line-height:1.45;font-weight:550;color:var(--text)}.portal-home .rail-list-sub{font-size:12px}.portal-home .portal-status{background:transparent;border:0;padding:0;font-size:12px}.portal-status-waiting{color:var(--gold)}.portal-status-resolved{color:var(--mint)}.portal-home .empty{padding:18px 0;border-top:1px solid var(--line);text-align:left;font-size:14px;color:var(--muted)}.portal-context-rail{border-left:1px solid var(--line);padding-left:26px}.portal-context-rail section{padding:0 0 28px;margin-bottom:28px;border-bottom:1px solid var(--line)}.portal-context-rail section:last-child{border:0}.portal-context-rail h2{font-size:18px;margin-bottom:10px}.portal-context-rail p{color:var(--muted);font-size:14px;line-height:1.75;margin:0 0 16px}.portal-context-rail a{font-size:14px;text-decoration:none}.portal-context-rail .portal-report-card{padding:16px;margin-bottom:12px}
-.portal-westy{background:var(--bg-solid);border:1px solid var(--p-navy-700);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;min-width:0}.portal-westy:focus-within{border-color:var(--accent-2)}.portal-composer{margin:0}.portal-composer textarea{border:0;background:transparent;width:100%;padding:22px;resize:vertical;min-height:128px;max-height:240px;box-shadow:none;color:var(--text);font-size:17px;line-height:1.6;border-radius:0;outline-offset:-4px}.portal-composer textarea::placeholder{color:var(--muted)}.portal-composer-foot{display:flex;align-items:center;justify-content:space-between;padding:12px 20px 18px;gap:16px}.portal-composer-foot>span{font-size:12px;color:var(--muted)}.portal-composer .btn-primary{border-radius:6px;padding:11px 18px;min-height:44px;background:var(--p-blue-500);color:var(--p-navy-950);font-weight:650;box-shadow:none;white-space:nowrap}.portal-composer .btn-primary:disabled{opacity:.55;cursor:wait}.portal-chat-head{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line)}.portal-chat-head>div{display:grid;margin-right:auto}.portal-chat-head span{font-size:11px;color:var(--muted)}.portal-chat-head .btn-link{font-size:12px;min-height:44px}#portal-chat-home-slot .portal-chat-head{display:none}#portal-chat-home-slot .portal-westy.has-history .portal-chat-head{display:flex}#portal-chat-home-slot #portal-chat-close{display:none}.portal-chat-foot{padding:8px 20px 14px;display:flex;gap:20px;font-size:12px;border-top:1px solid var(--line-soft)}.portal-chat-foot a{text-decoration:none}.portal-chat-foot span{color:var(--muted)}#portal-chat-status{font-size:13px;margin:0;padding:0 20px 10px;color:var(--muted)}#portal-chat-status:empty{display:none}
+.portal-westy{background:var(--bg-solid);border:1px solid var(--p-navy-700);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;min-width:0}.portal-westy:focus-within{border-color:var(--accent-2)}.portal-composer{margin:0}.portal-composer textarea{border:0;background:transparent;width:100%;padding:22px;resize:vertical;min-height:128px;max-height:240px;box-shadow:none;color:var(--text);font-size:17px;line-height:1.6;border-radius:0;outline-offset:-4px}.portal-composer textarea::placeholder{color:var(--muted)}.portal-composer-foot{display:flex;align-items:center;justify-content:space-between;padding:12px 20px 18px;gap:16px}.portal-composer-foot>span{font-size:12px;color:var(--muted)}.portal-composer .btn-primary{border-radius:10px;padding:11px 18px;min-height:44px;background:var(--accent);color:#fff;font-weight:650;box-shadow:none;white-space:nowrap}.portal-composer .btn-primary:disabled{opacity:.55;cursor:wait}.portal-chat-head{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line)}.portal-chat-head>div{display:grid;margin-right:auto}.portal-chat-head span{font-size:11px;color:var(--muted)}.portal-chat-head .btn-link{font-size:12px;min-height:44px}#portal-chat-home-slot .portal-chat-head{display:none}#portal-chat-home-slot .portal-westy.has-history .portal-chat-head{display:flex}#portal-chat-home-slot #portal-chat-close{display:none}.portal-chat-foot{padding:8px 20px 14px;display:flex;gap:20px;font-size:12px;border-top:1px solid var(--line-soft)}.portal-chat-foot a{text-decoration:none}.portal-chat-foot span{color:var(--muted)}#portal-chat-status{font-size:13px;margin:0;padding:0 20px 10px;color:var(--muted)}#portal-chat-status:empty{display:none}
 #portal-chat-messages:empty{display:none}#portal-chat-messages{padding:12px 20px;max-height:360px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.portal-chat-message{padding:12px 0;border-bottom:1px solid var(--line-soft);overflow-wrap:anywhere}.portal-chat-message strong{font-size:12px;color:var(--muted)}.portal-chat-message p{white-space:pre-wrap;margin:5px 0;font-size:14px}.portal-chat-message nav{display:flex;gap:12px;flex-wrap:wrap;font-size:12px}.portal-chat-message button{margin-top:10px}.portal-chat-message-user{padding-left:15px;border-left:2px solid var(--accent);margin-top:8px}.portal-chat-message .receipt{color:var(--mint)}
 #portal-chat-bubble{position:fixed;bottom:22px;right:24px;display:flex;align-items:center;gap:9px;min-height:54px;padding:8px 15px 8px 8px;border-radius:32px;border:1px solid var(--p-navy-700);background:var(--hover);color:var(--text);box-shadow:var(--shadow-card);z-index:40;cursor:pointer;font-size:13px}#portal-chat-bubble img{object-fit:cover;border-radius:50%}#portal-chat-bubble>span{font-size:12px;color:var(--muted)}#portal-chat-root>#portal-chat-panel{position:fixed;right:24px;bottom:88px;width:min(460px,calc(100vw - 32px));max-height:calc(100dvh - 115px);box-shadow:var(--shadow-card);z-index:45}#portal-chat-root #portal-chat-messages{flex:1;min-height:90px}#portal-chat-root .portal-composer textarea{min-height:90px;height:90px;font-size:15px}#portal-chat-root .portal-composer-foot{padding:8px 16px 12px}#portal-chat-root .portal-composer-foot>span{max-width:155px}
 #portal-chat-draft{padding:18px;border-top:1px solid var(--line);max-height:420px;overflow:auto}.portal-chat-draft-fields{display:grid;gap:12px}.portal-chat-draft-fields label{display:grid;gap:4px;font-size:13px}.portal-chat-draft-fields input,.portal-chat-draft-fields textarea,.portal-chat-draft-fields select{width:100%;border:1px solid var(--line);border-radius:6px;padding:9px;color:var(--text);background:var(--bg)}.portal-chat-draft-fields textarea{min-height:110px;resize:vertical}.portal-chat-draft-review{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}.portal-chat-review-audience{font-size:12px;color:var(--gold);display:flex;align-items:flex-start;gap:10px;margin:14px 0}.portal-chat-review-audience input{min-width:20px;height:20px}.portal-chat-draft-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px}.portal-guide{max-width:850px}.portal-guide article{margin:30px 0;padding-bottom:20px;border-bottom:1px solid var(--line);scroll-margin-top:24px}.portal-guide h1{font-size:32px}.portal-guide h2{font-size:21px}.portal-guide p{color:var(--muted);line-height:1.85}.portal-skip{position:fixed;left:16px;top:-100px;z-index:100;background:var(--hover);padding:12px}.portal-skip:focus{top:8px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
@@ -43,7 +43,7 @@
 .portal-overview-hero{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px 22px;align-items:center;padding:28px;background:var(--bg-solid);border:1px solid var(--line);border-radius:20px}
 .portal-overview-avatar{width:64px;height:64px;border-radius:50%;object-fit:cover}
 .portal-overview-intro{min-width:0}
-.portal-overview-client{margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-strong);overflow-wrap:anywhere}
+.portal-overview-client{margin:0;font-size:13px;font-weight:600;color:var(--muted-strong);overflow-wrap:anywhere}
 .portal-overview-hero h1{font-size:clamp(25px,2.3vw,34px);line-height:1.25;letter-spacing:-.7px;margin:4px 0 6px;font-weight:650;overflow-wrap:anywhere}
 .portal-overview-context{margin:0;color:var(--muted);font-size:14px}
 .portal-overview-context strong{color:var(--text);font-weight:600}
@@ -83,10 +83,105 @@
 /* Westy's trigger closes the rail on its own row in normal flow, so it cannot cover requests or help text. */
 .portal-overview #portal-chat-bubble{position:static;box-shadow:none;z-index:auto;grid-column:1/-1;justify-self:start}
 .portal-request-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
-.portal-request-actions .btn-primary{display:inline-flex;align-items:center;min-height:44px;color:var(--p-navy-950);font-weight:600;text-decoration:none}
-.portal-request-actions .btn-primary:hover{background:var(--p-blue-400);color:var(--p-navy-950)}
+.portal-request-actions .btn-primary{display:inline-flex;align-items:center;min-height:44px;color:#fff;font-weight:600;text-decoration:none}
+.portal-request-actions .btn-primary:hover{background:var(--accent-hover);color:#fff}
 .portal-request-actions #portal-chat-bubble{position:static;box-shadow:none;z-index:auto}
 @media(max-width:1190px){.portal-overview .portal-context-rail{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
 @media(max-width:760px){.portal-overview-hero{padding:20px;gap:14px 16px}.portal-overview-avatar{width:48px;height:48px}.portal-overview-hero h1{font-size:25px}.portal-overview .portal-overview-action{min-height:64px}.portal-overview .portal-overview-card,.portal-overview .portal-context-rail .portal-overview-card{padding:18px}}
 
 .portal-guide ol{padding-left:1.5rem}.portal-guide li{color:var(--muted);line-height:1.85;margin:10px 0}.portal-guide strong{font-weight:600}.portal-guide code{overflow-wrap:anywhere}
+
+/* ==========================================================================
+   2026-11 look: navy rail with the horizon line, solid surfaces, sentence-case
+   labels, tags instead of pills, and the Home hero with the setting sun.
+   Classes only: the portal's Content-Security-Policy forbids inline styles.
+   ========================================================================== */
+.portal-app{font-size:15px;line-height:1.6}
+.portal-app :focus-visible{outline:3px solid var(--sel-ring);outline-offset:2px}
+.portal-app h1,.portal-app h2,.portal-app h3{font-family:var(--font-display)}
+.portal-top{background:var(--bg-solid);border-bottom-color:var(--line)}
+.portal-top>span{color:var(--muted-strong)}
+
+/* The rail keeps its own colours in both themes. Re-pointing the tokens here keeps every
+   child (navigation, account rows, the workspace chat list) readable on navy. */
+.portal-sidebar{
+  --text:var(--rail-ink);--text-strong:#FFFFFF;--muted:var(--rail-muted);--muted-strong:var(--rail-ink);--dim:var(--rail-muted);
+  --line:rgba(255,255,255,.12);--line-soft:rgba(255,255,255,.08);--hover:var(--rail-hover);--chip-bg:rgba(255,255,255,.08);
+  --accent-2:#9CC6FF;--cyan:#9CC6FF;--bg-solid:var(--rail);
+  background:var(--rail);color:var(--rail-ink);border-right:0;padding:0 12px
+}
+.portal-sidebar::before{content:"";display:block;flex:none;height:3px;margin:0 4px 6px;border-radius:3px;background:var(--horizon)}
+.portal-business{padding:14px 10px 12px;font-size:15px;font-weight:700;color:#FFFFFF}
+.portal-sidebar nav{gap:2px}
+.portal-sidebar nav a{gap:12px;min-height:44px;padding:0 12px;border-left:0;border-radius:10px;color:var(--rail-ink);font-weight:500}
+.portal-sidebar nav a svg{width:20px;height:20px;opacity:.9}
+.portal-sidebar nav a:hover{background:var(--rail-hover);color:#FFFFFF}
+.portal-sidebar nav a[aria-current]{background:var(--rail-active);color:#FFFFFF;font-weight:600}
+.portal-sidebar nav a:focus-visible,.portal-sidebar button:focus-visible{outline-color:rgba(156,198,255,.7)}
+
+/* The account block reads as ordinary menu rows: same links, same words. */
+.portal-account{padding:14px 0 16px;gap:2px;margin-top:auto;border-top:1px solid rgba(255,255,255,.12)}
+.portal-account h2{padding:4px 12px 6px;font-size:12px;font-weight:600;color:var(--rail-muted)}
+.portal-account-identity{padding:0 12px 8px;margin-bottom:4px;font-size:14px;color:#FFFFFF}
+.portal-account-identity strong{font-weight:600}
+.portal-account-identity span{color:var(--rail-muted)}
+.portal-account .portal-account-action{min-height:44px;padding:6px 12px;border:0;border-radius:10px;background:transparent;color:var(--rail-ink)}
+.portal-account-action strong{font-size:14px;font-weight:500}
+.portal-account-action span{color:var(--rail-muted)}
+.portal-account .portal-account-action:hover{background:var(--rail-hover);border-color:transparent;color:#FFFFFF}
+.portal-account .portal-account-action:focus-visible{outline:3px solid rgba(156,198,255,.7);outline-offset:0}
+.portal-account-help{display:grid;grid-template-columns:1fr;gap:2px;margin-top:6px;padding-top:8px;border-top:1px solid rgba(255,255,255,.12)}
+.portal-account .portal-account-help .portal-account-action,.portal-account .portal-account-signout{align-items:flex-start;text-align:left;font-size:14px;font-weight:500}
+
+/* Home hero: night-navy gradient with the setting sun, CSS only. */
+.portal-overview-hero{position:relative;overflow:hidden;border:0;border-radius:20px;padding:28px;background:linear-gradient(135deg,#0A1E3B 0%,#123A72 62%,#1D5DB8 100%);color:#FFFFFF}
+.portal-overview-hero::after{content:"";position:absolute;right:-50px;bottom:-120px;width:250px;height:250px;border-radius:50%;background:radial-gradient(circle,#FFC857 0,#F9843C 46%,rgba(232,80,91,0) 70%);pointer-events:none}
+.portal-overview-hero>*{position:relative;z-index:1}
+.portal-overview-hero h1{color:#FFFFFF;font-size:clamp(25px,2.3vw,30px);font-weight:700;letter-spacing:-.01em}
+.portal-overview-client{color:#D6E4F7}
+.portal-overview-context{color:#D6E4F7}
+.portal-overview-context strong{color:#FFFFFF}
+.portal-overview .portal-overview-action{border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.1);color:#FFFFFF}
+.portal-overview .portal-overview-action:hover{border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.16)}
+.portal-overview-action strong+span{color:#D6E4F7}
+.portal-overview-action-icon{background:rgba(255,255,255,.14);color:#FFFFFF}
+.portal-overview .portal-overview-action.is-primary{background:#FFFFFF;border-color:#FFFFFF;color:#0D2240}
+.portal-overview .portal-overview-action.is-primary:hover{background:#EAF0F8;border-color:#EAF0F8}
+.portal-overview-action.is-primary strong+span{color:#3F536E}
+.portal-overview-action.is-primary .portal-overview-action-icon{background:#1463E0;color:#FFFFFF}
+.portal-overview .portal-overview-action:focus-visible{outline-color:#FFC857}
+
+/* Cards: one surface, one hairline, a soft shadow. */
+.portal-overview .portal-overview-card,.portal-overview .portal-context-rail .portal-overview-card{border-radius:14px;box-shadow:var(--shadow-card)}
+.portal-overview .portal-overview-card>h2{font-size:17px;font-weight:700}
+.portal-overview .portal-overview-button{min-height:40px;border:1px solid var(--line-strong);border-radius:10px;background:var(--bg-solid);color:var(--text);font-weight:600}
+.portal-overview .portal-overview-button:hover{background:var(--bg-raised)}
+.portal-overview .portal-overview-problem{padding:10px 14px;border:0;border-radius:12px;background:var(--gold-soft-bg)}
+.portal-overview .portal-status{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;border-radius:6px;background:var(--chip-bg);color:var(--muted-strong);font-size:12px;font-weight:600}
+.portal-overview .portal-status::before{width:6px;height:6px;margin-right:6px;background:currentColor}
+.portal-overview .portal-status-in_progress{background:var(--accent-soft-bg);color:var(--cyan)}
+.portal-overview .portal-status-waiting,.portal-overview .portal-status-open{background:var(--gold-soft-bg);color:var(--gold)}
+.portal-overview .portal-status-resolved{background:var(--mint-soft-bg);color:var(--mint)}
+.portal-home .portal-status{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;border-radius:6px;font-weight:600}
+.portal-shortcuts>*{border-radius:10px;font-weight:600}
+.portal-hint{font-size:12.5px;color:var(--dim)}
+.portal-counts{font-size:13px}
+.portal-chat-head span,.portal-chat-message strong{font-size:12px}
+.portal-westy{border-color:var(--line);border-radius:14px;box-shadow:var(--shadow-card)}
+#portal-chat-bubble{border-color:var(--line);box-shadow:var(--shadow-raised)}
+#portal-chat-root>#portal-chat-panel{box-shadow:var(--shadow-pop);border-radius:20px}
+.portal-chat-draft-fields input,.portal-chat-draft-fields textarea,.portal-chat-draft-fields select{border-color:var(--line-strong);border-radius:10px;background:var(--input-bg)}
+
+/* Guide: layout, spacing and type only. The approved article text is pinned and never changes here. */
+.portal-guide{max-width:780px}
+.portal-guide h1{font-size:30px;font-weight:700;letter-spacing:-.01em}
+.portal-guide h2{font-size:20px;font-weight:700}
+.portal-guide article{margin:28px 0;padding:24px 26px;border:1px solid var(--line);border-radius:14px;background:var(--bg-solid);box-shadow:var(--shadow-card)}
+.portal-guide p,.portal-guide li{color:var(--muted-strong);line-height:1.8}
+
+@media(max-width:760px){
+  .portal-sidebar{padding:0 12px 12px}
+  .portal-overview-hero{padding:22px 20px}
+  .portal-overview-hero::after{width:180px;height:180px;right:-40px;bottom:-100px}
+  .portal-guide article{padding:18px}
+}
