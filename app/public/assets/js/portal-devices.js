@@ -1,6 +1,10 @@
 /* Your devices, while a setup file is waiting to be used: copy its link, and watch for the new
-   computer so the list updates by itself. Loaded only in that state. It reads this same page and
-   changes nothing on the server. */
+   computer. Loaded only in that state.
+
+   The watch asks one small question, "which computers does this business have?", through
+   /portal/devices.php?watch=1 (one device-service read, covering every page of the list, never the
+   setup links). It announces a computer only when it is missing from a list that loaded completely:
+   a failed or partial read decides nothing. It posts nothing and changes nothing on the server. */
 (() => {
     'use strict';
 
@@ -25,10 +29,15 @@
 
     const EVERY_MS = 15000;
     const FOR_MS = 5 * 60 * 1000;
-    const names = root => [...root.querySelectorAll('.portal-device-card h3')].map(heading => heading.textContent.trim());
-    const known = names(list);
+    const withoutScript = wait.textContent; // true with or without this script; restored when watching ends early
     const started = Date.now();
     let timer = null;
+    let busy = false;
+    // The computers already there. Known from the page only when it holds the whole list, loaded successfully;
+    // otherwise it is taken from the first complete read, and nothing is announced before then.
+    let known = list.hasAttribute('data-complete')
+        ? new Set([...list.querySelectorAll('[data-device]')].map(card => card.dataset.device))
+        : null;
 
     const stop = text => {
         if (timer !== null) clearInterval(timer);
@@ -36,33 +45,72 @@
         wait.textContent = text;
         wait.removeAttribute('data-device-wait');
     };
-    const found = () => {
-        const step = wait.closest('.setup-step');
-        if (step) { step.classList.remove('is-later'); step.classList.add('is-done'); }
-        stop(wait.dataset.foundText);
+
+    /** Every computer, or 'ended' when the sign-in is over, or null when this read cannot be trusted. */
+    const read = async () => {
+        let response;
+        try {
+            response = await fetch('/portal/devices.php?watch=1', { credentials: 'same-origin', cache: 'no-store', redirect: 'manual', headers: { Accept: 'application/json' } });
+        } catch {
+            return null;
+        }
+        if (response.type === 'opaqueredirect' || response.status === 401 || response.status === 403) return 'ended';
+        if (!response.ok) return null;
+        let answer;
+        try { answer = await response.json(); } catch { return null; }
+        if (!answer || answer.ok !== true || !Array.isArray(answer.computers)) return null;
+        if (answer.complete !== true) return 'too many';
+        return answer.computers.filter(computer => computer && typeof computer.reference === 'string' && typeof computer.label === 'string');
+    };
+
+    /** Step 2 and step 3 are both finished once the computer is here. */
+    const finishSteps = () => {
+        const check = document.querySelector('.portal-add-computer .setup-step.is-done .setup-mark svg');
+        document.querySelectorAll('.portal-add-computer .setup-step:not(.is-done)').forEach(step => {
+            step.classList.remove('is-current', 'is-later');
+            step.classList.add('is-done');
+            const mark = step.querySelector('.setup-mark');
+            if (mark && check) mark.replaceChildren(check.cloneNode(true));
+            const title = step.querySelector('.setup-text > strong, .setup-text > h3');
+            if (title) {
+                const done = document.createElement('span');
+                done.className = 'sr-only';
+                done.textContent = ' (done)';
+                title.after(done);
+            }
+        });
+    };
+
+    /** Show the list as it is now. If this read fails the announcement still stands; Refresh status shows the rest. */
+    const showList = async () => {
+        try {
+            const response = await fetch('/portal/devices.php', { credentials: 'same-origin', cache: 'no-store', redirect: 'manual' });
+            if (!response.ok) return;
+            const fresh = new DOMParser().parseFromString(await response.text(), 'text/html').getElementById('portal-device-list');
+            if (fresh && fresh.hasAttribute('data-loaded')) list.replaceChildren(...[...fresh.childNodes].map(node => document.importNode(node, true)));
+        } catch { /* keep the list that is on screen */ }
     };
 
     const check = async () => {
-        if (document.hidden) return;
+        if (busy || document.hidden) return;
         if (Date.now() - started > FOR_MS) return stop(wait.dataset.stoppedText);
-        let page;
+        busy = true;
         try {
-            const response = await fetch('/portal/devices.php', { credentials: 'same-origin', cache: 'no-store', redirect: 'manual' });
-            // A redirect means the sign-in has ended: stop at once instead of asking again every few seconds.
-            if (response.type === 'opaqueredirect' || response.status === 401 || response.status === 403) return stop(wait.dataset.stoppedText);
-            if (!response.ok) return;
-            page = new DOMParser().parseFromString(await response.text(), 'text/html');
-        } catch {
-            return; // a missed check is not an error worth showing; the next one tries again
-        }
-        const fresh = page.getElementById('portal-device-list');
-        if (!fresh) return stop(wait.dataset.stoppedText); // signed out, or the page changed shape: stop quietly
-        const now = names(fresh);
-        if (now.length > known.length || now.some(name => !known.includes(name))) {
-            list.replaceChildren(...[...fresh.childNodes].map(node => document.importNode(node, true)));
-            found();
+            const computers = await read();
+            if (computers === 'ended' || computers === 'too many') return stop(withoutScript);
+            if (computers === null) return;
+            if (known === null) { known = new Set(computers.map(computer => computer.reference)); return; }
+            const added = computers.filter(computer => !known.has(computer.reference));
+            if (added.length === 0) return;
+            stop(added[0].label + ' ' + wait.dataset.foundText);
+            finishSteps();
+            await showList();
+        } finally {
+            busy = false;
         }
     };
 
+    wait.textContent = wait.dataset.watchingText;
     timer = setInterval(check, EVERY_MS);
+    if (known === null) check();
 })();

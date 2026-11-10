@@ -274,6 +274,31 @@ function portal_devices_result(string $action, array $result): array
     return $result;
 }
 
+/**
+ * Every computer's reference and name, across all pages of the list, for the page's own check "has a
+ * new computer appeared?". $page is given the cursor and returns one validated 'devices' result.
+ * Bounded: past $maxPages the answer says it is not complete, so the caller decides nothing from it.
+ *
+ * @param callable(int):array{items:list<array<string,mixed>>,next_after:?int} $page
+ * @return array{complete:bool,computers:list<array{reference:string,label:string}>}
+ */
+function portal_devices_all(callable $page, int $maxPages = 10): array
+{
+    $computers = [];
+    $after = 0;
+    for ($read = 0; $read < $maxPages; $read++) {
+        $result = $page($after);
+        foreach ($result['items'] as $item) {
+            $computers[] = ['reference' => (string)$item['reference'], 'label' => (string)$item['label']];
+        }
+        if ($result['next_after'] === null) return ['complete' => true, 'computers' => $computers];
+        // A cursor that does not move forward would loop: treat the list as unreadable rather than guess.
+        if ((int)$result['next_after'] <= $after) return ['complete' => false, 'computers' => $computers];
+        $after = (int)$result['next_after'];
+    }
+    return ['complete' => false, 'computers' => $computers];
+}
+
 function portal_devices_error(string $reason): string
 {
     return match ($reason) {

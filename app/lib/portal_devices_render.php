@@ -18,6 +18,9 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
     $employeeState = $employee === null ? null : ($employee['result']['state'] ?? 'unknown');
     // Adding comes first while there is nothing else to look at, and while a setup file is waiting to be used.
     $addFirst = $download !== null || ($manage && $devices !== null && ($devices['items'] ?? []) === []);
+    // The page holds every computer only when its first page loaded and no further page follows. The
+    // waiting script starts from this list only then; otherwise it reads the whole list itself first.
+    $wholeList = $devices !== null && ($devices['next_after'] ?? null) === null && (int)($_GET['after'] ?? 0) === 0;
     $context['chat_button_placement'] = 'inline';
     portal_page_start('Your devices', 'portal-devices-page', $context);
     ?>
@@ -29,11 +32,11 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
  <?php if ($addFirst) portal_render_add_computer($context, $manage, $download); ?>
  <div class="portal-devices-layout<?= $addFirst && !($manage && $enrollments !== []) ? ' is-single' : '' ?>"><section aria-labelledby="computers-heading">
   <div class="portal-section-title"><h2 id="computers-heading">Connected computers</h2></div>
-  <div id="portal-device-list">
+  <div id="portal-device-list"<?= $devices !== null ? ' data-loaded' : '' ?><?= $wholeList ? ' data-complete' : '' ?>>
   <?php if ($devices === null): ?><p>We cannot retrieve your computers right now. Their status has not been changed.</p>
   <?php elseif (($devices['items'] ?? []) === []): ?><div class="portal-device-empty"><?= portal_icon('device') ?><h3>No computers on this page yet</h3><p><?= $manage ? 'Add your first Windows computer with the three steps above. It appears here a few minutes after setup.' : 'Ask an owner or administrator to add your computers.' ?></p></div>
   <?php else: ?><div class="portal-device-list"><?php foreach ($devices['items'] as $device): $attention = $device['connection'] !== 'reporting'; ?>
-   <article class="portal-device-card"><div class="portal-device-symbol"><?= portal_icon('device') ?></div><div class="portal-device-details"><h3><?= portal_h($device['label']) ?></h3>
+   <article class="portal-device-card" data-device="<?= portal_h($device['reference']) ?>"><div class="portal-device-symbol"><?= portal_icon('device') ?></div><div class="portal-device-details"><h3><?= portal_h($device['label']) ?></h3>
     <p class="portal-device-status"><span class="portal-device-state<?= $device['connection'] === 'reporting' ? ' is-online' : ($device['connection'] === 'stale' ? ' is-attention' : '') ?>"><?= portal_h($device['connection_label']) ?></span><span class="portal-device-platform"><?= portal_h($device['platform']) ?></span></p>
     <?php if ($attention): ?><p class="portal-device-next"><?= portal_h($device['connection_help']) ?></p><?php endif; ?>
     <?php if ($device['last_seen_at'] !== null): ?><p class="portal-hint">Last check-in: <?= portal_h(portal_format_utc($device['last_seen_at'])) ?></p><?php endif; ?>
@@ -129,7 +132,7 @@ function portal_render_add_computer(array $context, bool $manage, ?array $downlo
      <p class="portal-hint">This private link adds one computer and stops working <?= portal_h(portal_format_utc($download['expires_at'])) ?>. Share it only with someone who may set up that computer.</p>
     <?php endif; ?></div></li>
    <?= $step(3, 'later') ?><strong>Wait for it to appear</strong><?php if ($download === null): ?><p>The computer shows up under Connected computers a few minutes after setup finishes.</p>
-    <?php else: ?><p id="portal-device-wait" role="status" data-device-wait data-found-text="Your computer is connected. It is in the list below." data-stopped-text="Not showing yet? Choose Refresh status, or ask Westy.">Keep that computer on and online. This page checks for it and updates the list by itself.</p>
+    <?php else: ?><p id="portal-device-wait" role="status" data-device-wait data-watching-text="Keep that computer on and online. This page is checking for it and will show it here by itself." data-found-text="is connected. It is under Connected computers." data-stopped-text="Not showing yet? Choose Refresh status, or ask Westy.">Keep that computer on and online. It appears under Connected computers a few minutes after setup finishes. Choose Refresh status to check.</p>
     <?php endif; ?></div></li>
   </ol>
   <p class="portal-hint">Adding a computer does not order antivirus or create a charge. <a href="/portal/new.php">Need help with Mac or Linux?</a></p>

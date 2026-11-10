@@ -121,9 +121,58 @@ add_check('after confirming, step 1 is done, step 2 is current and holds the dow
 add_check('the link can be copied for a different computer, and says how long it works',
     str_contains($add, '<button type="button" class="btn-ghost" data-copy-text="' . $download['download_url'] . '" data-copy-status="portal-copy-status">Copy link</button>')
     && str_contains($add, 'id="portal-copy-status" role="status"') && str_contains($add, 'This private link adds one computer and stops working '));
-add_check('step 3 waits out loud: a status line that the page script updates, with its two endings ready',
-    (bool)preg_match('~<p id="portal-device-wait" role="status" data-device-wait data-found-text="[^"]+" data-stopped-text="[^"]+">~', $add)
-    && str_contains($adding, '<div id="portal-device-list">'));
+add_check('step 3 is a status line the page script can update, with its watching, found and stopped words ready',
+    (bool)preg_match('~<p id="portal-device-wait" role="status" data-device-wait data-watching-text="[^"]+" data-found-text="[^"]+" data-stopped-text="[^"]+">([^<]+)</p>~', $add, $waitLine));
+add_check('what step 3 says before any script runs is true without one: it promises no self-updating page',
+    str_contains($waitLine[1] ?? '', 'Choose Refresh status to check.') && ! preg_match('/by itself|is checking|updates/i', $waitLine[1] ?? ''));
+
+/* ---- What the waiting script may start from -------------------------------------------------------- */
+$whole = ['items' => [$front, $warehouse], 'next_after' => null];
+$listTag = static function (string $main): string {
+    preg_match('~<div id="portal-device-list"[^>]*>~', $main, $tag);
+    return $tag[0] ?? '';
+};
+add_check('a list that loaded and has no further page is marked as the whole list, and each computer carries its reference',
+    $listTag($page($owner, $whole, [$link], $download)) === '<div id="portal-device-list" data-loaded data-complete>'
+    && substr_count($page($owner, $whole, [$link], $download), 'data-device="1:' . str_repeat('a', 64) . '"') === 1);
+add_check('a first page with more pages behind it is loaded but not the whole list',
+    $listTag($adding) === '<div id="portal-device-list" data-loaded>');
+$_GET['after'] = '50';
+add_check('a later page is never the whole list, even when it is the last one',
+    $listTag($page($owner, $whole, [$link], $download)) === '<div id="portal-device-list" data-loaded>');
+unset($_GET['after']);
+add_check('a list that failed to load is marked as neither, so nothing can be announced from it',
+    $listTag($page($owner, null, [$link], $download)) === '<div id="portal-device-list">');
+
+/* ---- The whole list, across pages, for the waiting step -------------------------------------------- */
+$pages = [
+    0 => ['items' => [$front, $warehouse], 'next_after' => 2],
+    2 => ['items' => [$device('3:' . str_repeat('c', 64), 'Reception laptop', 'reporting', 'Connected and reporting', '')], 'next_after' => null],
+];
+$asked = [];
+$all = portal_devices_all(static function (int $after) use ($pages, &$asked): array { $asked[] = $after; return $pages[$after]; });
+add_check('the watch reads every page, so a new computer on the second page is found',
+    $all['complete'] === true && $asked === [0, 2]
+    && $all['computers'] === [
+        ['reference' => '1:' . str_repeat('a', 64), 'label' => 'Front desk computer'],
+        ['reference' => '2:' . str_repeat('b', 64), 'label' => 'Warehouse laptop'],
+        ['reference' => '3:' . str_repeat('c', 64), 'label' => 'Reception laptop'],
+    ]);
+add_check('it returns only a reference and a name for each computer',
+    array_keys($all['computers'][0]) === ['reference', 'label']);
+$endless = portal_devices_all(static fn(int $after): array => ['items' => [$front], 'next_after' => $after + 50], 3);
+add_check('a list longer than the bound is reported as not complete, never as a full answer',
+    $endless['complete'] === false && count($endless['computers']) === 3);
+$stuck = portal_devices_all(static fn(int $after): array => ['items' => [$front], 'next_after' => 7 > $after ? 7 : $after]);
+add_check('a cursor that stops moving forward ends the read as not complete instead of looping',
+    $stuck['complete'] === false && count($stuck['computers']) === 2);
+$threw = false;
+try {
+    portal_devices_all(static function (int $after): array { throw new PortalDevicesException('service_unavailable'); });
+} catch (PortalDevicesException) {
+    $threw = true;
+}
+add_check('a failed read is an error, not an empty list', $threw);
 add_check('the waiting script is loaded only in this state, from a file, with a content-hash version',
     (bool)preg_match('~<script src="/assets/js/portal-devices\.js\?v=[a-f0-9]{20}" defer></script>~', $adding));
 add_check('while a setup file is waiting, the panel leads the page and is still the only filled button',

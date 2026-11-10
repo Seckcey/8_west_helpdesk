@@ -7,8 +7,32 @@ enforce_https();
 if (!portal_enabled()) { http_response_code(404); exit('Not found.'); }
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if (!in_array($method, ['GET','POST'], true)) { header('Allow: GET, POST'); portal_render_error(405, 'Method not allowed', 'Open Your devices from the portal.'); exit; }
+// The waiting step's question, "which computers are there now?": JSON, one kind of device-service read
+// (the list, every page), never the setup links. It starts no sign-in and answers 401 when there is none.
+$watch = $method === 'GET' && ($_GET['watch'] ?? null) === '1';
+$watchAnswer = static function (int $status, array $answer): void {
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, private');
+    header('X-Content-Type-Options: nosniff');
+    echo json_encode($answer, JSON_THROW_ON_ERROR);
+};
 try {
     $context = portal_authenticated_context(db());
+    if ($watch) {
+        if ($context === null) { $watchAnswer(401, ['ok' => false]); exit; }
+        if (!portal_devices_can_manage($context)) { $watchAnswer(403, ['ok' => false]); exit; }
+        try {
+            $all = portal_devices_all(static fn(int $after): array => portal_devices_request(db(), $context, 'devices', ['after' => $after]));
+        } catch (PortalDevicesException) {
+            $watchAnswer(503, ['ok' => false]); exit;
+        }
+        // Same rule as the page: nothing leaves after a revocation or binding change during the read.
+        $fresh = portal_authenticated_context(db());
+        if ($fresh === null || $fresh['identity'] !== $context['identity']) { $watchAnswer(401, ['ok' => false]); exit; }
+        $watchAnswer(200, ['ok' => true] + $all);
+        exit;
+    }
     if ($context === null) { portal_require_sign_in(); exit; }
     $error = null; $download = null; $notice = null; $devices = null; $enrollments = []; $choices = null;
     // One Family and one employee protection request per session: each keeps its original key and inputs for an
@@ -94,5 +118,6 @@ try {
     portal_render_devices($fresh, $devices, $enrollments, $error, $download, $notice, $protection, $employee, $choices);
 } catch (Throwable $e) {
     error_log('[safeharbor-portal-devices] request_failed type=' . $e::class);
+    if ($watch) { $watchAnswer(503, ['ok' => false]); exit; }
     portal_render_error(503, 'Device services unavailable', 'Try again shortly. You can still contact the support team from the portal.');
 }

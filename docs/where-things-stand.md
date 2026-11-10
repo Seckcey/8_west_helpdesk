@@ -502,8 +502,9 @@ and its resolution are seen in the portal only and it gets no survey. No SQL or 
 
 **Adding a computer as three steps (draft, not live).** Your devices shows Add a computer as confirm,
 install and wait, with one filled button; the consent form, its fields and every device-service call are
-unchanged. With a setup file on screen the page offers Copy link and re-reads itself every 15 seconds
-for up to five minutes so the new computer appears by itself. Each computer shows its state first as a
+unchanged. With a setup file on screen the page offers Copy link and asks `devices.php?watch=1` (the
+computer list only, as JSON) every 15 seconds for up to five minutes, then names the new computer when it
+appears. Each computer shows its state first as a
 tag. The two antivirus request forms moved into their own section below the list. Customer-facing
 words say setup link, setup file and add. No SQL, auth or service-contract change.
 

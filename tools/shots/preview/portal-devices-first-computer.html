@@ -43,7 +43,7 @@
       <section class="portal-device-setup portal-add-computer" id="add-computer" aria-labelledby="add-device-heading"><h2 id="add-device-heading">Add a computer</h2>
     <p>About five minutes on a Windows computer. You need to be an administrator on that computer.</p>
   <ol class="setup-steps">
-   <li class="setup-step is-current"><span class="setup-mark" aria-hidden="true">1</span><div class="setup-text"><strong>Confirm</strong><form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"><input type="hidden" name="action" value="enrollment_create"><input type="hidden" name="request_key" value="aea465a2797916720264a115c00d0d54">
+   <li class="setup-step is-current"><span class="setup-mark" aria-hidden="true">1</span><div class="setup-text"><strong>Confirm</strong><form method="post" action="/portal/devices.php"><input type="hidden" name="csrf" value="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"><input type="hidden" name="action" value="enrollment_create"><input type="hidden" name="request_key" value="ffffcb64890f38487ef2eb584f281ca8">
      <label class="portal-device-consent"><input type="checkbox" name="consent" value="yes" required><span>I am authorized to add this computer to Harbor Dental and allow the support team to manage it.</span></label>
      <button type="submit" class="btn-primary">Create Windows setup link</button>
     </form></div></li>
@@ -56,7 +56,7 @@
     </section>
      <div class="portal-devices-layout"><section aria-labelledby="computers-heading">
   <div class="portal-section-title"><h2 id="computers-heading">Connected computers</h2></div>
-  <div id="portal-device-list">
+  <div id="portal-device-list" data-loaded data-complete>
   <div class="portal-device-empty"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8M12 16v5"/></svg><h3>No computers on this page yet</h3><p>Add your first Windows computer with the three steps above. It appears here a few minutes after setup.</p></div>
     </div>
   <p class="portal-hint">A connected computer is available for support. Antivirus protection and any paid add-ons have their own status.</p>
