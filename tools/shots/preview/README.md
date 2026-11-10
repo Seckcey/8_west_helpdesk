@@ -12,7 +12,8 @@ made up.
 | `clients.html` | Clients list and number tiles | copied from `app/public/clients.php` |
 | `team.html` | Team page with Invite a teammate and the backup sign-in disclosure | copied from `app/public/users.php` |
 | `signin.html` | Staff sign-in | copied from `app/public/login.php` |
-| `portal-home.html`, `portal-home-first-run.html`, `portal-devices.html`, `portal-ticket.html`, `portal-signin.html` | Customer portal (`portal-home-first-run.html` is an owner's Home before any computer exists) | rendered by the real templates (see below) |
+| `portal-home.html`, `portal-home-first-run.html`, `portal-devices.html`, `portal-signin.html` | Customer portal (`portal-home-first-run.html` is an owner's Home before any computer exists) | rendered by the real templates (see below) |
+| `portal-ticket-sent.html`, `portal-ticket-in-progress.html`, `portal-ticket.html`, `portal-ticket-resolved.html` | The request page at its four steps: just sent, in progress, waiting for the customer's reply, resolved | rendered by the real templates (see below) |
 
 ## Open them
 

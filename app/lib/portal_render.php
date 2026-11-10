@@ -252,6 +252,145 @@ function portal_format_utc(?string $utc): string
         $GLOBALS['portal_view_preferences'] ?? suite_preferences_defaults());
 }
 
+/**
+ * A time the way a person says it, in the viewer's own time zone and clock style: "today at 9:22 AM",
+ * "Monday at 9:22 AM", "Nov 3 at 9:22 AM". Empty when the time cannot be read. $now is for tests.
+ */
+function portal_friendly_time(?string $utc, ?int $now = null): string
+{
+    if ($utc === null || $utc === '') return '';
+    $preferences = $GLOBALS['portal_view_preferences'] ?? suite_preferences_defaults();
+    try {
+        $zone = new DateTimeZone((string)$preferences['time_zone']);
+        $when = (new DateTimeImmutable($utc, new DateTimeZone('UTC')))->setTimezone($zone);
+        $current = (new DateTimeImmutable('@' . ($now ?? time())))->setTimezone($zone);
+    } catch (Throwable) {
+        return '';
+    }
+    $twentyFourHour = $preferences['time_format'] === '24h'
+        || ($preferences['time_format'] === 'locale' && $preferences['locale'] === 'en-GB');
+    $dayFirst = $preferences['date_format'] === 'dmy'
+        || ($preferences['date_format'] === 'locale' && in_array($preferences['locale'], ['en-GB', 'es-US'], true));
+    $days = (int)$current->setTime(0, 0)->diff($when->setTime(0, 0))->format('%r%a');
+    $day = match (true) {
+        $days === 0 => 'today',
+        $days === -1 => 'yesterday',
+        $days === 1 => 'tomorrow',
+        abs($days) < 7 => $when->format('l'),
+        default => $when->format(($dayFirst ? 'j M' : 'M j') . ($when->format('Y') === $current->format('Y') ? '' : ', Y')),
+    };
+    return $day . ' at ' . $when->format($twentyFourHour ? 'H:i' : 'g:i A');
+}
+
+/** The friendly time as a <time> element; the full date, time and zone show on hover. */
+function portal_time_tag(?string $utc, bool $capital = false): string
+{
+    $text = portal_friendly_time($utc);
+    $timestamp = $utc === null ? false : strtotime($utc . ' UTC');
+    if ($text === '' || $timestamp === false) return portal_h(portal_format_utc($utc));
+    return '<time datetime="' . gmdate('Y-m-d\TH:i:s\Z', $timestamp) . '" title="' . portal_h(portal_format_utc($utc)) . '">'
+        . portal_h($capital ? ucfirst($text) : $text) . '</time>';
+}
+
+/**
+ * Where a request stands, in the customer's words. The page, its tests and the previews all read this,
+ * so the progress line and the sentences can never disagree.
+ *
+ * The four steps are the four status words exactly (the approved Guide tells people to check Status and
+ * names "Open" and "Waiting for your reply"). The policy name, its version and its minutes are never used.
+ *
+ * @param array<string,mixed> $ticket
+ * @param list<array<string,mixed>> $messages customer-visible messages, oldest first
+ * @return array{step:int,label:string,steps:list<array{label:string,state:string}>,next:list<string>,goal:?string}
+ *         each step's state is done, now, later, or skipped (passed without a record that it happened)
+ */
+function portal_request_progress(array $ticket, array $messages, bool $canWrite, ?int $now = null): array
+{
+    $now ??= time();
+    $order = ['open', 'in_progress', 'waiting', 'resolved'];
+    $status = in_array($ticket['status'] ?? '', $order, true) ? (string)$ticket['status'] : 'open';
+    $step = array_search($status, $order, true) + 1;
+
+    $lastKind = '';
+    $lastTeamReply = null;
+    foreach ($messages as $message) {
+        $lastKind = (string)($message['kind'] ?? '');
+        if ($lastKind === 'tech') $lastTeamReply = (string)($message['created_at'] ?? '');
+    }
+    $firstReply = (string)($ticket['first_response_at'] ?? '');
+    $answered = $firstReply !== '' || $lastTeamReply !== null;
+    $teamReplied = portal_friendly_time($lastTeamReply ?? $firstReply, $now);
+    $weReplied = $teamReplied === '' ? 'We replied' : "We replied {$teamReplied}";
+    // The newest message the customer can see is ours: they may have been asked something.
+    $ourMove = $answered && $lastKind === 'tech';
+
+    // A step is "done" only when the record shows it happened. Nothing records an earlier wait for the
+    // customer, so that step is never claimed; a technician's reply is what moves a request to In progress.
+    $happened = [1 => true, 2 => $status === 'in_progress' || $answered, 3 => false, 4 => $status === 'resolved'];
+    $steps = [];
+    foreach ($order as $index => $name) {
+        $position = $index + 1;
+        $steps[] = [
+            'label' => portal_status_label($name),
+            'state' => match (true) {
+                // A resolved request has nothing left to do, so its last step is done, not "current".
+                $position === $step => $status === 'resolved' ? 'done' : 'now',
+                $position > $step => 'later',
+                default => $happened[$position] ? 'done' : 'skipped',
+            },
+        ];
+    }
+
+    $next = match ($status) {
+        'resolved' => [
+            ($resolved = portal_friendly_time((string)($ticket['resolved_at'] ?? ''), $now)) === ''
+                ? 'This request is resolved.' : "Resolved {$resolved}.",
+            'Nothing more is needed from you.',
+        ],
+        'waiting' => $canWrite
+            ? ['It is your turn.', $answered ? $weReplied . ' and need your answer to carry on.' : 'The support team needs an answer from you to carry on.']
+            : ['We are waiting for an answer from your business.',
+                $answered ? $weReplied . '. Someone who can reply needs to answer.' : 'Someone who can reply needs to answer.'],
+        'in_progress' => match (true) {
+            // Never "you do not need to do anything" straight after we wrote to them.
+            $ourMove && $canWrite => [$weReplied . '.', 'You can answer below. A technician is working on this.'],
+            $ourMove => [$weReplied . '.', 'A technician is working on this.'],
+            default => [
+                'A technician is working on this.',
+                $canWrite ? 'You do not need to do anything now. If something changes, tell us below.' : 'You do not need to do anything now.',
+            ],
+        },
+        default => match (true) {
+            $ourMove && $canWrite => [$weReplied . '.', 'You can answer below.'],
+            $ourMove => [$weReplied . '.', 'This request is with the support team.'],
+            $answered && $lastKind === 'client' => ['We have your reply.', 'A technician will pick this up again. You do not need to do anything now.'],
+            $answered => ['This request is back with the support team.', 'You do not need to do anything now.'],
+            default => [
+                'We have your request.',
+                $canWrite ? 'A technician will answer here. You do not need to do anything now, and you can add details below.'
+                    : 'A technician will answer here. You do not need to do anything now.',
+            ],
+        },
+    };
+
+    $goal = null;
+    // "We replied Monday at 9:22 AM" already says it when that reply was the first one.
+    $saidAbove = ($status === 'waiting' || ($ourMove && $status !== 'resolved'))
+        && $firstReply !== '' && ($lastTeamReply ?? $firstReply) === $firstReply;
+    if ($saidAbove) {
+        $goal = null;
+    } elseif ($firstReply !== '' && ($sent = portal_friendly_time($firstReply, $now)) !== '') {
+        $goal = "First reply sent {$sent}.";
+    } elseif (! $answered && $status !== 'resolved' && ($due = portal_friendly_time((string)($ticket['sla_due_at'] ?? ''), $now)) !== '') {
+        $late = strtotime((string)$ticket['sla_due_at'] . ' UTC') < $now;
+        $goal = $late
+            ? "We aimed to send a first reply by {$due} and are running late. A technician will answer as soon as possible."
+            : "We aim to send a first reply by {$due}.";
+    }
+
+    return ['step' => $step, 'label' => portal_status_label($status), 'steps' => $steps, 'next' => $next, 'goal' => $goal];
+}
+
 function portal_role_label(string $role): string
 {
     return match ($role) {
@@ -753,30 +892,45 @@ function portal_render_ticket(
     $ticket = $detail['ticket'];
     $ticketId = (int)$ticket['id'];
     $canWrite = portal_role_can_write_tickets(portal_customer_role($identity));
-    $canReply = $canWrite && ($ticket['status'] ?? '') !== 'resolved';
+    $status = (string)($ticket['status'] ?? '');
+    $canReply = $canWrite && $status !== 'resolved';
     $nonce = $canReply ? portal_action_nonce('ticket:reply:' . $ticketId) : '';
-    portal_page_start('Ticket #' . $ticketId, '', $context);
+    $direct = portal_direct_customer_browser($context);
+    $clientName = trim((string)($context['binding']['client_name'] ?? '')) ?: 'your business';
+    portal_page_start('Request #' . $ticketId, '', $context);
+    // After the page starts, so every time is in the viewer's own time zone and clock style.
+    $progress = portal_request_progress($ticket, $detail['messages'], $canWrite);
     ?>
-<main class="page">
+<main class="page portal-request">
   <?php portal_render_support_back_link($context); ?>
   <header class="page-head portal-ticket-head">
     <div>
-      <div class="ticket-head">
-        <span class="ticket-num">#<?= $ticketId ?></span>
-        <span class="portal-status portal-status-<?= portal_h((string)$ticket['status']) ?>"><?= portal_h(portal_status_label((string)$ticket['status'])) ?></span>
-      </div>
       <h1 class="ticket-subject"><?= portal_h($ticket['subject']) ?></h1>
-      <p class="ticket-sub"><?= portal_h(portal_priority_label((string)$ticket['priority'])) ?> priority · Opened <?= portal_h(portal_format_utc((string)$ticket['created_at'])) ?></p>
+      <p class="ticket-sub">Request #<?= $ticketId ?>, sent <?= portal_time_tag((string)$ticket['created_at']) ?>. <?= portal_h(portal_priority_label((string)$ticket['priority'])) ?> priority.</p>
     </div>
-    <?php if ($canWrite && !portal_direct_customer_browser($context)): ?><a class="btn-primary" href="/portal/new.php">New request</a><?php endif; ?>
+    <?php if ($canWrite && !$direct): ?><a class="btn-ghost portal-request-new" href="/portal/new.php">New support request</a><?php endif; ?>
   </header>
 
   <?php if ($notice !== null && $notice !== ''): ?><div class="form-ok" role="status"><?= portal_h($notice) ?></div><?php endif; ?>
   <?php if ($error !== null && $error !== ''): ?><div class="form-error" role="alert"><?= portal_h($error) ?></div><?php endif; ?>
-  <?php if (($ticket['status'] ?? '') === 'waiting' && $canReply): ?>
+
+  <section class="portal-progress" aria-labelledby="portal-status-heading">
+    <h2 id="portal-status-heading" class="portal-progress-title">Status</h2>
+    <ol class="portal-progress-steps">
+      <?php foreach ($progress['steps'] as $index => $step): ?>
+        <li class="is-<?= portal_h($step['state']) ?>"<?= $index + 1 === $progress['step'] ? ' aria-current="step"' : '' ?>>
+          <span class="portal-progress-mark" aria-hidden="true"><?= $step['state'] === 'done' ? portal_icon('check') : $index + 1 ?></span>
+          <span class="portal-progress-label"><?= portal_h($step['label']) ?><?php if ($step['state'] === 'done'): ?><span class="sr-only">, done</span><?php endif; ?></span>
+        </li>
+      <?php endforeach; ?>
+    </ol>
+    <p class="portal-progress-summary" aria-hidden="true">Step <?= (int)$progress['step'] ?> of <?= count($progress['steps']) ?>: <?= portal_h($progress['label']) ?></p>
+  </section>
+
+  <?php if ($status === 'waiting' && $canReply): ?>
     <div class="card portal-waiting-callout" role="status">
       <strong>The support team is waiting for your reply.</strong>
-      <span>Send an update below and this request will return to the open queue for a human technician.</span>
+      <span>Answer below and a technician picks it up again.</span>
     </div>
   <?php endif; ?>
 
@@ -784,14 +938,14 @@ function portal_render_ticket(
     <section class="thread" aria-labelledby="portal-conversation-heading">
       <h2 id="portal-conversation-heading" class="rail-label">Conversation</h2>
       <?php if ($detail['messages'] === []): ?>
-        <div class="card empty">No customer-visible messages have been posted yet.</div>
+        <div class="card empty">No messages yet.</div>
       <?php else: ?>
         <?php foreach ($detail['messages'] as $message):
             $isTech = ($message['kind'] ?? '') === 'tech'; ?>
           <article class="card msg <?= $isTech ? 'msg-tech' : 'msg-client' ?>">
             <div class="msg-meta">
               <span class="<?= $isTech ? 'msg-author-tech' : 'msg-author' ?>"><?= portal_h($message['author_name']) ?></span>
-              <span class="msg-when"><?= portal_h(portal_format_utc((string)$message['created_at'])) ?></span>
+              <span class="msg-when"><?= portal_time_tag((string)$message['created_at'], true) ?></span>
             </div>
             <div class="msg-body"><?= portal_h($message['body']) ?></div>
           </article>
@@ -802,42 +956,32 @@ function portal_render_ticket(
         <form method="post" action="/portal/ticket.php?id=<?= $ticketId ?>" class="card reply">
           <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>">
           <input type="hidden" name="action_nonce" value="<?= portal_h($nonce) ?>">
-          <label class="field" for="portal-reply"><?= ($ticket['status'] ?? '') === 'waiting' ? 'Send the update the support team needs' : 'Reply to the support team' ?></label>
+          <label class="field" for="portal-reply"><?= $status === 'waiting' ? 'Send the update the support team needs' : 'Reply to the support team' ?></label>
           <textarea id="portal-reply" name="body" maxlength="<?= PORTAL_TICKET_BODY_MAX_CHARACTERS ?>" required
-                    placeholder="Add an update or answer the technician’s question…"><?= portal_h($draft) ?></textarea>
+                    placeholder="Add an update or answer the technician’s question"><?= portal_h($draft) ?></textarea>
           <div class="reply-foot">
-            <span class="reply-hint">Your reply is visible to the requester, client owners/admins and the support team.</span>
-            <button type="submit" class="btn-primary btn-sm">Send reply</button>
+            <span class="reply-hint">Do not include passwords or verification codes.</span>
+            <button type="submit" class="btn-primary">Send reply</button>
           </div>
         </form>
-      <?php elseif (($ticket['status'] ?? '') === 'resolved'): ?>
-        <div class="card portal-closed-note">This ticket is resolved. Open a new request if you still need help.</div>
+      <?php elseif ($status === 'resolved'): ?>
+        <div class="card portal-closed-note">This request is resolved. Still not fixed? Send a new support request and mention request #<?= $ticketId ?>, so you do not have to explain it again.</div>
       <?php else: ?>
-        <div class="card portal-closed-note">Your viewer role can read this ticket but cannot send replies.</div>
+        <div class="card portal-closed-note">You can read this request but not reply to it.</div>
       <?php endif; ?>
     </section>
 
-    <aside class="rail" aria-label="Ticket details">
-      <h2 class="rail-label">Ticket details</h2>
-      <div class="card rail-card">
-        <span class="rail-k">Status</span>
-        <span class="rail-v"><?= portal_h(portal_status_label((string)$ticket['status'])) ?></span>
-      </div>
-      <div class="card rail-card">
-        <span class="rail-k">Response goal</span>
-        <?php if (! empty($ticket['first_response_at'])): ?>
-          <span class="rail-v">First response sent</span>
-          <span class="rail-note"><?= portal_h(portal_format_utc((string)$ticket['first_response_at'])) ?></span>
-        <?php else: ?>
-          <span class="rail-v">Due <?= portal_h(portal_format_utc((string)$ticket['sla_due_at'])) ?></span>
-          <?php if (! empty($ticket['service_goal_policy_name'])): ?>
-            <span class="rail-note"><?= portal_h($ticket['service_goal_policy_name']) ?> v<?= (int)$ticket['service_goal_version_no'] ?> · <?= (int)$ticket['service_goal_response_minutes'] ?> elapsed minutes</span>
-          <?php endif; ?>
+    <aside class="rail portal-next" aria-labelledby="portal-next-heading">
+      <h2 id="portal-next-heading" class="rail-label">What happens next</h2>
+      <div class="portal-next-body">
+        <?php foreach ($progress['next'] as $index => $sentence): ?>
+          <p<?= $index === 0 ? ' class="portal-next-lead"' : '' ?>><?= portal_h($sentence) ?></p>
+        <?php endforeach; ?>
+        <?php if ($progress['goal'] !== null): ?>
+          <h3 class="portal-next-label">Response goal</h3>
+          <p><?= portal_h($progress['goal']) ?></p>
         <?php endif; ?>
-      </div>
-      <div class="card rail-card">
-        <span class="rail-k">Privacy</span>
-        <span class="rail-note">Internal notes, automation evidence, technician time, billing, and device controls are never shown here.</span>
+        <p class="portal-next-privacy">Seen by the person who sent it, the owners and admins of <?= portal_h($clientName) ?>, and the support team.</p>
       </div>
     </aside>
   </div>

@@ -174,9 +174,14 @@ function intake_message(string $fromEmail, string $fromName, string $subjectText
         mail_queue(
             $fromEmail,
             '[#' . $tid . '] ' . $subjectClean,
-            "Hi {$fromName},\n\nWe've got it — ticket #{$tid} is open and a tech will reply within your SLA window.\n\n"
-              . "Reply to this email any time to add to the thread (keep [#{$tid}] in the subject).\n"
-              . "— Safeharbor by 8 West IT",
+            customer_mail_received_body(
+                $fromName,
+                $tid,
+                $subjectClean,
+                $window,
+                customer_mail_business_name($scopeTenantId),
+                customer_mail_portal_link($scopeTenantId, $clientId, $tid),
+            ),
             $tid
         );
     }
