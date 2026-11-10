@@ -191,6 +191,12 @@ Sections:
 
 - **Welcome**: the person's name, the selected client, their role
   (`portal_role_label`) and one sentence stating what they can see.
+- **Get set up**, first card after the hero: client owners and administrators
+  only, when the computer list loaded and is empty. Three steps: Create your
+  account (done), Add your first computer (Open Your devices), and Invite your
+  team (Invite a member in 8 West ID for an actual owner/admin without a
+  customer-profile overlay; otherwise "Your support provider can add people for
+  you."). It disappears once a computer exists.
 - **Start here** buttons: Ask Westy (`/portal/?view=westy`); Write a request
   (only for roles that can write tickets, so never viewers); Your devices; and My
   settings in 8 West ID (`https://id.8westit.com/settings.php`, the existing
@@ -204,7 +210,9 @@ Sections:
 - Client owners and administrators only: **Service summaries** (latest archive)
   and **Manage {client}** (Client Admin and Plan and billing in 8 West ID, and
   Computer access). These links use the same `portal_client_admin()` condition
-  as the sidebar.
+  as the sidebar. Manage also offers Invite a member in 8 West ID, under the
+  Computer access page's own condition (an actual owner/admin without a
+  customer-profile overlay).
 - **Need a person?**: Contact support, plus the existing privacy sentence.
 
 ### Empty, unavailable and partial states
@@ -215,7 +223,8 @@ Sections:
   The page offers Try again and, for writers, Write a request. It never shows
   zero.
 - No computers: members are told none is assigned yet and to ask an owner or
-  administrator. Owners and administrators are told none is connected yet.
+  administrator. Owners and administrators are told none is connected yet, and
+  also see the Get set up card.
 - Computers could not be read, for any reason: "We can't show your computers
   right now. Nothing about them has changed." The page links to Your devices. It
   never shows "no computers".

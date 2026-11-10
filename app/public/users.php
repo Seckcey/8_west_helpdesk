@@ -15,6 +15,12 @@ $roleHelp = ['tech' => 'Work on support requests.', 'admin' => 'Manage support a
 $colorLabels = ['Blue', 'Cyan', 'Gold', 'Mint'];
 $error = '';
 $ok = '';
+$addFailed = false;
+// People are added in 8 West ID. The invite shows only where it showed before: an owner or administrator
+// whose 8 West ID session grants people management in the MSP Admin panel.
+$canInvite = $isAdmin && ($_SESSION['suite_settings_context']['capabilities']['manage_people'] ?? false) === true
+    && in_array('msp_admin', $_SESSION['suite_settings_context']['panels'] ?? [], true);
+$inviteUrl = 'https://id.8westit.com/users.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
     csrf_check();
@@ -40,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
                 $ok = "{$name} added as a local Safeharbor account — they can sign in with {$email}.";
             }
         }
+        $addFailed = $error !== '';
     }
 
     if (($action === 'deactivate' || $action === 'reactivate') && isset($_POST['user_id'])) {
@@ -66,13 +73,22 @@ page_top($user, 'Team', 'team');
       <h1 class="page-title">Team</h1>
       <p class="page-sub"><?= count(array_filter($rows, static fn($r) => (int)$r['is_active'] === 1)) ?> active Safeharbor accounts in this workspace</p>
     </div>
+    <?php if ($canInvite): ?>
+    <div class="page-actions">
+      <a class="btn-primary" href="<?= h($inviteUrl) ?>">Invite a teammate</a>
+    </div>
+    <?php endif; ?>
   </div>
+
+  <?php if ($canInvite): ?>
+  <div class="callout callout-info team-invite-callout"><svg class="callout-icon" viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2V11M8 5h.01" stroke-linecap="round"/></svg><p><strong>People are added once, in 8 West ID.</strong> Invite someone there and choose which apps they can open. They appear on this list after they sign in.</p></div>
+  <?php elseif ($isAdmin): ?>
+  <div class="callout callout-info team-invite-callout"><svg class="callout-icon" viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2V11M8 5h.01" stroke-linecap="round"/></svg><p><strong>People are added once, in 8 West ID.</strong> Ask the person who manages your 8 West ID account to invite teammates.</p></div>
+  <?php endif; ?>
 
   <?php if ($error): ?><div class="form-error" role="alert"><?= h($error) ?></div><?php endif; ?>
   <?php if ($ok): ?><div class="form-ok" role="status"><?= h($ok) ?></div><?php endif; ?>
 
-  <div class="card form-card settings-intro"><h2>Safeharbor team access</h2><p>This page controls local Safeharbor access and recovery accounts. 8 West ID manages suite identities, sign-in links and sign-in recovery.</p><?php if ($isAdmin && ($_SESSION['suite_settings_context']['capabilities']['manage_people'] ?? false) === true
-      && in_array('msp_admin', $_SESSION['suite_settings_context']['panels'] ?? [], true)): ?><a class="btn-ghost settings-button" href="https://id.8westit.com/users.php">Manage people in 8 West ID</a><?php endif; ?></div>
   <div class="card list">
     <?php foreach ($rows as $r): $active = (int)$r['is_active'] === 1; ?>
     <div class="urow <?= $active ? '' : 'urow-inactive' ?>">
@@ -96,16 +112,19 @@ page_top($user, 'Team', 'team');
   </div>
 
   <?php if ($isAdmin): ?>
-  <div class="rail-label" style="margin-top:24px">Add a local recovery account</div>
-  <div class="card form-card">
+  <details class="card backup-signin"<?= $addFailed ? ' open' : '' ?>>
+  <summary><span class="backup-signin-title">Backup sign-in for emergencies</span>
+    <span class="backup-signin-help">A local password account that still works if 8 West ID is unreachable. Most teams never need one.</span></summary>
+  <div class="form-card">
+    <h2 class="rail-label">Add a local recovery account</h2>
     <form method="post" action="/users.php" class="form-grid">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="add">
       <label class="field">Full name
-        <input type="text" name="full_name" required placeholder="Jordan Ellis">
+        <input type="text" name="full_name" required placeholder="Jordan Ellis" value="<?= $addFailed ? h((string)($_POST['full_name'] ?? '')) : '' ?>">
       </label>
       <label class="field">Work email
-        <input type="email" name="email" required placeholder="jordan@8westit.com">
+        <input type="email" name="email" required placeholder="jordan@8westit.com" value="<?= $addFailed ? h((string)($_POST['email'] ?? '')) : '' ?>">
       </label>
       <label class="field">Local password
         <input type="text" name="password" required minlength="6" placeholder="6+ characters">
@@ -133,6 +152,7 @@ page_top($user, 'Team', 'team');
       </div>
     </form>
   </div>
+  </details>
   <?php endif; ?>
 </div>
 <?php

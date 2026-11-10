@@ -209,6 +209,8 @@ jobs:
           php app/tests/desktop_return_path_test.php
           php app/tests/client_operational_context_test.php
           php app/tests/ticket_bulk_delete_render_test.php
+          php app/tests/first_steps_test.php
+          php app/tests/team_invite_test.php
           php app/tests/westy_workflow_test.php
           php app/tests/westy_hardware_test.php
           php app/tests/westy_billing_test.php

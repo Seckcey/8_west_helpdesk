@@ -7,6 +7,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
 require_once __DIR__ . '/../lib/ticket_delete.php';
+require_once __DIR__ . '/../lib/first_steps.php';
 enforce_https();
 $user = require_login();
 $canDelete = ticket_delete_allowed($user);
@@ -37,6 +38,10 @@ $counts = ['all' => 0];
 $cq = db()->prepare('SELECT status, COUNT(*) n FROM tickets WHERE tenant_id = ? GROUP BY status');
 $cq->execute([tenant_id()]);
 foreach ($cq->fetchAll() as $r) { $counts[$r['status']] = (int)$r['n']; $counts['all'] += (int)$r['n']; }
+// A brand-new workspace (no tickets at all) shows owners and administrators where to start.
+$firstSteps = $counts['all'] === 0 && in_array($user['role'], ['owner', 'admin'], true)
+    ? staff_first_steps_card($user, 0, tenant_client_count(db(), tenant_id()), staff_invite_allowed($user, $_SESSION ?? []))
+    : '';
 
 page_top($user, 'Queue', 'queue');
 ?>
@@ -60,6 +65,7 @@ page_top($user, 'Queue', 'queue');
     </div>
   </div>
 
+  <?= $firstSteps ?>
   <div class="card list">
     <?= ticket_head_row($canDelete && $rows) ?>
     <?php if (!$rows): ?>

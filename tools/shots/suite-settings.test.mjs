@@ -117,6 +117,9 @@ try {
           const metrics = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
           assert.ok(metrics.scroll <= metrics.width + 1, JSON.stringify(metrics));
           if (surface === 'users') {
+            // The backup local account form sits in a closed disclosure; open it before using the form.
+            const backup = page.locator('summary').filter({ hasText: 'Backup sign-in for emergencies' });
+            await backup.click();
             const role = page.getByRole('radio', { name: 'Technician Work on support requests.' });
             await role.focus();
             await page.keyboard.press('ArrowRight');
@@ -134,6 +137,7 @@ try {
             assert.equal(await page.getByRole('button', { name: 'Enable Safeharbor access for Jordan Ellis' }).count(), 1);
             assert.equal(submissions.at(-1).action, 'deactivate');
             assert.equal(submissions.at(-1).csrf, 'synthetic-csrf');
+            await backup.click();
             await page.getByRole('textbox', { name: 'Full name', exact: true }).fill('Synthetic Example');
             await page.getByRole('textbox', { name: 'Work email' }).fill('duplicate@example.test');
             await page.getByRole('textbox', { name: 'Local password' }).fill('synthetic-password');

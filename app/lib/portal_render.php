@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/portal_shell.php';
 require_once __DIR__ . '/portal_preferences.php';
+require_once __DIR__ . '/first_steps.php';
 
 function portal_h(mixed $value): string
 {
@@ -451,6 +452,8 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
     $scope = $clientWide ? 'You see every support request and computer for ' . $client . '.'
         : ($canWrite ? 'You see the requests you opened and the computers assigned to you.'
             : 'You can read the requests opened under your account and see the computers assigned to you. Viewer access cannot write requests or replies.');
+    // The 8 West ID member invite: the same condition the Computer access page uses.
+    $canInvite = in_array($identity['role'] ?? '', ['client_owner', 'client_admin'], true) && !isset($identity['customer_access']);
     // Westy's trigger closes the rail in normal flow, so it never covers requests or help text.
     $context['chat_button_placement'] = 'inline';
     portal_page_start('Home', '', $context);
@@ -471,6 +474,7 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
   </nav>
  </section>
  <div class="portal-main-column">
+  <?= portal_first_steps_card($clientWide, $devices, $canInvite) ?>
   <?php if ($summary === null): ?>
   <section class="portal-overview-card" aria-labelledby="home-requests-heading">
    <h2 id="home-requests-heading">Support requests</h2>
@@ -539,6 +543,7 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
     <a class="portal-overview-button" href="<?= portal_h(safeharbor_settings_panel_url('client_admin')) ?>">Client Admin in 8 West ID</a>
     <a class="portal-overview-button" href="/portal/devices.php">Manage computer access</a>
     <a class="portal-overview-button" href="https://id.8westit.com/customer-billing.php">Plan and billing in 8 West ID</a>
+    <?php if ($canInvite): ?><a class="portal-overview-button" href="https://id.8westit.com/users.php#employee-invitations">Invite a member in 8 West ID</a><?php endif; ?>
    </div>
   </section>
   <?php endif; ?>
@@ -552,6 +557,23 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
 </main>
     <?php
     portal_page_end();
+}
+
+/**
+ * "Get set up" on Home: for a client-wide viewer whose computer list loaded and is empty. It disappears
+ * once a computer exists, and when the list could not be read (that state has its own message).
+ */
+function portal_first_steps_card(bool $clientWide, ?array $devices, bool $canInvite): string
+{
+    if (!$clientWide || $devices === null || ($devices['items'] ?? []) !== []) return '';
+    return setup_steps_html('home-setup-heading', [
+        ['Create your account', '', true, null, null],
+        ['Add your first computer', 'About five minutes on a Windows PC. You need to be an administrator on that computer.',
+            false, 'Open Your devices', '/portal/devices.php'],
+        ['Invite your team', $canInvite ? 'Each person gets their own sign-in and can ask for help themselves.'
+            : 'Your support provider can add people for you.',
+            false, $canInvite ? 'Invite a member in 8 West ID' : null, $canInvite ? 'https://id.8westit.com/users.php#employee-invitations' : null],
+    ], 'portal_h');
 }
 
 function portal_render_workspace(array $context): void
