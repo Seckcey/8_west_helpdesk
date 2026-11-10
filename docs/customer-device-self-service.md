@@ -10,6 +10,26 @@ authorized to manage the computer. Each link lasts four hours, enrolls one
 computer and can be revoked. Staff and viewers can view device status. Adding a
 computer creates no charge and does not order antivirus.
 
+The page presents adding a computer as three steps: confirm, install, wait. The
+steps lead the page while the customer has no computer yet and while a setup
+file is on screen; otherwise they sit beside the list. The customer-facing words
+are "setup link", "setup file" and "add", not installation link, agent or
+enroll. While a setup file is on screen, `assets/js/portal-devices.js` offers
+Copy link and watches for the new computer: every 15 seconds for at most five
+minutes, only while the tab is visible, it asks
+`GET /portal/devices.php?watch=1`. That answers JSON with a reference and a
+name for every computer, read from the device service's list across all of its
+pages (at most ten, 500 computers) and never from the setup links, so one
+check is one device-service read for a business with up to 50 computers and
+one setup makes at most about 21. It needs an owner or admin sign-in, starts no
+sign-in of its own (401 instead), and runs the same identity recheck as the
+page before answering. The script announces a computer only when it is missing
+from a list that loaded completely: a failed read, or a list too long to read
+in full, decides nothing. When a computer is found it names it, marks the
+install and wait steps done, and reads the page once more to show the list. It
+posts nothing, changes nothing, and stops as soon as the sign-in has ended.
+Without JavaScript the third step simply says to choose Refresh status.
+
 Safeharbor derives provider, customer UUID, identity tenant, immutable subject,
 session version and role from the authenticated portal context. Browser fields
 cannot supply authority. The device route rechecks its local customer binding
