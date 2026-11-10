@@ -91,12 +91,18 @@ portal_data_check('ticket summary excludes merged stubs',
 portal_data_check('ticket summary fails closed on every merged survivor',
     substr_count($summarySource, 'FROM tickets merged_source') === 2
     && substr_count($summarySource, 'merged_source.merged_into_id = t.id') === 2);
-// The list says what is happening with each request, so the summary reads two facts about a conversation:
-// the kind and time of its newest customer-visible message, and when the first reply was sent. Nothing more.
-portal_data_check('ticket summary reads only the kind and time of customer-visible messages, as sub-selects of the filtered rows',
-    preg_match_all('/FROM messages (\w+)\s+WHERE \1\.ticket_id = t\.id AND \1\.kind (?:IN \(\'client\',\'tech\'\)|= \'tech\')/', $summarySource) === 3
-    && substr_count($summarySource, 'messages') === 3
-    && preg_match('/\b(?:JOIN)\b/i', $summarySource) !== 1);
+// The list says what is happening with each request, so the summary reads four facts about a conversation:
+// the kind and time of its newest customer-visible message, when the first reply was sent, and whether any
+// reply from the team is visible. Nothing more. Every read is tied to a row the filtered query returns.
+portal_data_check('ticket summary reads messages only through three sub-selects of the filtered rows, each limited to customer-visible kinds',
+    preg_match_all('/FROM messages (\w+)\s+WHERE \1\.ticket_id = t\.id AND \1\.kind (?:IN \(\'client\',\'tech\'\)|= \'tech\')/', $summarySource) === 3);
+portal_data_check('ticket summary joins exactly one message row per request: the newest customer-visible one, of that same request',
+    preg_match_all('/\bJOIN\b/i', $summarySource) === 1
+    && preg_match('/LEFT JOIN messages newest\s+ON newest\.ticket_id = t\.id\s+AND newest\.id = \(SELECT MAX\(visible\.id\) FROM messages visible/', $summarySource) === 1
+    && substr_count($summarySource, 'messages') === 4);
+portal_data_check('ticket summary orders by customer-visible activity, never by the row\'s own change time',
+    str_contains($summarySource, 'COALESCE(newest.created_at, t.created_at) DESC, t.id DESC')
+    && ! str_contains($summarySource, 'updated_at DESC'));
 portal_data_check('ticket summary never selects a message text or author, and names no private message kind',
     preg_match('/\b(?:body|author_name|note|system)\b/i', $summarySource) !== 1);
 portal_data_check('ticket summary reads no attachment, time, AI, or billing tables',

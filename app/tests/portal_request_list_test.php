@@ -34,6 +34,27 @@ list_check('a time is said the way a person says it, with whole words',
     && portal_ago($at(26 * 60), $now) === 'yesterday' && portal_ago($at(3 * 1440), $now) === '3 days ago');
 list_check('older than a week it is a date, and an unreadable time is nothing rather than a wrong time',
     portal_ago('2026-10-20 15:00:00', $now) === 'on Oct 20' && portal_ago('', $now) === '' && portal_ago(null, $now) === '' && portal_ago('not a time', $now) === '');
+// "Yesterday" is a calendar day in the viewer's own time zone, the same day the request page names.
+// Sunday 11:00 PM in New York is 2026-11-09 04:00 UTC; Tuesday 10:00 PM is 2026-11-11 03:00 UTC: 47 hours on.
+$sundayNight = '2026-11-09 04:00:00';
+$tuesdayNight = strtotime('2026-11-11 03:00:00 UTC');
+list_check('47 hours on, across two midnights, it is two days ago, and the request page names that same day',
+    portal_ago($sundayNight, $tuesdayNight) === '2 days ago' && portal_friendly_time($sundayNight, $tuesdayNight) === 'Sunday at 11:00 PM');
+list_check('23 hours on, across one midnight, it still counts hours, not "yesterday"',
+    portal_ago($sundayNight, strtotime('2026-11-10 03:00:00 UTC')) === '23 hours ago');
+list_check('24 hours on it is yesterday, because the calendar day in the viewer\'s zone is the day before',
+    portal_ago($sundayNight, strtotime('2026-11-10 04:00:00 UTC')) === 'yesterday'
+    && portal_friendly_time($sundayNight, strtotime('2026-11-10 04:00:00 UTC')) === 'yesterday at 11:00 PM');
+$GLOBALS['portal_view_preferences']['time_zone'] = 'Asia/Tokyo';
+// 25 hours apart: Monday 11:30 PM to Wednesday 12:30 AM in Tokyo is two calendar days; in New York it is one.
+list_check('the same two moments can be different calendar days for a viewer in another zone',
+    portal_ago('2026-11-09 14:30:00', strtotime('2026-11-10 15:30:00 UTC')) === '2 days ago'
+    && portal_friendly_time('2026-11-09 14:30:00', strtotime('2026-11-10 15:30:00 UTC')) === 'Monday at 11:30 PM');
+$GLOBALS['portal_view_preferences']['time_zone'] = 'America/New_York';
+list_check('and for a viewer in New York those same two moments are one calendar day apart',
+    portal_ago('2026-11-09 14:30:00', strtotime('2026-11-10 15:30:00 UTC')) === 'yesterday');
+list_check('a time that is still ahead gives no "how long ago" at all, never "just now"',
+    portal_ago(gmdate('Y-m-d H:i:s', $now + 1), $now) === '' && portal_ago(gmdate('Y-m-d H:i:s', $now + 300), $now) === '');
 
 /* ---- The sentence ------------------------------------------------------------------------------ */
 $row = ['id' => 7, 'subject' => 'Printer', 'status' => 'open', 'priority' => 'normal', 'created_at' => $at(30), 'updated_at' => $at(30),
@@ -55,7 +76,25 @@ list_check('open again after the customer answered: we have the reply',
         === 'We have your reply. Updated 20 minutes ago.');
 $working = ['status' => 'in_progress', 'first_response_at' => $at(90)] + $row;
 list_check('in progress with the customer\'s message newest: a technician is working on it',
-    portal_request_line(['last_message_kind' => 'client', 'updated_at' => $at(20)] + $working, true, $now) === 'A technician is working on it. Updated 20 minutes ago.');
+    portal_request_line(['last_message_kind' => 'client', 'last_message_at' => $at(20)] + $working, true, $now) === 'A technician is working on it. Updated 20 minutes ago.');
+list_check('"Updated" is the newest visible message, never the row\'s own change time, which staff-side edits move',
+    portal_request_line(['last_message_kind' => 'client', 'last_message_at' => $at(20), 'updated_at' => $at(1)] + $working, true, $now) === 'A technician is working on it. Updated 20 minutes ago.'
+    && portal_request_line(['last_message_kind' => 'client', 'last_message_at' => $at(20), 'updated_at' => $at(1)] + $row, true, $now)
+        === portal_request_line(['last_message_kind' => 'client', 'last_message_at' => $at(20), 'updated_at' => $at(999)] + $row, true, $now));
+list_check('with no visible message at all, "Updated" falls back to when the request was sent',
+    portal_request_line(['last_message_kind' => null, 'last_message_at' => null, 'created_at' => $at(45), 'updated_at' => $at(2)] + $working, true, $now)
+        === 'A technician is working on it. Updated 45 minutes ago.');
+list_check('a newest message dated ahead of now shows no "how long ago", and never borrows another time',
+    portal_request_line(['last_message_kind' => 'tech', 'last_message_at' => gmdate('Y-m-d H:i:s', $now + 300)] + $working, true, $now) === 'A technician is working on it. We replied.'
+    && portal_request_line(['last_message_kind' => 'client', 'last_message_at' => gmdate('Y-m-d H:i:s', $now + 300)] + $working, true, $now) === 'A technician is working on it.');
+// The request page counts a request as answered when any message from the team is visible, even one dated
+// before the request opened (which is no first-reply milestone). The list must judge it the same way.
+$preOpen = ['first_response_at' => null, 'has_team_reply' => 1, 'last_message_kind' => 'client', 'last_message_at' => $at(30)] + $row;
+$pageSays = portal_request_progress(['status' => 'open', 'first_response_at' => null] + $row,
+    [['kind' => 'tech', 'created_at' => $at(600)], ['kind' => 'client', 'created_at' => $at(30)]], true, $now);
+list_check('team history from before the request opened: the list says what the request page says, and promises no reply time',
+    portal_request_line($preOpen, true, $now) === 'We have your reply. Updated 30 minutes ago.'
+    && $pageSays['next'][0] === 'We have your reply.' && $pageSays['goal'] === null);
 list_check('in progress with our message newest: it also says we replied',
     portal_request_line(['last_message_kind' => 'tech', 'last_message_at' => $at(15)] + $working, true, $now) === 'A technician is working on it. We replied 15 minutes ago.');
 $waiting = ['status' => 'waiting', 'first_response_at' => $at(40), 'last_message_kind' => 'tech', 'last_message_at' => $at(10)] + $row;
@@ -71,7 +110,8 @@ list_check('resolved says when, or just that it is, when the time is missing',
     && portal_request_line(['status' => 'resolved', 'resolved_at' => null] + $row, true, $now) === 'Resolved.');
 list_check('a row from an older caller, without the newer fields, still gives a true sentence',
     portal_request_line(['id' => 1, 'subject' => 'x', 'status' => 'open', 'updated_at' => $at(5)], true, $now) === 'We received this.'
-    && portal_request_line(['id' => 1, 'subject' => 'x', 'status' => 'in_progress', 'updated_at' => $at(5)], true, $now) === 'A technician is working on it. Updated 5 minutes ago.');
+    && portal_request_line(['id' => 1, 'subject' => 'x', 'status' => 'in_progress', 'updated_at' => $at(5)], true, $now) === 'A technician is working on it.'
+    && portal_request_line(['id' => 1, 'subject' => 'x', 'status' => 'in_progress', 'created_at' => $at(50), 'updated_at' => $at(5)], true, $now) === 'A technician is working on it. Updated 50 minutes ago.');
 
 /* ---- The tag ----------------------------------------------------------------------------------- */
 list_check('list tags: Open reads Received; the other three keep the status words',

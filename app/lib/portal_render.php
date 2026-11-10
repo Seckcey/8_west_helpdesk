@@ -413,17 +413,32 @@ function portal_priority_label(string $priority): string
     };
 }
 
-/** "20 minutes ago", "3 hours ago", "yesterday", "5 days ago", then a date. Empty when the time cannot be read. */
+/**
+ * "20 minutes ago", "3 hours ago", "yesterday", "5 days ago", then a date. Empty when the time cannot be
+ * read, and for a time that is still ahead: nothing that has not happened yet is ever "just now".
+ * Under a day it counts minutes and hours. From a day on it counts calendar days in the viewer's own
+ * time zone, exactly as portal_friendly_time() does, so a list and the request page name the same day.
+ */
 function portal_ago(?string $utc, ?int $now = null): string
 {
     $timestamp = $utc === null || $utc === '' ? false : strtotime($utc . ' UTC');
     if ($timestamp === false) return '';
-    $minutes = (int)floor((($now ?? time()) - $timestamp) / 60);
+    $now ??= time();
+    if ($timestamp > $now) return '';
+    $minutes = intdiv($now - $timestamp, 60);
     if ($minutes < 1) return 'just now';
     if ($minutes < 60) return $minutes . ($minutes === 1 ? ' minute ago' : ' minutes ago');
     $hours = intdiv($minutes, 60);
     if ($hours < 24) return $hours . ($hours === 1 ? ' hour ago' : ' hours ago');
-    $days = intdiv($hours, 24);
+    $preferences = $GLOBALS['portal_view_preferences'] ?? suite_preferences_defaults();
+    try {
+        $zone = new DateTimeZone((string)$preferences['time_zone']);
+        $then = (new DateTimeImmutable('@' . $timestamp))->setTimezone($zone)->setTime(0, 0);
+        $today = (new DateTimeImmutable('@' . $now))->setTimezone($zone)->setTime(0, 0);
+    } catch (Throwable) {
+        return '';
+    }
+    $days = (int)$then->diff($today)->format('%r%a');
     if ($days === 1) return 'yesterday';
     if ($days < 7) return $days . ' days ago';
     $date = portal_friendly_time($utc, $now);
@@ -432,8 +447,12 @@ function portal_ago(?string $utc, ?int $now = null): string
 
 /**
  * One sentence for a request in a list: what is happening, from its status and its newest visible
- * message. A reply-by time is given only while the request has a due time, no first response yet, and
- * that time is still ahead; no other time is ever promised.
+ * message. A reply-by time is given only while the request has a due time, nothing from the team is
+ * visible yet, and that time is still ahead; no other time is ever promised.
+ *
+ * "Answered" is judged as the request page judges it: a first reply, or any visible message from the
+ * team. Every "how long ago" is the newest visible message's time, or the request's own start when it
+ * has none. It is never the row's change time, which also moves on staff-side edits.
  *
  * @param array<string,mixed> $ticket a row of portal_ticket_summary()
  */
@@ -443,8 +462,8 @@ function portal_request_line(array $ticket, bool $canWrite, ?int $now = null): s
     $status = (string)($ticket['status'] ?? '');
     $lastKind = (string)($ticket['last_message_kind'] ?? '');
     $lastAt = portal_ago((string)($ticket['last_message_at'] ?? ''), $now);
-    $updated = portal_ago((string)($ticket['updated_at'] ?? ''), $now);
-    $answered = ! empty($ticket['first_response_at']) || $lastKind === 'tech';
+    $updated = $lastAt !== '' ? $lastAt : (empty($ticket['last_message_at']) ? portal_ago((string)($ticket['created_at'] ?? ''), $now) : '');
+    $answered = ! empty($ticket['first_response_at']) || ! empty($ticket['has_team_reply']) || $lastKind === 'tech';
     $weReplied = $lastKind === 'tech' && $lastAt !== '' ? "We replied {$lastAt}" : ($answered ? 'We replied' : '');
     $changed = $updated === '' ? '' : " Updated {$updated}.";
 

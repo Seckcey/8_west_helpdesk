@@ -179,7 +179,7 @@ Home reads data only through the existing helpers, with the signed-in identity:
 
 | Data | Source | Who sees what |
 |---|---|---|
-| Requests | `portal_ticket_summary(…, 6, identity)`. Each row also carries the kind and time of its newest customer-visible message, its first-reply time and its reply goal, read under the same filter; never a message's text or author. | Members and viewers see only requests recorded as theirs. Owners and admins see the whole client. Counts are the helper's totals. The list shows up to 6. |
+| Requests | `portal_ticket_summary(…, 6, identity)`. Each row also carries the kind and time of its newest customer-visible message, its first-reply time, whether any reply from the team is visible, and its reply goal, read under the same filter; never a message's text or author. Within a status, rows are ordered by that newest visible message (or the request's start), never by the row's own change time, so a staff-side edit moves nothing. | Members and viewers see only requests recorded as theirs. Owners and admins see the whole client. Counts are the helper's totals. The list shows up to 6. |
 | Computers | `portal_devices_request(…, 'devices', ['after'=>0])` | Milepost decides the list from the signed role and subject. Home shows the first 3. |
 | Latest service summary | `portal_report_archives(…, 1, identity)` | Client owners and administrators only. |
 
@@ -215,8 +215,12 @@ Sections:
   with "All requests". Each row is the subject (no number), one sentence built
   from the status and the newest visible message, and a tag: Received, In
   progress, Waiting for your reply, Resolved. "We aim to reply by …" appears
-  only while the request has a reply goal that is still ahead and no first
-  reply. Under the list one quiet line says what the person sees: "You see every
+  only while the request has a reply goal that is still ahead and nothing from
+  the team is visible, the same "answered" rule as the request page. "Updated N
+  ago" is the newest visible message's time, or the request's start; a message
+  dated ahead of now shows no time. From a day on, "yesterday" and "N days ago"
+  count calendar days in the viewer's time zone, as the request page does.
+  Under the list one quiet line says what the person sees: "You see every
   request for {client}.", "You see the requests you opened." or "You see the
   requests opened under your account." There is no counts strip.
 - **Your computers**: name, connection state and last check-in.
