@@ -67,11 +67,26 @@ $viewerOpen = portal_request_progress(['status' => 'open'] + $base, [$asked], fa
 request_check('someone who cannot reply is not told to add details below',
     ! str_contains(implode(' ', $viewerOpen['next']), 'below'));
 
+// A technician's reply moves an Open request to In progress, so this is the usual state right after we write.
 $working = portal_request_progress(['status' => 'in_progress', 'first_response_at' => '2026-11-10 14:22:00'] + $base, [$asked, $answer], true, $now);
-request_check('a request being worked on is at step 2 and says a technician is working on it',
+request_check('in progress with our message newest: says we replied and when, and that they can answer; never "do nothing"',
     $working['step'] === 2 && $states($working) === 'done,now,later,later'
-    && $working['next'][0] === 'A technician is working on this.'
-    && $working['goal'] === 'First reply sent today at 9:22 AM.');
+    && $working['next'] === ['We replied today at 9:22 AM.', 'You can answer below. A technician is working on this.']
+    && ! str_contains(implode(' ', $working['next']), 'do not need to do anything')
+    && $working['goal'] === null);
+$workingViewer = portal_request_progress(['status' => 'in_progress', 'first_response_at' => '2026-11-10 14:22:00'] + $base, [$asked, $answer], false, $now);
+request_check('the same state for a viewer says we replied, without inviting a reply they cannot send',
+    $workingViewer['next'] === ['We replied today at 9:22 AM.', 'A technician is working on this.']);
+$workingOn = portal_request_progress(['status' => 'in_progress', 'first_response_at' => '2026-11-10 14:22:00'] + $base, [$asked, $answer, $asked], true, $now);
+request_check('in progress with the customer\'s message newest: a technician is working on it and nothing is needed',
+    $workingOn['next'][0] === 'A technician is working on this.' && str_contains($workingOn['next'][1], 'You do not need to do anything now')
+    && $workingOn['goal'] === 'First reply sent today at 9:22 AM.');
+$picked = portal_request_progress(['status' => 'in_progress'] + $base, [$asked], true, $now);
+request_check('in progress before any reply: working on it, with the first-reply aim still shown',
+    $picked['next'][0] === 'A technician is working on this.' && $picked['goal'] === 'We aim to send a first reply by today at 5:14 PM.');
+$reopened = portal_request_progress(['status' => 'open', 'first_response_at' => '2026-11-10 14:22:00'] + $base, [$asked, $answer], true, $now);
+request_check('open again with our message newest: says we replied and that they can answer',
+    $reopened['step'] === 1 && $reopened['next'] === ['We replied today at 9:22 AM.', 'You can answer below.']);
 
 $waiting = portal_request_progress(['status' => 'waiting', 'first_response_at' => '2026-11-10 14:22:00'] + $base, [$asked, $answer], true, $now);
 request_check('a request waiting on the customer is at step 3 and says whose turn it is and when we replied',
@@ -79,6 +94,13 @@ request_check('a request waiting on the customer is at step 3 and says whose tur
     && $waiting['next'] === ['It is your turn.', 'We replied today at 9:22 AM and need your answer to carry on.']);
 request_check('the first-reply time is not repeated when the sentence above already gives it',
     $waiting['goal'] === null);
+$parked = portal_request_progress(['status' => 'waiting'] + $base, [$asked], true, $now);
+request_check('waiting with no message from us: asks for an answer without claiming a reply that was never sent',
+    $parked['next'] === ['It is your turn.', 'The support team needs an answer from you to carry on.']
+    && ! str_contains(json_encode($parked), 'We replied') && $states($parked) === 'done,skipped,now,later');
+$parkedViewer = portal_request_progress(['status' => 'waiting'] + $base, [$asked], false, $now);
+request_check('the same state for a viewer claims no reply either',
+    $parkedViewer['next'] === ['We are waiting for an answer from your business.', 'Someone who can reply needs to answer.']);
 $waitingViewer = portal_request_progress(['status' => 'waiting', 'first_response_at' => '2026-11-10 14:22:00'] + $base, [$asked, $answer], false, $now);
 request_check('a viewer of a waiting request is not told it is their turn',
     $waitingViewer['next'][0] === 'We are waiting for an answer from your business.'
@@ -96,9 +118,12 @@ request_check('after the customer answers, the request is Open again and the pag
     && $replied['next'][0] === 'We have your reply.' && str_contains($replied['next'][1], 'A technician will pick this up again.'));
 
 $resolved = portal_request_progress(['status' => 'resolved', 'first_response_at' => '2026-11-10 14:22:00', 'resolved_at' => '2026-11-10 16:10:00'] + $base, [$asked, $answer], true, $now);
-request_check('a resolved request has every step done and says when it was resolved',
-    $resolved['step'] === 4 && $states($resolved) === 'done,done,done,done'
+request_check('a resolved request says when it was resolved, and marks done only the steps the record shows',
+    $resolved['step'] === 4 && $states($resolved) === 'done,done,skipped,done'
     && $resolved['next'] === ['Resolved today at 11:10 AM.', 'Nothing more is needed from you.']);
+$closedUnanswered = portal_request_progress(['status' => 'resolved', 'resolved_at' => '2026-11-10 16:10:00'] + $base, [$asked], true, $now);
+request_check('a request resolved without a reply from us does not claim it was ever in progress or waiting',
+    $states($closedUnanswered) === 'done,skipped,skipped,done');
 $unknown = portal_request_progress(['status' => 'archived'] + $base, [], true, $now);
 request_check('a status this page does not know is shown as received, never as an error or a raw value',
     $unknown['step'] === 1 && $unknown['next'][0] === 'We have your request.');
@@ -125,6 +150,7 @@ request_check('the status line marks exactly one current step and names the done
     substr_count($waitingMain, 'aria-current="step"') === 1
     && (bool)preg_match('/<li class="is-now" aria-current="step">.*?Waiting for your reply/s', $waitingMain)
     && substr_count($waitingMain, '<span class="sr-only">, done</span>') === 2
+    && substr_count($waitingMain, '<li class="is-done">') === 2
     && str_contains($waitingMain, 'Step 3 of 4: Waiting for your reply'));
 request_check('the approved Guide still matches: Status, Conversation and the waiting words are on the page',
     str_contains($waitingMain, '>Status</h2>') && str_contains($waitingMain, '>Conversation</h2>')
@@ -150,6 +176,9 @@ request_check('a new request shows the reply goal in words under "Response goal"
     && str_contains($openHtml, 'Reply to the support team') && ! str_contains($openHtml, 'portal-waiting-callout'));
 
 $resolvedHtml = $main($page($context, ['status' => 'resolved', 'first_response_at' => '2026-11-10 14:22:00', 'resolved_at' => '2026-11-10 16:10:00'] + $base, [$asked, $answer]));
+request_check('on a resolved page the step that was never recorded is drawn as not reached: no check, no "done"',
+    (bool)preg_match('~<li class="is-skipped">\s*<span class="portal-progress-mark" aria-hidden="true">3</span>\s*<span class="portal-progress-label">Waiting for your reply</span>~', $resolvedHtml)
+    && substr_count($resolvedHtml, '<span class="sr-only">, done</span>') === 3);
 request_check('a resolved request has no reply box and says how to carry on without retelling the story',
     ! str_contains($resolvedHtml, '<form') && str_contains($resolvedHtml, 'This request is resolved. Still not fixed?')
     && str_contains($resolvedHtml, 'mention request #102'));

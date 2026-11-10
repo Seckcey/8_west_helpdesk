@@ -207,7 +207,8 @@
 .portal-progress-steps li:last-child{flex:none}
 .portal-progress-steps li::after{content:"";flex:1 1 24px;min-width:16px;height:2px;border-radius:2px;background:var(--line-strong)}
 .portal-progress-steps li:last-child::after{display:none}
-.portal-progress-steps li.is-done::after{background:var(--mint-solid)}
+/* The line is green only between two steps that both happened. */
+.portal-progress-steps li.is-done:has(+ .is-done)::after,.portal-progress-steps li.is-done:has(+ .is-now)::after{background:var(--mint-solid)}
 .portal-progress-mark{display:grid;place-items:center;flex:none;width:28px;height:34px;border:2px solid var(--control-border);border-radius:6px;background:var(--bg-solid);color:var(--dim);font:700 13px/1 var(--font-display);font-variant-numeric:tabular-nums}
 .portal-app .portal-progress-mark svg{width:15px;height:15px;stroke-width:3}
 .portal-progress-label{min-width:0;font-weight:500;white-space:nowrap}

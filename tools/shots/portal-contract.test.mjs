@@ -713,7 +713,7 @@ if (!SERVE_MODE) test('request page names its step, says what happens next and f
     for (const viewport of [{ width: 1365, height: 900 }, { width: 390, height: 844 }]) {
       const phone = viewport.width < 700;
       const { page, context, consoleProblems } = await openPortalPage(browser, pages, viewport);
-      for (const [fixture, step, lead] of [['ticketopen', 'Open', /^We have your request\.$/], ['ticketprogress', 'In progress', /^A technician is working on this\.$/],
+      for (const [fixture, step, lead] of [['ticketopen', 'Open', /^We have your request\.$/], ['ticketprogress', 'In progress', /^We replied (today|yesterday) at /],
         ['ticket', 'Waiting for your reply', /^It is your turn\.$/], ['ticketresolved', 'Resolved', /^Resolved (today|yesterday) at /]]) {
         await page.goto(`${ORIGIN}/portal/ticket.php?id=102&fixture=${fixture}`);
         await page.getByRole('heading', { name: 'What happens next' }).waitFor();
@@ -739,6 +739,11 @@ if (!SERVE_MODE) test('request page names its step, says what happens next and f
         assert.equal(await page.locator('main').evaluate(main => /Premium|elapsed minutes|never shown here|\bticket\b/i.test(main.innerText)), false);
         assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= innerWidth), true, `${fixture} fits ${viewport.width}px`);
         assert.equal(await page.getByRole('button', { name: 'Send reply' }).count(), fixture === 'ticketresolved' ? 0 : 1);
+        // A step is drawn as done only when the record shows it happened: a resolved request never claims it waited for the customer.
+        assert.deepEqual(await page.locator('.portal-progress-steps li').evaluateAll(steps => steps.map(item => item.className.replace('is-', ''))),
+          { ticketopen: ['now', 'later', 'later', 'later'], ticketprogress: ['done', 'now', 'later', 'later'],
+            ticket: ['done', 'done', 'now', 'later'], ticketresolved: ['done', 'done', 'skipped', 'done'] }[fixture]);
+        if (fixture === 'ticketprogress') assert.match(await page.locator('.portal-next-body').innerText(), /You can answer below\./);
       }
       await page.goto(`${ORIGIN}/portal/ticket.php?id=102&fixture=ticketviewer`);
       await page.getByText('You can read this request but not reply to it.', { exact: true }).waitFor();

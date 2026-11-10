@@ -302,6 +302,7 @@ function portal_time_tag(?string $utc, bool $capital = false): string
  * @param array<string,mixed> $ticket
  * @param list<array<string,mixed>> $messages customer-visible messages, oldest first
  * @return array{step:int,label:string,steps:list<array{label:string,state:string}>,next:list<string>,goal:?string}
+ *         each step's state is done, now, later, or skipped (passed without a record that it happened)
  */
 function portal_request_progress(array $ticket, array $messages, bool $canWrite, ?int $now = null): array
 {
@@ -309,15 +310,6 @@ function portal_request_progress(array $ticket, array $messages, bool $canWrite,
     $order = ['open', 'in_progress', 'waiting', 'resolved'];
     $status = in_array($ticket['status'] ?? '', $order, true) ? (string)$ticket['status'] : 'open';
     $step = array_search($status, $order, true) + 1;
-    $steps = [];
-    foreach ($order as $index => $name) {
-        $position = $index + 1;
-        $steps[] = [
-            'label' => portal_status_label($name),
-            // A resolved request has nothing left to do, so its last step is done, not "current".
-            'state' => $position < $step || $status === 'resolved' ? 'done' : ($position === $step ? 'now' : 'later'),
-        ];
-    }
 
     $lastKind = '';
     $lastTeamReply = null;
@@ -329,6 +321,25 @@ function portal_request_progress(array $ticket, array $messages, bool $canWrite,
     $answered = $firstReply !== '' || $lastTeamReply !== null;
     $teamReplied = portal_friendly_time($lastTeamReply ?? $firstReply, $now);
     $weReplied = $teamReplied === '' ? 'We replied' : "We replied {$teamReplied}";
+    // The newest message the customer can see is ours: they may have been asked something.
+    $ourMove = $answered && $lastKind === 'tech';
+
+    // A step is "done" only when the record shows it happened. Nothing records an earlier wait for the
+    // customer, so that step is never claimed; a technician's reply is what moves a request to In progress.
+    $happened = [1 => true, 2 => $status === 'in_progress' || $answered, 3 => false, 4 => $status === 'resolved'];
+    $steps = [];
+    foreach ($order as $index => $name) {
+        $position = $index + 1;
+        $steps[] = [
+            'label' => portal_status_label($name),
+            'state' => match (true) {
+                // A resolved request has nothing left to do, so its last step is done, not "current".
+                $position === $step => $status === 'resolved' ? 'done' : 'now',
+                $position > $step => 'later',
+                default => $happened[$position] ? 'done' : 'skipped',
+            },
+        ];
+    }
 
     $next = match ($status) {
         'resolved' => [
@@ -337,13 +348,21 @@ function portal_request_progress(array $ticket, array $messages, bool $canWrite,
             'Nothing more is needed from you.',
         ],
         'waiting' => $canWrite
-            ? ['It is your turn.', $weReplied . ' and need your answer to carry on.']
-            : ['We are waiting for an answer from your business.', $weReplied . '. Someone who can reply needs to answer.'],
-        'in_progress' => [
-            'A technician is working on this.',
-            $canWrite ? 'You do not need to do anything now. If something changes, tell us below.' : 'You do not need to do anything now.',
-        ],
+            ? ['It is your turn.', $answered ? $weReplied . ' and need your answer to carry on.' : 'The support team needs an answer from you to carry on.']
+            : ['We are waiting for an answer from your business.',
+                $answered ? $weReplied . '. Someone who can reply needs to answer.' : 'Someone who can reply needs to answer.'],
+        'in_progress' => match (true) {
+            // Never "you do not need to do anything" straight after we wrote to them.
+            $ourMove && $canWrite => [$weReplied . '.', 'You can answer below. A technician is working on this.'],
+            $ourMove => [$weReplied . '.', 'A technician is working on this.'],
+            default => [
+                'A technician is working on this.',
+                $canWrite ? 'You do not need to do anything now. If something changes, tell us below.' : 'You do not need to do anything now.',
+            ],
+        },
         default => match (true) {
+            $ourMove && $canWrite => [$weReplied . '.', 'You can answer below.'],
+            $ourMove => [$weReplied . '.', 'This request is with the support team.'],
             $answered && $lastKind === 'client' => ['We have your reply.', 'A technician will pick this up again. You do not need to do anything now.'],
             $answered => ['This request is back with the support team.', 'You do not need to do anything now.'],
             default => [
@@ -356,7 +375,8 @@ function portal_request_progress(array $ticket, array $messages, bool $canWrite,
 
     $goal = null;
     // "We replied Monday at 9:22 AM" already says it when that reply was the first one.
-    $saidAbove = $status === 'waiting' && $firstReply !== '' && ($lastTeamReply ?? $firstReply) === $firstReply;
+    $saidAbove = ($status === 'waiting' || ($ourMove && $status !== 'resolved'))
+        && $firstReply !== '' && ($lastTeamReply ?? $firstReply) === $firstReply;
     if ($saidAbove) {
         $goal = null;
     } elseif ($firstReply !== '' && ($sent = portal_friendly_time($firstReply, $now)) !== '') {
