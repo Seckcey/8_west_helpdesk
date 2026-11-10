@@ -293,10 +293,14 @@ portal_mysql_check('ticket summary hides merged stubs and their survivors',
     $ticketIds === [1002]);
 portal_mysql_check('ticket counts hide merged history and remain inside mapped tenant/client',
     $summary['counts'] === ['open' => 0, 'in_progress' => 0, 'waiting' => 0, 'resolved' => 1]);
-portal_mysql_check('ticket summary field list has no message/contact/assignee/billing facts',
+// The list sentence needs the reply goal, the first-reply time, and the kind and time of the newest
+// customer-visible message. The field list stays closed: no message text or author, contact, assignee or billing.
+portal_mysql_check('ticket summary field list is closed: no message text or author, contact, assignee or billing facts',
     array_keys($summary['tickets'][0]) === [
-        'id', 'subject', 'status', 'priority', 'created_at', 'updated_at', 'resolved_at',
-    ]);
+        'id', 'subject', 'status', 'priority', 'created_at', 'updated_at', 'resolved_at', 'sla_due_at',
+        'last_message_kind', 'last_message_at', 'first_response_at',
+    ]
+    && in_array($summary['tickets'][0]['last_message_kind'], [null, 'client', 'tech'], true));
 portal_mysql_expect('merged survivor cannot expose moved conversation', PortalDataNotFoundException::class,
     fn() => portal_ticket_detail($pdo, 1, 11, 1001, portal_requester_test_identity(1, 11, 'client_owner')));
 
