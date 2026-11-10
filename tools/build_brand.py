@@ -296,14 +296,16 @@ def tokens_json():
             "cyan": {"300": CYAN_300},
             "gold": {"400": GOLD_400},
             "mint": {"300": "#62F6B0"},
-            "text": TEXT, "muted": MUTED, "mutedStrong": "#D5E2F5",
-            "card": "rgba(255,255,255,0.075)",
-            "cardStrong": "rgba(255,255,255,0.12)",
-            "border": "rgba(255,255,255,0.16)",
+            # Interface values (dark theme) mirrored at the top of app.css. TEXT and MUTED above
+            # stay as they are: they colour the generated logo artwork, not the interface.
+            "text": "#EDF3FC", "muted": "#A9BAD3", "mutedStrong": "#C2D0E3",
+            "card": "#0E2138",
+            "cardStrong": "#132A45",
+            "border": "#213A5A",
         },
-        "radius": {"sm": 14, "md": 20, "lg": 28},
+        "radius": {"sm": 10, "md": 14, "lg": 20},
         "font": {"family": "Inter", "fallback": "ui-sans-serif, system-ui, sans-serif"},
-        "shadow": "0 24px 70px rgba(0,0,0,0.32)",
+        "shadow": "0 1px 0 rgba(0,0,0,0.25)",
     }
 
 

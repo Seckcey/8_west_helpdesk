@@ -1,0 +1,9 @@
+/* Preview-only: the theme switch in the corner. Never loaded by the app. */
+.preview-switch {
+  position: fixed; left: 12px; bottom: 12px; z-index: 200;
+  display: flex; gap: 2px; padding: 3px; border-radius: 10px;
+  background: #0A1E3B; box-shadow: 0 6px 20px -8px rgba(0, 0, 0, .5);
+  font: 600 12px/1 "Segoe UI", system-ui, sans-serif;
+}
+.preview-switch a { padding: 7px 10px; border-radius: 8px; color: #DCE8F8; text-decoration: none; }
+.preview-switch a[aria-current] { background: #173A6B; color: #FFFFFF; }

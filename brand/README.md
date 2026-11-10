@@ -56,11 +56,11 @@ code. Source: 8westit.com `styles.css`.
 | Token | Hex | Role |
 |---|---|---|
 | navy-950 / 900 / 800 / 700 | `#031022` `#061936` `#0B2448` `#12345F` | Depth layers (dark-first UI) |
-| blue-500 / 400 | `#2D8CFF` `#54A8FF` | Primary action / secondary |
+| blue-500 / 400 | `#2D8CFF` `#54A8FF` | Brand blues in the logo artwork (the interface action blue is `--accent` in `app.css`) |
 | cyan-300 | `#7DDCFF` | Active states, signal |
 | gold-400 | `#F6C95B` | The lamp — warnings, highlights |
 | mint-300 | `#62F6B0` | Resolved / healthy |
-| text / muted | `#EAF3FF` / `#AEBED4` | Type on navy |
+| text / muted | `#EDF3FC` / `#A9BAD3` | Interface type on the dark theme (the logo artwork keeps `#EAF3FF` / `#AEBED4`) |
 
 ## Regenerating
 

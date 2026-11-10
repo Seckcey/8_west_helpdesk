@@ -315,10 +315,11 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
     <a class="brand" href="/" aria-label="Safeharbor home">
       <img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-brand-logo" width="1851" height="513">
     </a>
+    <div class="horizon" aria-hidden="true"></div>
     <nav class="nav">
       <?php foreach ($nav as [$href, $label, $key, $kbd, $icon]): ?>
       <a href="<?= $href ?>" class="nav-item<?= $active === $key ? ' nav-on' : '' ?>">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><?= $icon ?></svg>
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><?= $icon ?></svg>
         <span class="nav-label"><?= h($label) ?></span>
         <kbd class="kbd nav-kbd"><?= $kbd ?></kbd>
       </a>

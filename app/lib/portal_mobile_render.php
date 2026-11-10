@@ -9,7 +9,7 @@ function portal_render_mobile(array $context, ?array $inventory, ?array $plan, ?
     $platforms=['ios'=>'iPhone or iPad','android'=>'Android','macos'=>'Mac'];
     portal_page_start('Phones, tablets & Macs','portal-devices-page',$context);
     ?>
-<link rel="stylesheet" href="/assets/css/portal-mobile.css?v=1">
+<link rel="stylesheet" href="/assets/css/portal-mobile.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-mobile.css') ?>">
 <main class="portal-devices portal-mobile">
  <header class="portal-devices-heading"><div><p class="portal-eyebrow">YOUR BUSINESS</p><h1>Phones, tablets &amp; Macs</h1><p>Connect work devices, understand what is managed, and get help.</p></div><div class="portal-devices-actions"><a class="btn-link" href="/portal/mobile.php">Refresh status</a><?php portal_westy_button(); ?></div></header>
  <p><a href="/portal/devices.php">Computer installation &amp; support <?= portal_icon('arrow') ?></a></p>

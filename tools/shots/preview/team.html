@@ -1,0 +1,166 @@
+<!doctype html>
+<!-- Static preview of the Safeharbor staff desk. Markup copied from app/lib/render.php and the page
+     templates; made-up names only. Open from disk; ?theme=dark|light|system picks the theme. -->
+<html lang="en-US" data-density="comfortable" data-contrast="standard" data-motion="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Team · Safeharbor</title>
+<script src="preview.js"></script>
+<link rel="stylesheet" href="../../../app/public/assets/w365/w365.css">
+<link rel="stylesheet" href="../../../app/public/assets/css/app.css">
+</head>
+<body data-active="team">
+<div class="shell">
+  <aside class="sidebar" id="suite-sidebar">
+    <button type="button" class="mobile-nav-close" aria-label="Close navigation">Close menu ×</button>
+    <a class="brand" href="#" aria-label="Safeharbor home">
+      <img src="../../../brand/png/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-brand-logo" width="1851" height="513">
+    </a>
+    <div class="horizon" aria-hidden="true"></div>
+    <nav class="nav">
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h7" stroke-linecap="round"/></svg>
+        <span class="nav-label">Queue</span>
+        <kbd class="kbd nav-kbd">G Q</kbd>
+      </a>
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 2" stroke-linecap="round"/></svg>
+        <span class="nav-label">Time</span>
+        <kbd class="kbd nav-kbd">G T</kbd>
+      </a>
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="5.5" cy="6" r="2.5"/><circle cx="11" cy="7" r="2"/><path d="M1.5 13.5c.6-2.3 2.2-3.5 4-3.5s3.4 1.2 4 3.5M9.5 12.6c.7-1.4 1.9-2.1 3-2.1 1.3 0 2.4.9 2.9 2.6" stroke-linecap="round"/></svg>
+        <span class="nav-label">Clients</span>
+        <kbd class="kbd nav-kbd">G C</kbd>
+      </a>
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2"/><path d="M8 1.5V4M8 12v2.5M1.5 8H4M12 8h2.5" stroke-linecap="round"/></svg>
+        <span class="nav-label">Service goals</span>
+        <kbd class="kbd nav-kbd">G S</kbd>
+      </a>
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 13.5h11M4 13V8.5M8 13V4.5M12 13V6.5" stroke-linecap="round"/></svg>
+        <span class="nav-label">Reports</span>
+        <kbd class="kbd nav-kbd"></kbd>
+      </a>
+      <a href="#" class="nav-item nav-on">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.8-2.6 2.8-4 5-4s4.2 1.4 5 4M11.5 5.8a2 2 0 1 1 .01 0M11.6 9.6c1.6.4 2.8 1.6 3.3 3.4" stroke-linecap="round"/></svg>
+        <span class="nav-label">Team</span>
+        <kbd class="kbd nav-kbd"></kbd>
+      </a>
+    </nav>
+  </aside>
+  <button type="button" class="mobile-nav-backdrop" aria-label="Close navigation" tabindex="-1"></button>
+  <div class="main">
+    <header class="topbar">
+      <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-controls="suite-sidebar" aria-expanded="false">☰ Menu</button>
+      <button id="palette-trigger" class="search-trigger" type="button">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
+        <span class="search-label">Search or command…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+      <span class="topbar-flex"></span>
+      <a href="#" id="timer-widget" class="timer-widget timer-idle" title="Time tracking">No timer running</a>
+      <div class="w365-cluster">
+        <div class="w365-anchor" data-w365-drawer>
+          <button type="button" class="w365-waffle" aria-label="Open 8 West IT 365 apps" title="8 West IT 365 apps">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><g fill="currentColor">
+              <rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9.5" y="2" width="5" height="5" rx="1"/><rect x="17" y="2" width="5" height="5" rx="1"/>
+              <rect x="2" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="17" y="9.5" width="5" height="5" rx="1"/>
+              <rect x="2" y="17" width="5" height="5" rx="1"/><rect x="9.5" y="17" width="5" height="5" rx="1"/><rect x="17" y="17" width="5" height="5" rx="1"/>
+            </g></svg>
+          </button>
+        </div>
+        <div class="w365-anchor" data-w365-account>
+          <button type="button" class="w365-account-btn" aria-label="Account menu for Maya Reyes">
+            <span class="w365-avatar" aria-hidden="true">MR</span>
+            <span class="w365-account-name">Maya Reyes</span>
+            <svg viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+    <main class="content">
+<div class="page page-narrow settings-page team-settings">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Team</h1>
+      <p class="page-sub">3 active Safeharbor accounts in this workspace</p>
+    </div>
+  </div>
+  <div class="form-ok" role="status">Access for Theo Grant was disabled.</div>
+  <div class="card form-card settings-intro"><h2>Safeharbor team access</h2><p>This page controls local Safeharbor access and recovery accounts. 8 West ID manages suite identities, sign-in links and sign-in recovery.</p><a class="btn-ghost settings-button" href="#">Manage people in 8 West ID</a></div>
+  <div class="card list">
+    <div class="urow ">
+      <span class="avatar" style="width:30px;height:30px;background:#7DDCFF" title="Maya Reyes">MR</span>
+      <span class="urow-main">
+        <span class="urow-name">Maya Reyes <span class="urow-sub">(you)</span></span>
+        <span class="urow-sub">maya@harborit.example · 8 West ID account · last sign-in 2h ago</span>
+      </span>
+      <span class="role-badge role-owner">Owner</span>
+      <span class="urow-status">Active</span>
+      
+    </div>
+    <div class="urow ">
+      <span class="avatar" style="width:30px;height:30px;background:#62F6B0" title="Jon Silva">JS</span>
+      <span class="urow-main">
+        <span class="urow-name">Jon Silva</span>
+        <span class="urow-sub">jon@harborit.example · 8 West ID account · last sign-in 1d ago</span>
+      </span>
+      <span class="role-badge role-tech">Technician</span>
+      <span class="urow-status">Active</span>
+      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-danger settings-button">Disable access</button></form>
+    </div>
+    <div class="urow ">
+      <span class="avatar" style="width:30px;height:30px;background:#F6C95B" title="Ana Kim">AK</span>
+      <span class="urow-main">
+        <span class="urow-name">Ana Kim</span>
+        <span class="urow-sub">ana@harborit.example · Local recovery account · last sign-in 5d ago</span>
+      </span>
+      <span class="role-badge role-admin">Administrator</span>
+      <span class="urow-status">Active</span>
+      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-danger settings-button">Disable access</button></form>
+    </div>
+    <div class="urow urow-inactive">
+      <span class="avatar" style="width:30px;height:30px;background:#FF7A85" title="Theo Grant">TG</span>
+      <span class="urow-main">
+        <span class="urow-name">Theo Grant</span>
+        <span class="urow-sub">theo@harborit.example · 8 West ID account</span>
+      </span>
+      <span class="role-badge role-tech">Technician</span>
+      <span class="urow-status">Access disabled</span>
+      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-ghost settings-button">Enable access</button></form>
+    </div>
+  </div>
+
+  <div class="rail-label" style="margin-top:24px">Add a local recovery account</div>
+  <div class="card form-card">
+    <form method="post" action="#" class="form-grid">
+      <label class="field">Full name
+        <input type="text" name="full_name" required placeholder="Jordan Ellis">
+      </label>
+      <label class="field">Work email
+        <input type="email" name="email" required placeholder="jordan@harborit.example">
+      </label>
+      <label class="field">Local password
+        <input type="text" name="password" required minlength="6" placeholder="6+ characters">
+      </label>
+      <fieldset class="settings-options span-2"><legend>Safeharbor role</legend>
+        <div class="settings-role-choices">
+          <label class="settings-choice"><input type="radio" name="role" value="tech" checked><span><strong>Technician</strong><small>Work on support requests.</small></span></label>
+          <label class="settings-choice"><input type="radio" name="role" value="admin"><span><strong>Administrator</strong><small>Manage support and local team access.</small></span></label>
+          <label class="settings-choice"><input type="radio" name="role" value="owner"><span><strong>Owner</strong><small>Owner access to this Safeharbor workspace.</small></span></label>
+        </div>
+      </fieldset>
+      <div class="form-actions span-2"><button type="submit" class="btn-primary">Add local account</button></div>
+    </form>
+  </div>
+</div>
+    </main>
+  </div>
+</div>
+<div id="toasts" class="toasts"><div class="toast">Ticket #1041 assigned to you</div></div>
+</body>
+</html>

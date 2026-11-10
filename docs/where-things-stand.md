@@ -474,6 +474,16 @@ Expect `svc_identities`, `svc_rate_buckets`, `svc_support_rate` and `westy_repor
 
 ## Open items
 
+**New look (draft, not live; [PR #306](https://github.com/Seckcey/8_west_helpdesk/pull/306)).** The 2026-11
+visual redesign changes only how pages look: new colour values behind the same `app.css` property names,
+a navy rail with the horizon line, one page-width system (1180px lists, 820px forms), restyled shared
+components, a two-column ticket page, two-panel sign-in pages, and the portal rail and Home hero. Keyboard
+focus is a 2px `--focus` outline, text fields use a 3:1 `--control-border`, and small controls are 44px
+tall at 700px and below. The portal's `app.css`, `portal-security.css` and `portal-mobile.css` now load
+with content-hash versions (`portal_asset_version()`), and the CSAT page hashes `app.css` the same way.
+No word, behaviour, SQL or auth change. Until it is merged and deployed, production still shows the
+previous look. Previews: `tools/shots/preview/README.md`.
+
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.
 2. **Technician-time correction acceptance** still needs a fresh signed-in check on the 8 West IT

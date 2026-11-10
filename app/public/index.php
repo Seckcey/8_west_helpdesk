@@ -46,8 +46,12 @@ page_top($user, 'Queue', 'queue');
       <h1 class="page-title">Queue</h1>
       <p class="page-sub"><?= (int)($counts['open'] ?? 0) ?> open · <?= (int)(($counts['in_progress'] ?? 0) + ($counts['waiting'] ?? 0)) ?> active · <?= (int)($counts['resolved'] ?? 0) ?> resolved</p>
     </div>
+    <div class="page-actions">
+      <a href="/ticket_new.php" class="btn-primary">+ New ticket</a>
+    </div>
+  </div>
+  <div class="toolbar">
     <div class="filters">
-      <a href="/ticket_new.php" class="btn-primary btn-sm" style="margin-right:8px">+ New ticket</a>
       <?php $i = 1; foreach ($FILTERS as $key => $label): ?>
       <a href="/?f=<?= $key ?>" class="filter-pill<?= $filter === $key ? ' pill-on' : '' ?>" data-key="<?= $i ?>">
         <?= h($label) ?><span class="pill-count"><?= (int)($counts[$key] ?? ($key === 'all' ? $counts['all'] : 0)) ?></span><kbd class="kbd pill-kbd"><?= $i ?></kbd>

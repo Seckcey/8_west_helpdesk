@@ -228,22 +228,27 @@ Sections:
 
 - Actions are links styled as buttons, at least 64 px tall on phones and 76 px on
   desktop. Card buttons are at least 44 px. Sign out stays a real `<button>`.
-- Keyboard focus uses the portal's existing 2 px cyan outline.
+- Keyboard focus is a 2 px outline in `--focus` (`#6BABFF` dark, `#1463E0` light), 2 px
+  from the control. On the navy rail and the Home hero it is `#9CC6FF` in both themes.
 - At 390 px the page is one column. At 1440 px the requests sit beside a
   computers and help column.
-- Contrast is estimated from the `app.css` theme tokens, not measured in a
+- Contrast is computed from the `app.css` theme tokens, not measured in a
   browser:
 
   | Pair | Dark | Light |
   |---|---|---|
-  | Body text on a card | 13.8:1 | 15.4:1 |
-  | Hint text on a card | 8.2:1 | 6.2:1 |
-  | Links on a card | 6.2:1 | 4.8:1 |
-  | Primary action (navy on blue) | 5.7:1 | 5.7:1 |
-  | Focus ring against the page | 10.5:1 | 4.0:1 |
+  | Body text on a card | 14.6:1 | 15.9:1 |
+  | Hint text on a card | 6.6:1 | 5.7:1 |
+  | Links on a card | 6.9:1 | 5.4:1 |
+  | Primary button (white on the action blue) | 5.2:1 | 5.4:1 |
+  | Hero action tiles (text on their surface) | 14.6:1 | 15.9:1 |
+  | Hero second line (`#D6E4F7`) on the lightest hero blue | 4.9:1 | 4.9:1 |
+  | Status tags (gold, mint and blue ink on their soft fills) | 7.4:1 to 7.9:1 | 5.3:1 to 6.8:1 |
+  | Focus outline against the page | 7.7:1 | 4.9:1 |
+  | Focus outline (`#9CC6FF`) on the navy rail | 10.8:1 | 10.8:1 |
 
-  Status text on Home uses the strong muted colour. Gold, mint and blue appear
-  only as status dots, because light-theme gold text on white is about 4.5:1.
+  Home statuses are tags: a soft background with strong ink and a small dot,
+  gold for open and waiting, blue for in progress and mint for resolved.
 
 ## Evidence and its limits
 
