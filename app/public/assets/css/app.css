@@ -629,7 +629,8 @@ img { display: block; }
 .bar-off { background: var(--bar-off); }
 .pri-label { font-size: 13px; color: var(--muted-strong); }
 
-/* Response-target tag: the same tag shapes and colours, the same words. */
+/* First-response tag (sla_info): plain while there is time, gold under two hours, red only while a
+   ticket is late now. Once answered it is quiet text with a dot: mint in time, gold late. */
 .sla {
   display: inline-flex; align-items: center; gap: 6px;
   height: 22px; padding: 0 8px; border-radius: var(--radius-tag);
@@ -638,10 +639,12 @@ img { display: block; }
   font-variant-numeric: tabular-nums;
 }
 .sla-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
-.sla-healthy, .sla-met { background: var(--mint-soft-bg); color: var(--mint); }
+.sla-healthy, .sla-excluded { background: var(--chip-bg); color: var(--muted-strong); }
 .sla-at_risk { background: var(--gold-soft-bg); color: var(--gold); }
 .sla-breached { background: var(--error-bg); color: var(--rose); }
-.sla-excluded { background: var(--chip-bg); color: var(--muted-strong); }
+.sla-met, .sla-late { background: transparent; color: var(--dim); font-weight: 500; }
+.sla-met .sla-dot { background: var(--mint-solid); }
+.sla-late .sla-dot { background: var(--gold-solid); }
 
 /* avatar */
 .avatar {

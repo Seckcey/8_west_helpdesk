@@ -34,11 +34,11 @@ goal_check('near response target is at risk', sla_info([
 goal_check('elapsed unanswered target is breached', sla_info([
     ...$base,
     'sla_due_at' => '2026-08-25 11:00:00',
-], $now) === ['state' => 'breached', 'label' => '1h 00m over']);
+], $now) === ['state' => 'breached', 'label' => 'Overdue by 1 h']);
 goal_check('target boundary is reported without inventing elapsed time', sla_info([
     ...$base,
     'sla_due_at' => '2026-08-25 12:00:00',
-], $now) === ['state' => 'breached', 'label' => '0m over']);
+], $now) === ['state' => 'breached', 'label' => 'Due now']);
 goal_check('first response exactly at target is met', sla_info([
     ...$base,
     'first_response_at' => '2026-08-25 15:00:00',
@@ -51,7 +51,7 @@ goal_check('a future technician timestamp is still an unanswered target',
     && sla_info([
         ...$base,
         'first_response_at' => '2026-08-25 13:00:00',
-    ], $now) === ['state' => 'healthy', 'label' => '3h 00m left']);
+    ], $now) === ['state' => 'healthy', 'label' => 'Due in 3 h']);
 goal_check('a pre-open technician timestamp is not a ticket response',
     service_goal_response_outcome([
         ...$base,
@@ -60,7 +60,7 @@ goal_check('a pre-open technician timestamp is not a ticket response',
     && sla_info([
         ...$base,
         'first_response_at' => '2026-08-25 09:00:00',
-    ], $now) === ['state' => 'healthy', 'label' => '3h 00m left']);
+    ], $now) === ['state' => 'healthy', 'label' => 'Due in 3 h']);
 goal_check('a technician response exactly at the as-of clock counts',
     service_goal_response_outcome([
         ...$base,
@@ -69,18 +69,37 @@ goal_check('a technician response exactly at the as-of clock counts',
     && sla_info([
         ...$base,
         'first_response_at' => '2026-08-25 12:00:00',
-    ], $now) === ['state' => 'met', 'label' => 'Response met']);
+    ], $now) === ['state' => 'met', 'label' => 'Answered in time']);
 goal_check('resolved ticket uses its first response, not resolution time', sla_info([
     ...$base,
     'status' => 'resolved',
     'first_response_at' => '2026-08-25 14:00:00',
     'resolved_at' => '2026-08-27 12:00:00',
-], $afterResponses) === ['state' => 'met', 'label' => 'Response met']);
-goal_check('late first response remains breached after resolution', sla_info([
+], $afterResponses) === ['state' => 'met', 'label' => 'Answered in time']);
+goal_check('a late first response still says so after resolution, but is no longer the urgent state', sla_info([
     ...$base,
     'status' => 'resolved',
     'first_response_at' => '2026-08-25 16:15:00',
-], $afterResponses) === ['state' => 'breached', 'label' => 'Response 1h 15m late']);
+], $afterResponses) === ['state' => 'late', 'label' => 'Answered 1 h late']);
+// One unit only, and red (breached) only for an unanswered ticket that is late now.
+foreach ([
+    [['sla_due_at' => '2026-08-25 18:40:00'], 'healthy', 'Due in 6 h'],
+    [['sla_due_at' => '2026-08-25 14:00:00'], 'healthy', 'Due in 2 h'],
+    [['sla_due_at' => '2026-08-25 13:59:59'], 'at_risk', 'Due in 2 h'],
+    [['sla_due_at' => '2026-08-25 12:40:00'], 'at_risk', 'Due in 40 min'],
+    [['sla_due_at' => '2026-08-25 12:00:01'], 'at_risk', 'Due in 1 min'],
+    [['sla_due_at' => '2026-08-25 11:59:59'], 'breached', 'Overdue by 1 min'],
+    [['sla_due_at' => '2026-08-25 11:00:30'], 'breached', 'Overdue by 1 h'],
+    [['sla_due_at' => '2026-08-24 07:59:00', 'created_at' => '2026-08-20 10:00:00'], 'breached', 'Overdue by 28 h'],
+    [['sla_due_at' => '2026-08-23 12:00:00', 'created_at' => '2026-08-20 10:00:00'], 'breached', 'Overdue by 2 d'],
+    [['sla_due_at' => '2026-08-20 11:00:00', 'created_at' => '2026-08-20 10:00:00'], 'breached', 'Overdue by 5 d'],
+    [['first_response_at' => '2026-08-25 15:00:20'], 'late', 'Answered 1 min late'],
+    [['first_response_at' => '2026-08-25 18:10:00'], 'late', 'Answered 3 h late'],
+    [['first_response_at' => '2026-08-28 15:00:00'], 'late', 'Answered 3 d late'],
+] as [$with, $state, $label]) {
+    $asOf = isset($with['first_response_at']) ? strtotime('2026-08-30 12:00:00 UTC') : $now;
+    goal_check("the tag reads \"{$label}\" ({$state})", sla_info([...$base, ...$with], $asOf) === ['state' => $state, 'label' => $label]);
+}
 goal_check('resolved ticket without a technician response is not called met', sla_info([
     ...$base,
     'status' => 'resolved',
@@ -96,7 +115,7 @@ goal_check('a future resolution does not decide the response target early',
         ...$base,
         'status' => 'resolved',
         'resolved_at' => '2026-08-25 13:00:00',
-    ], $now) === ['state' => 'healthy', 'label' => '3h 00m left']);
+    ], $now) === ['state' => 'healthy', 'label' => 'Due in 3 h']);
 goal_check('a pre-open resolution does not decide the response target',
     service_goal_response_outcome([
         ...$base,
@@ -107,7 +126,7 @@ goal_check('a pre-open resolution does not decide the response target',
         ...$base,
         'status' => 'resolved',
         'resolved_at' => '2026-08-25 09:00:00',
-    ], $now) === ['state' => 'healthy', 'label' => '3h 00m left']);
+    ], $now) === ['state' => 'healthy', 'label' => 'Due in 3 h']);
 goal_check('a resolution exactly at the as-of clock decides no response',
     service_goal_response_outcome([
         ...$base,
@@ -126,11 +145,11 @@ goal_check('missing target fails visibly', sla_info([
 goal_check('merged source has a neutral unmeasured lamp', sla_info([
     ...$base,
     'merged_into_id' => 9,
-], $now) === ['state' => 'excluded', 'label' => 'Merged history']);
+], $now) === ['state' => 'excluded', 'label' => 'Merged']);
 goal_check('merge survivor has a neutral unmeasured lamp', sla_info([
     ...$base,
     'has_merged_sources' => 1,
-], $now) === ['state' => 'excluded', 'label' => 'Merged history']);
+], $now) === ['state' => 'excluded', 'label' => 'Merged']);
 
 $pdo = new PDO('sqlite::memory:');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);

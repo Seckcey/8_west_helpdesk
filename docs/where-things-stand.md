@@ -508,7 +508,7 @@ appears. Each computer shows its state first as a
 tag. The two antivirus request forms moved into their own section below the list. Customer-facing
 words say setup link, setup file and add. No SQL, auth or service-contract change.
 
-**Ticket menus and reply with a next step (draft, not live).** Status, priority and owner are menus
+**Ticket menus and reply with a next step (live).** Status, priority and owner are menus
 on the ticket page and, from the keyboard, on the highlighted queue row; nothing cycles any more, so
 no step passes through Resolved. The owner menu offers Me, Unassigned and every active teammate. A
 Resolve button (Reopen once resolved) sits in the ticket head, every change can be undone from its
@@ -522,7 +522,7 @@ To check on a server after a deploy: resolve a test ticket that has a contact, c
 `mail_queue` row whose `next_try_at` is about a minute ahead, press Undo, and confirm that row now
 has `attempts = max_attempts` and a "Cancelled" `last_error`, so the dispatcher will never send it.
 
-**Queue views, filters and paging (draft, not live).** The queue opens on Needs attention instead of
+**Queue views, filters and paging (live).** The queue opens on Needs attention instead of
 on every ticket, with views for Mine, Unassigned, Waiting on client, All open and Resolved, filters for
 client, priority and owner, a choice of order, and 50 tickets a page. Everything is a link in the
 address, so Back and bookmarks work, and old `?f=` links keep their meaning (every ticket, or one
@@ -531,8 +531,15 @@ whoever owns it, plus unowned tickets and my own where the customer wrote last; 
 working counts as Westy's. A line under the list counts what the view leaves out, with links, and the
 page says when the list changed between pages. Rows say who asked and flag a customer reply; the
 bulk-delete checkboxes appear only after Select or `x`. Every key does what it did before. Read-only:
-no schema, role, permission or grant change (`app/lib/ticket_queue.php`). How late answers are
-coloured is unchanged and still to be decided.
+no schema, role, permission or grant change (`app/lib/ticket_queue.php`).
+
+**First-response tag in plain words (draft, not live).** The tag under "First response" says `Due in
+6 h`, `Due in 40 min` (gold, under two hours), `Overdue by 2 h` (red), `Answered in time`, `Answered
+3 h late` or `Merged`, with one unit of time and nothing blinking. Red now means only "late right
+now": a ticket that was answered late says so in quiet text with a gold dot instead of staying red
+for ever (decided 2026-11-10). It is one rule (`sla_info()` in `app/lib/service_goals.php`) drawn by
+one helper, so the queue, a client's ticket list and the ticket page read the same. Display only:
+which tickets count as late, the Needs attention view and every report are unchanged.
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.

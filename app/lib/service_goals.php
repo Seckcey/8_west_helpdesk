@@ -27,16 +27,22 @@ function service_goal_timestamp(mixed $value): ?int
     return $timestamp === false ? null : $timestamp;
 }
 
-/** Human-sized elapsed time for the compact response-target lamp. */
+/** A length of time for the first-response tag. */
 function service_goal_duration_label(int $seconds): string
 {
+    // One unit only: "40 min", "6 h", "5 d". Part of a minute counts as a minute; hours and days
+    // are whole ones, and days start at two so "1 d" never stands for 47 hours.
     $minutes = (int) ceil(abs($seconds) / 60);
     if ($minutes < 60) {
-        return $minutes . 'm';
+        return $minutes . ' min';
     }
 
-    return intdiv($minutes, 60) . 'h '
-        . str_pad((string) ($minutes % 60), 2, '0', STR_PAD_LEFT) . 'm';
+    $hours = intdiv($minutes, 60);
+    if ($hours < 48) {
+        return $hours . ' h';
+    }
+
+    return intdiv($hours, 24) . ' d';
 }
 
 /** Customer-facing wording for a configured response window. */
@@ -454,14 +460,24 @@ function service_goal_merge_excluded(array $ticket): bool
 }
 
 /**
- * Response-target state for queue and ticket lamps.
+ * The first-response tag: one state and its words, the same wherever a ticket is listed.
+ *
+ *   healthy   "Due in 6 h"          unanswered, two hours or more left
+ *   at_risk   "Due in 40 min"       unanswered, under two hours left
+ *   breached  "Overdue by 2 h"      unanswered and late now (also "Due now", "No response" and
+ *                                   "Target missing")
+ *   met       "Answered in time"
+ *   late      "Answered 3 h late"   answered, so nothing is late now: it is not "breached"
+ *   excluded  "Merged"
+ *
+ * Only "breached" is urgent. A ticket answered late keeps saying so, quietly.
  *
  * @return array{state:string,label:string}
  */
 function sla_info(array $ticket, ?int $now = null): array
 {
     if (service_goal_merge_excluded($ticket)) {
-        return ['state' => 'excluded', 'label' => 'Merged history'];
+        return ['state' => 'excluded', 'label' => 'Merged'];
     }
 
     $now ??= time();
@@ -471,13 +487,13 @@ function sla_info(array $ticket, ?int $now = null): array
     $outcome = service_goal_response_outcome($ticket, $now);
 
     if ($outcome === true) {
-        return ['state' => 'met', 'label' => 'Response met'];
+        return ['state' => 'met', 'label' => 'Answered in time'];
     }
 
     if ($firstResponseAt !== null && $dueAt !== null) {
         return [
-            'state' => 'breached',
-            'label' => 'Response ' . service_goal_duration_label($firstResponseAt - $dueAt) . ' late',
+            'state' => 'late',
+            'label' => 'Answered ' . service_goal_duration_label($firstResponseAt - $dueAt) . ' late',
         ];
     }
 
@@ -491,14 +507,17 @@ function sla_info(array $ticket, ?int $now = null): array
 
     $remaining = $dueAt - $now;
     $label = service_goal_duration_label($remaining);
-    if ($remaining <= 0) {
-        return ['state' => 'breached', 'label' => $label . ' over'];
+    if ($remaining === 0) {
+        return ['state' => 'breached', 'label' => 'Due now'];
+    }
+    if ($remaining < 0) {
+        return ['state' => 'breached', 'label' => 'Overdue by ' . $label];
     }
     if ($remaining < 2 * 3600) {
-        return ['state' => 'at_risk', 'label' => $label . ' left'];
+        return ['state' => 'at_risk', 'label' => 'Due in ' . $label];
     }
 
-    return ['state' => 'healthy', 'label' => $label . ' left'];
+    return ['state' => 'healthy', 'label' => 'Due in ' . $label];
 }
 
 /**

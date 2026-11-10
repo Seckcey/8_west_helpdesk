@@ -43,9 +43,8 @@ function priority_glyph(string $priority, bool $withLabel = false): string
 function sla_lamp(array $ticket): string
 {
     $sla = sla_info($ticket);
-    $pulse = in_array($sla['state'], ['at_risk', 'breached'], true) ? ' pulse' : '';
     return '<span class="sla sla-' . $sla['state'] . '">'
-         . '<span class="sla-dot' . $pulse . '"></span>' . h($sla['label']) . '</span>';
+         . '<span class="sla-dot"></span>' . h($sla['label']) . '</span>';
 }
 
 function avatar(?array $user, int $size = 26): string
