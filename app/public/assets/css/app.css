@@ -35,7 +35,7 @@
   --p-mint-300: #62F6B0;
   --p-rose-400: #FF7A85;
 
-  /* The sunset "horizon": only under the logo and in progress bars. */
+  /* The sunset "horizon" line: under the logo and in progress bars. */
   --horizon: linear-gradient(90deg, #FFC857, #F9843C 55%, #E8505B);
   --rail-hover: rgba(255, 255, 255, 0.07);
   --rail-ink-strong: #FFFFFF;
@@ -987,7 +987,7 @@ img { display: block; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form-grid .span-2 { grid-column: span 2; }
 @media (max-width: 700px) { .form-grid { grid-template-columns: 1fr; } .form-grid .span-2 { grid-column: span 1; } }
-/* Label above the field, 13px/600. Fields 38px, 10px radius, strong hairline. */
+/* Label above the field, 13px/600. Fields 38px, 10px radius, a 3:1 control border. */
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text); }
 .field input,
 .field select,

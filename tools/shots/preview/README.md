@@ -36,4 +36,7 @@ node tools/shots/preview/build-portal.mjs
 
 It reuses the synthetic fixture from `tools/shots/portal-contract.test.mjs`, renders it with the real
 `app/lib/portal_render.php`, swaps the fixture's names for made-up ones and rewrites asset paths. It
-needs `php` on the path and nothing else.
+refuses to write a page that still contains a fixture name, because this repository is public. It needs
+`php` on the path and nothing else.
+
+The staff pages are hand copies: if a template's markup changes, update the matching preview by hand.

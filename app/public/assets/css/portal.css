@@ -37,8 +37,8 @@
 @media(max-width:760px){.portal-sidebar.is-open{z-index:50}}
 
 /* Home: the signed-in person's overview. Navigation stays links styled as buttons.
- * Contrast is estimated from the theme tokens: body and hint text >= 5.4:1, links on
- * cards >= 4.7:1 and the primary action (navy on blue) 5.7:1, in dark and light. */
+ * Contrast is computed from the theme tokens: body text >= 14.6:1, hint text >= 5.7:1,
+ * links on cards >= 5.4:1 and white on the action blue >= 5.2:1, in dark and light. */
 .portal-overview{align-items:start}
 .portal-overview-hero{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px 22px;align-items:center;padding:28px;background:var(--bg-solid);border:1px solid var(--line);border-radius:20px}
 .portal-overview-avatar{width:64px;height:64px;border-radius:50%;object-fit:cover}

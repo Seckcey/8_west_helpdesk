@@ -48,8 +48,8 @@ customer acceptance must be recorded separately by the release owner.
 
 `/portal/` is a full-height private Westy workspace. It has a narrow navigation
 rail, retained recent chats, an unframed conversation, and a composer visible in
-the first desktop/mobile viewport. The original Safeharbor logo, Westy avatar,
-Inter font and brand tokens remain in use. Business support requests now live at
+the first desktop/mobile viewport. The original Safeharbor logo and Westy avatar
+remain in use; the interface uses the system font stack and the brand tokens in `app.css`. Business support requests now live at
 `/portal/requests.php`; device, summary and direct support routes remain available.
 The workspace has one composer and no duplicate floating chat bubble. The customer
 widget on other portal pages shares the same conversation; the staff widget is a

@@ -6,7 +6,7 @@
 .portal-devices-actions{display:flex;align-items:center;justify-content:flex-end;gap:16px;flex-wrap:wrap;flex:none}
 .portal-devices-page #portal-chat-bubble{position:static;box-shadow:none;z-index:auto}
 .portal-devices .btn-primary,.portal-devices a.btn-primary:visited,.portal-devices a.btn-primary:hover,.portal-devices a.btn-primary:focus-visible{color:#fff;font-weight:600}
-/* Keep the setup download's dark text on a stable, contrasting brand surface in every interaction state. */
+/* Keep the setup download's white text on the action blue in every interaction state (>= 4.7:1). */
 .portal-device-install a.btn-primary{background:var(--accent);transition:none}
 .portal-device-install a.btn-primary:hover,.portal-device-install a.btn-primary:focus-visible{background:var(--accent-hover)}
 @media(max-width:760px){.portal-devices-actions{justify-content:flex-start}.portal-devices-heading{align-items:flex-start;flex-direction:column}}
