@@ -2,7 +2,7 @@
 
 Westy sends approved advice from `westy@8westit.com`, records verified replies
 on the original case, and can send one separately approved acknowledgment.
-Frankie handles requests for new advice or action. Email authority does not
+An owner or administrator handles requests for new advice or action. Email authority does not
 authorize endpoint commands, case closure, purchases, time approval, or invoices.
 
 ## Boundaries
@@ -29,7 +29,7 @@ authorize endpoint commands, case closure, purchases, time approval, or invoices
   deployment between review and approval requires a new review.
 
 This bounded pilot permits one conversation per case. A revoked or stale draft
-cannot be reset or silently replaced. Frankie handles that exception. Sent Items
+cannot be reset or silently replaced. An owner or administrator handles that exception. Sent Items
 reconciliation examines a bounded recent set and preserves the original unknown
 state; absence from that set never permits a resend or proves nondelivery.
 
