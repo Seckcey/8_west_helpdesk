@@ -565,11 +565,20 @@
   /* ------------------------------------------------------------------ */
   const rows = page === "queue" ? $$(".trow:not(.trow-head)") : page === "clients" ? $$(".crow") : [];
   let sel = 0;
+  // The highlight belongs to the keyboard: it appears with the first row key (or a ticked box), so
+  // a page that was only opened does not look as if its first row were in some special state.
+  let selShown = false;
   function paintSel() {
-    rows.forEach((r, i) => r.classList.toggle(page === "queue" ? "trow-sel" : "crow-sel", i === sel));
-    if (rows[sel]) rows[sel].scrollIntoView({ block: "nearest" });
+    rows.forEach((r, i) => r.classList.toggle(page === "queue" ? "trow-sel" : "crow-sel", selShown && i === sel));
+    if (selShown && rows[sel]) rows[sel].scrollIntoView({ block: "nearest" });
   }
-  if (rows.length) paintSel();
+  // Shows the highlight where it stands; true when this call is what made it appear.
+  function showSel() {
+    if (selShown || !rows.length) return false;
+    selShown = true;
+    paintSel();
+    return true;
+  }
 
   const currentRow = () => rows[sel];
 
@@ -598,6 +607,14 @@
     const counter = $(".bulk-count", bulkBar);
     const list = $(".card.list");
     const filterLabel = bulkBar.dataset.filterLabel || "All";
+    // The checkboxes are out of sight until somebody asks to select: the Select button, or X.
+    const modeButton = $("#bulk-toggle");
+    const inMode = () => !!list && list.classList.contains("bulk-mode");
+    function setMode(on) {
+      if (list) list.classList.toggle("bulk-mode", on);
+      if (modeButton) modeButton.setAttribute("aria-pressed", String(on));
+      if (!on) clear();
+    }
 
     const picked = () => picks.filter((box) => box.checked);
     function paint() {
@@ -636,13 +653,14 @@
       if (type === "focus" && !event.relatedTarget) return;
       const wrap = box.closest(".trow-pick");
       const index = wrap ? rows.indexOf($(".trow", wrap)) : -1;
-      if (index >= 0 && index !== sel) { sel = index; paintSel(); }
+      if (index >= 0 && (index !== sel || !selShown)) { sel = index; selShown = true; paintSel(); }
     })));
     if (allBox) allBox.addEventListener("change", () => {
       picks.forEach((box) => { box.checked = allBox.checked; });
       paint();
     });
     $("#bulk-clear").addEventListener("click", clear);
+    if (modeButton) modeButton.addEventListener("click", () => setMode(!inMode()));
     $("#bulk-delete").addEventListener("click", openForSelection);
     // Start empty, whatever the browser restores after a reload or Back: the rows may have shifted.
     clear();
@@ -652,6 +670,7 @@
         const wrap = row && row.closest(".trow-pick");
         const box = wrap && $(".bulk-pick", wrap);
         if (!box) return false;
+        setMode(true);
         box.checked = !box.checked;
         box.dispatchEvent(new Event("change"));
         return true;
@@ -659,6 +678,8 @@
       clear,
       openForSelection,
       hasSelection: () => picked().length > 0,
+      inMode,
+      leaveMode: () => setMode(false),
     };
   })() : null;
 
@@ -1173,13 +1194,14 @@
     const rowTicketId = row && row.dataset.ticketId;
 
     switch (key) {
+      // The first press shows the highlight where it stands; the next ones move it.
       case "j":
       case "arrowdown":
-        if (rows.length) { e.preventDefault(); sel = Math.min(sel + 1, rows.length - 1); paintSel(); }
+        if (rows.length) { e.preventDefault(); if (!showSel()) { sel = Math.min(sel + 1, rows.length - 1); paintSel(); } }
         break;
       case "k":
       case "arrowup":
-        if (rows.length) { e.preventDefault(); sel = Math.max(sel - 1, 0); paintSel(); }
+        if (rows.length) { e.preventDefault(); if (!showSel()) { sel = Math.max(sel - 1, 0); paintSel(); } }
         break;
       case "enter":
       case "o":
@@ -1188,14 +1210,16 @@
         if (key === "enter" && e.target !== document.body && e.target.closest
           && !(e.target.classList && e.target.classList.contains("bulk-pick"))
           && e.target.closest("a[href], button, input, select, textarea, summary, label, [role='button']")) break;
-        if (row) { e.preventDefault(); row.click(); }
+        // Opening needs a row the person can see is chosen: the first Enter only shows it.
+        if (row) { e.preventDefault(); if (!showSel()) row.click(); }
         break;
       case "escape":
         if (bulk && bulk.hasSelection()) { e.preventDefault(); bulk.clear(); }
+        else if (bulk && bulk.inMode()) { e.preventDefault(); bulk.leaveMode(); }
         else if (page === "queue" && window.location.pathname !== "/") { e.preventDefault(); nav("/"); }
         break;
       case "x":
-        if (bulk && row && bulk.toggle(row)) e.preventDefault();
+        if (bulk && row && bulk.toggle(row)) { e.preventDefault(); showSel(); }
         break;
       case "d":
         if (bulk && bulk.openForSelection()) e.preventDefault();
@@ -1212,6 +1236,7 @@
         const id = ticketPageId || targetId;
         if (!id) break;
         e.preventDefault();
+        if (!ticketPageId) showSel();   // a key that changes a row shows which row it changed
         if (key === "e") {
           const t = readTimer();
           if (t && String(t.ticketId) === String(id)) stopTimer();
@@ -1243,7 +1268,7 @@
         if (composer) { e.preventDefault(); composer.focus("note"); }
         break;
       }
-      case "1": case "2": case "3": case "4": case "5": {
+      case "1": case "2": case "3": case "4": case "5": case "6": {
         if (page !== "queue") break;
         const pill = $$(".filter-pill")[Number(key) - 1];
         if (pill) { e.preventDefault(); nav(pill.getAttribute("href")); }
@@ -1939,7 +1964,7 @@
       <div class="help-grid">
         <div><h4>Queue</h4>
           <p><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move · <kbd class="kbd">↵</kbd> open</p>
-          <p><kbd class="kbd">1</kbd>–<kbd class="kbd">5</kbd> filters</p>${bulk ? `
+          <p><kbd class="kbd">1</kbd>–<kbd class="kbd">6</kbd> views</p>${bulk ? `
           <p><kbd class="kbd">x</kbd> select · <kbd class="kbd">d</kbd> delete selected</p>` : ""}</div>
         <div><h4>Any ticket</h4>
           <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">a</kbd> assign me</p>
@@ -1954,6 +1979,22 @@
     div.addEventListener("click", (e) => { if (e.target === div) toggleHelp(); });
     document.body.appendChild(div);
   }
+
+  /* Queue filters: a change applies at once, and a choice left at its default stays out of the
+     address, so a filtered queue has a short link worth keeping. */
+  (() => {
+    const form = $("#queue-filters");
+    if (!form) return;
+    const apply = $("#queue-apply", form);
+    if (apply) apply.hidden = true;
+    const selects = $$("select", form);
+    selects.forEach((select) => select.addEventListener("change", () => form.requestSubmit()));
+    form.addEventListener("submit", () => {
+      selects.forEach((select) => { if (select.value === (select.dataset.default || "")) select.disabled = true; });
+    });
+    // Back restores the page as it was left: its selects must answer again.
+    window.addEventListener("pageshow", () => selects.forEach((select) => { select.disabled = false; }));
+  })();
 
   /* new-ticket: filter contacts to the chosen client */
   (() => {

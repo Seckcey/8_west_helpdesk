@@ -467,15 +467,46 @@ img { display: block; }
 .filter-pill:hover .pill-kbd, .filter-pill:focus-visible .pill-kbd { opacity: 1; }
 @media (max-width: 760px) { .pill-kbd { display: none; } }
 
+/* The queue's toolbar: its views, then client, priority, owner and order, then Select at the end. */
+.queue-toolbar { row-gap: 10px; }
+.queue-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.queue-toolbar #bulk-toggle { margin-left: auto; }
+#bulk-toggle[aria-pressed="true"] { background: var(--sel); color: var(--text); }
+/* One filter: its name and a native select inside one control. */
+.filter-select {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 4px 0 12px;
+  border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: var(--bg-solid);
+  font-size: 13px; font-weight: 600; color: var(--muted-strong);
+}
+.filter-select:hover { background: var(--bg-raised); }
+.filter-select:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.filter-select select {
+  max-width: 190px; min-height: 32px; padding: 0 4px; border: 0; background: transparent;
+  color: var(--text); font: inherit; cursor: pointer;
+}
+.filter-select select:focus { outline: none; }
+/* The count line under the list, with Previous and Next. */
+.pager { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 0 4px; font-size: 13px; color: var(--muted-strong); }
+.pager-count { margin-right: auto; font-variant-numeric: tabular-nums; }
+.pager-off { opacity: .5; cursor: default; }
+.pager-off:hover { background: var(--bg-solid); }
+@media (max-width: 700px) {
+  /* The views stay on one line and scroll sideways; the filters sit two to a row. */
+  .queue-toolbar .filters { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; }
+  .queue-filters { width: 100%; }
+  .filter-select { flex: 1 1 calc(50% - 4px); min-width: 0; min-height: 44px; }
+  .filter-select.filter-sort { flex-basis: 100%; }   /* its choices are the longest */
+  .filter-select select { flex: 1; min-width: 0; max-width: none; min-height: 40px; }
+}
+
 .empty {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 40px 20px; text-align: center; font-size: 14px; color: var(--muted-strong);
 }
 .empty-mark { width: 64px; height: 64px; }
+.empty .btn-chip { margin-top: 6px; }
 .accent { color: var(--accent-2); font-weight: 600; }
 
-.keyhints { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 0 4px; font-size: 12.5px; color: var(--dim); flex-wrap: wrap; }
-.keyhints-right { margin-left: auto; }
 
 /* ==========================================================================
    Ticket rows (queue + client)
@@ -484,7 +515,8 @@ img { display: block; }
 
 .trow {
   display: grid;
-  grid-template-columns: 22px 64px 1fr auto auto 130px 52px;
+  /* Fixed tracks, so Status, Owner and First response line up down the list. */
+  grid-template-columns: 22px 64px minmax(0, 1fr) 112px 44px 160px 60px;
   align-items: center; gap: 12px;
   min-height: 60px; padding: 10px 16px; border-bottom: 1px solid var(--line);
   transition: background .14s;
@@ -515,10 +547,16 @@ img { display: block; }
   .trow-tech { grid-area: tech; }
   .trow-sla { grid-area: sla; }
   .trow-age { grid-area: age; }
-  .trow .trow-subject, .trow .trow-sub { white-space: normal; overflow-wrap: anywhere; }
+  .trow .trow-subject, .trow .trow-origin { white-space: normal; overflow-wrap: anywhere; }
+  .trow .trow-sub { flex-wrap: wrap; }
 }
 .trow-subject { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.trow-sub { font-size: 12.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--dim); }
+.trow-origin { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow-flag { flex: none; height: 20px; }
+@media (min-width: 701px) and (max-width: 1000px) {
+  .trow { grid-template-columns: 22px 56px minmax(0, 1fr) 104px 40px 136px 52px; gap: 10px; }
+}
 .trow-age { text-align: right; font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
 
 /* Selectable queue rows (owners and admins, bulk delete). The checkbox sits beside the row link. */
@@ -531,11 +569,16 @@ img { display: block; }
 .trow-pick:hover .pick input, .pick input:focus-visible, .pick input:checked, .bulk-on .pick input { opacity: 1; }
 @media (hover: none) { .pick input { opacity: 1; } }
 .trow-pick-head { background: var(--bg-raised); }
+/* The checkboxes stay out of the list until somebody asks to select (the Select button, or X). */
+.list:not(.bulk-mode) .pick { display: none; }
+.list:not(.bulk-mode) .trow-pick { grid-template-columns: minmax(0, 1fr); }
+.list:not(.bulk-mode) .trow-pick > .trow { padding-left: 16px; }
 .pick-all-label { display: none; }
 @media (max-width: 700px) {
   .trow-pick { grid-template-columns: 44px minmax(0, 1fr); }
   .pick { min-height: 44px; }
   .trow-pick-head { grid-template-columns: 1fr; }   /* the column header itself is hidden here */
+  .list:not(.bulk-mode) .trow-pick-head { display: none; }
   .trow-pick-head .pick { justify-content: flex-start; gap: 8px; padding: 0 16px; }
   .pick-all-label { display: inline; font-size: 12.5px; color: var(--muted); }
 }

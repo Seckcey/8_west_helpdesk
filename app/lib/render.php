@@ -73,6 +73,33 @@ function ticket_owner_avatar(array $ticket, int $size = 26): string
     return avatar(!empty($ticket['assignee_id']) ? ['full_name'=>$ticket['assignee_name'], 'initials'=>$ticket['assignee_initials'], 'color'=>$ticket['assignee_color']] : null, $size);
 }
 
+/** How a ticket came in, in words. */
+const CHANNEL_WORDS = [
+    'email'  => 'by email',
+    'portal' => 'from the portal',
+    'phone'  => 'by phone',
+    'alert'  => 'from a Milepost alert',
+];
+
+/**
+ * A row's second line: the client, how the ticket came in and, when the row knows it, who asked
+ * ("Bayside Realty, by phone from Dana Whitfield"). The queue supplies contact_name (the ticket's
+ * contact) and opener_name (the author of its first customer message); other lists may not.
+ * Plain text: the caller escapes it.
+ */
+function ticket_origin(array $t): string
+{
+    $channel = (string)($t['channel'] ?? '');
+    $line = (string)$t['client_name'];
+    if (!isset(CHANNEL_WORDS[$channel])) return $line;
+    $line .= ', ' . CHANNEL_WORDS[$channel];
+    $who = trim((string)($t['contact_name'] ?? ''));
+    if ($who === '') $who = trim((string)($t['opener_name'] ?? ''));
+    // An alert is written by a machine: there is nobody to name.
+    if ($who === '' || $channel === 'alert') return $line;
+    return $line . ($channel === 'portal' ? ' by ' : ' from ') . $who;
+}
+
 /** One queue row (also used on the client page). */
 function ticket_row(array $t, bool $linkWrap = true): string
 {
@@ -81,11 +108,18 @@ function ticket_row(array $t, bool $linkWrap = true): string
         . '<span class="trow-pri">' . priority_glyph($t['priority']) . '</span>'
         . '<span class="trow-num">#' . (int)$t['id'] . '</span>'
         . '<span class="trow-main"><span class="trow-subject">' . h($t['subject']) . '</span>'
-        . '<span class="trow-sub">' . h($t['client_name']) . ' · ' . h($t['channel']) . '</span></span>'
+        . '<span class="trow-sub"><span class="trow-origin">' . h(ticket_origin($t)) . '</span>'
+        // The customer answered after we did: it is our turn again.
+        . (($t['last_kind'] ?? '') === 'client' && !empty($t['first_response_at']) && ($t['status'] ?? '') !== 'resolved'
+            ? '<span class="chip trow-flag"><span class="chip-dot dot-cyan"></span><span class="chip-text-cyan">Customer replied</span></span>' : '')
+        . '</span></span>'
         . '<span class="trow-status">' . status_chip($t['status']) . '</span>'
         . '<span class="trow-tech">' . ticket_owner_avatar($t) . '</span>'
         . '<span class="trow-sla">' . sla_lamp($t) . '</span>'
-        . '<span class="trow-age" title="Opened">' . rel_time($t['created_at']) . '</span>'
+        // Time since the last message when the row knows it (the queue); otherwise since it opened.
+        . (!empty($t['last_message_at'])
+            ? '<span class="trow-age" title="Last message">' . rel_time($t['last_message_at']) . '</span>'
+            : '<span class="trow-age" title="Opened">' . rel_time($t['created_at']) . '</span>')
         . '</a>';
 }
 
@@ -105,9 +139,9 @@ function ticket_pick_row(array $t): string
 function ticket_head_row(bool $pickable): string
 {
     $head = '<div class="trow trow-head" role="row">'
-        . '<span class="trow-pri">Pri</span><span class="trow-num">#</span><span class="trow-main">Ticket</span>'
-        . '<span class="trow-status">Status</span><span class="trow-tech">Owner</span><span class="trow-sla">SLA</span>'
-        . '<span class="trow-age">Age</span>'
+        . '<span class="trow-pri"><span class="sr-only">Priority</span></span><span class="trow-num">No.</span><span class="trow-main">Ticket</span>'
+        . '<span class="trow-status">Status</span><span class="trow-tech">Owner</span><span class="trow-sla">First response</span>'
+        . '<span class="trow-age">Updated</span>'
         . '</div>';
     if (!$pickable) return $head;
     return '<div class="trow-pick trow-pick-head"><label class="pick"><input type="checkbox" id="bulk-all" autocomplete="off"'
@@ -125,6 +159,15 @@ function ticket_bulk_bar(string $filterLabel, int $total): string
         . '<button type="button" class="btn-danger btn-sm" id="bulk-delete">Delete…</button>'
         . '<button type="button" class="btn-link" id="bulk-clear">Clear selection</button>'
         . '</div>';
+}
+
+/**
+ * The toolbar button that shows the checkboxes. They stay out of the way until somebody asks to
+ * select (this button, or the X key), so the list reads as a list of tickets.
+ */
+function ticket_bulk_toggle(): string
+{
+    return '<button type="button" class="btn-link" id="bulk-toggle" aria-pressed="false">Select</button>';
 }
 
 /**

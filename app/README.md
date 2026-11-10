@@ -85,6 +85,8 @@ lib/mailer.php             outbound mail (mail_queue + transports:
                            Graph sendMail → SMTP → PHP mail(); Milepost parity)
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
 lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
+lib/ticket_queue.php       the queue's views, filters, orders and paging, each
+                           defined once; every query tenant-scoped and bound
 lib/svc_intake.php         Milepost alert events → tickets (idempotent; only
                            untouched signed telemetry may auto-close)
 lib/ticket_lifecycle.php   atomic one-use telemetry recovery transition
@@ -134,7 +136,8 @@ cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
 cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
 public/                    Apache docroot (page-per-file, like Milepost)
-  index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
+  index.php                Queue (six views · filters · 50 a page · j/k · Enter
+                           · s/p/a/e · 1-6 views)
   ticket.php               Ticket detail (thread, reply PRG, rail actions)
   ticket_new.php           New ticket (captures exact effective policy version/target)
   clients.php, client.php  Clients + "answer the phone smart" screen
@@ -189,7 +192,14 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `8west:tenant` claim and create the tenant row if the slug is new; local
   sign-ins + cron use the seeded tenant 1).
 - API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
-- Keyboard model (client-side): `j/k` move · `↵` open · `1–5` filters ·
+- Queue: opens on Needs attention (unowned open tickets, plus my own that
+  are unanswered and overdue or due within two hours, or where the customer
+  wrote last; a ticket I parked as Waiting is not on it). Views, the client,
+  priority and owner filters, the order and the page are all in the address
+  (`?view=&client=&priority=&owner=&sort=&page=`); old `?f=<status>` links
+  land on the nearest view. Counts on the views follow the filters. The
+  checkboxes for bulk delete appear with Select or `x`.
+- Keyboard model (client-side): `j/k` move · `↵` open · `1–6` views ·
   `s` status · `p` priority · `a` assign · `e` timer · `r` reply ·
   `n` internal note · `/` saved replies · `g q/t/c` navigate ·
   `⌘K` palette (3+ chars = deep search over message bodies, resolved

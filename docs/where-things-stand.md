@@ -490,6 +490,14 @@ emergencies. An empty queue shows owners and administrators a Get set up card, a
 customer's portal Home until a computer exists. Staff sign-in starts with an empty email field and puts
 Continue with 8 West ID first. No auth decision, role or schema change.
 
+**Queue views, filters and paging (draft, not live).** The queue opens on Needs attention instead of
+on every ticket, with views for Mine, Unassigned, Waiting on client, All open and Resolved, filters for
+client, priority and owner, a choice of order, and 50 tickets a page. Everything is a link in the
+address, so Back and bookmarks work, and old `?f=` links still land on the nearest view. Rows say who
+asked and flag a customer reply; the bulk-delete checkboxes appear only after Select or `x`; no row is
+highlighted until the keyboard is used. Read-only: no schema, role, permission or grant change
+(`app/lib/ticket_queue.php`). How late answers are coloured is unchanged and still to be decided.
+
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.
 2. **Technician-time correction acceptance** still needs a fresh signed-in check on the 8 West IT

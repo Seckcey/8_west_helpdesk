@@ -87,50 +87,27 @@
   <div class="page-head">
     <div>
       <h1 class="page-title">Queue</h1>
-      <p class="page-sub">0 open · 0 active · 0 resolved</p>
+      <p class="page-sub">No open tickets.</p>
     </div>
     <div class="page-actions">
-      <a href="#" class="btn-primary">+ New ticket</a>
+      <a href="#" class="btn-primary">New ticket</a>
     </div>
   </div>
-  <div class="toolbar">
-    <div class="filters">
-      <a href="#" class="filter-pill pill-on" data-key="1">
-        All<span class="pill-count">0</span><kbd class="kbd pill-kbd">1</kbd>
-      </a>
-      <a href="#" class="filter-pill" data-key="2">
-        Open<span class="pill-count">0</span><kbd class="kbd pill-kbd">2</kbd>
-      </a>
-      <a href="#" class="filter-pill" data-key="3">
-        In Progress<span class="pill-count">0</span><kbd class="kbd pill-kbd">3</kbd>
-      </a>
-      <a href="#" class="filter-pill" data-key="4">
-        Waiting<span class="pill-count">0</span><kbd class="kbd pill-kbd">4</kbd>
-      </a>
-      <a href="#" class="filter-pill" data-key="5">
-        Resolved<span class="pill-count">0</span><kbd class="kbd pill-kbd">5</kbd>
-      </a>
-    </div>
+  <div class="toolbar queue-toolbar">
+    <nav class="filters" aria-label="Queue views"><a href="#" class="filter-pill pill-on" aria-current="page" data-key="1">Needs attention<span class="pill-count">0</span><kbd class="kbd pill-kbd" aria-hidden="true">1</kbd></a><a href="#" class="filter-pill" data-key="2">Mine<span class="pill-count">0</span><kbd class="kbd pill-kbd" aria-hidden="true">2</kbd></a><a href="#" class="filter-pill" data-key="3">Unassigned<span class="pill-count">0</span><kbd class="kbd pill-kbd" aria-hidden="true">3</kbd></a><a href="#" class="filter-pill" data-key="4">Waiting on client<span class="pill-count">0</span><kbd class="kbd pill-kbd" aria-hidden="true">4</kbd></a><a href="#" class="filter-pill" data-key="5">All open<span class="pill-count">0</span><kbd class="kbd pill-kbd" aria-hidden="true">5</kbd></a><a href="#" class="filter-pill" data-key="6">Resolved<kbd class="kbd pill-kbd" aria-hidden="true">6</kbd></a></nav>
+    <form class="queue-filters" id="queue-filters" method="get" action="/"><span class="filter-select filter-client"><label class="filter-select-k" for="queue-client">Client</label><select name="client" id="queue-client" data-default=""><option value="" selected>All</option><option value="1">Bayside Realty</option><option value="2">Cedar and Pine Law</option><option value="3">Harbor Dental</option><option value="4">Juniper Bakery</option><option value="5">Tanner Engineering</option></select></span><span class="filter-select filter-priority"><label class="filter-select-k" for="queue-priority">Priority</label><select name="priority" id="queue-priority" data-default=""><option value="" selected>Any</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></span><span class="filter-select filter-owner"><label class="filter-select-k" for="queue-owner">Owner</label><select name="owner" id="queue-owner" data-default=""><option value="" selected>Anyone</option><option value="me">Me</option><option value="none">Unassigned</option><option value="8">Ana Kim</option><option value="9">Jon Silva</option></select></span><span class="filter-select filter-sort"><label class="filter-select-k" for="queue-sort">Sort</label><select name="sort" id="queue-sort" data-default="reply"><option value="reply" selected>First response due</option><option value="updated">Last updated</option><option value="priority">Priority</option><option value="newest">Newest</option></select></span><button type="submit" class="btn-chip" id="queue-apply">Apply</button></form>
   </div>
 
   <section class="card setup-card" aria-labelledby="queue-setup-heading"><h2 class="setup-title" id="queue-setup-heading">Get set up</h2><ol class="setup-steps"><li class="setup-step is-current"><span class="setup-mark" aria-hidden="true">1</span><div class="setup-text"><strong>Add your first client</strong><p>Tickets belong to a client. Clients you add in Milepost appear here by themselves.</p></div><a class="btn-primary" href="#">Add a client</a></li><li class="setup-step is-later"><span class="setup-mark" aria-hidden="true">2</span><div class="setup-text"><strong>Invite your team</strong><p>Each person signs in with their own 8 West ID account.</p></div><a class="btn-ghost setup-secondary" href="#">Invite a teammate</a></li><li class="setup-step is-later"><span class="setup-mark" aria-hidden="true">3</span><div class="setup-text"><strong>File a test ticket</strong><p>See how a request moves from Open to Resolved.</p></div><a class="btn-ghost setup-secondary" href="#">New ticket</a></li></ol></section>
   <div class="card list">
-    <div class="trow trow-head" role="row"><span class="trow-pri">Pri</span><span class="trow-num">#</span><span class="trow-main">Ticket</span><span class="trow-status">Status</span><span class="trow-tech">Owner</span><span class="trow-sla">SLA</span><span class="trow-age">Age</span></div>
-      <div class="empty">
-        <img src="../../../brand/png/safeharbor-logo-square-20260907.png" alt="" class="empty-mark">
-        <p>Nothing here. The harbor is calm.</p>
-      </div>
+    <div class="trow trow-head" role="row"><span class="trow-pri"><span class="sr-only">Priority</span></span><span class="trow-num">No.</span><span class="trow-main">Ticket</span><span class="trow-status">Status</span><span class="trow-tech">Owner</span><span class="trow-sla">First response</span><span class="trow-age">Updated</span></div>
+    <div class="empty">
+      <img src="../../../brand/png/safeharbor-logo-square-20260907.png" alt="" class="empty-mark">
+      <p>Nothing needs you right now.</p>
+      <a class="btn-chip" href="#">Open the full queue</a>
+    </div>
   </div>
-
-  <p class="keyhints">
-    <span><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move</span>
-    <span><kbd class="kbd">↵</kbd> open</span>
-    <span><kbd class="kbd">s</kbd> status</span>
-    <span><kbd class="kbd">p</kbd> priority</span>
-    <span><kbd class="kbd">a</kbd> assign to me</span>
-    <span><kbd class="kbd">e</kbd> start timer</span>
-    <span class="keyhints-right">⌘K for everything else</span>
-  </p>
+  
 </div>
     </main>
   </div>
