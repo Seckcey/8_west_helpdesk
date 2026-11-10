@@ -104,6 +104,16 @@ test('a filter applies as soon as it is chosen, and the address stays short', as
   assert.deepEqual(errors, []);
 });
 
+test('with every choice back at its default the address is the plain queue', async (t) => {
+  const { page, errors } = await fixture(t);
+  // The default view carries no hidden field; with nothing chosen there is nothing to send.
+  await page.evaluate(() => document.querySelector('#queue-filters input[name="view"]').remove());
+  await page.evaluate(() => document.querySelector('#queue-filters').requestSubmit());
+  await page.waitForURL(`${ORIGIN}/`);
+  assert.equal(page.url(), `${ORIGIN}/`, 'no address that ends in a bare question mark');
+  assert.deepEqual(errors, []);
+});
+
 test('Next and Previous are links', async (t) => {
   const { page, errors } = await fixture(t);
   assert.equal(await page.locator('.pager-count').innerText(), 'Showing 1 to 50 of 131');

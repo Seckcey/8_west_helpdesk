@@ -1989,8 +1989,13 @@
     if (apply) apply.hidden = true;
     const selects = $$("select", form);
     selects.forEach((select) => select.addEventListener("change", () => form.requestSubmit()));
-    form.addEventListener("submit", () => {
+    form.addEventListener("submit", (event) => {
       selects.forEach((select) => { if (select.value === (select.dataset.default || "")) select.disabled = true; });
+      // Nothing left to say: go to the plain queue rather than to an address that ends in "?".
+      if (new FormData(form).entries().next().done) {
+        event.preventDefault();
+        window.location.href = form.getAttribute("action") || "/";
+      }
     });
     // Back restores the page as it was left: its selects must answer again.
     window.addEventListener("pageshow", () => selects.forEach((select) => { select.disabled = false; }));
