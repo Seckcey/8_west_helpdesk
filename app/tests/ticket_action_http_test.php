@@ -197,7 +197,12 @@ try {
     $deliver = static function (int $id) use ($pdo): void {
         $pdo->prepare('UPDATE mail_queue SET sent_at = UTC_TIMESTAMP() WHERE ticket_id = ? AND sent_at IS NULL AND attempts < max_attempts')->execute([$id]);
     };
-    $dueNow = static fn(): int => (int)$pdo->query('SELECT COUNT(*) FROM mail_queue WHERE sent_at IS NULL AND next_try_at <= UTC_TIMESTAMP() AND attempts < max_attempts')->fetchColumn();
+    /** How many of a ticket's emails the dispatcher would send if it ran this second. */
+    $dueNow = static function (int $id) use ($pdo): int {
+        $q = $pdo->prepare('SELECT COUNT(*) FROM mail_queue WHERE ticket_id = ? AND sent_at IS NULL AND next_try_at <= UTC_TIMESTAMP() AND attempts < max_attempts');
+        $q->execute([$id]);
+        return (int)$q->fetchColumn();
+    };
     $setStatus = static function (int $id, string $status) use ($pdo): void {
         $pdo->prepare('UPDATE tickets SET status = ?, resolved_at = NULL, resurface_at = NULL WHERE id = ?')->execute([$status, $id]);
     };
@@ -262,13 +267,13 @@ try {
     $check(count($survey) === 1 && $survey[0]['to_addr'] === 'dana@example.test' && count($mail(7001)) === 1, 'and queues one survey email to the contact');
     $token = (string)$pdo->query('SELECT token FROM csat WHERE ticket_id = 7001')->fetchColumn();
     $check(str_contains($survey[0]['body_text'], 'csat.php?t=' . $token . '&s=3'), 'whose links carry that survey\'s token');
-    $check($held($survey[0]) && $dueNow() === 0, 'the email is held: the dispatcher would not send it yet');
+    $check($held($survey[0]) && $dueNow(7001) === 0, 'the email is held: the dispatcher would not send it yet');
     $check($json['toast'] === 'Resolved. Dana gets a short survey in a minute.', 'the toast says who is asked and when');
 
     // Undo inside the window: the status goes back and the survey never leaves.
     [$status, $json] = $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'in_progress']);
     $check($status === 200 && $ticket(7001)['status'] === 'in_progress' && $ticket(7001)['resolved_at'] === null, 'Undo puts the status back');
-    $check($surveys(7001) === 0 && $mail(7001) === [] && $dueNow() === 0, 'and withdraws the survey: nothing is left to send');
+    $check($surveys(7001) === 0 && $mail(7001) === [] && $dueNow(7001) === 0, 'and withdraws the survey: nothing is left to send');
     $check($withdrawn(7001) === ['Cancelled: ticket reopened before its survey was sent'], 'the email is cancelled in place, with the reason, not removed');
     $check($json['toast'] === 'Reopened as In progress. The survey was not sent.', 'and says the survey was not sent');
 
@@ -415,7 +420,7 @@ try {
     $check($status === 200 && $surveys(7008) === 1 && count($survey) === 1 && $held($survey[0]) && $json['toast'] === 'Resolved. Dana gets a short survey in a minute.',
         'limited account: a chosen Resolve holds one survey');
     [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'in_progress']);
-    $check($status === 200 && $ticket(7008)['status'] === 'in_progress' && $mail(7008) === [] && $dueNow() === 0
+    $check($status === 200 && $ticket(7008)['status'] === 'in_progress' && $mail(7008) === [] && $dueNow(7008) === 0
         && $withdrawn(7008) === ['Cancelled: ticket reopened before its survey was sent'], 'limited account: Undo still stops the survey email from ever leaving');
     $check($json['toast'] === 'Reopened as In progress. The survey was not sent.' && $surveys(7008) === 1, 'the survey row it could not remove stays, unanswered');
     $x = $page(102, 7008);
