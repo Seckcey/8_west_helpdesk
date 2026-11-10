@@ -9,10 +9,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#061936">
-<title>Ticket #102 · Safeharbor</title>
+<title>Request #102 · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="../../../app/public/assets/brand/favicon.svg">
-<link rel="stylesheet" href="../../../app/public/assets/css/app.css?v=db33e82d65e5e3352874">
-<link rel="stylesheet" href="../../../app/public/assets/css/portal.css?v=e9ec2bc28ecdc7d4096e">
+<link rel="stylesheet" href="../../../app/public/assets/css/app.css?v=ad5ef36df05d324920a1">
+<link rel="stylesheet" href="../../../app/public/assets/css/portal.css?v=2f2564a4abd915b91163">
 <link rel="stylesheet" href="../../../app/public/assets/css/portal-devices.css?v=8789e073840f71a15bbb">
 <link rel="stylesheet" href="../../../app/public/assets/css/portal-workspace.css?v=7694aeaebd510fc10885">
 <meta name="robots" content="noindex">
@@ -37,21 +37,41 @@
   <form method="post" action="/portal/logout.php"><input type="hidden" name="csrf" value="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"><button type="submit" class="portal-account-action portal-account-signout">Sign out</button></form>
 </section></aside>
 <div class="portal-content" id="portal-content" tabindex="-1">
-<main class="page">
+<main class="page portal-request">
   <a href="#" class="backlink">← Support Requests</a>  <header class="page-head portal-ticket-head">
     <div>
-      <div class="ticket-head">
-        <span class="ticket-num">#102</span>
-        <span class="portal-status portal-status-waiting">Waiting for your reply</span>
-      </div>
       <h1 class="ticket-subject">Front desk printer is offline</h1>
-      <p class="ticket-sub">High priority · Opened 08/29/2026 · 2:00 AM PDT</p>
+      <p class="ticket-sub">Request #102, sent <time datetime="2026-08-29T09:00:00Z" title="08/29/2026 · 2:00 AM PDT">Aug 29 at 2:00 AM</time>. High priority.</p>
     </div>
       </header>
 
-          <div class="card portal-waiting-callout" role="status">
+    
+  <section class="portal-progress" aria-labelledby="portal-status-heading">
+    <h2 id="portal-status-heading" class="portal-progress-title">Status</h2>
+    <ol class="portal-progress-steps">
+              <li class="is-done">
+          <span class="portal-progress-mark" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+          <span class="portal-progress-label">Open<span class="sr-only">, done</span></span>
+        </li>
+              <li class="is-done">
+          <span class="portal-progress-mark" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+          <span class="portal-progress-label">In progress<span class="sr-only">, done</span></span>
+        </li>
+              <li class="is-now" aria-current="step">
+          <span class="portal-progress-mark" aria-hidden="true">3</span>
+          <span class="portal-progress-label">Waiting for your reply</span>
+        </li>
+              <li class="is-later">
+          <span class="portal-progress-mark" aria-hidden="true">4</span>
+          <span class="portal-progress-label">Resolved</span>
+        </li>
+          </ol>
+    <p class="portal-progress-summary" aria-hidden="true">Step 3 of 4: Waiting for your reply</p>
+  </section>
+
+      <div class="card portal-waiting-callout" role="status">
       <strong>The support team is waiting for your reply.</strong>
-      <span>Send an update below and this request will return to the open queue for a human technician.</span>
+      <span>Answer below and a technician picks it up again.</span>
     </div>
   
   <div class="ticket-grid">
@@ -60,14 +80,14 @@
                         <article class="card msg msg-client">
             <div class="msg-meta">
               <span class="msg-author">Priya Anand</span>
-              <span class="msg-when">08/29/2026 · 2:00 AM PDT</span>
+              <span class="msg-when"><time datetime="2026-08-29T09:00:00Z" title="08/29/2026 · 2:00 AM PDT">Aug 29 at 2:00 AM</time></span>
             </div>
             <div class="msg-body">The front desk cannot print.</div>
           </article>
                   <article class="card msg msg-tech">
             <div class="msg-meta">
               <span class="msg-author-tech">8 West IT support</span>
-              <span class="msg-when">08/29/2026 · 2:22 AM PDT</span>
+              <span class="msg-when"><time datetime="2026-08-29T09:22:00Z" title="08/29/2026 · 2:22 AM PDT">Aug 29 at 2:22 AM</time></span>
             </div>
             <div class="msg-body">Is the blue power light on?</div>
           </article>
@@ -77,28 +97,20 @@
           <input type="hidden" name="action_nonce" value="e79b5bd15e8c63ba3e1093849560eb635a60378be0eb4e92cb3d0378e6c6cd16">
           <label class="field" for="portal-reply">Send the update the support team needs</label>
           <textarea id="portal-reply" name="body" maxlength="8000" required
-                    placeholder="Add an update or answer the technician’s question…"></textarea>
+                    placeholder="Add an update or answer the technician’s question"></textarea>
           <div class="reply-foot">
-            <span class="reply-hint">Your reply is visible to the requester, client owners/admins and the support team.</span>
-            <button type="submit" class="btn-primary btn-sm">Send reply</button>
+            <span class="reply-hint">Do not include passwords or verification codes.</span>
+            <button type="submit" class="btn-primary">Send reply</button>
           </div>
         </form>
           </section>
 
-    <aside class="rail" aria-label="Ticket details">
-      <h2 class="rail-label">Ticket details</h2>
-      <div class="card rail-card">
-        <span class="rail-k">Status</span>
-        <span class="rail-v">Waiting for your reply</span>
-      </div>
-      <div class="card rail-card">
-        <span class="rail-k">Response goal</span>
-                  <span class="rail-v">First response sent</span>
-          <span class="rail-note">08/29/2026 · 2:22 AM PDT</span>
-              </div>
-      <div class="card rail-card">
-        <span class="rail-k">Privacy</span>
-        <span class="rail-note">Internal notes, automation evidence, technician time, billing, and device controls are never shown here.</span>
+    <aside class="rail portal-next" aria-labelledby="portal-next-heading">
+      <h2 id="portal-next-heading" class="rail-label">What happens next</h2>
+      <div class="portal-next-body">
+                  <p class="portal-next-lead">It is your turn.</p>
+                  <p>We replied Aug 29 at 2:22 AM and need your answer to carry on.</p>
+                        <p class="portal-next-privacy">Seen by the person who sent it, the owners and admins of Harbor Dental, and the support team.</p>
       </div>
     </aside>
   </div>
