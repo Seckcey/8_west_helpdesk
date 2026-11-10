@@ -283,6 +283,15 @@ check('the later standard ticket gets an exact eight-hour deadline',
     strtotime((string) $second['sla_due_at'] . ' UTC')
         - strtotime((string) $second['created_at'] . ' UTC') === 28800);
 check('both acknowledgements were queued', (int) db()->query('SELECT COUNT(*) FROM mail_queue')->fetchColumn() === 2);
+$acknowledgements = array_map('strval', db()->query('SELECT body_text FROM mail_queue ORDER BY id')->fetchAll(PDO::FETCH_COLUMN));
+check('each acknowledgement gives its own request number and reply goal in plain words',
+    str_contains($acknowledgements[0] ?? '', 'It is request #' . $ticketId . '.')
+    && str_contains($acknowledgements[0] ?? '', 'We aim to reply within 2 hours.')
+    && str_contains($acknowledgements[1] ?? '', 'It is request #' . $secondId . '.')
+    && str_contains($acknowledgements[1] ?? '', 'We aim to reply within 8 hours.'));
+check('an acknowledgement carries no portal link while the portal is off',
+    ! str_contains(implode("
+", $acknowledgements), '/portal/'));
 
 echo "---\n{$checks} checks, {$failures} failures\n";
 exit($failures > 0 ? 1 : 0);

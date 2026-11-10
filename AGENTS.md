@@ -87,7 +87,10 @@ file, a database, or a settings file). Tests check behaviour, not wording or fil
    Entra app; its credentials live only in the server's config. Westy's mailbox uses its own application and must never repoint the general sender.
    **Mail-loop protection is law:** nothing is ever sent to mailer-daemon, postmaster, no-reply-style
    or bounce addresses (`app/tests/mail_loop_guard_test.php`); a 2026-08 loop wrote 335,000 junk
-   messages before the guard existed.
+   messages before the guard existed. The words of the three customer emails (received, answered,
+   resolved) live in `lib/customer_mail.php`: plain text, "answer this email" first, signed with the
+   tenant's own name, and a portal link only for a client with active portal access. That file decides
+   no recipient and sends nothing.
 9. **Every string from outside goes through `utf8_clean()`** before it reaches the database;
    mis-encoded mail bytes fail a utf8mb4 insert.
 10. **Look and feel.** Brand values come from `brand/tokens.json` (mirrored by hand at the top of
