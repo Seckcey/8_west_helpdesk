@@ -496,10 +496,7 @@ such as "today at 9:22 AM" in the viewer's own time zone; it no longer shows the
 name, version or minutes. The three customer emails (received, answered, resolved) are reworded in
 `lib/customer_mail.php` and carry a link to the request only when the portal is on and that client has
 an active portal binding; the sentence says owners and admins can use it, because only they can open an
-emailed request in the portal. Westy's automatic acknowledgment is template version 2 and names the
-support team instead of a person: an acknowledgment approved for version 1 and not yet sent will not
-send, and shows on the review page as needing an owner or administrator
-(`docs/westy-mail-conversations.md`). No rule about who is emailed, or when, changed: a request opened in the
+emailed request in the portal. No rule about who is emailed, or when, changed: a request opened in the
 portal still has no email contact (`portal_create_ticket()` stores `contact_id` NULL), so its replies
 and its resolution are seen in the portal only and it gets no survey. No SQL or auth change.
 
