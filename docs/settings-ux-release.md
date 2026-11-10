@@ -62,10 +62,19 @@ content at `c79cf59` and needs no production redeploy.
   access, guide and support retain their existing destinations. Sign out is still
   the same CSRF-protected POST. The sidebar scrolls when its contents exceed the
   available height, including the Westy workspace on phones.
-- Staff Team uses labeled Technician/Administrator/Owner choices and named,
+- Staff Team opens on its member list. An owner or administrator whose 8 West ID
+  session grants people management in MSP Admin gets one primary **Invite a
+  teammate** button to `https://id.8westit.com/users.php` and a callout saying
+  people are added once, in 8 West ID; other owners and administrators are told
+  to ask whoever manages their 8 West ID account. The local recovery account form
+  sits in a closed **Backup sign-in for emergencies** disclosure below the list,
+  which opens by itself after a failed add, keeping the typed name and email and the
+  chosen role and color. Technicians see the list only.
+- In the member list, access buttons state Enable/Disable and disabled rows remain
+  readable.
+- The local account form uses labeled Technician/Administrator/Owner choices and named,
   keyboard-focusable color radios. Native checked state drives the visible
-  selection. Access buttons state Enable/Disable; disabled rows remain readable.
-  Role values, account handlers and all current access checks are unchanged.
+  selection. Role values, account handlers and all current access checks are unchanged.
 - Profile and Team use clear destination buttons, Cancel navigation and
   accessible success/error feedback. Local recovery forms remain local; linked
   identities still manage profile/security in ID. Password requirements are

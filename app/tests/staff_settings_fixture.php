@@ -60,6 +60,7 @@ class SettingsFixtureDatabase {
     public function prepare(string $sql): SettingsFixtureStatement { return new SettingsFixtureStatement($sql); }
 }
 function db(): SettingsFixtureDatabase { return new SettingsFixtureDatabase(); }
+require_once __DIR__.'/../lib/first_steps.php';
 $source = file_get_contents(__DIR__.'/../public/'.$surface.'.php');
 // Same whole-page source, substituting only the two bootstrap includes above.
 $source = preg_replace('/^require_once .*;\R/m', '', $source);

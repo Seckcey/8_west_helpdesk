@@ -88,6 +88,11 @@ jobs:
       SAFEHARBOR_REPORT_TEST_PORT: 3306
       SAFEHARBOR_REPORT_TEST_USER: root
       SAFEHARBOR_REPORT_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_FIRST_STEPS_TEST_DB: safeharbor_first_steps_test
+      SAFEHARBOR_FIRST_STEPS_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_FIRST_STEPS_TEST_PORT: 3306
+      SAFEHARBOR_FIRST_STEPS_TEST_USER: root
+      SAFEHARBOR_FIRST_STEPS_TEST_PASS: safeharbor-test-root
       SAFEHARBOR_ID_REPORT_TEST_DISPOSABLE_SERVER: '1'
       SAFEHARBOR_ID_REPORT_TEST_DB: safeharbor_id_report_test
       SAFEHARBOR_ID_REPORT_TEST_HOST: 127.0.0.1
@@ -209,6 +214,8 @@ jobs:
           php app/tests/desktop_return_path_test.php
           php app/tests/client_operational_context_test.php
           php app/tests/ticket_bulk_delete_render_test.php
+          php app/tests/first_steps_test.php
+          php app/tests/team_invite_test.php
           php app/tests/westy_workflow_test.php
           php app/tests/westy_hardware_test.php
           php app/tests/westy_billing_test.php
@@ -269,6 +276,7 @@ jobs:
           php app/tests/ticket_auto_close_mysql_test.php
           php app/tests/service_goal_policy_mysql_test.php
           php app/tests/business_reports_mysql_test.php
+          php app/tests/tenant_client_count_mysql_test.php
           php app/tests/id_report_contacts_mysql_test.php
           php app/tests/suite_customer_sync_mysql_test.php
           php app/tests/managed_customer_activation_mysql_test.php

@@ -34,8 +34,10 @@ Both links expire after 48 hours if unused. Accepted computer assignments remain
 active until revoked. Safeharbor computer links are shared manually. The ID
 invitation has its own delivery settings. An owner with a separate customer-profile
 overlay keeps their original account role; the portal does not make that account
-a client identity administrator. The ID People shortcut appears only for an
-actual client owner/admin without that overlay.
+a client identity administrator. The ID People shortcut (Invite a member in 8 West ID)
+appears only for an actual client owner/admin without that overlay: on Computer access,
+in Home's **Manage {client}** card, and in Home's **Get set up** card while the client
+has no computers.
 
 Owners/admins retain access to their own business's computers. Employees operate
 only assigned computers; viewers see assigned status without gaining execution

@@ -20,13 +20,19 @@ const source = await readFile(path.join(ROOT, 'tools/shots/portal-contract.test.
 const match = source.match(/const FIXTURE_PHP = String\.raw`([\s\S]*?)\n`;/);
 if (!match) throw new Error('Could not find FIXTURE_PHP in portal-contract.test.mjs');
 
+// One preview-only variant on top of the test fixture: the owner's Home before any computer exists.
+const fixtureSource = match[1]
+  .replace(/    case 'home':\r?\n/, "    case 'homesetup':\n    case 'home':\n")
+  .replace("        portal_render_home($context,", "        if($argv[3]==='homesetup')$homeDevices['items']=[];\n        portal_render_home($context,");
+if (!fixtureSource.includes("case 'homesetup'") || !fixtureSource.includes("$homeDevices['items']=[]")) throw new Error('Could not add the no-computers Home variant to the fixture');
+
 const scratch = await mkdtemp(path.join(tmpdir(), 'safeharbor-preview-'));
 const fixture = path.join(scratch, 'fixture.php');
-await writeFile(fixture, match[1], 'utf8');
+await writeFile(fixture, fixtureSource, 'utf8');
 
 // Made-up names only: the preview is published with a public repository.
 const NAMES = [['Frank at 8 West Lifestyle', 'Priya Anand'], ['8 West Lifestyle', 'Harbor Dental'], ['Synthetic Employee', 'Dana Whitfield'], ['>Frank<', '>Priya Anand<']];
-const PAGES = { home: 'portal-home.html', devices: 'portal-devices.html', ticket: 'portal-ticket.html', login: 'portal-signin.html' };
+const PAGES = { home: 'portal-home.html', homesetup: 'portal-home-first-run.html', devices: 'portal-devices.html', ticket: 'portal-ticket.html', login: 'portal-signin.html' };
 
 try {
   for (const [fixtureName, file] of Object.entries(PAGES)) {

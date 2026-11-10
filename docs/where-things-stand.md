@@ -484,6 +484,12 @@ with content-hash versions (`portal_asset_version()`), and the CSAT page hashes 
 No word, behaviour, SQL or auth change. Until it is merged and deployed, production still shows the
 previous look. Previews: `tools/shots/preview/README.md`.
 
+**Adding people and first steps (draft, not live; builds on PR #306).** Team opens on its list with one
+Invite a teammate button (8 West ID) and folds the local recovery form under Backup sign-in for
+emergencies. An empty queue shows owners and administrators a Get set up card, and so does a new
+customer's portal Home until a computer exists. Staff sign-in starts with an empty email field and puts
+Continue with 8 West ID first. No auth decision, role or schema change.
+
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.
 2. **Technician-time correction acceptance** still needs a fresh signed-in check on the 8 West IT

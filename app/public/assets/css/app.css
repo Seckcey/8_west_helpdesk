@@ -1148,7 +1148,8 @@ img { display: block; }
 }
 .login-form input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--sel-ring); }
 .login-form .btn-primary { margin-top: 4px; min-height: 44px; font-size: 15px; justify-content: center; }
-.login-card > .btn-ghost { min-height: 44px; font-size: 15px; text-decoration: none; }
+.login-card > .login-id { width: 100%; min-height: 44px; font-size: 15px; text-decoration: none; }
+.login-form .btn-ghost { margin-top: 4px; min-height: 44px; font-size: 15px; }
 .login-divider {
   display: flex; align-items: center; gap: 12px;
   margin: 18px 0; font-size: 13px; color: var(--dim);
@@ -1518,3 +1519,59 @@ html[data-motion="reduce"] *,html[data-motion="reduce"] *::before,html[data-moti
 /* Native checkboxes and radios: the checked fill follows the action blue; the box keeps a 3:1 edge. */
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .field input[type="checkbox"], .field input[type="radio"] { border-color: var(--control-border); }
+
+/* ==========================================================================
+   First steps and adding people
+   ========================================================================== */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+
+/* Callout: tinted background, icon, bold first line, plain sentence. */
+.callout { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft-bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+.callout-icon { flex: none; margin-top: 2px; color: var(--cyan); }
+.callout strong { font-weight: 650; }
+
+/* "Get set up": a route of mile-marker steps, one button per unfinished step. */
+.setup-card { margin-bottom: 18px; padding: 18px 20px 8px; }
+.setup-title { margin: 0 0 4px; font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--text-strong); }
+.setup-steps { list-style: none; margin: 0; padding: 0; }
+.setup-step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 12px 0; }
+.setup-step::before { content: ""; position: absolute; left: 13px; top: 46px; bottom: -12px; width: 2px; background: var(--line); }
+.setup-step:last-child::before { display: none; }
+.setup-mark {
+  display: grid; place-items: center; width: 28px; height: 34px; border-radius: 6px;
+  border: 2px solid var(--control-border); background: var(--bg-solid); color: var(--dim);
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+}
+.setup-step.is-done .setup-mark { background: var(--mint-solid); border-color: var(--mint-solid); color: var(--on-good); }
+.setup-step.is-current .setup-mark { background: var(--accent); border-color: var(--accent); color: #FFFFFF; }
+.setup-text { min-width: 0; padding-top: 5px; }
+.setup-text strong { display: block; font-size: 14.5px; font-weight: 650; color: var(--text); }
+.setup-step.is-done .setup-text strong { color: var(--muted-strong); }
+.setup-text p { margin: 2px 0 0; font-size: 13.5px; color: var(--muted-strong); }
+.setup-step > a { align-self: center; text-decoration: none; }
+.setup-step > .btn-ghost.setup-secondary { width: auto; }
+@media (max-width: 700px) {
+  .setup-step { grid-template-columns: 28px minmax(0, 1fr); }
+  .setup-step > a { grid-column: 2; justify-self: start; min-height: 44px; }
+}
+
+/* Team: the backup local account form folds away under its own heading. */
+.backup-signin { margin-top: 18px; padding: 0; overflow: hidden; }
+.backup-signin > summary {
+  display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 10px; align-items: start;
+  padding: 14px 18px; cursor: pointer; list-style: none;
+}
+.backup-signin > summary::-webkit-details-marker { display: none; }
+.backup-signin > summary::before {
+  content: ""; grid-row: 1 / span 2; width: 8px; height: 8px; margin: 6px 0 0 3px;
+  border-right: 2px solid var(--dim); border-bottom: 2px solid var(--dim); transform: rotate(-45deg);
+  transition: transform .14s;
+}
+.backup-signin[open] > summary::before { transform: rotate(45deg); }
+.backup-signin > summary:hover { background: var(--bg-raised); }
+/* The card clips its corners, so the focus outline sits just inside the summary. */
+.backup-signin > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--radius-md); }
+.backup-signin-title { font-size: 14.5px; font-weight: 650; color: var(--text); }
+.backup-signin-help { font-size: 13px; color: var(--muted-strong); }
+.backup-signin > .form-card { border-top: 1px solid var(--line); }
+.backup-signin > .form-card > .rail-label { margin-top: 0; }

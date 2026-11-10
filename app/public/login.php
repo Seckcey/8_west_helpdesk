@@ -42,7 +42,7 @@ if ($user && ! $reauthRequired) {
 $error = $reauthRequired
     ? 'Your 8 West ID access changed. Sign in there again to continue.'
     : '';
-$email = 'frankie@8westit.com';
+$email = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
@@ -82,22 +82,22 @@ header('Content-Type: text/html; charset=utf-8');
 <div class="login-wrap">
   <div class="card login-card">
     <?php if ($error): ?><p class="login-error"><?= h($error) ?></p><?php endif; ?>
+    <a class="btn-primary login-id" href="<?= h($idEntry) ?>">
+      <img src="/assets/brand/safeharbor-mark.svg" alt="" class="sso-mark">
+      Continue with 8 West ID
+    </a>
+    <div class="login-divider"><span></span>or<span></span></div>
     <form method="post" action="/login.php" class="login-form">
       <?= csrf_field() ?>
       <input type="hidden" name="next" value="<?= h($next) ?>">
       <label>Work email
-        <input type="email" name="email" value="<?= h($email) ?>" autofocus required>
+        <input type="email" name="email" value="<?= h($email) ?>" required>
       </label>
       <label>Password
         <input type="password" name="password" placeholder="••••••••" required>
       </label>
-      <button type="submit" class="btn-primary">Sign in</button>
+      <button type="submit" class="btn-ghost">Sign in</button>
     </form>
-    <div class="login-divider"><span></span>or<span></span></div>
-    <a class="btn-ghost" href="<?= h($idEntry) ?>">
-      <img src="/assets/brand/safeharbor-mark.svg" alt="" class="sso-mark">
-      Continue with 8 West ID
-    </a>
   </div>
   <p class="login-foot">
     <?php if (cfg('demo_mode', false)): ?>
