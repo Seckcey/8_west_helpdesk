@@ -74,7 +74,7 @@ $invite = 'href="https://id.8westit.com/users.php#employee-invitations"';
 
 $html = $home($context, $none);
 step_check(str_contains($html, 'id="home-setup-heading">Get set up</h2>'), 'a client owner with no computers sees Get set up');
-step_check(strpos($html, 'setup-card') > strpos($html, 'portal-overview-hero') && strpos($html, 'setup-card') < strpos($html, 'home-reply-heading'),
+step_check(strpos($html, 'setup-card') > strpos($html, 'portal-overview-hero') && strpos($html, 'setup-card') < strpos($html, 'home-recent-heading'),
     'the card is the first card after the hero');
 step_check(str_contains($html, '<a class="btn-primary" href="/portal/devices.php">Open Your devices</a>'), 'adding a computer is the current step');
 step_check(substr_count($html, $invite) === 2 && str_contains($html, 'Each person gets their own sign-in'),
