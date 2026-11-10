@@ -1,11 +1,12 @@
 <?php
 /**
- * POST /api/ticket_action.php — optimistic field updates from keyboard
- * or rail buttons. Body: {id, field, value} with strict whitelists.
- * Returns the updated chip/glyph HTML fragments for in-place repaint.
+ * POST /api/ticket_action.php — one field change from the ticket menus, the keyboard or the
+ * Resolve button. Body: {id, field, value[, chosen][, undo]} with strict whitelists; the rules for each
+ * field live in lib/ticket_changes.php. Returns the updated tag HTML for in-place repaint.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../../lib/render.php';
+require_once __DIR__ . '/../../lib/ticket_changes.php';
 
 $user = require_login();
 $in = json_decode((string)file_get_contents('php://input'), true) ?? $_POST;
@@ -14,9 +15,8 @@ csrf_check();
 $id    = (int)($in['id'] ?? 0);
 $field = (string)($in['field'] ?? '');
 $value = (string)($in['value'] ?? '');
-
-$STATUS = ['open', 'in_progress', 'waiting', 'resolved'];
-$PRIORITY = ['low', 'normal', 'high', 'urgent'];
+// An Undo puts a value back. It never asks a customer for a rating and never emails a teammate.
+$undo  = ($in['undo'] ?? false) === true;
 
 $tq = db()->prepare(
     'SELECT t.*,
@@ -32,90 +32,24 @@ if (!$ticket) json_out(['ok' => false, 'error' => 'not found'], 404);
 $toast = '';
 switch ($field) {
     case 'status':
-        if (!in_array($value, $STATUS, true)) json_out(['ok' => false, 'error' => 'bad status'], 422);
-        $resolved  = $value === 'resolved' ? 'NOW()' : 'NULL';
-        // Waiting parks the ticket with a 72h leash; housekeeping resurfaces it.
-        $resurface = $value === 'waiting' ? 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR)' : 'NULL';
-        db()->prepare("UPDATE tickets SET status = ?, resolved_at = $resolved, resurface_at = $resurface WHERE id = ?")->execute([$value, $id]);
-        if ($value === 'resolved') csat_send($ticket);
-        $toast = 'Status → ' . STATUS_META[$value][0] . ($value === 'waiting' ? ' (auto-resurfaces in 3 days)' : '');
+        if (!array_key_exists($value, STATUS_META)) json_out(['ok' => false, 'error' => 'bad status'], 422);
+        // "chosen" is sent only when a person picked this exact status (a menu, the Resolve button).
+        // Without it a resolve still saves, but never asks the customer for a rating.
+        $change = ticket_change_status($ticket, $value, !$undo && ($in['chosen'] ?? false) === true);
+        $toast = $change['toast'];
         break;
 
     case 'priority':
-        if (!in_array($value, $PRIORITY, true)) json_out(['ok' => false, 'error' => 'bad priority'], 422);
-        db()->prepare('UPDATE tickets SET priority = ? WHERE id = ?')->execute([$value, $id]);
-        $toast = 'Priority → ' . PRIORITY_META[$value][0];
+        if (!array_key_exists($value, PRIORITY_META)) json_out(['ok' => false, 'error' => 'bad priority'], 422);
+        $toast = ticket_change_priority($ticket, $value)['toast'];
         break;
 
     case 'assignee':
-        // value: "me" toggles current user / unassign; a numeric id assigns
-        // a teammate (and emails them — accountability without watching).
-        if ($value === 'me') {
-            $target = ((int)$ticket['assignee_id'] !== (int)$user['id']) ? (int)$user['id'] : null;
-        } else {
-            $tq2 = db()->prepare('SELECT id FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1');
-            $tq2->execute([(int)$value, tenant_id()]);
-            $target = $tq2->fetch() ? (int)$value : null;
-        }
-        db()->prepare('UPDATE tickets SET assignee_id = ? WHERE id = ?')->execute([$target, $id]);
-        if ($target !== null && $target !== (int)$user['id']) {
-            require_once __DIR__ . '/../../lib/mailer.php';
-            $eq = db()->prepare('SELECT email, full_name FROM users WHERE id = ?');
-            $eq->execute([$target]);
-            if ($assignee = $eq->fetch()) {
-                mail_queue(
-                    (string)$assignee['email'],
-                    '[#' . $id . '] Assigned to you: ' . $ticket['subject'],
-                    explode(' ', $user['full_name'])[0] . " assigned you ticket #{$id}:\n\n"
-                      . $ticket['subject'] . "\n\n"
-                      . 'Open: https://safeharbor.8westit.com/ticket.php?id=' . $id,
-                    $id
-                );
-            }
-        }
-        $toast = $target ? 'Assigned' . ($target === (int)$user['id'] ? ' to ' . explode(' ', $user['full_name'])[0] : '') : 'Unassigned';
+        $toast = ticket_change_assignee($ticket, $user, $value, !$undo)['toast'];
         break;
 
     default:
         json_out(['ok' => false, 'error' => 'unknown field'], 422);
-}
-
-/**
- * CSAT on resolve: first resolve of a ticket with a real human contact queues
- * the 3-face survey email. Each link opens csat.php with that face picked;
- * nothing is recorded until the customer presses Send there, so mail scanners
- * that open links can't answer for them. Idempotent (unique per ticket);
- * machine addresses never get one.
- */
-function csat_send(array $ticket): void
-{
-    if (empty($ticket['contact_id'])) return;
-    try {
-        $kq = db()->prepare('SELECT email, name FROM contacts WHERE id = ?');
-        $kq->execute([(int)$ticket['contact_id']]);
-        $contact = $kq->fetch();
-        $email = mb_strtolower(trim((string)($contact['email'] ?? '')));
-        if ($email === '' || preg_match('/^(mailer-daemon|postmaster|no-?reply|donotreply|bounce[s]?|autoreply)@/i', $email)) return;
-
-        $token = bin2hex(random_bytes(20));
-        $ins = db()->prepare('INSERT IGNORE INTO csat (ticket_id, token) VALUES (?,?)');
-        $ins->execute([(int)$ticket['id'], $token]);
-        if ($ins->rowCount() === 0) return;   // already surveyed — resolve toggling never re-asks
-
-        require_once __DIR__ . '/../../lib/mailer.php';
-        $first = explode(' ', trim((string)($contact['name'] ?? '')))[0] ?: 'there';
-        $base = 'https://safeharbor.8westit.com/csat.php?t=' . $token;
-        mail_queue(
-            $email,
-            '[#' . (int)$ticket['id'] . '] Resolved: ' . $ticket['subject'],
-            "Hi {$first},\n\nYour ticket is resolved. How did we do? Pick one, then press Send on the page that opens:\n\n"
-              . "  Great:  {$base}&s=3\n  Okay:   {$base}&s=2\n  Rough:  {$base}&s=1\n\n"
-              . "Reply to this email any time to reopen the ticket.\n— Safeharbor by 8 West IT",
-            (int)$ticket['id']
-        );
-    } catch (Throwable $e) {
-        // surveys must never block resolving (e.g. pre-migration)
-    }
 }
 
 // Fresh row for repaint fragments
@@ -130,6 +64,7 @@ json_out([
     'toast'   => $toast,
     'status'  => $t['status'],
     'priority'=> $t['priority'],
+    'assignee_id' => $t['assignee_id'] !== null ? (int)$t['assignee_id'] : null,
     'chip'    => status_chip($t['status']),
     'pri'     => priority_glyph($t['priority'], true),
     'sla'     => sla_lamp($t),

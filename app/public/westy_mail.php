@@ -89,7 +89,7 @@ page_top($user,'Westy email','queue');
 <p><a href="/westy_email.php?ticket_id=<?= $ticketId ?>">Contact routing and earlier email history</a></p>
 <?php if($context): ?><section class="card"><h2>Who receives it?</h2>
 <p>From: <?= h($context['graph']['sender']) ?><br>To: <?= h($context['contact']['name'].' · '.$context['contact']['email']) ?></p>
-<p>The case’s endpoint POC takes priority. Otherwise the designated client POC receives the advice. Contact changes stop this conversation for Frankie to review.</p></section><?php endif; ?>
+<p>The case’s endpoint POC takes priority. Otherwise the designated client POC receives the advice. Contact changes stop this conversation until an owner or administrator reviews it.</p></section><?php endif; ?>
 <?php if(!$conversation): ?>
 <?php $attempted=array_filter($legacy,static fn($d)=>$d['attempted_at']!==null); ?>
 <?php foreach($attempted as $old): ?><section class="card"><h2>Earlier attempt #<?= (int)$old['id'] ?></h2>
@@ -124,7 +124,7 @@ page_top($user,'Westy email','queue');
 <label><input type="checkbox" name="confirm_send" value="yes" required> I approve this exact sender, recipient, and message for one email.</label>
 <h3>Optional: one automatic acknowledgment</h3>
 <div class="message"><?= h($ack['body']) ?></div>
-<label><input type="checkbox" name="delegate" value="yes" <?= ($context['w']['state']??'')!=='human_owned'?'disabled':'' ?>> I approve this exact response once, within seven days, after a verified reply from this contact or its displayed alias. Other requests go to Frankie.</label>
+<label><input type="checkbox" name="delegate" value="yes" <?= ($context['w']['state']??'')!=='human_owned'?'disabled':'' ?>> I approve this exact response once, within seven days, after a verified reply from this contact or its displayed alias. Other requests go to an owner or administrator.</label>
 <?php if(($context['w']['state']??'')!=='human_owned'): ?><p>A technician must already own the case before automatic acknowledgment can be approved.</p><?php endif; ?>
 <p>This approval grants email authority only. Staff edits, contact changes, revoked permissions, or an expired approval stop further action.</p>
 <button class="btn-primary" name="action" value="approve_send">Approve and send once</button>
@@ -133,9 +133,9 @@ page_top($user,'Westy email','queue');
 <?php if($admin): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="conversation" value="<?= (int)$m['id'] ?>"><button class="btn-chip" name="action" value="revoke">Stop further email action</button></form><?php endif; ?>
 </section>
 <section class="card"><h2>Replies and follow-up</h2>
-<?php foreach($attention as $event): ?><div class="banner banner-warn"><p>Frankie needs to review the follow-up. <?= $event['reason']==='auto_ack_authority_unavailable'?'The automatic response could not pass its permission check.':'The automatic response was rejected or its result is unknown.' ?> Recorded <?= h($event['created_at']) ?> UTC. Review the saved attempt before sending anything else.</p></div><?php endforeach; ?>
+<?php foreach($attention as $event): ?><div class="banner banner-warn"><p>An owner or administrator needs to review the follow-up. <?= $event['reason']==='auto_ack_authority_unavailable'?'The automatic response could not pass its permission check.':'The automatic response was rejected or its result is unknown.' ?> Recorded <?= h($event['created_at']) ?> UTC. Review the saved attempt before sending anything else.</p></div><?php endforeach; ?>
 <?php foreach($sentEvidence as $evidence): ?><p>Microsoft Sent Items contained a matching <?= $evidence['owner_kind']==='auto'?'acknowledgment':'advice message' ?> when checked at <?= h($evidence['created_at']) ?> UTC. This separate evidence preserves the original attempt and does not prove inbox receipt.</p><?php endforeach; ?>
-<?php if($delegation): ?><p>One automatic acknowledgment was approved until <?= h($delegation['expires_at']) ?> UTC. <?= $delegation['revoked_reason']?'Stopped: '.h($delegation['revoked_reason']):'It is still subject to current permissions and reply verification.' ?></p><?php else: ?><p>Automatic replies were not approved. Frankie handles replies.</p><?php endif; ?>
+<?php if($delegation): ?><p>One automatic acknowledgment was approved until <?= h($delegation['expires_at']) ?> UTC. <?= $delegation['revoked_reason']?'Stopped: '.h($delegation['revoked_reason']):'It is still subject to current permissions and reply verification.' ?></p><?php else: ?><p>Automatic replies were not approved. An owner or administrator handles replies.</p><?php endif; ?>
 <?php if(!$receipts): ?><p>No verified reply has been recorded.</p><?php endif; ?>
 <?php foreach($receipts as $receipt): ?><p>Reply #<?= (int)$receipt['id'] ?>: <?= h($receipt['disposition']) ?> at <?= h($receipt['received_at']) ?> UTC. Read its text on the case.</p><?php endforeach; ?>
 <?php foreach($auto as $attempt): ?><p>Acknowledgment: <?= h($labels[$attempt['state']]??$attempt['state']) ?>. Attempted <?= h($attempt['attempted_at']) ?> UTC.</p><?php endforeach; ?>

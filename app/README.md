@@ -85,9 +85,14 @@ lib/mailer.php             outbound mail (mail_queue + transports:
                            Graph sendMail → SMTP → PHP mail(); Milepost parity)
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
 lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
+lib/ticket_queue.php       the queue's views, filters, orders and paging, each
+                           defined once; every query tenant-scoped and bound
 lib/svc_intake.php         Milepost alert events → tickets (idempotent; only
                            untouched signed telemetry may auto-close)
 lib/ticket_lifecycle.php   atomic one-use telemetry recovery transition
+lib/ticket_changes.php     the one definition of a status, priority or owner
+                           change: waiting leash, survey on a chosen resolve,
+                           held and withdrawable notices, reply audience
 lib/suite_customer_sync.php
                            dedicated signed Milepost customer registry → stable
                            Safeharbor client binding + immutable receipts; dark
@@ -134,7 +139,8 @@ cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
 cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
 public/                    Apache docroot (page-per-file, like Milepost)
-  index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
+  index.php                Queue (six views · filters · 50 a page · j/k · Enter
+                           · a/s/p/t/e · z undo · 1-6 views)
   ticket.php               Ticket detail (thread, reply PRG, rail actions)
   ticket_new.php           New ticket (captures exact effective policy version/target)
   clients.php, client.php  Clients + "answer the phone smart" screen
@@ -152,7 +158,7 @@ public/                    Apache docroot (page-per-file, like Milepost)
   portal/                  Default-off customer OIDC surface: tenant-scoped help
                            dashboard, ticket create/detail/reply, verified
                            weekly archives + safe logout
-  api/ticket_action.php    Optimistic field updates (strict whitelists)
+  api/ticket_action.php    One status, priority or owner change (strict whitelists)
   api/timer.php            Idempotent pending timer/suggestion submission
   api/time_entry_review.php Owner/admin approve/reject transition
   api/westy_chat.php       Westy chat (advise-only; rate-limited via assistant_log)
@@ -189,15 +195,47 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `8west:tenant` claim and create the tenant row if the slug is new; local
   sign-ins + cron use the seeded tenant 1).
 - API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
-- Keyboard model (client-side): `j/k` move · `↵` open · `1–5` filters ·
-  `s` status · `p` priority · `a` assign · `e` timer · `r` reply ·
+- Queue: opens on Needs attention: every open ticket with no first reply
+  that is overdue or due within two hours, whoever owns it (parked ones
+  too); open tickets nobody owns; and my own where the customer wrote last.
+  A ticket Westy is working (in progress, no owner, a `working` workflow) is
+  Westy's in the rows, the counts, the Unassigned view and the owner filter
+  alike; it is still in Needs attention once it is late or nearly late (late
+  is late whoever owns it). In "First response due" order every unanswered ticket comes first.
+  Views, the client, priority and owner filters, the order and the page are
+  all in the address (`?view=&client=&priority=&owner=&sort=&page=`). Old
+  `?f=all` and `?f=<status>` links keep their meaning (every ticket, or one
+  status) and say so. Counts on the views follow the filters, and a "Not in
+  this view" line under the list counts what the view or the filters leave
+  out, each count a link. Paging is by position; Next and Previous name the
+  ticket at the page edge (`after=`, `before=`), and when that ticket is no
+  longer where it was the page says the list changed and offers page 1. The
+  checkboxes for bulk delete appear with Select or `x`.
+- Keyboard model (client-side): `j/k` move · `↵` open · `1–6` views ·
+  `a` assign to me · `s` status · `p` priority · `t` owner · `z` undo ·
+  `e` timer · `r` reply ·
   `n` internal note · `/` saved replies · `g q/t/c` navigate ·
   `⌘K` palette (3+ chars = deep search over message bodies, resolved
   included; a ticket's number finds it at any length) · `?` shortcut card.
+  `a` assigns to me (again to unassign) in one key, as it always has. `s`, `p`
+  and `t` open a menu (on a ticket, or for the highlighted queue row): status,
+  priority, and who to give the ticket to. Arrows and `↵`, or the number beside
+  a choice; `Esc` closes. Nothing cycles. `z` undoes the last status, priority
+  or owner change while its toast shows; an Undo (`undo: true`) never asks a
+  customer for a rating and never emails a teammate.
+- Status, priority and owner have one definition each, in
+  `lib/ticket_changes.php`; `api/ticket_action.php` (menus, keys, Resolve) and
+  `ticket.php` ("Send and wait", "Send and resolve") both call it. The owner
+  menu sends a teammate's id, `none`, or its own id; who may assign is unchanged.
 - Composer: Reply/Internal note tabs on one box (notes never email, never
-  change status); `/` inserts saved replies with merge fields resolved
+  change status); the line beside Send says who gets the reply and how (email,
+  portal without email, or nobody), from the same check that queues the email;
+  the split Send button also offers "Send and wait for the customer" and
+  "Send and resolve", posted as `after_status` (also in the palette on a
+  ticket; no key chord, because Ctrl+Alt is AltGr on many keyboards); `/` or the Saved replies button inserts saved replies with
+  merge fields resolved
   ({contact.first_name} {client.name} {ticket.id} {tech.first_name});
-  paperclip attaches ≤5 files ≤15MB; a running timer freezes on Send and
+  Attach a file attaches ≤5 files ≤15MB; a running timer freezes on Send and
   clears locally only after the server acknowledges that exact idempotency key
   (billable toggle); a stale thread BLOCKS the send and preserves both draft
   and timer.
@@ -211,7 +249,22 @@ public/                    Apache docroot (page-per-file, like Milepost)
   ticket/client provenance cannot change.
 - Waiting = parked with a 72h leash (resurface_at); housekeeping
   (piggybacked on mail_dispatch) reopens it; any client reply clears it.
-- Resolving a ticket with a human contact emails a 3-face CSAT survey
+- A person resolving a ticket with a human contact (the Resolve button,
+  Resolved in the Status menu, or "Send and resolve") emails a 3-face CSAT
+  survey, once per ticket. The request must say `chosen: true`; a bare status
+  write never asks for a rating, so no other step can. The survey email, like a
+  teammate's "assigned to you" email, is held 60 seconds
+  (`TICKET_NOTICE_HOLD_SECONDS`, through `mail_queue.next_try_at`): Undo, a
+  reopen or a reassignment inside that window withdraws it. Withdrawing needs
+  no new database grant: the mail row is cancelled in place (`attempts =
+  max_attempts`, `last_error` "Cancelled: ..."), as bulk delete cancels mail.
+  The withdrawn survey row is marked on the row itself: its `created_at`
+  becomes `TICKET_SURVEY_WITHDRAWN_AT` (1970-01-01), which no report window
+  contains, so a withdrawn survey is never counted as sent. It is then removed
+  where the account may remove `csat` rows; otherwise it stays and the next
+  chosen resolve reuses it with the real time. A hold that had already run out
+  is cancelled too, but reported as "may already have been sent" and never
+  asked again.
   (csat.php, token-authed). Opening a link only picks a face; the rating
   is recorded when the customer presses Send (POST), so mail scanners
   that open every link can't answer. A rating can change for 7 days and

@@ -490,6 +490,50 @@ emergencies. An empty queue shows owners and administrators a Get set up card, a
 customer's portal Home until a computer exists. Staff sign-in starts with an empty email field and puts
 Continue with 8 West ID first. No auth decision, role or schema change.
 
+**Request page and customer emails in plain words (draft, not live).** The portal request page shows
+the four status words as a step line under the label Status, one panel "What happens next", and times
+such as "today at 9:22 AM" in the viewer's own time zone; it no longer shows the service-goal policy
+name, version or minutes. The three customer emails (received, answered, resolved) are reworded in
+`lib/customer_mail.php` and carry a link to the request only when the portal is on and that client has
+an active portal binding; the sentence says owners and admins can use it, because only they can open an
+emailed request in the portal. No rule about who is emailed, or when, changed: a request opened in the
+portal still has no email contact (`portal_create_ticket()` stores `contact_id` NULL), so its replies
+and its resolution are seen in the portal only and it gets no survey. No SQL or auth change.
+
+**Adding a computer as three steps (draft, not live).** Your devices shows Add a computer as confirm,
+install and wait, with one filled button; the consent form, its fields and every device-service call are
+unchanged. With a setup file on screen the page offers Copy link and asks `devices.php?watch=1` (the
+computer list only, as JSON) every 15 seconds for up to five minutes, then names the new computer when it
+appears. Each computer shows its state first as a
+tag. The two antivirus request forms moved into their own section below the list. Customer-facing
+words say setup link, setup file and add. No SQL, auth or service-contract change.
+
+**Ticket menus and reply with a next step (draft, not live).** Status, priority and owner are menus
+on the ticket page and, from the keyboard, on the highlighted queue row; nothing cycles any more, so
+no step passes through Resolved. The owner menu offers Me, Unassigned and every active teammate. A
+Resolve button (Reopen once resolved) sits in the ticket head, every change can be undone from its
+toast, and Send reply can also set Waiting or Resolved in the same act. A survey is queued only when
+the request says a person chose Resolved, and it, like a teammate's assignment email, is held for 60
+seconds so Undo can withdraw it (`app/lib/ticket_changes.php`). No schema, role, permission or
+database-grant change: a withdrawn survey's `csat` row is marked with a 1970 creation time (so no
+business report counts it as sent) and its email stays in `mail_queue`, marked spent with a "Cancelled: ..."
+reason, and the survey row is removed only where the runtime account already may remove `csat` rows.
+To check on a server after a deploy: resolve a test ticket that has a contact, confirm one unsent
+`mail_queue` row whose `next_try_at` is about a minute ahead, press Undo, and confirm that row now
+has `attempts = max_attempts` and a "Cancelled" `last_error`, so the dispatcher will never send it.
+
+**Queue views, filters and paging (draft, not live).** The queue opens on Needs attention instead of
+on every ticket, with views for Mine, Unassigned, Waiting on client, All open and Resolved, filters for
+client, priority and owner, a choice of order, and 50 tickets a page. Everything is a link in the
+address, so Back and bookmarks work, and old `?f=` links keep their meaning (every ticket, or one
+status). Needs attention holds every unanswered ticket that is late or within two hours of its goal,
+whoever owns it, plus unowned tickets and my own where the customer wrote last; a ticket Westy is
+working counts as Westy's. A line under the list counts what the view leaves out, with links, and the
+page says when the list changed between pages. Rows say who asked and flag a customer reply; the
+bulk-delete checkboxes appear only after Select or `x`. Every key does what it did before. Read-only:
+no schema, role, permission or grant change (`app/lib/ticket_queue.php`). How late answers are
+coloured is unchanged and still to be decided.
+
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.
 2. **Technician-time correction acceptance** still needs a fresh signed-in check on the 8 West IT

@@ -109,8 +109,14 @@ try {
     [$status,$body]=$http('/portal/');
     $check($status===200 && str_contains($body,'OWN_REQUEST_CANARY') && str_contains($body,'OTHER_REQUEST_CANARY') && str_contains($body,'LEGACY_REQUEST_CANARY')
         && str_contains($body,'Manage ') && !str_contains($body,'href="/portal/reports.php"'),'actual client administrator Home keeps client-wide requests and management');
+    // The waiting step's computer list: JSON for owners and admins only, and closed when the device service cannot answer.
+    [$status,$body,$headers]=$http('/portal/devices.php?watch=1');
+    $check($status===503 && $body==='{"ok":false}' && str_contains($headers,'application/json') && !str_contains($headers,'Location:'),
+        'actual client administrator watch read fails closed without a device service, as JSON and with no redirect');
     $seed([...$member,'role'=>'client_viewer']);
     $check($http('/portal/new.php')[0]===403,'actual viewer cannot open the request form');
+    [$status,$body,$headers]=$http('/portal/devices.php?watch=1');
+    $check($status===403 && $body==='{"ok":false}' && !str_contains($headers,'Location:'),'actual viewer cannot read the computer watch list');
     $check($http('/portal/ticket.php?id='.$own,['csrf'=>$csrf,'body'=>'Viewer forbidden'])[0]===403,'actual viewer cannot reply');
     [$status,$body]=$http('/portal/');
     $check($status===200 && str_contains($body,'OWN_REQUEST_CANARY') && !str_contains($body,'OTHER_REQUEST_CANARY') && !str_contains($body,'LEGACY_REQUEST_CANARY')
@@ -118,6 +124,8 @@ try {
     $seed($member); $feed(false);
     [$status,$body]=$http('/portal/ticket.php?id='.$own,['csrf'=>$csrf,'body'=>'Revoked forbidden']);
     $check(!str_contains($body,'Own message') && $status!==303,'revoked session cannot read or mutate the request');
+    [$status,$body,$headers]=$http('/portal/devices.php?watch=1');
+    $check($status!==200 && !str_contains($body,'computers') && !str_contains($headers,'Location:'),'revoked session gets no computer watch list and starts no sign-in');
     $feed(); $seed($member);
     $csp=static fn(string $formAction): string => "Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'; form-action $formAction; base-uri 'none'; frame-ancestors 'none'\r\n";
     [$status,$body,$headers]=$http('/portal/requests.php');

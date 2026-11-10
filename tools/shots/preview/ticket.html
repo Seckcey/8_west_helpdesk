@@ -96,6 +96,7 @@
     <span data-chip><span class="chip"><span class="chip-dot dot-blue"></span><span class="chip-text-blue">Open</span></span></span>
     <span data-pri><span class="pri" title="Priority: High"><span class="pri-bars"><span class="pri-bar bar-gold" style="height:5px"></span><span class="pri-bar bar-gold" style="height:8px"></span><span class="pri-bar bar-gold" style="height:11px"></span><span class="pri-bar bar-off" style="height:14px"></span></span><span class="pri-label">High</span></span></span>
     <span class="presence-row" id="presence"><span class="presence-chip" title="Jon Silva is viewing"><span class="avatar" style="width:18px;height:18px;background:#62F6B0" title="Jon Silva">JS</span>Jon</span></span>
+    <span class="ticket-actions"><button type="button" class="btn-secondary" id="resolve-btn" data-id="1041" data-set-status="resolved"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 4.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Resolve</button><button type="button" class="btn-secondary" id="reopen-btn" data-id="1041" data-set-status="open" hidden>Reopen</button></span>
   </div>
   <p class="ticket-sub">
     <a class="link" href="#">Bayside Realty</a>
@@ -103,7 +104,7 @@
   </p>
 
   <div class="ticket-grid">
-    <div class="thread" id="thread" data-ticket-id="1041">
+    <div class="thread" id="thread" data-ticket-id="1041" data-status="open" data-priority="high" data-owner="7">
       <div class="card msg ">
         <div class="msg-meta">
           <span class="msg-author">Dana Whitfield</span>
@@ -127,25 +128,29 @@
 
       <div class="card reply" id="reply">
         <form method="post" action="#" id="reply-form">
-          <div class="composer-tabs" role="tablist">
-            <button type="button" class="composer-tab tab-on" data-mode="reply" role="tab">Reply <kbd class="kbd">R</kbd></button>
-            <button type="button" class="composer-tab" data-mode="note" role="tab">Internal note <kbd class="kbd">N</kbd></button>
-            <span class="composer-slash-hint"><kbd class="kbd">/</kbd> saved replies</span>
+          <div class="composer-top">
+            <div class="composer-tabs" role="tablist">
+              <button type="button" class="composer-tab tab-on" data-mode="reply" role="tab" aria-selected="true">Reply <kbd class="kbd">R</kbd></button>
+              <button type="button" class="composer-tab" data-mode="note" role="tab" aria-selected="false">Internal note <kbd class="kbd">N</kbd></button>
+            </div>
+            <button type="button" class="btn-link composer-canned" id="canned-open" aria-controls="canned-pop" aria-expanded="false">Saved replies</button>
           </div>
           <div class="canned-pop" id="canned-pop" hidden></div>
-          <textarea name="reply" id="reply-box" rows="3" placeholder="Reply to client…  (⌘Enter to send · / for saved replies)"></textarea>
+          <textarea name="reply" id="reply-box" rows="3" placeholder="Write your reply" aria-label="Reply"></textarea>
+          <p class="composer-keys" id="composer-keys"><kbd class="kbd" data-mod-key>Ctrl</kbd><kbd class="kbd">Enter</kbd> to send. Type <kbd class="kbd">/</kbd> for a saved reply.</p>
           <div class="reply-foot">
             <label class="att-pick" title="Attach files (up to 5, 15 MB each)">
-              <input type="file" name="files[]" id="f-files" multiple hidden>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 7.5 8.6 12a3.1 3.1 0 0 1-4.5-4.4l5-5a2.1 2.1 0 0 1 3 3l-5 5a1.1 1.1 0 0 1-1.6-1.5l4.5-4.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <input type="file" name="files[]" id="f-files" class="att-input" multiple>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M13 7.5 8.6 12a3.1 3.1 0 0 1-4.5-4.4l5-5a2.1 2.1 0 0 1 3 3l-5 5a1.1 1.1 0 0 1-1.6-1.5l4.5-4.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Attach a file</span>
               <span id="att-count"></span>
             </label>
-            <span class="reply-hint" id="composer-hint">Replying emails the client and moves Open → In Progress</span>
+            <span class="reply-hint" id="composer-hint">Dana sees this in the portal. No email is sent. The ticket moves to In progress.</span>
             <label class="timer-log-chip" id="timer-log-chip">
               <input type="checkbox" id="f-billable" name="billable" value="1" checked>
               <span id="timer-log-text">log 12 min</span>
             </label>
-            <button type="submit" class="btn-primary btn-sm" id="composer-send">Send</button>
+            <div class="send-split" id="send-split"><button type="submit" class="btn-primary send-main" id="composer-send">Send reply</button><button type="button" class="btn-primary send-more" id="composer-send-more" aria-haspopup="menu" aria-expanded="false" aria-controls="send-menu" aria-label="More ways to send"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg></button><div class="menu-pop send-menu" id="send-menu" role="menu" aria-label="Send and set the next status" hidden><button type="submit" class="menu-item send-choice" name="after_status" value="waiting" role="menuitem"><span class="send-choice-text"><span class="send-choice-title">Send and wait for the customer</span><span class="send-choice-detail">Comes back in 3 days if they stay silent.</span></span></button><button type="submit" class="menu-item send-choice" name="after_status" value="resolved" role="menuitem"><span class="send-choice-text"><span class="send-choice-title">Send and resolve</span><span class="send-choice-detail">No survey is sent.</span></span></button></div></div>
           </div>
         </form>
       </div>
@@ -153,18 +158,10 @@
 
     <div class="rail">
       <div class="rail-label">Details</div>
-      <div class="rail-stack">
-        <button class="rail-btn" data-action="status" data-id="1041">
-          <span><span class="rail-k">Status</span><span class="rail-v" data-chip><span class="chip"><span class="chip-dot dot-blue"></span><span class="chip-text-blue">Open</span></span></span></span><kbd class="kbd">S</kbd>
-        </button>
-        <button class="rail-btn" data-action="priority" data-id="1041">
-          <span><span class="rail-k">Priority</span><span class="rail-v" data-pri><span class="pri" title="Priority: High"><span class="pri-bars"><span class="pri-bar bar-gold" style="height:5px"></span><span class="pri-bar bar-gold" style="height:8px"></span><span class="pri-bar bar-gold" style="height:11px"></span><span class="pri-bar bar-off" style="height:14px"></span></span><span class="pri-label">High</span></span></span></span><kbd class="kbd">P</kbd>
-        </button>
-        <button class="rail-btn" data-action="assignee" data-id="1041">
-          <span><span class="rail-k">Assigned to</span><span class="rail-v" data-assignee>
-            <span class="assignee-cell"><span class="avatar" style="width:22px;height:22px;background:#7DDCFF" title="Maya Reyes">MR</span><span class="assignee-name">Maya Reyes</span></span>
-          </span></span><kbd class="kbd">A</kbd>
-        </button>
+      <div class="rail-props">
+        <div class="rail-prop"><span class="rail-k" id="ticket-status-label">Status</span><button type="button" class="rail-btn menu-btn" data-action="status" data-id="1041" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticket-status-label ticket-status-value"><span class="rail-v" id="ticket-status-value" data-chip><span class="chip"><span class="chip-dot dot-blue"></span><span class="chip-text-blue">Open</span></span></span><kbd class="kbd" aria-hidden="true">S</kbd><svg class="menu-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="rail-prop"><span class="rail-k" id="ticket-priority-label">Priority</span><button type="button" class="rail-btn menu-btn" data-action="priority" data-id="1041" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticket-priority-label ticket-priority-value"><span class="rail-v" id="ticket-priority-value" data-pri><span class="pri" title="Priority: High"><span class="pri-bars"><span class="pri-bar bar-gold" style="height:5px"></span><span class="pri-bar bar-gold" style="height:8px"></span><span class="pri-bar bar-gold" style="height:11px"></span><span class="pri-bar bar-off" style="height:14px"></span></span><span class="pri-label">High</span></span></span><kbd class="kbd" aria-hidden="true">P</kbd><svg class="menu-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="rail-prop"><span class="rail-k" id="ticket-assignee-label">Assigned to</span><button type="button" class="rail-btn menu-btn" data-action="assignee" data-id="1041" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticket-assignee-label ticket-assignee-value"><span class="rail-v" id="ticket-assignee-value" data-assignee><span class="assignee-cell"><span class="avatar" style="width:22px;height:22px;background:#7DDCFF" title="Maya Reyes">MR</span><span class="assignee-name">Maya Reyes</span></span></span><kbd class="kbd" aria-hidden="true">T</kbd><svg class="menu-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
       </div>
 
       <div class="rail-label">Response target</div>
@@ -175,15 +172,12 @@
 
       <div class="rail-label">Merge</div>
       <button class="rail-btn" id="merge-btn" data-id="1041">⇄ Merge into another ticket…</button>
-
-      <div class="rail-label">Team</div>
-      <div class="team-row"><span class="avatar" style="width:24px;height:24px;background:#7DDCFF" title="Maya Reyes">MR</span><span class="avatar" style="width:24px;height:24px;background:#62F6B0" title="Jon Silva">JS</span><span class="avatar" style="width:24px;height:24px;background:#F6C95B" title="Ana Kim">AK</span></div>
     </div>
   </div>
 </div>
     </main>
   </div>
 </div>
-<div id="toasts" class="toasts"><div class="toast">Ticket #1041 assigned to you</div></div>
+<div id="toasts" class="toasts" role="status" aria-live="polite"><div class="toast toast-action"><span>Assigned to you.</span><button type="button" class="toast-undo">Undo<kbd class="kbd" aria-hidden="true">Z</kbd></button></div></div>
 </body>
 </html>

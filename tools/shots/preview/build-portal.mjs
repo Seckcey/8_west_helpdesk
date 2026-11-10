@@ -6,8 +6,8 @@
 //
 //   node tools/shots/preview/build-portal.mjs
 //
-// Needs `php` on PATH. Output: portal-home.html, portal-devices.html, portal-ticket.html and
-// portal-signin.html next to this file.
+// Needs `php` on PATH. Output: portal-home.html, portal-devices.html, portal-signin.html and the request
+// page at four steps (portal-ticket*.html) next to this file.
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -32,7 +32,9 @@ await writeFile(fixture, fixtureSource, 'utf8');
 
 // Made-up names only: the preview is published with a public repository.
 const NAMES = [['Frank at 8 West Lifestyle', 'Priya Anand'], ['8 West Lifestyle', 'Harbor Dental'], ['Synthetic Employee', 'Dana Whitfield'], ['>Frank<', '>Priya Anand<']];
-const PAGES = { home: 'portal-home.html', homesetup: 'portal-home-first-run.html', devices: 'portal-devices.html', ticket: 'portal-ticket.html', login: 'portal-signin.html' };
+const PAGES = { home: 'portal-home.html', homesetup: 'portal-home-first-run.html', devices: 'portal-devices.html',
+  devicesempty: 'portal-devices-first-computer.html', devicesdownload: 'portal-devices-adding.html', ticket: 'portal-ticket.html',
+  ticketopen: 'portal-ticket-sent.html', ticketprogress: 'portal-ticket-in-progress.html', ticketresolved: 'portal-ticket-resolved.html', login: 'portal-signin.html' };
 
 try {
   for (const [fixtureName, file] of Object.entries(PAGES)) {

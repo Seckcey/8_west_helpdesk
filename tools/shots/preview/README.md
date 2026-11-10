@@ -6,13 +6,15 @@ made up.
 
 | Page | What it shows | Where the markup comes from |
 |---|---|---|
-| `queue.html` | Staff queue | copied from `app/lib/render.php` and `app/public/index.php` |
+| `queue.html` | Staff queue (All open view) | the markup of `app/lib/render.php`, `app/lib/ticket_queue.php` and `app/public/index.php` |
 | `queue-first-run.html` | Staff queue in a new workspace, with Get set up | copied from `app/public/index.php` and `app/lib/first_steps.php` |
 | `ticket.html` | Staff ticket | copied from `app/public/ticket.php` |
 | `clients.html` | Clients list and number tiles | copied from `app/public/clients.php` |
 | `team.html` | Team page with Invite a teammate and the backup sign-in disclosure | copied from `app/public/users.php` |
 | `signin.html` | Staff sign-in | copied from `app/public/login.php` |
-| `portal-home.html`, `portal-home-first-run.html`, `portal-devices.html`, `portal-ticket.html`, `portal-signin.html` | Customer portal (`portal-home-first-run.html` is an owner's Home before any computer exists) | rendered by the real templates (see below) |
+| `portal-home.html`, `portal-home-first-run.html`, `portal-devices.html`, `portal-signin.html` | Customer portal (`portal-home-first-run.html` is an owner's Home before any computer exists) | rendered by the real templates (see below) |
+| `portal-ticket-sent.html`, `portal-ticket-in-progress.html`, `portal-ticket.html`, `portal-ticket-resolved.html` | The request page at its four steps: just sent, in progress, waiting for the customer's reply, resolved | rendered by the real templates (see below) |
+| `portal-devices-first-computer.html`, `portal-devices-adding.html` | Your devices before any computer exists, and with a setup file waiting to be used (steps 2 and 3 of Add a computer) | rendered by the real templates (see below) |
 
 ## Open them
 
