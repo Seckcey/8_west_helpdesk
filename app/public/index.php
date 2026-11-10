@@ -2,7 +2,7 @@
 /**
  * The Queue — home. It opens on what needs the signed-in person, not on everything.
  * Views, filters, order and paging are ordinary links: ?view=&client=&priority=&owner=&sort=&page=
- * (lib/ticket_queue.php). Old ?f=<status> links still land on the nearest view.
+ * (lib/ticket_queue.php). Old ?f=<status> links keep their meaning: every ticket, or one status.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
@@ -18,17 +18,13 @@ $me = (int)$user['id'];
 $state = queue_request($_GET);
 $counts = queue_counts(db(), tenant_id(), $me, $state);
 // A page number past the end (an old link, or tickets resolved since) lands on the last page.
-$total = $counts[$state['view']];
-$state['page'] = min($state['page'], queue_pages($total));
-$rows = westy_workflow_ticket_owners(db(), tenant_id(), queue_page(db(), tenant_id(), $me, $state));
+$total = queue_total($state, $counts);
+if ($state['page'] > queue_pages($total)) $state = array_replace($state, ['page' => queue_pages($total), 'after' => 0, 'before' => 0]);
+$page = queue_page(db(), tenant_id(), $me, $state);
+$rows = westy_workflow_ticket_owners(db(), tenant_id(), $page['rows']);
 
-// Every ticket this tenant has, whatever the filters say: an empty workspace gets first steps.
-$counts['all'] = $counts['open'] + $counts['resolved'];
-if ($counts['all'] === 0 && queue_filtered($state)) {
-    $aq = db()->prepare('SELECT COUNT(*) FROM tickets WHERE tenant_id = ?');
-    $aq->execute([tenant_id()]);
-    $counts['all'] = (int)$aq->fetchColumn();
-}
+// Every ticket this tenant has, whatever the view and the filters say: an empty workspace gets first steps.
+$counts['all'] = $counts['everything'];
 // A brand-new workspace (no tickets at all) shows owners and administrators where to start.
 $firstSteps = $counts['all'] === 0 && in_array($user['role'], ['owner', 'admin'], true)
     ? staff_first_steps_card($user, 0, tenant_client_count(db(), tenant_id()), staff_invite_allowed($user, $_SESSION ?? []))
@@ -58,6 +54,14 @@ page_top($user, 'Queue', 'queue');
   </div>
 
   <?= $firstSteps ?>
+  <?php if ($state['view'] === 'all'): ?>
+    <p class="queue-note"><?= h(queue_legacy_note($state)) ?>
+      <a class="link" href="/">Open Needs attention</a></p>
+  <?php endif; ?>
+  <?php if ($page['changed']): ?>
+    <p class="queue-note queue-note-warn" role="status">This list changed while you were paging, so a ticket may be missing here or shown twice.
+      <a class="link" href="<?= h(queue_url($state, ['page' => 1])) ?>">Start again from page 1</a></p>
+  <?php endif; ?>
   <div class="card list">
     <?= ticket_head_row($canDelete && $rows) ?>
     <?php if (!$rows): [$emptyText, $emptyLabel, $emptyHref] = queue_empty($state); ?>
@@ -71,9 +75,10 @@ page_top($user, 'Queue', 'queue');
       <?= $canDelete ? ticket_pick_row($t) : ticket_row($t) ?>
     <?php endforeach; ?>
   </div>
-  <?= queue_pager($state, $total) ?>
+  <?= queue_pager($state, $total, $rows) ?>
+  <?= queue_elsewhere($state, $counts) ?>
   <?php if ($canDelete && $rows): ?>
-    <?= ticket_bulk_bar(QUEUE_VIEWS[$state['view']], count($rows)) ?>
+    <?= ticket_bulk_bar(queue_view_label($state), count($rows)) ?>
   <?php endif; ?>
 </div>
 <?php

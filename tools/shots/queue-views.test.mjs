@@ -18,7 +18,7 @@ const ORIGIN = 'http://safeharbor.test';
 const html = (theme) => `<!doctype html><html lang="en" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Queue</title><style>${CSS}</style></head>
 <body data-active="queue" data-tenant-id="1" data-user-id="102" data-csrf="fixture"><main class="content"><div class="page">
 <div class="page-head"><div><h1 class="page-title">Queue</h1><p class="page-sub">${FIX.summary}</p></div><div class="page-actions"><a href="/ticket_new.php" class="btn-primary">New ticket</a></div></div>
-${FIX.toolbar}${FIX.list}${FIX.pager}${FIX.bar}</div></main>
+${FIX.toolbar}${FIX.list}${FIX.pager}${FIX.elsewhere}${FIX.bar}</div></main>
 <div id="palette-root"></div><div id="toasts" class="toasts"></div><script>${JS}</script></body></html>`;
 
 async function fixture(t, { width = 1440, theme = 'dark' } = {}) {
@@ -53,28 +53,34 @@ async function shot(page, name) {
   await page.screenshot({ path: path.join(process.env.SAFEHARBOR_QUEUE_SHOTS, `${name}.png`), fullPage: true });
 }
 
-test('no row is highlighted until the keyboard is used; the first key shows where it stands', async (t) => {
+// The row keys are the ones the queue has always had: no key gained a step.
+test('the first row is highlighted from the start; j and k move the highlight', async (t) => {
   const { page, errors } = await fixture(t);
-  assert.deepEqual(await highlighted(page), [], 'a page that was only opened highlights nothing');
+  assert.deepEqual(await highlighted(page), ['101'], 'the first row is highlighted as soon as the page opens');
   await shot(page, 'queue-1440-dark');
   await page.keyboard.press('j');
-  assert.deepEqual(await highlighted(page), ['101'], 'the first j shows the highlight on the first row');
+  assert.deepEqual(await highlighted(page), ['102'], 'the first j moves to the second row');
   await page.keyboard.press('j');
-  assert.deepEqual(await highlighted(page), ['102']);
+  await page.keyboard.press('j');
+  assert.deepEqual(await highlighted(page), ['103'], 'j stops at the bottom');
   await page.keyboard.press('k');
-  assert.deepEqual(await highlighted(page), ['101']);
+  await page.keyboard.press('k');
   await page.keyboard.press('k');
   assert.deepEqual(await highlighted(page), ['101'], 'k stops at the top');
   assert.equal(where(page), '/?view=open');
   assert.deepEqual(errors, []);
 });
 
-test('Enter opens a row only once the highlight is showing', async (t) => {
+test('the first Enter opens the first row at once', async (t) => {
   const { page, errors } = await fixture(t);
-  await page.keyboard.press('Enter');
-  assert.deepEqual(await highlighted(page), ['101']);
-  assert.equal(where(page), '/?view=open', 'the first Enter shows the row, it does not open it');
   await goes(page, () => page.keyboard.press('Enter'), '/ticket.php?id=101');
+  assert.deepEqual(errors, []);
+});
+
+test('j then Enter opens the second row', async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.keyboard.press('j');
+  await goes(page, () => page.keyboard.press('Enter'), '/ticket.php?id=102');
   assert.deepEqual(errors, []);
 });
 
@@ -118,7 +124,15 @@ test('Next and Previous are links', async (t) => {
   const { page, errors } = await fixture(t);
   assert.equal(await page.locator('.pager-count').innerText(), 'Showing 1 to 50 of 131');
   assert.equal(await page.locator('.pager [aria-disabled="true"]').innerText(), 'Previous');
-  await goes(page, () => page.getByRole('link', { name: 'Next', exact: true }).click(), '/?view=open&page=2');
+  // Next names the last ticket on this page, so page 2 can tell whether the list moved in between.
+  await goes(page, () => page.getByRole('link', { name: 'Next', exact: true }).click(), '/?view=open&page=2&after=103');
+  assert.deepEqual(errors, []);
+});
+
+test('the page says what the view leaves out, and the count is a link', async (t) => {
+  const { page, errors } = await fixture(t);
+  assert.equal(await page.locator('.queue-elsewhere').innerText(), 'Not in this view: 40 resolved.');
+  await goes(page, () => page.getByRole('link', { name: '40 resolved', exact: true }).click(), '/?view=resolved');
   assert.deepEqual(errors, []);
 });
 
@@ -159,6 +173,7 @@ for (const theme of ['dark', 'light']) {
     await tall(page.locator('nav[aria-label="Queue views"] a'), 'a view');
     await tall(page.locator('.filter-select'), 'a filter');
     await tall(page.locator('.pager a'), 'Next');
+    await tall(page.locator('.queue-elsewhere a'), 'a link to what the view leaves out');
     await tall(page.getByRole('button', { name: 'Select', exact: true }), 'Select');
     assert.equal(await page.getByRole('checkbox', { name: 'Select ticket #101' }).isVisible(), false);
     await shot(page, `queue-390-${theme}`);
@@ -174,7 +189,6 @@ for (const theme of ['dark', 'light']) {
 
 test('light theme at desktop width, with the keyboard highlight and select mode (for the eye)', async (t) => {
   const { page, errors } = await fixture(t, { theme: 'light' });
-  await page.keyboard.press('j');
   await page.keyboard.press('j');
   await shot(page, 'queue-1440-light');
   await page.keyboard.press('x');

@@ -61,8 +61,19 @@ try {
         [7007, 1, 11, 31, 'Done last week', 'email', 'resolved', 'normal', 102, -6000, 12000],
         [7008, 1, 12, null, 'Portal request', 'portal', 'open', 'urgent', null, 180, 30],
         [8001, 2, 21, null, 'Another tenant', 'email', 'open', 'normal', null, 60, 60],
+        [8002, 2, 21, null, 'The assistant is working this', 'alert', 'in_progress', 'normal', null, 600, 60],
+        [8003, 2, 21, null, 'The assistant needs a person', 'alert', 'in_progress', 'normal', null, 660, 60],
+        [8004, 2, 21, null, 'The assistant is working this one late', 'alert', 'in_progress', 'normal', null, -5, 90],
     ] as $row) {
         $t->execute($row);
+    }
+    // Westy owns a ticket while its workflow is working; once it needs a person the ticket is nobody's.
+    // (These rows are never updated below: any change to a ticket hands its workflow to a person.)
+    $w = $pdo->prepare("INSERT INTO westy_workflows (tenant_id, client_id, customer_id, ticket_id, workflow_key, alert_key, state,
+            version, summary, started_at, updated_at)
+        VALUES (2, 21, ?, ?, ?, ?, ?, 1, 'Synthetic workflow', UTC_TIMESTAMP(), UTC_TIMESTAMP())");
+    foreach ([8002 => 'working', 8003 => 'needs_human', 8004 => 'working'] as $ticketId => $state) {
+        $w->execute([sprintf('00000000-0000-4000-8000-%012d', $ticketId), $ticketId, sprintf('11111111-1111-4111-8111-%012d', $ticketId), 'alert:' . $ticketId, $state]);
     }
     $pdo->exec("UPDATE tickets SET resolved_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 150 HOUR) WHERE id = 7007");
     $m = $pdo->prepare('INSERT INTO messages (ticket_id, author_name, kind, body, created_at) VALUES (?,?,?,?, DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE))');
@@ -156,22 +167,30 @@ try {
 
     // ---- what each view holds, for a technician with work of their own ----
     $x = $queue(102);
-    $check($current($x) === ['Needs attention41'], 'the queue opens on Needs attention');
-    $check($ids($x) === [7002, 7008, 7001, 7003], 'Needs attention: mine and due soon, the unowned ones by due time, then mine where the customer wrote last');
-    $check($tabs($x) === ['Needs attention41', 'Mine42', 'Unassigned23', 'Waiting on client14', 'All open75', 'Resolved6'], 'each view shows how many tickets it holds');
+    $check($current($x) === ['Needs attention61'], 'the queue opens on Needs attention');
+    $check($ids($x) === [7006, 7005, 7002, 7008, 7001, 7003],
+        'Needs attention: everything unanswered and late or nearly late whoever owns it (a teammate\'s, and my own parked one), the unowned ones, then mine where the customer wrote last');
+    $check($tabs($x) === ['Needs attention61', 'Mine42', 'Unassigned23', 'Waiting on client14', 'All open75', 'Resolved6'], 'each view shows how many tickets it holds');
+    $check($texts($x, '//p[' . $hasClass('queue-elsewhere') . ']') === ['Not in this view: 1 more in All open, 61 resolved.']
+        && $x->query('//p[' . $hasClass('queue-elsewhere') . ']/a[@href="/?view=open"]')->length === 1
+        && $x->query('//p[' . $hasClass('queue-elsewhere') . ']/a[@href="/?view=resolved"]')->length === 1, 'the page says what this view leaves out, with links');
     $check($texts($x, '//p[' . $hasClass('page-sub') . ']') === ['7 open tickets. 5 are waiting for a first reply, 2 of them overdue.'], 'the summary counts open, unanswered and overdue');
-    $check($ids($queue(102, '/?view=mine')) === [7002, 7003, 7004, 7005], 'Mine: every open ticket I own, the unanswered one first, the parked one last');
+    $check($ids($queue(102, '/?view=mine')) === [7005, 7002, 7003, 7004], 'Mine: every open ticket I own, the unanswered ones first by due time, parked or not');
     $check($ids($queue(102, '/?view=unassigned')) === [7008, 7001], 'Unassigned: open tickets nobody owns');
     $check($ids($queue(102, '/?view=waiting')) === [7005], 'Waiting on client: parked tickets');
-    $check($ids($queue(102, '/?view=open')) === [7006, 7002, 7008, 7001, 7003, 7004, 7005], 'All open: unanswered by due time, then the customer\'s turn, then the rest');
+    $x = $queue(102, '/?view=open');
+    $check($ids($x) === [7006, 7005, 7002, 7008, 7001, 7003, 7004], 'All open: unanswered by due time (waiting ones too), then the customer\'s turn, then the rest');
+    $check($texts($x, '//p[' . $hasClass('queue-elsewhere') . ']') === ['Not in this view: 61 resolved.'], 'All open says how many are resolved');
     $x = $queue(102, '/?view=resolved');
     $check(count($ids($x)) === 50 && array_slice($ids($x), 0, 3) === [9001, 9002, 9003] && !in_array(7001, $ids($x), true), 'Resolved: only resolved tickets, the latest first');
+    $check($texts($x, '//p[' . $hasClass('queue-elsewhere') . ']') === ['Not in this view: 7 open.'], 'Resolved says how many are open');
 
     // The same data means something else to somebody else.
     $x = $queue(103);
-    $check($ids($x) === [7006, 7008, 7001] && $tabs($x)[0] === 'Needs attention31' && $tabs($x)[1] === 'Mine12', 'another technician sees their own late ticket and the unowned ones');
+    $check($ids($x) === [7006, 7005, 7002, 7008, 7001] && $tabs($x)[0] === 'Needs attention51' && $tabs($x)[1] === 'Mine12',
+        'another technician sees every late or nearly late ticket and the unowned ones, but not my customer\'s reply');
     $x = $queue(101);
-    $check($ids($x) === [7008, 7001], 'an owner with no tickets of their own sees what nobody owns');
+    $check($ids($x) === [7006, 7005, 7002, 7008, 7001], 'an owner with no tickets of their own still sees what is late and what nobody owns');
     $x = $queue(101, '/?view=mine');
     $check($ids($x) === [] && $says($x) === ['No open tickets are assigned to you.']
         && $x->query('//div[' . $hasClass('empty') . ']/a[@href="/?view=unassigned"]')->length === 1, 'an empty view says so and offers one way on');
@@ -189,6 +208,8 @@ try {
     // ---- filters narrow any view, and the counts follow ----
     $x = $queue(102, '/?view=open&client=12');
     $check($ids($x) === [7008] && $tabs($x) === ['Needs attention11', 'Mine02', 'Unassigned13', 'Waiting on client04', 'All open15', 'Resolved6'], 'one client: its ticket, and counts for that client only');
+    $check($texts($x, '//p[' . $hasClass('queue-elsewhere') . ']') === ['Not in this view: 67 more hidden by the filters.']
+        && $x->query('//p[' . $hasClass('queue-elsewhere') . ']/a[@href="/?view=open"]')->length === 1, 'filters say how many tickets they hide, with a link that clears them');
     $links = [];
     foreach ($x->query('//nav[@aria-label="Queue views"]/a') as $a) $links[] = $a->getAttribute('href');
     $check($links === ['/?client=12', '/?view=mine&client=12', '/?view=unassigned&client=12', '/?view=waiting&client=12', '/?view=open&client=12', '/?view=resolved&client=12'],
@@ -196,7 +217,7 @@ try {
     $check($ids($queue(102, '/?view=open&priority=urgent')) === [7008], 'one priority');
     $check($ids($queue(102, '/?view=open&owner=none')) === [7008, 7001], 'unassigned as a filter');
     $check($ids($queue(102, '/?view=open&owner=103')) === [7006], 'one teammate');
-    $check($ids($queue(102, '/?view=open&owner=me')) === [7002, 7003, 7004, 7005] && $ids($queue(103, '/?view=open&owner=me')) === [7006], 'me is whoever is signed in');
+    $check($ids($queue(102, '/?view=open&owner=me')) === [7005, 7002, 7003, 7004] && $ids($queue(103, '/?view=open&owner=me')) === [7006], 'me is whoever is signed in');
     $x = $queue(102, '/?view=open&client=12&priority=low');
     $check($ids($x) === [] && $says($x) === ['No tickets match these filters.']
         && $x->query('//div[' . $hasClass('empty') . ']/a[@href="/?view=open"]')->length === 1, 'filters that match nothing say so and offer to clear');
@@ -209,25 +230,59 @@ try {
     // ---- paging ----
     $x = $queue(102, '/?view=resolved');
     $check($texts($x, '//*[' . $hasClass('pager-count') . ']') === ['Showing 1 to 50 of 61'] && $ids($x) === range(9001, 9050), 'fifty to a page');
-    $check($x->query('//nav[' . $hasClass('pager') . ']//a[@rel="next"][@href="/?view=resolved&page=2"]')->length === 1
-        && $x->query('//nav[' . $hasClass('pager') . ']//a[@rel="prev"]')->length === 0, 'Next is a link, Previous is off on page 1');
+    $check($x->query('//nav[' . $hasClass('pager') . ']//a[@rel="next"][@href="/?view=resolved&page=2&after=9050"]')->length === 1
+        && $x->query('//nav[' . $hasClass('pager') . ']//a[@rel="prev"]')->length === 0, 'Next is a link that names the last ticket of this page; Previous is off on page 1');
+    $warned = static fn(DOMXPath $x): int => $x->query('//p[' . $hasClass('queue-note-warn') . ']')->length;
+    $x = $queue(102, '/?view=resolved&page=2&after=9050');
+    $check($ids($x) === [...range(9051, 9060), 7007] && $texts($x, '//*[' . $hasClass('pager-count') . ']') === ['Showing 51 to 61 of 61'] && $warned($x) === 0,
+        'page 2 holds the rest, and says nothing when the list did not move');
+    $check($x->query('//nav[' . $hasClass('pager') . ']//a[@rel="prev"][@href="/?view=resolved&before=9051"]')->length === 1, 'Previous names the first ticket of this page');
+    $x = $queue(102, '/?view=resolved&before=9051');
+    $check($ids($x) === range(9001, 9050) && $warned($x) === 0, 'going back finds the same page 1');
+    // A ticket resolved between two page loads pushes every row down by one.
+    $pdo->exec("UPDATE tickets SET status = 'resolved', resolved_at = UTC_TIMESTAMP() WHERE id = 7004");
+    $x = $queue(102, '/?view=resolved&page=2&after=9050');
+    $check($ids($x) === [...range(9050, 9060), 7007] && $warned($x) === 1
+        && $x->query('//p[' . $hasClass('queue-note-warn') . ']/a[@href="/?view=resolved"]')->length === 1, 'when the list moved between pages, the page says so and offers page 1');
+    $check($warned($queue(102, '/?view=resolved&before=9051')) === 1, 'going back across a moved edge says so too');
+    $pdo->exec("UPDATE tickets SET status = 'in_progress', resolved_at = NULL WHERE id = 7004");
     $x = $queue(102, '/?view=resolved&page=2');
-    $check($ids($x) === [...range(9051, 9060), 7007] && $texts($x, '//*[' . $hasClass('pager-count') . ']') === ['Showing 51 to 61 of 61'], 'page 2 holds the rest');
+    $check($ids($x) === [...range(9051, 9060), 7007] && $warned($x) === 0, 'a page opened without a neighbour to compare just shows its rows');
     $check($ids($queue(102, '/?view=resolved&page=99')) === [...range(9051, 9060), 7007], 'a page past the end is the last page');
     $x = $queue(102, '/?view=open');
     $check($texts($x, '//*[' . $hasClass('pager-count') . ']') === ['7 tickets'] && $x->query('//nav[' . $hasClass('pager') . ']//a')->length === 0, 'one page needs no Next');
 
     // ---- old links, and anything odd in the address ----
-    $x = $queue(102, '/?f=waiting');
-    $check($current($x) === ['Waiting on client14'] && $ids($x) === [7005], 'an old ?f=waiting link opens Waiting on client');
-    $check($current($queue(102, '/?f=in_progress')) === ['All open75'], 'an old ?f=in_progress link opens All open');
+    // Links from before the views existed keep their meaning: every ticket, or every ticket with one status.
+    $x = $queue(102, '/?f=all');
+    $check(count($ids($x)) === 50 && array_slice($ids($x), 0, 9) === [7008, 7003, 7004, 7005, 7002, 7001, 7006, 9001, 9002]
+        && $texts($x, '//*[' . $hasClass('pager-count') . ']') === ['Showing 1 to 50 of 68'], 'an old ?f=all link lists everything, resolved last, by priority and due time, as before');
+    $check($current($x) === [] && $texts($x, '//p[' . $hasClass('queue-note') . ']') === ['Every ticket, resolved included: this is how an older link listed the queue. Open Needs attention'],
+        'and says what it is, with a way to the new default');
+    $check(count($ids($queue(102, '/?f=all&page=2'))) === 18, 'its second page holds the rest');
+    $x = $queue(102, '/?f=open');
+    $check($ids($x) === [7008, 7002, 7001, 7006] && $texts($x, '//p[' . $hasClass('queue-elsewhere') . ']') === ['Not in this view: 64 more with another status.']
+        && $x->query('//p[' . $hasClass('queue-elsewhere') . ']/a[@href="/?f=all"]')->length === 1, 'an old ?f=open link lists tickets whose status is Open, and says what else there is');
+    $check($ids($queue(102, '/?f=in_progress')) === [7003, 7004] && $ids($queue(102, '/?f=waiting')) === [7005], 'old ?f=in_progress and ?f=waiting links list that status');
+    $check(count($ids($queue(102, '/?f=resolved'))) === 50 && $ids($queue(102, '/?f=bogus')) === [7006, 7005, 7002, 7008, 7001, 7003], 'an old ?f=resolved link lists resolved tickets; an unknown one opens the default');
     $x = $queue(102, '/?view=' . rawurlencode("open' OR '1'='1") . '&client=' . rawurlencode('11 OR 1=1') . '&priority=' . rawurlencode("x'") . '&owner=' . rawurlencode('"><script>') . '&sort=' . rawurlencode('id;--') . '&page=-5');
-    $check($current($x) === ['Needs attention41'] && $ids($x) === [7002, 7008, 7001, 7003] && $x->query('//script[not(@src)][not(@type="application/json")][contains(., "<script>")]')->length === 0,
+    $check($current($x) === ['Needs attention61'] && $ids($x) === [7006, 7005, 7002, 7008, 7001, 7003] && $x->query('//script[not(@src)][not(@type="application/json")][contains(., "<script>")]')->length === 0,
         'anything that is not a known choice is ignored');
 
     // ---- one tenant never sees another's tickets, clients or people ----
     $x = $queue(201);
-    $check($ids($x) === [8001] && $ids($queue(201, '/?view=open')) === [8001] && $ids($queue(201, '/?view=resolved')) === [], 'another tenant sees only its own ticket');
+    $check($ids($x) === [8004, 8001, 8003] && $ids($queue(201, '/?view=open')) === [8004, 8001, 8002, 8003] && $ids($queue(201, '/?view=resolved')) === [], 'another tenant sees only its own tickets');
+
+    // ---- a ticket the assistant is working is the assistant's, in the rows and in the counts ----
+    $check($tabs($x) === ['Needs attention31', 'Mine02', 'Unassigned23', 'Waiting on client04', 'All open45', 'Resolved6'],
+        'a ticket Westy is working is not counted as unassigned, nor as needing attention unless it is late; one where Westy needs a person is both');
+    $check($ids($queue(201, '/?view=unassigned')) === [8001, 8003] && $ids($queue(201, '/?view=open&owner=none')) === [8001, 8003], 'Unassigned, as a view and as a filter, leaves out the ticket Westy is working');
+    $x2 = $queue(201, '/?view=open');
+    $check($x2->query('//a[@data-ticket-id="8002"]//*[@aria-label="Assigned to Westy"]')->length === 1
+        && $x2->query('//a[@data-ticket-id="8004"]//*[@aria-label="Assigned to Westy"]')->length === 1
+        && $x2->query('//a[@data-ticket-id="8003"]//*[@aria-label="Assigned to Westy"]')->length === 0, 'and its row shows Westy as the owner, which is what the counts say');
+    $check($x->query('//a[@data-ticket-id="8004"]//*[@aria-label="Assigned to Westy"]')->length === 1 && !in_array(8002, $ids($x), true),
+        'a ticket Westy is working needs attention only once it is late, and still shows Westy as its owner');
     $check($texts($x, '//select[@name="client"]/option') === ['All', 'Other Fixture'] && $texts($x, '//select[@name="owner"]/option') === ['Anyone', 'Me', 'Unassigned'],
         'and only its own clients and people in the filters');
     $check($ids($queue(102, '/?view=open&client=21')) === [] && $ids($queue(102, '/?view=open&owner=201')) === [], 'asking for another tenant\'s client or person finds nothing');

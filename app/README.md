@@ -192,12 +192,20 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `8west:tenant` claim and create the tenant row if the slug is new; local
   sign-ins + cron use the seeded tenant 1).
 - API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
-- Queue: opens on Needs attention (unowned open tickets, plus my own that
-  are unanswered and overdue or due within two hours, or where the customer
-  wrote last; a ticket I parked as Waiting is not on it). Views, the client,
-  priority and owner filters, the order and the page are all in the address
-  (`?view=&client=&priority=&owner=&sort=&page=`); old `?f=<status>` links
-  land on the nearest view. Counts on the views follow the filters. The
+- Queue: opens on Needs attention: every open ticket with no first reply
+  that is overdue or due within two hours, whoever owns it (parked ones
+  too); open tickets nobody owns; and my own where the customer wrote last.
+  A ticket Westy is working (in progress, no owner, a `working` workflow) is
+  Westy's in the rows, the counts, the Unassigned view and the owner filter
+  alike. In "First response due" order every unanswered ticket comes first.
+  Views, the client, priority and owner filters, the order and the page are
+  all in the address (`?view=&client=&priority=&owner=&sort=&page=`). Old
+  `?f=all` and `?f=<status>` links keep their meaning (every ticket, or one
+  status) and say so. Counts on the views follow the filters, and a "Not in
+  this view" line under the list counts what the view or the filters leave
+  out, each count a link. Paging is by position; Next and Previous name the
+  ticket at the page edge (`after=`, `before=`), and when that ticket is no
+  longer where it was the page says the list changed and offers page 1. The
   checkboxes for bulk delete appear with Select or `x`.
 - Keyboard model (client-side): `j/k` move · `↵` open · `1–6` views ·
   `s` status · `p` priority · `a` assign · `e` timer · `r` reply ·

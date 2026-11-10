@@ -60,8 +60,6 @@ async function fixture(t) {
     return route.fulfill({ status: 404, body: '' });
   });
   await page.goto('http://safeharbor.test/');
-  // The row highlight appears with the first row key, so press one: Enter then has a row it would open.
-  await page.keyboard.press('j');
   await page.waitForFunction(() => document.querySelector('.trow.trow-sel') !== null);
   const transcript = () => page.evaluate((key) => sessionStorage.getItem(key), STORE);
   await page.evaluate((key) => sessionStorage.setItem(key, JSON.stringify({ open: false, h: [{ role: 'user', content: 'private question' }] })), STORE);

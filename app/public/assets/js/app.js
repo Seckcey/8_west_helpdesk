@@ -565,20 +565,11 @@
   /* ------------------------------------------------------------------ */
   const rows = page === "queue" ? $$(".trow:not(.trow-head)") : page === "clients" ? $$(".crow") : [];
   let sel = 0;
-  // The highlight belongs to the keyboard: it appears with the first row key (or a ticked box), so
-  // a page that was only opened does not look as if its first row were in some special state.
-  let selShown = false;
   function paintSel() {
-    rows.forEach((r, i) => r.classList.toggle(page === "queue" ? "trow-sel" : "crow-sel", selShown && i === sel));
-    if (selShown && rows[sel]) rows[sel].scrollIntoView({ block: "nearest" });
+    rows.forEach((r, i) => r.classList.toggle(page === "queue" ? "trow-sel" : "crow-sel", i === sel));
+    if (rows[sel]) rows[sel].scrollIntoView({ block: "nearest" });
   }
-  // Shows the highlight where it stands; true when this call is what made it appear.
-  function showSel() {
-    if (selShown || !rows.length) return false;
-    selShown = true;
-    paintSel();
-    return true;
-  }
+  if (rows.length) paintSel();
 
   const currentRow = () => rows[sel];
 
@@ -653,7 +644,7 @@
       if (type === "focus" && !event.relatedTarget) return;
       const wrap = box.closest(".trow-pick");
       const index = wrap ? rows.indexOf($(".trow", wrap)) : -1;
-      if (index >= 0 && (index !== sel || !selShown)) { sel = index; selShown = true; paintSel(); }
+      if (index >= 0 && index !== sel) { sel = index; paintSel(); }
     })));
     if (allBox) allBox.addEventListener("change", () => {
       picks.forEach((box) => { box.checked = allBox.checked; });
@@ -1194,14 +1185,13 @@
     const rowTicketId = row && row.dataset.ticketId;
 
     switch (key) {
-      // The first press shows the highlight where it stands; the next ones move it.
       case "j":
       case "arrowdown":
-        if (rows.length) { e.preventDefault(); if (!showSel()) { sel = Math.min(sel + 1, rows.length - 1); paintSel(); } }
+        if (rows.length) { e.preventDefault(); sel = Math.min(sel + 1, rows.length - 1); paintSel(); }
         break;
       case "k":
       case "arrowup":
-        if (rows.length) { e.preventDefault(); if (!showSel()) { sel = Math.max(sel - 1, 0); paintSel(); } }
+        if (rows.length) { e.preventDefault(); sel = Math.max(sel - 1, 0); paintSel(); }
         break;
       case "enter":
       case "o":
@@ -1210,8 +1200,7 @@
         if (key === "enter" && e.target !== document.body && e.target.closest
           && !(e.target.classList && e.target.classList.contains("bulk-pick"))
           && e.target.closest("a[href], button, input, select, textarea, summary, label, [role='button']")) break;
-        // Opening needs a row the person can see is chosen: the first Enter only shows it.
-        if (row) { e.preventDefault(); if (!showSel()) row.click(); }
+        if (row) { e.preventDefault(); row.click(); }
         break;
       case "escape":
         if (bulk && bulk.hasSelection()) { e.preventDefault(); bulk.clear(); }
@@ -1219,7 +1208,7 @@
         else if (page === "queue" && window.location.pathname !== "/") { e.preventDefault(); nav("/"); }
         break;
       case "x":
-        if (bulk && row && bulk.toggle(row)) { e.preventDefault(); showSel(); }
+        if (bulk && row && bulk.toggle(row)) e.preventDefault();
         break;
       case "d":
         if (bulk && bulk.openForSelection()) e.preventDefault();
@@ -1236,7 +1225,6 @@
         const id = ticketPageId || targetId;
         if (!id) break;
         e.preventDefault();
-        if (!ticketPageId) showSel();   // a key that changes a row shows which row it changed
         if (key === "e") {
           const t = readTimer();
           if (t && String(t.ticketId) === String(id)) stopTimer();

@@ -41,20 +41,36 @@ try {
         foreach ($x->query($query) as $node) $out[] = trim((string)preg_replace('/\s+/', ' ', $node->textContent));
         return $out;
     };
-    $plain = ['view' => 'needs', 'client' => 0, 'priority' => '', 'owner' => '', 'sort' => '', 'page' => 1];
+    $plain = ['view' => 'needs', 'status' => '', 'client' => 0, 'priority' => '', 'owner' => '', 'sort' => '', 'page' => 1, 'after' => 0, 'before' => 0];
 
     // ---- what the address asks for ----
     queue_check(queue_request([]) === $plain, 'no address opens Needs attention, unfiltered, page 1');
-    foreach (['waiting' => 'waiting', 'resolved' => 'resolved', 'open' => 'open', 'in_progress' => 'open', 'all' => 'open', 'bogus' => 'needs'] as $old => $view) {
-        queue_check(queue_request(['f' => $old])['view'] === $view, "an old ?f=$old link lands on $view");
+    // A link from before the views existed keeps its meaning: every ticket, or every ticket with one status.
+    foreach (['all', 'open', 'in_progress', 'waiting', 'resolved'] as $old) {
+        $legacy = queue_request(['f' => $old]);
+        queue_check($legacy['view'] === 'all' && $legacy['status'] === $old, "an old ?f=$old link still lists what it listed");
+        queue_check(queue_url($legacy) === '/?f=' . $old, "and keeps its address (?f=$old)");
     }
-    queue_check(queue_request(['view' => 'mine', 'f' => 'resolved'])['view'] === 'mine', 'a view wins over an old status link');
+    queue_check(queue_request(['f' => 'bogus']) === $plain && queue_request(['f' => ['all']]) === $plain && queue_request(['view' => 'all']) === $plain,
+        'an unknown old link, or the old list asked for as a view, opens the default');
+    queue_check(queue_request(['view' => 'mine', 'f' => 'resolved']) === array_replace($plain, ['view' => 'mine']), 'a view wins over an old status link');
+    $legacy = queue_request(['f' => 'all', 'client' => '12', 'sort' => 'reply', 'page' => '2']);
+    queue_check(queue_url($legacy) === '/?f=all&client=12&sort=reply&page=2' && queue_request(['f' => 'all', 'sort' => 'priority'])['sort'] === '',
+        'an old link takes the filters, and its own order (priority) is not an explicit choice');
+    queue_check(queue_view_label($legacy) === 'Every ticket' && queue_view_label(queue_request(['f' => 'in_progress'])) === 'Tickets with the status ' . STATUS_META['in_progress'][0]
+        && queue_view_label($plain) === 'Needs attention', 'every list has a name');
+    queue_check(queue_legacy_note($legacy) === 'Every ticket, resolved included: this is how an older link listed the queue.'
+        && queue_legacy_note(queue_request(['f' => 'open'])) === 'Tickets with the status Open: this is how an older link listed the queue.'
+        && queue_legacy_note($plain) === '', 'an old link says what it is; a view needs no note');
+    queue_check(queue_request(['page' => '2', 'after' => '9050', 'before' => 'x'])['after'] === 9050 && queue_request(['after' => '-3', 'before' => ['1']]) === $plain,
+        'the page edge a link names is a ticket number or nothing');
     $hostile = queue_request(['view' => "open' OR 1=1", 'client' => '7 OR 1=1', 'priority' => "high'", 'owner' => '<script>', 'sort' => 'id;DROP', 'page' => '-4']);
     queue_check($hostile === $plain, 'anything that is not a known choice falls back to the default');
     queue_check(queue_request(['view' => ['open'], 'client' => ['1'], 'owner' => ['me'], 'page' => ['2']]) === $plain, 'lists in the address are ignored');
     queue_check(queue_request(['client' => '99999999999999999999', 'page' => '99999999999999999999']) === $plain, 'numbers too long to be ids are ignored');
     $full = queue_request(['view' => 'open', 'client' => '12', 'priority' => 'urgent', 'owner' => '103', 'sort' => 'newest', 'page' => '3']);
-    queue_check($full === ['view' => 'open', 'client' => 12, 'priority' => 'urgent', 'owner' => '103', 'sort' => 'newest', 'page' => 3], 'every choice is read');
+    queue_check($full === ['view' => 'open', 'status' => '', 'client' => 12, 'priority' => 'urgent', 'owner' => '103', 'sort' => 'newest', 'page' => 3, 'after' => 0, 'before' => 0],
+        'every choice is read');
     queue_check(queue_request(['owner' => 'me'])['owner'] === 'me' && queue_request(['owner' => 'none'])['owner'] === 'none'
         && queue_request(['owner' => '0'])['owner'] === '', 'owner is me, none, or a real id');
     queue_check(queue_request(['sort' => 'reply'])['sort'] === '' && queue_request(['view' => 'resolved', 'sort' => 'updated'])['sort'] === ''
@@ -65,6 +81,9 @@ try {
     queue_check(queue_url($plain, ['view' => 'mine']) === '/?view=mine', 'a view is one parameter');
     queue_check(queue_url($full) === '/?view=open&client=12&priority=urgent&owner=103&sort=newest&page=3', 'every choice is in the address');
     queue_check(queue_url($full, ['page' => 1, 'sort' => 'reply']) === '/?view=open&client=12&priority=urgent&owner=103', 'defaults are left out');
+    queue_check(queue_url(array_replace($full, ['after' => 77])) === '/?view=open&client=12&priority=urgent&owner=103&sort=newest&page=3'
+        && queue_url($full, ['page' => 4, 'after' => 77]) === '/?view=open&client=12&priority=urgent&owner=103&sort=newest&page=4&after=77',
+        'a page edge travels only on the link that asks for it');
     foreach (array_keys(QUEUE_VIEWS) as $view) {
         foreach (['', 'reply', 'updated', 'priority', 'newest'] as $sort) {
             $state = queue_request(['view' => $view, 'client' => '4', 'owner' => 'me', 'sort' => $sort, 'page' => '2']);
@@ -78,7 +97,19 @@ try {
         queue_check(!str_contains(queue_view_sql($view, 102), '?'), "the $view view takes no value from the address");
         foreach (array_keys(QUEUE_SORTS) as $sort) queue_check(queue_order_sql($view, $sort) !== '', "$view can be ordered by $sort");
     }
-    foreach ([static fn() => queue_view_sql('all', 1), static fn() => queue_order_sql('open', 'id')] as $unknown) {
+    queue_check(queue_view_sql('all', 102) === '1 = 1' && str_starts_with(queue_order_sql('all', 'priority'), "(t.status = 'resolved') ASC"),
+        'an old link lists every ticket, resolved last');
+    // The rules the review asked for, as the query states them.
+    $needs = queue_view_sql('needs', 102);
+    queue_check(str_contains($needs, '{first_response} IS NULL AND t.sla_due_at <') && !str_contains(explode(' OR ', $needs)[0], 'assignee_id'),
+        'Needs attention takes a late or nearly late unanswered ticket whoever owns it');
+    queue_check(str_contains($needs, 't.assignee_id IS NULL AND NOT {westy}') && str_contains(queue_view_sql('unassigned', 102), 't.assignee_id IS NULL AND NOT {westy}')
+        && str_contains(queue_filter_sql(array_replace($plain, ['owner' => 'none']), 102)[0], 't.assignee_id IS NULL AND NOT {westy}'),
+        'a ticket the assistant is working is not unassigned: in the view, in the default view and in the filter alike');
+    $reply = queue_order_sql('open', 'reply');
+    queue_check(str_starts_with($reply, "({first_response} IS NULL AND t.status <> 'resolved') DESC") && !str_contains($reply, "'waiting'"),
+        'reply order puts every unanswered ticket first, waiting or not');
+    foreach ([static fn() => queue_view_sql('everything', 1), static fn() => queue_order_sql('open', 'id')] as $unknown) {
         $refused = false;
         try { $unknown(); } catch (InvalidArgumentException $e) { $refused = true; }
         queue_check($refused, 'an unknown view or order is refused, not guessed');
@@ -110,8 +141,12 @@ try {
     }
 
     // ---- the views bar ----
-    $counts = ['needs' => 6, 'mine' => 4, 'unassigned' => 3, 'waiting' => 2, 'open' => 1204, 'resolved' => 5000];
-    $x = $dom(queue_tabs(array_replace($plain, ['view' => 'mine', 'client' => 12, 'page' => 3]), $counts));
+    $counts = ['needs' => 6, 'mine' => 4, 'unassigned' => 3, 'waiting' => 2, 'open' => 1204, 'resolved' => 5000, 'legacy' => 6204, 'everything' => 6204];
+    queue_check(queue_total($plain, $counts) === 6 && queue_total(array_replace($plain, ['view' => 'resolved']), $counts) === 5000
+        && queue_total(queue_request(['f' => 'all']), $counts) === 6204, 'the list on screen holds what its count says');
+    $x = $dom(queue_tabs(queue_request(['f' => 'all']), $counts));
+    queue_check($x->query('//a[@aria-current="page"]')->length === 0 && $x->query('//nav/a')->length === 6, 'an old link marks no view as current');
+    $x = $dom(queue_tabs(array_replace($plain, ['view' => 'mine', 'client' => 12, 'page' => 3, 'after' => 44]), $counts));
     queue_check($texts($x, '//nav[@aria-label="Queue views"]/a') === ['Needs attention61', 'Mine42', 'Unassigned33', 'Waiting on client24', 'All open1,2045', 'Resolved6'],
         'six views in order, each with its count and key; Resolved shows no count');
     $hrefs = [];
@@ -160,6 +195,35 @@ try {
         && $x->query('//a[@rel="prev"]')->item(0)?->getAttribute('href') === '/?view=open&client=12&priority=urgent&owner=103&sort=newest&page=2', 'the last page turns Next off');
     queue_check($texts($dom(queue_pager(array_replace($plain, ['page' => 40]), 131)), '//span[contains(@class,"pager-count")]') === ['Showing 101 to 131 of 131'],
         'a page past the end is the last page');
+    // With the rows in hand, each link names the ticket at this page's edge, so the next page can tell whether the list moved.
+    $x = $dom(queue_pager(array_replace($full, ['page' => 2]), 131, [['id' => 310], ['id' => 77], ['id' => 205]]));
+    queue_check($x->query('//a[@rel="prev"]')->item(0)?->getAttribute('href') === '/?view=open&client=12&priority=urgent&owner=103&sort=newest&before=310'
+        && $x->query('//a[@rel="next"]')->item(0)?->getAttribute('href') === '/?view=open&client=12&priority=urgent&owner=103&sort=newest&page=3&after=205',
+        'Previous names the first ticket on the page and Next the last');
+
+    // ---- what the view leaves out ----
+    $else = static fn(array $state, array $c): array => $texts($dom(queue_elsewhere($state, $c)), '//p[contains(@class,"queue-elsewhere")]');
+    $hrefsOf = static function (array $state, array $c) use ($dom): array {
+        $out = [];
+        foreach ($dom(queue_elsewhere($state, $c))->query('//p/a') as $a) $out[] = $a->getAttribute('href');
+        return $out;
+    };
+    $c = ['needs' => 6, 'mine' => 4, 'unassigned' => 3, 'waiting' => 2, 'open' => 15, 'resolved' => 1400, 'legacy' => 1415, 'everything' => 1415];
+    queue_check($else($plain, $c) === ['Not in this view: 9 more in All open, 1,400 resolved.'] && $hrefsOf($plain, $c) === ['/?view=open', '/?view=resolved'],
+        'the default view counts what it hides and links to it');
+    queue_check($else(array_replace($plain, ['view' => 'open']), $c) === ['Not in this view: 1,400 resolved.'], 'All open hides only the resolved ones');
+    queue_check($else(array_replace($plain, ['view' => 'resolved']), $c) === ['Not in this view: 15 open.']
+        && $hrefsOf(array_replace($plain, ['view' => 'resolved', 'sort' => 'priority', 'page' => 4]), $c) === ['/?view=open&sort=priority'], 'Resolved counts the open ones');
+    queue_check($else(array_replace($plain, ['view' => 'open']), array_replace($c, ['resolved' => 0, 'everything' => 15])) === []
+        && queue_elsewhere(array_replace($plain, ['view' => 'open']), array_replace($c, ['resolved' => 0, 'everything' => 15])) === '', 'a view that hides nothing says nothing');
+    $narrow = array_replace($plain, ['view' => 'mine', 'client' => 12]);
+    $cn = array_replace($c, ['mine' => 1, 'open' => 3, 'resolved' => 20]);
+    queue_check($else($narrow, $cn) === ['Not in this view: 2 more in All open, 20 resolved, 1,392 more hidden by the filters.']
+        && $hrefsOf($narrow, $cn) === ['/?view=open&client=12', '/?view=resolved&client=12', '/?view=mine'], 'filters are counted too, and their link clears them');
+    $legacy = queue_request(['f' => 'open']);
+    queue_check($else($legacy, array_replace($c, ['legacy' => 5])) === ['Not in this view: 1,410 more with another status.']
+        && $hrefsOf($legacy, array_replace($c, ['legacy' => 5])) === ['/?f=all'] && $else(queue_request(['f' => 'all']), $c) === [],
+        'an old status link counts the other statuses; the old full list hides nothing');
 
     // ---- empty views say one thing and offer one way on ----
     foreach ([
@@ -172,6 +236,8 @@ try {
     ] as $view => $expected) {
         queue_check(queue_empty(array_replace($plain, ['view' => $view])) === $expected, "the empty $view view");
     }
+    queue_check(queue_empty(queue_request(['f' => 'all'])) === ['No tickets yet.', 'New ticket', '/ticket_new.php']
+        && queue_empty(queue_request(['f' => 'waiting'])) === ['No tickets have the status Waiting.', 'Open the full queue', '/?view=open'], 'an empty old link says so');
     queue_check(queue_empty(array_replace($plain, ['view' => 'mine', 'priority' => 'low'])) === ['No tickets match these filters.', 'Clear filters', '/?view=mine'],
         'an empty filtered view offers to clear the filters');
 
@@ -212,13 +278,15 @@ try {
             array_replace($replied, ['id' => 102, 'subject' => 'New hire laptop setup', 'priority' => 'normal', 'channel' => 'portal', 'opener_name' => 'Priya Anand']),
             array_replace($row, ['id' => 103, 'subject' => 'Disk space low on FD-01', 'status' => 'waiting', 'priority' => 'low', 'channel' => 'alert']),
         ];
-        $counts = ['needs' => 2, 'mine' => 1, 'unassigned' => 3, 'waiting' => 1, 'open' => 131, 'resolved' => 40, 'unanswered' => 1, 'overdue' => 1];
+        $counts = ['needs' => 2, 'mine' => 1, 'unassigned' => 3, 'waiting' => 1, 'open' => 131, 'resolved' => 40, 'unanswered' => 1, 'overdue' => 1,
+            'legacy' => 171, 'everything' => 171];
         echo json_encode([
             'summary' => queue_summary($counts),
             'toolbar' => '<div class="toolbar queue-toolbar">' . queue_tabs($state, $counts) . queue_filters($state, $clients, $team, 102) . ticket_bulk_toggle() . '</div>',
             'list' => '<div class="card list">' . ticket_head_row(true) . implode('', array_map('ticket_pick_row', $rows)) . '</div>',
-            'pager' => queue_pager($state, 131),
-            'bar' => ticket_bulk_bar(QUEUE_VIEWS[$state['view']], count($rows)),
+            'pager' => queue_pager($state, 131, $rows),
+            'elsewhere' => queue_elsewhere($state, $counts),
+            'bar' => ticket_bulk_bar(queue_view_label($state), count($rows)),
         ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);
     } else {
         echo "Ticket queue: {$checks} passed.\n";

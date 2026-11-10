@@ -490,6 +490,10 @@ img { display: block; }
 .pager-count { margin-right: auto; font-variant-numeric: tabular-nums; }
 .pager-off { opacity: .5; cursor: default; }
 .pager-off:hover { background: var(--bg-solid); }
+/* What the view does not show, and notes about the list: quiet lines with real links. */
+.queue-elsewhere { margin-top: 10px; padding: 0 4px; font-size: 13px; color: var(--muted-strong); }
+.queue-note { margin-bottom: 12px; padding: 10px 14px; border-radius: 12px; background: var(--accent-soft-bg); font-size: 14px; color: var(--text); }
+.queue-note-warn { background: var(--gold-soft-bg); }
 @media (max-width: 700px) {
   /* The views stay on one line and scroll sideways; the filters sit two to a row. */
   .queue-toolbar .filters { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; }
@@ -497,6 +501,8 @@ img { display: block; }
   .filter-select { flex: 1 1 calc(50% - 4px); min-width: 0; min-height: 44px; }
   .filter-select.filter-sort { flex-basis: 100%; }   /* its choices are the longest */
   .filter-select select { flex: 1; min-width: 0; max-width: none; min-height: 40px; }
+  /* Links in the lines about the list are big enough for a thumb. */
+  .queue-elsewhere a, .queue-note a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
 .empty {
