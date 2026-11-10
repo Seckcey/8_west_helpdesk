@@ -709,7 +709,7 @@ function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticke
     ] + $visibility['params']);
     $ticketRow = $ticket->fetch();
     if (! is_array($ticketRow)) {
-        throw new PortalDataNotFoundException('That ticket is not available for this business.');
+        throw new PortalDataNotFoundException('That request is not available for this business.');
     }
 
     $messages = $pdo->prepare(
@@ -858,10 +858,10 @@ function portal_reply_to_ticket(
         ] + $visibility['params']);
         $ticketRow = $ticket->fetch();
         if (! is_array($ticketRow)) {
-            throw new PortalDataNotFoundException('That ticket is not available for this business.');
+            throw new PortalDataNotFoundException('That request is not available for this business.');
         }
         if (($ticketRow['status'] ?? '') === 'resolved') {
-            throw new PortalDataConflictException('This ticket is resolved. Open a new request if more help is needed.');
+            throw new PortalDataConflictException('This request is resolved. Send a new support request if you still need help.');
         }
         $previousUpdatedAt = service_goal_timestamp($ticketRow['updated_at'] ?? null);
         if ($previousUpdatedAt === null) {
@@ -928,7 +928,7 @@ function portal_reply_to_ticket(
             'updated_at_floor' => $touchAt,
         ] + $visibility['params']);
         if ($confirm->fetchColumn() === false) {
-            throw new PortalDataConflictException('The ticket changed while the reply was being saved. Try again.');
+            throw new PortalDataConflictException('The request changed while your reply was being saved. Try again.');
         }
         $pdo->commit();
         return $messageId;

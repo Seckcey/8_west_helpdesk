@@ -284,6 +284,24 @@ switch ($argv[3]) {
             ],
         ]);
         break;
+    case 'ticketopen':
+    case 'ticketprogress':
+    case 'ticketresolved':
+    case 'ticketviewer':
+        // The same request at its other steps. Times sit near now, so the page says "today" and "tomorrow".
+        $at=static fn(int $minutes):string=>gmdate('Y-m-d H:i:s',time()+$minutes*60);
+        $state=['ticketopen'=>'open','ticketprogress'=>'in_progress','ticketresolved'=>'resolved','ticketviewer'=>'waiting'][$argv[3]];
+        if($argv[3]==='ticketviewer')$context['identity']['role']='client_viewer';
+        $answered=$state!=='open';
+        $messages=[['kind'=>'client','author_name'=>'Synthetic Employee','created_at'=>$at(-200),'body'=>'The front desk cannot print.']];
+        if($answered)$messages[]=['kind'=>'tech','author_name'=>'8 West IT support','created_at'=>$at(-170),'body'=>'Is the blue power light on?'];
+        portal_render_ticket($context,['ticket'=>[
+            'id'=>102,'subject'=>'Front desk printer is offline','status'=>$state,'priority'=>'normal',
+            'created_at'=>$at(-200),'sla_due_at'=>$at(280),'first_response_at'=>$answered?$at(-170):null,
+            'resolved_at'=>$state==='resolved'?$at(-30):null,
+            'service_goal_policy_name'=>'Premium','service_goal_version_no'=>2,'service_goal_response_minutes'=>480,
+        ],'messages'=>$messages]);
+        break;
     case 'new':
         portal_render_new_ticket($context);
         break;
@@ -303,7 +321,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['login','workspace','workspaceemployee','home','homemember','homeviewer','dashboard','dashboardemployee','dashboardviewer', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
+  for (const name of ['login','workspace','workspaceemployee','home','homemember','homeviewer','dashboard','dashboardemployee','dashboardviewer', 'ticket', 'ticketopen', 'ticketprogress', 'ticketresolved', 'ticketviewer', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
     'devicesemployees','devicesemployeesnext','devicesemployeeunknown','devicesemployeeabsent','devicesemployeesaved','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
@@ -391,7 +409,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
       : url.pathname === '/portal/security.php' ? pages[url.searchParams.get('fixture') || 'security']
       : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
       : url.pathname === '/portal/new.php' ? pages.new
-      : url.pathname === '/portal/ticket.php' ? pages.ticket
+      : url.pathname === '/portal/ticket.php' ? pages[url.searchParams.get('fixture') || 'ticket']
       : url.pathname === '/portal/reports.php' && url.searchParams.has('id') ? pages.report
       : url.pathname === '/portal/reports.php' ? pages.reports
       : null;
@@ -416,7 +434,7 @@ function fixtureForUrl(pages, url) {
     : url.pathname === '/portal/security.php' ? pages[url.searchParams.get('fixture') || 'security']
     : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
     : url.pathname === '/portal/new.php' ? pages.new
-    : url.pathname === '/portal/ticket.php' ? pages.ticket
+    : url.pathname === '/portal/ticket.php' ? pages[url.searchParams.get('fixture') || 'ticket']
     : url.pathname === '/portal/reports.php' && url.searchParams.has('id') ? pages.report
     : url.pathname === '/portal/reports.php' ? pages.reports
     : null;
@@ -681,6 +699,53 @@ if (!SERVE_MODE) test('direct employee Westy leads to one support action, with n
       assert.equal(await viewer.page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
       assert.deepEqual(viewer.consoleProblems, []);
       await viewer.context.close();
+    }
+  } finally {
+    await browser.close();
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+if (!SERVE_MODE) test('request page names its step, says what happens next and fits a desktop and a phone', async () => {
+  const { pages, scratch } = await renderedFixtures();
+  const browser = await chromium.launch();
+  try {
+    for (const viewport of [{ width: 1365, height: 900 }, { width: 390, height: 844 }]) {
+      const phone = viewport.width < 700;
+      const { page, context, consoleProblems } = await openPortalPage(browser, pages, viewport);
+      for (const [fixture, step, lead] of [['ticketopen', 'Open', /^We have your request\.$/], ['ticketprogress', 'In progress', /^A technician is working on this\.$/],
+        ['ticket', 'Waiting for your reply', /^It is your turn\.$/], ['ticketresolved', 'Resolved', /^Resolved (today|yesterday) at /]]) {
+        await page.goto(`${ORIGIN}/portal/ticket.php?id=102&fixture=${fixture}`);
+        await page.getByRole('heading', { name: 'What happens next' }).waitFor();
+        await page.getByRole('heading', { name: 'Status', exact: true }).waitFor();
+        const current = page.locator('.portal-progress-steps [aria-current="step"]');
+        assert.equal(await current.count(), 1, `${fixture} marks one step`);
+        assert.equal((await current.locator('.portal-progress-label').textContent()).replace(', done', ''), step);
+        assert.match(await page.locator('.portal-next-lead').innerText(), lead);
+        assert.equal(await page.locator('.portal-progress-summary').isVisible(), phone, 'the one-line step summary is the phone form');
+        if (phone) {
+          // The four marks stay; the words give way to "Step n of 4: ..." but remain for screen readers.
+          assert.match(await page.locator('.portal-progress-summary').innerText(), new RegExp(`^Step [1-4] of 4: ${step}$`));
+          assert.equal(await page.locator('.portal-progress-label').evaluateAll(labels => labels.every(label => label.getBoundingClientRect().width <= 1)), true);
+          // What happens next is read before the conversation, not after the reply box.
+          assert.equal(await page.evaluate(() => document.querySelector('.portal-next').getBoundingClientRect().top
+            < document.querySelector('.thread').getBoundingClientRect().top), true);
+        } else {
+          assert.equal(await page.locator('.portal-progress-steps li').evaluateAll(steps => new Set(steps.map(item => Math.round(item.getBoundingClientRect().top))).size), 1,
+            'the four steps sit on one line');
+          assert.equal(await page.locator('.portal-progress-label').evaluateAll(labels => labels.every(label => label.getBoundingClientRect().height < 30)), true);
+        }
+        assert.equal(await page.locator('.portal-progress-mark').evaluateAll(marks => marks.every(mark => mark.getBoundingClientRect().width === 28)), true);
+        assert.equal(await page.locator('main').evaluate(main => /Premium|elapsed minutes|never shown here|\bticket\b/i.test(main.innerText)), false);
+        assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= innerWidth), true, `${fixture} fits ${viewport.width}px`);
+        assert.equal(await page.getByRole('button', { name: 'Send reply' }).count(), fixture === 'ticketresolved' ? 0 : 1);
+      }
+      await page.goto(`${ORIGIN}/portal/ticket.php?id=102&fixture=ticketviewer`);
+      await page.getByText('You can read this request but not reply to it.', { exact: true }).waitFor();
+      assert.equal(await page.locator('main form, .portal-waiting-callout').count(), 0);
+      assert.match(await page.locator('.portal-next-lead').innerText(), /^We are waiting for an answer from your business\.$/);
+      assert.deepEqual(consoleProblems, []);
+      await context.close();
     }
   } finally {
     await browser.close();
