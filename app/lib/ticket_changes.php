@@ -269,15 +269,19 @@ function ticket_survey_queue(array $ticket): string
             }
         }
 
-        require_once __DIR__ . '/mailer.php';
-        $first = $contact['first_name'] ?: 'there';
+        require_once __DIR__ . '/mailer.php';   // brings lib/customer_mail.php, which owns the email's words
         $base = 'https://safeharbor.8westit.com/csat.php?t=' . $token;
+        $tenantId = (int)($ticket['tenant_id'] ?? 0);
         $mailId = mail_queue(
             $email,
             '[#' . (int)$ticket['id'] . '] Resolved: ' . $ticket['subject'],
-            "Hi {$first},\n\nYour ticket is resolved. How did we do? Pick one, then press Send on the page that opens:\n\n"
-              . "  Great:  {$base}&s=3\n  Okay:   {$base}&s=2\n  Rough:  {$base}&s=1\n\n"
-              . "Reply to this email any time to reopen the ticket.\n— Safeharbor by 8 West IT",
+            customer_mail_resolved_body(
+                $contact['name'],
+                (string)$ticket['subject'],
+                $base,
+                customer_mail_business_name($tenantId),
+                customer_mail_portal_link($tenantId, (int)($ticket['client_id'] ?? 0), (int)$ticket['id']),
+            ),
             (int)$ticket['id']
         );
         ticket_notice_hold($mailId);

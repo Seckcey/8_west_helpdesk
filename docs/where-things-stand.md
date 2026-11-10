@@ -490,6 +490,24 @@ emergencies. An empty queue shows owners and administrators a Get set up card, a
 customer's portal Home until a computer exists. Staff sign-in starts with an empty email field and puts
 Continue with 8 West ID first. No auth decision, role or schema change.
 
+**Request page and customer emails in plain words (draft, not live).** The portal request page shows
+the four status words as a step line under the label Status, one panel "What happens next", and times
+such as "today at 9:22 AM" in the viewer's own time zone; it no longer shows the service-goal policy
+name, version or minutes. The three customer emails (received, answered, resolved) are reworded in
+`lib/customer_mail.php` and carry a link to the request only when the portal is on and that client has
+an active portal binding; the sentence says owners and admins can use it, because only they can open an
+emailed request in the portal. No rule about who is emailed, or when, changed: a request opened in the
+portal still has no email contact (`portal_create_ticket()` stores `contact_id` NULL), so its replies
+and its resolution are seen in the portal only and it gets no survey. No SQL or auth change.
+
+**Adding a computer as three steps (draft, not live).** Your devices shows Add a computer as confirm,
+install and wait, with one filled button; the consent form, its fields and every device-service call are
+unchanged. With a setup file on screen the page offers Copy link and asks `devices.php?watch=1` (the
+computer list only, as JSON) every 15 seconds for up to five minutes, then names the new computer when it
+appears. Each computer shows its state first as a
+tag. The two antivirus request forms moved into their own section below the list. Customer-facing
+words say setup link, setup file and add. No SQL, auth or service-contract change.
+
 **Ticket menus and reply with a next step (draft, not live).** Status, priority and owner are menus
 on the ticket page and, from the keyboard, on the highlighted queue row; nothing cycles any more, so
 no step passes through Resolved. The owner menu offers Me, Unassigned and every active teammate. A
