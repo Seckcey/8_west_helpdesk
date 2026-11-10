@@ -103,14 +103,18 @@ function csat_send(array $ticket): void
         if ($ins->rowCount() === 0) return;   // already surveyed — resolve toggling never re-asks
 
         require_once __DIR__ . '/../../lib/mailer.php';
-        $first = explode(' ', trim((string)($contact['name'] ?? '')))[0] ?: 'there';
         $base = 'https://safeharbor.8westit.com/csat.php?t=' . $token;
+        $tenantId = (int)($ticket['tenant_id'] ?? 0);
         mail_queue(
             $email,
             '[#' . (int)$ticket['id'] . '] Resolved: ' . $ticket['subject'],
-            "Hi {$first},\n\nYour ticket is resolved. How did we do? Pick one, then press Send on the page that opens:\n\n"
-              . "  Great:  {$base}&s=3\n  Okay:   {$base}&s=2\n  Rough:  {$base}&s=1\n\n"
-              . "Reply to this email any time to reopen the ticket.\n— Safeharbor by 8 West IT",
+            customer_mail_resolved_body(
+                (string)($contact['name'] ?? ''),
+                (string)$ticket['subject'],
+                $base,
+                customer_mail_business_name($tenantId),
+                customer_mail_portal_link($tenantId, (int)($ticket['client_id'] ?? 0), (int)$ticket['id']),
+            ),
             (int)$ticket['id']
         );
     } catch (Throwable $e) {

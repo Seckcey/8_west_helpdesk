@@ -1,5 +1,5 @@
 <?php
-/** Customer-visible ticket conversation and safe customer replies. */
+/** One support request as the customer sees it: its conversation and safe customer replies. */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/bootstrap.php';
@@ -15,12 +15,12 @@ if (! portal_enabled()) {
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if (! in_array($method, ['GET', 'POST'], true)) {
     header('Allow: GET, POST');
-    portal_render_error(405, 'Method not allowed', 'Use the ticket page to read or reply.');
+    portal_render_error(405, 'Method not allowed', 'Use the request page to read or reply.');
     exit;
 }
 $ticketId = (int)($_GET['id'] ?? 0);
 if ($ticketId < 1) {
-    portal_render_error(404, 'Ticket not found', 'That ticket is not available for this business.');
+    portal_render_error(404, 'Request not found', 'That request is not available to your sign-in. If it reached us by email, you can keep answering that email.');
     exit;
 }
 
@@ -36,7 +36,7 @@ try {
     exit;
 }
 if ($context === null) {
-    portal_require_sign_in('Sign in before viewing a support ticket.');
+    portal_require_sign_in('Sign in to see this support request.');
     exit;
 }
 
@@ -44,7 +44,7 @@ $draft = is_string($_POST['body'] ?? null) ? $_POST['body'] : '';
 $errorMessage = null;
 if ($method === 'POST') {
     if (! portal_role_can_write_tickets(portal_customer_role($context['identity']))) {
-        portal_render_error(403, 'Read-only access', 'Your customer viewer role cannot reply to tickets.');
+        portal_render_error(403, 'Read-only access', 'You can read requests but not reply to them.');
         exit;
     }
     if (! portal_csrf_valid($_POST['csrf'] ?? null)) {
@@ -77,7 +77,7 @@ if ($method === 'POST') {
     } catch (PortalDataValidationException|PortalDataConflictException $error) {
         $errorMessage = $error->getMessage();
     } catch (PortalDataNotFoundException $error) {
-        portal_render_error(404, 'Ticket not found', $error->getMessage());
+        portal_render_error(404, 'Request not found', $error->getMessage());
         exit;
     } catch (Throwable $error) {
         error_log('[safeharbor-portal] ticket_reply_failed type=' . $error::class);
@@ -94,11 +94,11 @@ try {
         $context['identity'],
     );
 } catch (PortalDataNotFoundException|PortalDataValidationException $error) {
-    portal_render_error(404, 'Ticket not found', 'That ticket is not available for this business.');
+    portal_render_error(404, 'Request not found', 'That request is not available to your sign-in. If it reached us by email, you can keep answering that email.');
     exit;
 } catch (Throwable $error) {
     error_log('[safeharbor-portal] ticket_read_failed type=' . $error::class);
-    portal_render_error(503, 'Temporarily unavailable', 'This ticket is temporarily unavailable. Try again shortly.');
+    portal_render_error(503, 'Temporarily unavailable', 'This request is temporarily unavailable. Try again shortly.');
     exit;
 }
 

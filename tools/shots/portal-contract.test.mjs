@@ -22,11 +22,14 @@ const PORTAL_ASSETS = {
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
   '/assets/js/portal-desktop.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-desktop.js'))],
   '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
+  '/assets/js/portal-devices.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-devices.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
   '/assets/brand/8-west-it-westy.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/brand/8-west-it-westy.png'))],
   '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
 };
 const ORIGIN = 'http://safeharbor.test';
+// The two computers every device fixture lists, as the page's watch read returns them.
+const FIXTURE_COMPUTERS = [{ reference: '1:' + 'a'.repeat(64), label: 'Front desk computer' }, { reference: '2:' + 'b'.repeat(64), label: 'Warehouse laptop' }];
 const SERVE_MODE = process.argv.includes('--serve');
 // Exported by Milepost's actual disposable MySQL/poll/result workflow. Never live data.
 const WORKSPACE_RECEIPTS = JSON.parse(await readFile(path.join(ROOT,'app/tests/fixtures/customer_workspace/operations.json'),'utf8')).operations;
@@ -165,6 +168,7 @@ switch ($argv[3]) {
     case 'devicesempty':
     case 'deviceserror':
     case 'devicesdownload':
+    case 'devicesdownloadfailed':
     case 'devicesrevoked':
     case 'devicesprotection':
     case 'devicesprotectionunknown':
@@ -195,9 +199,9 @@ switch ($argv[3]) {
         $grant=['reference'=>str_repeat('1',32),'state'=>$argv[3]==='devicesrevoked'?'revoked':'ready',
             'created_at'=>gmdate('Y-m-d\\TH:i:s\\Z'),'expires_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()+14400)];
         if($argv[3]==='devicesempty')$devices['items']=[];
-        portal_render_devices($context,$argv[3]==='deviceserror'?null:$devices,[$grant],
+        portal_render_devices($context,in_array($argv[3],['deviceserror','devicesdownloadfailed'],true)?null:$devices,[$grant],
             $argv[3]==='deviceserror'?portal_devices_error('service_unavailable'):null,
-            $argv[3]==='devicesdownload'?$grant+['download_url'=>'https://support.8westit.com/download.php?t='.str_repeat('d',64)]:null,
+            str_starts_with($argv[3],'devicesdownload')?$grant+['download_url'=>'https://support.8westit.com/download.php?t='.str_repeat('d',64)]:null,
             $argv[3]==='devicesrevoked'?'The installation link is no longer available.':null,$protection,$employee,$choices);
         break;
     case 'security':
@@ -284,6 +288,24 @@ switch ($argv[3]) {
             ],
         ]);
         break;
+    case 'ticketopen':
+    case 'ticketprogress':
+    case 'ticketresolved':
+    case 'ticketviewer':
+        // The same request at its other steps. Times sit near now, so the page says "today" and "tomorrow".
+        $at=static fn(int $minutes):string=>gmdate('Y-m-d H:i:s',time()+$minutes*60);
+        $state=['ticketopen'=>'open','ticketprogress'=>'in_progress','ticketresolved'=>'resolved','ticketviewer'=>'waiting'][$argv[3]];
+        if($argv[3]==='ticketviewer')$context['identity']['role']='client_viewer';
+        $answered=$state!=='open';
+        $messages=[['kind'=>'client','author_name'=>'Synthetic Employee','created_at'=>$at(-200),'body'=>'The front desk cannot print.']];
+        if($answered)$messages[]=['kind'=>'tech','author_name'=>'8 West IT support','created_at'=>$at(-170),'body'=>'Is the blue power light on?'];
+        portal_render_ticket($context,['ticket'=>[
+            'id'=>102,'subject'=>'Front desk printer is offline','status'=>$state,'priority'=>'normal',
+            'created_at'=>$at(-200),'sla_due_at'=>$at(280),'first_response_at'=>$answered?$at(-170):null,
+            'resolved_at'=>$state==='resolved'?$at(-30):null,
+            'service_goal_policy_name'=>'Premium','service_goal_version_no'=>2,'service_goal_response_minutes'=>480,
+        ],'messages'=>$messages]);
+        break;
     case 'new':
         portal_render_new_ticket($context);
         break;
@@ -303,7 +325,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['login','workspace','workspaceemployee','home','homemember','homeviewer','dashboard','dashboardemployee','dashboardviewer', 'ticket', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
+  for (const name of ['login','workspace','workspaceemployee','home','homemember','homeviewer','dashboard','dashboardemployee','dashboardviewer', 'ticket', 'ticketopen', 'ticketprogress', 'ticketresolved', 'ticketviewer', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesdownloadfailed', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
     'devicesemployees','devicesemployeesnext','devicesemployeeunknown','devicesemployeeabsent','devicesemployeesaved','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
@@ -336,6 +358,11 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
     if(url.pathname==='/portal/westy.php'){
       if(apiHandler)return apiHandler(route);
       return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state:{enabled:false,ai_available:false,can_write:true,conversation:null,turns:[],draft:null}})});
+    }
+    if (url.pathname === '/portal/devices.php' && url.searchParams.get('watch') === '1') {
+      assert.equal(route.request().method(), 'GET');
+      const answer = pages.deviceWatch ? pages.deviceWatch() : { json: { ok: true, complete: true, computers: FIXTURE_COMPUTERS } };
+      return route.fulfill({ status: answer.status ?? 200, contentType: 'application/json', body: JSON.stringify(answer.json ?? { ok: false }) });
     }
     if (url.pathname === '/portal/devices.php' && route.request().method() === 'POST') {
       const form = new URLSearchParams(route.request().postData());
@@ -391,7 +418,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
       : url.pathname === '/portal/security.php' ? pages[url.searchParams.get('fixture') || 'security']
       : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
       : url.pathname === '/portal/new.php' ? pages.new
-      : url.pathname === '/portal/ticket.php' ? pages.ticket
+      : url.pathname === '/portal/ticket.php' ? pages[url.searchParams.get('fixture') || 'ticket']
       : url.pathname === '/portal/reports.php' && url.searchParams.has('id') ? pages.report
       : url.pathname === '/portal/reports.php' ? pages.reports
       : null;
@@ -416,7 +443,7 @@ function fixtureForUrl(pages, url) {
     : url.pathname === '/portal/security.php' ? pages[url.searchParams.get('fixture') || 'security']
     : url.pathname === '/portal/device_help.php' ? pages[url.searchParams.get('fixture') || 'help']
     : url.pathname === '/portal/new.php' ? pages.new
-    : url.pathname === '/portal/ticket.php' ? pages.ticket
+    : url.pathname === '/portal/ticket.php' ? pages[url.searchParams.get('fixture') || 'ticket']
     : url.pathname === '/portal/reports.php' && url.searchParams.has('id') ? pages.report
     : url.pathname === '/portal/reports.php' ? pages.reports
     : null;
@@ -681,6 +708,58 @@ if (!SERVE_MODE) test('direct employee Westy leads to one support action, with n
       assert.equal(await viewer.page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
       assert.deepEqual(viewer.consoleProblems, []);
       await viewer.context.close();
+    }
+  } finally {
+    await browser.close();
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+if (!SERVE_MODE) test('request page names its step, says what happens next and fits a desktop and a phone', async () => {
+  const { pages, scratch } = await renderedFixtures();
+  const browser = await chromium.launch();
+  try {
+    for (const viewport of [{ width: 1365, height: 900 }, { width: 390, height: 844 }]) {
+      const phone = viewport.width < 700;
+      const { page, context, consoleProblems } = await openPortalPage(browser, pages, viewport);
+      for (const [fixture, step, lead] of [['ticketopen', 'Open', /^We have your request\.$/], ['ticketprogress', 'In progress', /^We replied (today|yesterday) at /],
+        ['ticket', 'Waiting for your reply', /^It is your turn\.$/], ['ticketresolved', 'Resolved', /^Resolved (today|yesterday) at /]]) {
+        await page.goto(`${ORIGIN}/portal/ticket.php?id=102&fixture=${fixture}`);
+        await page.getByRole('heading', { name: 'What happens next' }).waitFor();
+        await page.getByRole('heading', { name: 'Status', exact: true }).waitFor();
+        const current = page.locator('.portal-progress-steps [aria-current="step"]');
+        assert.equal(await current.count(), 1, `${fixture} marks one step`);
+        assert.equal((await current.locator('.portal-progress-label').textContent()).replace(', done', ''), step);
+        assert.match(await page.locator('.portal-next-lead').innerText(), lead);
+        assert.equal(await page.locator('.portal-progress-summary').isVisible(), phone, 'the one-line step summary is the phone form');
+        if (phone) {
+          // The four marks stay; the words give way to "Step n of 4: ..." but remain for screen readers.
+          assert.match(await page.locator('.portal-progress-summary').innerText(), new RegExp(`^Step [1-4] of 4: ${step}$`));
+          assert.equal(await page.locator('.portal-progress-label').evaluateAll(labels => labels.every(label => label.getBoundingClientRect().width <= 1)), true);
+          // What happens next is read before the conversation, not after the reply box.
+          assert.equal(await page.evaluate(() => document.querySelector('.portal-next').getBoundingClientRect().top
+            < document.querySelector('.thread').getBoundingClientRect().top), true);
+        } else {
+          assert.equal(await page.locator('.portal-progress-steps li').evaluateAll(steps => new Set(steps.map(item => Math.round(item.getBoundingClientRect().top))).size), 1,
+            'the four steps sit on one line');
+          assert.equal(await page.locator('.portal-progress-label').evaluateAll(labels => labels.every(label => label.getBoundingClientRect().height < 30)), true);
+        }
+        assert.equal(await page.locator('.portal-progress-mark').evaluateAll(marks => marks.every(mark => mark.getBoundingClientRect().width === 28)), true);
+        assert.equal(await page.locator('main').evaluate(main => /Premium|elapsed minutes|never shown here|\bticket\b/i.test(main.innerText)), false);
+        assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= innerWidth), true, `${fixture} fits ${viewport.width}px`);
+        assert.equal(await page.getByRole('button', { name: 'Send reply' }).count(), fixture === 'ticketresolved' ? 0 : 1);
+        // A step is drawn as done only when the record shows it happened: a resolved request never claims it waited for the customer.
+        assert.deepEqual(await page.locator('.portal-progress-steps li').evaluateAll(steps => steps.map(item => item.className.replace('is-', ''))),
+          { ticketopen: ['now', 'later', 'later', 'later'], ticketprogress: ['done', 'now', 'later', 'later'],
+            ticket: ['done', 'done', 'now', 'later'], ticketresolved: ['done', 'done', 'skipped', 'done'] }[fixture]);
+        if (fixture === 'ticketprogress') assert.match(await page.locator('.portal-next-body').innerText(), /You can answer below\./);
+      }
+      await page.goto(`${ORIGIN}/portal/ticket.php?id=102&fixture=ticketviewer`);
+      await page.getByText('You can read this request but not reply to it.', { exact: true }).waitFor();
+      assert.equal(await page.locator('main form, .portal-waiting-callout').count(), 0);
+      assert.match(await page.locator('.portal-next-lead').innerText(), /^We are waiting for an answer from your business\.$/);
+      assert.deepEqual(consoleProblems, []);
+      await context.close();
     }
   } finally {
     await browser.close();
@@ -1162,6 +1241,131 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
       assert.deepEqual(consoleProblems,[]);
       await context.close();
+    }
+  } finally {await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('adding a computer is three steps: confirm, install with a link to copy, then the new computer is announced', async () => {
+  const {pages,scratch}=await renderedFixtures();
+  const browser=await chromium.launch();
+  const states=page=>page.locator('.portal-add-computer .setup-step').evaluateAll(steps=>steps.map(step=>step.className.replace('setup-step is-','')));
+  const NEW={reference:'3:'+'c'.repeat(64),label:'Reception laptop'};
+  const all=(...extra)=>({json:{ok:true,complete:true,computers:[...FIXTURE_COMPUTERS,...extra]}});
+  const TICK=16000;
+  // One page under a fake clock, with the watch read answered by `answers` in turn (the last one repeats).
+  const waiting=async(viewport,fixture,answers,listAfter=pages.devices)=>{
+    const reads=[];
+    const opened=await openPortalPage(browser,{...pages,devices:listAfter,deviceWatch:()=>{reads.push(Date.now());return answers[Math.min(reads.length,answers.length)-1];}},viewport);
+    opened.page.setDefaultTimeout(10000);
+    await opened.page.clock.install();
+    await opened.page.goto(`${ORIGIN}/portal/devices.php?fixture=${fixture}`);
+    await opened.page.getByRole('heading',{name:'Install on your Windows computer'}).waitFor();
+    return {...opened,reads};
+  };
+  const announced=page=>page.getByText(/ is connected\. It is under Connected computers\.$/).count();
+  try {
+    for (const viewport of [{width:1365,height:900},{width:390,height:844}]) {
+      const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport);
+      page.setDefaultTimeout(10000);
+      await page.goto(`${ORIGIN}/portal/devices.php`);
+      await page.getByRole('heading',{name:'Add a computer',exact:true}).waitFor();
+      assert.deepEqual(await states(page),['current','later','later']);
+      assert.equal(await page.locator('.portal-devices .btn-primary').count(),1,'one filled button');
+      assert.equal(await page.getByRole('link',{name:'Add a computer',exact:true}).isVisible(),viewport.width<1100,'the jump link is for the one-column layout');
+      assert.equal(await page.locator('main').evaluate(main=>/Bitdefender|Milepost|enroll|\bagent\b/i.test(main.innerText)),false);
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+
+      // A new computer appears: it is named, both remaining steps finish, and the list shows it.
+      const arrived=await waiting(viewport,'devicesdownload',[all(),all(NEW)],pages.devices.replaceAll('Warehouse laptop','Reception laptop'));
+      assert.deepEqual(await states(arrived.page),['done','current','later']);
+      assert.equal(await arrived.page.locator('.portal-devices .btn-primary').count(),1,'the download is the one filled button');
+      assert.equal(await arrived.page.evaluate(()=>document.querySelector('.portal-add-computer').getBoundingClientRect().top<document.getElementById('computers-heading').getBoundingClientRect().top),true,
+        'while a setup file is waiting, the steps lead the page');
+      await arrived.page.getByText('This page is checking for it and will show it here by itself.',{exact:false}).waitFor();
+      assert.equal(arrived.reads.length,0,'the page already holds the whole list, so nothing is read before the first check');
+      assert.equal(await arrived.page.locator('body').evaluate(body=>body.scrollWidth<=innerWidth),true);
+      await arrived.page.clock.runFor(TICK);
+      assert.equal(await announced(arrived.page),0,'the same two computers announce nothing');
+      await arrived.page.clock.runFor(TICK);
+      await arrived.page.getByText('Reception laptop is connected. It is under Connected computers.',{exact:true}).waitFor();
+      await arrived.page.getByRole('heading',{name:'Reception laptop',exact:true}).waitFor();
+      assert.deepEqual(await states(arrived.page),['done','done','done'],'install and wait are both finished once the computer is here');
+      assert.equal(await arrived.page.locator('.portal-add-computer .setup-mark svg').count(),3);
+      const after=arrived.reads.length;await arrived.page.clock.runFor(4*TICK);
+      assert.equal(arrived.reads.length,after,'checking stops once the computer is found');
+      assert.equal(after,2,'one small read per check');
+      assert.deepEqual(arrived.consoleProblems,[]);
+      await arrived.context.close();
+
+      // The link is copied for a different computer.
+      const copy=await openPortalPage(browser,pages,viewport);
+      await copy.page.addInitScript(()=>{window.copied=[];Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copied.push(text);}}});});
+      await copy.page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesdownload`);
+      const href=await copy.page.getByRole('link',{name:'Download Milepost setup'}).getAttribute('href');
+      await copy.page.getByRole('button',{name:'Copy link',exact:true}).click();
+      await copy.page.getByText('Link copied. Open it on the computer you want to add.',{exact:true}).waitFor();
+      assert.deepEqual(await copy.page.evaluate(()=>window.copied),[href]);
+      await copy.context.close();
+
+      // The list could not be read when the page was made. The first good read is only the starting point:
+      // the computers that were already there are not announced. A later one is.
+      const blind=await waiting(viewport,'devicesdownloadfailed',[{status:503},all(),all(),all(NEW)]);
+      await blind.page.clock.runFor(1000);
+      assert.equal(blind.reads.length,1,'with no list to start from, the page reads once straight away');
+      await blind.page.clock.runFor(TICK);await blind.page.clock.runFor(TICK);
+      assert.equal(blind.reads.length,3);
+      assert.equal(await announced(blind.page),0,'computers that were already there are never announced as new');
+      assert.deepEqual(await states(blind.page),['done','current','later']);
+      await blind.page.clock.runFor(TICK);
+      await blind.page.getByText('Reception laptop is connected. It is under Connected computers.',{exact:true}).waitFor();
+      await blind.context.close();
+
+      // Reads that fail or cannot cover the whole list decide nothing; a list too long to read ends the watch with the plain sentence.
+      const long=await waiting(viewport,'devicesdownload',[{status:503},{json:{ok:true,complete:false,computers:[NEW]}}]);
+      await long.page.clock.runFor(TICK);
+      assert.equal(await announced(long.page),0);
+      await long.page.clock.runFor(TICK);
+      await long.page.getByText('Choose Refresh status to check.',{exact:false}).waitFor();
+      assert.equal(await announced(long.page),0,'a partial list never announces a computer');
+      const stopped=long.reads.length;await long.page.clock.runFor(3*TICK);assert.equal(long.reads.length,stopped);
+      await long.context.close();
+
+      // The sign-in has ended: stop at once.
+      const ended=await waiting(viewport,'devicesdownload',[{status:401}]);
+      await ended.page.clock.runFor(TICK);
+      await ended.page.getByText('Choose Refresh status to check.',{exact:false}).waitFor();
+      await ended.page.clock.runFor(3*TICK);assert.equal(ended.reads.length,1);
+      await ended.context.close();
+
+      // Nothing new arrives: the page stops checking after five minutes and says what to do.
+      const quiet=await waiting(viewport,'devicesdownload',[all()]);
+      await quiet.page.clock.runFor(5*60*1000+TICK);
+      await quiet.page.getByText('Not showing yet? Choose Refresh status, or ask Westy.',{exact:true}).waitFor();
+      assert.deepEqual(await states(quiet.page),['done','current','later']);
+      assert.ok(quiet.reads.length<=21,'at most one read every 15 seconds for five minutes');
+      assert.deepEqual(quiet.consoleProblems,[]);
+      await quiet.context.close();
+
+      // A hidden tab checks nothing. Coming back to it brings the sentence up to date at once.
+      const away=await waiting(viewport,'devicesdownload',[all()]);
+      const hide=hidden=>away.page.evaluate(hidden=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden});document.dispatchEvent(new Event('visibilitychange'));},hidden);
+      await hide(true);
+      await away.page.clock.runFor(5*60*1000+TICK);
+      assert.equal(away.reads.length,0,'nothing is read while the tab is hidden');
+      await away.page.getByText('This page is checking for it and will show it here by itself.',{exact:false}).waitFor();
+      await hide(false);
+      await away.page.getByText('Not showing yet? Choose Refresh status, or ask Westy.',{exact:true}).waitFor();
+      assert.equal(away.reads.length,0,'past five minutes it stops without another read');
+      await away.context.close();
+
+      // Without the script, step 3 says only what is true: no promise of a page that updates by itself.
+      const plain=await browser.newContext({viewport,javaScriptEnabled:false});
+      const plainPage=await plain.newPage();
+      await plainPage.setContent(pages.devicesdownload);
+      const sentence=await plainPage.locator('#portal-device-wait').textContent();
+      assert.match(sentence,/Choose Refresh status to check\.$/);assert.doesNotMatch(sentence,/by itself|is checking/);
+      await plain.close();
     }
   } finally {await browser.close();await rm(scratch,{recursive:true,force:true});}
 });

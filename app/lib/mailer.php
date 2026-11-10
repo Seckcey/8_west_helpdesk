@@ -7,6 +7,7 @@
 declare(strict_types=1);
 
 if (!function_exists('cfg')) require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/customer_mail.php';
 
 /** Queue an email. Returns the queue id. */
 function mail_queue(string $to, string $subject, string $bodyText, ?int $ticketId = null): int
@@ -430,9 +431,13 @@ function mail_notify_reply(array $ticket, string $contactEmail, string $authorNa
     // Never email machine senders (loop protection — see intake_is_auto_mail)
     if (preg_match('/^(mailer-daemon|postmaster|no-?reply|donotreply|bounce[s]?|autoreply)@/i', $contactEmail)) return;
     $subject = '[#' . (int)$ticket['id'] . '] ' . $ticket['subject'];
-    $body = "Hi — {$authorName} replied to your ticket:\n\n"
-          . wordwrap($replyBody, 78) . "\n\n"
-          . "Reply to this email to add to the thread, or open the portal (coming soon).\n"
-          . "— Safeharbor by 8 West IT";
+    $tenantId = (int)($ticket['tenant_id'] ?? 0);
+    $body = customer_mail_reply_body(
+        $authorName,
+        (string)$ticket['subject'],
+        $replyBody,
+        customer_mail_business_name($tenantId),
+        customer_mail_portal_link($tenantId, (int)($ticket['client_id'] ?? 0), (int)$ticket['id']),
+    );
     mail_queue($contactEmail, $subject, $body, (int)$ticket['id']);
 }
