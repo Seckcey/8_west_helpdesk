@@ -247,3 +247,42 @@
   .portal-request .portal-request-new{width:100%}
   .portal-request .reply-foot .btn-primary{min-height:44px}
 }
+
+/* Home: one question, two buttons, and requests that say what is happening.
+   The hero holds a greeting, the question and at most two buttons. Ask Westy is the page's one filled
+   button; while a new business still has its first step to do, that step keeps the filled button and
+   Ask Westy is a second quiet one. Buttons on the navy hero keep white text on a darkened fill, so the
+   text stays above 4.5:1 across the whole gradient in both themes. */
+.portal-overview-hero h1{margin:0 0 4px}
+.portal-overview-question{margin:0;color:var(--hero-ink-2);font-size:17px;line-height:1.45;overflow-wrap:anywhere}
+.portal-overview-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px}
+.portal-overview .portal-overview-action{display:inline-flex;align-items:center;justify-content:center;gap:0;min-height:44px;padding:0 20px;border:1px solid rgba(255,255,255,.45);border-radius:10px;background:rgba(6,17,31,.38);color:#FFFFFF;font-size:15px;font-weight:600;line-height:1.2;text-decoration:none}
+.portal-overview .portal-overview-action:hover{border-color:rgba(255,255,255,.7);background:rgba(6,17,31,.55)}
+.portal-overview .portal-overview-action.is-primary{border-color:var(--accent);background:var(--accent);color:#FFFFFF;box-shadow:0 1px 2px rgba(3,10,20,.45)}
+.portal-overview .portal-overview-action.is-primary:hover{border-color:var(--accent-hover);background:var(--accent-hover)}
+@media(max-width:560px){.portal-overview .portal-overview-action{flex:1 1 100%}}
+
+/* A request in a list: the subject, one sentence, a tag, and where it applies a Reply button.
+   The whole row opens the request; Reply sits above that so it keeps its own destination. */
+.portal-request-rows{list-style:none;margin:0;padding:0}
+.portal-request-row{position:relative;display:flex;align-items:center;gap:10px 16px;padding:14px 0;border-top:1px solid var(--line)}
+.portal-overview-card .portal-request-row:first-child{border-top:0;padding-top:6px}
+.portal-overview-card .portal-request-row:last-child{padding-bottom:6px}
+.portal-request-copy{flex:1 1 auto;min-width:0}
+.portal-request-copy h3{margin:0;font:600 15px/1.4 var(--font);overflow-wrap:anywhere}
+.portal-app .portal-request-link{color:var(--text);text-decoration:none}
+.portal-request-link::after{content:"";position:absolute;inset:0}
+.portal-request-row:hover .portal-request-link{color:var(--accent-2)}
+.portal-request-number{color:var(--dim);font-weight:500;font-variant-numeric:tabular-nums}
+.portal-request-copy p{margin:2px 0 0;font-size:13.5px;line-height:1.5;color:var(--muted-strong)}
+.portal-request-row .portal-status{flex:none;white-space:nowrap}
+.portal-app .portal-request-reply{position:relative;z-index:1;flex:none;width:auto;min-height:40px;padding:0 16px;color:var(--text);text-decoration:none}
+.portal-overview .portal-request-scope{margin:12px 0 0}
+.portal-overview .portal-overview-card .portal-section-title h2{margin:0;font-size:17px;font-weight:700}
+.portal-overview .portal-section-title{margin-bottom:6px}
+@media(max-width:700px){.portal-request-row{flex-wrap:wrap}.portal-request-copy{flex-basis:100%}.portal-app .portal-request-reply{min-height:44px;margin-left:auto}}
+
+/* Tags in a request list: received is plain, in progress is blue, waiting on the customer is the only
+   amber, resolved is green. */
+.portal-home .portal-status::before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:currentColor}
+.portal-home .portal-status-open,.portal-overview .portal-status-open{background:var(--chip-bg);color:var(--muted-strong)}
