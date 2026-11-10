@@ -405,7 +405,21 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
     }
 
     $tickets = $pdo->prepare(
-        "SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at, t.resolved_at
+        // The kind and time of the newest customer-visible message, and the first-response time, ride on
+        // each row. They are sub-selects of the rows this query already returns, so the tenant, client and
+        // requester filter below decides what they can ever describe. Nothing else about a conversation
+        // is read here: no text, no author, and only the two kinds a customer can see.
+        "SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at, t.resolved_at, t.sla_due_at,
+                (SELECT newest.kind FROM messages newest
+                  WHERE newest.ticket_id = t.id AND newest.kind IN ('client','tech')
+                  ORDER BY newest.id DESC LIMIT 1) AS last_message_kind,
+                (SELECT newest.created_at FROM messages newest
+                  WHERE newest.ticket_id = t.id AND newest.kind IN ('client','tech')
+                  ORDER BY newest.id DESC LIMIT 1) AS last_message_at,
+                (SELECT MIN(first_reply.created_at) FROM messages first_reply
+                  WHERE first_reply.ticket_id = t.id AND first_reply.kind = 'tech'
+                    AND first_reply.created_at >= t.created_at
+                    AND first_reply.created_at <= CURRENT_TIMESTAMP) AS first_response_at
            FROM tickets t
           WHERE t.tenant_id = :tenant_id
             AND t.client_id = :client_id
