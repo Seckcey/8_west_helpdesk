@@ -194,3 +194,4 @@
 .portal-overview .setup-card .setup-title{font-size:17px;margin-bottom:6px}
 .portal-app .setup-step>a.btn-primary,.portal-app .setup-step>a.btn-primary:hover{color:#fff;min-height:44px;padding:0 16px;text-decoration:none}
 .portal-app .setup-step>a.btn-ghost{color:var(--text);min-height:44px;text-decoration:none}
+.portal-app .setup-mark svg{width:15px;height:15px}

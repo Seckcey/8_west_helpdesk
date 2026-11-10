@@ -1569,6 +1569,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 }
 .backup-signin[open] > summary::before { transform: rotate(45deg); }
 .backup-signin > summary:hover { background: var(--bg-raised); }
+/* The card clips its corners, so the focus outline sits just inside the summary. */
+.backup-signin > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--radius-md); }
 .backup-signin-title { font-size: 14.5px; font-weight: 650; color: var(--text); }
 .backup-signin-help { font-size: 13px; color: var(--muted-strong); }
 .backup-signin > .form-card { border-top: 1px solid var(--line); }

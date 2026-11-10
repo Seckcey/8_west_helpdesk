@@ -13,16 +13,21 @@ if ($scenario !== null) {
     set_error_handler(static function (int $level, string $message, string $file, int $line): never {
         throw new ErrorException($message, 0, $level, $file, $line);
     });
-    [$role, $capable, $post] = match ($scenario) {
-        'owner-capable' => ['owner', true, []],
-        'owner-plain' => ['owner', false, []],
-        'tech' => ['tech', true, []],
-        'owner-failed-add' => ['owner', true, ['action' => 'add', 'csrf' => 'synthetic-csrf', 'full_name' => 'Rowan Hale', 'email' => 'not-an-email', 'password' => 'x']],
+    $full = ['suite_settings_context' => ['capabilities' => ['manage_people' => true], 'panels' => ['msp_admin']]];
+    [$role, $session, $post] = match ($scenario) {
+        'owner-capable' => ['owner', $full, []],
+        'admin-capable' => ['admin', $full, []],
+        'owner-plain' => ['owner', [], []],
+        'owner-no-panel' => ['owner', ['suite_settings_context' => ['capabilities' => ['manage_people' => true], 'panels' => ['client_admin']]], []],
+        'owner-yes-string' => ['owner', ['suite_settings_context' => ['capabilities' => ['manage_people' => 'yes'], 'panels' => ['msp_admin']]], []],
+        'tech' => ['tech', $full, []],
+        'owner-failed-add' => ['owner', $full, ['action' => 'add', 'csrf' => 'synthetic-csrf', 'full_name' => 'Rowan "><b>Hale',
+            'email' => '"><b>not-an-email', 'password' => 'x', 'role' => 'owner', 'color' => '#F6C95B']],
         default => exit(2),
     };
     $_POST = $post;
     $_SERVER['REQUEST_METHOD'] = $post ? 'POST' : 'GET';
-    $_SESSION = $capable ? ['suite_settings_context' => ['capabilities' => ['manage_people' => true], 'panels' => ['msp_admin']]] : [];
+    $_SESSION = $session;
     $GLOBALS['fixtureUser'] = ['id' => 1, 'tenant_id' => 1, 'full_name' => 'Avery Lane', 'email' => 'avery@example.test', 'role' => $role,
         'initials' => 'AL', 'color' => '#2D8CFF', 'suite_subject' => 't1u1', 'is_active' => 1, 'last_login_at' => null];
     function enforce_https(): void {}
@@ -47,6 +52,7 @@ if ($scenario !== null) {
     }
     final class TeamDatabase { public function prepare(string $sql): TeamStatement { return new TeamStatement(); } }
     function db(): TeamDatabase { return new TeamDatabase(); }
+    require_once __DIR__ . '/../lib/first_steps.php';
     $source = (string)file_get_contents(__DIR__ . '/../public/users.php');
     $source = preg_replace('/^require_once .*;\R/m', '', $source);
     eval(substr($source, strlen('<?php')));
@@ -84,6 +90,15 @@ team_check(str_contains($html, 'name="full_name"') && str_contains($html, 'name=
     'the local account form keeps its fields, button and hint');
 team_check(str_contains($html, 'aria-label="Disable Safeharbor access for Jordan Ellis"'), 'the member list keeps its controls');
 
+$admin = team_render('admin-capable');
+team_check(str_contains($admin, $invite) && str_contains($admin, 'Backup sign-in for emergencies'),
+    'an administrator with the capability gets the same invite and backup form');
+foreach (['owner-no-panel' => 'without the MSP Admin panel', 'owner-yes-string' => 'with the capability set to "yes" instead of true'] as $case => $why) {
+    $html = team_render($case);
+    team_check(!str_contains($html, 'Invite a teammate') && !str_contains($html, 'id.8westit.com/users.php')
+        && str_contains($html, 'Ask the person who manages your 8 West ID account'), "an owner {$why} sees no invite button");
+}
+
 $plain = team_render('owner-plain');
 team_check(!str_contains($plain, 'Invite a teammate') && !str_contains($plain, 'id.8westit.com/users.php'),
     'an owner without the capability sees no invite button');
@@ -98,8 +113,16 @@ team_check(str_contains($tech, 'Jordan Ellis'), 'a technician still sees the mem
 $failed = team_render('owner-failed-add');
 team_check(str_contains($failed, '<details class="card backup-signin" open>') && str_contains($failed, 'role="alert"'),
     'a failed add opens the disclosure so the error is visible');
-team_check(str_contains($failed, 'value="Rowan Hale"') && str_contains($failed, 'value="not-an-email"') && !str_contains($failed, 'value="x"'),
-    'a failed add keeps the typed name and email, never the password');
+team_check(str_contains($failed, 'value="Rowan &quot;&gt;&lt;b&gt;Hale"') && str_contains($failed, 'value="&quot;&gt;&lt;b&gt;not-an-email"')
+    && !str_contains($failed, '"><b>') && !str_contains($failed, 'value="x"'),
+    'a failed add keeps the typed name and email, escaped, and never the password');
+team_check(preg_match('/name="role" value="owner"\s+checked/', $failed) === 1 && preg_match('/name="role" value="tech"\s+checked/', $failed) !== 1,
+    'a failed add keeps the chosen role');
+team_check(preg_match('/name="color" value="#F6C95B"\s+checked/', $failed) === 1 && preg_match('/name="color" value="#2D8CFF"\s+checked/', $failed) !== 1,
+    'a failed add keeps the chosen colour');
+$fresh = team_render('owner-capable');
+team_check(preg_match('/name="role" value="tech"\s+checked/', $fresh) === 1 && preg_match('/name="color" value="#2D8CFF"\s+checked/', $fresh) === 1,
+    'a fresh form still starts at Technician and Blue');
 
 echo $failures === [] ? "\nTeam invite: {$checks} passed.\n" : "\nTeam invite: " . count($failures) . " of {$checks} failed.\n";
 exit($failures === [] ? 0 : 1);

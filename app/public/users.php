@@ -5,6 +5,7 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/first_steps.php';
 enforce_https();
 $user = require_login();
 
@@ -17,10 +18,9 @@ $error = '';
 $ok = '';
 $addFailed = false;
 // People are added in 8 West ID. The invite shows only where it showed before: an owner or administrator
-// whose 8 West ID session grants people management in the MSP Admin panel.
-$canInvite = $isAdmin && ($_SESSION['suite_settings_context']['capabilities']['manage_people'] ?? false) === true
-    && in_array('msp_admin', $_SESSION['suite_settings_context']['panels'] ?? [], true);
-$inviteUrl = 'https://id.8westit.com/users.php';
+// whose 8 West ID session grants people management in the MSP Admin panel (one rule, in first_steps.php).
+$canInvite = staff_invite_allowed($user, $_SESSION ?? []);
+$inviteUrl = STAFF_INVITE_URL;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
     csrf_check();
@@ -64,6 +64,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
 $stmt = db()->prepare('SELECT * FROM users WHERE tenant_id = ? ORDER BY is_active DESC, full_name');
 $stmt->execute([tenant_id()]);
 $rows = $stmt->fetchAll();
+
+// After a failed add, the form reopens with the person's choices; otherwise it starts at Technician and Blue.
+$chosenRole = $addFailed && in_array($_POST['role'] ?? '', ['owner', 'admin', 'tech'], true) ? $_POST['role'] : 'tech';
+$chosenColor = $addFailed && in_array($_POST['color'] ?? '', $COLORS, true) ? $_POST['color'] : $COLORS[0];
 
 page_top($user, 'Team', 'team');
 ?>
@@ -132,14 +136,14 @@ page_top($user, 'Team', 'team');
       <fieldset class="settings-options span-2"><legend>Safeharbor role</legend>
         <div class="settings-role-choices">
           <?php foreach ($roleLabels as $value => $label): ?>
-          <label class="settings-choice"><input type="radio" name="role" value="<?= h($value) ?>" <?= $value === 'tech' ? 'checked' : '' ?>><span><strong><?= h($label) ?></strong><small><?= h($roleHelp[$value]) ?></small></span></label>
+          <label class="settings-choice"><input type="radio" name="role" value="<?= h($value) ?>" <?= $value === $chosenRole ? 'checked' : '' ?>><span><strong><?= h($label) ?></strong><small><?= h($roleHelp[$value]) ?></small></span></label>
           <?php endforeach; ?>
         </div>
       </fieldset>
       <fieldset class="settings-options span-2"><legend>Avatar color</legend>
         <div class="settings-color-choices">
           <?php foreach ($COLORS as $i => $c): ?>
-          <label class="settings-choice settings-color"><input type="radio" name="color" value="<?= $c ?>" <?= $i === 0 ? 'checked' : '' ?>>
+          <label class="settings-choice settings-color"><input type="radio" name="color" value="<?= $c ?>" <?= $c === $chosenColor ? 'checked' : '' ?>>
             <span><i style="background:<?= $c ?>" aria-hidden="true"></i><strong><?= h($colorLabels[$i]) ?></strong></span>
           </label>
           <?php endforeach; ?>
