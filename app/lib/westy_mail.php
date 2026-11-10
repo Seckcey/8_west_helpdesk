@@ -9,7 +9,10 @@ function westy_mail_row(PDO $p, string $sql, array $args=[]): ?array { $q=$p->pr
 function westy_mail_hash(mixed $v): string { return hash('sha256', is_string($v) ? $v : json_encode($v, JSON_THROW_ON_ERROR)); }
 function westy_mail_address(string $v): string { return westy_email_address($v); }
 function westy_mail_enabled(): bool { return cfg('westy_mail.enabled',false) === true; }
-function westy_mail_template(): array { $body="Thanks for your reply. I’ve added it to this case. Frankie will review your preferred next step and confirm any compatibility and costs before work or purchases. No laptop changes or purchases have been authorized."; return ['id'=>'acknowledgment','version'=>1,'body'=>$body,'sha256'=>hash('sha256',$body)]; }
+/* Version 2 names the support team instead of a person. An approval stores the version and hash it was
+ * given for, and westy_mail_auto_authority() refuses any other, so an acknowledgment approved for
+ * version 1 and not yet sent is never sent with these words: it stops and shows as needing review. */
+function westy_mail_template(): array { $body="Thanks for your reply. I’ve added it to this case. The support team will review your preferred next step and confirm any compatibility and costs before work or purchases. No laptop changes or purchases have been authorized."; return ['id'=>'acknowledgment','version'=>2,'body'=>$body,'sha256'=>hash('sha256',$body)]; }
 function westy_mail_graph_snapshot(): array {
     $g=function_exists('westy_mail_graph_config') ? westy_mail_graph_config() : null;
     if (!is_array($g)) throw new RuntimeException('Dedicated Westy mail is not configured.');

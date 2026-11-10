@@ -27,6 +27,14 @@ authorize endpoint commands, case closure, purchases, time approval, or invoices
   contact changes, identity changes, or explicit revocation stop it permanently.
   Approval also binds the acknowledgment shown on the review page, so a template
   deployment between review and approval requires a new review.
+- The acknowledgment is template version 2 (2026-11): it says the support team
+  will review the next step, where version 1 named a person. Releasing a new
+  version changes nothing that was already sent. An acknowledgment approved for
+  version 1 and not yet used is refused by `westy_mail_auto_authority()` when a
+  reply arrives: nothing is sent, the reply is still recorded on the case, and
+  the review page shows that an owner or administrator needs to review the
+  follow-up. A conversation cannot be approved a second time, so that reply is
+  answered by a person. New approvals show and bind the version 2 words.
 
 This bounded pilot permits one conversation per case. A revoked or stale draft
 cannot be reset or silently replaced. An owner or administrator handles that exception. Sent Items
