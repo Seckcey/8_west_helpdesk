@@ -1347,6 +1347,18 @@ if (!SERVE_MODE) test('adding a computer is three steps: confirm, install with a
       assert.deepEqual(quiet.consoleProblems,[]);
       await quiet.context.close();
 
+      // A hidden tab checks nothing. Coming back to it brings the sentence up to date at once.
+      const away=await waiting(viewport,'devicesdownload',[all()]);
+      const hide=hidden=>away.page.evaluate(hidden=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden});document.dispatchEvent(new Event('visibilitychange'));},hidden);
+      await hide(true);
+      await away.page.clock.runFor(5*60*1000+TICK);
+      assert.equal(away.reads.length,0,'nothing is read while the tab is hidden');
+      await away.page.getByText('This page is checking for it and will show it here by itself.',{exact:false}).waitFor();
+      await hide(false);
+      await away.page.getByText('Not showing yet? Choose Refresh status, or ask Westy.',{exact:true}).waitFor();
+      assert.equal(away.reads.length,0,'past five minutes it stops without another read');
+      await away.context.close();
+
       // Without the script, step 3 says only what is true: no promise of a page that updates by itself.
       const plain=await browser.newContext({viewport,javaScriptEnabled:false});
       const plainPage=await plain.newPage();

@@ -112,5 +112,8 @@
 
     wait.textContent = wait.dataset.watchingText;
     timer = setInterval(check, EVERY_MS);
+    // Nothing is checked while the tab is hidden, so the sentence can be out of date when the person
+    // comes back: bring it up to date at once instead of at the next 15-second mark.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && timer !== null) check(); });
     if (known === null) check();
 })();
