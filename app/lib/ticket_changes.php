@@ -1,0 +1,339 @@
+<?php
+/**
+ * The changes a technician makes to one ticket's status, priority and owner, each defined once.
+ * The menus, the keyboard, the Resolve button (api/ticket_action.php) and "Send and ..." on the
+ * ticket page (ticket.php) all come through here, so they cannot drift apart.
+ *
+ * Every function takes the ticket row the caller already read for its own tenant
+ * (WHERE id = ? AND tenant_id = ?) and writes with the same pair. None of them decides who may
+ * act: the callers' sign-in checks are unchanged.
+ *
+ * Needs render.php (STATUS_META, PRIORITY_META) and db().
+ */
+declare(strict_types=1);
+
+/** Waiting parks a ticket; housekeeping brings it back to Open after this long without a reply. */
+const TICKET_WAITING_HOURS = 72;
+
+/**
+ * How long the resolve survey and a teammate's "assigned to you" email wait before they are sent.
+ * Undo (and any reopen or reassignment inside this window) withdraws them, so a slip of the hand
+ * never reaches a customer's or a colleague's inbox. mail_dispatch runs once a minute.
+ */
+const TICKET_NOTICE_HOLD_SECONDS = 60;
+
+/** Addresses that are machines, not people. Mail-loop protection: they are never written to. */
+function ticket_machine_address(string $email): bool
+{
+    return preg_match('/^(mailer-daemon|postmaster|no-?reply|donotreply|bounce[s]?|autoreply)@/i', $email) === 1;
+}
+
+/**
+ * The person a ticket's customer mail goes to, or null when there is nobody a mail may go to
+ * (no contact, no address, or a machine address).
+ *
+ * @return array{name:string,first_name:string,email:string}|null
+ */
+function ticket_mail_contact(array $ticket): ?array
+{
+    if (empty($ticket['contact_id'])) return null;
+    $q = db()->prepare(
+        'SELECT k.name, k.email
+           FROM contacts k
+           JOIN clients c ON c.id = k.client_id
+          WHERE k.id = ? AND c.tenant_id = ?'
+    );
+    $q->execute([(int)$ticket['contact_id'], (int)$ticket['tenant_id']]);
+    $contact = $q->fetch();
+    $email = trim((string)($contact['email'] ?? ''));
+    if ($email === '' || ticket_machine_address($email)) return null;
+    $name = trim((string)($contact['name'] ?? ''));
+    return ['name' => $name, 'first_name' => ticket_first_name($name), 'email' => $email];
+}
+
+function ticket_first_name(string $name): string
+{
+    return explode(' ', trim($name))[0];
+}
+
+/**
+ * Who sees a technician's reply on this ticket, and how: by email (a mailable contact), in the
+ * portal only (the request was opened there, so it has no contact and no mail is sent), or nobody.
+ * ticket.php uses the same answer to decide whether to queue the reply email.
+ *
+ * @return array{via:string,first_name:string,contact:?array}
+ */
+function ticket_reply_audience(array $ticket): array
+{
+    $contact = ticket_mail_contact($ticket);
+    if ($contact !== null) {
+        return ['via' => 'email', 'first_name' => $contact['first_name'], 'contact' => $contact];
+    }
+    $q = db()->prepare('SELECT 1 FROM portal_ticket_requesters WHERE ticket_id = ? AND tenant_id = ?');
+    $q->execute([(int)$ticket['id'], (int)$ticket['tenant_id']]);
+    if ($q->fetchColumn() === false) return ['via' => 'none', 'first_name' => '', 'contact' => null];
+    // The portal writes the requester's name on the request's opening message.
+    $nq = db()->prepare(
+        "SELECT m.author_name
+           FROM messages m
+           JOIN tickets t ON t.id = m.ticket_id
+          WHERE m.ticket_id = ? AND t.tenant_id = ? AND m.kind = 'client'
+          ORDER BY m.id ASC LIMIT 1"
+    );
+    $nq->execute([(int)$ticket['id'], (int)$ticket['tenant_id']]);
+    return ['via' => 'portal', 'first_name' => ticket_first_name((string)$nq->fetchColumn()), 'contact' => null];
+}
+
+/** Whether resolving this ticket now would ask the customer for a rating (once per ticket, ever). */
+function ticket_survey_would_send(array $ticket, ?array $contact): bool
+{
+    if ($contact === null) return false;
+    try {
+        $q = db()->prepare('SELECT 1 FROM csat WHERE ticket_id = ?');
+        $q->execute([(int)$ticket['id']]);
+        return $q->fetchColumn() === false;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * What the composer says beside the Send button: who gets the reply and how, in words that are
+ * true for this ticket. No database work, so the sentences can be checked on their own.
+ *
+ * @param array{via:string,first_name:string} $audience
+ */
+function ticket_reply_hint(array $audience): string
+{
+    $who = $audience['first_name'] !== '' ? $audience['first_name'] : 'The customer';
+    return match ($audience['via']) {
+        'email' => $who . ' gets this by email.',
+        'portal' => $who . ' sees this in the portal. No email is sent.',
+        default => 'No customer is attached. This reply is saved on the ticket only.',
+    };
+}
+
+/**
+ * Set a ticket's status.
+ *
+ * $personChoseIt says a person picked this exact status: a menu choice, the Resolve button, or
+ * "Send and resolve". Only then may resolving ask the customer for a rating. A bare status write
+ * (an old page still open in a browser, an Undo that puts a status back) never sends one.
+ *
+ * Leaving Resolved while its survey is still held withdraws that survey.
+ *
+ * @return array{status:string,changed:bool,survey:string,toast:string}
+ *         survey: held | already | withdrawn | none
+ */
+function ticket_change_status(array $ticket, string $status, bool $personChoseIt): array
+{
+    if (!array_key_exists($status, STATUS_META)) throw new InvalidArgumentException('Unknown ticket status');
+    $before = (string)$ticket['status'];
+    $label = STATUS_META[$status][0];
+    $days = intdiv(TICKET_WAITING_HOURS, 24);
+    $resurface = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL ' . TICKET_WAITING_HOURS . ' HOUR)';
+    if ($before === $status) {
+        // Nothing to change. "Send and wait" on a ticket that already waits starts its wait again.
+        if ($status !== 'waiting') {
+            return ['status' => $status, 'changed' => false, 'survey' => 'none', 'toast' => 'Status is already ' . $label . '.'];
+        }
+        db()->prepare("UPDATE tickets SET resurface_at = $resurface WHERE id = ? AND tenant_id = ? AND status = 'waiting'")
+            ->execute([(int)$ticket['id'], (int)$ticket['tenant_id']]);
+        return ['status' => $status, 'changed' => false, 'survey' => 'none',
+            'toast' => 'Still waiting on the customer. The ' . $days . ' days start again.'];
+    }
+
+    $resolved = $status === 'resolved' ? 'NOW()' : 'NULL';
+    if ($status !== 'waiting') $resurface = 'NULL';
+    db()->prepare("UPDATE tickets SET status = ?, resolved_at = $resolved, resurface_at = $resurface WHERE id = ? AND tenant_id = ?")
+        ->execute([$status, (int)$ticket['id'], (int)$ticket['tenant_id']]);
+
+    $survey = 'none';
+    if ($status === 'resolved') {
+        if ($personChoseIt) $survey = ticket_survey_queue($ticket);
+    } elseif ($before === 'resolved') {
+        $survey = ticket_survey_withdraw($ticket) ? 'withdrawn' : 'none';
+    }
+
+    if ($status === 'resolved') {
+        $who = (string)(ticket_mail_contact($ticket)['first_name'] ?? '');
+        if ($who === '') $who = 'The customer';
+        $toast = match ($survey) {
+            'held' => 'Resolved. ' . $who . ' gets a short survey in a minute.',
+            'already' => 'Resolved. ' . $who . ' was already asked to rate this ticket.',
+            default => 'Resolved. No survey is sent.',
+        };
+    } elseif ($status === 'waiting') {
+        $toast = 'Waiting on the customer. The ticket comes back in ' . $days . ' days if they stay silent.';
+    } elseif ($before === 'resolved') {
+        $toast = 'Reopened as ' . $label . '.' . ($survey === 'withdrawn' ? ' The survey was not sent.' : '');
+    } else {
+        $toast = 'Status set to ' . $label . '.';
+    }
+    return ['status' => $status, 'changed' => true, 'survey' => $survey, 'toast' => $toast];
+}
+
+/**
+ * CSAT on resolve: the first chosen resolve of a ticket with a real human contact queues the
+ * 3-face survey email, held for TICKET_NOTICE_HOLD_SECONDS. Each link opens csat.php with that
+ * face picked; nothing is recorded until the customer presses Send there, so mail scanners that
+ * open links can't answer for them. Once per ticket (unique key); machine addresses never get one.
+ *
+ * @return string held | already | none
+ */
+function ticket_survey_queue(array $ticket): string
+{
+    $pdo = db();
+    $ownsTransaction = false;
+    try {
+        $contact = ticket_mail_contact($ticket);
+        if ($contact === null) return 'none';
+        $email = mb_strtolower($contact['email']);
+
+        // The mail row and its hold commit together, so the dispatcher never sees it unheld.
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) $pdo->beginTransaction();
+        $token = bin2hex(random_bytes(20));
+        $ins = $pdo->prepare('INSERT IGNORE INTO csat (ticket_id, token) VALUES (?,?)');
+        $ins->execute([(int)$ticket['id'], $token]);
+        if ($ins->rowCount() === 0) {   // already surveyed — resolving again never re-asks
+            if ($ownsTransaction) $pdo->commit();
+            return 'already';
+        }
+
+        require_once __DIR__ . '/mailer.php';
+        $first = $contact['first_name'] ?: 'there';
+        $base = 'https://safeharbor.8westit.com/csat.php?t=' . $token;
+        $mailId = mail_queue(
+            $email,
+            '[#' . (int)$ticket['id'] . '] Resolved: ' . $ticket['subject'],
+            "Hi {$first},\n\nYour ticket is resolved. How did we do? Pick one, then press Send on the page that opens:\n\n"
+              . "  Great:  {$base}&s=3\n  Okay:   {$base}&s=2\n  Rough:  {$base}&s=1\n\n"
+              . "Reply to this email any time to reopen the ticket.\n— Safeharbor by 8 West IT",
+            (int)$ticket['id']
+        );
+        ticket_notice_hold($mailId);
+        if ($ownsTransaction) $pdo->commit();
+        return 'held';
+    } catch (Throwable $e) {
+        // surveys must never block resolving (e.g. pre-migration)
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        return 'none';
+    }
+}
+
+/**
+ * Take back a survey that has not left yet: the unsent mail and its unanswered survey row go
+ * together, so a later, real resolve can still ask. A survey that was already sent stays.
+ */
+function ticket_survey_withdraw(array $ticket): bool
+{
+    $pdo = db();
+    $ownsTransaction = false;
+    try {
+        $q = $pdo->prepare('SELECT id, token FROM csat WHERE ticket_id = ? AND responded_at IS NULL');
+        $q->execute([(int)$ticket['id']]);
+        $survey = $q->fetch();
+        if (!$survey) return false;
+
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) $pdo->beginTransaction();
+        // The survey's own mail: this ticket's, never attempted, carrying this survey's token.
+        $mail = $pdo->prepare(
+            'DELETE FROM mail_queue
+              WHERE ticket_id = ? AND sent_at IS NULL AND attempts = 0 AND body_text LIKE ?'
+        );
+        $mail->execute([(int)$ticket['id'], '%csat.php?t=' . $survey['token'] . '&%']);
+        $withdrawn = $mail->rowCount() > 0;
+        if ($withdrawn) {
+            $pdo->prepare('DELETE FROM csat WHERE id = ? AND responded_at IS NULL')->execute([(int)$survey['id']]);
+        }
+        if ($ownsTransaction) $pdo->commit();
+        return $withdrawn;
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        return false;
+    }
+}
+
+/** Hold one queued mail for the undo window. */
+function ticket_notice_hold(int $mailId): void
+{
+    db()->prepare(
+        'UPDATE mail_queue SET next_try_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? SECOND) WHERE id = ? AND sent_at IS NULL'
+    )->execute([TICKET_NOTICE_HOLD_SECONDS, $mailId]);
+}
+
+/**
+ * @return array{priority:string,changed:bool,toast:string}
+ */
+function ticket_change_priority(array $ticket, string $priority): array
+{
+    if (!array_key_exists($priority, PRIORITY_META)) throw new InvalidArgumentException('Unknown ticket priority');
+    db()->prepare('UPDATE tickets SET priority = ? WHERE id = ? AND tenant_id = ?')
+        ->execute([$priority, (int)$ticket['id'], (int)$ticket['tenant_id']]);
+    return ['priority' => $priority, 'changed' => (string)$ticket['priority'] !== $priority,
+        'toast' => 'Priority set to ' . PRIORITY_META[$priority][0] . '.'];
+}
+
+/**
+ * Set a ticket's owner. $value is what the browser sent:
+ *   "me"    the signed-in person, or nobody when they already own it (the Westy takeover button);
+ *   "none"  nobody;
+ *   an id   that teammate, when they are an active member of this tenant; anyone else is refused
+ *           and the ticket is left unassigned, exactly as before.
+ * A newly assigned teammate is emailed. That email is held for the undo window, and an unsent one
+ * is withdrawn when the owner changes again, so only the person who ends up with the ticket hears.
+ *
+ * @return array{assignee_id:?int,toast:string}
+ */
+function ticket_change_assignee(array $ticket, array $user, string $value): array
+{
+    $pdo = db();
+    $id = (int)$ticket['id'];
+    $tenantId = (int)$ticket['tenant_id'];
+    $me = (int)$user['id'];
+    $assignee = null;
+    if ($value === 'me') {
+        $target = ((int)$ticket['assignee_id'] !== $me) ? $me : null;
+    } elseif ($value === 'none') {
+        $target = null;
+    } else {
+        $tq = $pdo->prepare('SELECT id, email, full_name FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1');
+        $tq->execute([(int)$value, $tenantId]);
+        $assignee = $tq->fetch() ?: null;
+        $target = $assignee ? (int)$assignee['id'] : null;
+    }
+
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+    try {
+        $pdo->prepare('UPDATE tickets SET assignee_id = ? WHERE id = ? AND tenant_id = ?')->execute([$target, $id, $tenantId]);
+        // Anybody told a moment ago that this ticket is theirs is no longer told.
+        $pdo->prepare('DELETE FROM mail_queue WHERE ticket_id = ? AND sent_at IS NULL AND attempts = 0 AND subject LIKE ?')
+            ->execute([$id, '[#' . $id . '] Assigned to you: %']);
+        $emailed = false;
+        if ($target !== null && $target !== $me && $assignee && (string)$assignee['email'] !== '') {
+            require_once __DIR__ . '/mailer.php';
+            $mailId = mail_queue(
+                (string)$assignee['email'],
+                '[#' . $id . '] Assigned to you: ' . $ticket['subject'],
+                explode(' ', $user['full_name'])[0] . " assigned you ticket #{$id}:\n\n"
+                  . $ticket['subject'] . "\n\n"
+                  . 'Open: https://safeharbor.8westit.com/ticket.php?id=' . $id,
+                $id
+            );
+            ticket_notice_hold($mailId);
+            $emailed = true;
+        }
+        if ($ownsTransaction) $pdo->commit();
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    if ($target === null) $toast = 'Unassigned.';
+    elseif ($target === $me) $toast = 'Assigned to you.';
+    else $toast = 'Assigned to ' . $assignee['full_name'] . '.' . ($emailed ? ' They get an email in a minute.' : '');
+    return ['assignee_id' => $target, 'toast' => $toast];
+}
