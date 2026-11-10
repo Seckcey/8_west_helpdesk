@@ -6,7 +6,7 @@ made up.
 
 | Page | What it shows | Where the markup comes from |
 |---|---|---|
-| `queue.html` | Staff queue | copied from `app/lib/render.php` and `app/public/index.php` |
+| `queue.html` | Staff queue (All open view) | the markup of `app/lib/render.php`, `app/lib/ticket_queue.php` and `app/public/index.php` |
 | `queue-first-run.html` | Staff queue in a new workspace, with Get set up | copied from `app/public/index.php` and `app/lib/first_steps.php` |
 | `ticket.html` | Staff ticket | copied from `app/public/ticket.php` |
 | `clients.html` | Clients list and number tiles | copied from `app/public/clients.php` |

@@ -26,7 +26,8 @@ const TWO_BATCHES = [
   { ok: true, deleted: 1, kept: [], next_after_id: 103, done: true, files_failed: 0 },
 ];
 
-async function fixture(t, { width = 1440, preview = PREVIEW, batches = TWO_BATCHES, failAt = null, dropAt = null, holdFirst = null, timer = null } = {}) {
+// select: press Select first, so the checkboxes are on the page (they stay away until asked for).
+async function fixture(t, { width = 1440, preview = PREVIEW, batches = TWO_BATCHES, failAt = null, dropAt = null, holdFirst = null, timer = null, select = true } = {}) {
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -56,6 +57,7 @@ async function fixture(t, { width = 1440, preview = PREVIEW, batches = TWO_BATCH
   });
   await page.goto('http://safeharbor.test/');
   await page.waitForFunction(() => [...document.querySelectorAll('.trow')].every((row) => Number(getComputedStyle(row).opacity) > 0.99));
+  if (select) await page.getByRole('button', { name: 'Select', exact: true }).click();
   return { page, errors, calls };
 }
 
@@ -101,6 +103,37 @@ for (const width of [1440, 390]) {
     assert.deepEqual(errors, []);
   });
 }
+
+test('the checkboxes stay away until Select or X, and Escape puts them away again', async (t) => {
+  const { page, errors } = await fixture(t, { select: false });
+  const first = page.getByRole('checkbox', { name: 'Select ticket #101' });
+  const toggle = page.getByRole('button', { name: 'Select', exact: true });
+  assert.equal(await first.isVisible(), false);
+  assert.equal(await page.getByRole('checkbox', { name: 'Select every ticket in this view' }).isVisible(), false);
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+
+  await page.keyboard.press('x');
+  assert.equal(await first.isVisible(), true);
+  assert.equal(await first.isChecked(), true);
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('.bulk-count').innerText(), '1 selected');
+  await page.keyboard.press('Escape');                      // first Escape: nothing is selected any more
+  assert.equal(await first.isChecked(), false);
+  assert.equal(await first.isVisible(), true);
+  await page.keyboard.press('Escape');                      // second Escape: the checkboxes go away
+  assert.equal(await first.isVisible(), false);
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(page.url(), 'http://safeharbor.test/');
+
+  await toggle.click();
+  await first.check();
+  await toggle.click();                                     // leaving select mode drops the selection
+  assert.equal(await first.isVisible(), false);
+  assert.equal(await page.locator('#bulk-bar').isHidden(), true);
+  await toggle.click();
+  assert.equal(await first.isChecked(), false);
+  assert.deepEqual(errors, []);
+});
 
 test('select all names every row on the page, and the run sends only the previewed list', async (t) => {
   const { page, errors, calls } = await fixture(t);

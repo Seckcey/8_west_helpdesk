@@ -7,7 +7,8 @@ migration `035_ticket_bulk_delete.sql`.
 
 ## Using it
 
-1. On the Queue, tick tickets (or press `x` on the current row), or tick the box in the column header
+1. On the Queue, press **Select** to show the checkboxes (or press `x`, which shows them and ticks the
+   current row). Tick tickets, or tick the box in the column header
    to select every ticket on the page. "Select all" means exactly the rows the page shows, so a
    ticket that arrives or changes afterwards is never included. The row highlight follows the last
    checkbox you used, so `x` and Enter act on that row.
@@ -154,7 +155,8 @@ names in `/srv/8west/apps/safeharbor/shared/attachments` with `SELECT stored_nam
    `bash deploy/deploy.sh --migrate app/db/migrations/035_ticket_bulk_delete.sql` (it dumps the
    database first; note the backup path). If the clear happens on another day, take a fresh dump
    first.
-3. Smoke test: an owner sees checkboxes on the Queue; a technician does not.
+3. Smoke test: an owner sees Select on the Queue, and checkboxes after pressing it; a technician sees
+   neither.
 4. To clear the queue: comment out the `cron/graph_poll.php` line in Safeharbor's cron file for the
    few minutes of the run (mail waits in the mailbox and is fetched afterwards). Then Queue → press
    `1` (All) → tick the header box → **Delete…** → check the preview, including any "open for someone

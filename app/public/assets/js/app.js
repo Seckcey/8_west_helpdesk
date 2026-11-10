@@ -856,6 +856,14 @@
     const counter = $(".bulk-count", bulkBar);
     const list = $(".card.list");
     const filterLabel = bulkBar.dataset.filterLabel || "All";
+    // The checkboxes are out of sight until somebody asks to select: the Select button, or X.
+    const modeButton = $("#bulk-toggle");
+    const inMode = () => !!list && list.classList.contains("bulk-mode");
+    function setMode(on) {
+      if (list) list.classList.toggle("bulk-mode", on);
+      if (modeButton) modeButton.setAttribute("aria-pressed", String(on));
+      if (!on) clear();
+    }
 
     const picked = () => picks.filter((box) => box.checked);
     function paint() {
@@ -901,6 +909,7 @@
       paint();
     });
     $("#bulk-clear").addEventListener("click", clear);
+    if (modeButton) modeButton.addEventListener("click", () => setMode(!inMode()));
     $("#bulk-delete").addEventListener("click", openForSelection);
     // Start empty, whatever the browser restores after a reload or Back: the rows may have shifted.
     clear();
@@ -910,6 +919,7 @@
         const wrap = row && row.closest(".trow-pick");
         const box = wrap && $(".bulk-pick", wrap);
         if (!box) return false;
+        setMode(true);
         box.checked = !box.checked;
         box.dispatchEvent(new Event("change"));
         return true;
@@ -917,6 +927,8 @@
       clear,
       openForSelection,
       hasSelection: () => picked().length > 0,
+      inMode,
+      leaveMode: () => setMode(false),
     };
   })() : null;
 
@@ -1465,6 +1477,7 @@
         break;
       case "escape":
         if (bulk && bulk.hasSelection()) { e.preventDefault(); bulk.clear(); }
+        else if (bulk && bulk.inMode()) { e.preventDefault(); bulk.leaveMode(); }
         else if (page === "queue" && window.location.pathname !== "/") { e.preventDefault(); nav("/"); }
         break;
       case "x":
@@ -1512,7 +1525,7 @@
         if (composer) { e.preventDefault(); composer.focus("note"); }
         break;
       }
-      case "1": case "2": case "3": case "4": case "5": {
+      case "1": case "2": case "3": case "4": case "5": case "6": {
         if (page !== "queue") break;
         const pill = $$(".filter-pill")[Number(key) - 1];
         if (pill) { e.preventDefault(); nav(pill.getAttribute("href")); }
@@ -2287,7 +2300,7 @@
       <div class="help-grid">
         <div><h4>Queue</h4>
           <p><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move · <kbd class="kbd">↵</kbd> open</p>
-          <p><kbd class="kbd">1</kbd>–<kbd class="kbd">5</kbd> filters</p>${bulk ? `
+          <p><kbd class="kbd">1</kbd>–<kbd class="kbd">6</kbd> views</p>${bulk ? `
           <p><kbd class="kbd">x</kbd> select · <kbd class="kbd">d</kbd> delete selected</p>` : ""}</div>
         <div><h4>Any ticket</h4>
           <p><kbd class="kbd">a</kbd> assign to me · <kbd class="kbd">z</kbd> undo</p>
@@ -2305,6 +2318,27 @@
     div.addEventListener("click", (e) => { if (e.target === div) toggleHelp(); });
     document.body.appendChild(div);
   }
+
+  /* Queue filters: a change applies at once, and a choice left at its default stays out of the
+     address, so a filtered queue has a short link worth keeping. */
+  (() => {
+    const form = $("#queue-filters");
+    if (!form) return;
+    const apply = $("#queue-apply", form);
+    if (apply) apply.hidden = true;
+    const selects = $$("select", form);
+    selects.forEach((select) => select.addEventListener("change", () => form.requestSubmit()));
+    form.addEventListener("submit", (event) => {
+      selects.forEach((select) => { if (select.value === (select.dataset.default || "")) select.disabled = true; });
+      // Nothing left to say: go to the plain queue rather than to an address that ends in "?".
+      if (new FormData(form).entries().next().done) {
+        event.preventDefault();
+        window.location.href = form.getAttribute("action") || "/";
+      }
+    });
+    // Back restores the page as it was left: its selects must answer again.
+    window.addEventListener("pageshow", () => selects.forEach((select) => { select.disabled = false; }));
+  })();
 
   /* new-ticket: filter contacts to the chosen client */
   (() => {

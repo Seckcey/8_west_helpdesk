@@ -85,6 +85,8 @@ lib/mailer.php             outbound mail (mail_queue + transports:
                            Graph sendMail → SMTP → PHP mail(); Milepost parity)
 lib/intake.php             shared inbound logic (threading, contacts, confirms)
 lib/svc_auth.php           HMAC + timestamp + rate limit for service-to-service
+lib/ticket_queue.php       the queue's views, filters, orders and paging, each
+                           defined once; every query tenant-scoped and bound
 lib/svc_intake.php         Milepost alert events → tickets (idempotent; only
                            untouched signed telemetry may auto-close)
 lib/ticket_lifecycle.php   atomic one-use telemetry recovery transition
@@ -137,7 +139,8 @@ cron/graph_poll.php        1-min email-to-ticket via Microsoft Graph
                            (Entra app, Mail.Read; marks read, never deletes)
 cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
 public/                    Apache docroot (page-per-file, like Milepost)
-  index.php                Queue (j/k · Enter · s/p/a/e · 1-5 filters)
+  index.php                Queue (six views · filters · 50 a page · j/k · Enter
+                           · a/s/p/t/e · z undo · 1-6 views)
   ticket.php               Ticket detail (thread, reply PRG, rail actions)
   ticket_new.php           New ticket (captures exact effective policy version/target)
   clients.php, client.php  Clients + "answer the phone smart" screen
@@ -192,8 +195,25 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `8west:tenant` claim and create the tenant row if the slug is new; local
   sign-ins + cron use the seeded tenant 1).
 - API endpoints: JSON in/out via `json_out()`, whitelist-validated fields.
-- Keyboard model (client-side): `j/k` move · `↵` open · `1–5` filters ·
-  `s` status · `p` priority · `a` assign · `e` timer · `r` reply ·
+- Queue: opens on Needs attention: every open ticket with no first reply
+  that is overdue or due within two hours, whoever owns it (parked ones
+  too); open tickets nobody owns; and my own where the customer wrote last.
+  A ticket Westy is working (in progress, no owner, a `working` workflow) is
+  Westy's in the rows, the counts, the Unassigned view and the owner filter
+  alike; it is still in Needs attention once it is late or nearly late (late
+  is late whoever owns it). In "First response due" order every unanswered ticket comes first.
+  Views, the client, priority and owner filters, the order and the page are
+  all in the address (`?view=&client=&priority=&owner=&sort=&page=`). Old
+  `?f=all` and `?f=<status>` links keep their meaning (every ticket, or one
+  status) and say so. Counts on the views follow the filters, and a "Not in
+  this view" line under the list counts what the view or the filters leave
+  out, each count a link. Paging is by position; Next and Previous name the
+  ticket at the page edge (`after=`, `before=`), and when that ticket is no
+  longer where it was the page says the list changed and offers page 1. The
+  checkboxes for bulk delete appear with Select or `x`.
+- Keyboard model (client-side): `j/k` move · `↵` open · `1–6` views ·
+  `a` assign to me · `s` status · `p` priority · `t` owner · `z` undo ·
+  `e` timer · `r` reply ·
   `n` internal note · `/` saved replies · `g q/t/c` navigate ·
   `⌘K` palette (3+ chars = deep search over message bodies, resolved
   included; a ticket's number finds it at any length) · `?` shortcut card.
