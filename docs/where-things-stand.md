@@ -508,6 +508,20 @@ appears. Each computer shows its state first as a
 tag. The two antivirus request forms moved into their own section below the list. Customer-facing
 words say setup link, setup file and add. No SQL, auth or service-contract change.
 
+**Ticket menus and reply with a next step (draft, not live).** Status, priority and owner are menus
+on the ticket page and, from the keyboard, on the highlighted queue row; nothing cycles any more, so
+no step passes through Resolved. The owner menu offers Me, Unassigned and every active teammate. A
+Resolve button (Reopen once resolved) sits in the ticket head, every change can be undone from its
+toast, and Send reply can also set Waiting or Resolved in the same act. A survey is queued only when
+the request says a person chose Resolved, and it, like a teammate's assignment email, is held for 60
+seconds so Undo can withdraw it (`app/lib/ticket_changes.php`). No schema, role, permission or
+database-grant change: a withdrawn survey's `csat` row is marked with a 1970 creation time (so no
+business report counts it as sent) and its email stays in `mail_queue`, marked spent with a "Cancelled: ..."
+reason, and the survey row is removed only where the runtime account already may remove `csat` rows.
+To check on a server after a deploy: resolve a test ticket that has a contact, confirm one unsent
+`mail_queue` row whose `next_try_at` is about a minute ahead, press Undo, and confirm that row now
+has `attempts = max_attempts` and a "Cancelled" `last_error`, so the dispatcher will never send it.
+
 **Queue views, filters and paging (draft, not live).** The queue opens on Needs attention instead of
 on every ticket, with views for Mine, Unassigned, Waiting on client, All open and Resolved, filters for
 client, priority and owner, a choice of order, and 50 tickets a page. Everything is a link in the

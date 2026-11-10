@@ -170,6 +170,10 @@ function queue_url(array $state, array $change = []): string
  *     is everybody's to see);
  *   - owned by nobody: no person, and not the assistant while it is working;
  *   - mine, not parked as Waiting, and the customer wrote last.
+ *
+ * Late is late whoever owns it, the assistant included: a ticket Westy is working stays out of
+ * "owned by nobody" but is in Needs attention once it is overdue or due within two hours. That is
+ * decided (review of #311, 2026-11-09), so the first rule must not gain an "AND NOT {westy}".
  */
 function queue_view_sql(string $view, int $me): string
 {
