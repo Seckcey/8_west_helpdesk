@@ -22,6 +22,7 @@ const PORTAL_ASSETS = {
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
   '/assets/js/portal-desktop.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-desktop.js'))],
   '/assets/js/portal-device-help.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-device-help.js'))],
+  '/assets/js/portal-devices.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-devices.js'))],
   '/assets/img/westy-avatar.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/img/westy-avatar.png'))],
   '/assets/brand/8-west-it-westy.png': ['image/png', await readFile(path.join(ROOT,'app/public/assets/brand/8-west-it-westy.png'))],
   '/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png': ['image/png', await readFile(path.join(ROOT,'brand/png/safeharbor-logo-horizontal-transparent-20260909.png'))],
@@ -1232,6 +1233,59 @@ if (!SERVE_MODE) test('customer device enrollment consent, link lifecycle and re
       assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
       assert.deepEqual(consoleProblems,[]);
       await context.close();
+    }
+  } finally {await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
+if (!SERVE_MODE) test('adding a computer is three steps: confirm, install with a link to copy, then the list updates by itself', async () => {
+  const {pages,scratch}=await renderedFixtures();
+  const browser=await chromium.launch();
+  const states=page=>page.locator('.portal-add-computer .setup-step').evaluateAll(steps=>steps.map(step=>step.className.replace('setup-step is-','')));
+  try {
+    for (const viewport of [{width:1365,height:900},{width:390,height:844}]) {
+      // The new computer is in the list the page reads while it waits.
+      const arrived={...pages,devices:pages.devices.replaceAll('Warehouse laptop','Reception laptop')};
+      const {page,context,consoleProblems}=await openPortalPage(browser,arrived,viewport);
+      page.setDefaultTimeout(10000);
+      await page.addInitScript(()=>{window.copied=[];Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copied.push(text);}}});});
+      await page.clock.install();
+      await page.goto(`${ORIGIN}/portal/devices.php`);
+      await page.getByRole('heading',{name:'Add a computer',exact:true}).waitFor();
+      assert.deepEqual(await states(page),['current','later','later']);
+      assert.equal(await page.locator('.portal-devices .btn-primary').count(),1,'one filled button');
+      assert.equal(await page.getByRole('link',{name:'Add a computer',exact:true}).isVisible(),viewport.width<1100,'the jump link is for the one-column layout');
+      assert.equal(await page.locator('main').evaluate(main=>/Bitdefender|Milepost|enroll|\bagent\b/i.test(main.innerText)),false);
+
+      await page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesdownload`);
+      await page.getByRole('heading',{name:'Install on your Windows computer'}).waitFor();
+      assert.deepEqual(await states(page),['done','current','later']);
+      assert.equal(await page.locator('.portal-devices .btn-primary').count(),1,'the download is the one filled button');
+      assert.equal(await page.evaluate(()=>document.querySelector('.portal-add-computer').getBoundingClientRect().top<document.getElementById('computers-heading').getBoundingClientRect().top),true,
+        'while a setup file is waiting, the steps lead the page');
+      const href=await page.getByRole('link',{name:'Download Milepost setup'}).getAttribute('href');
+      await page.getByRole('button',{name:'Copy link',exact:true}).click();
+      await page.getByText('Link copied. Open it on the computer you want to add.',{exact:true}).waitFor();
+      assert.deepEqual(await page.evaluate(()=>window.copied),[href]);
+      await page.getByText('This page checks for it and updates the list by itself.',{exact:false}).waitFor();
+      assert.equal(await page.getByRole('heading',{name:'Reception laptop',exact:true}).count(),0);
+      assert.equal(await page.locator('body').evaluate(body=>body.scrollWidth<=innerWidth),true);
+      await page.clock.runFor(16000);
+      await page.getByText('Your computer is connected. It is in the list below.',{exact:true}).waitFor();
+      await page.getByRole('heading',{name:'Reception laptop',exact:true}).waitFor();
+      assert.deepEqual(await states(page),['done','current','done']);
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+
+      // Nothing new arrives: the page stops checking after five minutes and says what to do.
+      const quiet=await openPortalPage(browser,{...pages,devices:pages.devicesdownload},viewport);
+      await quiet.page.clock.install();
+      await quiet.page.goto(`${ORIGIN}/portal/devices.php?fixture=devicesdownload`);
+      await quiet.page.getByRole('heading',{name:'Install on your Windows computer'}).waitFor();
+      await quiet.page.clock.runFor(5*60*1000+16000);
+      await quiet.page.getByText('Not showing yet? Choose Refresh status, or ask Westy.',{exact:true}).waitFor();
+      assert.deepEqual(await states(quiet.page),['done','current','later']);
+      assert.deepEqual(quiet.consoleProblems,[]);
+      await quiet.context.close();
     }
   } finally {await browser.close();await rm(scratch,{recursive:true,force:true});}
 });

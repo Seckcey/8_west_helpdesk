@@ -72,11 +72,11 @@ try {
                 if (($_POST['consent'] ?? '') !== 'yes') throw new PortalDevicesException('consent_required', 400);
                 $result = portal_devices_request(db(), $context, $action, ['request_key'=>$_POST['request_key'] ?? '', 'platform'=>'windows']);
                 if (($result['state'] ?? '') === 'ready') $download = portal_devices_request(db(), $context, 'enrollment_download', ['reference'=>$result['reference']]);
-                else $notice = 'This request already has an installation link. Its current status is shown below.';
+                else $notice = 'You already created a setup link with this request. It is listed under Setup links you created.';
             } else {
                 $result = portal_devices_request(db(), $context, $action, ['reference'=>$_POST['reference'] ?? '']);
                 if ($action === 'enrollment_download') $download = $result;
-                else $notice = 'The installation link is no longer available. Any computer already enrolled is unchanged.';
+                else $notice = 'That setup link no longer works. A computer that was already added stays added.';
             }
         }
     } catch (PortalDevicesException $e) { $error = portal_devices_error(isset($choiceError) && $e->reason === 'invalid_request' ? $choiceError : $e->reason); }
