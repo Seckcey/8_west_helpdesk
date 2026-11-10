@@ -8,6 +8,9 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const page = document.body.dataset.active || "";
+  // Shortcut hints name this computer's own keys.
+  const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || "");
+  const MOD_KEY = IS_MAC ? "⌘" : "Ctrl";
 
   const navToggle = $("#mobile-nav-toggle");
   if (navToggle) {
@@ -81,14 +84,41 @@
   /* ------------------------------------------------------------------ */
   /* Toasts                                                              */
   /* ------------------------------------------------------------------ */
-  function toast(text) {
+  // A toast can carry one Undo. Only the newest one answers the Z key, and only while it shows.
+  const UNDO_MS = 6000;
+  let undoable = null;
+  function toast(text, options = {}) {
     const box = $("#toasts");
     if (!box) return;
     const el = document.createElement("div");
     el.className = "toast";
-    el.textContent = text;
+    const label = document.createElement("span");
+    label.textContent = text;
+    el.appendChild(label);
+    const canUndo = typeof options.undo === "function";
+    const dismiss = () => {
+      clearTimeout(timer);
+      el.remove();
+      if (undoable && undoable.el === el) undoable = null;
+    };
+    if (canUndo) {
+      const run = () => { dismiss(); options.undo(); };
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "toast-undo";
+      button.append("Undo");
+      const key = document.createElement("kbd");
+      key.className = "kbd";
+      key.textContent = "Z";
+      key.setAttribute("aria-hidden", "true");
+      button.appendChild(key);
+      button.addEventListener("click", run);
+      el.classList.add("toast-action");
+      el.appendChild(button);
+      undoable = { el, run };
+    }
     box.appendChild(el);
-    setTimeout(() => el.remove(), 2600);
+    const timer = setTimeout(dismiss, canUndo ? UNDO_MS : 2600);
   }
 
   /* ------------------------------------------------------------------ */
@@ -117,18 +147,44 @@
     return payload;
   }
 
-  const STATUS_ORDER = ["open", "in_progress", "waiting", "resolved"];
-  const PRIORITY_ORDER = ["low", "normal", "high", "urgent"];
-  const cycle = (order, value, dir = 1) =>
-    order[(order.indexOf(value) + dir + order.length) % order.length];
+  /* The current status, priority and owner of a ticket, as the page was rendered and as every
+     change since has answered: the ticket page keeps them on #thread, the queue on each row. */
+  // The owner is kept as data-owner: data-assignee is the hook of the element that shows the owner.
+  const TICKET_FIELDS = { status: "status", priority: "priority", assignee: "owner" };
+  function ticketFieldHolder(id) {
+    const thread = $("#thread");
+    if (thread && String(thread.dataset.ticketId) === String(id)) return thread;
+    return document.querySelector(`.trow[data-ticket-id="${Number(id)}"]`);
+  }
+  function currentFieldValue(field, id) {
+    const holder = ticketFieldHolder(id);
+    return holder && TICKET_FIELDS[field] ? holder.dataset[TICKET_FIELDS[field]] : undefined;
+  }
 
-  async function ticketAction(id, field, value, contextEl) {
+  /* One field change. `chosen` tells the server a person picked this exact status, which is the
+     only way a resolve may ask the customer for a rating. An Undo says `undo` instead: it puts a
+     value back, asks nobody for a rating and emails nobody. Every change can be taken back from
+     its toast unless `undoable` is false. */
+  async function ticketAction(id, field, value, options = {}) {
+    const before = options.undoable === false ? undefined : currentFieldValue(field, id);
     try {
-      const r = await api("/api/ticket_action.php", { id, field, value });
+      const body = { id, field, value };
+      if (options.chosen === true && field === "status") body.chosen = true;
+      if (options.undo === true) body.undo = true;
+      const r = await api("/api/ticket_action.php", body);
       if (!r.ok) return;
-      toast(r.toast);
+      const holder = ticketFieldHolder(id);
+      if (holder) {
+        if (typeof r.status === "string") holder.dataset.status = r.status;
+        if (typeof r.priority === "string") holder.dataset.priority = r.priority;
+        if (r.assignee_id !== undefined) holder.dataset.owner = r.assignee_id === null ? "" : String(r.assignee_id);
+      }
+      const after = currentFieldValue(field, id);
+      const undoValue = field === "assignee" && before === "" ? "none" : before;
+      toast(r.toast, before !== undefined && after !== undefined && before !== after
+        ? { undo: () => ticketAction(id, field, undoValue, { undoable: false, undo: true }) } : {});
       // In-place repaint where the fragments exist
-      const scope = contextEl || document;
+      const scope = document;
       $$("[data-chip]", scope).forEach((el) => { el.innerHTML = r.chip; });
       $$("[data-pri]", scope).forEach((el) => { el.innerHTML = r.pri; });
       $$("[data-assignee]", scope).forEach((el) => { el.innerHTML = r.assignee_html; });
@@ -144,9 +200,8 @@
         if (tech) tech.innerHTML = r.assignee_avatar;
         const sla = row.querySelector(".trow-sla");
         if (sla) sla.innerHTML = r.sla;
-        row.dataset.status = r.status;
-        row.dataset.priority = r.priority;
       }
+      if (typeof r.status === "string" && $("#thread")) paintTicketStatus(r.status);
       const workflow = $(".westy-workflow-card");
       if (workflow) {
         workflow.dataset.workflowState = "human_owned";
@@ -161,6 +216,209 @@
       return false;
     }
   }
+
+  /* The ticket page follows its status: Resolve or Reopen (whichever applies) and the composer's
+     sentence about what Send does. */
+  function paintTicketStatus(status) {
+    const resolve = $("#resolve-btn");
+    const reopen = $("#reopen-btn");
+    if (resolve && reopen) {
+      const resolved = status === "resolved";
+      const hadFocus = document.activeElement === resolve || document.activeElement === reopen;
+      resolve.hidden = resolved;
+      reopen.hidden = !resolved;
+      if (hadFocus) (resolved ? reopen : resolve).focus();
+    }
+    if (composer) composer.paintHint();
+  }
+
+  document.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-set-status]");
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    await ticketAction(btn.dataset.id, "status", btn.dataset.setStatus, { chosen: true });
+    btn.disabled = false;
+  });
+
+  /* ------------------------------------------------------------------ */
+  /* Menus: status, priority and owner                                   */
+  /* ------------------------------------------------------------------ */
+  /* One menu at a time, opened from its button on the ticket page or with S, P or T on a ticket
+     or a highlighted queue row. It owns the keyboard while open: arrows and Enter, a number for
+     one of the first nine choices, Escape to close. The owner menu adds a box to find a teammate.
+     Choices and their tags come rendered from the server (the page's data island). */
+  const MENU_LABELS = { status: "Status", priority: "Priority", assignee: "Assign to" };
+  const MENU_CHECK = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 4.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  let menu = null;
+
+  function menuChoices(field) {
+    let data = null;
+    const island = $("#palette-data");
+    if (island) { try { data = JSON.parse(island.textContent); } catch { /* no menus to offer */ } }
+    const menus = data && data.menus && typeof data.menus === "object" ? data.menus : null;
+    if (!menus) return [];
+    if (field !== "assignee") {
+      return (Array.isArray(menus[field]) ? menus[field] : [])
+        .map((c) => ({ value: String(c.value), label: String(c.label), html: String(c.html || "") }));
+    }
+    if (!Array.isArray(menus.team)) return [];
+    const me = String(document.body.dataset.userId || "");
+    const mine = menus.team.find((m) => String(m.id) === me) || null;
+    return [
+      { value: me, label: "Me", search: "me " + (mine ? mine.name : ""), person: mine, me: true },
+      { value: "none", label: "Unassigned", search: "unassigned nobody", person: null },
+      ...menus.team.filter((m) => String(m.id) !== me)
+        .map((m) => ({ value: String(m.id), label: String(m.name), search: String(m.name), person: m })),
+    ];
+  }
+
+  function personAvatar(person) {
+    const avatar = make("span", "avatar menu-avatar" + (person ? "" : " avatar-none"), person ? String(person.initials || "") : "—");
+    avatar.setAttribute("aria-hidden", "true");
+    if (person && /^#[0-9a-f]{6}$/i.test(String(person.color || ""))) avatar.style.background = person.color;
+    return avatar;
+  }
+
+  function renderMenu(query) {
+    const q = query.trim().toLowerCase();
+    menu.shown = menu.choices.filter((c) => !q || (c.search || c.label).toLowerCase().includes(q));
+    menu.list.textContent = "";
+    menu.shown.forEach((choice, i) => {
+      const item = make("button", "menu-item");
+      item.type = "button";
+      item.id = menu.list.id + "-" + i;
+      item.tabIndex = -1;
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(choice.value === menu.current));
+      const check = make("span", "menu-check");
+      check.innerHTML = MENU_CHECK;
+      const main = make("span", "menu-item-main");
+      if (choice.html) main.innerHTML = choice.html;   // a tag the server rendered for this page
+      else {
+        main.appendChild(personAvatar(choice.person));
+        main.appendChild(make("span", "menu-item-name", choice.label));
+        if (choice.me && choice.person) main.appendChild(make("span", "menu-item-note", String(choice.person.name)));
+      }
+      item.append(check, main);
+      if (i < 9 && !q) {
+        const key = make("kbd", "kbd", String(i + 1));
+        key.setAttribute("aria-hidden", "true");
+        item.appendChild(key);
+      }
+      item.addEventListener("click", () => pickMenu(i));
+      item.addEventListener("mousemove", () => { if (menu && menu.index !== i) { menu.index = i; paintMenu(); } });
+      menu.list.appendChild(item);
+    });
+    if (!menu.shown.length) menu.list.appendChild(make("div", "menu-empty", "No teammate matches."));
+  }
+
+  function paintMenu() {
+    const items = $$(".menu-item", menu.list);
+    items.forEach((el, i) => el.classList.toggle("sel", i === menu.index));
+    const active = items[menu.index];
+    const owner = menu.input || menu.list;
+    if (active) { owner.setAttribute("aria-activedescendant", active.id); active.scrollIntoView({ block: "nearest" }); }
+    else owner.removeAttribute("aria-activedescendant");
+  }
+
+  // Under its anchor, or above it when there is no room; always inside the window. Under a button
+  // the right edges line up (the buttons sit at the right of the page); under a queue cell the left.
+  function placeMenu() {
+    if (!menu) return;
+    const at = menu.anchor.getBoundingClientRect();
+    const width = Math.min(Math.max(at.width, 248), window.innerWidth - 16);
+    menu.pop.style.width = width + "px";
+    const height = menu.pop.offsetHeight;
+    let top = at.bottom + 6;
+    if (top + height > window.innerHeight - 8 && at.top - 6 - height >= 8) top = at.top - 6 - height;
+    const left = menu.trigger ? at.right - width : at.left;
+    menu.pop.style.top = Math.max(8, Math.min(top, window.innerHeight - height - 8)) + "px";
+    menu.pop.style.left = Math.max(8, Math.min(left, window.innerWidth - width - 8)) + "px";
+  }
+
+  function openTicketMenu(field, id, anchor, trigger) {
+    const choices = menuChoices(field);
+    if (!choices.length || !anchor) return false;
+    closeMenu(false);
+    const raw = currentFieldValue(field, id);
+    const current = field === "assignee" && raw === "" ? "none" : raw;
+    const pop = make("div", "menu-pop");
+    pop.dataset.menu = field;
+    const list = make("div", "menu-list");
+    list.id = "ticket-menu-" + field;
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", MENU_LABELS[field]);
+    let input = null;
+    if (field === "assignee") {
+      input = make("input", "menu-filter");
+      input.type = "text";
+      input.placeholder = "Find a teammate";
+      input.autocomplete = "off";
+      input.setAttribute("role", "combobox");
+      input.setAttribute("aria-expanded", "true");
+      input.setAttribute("aria-controls", list.id);
+      input.setAttribute("aria-autocomplete", "list");
+      input.setAttribute("aria-label", MENU_LABELS[field]);
+      pop.appendChild(input);
+    } else {
+      list.tabIndex = -1;
+    }
+    pop.appendChild(list);
+    document.body.appendChild(pop);
+    menu = { field, id, pop, list, input, anchor, trigger: trigger || null, choices, current, shown: [], index: 0, restore: document.activeElement };
+    renderMenu("");
+    menu.index = Math.max(0, menu.shown.findIndex((c) => c.value === current));
+    if (input) input.addEventListener("input", () => { renderMenu(input.value); menu.index = 0; paintMenu(); placeMenu(); });
+    if (menu.trigger) menu.trigger.setAttribute("aria-expanded", "true");
+    placeMenu();
+    paintMenu();
+    (input || list).focus({ preventScroll: true });
+    return true;
+  }
+
+  function closeMenu(returnFocus = true) {
+    if (!menu) return;
+    const { pop, trigger, restore } = menu;
+    menu = null;
+    pop.remove();
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+    if (returnFocus && restore && restore !== document.body && document.contains(restore)) restore.focus({ preventScroll: true });
+  }
+
+  function pickMenu(index) {
+    if (!menu) return;
+    const choice = menu.shown[index];
+    const { field, id, current } = menu;
+    closeMenu();
+    if (!choice || choice.value === current) return;
+    ticketAction(id, field, choice.value, { chosen: true });
+  }
+
+  function menuKeydown(e) {
+    const key = e.key;
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+    const last = menu.shown.length - 1;
+    const move = (to) => { e.preventDefault(); menu.index = Math.max(0, Math.min(to, last)); paintMenu(); };
+    if (key === "Escape") { e.preventDefault(); closeMenu(); }
+    else if (key === "Tab") closeMenu();   // focus returns to the button, then moves on
+    else if (key === "ArrowDown" || (!menu.input && plain && key === "j")) move(menu.index + 1);
+    else if (key === "ArrowUp" || (!menu.input && plain && key === "k")) move(menu.index - 1);
+    else if (!menu.input && key === "Home") move(0);
+    else if (!menu.input && key === "End") move(last);
+    else if (key === "Enter" || (!menu.input && key === " ")) { e.preventDefault(); pickMenu(menu.index); }
+    else if (plain && /^[1-9]$/.test(key) && (!menu.input || menu.input.value === "")) {
+      e.preventDefault();
+      if (Number(key) - 1 <= last) pickMenu(Number(key) - 1);
+    }
+    // Any other key belongs to the filter box when there is one, and to nothing otherwise.
+    else if (!menu.input && plain && key.length === 1) e.preventDefault();
+  }
+
+  document.addEventListener("pointerdown", (event) => {
+    if (menu && !menu.pop.contains(event.target) && !(menu.trigger && menu.trigger.contains(event.target))) closeMenu(false);
+  }, true);
+  window.addEventListener("resize", placeMenu);
+  window.addEventListener("scroll", (event) => { if (menu && !menu.pop.contains(event.target)) placeMenu(); }, true);
 
   // Grant intent has its own endpoint and repaint. It never implies a ticket transfer.
   async function refreshWorkflowCard(ticketId) {
@@ -983,6 +1241,13 @@
       { group: "Actions", title: "Saved replies", hint: "manage / snippets", run: () => nav("/snippets.php") },
       { group: "Actions", title: "Sign out", run: signOut },
     ];
+    // On a ticket, "send and set the next status" is here as well as in the Send menu.
+    if (composer) {
+      composer.sendChoices().forEach((choice) => actions.unshift({
+        group: "This ticket", title: choice.title, hint: choice.detail,
+        run: () => { closePalette(); composer.send(choice.after); },
+      }));
+    }
     const tickets = data.tickets.map((t) => ({
       group: "Tickets",
       ticketId: t.id,
@@ -1144,12 +1409,20 @@
     // The bulk delete dialog owns the keyboard while it is open (its own Escape and Tab handling).
     if (bulkDialogOpen) return;
 
+    // An open status, priority or owner menu owns the keyboard too; the palette shortcut closes it.
+    if (menu) {
+      if (mod && key === "k") closeMenu(false);
+      else { menuKeydown(e); return; }
+    }
+
     if (helpOpen && key === "escape") { e.preventDefault(); toggleHelp(); return; }
 
     // Where there is no palette the shortcut is left to the browser.
     if (mod && key === "k") { if (!paletteRoot()) return; e.preventDefault(); paletteOpen ? closePalette() : openPalette(); return; }
 
-    // Ctrl/Cmd+Enter sends the reply (works on any page where the box exists)
+    // Ctrl/Cmd+Enter sends the reply (works on any page where the box exists). It is a plain send
+    // whatever else is held: setting a status with the send is a choice made in the Send menu or
+    // the palette, never a chord (Ctrl+Alt is the AltGr key on many keyboards).
     if (mod && key === "enter") {
       const form = $("#reply-form");
       if (form && isTyping(e.target)) { e.preventDefault(); form.requestSubmit(); }
@@ -1203,13 +1476,11 @@
       case "s":
       case "p":
       case "a":
+      case "t":
       case "e": {
-        // ticket page context
-        const railBtn = $(`.rail-btn[data-action]`);
-        const onTicketPage = !!railBtn && page === "queue" && !row;
-        const targetId = onTicketPage ? railBtn.dataset.id : rowTicketId;
+        // The open ticket, or the highlighted queue row.
         const ticketPageId = $("#thread") ? $("#thread").dataset.ticketId : null;
-        const id = ticketPageId || targetId;
+        const id = ticketPageId || rowTicketId;
         if (!id) break;
         e.preventDefault();
         if (key === "e") {
@@ -1218,21 +1489,19 @@
           else startTimer(id);
           break;
         }
-        if (key === "s" || key === "p") {
-          const field = key === "s" ? "status" : "priority";
-          const order = field === "status" ? STATUS_ORDER : PRIORITY_ORDER;
-          let current;
-          if (ticketPageId) {
-            const scope = field === "status" ? $("[data-chip]") : $("[data-pri]");
-            current = scope ? scope.dataset.value : null;
-          }
-          // derive current from DOM data attributes stored per page
-          current = currentFieldValue(field, id);
-          if (!current) break;
-          ticketAction(id, field, cycle(order, current));
-        } else {
-          ticketAction(id, "assignee", "me");
-        }
+        // A assigns the ticket to me (again to unassign), in one key, as it always has.
+        if (key === "a") { ticketAction(id, "assignee", "me"); break; }
+        // S, P and T open a menu: status, priority, and who to give the ticket to. It opens under
+        // its button on a ticket and under its cell on a queue row.
+        const field = key === "s" ? "status" : key === "p" ? "priority" : "assignee";
+        const button = ticketPageId ? $(`.menu-btn[data-action="${field}"]`) : null;
+        const cell = !ticketPageId && row
+          ? row.querySelector(field === "status" ? ".trow-status" : field === "priority" ? ".trow-pri" : ".trow-tech") : null;
+        openTicketMenu(field, id, button || cell, button);
+        break;
+      }
+      case "z": {
+        if (undoable) { e.preventDefault(); undoable.run(); }
         break;
       }
       case "r": {
@@ -1257,46 +1526,20 @@
     }
   });
 
-  /* current field value from data we stamped at render (or row dataset) */
-  function currentFieldValue(field, id) {
-    const thread = $("#thread");
-    if (thread && String(thread.dataset.ticketId) === String(id)) {
-      return thread.dataset[field];
-    }
-    const row = document.querySelector(`.trow[data-ticket-id="${id}"]`);
-    return row ? row.dataset[field] : null;
-  }
-
-  /* stamp current values onto the ticket page root for the keyboard model */
-  (() => {
-    const thread = $("#thread");
-    if (!thread) return;
-    const chip = $("[data-chip] .chip-text-blue, [data-chip] [class^='chip-text-']");
-    // status + priority read from rail buttons' data instead: attach at init from rendered meta
-    const statusMap = { Open: "open", "In Progress": "in_progress", Waiting: "waiting", Resolved: "resolved" };
-    const priMap = { Low: "low", Normal: "normal", High: "high", Urgent: "urgent" };
-    const chipText = $("[data-chip] span[class*='chip-text-']");
-    const priText = $("[data-pri] .pri-label");
-    if (chipText) thread.dataset.status = statusMap[chipText.textContent.trim()] || "open";
-    if (priText) thread.dataset.priority = priMap[priText.textContent.trim()] || "normal";
-  })();
-
-  /* rail buttons (ticket page) */
+  /* Details buttons (ticket page) open their menu; Westy's "Take over ticket" assigns to you. */
   document.addEventListener("click", async (event) => {
       const btn = event.target.closest(".rail-btn[data-action], .westy-workflow-actions [data-action]");
       if (!btn || btn.disabled) return;
       const action = btn.dataset.action;
       const id = btn.dataset.id;
-      if (action === "assignee") {
+      if (btn.classList.contains("menu-btn")) {
+        if (menu && menu.trigger === btn) closeMenu();
+        else openTicketMenu(action, id, btn, btn);
+      } else if (action === "assignee") {
+        // A takeover moves the ticket from Westy to a person for good, so it offers no Undo.
         btn.disabled = true;
-        await ticketAction(id, "assignee", "me");
+        await ticketAction(id, "assignee", "me", { undoable: false });
         btn.disabled = false;
-      }
-      else {
-        const field = action;
-        const order = field === "status" ? STATUS_ORDER : PRIORITY_ORDER;
-        const current = currentFieldValue(field, id);
-        if (current) ticketAction(id, field, cycle(order, current));
       }
   });
 
@@ -1728,25 +1971,82 @@
 
     const hint = $("#composer-hint");
     const send = $("#composer-send");
+    const sendMore = $("#composer-send-more");
+    const sendMenu = $("#send-menu");
     const tabs = $$(".composer-tab");
-    const HINTS = {
-      reply: hint?.textContent || "Replies are saved on this ticket.",
-      note: "Internal note — the client never sees this",
-    };
+    const ticketId = $("#thread") ? $("#thread").dataset.ticketId : null;
+    const replyHint = hint?.textContent || "Replies are saved on this ticket.";
+    const sendLabel = send?.textContent || "Send";
     const PLACEHOLDERS = {
-      reply: "Reply to client…  (⌘Enter to send · / for saved replies)",
-      note: "Internal note…  (⌘Enter to save · / for saved replies)",
+      reply: box.dataset.placeholderReply || box.placeholder,
+      note: box.dataset.placeholderNote || "Write an internal note",
     };
+
+    /* The sentence beside Send: who gets a reply and how (rendered by the server for this ticket),
+       plus what Send does to the status as it stands now. A note says who can read it. */
+    function paintHint() {
+      if (!hint) return;
+      if (modeInput.value === "note") { hint.textContent = hint.dataset.note || "Only your team sees an internal note."; return; }
+      if (hint.dataset.audience === undefined) { hint.textContent = replyHint; return; }
+      const moves = currentFieldValue("status", ticketId) === "open" && hint.dataset.openMove;
+      hint.textContent = hint.dataset.audience + (moves ? " " + hint.dataset.openMove : "");
+    }
 
     function setMode(mode) {
       modeInput.value = mode;
-      tabs.forEach((t) => t.classList.toggle("tab-on", t.dataset.mode === mode));
+      tabs.forEach((t) => {
+        t.classList.toggle("tab-on", t.dataset.mode === mode);
+        if (t.getAttribute("role") === "tab") t.setAttribute("aria-selected", String(t.dataset.mode === mode));
+      });
       form.classList.toggle("composer-note", mode === "note");
       box.placeholder = PLACEHOLDERS[mode];
-      if (hint) hint.textContent = HINTS[mode];
-      if (send) send.textContent = mode === "note" ? "Save note" : "Send";
+      box.setAttribute("aria-label", mode === "note" ? "Internal note" : "Reply");
+      paintHint();
+      if (send) send.textContent = mode === "note" ? "Save note" : sendLabel;
+      // "Send and ..." is for replies: a note has one way to be saved.
+      if (sendMore) { sendMore.hidden = mode === "note"; showSendMenu(false); }
     }
     tabs.forEach((t) => t.addEventListener("click", () => { setMode(t.dataset.mode); box.focus(); }));
+
+    /* Send and set the next status in one act. The choices are real submit buttons carrying
+       after_status; this only opens their menu and moves between them. */
+    function showSendMenu(open) {
+      if (!sendMenu || !sendMore) return;
+      sendMenu.hidden = !open;
+      sendMore.setAttribute("aria-expanded", String(open));
+      if (open) $(".send-choice", sendMenu)?.focus();
+    }
+    if (sendMore && sendMenu) {
+      sendMore.addEventListener("click", () => showSendMenu(sendMenu.hidden));
+      sendMenu.addEventListener("keydown", (e) => {
+        const choices = $$(".send-choice", sendMenu);
+        const at = choices.indexOf(document.activeElement);
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault(); e.stopPropagation();
+          choices[(at + (e.key === "ArrowDown" ? 1 : choices.length - 1)) % choices.length]?.focus();
+        } else if (e.key === "Escape") {
+          e.preventDefault(); e.stopPropagation();
+          showSendMenu(false); sendMore.focus();
+        } else if (e.key === "Tab") showSendMenu(false);
+      });
+      document.addEventListener("pointerdown", (event) => {
+        if (!sendMenu.hidden && !event.target.closest("#send-split")) showSendMenu(false);
+      });
+    }
+
+    // The choices the Send menu offers, in its order, for the palette.
+    const sendChoices = () => $$('button[name="after_status"]', form).reverse().map((button) => ({
+      after: button.value,
+      title: $(".send-choice-title", button)?.textContent || button.textContent.trim(),
+      detail: $(".send-choice-detail", button)?.textContent || "",
+    }));
+
+    function sendWith(after) {
+      if (!after) { form.requestSubmit(); return; }
+      if (modeInput.value === "note") { toast("An internal note is saved as it is. Switch to Reply to send and set a status."); return; }
+      const choice = form.querySelector(`button[name="after_status"][value="${after}"]`);
+      if (choice) form.requestSubmit(choice);
+    }
 
     /* saved replies: type "/" at the start of the box */
     const pop = $("#canned-pop");
@@ -1789,17 +2089,42 @@
     function popPaint() {
       $$(".canned-item", pop).forEach((el, i) => el.classList.toggle("sel", i === popIndex));
     }
-    function popClose() { if (pop) { pop.hidden = true; pop.innerHTML = ""; } }
+    // The list opens two ways: typing "/" first in the box (the pick replaces that), or the Saved
+    // replies button (the pick goes in at the cursor, so a draft is kept).
+    const cannedOpen = $("#canned-open");
+    let popFromButton = false;
+    function popClose() {
+      if (pop) { pop.hidden = true; pop.innerHTML = ""; }
+      popFromButton = false;
+      if (cannedOpen) cannedOpen.setAttribute("aria-expanded", "false");
+    }
     function popOpen() { return pop && !pop.hidden; }
     function popInsert(s) {
-      box.value = mergeResolve(s.body);
+      const text = mergeResolve(s.body);
+      let caret = text.length;
+      if (popFromButton) {
+        const start = box.selectionStart ?? box.value.length;
+        const end = box.selectionEnd ?? start;
+        box.value = box.value.slice(0, start) + text + box.value.slice(end);
+        caret = start + text.length;
+      } else {
+        box.value = text;
+      }
       popClose();
       box.focus();
-      box.setSelectionRange(box.value.length, box.value.length);
+      box.setSelectionRange(caret, caret);
     }
+    if (cannedOpen && pop) cannedOpen.addEventListener("click", () => {
+      if (popOpen()) { popClose(); box.focus(); return; }
+      box.focus();
+      popIndex = 0;
+      popRender("");
+      popFromButton = true;
+      cannedOpen.setAttribute("aria-expanded", "true");
+    });
 
     box.addEventListener("input", () => {
-      if (box.value.startsWith("/")) { popRender(box.value.slice(1)); }
+      if (box.value.startsWith("/")) { popFromButton = false; popRender(box.value.slice(1)); }
       else popClose();
     });
     box.addEventListener("keydown", (e) => {
@@ -1809,7 +2134,8 @@
       else if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); if (popItems[popIndex]) popInsert(popItems[popIndex]); }
       else if (e.key === "Escape") { e.stopPropagation(); popClose(); }
     });
-    box.addEventListener("blur", () => setTimeout(popClose, 200));
+    // Leaving the box closes the list, unless focus came straight back (the Saved replies button).
+    box.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== box) popClose(); }, 200));
 
     /* time-at-reply: the running timer rides the Send click */
     const chip = $("#timer-log-chip");
@@ -1819,7 +2145,6 @@
     const startedAtInput = $("#f-timer-started-at");
     const endedAtInput = $("#f-timer-ended-at");
     const workedAtInput = $("#f-timer-worked-at");
-    const ticketId = $("#thread") ? $("#thread").dataset.ticketId : null;
 
     function paintChip() {
       if (!chip || !ticketId) return;
@@ -1833,7 +2158,16 @@
 
     form.addEventListener("submit", (event) => {
       const upload = $("#f-files");
-      if (!box.value.trim() && !(upload && upload.files && upload.files.length)) return;
+      if (!box.value.trim() && !(upload && upload.files && upload.files.length)) {
+        // "Send and resolve" with nothing to send would change nothing: say so instead.
+        if (event.submitter && event.submitter.name === "after_status") {
+          event.preventDefault();
+          showSendMenu(false);
+          box.focus();
+          toast("Write your reply first.");
+        }
+        return;
+      }
       let t = readTimer();
       if (!t || String(t.ticketId) !== String(ticketId) || !minutesInput || !entryKeyInput || !startedAtInput || !endedAtInput || !workedAtInput) return;
       if (t.state === "stopped" && t.submission) {
@@ -1897,8 +2231,22 @@
     heartbeat();
     setInterval(heartbeat, 20000);
 
-    return { setMode, focus: (mode) => { setMode(mode); box.focus(); } };
+    return { setMode, paintHint, send: sendWith, sendChoices, focus: (mode) => { setMode(mode); box.focus(); } };
   })();
+
+  /* After "Send and resolve" (or "... wait") the page comes back saying what happened, with Undo. */
+  (() => {
+    const flash = $("#ticket-flash");
+    const thread = $("#thread");
+    if (!flash || !thread || !flash.dataset.toast) return;
+    const back = flash.dataset.undoStatus;
+    toast(flash.dataset.toast, back
+      ? { undo: () => ticketAction(thread.dataset.ticketId, "status", back, { undoable: false, undo: true }) } : {});
+  })();
+
+  if (IS_MAC) {
+    $$("[data-mod-key]").forEach((el) => { el.textContent = MOD_KEY; });
+  }
 
   /* ------------------------------------------------------------------ */
   /* Merge tickets                                                       */
@@ -1942,10 +2290,13 @@
           <p><kbd class="kbd">1</kbd>–<kbd class="kbd">5</kbd> filters</p>${bulk ? `
           <p><kbd class="kbd">x</kbd> select · <kbd class="kbd">d</kbd> delete selected</p>` : ""}</div>
         <div><h4>Any ticket</h4>
-          <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">a</kbd> assign me</p>
+          <p><kbd class="kbd">a</kbd> assign to me · <kbd class="kbd">z</kbd> undo</p>
+          <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">t</kbd> give to a teammate</p>
+          <p>these three open a menu: <kbd class="kbd">↑↓</kbd> and <kbd class="kbd">↵</kbd>, or a number</p>
           <p><kbd class="kbd">e</kbd> timer · <kbd class="kbd">r</kbd> reply · <kbd class="kbd">n</kbd> note</p></div>
         <div><h4>Composer</h4>
-          <p><kbd class="kbd">/</kbd> saved replies · <kbd class="kbd">⌘↵</kbd> send</p>
+          <p><kbd class="kbd">/</kbd> saved replies · <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">↵</kbd> send</p>
+          <p>send and wait, send and resolve: the arrow beside Send, or <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd></p>
           <p>matching timer logs only after server-confirmed Send</p></div>
         <div><h4>Everywhere</h4>
           <p><kbd class="kbd">⌘K</kbd> palette (search reaches every message)</p>
