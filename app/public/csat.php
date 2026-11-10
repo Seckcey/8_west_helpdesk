@@ -137,7 +137,7 @@ header('Content-Type: text/html; charset=utf-8');
 <?php $csatCss = __DIR__ . '/assets/css/app.css'; /* content hash, like portal_asset_version(); a copy without assets keeps the old key */ ?>
 <link rel="stylesheet" href="/assets/css/app.css?v=<?= is_file($csatCss) ? substr((string)hash_file('sha256', $csatCss), 0, 20) : '5' ?>">
 </head>
-<body class="login-body">
+<body class="login-body login-split-body">
 <div class="login-split">
 <div class="login-brand">
   <div class="login-head">

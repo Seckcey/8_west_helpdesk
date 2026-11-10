@@ -3,7 +3,7 @@
 .portal-mobile-providers span,.portal-mobile-guide .portal-hint{color:var(--muted)}
 .portal-mobile-form{display:grid;gap:1rem}
 .portal-mobile-form>div{display:grid;gap:.45rem}.portal-mobile-form label{font-weight:600}
-.portal-mobile-form select{width:100%;max-width:100%;padding:.7rem;border:1px solid var(--line-strong);border-radius:var(--radius-sm);color:var(--text);background:var(--input-bg)}
+.portal-mobile-form select{width:100%;max-width:100%;padding:.7rem;border:1px solid var(--control-border);border-radius:var(--radius-sm);color:var(--text);background:var(--input-bg)}
 .portal-mobile-guide{margin-top:1.5rem;border-top:1px solid var(--line);padding-top:1.5rem}
 .portal-mobile-guide ol{padding-left:1.25rem}.portal-mobile-guide li{margin:.75rem 0}
 .portal-mobile-guide details{margin:1rem 0}.portal-mobile-guide summary{cursor:pointer;font-weight:600}

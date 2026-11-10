@@ -70,7 +70,7 @@ header('Content-Type: text/html; charset=utf-8');
 <script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
 <link rel="stylesheet" href="/assets/css/app.css?v=4">
 </head>
-<body class="login-body">
+<body class="login-body login-split-body">
 <div class="login-split">
 <div class="login-brand">
   <div class="login-head">

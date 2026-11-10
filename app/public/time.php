@@ -259,7 +259,7 @@ $renderCorrectionLineage = static function (array $entry) use ($utcRfc3339): voi
 
 page_top($user, 'Time', 'time');
 ?>
-<div class="page page-time">
+<div class="page">
   <div class="page-head">
     <div>
       <h1 class="page-title">Time</h1>

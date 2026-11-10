@@ -98,7 +98,7 @@ function portal_render_login(?string $message = null): void
 {
     $brand = portal_branding();
     $returnPath = portal_safe_return_path($_SERVER['REQUEST_URI'] ?? '/portal/');
-    portal_page_start('Customer portal', 'login-body');
+    portal_page_start('Customer portal', 'login-body login-split-body');
     ?>
 <div class="login-split">
 <div class="login-brand">
