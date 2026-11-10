@@ -22,6 +22,10 @@ const TICKET_WAITING_HOURS = 72;
  */
 const TICKET_NOTICE_HOLD_SECONDS = 60;
 
+/** Why a held email never left; written to mail_queue.last_error when it is withdrawn. */
+const TICKET_SURVEY_WITHDRAWN = 'Cancelled: ticket reopened before its survey was sent';
+const TICKET_ASSIGNMENT_WITHDRAWN = 'Cancelled: ticket reassigned before this was sent';
+
 /** Addresses that are machines, not people. Mail-loop protection: they are never written to. */
 function ticket_machine_address(string $email): bool
 {
@@ -84,14 +88,41 @@ function ticket_reply_audience(array $ticket): array
     return ['via' => 'portal', 'first_name' => ticket_first_name((string)$nq->fetchColumn()), 'contact' => null];
 }
 
+/**
+ * Where this ticket's one survey stands:
+ *   none       never asked for;
+ *   withdrawn  asked for and taken back before its email left (unanswered, and every email that
+ *              carried it was withdrawn), so a chosen resolve may ask again with the same survey;
+ *   asked      anything else: sent, still queued, answered, or with no mail record at all.
+ * Pass $lock inside a transaction to hold the survey row while deciding.
+ *
+ * @return array{state:string,id:int,token:string}
+ */
+function ticket_survey_state(array $ticket, bool $lock = false): array
+{
+    $q = db()->prepare('SELECT id, token, responded_at FROM csat WHERE ticket_id = ?' . ($lock ? ' FOR UPDATE' : ''));
+    $q->execute([(int)$ticket['id']]);
+    $survey = $q->fetch();
+    if (!$survey) return ['state' => 'none', 'id' => 0, 'token' => ''];
+    $found = ['state' => 'asked', 'id' => (int)$survey['id'], 'token' => (string)$survey['token']];
+    if ($survey['responded_at'] !== null) return $found;
+    $mq = db()->prepare(
+        'SELECT COUNT(*) AS total,
+                COALESCE(SUM(sent_at IS NULL AND attempts >= max_attempts AND last_error = ?), 0) AS withdrawn
+           FROM mail_queue WHERE ticket_id = ? AND body_text LIKE ?'
+    );
+    $mq->execute([TICKET_SURVEY_WITHDRAWN, (int)$ticket['id'], ticket_survey_mail_like($found['token'])]);
+    $mails = $mq->fetch();
+    if ((int)$mails['total'] > 0 && (int)$mails['total'] === (int)$mails['withdrawn']) $found['state'] = 'withdrawn';
+    return $found;
+}
+
 /** Whether resolving this ticket now would ask the customer for a rating (once per ticket, ever). */
 function ticket_survey_would_send(array $ticket, ?array $contact): bool
 {
     if ($contact === null) return false;
     try {
-        $q = db()->prepare('SELECT 1 FROM csat WHERE ticket_id = ?');
-        $q->execute([(int)$ticket['id']]);
-        return $q->fetchColumn() === false;
+        return ticket_survey_state($ticket)['state'] !== 'asked';
     } catch (Throwable $e) {
         return false;
     }
@@ -193,12 +224,20 @@ function ticket_survey_queue(array $ticket): string
         // The mail row and its hold commit together, so the dispatcher never sees it unheld.
         $ownsTransaction = !$pdo->inTransaction();
         if ($ownsTransaction) $pdo->beginTransaction();
-        $token = bin2hex(random_bytes(20));
-        $ins = $pdo->prepare('INSERT IGNORE INTO csat (ticket_id, token) VALUES (?,?)');
-        $ins->execute([(int)$ticket['id'], $token]);
-        if ($ins->rowCount() === 0) {   // already surveyed — resolving again never re-asks
-            if ($ownsTransaction) $pdo->commit();
-            return 'already';
+        $survey = ticket_survey_state($ticket, true);
+        if ($survey['state'] === 'withdrawn') {
+            // Asked for once and taken back before it left: the same survey is asked now, so now
+            // is when reports should count it.
+            $token = $survey['token'];
+            $pdo->prepare('UPDATE csat SET created_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$survey['id']]);
+        } else {
+            $token = bin2hex(random_bytes(20));
+            $ins = $pdo->prepare('INSERT IGNORE INTO csat (ticket_id, token) VALUES (?,?)');
+            if ($survey['state'] === 'none') $ins->execute([(int)$ticket['id'], $token]);
+            if ($survey['state'] !== 'none' || $ins->rowCount() === 0) {   // already asked — resolving again never re-asks
+                if ($ownsTransaction) $pdo->commit();
+                return 'already';
+            }
         }
 
         require_once __DIR__ . '/mailer.php';
@@ -222,9 +261,20 @@ function ticket_survey_queue(array $ticket): string
     }
 }
 
+/** A survey email is found again by the link it carries. */
+function ticket_survey_mail_like(string $token): string
+{
+    return '%csat.php?t=' . $token . '&%';
+}
+
 /**
- * Take back a survey that has not left yet: the unsent mail and its unanswered survey row go
- * together, so a later, real resolve can still ask. A survey that was already sent stays.
+ * Take back a survey whose email has not left yet, so a later, real resolve can still ask.
+ * A survey that was already sent, or answered, stays exactly as it is.
+ *
+ * The email is cancelled the way ticket_delete.php cancels mail: the runtime database account may
+ * not remove mail_queue rows, so the row stays, marked spent, and the dispatcher skips it. The
+ * survey row itself goes when the account may remove csat rows (the grant bulk delete documents);
+ * where it may not, the row stays and ticket_survey_queue() reuses it on the next chosen resolve.
  */
 function ticket_survey_withdraw(array $ticket): bool
 {
@@ -238,18 +288,17 @@ function ticket_survey_withdraw(array $ticket): bool
 
         $ownsTransaction = !$pdo->inTransaction();
         if ($ownsTransaction) $pdo->beginTransaction();
-        // The survey's own mail: this ticket's, never attempted, carrying this survey's token.
-        $mail = $pdo->prepare(
-            'DELETE FROM mail_queue
-              WHERE ticket_id = ? AND sent_at IS NULL AND attempts = 0 AND body_text LIKE ?'
-        );
-        $mail->execute([(int)$ticket['id'], '%csat.php?t=' . $survey['token'] . '&%']);
-        $withdrawn = $mail->rowCount() > 0;
-        if ($withdrawn) {
+        if (!ticket_notice_cancel((int)$ticket['id'], 'body_text', ticket_survey_mail_like((string)$survey['token']), TICKET_SURVEY_WITHDRAWN)) {
+            if ($ownsTransaction) $pdo->commit();
+            return false;   // nothing was waiting: the survey already went out
+        }
+        try {
             $pdo->prepare('DELETE FROM csat WHERE id = ? AND responded_at IS NULL')->execute([(int)$survey['id']]);
+        } catch (PDOException $denied) {
+            // No such grant on this server: the withdrawn survey row stays and is reused later.
         }
         if ($ownsTransaction) $pdo->commit();
-        return $withdrawn;
+        return true;
     } catch (Throwable $e) {
         if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
         return false;
@@ -262,6 +311,24 @@ function ticket_notice_hold(int $mailId): void
     db()->prepare(
         'UPDATE mail_queue SET next_try_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? SECOND) WHERE id = ? AND sent_at IS NULL'
     )->execute([TICKET_NOTICE_HOLD_SECONDS, $mailId]);
+}
+
+/**
+ * Cancel this ticket's queued-but-unsent mail whose subject or body matches: it is marked spent
+ * with the reason, which is what the dispatcher skips. Sent mail is never touched.
+ *
+ * @param 'subject'|'body_text' $column
+ * @return bool whether anything was still waiting
+ */
+function ticket_notice_cancel(int $ticketId, string $column, string $like, string $reason): bool
+{
+    if ($column !== 'subject' && $column !== 'body_text') throw new InvalidArgumentException('Unknown mail column');
+    $cancel = db()->prepare(
+        "UPDATE mail_queue SET attempts = max_attempts, last_error = ?
+          WHERE ticket_id = ? AND sent_at IS NULL AND attempts < max_attempts AND $column LIKE ?"
+    );
+    $cancel->execute([$reason, $ticketId, $like]);
+    return $cancel->rowCount() > 0;
 }
 
 /**
@@ -309,9 +376,8 @@ function ticket_change_assignee(array $ticket, array $user, string $value): arra
     if ($ownsTransaction) $pdo->beginTransaction();
     try {
         $pdo->prepare('UPDATE tickets SET assignee_id = ? WHERE id = ? AND tenant_id = ?')->execute([$target, $id, $tenantId]);
-        // Anybody told a moment ago that this ticket is theirs is no longer told.
-        $pdo->prepare('DELETE FROM mail_queue WHERE ticket_id = ? AND sent_at IS NULL AND attempts = 0 AND subject LIKE ?')
-            ->execute([$id, '[#' . $id . '] Assigned to you: %']);
+        // Anybody about to be told that this ticket is theirs is no longer told.
+        ticket_notice_cancel($id, 'subject', '[#' . $id . '] Assigned to you: %', TICKET_ASSIGNMENT_WITHDRAWN);
         $emailed = false;
         if ($target !== null && $target !== $me && $assignee && (string)$assignee['email'] !== '') {
             require_once __DIR__ . '/mailer.php';

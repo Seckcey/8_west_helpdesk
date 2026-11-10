@@ -8,7 +8,9 @@
  *  - no status step asks the customer for a rating unless a person chose Resolved;
  *  - a held survey (and a held "assigned to you" email) is withdrawn by Undo;
  *  - teammates can be assigned, and people outside the tenant or switched off cannot, as before;
- *  - the composer's sentence about email is true for the ticket.
+ *  - the composer's sentence about email is true for the ticket;
+ *  - none of it needs the right to remove rows: a second copy of the app runs as a database account
+ *    that may only read, add and change, as production's runtime account does for these tables.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/sql_file.php';
@@ -61,6 +63,8 @@ try {
         [7005, 1, 11, 31, 'Answered survey', 'email', 'open'],
         [7006, 1, 11, 31, 'Notes and stale sends', 'email', 'open'],
         [7007, 1, 11, null, 'Portal request', 'portal', 'open'],       // opened in the portal: no contact
+        [7008, 1, 11, 31, 'Limited account', 'email', 'open'],         // worked by the account that may not remove rows
+        [7009, 1, 11, 31, 'Old survey', 'email', 'open'],
         [8001, 2, 21, null, 'Another tenant', 'email', 'open'],
     ] as $row) {
         $t->execute($row);
@@ -78,32 +82,50 @@ try {
             $file->isDir() ? (is_dir($to) || mkdir($to, 0700, true)) : copy($file->getPathname(), $to);
         }
     };
-    foreach (['config', 'public/api', 'sessions', 'attachments'] as $part) mkdir($runtime . '/' . $part, 0700, true);
-    $copyTree($app . '/lib', $runtime . '/lib');
-    copy($app . '/public/ticket.php', $runtime . '/public/ticket.php');
-    copy($app . '/public/api/ticket_action.php', $runtime . '/public/api/ticket_action.php');
-    $config = require $app . '/config/config.sample.php';
-    $config['app_env'] = 'dev';
-    $config['force_https'] = false;
-    $config['db'] = ['host' => $host, 'port' => (int)$port, 'user' => $user, 'pass' => $pass, 'name' => $database, 'charset' => 'utf8mb4'];
-    $config['storage']['attachments_dir'] = $runtime . '/attachments';
-    file_put_contents($runtime . '/config/config.php', '<?php return ' . var_export($config, true) . ';');
+    // Production's runtime account may SELECT, INSERT and UPDATE everywhere but remove rows only
+    // from a short list of tables (docs/ticket-bulk-delete.md, Grants). The second copy of the app
+    // runs as an account with no right to remove anything, so nothing here can depend on one.
+    $limitedUser = 'sh_action_' . bin2hex(random_bytes(4));
+    $limitedPass = bin2hex(random_bytes(12));
+    $pdo->exec("CREATE USER '$limitedUser'@'%' IDENTIFIED BY '$limitedPass'");
+    $pdo->exec("GRANT SELECT, INSERT, UPDATE ON `$database`.* TO '$limitedUser'@'%'");
 
     // Staff sessions are files: one per person, each with its own CSRF token.
     $sessions = [];
     foreach ([101, 102, 104, 201] as $id) {
         $sessions[$id] = ['id' => bin2hex(random_bytes(16)), 'csrf' => bin2hex(random_bytes(32))];
-        file_put_contents($runtime . '/sessions/sess_' . $sessions[$id]['id'], 'user_id|' . serialize($id) . 'csrf|' . serialize($sessions[$id]['csrf']));
     }
-    $socket = stream_socket_server('tcp://127.0.0.1:0');
-    $address = stream_socket_get_name($socket, false);
-    fclose($socket);
-    $process = proc_open([PHP_BINARY, '-d', 'opcache.enable_cli=0', '-d', 'session.save_path=' . $runtime . '/sessions', '-S', $address, '-t', $runtime . '/public'],
-        [0 => ['file', '/dev/null', 'r'], 1 => ['file', $runtime . '/http.log', 'a'], 2 => ['file', $runtime . '/http.log', 'a']], $pipes);
-    for ($n = 0; $n < 100; $n++) { $probe = @stream_socket_client('tcp://' . $address, $errno, $errstr, 0.1); if ($probe) { fclose($probe); break; } usleep(20000); }
+    /** A runtime copy of the app on its own port, signed in to the database as $dbUser. */
+    $start = static function (string $name, string $dbUser, string $dbPass) use ($app, $runtime, $copyTree, $host, $port, $database, $sessions): array {
+        $root = $runtime . '/' . $name;
+        foreach (['config', 'public/api', 'sessions', 'attachments'] as $part) mkdir($root . '/' . $part, 0700, true);
+        $copyTree($app . '/lib', $root . '/lib');
+        copy($app . '/public/ticket.php', $root . '/public/ticket.php');
+        copy($app . '/public/api/ticket_action.php', $root . '/public/api/ticket_action.php');
+        $config = require $app . '/config/config.sample.php';
+        $config['app_env'] = 'dev';
+        $config['force_https'] = false;
+        $config['db'] = ['host' => $host, 'port' => (int)$port, 'user' => $dbUser, 'pass' => $dbPass, 'name' => $database, 'charset' => 'utf8mb4'];
+        $config['storage']['attachments_dir'] = $root . '/attachments';
+        file_put_contents($root . '/config/config.php', '<?php return ' . var_export($config, true) . ';');
+        foreach ($sessions as $id => $session) {
+            file_put_contents($root . '/sessions/sess_' . $session['id'], 'user_id|' . serialize($id) . 'csrf|' . serialize($session['csrf']));
+        }
+        $socket = stream_socket_server('tcp://127.0.0.1:0');
+        $listen = stream_socket_get_name($socket, false);
+        fclose($socket);
+        $server = proc_open([PHP_BINARY, '-d', 'opcache.enable_cli=0', '-d', 'session.save_path=' . $root . '/sessions', '-S', $listen, '-t', $root . '/public'],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', $runtime . '/http.log', 'a'], 2 => ['file', $runtime . '/http.log', 'a']], $pipes);
+        for ($n = 0; $n < 100; $n++) { $probe = @stream_socket_client('tcp://' . $listen, $errno, $errstr, 0.1); if ($probe) { fclose($probe); break; } usleep(20000); }
+        return [$server, $listen];
+    };
+    mkdir($runtime, 0700, true);
+    [$process, $fullAddress] = $start('full', $user, $pass);
+    [$limitedProcess, $limitedAddress] = $start('limited', $limitedUser, $limitedPass);
+    $address = $fullAddress;   // which copy the requests below go to
 
     /** @return array{status:int, body:string, location:string} */
-    $http = static function (string $method, string $route, ?int $as, ?string $body, array $headers) use ($address, &$sessions): array {
+    $http = static function (string $method, string $route, ?int $as, ?string $body, array $headers) use (&$address, &$sessions): array {
         $curl = curl_init('http://' . $address . $route);
         if ($as !== null) $headers[] = 'Cookie: PHPSESSID=' . $sessions[$as]['id'];
         curl_setopt_array($curl, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_TIMEOUT => 20, CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => $headers]);
@@ -155,12 +177,25 @@ try {
         $q->execute([$id]);
         return (int)$q->fetchColumn();
     };
-    /** Queued mail for a ticket whose subject starts with $subject. hold: seconds until the dispatcher may send it. */
+    /**
+     * A ticket's mail whose subject starts with $subject and that was sent or still will be.
+     * hold: seconds until the dispatcher may send it.
+     */
     $mail = static function (int $id, string $subject = '') use ($pdo): array {
         $q = $pdo->prepare('SELECT to_addr, subject, body_text, sent_at, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), next_try_at) AS hold
-            FROM mail_queue WHERE ticket_id = ? AND subject LIKE ? ORDER BY id');
+            FROM mail_queue WHERE ticket_id = ? AND subject LIKE ? AND (sent_at IS NOT NULL OR attempts < max_attempts) ORDER BY id');
         $q->execute([$id, $subject . '%']);
         return $q->fetchAll();
+    };
+    /** The reasons written on a ticket's mail that was withdrawn before it left. */
+    $withdrawn = static function (int $id) use ($pdo): array {
+        $q = $pdo->prepare('SELECT last_error FROM mail_queue WHERE ticket_id = ? AND sent_at IS NULL AND attempts >= max_attempts ORDER BY id');
+        $q->execute([$id]);
+        return $q->fetchAll(PDO::FETCH_COLUMN);
+    };
+    /** Mark what is still waiting for a ticket as sent, as the dispatcher would. */
+    $deliver = static function (int $id) use ($pdo): void {
+        $pdo->prepare('UPDATE mail_queue SET sent_at = UTC_TIMESTAMP() WHERE ticket_id = ? AND sent_at IS NULL AND attempts < max_attempts')->execute([$id]);
     };
     $dueNow = static fn(): int => (int)$pdo->query('SELECT COUNT(*) FROM mail_queue WHERE sent_at IS NULL AND next_try_at <= UTC_TIMESTAMP() AND attempts < max_attempts')->fetchColumn();
     $setStatus = static function (int $id, string $status) use ($pdo): void {
@@ -233,13 +268,14 @@ try {
     // Undo inside the window: the status goes back and the survey never leaves.
     [$status, $json] = $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'in_progress']);
     $check($status === 200 && $ticket(7001)['status'] === 'in_progress' && $ticket(7001)['resolved_at'] === null, 'Undo puts the status back');
-    $check($surveys(7001) === 0 && $mail(7001) === [], 'and withdraws the survey and its email');
+    $check($surveys(7001) === 0 && $mail(7001) === [] && $dueNow() === 0, 'and withdraws the survey: nothing is left to send');
+    $check($withdrawn(7001) === ['Cancelled: ticket reopened before its survey was sent'], 'the email is cancelled in place, with the reason, not removed');
     $check($json['toast'] === 'Reopened as In progress. The survey was not sent.', 'and says the survey was not sent');
 
     // A later, real resolve still asks. Once it has been sent it is asked only that once.
     $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
     $check($surveys(7001) === 1 && count($mail(7001, '[#7001] Resolved: ')) === 1, 'resolving again after an Undo asks again');
-    $pdo->exec("UPDATE mail_queue SET sent_at = UTC_TIMESTAMP() WHERE ticket_id = 7001");
+    $deliver(7001);
     [$status, $json] = $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'open', 'chosen' => true]);
     $check($surveys(7001) === 1 && count($mail(7001)) === 1 && $json['toast'] === 'Reopened as Open.', 'a survey that was already sent is not withdrawn');
     [$status, $json] = $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
@@ -287,8 +323,10 @@ try {
     $check($ticket(7002)['assignee_id'] === null && $json['toast'] === 'Unassigned.' && $mail(7002, '[#7002] Assigned to you: ') === [],
         'Unassigned clears the owner and withdraws the unsent email');
 
+    $check($withdrawn(7002) === array_fill(0, 2, 'Cancelled: ticket reassigned before this was sent'), 'both withdrawn emails are cancelled in place, with the reason');
+
     $act(102, ['id' => 7002, 'field' => 'assignee', 'value' => '103']);
-    $pdo->exec("UPDATE mail_queue SET sent_at = UTC_TIMESTAMP() WHERE ticket_id = 7002");
+    $deliver(7002);
     $act(102, ['id' => 7002, 'field' => 'assignee', 'value' => 'none']);
     $check(count($mail(7002, '[#7002] Assigned to you: ')) === 1, 'an assignment email that was already sent is left alone');
 
@@ -363,12 +401,60 @@ try {
     $send(102, 7003, ['reply' => 'Acknowledged.']);
     $check($mail(7007) === [] && $mail(7003) === [] && $ticket(7007)['status'] === 'in_progress', 'a portal request and a machine contact get no reply email');
 
+    // ---- the same promises under an account that may not remove any row ----
+    $address = $limitedAddress;
+    $limited = new PDO("mysql:host=$host;port=$port;dbname=$database;charset=utf8mb4", $limitedUser, $limitedPass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $refused = false;
+    try { $limited->exec('DELETE FROM csat WHERE id = 0'); } catch (PDOException $denied) { $refused = true; }
+    $check($refused, 'the limited account really cannot remove a survey row');
+    $limited = null;
+
+    [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
+    $survey = $mail(7008, '[#7008] Resolved: ');
+    $token = (string)$pdo->query('SELECT token FROM csat WHERE ticket_id = 7008')->fetchColumn();
+    $check($status === 200 && $surveys(7008) === 1 && count($survey) === 1 && $held($survey[0]) && $json['toast'] === 'Resolved. Dana gets a short survey in a minute.',
+        'limited account: a chosen Resolve holds one survey');
+    [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'in_progress']);
+    $check($status === 200 && $ticket(7008)['status'] === 'in_progress' && $mail(7008) === [] && $dueNow() === 0
+        && $withdrawn(7008) === ['Cancelled: ticket reopened before its survey was sent'], 'limited account: Undo still stops the survey email from ever leaving');
+    $check($json['toast'] === 'Reopened as In progress. The survey was not sent.' && $surveys(7008) === 1, 'the survey row it could not remove stays, unanswered');
+    $x = $page(102, 7008);
+    $check(str_contains($text($x, '//button[@name="after_status"][@value="resolved"]'), 'Dana gets a short survey.'), 'and the page still promises a survey on the next resolve');
+    [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
+    $survey = $mail(7008, '[#7008] Resolved: ');
+    $check($status === 200 && $surveys(7008) === 1 && (string)$pdo->query('SELECT token FROM csat WHERE ticket_id = 7008')->fetchColumn() === $token,
+        'limited account: resolving again reuses that one survey');
+    $check(count($survey) === 1 && $held($survey[0]) && str_contains($survey[0]['body_text'], 'csat.php?t=' . $token . '&s=3')
+        && $json['toast'] === 'Resolved. Dana gets a short survey in a minute.', 'and holds one new email carrying it');
+    $deliver(7008);
+    $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'open', 'chosen' => true]);
+    [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
+    $check($surveys(7008) === 1 && count($mail(7008, '[#7008] Resolved: ')) === 1 && $json['toast'] === 'Resolved. Dana was already asked to rate this ticket.',
+        'limited account: once it has been sent it is never asked twice');
+
+    $act(102, ['id' => 7008, 'field' => 'assignee', 'value' => '103']);
+    [$status, $json] = $act(102, ['id' => 7008, 'field' => 'assignee', 'value' => '101']);
+    $told = $mail(7008, '[#7008] Assigned to you: ');
+    $check($status === 200 && (int)$ticket(7008)['assignee_id'] === 101 && count($told) === 1 && $told[0]['to_addr'] === 'u101@example.test' && $held($told[0]),
+        'limited account: reassigning tells only the person who ends up with the ticket');
+    $r = $send(102, 7008, ['reply' => 'All set.', 'after_status' => 'waiting']);
+    $check($r['status'] === 302 && $ticket(7008)['status'] === 'waiting' && count($mail(7008, '[#7008] Limited account')) === 1, 'limited account: Send and wait saves, parks and emails the reply');
+
+    // A survey with no record of any email (made before mail was queued) counts as asked.
+    $pdo->exec("INSERT INTO csat (ticket_id, token) VALUES (7009, REPEAT('c', 40))");
+    [$status, $json] = $act(102, ['id' => 7009, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
+    $check($status === 200 && $surveys(7009) === 1 && $mail(7009) === [] && $json['toast'] === 'Resolved. Dana was already asked to rate this ticket.',
+        'a survey with no email on record is never asked again');
+
     echo "PASS: $checks ticket action checks\n";
 } catch (Throwable $error) {
     fwrite(STDERR, $error->getMessage() . "\n" . (is_file($runtime . '/http.log') ? substr((string)file_get_contents($runtime . '/http.log'), -6000) : ''));
     $exit = 1;
 } finally {
-    if (is_resource($process)) { proc_terminate($process); proc_close($process); }
+    foreach ([$process, $limitedProcess ?? null] as $server) {
+        if (is_resource($server)) { proc_terminate($server); proc_close($server); }
+    }
+    if (isset($limitedUser)) $pdo->exec("DROP USER IF EXISTS '$limitedUser'@'%'");
     if (is_dir($runtime)) {
         foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($runtime, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) as $file) {
             $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());

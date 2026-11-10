@@ -232,7 +232,11 @@ public/                    Apache docroot (page-per-file, like Milepost)
   write never asks for a rating, so no other step can. The survey email, like a
   teammate's "assigned to you" email, is held 60 seconds
   (`TICKET_NOTICE_HOLD_SECONDS`, through `mail_queue.next_try_at`): Undo, a
-  reopen or a reassignment inside that window withdraws it.
+  reopen or a reassignment inside that window withdraws it. Withdrawing needs
+  no new database grant: the mail row is cancelled in place (`attempts =
+  max_attempts`, `last_error` "Cancelled: ..."), as bulk delete cancels mail.
+  The withdrawn survey row is removed where the account may remove `csat` rows
+  and is otherwise kept and reused by the next chosen resolve.
   (csat.php, token-authed). Opening a link only picks a face; the rating
   is recorded when the customer presses Send (POST), so mail scanners
   that open every link can't answer. A rating can change for 7 days and
