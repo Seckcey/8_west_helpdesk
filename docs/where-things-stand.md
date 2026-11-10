@@ -500,6 +500,13 @@ emailed request in the portal. No rule about who is emailed, or when, changed: a
 portal still has no email contact (`portal_create_ticket()` stores `contact_id` NULL), so its replies
 and its resolution are seen in the portal only and it gets no survey. No SQL or auth change.
 
+**Adding a computer as three steps (draft, not live).** Your devices shows Add a computer as confirm,
+install and wait, with one filled button; the consent form, its fields and every device-service call are
+unchanged. With a setup file on screen the page offers Copy link and re-reads itself every 15 seconds
+for up to five minutes so the new computer appears by itself. Each computer shows its state first as a
+tag. The two antivirus request forms moved into their own section below the list. Customer-facing
+words say setup link, setup file and add. No SQL, auth or service-contract change.
+
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.
 2. **Technician-time correction acceptance** still needs a fresh signed-in check on the 8 West IT

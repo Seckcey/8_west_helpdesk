@@ -10,6 +10,17 @@ authorized to manage the computer. Each link lasts four hours, enrolls one
 computer and can be revoked. Staff and viewers can view device status. Adding a
 computer creates no charge and does not order antivirus.
 
+The page presents adding a computer as three steps: confirm, install, wait. The
+steps lead the page while the customer has no computer yet and while a setup
+file is on screen; otherwise they sit beside the list. The customer-facing words
+are "setup link", "setup file" and "add", not installation link, agent or
+enroll. While a setup file is on screen, `assets/js/portal-devices.js` offers
+Copy link and re-reads `/portal/devices.php` every 15 seconds for at most five
+minutes, only while the tab is visible, and swaps in the new list when a
+computer appears. Each read is an ordinary signed-in page view, the same as
+choosing Refresh status, so one setup makes at most about 20 extra views. It
+posts nothing, changes nothing, and stops as soon as the sign-in has ended.
+
 Safeharbor derives provider, customer UUID, identity tenant, immutable subject,
 session version and role from the authenticated portal context. Browser fields
 cannot supply authority. The device route rechecks its local customer binding

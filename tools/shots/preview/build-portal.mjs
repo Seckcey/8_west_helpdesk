@@ -32,7 +32,8 @@ await writeFile(fixture, fixtureSource, 'utf8');
 
 // Made-up names only: the preview is published with a public repository.
 const NAMES = [['Frank at 8 West Lifestyle', 'Priya Anand'], ['8 West Lifestyle', 'Harbor Dental'], ['Synthetic Employee', 'Dana Whitfield'], ['>Frank<', '>Priya Anand<']];
-const PAGES = { home: 'portal-home.html', homesetup: 'portal-home-first-run.html', devices: 'portal-devices.html', ticket: 'portal-ticket.html',
+const PAGES = { home: 'portal-home.html', homesetup: 'portal-home-first-run.html', devices: 'portal-devices.html',
+  devicesempty: 'portal-devices-first-computer.html', devicesdownload: 'portal-devices-adding.html', ticket: 'portal-ticket.html',
   ticketopen: 'portal-ticket-sent.html', ticketprogress: 'portal-ticket-in-progress.html', ticketresolved: 'portal-ticket-resolved.html', login: 'portal-signin.html' };
 
 try {
