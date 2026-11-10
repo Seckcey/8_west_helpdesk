@@ -179,7 +179,7 @@ Home reads data only through the existing helpers, with the signed-in identity:
 
 | Data | Source | Who sees what |
 |---|---|---|
-| Requests and counts | `portal_ticket_summary(…, 6, identity)` | Members and viewers see only requests recorded as theirs. Owners and admins see the whole client. Counts are the helper's totals. The list shows up to 6. |
+| Requests | `portal_ticket_summary(…, 6, identity)`. Each row also carries the kind and time of its newest customer-visible message, its first-reply time and its reply goal, read under the same filter; never a message's text or author. | Members and viewers see only requests recorded as theirs. Owners and admins see the whole client. Counts are the helper's totals. The list shows up to 6. |
 | Computers | `portal_devices_request(…, 'devices', ['after'=>0])` | Milepost decides the list from the signed role and subject. Home shows the first 3. |
 | Latest service summary | `portal_report_archives(…, 1, identity)` | Client owners and administrators only. |
 
@@ -189,23 +189,36 @@ is shown and the person is asked to sign in again.
 
 Sections:
 
-- **Welcome**: the person's name, the selected client, their role
-  (`portal_role_label`) and one sentence stating what they can see.
+- **Hero**: "Hello, {first name}", the one question "How can we help {client}
+  today?", and at most two buttons. The role and what the person can see are not
+  in the hero.
 - **Get set up**, first card after the hero: client owners and administrators
   only, when the computer list loaded and is empty. Three steps: Create your
   account (done), Add your first computer (Open Your devices), and Invite your
   team (Invite a member in 8 West ID for an actual owner/admin without a
   customer-profile overlay; otherwise "Your support provider can add people for
   you."). It disappears once a computer exists.
-- **Start here** buttons: Ask Westy (`/portal/?view=westy`); Write a request
-  (only for roles that can write tickets, so never viewers); Your devices; and My
-  settings in 8 West ID (`https://id.8westit.com/settings.php`, the existing
-  fixed destination).
-- **Needs your reply**: requests waiting for the customer, with the true total.
-  When the total is larger than the list it says "Showing X of Y". Viewers see
-  "Waiting for a reply", because they cannot reply.
-- **Recent requests**: active requests first, then recently resolved ones, with
-  the four status totals and a link to every request.
+- **Start here** buttons: Ask Westy (`/portal/?view=westy`) and New support
+  request (`/portal/new.php`). New support request is shown to exactly the roles
+  `portal_role_can_write_tickets()` allows (client owner, client admin, member),
+  the same check and destination as the Support Requests page, whether the
+  person signed in directly or chose the client; a viewer sees Ask Westy alone.
+  Ask Westy is the page's one filled button. While Get set up is showing, its
+  current step keeps the filled button and Ask Westy is a quiet one. My settings
+  and Your devices are in the sidebar, not the hero.
+- **Needs your reply**: shown only when a request waits on the customer, and
+  then first. Each row has a Reply button that opens that request at its reply
+  box. When the true total is larger than the list it says "Showing X of Y".
+  Viewers see "Waiting for a reply" and no Reply button, because they cannot
+  reply.
+- **Your requests**: the other requests, active first, then recently resolved,
+  with "All requests". Each row is the subject (no number), one sentence built
+  from the status and the newest visible message, and a tag: Received, In
+  progress, Waiting for your reply, Resolved. "We aim to reply by …" appears
+  only while the request has a reply goal that is still ahead and no first
+  reply. Under the list one quiet line says what the person sees: "You see every
+  request for {client}.", "You see the requests you opened." or "You see the
+  requests opened under your account." There is no counts strip.
 - **Your computers**: name, connection state and last check-in.
 - Client owners and administrators only: **Service summaries** (latest archive)
   and **Manage {client}** (Client Admin and Plan and billing in 8 West ID, and
@@ -218,10 +231,10 @@ Sections:
 ### Empty, unavailable and partial states
 
 - No requests: "No support requests yet." For writers it adds a pointer to Westy
-  and to writing a request.
+  and to sending a support request.
 - Requests could not be read: "We can't show your support requests right now."
-  The page offers Try again and, for writers, Write a request. It never shows
-  zero.
+  The page offers Try again; New support request stays in the hero for writers.
+  It never shows zero.
 - No computers: members are told none is assigned yet and to ask an owner or
   administrator. Owners and administrators are told none is connected yet, and
   also see the Get set up card.
