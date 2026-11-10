@@ -156,19 +156,17 @@ function ticket_resolve_buttons(int $ticketId, string $status): string
 /**
  * The composer's Send button and the two "send and set the next status" choices beside it. The
  * choices are ordinary submit buttons that carry after_status, so they work without script;
- * the script only opens the menu and wires the keys. $surveyOnResolve says whether resolving now
+ * the script only opens the menu (they have no key of their own: they are also in the palette). $surveyOnResolve says whether resolving now
  * would ask the customer for a rating, so the menu can say so truthfully. $waitingDays is how long
  * a waiting ticket stays parked.
  */
 function ticket_send_control(bool $surveyOnResolve, string $surveyName, int $waitingDays): string
 {
     $who = $surveyName !== '' ? $surveyName : 'The customer';
-    $choice = static fn(string $value, string $title, string $detail, string $keys): string =>
+    $choice = static fn(string $value, string $title, string $detail): string =>
         '<button type="submit" class="menu-item send-choice" name="after_status" value="' . h($value) . '" role="menuitem">'
         . '<span class="send-choice-text"><span class="send-choice-title">' . h($title) . '</span>'
-        . '<span class="send-choice-detail">' . h($detail) . '</span></span>'
-        . '<span class="send-choice-keys" aria-hidden="true">' . $keys . '</span></button>';
-    $mod = '<kbd class="kbd" data-mod-key>Ctrl</kbd>';
+        . '<span class="send-choice-detail">' . h($detail) . '</span></span></button>';
     return '<div class="send-split" id="send-split">'
         . '<button type="submit" class="btn-primary send-main" id="composer-send">Send reply</button>'
         . '<button type="button" class="btn-primary send-more" id="composer-send-more" aria-haspopup="menu" aria-expanded="false" aria-controls="send-menu" aria-label="More ways to send">'
@@ -176,11 +174,9 @@ function ticket_send_control(bool $surveyOnResolve, string $surveyName, int $wai
         . '</button>'
         . '<div class="menu-pop send-menu" id="send-menu" role="menu" aria-label="Send and set the next status" hidden>'
         . $choice('waiting', 'Send and wait for the customer',
-            'Comes back in ' . $waitingDays . ' days if they stay silent.',
-            $mod . '<kbd class="kbd">Shift</kbd><kbd class="kbd">Enter</kbd>')
+            'Comes back in ' . $waitingDays . ' days if they stay silent.')
         . $choice('resolved', 'Send and resolve',
-            $surveyOnResolve ? $who . ' gets a short survey.' : 'No survey is sent.',
-            $mod . '<kbd class="kbd" data-alt-key>Alt</kbd><kbd class="kbd">Enter</kbd>')
+            $surveyOnResolve ? $who . ' gets a short survey.' : 'No survey is sent.')
         . '</div></div>';
 }
 

@@ -197,9 +197,12 @@ public/                    Apache docroot (page-per-file, like Milepost)
   `n` internal note · `/` saved replies · `g q/t/c` navigate ·
   `⌘K` palette (3+ chars = deep search over message bodies, resolved
   included; a ticket's number finds it at any length) · `?` shortcut card.
-  `s`, `p` and `a` open a menu (on a ticket, or for the highlighted queue row):
-  arrows and `↵`, or the number beside a choice; `Esc` closes. Nothing cycles.
-  `z` undoes the last status, priority or owner change while its toast shows.
+  `a` assigns to me (again to unassign) in one key, as it always has. `s`, `p`
+  and `t` open a menu (on a ticket, or for the highlighted queue row): status,
+  priority, and who to give the ticket to. Arrows and `↵`, or the number beside
+  a choice; `Esc` closes. Nothing cycles. `z` undoes the last status, priority
+  or owner change while its toast shows; an Undo (`undo: true`) never asks a
+  customer for a rating and never emails a teammate.
 - Status, priority and owner have one definition each, in
   `lib/ticket_changes.php`; `api/ticket_action.php` (menus, keys, Resolve) and
   `ticket.php` ("Send and wait", "Send and resolve") both call it. The owner
@@ -207,9 +210,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
 - Composer: Reply/Internal note tabs on one box (notes never email, never
   change status); the line beside Send says who gets the reply and how (email,
   portal without email, or nobody), from the same check that queues the email;
-  the split Send button also offers "Send and wait for the customer"
-  (`Ctrl+Shift+↵`) and "Send and resolve" (`Ctrl+Alt+↵`), posted as
-  `after_status`; `/` or the Saved replies button inserts saved replies with
+  the split Send button also offers "Send and wait for the customer" and
+  "Send and resolve", posted as `after_status` (also in the palette on a
+  ticket; no key chord, because Ctrl+Alt is AltGr on many keyboards); `/` or the Saved replies button inserts saved replies with
   merge fields resolved
   ({contact.first_name} {client.name} {ticket.id} {tech.first_name});
   Attach a file attaches ≤5 files ≤15MB; a running timer freezes on Send and
@@ -235,8 +238,13 @@ public/                    Apache docroot (page-per-file, like Milepost)
   reopen or a reassignment inside that window withdraws it. Withdrawing needs
   no new database grant: the mail row is cancelled in place (`attempts =
   max_attempts`, `last_error` "Cancelled: ..."), as bulk delete cancels mail.
-  The withdrawn survey row is removed where the account may remove `csat` rows
-  and is otherwise kept and reused by the next chosen resolve.
+  The withdrawn survey row is marked on the row itself: its `created_at`
+  becomes `TICKET_SURVEY_WITHDRAWN_AT` (1970-01-01), which no report window
+  contains, so a withdrawn survey is never counted as sent. It is then removed
+  where the account may remove `csat` rows; otherwise it stays and the next
+  chosen resolve reuses it with the real time. A hold that had already run out
+  is cancelled too, but reported as "may already have been sent" and never
+  asked again.
   (csat.php, token-authed). Opening a link only picks a face; the rating
   is recorded when the customer presses Send (POST), so mail scanners
   that open every link can't answer. A rating can change for 7 days and

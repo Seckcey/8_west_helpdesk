@@ -25,6 +25,16 @@ const TICKET_NOTICE_HOLD_SECONDS = 60;
 /** Why a held email never left; written to mail_queue.last_error when it is withdrawn. */
 const TICKET_SURVEY_WITHDRAWN = 'Cancelled: ticket reopened before its survey was sent';
 const TICKET_ASSIGNMENT_WITHDRAWN = 'Cancelled: ticket reassigned before this was sent';
+/** Added to the reason when the hold had already run out, so the dispatcher may have had the email in hand. */
+const TICKET_NOTICE_LATE = ' (too late to be sure: it may have been sent)';
+
+/**
+ * A survey that was asked for and taken back before its email left carries this creation time.
+ * It is the record of the withdrawal on the row itself: reports count surveys by the window their
+ * creation time falls in, and this time falls in none, so a withdrawn survey is never counted as
+ * sent, whether or not the database account may remove the row. Asking again sets the real time.
+ */
+const TICKET_SURVEY_WITHDRAWN_AT = '1970-01-01 00:00:00';
 
 /** Addresses that are machines, not people. Mail-loop protection: they are never written to. */
 function ticket_machine_address(string $email): bool
@@ -32,13 +42,18 @@ function ticket_machine_address(string $email): bool
     return preg_match('/^(mailer-daemon|postmaster|no-?reply|donotreply|bounce[s]?|autoreply)@/i', $email) === 1;
 }
 
+function ticket_first_name(string $name): string
+{
+    return explode(' ', trim($name))[0];
+}
+
 /**
- * The person a ticket's customer mail goes to, or null when there is nobody a mail may go to
- * (no contact, no address, or a machine address).
+ * The ticket's contact, with whether mail may go to them: yes, or no because they have no address
+ * ("none") or because the address is a machine's ("machine"). Null when the ticket has no contact.
  *
- * @return array{name:string,first_name:string,email:string}|null
+ * @return array{name:string,first_name:string,email:string,mail:string}|null  mail: yes | none | machine
  */
-function ticket_mail_contact(array $ticket): ?array
+function ticket_contact(array $ticket): ?array
 {
     if (empty($ticket['contact_id'])) return null;
     $q = db()->prepare(
@@ -49,72 +64,98 @@ function ticket_mail_contact(array $ticket): ?array
     );
     $q->execute([(int)$ticket['contact_id'], (int)$ticket['tenant_id']]);
     $contact = $q->fetch();
-    $email = trim((string)($contact['email'] ?? ''));
-    if ($email === '' || ticket_machine_address($email)) return null;
-    $name = trim((string)($contact['name'] ?? ''));
-    return ['name' => $name, 'first_name' => ticket_first_name($name), 'email' => $email];
-}
-
-function ticket_first_name(string $name): string
-{
-    return explode(' ', trim($name))[0];
+    if (!$contact) return null;
+    $email = trim((string)$contact['email']);
+    $name = trim((string)$contact['name']);
+    return ['name' => $name, 'first_name' => ticket_first_name($name), 'email' => $email,
+        'mail' => $email === '' ? 'none' : (ticket_machine_address($email) ? 'machine' : 'yes')];
 }
 
 /**
- * Who sees a technician's reply on this ticket, and how: by email (a mailable contact), in the
- * portal only (the request was opened there, so it has no contact and no mail is sent), or nobody.
+ * The person a ticket's customer mail goes to, or null when there is nobody a mail may go to
+ * (no contact, no address, or a machine address).
+ *
+ * @return array{name:string,first_name:string,email:string,mail:string}|null
+ */
+function ticket_mail_contact(array $ticket): ?array
+{
+    $contact = ticket_contact($ticket);
+    return $contact !== null && $contact['mail'] === 'yes' ? $contact : null;
+}
+
+/**
+ * Who sees a technician's reply on this ticket, and how:
+ *   email      a contact whose address can receive mail;
+ *   portal     the request was opened in the portal, so it has no contact and no mail is sent;
+ *   unmailable a contact whose address is a machine's (never written to);
+ *   no_address a contact with no address;
+ *   none       nobody is attached.
  * ticket.php uses the same answer to decide whether to queue the reply email.
  *
- * @return array{via:string,first_name:string,contact:?array}
+ * @return array{via:string,first_name:string,contact:?array}  contact is set only for "email"
  */
 function ticket_reply_audience(array $ticket): array
 {
-    $contact = ticket_mail_contact($ticket);
-    if ($contact !== null) {
+    $contact = ticket_contact($ticket);
+    if ($contact !== null && $contact['mail'] === 'yes') {
         return ['via' => 'email', 'first_name' => $contact['first_name'], 'contact' => $contact];
     }
     $q = db()->prepare('SELECT 1 FROM portal_ticket_requesters WHERE ticket_id = ? AND tenant_id = ?');
     $q->execute([(int)$ticket['id'], (int)$ticket['tenant_id']]);
-    if ($q->fetchColumn() === false) return ['via' => 'none', 'first_name' => '', 'contact' => null];
-    // The portal writes the requester's name on the request's opening message.
-    $nq = db()->prepare(
-        "SELECT m.author_name
-           FROM messages m
-           JOIN tickets t ON t.id = m.ticket_id
-          WHERE m.ticket_id = ? AND t.tenant_id = ? AND m.kind = 'client'
-          ORDER BY m.id ASC LIMIT 1"
-    );
-    $nq->execute([(int)$ticket['id'], (int)$ticket['tenant_id']]);
-    return ['via' => 'portal', 'first_name' => ticket_first_name((string)$nq->fetchColumn()), 'contact' => null];
+    if ($q->fetchColumn() !== false) {
+        // The portal writes the requester's name on the request's opening message.
+        $nq = db()->prepare(
+            "SELECT m.author_name
+               FROM messages m
+               JOIN tickets t ON t.id = m.ticket_id
+              WHERE m.ticket_id = ? AND t.tenant_id = ? AND m.kind = 'client'
+              ORDER BY m.id ASC LIMIT 1"
+        );
+        $nq->execute([(int)$ticket['id'], (int)$ticket['tenant_id']]);
+        return ['via' => 'portal', 'first_name' => ticket_first_name((string)$nq->fetchColumn()), 'contact' => null];
+    }
+    if ($contact !== null) {
+        return ['via' => $contact['mail'] === 'machine' ? 'unmailable' : 'no_address', 'first_name' => $contact['first_name'], 'contact' => null];
+    }
+    return ['via' => 'none', 'first_name' => '', 'contact' => null];
+}
+
+/**
+ * What the composer says beside the Send button: who gets the reply and how, in words that are
+ * true for this ticket. No database work, so the sentences can be checked on their own.
+ *
+ * @param array{via:string,first_name:string} $audience
+ */
+function ticket_reply_hint(array $audience): string
+{
+    $name = $audience['first_name'];
+    return match ($audience['via']) {
+        'email' => ($name !== '' ? $name : 'The customer') . ' gets this by email.',
+        'portal' => ($name !== '' ? $name : 'The customer') . ' sees this in the portal. No email is sent.',
+        'unmailable' => ($name !== '' ? $name . '\'s' : 'The contact\'s') . ' address cannot receive mail, so no email is sent. This reply is saved on the ticket only.',
+        'no_address' => ($name !== '' ? $name : 'The contact') . ' has no email address, so no email is sent. This reply is saved on the ticket only.',
+        default => 'No customer is attached. This reply is saved on the ticket only.',
+    };
 }
 
 /**
  * Where this ticket's one survey stands:
  *   none       never asked for;
- *   withdrawn  asked for and taken back before its email left (unanswered, and every email that
- *              carried it was withdrawn), so a chosen resolve may ask again with the same survey;
- *   asked      anything else: sent, still queued, answered, or with no mail record at all.
+ *   withdrawn  asked for and taken back before its email left (see TICKET_SURVEY_WITHDRAWN_AT),
+ *              so a chosen resolve may ask again with the same survey;
+ *   asked      anything else: sent, still queued, possibly sent, or answered.
  * Pass $lock inside a transaction to hold the survey row while deciding.
  *
  * @return array{state:string,id:int,token:string}
  */
 function ticket_survey_state(array $ticket, bool $lock = false): array
 {
-    $q = db()->prepare('SELECT id, token, responded_at FROM csat WHERE ticket_id = ?' . ($lock ? ' FOR UPDATE' : ''));
+    $q = db()->prepare('SELECT id, token, created_at, responded_at FROM csat WHERE ticket_id = ?' . ($lock ? ' FOR UPDATE' : ''));
     $q->execute([(int)$ticket['id']]);
     $survey = $q->fetch();
     if (!$survey) return ['state' => 'none', 'id' => 0, 'token' => ''];
-    $found = ['state' => 'asked', 'id' => (int)$survey['id'], 'token' => (string)$survey['token']];
-    if ($survey['responded_at'] !== null) return $found;
-    $mq = db()->prepare(
-        'SELECT COUNT(*) AS total,
-                COALESCE(SUM(sent_at IS NULL AND attempts >= max_attempts AND last_error = ?), 0) AS withdrawn
-           FROM mail_queue WHERE ticket_id = ? AND body_text LIKE ?'
-    );
-    $mq->execute([TICKET_SURVEY_WITHDRAWN, (int)$ticket['id'], ticket_survey_mail_like($found['token'])]);
-    $mails = $mq->fetch();
-    if ((int)$mails['total'] > 0 && (int)$mails['total'] === (int)$mails['withdrawn']) $found['state'] = 'withdrawn';
-    return $found;
+    $withdrawn = $survey['responded_at'] === null && (string)$survey['created_at'] === TICKET_SURVEY_WITHDRAWN_AT;
+    return ['state' => $withdrawn ? 'withdrawn' : 'asked', 'id' => (int)$survey['id'], 'token' => (string)$survey['token']];
 }
 
 /** Whether resolving this ticket now would ask the customer for a rating (once per ticket, ever). */
@@ -129,22 +170,6 @@ function ticket_survey_would_send(array $ticket, ?array $contact): bool
 }
 
 /**
- * What the composer says beside the Send button: who gets the reply and how, in words that are
- * true for this ticket. No database work, so the sentences can be checked on their own.
- *
- * @param array{via:string,first_name:string} $audience
- */
-function ticket_reply_hint(array $audience): string
-{
-    $who = $audience['first_name'] !== '' ? $audience['first_name'] : 'The customer';
-    return match ($audience['via']) {
-        'email' => $who . ' gets this by email.',
-        'portal' => $who . ' sees this in the portal. No email is sent.',
-        default => 'No customer is attached. This reply is saved on the ticket only.',
-    };
-}
-
-/**
  * Set a ticket's status.
  *
  * $personChoseIt says a person picked this exact status: a menu choice, the Resolve button, or
@@ -154,7 +179,7 @@ function ticket_reply_hint(array $audience): string
  * Leaving Resolved while its survey is still held withdraws that survey.
  *
  * @return array{status:string,changed:bool,survey:string,toast:string}
- *         survey: held | already | withdrawn | none
+ *         survey: held | already | withdrawn | late | none
  */
 function ticket_change_status(array $ticket, string $status, bool $personChoseIt): array
 {
@@ -183,7 +208,7 @@ function ticket_change_status(array $ticket, string $status, bool $personChoseIt
     if ($status === 'resolved') {
         if ($personChoseIt) $survey = ticket_survey_queue($ticket);
     } elseif ($before === 'resolved') {
-        $survey = ticket_survey_withdraw($ticket) ? 'withdrawn' : 'none';
+        $survey = ticket_survey_withdraw($ticket);
     }
 
     if ($status === 'resolved') {
@@ -197,7 +222,11 @@ function ticket_change_status(array $ticket, string $status, bool $personChoseIt
     } elseif ($status === 'waiting') {
         $toast = 'Waiting on the customer. The ticket comes back in ' . $days . ' days if they stay silent.';
     } elseif ($before === 'resolved') {
-        $toast = 'Reopened as ' . $label . '.' . ($survey === 'withdrawn' ? ' The survey was not sent.' : '');
+        $toast = 'Reopened as ' . $label . '.' . match ($survey) {
+            'withdrawn' => ' The survey was not sent.',
+            'late' => ' The survey may already have been sent.',
+            default => '',
+        };
     } else {
         $toast = 'Status set to ' . $label . '.';
     }
@@ -227,7 +256,7 @@ function ticket_survey_queue(array $ticket): string
         $survey = ticket_survey_state($ticket, true);
         if ($survey['state'] === 'withdrawn') {
             // Asked for once and taken back before it left: the same survey is asked now, so now
-            // is when reports should count it.
+            // is when it was created as far as any report is concerned.
             $token = $survey['token'];
             $pdo->prepare('UPDATE csat SET created_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$survey['id']]);
         } else {
@@ -273,10 +302,15 @@ function ticket_survey_mail_like(string $token): string
  *
  * The email is cancelled the way ticket_delete.php cancels mail: the runtime database account may
  * not remove mail_queue rows, so the row stays, marked spent, and the dispatcher skips it. The
- * survey row itself goes when the account may remove csat rows (the grant bulk delete documents);
- * where it may not, the row stays and ticket_survey_queue() reuses it on the next chosen resolve.
+ * survey row is marked withdrawn (TICKET_SURVEY_WITHDRAWN_AT), which needs no special grant, and
+ * is then removed where the account may remove csat rows (the grant bulk delete documents).
+ *
+ * @return string withdrawn  the email was still held and will never be sent;
+ *                late       it was cancelled after its hold ran out, so it may have been sent: the
+ *                           survey stays as asked and is never asked again;
+ *                none       nothing was waiting (already sent, answered, or never asked).
  */
-function ticket_survey_withdraw(array $ticket): bool
+function ticket_survey_withdraw(array $ticket): string
 {
     $pdo = db();
     $ownsTransaction = false;
@@ -284,24 +318,25 @@ function ticket_survey_withdraw(array $ticket): bool
         $q = $pdo->prepare('SELECT id, token FROM csat WHERE ticket_id = ? AND responded_at IS NULL');
         $q->execute([(int)$ticket['id']]);
         $survey = $q->fetch();
-        if (!$survey) return false;
+        if (!$survey) return 'none';
 
         $ownsTransaction = !$pdo->inTransaction();
         if ($ownsTransaction) $pdo->beginTransaction();
-        if (!ticket_notice_cancel((int)$ticket['id'], 'body_text', ticket_survey_mail_like((string)$survey['token']), TICKET_SURVEY_WITHDRAWN)) {
-            if ($ownsTransaction) $pdo->commit();
-            return false;   // nothing was waiting: the survey already went out
-        }
-        try {
-            $pdo->prepare('DELETE FROM csat WHERE id = ? AND responded_at IS NULL')->execute([(int)$survey['id']]);
-        } catch (PDOException $denied) {
-            // No such grant on this server: the withdrawn survey row stays and is reused later.
+        $cancelled = ticket_notice_cancel((int)$ticket['id'], 'body_text', ticket_survey_mail_like((string)$survey['token']), TICKET_SURVEY_WITHDRAWN);
+        if ($cancelled === 'held') {
+            $pdo->prepare('UPDATE csat SET created_at = ? WHERE id = ? AND responded_at IS NULL')
+                ->execute([TICKET_SURVEY_WITHDRAWN_AT, (int)$survey['id']]);
+            try {
+                $pdo->prepare('DELETE FROM csat WHERE id = ? AND responded_at IS NULL')->execute([(int)$survey['id']]);
+            } catch (PDOException $denied) {
+                // No such grant on this server: the row stays, marked withdrawn, and is reused later.
+            }
         }
         if ($ownsTransaction) $pdo->commit();
-        return true;
+        return $cancelled === 'held' ? 'withdrawn' : $cancelled;
     } catch (Throwable $e) {
         if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
-        return false;
+        return 'none';
     }
 }
 
@@ -317,18 +352,29 @@ function ticket_notice_hold(int $mailId): void
  * Cancel this ticket's queued-but-unsent mail whose subject or body matches: it is marked spent
  * with the reason, which is what the dispatcher skips. Sent mail is never touched.
  *
+ * The dispatcher only picks up mail whose hold has run out, so a row cancelled while still held
+ * was certainly never sent. A row whose hold had run out may already be in the dispatcher's hands;
+ * it is cancelled too, with TICKET_NOTICE_LATE added to the reason, and reported as "late".
+ *
  * @param 'subject'|'body_text' $column
- * @return bool whether anything was still waiting
+ * @return string held | late | none
  */
-function ticket_notice_cancel(int $ticketId, string $column, string $like, string $reason): bool
+function ticket_notice_cancel(int $ticketId, string $column, string $like, string $reason): string
 {
     if ($column !== 'subject' && $column !== 'body_text') throw new InvalidArgumentException('Unknown mail column');
-    $cancel = db()->prepare(
+    $pdo = db();
+    $held = $pdo->prepare(
+        "UPDATE mail_queue SET attempts = max_attempts, last_error = ?
+          WHERE ticket_id = ? AND sent_at IS NULL AND attempts < max_attempts AND next_try_at > UTC_TIMESTAMP() AND $column LIKE ?"
+    );
+    $held->execute([$reason, $ticketId, $like]);
+    $late = $pdo->prepare(
         "UPDATE mail_queue SET attempts = max_attempts, last_error = ?
           WHERE ticket_id = ? AND sent_at IS NULL AND attempts < max_attempts AND $column LIKE ?"
     );
-    $cancel->execute([$reason, $ticketId, $like]);
-    return $cancel->rowCount() > 0;
+    $late->execute([$reason . TICKET_NOTICE_LATE, $ticketId, $like]);
+    if ($late->rowCount() > 0) return 'late';
+    return $held->rowCount() > 0 ? 'held' : 'none';
 }
 
 /**
@@ -345,16 +391,18 @@ function ticket_change_priority(array $ticket, string $priority): array
 
 /**
  * Set a ticket's owner. $value is what the browser sent:
- *   "me"    the signed-in person, or nobody when they already own it (the Westy takeover button);
+ *   "me"    the signed-in person, or nobody when they already own it (the A key, and the Westy
+ *           takeover button);
  *   "none"  nobody;
  *   an id   that teammate, when they are an active member of this tenant; anyone else is refused
  *           and the ticket is left unassigned, exactly as before.
  * A newly assigned teammate is emailed. That email is held for the undo window, and an unsent one
  * is withdrawn when the owner changes again, so only the person who ends up with the ticket hears.
+ * $notify is false for an Undo: putting an owner back tells nobody anything.
  *
  * @return array{assignee_id:?int,toast:string}
  */
-function ticket_change_assignee(array $ticket, array $user, string $value): array
+function ticket_change_assignee(array $ticket, array $user, string $value, bool $notify = true): array
 {
     $pdo = db();
     $id = (int)$ticket['id'];
@@ -379,7 +427,7 @@ function ticket_change_assignee(array $ticket, array $user, string $value): arra
         // Anybody about to be told that this ticket is theirs is no longer told.
         ticket_notice_cancel($id, 'subject', '[#' . $id . '] Assigned to you: %', TICKET_ASSIGNMENT_WITHDRAWN);
         $emailed = false;
-        if ($target !== null && $target !== $me && $assignee && (string)$assignee['email'] !== '') {
+        if ($notify && $target !== null && $target !== $me && $assignee && (string)$assignee['email'] !== '') {
             require_once __DIR__ . '/mailer.php';
             $mailId = mail_queue(
                 (string)$assignee['email'],

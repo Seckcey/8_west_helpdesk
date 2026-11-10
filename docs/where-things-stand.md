@@ -497,7 +497,8 @@ Resolve button (Reopen once resolved) sits in the ticket head, every change can 
 toast, and Send reply can also set Waiting or Resolved in the same act. A survey is queued only when
 the request says a person chose Resolved, and it, like a teammate's assignment email, is held for 60
 seconds so Undo can withdraw it (`app/lib/ticket_changes.php`). No schema, role, permission or
-database-grant change: a withdrawn email stays in `mail_queue`, marked spent with a "Cancelled: ..."
+database-grant change: a withdrawn survey's `csat` row is marked with a 1970 creation time (so no
+business report counts it as sent) and its email stays in `mail_queue`, marked spent with a "Cancelled: ..."
 reason, and the survey row is removed only where the runtime account already may remove `csat` rows.
 To check on a server after a deploy: resolve a test ticket that has a contact, confirm one unsent
 `mail_queue` row whose `next_try_at` is about a minute ahead, press Undo, and confirm that row now

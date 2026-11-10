@@ -369,7 +369,7 @@ page_top($user, '#' . $id, 'queue');
       <div class="rail-props">
         <?= ticket_menu_button('status', (int)$ticket['id'], 'Status', 'S', 'data-chip', status_chip($ticket['status'])) ?>
         <?= ticket_menu_button('priority', (int)$ticket['id'], 'Priority', 'P', 'data-pri', priority_glyph($ticket['priority'], true)) ?>
-        <?= ticket_menu_button('assignee', (int)$ticket['id'], 'Assigned to', 'A', 'data-assignee',
+        <?= ticket_menu_button('assignee', (int)$ticket['id'], 'Assigned to', 'T', 'data-assignee',
             '<span class="assignee-cell">' . ticket_owner_avatar($ticket, 22) . '<span class="assignee-name">'
             . h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) . '</span></span>') ?>
       </div>

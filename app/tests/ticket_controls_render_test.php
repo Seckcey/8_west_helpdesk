@@ -105,6 +105,12 @@ try {
         'a portal request without a name still says no email is sent');
     controls_check(ticket_reply_hint(['via' => 'none', 'first_name' => '']) === 'No customer is attached. This reply is saved on the ticket only.',
         'a ticket with nobody attached says the reply stays on the ticket');
+    controls_check(ticket_reply_hint(['via' => 'unmailable', 'first_name' => 'Dana']) === 'Dana\'s address cannot receive mail, so no email is sent. This reply is saved on the ticket only.'
+        && ticket_reply_hint(['via' => 'unmailable', 'first_name' => '']) === 'The contact\'s address cannot receive mail, so no email is sent. This reply is saved on the ticket only.',
+        'a contact whose address is a machine\'s is named as that, not as nobody');
+    controls_check(ticket_reply_hint(['via' => 'no_address', 'first_name' => 'Dana']) === 'Dana has no email address, so no email is sent. This reply is saved on the ticket only.',
+        'a contact with no address is named as that');
+    controls_check(!str_contains(ticket_send_control(true, 'Dana', 3), '<kbd'), 'the send choices carry no key of their own');
     foreach (['mailer-daemon@example.test', 'postmaster@example.test', 'no-reply@example.test', 'noreply@example.test',
         'donotreply@example.test', 'bounce@example.test', 'bounces@example.test', 'autoreply@example.test', 'NoReply@Example.Test'] as $machine) {
         controls_check(ticket_machine_address($machine), "$machine is a machine address");
@@ -164,7 +170,7 @@ try {
                 . '<div class="rail"><div class="rail-label">Details</div><div class="rail-props">'
                 . ticket_menu_button('status', 42, 'Status', 'S', 'data-chip', status_chip($status))
                 . ticket_menu_button('priority', 42, 'Priority', 'P', 'data-pri', priority_glyph('normal', true))
-                . ticket_menu_button('assignee', 42, 'Assigned to', 'A', 'data-assignee',
+                . ticket_menu_button('assignee', 42, 'Assigned to', 'T', 'data-assignee',
                     '<span class="assignee-cell">' . avatar(null, 22) . '<span class="assignee-name">Unassigned</span></span>')
                 . '</div></div></div></div>',
         ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);

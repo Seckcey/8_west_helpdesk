@@ -1,7 +1,7 @@
 <?php
 /**
  * POST /api/ticket_action.php — one field change from the ticket menus, the keyboard or the
- * Resolve button. Body: {id, field, value[, chosen]} with strict whitelists; the rules for each
+ * Resolve button. Body: {id, field, value[, chosen][, undo]} with strict whitelists; the rules for each
  * field live in lib/ticket_changes.php. Returns the updated tag HTML for in-place repaint.
  */
 declare(strict_types=1);
@@ -15,6 +15,8 @@ csrf_check();
 $id    = (int)($in['id'] ?? 0);
 $field = (string)($in['field'] ?? '');
 $value = (string)($in['value'] ?? '');
+// An Undo puts a value back. It never asks a customer for a rating and never emails a teammate.
+$undo  = ($in['undo'] ?? false) === true;
 
 $tq = db()->prepare(
     'SELECT t.*,
@@ -33,7 +35,7 @@ switch ($field) {
         if (!array_key_exists($value, STATUS_META)) json_out(['ok' => false, 'error' => 'bad status'], 422);
         // "chosen" is sent only when a person picked this exact status (a menu, the Resolve button).
         // Without it a resolve still saves, but never asks the customer for a rating.
-        $change = ticket_change_status($ticket, $value, ($in['chosen'] ?? false) === true);
+        $change = ticket_change_status($ticket, $value, !$undo && ($in['chosen'] ?? false) === true);
         $toast = $change['toast'];
         break;
 
@@ -43,7 +45,7 @@ switch ($field) {
         break;
 
     case 'assignee':
-        $toast = ticket_change_assignee($ticket, $user, $value)['toast'];
+        $toast = ticket_change_assignee($ticket, $user, $value, !$undo)['toast'];
         break;
 
     default:

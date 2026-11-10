@@ -1434,7 +1434,6 @@ img { display: block; }
 .send-choice-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .send-choice-title { font-weight: 600; }
 .send-choice-detail { font-size: 12.5px; color: var(--muted-strong); }
-.send-choice-keys { display: inline-flex; gap: 3px; flex: none; }
 .composer-note #reply-box { background: var(--note-bg); border-color: var(--gold-soft-border); }
 .composer-note .composer-tab.tab-on { background: var(--gold-soft-bg); color: var(--gold); }
 
@@ -1618,7 +1617,7 @@ html[data-motion="reduce"] *,html[data-motion="reduce"] *::before,html[data-moti
   .send-split .send-more { flex: none; width: auto; }
   .send-menu { left: 0; width: auto; max-width: none; }
   .menu-filter { font-size: 16px; }
-  .menu-btn .kbd, .menu-item .kbd, .toast-undo .kbd, .send-choice-keys, .composer-keys { display: none; }
+  .menu-btn .kbd, .menu-item .kbd, .toast-undo .kbd, .composer-keys { display: none; }
 }
 
 /* Native checkboxes and radios: the checked fill follows the action blue; the box keeps a 3:1 edge. */

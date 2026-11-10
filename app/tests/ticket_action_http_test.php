@@ -65,6 +65,7 @@ try {
         [7007, 1, 11, null, 'Portal request', 'portal', 'open'],       // opened in the portal: no contact
         [7008, 1, 11, 31, 'Limited account', 'email', 'open'],         // worked by the account that may not remove rows
         [7009, 1, 11, 31, 'Old survey', 'email', 'open'],
+        [7010, 1, 11, 31, 'Undo came late', 'email', 'open'],
         [8001, 2, 21, null, 'Another tenant', 'email', 'open'],
     ] as $row) {
         $t->execute($row);
@@ -198,6 +199,12 @@ try {
         $pdo->prepare('UPDATE mail_queue SET sent_at = UTC_TIMESTAMP() WHERE ticket_id = ? AND sent_at IS NULL AND attempts < max_attempts')->execute([$id]);
     };
     /** How many of a ticket's emails the dispatcher would send if it ran this second. */
+    /** How many of a ticket's surveys a report for the last day would count as sent (business_reports.php counts by creation time). */
+    $sentInWindow = static function (int $id) use ($pdo): int {
+        $q = $pdo->prepare('SELECT COUNT(*) FROM csat WHERE ticket_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY) AND created_at < DATE_ADD(UTC_TIMESTAMP(), INTERVAL 1 DAY)');
+        $q->execute([$id]);
+        return (int)$q->fetchColumn();
+    };
     $dueNow = static function (int $id) use ($pdo): int {
         $q = $pdo->prepare('SELECT COUNT(*) FROM mail_queue WHERE ticket_id = ? AND sent_at IS NULL AND next_try_at <= UTC_TIMESTAMP() AND attempts < max_attempts');
         $q->execute([$id]);
@@ -271,11 +278,17 @@ try {
     $check($json['toast'] === 'Resolved. Dana gets a short survey in a minute.', 'the toast says who is asked and when');
 
     // Undo inside the window: the status goes back and the survey never leaves.
-    [$status, $json] = $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'in_progress']);
+    [$status, $json] = $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'in_progress', 'undo' => true]);
     $check($status === 200 && $ticket(7001)['status'] === 'in_progress' && $ticket(7001)['resolved_at'] === null, 'Undo puts the status back');
     $check($surveys(7001) === 0 && $mail(7001) === [] && $dueNow(7001) === 0, 'and withdraws the survey: nothing is left to send');
     $check($withdrawn(7001) === ['Cancelled: ticket reopened before its survey was sent'], 'the email is cancelled in place, with the reason, not removed');
     $check($json['toast'] === 'Reopened as In progress. The survey was not sent.', 'and says the survey was not sent');
+
+    // An Undo that lands on Resolved, even one that claims a person chose it, asks nobody.
+    [$status, $json] = $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'resolved', 'chosen' => true, 'undo' => true]);
+    $check($status === 200 && $ticket(7001)['status'] === 'resolved' && $surveys(7001) === 0 && $mail(7001) === [] && $json['toast'] === 'Resolved. No survey is sent.',
+        'an Undo back to Resolved sends no survey');
+    $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'in_progress', 'undo' => true]);
 
     // A later, real resolve still asks. Once it has been sent it is asked only that once.
     $act(102, ['id' => 7001, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
@@ -330,6 +343,16 @@ try {
 
     $check($withdrawn(7002) === array_fill(0, 2, 'Cancelled: ticket reassigned before this was sent'), 'both withdrawn emails are cancelled in place, with the reason');
 
+    // Undo of an owner change puts the earlier owner back and tells nobody.
+    $act(102, ['id' => 7002, 'field' => 'assignee', 'value' => '103']);
+    $act(102, ['id' => 7002, 'field' => 'assignee', 'value' => '101']);
+    [$status, $json] = $act(102, ['id' => 7002, 'field' => 'assignee', 'value' => '103', 'undo' => true]);
+    $check($status === 200 && (int)$ticket(7002)['assignee_id'] === 103 && $mail(7002, '[#7002] Assigned to you: ') === [] && $json['toast'] === 'Assigned to Jon Sato.',
+        'Undo re-assigns the earlier owner, withdraws the email to the other, and sends none of its own');
+    [$status, $json] = $act(102, ['id' => 7002, 'field' => 'assignee', 'value' => 'none', 'undo' => true]);
+    $check($ticket(7002)['assignee_id'] === null && $mail(7002, '[#7002] Assigned to you: ') === [], 'Undo back to nobody sends nothing either');
+    $pdo->exec("UPDATE mail_queue SET ticket_id = NULL WHERE ticket_id = 7002");   // start the next checks from a clean slate
+
     $act(102, ['id' => 7002, 'field' => 'assignee', 'value' => '103']);
     $deliver(7002);
     $act(102, ['id' => 7002, 'field' => 'assignee', 'value' => 'none']);
@@ -351,9 +374,10 @@ try {
     $x = $page(102, 7007);
     $check($text($x, '//*[@id="composer-hint"]') === 'Priya sees this in the portal. No email is sent. The ticket moves to In progress.', 'a portal request: seen in the portal, no email');
     $check(str_contains($text($x, '//button[@name="after_status"][@value="resolved"]'), 'No survey is sent.'), 'and no survey on resolve');
-    foreach ([7002 => 'no contact', 7003 => 'a machine address'] as $id => $why) {
-        $check(str_starts_with($text($page(102, $id), '//*[@id="composer-hint"]'), 'No customer is attached. This reply is saved on the ticket only.'), "a ticket with $why promises no email");
-    }
+    $check($text($page(102, 7002), '//*[@id="composer-hint"]') === 'No customer is attached. This reply is saved on the ticket only. The ticket moves to In progress.',
+        'a ticket with no contact says nobody is attached');
+    $check($text($page(102, 7003), '//*[@id="composer-hint"]') === 'Scanner\'s address cannot receive mail, so no email is sent. This reply is saved on the ticket only. The ticket moves to In progress.',
+        'a contact with a machine address is named, and the page says its address cannot receive mail');
 
     // A plain Send: Open becomes In progress, the contact is emailed, nobody is surveyed.
     $r = $send(102, 7004, ['reply' => 'Looking at it now.']);
@@ -384,7 +408,7 @@ try {
         && $attr($x, '//*[@id="ticket-flash"]', 'data-undo-status') === 'waiting', 'the page says so and Undo goes back to Waiting');
     $check($x->query('//button[@id="reopen-btn"][not(@hidden)]')->length === 1 && str_contains($text($x, '//button[@name="after_status"][@value="resolved"]'), 'No survey is sent.'),
         'a resolved ticket offers Reopen, and promises no second survey');
-    [$status] = $act(102, ['id' => 7004, 'field' => 'status', 'value' => 'waiting']);
+    [$status] = $act(102, ['id' => 7004, 'field' => 'status', 'value' => 'waiting', 'undo' => true]);
     $check($status === 200 && $ticket(7004)['status'] === 'waiting' && $surveys(7004) === 0 && $mail(7004, '[#7004] Resolved: ') === []
         && count($mail(7004, '[#7004] Mailbox will not sync')) === 3, 'that Undo withdraws the survey and leaves the replies alone');
 
@@ -419,10 +443,13 @@ try {
     $token = (string)$pdo->query('SELECT token FROM csat WHERE ticket_id = 7008')->fetchColumn();
     $check($status === 200 && $surveys(7008) === 1 && count($survey) === 1 && $held($survey[0]) && $json['toast'] === 'Resolved. Dana gets a short survey in a minute.',
         'limited account: a chosen Resolve holds one survey');
-    [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'in_progress']);
+    $check($sentInWindow(7008) === 1, 'while it is held, the survey counts as sent in the report window it was asked in');
+    [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'in_progress', 'undo' => true]);
     $check($status === 200 && $ticket(7008)['status'] === 'in_progress' && $mail(7008) === [] && $dueNow(7008) === 0
         && $withdrawn(7008) === ['Cancelled: ticket reopened before its survey was sent'], 'limited account: Undo still stops the survey email from ever leaving');
     $check($json['toast'] === 'Reopened as In progress. The survey was not sent.' && $surveys(7008) === 1, 'the survey row it could not remove stays, unanswered');
+    $check($sentInWindow(7008) === 0 && (string)$pdo->query('SELECT created_at FROM csat WHERE ticket_id = 7008')->fetchColumn() === '1970-01-01 00:00:00',
+        'and is marked withdrawn on the row, so no report window counts it as sent');
     $x = $page(102, 7008);
     $check(str_contains($text($x, '//button[@name="after_status"][@value="resolved"]'), 'Dana gets a short survey.'), 'and the page still promises a survey on the next resolve');
     [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
@@ -431,6 +458,7 @@ try {
         'limited account: resolving again reuses that one survey');
     $check(count($survey) === 1 && $held($survey[0]) && str_contains($survey[0]['body_text'], 'csat.php?t=' . $token . '&s=3')
         && $json['toast'] === 'Resolved. Dana gets a short survey in a minute.', 'and holds one new email carrying it');
+    $check($sentInWindow(7008) === 1, 'now that it is really asked, it counts in the window of the real resolve');
     $deliver(7008);
     $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'open', 'chosen' => true]);
     [$status, $json] = $act(102, ['id' => 7008, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
@@ -444,6 +472,18 @@ try {
         'limited account: reassigning tells only the person who ends up with the ticket');
     $r = $send(102, 7008, ['reply' => 'All set.', 'after_status' => 'waiting']);
     $check($r['status'] === 302 && $ticket(7008)['status'] === 'waiting' && count($mail(7008, '[#7008] Limited account')) === 1, 'limited account: Send and wait saves, parks and emails the reply');
+
+    // Undo pressed after the hold ran out: the dispatcher may already have the email in hand.
+    $act(102, ['id' => 7010, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
+    $pdo->exec("UPDATE mail_queue SET next_try_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 5 SECOND) WHERE ticket_id = 7010");
+    [$status, $json] = $act(102, ['id' => 7010, 'field' => 'status', 'value' => 'in_progress', 'undo' => true]);
+    $check($status === 200 && $ticket(7010)['status'] === 'in_progress' && $json['toast'] === 'Reopened as In progress. The survey may already have been sent.',
+        'an Undo that comes after the hold says the survey may already have been sent');
+    $check($mail(7010) === [] && $withdrawn(7010) === ['Cancelled: ticket reopened before its survey was sent (too late to be sure: it may have been sent)'],
+        'the email is still cancelled, with a reason that says it was too late to be sure');
+    $check($surveys(7010) === 1 && $sentInWindow(7010) === 1, 'and the survey stays counted as asked');
+    [$status, $json] = $act(102, ['id' => 7010, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
+    $check($mail(7010) === [] && $json['toast'] === 'Resolved. Dana was already asked to rate this ticket.', 'so it is never asked a second time');
 
     // A survey with no record of any email (made before mail was queued) counts as asked.
     $pdo->exec("INSERT INTO csat (ticket_id, token) VALUES (7009, REPEAT('c', 40))");

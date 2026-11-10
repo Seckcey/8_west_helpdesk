@@ -162,13 +162,15 @@
   }
 
   /* One field change. `chosen` tells the server a person picked this exact status, which is the
-     only way a resolve may ask the customer for a rating; an Undo never says it. Every change can
-     be taken back from its toast unless `undoable` is false. */
+     only way a resolve may ask the customer for a rating. An Undo says `undo` instead: it puts a
+     value back, asks nobody for a rating and emails nobody. Every change can be taken back from
+     its toast unless `undoable` is false. */
   async function ticketAction(id, field, value, options = {}) {
     const before = options.undoable === false ? undefined : currentFieldValue(field, id);
     try {
       const body = { id, field, value };
       if (options.chosen === true && field === "status") body.chosen = true;
+      if (options.undo === true) body.undo = true;
       const r = await api("/api/ticket_action.php", body);
       if (!r.ok) return;
       const holder = ticketFieldHolder(id);
@@ -180,7 +182,7 @@
       const after = currentFieldValue(field, id);
       const undoValue = field === "assignee" && before === "" ? "none" : before;
       toast(r.toast, before !== undefined && after !== undefined && before !== after
-        ? { undo: () => ticketAction(id, field, undoValue, { undoable: false }) } : {});
+        ? { undo: () => ticketAction(id, field, undoValue, { undoable: false, undo: true }) } : {});
       // In-place repaint where the fragments exist
       const scope = document;
       $$("[data-chip]", scope).forEach((el) => { el.innerHTML = r.chip; });
@@ -241,7 +243,7 @@
   /* ------------------------------------------------------------------ */
   /* Menus: status, priority and owner                                   */
   /* ------------------------------------------------------------------ */
-  /* One menu at a time, opened from its button on the ticket page or with S, P or A on a ticket
+  /* One menu at a time, opened from its button on the ticket page or with S, P or T on a ticket
      or a highlighted queue row. It owns the keyboard while open: arrows and Enter, a number for
      one of the first nine choices, Escape to close. The owner menu adds a box to find a teammate.
      Choices and their tags come rendered from the server (the page's data island). */
@@ -1239,6 +1241,13 @@
       { group: "Actions", title: "Saved replies", hint: "manage / snippets", run: () => nav("/snippets.php") },
       { group: "Actions", title: "Sign out", run: signOut },
     ];
+    // On a ticket, "send and set the next status" is here as well as in the Send menu.
+    if (composer) {
+      composer.sendChoices().forEach((choice) => actions.unshift({
+        group: "This ticket", title: choice.title, hint: choice.detail,
+        run: () => { closePalette(); composer.send(choice.after); },
+      }));
+    }
     const tickets = data.tickets.map((t) => ({
       group: "Tickets",
       ticketId: t.id,
@@ -1411,15 +1420,12 @@
     // Where there is no palette the shortcut is left to the browser.
     if (mod && key === "k") { if (!paletteRoot()) return; e.preventDefault(); paletteOpen ? closePalette() : openPalette(); return; }
 
-    // Ctrl/Cmd+Enter sends the reply (works on any page where the box exists). With Shift it also
-    // sets the ticket waiting, with Alt it also resolves it.
+    // Ctrl/Cmd+Enter sends the reply (works on any page where the box exists). It is a plain send
+    // whatever else is held: setting a status with the send is a choice made in the Send menu or
+    // the palette, never a chord (Ctrl+Alt is the AltGr key on many keyboards).
     if (mod && key === "enter") {
       const form = $("#reply-form");
-      if (form && isTyping(e.target)) {
-        e.preventDefault();
-        if (composer) composer.send(e.shiftKey ? "waiting" : e.altKey ? "resolved" : "");
-        else form.requestSubmit();
-      }
+      if (form && isTyping(e.target)) { e.preventDefault(); form.requestSubmit(); }
       return;
     }
 
@@ -1470,6 +1476,7 @@
       case "s":
       case "p":
       case "a":
+      case "t":
       case "e": {
         // The open ticket, or the highlighted queue row.
         const ticketPageId = $("#thread") ? $("#thread").dataset.ticketId : null;
@@ -1482,7 +1489,10 @@
           else startTimer(id);
           break;
         }
-        // S, P and A open that field's menu: under its button on a ticket, under its cell on a row.
+        // A assigns the ticket to me (again to unassign), in one key, as it always has.
+        if (key === "a") { ticketAction(id, "assignee", "me"); break; }
+        // S, P and T open a menu: status, priority, and who to give the ticket to. It opens under
+        // its button on a ticket and under its cell on a queue row.
         const field = key === "s" ? "status" : key === "p" ? "priority" : "assignee";
         const button = ticketPageId ? $(`.menu-btn[data-action="${field}"]`) : null;
         const cell = !ticketPageId && row
@@ -2024,6 +2034,13 @@
       });
     }
 
+    // The choices the Send menu offers, in its order, for the palette.
+    const sendChoices = () => $$('button[name="after_status"]', form).reverse().map((button) => ({
+      after: button.value,
+      title: $(".send-choice-title", button)?.textContent || button.textContent.trim(),
+      detail: $(".send-choice-detail", button)?.textContent || "",
+    }));
+
     function sendWith(after) {
       if (!after) { form.requestSubmit(); return; }
       if (modeInput.value === "note") { toast("An internal note is saved as it is. Switch to Reply to send and set a status."); return; }
@@ -2214,7 +2231,7 @@
     heartbeat();
     setInterval(heartbeat, 20000);
 
-    return { setMode, paintHint, send: sendWith, focus: (mode) => { setMode(mode); box.focus(); } };
+    return { setMode, paintHint, send: sendWith, sendChoices, focus: (mode) => { setMode(mode); box.focus(); } };
   })();
 
   /* After "Send and resolve" (or "... wait") the page comes back saying what happened, with Undo. */
@@ -2224,12 +2241,11 @@
     if (!flash || !thread || !flash.dataset.toast) return;
     const back = flash.dataset.undoStatus;
     toast(flash.dataset.toast, back
-      ? { undo: () => ticketAction(thread.dataset.ticketId, "status", back, { undoable: false }) } : {});
+      ? { undo: () => ticketAction(thread.dataset.ticketId, "status", back, { undoable: false, undo: true }) } : {});
   })();
 
   if (IS_MAC) {
     $$("[data-mod-key]").forEach((el) => { el.textContent = MOD_KEY; });
-    $$("[data-alt-key]").forEach((el) => { el.textContent = "Option"; });
   }
 
   /* ------------------------------------------------------------------ */
@@ -2274,12 +2290,13 @@
           <p><kbd class="kbd">1</kbd>–<kbd class="kbd">5</kbd> filters</p>${bulk ? `
           <p><kbd class="kbd">x</kbd> select · <kbd class="kbd">d</kbd> delete selected</p>` : ""}</div>
         <div><h4>Any ticket</h4>
-          <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">a</kbd> assign</p>
-          <p>then <kbd class="kbd">↑↓</kbd> and <kbd class="kbd">↵</kbd>, or a number · <kbd class="kbd">z</kbd> undo</p>
+          <p><kbd class="kbd">a</kbd> assign to me · <kbd class="kbd">z</kbd> undo</p>
+          <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">t</kbd> give to a teammate</p>
+          <p>these three open a menu: <kbd class="kbd">↑↓</kbd> and <kbd class="kbd">↵</kbd>, or a number</p>
           <p><kbd class="kbd">e</kbd> timer · <kbd class="kbd">r</kbd> reply · <kbd class="kbd">n</kbd> note</p></div>
         <div><h4>Composer</h4>
           <p><kbd class="kbd">/</kbd> saved replies · <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">↵</kbd> send</p>
-          <p>add <kbd class="kbd">Shift</kbd> to send and wait · <kbd class="kbd">${IS_MAC ? "Option" : "Alt"}</kbd> to send and resolve</p>
+          <p>send and wait, send and resolve: the arrow beside Send, or <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd></p>
           <p>matching timer logs only after server-confirmed Send</p></div>
         <div><h4>Everywhere</h4>
           <p><kbd class="kbd">⌘K</kbd> palette (search reaches every message)</p>
