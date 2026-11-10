@@ -5,7 +5,7 @@
  * Words only. Who gets an email, and when, is decided by the callers (intake.php, mail_notify_reply()
  * and csat_send()) and by the mail-loop guard; nothing here sends or decides anything. Every email is
  * plain text, starts with the way that always works (answer this email), and adds the portal link only
- * for a client that can actually sign in to the portal.
+ * for a client that can actually sign in to the portal, in a sentence that says who can open it there.
  */
 declare(strict_types=1);
 
@@ -49,6 +49,10 @@ function customer_mail_signature(string $businessName): string
 /**
  * The request's page in the customer portal, or null when a link would lead nowhere: the portal is
  * switched off, or this client has no active portal access.
+ *
+ * A request that arrived by email has no portal requester, so in the portal only the client's owners
+ * and admins can open it, and nothing here can tell whether the person being emailed is one of them.
+ * Every sentence that carries this link therefore names who can use it.
  */
 function customer_mail_portal_link(int $tenantId, int $clientId, int $ticketId): ?string
 {
@@ -99,7 +103,7 @@ function customer_mail_received_body(
         'To add more, answer this email.',
     ];
     if ($portalLink !== null) {
-        $lines[] = 'If you have a portal sign-in, you can also follow this request here:';
+        $lines[] = 'Owners and admins of your business can also follow this request in the support portal:';
         $lines[] = $portalLink;
     }
     array_push($lines, '', 'Thank you,', customer_mail_signature($businessName));
@@ -124,7 +128,7 @@ function customer_mail_reply_body(
         'To answer, reply to this email.',
     ];
     if ($portalLink !== null) {
-        $lines[] = 'If you have a portal sign-in, you can also open the request here:';
+        $lines[] = 'Owners and admins of your business can also open this request in the support portal:';
         $lines[] = $portalLink;
     }
     array_push($lines, '', customer_mail_signature($businessName));
@@ -157,7 +161,7 @@ function customer_mail_resolved_body(
         'Still not fixed? Answer this email and the request opens again.',
     ];
     if ($portalLink !== null) {
-        $lines[] = 'If you have a portal sign-in, you can read the whole conversation here:';
+        $lines[] = 'Owners and admins of your business can read the whole conversation in the support portal:';
         $lines[] = $portalLink;
     }
     array_push($lines, '', 'Thank you,', customer_mail_signature($businessName));

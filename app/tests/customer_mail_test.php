@@ -66,7 +66,7 @@ mail_check('received: gives the reply goal in plain words and promises a person'
 mail_check('received: answering the email comes first, the portal link second',
     ($answer = strpos($received, 'To add more, answer this email.')) !== false
     && ($portal = strpos($received, $link)) !== false && $answer < $portal
-    && str_contains($received, 'If you have a portal sign-in, you can also follow this request here:'));
+    && str_contains($received, 'Owners and admins of your business can also follow this request in the support portal:'));
 mail_check('received: signed by the support business',
     str_ends_with($received, "\n\nThank you,\nHarbor IT support"));
 $plain = customer_mail_received_body('', 12, 'Printer', '', '', null);
@@ -82,6 +82,7 @@ mail_check('reply: says who replied and to which request, then carries the reply
     str_starts_with($reply, "Maya from Harbor IT replied to your request \"Front desk printer is offline\":\n\nIs the blue power light on?\n"));
 mail_check('reply: says to answer by email, then links to the request in the portal',
     ($answer = strpos($reply, 'To answer, reply to this email.')) !== false && ($portal = strpos($reply, $link)) !== false && $answer < $portal
+    && str_contains($reply, 'Owners and admins of your business can also open this request in the support portal:')
     && str_ends_with($reply, "\n\nHarbor IT support"));
 mail_check('reply: the portal is a link, not a promise',
     ! str_contains($reply, 'coming soon') && ! str_contains(customer_mail_reply_body('Maya', 'Printer', 'Hello', '', null), 'portal'));
@@ -99,6 +100,14 @@ mail_check('resolved: the three answers are three labelled links with the scores
 mail_check('resolved: says how to reopen, then links to the conversation',
     ($reopen = strpos($resolved, 'Still not fixed? Answer this email and the request opens again.')) !== false
     && ($portal = strpos($resolved, $link)) !== false && $reopen < $portal);
+foreach (['received' => $received, 'reply' => $reply, 'resolved' => $resolved] as $kind => $body) {
+    $lines = explode("\n", $body);
+    $before = (string)($lines[array_search($link, $lines, true) - 1] ?? '');
+    // Only a client's owners and admins can open an emailed request in the portal, and the email cannot
+    // know whether its reader is one, so the sentence must not promise the link to "you".
+    mail_check("{$kind}: the line that introduces the link says who can open it, and does not promise it to the reader",
+        str_starts_with($before, 'Owners and admins of your business can ') && ! preg_match('/\byou can\b|\byour sign-in\b/i', $before));
+}
 
 /* ---- Wording that must not come back ----------------------------------------------------------- */
 $all = (string)preg_replace('~https://\S+~', '', $received . $plain . $reply . $resolved);   // words only: addresses are checked above
