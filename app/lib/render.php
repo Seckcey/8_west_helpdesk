@@ -9,7 +9,7 @@ require_once __DIR__ . '/westy.php';
 
 const STATUS_META = [
     'open'        => ['Open',        'blue'],
-    'in_progress' => ['In Progress', 'cyan'],
+    'in_progress' => ['In progress', 'cyan'],
     'waiting'     => ['Waiting',     'gold'],
     'resolved'    => ['Resolved',    'mint'],
 ];
@@ -77,7 +77,8 @@ function ticket_owner_avatar(array $ticket, int $size = 26): string
 function ticket_row(array $t, bool $linkWrap = true): string
 {
     $url = '/ticket.php?id=' . (int)$t['id'];
-    return '<a href="' . $url . '" class="trow" data-ticket-id="' . (int)$t['id'] . '" data-status="' . h($t['status']) . '" data-priority="' . h($t['priority']) . '" role="row">'
+    return '<a href="' . $url . '" class="trow" data-ticket-id="' . (int)$t['id'] . '" data-status="' . h($t['status']) . '" data-priority="' . h($t['priority']) . '"'
+        . ' data-owner="' . (!empty($t['assignee_id']) ? (int)$t['assignee_id'] : '') . '" role="row">'
         . '<span class="trow-pri">' . priority_glyph($t['priority']) . '</span>'
         . '<span class="trow-num">#' . (int)$t['id'] . '</span>'
         . '<span class="trow-main"><span class="trow-subject">' . h($t['subject']) . '</span>'
@@ -87,6 +88,100 @@ function ticket_row(array $t, bool $linkWrap = true): string
         . '<span class="trow-sla">' . sla_lamp($t) . '</span>'
         . '<span class="trow-age" title="Opened">' . rel_time($t['created_at']) . '</span>'
         . '</a>';
+}
+
+/**
+ * What the status, priority and owner menus offer. The labels and tags are rendered here, once, so
+ * the script never spells a status or a priority itself. $team is the tenant's active members.
+ *
+ * @param list<array{id:int|string,full_name:string,initials:string,color:string}> $team
+ */
+function ticket_menu_choices(array $team): array
+{
+    $status = [];
+    foreach (STATUS_META as $value => [$label]) {
+        $status[] = ['value' => $value, 'label' => $label, 'html' => status_chip($value)];
+    }
+    $priority = [];
+    foreach (PRIORITY_META as $value => [$label]) {
+        $priority[] = ['value' => $value, 'label' => $label, 'html' => priority_glyph($value, true)];
+    }
+    return [
+        'status' => $status,
+        'priority' => $priority,
+        'team' => array_map(static fn(array $member): array => [
+            'id' => (int)$member['id'], 'name' => (string)$member['full_name'],
+            'initials' => (string)$member['initials'], 'color' => (string)$member['color'],
+        ], $team),
+    ];
+}
+
+/** The signed-in tenant's active members, A to Z: the people a ticket can be given to. */
+function ticket_menu_team(): array
+{
+    $team = db()->prepare('SELECT id, full_name, initials, color FROM users WHERE tenant_id = ? AND is_active = 1 ORDER BY full_name, id');
+    $team->execute([tenant_id()]);
+    return $team->fetchAll();
+}
+
+/**
+ * One row of the ticket's Details card: a label and a button that opens that field's menu.
+ * $hook is the attribute the script repaints after a change (data-chip, data-pri, data-assignee);
+ * $valueHtml is already-escaped markup from status_chip(), priority_glyph() or the owner cell.
+ */
+function ticket_menu_button(string $field, int $ticketId, string $label, string $key, string $hook, string $valueHtml): string
+{
+    $labelId = 'ticket-' . $field . '-label';
+    $valueId = 'ticket-' . $field . '-value';
+    return '<div class="rail-prop">'
+        . '<span class="rail-k" id="' . h($labelId) . '">' . h($label) . '</span>'
+        . '<button type="button" class="rail-btn menu-btn" data-action="' . h($field) . '" data-id="' . $ticketId . '"'
+        . ' aria-haspopup="listbox" aria-expanded="false" aria-labelledby="' . h($labelId) . ' ' . h($valueId) . '">'
+        . '<span class="rail-v" id="' . h($valueId) . '" ' . h($hook) . '>' . $valueHtml . '</span>'
+        . '<kbd class="kbd" aria-hidden="true">' . h($key) . '</kbd>'
+        . '<svg class="menu-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        . '</button></div>';
+}
+
+/** Resolve and its way back. Both are always in the page; the one that does not apply is hidden. */
+function ticket_resolve_buttons(int $ticketId, string $status): string
+{
+    $resolved = $status === 'resolved';
+    return '<button type="button" class="btn-secondary" id="resolve-btn" data-id="' . $ticketId . '" data-set-status="resolved"' . ($resolved ? ' hidden' : '') . '>'
+        . '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 4.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        . 'Resolve</button>'
+        . '<button type="button" class="btn-secondary" id="reopen-btn" data-id="' . $ticketId . '" data-set-status="open"' . ($resolved ? '' : ' hidden') . '>Reopen</button>';
+}
+
+/**
+ * The composer's Send button and the two "send and set the next status" choices beside it. The
+ * choices are ordinary submit buttons that carry after_status, so they work without script;
+ * the script only opens the menu and wires the keys. $surveyOnResolve says whether resolving now
+ * would ask the customer for a rating, so the menu can say so truthfully. $waitingDays is how long
+ * a waiting ticket stays parked.
+ */
+function ticket_send_control(bool $surveyOnResolve, string $surveyName, int $waitingDays): string
+{
+    $who = $surveyName !== '' ? $surveyName : 'The customer';
+    $choice = static fn(string $value, string $title, string $detail, string $keys): string =>
+        '<button type="submit" class="menu-item send-choice" name="after_status" value="' . h($value) . '" role="menuitem">'
+        . '<span class="send-choice-text"><span class="send-choice-title">' . h($title) . '</span>'
+        . '<span class="send-choice-detail">' . h($detail) . '</span></span>'
+        . '<span class="send-choice-keys" aria-hidden="true">' . $keys . '</span></button>';
+    $mod = '<kbd class="kbd" data-mod-key>Ctrl</kbd>';
+    return '<div class="send-split" id="send-split">'
+        . '<button type="submit" class="btn-primary send-main" id="composer-send">Send reply</button>'
+        . '<button type="button" class="btn-primary send-more" id="composer-send-more" aria-haspopup="menu" aria-expanded="false" aria-controls="send-menu" aria-label="More ways to send">'
+        . '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        . '</button>'
+        . '<div class="menu-pop send-menu" id="send-menu" role="menu" aria-label="Send and set the next status" hidden>'
+        . $choice('waiting', 'Send and wait for the customer',
+            'Comes back in ' . $waitingDays . ' days if they stay silent.',
+            $mod . '<kbd class="kbd">Shift</kbd><kbd class="kbd">Enter</kbd>')
+        . $choice('resolved', 'Send and resolve',
+            $surveyOnResolve ? $who . ' gets a short survey.' : 'No survey is sent.',
+            $mod . '<kbd class="kbd" data-alt-key>Alt</kbd><kbd class="kbd">Enter</kbd>')
+        . '</div></div>';
 }
 
 /**
@@ -305,7 +400,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261031a">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261109b">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -360,13 +455,13 @@ function page_bottom(array $paletteData = []): void
   </div>
 </div>
 <div id="palette-root"></div>
-<div id="toasts" class="toasts"></div>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 <?php westy_bubble_render(); ?>
 <script id="palette-data" type="application/json"><?= json_encode($paletteData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=w365v040k" defer></script>
+<script src="/assets/js/app.js?v=20261109b" defer></script>
 </body>
 </html>
     <?php
@@ -392,5 +487,7 @@ function palette_data(): array
         'clients' => array_map(static fn($r) => [
             'id' => (int)$r['id'], 'name' => $r['name'], 'domain' => $r['domain'],
         ], $clients->fetchAll()),
+        // What the status, priority and owner menus offer (queue and ticket pages).
+        'menus' => ticket_menu_choices(ticket_menu_team()),
     ];
 }

@@ -135,6 +135,12 @@ jobs:
       SAFEHARBOR_TICKET_DELETE_TEST_PORT: 3306
       SAFEHARBOR_TICKET_DELETE_TEST_USER: root
       SAFEHARBOR_TICKET_DELETE_TEST_PASS: safeharbor-test-root
+      SAFEHARBOR_TICKET_ACTION_TEST_DISPOSABLE_SERVER: '1'
+      SAFEHARBOR_TICKET_ACTION_TEST_DB: safeharbor_ticket_action_test
+      SAFEHARBOR_TICKET_ACTION_TEST_HOST: 127.0.0.1
+      SAFEHARBOR_TICKET_ACTION_TEST_PORT: 3306
+      SAFEHARBOR_TICKET_ACTION_TEST_USER: root
+      SAFEHARBOR_TICKET_ACTION_TEST_PASS: safeharbor-test-root
       SAFEHARBOR_CROSS_SITE_TEST_DISPOSABLE_SERVER: '1'
       SAFEHARBOR_CROSS_SITE_TEST_DB: safeharbor_cross_site_test
       SAFEHARBOR_CROSS_SITE_TEST_HOST: 127.0.0.1
@@ -220,6 +226,7 @@ jobs:
           php app/tests/westy_hardware_test.php
           php app/tests/westy_billing_test.php
           php app/tests/westy_queue_owner_test.php
+          php app/tests/ticket_controls_render_test.php
           php app/tests/westy_mail_graph_test.php
           php app/tests/westy_mail_poll_test.php
           php app/tests/service_goals_test.php
@@ -285,6 +292,7 @@ jobs:
           php app/tests/ticket_search_http_test.php
           php app/tests/ticket_delete_mysql_test.php
           php app/tests/ticket_bulk_delete_http_test.php
+          php app/tests/ticket_action_http_test.php
           php app/tests/cross_site_session_http_test.php
           php app/tests/csrf_http_test.php
           php app/tests/staff_logout_http_test.php
@@ -359,6 +367,7 @@ jobs:
           node tools/shots/companion-navigation.test.mjs
           node tools/shots/westy-workflow-contract.test.mjs
           node tools/shots/ticket-bulk-delete-contract.test.mjs
+          node tools/shots/ticket-menus.test.mjs
           node tools/shots/palette-search.test.mjs
           node tools/shots/signin-palette.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs

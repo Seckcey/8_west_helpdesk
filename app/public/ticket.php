@@ -5,6 +5,7 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/ticket_changes.php';
 require_once __DIR__ . '/../lib/mailer.php';
 require_once __DIR__ . '/../lib/attachments.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
@@ -27,6 +28,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_SESSION['time_entry_notice'
 }
 
 $id = (int)($_GET['id'] ?? 0);
+// "Send and resolve" and "Send and wait" say what they did after the redirect, with a way back.
+$ticketFlash = null;
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_SESSION['ticket_flash'])) {
+    $flash = $_SESSION['ticket_flash'];
+    unset($_SESSION['ticket_flash']);
+    if (is_array($flash) && (int)($flash['ticket_id'] ?? 0) === $id) $ticketFlash = $flash;
+}
 $stmt = db()->prepare(
     'SELECT t.*,
             (SELECT MIN(m.created_at) FROM messages m WHERE m.ticket_id = t.id AND m.kind = "tech") AS first_response_at,
@@ -102,16 +110,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
         if ($hasFiles) {
             att_store_uploads($id, (int)db()->lastInsertId(), $_FILES['files']);
         }
-        if (!$isNote && $ticket['status'] === 'open') {
-            db()->prepare("UPDATE tickets SET status = 'in_progress' WHERE id = ?")->execute([$id]);
-        }
-        // notify the client contact by email — replies only, never notes
-        if (!$isNote && !empty($ticket['contact_id'])) {
-            $kq = db()->prepare('SELECT email FROM contacts WHERE id = ?');
-            $kq->execute([(int)$ticket['contact_id']]);
-            $contactEmail = (string)($kq->fetch()['email'] ?? '');
-            if ($contactEmail !== '') {
-                mail_notify_reply($ticket, $contactEmail, $user['full_name'], $body);
+        if (!$isNote) {
+            // Send and set the next status in one act (replies only). A plain Send keeps its
+            // rule: an Open ticket becomes In progress, any other status stays as it is.
+            $after = (string)($_POST['after_status'] ?? '');
+            $before = (string)$ticket['status'];
+            if ($after === 'waiting' || $after === 'resolved') {
+                // The person pressed "Send and resolve" (or "... wait"): that is a chosen status.
+                $change = ticket_change_status($ticket, $after, true);
+                $_SESSION['ticket_flash'] = [
+                    'ticket_id' => $id,
+                    'toast' => 'Reply sent. ' . $change['toast'],
+                    // Undo puts the status where a plain Send would have left it.
+                    'undo_status' => !$change['changed'] ? '' : ($before === 'open' ? 'in_progress' : $before),
+                ];
+            } elseif ($before === 'open') {
+                ticket_change_status($ticket, 'in_progress', false);
+            }
+            // notify the client contact by email — replies only, never notes. The composer's
+            // hint is built from the same answer, so it cannot promise an email that is not sent.
+            $replyContact = ticket_reply_audience($ticket)['contact'];
+            if ($replyContact !== null) {
+                mail_notify_reply($ticket, $replyContact['email'], $user['full_name'], $body);
             }
         }
     }
@@ -200,8 +220,12 @@ $thread = $mq->fetchAll();
 $threadHidden = max(0, $threadTotal - count($thread));
 $ticketAtts = att_for_ticket($id);
 
-$team = db()->prepare('SELECT full_name, initials, color FROM users WHERE tenant_id = ? AND is_active = 1 ORDER BY id');
-$team->execute([tenant_id()]);
+// Who a reply reaches and how, and whether resolving would ask them for a rating: the composer
+// says both in plain words before anything is sent.
+$replyAudience = ticket_reply_audience($ticket);
+$surveyOnResolve = ticket_survey_would_send($ticket, $replyAudience['contact']);
+$replyHint = ticket_reply_hint($replyAudience);
+$replyOpenMove = 'The ticket moves to ' . STATUS_META['in_progress'][0] . '.';
 
 // Saved replies + the merge values "/" resolves at insert time
 $cq2 = db()->prepare('SELECT id, title, body FROM canned_responses WHERE tenant_id = ? ORDER BY title');
@@ -250,12 +274,16 @@ page_top($user, '#' . $id, 'queue');
   <?php if ($timeEntryNotice !== null): ?>
     <div class="banner banner-warn"><?= h($timeEntryNotice) ?></div>
   <?php endif; ?>
+  <?php if ($ticketFlash !== null): ?>
+    <span id="ticket-flash" data-toast="<?= h((string)($ticketFlash['toast'] ?? '')) ?>" data-undo-status="<?= h((string)($ticketFlash['undo_status'] ?? '')) ?>" hidden></span>
+  <?php endif; ?>
   <div class="ticket-head">
     <span class="ticket-num">#<?= (int)$ticket['id'] ?></span>
     <h1 class="ticket-subject"><?= h($ticket['subject']) ?></h1>
     <span data-chip><?= status_chip($ticket['status']) ?></span>
     <span data-pri><?= priority_glyph($ticket['priority'], true) ?></span>
     <span class="presence-row" id="presence"></span>
+    <?php if (!$mergedInto): ?><span class="ticket-actions"><?= ticket_resolve_buttons((int)$ticket['id'], (string)$ticket['status']) ?></span><?php endif; ?>
   </div>
   <p class="ticket-sub">
     <a class="link" href="/client.php?id=<?= (int)$ticket['client_id'] ?>"><?= h($ticket['client_name']) ?></a>
@@ -263,7 +291,7 @@ page_top($user, '#' . $id, 'queue');
   </p>
 
   <div class="ticket-grid">
-    <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>">
+    <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>" data-status="<?= h($ticket['status']) ?>" data-priority="<?= h($ticket['priority']) ?>" data-owner="<?= !empty($ticket['assignee_id']) ? (int)$ticket['assignee_id'] : '' ?>">
       <?php if ($westyWorkflow): ?><?= westy_workflow_card($westyWorkflow) ?><?php endif; ?>
       <?php if ($westyWorkflow && cfg('westy_email.enabled', false) === true): ?>
         <p><a class="btn-chip" href="/<?= cfg('westy_mail.enabled',false)===true?'westy_mail':'westy_email' ?>.php?ticket_id=<?= (int)$ticket['id'] ?>">Review Westy advice email</a></p>
@@ -305,25 +333,31 @@ page_top($user, '#' . $id, 'queue');
           <input type="hidden" name="ended_at" id="f-timer-ended-at" value="">
           <input type="hidden" name="worked_at" id="f-timer-worked-at" value="">
           <input type="hidden" name="last_message_id" value="<?= (int)($thread ? max(array_column($thread, 'id')) : 0) ?>">
-          <div class="composer-tabs" role="tablist">
-            <button type="button" class="composer-tab tab-on" data-mode="reply" role="tab">Reply <kbd class="kbd">R</kbd></button>
-            <button type="button" class="composer-tab" data-mode="note" role="tab">Internal note <kbd class="kbd">N</kbd></button>
-            <span class="composer-slash-hint"><kbd class="kbd">/</kbd> saved replies</span>
+          <div class="composer-top">
+            <div class="composer-tabs" role="tablist">
+              <button type="button" class="composer-tab tab-on" data-mode="reply" role="tab" aria-selected="true">Reply <kbd class="kbd">R</kbd></button>
+              <button type="button" class="composer-tab" data-mode="note" role="tab" aria-selected="false">Internal note <kbd class="kbd">N</kbd></button>
+            </div>
+            <button type="button" class="btn-link composer-canned" id="canned-open" aria-controls="canned-pop" aria-expanded="false">Saved replies</button>
           </div>
           <div class="canned-pop" id="canned-pop" hidden></div>
-          <textarea name="reply" id="reply-box" rows="3" placeholder="Reply to client…  (⌘Enter to send · / for saved replies)" data-stale-mode="<?= h($staleMode) ?>"><?= $staleDraft !== null ? h($staleDraft) : '' ?></textarea>
+          <textarea name="reply" id="reply-box" rows="3" placeholder="Write your reply" aria-label="Reply" aria-describedby="composer-keys composer-hint"
+                    data-placeholder-reply="Write your reply" data-placeholder-note="Write an internal note" data-stale-mode="<?= h($staleMode) ?>"><?= $staleDraft !== null ? h($staleDraft) : '' ?></textarea>
+          <p class="composer-keys" id="composer-keys"><kbd class="kbd" data-mod-key>Ctrl</kbd><kbd class="kbd">Enter</kbd> to send. Type <kbd class="kbd">/</kbd> for a saved reply.</p>
           <div class="reply-foot">
             <label class="att-pick" title="Attach files (up to 5, 15 MB each)">
-              <input type="file" name="files[]" id="f-files" multiple hidden>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 7.5 8.6 12a3.1 3.1 0 0 1-4.5-4.4l5-5a2.1 2.1 0 0 1 3 3l-5 5a1.1 1.1 0 0 1-1.6-1.5l4.5-4.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <input type="file" name="files[]" id="f-files" class="att-input" multiple>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M13 7.5 8.6 12a3.1 3.1 0 0 1-4.5-4.4l5-5a2.1 2.1 0 0 1 3 3l-5 5a1.1 1.1 0 0 1-1.6-1.5l4.5-4.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Attach a file</span>
               <span id="att-count"></span>
             </label>
-            <span class="reply-hint" id="composer-hint"><?= !empty($ticket['contact_id']) ? 'Replying emails the client and moves Open → In Progress' : 'No client contact is attached. Replies are saved on this ticket.' ?></span>
+            <span class="reply-hint" id="composer-hint" data-audience="<?= h($replyHint) ?>" data-open-move="<?= h($replyOpenMove) ?>"
+                  data-note="Only your team sees an internal note."><?= h($replyHint . ($ticket['status'] === 'open' ? ' ' . $replyOpenMove : '')) ?></span>
             <label class="timer-log-chip" id="timer-log-chip" hidden>
               <input type="checkbox" id="f-billable" name="billable" value="1" checked>
               <span id="timer-log-text">log time</span>
             </label>
-            <button type="submit" class="btn-primary btn-sm" id="composer-send">Send</button>
+            <?= ticket_send_control($surveyOnResolve, $replyAudience['first_name'], intdiv(TICKET_WAITING_HOURS, 24)) ?>
           </div>
         </form>
       </div>
@@ -332,18 +366,12 @@ page_top($user, '#' . $id, 'queue');
 
     <div class="rail">
       <div class="rail-label">Details</div>
-      <div class="rail-stack">
-        <button class="rail-btn" data-action="status" data-id="<?= (int)$ticket['id'] ?>">
-          <span><span class="rail-k">Status</span><span class="rail-v" data-chip><?= status_chip($ticket['status']) ?></span></span><kbd class="kbd">S</kbd>
-        </button>
-        <button class="rail-btn" data-action="priority" data-id="<?= (int)$ticket['id'] ?>">
-          <span><span class="rail-k">Priority</span><span class="rail-v" data-pri><?= priority_glyph($ticket['priority'], true) ?></span></span><kbd class="kbd">P</kbd>
-        </button>
-        <button class="rail-btn" data-action="assignee" data-id="<?= (int)$ticket['id'] ?>">
-          <span><span class="rail-k">Assigned to</span><span class="rail-v" data-assignee>
-            <span class="assignee-cell"><?= ticket_owner_avatar($ticket, 22) ?><span class="assignee-name"><?= h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) ?></span></span>
-          </span></span><kbd class="kbd">A</kbd>
-        </button>
+      <div class="rail-props">
+        <?= ticket_menu_button('status', (int)$ticket['id'], 'Status', 'S', 'data-chip', status_chip($ticket['status'])) ?>
+        <?= ticket_menu_button('priority', (int)$ticket['id'], 'Priority', 'P', 'data-pri', priority_glyph($ticket['priority'], true)) ?>
+        <?= ticket_menu_button('assignee', (int)$ticket['id'], 'Assigned to', 'A', 'data-assignee',
+            '<span class="assignee-cell">' . ticket_owner_avatar($ticket, 22) . '<span class="assignee-name">'
+            . h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) . '</span></span>') ?>
       </div>
 
       <div class="rail-label">Response target</div>
@@ -356,9 +384,6 @@ page_top($user, '#' . $id, 'queue');
       <div class="rail-label">Merge</div>
       <button class="rail-btn" id="merge-btn" data-id="<?= (int)$ticket['id'] ?>">⇄ Merge into another ticket…</button>
       <?php endif; ?>
-
-      <div class="rail-label">Team</div>
-      <div class="team-row"><?php foreach ($team as $mate): ?><?= avatar($mate, 24) ?><?php endforeach; ?></div>
     </div>
   </div>
 </div>

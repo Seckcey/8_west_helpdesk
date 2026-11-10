@@ -87,7 +87,7 @@ page_top($user, 'Queue', 'queue');
     <span><kbd class="kbd">↵</kbd> open</span>
     <span><kbd class="kbd">s</kbd> status</span>
     <span><kbd class="kbd">p</kbd> priority</span>
-    <span><kbd class="kbd">a</kbd> assign to me</span>
+    <span><kbd class="kbd">a</kbd> assign</span>
     <span><kbd class="kbd">e</kbd> start timer</span>
     <?php if ($canDelete && $rows): ?><span><kbd class="kbd">x</kbd> select</span><span><kbd class="kbd">d</kbd> delete selected</span><?php endif; ?>
     <span class="keyhints-right">⌘K for everything else</span>

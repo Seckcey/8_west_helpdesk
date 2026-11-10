@@ -610,6 +610,8 @@ img { display: block; }
 .ticket-num { font-size: 14px; font-weight: 600; color: var(--dim); font-variant-numeric: tabular-nums; }
 .ticket-subject { font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; color: var(--text-strong); overflow-wrap: anywhere; }
 .ticket-sub { margin-top: 6px; font-size: 14px; color: var(--muted-strong); }
+/* Resolve (or Reopen) sits at the right end of the head, after the presence chips. */
+.ticket-actions { display: inline-flex; align-items: center; gap: 8px; }
 
 /* Two columns: the conversation (up to 760px) and one flat details card (320px). */
 .ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; margin-top: 20px; align-items: start; }
@@ -641,6 +643,9 @@ img { display: block; }
 .reply textarea::placeholder { color: var(--dim); }
 .reply-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
 .reply-hint { font-size: 12.5px; color: var(--dim); }
+/* On a staff ticket the hint reads from the left, next to Attach, and takes the room Send leaves. */
+.page-ticket .reply-foot { flex-wrap: wrap; }
+.page-ticket .reply-hint { flex: 1 1 220px; min-width: 0; color: var(--muted-strong); }
 
 /* Right rail. On the ticket pages (staff and portal) it is one flat details card with rows
    separated by space and hairlines; on the client page it stays a column of cards. */
@@ -659,7 +664,6 @@ img { display: block; }
 :is(.page-ticket, .portal-content) .rail > .rail-label { margin: 0; font-family: var(--font); font-size: 13px; font-weight: 600; color: var(--muted-strong); }
 :is(.page-ticket, .portal-content) .rail > .rail-label:first-child { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--text-strong); margin-bottom: 4px; }
 :is(.page-ticket, .portal-content) .rail > .rail-label:not(:first-child) { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
-.rail-stack { display: flex; flex-direction: column; gap: 6px; }
 .rail-btn {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   width: 100%; min-height: 44px; padding: 6px 10px; border-radius: var(--radius-sm);
@@ -671,6 +675,52 @@ img { display: block; }
 .rail-btn:hover .kbd, .rail-btn:focus-visible .kbd { opacity: 1; }
 .rail-k { display: block; font-size: 12.5px; color: var(--dim); }
 .rail-v { display: block; margin-top: 3px; }
+/* Status, priority and owner: a label and a menu button per row, no boxes inside the card. The
+   button looks like a control at rest (surface, strong hairline, chevron) and shows its key. */
+.rail-props { display: flex; flex-direction: column; gap: 8px; }
+.rail-prop { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 10px; }
+.rail-prop .rail-k { font-size: 13px; font-weight: 600; color: var(--muted-strong); }
+.menu-btn { min-height: 36px; padding: 0 10px; border-color: var(--line-strong); background: var(--bg-solid); }
+.menu-btn:hover { background: var(--bg-raised); }
+.menu-btn[aria-expanded="true"] { border-color: var(--focus); background: var(--bg-raised); }
+.menu-btn .rail-v { display: flex; align-items: center; flex: 1; min-width: 0; margin: 0; overflow: hidden; }
+.menu-btn .kbd { opacity: 1; }
+.menu-btn .assignee-cell { min-width: 0; }
+.menu-btn .assignee-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-chevron { flex: none; color: var(--dim); }
+
+/* Menus (status, priority, owner, and the send choices): a surface panel with the popover shadow,
+   36px rows, the current value ticked. Placed by the script under the control that opened it. */
+.menu-pop {
+  position: fixed; z-index: 45; padding: 6px;
+  background: var(--bg-solid); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-pop);
+}
+.menu-filter {
+  width: 100%; min-height: 38px; margin-bottom: 6px; padding: 0 10px;
+  border: 1px solid var(--control-border); border-radius: 8px; background: var(--input-bg);
+  color: var(--text); font: inherit; font-size: 14px;
+}
+.menu-filter:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--sel-ring); }
+.menu-filter::placeholder { color: var(--dim); }
+.menu-list { max-height: min(320px, 50vh); overflow-y: auto; }
+/* The list holds focus while its menu is open; the highlighted row carries the visible mark. */
+.menu-list:focus { outline: none; }
+.menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 8px;
+  border-radius: 8px; font-size: 14px; color: var(--text);
+}
+.menu-item:hover { background: var(--bg-raised); }
+.menu-item.sel { background: var(--sel); }
+.menu-list:focus-visible .menu-item.sel,
+.menu-filter:focus-visible + .menu-list .menu-item.sel { box-shadow: inset 0 0 0 2px var(--focus); }
+.menu-check { display: inline-flex; flex: none; width: 14px; color: var(--accent-2); visibility: hidden; }
+.menu-item[aria-selected="true"] .menu-check { visibility: visible; }
+.menu-item-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.menu-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-item-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--dim); }
+.menu-avatar { width: 22px; height: 22px; background: var(--surface-3); line-height: 1; }
+.menu-empty { padding: 10px 8px; font-size: 13px; color: var(--muted-strong); }
 /* Timer and merge are real buttons: secondary style. */
 .rail > .rail-btn { justify-content: center; min-height: 36px; border-color: var(--line-strong); background: var(--bg-solid); font-size: 14px; font-weight: 600; color: var(--text); }
 .rail > .rail-btn:hover { background: var(--bg-raised); border-color: var(--line-strong); }
@@ -684,7 +734,6 @@ img { display: block; }
 .suite-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); flex: none; }
 .assignee-cell { display: inline-flex; align-items: center; gap: 8px; }
 .assignee-name { font-size: 14px; }
-.team-row { display: flex; gap: 6px; padding: 0; flex-wrap: wrap; }
 .timer-btn { justify-content: center; font-size: 14px; }
 .rail > .timer-btn.timer-on, .timer-btn.timer-on { border-color: transparent; background: var(--mint-soft-bg); color: var(--mint); }
 
@@ -968,6 +1017,15 @@ img { display: block; }
 }
 .btn-ghost:hover { background: var(--bg-raised); }
 .btn-ghost:disabled { opacity: .6; cursor: not-allowed; }
+/* The same secondary at its own width, for an action in a page head. */
+.btn-secondary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 36px; padding: 0 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong); background: var(--bg-solid); color: var(--text);
+  font-size: 14px; font-weight: 600; white-space: nowrap; transition: background .14s;
+}
+.btn-secondary:hover { background: var(--bg-raised); }
+.btn-secondary:disabled { opacity: .6; cursor: default; }
 .btn-danger {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 36px; padding: 0 14px; border-radius: var(--radius-sm);
@@ -1232,11 +1290,21 @@ img { display: block; }
   pointer-events: none;
 }
 .toast {
+  max-width: calc(100vw - 32px);
   padding: 10px 16px; font-size: 14px; color: var(--text);
   background: var(--bg-solid); border: 1px solid var(--line);
   border-radius: 12px; box-shadow: var(--shadow-pop);
   animation: row-in 160ms ease-out;
 }
+/* A toast that can be undone takes clicks; the rest stay click-through like their container. */
+.toast-action { display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 16px; pointer-events: auto; }
+.toast-undo {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  min-height: 30px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--line-strong); background: var(--bg-solid); color: var(--accent-2);
+  font-size: 13px; font-weight: 600;
+}
+.toast-undo:hover { background: var(--bg-raised); }
 
 /* ==========================================================================
    Westy — the suite assistant's chat bubble (advise-only helper + onboarding
@@ -1347,7 +1415,26 @@ img { display: block; }
 .composer-tab.tab-on { color: var(--text); background: var(--surface-3); }
 .composer-tab .kbd { opacity: 0; transition: opacity .1s; }
 .composer-tab:hover .kbd, .composer-tab:focus-visible .kbd { opacity: 1; }
-.composer-slash-hint { margin-left: auto; font-size: 12px; color: var(--dim); display: inline-flex; gap: 4px; align-items: center; }
+.composer-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+/* The keys line under the box: what the placeholder used to carry. */
+.composer-keys { margin-top: 6px; font-size: 12.5px; color: var(--dim); }
+.composer-keys .kbd { margin: 0 2px; }
+
+/* Send and its two "send and set the next status" choices: one split primary button. */
+.send-split { position: relative; display: inline-flex; flex: none; }
+.send-split .send-main { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.send-split:has(.send-more[hidden]) .send-main { border-radius: var(--radius-sm); }
+.send-split .send-more {
+  min-width: 36px; padding: 0; border-left: 1px solid var(--bg-solid);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.send-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; width: max-content; max-width: min(380px, calc(100vw - 48px)); }
+.send-choice { gap: 14px; min-height: 52px; padding: 6px 10px; }
+.send-choice:focus-visible { outline: none; background: var(--sel); box-shadow: inset 0 0 0 2px var(--focus); }
+.send-choice-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.send-choice-title { font-weight: 600; }
+.send-choice-detail { font-size: 12.5px; color: var(--muted-strong); }
+.send-choice-keys { display: inline-flex; gap: 3px; flex: none; }
 .composer-note #reply-box { background: var(--note-bg); border-color: var(--gold-soft-border); }
 .composer-note .composer-tab.tab-on { background: var(--gold-soft-bg); color: var(--gold); }
 
@@ -1386,6 +1473,10 @@ img { display: block; }
   font-size: 13px; font-weight: 600;
 }
 .att-pick:hover { color: var(--text); background: var(--hover); border-color: var(--line); }
+/* The file input stays in the tab order (it is only drawn out of sight), and its label shows focus. */
+.att-pick { position: relative; flex: none; }
+.att-input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; clip-path: inset(50%); }
+.att-pick:has(.att-input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* banners (merge stub, duplicate suggestion, stale-send warning) */
 .banner {
@@ -1514,6 +1605,20 @@ html[data-motion="reduce"] *,html[data-motion="reduce"] *::before,html[data-moti
 @media (max-width: 700px) {
   .filter-pill, .page-actions .btn-primary, .btn-chip, .btn-sm, .btn-link,
   .composer-tab, .rail > .rail-btn { min-height: 44px; }
+  /* The ticket's menus, Resolve, Attach, Send and Undo; key hints are for keyboards. */
+  .menu-btn, .menu-item, .menu-filter, .btn-secondary, .att-pick, .toast-undo,
+  .send-split .btn-primary { min-height: 44px; }
+  .send-split .send-more { min-width: 44px; }
+  /* The composer's foot is a column here. Send takes the full row, so its choices open across
+     the composer and stay on screen. */
+  .page-ticket .reply-foot { flex-wrap: nowrap; }
+  .page-ticket .reply-hint { flex: none; }
+  .send-split { width: 100%; }
+  .send-split .send-main { flex: 1; width: auto; }
+  .send-split .send-more { flex: none; width: auto; }
+  .send-menu { left: 0; width: auto; max-width: none; }
+  .menu-filter { font-size: 16px; }
+  .menu-btn .kbd, .menu-item .kbd, .toast-undo .kbd, .send-choice-keys, .composer-keys { display: none; }
 }
 
 /* Native checkboxes and radios: the checked fill follows the action blue; the box keeps a 3:1 edge. */
