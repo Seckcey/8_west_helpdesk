@@ -410,8 +410,21 @@ function suite_chrome_account_menu(array $user): void
 }
 
 /** Full chrome: head + sidebar + topbar. */
-function page_top(array $user, string $title, string $active): void
+function page_top(array $user, string $title, string $active, array $navCounts = []): void
 {
+    // A read-only rail count; failure leaves it unknown rather than falsely reporting zero.
+    if (!array_key_exists('service-goals', $navCounts)) {
+        $navCounts['service-goals'] = null;
+        require_once __DIR__ . '/service_goal_policy_admin.php';
+        require_once __DIR__ . '/ticket_queue.php';
+        if (service_goal_policy_can_view_history($user)) {
+            try {
+                $navCounts['service-goals'] = queue_risk_count(db(), (int)$user['tenant_id']);
+            } catch (Throwable $error) {
+                error_log('service-goal rail count unavailable: ' . $error::class);
+            }
+        }
+    }
     $nav = [
         ['/',          'Queue',   'queue',   'G Q', '<path d="M2 4h12M2 8h12M2 12h7" stroke-linecap="round"/>'],
         ['/time.php',  'Time',    'time',    'G T', '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 2" stroke-linecap="round"/>'],
@@ -459,7 +472,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261111h">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261111-codex-36-v1">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -475,6 +488,9 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
       <a href="<?= $href ?>" class="nav-item<?= $active === $key ? ' nav-on' : '' ?>">
         <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><?= $icon ?></svg>
         <span class="nav-label"><?= h($label) ?></span>
+        <?php if ($key === 'service-goals' && ($navCounts[$key] ?? 0) > 0): ?>
+          <span class="nav-goal-count" aria-label="<?= (int)$navCounts[$key] ?> tickets at risk"><?= number_format((int)$navCounts[$key]) ?></span>
+        <?php endif; ?>
         <kbd class="kbd nav-kbd"><?= $kbd ?></kbd>
       </a>
       <?php endforeach; ?>

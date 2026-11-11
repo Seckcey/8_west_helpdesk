@@ -99,7 +99,10 @@ foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_
     $chrome .= directory_ui_lift($render, $function) . "\n";
 }
 // The lifted code resolves __DIR__ relative to THIS file, so point its require at lib/ explicitly.
-eval(str_replace("__DIR__ . '/suite_apps.php'", var_export(__DIR__ . '/../lib/suite_apps.php', true), $chrome));
+foreach (['suite_apps.php', 'service_goal_policy_admin.php', 'ticket_queue.php'] as $library) {
+    $chrome = str_replace("__DIR__ . '/" . $library . "'", var_export(__DIR__ . '/../lib/' . $library, true), $chrome);
+}
+eval($chrome);
 
 $uuid = static fn(int $n): string => "{$n}a{$n}b{$n}c{$n}d-{$n}e{$n}f-4a{$n}b-8c{$n}d-{$n}e{$n}f{$n}a{$n}b{$n}c{$n}d";
 $event = static fn(int $n): string => sprintf('e1000000-0000-4000-8000-%012d', $n);

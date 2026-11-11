@@ -92,7 +92,10 @@ foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_
     $chrome .= confirm_ui_lift($render, $function) . "\n";
 }
 // The lifted code resolves __DIR__ relative to THIS file, so point its require at lib/ explicitly.
-eval(str_replace("__DIR__ . '/suite_apps.php'", var_export(__DIR__ . '/../lib/suite_apps.php', true), $chrome));
+foreach (['suite_apps.php', 'service_goal_policy_admin.php', 'ticket_queue.php'] as $library) {
+    $chrome = str_replace("__DIR__ . '/" . $library . "'", var_export(__DIR__ . '/../lib/' . $library, true), $chrome);
+}
+eval($chrome);
 
 db()->exec("CREATE TABLE tenants(id INTEGER PRIMARY KEY, slug TEXT);
 CREATE TABLE users(id INTEGER PRIMARY KEY, tenant_id INTEGER, suite_subject TEXT, is_active INTEGER, full_name TEXT, initials TEXT, color TEXT);

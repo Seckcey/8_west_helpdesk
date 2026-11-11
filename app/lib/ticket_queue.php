@@ -27,6 +27,7 @@ const QUEUE_VIEWS = [
     'waiting'    => 'Waiting on client',
     'open'       => 'All open',
     'resolved'   => 'Resolved',
+    'risk'       => 'At risk',
 ];
 
 const QUEUE_SORTS = [
@@ -187,14 +188,40 @@ function queue_view_sql(string $view, int $me): string
         'waiting' => "t.status = 'waiting'",
         'open' => "t.status <> 'resolved'",
         'resolved' => "t.status = 'resolved'",
+        'risk' => queue_risk_sql(),
         'all' => '1 = 1',
         default => throw new InvalidArgumentException('Unknown queue view'),
     };
 }
 
+/**
+ * The Service goals list, its rail count and its queue destination share this rule.
+ * As in sla_info(), a reply outside the ticket's lifetime is not a first response;
+ * merged sources and survivors cannot be attributed. A missing target is not a known deadline.
+ * The outer caller always supplies the signed-in tenant boundary over alias t.
+ */
+function queue_risk_sql(): string
+{
+    $reply = "(SELECT MIN(m.created_at) FROM messages m WHERE m.ticket_id = t.id AND m.kind = 'tech')";
+    return "t.status <> 'resolved' AND t.sla_due_at IS NOT NULL"
+        . ' AND t.sla_due_at < DATE_ADD(UTC_TIMESTAMP(), INTERVAL ' . QUEUE_DUE_SOON_SECONDS . ' SECOND)'
+        . " AND ($reply IS NULL OR $reply < t.created_at OR $reply > UTC_TIMESTAMP())"
+        . ' AND COALESCE(t.merged_into_id, 0) = 0'
+        . ' AND NOT EXISTS (SELECT 1 FROM tickets merged_source'
+        . ' WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id)';
+}
+
+function queue_risk_count(PDO $pdo, int $tenantId): int
+{
+    $q = $pdo->prepare('SELECT COUNT(*) FROM tickets t WHERE t.tenant_id = ? AND (' . queue_risk_sql() . ')');
+    $q->execute([$tenantId]);
+    return (int)$q->fetchColumn();
+}
+
 /** The order of a view, as SQL over the alias t with the {facts} left in. */
 function queue_order_sql(string $view, string $sort): string
 {
+    if ($view === 'risk' && $sort === 'reply') return 't.sla_due_at ASC, t.id ASC';
     if ($view === 'resolved' && $sort === 'updated') return 'COALESCE(t.resolved_at, t.created_at) DESC, t.id DESC';
     $order = match ($sort) {
         'updated' => 'COALESCE({last_message}, t.created_at) DESC, t.id DESC',
@@ -273,6 +300,7 @@ function queue_counts(PDO $pdo, int $tenantId, int $me, array $state): array
         return (int)$q->fetchColumn();
     };
     $counts['resolved'] = $count(" AND t.status = 'resolved'" . $filterSql, $filterParams);
+    $counts['risk'] = $count(' AND (' . queue_risk_sql() . ')' . $filterSql, $filterParams);
     [$statusSql, $statusParams] = queue_status_sql($state);
     $counts['legacy'] = $statusSql === '' ? $counts['open'] + $counts['resolved']
         : $count($filterSql . $statusSql, array_merge($filterParams, $statusParams));
@@ -455,6 +483,14 @@ function queue_tabs(array $state, array $counts): string
     $out = '<nav class="filters" aria-label="Queue views">';
     $key = 0;
     foreach (QUEUE_VIEWS as $view => $label) {
+        // Service goals links here; retain the six usual views and their existing number keys.
+        if ($view === 'risk') {
+            if ($state['view'] === 'risk') {
+                $out .= '<a href="' . h(queue_url($state, ['page' => 1])) . '" class="filter-pill pill-on" aria-current="page">'
+                    . 'At risk<span class="pill-count">' . number_format((int)($counts['risk'] ?? 0)) . '</span></a>';
+            }
+            continue;
+        }
         $key++;
         $on = $state['view'] === $view;
         $out .= '<a href="' . h(queue_url($state, ['view' => $view, 'status' => '', 'page' => 1])) . '" class="filter-pill' . ($on ? ' pill-on' : '') . '"'
@@ -600,6 +636,7 @@ function queue_empty(array $state): array
         'unassigned' => ['Every open ticket has an owner.', ...$everything],
         'waiting' => ['No tickets are waiting on a client.', ...$everything],
         'resolved' => ['No resolved tickets yet.', ...$everything],
+        'risk' => ['No unanswered tickets are overdue or due in under two hours.', ...$everything],
         'all' => $state['status'] === 'all' ? ['No tickets yet.', 'New ticket', '/ticket_new.php']
             : ['No tickets have the status ' . STATUS_META[$state['status']][0] . '.', ...$everything],
         default => ['No open tickets.', 'New ticket', '/ticket_new.php'],
