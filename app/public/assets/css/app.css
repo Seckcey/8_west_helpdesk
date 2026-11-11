@@ -1262,6 +1262,65 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .field textarea:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--sel-ring); }
 .field textarea { resize: vertical; min-height: 90px; }
 .form-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+
+/* New ticket ("log a call"): a client box you type in, who asked, the two things said, how it came
+   in and how urgent it is as segmented choices, then Create. */
+.call-form { align-items: start; }
+.field-help { margin: 0; font-size: 12.5px; font-weight: 400; line-height: 1.45; color: var(--muted-strong); }
+.call-client-wrap { position: relative; display: flex; flex-direction: column; }
+.call-client-list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  max-height: 264px; margin: 0; padding: 6px; overflow-y: auto; list-style: none;
+  background: var(--bg-solid); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow-pop);
+}
+.call-client-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 36px; padding: 0 8px;
+  border-radius: 8px; font-size: 14px; font-weight: 400; color: var(--text); cursor: pointer;
+}
+.call-client-option:hover { background: var(--bg-raised); }
+.call-client-option.call-client-on { background: var(--sel); }
+.call-client-name { min-width: 0; overflow-wrap: anywhere; }
+.call-client-none { padding: 10px 8px; font-size: 13px; font-weight: 400; color: var(--muted-strong); }
+.call-client-picked { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 400; color: var(--muted-strong); }
+.call-client-picked:empty { display: none; }
+/* "Add a new contact": a disclosure, so it works without the script. */
+.call-new { font-weight: 400; }
+.call-new > summary {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; margin-left: -8px; padding: 4px 8px;
+  border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--accent-2); cursor: pointer; list-style: none;
+}
+.call-new > summary::-webkit-details-marker { display: none; }
+.call-new > summary::before { content: "+"; font-weight: 700; }
+.call-new[open] > summary::before { content: "\2212"; }
+.call-new > summary:hover { background: var(--hover); }
+.call-new-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0; }
+.call-sub { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; }
+/* One of a few: radios drawn as the segmented filter (track, 30px items, the chosen one a chip). */
+.seg-field { min-width: 0; margin: 0; padding: 0; border: 0; }
+.seg-field > legend { margin-bottom: 6px; padding: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: var(--radius-sm); background: var(--seg-track); }
+.seg-item { position: relative; display: inline-flex; }
+.seg-item input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.seg-item span {
+  display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; color: var(--muted-strong); white-space: nowrap; transition: background .14s, color .14s;
+}
+.seg-item input:hover + span { color: var(--text); }
+.seg-item input:checked + span { background: var(--seg-on); color: var(--text); box-shadow: var(--shadow-card); }
+.seg-item input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
+.call-check { display: inline-flex; align-items: center; gap: 8px; width: fit-content; font-size: 14px; color: var(--text); }
+.call-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.call-actions { flex-wrap: wrap; margin-top: 4px; }
+.call-keys { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 12.5px; color: var(--muted-strong); }
+@media (max-width: 700px) {
+  .call-new-fields { grid-template-columns: 1fr; }
+  .page-new-ticket .field input, .page-new-ticket .field select { min-height: 44px; }
+  .seg-item span { height: 44px; padding: 0 14px; }
+  .call-new > summary, .call-check, .call-client-option { min-height: 44px; }
+  .call-actions .btn-primary, .call-actions .btn-secondary { flex: 1 1 100%; min-height: 44px; }
+  .call-actions .btn-link { display: inline-flex; align-items: center; }
+  .call-keys { display: none; }   /* a key hint is for a keyboard */
+}
 .form-error {
   margin-bottom: 12px; padding: 10px 14px; border-radius: 12px;
   background: var(--error-bg); border: 0;

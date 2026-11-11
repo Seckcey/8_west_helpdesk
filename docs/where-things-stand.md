@@ -558,7 +558,7 @@ Time left rounds down and is in minutes under two hours; time late rounds up. It
 one helper, so the queue, a client's ticket list and the ticket page read the same. Display only:
 which tickets count as late, the Needs attention view and every report are unchanged.
 
-**The customer beside the conversation (draft, not live).** The ticket page's head has the way back,
+**The customer beside the conversation (live).** The ticket page's head has the way back,
 the ticket's place in the list it was opened from ("2 of 6") with previous and next (`[` and `]`),
 Merge and Resolve. Messages are full-width cards that say who wrote them (Customer, Support, Internal
 note). Details adds the contact with Copy, the client and its note, the client's other open tickets,
@@ -569,6 +569,16 @@ No schema, role, permission, grant or endpoint change: every new read is the sig
 ticket's own client, and a person sees only their own time (`app/lib/ticket_page.php`,
 `queue_ticket_place()` in `app/lib/ticket_queue.php`). Merge now offers only open tickets; the
 endpoint's own rules are unchanged.
+
+**Log a call: a new ticket in under 30 seconds (draft, not live).** New ticket opens with the cursor in
+Client: type to find the client, Enter picks the first match. Who asked lists that client's contacts, or
+a new contact is added in place. "What they said" is saved as the customer's opening message and "What
+you told them" as the first reply (not emailed). Came in by (Phone first) and Priority are words to pick.
+Create ticket (or Ctrl+Enter), or Create and resolve, which follows the Resolve button's survey rule.
+"Start my timer" starts the timer on the new ticket. `c` opens the form from any staff page, and the
+client page has "New ticket for this client". "In person" is not offered: the stored channel has no such
+value. No schema, role, permission or grant change; the client check and the service-goal snapshot are
+still one transaction with the ticket (`app/public/ticket_new.php`, `app/lib/ticket_new_form.php`).
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.

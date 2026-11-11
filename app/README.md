@@ -142,7 +142,7 @@ public/                    Apache docroot (page-per-file, like Milepost)
   index.php                Queue (six views · filters · 50 a page · j/k · Enter
                            · a/s/p/t/e · z undo · 1-6 views)
   ticket.php               Ticket detail (head, message cards, reply PRG, Details column; lib/ticket_page.php)
-  ticket_new.php           New ticket (captures exact effective policy version/target)
+  ticket_new.php           New ticket, for logging a call (lib/ticket_new_form.php; captures exact effective policy version/target)
   clients.php, client.php  Clients + "answer the phone smart" screen
   client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
   users.php                Team — user management (owner/admin add, deactivate)
@@ -266,6 +266,26 @@ public/                    Apache docroot (page-per-file, like Milepost)
   client. Every read is scoped to the tenant and to the ticket's own client.
   `ticket_contact()` returns a contact only when it belongs to that client: a
   contact of another client is nobody to the ticket (no name, reply or survey).
+- New ticket ("log a call", `ticket_new.php`, `lib/ticket_new_form.php`): a
+  type-to-find client box (the plain `<select>` works without script), who
+  asked or a new contact added in place (`contact_add()` in `lib/contacts.php`,
+  the same insert the client page uses), "What they said" stored as the opening
+  `client` message in the contact's name, "What you told them" as the first
+  `tech` message (not emailed), Came in by (Phone by default, Email, Portal; an
+  alert is never typed in by hand) and Priority as segmented choices. The
+  client check, the new contact, the service-goal snapshot, the ticket and its
+  messages are one transaction. "Create and resolve" then goes through
+  `ticket_change_status()` as a chosen resolve, so the survey rule is the
+  Resolve button's. "Start my timer" starts the browser's timer on the new
+  ticket's page. One ticket per copy of the form: the script drops a second
+  press and rests both buttons, and the form's `form_key` is remembered in the
+  session with the ticket it became, so the same form sent again goes to that
+  ticket instead of making another (and another contact and survey). Who
+  asked is the ticket's contact (`ticket_asker()`); only a ticket with no
+  contact falls back to the author of its opening message.
+  `c` opens the form from any staff page outside a text field;
+  `?client=N` preselects a client (the client page's "New ticket for this
+  client").
 - Merge: the Merge button in the head, or the duplicate notice (same contact,
   48h), opens a dialog that lists the client's other open tickets (the page
   prints them in `#merge-data`; there is no new endpoint), with a search by

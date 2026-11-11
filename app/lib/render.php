@@ -92,11 +92,26 @@ function ticket_origin(array $t): string
     $line = (string)$t['client_name'];
     if (!isset(CHANNEL_WORDS[$channel])) return $line;
     $line .= ', ' . CHANNEL_WORDS[$channel];
-    $who = trim((string)($t['contact_name'] ?? ''));
-    if ($who === '') $who = trim((string)($t['opener_name'] ?? ''));
+    $who = ticket_asker($t);
     // An alert is written by a machine: there is nobody to name.
     if ($who === '' || $channel === 'alert') return $line;
     return $line . ($channel === 'portal' ? ' by ' : ' from ') . $who;
+}
+
+/**
+ * Who asked: the ticket's contact, whatever their name. Only a ticket with no contact falls back to
+ * the author of its opening message, and that author is nobody when it is the client's own name: a
+ * call logged with no contact is stored in the client's name, and "from Bayside Realty" beside
+ * "Bayside Realty" names nobody.
+ *
+ * @param array{contact_name?:?string,opener_name?:?string,client_name?:?string} $t
+ */
+function ticket_asker(array $t): string
+{
+    $contact = trim((string)($t['contact_name'] ?? ''));
+    if ($contact !== '') return $contact;
+    $opener = trim((string)($t['opener_name'] ?? ''));
+    return strcasecmp($opener, trim((string)($t['client_name'] ?? ''))) === 0 ? '' : $opener;
 }
 
 /**
@@ -441,7 +456,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261109b">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261111c">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -502,7 +517,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=20261109b" defer></script>
+<script src="/assets/js/app.js?v=20261111c" defer></script>
 </body>
 </html>
     <?php

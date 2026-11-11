@@ -460,8 +460,8 @@ foreach ($creatorPaths as $creator => $path) {
 }
 $manualSource = (string) file_get_contents($creatorPaths['manual']);
 goal_check('manual initial technician text still counts as first response',
-    str_contains($manualSource, '\'tech\', $body')
-    && str_contains($manualSource, 'Initial technician response'));
+    str_contains($manualSource, '$user[\'full_name\'], \'tech\', $values[\'told\']')
+    && str_contains((string) file_get_contents(__DIR__ . '/../lib/ticket_new_form.php'), 'Counts as the first reply'));
 $schemaSource = (string) file_get_contents(__DIR__ . '/../db/schema.sql');
 $migrationSource = (string) file_get_contents(__DIR__ . '/../db/migrations/010_service_goal_policies.sql');
 $immutableTriggers = [

@@ -1,42 +1,74 @@
 <?php
 /**
- * New ticket — pick a client, write the issue, done. The exact effective
- * service-goal target is captured once when the ticket opens.
+ * New ticket, built for logging a call: find the client by typing, say who asked (or add them),
+ * write what they said and what you told them, create. The exact effective service-goal target is
+ * captured once when the ticket opens.
+ *
+ * The client check, the new contact, the service-goal snapshot, the ticket and its first messages
+ * are one transaction. "Create and resolve" then resolves the new ticket through the same rule as
+ * the Resolve button (lib/ticket_changes.php), so a survey is asked for exactly as it would be there.
+ *
+ * ?client=12 preselects a client (the client page's "New ticket for this client").
+ *
+ * Each copy of the form carries a key, and the session remembers which ticket a key became: the
+ * same form sent twice (a double click, Ctrl+Enter twice) goes to the ticket it already created
+ * instead of creating a second one, a second contact and a second survey. Requests of one session
+ * are handled one at a time, so the second sees what the first recorded.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/ticket_clients.php';
+require_once __DIR__ . '/../lib/ticket_changes.php';
+require_once __DIR__ . '/../lib/contacts.php';
+require_once __DIR__ . '/../lib/ticket_new_form.php';
 enforce_https();
 $user = require_login();
 
 $error = '';
+$fromClient = is_string($_GET['client'] ?? null) && ctype_digit($_GET['client']) && strlen($_GET['client']) <= 9 ? (int)$_GET['client'] : 0;
+$values = ticket_new_blank();
+// This copy of the form: the key it was sent with, or a new one.
+$formKey = ticket_new_form_key($_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST : []);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
-    $clientId  = (int)($_POST['client_id'] ?? 0);
-    $contactId = (int)($_POST['contact_id'] ?? 0) ?: null;
-    $subject   = trim((string)($_POST['subject'] ?? ''));
-    $priority  = in_array($_POST['priority'] ?? '', ['low', 'normal', 'high', 'urgent'], true) ? $_POST['priority'] : 'normal';
-    $channel   = in_array($_POST['channel'] ?? '', ['email', 'portal', 'alert', 'phone'], true) ? $_POST['channel'] : 'portal';
-    $body      = trim((string)($_POST['body'] ?? ''));
+    $sentKey = is_string($_POST['form_key'] ?? null) ? $_POST['form_key'] : '';
+    $already = ticket_new_already($_SESSION['ticket_new_done'] ?? null, $sentKey);
+    if ($already > 0) {
+        header('Location: /ticket.php?id=' . $already);
+        exit;
+    }
+    $values = ticket_new_input($_POST);
+    $error = ticket_new_problem($values);
 
-    if ($subject === '') {
-        $error = 'Give the ticket a subject — future-you will thank present-you.';
-    } else {
+    if ($error === '') {
         $pdo = db();
         $pdo->beginTransaction();
         try {
-            ticket_new_client_for_create($pdo, tenant_id(), $clientId);
-            if ($contactId) {
-                $kq = $pdo->prepare('SELECT 1 FROM contacts WHERE id = ? AND client_id = ? FOR SHARE');
-                $kq->execute([$contactId, $clientId]);
-                if (!$kq->fetch()) $contactId = null;
+            // First in the transaction: the client must be this tenant's and open to new tickets.
+            $client = ticket_new_client_for_create($pdo, tenant_id(), $values['client_id']);
+            $clientId = (int)$client['id'];
+            $contactId = null;
+            $contactName = '';
+            if ($values['contact_name'] !== '') {
+                // A new contact, added the same way the client page adds one.
+                $contactId = contact_add($pdo, $clientId, $values['contact_name'], $values['contact_email']);
+                $contactName = $values['contact_name'];
+            } elseif ($values['contact_id'] > 0) {
+                // A contact only counts when it belongs to this client.
+                $kq = $pdo->prepare('SELECT name FROM contacts WHERE id = ? AND client_id = ? FOR SHARE');
+                $kq->execute([$values['contact_id'], $clientId]);
+                $known = $kq->fetchColumn();
+                if (is_string($known)) {
+                    $contactId = $values['contact_id'];
+                    $contactName = trim($known);
+                }
             }
             $goal = service_goal_snapshot_for_new_ticket(
                 $pdo,
                 tenant_id(),
                 $clientId,
-                $priority,
+                $values['priority'],
             );
             $pdo->prepare(
                 'INSERT INTO tickets
@@ -47,93 +79,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 tenant_id(),
                 $clientId,
                 $contactId,
-                $subject,
-                $priority,
+                $values['subject'],
+                $values['priority'],
                 (int)$user['id'],
-                $channel,
+                $values['channel'],
                 $goal['due_at'],
                 $goal['target_id'],
                 $goal['opened_at'],
                 $goal['opened_at'],
             ]);
             $tid = (int)$pdo->lastInsertId();
-            if ($body !== '') {
-                $author = $user['full_name'];
-                $pdo->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)')
-                    ->execute([$tid, $author, 'tech', $body]);
+            $message = $pdo->prepare('INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (?,?,?,?)');
+            if ($values['said'] !== '') {
+                // The customer's words open the conversation, in the name of whoever asked; with no
+                // contact, in the client's name.
+                $message->execute([$tid, $contactName !== '' ? $contactName : (string)$client['name'], 'client', $values['said']]);
+            }
+            if ($values['told'] !== '') {
+                $message->execute([$tid, $user['full_name'], 'tech', $values['told']]);
             }
             $pdo->commit();
-            header('Location: /ticket.php?id=' . $tid);
-            exit;
         } catch (TicketClientUnavailableException $e) {
             $pdo->rollBack();
             $error = 'This client is unavailable for new tickets. Pick another client.';
         } catch (Throwable $e) {
             $pdo->rollBack();
-            $error = 'Could not create the ticket — please try again.';
+            $error = 'The ticket could not be created. Nothing was saved. Try again.';
+        }
+
+        if ($error === '') {
+            // The ticket exists: this copy of the form is spent, before anything else can fail.
+            if ($formKey === $sentKey) $_SESSION['ticket_new_done'] = ticket_new_remember($_SESSION['ticket_new_done'] ?? null, $formKey, $tid);
+            // What follows is said on its page, once.
+            $flash = ['ticket_id' => $tid, 'toast' => '', 'undo_status' => ''];
+            if ($values['resolve']) {
+                try {
+                    $created = db()->prepare('SELECT * FROM tickets WHERE id = ? AND tenant_id = ?');
+                    $created->execute([$tid, tenant_id()]);
+                    // A person chose Resolve: the same rule as the Resolve button decides about a survey.
+                    $change = ticket_change_status($created->fetch(), 'resolved', true);
+                    $flash['toast'] = (string)preg_replace('/^Resolved\./', 'Created and resolved.', $change['toast']);
+                    $flash['undo_status'] = 'open';
+                } catch (Throwable $e) {
+                    error_log('Safeharbor create-and-resolve left the ticket open: ' . $e::class);
+                    $flash['toast'] = 'The ticket was created, but it could not be resolved. Resolve it here.';
+                }
+            } elseif ($values['start_timer']) {
+                $flash['start_timer'] = true;
+            }
+            if ($flash['toast'] !== '' || !empty($flash['start_timer'])) $_SESSION['ticket_flash'] = $flash;
+            header('Location: /ticket.php?id=' . $tid);
+            exit;
         }
     }
 }
 
 $clients = ticket_new_clients(db(), tenant_id());
 $contacts = ticket_new_contacts(db(), tenant_id(), $clients);
+$clientIds = array_map(static fn(array $client): int => (int)$client['id'], $clients);
+// A client named in the address is preselected only when it is one this form offers.
+$fromClient = in_array($fromClient, $clientIds, true) ? $fromClient : 0;
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $fromClient > 0) $values = ticket_new_blank($fromClient);
+$back = $fromClient > 0 ? '/client.php?id=' . $fromClient : '/';
 
 page_top($user, 'New ticket', 'queue');
 ?>
-<div class="page page-narrow">
-  <a href="/" class="backlink">← Queue</a>
+<div class="page page-narrow page-new-ticket">
   <div class="page-head">
-    <h1 class="page-title">New ticket</h1>
+    <div>
+      <h1 class="page-title">New ticket</h1>
+      <p class="page-sub">Log a call or a request. Start typing the client's name.</p>
+    </div>
   </div>
-  <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
+  <?php if ($error): ?><div class="form-error" role="alert"><?= h($error) ?></div><?php endif; ?>
   <?php if (!$clients): ?>
-    <div class="card empty"><p>No clients are available for new tickets — <a class="link" href="/client_new.php">add a client</a> and come right back.</p></div>
+    <div class="card empty"><p>No client is available for new tickets yet.</p><a class="btn-chip" href="/client_new.php">Add a client</a></div>
   <?php else: ?>
   <div class="card form-card">
-    <form method="post" action="/ticket_new.php" class="form-grid">
-      <?= csrf_field() ?>
-      <label class="field">Client
-        <select name="client_id" id="f-client">
-          <?php foreach ($clients as $c): ?>
-          <option value="<?= (int)$c['id'] ?>"><?= h($c['name']) ?> (<?= h($c['sla_tier']) ?>)</option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label class="field">Contact
-        <select name="contact_id" id="f-contact">
-          <option value="">—</option>
-          <?php foreach ($contacts as $k): ?>
-          <option value="<?= (int)$k['id'] ?>" data-client="<?= (int)$k['client_id'] ?>"><?= h($k['name']) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label class="field span-2">Subject
-        <input type="text" name="subject" required placeholder="Front desk PC won't print claim forms" autofocus>
-      </label>
-      <label class="field">Priority
-        <select name="priority">
-          <option value="low">low</option>
-          <option value="normal" selected>normal</option>
-          <option value="high">high</option>
-          <option value="urgent">urgent</option>
-        </select>
-      </label>
-      <label class="field">Channel
-        <select name="channel">
-          <option value="portal">portal</option>
-          <option value="email">email</option>
-          <option value="phone">phone</option>
-          <option value="alert">alert</option>
-        </select>
-      </label>
-      <label class="field span-2">Initial technician response (optional)
-        <textarea name="body" placeholder="Counts as the first response — what you told the client, what changed, next steps…"></textarea>
-      </label>
-      <div class="form-actions span-2">
-        <button type="submit" class="btn-primary">File ticket</button>
-        <span class="reply-hint">Assigned to you · service-goal version captured at open · timer one key away (E)</span>
-      </div>
-    </form>
+    <?= ticket_new_form($clients, $contacts, $values, csrf_field(), '/ticket_new.php' . ($fromClient > 0 ? '?client=' . $fromClient : ''), $back, $formKey) ?>
   </div>
   <?php endif; ?>
 </div>

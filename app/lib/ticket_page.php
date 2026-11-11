@@ -85,7 +85,7 @@ function ticket_subtitle(array $ticket, string $who, ?int $now = null, string $t
     if ($ago !== '') $line .= ', opened ' . h($ago);
     if (isset(CHANNEL_WORDS[$channel])) {
         $line .= ' ' . h(CHANNEL_WORDS[$channel]);
-        // An alert is written by a machine: there is nobody to name.
+        // An alert is written by a machine: there is nobody to name. $who is ticket_asker()'s answer.
         $who = trim($who);
         if ($who !== '' && $channel !== 'alert') $line .= ($channel === 'portal' ? ' by ' : ' from ') . h($who);
     }

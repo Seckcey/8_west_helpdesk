@@ -243,6 +243,7 @@ jobs:
           php app/tests/service_goals_test.php
           php app/tests/ticket_queue_test.php
           php app/tests/ticket_page_test.php
+          php app/tests/ticket_new_form_test.php
           php app/tests/service_goal_policy_admin_test.php
           php app/tests/time_entries_test.php
           php app/tests/time_entry_adjustments_test.php
@@ -388,4 +389,5 @@ jobs:
           node tools/shots/signin-palette.test.mjs
           node tools/shots/desk-live-fixes.test.mjs
           node tools/shots/ticket-customer.test.mjs
+          node tools/shots/ticket-new.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs
