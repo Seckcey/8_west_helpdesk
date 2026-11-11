@@ -865,11 +865,11 @@ time_check('browser correction freezes one idempotency key and exact payload bef
     && str_contains($appJs, 'await api("/api/time_entry_correction.php", payload)')
     && str_contains($appJs, 'responseEntryKey(result) !== payload.entry_key')
     // The facts are asked for in a dialog (askForm); cancelling it sends nothing, and the start and
-    // end it picks in local time go through the same UTC check as before.
+    // end it picks in the Safeharbor time zone go through the same UTC check as before.
     && str_contains($appJs, 'title: "Correct and resubmit"')
     && str_contains($appJs, 'if (facts === null) return;')
     && str_contains($appJs, 'function parseCorrectionUtc(value)')
-    && str_contains($appJs, 'localInputToUtc(controls.start.value)')
+    && str_contains($appJs, 'zoneInstants(control.value, controls.zone)')
     && str_contains($appJs, 'button.dataset.correctionPayload = ""'));
 
 $correctionApiSource = file_get_contents(__DIR__ . '/../public/api/time_entry_correction.php');

@@ -39,8 +39,10 @@ does not give AI permission to create, correct, review, or approve time.
 The Time page displays the rejection reason, `Correct and resubmit`, the parent
 entry number on a replacement, and the replacement's current status. The button
 opens a dialog. Measured corrections edit the start and the end, picked in the
-computer's local time and sent as UTC; minutes are derived from the corrected
-interval. The worked-at time is no longer asked for: it stays what it was while
+Safeharbor time-zone setting (the zone History's times are shown in) and sent as
+UTC; minutes are derived from the corrected interval. A time picked in the hour
+that repeats when the clocks go back is asked about, never guessed, and one in
+the hour the clocks skip is refused. The worked-at time is no longer asked for: it stays what it was while
 that is still inside the corrected interval, and otherwise becomes the corrected
 end. The request and its rules are unchanged. The browser freezes one new correction key and
 exact JSON payload before its first request, so a lost response retries the

@@ -589,7 +589,7 @@ Keyboard shortcuts) and Sign out, then tickets and clients. Every row shows its 
 Team, `u` back to the list. The rail has a "Keyboard shortcuts" button that opens the `?` card. Script,
 styles and the rail only: no endpoint, query, role or permission change.
 
-**Time in plain words, with dialogs instead of prompts (draft, not live).** A row on Time says how long,
+**Time in plain words, with dialogs instead of prompts (live).** A row on Time says how long,
 what, which ticket, Billable or Not billable, and Waiting for review, Approved or Rejected. Who approved
 it and when, how it was logged, the measured start and end, and every change with its reason are under
 History on the row, with names and local time (`app/lib/time_page.php`). Reject, Change and Correct and
@@ -598,6 +598,10 @@ retry rules (`tools/shots/time-contract.test.mjs`). The approved list has a sear
 client name, in the same tenant and for owners and admins only, as the list is. Not in this slice: the
 "What did you do?" question when a timer stops, and the billing words that come from the Coastmark rules.
 No schema, role, permission, grant or endpoint change.
+Follow-up (draft, not live): the corrected minutes accept digits only; the start and end pickers work in
+the Safeharbor time-zone setting, as History does, ask which one is meant in the hour that repeats when the
+clocks go back and refuse the hour the clocks skip; a double click on a button that opens a dialog no
+longer closes it again.
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.
