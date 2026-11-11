@@ -211,7 +211,9 @@ try {
             && $texts($riskQueue, '//nav[@aria-label="Queue views"]/a[@aria-current="page"]') === ['At risk3'],
             'Service goals, rail count and risk queue agree for staff role ' . $as);
         $check($goal->query('//details[@open]')->length === 0 && $goal->query('//details/summary')->length === 1
-            && $goal->query('//form')->length === 0, 'Service goals starts with closed history and no forms');
+            && $goal->query('//div[' . $hasClass('page-service-goals') . ']//form')->length === 0
+            && $goal->query('//form[@action="/logout.php"][@method="post"]')->length === 1,
+            'Service goals starts with closed history and no policy forms; shared sign-out remains');
     }
     $check($ids($queue(102, '/?view=risk&client=11&owner=me')) === [7005, 7002]
         && $ids($queue(102, '/?view=risk&client=21')) === [], 'risk filters work without crossing the signed-in workspace');
