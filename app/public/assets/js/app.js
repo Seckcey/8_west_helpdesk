@@ -597,7 +597,7 @@
         widget.classList.toggle("timer-on", t.state === "active");
         widget.classList.toggle("timer-stopped", t.state === "stopped");
         widget.classList.remove("timer-idle");
-        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span>${fmt(timerElapsed(t))}</span><span class="tw-ticket">#${t.ticketId}</span>${t.state === "stopped" ? '<span class="tw-retry">· retry</span>' : ""}`;
+        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span class="tw-clock">${fmt(timerElapsed(t))}</span><span class="tw-ticket">#${t.ticketId}</span>${t.state === "stopped" ? '<span class="tw-retry">· retry</span>' : ""}`;
       } else {
         widget.classList.remove("timer-on");
         widget.classList.remove("timer-stopped");
@@ -825,8 +825,9 @@
     if (clock) clock.textContent = fmt(timerElapsed(t));
     const widget = $("#timer-widget");
     if (widget && widget.classList.contains("timer-on")) {
-      const span = widget.querySelector("span:nth-child(2)");
+      const span = widget.querySelector(".tw-clock");
       if (span) span.textContent = fmt(timerElapsed(t));
+      widget.setAttribute("aria-label", `Time: ${fmt(timerElapsed(t))}, running`);
     }
   }, 1000);
 

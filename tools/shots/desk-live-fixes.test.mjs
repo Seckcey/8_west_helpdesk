@@ -291,3 +291,22 @@ test('Time on a phone: title and duration on the first line, tags below, with th
   }));
   assert.deepEqual(first, { minFirst: true, tagsAfter: true, display: 'flex' });
 });
+
+
+test('the visible timer keeps ticking after adding the phone icon, without changing stored evidence', async t => {
+  for (const width of [390, 1440]) {
+    const page = await open(t, 'queue', {
+      width,
+      init: { fn: ([key, at]) => localStorage.setItem(key, JSON.stringify({ ticketId: 1041, tenantId: '1', userId: '102', entryKey: 'timer:fixture', state: 'active', startedAt: at })), arg: [TIMER_KEY, Date.now() - 761000] },
+    });
+    const stored = await page.evaluate(key => localStorage.getItem(key), TIMER_KEY);
+    const before = await page.locator('#timer-widget .tw-clock').innerText();
+    await page.waitForFunction(previous => document.querySelector('#timer-widget .tw-clock').textContent !== previous, before);
+    const after = await page.locator('#timer-widget .tw-clock').innerText();
+    assert.notEqual(after, before);
+    assert.equal(await page.locator('#timer-widget .tw-dot').textContent(), '');
+    assert.equal(await page.locator('#timer-widget .tw-icon').count(), 1);
+    assert.equal(await page.locator('#timer-widget').getAttribute('aria-label'), `Time: ${after}, running`);
+    assert.equal(await page.evaluate(key => localStorage.getItem(key), TIMER_KEY), stored);
+  }
+});
