@@ -27,10 +27,10 @@ $base = [
 ];
 
 goal_check('future response target is healthy', sla_info($base, $now)['state'] === 'healthy');
-goal_check('near response target is at risk', sla_info([
+goal_check('near response target is at risk, and reads in minutes', sla_info([
     ...$base,
     'sla_due_at' => '2026-08-25 13:30:00',
-], $now)['state'] === 'at_risk');
+], $now) === ['state' => 'at_risk', 'label' => 'Due in 90 min']);
 goal_check('elapsed unanswered target is breached', sla_info([
     ...$base,
     'sla_due_at' => '2026-08-25 11:00:00',
@@ -80,31 +80,42 @@ goal_check('a late first response still says so after resolution, but is no long
     ...$base,
     'status' => 'resolved',
     'first_response_at' => '2026-08-25 16:15:00',
-], $afterResponses) === ['state' => 'late', 'label' => 'Answered 1 h late']);
+], $afterResponses) === ['state' => 'late', 'label' => 'Answered 2 h late']);
 // One unit only, and red (breached) only for an unanswered ticket that is late now.
 foreach ([
     [['sla_due_at' => '2026-08-25 18:40:00'], 'healthy', 'Due in 6 h'],
     [['sla_due_at' => '2026-08-25 14:00:00'], 'healthy', 'Due in 2 h'],
-    [['sla_due_at' => '2026-08-25 13:59:59'], 'at_risk', 'Due in 2 h'],
+    [['sla_due_at' => '2026-08-25 13:59:59'], 'at_risk', 'Due in 119 min'],
+    [['sla_due_at' => '2026-08-25 13:35:00'], 'at_risk', 'Due in 95 min'],
     [['sla_due_at' => '2026-08-25 12:40:00'], 'at_risk', 'Due in 40 min'],
+    [['sla_due_at' => '2026-08-25 12:39:40'], 'at_risk', 'Due in 39 min'],
     [['sla_due_at' => '2026-08-25 12:00:01'], 'at_risk', 'Due in 1 min'],
     [['sla_due_at' => '2026-08-25 11:59:59'], 'breached', 'Overdue by 1 min'],
     [['sla_due_at' => '2026-08-25 11:00:30'], 'breached', 'Overdue by 1 h'],
-    [['sla_due_at' => '2026-08-24 07:59:00', 'created_at' => '2026-08-20 10:00:00'], 'breached', 'Overdue by 28 h'],
+    [['sla_due_at' => '2026-08-25 10:59:00'], 'breached', 'Overdue by 2 h'],
+    [['sla_due_at' => '2026-08-25 10:01:00'], 'breached', 'Overdue by 2 h'],
+    [['sla_due_at' => '2026-08-24 07:59:00', 'created_at' => '2026-08-20 10:00:00'], 'breached', 'Overdue by 29 h'],
     [['sla_due_at' => '2026-08-23 12:00:00', 'created_at' => '2026-08-20 10:00:00'], 'breached', 'Overdue by 2 d'],
-    [['sla_due_at' => '2026-08-20 11:00:00', 'created_at' => '2026-08-20 10:00:00'], 'breached', 'Overdue by 5 d'],
+    [['sla_due_at' => '2026-08-20 11:00:00', 'created_at' => '2026-08-20 10:00:00'], 'breached', 'Overdue by 6 d'],
     [['first_response_at' => '2026-08-25 15:00:20'], 'late', 'Answered 1 min late'],
-    [['first_response_at' => '2026-08-25 18:10:00'], 'late', 'Answered 3 h late'],
+    [['first_response_at' => '2026-08-25 16:59:00'], 'late', 'Answered 2 h late'],
+    [['first_response_at' => '2026-08-25 18:00:00'], 'late', 'Answered 3 h late'],
+    [['first_response_at' => '2026-08-25 18:10:00'], 'late', 'Answered 4 h late'],
     [['first_response_at' => '2026-08-28 15:00:00'], 'late', 'Answered 3 d late'],
 ] as [$with, $state, $label]) {
     $asOf = isset($with['first_response_at']) ? strtotime('2026-08-30 12:00:00 UTC') : $now;
     goal_check("the tag reads \"{$label}\" ({$state})", sla_info([...$base, ...$with], $asOf) === ['state' => $state, 'label' => $label]);
 }
-goal_check('resolved ticket without a technician response is not called met', sla_info([
+goal_check('resolved ticket without a technician response is not called met, and is not urgent: nothing is late now', sla_info([
     ...$base,
     'status' => 'resolved',
     'resolved_at' => '2026-08-25 11:30:00',
-], $now) === ['state' => 'breached', 'label' => 'No response']);
+], $now) === ['state' => 'closed', 'label' => 'Closed without a reply']);
+goal_check('a ticket closed without a reply stays quiet long after its goal has passed', sla_info([
+    ...$base,
+    'status' => 'resolved',
+    'resolved_at' => '2026-08-25 11:30:00',
+], $afterResponses) === ['state' => 'closed', 'label' => 'Closed without a reply']);
 goal_check('a future resolution does not decide the response target early',
     service_goal_response_outcome([
         ...$base,
@@ -137,7 +148,7 @@ goal_check('a resolution exactly at the as-of clock decides no response',
         ...$base,
         'status' => 'resolved',
         'resolved_at' => '2026-08-25 12:00:00',
-    ], $now) === ['state' => 'breached', 'label' => 'No response']);
+    ], $now) === ['state' => 'closed', 'label' => 'Closed without a reply']);
 goal_check('missing target fails visibly', sla_info([
     ...$base,
     'sla_due_at' => '',

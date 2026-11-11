@@ -61,7 +61,7 @@ function westy_chat_system_prompt(): string
          . 'and who asked (for example "by email from Dana"), a Customer replied tag when the customer answered after '
          . 'the team did, status chip, owner, the First response tag (Due in 6 h while there is time, gold Due in 40 min under two '
          . 'hours, red Overdue by 2 h only while nobody has answered; once answered it is quiet text, Answered in time or '
-         . 'Answered 3 h late; a merged ticket says Merged), and the time since the last message under Updated. '
+         . 'Answered 3 h late; a ticket closed with no reply says Closed without a reply; a merged ticket says Merged), and the time since the last message under Updated. '
          . 'Owners and admins press Select (or x) to show a checkbox on each queue row (x toggles the current row) and a box that '
          . 'selects every ticket the page shows; Delete… (or d) then shows what will be removed and which tickets '
          . 'Safeharbor must keep (tickets with technician time, Westy troubleshooting, email or mailbox history, a '

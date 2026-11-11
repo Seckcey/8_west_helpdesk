@@ -206,7 +206,10 @@ public/                    Apache docroot (page-per-file, like Milepost)
   client's ticket list and on the ticket: `Due in 6 h`, `Due in 40 min` (gold,
   under two hours), `Overdue by 2 h` (red, only while nobody has answered),
   then quiet text once answered, `Answered in time` or `Answered 3 h late`;
-  a merged ticket says `Merged`. One unit, nothing blinks.
+  a ticket resolved with no reply says `Closed without a reply` (plain tag)
+  and a merged ticket says `Merged`. One unit, nothing blinks. Time left
+  rounds down and stays in minutes under two hours (`Due in 95 min`); time
+  late rounds up (1 h 59 min late reads `2 h`).
   Views, the client, priority and owner filters, the order and the page are
   all in the address (`?view=&client=&priority=&owner=&sort=&page=`). Old
   `?f=all` and `?f=<status>` links keep their meaning (every ticket, or one

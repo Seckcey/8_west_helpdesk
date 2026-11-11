@@ -6,14 +6,14 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-// The first-response tag in a browser, on the real stylesheet: one queue row for each of its six
+// The first-response tag in a browser, on the real stylesheet: one queue row for each of its seven
 // states, built from the real rules (app/tests/ticket_queue_test.php --render). The words are
 // checked in PHP; this checks what a person sees: red only for what is late now, quiet text once a
 // ticket is answered, nothing blinking, every state readable in both themes and on a phone.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const CSS = await readFile(path.join(ROOT, 'app/public/assets/css/app.css'), 'utf8');
 const FIX = JSON.parse(execFileSync('php', [path.join(ROOT, 'app/tests/ticket_queue_test.php'), '--render'], { encoding: 'utf8' }));
-const STATES = ['healthy', 'at_risk', 'breached', 'met', 'late', 'excluded'];
+const STATES = ['healthy', 'at_risk', 'breached', 'met', 'late', 'closed', 'excluded'];
 
 const html = (theme) => `<!doctype html><html lang="en" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Queue</title><style>${CSS}</style></head>
 <body data-active="queue"><main class="content"><div class="page">
@@ -80,8 +80,10 @@ for (const theme of ['dark', 'light']) {
     assert.equal(by.healthy.filled && by.at_risk.filled && by.breached.filled && by.excluded.filled, true);
     assert.equal(new Set([by.healthy.fill, by.at_risk.fill, by.breached.fill]).size, 3);
     assert.equal(new Set([by.healthy.ink, by.at_risk.ink, by.breached.ink]).size, 3);
-    // Merged is the plain tag too.
+    // Merged is the plain tag too, and so is a ticket closed without a reply: it is not late now.
     assert.deepEqual([by.excluded.fill, by.excluded.ink], [by.healthy.fill, by.healthy.ink]);
+    assert.deepEqual([by.closed.fill, by.closed.ink], [by.healthy.fill, by.healthy.ink]);
+    assert.equal(by.closed.words, 'Closed without a reply');
 
     // Answered: no fill, the same quiet text for both, and only the dot tells them apart.
     assert.equal(by.met.filled || by.late.filled, false);

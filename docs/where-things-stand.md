@@ -545,9 +545,10 @@ no schema, role, permission or grant change (`app/lib/ticket_queue.php`).
 
 **First-response tag in plain words (draft, not live).** The tag under "First response" says `Due in
 6 h`, `Due in 40 min` (gold, under two hours), `Overdue by 2 h` (red), `Answered in time`, `Answered
-3 h late` or `Merged`, with one unit of time and nothing blinking. Red now means only "late right
-now": a ticket that was answered late says so in quiet text with a gold dot instead of staying red
-for ever (decided 2026-11-10). It is one rule (`sla_info()` in `app/lib/service_goals.php`) drawn by
+3 h late`, `Closed without a reply` or `Merged`, with one unit of time and nothing blinking. Red now
+means only "late right now": a ticket that was answered late says so in quiet text with a gold dot
+instead of staying red for ever, and one resolved with no reply is a plain tag (decided 2026-11-10).
+Time left rounds down and is in minutes under two hours; time late rounds up. It is one rule (`sla_info()` in `app/lib/service_goals.php`) drawn by
 one helper, so the queue, a client's ticket list and the ticket page read the same. Display only:
 which tickets count as late, the Needs attention view and every report are unchanged.
 

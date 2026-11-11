@@ -639,7 +639,7 @@ img { display: block; }
   font-variant-numeric: tabular-nums;
 }
 .sla-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
-.sla-healthy, .sla-excluded { background: var(--chip-bg); color: var(--muted-strong); }
+.sla-healthy, .sla-excluded, .sla-closed { background: var(--chip-bg); color: var(--muted-strong); }
 .sla-at_risk { background: var(--gold-soft-bg); color: var(--gold); }
 .sla-breached { background: var(--error-bg); color: var(--rose); }
 .sla-met, .sla-late { background: transparent; color: var(--dim); font-weight: 500; }
