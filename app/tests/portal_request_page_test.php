@@ -170,7 +170,9 @@ request_check('each time is a machine-readable time with the full date on hover'
 request_check('the page carries no inline style or script, as its Content Security Policy requires',
     ! preg_match('/\sstyle\s*=|<style|<script(?![^>]*\ssrc=)|\son[a-z]+\s*=/i', $waitingHtml));
 
-$openHtml = $main($page($context, ['status' => 'open'] + $base, [$asked]));
+// The page reads the real clock, so this request's reply goal has to be ahead of it. With the fixed
+// goal in $base the check below failed from the moment that time passed.
+$openHtml = $main($page($context, ['status' => 'open', 'sla_due_at' => gmdate('Y-m-d H:i:s', time() + 8 * 3600)] + $base, [$asked]));
 request_check('a new request shows the reply goal in words under "Response goal" and the ordinary reply box',
     str_contains($openHtml, '>Response goal</h3>') && str_contains($openHtml, 'We aim to send a first reply by ')
     && str_contains($openHtml, 'Reply to the support team') && ! str_contains($openHtml, 'portal-waiting-callout'));
