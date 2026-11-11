@@ -82,12 +82,16 @@
   // A chat failure in plain words. The exact sentence above and its code stay one click away, under Details.
   const later='Westy can’t answer right now. Try again in a minute.', askSupport='Westy can’t answer right now. Your support team can help.';
   const plain = {
-    provider_rate_limit:later, quota_unavailable:later, input_count_unavailable:later, provider_unavailable:later, provider_invalid:later,
-    ai_unavailable:askSupport, credentials_refused:askSupport, model_unavailable:askSupport, provider_model_mismatch:askSupport, needs_setup:askSupport, configuration:askSupport,
+    provider_rate_limit:later, input_count_unavailable:later, provider_unavailable:later, provider_invalid:later,
+    // A provider's usage limit does not clear in a minute, so it goes to the support team.
+    ai_unavailable:askSupport, quota_unavailable:askSupport, credentials_refused:askSupport, model_unavailable:askSupport, provider_model_mismatch:askSupport, needs_setup:askSupport, configuration:askSupport,
     provider_refused:'Westy can’t answer that. Ask another way, or ask your support team.',
     hourly_limit:'You’ve reached this hour’s limit for Westy.', daily_limit:'Your business has reached today’s limit for Westy.',
-    cost_limit:'Your business has reached this month’s limit for Westy.'
+    cost_limit:'Your business has reached this month’s limit for Westy.',
+    sign_in:'Sign in again to continue.'
   };
+  // A person whose sign-in ended cannot open a request, so that line offers no New support request.
+  const noSupport = new Set(['sign_in']);
   // A reply that began and then ended early. What it says about the computer depends on whether any computer work is recorded on it.
   const endedEarly = new Set(['interrupted','input_limit','provider_incomplete','provider_limit','ai_changed','tool_invalid','access_changed',
     'conversation_expired','content_unavailable','provider_unavailable','provider_invalid','input_count_unavailable']);
@@ -117,7 +121,7 @@
   const statusSupport = supportLink();
   // detail: the exact sentence behind a plain one, kept as the line's tooltip. support: offer a person, to those who may write.
   const say = (text, detail = '', support = false) => { status.textContent = text; status.title = detail; if (support && canWrite) status.after(statusSupport); else statusSupport.remove(); delete status.dataset.operation; };
-  const sayFailure = (code, suffix = '') => say((plain[code] || errors[code]) + suffix, plain[code] ? errors[code] : '', !!plain[code]);
+  const sayFailure = (code, suffix = '') => say((plain[code] || errors[code]) + suffix, plain[code] ? errors[code] : '', !!plain[code] && !noSupport.has(code));
   function controls() {
     const waiting=state?.turns.some(t=>t.run?.state==='waiting');
     send.hidden = busy||waiting; stop.hidden = !busy&&!waiting&&!state?.turns.some(t=>t.terminal_active||t.desktop_cleanup); send.disabled = !state?.ai_available;
@@ -680,7 +684,7 @@
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(!busy)refresh(true);if(devices.disabled)loadDevices();}});
   window.addEventListener('online',()=>{if(devices.disabled)loadDevices();});
   window.addEventListener('westy-connection-ready',()=>{if(devices.disabled)loadDevices();});
-  if('BroadcastChannel' in window){const access=new BroadcastChannel('safeharbor-portal-access');document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit',()=>access.postMessage('signed-out'));access.addEventListener('message',event=>{if(event.data==='signed-out'){clearPrivate();say(errors.sign_in);}});}
+  if('BroadcastChannel' in window){const access=new BroadcastChannel('safeharbor-portal-access');document.querySelector('form[action="/portal/logout.php"]')?.addEventListener('submit',()=>access.postMessage('signed-out'));access.addEventListener('message',event=>{if(event.data==='signed-out'){clearPrivate();sayFailure('sign_in');}});}
   async function loadDevices(){
     if(devicesLoading)return;devicesLoading=true;
     if(devicesRetry)clearTimeout(devicesRetry);devicesRetry=null;
