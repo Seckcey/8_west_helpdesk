@@ -1254,13 +1254,10 @@ a.ticket-step:hover { background: var(--bg-raised); }
   .page-title, .ticket-subject { font-size: 22px; }
   .timer-card { align-items: flex-start; flex-wrap: wrap; }
   .timer-info { min-width: calc(100% - 30px); }
-  /* Time on a phone: each entry stacks. Line one is the whole title with the duration at its
-     right; the ticket link and the record text follow at full width; tags sit at the left of the
-     last line and the buttons at its right. */
-  .entry-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: start; }
-  .entry-row > .entry-min { grid-column: 1; grid-row: 1; width: auto; }
-  .entry-row > .entry-tags { grid-column: 2; grid-row: 1; justify-content: flex-end; }
-  .entry-row > .entry-main { grid-column: 1 / -1; grid-row: 2; }
+  /* Time on a phone: title beside duration, then tags and review actions below.
+     The proposal 18 block at the end sets the row positions. */
+  .entry-row { display: grid; gap: 6px 12px; align-items: start; }
+  .entry-row > .entry-min { width: auto; }
   .entry-row > .review-actions { grid-column: 1 / -1; justify-content: flex-start; max-width: none; }
   .billing-actions [data-billing-label] { text-align: left; }
   .entry-history > summary { min-height: 44px; }
@@ -2121,4 +2118,43 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .page-service-goals .goal-target-table td { font-size: 14px; }
   .page-service-goals .goal-clock-note, .page-service-goals .goal-history-entry { padding: 16px; }
   .page-service-goals .goal-history > summary { min-height: 44px; padding: 16px; }
+}
+
+/* Item 36 / proposal 18: the technician's phone. App controls only; shared suite chrome is unchanged. */
+.trow-client-phone, .phone-ticket-summary, .phone-ticket-actions, .tw-icon { display: none; }
+.phone-details { width: min(100%, 560px); max-width: 100%; max-height: 88dvh; margin: auto auto 0; padding: 16px; border: 1px solid var(--line); border-radius: 18px 18px 0 0; background: var(--bg-solid); color: var(--text); overflow: auto; }
+.phone-details::backdrop { background: var(--overlay); }
+.phone-details-close { display: flex; margin: 0 0 12px auto; min-height: 44px; }
+.phone-details .rail { display: block; width: auto; }
+.phone-details .rail-label { margin-top: 0; }
+.phone-details .rail-btn, .phone-details .timer-btn, .phone-details .menu-item, .phone-details .menu-filter, .phone-details .rail-copy { min-height: 44px; }
+.phone-details .rail-ticket, .phone-details .rail-line > a { min-height: 44px; }
+.phone-details .menu-pop { max-width: calc(100vw - 24px); }
+@media (max-width: 700px) {
+  .trow:not(.trow-head) { grid-template-columns: minmax(0, 1fr) auto 26px; grid-template-areas: "subject status status" "client sla tech"; gap: 6px 10px; padding: 10px 16px; min-height: 76px; }
+  .trow .trow-main, .trow .trow-sub { display: contents; }
+  .trow .trow-pri, .trow .trow-num, .trow .trow-age, .trow .trow-origin, .trow .trow-flag { display: none; }
+  .trow:not(.trow-head) .trow-subject { grid-area: subject; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trow .trow-status { grid-area: status; justify-self: end; }
+  .trow-client-phone { display: block; grid-area: client; min-width: 0; color: var(--muted-strong); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trow .trow-sla { grid-area: sla; min-width: 0; }
+  .trow .trow-tech { grid-area: tech; }
+  .timer-widget, .timer-widget.timer-idle { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 6px; gap: 5px; }
+  .timer-widget .tw-idle-label, .timer-widget .tw-dot, .timer-widget .tw-ticket { display: none; }
+  .timer-widget .tw-icon { display: inline-flex; flex: none; }
+  .timer-widget::after { content: none; }
+  .phone-ticket-summary { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; margin: 10px 0; padding: 8px 10px; border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: var(--input-bg); text-align: left; color: var(--text); font-size: 12.5px; }
+  .phone-summary-words { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .phone-summary-more { flex: none; font-weight: 600; }
+  .phone-details-ready .ticket-grid > .rail { display: none; }
+  .phone-details-ready { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  .phone-ticket-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 35; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--bg-solid); border-top: 1px solid var(--line); }
+  .phone-ticket-actions button { min-height: 44px; padding: 0 8px; }
+  body:has(#reply-box:focus) .phone-ticket-actions { display: none; }
+  .phone-details .kbd { display: none; }
+  .phone-ticket-summary:focus-visible, .phone-details-close:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .entry-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .entry-row > .entry-main { grid-column: 1; grid-row: 1; min-width: 0; }
+  .entry-row > .entry-min { grid-column: 2; grid-row: 1; text-align: right; }
+  .entry-row > .entry-tags { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
 }

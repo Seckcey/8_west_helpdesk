@@ -128,7 +128,8 @@ function ticket_row(array $t, bool $linkWrap = true, string $from = '', bool $wi
         . ' data-owner="' . (!empty($t['assignee_id']) ? (int)$t['assignee_id'] : '') . '" role="row">'
         . '<span class="trow-pri">' . priority_glyph($t['priority']) . '</span>'
         . '<span class="trow-num">#' . (int)$t['id'] . '</span>'
-        . '<span class="trow-main"><span class="trow-subject">' . h($t['subject']) . '</span>'
+        . '<span class="trow-main"><span class="trow-subject" title="' . h($t['subject']) . '">' . h($t['subject']) . '</span>'
+        . '<span class="trow-client-phone">' . h($withClient ? (string)($t['client_name'] ?? '') : ticket_origin($t, false)) . '</span>'
         . '<span class="trow-sub"><span class="trow-origin">' . h(ticket_origin($t, $withClient)) . '</span>'
         // The customer answered after we did: it is our turn again.
         . (($t['last_kind'] ?? '') === 'client' && !empty($t['first_response_at']) && ($t['status'] ?? '') !== 'resolved'
@@ -472,7 +473,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261111-codex-36-v1">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261111-codex-phone-v1">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -517,7 +518,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
         <span class="search-keys" aria-hidden="true"><kbd class="kbd" data-mod-key>Ctrl</kbd><kbd class="kbd">K</kbd></span>
       </button>
       <span class="topbar-flex"></span>
-      <a href="/time.php" id="timer-widget" class="timer-widget timer-idle" title="Time tracking">No timer running</a>
+      <a href="/time.php" id="timer-widget" class="timer-widget timer-idle" title="Time tracking" aria-label="Time: no timer running"><span class="tw-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.5"/><path d="M10 5.5V10l3 2" stroke-linecap="round"/></svg></span><span class="tw-idle-label">No timer running</span></a>
       <?php /* The shared suite cluster (w365): Safeharbor's own controls, then the app drawer, then
                the account menu — the same place, in the same order, in every 8 West IT 365 app. */ ?>
       <div class="w365-cluster">
@@ -543,7 +544,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=20261111h" defer></script>
+<script src="/assets/js/app.js?v=20261111-codex-phone-v1" defer></script>
 </body>
 </html>
     <?php

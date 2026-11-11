@@ -34,6 +34,11 @@ works in most browsers.
 The staff pages carry no app JavaScript, so menus, the palette and the timer do not respond. The
 portal's phone menu opens when `portal-sidebar` gets the `is-open` class.
 
+The phone ticket's Details sheet and bottom action bar are progressive app-script controls, so
+review those in the browser-test screenshots rather than the static ticket copy. The tests load
+the real script and check focus, resize, menus and the existing request contracts. See
+[Staff phone layout](../../../docs/staff-phone-layout.md) for the checks and screenshot switches.
+
 ## Regenerate the portal pages
 
 ```bash
