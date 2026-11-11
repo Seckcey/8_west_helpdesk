@@ -141,7 +141,7 @@ cron/imap_poll.php         IMAP fallback intake for non-M365 mailboxes
 public/                    Apache docroot (page-per-file, like Milepost)
   index.php                Queue (six views · filters · 50 a page · j/k · Enter
                            · a/s/p/t/e · z undo · 1-6 views)
-  ticket.php               Ticket detail (thread, reply PRG, rail actions)
+  ticket.php               Ticket detail (head, message cards, reply PRG, Details column; lib/ticket_page.php)
   ticket_new.php           New ticket (captures exact effective policy version/target)
   clients.php, client.php  Clients + "answer the phone smart" screen
   client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
@@ -252,7 +252,22 @@ public/                    Apache docroot (page-per-file, like Milepost)
   and timer.
 - Collision detection: 20s presence heartbeats paint "viewing/typing…"
   chips in the ticket header (api/presence.php).
-- Merge: rail button or the duplicate banner (same contact, 48h) — only
+- Ticket page (`lib/ticket_page.php`): a queue row's link names its list
+  (`ticket.php?id=N&in=<view>` plus the filters and order), so the head shows
+  "2 of 6" with previous and next (`[` and `]`); `queue_ticket_place()` reads
+  the list again with the queue's own SQL, so the place is true now. A ticket
+  that has left its list says so and still steps to its old neighbours (`at`).
+  Opened any other way there is no counter and no arrows. Messages are
+  full-width cards with a role tag (Customer, Support, Internal note) and the
+  clock time in the desk's time zone. Details shows the contact (Copy for the
+  address), the client and its note, the client's other open tickets, the
+  signed-in person's own logged time (never a teammate's: the Time page shows
+  a technician only their own entries), and Open in Milepost for a linked
+  client. Every read is scoped to the tenant and to the ticket's own client.
+- Merge: the Merge button in the head, or the duplicate notice (same contact,
+  48h), opens a dialog that lists the client's other open tickets (the page
+  prints them in `#merge-data`; there is no new endpoint), with a search by
+  number or title and one line about the picked ticket. Only
   tickets for the same customer may be merged. The two ticket rows are locked
   and rechecked before any conversation is moved. Then
   messages/files move to the survivor and the source becomes a linked resolved

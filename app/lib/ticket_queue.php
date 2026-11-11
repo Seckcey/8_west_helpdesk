@@ -341,6 +341,99 @@ function queue_page(PDO $pdo, int $tenantId, int $me, array $state): array
     return ['rows' => $rows, 'changed' => $changed];
 }
 
+/** A view longer than this shows no "2 of 6" on a ticket: the place is not worth that read. */
+const QUEUE_PLACE_LIMIT = 2000;
+
+/**
+ * What a row's link adds so the ticket page knows which list it was opened from:
+ * "&in=open&client=3". The page is left out; the ticket finds its own place.
+ */
+function queue_ticket_query(array $state): string
+{
+    $query = ['in' => $state['view']];
+    if ($state['view'] === 'all') $query['f'] = $state['status'] !== '' ? $state['status'] : 'all';
+    if ($state['client'] > 0) $query['client'] = $state['client'];
+    if ($state['priority'] !== '') $query['priority'] = $state['priority'];
+    if ($state['owner'] !== '') $query['owner'] = $state['owner'];
+    if ($state['sort'] !== '' && $state['sort'] !== queue_default_sort($state['view'])) $query['sort'] = $state['sort'];
+    return '&' . http_build_query($query);
+}
+
+/**
+ * The list a ticket link names, or null when it names none (a search result, a link in an email,
+ * an old bookmark) or names one that does not exist.
+ */
+function queue_ticket_state(array $get): ?array
+{
+    $in = is_string($get['in'] ?? null) ? $get['in'] : '';
+    if ($in === 'all') {
+        $ask = $get;
+        unset($ask['view']);
+    } elseif (isset(QUEUE_VIEWS[$in])) {
+        $ask = array_replace($get, ['view' => $in]);
+        unset($ask['f']);
+    } else {
+        return null;
+    }
+    $state = queue_request($ask);
+    if (($in === 'all') !== ($state['view'] === 'all')) return null;
+    return array_replace($state, ['page' => 1, 'after' => 0, 'before' => 0]);
+}
+
+/**
+ * Where a ticket stands in the list it was opened from: "2 of 6", the tickets before and after it,
+ * and the way back to the page of the list that holds it.
+ *
+ * The list is read again, in the same order and under the same view and filters as the queue shows
+ * it (the same SQL fragments, the same tenant), so the place is true now, not when the queue was
+ * drawn. A ticket that has since left the list (answered, resolved, given to someone else) has no
+ * place any more: position is 0, and $was, the place it had, still says which tickets were beside it.
+ *
+ * @return array{label:string,query:string,back:string,position:int,total:int,at:int,prev:?string,next:?string}|null
+ *         null when the list is too long to place a ticket in.
+ */
+function queue_ticket_place(PDO $pdo, int $tenantId, int $me, array $state, int $ticketId, int $was = 0): ?array
+{
+    $facts = queue_facts($pdo);
+    [$filterSql, $filterParams] = queue_filter_sql($state, $me);
+    [$statusSql, $statusParams] = queue_status_sql($state);
+    $sort = $state['sort'] !== '' ? $state['sort'] : queue_default_sort($state['view']);
+    $find = $pdo->prepare(
+        'SELECT t.id FROM tickets t
+          WHERE t.tenant_id = ? AND (' . strtr(queue_view_sql($state['view'], $me), $facts) . ')' . strtr($filterSql, $facts) . $statusSql . '
+          ORDER BY ' . strtr(queue_order_sql($state['view'], $sort), $facts) . '
+          LIMIT ' . (QUEUE_PLACE_LIMIT + 1)
+    );
+    $find->execute(array_merge([$tenantId], $filterParams, $statusParams));
+    $ids = array_map('intval', $find->fetchAll(PDO::FETCH_COLUMN));
+    if (count($ids) > QUEUE_PLACE_LIMIT) return null;
+
+    $query = queue_ticket_query($state);
+    $link = static fn(?int $id): ?string => $id === null ? null : '/ticket.php?id=' . $id . $query;
+    $index = array_search($ticketId, $ids, true);
+    if ($index === false) {
+        // Its old place, kept inside what the list holds now: the ticket that followed it stands there.
+        $at = max(1, min($was > 0 ? $was : 1, count($ids) + 1));
+        $position = 0;
+        $prev = $ids[$at - 2] ?? null;
+        $next = $ids[$at - 1] ?? null;
+    } else {
+        $at = $position = $index + 1;
+        $prev = $ids[$index - 1] ?? null;
+        $next = $ids[$index + 1] ?? null;
+    }
+    return [
+        'label' => queue_view_label($state),
+        'query' => $query,
+        'back' => queue_url($state, ['page' => max(1, (int)ceil(min($at, max(1, count($ids))) / QUEUE_PAGE_SIZE))]),
+        'position' => $position,
+        'total' => count($ids),
+        'at' => $at,
+        'prev' => $link($prev),
+        'next' => $link($next),
+    ];
+}
+
 /** The sentence under the page title. */
 function queue_summary(array $counts): string
 {

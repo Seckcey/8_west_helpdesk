@@ -1,7 +1,10 @@
 <?php
 /**
- * Ticket detail — conversation center, context right. Resolve without
- * ever leaving this view. Reply = POST back here (PRG).
+ * Ticket detail: the conversation in the centre, the customer beside it (lib/ticket_page.php).
+ * Resolve without ever leaving this view. Reply = POST back here (PRG).
+ *
+ * Opened from the queue, the link names that list (?in=...), so the head can say "2 of 6" and step
+ * to the previous and next ticket; opened any other way there is no counter and no arrows.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
@@ -10,6 +13,9 @@ require_once __DIR__ . '/../lib/mailer.php';
 require_once __DIR__ . '/../lib/attachments.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
 require_once __DIR__ . '/../lib/westy_workflow_grants.php';
+require_once __DIR__ . '/../lib/ticket_queue.php';
+require_once __DIR__ . '/../lib/ticket_page.php';
+require_once __DIR__ . '/../lib/client_operational_context.php';
 enforce_https();
 $user = require_login();
 
@@ -28,6 +34,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_SESSION['time_entry_notice'
 }
 
 $id = (int)($_GET['id'] ?? 0);
+// The list this ticket was opened from, and the place it had there when the page was last drawn.
+$listState = queue_ticket_state($_GET);
+$listAt = is_string($_GET['at'] ?? null) && ctype_digit($_GET['at']) && strlen($_GET['at']) <= 6 ? (int)$_GET['at'] : 0;
+$listQuery = $listState !== null ? queue_ticket_query($listState) : '';
 // "Send and resolve" and "Send and wait" say what they did after the redirect, with a way back.
 $ticketFlash = null;
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_SESSION['ticket_flash'])) {
@@ -39,7 +49,8 @@ $stmt = db()->prepare(
     'SELECT t.*,
             (SELECT MIN(m.created_at) FROM messages m WHERE m.ticket_id = t.id AND m.kind = "tech") AS first_response_at,
             EXISTS (SELECT 1 FROM tickets merged_source WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id) AS has_merged_sources,
-            c.name AS client_name, c.sla_tier,
+            (SELECT m.author_name FROM messages m WHERE m.ticket_id = t.id AND m.kind = "client" ORDER BY m.id ASC LIMIT 1) AS opener_name,
+            c.name AS client_name, c.sla_tier, c.notes AS client_notes,
             goal_policy.display_name AS service_goal_policy_name,
             goal_policy.version_no AS service_goal_version_no,
             goal_policy.clock_mode AS service_goal_clock_mode,
@@ -183,7 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
                     . ', but its time entry stayed local. Use Retry logging; do not send it again.';
             }
         }
-        header('Location: /ticket.php?id=' . $id . '#reply');
+        header('Location: /ticket.php?id=' . $id . $listQuery . ($listQuery !== '' && $listAt > 0 ? '&at=' . $listAt : '') . '#reply');
         exit;
     }
 }
@@ -196,12 +207,12 @@ $dupe = null;
 if (!$mergedInto && !empty($ticket['contact_id']) && $ticket['status'] !== 'resolved') {
     $dq = db()->prepare(
         "SELECT id, subject FROM tickets
-          WHERE tenant_id = ? AND contact_id = ? AND id != ? AND status != 'resolved'
+          WHERE tenant_id = ? AND client_id = ? AND contact_id = ? AND id != ? AND status != 'resolved'
             AND merged_into_id IS NULL
             AND ABS(TIMESTAMPDIFF(HOUR, created_at, ?)) <= 48
           ORDER BY id DESC LIMIT 1"
     );
-    $dq->execute([tenant_id(), (int)$ticket['contact_id'], $id, $ticket['created_at']]);
+    $dq->execute([tenant_id(), (int)$ticket['client_id'], (int)$ticket['contact_id'], $id, $ticket['created_at']]);
     $dupe = $dq->fetch() ?: null;
 }
 
@@ -231,12 +242,36 @@ $replyOpenMove = 'The ticket moves to ' . STATUS_META['in_progress'][0] . '.';
 $cq2 = db()->prepare('SELECT id, title, body FROM canned_responses WHERE tenant_id = ? ORDER BY title');
 $cq2->execute([tenant_id()]);
 $cannedRows = $cq2->fetchAll();
-$contactName = '';
-if (!empty($ticket['contact_id'])) {
-    $kq = db()->prepare('SELECT name FROM contacts WHERE id = ?');
-    $kq->execute([(int)$ticket['contact_id']]);
-    $contactName = (string)($kq->fetch()['name'] ?? '');
-}
+// The contact, read inside this tenant (ticket_contact()). A request from the portal has no
+// contact row: its opening message carries the requester's name.
+$contact = ticket_contact($ticket);
+$contactName = $contact !== null ? $contact['name'] : '';
+$asker = $contactName !== '' ? $contactName : trim((string)($ticket['opener_name'] ?? ''));
+$railContact = $contact !== null && $contactName !== ''
+    ? ['name' => $contactName, 'email' => $contact['email'], 'portal' => false]
+    : ($replyAudience['via'] === 'portal' && $asker !== '' ? ['name' => $asker, 'email' => '', 'portal' => true] : null);
+
+$suitePreferences = is_array($_SESSION['suite_preferences'] ?? null) ? $_SESSION['suite_preferences'] : suite_preferences_defaults();
+$timeZone = (string)($suitePreferences['time_zone'] ?? 'UTC');
+
+// Where this ticket stands in the list it was opened from.
+$where = $listState !== null ? queue_ticket_place(db(), tenant_id(), (int)$user['id'], $listState, $id, $listAt) : null;
+$selfQuery = $listQuery . ($where !== null ? '&at=' . $where['at'] : '');
+
+// Beside the conversation: the client's other open tickets (also what Merge can offer), the time
+// this person has logged here, and the client's computers in Milepost when the client is linked.
+$others = $mergedInto ? null : ticket_other_open(db(), tenant_id(), (int)$ticket['client_id'], $id);
+$ownMinutes = ticket_own_minutes(db(), tenant_id(), $id, (int)$user['id']);
+$operational = client_operational_context(db(), tenant_id(), (int)$ticket['client_id']);
+$deviceUrl = $operational['available'] && $operational['status'] === 'active' && is_string($operational['device_url'] ?? null)
+    ? $operational['device_url']
+    : null;
+$mergeData = [
+    'ticket' => ['id' => $id, 'subject' => (string)$ticket['subject']],
+    'client' => (string)$ticket['client_name'],
+    'choices' => ticket_merge_choices($others ?? [], null, $timeZone),
+    'more' => count($others ?? []) > TICKET_OTHER_OPEN_LIMIT,
+];
 $cannedData = [
     'snippets' => array_map(static fn($r) => [
         'id' => (int)$r['id'], 'title' => $r['title'], 'body' => $r['body'],
@@ -255,40 +290,25 @@ page_top($user, '#' . $id, 'queue');
   <?php if ($timeEntryAck !== null): ?>
     <span id="time-entry-ack" data-entry-key="<?= h($timeEntryAck) ?>" hidden></span>
   <?php endif; ?>
-  <a href="/" class="backlink">← Queue</a>
+  <?= ticket_page_head($ticket, $where, ticket_subtitle($ticket, $asker, null, $timeZone), (bool)$mergedInto) ?>
   <?php if ($mergedInto): ?>
-    <div class="banner banner-info">This ticket was merged into
-      <a class="link" href="/ticket.php?id=<?= $mergedInto ?>">#<?= $mergedInto ?></a> — the conversation continues there.</div>
+    <?= ticket_callout('info', 'Merged', 'into <a class="link" href="/ticket.php?id=' . $mergedInto . '">#' . $mergedInto . '</a>. The conversation continues there.') ?>
   <?php endif; ?>
   <?php if ($dupe): ?>
-    <div class="banner banner-warn">Possible duplicate: same contact opened
-      <a class="link" href="/ticket.php?id=<?= (int)$dupe['id'] ?>">#<?= (int)$dupe['id'] ?> <?= h(mb_substr($dupe['subject'], 0, 60)) ?></a>
-      within 48h.
-      <button type="button" class="btn-chip" id="merge-dupe-btn" data-src="<?= (int)$ticket['id'] ?>" data-dst="<?= (int)$dupe['id'] ?>">Merge this into #<?= (int)$dupe['id'] ?></button>
-    </div>
+    <?= ticket_callout('caution', 'Possible duplicate.',
+        'The same contact opened <a class="link" href="/ticket.php?id=' . (int)$dupe['id'] . '">#' . (int)$dupe['id'] . ' ' . h(mb_substr($dupe['subject'], 0, 60)) . '</a> within 48 hours of this one.',
+        '<button type="button" class="btn-secondary ticket-callout-btn" id="merge-dupe-btn" data-src="' . (int)$ticket['id'] . '" data-dst="' . (int)$dupe['id'] . '"'
+        . ' data-subject="' . h(mb_substr($dupe['subject'], 0, 120)) . '">Merge into #' . (int)$dupe['id'] . '</button>') ?>
   <?php endif; ?>
   <?php if ($staleDraft !== null): ?>
-    <div class="banner banner-warn">⚠ The conversation changed while you were typing — <strong>nothing was sent</strong>.
-      Review the new messages below; your draft is preserved in the composer.</div>
+    <?= ticket_callout('caution', 'Nothing was sent.', 'The conversation changed while you were typing. Read the new messages below; your draft is still in the box.') ?>
   <?php endif; ?>
   <?php if ($timeEntryNotice !== null): ?>
-    <div class="banner banner-warn"><?= h($timeEntryNotice) ?></div>
+    <?= ticket_callout('caution', 'Time not logged.', h($timeEntryNotice)) ?>
   <?php endif; ?>
   <?php if ($ticketFlash !== null): ?>
     <span id="ticket-flash" data-toast="<?= h((string)($ticketFlash['toast'] ?? '')) ?>" data-undo-status="<?= h((string)($ticketFlash['undo_status'] ?? '')) ?>" hidden></span>
   <?php endif; ?>
-  <div class="ticket-head">
-    <span class="ticket-num">#<?= (int)$ticket['id'] ?></span>
-    <h1 class="ticket-subject"><?= h($ticket['subject']) ?></h1>
-    <span data-chip><?= status_chip($ticket['status']) ?></span>
-    <span data-pri><?= priority_glyph($ticket['priority'], true) ?></span>
-    <span class="presence-row" id="presence"></span>
-    <?php if (!$mergedInto): ?><span class="ticket-actions"><?= ticket_resolve_buttons((int)$ticket['id'], (string)$ticket['status']) ?></span><?php endif; ?>
-  </div>
-  <p class="ticket-sub">
-    <a class="link" href="/client.php?id=<?= (int)$ticket['client_id'] ?>"><?= h($ticket['client_name']) ?></a>
-    · opened <?= rel_time($ticket['created_at']) ?> ago via <?= h($ticket['channel']) ?>
-  </p>
 
   <div class="ticket-grid">
     <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>" data-status="<?= h($ticket['status']) ?>" data-priority="<?= h($ticket['priority']) ?>" data-owner="<?= !empty($ticket['assignee_id']) ? (int)$ticket['assignee_id'] : '' ?>">
@@ -303,28 +323,11 @@ page_top($user, '#' . $id, 'queue');
         <div class="msg-system">Showing the latest <?= count($thread) ?> of <?= $threadHidden + count($thread) ?> messages</div>
       <?php endif; ?>
       <?php foreach ($thread as $msg): ?>
-        <?php if ($msg['kind'] === 'system'): ?>
-          <div class="msg-system"><?= h($msg['body']) ?> · <?= rel_time($msg['created_at']) ?></div>
-        <?php elseif ($msg['kind'] === 'note'): ?>
-          <div class="msg-note">
-            <div class="msg-meta"><span class="msg-author-note"><?= h($msg['author_name']) ?></span><span class="msg-when">internal note · <?= rel_time($msg['created_at']) ?></span></div>
-            <p class="msg-body"><?= h($msg['body']) ?></p>
-            <?= att_chips($ticketAtts[(string)$msg['id']] ?? []) ?>
-          </div>
-        <?php else: $isTech = $msg['kind'] === 'tech'; ?>
-          <div class="card msg <?= $isTech ? 'msg-tech' : '' ?>">
-            <div class="msg-meta">
-              <span class="<?= $isTech ? 'msg-author-tech' : 'msg-author' ?>"><?= h($msg['author_name']) ?></span>
-              <span class="msg-when"><?= $isTech ? 'tech' : 'client' ?> · <?= rel_time($msg['created_at']) ?></span>
-            </div>
-            <p class="msg-body"><?= h($msg['body']) ?></p>
-            <?= att_chips($ticketAtts[(string)$msg['id']] ?? []) ?>
-          </div>
-        <?php endif; ?>
+        <?= ticket_message($msg, $msg['kind'] === 'system' ? '' : att_chips($ticketAtts[(string)$msg['id']] ?? []), $timeZone) ?>
       <?php endforeach; ?>
 
       <div class="card reply" id="reply">
-        <form method="post" action="/ticket.php?id=<?= (int)$ticket['id'] ?>" id="reply-form" enctype="multipart/form-data">
+        <form method="post" action="/ticket.php?id=<?= (int)$ticket['id'] ?><?= h($selfQuery) ?>" id="reply-form" enctype="multipart/form-data">
           <?= csrf_field() ?>
           <input type="hidden" name="mode" id="composer-mode" value="reply">
           <input type="hidden" name="timer_minutes" id="f-timer-minutes" value="0">
@@ -364,28 +367,24 @@ page_top($user, '#' . $id, 'queue');
       <script id="canned-data" type="application/json"><?= json_encode($cannedData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
     </div>
 
-    <div class="rail">
-      <div class="rail-label">Details</div>
-      <div class="rail-props">
-        <?= ticket_menu_button('status', (int)$ticket['id'], 'Status', 'S', 'data-chip', status_chip($ticket['status'])) ?>
-        <?= ticket_menu_button('priority', (int)$ticket['id'], 'Priority', 'P', 'data-pri', priority_glyph($ticket['priority'], true)) ?>
-        <?= ticket_menu_button('assignee', (int)$ticket['id'], 'Assigned to', 'T', 'data-assignee',
-            '<span class="assignee-cell">' . ticket_owner_avatar($ticket, 22) . '<span class="assignee-name">'
-            . h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) . '</span></span>') ?>
-      </div>
-
-      <div class="rail-label">First response</div>
-      <div class="card rail-card"><span data-sla><?= sla_lamp($ticket) ?></span><span class="rail-note"><?= h(service_goal_ticket_policy_label($ticket)) ?></span></div>
-
-      <div class="rail-label">Time</div>
-      <button class="rail-btn timer-btn" id="timer-btn" data-id="<?= (int)$ticket['id'] ?>">▶ Start timer&nbsp;&nbsp;(E)</button>
-
-      <?php if (!$mergedInto): ?>
-      <div class="rail-label">Merge</div>
-      <button class="rail-btn" id="merge-btn" data-id="<?= (int)$ticket['id'] ?>">⇄ Merge into another ticket…</button>
-      <?php endif; ?>
-    </div>
+    <?= ticket_details($ticket, [
+        'menus' => ticket_menu_button('status', (int)$ticket['id'], 'Status', 'S', 'data-chip', status_chip($ticket['status']))
+            . ticket_menu_button('priority', (int)$ticket['id'], 'Priority', 'P', 'data-pri', priority_glyph($ticket['priority'], true))
+            . ticket_menu_button('assignee', (int)$ticket['id'], 'Assigned to', 'T', 'data-assignee',
+                '<span class="assignee-cell">' . ticket_owner_avatar($ticket, 22) . '<span class="assignee-name">'
+                . h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) . '</span></span>'),
+        'tag' => sla_lamp($ticket),
+        'plan' => service_goal_ticket_policy_label($ticket),
+        'minutes' => $ownMinutes,
+        'contact' => $railContact,
+        'note' => (string)($ticket['client_notes'] ?? ''),
+        'others' => $others,
+        'device_url' => $deviceUrl,
+    ]) ?>
   </div>
+  <?php if (!$mergedInto): ?>
+    <script id="merge-data" type="application/json"><?= json_encode($mergeData, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
+  <?php endif; ?>
 </div>
 <?php
 page_bottom(palette_data());

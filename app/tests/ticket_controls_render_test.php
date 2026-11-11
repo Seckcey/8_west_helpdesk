@@ -24,6 +24,7 @@ try {
     file_put_contents($temp . '/auth.php', '<?php function h($v): string { return htmlspecialchars((string)$v,ENT_QUOTES,"UTF-8"); } function sla_info($t): array { return ["state"=>"on_track","label"=>"On track"]; } function rel_time($v): string { return "2h"; }');
     file_put_contents($temp . '/westy.php', '<?php');
     require $temp . '/render.php';
+    require __DIR__ . '/../lib/ticket_page.php';
     require __DIR__ . '/../lib/ticket_changes.php';
 
     $dom = static function (string $html): DOMXPath {
@@ -138,6 +139,9 @@ try {
         $audience = ['via' => $via, 'first_name' => $via === 'none' ? '' : 'Dana'];
         $hint = ticket_reply_hint($audience);
         $move = 'The ticket moves to ' . STATUS_META['in_progress'][0] . '.';
+        // The ticket on screen, as ticket.php hands it to the head and to Details.
+        $shown = array_replace($row, ['id' => 42, 'status' => $status, 'priority' => 'normal', 'assignee_id' => null,
+            'created_at' => gmdate('Y-m-d H:i:s', time() - 20 * 60)]);
         $queue = [
             array_replace($row, ['id' => 101, 'status' => 'waiting', 'assignee_id' => null]),
             array_replace($row, ['id' => 102, 'status' => 'open', 'priority' => 'normal', 'subject' => 'New hire laptop setup']),
@@ -146,12 +150,9 @@ try {
             'menus' => ticket_menu_choices($team),
             'queue' => '<div class="card list">' . ticket_head_row(false) . implode('', array_map('ticket_row', $queue)) . '</div>',
             'ticket' => '<div class="page page-ticket">'
-                . '<div class="ticket-head"><span class="ticket-num">#42</span><h1 class="ticket-subject">Front desk PC will not print</h1>'
-                . '<span data-chip>' . status_chip($status) . '</span><span data-pri>' . priority_glyph('normal', true) . '</span>'
-                . '<span class="presence-row" id="presence"></span><span class="ticket-actions">' . ticket_resolve_buttons(42, $status) . '</span></div>'
-                . '<p class="ticket-sub">Fixture Dental</p>'
+                . ticket_page_head($shown, null, ticket_subtitle($shown, 'Dana Whitfield'), false)
                 . '<div class="ticket-grid"><div class="thread" id="thread" data-ticket-id="42" data-status="' . h($status) . '" data-priority="normal" data-owner="">'
-                . '<div class="card msg"><div class="msg-meta"><span class="msg-author">Dana Whitfield</span></div><p class="msg-body">The front desk cannot print.</p></div>'
+                . ticket_message(['kind' => 'client', 'author_name' => 'Dana Whitfield', 'body' => 'The front desk cannot print.', 'created_at' => $shown['created_at']], '', 'UTC')
                 . '<div class="card reply" id="reply"><form method="post" action="/ticket.php?id=42" id="reply-form">'
                 . '<input type="hidden" name="csrf" value="fixture"><input type="hidden" name="mode" id="composer-mode" value="reply">'
                 . '<input type="hidden" name="last_message_id" value="1">'
@@ -167,12 +168,17 @@ try {
                 . h($hint . ($status === 'open' ? ' ' . $move : '')) . '</span>'
                 . ticket_send_control($via === 'email', $audience['first_name'], intdiv(TICKET_WAITING_HOURS, 24))
                 . '</div></form></div></div>'
-                . '<div class="rail"><div class="rail-label">Details</div><div class="rail-props">'
-                . ticket_menu_button('status', 42, 'Status', 'S', 'data-chip', status_chip($status))
-                . ticket_menu_button('priority', 42, 'Priority', 'P', 'data-pri', priority_glyph('normal', true))
-                . ticket_menu_button('assignee', 42, 'Assigned to', 'T', 'data-assignee',
-                    '<span class="assignee-cell">' . avatar(null, 22) . '<span class="assignee-name">Unassigned</span></span>')
-                . '</div></div></div></div>',
+                . ticket_details($shown, [
+                    'menus' => ticket_menu_button('status', 42, 'Status', 'S', 'data-chip', status_chip($status))
+                        . ticket_menu_button('priority', 42, 'Priority', 'P', 'data-pri', priority_glyph('normal', true))
+                        . ticket_menu_button('assignee', 42, 'Assigned to', 'T', 'data-assignee',
+                            '<span class="assignee-cell">' . avatar(null, 22) . '<span class="assignee-name">Unassigned</span></span>'),
+                    'tag' => '<span class="sla sla-healthy"><span class="sla-dot"></span>Due in 6 h</span>',
+                    'plan' => 'Standard plan: first reply within 8 hours.', 'minutes' => 0,
+                    'contact' => ['name' => 'Dana Whitfield', 'email' => 'dana@example.test', 'portal' => false],
+                    'note' => '', 'others' => [], 'device_url' => null,
+                ])
+                . '</div></div>',
         ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);
     } else {
         echo "Ticket controls render: {$checks} passed.\n";
