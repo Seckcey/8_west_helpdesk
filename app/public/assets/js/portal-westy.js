@@ -79,6 +79,26 @@
     device_offline:'The computer is not currently available.', repair_cooldown:'A recent repair is still within its cooldown.', operation_unavailable:'This operation is not available for your current access.',
     service_unavailable:'The service response was not confirmed. This operation will not be retried automatically.'
   };
+  // A chat failure in plain words. The exact sentence above and its code stay one click away, under Details.
+  const later='Westy can’t answer right now. Try again in a minute.', askSupport='Westy can’t answer right now. Your support team can help.';
+  const plain = {
+    provider_rate_limit:later, quota_unavailable:later, input_count_unavailable:later, provider_unavailable:later, provider_invalid:later,
+    ai_unavailable:askSupport, credentials_refused:askSupport, model_unavailable:askSupport, provider_model_mismatch:askSupport, needs_setup:askSupport, configuration:askSupport,
+    provider_refused:'Westy can’t answer that. Ask another way, or ask your support team.',
+    hourly_limit:'You’ve reached this hour’s limit for Westy.', daily_limit:'Your business has reached today’s limit for Westy.',
+    cost_limit:'Your business has reached this month’s limit for Westy.'
+  };
+  // A reply that began and then ended early. What it says about the computer depends on whether any computer work is recorded on it.
+  const endedEarly = new Set(['interrupted','input_limit','provider_incomplete','provider_limit','ai_changed','tool_invalid','access_changed',
+    'conversation_expired','content_unavailable','provider_unavailable','provider_invalid','input_count_unavailable']);
+  const canWrite = root.dataset.canWrite === '1';
+  const supportLink = () => { const a = element('a', 'New support request', 'btn-ghost portal-chat-support'); a.href = '/portal/new.php'; return a; };
+  function turnFailure(turn) {
+    const code=turn.reason_code, work=!!turn.reply?.tools?.length;
+    if(code==='stopped')return work?errors.stopped:'Reply stopped.';
+    if(!endedEarly.has(code)&&(plain[code]||errors[code]))return plain[code]||errors[code];
+    return 'Westy stopped before finishing. '+(work?'Check the computer work shown in this reply.':'Nothing was sent to your computer.');
+  }
   const key = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   const messageKey = () => 'f1'+Math.floor(Date.now()/1000).toString(16).padStart(8,'0')+Array.from(crypto.getRandomValues(new Uint8Array(11)),b=>b.toString(16).padStart(2,'0')).join('');
   const element = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
@@ -93,7 +113,10 @@
   setInterval(updateComputerTime,30000);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')updateComputerTime();});
   const button = (text, action, cls = 'btn-ghost') => { const b = element('button', text, cls); b.type = 'button'; b.addEventListener('click', action); return b; };
-  const say = text => { status.textContent = text; delete status.dataset.operation; };
+  const statusSupport = supportLink(); statusSupport.hidden = true; status.after(statusSupport);
+  // detail: the exact sentence behind a plain one, kept as the line's tooltip. support: offer a person, to those who may write.
+  const say = (text, detail = '', support = false) => { status.textContent = text; status.title = detail; statusSupport.hidden = !(support && canWrite); delete status.dataset.operation; };
+  const sayFailure = (code, suffix = '') => say((plain[code] || errors[code]) + suffix, plain[code] ? errors[code] : '', !!plain[code]);
   function controls() {
     const waiting=state?.turns.some(t=>t.run?.state==='waiting');
     send.hidden = busy||waiting; stop.hidden = !busy&&!waiting&&!state?.turns.some(t=>t.terminal_active||t.desktop_cleanup); send.disabled = !state?.ai_available;
@@ -129,7 +152,7 @@
   }
   function accessError(error) {
     if(['sign_in','identity_unavailable'].includes(error.reason))clearPrivate();
-    say(errors[error.reason] || errors.unavailable);
+    sayFailure(errors[error.reason] ? error.reason : 'unavailable');
   }
   async function refresh(quiet = false) {
     if(busy)return;
@@ -387,9 +410,15 @@
         node.metaSignature=signature;node.meta.replaceChildren();
         if(turn.state==='pending'&&!text)node.meta.append(element('p','Westy is working…','portal-hint'));
         if(turn.state==='unavailable'){
-          node.meta.append(element('p',turn.reason_code==='stopped'&&!turn.reply?.tools?.length?'Reply stopped.':(errors[turn.reason_code]||errors.interrupted),'portal-hint'));
-          // The code names the exact cause for support, even when its message is generic.
-          if(turn.reason_code&&turn.reason_code!=='stopped')node.meta.append(element('p','Reason code: '+turn.reason_code,'portal-hint'));
+          const shown=turnFailure(turn);node.meta.append(element('p',shown,'portal-hint'));
+          if(turn.reason_code&&turn.reason_code!=='stopped'){
+            if(canWrite)node.meta.append(supportLink());
+            // The exact sentence and the code name the cause for support, even when the line above is general.
+            const exact=errors[turn.reason_code]||errors.interrupted,more=element('details',undefined,'portal-chat-details');
+            more.append(element('summary','Details'));
+            if(exact!==shown)more.append(element('p',exact,'portal-hint'));
+            more.append(element('p','Reason code: '+turn.reason_code,'portal-hint'));node.meta.append(more);
+          }
         }
         if(turn.desktop_cleanup){
           node.meta.append(element('p','Computer control has not been confirmed stopped. The previous action will not be repeated.','portal-hint'));
@@ -408,7 +437,7 @@
       if(history.dataset.signature!==signature){history.dataset.signature=signature;history.replaceChildren();for(const chat of next.conversations||[]){const b=button(chat.title,()=>selectChat(chat.key),'');if(chat.key===next.conversation)b.setAttribute('aria-current','true');history.append(b);}}
     }
     if(!editing)renderDraft(state.receipt||state.draft);
-    if(!state.ai_available)say(errors.ai_unavailable);
+    if(!state.ai_available)sayFailure('ai_unavailable');
     if(stickToBottom)scrollLatest();
     scheduleRefresh();
     const latest=state.turns.at(-1);
@@ -519,7 +548,7 @@
     event.preventDefault();if(!input.value.trim())return;
     // A send that cannot start says why instead of doing nothing.
     if(busy){say(errors.busy);return;}
-    if(!state?.ai_available){say(errors.ai_unavailable);return;}
+    if(!state?.ai_available){sayFailure('ai_unavailable');return;}
     if(state.turns.some(t=>t.run?.state==='waiting')){say('Westy is waiting for a computer check. Wait for it to finish or stop it, then send your message.');return;}
     const text=input.value.trim(),operation=messageKey(),requestEpoch=accessEpoch;currentOperation=operation;let operationExpired=false,refusal=null,streamTimeout=null;
     const request={action:'message',operation,message:text,conversation:state.conversation,device_reference:devices.value||null};
@@ -549,7 +578,7 @@
       busy=false;streamController=null;currentOperation=null;controls();
       if(state){await refresh(true);if(state&&!state.turns.some(t=>t.operation_key===operation)){input.value=text;
         // Keep the server's reason on screen, for example the chat budget; only the restored text is new.
-        say(operationExpired?errors.operation_expired:refusal?errors[refusal]+' Your message was not sent; it is back in the box.':'Your message was not saved. Review it before sending again.');}
+        if(operationExpired)say(errors.operation_expired);else if(refusal)sayFailure(refusal,' Your message was not sent; it is back in the box.');else say('Your message was not saved. Review it before sending again.');}
         input.focus();scheduleRefresh();}
     }
   });

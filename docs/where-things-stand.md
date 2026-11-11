@@ -514,6 +514,16 @@ for an actual owner or admin only, as before), then Give them this computer (Cre
 A new link has a Copy button, and People and access links shows each state as a tag. No change to who
 may invite, who may give or revoke access, what a colleague gets, or any service call.
 
+**Westy's chat failures in plain words (draft, not live).** When a customer's reply from Westy fails,
+the chat shows one short sentence: "Westy can't answer right now. Try again in a minute." (or "Your
+support team can help." when waiting will not fix it), "Westy stopped before finishing." followed by
+"Nothing was sent to your computer." or "Check the computer work shown in this reply.", or the limit
+that was reached (this hour, today, this month). People who may create a request also get a New support
+request button. The exact earlier sentence and the reason code are still there under Details on a
+failed reply, and as the status line's tooltip. Sentences about computer work, approvals, sign-in and
+what to type are unchanged. Only `portal-westy.js` and `portal.css` changed: no reason code, server
+reply, limit or permission did.
+
 **Portal Home: one question and requests that say what is happening (draft, not live).** Home's hero is
 "Hello, {first name}", "How can we help {client} today?" and two buttons: Ask Westy, and New support
 request for exactly the roles that may already create a request (`portal_role_can_write_tickets()`, the
