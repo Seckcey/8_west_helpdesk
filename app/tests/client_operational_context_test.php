@@ -217,10 +217,10 @@ operational_check('a failed lookup never labels the actually bound client local,
     && client_operational_context($failingPdo, 1, 20) === ['bound' => null, 'available' => false]);
 $clientsPage = (string)file_get_contents(__DIR__ . '/../public/clients.php');
 $clientPage = (string)file_get_contents(__DIR__ . '/../public/client.php');
-operational_check('directory shows Support, active-only Devices, a linked or verified pending client\'s own Billing and the generic entry otherwise',
+operational_check('directory keeps its client link, active-only Milepost, a linked or verified pending client\'s own Billing and the generic entry otherwise',
     str_contains($clientsPage, 'client_operational_directory(db(), $tenantId)')
     && str_contains($clientsPage, 'client_operational_directory_entry($shared, (int)$c[\'id\'])')
-    && str_contains($clientsPage, '>Support</a>') && str_contains($clientsPage, 'Devices ↗')
+    && !str_contains($clientsPage, '>Support</a>') && str_contains($clientsPage, 'Open in Milepost')
     && str_contains($clientsPage, "\$op['status'] === 'active' && is_string(\$op['device_url'] ?? null)")
     && str_contains($clientsPage, "\$billingUrl = \$op['available'] && is_string(\$op['billing_url'] ?? null) ? \$op['billing_url'] : null;")
     && str_contains($clientsPage, '$pendingBilling = $provider !== null ? client_operational_billing_url($provider, (string)$customerId) : null;')
@@ -238,8 +238,9 @@ operational_check('both pages read the request-current directory once and classi
     && str_contains($clientsPage, 'client_operational_roster_classify($shared, client_operational_bound_customers(db(), $tenantId), $roster)')
     && substr_count($clientPage, 'client_operational_roster(db(), $user)') === 1
     && !preg_match('/INSERT|UPDATE|DELETE/', (string)preg_replace('/\A[\s\S]*?\$shared = client_operational_directory/', '', $clientsPage)));
-operational_check('only a proven-unbound row or page says local; unknown and drifted say unavailable',
-    preg_match("/elseif \\(\\\$op\\['bound'\\] !== false\\): \\?>\\s*<span class=\"crow-shared\">Shared details unavailable<\\/span>\\s*<\\?php else: \\?>\\s*<span class=\"crow-shared\">Local to Safeharbor/", $clientsPage) === 1
+operational_check('only a proven-unbound row says Not linked; unknown and drifted say unavailable',
+    str_contains($clientsPage, "\$op['bound'] === false && \$hasLinked")
+    && str_contains($clientsPage, "\$op['bound'] !== false && !\$op['available']")
     && preg_match("/elseif \\(\\\$operational\\['bound'\\] !== false\\): \\?>\\s*<p class=\"client-shared\">Shared details are temporarily unavailable/", $clientPage) === 1);
 
 // The request-current Milepost directory: principal, issuer, strict reply, classification, and no writes.

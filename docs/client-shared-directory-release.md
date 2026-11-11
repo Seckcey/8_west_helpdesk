@@ -17,7 +17,7 @@ CUT1:
 
 | Surface | Change |
 | --- | --- |
-| Clients list | Each row keeps its local name, domain, SLA tier and open count, and adds the last received Milepost shared name and active/inactive state. "Local to Safeharbor" appears only when the lookup succeeded and found no binding; a failed lookup or a disagreeing receipt shows "Shared details unavailable". With Milepost's current client directory read for the request, **Businesses** lists linked clients Milepost lists as active (with the last received state beside it when Safeharbor lags) and active Milepost businesses not yet received, and **Retained and local** keeps everything else. An unavailable directory lists every client as before and says so; a verified empty one says that instead. Buttons: **Support** (local client page), **Devices** (linked active clients only), **Billing** (Coastmark's existing entry). |
+| Clients list | One list with Find a client filtering names/domains locally; columns Client, Open tickets, Oldest open and Plan. The full row opens the client. Its Apps menu preserves the existing Open in Milepost and Open in Coastmark destinations, including retained history and verified pending clients. Not linked appears only for known unbound rows when at least one client is linked; unknown links remain unknown. An unavailable directory uses a plain information callout and local records; verified empty remains distinct. Counts and oldest-open timestamps match both ticket tenant and client. |
 | Client page | A "Shared client" line with the shared name, state, source version and **Shared details** in Milepost, plus the client's current Milepost directory entry or "retained history". The devices card and the Suite rail open the client's own Milepost page for linked active clients; Balance and invoices open Coastmark's existing entry. |
 | Edit client | Adds **Open this client's devices in Milepost** beside the existing shared-details button. |
 | New client | States that a client created here is local; shared clients come from Milepost. |
@@ -28,7 +28,7 @@ CUT2 changes only the Billing targets and their wording:
 
 | Surface | Change |
 | --- | --- |
-| Clients list | **Billing** opens the client's own Coastmark page for each linked client whose binding and immutable receipt agree, inactive and removed history included, and for an active business in this request's verified Milepost directory that Safeharbor has not received yet. Local, unavailable, drifted and malformed rows keep Coastmark's existing entry. Support and the active-only Devices button are unchanged. |
+| Clients list | One list with Find a client filtering names/domains locally; columns Client, Open tickets, Oldest open and Plan. The full row opens the client. Its Apps menu preserves the existing Open in Milepost and Open in Coastmark destinations, including retained history and verified pending clients. Not linked appears only for known unbound rows when at least one client is linked; unknown links remain unknown. An unavailable directory uses a plain information callout and local records; verified empty remains distinct. Counts and oldest-open timestamps match both ticket tenant and client. |
 | Client page | For a linked client, whatever its shared state, Balance reads **View this client in Coastmark** and the Suite rail **Review this client's invoices in Coastmark**, both to its own Coastmark page. Every other client keeps Coastmark's existing entry and wording. |
 | Westy | The prompt describes the same Billing targets. |
 
@@ -118,7 +118,7 @@ retained as history; the one-time P9 runtime completion is recorded below. Do no
     consumer shows a Support link.
 - **Directory read**: Milepost's `suite-client-directory-v1` with this request's verified suite
   cookie, as described in the [customer-sync contract](milepost-customer-sync-contract.md). It is
-  never stored, and it decides only the Businesses / Retained and local presentation.
+  never stored; it admits pending rows only from the verified current provider directory. Local client rows remain available independently of directory availability.
 
 ## Release order
 

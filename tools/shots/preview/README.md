@@ -9,7 +9,7 @@ made up.
 | `queue.html` | Staff queue (All open view) | the markup of `app/lib/render.php`, `app/lib/ticket_queue.php` and `app/public/index.php` |
 | `queue-first-run.html` | Staff queue in a new workspace, with Get set up | copied from `app/public/index.php` and `app/lib/first_steps.php` |
 | `ticket.html` | Staff ticket | its head, messages and Details are printed by `php app/tests/ticket_page_test.php --render` (the `preview` parts, from `app/lib/ticket_page.php`); the composer is copied from `app/public/ticket.php` |
-| `clients.html` | Clients list and number tiles | copied from `app/public/clients.php` |
+| `clients.html` | Searchable client directory, open counts, oldest-open ages and app menus | actual `app/public/clients.php` rendered by `client_shared_directory_ui_test.php` with synthetic data; links and forms disabled |
 | `team.html` | Team page with Invite a teammate and the backup sign-in disclosure | copied from `app/public/users.php` |
 | `time.html` | Time: today, earlier, to review, and the approved list | its rows are printed by `php app/tests/time_page_test.php --render` (from `app/lib/time_page.php`); the page around them is copied from `app/public/time.php` |
 | `service-goals.html` | Service goals: a current, a scheduled and a superseded policy version | copied from `app/public/service_goals.php` |
@@ -51,3 +51,5 @@ refuses to write a page that still contains a fixture name, because this reposit
 `php` on the path and nothing else.
 
 The staff pages are hand copies: if a template's markup changes, update the matching preview by hand.
+
+The Clients preview has native app-menu disclosures. Its search behavior and keyboard selection are tested in `client-shared-directory.test.mjs` against the real rendered controller.
