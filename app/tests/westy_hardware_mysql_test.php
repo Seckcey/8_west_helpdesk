@@ -91,14 +91,18 @@ try {
     foreach (['025_westy_workflow.sql','036_westy_workflow_resume.sql','001_mail_queue.sql','037_westy_hardware_outcomes.sql'] as $file) test_execute_sql_file($pdo,__DIR__.'/../db/migrations/'.$file);
     $pdo->exec("INSERT INTO tenants VALUES(1,'8west'),(2,'other');INSERT INTO clients VALUES(1,1),(2,2);INSERT INTO users VALUES(1,1,1,'owner','owner@example.test');INSERT INTO svc_identities VALUES(1,1,'milepost-workflow',1)");
     $pdo->prepare("INSERT INTO suite_customer_sync_bindings(tenant_id,client_id,customer_id,status) VALUES(1,1,?,'active')")->execute([hw_key(900)]);
-    $p=hw_case($pdo,1);$before=$pdo->query('SELECT * FROM westy_workflows')->fetchAll();$receipt=hw_send($pdo,$p);
+    $p=hw_case($pdo,1);
+    // The original event predates the fresh finding, even on a fast runner.
+    $p['occurred_at']=gmdate('Y-m-d\TH:i:s\Z',time()-2);
+    $before=$pdo->query('SELECT * FROM westy_workflows')->fetchAll();$receipt=hw_send($pdo,$p);
     hw_check($receipt['state']==='human_owned' && $receipt['version']===6 && $before===$pdo->query('SELECT * FROM westy_workflows')->fetchAll(),'human-owned workflow and version remain unchanged');
     hw_check(count($receipt)===21 && $receipt['outcome']==='needs_hardware_upgrade','exact outcome receipt and unresolved disposition');
     hw_check(hw_count($pdo,'messages')===1 && hw_count($pdo,'mail_queue')===0 && hw_count($pdo,'westy_hardware_notices')===1,'finding commits note and intent; no email queue without verified recipient');
     hw_check(hw_same(hw_send($pdo,$p),array_replace($receipt,['replayed'=>true])),'exact immutable retry');
     hw_refuse(fn()=>hw_send($pdo,array_replace($p,['summary'=>'Changed under same event'])),'changed event conflicts');
     hw_refuse(fn()=>hw_send($pdo,array_replace($p,['event_key'=>hw_key(700),'summary'=>'Changed under same finding'])),'changed finding conflicts');
-    $fresh=array_replace($p,['event_key'=>hw_key(701),'finding_key'=>hw_key(702),'summary'=>'Reworded constraint','evidence_sha256'=>str_repeat('f',64),'measured_at'=>gmdate('Y-m-d\TH:i:s\Z')]);
+    $freshAt=gmdate('Y-m-d\TH:i:s\Z');
+    $fresh=array_replace($p,['event_key'=>hw_key(701),'finding_key'=>hw_key(702),'summary'=>'Reworded constraint','evidence_sha256'=>str_repeat('f',64),'measured_at'=>$freshAt,'occurred_at'=>$freshAt]);
     $dedup=hw_send($pdo,$fresh);
     hw_check($dedup['deduplicated'] && $dedup['notice_id']===$receipt['notice_id'] && hw_count($pdo,'messages')===1 && hw_count($pdo,'westy_hardware_findings')===2,'changed wording/time/bytes retain new finding without another note or notice');
     $status=hw_send($pdo,hw_status($p));
