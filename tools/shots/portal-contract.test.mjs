@@ -997,7 +997,10 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
     await mobile.page.getByRole('textbox',{name:'Ask Westy about your computer'}).press('Escape');
     assert.equal(await mobile.page.locator('#portal-chat-bubble').evaluate(e=>e===document.activeElement),true);
     deny=true;await mobile.page.reload();await mobile.page.getByRole('button',{name:'Westy',exact:true}).click();
-    await mobile.page.getByText('Your sign-in ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
+    await mobile.page.getByText('Sign in again to continue.',{exact:true}).waitFor();
+    // The fuller sentence stays as the tooltip; someone signed out is not offered a request they cannot open.
+    assert.equal(await mobile.page.locator('#portal-chat-status').getAttribute('title'),'Your sign-in ended or access changed. Sign in again to continue.');
+    assert.equal(await mobile.page.locator('#portal-chat-status + a').count(),0);
     assert.equal(await mobile.page.getByText('Request #102 received',{exact:true}).count(),0);
     await mobile.context.close();
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
@@ -1197,6 +1200,9 @@ function portal_devices_request(mixed $pdo, array $context, string $action, arra
           await open(code);
           const login = page.getByRole('link', { name: 'Continue with 8 West ID' });
           assert.equal(new URL(await login.getAttribute('href'), ORIGIN).searchParams.get('next'), '/portal/');
+          // The sign-in page says what the portal is for and which account to use, and nothing about data boundaries.
+          await page.getByText('Get help with your computers.', { exact: true }).waitFor();
+          await page.getByText('Sign in with the account your organization gave you.', { exact: true }).waitFor();
           assert.equal(await page.locator('input[name="token"]').count(), 0);
           await login.click();
           role = 'client_staff';
@@ -1905,7 +1911,7 @@ if (!SERVE_MODE) test('late device responses cannot restore private names after 
   try{
     await page.goto(ORIGIN+'/portal/');await page.waitForFunction(()=>!document.getElementById('portal-chat-input').disabled);
     await page.evaluate(()=>{const channel=new BroadcastChannel('safeharbor-portal-access');channel.postMessage('signed-out');channel.close();});
-    await page.getByText('Your sign-in ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
+    await page.getByText('Sign in again to continue.',{exact:true}).waitFor();
     const response=page.waitForResponse(r=>r.url().includes('?devices=1'));release();await (await response).finished();
     // Allow the fetch continuation to run so the assertion observes the late result.
     await page.waitForTimeout(100);
@@ -2077,7 +2083,7 @@ if (!SERVE_MODE) test('startup availability recovers without replay, changing co
       assert.equal(await page.locator('#portal-chat-device').inputValue(),'','recovery never substitutes another computer');
       revoked=true;
       await page.evaluate(()=>{document.querySelector('#portal-chat-device').disabled=true;window.dispatchEvent(new Event('online'));});
-      await page.getByText('Your sign-in ended or access changed. Sign in again to continue.',{exact:true}).waitFor();
+      await page.getByText('Sign in again to continue.',{exact:true}).waitFor();
       const stoppedAt=deviceCalls;await page.clock.fastForward(15000);assert.equal(deviceCalls,stoppedAt);
       assert.equal(await page.locator('#portal-chat-device').isDisabled(),true);assert.deepEqual(consoleProblems,[]);
     }finally{await context.close();}

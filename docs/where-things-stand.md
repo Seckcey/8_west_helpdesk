@@ -524,6 +524,14 @@ failed reply, and as the status line's tooltip. Sentences about computer work, a
 what to type are unchanged. Only `portal-westy.js` and `portal.css` changed: no reason code, server
 reply, limit or permission did.
 
+**Portal sign-in page and sign-in line in plain words (draft, not live).** The customer sign-in page's
+tagline is "Get help with your computers." and its footnote is "Sign in with the account your
+organization gave you." The heading, the sentence under it, the Continue with 8 West ID button and
+where it leads are unchanged, and so is who can sign in and how. In Westy's chat, an ended sign-in
+now reads "Sign in again to continue." (the fuller sentence is the line's tooltip, and no New support
+request button is offered), and a provider's usage limit now reads "Westy can't answer right now. Your
+support team can help." instead of "Try again in a minute."
+
 **Portal Home: one question and requests that say what is happening (draft, not live).** Home's hero is
 "Hello, {first name}", "How can we help {client} today?" and two buttons: Ask Westy, and New support
 request for exactly the roles that may already create a request (`portal_role_can_write_tickets()`, the

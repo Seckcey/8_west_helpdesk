@@ -106,7 +106,7 @@ function portal_render_login(?string $message = null): void
   <header class="login-head">
     <img class="suite-login-logo" src="<?= portal_h($brand['logo']) ?>" alt="<?= portal_h($brand['alt']) ?>" width="<?= $brand['width'] ?>" height="<?= $brand['height'] ?>">
     <h1 class="login-name"><?= portal_h($brand['name']) ?></h1>
-    <p class="login-tag">Ask for help and follow every customer-visible update</p>
+    <p class="login-tag">Get help with your computers.</p>
   </header>
 </div>
 <main class="login-wrap">
@@ -120,7 +120,7 @@ function portal_render_login(?string $message = null): void
       <a class="btn-primary" href="/portal/login.php?next=<?= portal_h(rawurlencode($returnPath)) ?>">Continue with 8 West ID</a>
     </div>
   </section>
-  <p class="login-foot">Use the portal to open, read, and reply to support tickets. Device control, internal notes, technician time, and billing stay private.</p>
+  <p class="login-foot">Sign in with the account your organization gave you.</p>
 </main>
 </div>
     <?php
