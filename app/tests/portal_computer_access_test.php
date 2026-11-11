@@ -103,7 +103,8 @@ $main = $admin['main'];
 preg_match_all('/<li class="setup-step [^"]*">.*?<strong>([^<]+)<\/strong>/s', $main, $steps);
 access_check('giving a member access is two numbered steps, in order: a sign-in, then this computer',
     $steps[1] === ['The person needs their own sign-in', 'Give them this computer']
-    && (bool)preg_match('~<span class="setup-mark" aria-hidden="true">1</span>.*<span class="setup-mark" aria-hidden="true">2</span>~s', $main));
+    && (bool)preg_match('~<span class="setup-mark" aria-hidden="true">1</span>.*<span class="setup-mark" aria-hidden="true">2</span>~s', $main)
+    && ! str_contains($main, 'is-done') && ! str_contains($main, '(done)'));
 access_check('step 1 sends an actual owner or admin to the 8 West ID invitation, and says it can be skipped',
     substr_count($main, $invite) === 1 && str_contains($main, 'Skip this if they can already sign in here.'));
 access_check('step 2 is the same form as before: same action, same fields, same button',
@@ -144,10 +145,15 @@ access_check('the link is shown under its Guide label, with its code after #toke
     && ! str_contains($created['html'], '?token='));
 access_check('a Copy button carries the same link, and the page says who to send it to and how long it works',
     str_contains($created['main'], 'data-copy-text="' . $link . '" data-copy-status="computer-access-copy-status" data-copied-text="Link copied. Send it to that person only.">Copy</button>')
-    && str_contains($created['main'], 'Send this link to that person only. The first member of Harbor Dental who opens it while signed in gets this computer. It works once and stops working in 48 hours. No email is sent.'));
-access_check('step 2 is marked done, and creating another link is a quiet button, so nothing filled competes with Copy',
-    (bool)preg_match('~<li class="setup-step is-done">.*<strong>Give them this computer</strong><span class="sr-only"> \(done\)</span>~s', $created['main'])
-    && str_contains($created['main'], '<button class="btn-ghost" type="submit">Create member access link</button>') && ! str_contains($created['main'], 'btn-primary'));
+    && str_contains($created['main'], 'Send this link to that person only. The first member of Harbor Dental who uses it while signed in gets this computer. It works once and stops working in 48 hours. No email is sent.'));
+access_check('creating a link does not mark step 2 done: nobody has the computer until the link is used, and the list shows it waiting',
+    ! str_contains($created['main'], 'is-done') && ! str_contains($created['main'], '(done)')
+    && (bool)preg_match('~<li class="setup-step is-current"><span class="setup-mark" aria-hidden="true">2</span><div class="setup-text"><strong>Give them this computer</strong>~', $created['main'])
+    && str_contains($created['main'], '<span class="portal-device-state is-attention">Waiting for a member</span>'));
+access_check('the link, who to send it to and how long it works are said once, not again in a notice above',
+    substr_count($created['main'], '48 hours') === 1 && ! str_contains($created['main'], 'portal-device-notice'));
+access_check('after a link exists, creating another is a quiet button, so nothing filled competes with Copy',
+    str_contains($created['main'], '<button class="btn-ghost" type="submit">Create member access link</button>') && ! str_contains($created['main'], 'btn-primary'));
 access_check('the copy script is loaded from a file, only when there is a link to copy',
     (bool)preg_match('~<script src="/assets/js/portal-devices\.js\?v=[a-f0-9]{20}" defer></script>~', $created['html']));
 $again = $open(['uri' => '/portal/computer-access.php', 'method' => 'POST', 'token' => null,

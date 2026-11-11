@@ -37,8 +37,8 @@ try {
                 $result = portal_devices_request(db(), $context, $action,
                     ['device_reference' => $device, 'request_key' => $_POST['request_key'] ?? '']);
                 if ($result['token'] !== null) {
+                    // The link, who to send it to and how long it works are shown once, in step 2 itself.
                     $link = 'https://safeharbor.8westit.com/portal/computer-access.php#token=' . $result['token'];
-                    $notice = 'Share this private link with the member who should use this computer. It expires in 48 hours. No email has been sent.';
                 } else {
                     $notice = 'This link was already created. Check access below; it was not replaced or sent again.';
                 }
@@ -76,13 +76,14 @@ try {
           <?php if ($canInvite): ?><a class="btn-ghost portal-access-invite" href="https://id.8westit.com/users.php#employee-invitations">Invite a member in 8 West ID</a>
           <?php else: ?><p>Your support provider can add people for you.</p><?php endif; ?>
         </div></li>
-        <li class="setup-step <?= $link !== null ? 'is-done' : 'is-later' ?>"><?= $mark(2, $link !== null) ?><div class="setup-text"><strong>Give them this computer</strong><?php if ($link !== null): ?><span class="sr-only"> (done)</span><?php endif; ?>
+        <?php // Never marked done here: a link is only an offer. The person has the computer once they use it, which the list below shows. ?>
+        <li class="setup-step is-current"><?= $mark(2, false) ?><div class="setup-text"><strong>Give them this computer</strong>
           <?php if ($link !== null): ?>
           <div class="portal-access-link">
             <p class="field"><label for="computer-access-link">Private access link</label><input id="computer-access-link" type="text" readonly autocomplete="off" value="<?= portal_h($link) ?>"></p>
             <button type="button" class="btn-ghost" data-copy-text="<?= portal_h($link) ?>" data-copy-status="computer-access-copy-status" data-copied-text="Link copied. Send it to that person only.">Copy</button>
           </div>
-          <p class="portal-hint" id="computer-access-copy-status" role="status">Send this link to that person only. The first member of <?= portal_h($fresh['binding']['client_name']) ?> who opens it while signed in gets this computer. It works once and stops working in 48 hours. No email is sent.</p>
+          <p class="portal-hint" id="computer-access-copy-status" role="status">Send this link to that person only. The first member of <?= portal_h($fresh['binding']['client_name']) ?> who uses it while signed in gets this computer. It works once and stops working in 48 hours. No email is sent.</p>
           <script src="/assets/js/portal-devices.js?v=<?= portal_asset_version(__DIR__.'/../assets/js/portal-devices.js') ?>" defer></script>
           <?php else: ?><p>You get a private link to send to that person. It works once and stops working in 48 hours. No email is sent.</p><?php endif; ?>
           <form method="post" action="/portal/computer-access.php">

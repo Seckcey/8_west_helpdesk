@@ -47,11 +47,12 @@
           <p>Skip this if they can already sign in here.</p>
           <a class="btn-ghost portal-access-invite" href="https://id.8westit.com/users.php#employee-invitations">Invite a member in 8 West ID</a>
                   </div></li>
-        <li class="setup-step is-later"><span class="setup-mark" aria-hidden="true">2</span><div class="setup-text"><strong>Give them this computer</strong>          <p>You get a private link to send to that person. It works once and stops working in 48 hours. No email is sent.</p>          <form method="post" action="/portal/computer-access.php">
+                <li class="setup-step is-current"><span class="setup-mark" aria-hidden="true">2</span><div class="setup-text"><strong>Give them this computer</strong>
+          <p>You get a private link to send to that person. It works once and stops working in 48 hours. No email is sent.</p>          <form method="post" action="/portal/computer-access.php">
             <input type="hidden" name="csrf" value="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc">
             <input type="hidden" name="action" value="device_access_create">
             <input type="hidden" name="device_reference" value="1:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd">
-            <input type="hidden" name="request_key" value="5c3866d1a5773259436beb14e5d3069e">
+            <input type="hidden" name="request_key" value="635fccb650c64e8daa4e660dca30b91e">
             <button class="btn-primary" type="submit">Create member access link</button>
           </form>
         </div></li>

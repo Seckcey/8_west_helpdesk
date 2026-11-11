@@ -40,24 +40,25 @@
 <main class="portal-devices portal-computer-access">
   <header class="portal-devices-heading"><div><h1>Computer access</h1><p>Who at Harbor Dental can use this computer.</p></div><div class="portal-devices-actions"><a href="#">Your devices</a><button id="portal-chat-bubble" type="button" aria-expanded="false" aria-controls="portal-chat-panel"><img src="../../../app/public/assets/img/westy-avatar.png" alt="" width="36" height="36"><strong>Westy</strong><span>Continue chat</span><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>
     </div></header>
-    <p class="portal-device-notice is-success" role="status">Share this private link with the member who should use this computer. It expires in 48 hours. No email has been sent.</p>      <section class="portal-device-setup portal-access-steps" aria-labelledby="give-access-heading"><h2 id="give-access-heading">Give a member access</h2>
+          <section class="portal-device-setup portal-access-steps" aria-labelledby="give-access-heading"><h2 id="give-access-heading">Give a member access</h2>
       <p>Two steps: the person gets their own sign-in, then this computer. Setting up their sign-in and giving them a computer are separate.</p>
       <ol class="setup-steps">
         <li class="setup-step is-later"><span class="setup-mark" aria-hidden="true">1</span><div class="setup-text"><strong>The person needs their own sign-in</strong>
           <p>Skip this if they can already sign in here.</p>
           <a class="btn-ghost portal-access-invite" href="https://id.8westit.com/users.php#employee-invitations">Invite a member in 8 West ID</a>
                   </div></li>
-        <li class="setup-step is-done"><span class="setup-mark" aria-hidden="true"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="setup-text"><strong>Give them this computer</strong><span class="sr-only"> (done)</span>                    <div class="portal-access-link">
+                <li class="setup-step is-current"><span class="setup-mark" aria-hidden="true">2</span><div class="setup-text"><strong>Give them this computer</strong>
+                    <div class="portal-access-link">
             <p class="field"><label for="computer-access-link">Private access link</label><input id="computer-access-link" type="text" readonly autocomplete="off" value="https://safeharbor.8westit.com/portal/computer-access.php#token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"></p>
             <button type="button" class="btn-ghost" data-copy-text="https://safeharbor.8westit.com/portal/computer-access.php#token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" data-copy-status="computer-access-copy-status" data-copied-text="Link copied. Send it to that person only.">Copy</button>
           </div>
-          <p class="portal-hint" id="computer-access-copy-status" role="status">Send this link to that person only. The first member of Harbor Dental who opens it while signed in gets this computer. It works once and stops working in 48 hours. No email is sent.</p>
+          <p class="portal-hint" id="computer-access-copy-status" role="status">Send this link to that person only. The first member of Harbor Dental who uses it while signed in gets this computer. It works once and stops working in 48 hours. No email is sent.</p>
           
                     <form method="post" action="/portal/computer-access.php">
             <input type="hidden" name="csrf" value="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc">
             <input type="hidden" name="action" value="device_access_create">
             <input type="hidden" name="device_reference" value="1:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd">
-            <input type="hidden" name="request_key" value="78c0915b64c494f1b288de7da43f4135">
+            <input type="hidden" name="request_key" value="cc1f2c505d3485ce4bfeb86a0f77be01">
             <button class="btn-ghost" type="submit">Create member access link</button>
           </form>
         </div></li>
