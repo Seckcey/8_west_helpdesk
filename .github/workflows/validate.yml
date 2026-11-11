@@ -249,6 +249,7 @@ jobs:
           php app/tests/reports_page_test.php
           php app/tests/service_goal_desk_test.php
           php app/tests/service_goal_policy_admin_test.php
+          php app/tests/saved_replies_test.php
           php app/tests/time_entries_test.php
           php app/tests/time_entry_adjustments_test.php
           php app/tests/coastmark_time_export_test.php
@@ -399,4 +400,5 @@ jobs:
           node tools/shots/client-page.test.mjs
           node tools/shots/reports-page.test.mjs
           node tools/shots/service-goals.test.mjs
+          node tools/shots/saved-replies.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs

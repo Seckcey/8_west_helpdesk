@@ -53,3 +53,8 @@ refuses to write a page that still contains a fixture name, because this reposit
 The staff pages are hand copies: if a template's markup changes, update the matching preview by hand.
 
 The Clients preview has native app-menu disclosures. Its search behavior and keyboard selection are tested in `client-shared-directory.test.mjs` against the real rendered controller.
+
+Saved replies has two static controller captures: `saved-replies.html` (library) and
+`saved-reply-edit.html` (editor with sample preview). Forms and links are inert. The interactive
+editor and composer link are exercised by `../saved-replies.test.mjs`; see
+[Saved replies](../../../docs/saved-replies.md) for the test and capture switches.

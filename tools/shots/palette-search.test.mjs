@@ -62,7 +62,7 @@ async function enterOpens(page) {
     page.keyboard.press('Enter'),
   ]);
   const url = new URL(frame.url());
-  return url.pathname + url.search;
+  return url.pathname + url.search + url.hash;
 }
 
 try {
@@ -109,7 +109,7 @@ try {
     ['Reports', '/reports.php'],
     ['Team', '/users.php'],
     ['New client', '/client_new.php'],
-    ['New saved', '/snippets.php'],
+    ['New saved', '/snippets.php?new=1#saved-reply-editor'],
     ['New', '/ticket_new.php'],
     ['Saved', '/snippets.php'],
     ['Sign out', '/logout.php'],
