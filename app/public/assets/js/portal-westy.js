@@ -113,9 +113,10 @@
   setInterval(updateComputerTime,30000);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')updateComputerTime();});
   const button = (text, action, cls = 'btn-ghost') => { const b = element('button', text, cls); b.type = 'button'; b.addEventListener('click', action); return b; };
-  const statusSupport = supportLink(); statusSupport.hidden = true; status.after(statusSupport);
+  // The link exists only while a failure is on the line, so a page has no second way to a request the rest of the time.
+  const statusSupport = supportLink();
   // detail: the exact sentence behind a plain one, kept as the line's tooltip. support: offer a person, to those who may write.
-  const say = (text, detail = '', support = false) => { status.textContent = text; status.title = detail; statusSupport.hidden = !(support && canWrite); delete status.dataset.operation; };
+  const say = (text, detail = '', support = false) => { status.textContent = text; status.title = detail; if (support && canWrite) status.after(statusSupport); else statusSupport.remove(); delete status.dataset.operation; };
   const sayFailure = (code, suffix = '') => say((plain[code] || errors[code]) + suffix, plain[code] ? errors[code] : '', !!plain[code]);
   function controls() {
     const waiting=state?.turns.some(t=>t.run?.state==='waiting');
