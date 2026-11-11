@@ -15,7 +15,7 @@
             const text = button.dataset.copyText;
             try {
                 await navigator.clipboard.writeText(text);
-                say('Link copied. Open it on the computer you want to add.');
+                say(button.dataset.copiedText || 'Link copied. Open it on the computer you want to add.');
             } catch {
                 // No clipboard permission: put the link on the page so it can be selected and copied by hand.
                 say('Copy this link by hand: ' + text);

@@ -37,8 +37,8 @@ try {
                 $result = portal_devices_request(db(), $context, $action,
                     ['device_reference' => $device, 'request_key' => $_POST['request_key'] ?? '']);
                 if ($result['token'] !== null) {
+                    // The link, who to send it to and how long it works are shown once, in step 2 itself.
                     $link = 'https://safeharbor.8westit.com/portal/computer-access.php#token=' . $result['token'];
-                    $notice = 'Share this private link with the member who should use this computer. It expires in 48 hours. No email has been sent.';
                 } else {
                     $notice = 'This link was already created. Check access below; it was not replaced or sent again.';
                 }
@@ -60,29 +60,47 @@ try {
     $fresh['chat_button_placement'] = 'inline';
     portal_page_start('Computer access', 'portal-devices-page', $fresh);
     ?>
-<main class="portal-devices">
-  <header class="portal-devices-heading"><div><p class="portal-eyebrow"><?= portal_h($fresh['binding']['client_name']) ?></p><h1>Computer access</h1></div><div class="portal-devices-actions"><a href="/portal/devices.php">Your devices</a><?php portal_westy_button(); ?></div></header>
+<main class="portal-devices portal-computer-access">
+  <header class="portal-devices-heading"><div><h1>Computer access</h1><p><?= $manage ? 'Who at ' . portal_h($fresh['binding']['client_name']) . ' can use this computer.' : 'A computer at ' . portal_h($fresh['binding']['client_name']) . ' that was chosen for you.' ?></p></div><div class="portal-devices-actions"><a href="/portal/devices.php">Your devices</a><?php portal_westy_button(); ?></div></header>
   <?php if ($error !== null): ?><p class="portal-device-notice" role="alert"><?= portal_h($error) ?></p><?php endif; ?>
   <?php if ($notice !== null): ?><p class="portal-device-notice is-success" role="status"><?= portal_h($notice) ?></p><?php endif; ?>
-  <?php if ($manage && $device !== '' && $access !== null): ?>
-    <section class="portal-device-setup"><h2>Give a member access</h2>
-      <p>The member needs their own account here. Share the link privately: the first eligible signed-in member to use it gets access to this computer.</p>
-      <?php if (in_array($fresh['identity']['role'], ['client_owner', 'client_admin'], true) && !isset($fresh['identity']['customer_access'])): ?>
-        <p><a href="https://id.8westit.com/users.php#employee-invitations">Invite a member in 8 West ID</a></p>
-      <?php endif; ?>
-      <?php if ($link !== null): ?><p class="field"><label for="computer-access-link">Private access link</label><input id="computer-access-link" type="text" readonly autocomplete="off" value="<?= portal_h($link) ?>"></p><?php endif; ?>
-      <form method="post" action="/portal/computer-access.php">
-        <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>">
-        <input type="hidden" name="action" value="device_access_create">
-        <input type="hidden" name="device_reference" value="<?= portal_h($device) ?>">
-        <input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>">
-        <button class="btn-primary" type="submit">Create member access link</button>
-      </form>
+  <?php if ($manage && $device !== '' && $access !== null):
+      // The 8 West ID member invite: an actual owner or admin, not someone acting through a customer profile.
+      $canInvite = in_array($fresh['identity']['role'], ['client_owner', 'client_admin'], true) && !isset($fresh['identity']['customer_access']);
+      $mark = static fn(int $number, bool $done): string => '<span class="setup-mark" aria-hidden="true">' . ($done ? setup_step_check() : (string)$number) . '</span>'; ?>
+    <section class="portal-device-setup portal-access-steps" aria-labelledby="give-access-heading"><h2 id="give-access-heading">Give a member access</h2>
+      <p>Two steps: the person gets their own sign-in, then this computer. Setting up their sign-in and giving them a computer are separate.</p>
+      <ol class="setup-steps">
+        <li class="setup-step is-later"><?= $mark(1, false) ?><div class="setup-text"><strong>The person needs their own sign-in</strong>
+          <p>Skip this if they can already sign in here.</p>
+          <?php if ($canInvite): ?><a class="btn-ghost portal-access-invite" href="https://id.8westit.com/users.php#employee-invitations">Invite a member in 8 West ID</a>
+          <?php else: ?><p>Your support provider can add people for you.</p><?php endif; ?>
+        </div></li>
+        <?php // Never marked done here: a link is only an offer. The person has the computer once they use it, which the list below shows. ?>
+        <li class="setup-step is-current"><?= $mark(2, false) ?><div class="setup-text"><strong>Give them this computer</strong>
+          <?php if ($link !== null): ?>
+          <div class="portal-access-link">
+            <p class="field"><label for="computer-access-link">Private access link</label><input id="computer-access-link" type="text" readonly autocomplete="off" value="<?= portal_h($link) ?>"></p>
+            <button type="button" class="btn-ghost" data-copy-text="<?= portal_h($link) ?>" data-copy-status="computer-access-copy-status" data-copied-text="Link copied. Send it to that person only.">Copy</button>
+          </div>
+          <p class="portal-hint" id="computer-access-copy-status" role="status">Send this link to that person only. The first member of <?= portal_h($fresh['binding']['client_name']) ?> who uses it while signed in gets this computer. It works once and stops working in 48 hours. No email is sent.</p>
+          <script src="/assets/js/portal-devices.js?v=<?= portal_asset_version(__DIR__.'/../assets/js/portal-devices.js') ?>" defer></script>
+          <?php else: ?><p>You get a private link to send to that person. It works once and stops working in 48 hours. No email is sent.</p><?php endif; ?>
+          <form method="post" action="/portal/computer-access.php">
+            <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>">
+            <input type="hidden" name="action" value="device_access_create">
+            <input type="hidden" name="device_reference" value="<?= portal_h($device) ?>">
+            <input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>">
+            <button class="<?= $link !== null ? 'btn-ghost' : 'btn-primary' ?>" type="submit">Create member access link</button>
+          </form>
+        </div></li>
+      </ol>
     </section>
-    <section class="portal-device-links"><h2>People and access links</h2>
+    <section class="portal-device-links" aria-labelledby="access-list-heading"><h2 id="access-list-heading">People and access links</h2>
       <?php if ($access['items'] === []): ?><p>No member access has been assigned to this computer yet.</p><?php endif; ?>
-      <?php foreach ($access['items'] as $grant): ?><article>
-        <div><strong><?= portal_h($grant['employee'] ?? 'Unclaimed access link') ?></strong><span><?= portal_h(['pending' => 'Waiting for a member', 'active' => 'Has access', 'revoked' => 'Revoked', 'expired' => 'Link expired'][$grant['state']]) ?></span></div>
+      <?php foreach ($access['items'] as $grant):
+          $state = ['pending' => ['Waiting for a member', ' is-attention'], 'active' => ['Has access', ' is-online'], 'revoked' => ['Revoked', ''], 'expired' => ['Link expired', '']][$grant['state']]; ?><article>
+        <div><strong><?= portal_h($grant['employee'] ?? 'Unclaimed access link') ?></strong><span class="portal-device-state<?= $state[1] ?>"><?= portal_h($state[0]) ?></span></div>
         <?php if (in_array($grant['state'], ['pending', 'active'], true)): ?><form method="post" action="/portal/computer-access.php">
           <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="device_access_revoke">
           <input type="hidden" name="device_reference" value="<?= portal_h($device) ?>"><input type="hidden" name="reference" value="<?= portal_h($grant['reference']) ?>">
@@ -92,7 +110,7 @@ try {
       <?php if ($access['next_after'] !== null): ?><a href="/portal/computer-access.php?device=<?= rawurlencode($device) ?>&amp;after=<?= (int)$access['next_after'] ?>">Next access records</a><?php endif; ?>
     </section>
   <?php elseif (!$manage && !$redeemed): ?>
-    <section class="portal-device-setup"><h2>Use your assigned computer</h2><p>This private link grants your signed-in account access to one computer in <?= portal_h($fresh['binding']['client_name']) ?>. Your account's existing permissions, including read-only access, still apply.</p>
+    <section class="portal-device-setup portal-access-steps" aria-labelledby="use-computer-heading"><h2 id="use-computer-heading">Use your assigned computer</h2><p>This private link gives your sign-in one computer at <?= portal_h($fresh['binding']['client_name']) ?>. What your account may do, including read-only access, stays the same.</p>
       <form method="post" action="/portal/computer-access.php">
         <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><input type="hidden" name="action" value="device_access_redeem">
         <?php if ($token !== ''): ?>

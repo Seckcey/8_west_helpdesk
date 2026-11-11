@@ -30,6 +30,15 @@ Account invitations and computer assignment remain separate actions.
 5. The computer appears in that employee's Your devices list. Owners can revoke
    the assignment from Computer access.
 
+Computer access shows steps 1 and 2 as two numbered steps under **Give a member
+access**: "The person needs their own sign-in" (with the 8 West ID shortcut where
+the rule below allows it, and "Skip this if they can already sign in here") and
+"Give them this computer". A new link appears in the **Private access link**
+field with a Copy button; copying happens in the browser and nothing is sent.
+**People and access links** shows each record's state as a tag. The steps only
+arrange what was already there: the forms, their fields, the service calls and
+who may do what are unchanged.
+
 Both links expire after 48 hours if unused. Accepted computer assignments remain
 active until revoked. Safeharbor computer links are shared manually. The ID
 invitation has its own delivery settings. An owner with a separate customer-profile

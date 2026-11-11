@@ -1096,6 +1096,7 @@ if (!SERVE_MODE) test('computer access accepts fragments and legacy links throug
   await Promise.all([
     copyFile(path.join(ROOT, 'app/public', controller), path.join(portal, 'computer-access.php')),
     copyFile(path.join(ROOT, 'app/public', script), path.join(assets, 'portal-computer-access.js')),
+    copyFile(path.join(ROOT, 'app/public/assets/js/portal-devices.js'), path.join(assets, 'portal-devices.js')),
     writeFile(path.join(lib, 'portal_auth.php'), '<?php'),
     writeFile(path.join(lib, 'portal_devices.php'), '<?php'),
     writeFile(path.join(lib, 'portal_render.php'), '<?php require $argv[1];'),
@@ -1232,6 +1233,42 @@ function portal_devices_request(mixed $pdo, array $context, string $action, arra
       } finally {
         await context.close();
       }
+    }
+    // The owner's page: two numbered steps, and a new link that can be copied without leaving the page.
+    {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      const problems = [];
+      page.on('pageerror', error => problems.push(error.message));
+      await page.addInitScript(() => { window.copied = []; Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copied.push(text); } } }); });
+      await page.route('**/*', async route => {
+        const url = new URL(route.request().url());
+        if (url.pathname === controller) return route.fulfill({ contentType: 'text/html', body: owner.html });
+        if (url.pathname === '/assets/css/app.css') return route.fulfill({ contentType: 'text/css', body: APP_CSS });
+        if (PORTAL_ASSETS[url.pathname]) {
+          const [contentType, body] = PORTAL_ASSETS[url.pathname];
+          return route.fulfill({ contentType, body });
+        }
+        return route.fulfill({ status: 204, body: '' });
+      });
+      const newLink = 'https://safeharbor.8westit.com' + controller + '#token=' + code;
+      for (const viewport of [{ width: 1365, height: 900 }, { width: 390, height: 844 }]) {
+        await page.setViewportSize(viewport);
+        await page.goto(ORIGIN + controller);
+        assert.deepEqual(await page.locator('.portal-access-steps .setup-text > strong').allInnerTexts(), ['The person needs their own sign-in', 'Give them this computer']);
+        assert.equal(await page.getByRole('link', { name: 'Invite a member in 8 West ID', exact: true }).getAttribute('href'), 'https://id.8westit.com/users.php#employee-invitations');
+        assert.equal(await page.getByLabel('Private access link').inputValue(), newLink);
+        await page.getByRole('button', { name: 'Copy', exact: true }).click();
+        await page.getByText('Link copied. Send it to that person only.', { exact: true }).waitFor();
+        assert.deepEqual(await page.evaluate(() => window.copied), [newLink]);
+        assert.equal(await page.locator('main .btn-primary').count(), 0, 'once a link exists nothing filled competes with Copy');
+        for (const target of await page.locator('.portal-access-steps a, .portal-access-steps button').all()) {
+          assert.ok((await target.boundingBox()).height >= 44, 'controls are at least 44px tall');
+        }
+        assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= innerWidth), true);
+      }
+      assert.deepEqual(problems, []);
+      await context.close();
     }
   } finally {
     await browser?.close();

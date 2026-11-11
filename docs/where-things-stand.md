@@ -508,6 +508,12 @@ appears. Each computer shows its state first as a
 tag. The two antivirus request forms moved into their own section below the list. Customer-facing
 words say setup link, setup file and add. No SQL, auth or service-contract change.
 
+**Computer access as two numbered steps (draft, not live).** Giving a colleague a computer reads as
+two steps under Give a member access: the person needs their own sign-in (Invite a member in 8 West ID,
+for an actual owner or admin only, as before), then Give them this computer (Create member access link).
+A new link has a Copy button, and People and access links shows each state as a tag. No change to who
+may invite, who may give or revoke access, what a colleague gets, or any service call.
+
 **Portal Home: one question and requests that say what is happening (draft, not live).** Home's hero is
 "Hello, {first name}", "How can we help {client} today?" and two buttons: Ask Westy, and New support
 request for exactly the roles that may already create a request (`portal_role_can_write_tickets()`, the

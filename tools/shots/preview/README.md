@@ -16,6 +16,7 @@ made up.
 | `signin.html` | Staff sign-in | copied from `app/public/login.php` |
 | `portal-home.html`, `portal-home-first-run.html`, `portal-devices.html`, `portal-signin.html` | Customer portal (`portal-home-first-run.html` is an owner's Home before any computer exists) | rendered by the real templates (see below) |
 | `portal-ticket-sent.html`, `portal-ticket-in-progress.html`, `portal-ticket.html`, `portal-ticket-resolved.html` | The request page at its four steps: just sent, in progress, waiting for the customer's reply, resolved | rendered by the real templates (see below) |
+| `portal-computer-access.html`, `portal-computer-access-link.html`, `portal-computer-access-member.html` | Computer access for a client admin, the same page with a new link to copy, and the page a member sees | rendered by the real controller beside stand-in libraries (`app/tests/portal_computer_access_test.php`) |
 | `portal-devices-first-computer.html`, `portal-devices-adding.html` | Your devices before any computer exists, and with a setup file waiting to be used (steps 2 and 3 of Add a computer) | rendered by the real templates (see below) |
 
 ## Open them
