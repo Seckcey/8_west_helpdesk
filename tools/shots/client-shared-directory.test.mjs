@@ -221,6 +221,14 @@ try {
           await page.goto('http://safeharbor.test/clients.php');
           const find = page.getByRole('searchbox', { name: 'Find a client' });
           assert.ok((await find.boundingBox()).height >= (viewport.width <= 700 ? 44 : 36), 'search is a full-size control');
+          const placeholderContrast = await find.evaluate(el => {
+            const rgb = value => (value.match(/[\d.]+/g) || []).map(Number).slice(0, 3);
+            const lum = channels => channels.map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
+              .reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+            const ink = lum(rgb(getComputedStyle(el, '::placeholder').color)), bg = lum(rgb(getComputedStyle(el).backgroundColor));
+            return (Math.max(ink, bg) + .05) / (Math.min(ink, bg) + .05);
+          });
+          assert.ok(placeholderContrast >= 4.5, 'search hint stays readable: ' + placeholderContrast);
           await find.fill('HARBORDENTAL.TEST');
           assert.equal(await page.locator('.crow-row:visible').count(), 1);
           assert.equal(await page.locator('.crow-row:visible [data-client-id]').getAttribute('data-client-id'), '30');
