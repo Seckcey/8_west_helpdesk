@@ -138,7 +138,7 @@ try {
           await layout(page, theme, viewport);
           await rowLayout(page, viewport.width <= 640);
           if (evidence) await page.screenshot({ path: path.join(evidence, `clients-${listCase}-${theme}-${viewport.width}.png`), fullPage: true });
-          await page.locator(".main").evaluate(el => { el.scrollTop = 0; });
+          await page.locator("main.content").evaluate(el => { el.scrollTop = 0; });
           if (evidence) await page.screenshot({ path: path.join(evidence, `clients-top-${listCase}-${theme}-${viewport.width}.png`), fullPage: true });
           const classified = ['directory', 'empty'].includes(listCase);
           assert.equal(await page.getByRole('heading', { name: 'Businesses', exact: true }).count(), 0);
