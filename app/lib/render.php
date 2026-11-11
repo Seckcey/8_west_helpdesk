@@ -94,8 +94,9 @@ function ticket_origin(array $t): string
     $line .= ', ' . CHANNEL_WORDS[$channel];
     $who = trim((string)($t['contact_name'] ?? ''));
     if ($who === '') $who = trim((string)($t['opener_name'] ?? ''));
-    // An alert is written by a machine: there is nobody to name.
-    if ($who === '' || $channel === 'alert') return $line;
+    // An alert is written by a machine: there is nobody to name. Nor is there when the opening
+    // message is in the client's own name (a call logged with no contact).
+    if ($who === '' || $channel === 'alert' || strcasecmp($who, trim((string)$t['client_name'])) === 0) return $line;
     return $line . ($channel === 'portal' ? ' by ' : ' from ') . $who;
 }
 

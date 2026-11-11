@@ -85,9 +85,12 @@ function ticket_subtitle(array $ticket, string $who, ?int $now = null, string $t
     if ($ago !== '') $line .= ', opened ' . h($ago);
     if (isset(CHANNEL_WORDS[$channel])) {
         $line .= ' ' . h(CHANNEL_WORDS[$channel]);
-        // An alert is written by a machine: there is nobody to name.
+        // An alert is written by a machine: there is nobody to name. Nor is there when the
+        // opening message is in the client's own name (a call logged with no contact).
         $who = trim($who);
-        if ($who !== '' && $channel !== 'alert') $line .= ($channel === 'portal' ? ' by ' : ' from ') . h($who);
+        if ($who !== '' && $channel !== 'alert' && strcasecmp($who, trim((string)$ticket['client_name'])) !== 0) {
+            $line .= ($channel === 'portal' ? ' by ' : ' from ') . h($who);
+        }
     }
     return $line;
 }

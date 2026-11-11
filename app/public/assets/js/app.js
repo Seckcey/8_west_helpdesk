@@ -1274,7 +1274,7 @@
   function buildPaletteItems(query) {
     const data = paletteData();
     const actions = [
-      { group: "Actions", title: "New ticket", hint: "file one", run: () => nav("/ticket_new.php") },
+      { group: "Actions", title: "New ticket", hint: "c", run: () => nav("/ticket_new.php") },
       { group: "Actions", title: "Go to Queue", hint: "g q", run: () => nav("/") },
       { group: "Actions", title: "Go to Time", hint: "g t", run: () => nav("/time.php") },
       { group: "Actions", title: "Go to Clients", hint: "g c", run: () => nav("/clients.php") },
@@ -1468,7 +1468,10 @@
     // the palette, never a chord (Ctrl+Alt is the AltGr key on many keyboards).
     if (mod && key === "enter") {
       const form = $("#reply-form");
-      if (form && isTyping(e.target)) { e.preventDefault(); form.requestSubmit(); }
+      if (form && isTyping(e.target)) { e.preventDefault(); form.requestSubmit(); return; }
+      // On the New ticket form it creates the ticket, from any of its fields.
+      const create = $("#ticket-new-form");
+      if (create && create.contains(e.target)) { e.preventDefault(); create.requestSubmit($("#call-create", create)); }
       return;
     }
 
@@ -1550,6 +1553,15 @@
       }
       case "z": {
         if (undoable) { e.preventDefault(); undoable.run(); }
+        break;
+      }
+      case "c": {
+        // New ticket, from any signed-in page and only outside a text field (typing was ruled out
+        // above). On a client's page it is a ticket for that client.
+        if (!document.body.dataset.userId) break;
+        const forClient = $("a[data-new-ticket]");
+        e.preventDefault();
+        nav(forClient ? forClient.getAttribute("href") : "/ticket_new.php");
         break;
       }
       case "[":
@@ -2294,10 +2306,18 @@
   (() => {
     const flash = $("#ticket-flash");
     const thread = $("#thread");
-    if (!flash || !thread || !flash.dataset.toast) return;
-    const back = flash.dataset.undoStatus;
-    toast(flash.dataset.toast, back
-      ? { undo: () => ticketAction(thread.dataset.ticketId, "status", back, { undoable: false, undo: true }) } : {});
+    if (!flash || !thread) return;
+    if (flash.dataset.toast) {
+      const back = flash.dataset.undoStatus;
+      toast(flash.dataset.toast, back
+        ? { undo: () => ticketAction(thread.dataset.ticketId, "status", back, { undoable: false, undo: true }) } : {});
+    }
+    // "Start my timer" on the New ticket form: the timer lives in this browser, so it starts here,
+    // on the new ticket's page. If one is already running, startTimer says so and starts nothing.
+    if (flash.dataset.startTimer === "1") {
+      const title = $(".ticket-subject");
+      startTimer(thread.dataset.ticketId, title ? title.textContent.trim() : "");
+    }
   })();
 
   if (IS_MAC) {
@@ -2527,6 +2547,7 @@
           <p>send and wait, send and resolve: the arrow beside Send, or <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd></p>
           <p>matching timer logs only after server-confirmed Send</p></div>
         <div><h4>Everywhere</h4>
+          <p><kbd class="kbd">c</kbd> new ticket (on a client's page, for that client)</p>
           <p><kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd> palette (search reaches every message)</p>
           <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd>/<kbd class="kbd">t</kbd>/<kbd class="kbd">c</kbd>/<kbd class="kbd">s</kbd> navigate · <kbd class="kbd">?</kbd> this card</p></div>
       </div></div>`;
@@ -2555,24 +2576,174 @@
     window.addEventListener("pageshow", () => selects.forEach((select) => { select.disabled = false; }));
   })();
 
-  /* new-ticket: filter contacts to the chosen client */
+  /* New ticket ("log a call"). The form works as plain HTML; this puts a type-to-find box in
+     front of the client list, narrows "Who asked" to the chosen client, and keeps a new contact's
+     fields out of the request unless they are open. Client and contact names are set as text. */
   (() => {
     const clientSel = $("#f-client");
     const contactSel = $("#f-contact");
     if (!clientSel || !contactSel) return;
+    const form = clientSel.form;
     const options = $$("option[data-client]", contactSel);
     const sync = () => {
       const cid = clientSel.value;
-      let first = null;
       options.forEach((o) => {
-        const show = o.dataset.client === cid;
+        const show = cid !== "" && o.dataset.client === cid;
         o.hidden = !show;
-        if (show && !first) first = o;
+        o.disabled = !show;       // Safari lists a hidden option; a disabled one cannot be picked
       });
-      if (contactSel.selectedOptions[0]?.hidden) contactSel.value = first ? first.value : "";
+      if (contactSel.selectedOptions[0] && contactSel.selectedOptions[0].disabled) contactSel.value = "";
     };
     clientSel.addEventListener("change", sync);
     sync();
+
+    // A new contact: while its fields are open they are what "Who asked" means, so the list rests.
+    const fresh = $("#contact-new");
+    const freshFields = fresh ? $$("input", fresh) : [];
+    const paintFresh = (focus) => {
+      if (!fresh) return;
+      freshFields.forEach((input) => { input.disabled = !fresh.open; });
+      contactSel.disabled = fresh.open;
+      if (fresh.open) contactSel.value = "";
+      if (fresh.open && focus && freshFields[0]) freshFields[0].focus();
+    };
+    // A disclosure that is open when the page loads fires "toggle" too: only a change the person
+    // made moves the cursor into its first field.
+    let freshWasOpen = fresh ? fresh.open : false;
+    if (fresh) fresh.addEventListener("toggle", () => {
+      const changed = fresh.open !== freshWasOpen;
+      freshWasOpen = fresh.open;
+      paintFresh(changed);
+    });
+    paintFresh(false);
+
+    // The client box.
+    const field = $("#call-client");
+    const label = field ? $("label", field) : null;
+    if (!field || !label) return;
+    const clients = $$("option", clientSel).filter((o) => o.value !== "")
+      .map((o) => ({ id: o.value, name: o.textContent, plan: o.dataset.plan || "", find: o.textContent.toLowerCase() }));
+    const box = make("input", "call-client-box");
+    box.type = "text";
+    box.id = "f-client-box";
+    box.autocomplete = "off";
+    box.placeholder = "Type a client's name";
+    box.setAttribute("role", "combobox");
+    box.setAttribute("aria-expanded", "false");
+    box.setAttribute("aria-controls", "f-client-list");
+    box.setAttribute("aria-autocomplete", "list");
+    const list = make("ul", "call-client-list");
+    list.id = "f-client-list";
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", "Clients");
+    list.hidden = true;
+    const picked = make("p", "call-client-picked");
+    picked.setAttribute("aria-live", "polite");
+    const wrap = make("div", "call-client-wrap");
+    wrap.append(box, list);
+    clientSel.before(wrap, picked);
+    label.htmlFor = box.id;
+    clientSel.hidden = true;
+    clientSel.required = false;
+
+    let shown = [];
+    let active = 0;
+    const current = () => clients.find((c) => c.id === clientSel.value) || null;
+    // Names that start with what was typed come first, then names with a word that does, then the rest.
+    const rank = (c, words) => (c.find.startsWith(words) ? 0 : c.find.includes(" " + words) ? 1 : 2);
+    const matches = (words) => clients.filter((c) => c.find.includes(words))
+      .sort((a, b) => rank(a, words) - rank(b, words) || a.find.localeCompare(b.find));
+    function paintPicked() {
+      const client = current();
+      picked.replaceChildren();
+      if (!client) return;
+      picked.append(make("span", "call-client-name", client.name));
+      if (client.plan) picked.append(make("span", "tier" + (client.plan === "Premium" ? " tier-premium" : ""), client.plan));
+    }
+    function close() {
+      list.hidden = true;
+      box.setAttribute("aria-expanded", "false");
+      box.removeAttribute("aria-activedescendant");
+    }
+    function open() {
+      shown = matches(box.value.trim().toLowerCase());
+      active = Math.max(0, Math.min(active, shown.length - 1));
+      list.replaceChildren();
+      shown.forEach((client, index) => {
+        const item = make("li", "call-client-option" + (index === active ? " call-client-on" : ""));
+        item.id = `f-client-option-${client.id}`;
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", index === active ? "true" : "false");
+        item.append(make("span", "call-client-name", client.name));
+        if (client.plan) item.append(make("span", "tier" + (client.plan === "Premium" ? " tier-premium" : ""), client.plan));
+        // mousedown, so the box keeps focus and the list does not close before the click lands.
+        item.addEventListener("mousedown", (e) => { e.preventDefault(); pick(client, true); });
+        list.append(item);
+      });
+      if (!shown.length) list.append(make("li", "call-client-none", "No client matches. Check the spelling, or add the client first."));
+      list.hidden = false;
+      box.setAttribute("aria-expanded", "true");
+      if (shown[active]) box.setAttribute("aria-activedescendant", `f-client-option-${shown[active].id}`);
+      else box.removeAttribute("aria-activedescendant");
+      const on = $(".call-client-on", list);
+      if (on) on.scrollIntoView({ block: "nearest" });
+    }
+    function choose(id) {
+      clientSel.value = id;
+      clientSel.dispatchEvent(new Event("change"));
+      paintPicked();
+      box.setCustomValidity("");
+    }
+    function pick(client, moveOn) {
+      box.value = client.name;
+      choose(client.id);
+      close();
+      if (moveOn) (fresh && fresh.open && freshFields[0] ? freshFields[0] : contactSel).focus();
+    }
+    box.addEventListener("input", () => {
+      // Typing over a chosen client un-chooses it: the box and the choice never disagree.
+      const client = current();
+      if (client && box.value !== client.name) choose("");
+      box.setCustomValidity("");
+      active = 0;
+      open();
+    });
+    box.addEventListener("keydown", (e) => {
+      if (e.ctrlKey || e.metaKey) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (list.hidden) active = 0;
+        else active = e.key === "ArrowDown" ? Math.min(active + 1, shown.length - 1) : Math.max(active - 1, 0);
+        open();
+      } else if (e.key === "Enter") {
+        // Enter picks the first match (or the highlighted one). It never sends a half-filled form.
+        e.preventDefault();
+        if (!list.hidden && shown[active]) pick(shown[active], true);
+      } else if (e.key === "Escape" && !list.hidden) {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      } else if (e.key === "Tab" && !list.hidden && shown[active] && !current() && box.value.trim() !== "") {
+        pick(shown[active], false);   // "Bay", Tab: the first match, and focus moves on by itself
+      }
+    });
+    box.addEventListener("blur", () => {
+      close();
+      // Typed out in full without picking: that is a choice too.
+      const exact = clients.filter((c) => c.find === box.value.trim().toLowerCase());
+      if (!current() && exact.length === 1) pick(exact[0], false);
+    });
+    form.addEventListener("submit", (e) => {
+      if (clientSel.value !== "") return;
+      e.preventDefault();
+      box.setCustomValidity("Choose a client from the list.");
+      box.reportValidity();
+    });
+
+    const start = current();
+    if (start) { box.value = start.name; paintPicked(); }
+    // Focus starts where the next thing to say is: the client, or who asked once the client is known.
+    if (!$(".form-error")) (start ? contactSel : box).focus();
   })();
 
   /* boot */

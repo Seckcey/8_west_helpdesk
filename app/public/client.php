@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
 require_once __DIR__ . '/../lib/client_operational_context.php';
+require_once __DIR__ . '/../lib/contacts.php';
 enforce_https();
 $user = require_login();
 
@@ -31,12 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = $_POST['action'] ?? '';
     if ($action === 'add_contact') {
-        $name = trim((string)($_POST['name'] ?? ''));
-        $email = mb_strtolower(trim((string)($_POST['email'] ?? '')));
-        if ($name !== '') {
-            db()->prepare('INSERT INTO contacts (client_id, name, email) VALUES (?,?,?)')
-                ->execute([$id, $name, $email]);
-        }
+        // The same insert the New ticket form uses for "Add a new contact" (lib/contacts.php).
+        contact_add(db(), (int)$id, (string)($_POST['name'] ?? ''), (string)($_POST['email'] ?? ''));
     }
     if ($action === 'remove_contact' && isset($_POST['contact_id'])) {
         db()->prepare('DELETE FROM contacts WHERE id = ? AND client_id = ?')
@@ -102,6 +99,7 @@ page_top($user, $client['name'], 'clients');
     <span class="tier <?= $client['sla_tier'] === 'premium' ? 'tier-premium' : '' ?>"><?= h($client['sla_tier']) ?> SLA</span>
     <span class="ticket-sub"><?= h($client['domain']) ?></span>
     <a href="/client_edit.php?id=<?= (int)$id ?>" class="btn-chip" style="margin-left:auto">Edit</a>
+    <a href="/ticket_new.php?client=<?= (int)$id ?>" class="btn-chip" data-new-ticket>New ticket for this client</a>
   </div>
   <?php if ($operational['available']): ?>
     <p class="client-shared">Shared client: <strong><?= h($operational['display_name']) ?></strong>

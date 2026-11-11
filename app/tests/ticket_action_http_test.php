@@ -105,6 +105,7 @@ try {
         $copyTree($app . '/lib', $root . '/lib');
         copy($app . '/public/ticket.php', $root . '/public/ticket.php');
         copy($app . '/public/api/ticket_action.php', $root . '/public/api/ticket_action.php');
+        copy($app . '/public/ticket_new.php', $root . '/public/ticket_new.php');
         $config = require $app . '/config/config.sample.php';
         $config['app_env'] = 'dev';
         $config['force_https'] = false;
@@ -505,6 +506,132 @@ try {
     [$status, $json] = $act(102, ['id' => 7009, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
     $check($status === 200 && $surveys(7009) === 1 && $mail(7009) === [] && $json['toast'] === 'Resolved. Dana was already asked to rate this ticket.',
         'a survey with no email on record is never asked again');
+
+    // ---- "Log a call": a ticket created from the New ticket form ----
+    /** Any page as a signed-in person sees it. */
+    $view = static function (int $as, string $route) use ($http): DOMXPath {
+        $r = $http('GET', $route, $as, null, []);
+        if ($r['status'] !== 200) throw new RuntimeException("FAIL $route answered {$r['status']}");
+        if (preg_match('/(?:<b>|^)(?:Warning|Notice|Deprecated|Fatal error)(?:<\/b>)?:/m', $r['body']) === 1) throw new RuntimeException("FAIL $route printed a PHP warning");
+        $doc = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $doc->loadHTML('<?xml encoding="utf-8">' . $r['body']);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        return new DOMXPath($doc);
+    };
+    /** The New ticket form, as a browser submits it. A 200 answer is the form again; its page is returned too. */
+    $create = static function (int $as, array $fields, string $query = '') use ($http, &$sessions): array {
+        $r = $http('POST', '/ticket_new.php' . $query, $as, http_build_query($fields + ['csrf' => $sessions[$as]['csrf']]), ['Content-Type: application/x-www-form-urlencoded']);
+        $x = null;
+        if ($r['status'] === 200) {
+            $doc = new DOMDocument();
+            $previous = libxml_use_internal_errors(true);
+            $doc->loadHTML('<?xml encoding="utf-8">' . $r['body']);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            $x = new DOMXPath($doc);
+        }
+        return [$r['status'], preg_match('~\A/ticket\.php\?id=(\d+)\z~', $r['location'], $to) === 1 ? (int)$to[1] : 0, $x];
+    };
+    $row = static function (int $id) use ($pdo): array {
+        $q = $pdo->prepare('SELECT tenant_id, client_id, contact_id, subject, status, priority, channel, assignee_id, service_goal_target_id, sla_due_at > created_at AS has_goal FROM tickets WHERE id = ?');
+        $q->execute([$id]);
+        return $q->fetch() ?: [];
+    };
+    $thread = static function (int $id) use ($pdo): array {
+        $q = $pdo->prepare('SELECT author_name, kind, body FROM messages WHERE ticket_id = ? ORDER BY id');
+        $q->execute([$id]);
+        return $q->fetchAll(PDO::FETCH_NUM);
+    };
+    $count = static fn(string $table): int => (int)$pdo->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
+    $options = static function (DOMXPath $x, string $select): array {
+        $out = [];
+        foreach ($x->query('//select[@id="' . $select . '"]/option') as $o) $out[] = trim($o->textContent);
+        return $out;
+    };
+
+    $x = $view(102, '/ticket_new.php');
+    $check($options($x, 'f-client') === ['Choose a client', 'Bayside Realty', 'Fixture Dental'] && $x->query('//select[@id="f-client"]/option[@selected]')->length === 0,
+        'the form lists this tenant\'s clients by name, and none is chosen');
+    $check($options($x, 'f-contact') === ['Choose a contact', 'Dana Whitfield', 'Lee Okafor', 'Scanner'], 'and their contacts, never another tenant\'s');
+    $check($view(102, '/ticket_new.php?client=12')->query('//select[@id="f-client"]/option[@selected][@value="12"]')->length === 1
+        && $view(102, '/ticket_new.php?client=21')->query('//select[@id="f-client"]/option[@selected]')->length === 0, '?client= preselects one of this tenant\'s clients, and only one of them');
+
+    // A phone call, start to finish.
+    $before = [$count('tickets'), $count('contacts'), $count('messages')];
+    [$status, $called] = $create(102, ['client_id' => 11, 'contact_id' => 31, 'subject' => '  Front office printer is offline ', 'said' => 'The printer shows offline.',
+        'told' => 'Restart it and print one page.', 'start_timer' => '1']);
+    $made = $row($called);
+    $check($status === 302 && $called > 0 && (int)$made['tenant_id'] === 1 && (int)$made['client_id'] === 11 && (int)$made['contact_id'] === 31
+        && $made['subject'] === 'Front office printer is offline' && $made['status'] === 'open' && $made['priority'] === 'normal' && $made['channel'] === 'phone'
+        && (int)$made['assignee_id'] === 102, 'a logged call becomes an open ticket for that client and contact, by phone, assigned to whoever logged it');
+    $check($made['service_goal_target_id'] !== null && (int)$made['has_goal'] === 1, 'with its service goal captured as it opens');
+    $check($thread($called) === [['Dana Whitfield', 'client', 'The printer shows offline.'], ['Maya Reyes', 'tech', 'Restart it and print one page.']],
+        'what they said opens the conversation in the contact\'s name, then what the technician told them');
+    $check($mail($called) === [] && $surveys($called) === 0 && $count('contacts') === $before[1], 'nothing is emailed, nobody is surveyed, no contact is added');
+    $x = $page(102, $called);
+    $check($x->query('//*[@id="ticket-flash"][@data-start-timer="1"]')->length === 1 && $page(102, $called)->query('//*[@id="ticket-flash"]')->length === 0,
+        'its page is asked, once, to start the timer');
+    $check($text($x, '//p[contains(concat(" ", normalize-space(@class), " "), " ticket-sub ")]') === "#$called for Fixture Dental, opened 1 minute ago by phone from Dana Whitfield"
+        && $x->query('//article//*[contains(concat(" ", normalize-space(@class), " "), " msg-role ")]')->length === 2, 'and shows who called and both messages');
+
+    // A new contact typed in place; a contact picked at the same time does not win.
+    [$status, $fresh] = $create(102, ['client_id' => 11, 'contact_id' => 31, 'contact_name' => ' Sam Rivera ', 'contact_email' => 'Sam@Example.TEST', 'subject' => 'New starter', 'said' => 'I need a mailbox.']);
+    $made = $row($fresh);
+    $added = $pdo->query('SELECT id, client_id, name, email FROM contacts ORDER BY id DESC LIMIT 1')->fetch();
+    $check($status === 302 && $count('contacts') === $before[1] + 1 && (int)$added['client_id'] === 11 && $added['name'] === 'Sam Rivera' && $added['email'] === 'sam@example.test'
+        && (int)$made['contact_id'] === (int)$added['id'] && $thread($fresh) === [['Sam Rivera', 'client', 'I need a mailbox.']],
+        'a new contact is added to that client and is who asked');
+    $check($page(102, $fresh)->query('//*[@id="ticket-flash"]')->length === 0, 'with the timer box unticked the page is asked for nothing');
+
+    // A contact of another client is nobody here; the customer's words are then in the client's name.
+    [$status, $stray] = $create(102, ['client_id' => 11, 'contact_id' => 33, 'subject' => 'Wrong contact', 'said' => 'Hello.', 'channel' => 'alert', 'priority' => 'urgent']);
+    $made = $row($stray);
+    $check($status === 302 && $made['contact_id'] === null && $thread($stray) === [['Fixture Dental', 'client', 'Hello.']] && $made['channel'] === 'phone' && $made['priority'] === 'urgent',
+        'a contact from another client is dropped, and a ticket typed in by hand is never an alert');
+    $check($text($page(102, $stray), '//p[contains(concat(" ", normalize-space(@class), " "), " ticket-sub ")]') === "#$stray for Fixture Dental, opened 1 minute ago by phone",
+        'a call with no contact is not said to be from the client itself');
+
+    // Create and resolve: the Resolve button's own rule decides about a survey.
+    [$status, $done] = $create(102, ['client_id' => 11, 'contact_id' => 31, 'subject' => 'Password reset', 'said' => 'I am locked out.', 'told' => 'Reset. Try now.',
+        'start_timer' => '1', 'after' => 'resolved']);
+    $check($status === 302 && $ticket($done)['status'] === 'resolved' && $ticket($done)['resolved_at'] !== null && $surveys($done) === 1
+        && count($mail($done)) === 1 && $mail($done)[0]['to_addr'] === 'dana@example.test' && $held($mail($done)[0]),
+        'Create and resolve resolves the new ticket and holds one survey for its contact');
+    $x = $page(102, $done);
+    $check($attr($x, '//*[@id="ticket-flash"]', 'data-toast') === 'Created and resolved. Dana gets a short survey in a minute.' && $attr($x, '//*[@id="ticket-flash"]', 'data-undo-status') === 'open'
+        && $attr($x, '//*[@id="ticket-flash"]', 'data-start-timer') === null, 'its page says so, offers Undo, and starts no timer on a resolved ticket');
+    [$status, $json] = $act(102, ['id' => $done, 'field' => 'status', 'value' => 'open', 'undo' => true]);
+    $check($status === 200 && $ticket($done)['status'] === 'open' && $mail($done) === [] && count($withdrawn($done)) === 1, 'Undo reopens it and takes the survey back before it leaves');
+    [$status, $quiet] = $create(102, ['client_id' => 12, 'subject' => 'Quick question', 'after' => 'resolved']);
+    $x = $page(102, $quiet);
+    $check($status === 302 && $ticket($quiet)['status'] === 'resolved' && $surveys($quiet) === 0 && $mail($quiet) === [] && $thread($quiet) === []
+        && $attr($x, '//*[@id="ticket-flash"]', 'data-toast') === 'Created and resolved. No survey is sent.', 'with no contact there is nobody to survey, and the page says so');
+
+    // Refusals: nothing is created, and what was typed comes back.
+    $before = [$count('tickets'), $count('contacts'), $count('messages')];
+    $unchanged = static fn(): bool => [$count('tickets'), $count('contacts'), $count('messages')] === $before;
+    $says = static fn(?DOMXPath $x): string => $x === null ? '' : trim((string)$x->query('//div[contains(concat(" ", normalize-space(@class), " "), " form-error ")]')->item(0)?->textContent);
+    [$status, , $x] = $create(102, ['client_id' => 11, 'contact_id' => 31, 'subject' => '   ', 'said' => 'Kept <b>words</b>', 'priority' => 'high']);
+    $check($status === 200 && $says($x) === 'Add a subject so the ticket can be found later.' && $unchanged(), 'no subject: the form says what is missing and creates nothing');
+    $check(trim((string)$x->query('//textarea[@name="said"]')->item(0)?->textContent) === 'Kept <b>words</b>' && $x->query('//textarea//b')->length === 0
+        && $x->query('//select[@id="f-client"]/option[@selected][@value="11"]')->length === 1 && $x->query('//select[@id="f-contact"]/option[@selected][@value="31"]')->length === 1
+        && $x->query('//input[@name="priority"][@value="high"][@checked]')->length === 1, 'and keeps the client, the contact, the words and the priority');
+    [$status, , $x] = $create(102, ['subject' => 'No client']);
+    $check($status === 200 && $says($x) === 'Choose a client from the list.' && $unchanged(), 'no client: refused');
+    [$status, , $x] = $create(102, ['client_id' => 21, 'subject' => 'Another tenant\'s client', 'contact_name' => 'Mallory', 'said' => 'Hello.']);
+    $check($status === 200 && $says($x) === 'This client is unavailable for new tickets. Pick another client.' && $unchanged(),
+        'another tenant\'s client: refused, and the contact typed with it is not added anywhere');
+    [$status, , $x] = $create(102, ['client_id' => 999999, 'subject' => 'No such client']);
+    $check($status === 200 && $says($x) === 'This client is unavailable for new tickets. Pick another client.' && $unchanged(), 'a client that does not exist: refused');
+    [$status, , $x] = $create(102, ['client_id' => 11, 'subject' => 'Bad address', 'contact_name' => 'Sam', 'contact_email' => 'sam at example']);
+    $check($status === 200 && $says($x) === 'That email address does not look right. Check it, or leave it empty.' && $unchanged()
+        && $x->query('//details[@id="contact-new"][@open]//input[@name="contact_name"][@value="Sam"]')->length === 1, 'a new contact with a broken address: refused, with the contact still open');
+    $r = $http('POST', '/ticket_new.php', 102, http_build_query(['client_id' => 11, 'subject' => 'No token']), ['Content-Type: application/x-www-form-urlencoded']);
+    $check($r['status'] === 419 && $unchanged(), 'a form without its token creates nothing');
+    $r = $http('POST', '/ticket_new.php', null, http_build_query(['client_id' => 11, 'subject' => 'Signed out']), ['Content-Type: application/x-www-form-urlencoded']);
+    $check($r['status'] === 302 && str_starts_with($r['location'], '/login.php') && $unchanged(), 'nor does somebody who is not signed in');
 
     echo "PASS: $checks ticket action checks\n";
 } catch (Throwable $error) {

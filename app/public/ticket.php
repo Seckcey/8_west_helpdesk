@@ -39,6 +39,8 @@ $listState = queue_ticket_state($_GET);
 $listAt = is_string($_GET['at'] ?? null) && ctype_digit($_GET['at']) && strlen($_GET['at']) <= 6 ? (int)$_GET['at'] : 0;
 $listQuery = $listState !== null ? queue_ticket_query($listState) : '';
 // "Send and resolve" and "Send and wait" say what they did after the redirect, with a way back.
+// A ticket just created from the New ticket form arrives the same way: "Created and resolved", or
+// a request to start the person's timer on it.
 $ticketFlash = null;
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_SESSION['ticket_flash'])) {
     $flash = $_SESSION['ticket_flash'];
@@ -307,7 +309,7 @@ page_top($user, '#' . $id, 'queue');
     <?= ticket_callout('caution', 'Time not logged.', h($timeEntryNotice)) ?>
   <?php endif; ?>
   <?php if ($ticketFlash !== null): ?>
-    <span id="ticket-flash" data-toast="<?= h((string)($ticketFlash['toast'] ?? '')) ?>" data-undo-status="<?= h((string)($ticketFlash['undo_status'] ?? '')) ?>" hidden></span>
+    <span id="ticket-flash" data-toast="<?= h((string)($ticketFlash['toast'] ?? '')) ?>" data-undo-status="<?= h((string)($ticketFlash['undo_status'] ?? '')) ?>"<?= !empty($ticketFlash['start_timer']) ? ' data-start-timer="1"' : '' ?> hidden></span>
   <?php endif; ?>
 
   <div class="ticket-grid">
