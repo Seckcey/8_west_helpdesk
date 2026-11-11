@@ -427,7 +427,7 @@ goal_admin_check('history page tells the exact supported semantics and legacy at
     && str_contains($historyPageSource, 'none is invented'));
 goal_admin_check('service-goal history is reachable through real nav, keyboard, palette, and Westy help',
     str_contains($renderSource, "['/service_goals.php', 'Service goals', 'service-goals', 'G S'")
-    && str_contains($appJsSource, 'title: "Go to Service goals", hint: "g s"')
+    && str_contains($appJsSource, 'go("Service goals", "/service_goals.php", ["g", "s"])')
     && str_contains($appJsSource, 'key === "s"')
     && str_contains($westySource, 'Service goals, Reports, and Team')
     && str_contains($westySource, 'signed-in, read-only history'));
