@@ -113,6 +113,7 @@ try {
     copy($app . '/public/time.php', $runtime . '/public/time.php');
     copy($app . '/public/client.php', $runtime . '/public/client.php');
     copy($app . '/public/reports.php', $runtime . '/public/reports.php');
+    copy($app . '/public/service_goals.php', $runtime . '/public/service_goals.php');
     copy($app . '/public/api/time_entry_review.php', $runtime . '/public/api/time_entry_review.php');
     $config = require $app . '/config/config.sample.php';
     $config['app_env'] = 'dev';
@@ -199,6 +200,32 @@ try {
     $x = $queue(102, '/?view=resolved');
     $check(count($ids($x)) === 50 && array_slice($ids($x), 0, 3) === [9001, 9002, 9003] && !in_array(7001, $ids($x), true), 'Resolved: only resolved tickets, the latest first');
     $check($texts($x, '//p[' . $hasClass('queue-elsewhere') . ']') === ['Not in this view: 7 open.'], 'Resolved says how many are open');
+
+    // Service goals and its destination show exactly the same tickets and full-workspace count.
+    $riskIds = static fn(DOMXPath $x): array => array_map('intval', $texts($x, '//ul[@class="goal-risk-list"]/li/@data-ticket-id'));
+    foreach ([101, 102] as $as) {
+        $goal = $queue($as, '/service_goals.php');
+        $riskQueue = $queue($as, '/?view=risk');
+        $check($riskIds($goal) === [7006, 7005, 7002] && $ids($riskQueue) === $riskIds($goal)
+            && $texts($goal, '//span[@class="nav-goal-count"]') === ['3']
+            && $texts($riskQueue, '//nav[@aria-label="Queue views"]/a[@aria-current="page"]') === ['At risk3'],
+            'Service goals, rail count and risk queue agree for staff role ' . $as);
+        $check($goal->query('//details[@open]')->length === 0 && $goal->query('//details/summary')->length === 1
+            && $goal->query('//form')->length === 0, 'Service goals starts with closed history and no forms');
+    }
+    $check($ids($queue(102, '/?view=risk&client=11&owner=me')) === [7005, 7002]
+        && $ids($queue(102, '/?view=risk&client=21')) === [], 'risk filters work without crossing the signed-in workspace');
+    $goal = $queue(201, '/service_goals.php');
+    $check($riskIds($goal) === [8004, 8001] && $ids($queue(201, '/?view=risk')) === [8004, 8001]
+        && $texts($goal, '//span[@class="nav-goal-count"]') === ['2']
+        && $texts($goal, '//span[@class="goal-risk-owner"]') === ['Westy', 'Unassigned'],
+        'the other workspace has only its own risk tickets and preserves Westy ownership');
+    $goal = $queue(301, '/service_goals.php');
+    $check($riskIds($goal) === [] && $goal->query('//span[@class="nav-goal-count"]')->length === 0
+        && $texts($goal, '//table/tbody/tr/td') === array_fill(0, 8, 'Not set'), 'an empty workspace has no invented targets or risk count');
+    $check((int)$pdo->query('SELECT COUNT(*) FROM service_goal_policy_versions')->fetchColumn() === 0,
+        'reading Service goals never initializes or publishes policies');
+    $check($http('/service_goals.php', null)['status'] === 302, 'Service goals still requires sign-in');
 
     // The same data means something else to somebody else.
     $x = $queue(103);
@@ -654,6 +681,23 @@ try {
     $check(array_values($tiles($x)) === ['0', '0', 'No replies', 'Nothing due', 'No ratings']
         && $texts($x, '//div[' . $hasClass('report-grid') . ']//div[' . $hasClass('empty') . ']/p') === ['No open tickets.', 'No approved billable time in the last 30 days.'],
         'a desk with nothing yet shows five tiles in words and two empty lists');
+
+    // A long risk list stays bounded on Service goals and paged in the queue, with the full count.
+    $manyRisk = $pdo->prepare("INSERT INTO tickets (id, tenant_id, client_id, subject, channel, status, sla_due_at, created_at)
+        VALUES (?, 3, 31, ?, 'email', 'open', DATE_ADD(UTC_TIMESTAMP(), INTERVAL 60 MINUTE), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 MINUTE))");
+    for ($n = 1; $n <= 63; $n++) $manyRisk->execute([10000 + $n, 'Synthetic risk ticket ' . $n]);
+    $goal = $queue(301, '/service_goals.php');
+    $firstRisk = $ids($queue(301, '/?view=risk'));
+    $nextRisk = $ids($queue(301, '/?view=risk&page=2'));
+    $check(count($riskIds($goal)) === 10 && count($firstRisk) === 50 && count($nextRisk) === 13
+        && count(array_unique(array_merge($firstRisk, $nextRisk))) === 63
+        && $texts($goal, '//span[@class="nav-goal-count"]') === ['63']
+        && str_contains(implode(' ', $texts($goal, '//p')), 'Showing 10 of 63.'),
+        'the summary is bounded, the rail reports the full view, and queue paging loses no at-risk tickets');
+    $pdo->exec("INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (10001, 'Example Staff', 'tech', 'Synthetic reply only.')");
+    $goal = $queue(301, '/service_goals.php');
+    $check($texts($goal, '//span[@class="nav-goal-count"]') === ['62'] && !in_array(10001, $ids($queue(301, '/?view=risk')), true),
+        'a reply immediately updates the list and count without an email operation');
 
     echo "PASS: $checks ticket queue checks\n";
 } catch (Throwable $error) {

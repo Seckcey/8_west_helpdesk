@@ -418,13 +418,8 @@ goal_admin_check('history page contains no write, form, API, or publication surf
     && ! str_contains($historyPageSource, '<form')
     && ! str_contains($historyPageSource, 'service_goal_policy_publish')
     && ! str_contains($historyPageSource, 'service_goal_ensure_default_policies'));
-goal_admin_check('history page tells the exact supported semantics and legacy attribution truth',
-    str_contains($historyPageSource, 'First response')
-    && str_contains($historyPageSource, 'Elapsed')
-    && str_contains($historyPageSource, 'No pause')
-    && str_contains($historyPageSource, 'No business calendar or resolution goal')
-    && str_contains($historyPageSource, 'Legacy v1 attribution')
-    && str_contains($historyPageSource, 'none is invented'));
+// Current-target and history wording is exercised through the real renderer in service_goal_desk_test.php.
+
 goal_admin_check('service-goal history is reachable through real nav, keyboard, palette, and Westy help',
     str_contains($renderSource, "['/service_goals.php', 'Service goals', 'service-goals', 'G S'")
     && str_contains($appJsSource, 'go("Service goals", "/service_goals.php", ["g", "s"])')

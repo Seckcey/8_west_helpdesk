@@ -71,13 +71,22 @@ there is no tenant request parameter. Active Safeharbor owners, admins, and
 technicians may read their own tenant's history. Unknown, inactive, and
 customer roles fail closed.
 
-The page shows Standard and Premium separately. Each immutable version shows
-its exact effective UTC time, current/scheduled/superseded state, all four
-first-response targets, and its actor/reason when those facts exist. The state
-uses the database UTC clock, so a newly published future version is labelled
-scheduled rather than being mistaken for current. Lazy v1 rows are labelled
-`Legacy v1 attribution`: no historical approver or reason was recorded, and
-the page does not invent one.
+The page shows current Standard and Premium targets in one table by priority,
+in exact hours and minutes. History of changes is closed initially; it contains
+each immutable set of targets, its current/scheduled/previous state and its
+actor/reason when those facts exist. State uses the database UTC clock, so a
+future version is never mistaken for current. Effective dates use the person's
+time-zone preference. The original epoch baseline reads "In place since
+Safeharbor was set up." No historical approver or reason was recorded for those
+targets, and the page says so without inventing attribution.
+
+At risk now shows the first ten unanswered, unmerged open tickets with a known
+deadline overdue or less than two hours away. Resolved tickets and both sides
+of a merge are excluded, matching the first-response lamp's attribution rule.
+The list, navigation count and linked `/?view=risk` queue use the same scoped
+predicate. The queue retains paging, filters and ticket navigation; its six
+usual tabs and number shortcuts are unchanged. Read failures show unavailable,
+not a false zero. This adds no email, notice or action endpoint.
 
 The page accepts no GET choice, form, POST, API call, editor, or publish
 action. In particular, it never calls the lazy v1 initializer; a tenant with no
