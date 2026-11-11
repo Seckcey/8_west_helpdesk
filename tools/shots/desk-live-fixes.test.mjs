@@ -39,7 +39,9 @@ async function open(t, name, { width = 1440, theme = 'dark', init = null } = {})
     return route.fulfill({ contentType: 'text/html', body });
   });
   await page.goto(`${ORIGIN}/p/${name}.html?theme=${theme}`);
-  await page.waitForFunction(() => document.readyState === 'complete');
+  // Loaded, and the list's rows have finished fading in.
+  await page.waitForFunction(() => document.readyState === 'complete'
+    && [...document.querySelectorAll('.trow, .crow')].every((row) => Number(getComputedStyle(row).opacity) > 0.99));
   return page;
 }
 
