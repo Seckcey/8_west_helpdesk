@@ -1108,35 +1108,70 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .sugg-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); flex: none; }
 .sugg-main { flex: 1; min-width: 0; }
 .sugg-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sugg-reason { font-size: 12.5px; color: var(--dim); }
+.sugg-reason { font-size: 12.5px; color: var(--muted-strong); }
 
+/* A row: how long, what and which ticket, the tags, then what can be done. Everything else about
+   the entry is under "History". Rows line up top to top, because some are taller than others. */
 .entry-row {
-  display: flex; align-items: center; gap: 12px;
-  min-height: 52px; padding: 10px 16px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: flex-start; gap: 12px;
+  min-height: 52px; padding: 14px 16px; border-bottom: 1px solid var(--line);
 }
 .entry-row:last-child { border-bottom: 0; }
-.entry-min { width: 56px; text-align: right; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.entry-min { flex: none; width: 84px; font-size: 14px; font-weight: 600; line-height: 1.45; font-variant-numeric: tabular-nums; }
 .entry-main { flex: 1; min-width: 0; }
-.entry-note { font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.entry-ticket { font-size: 12.5px; }
-.entry-review-note { margin-top: 2px; font-size: 12px; color: var(--rose); }
-.entry-evidence { margin-top: 3px; font-size: 12px; line-height: 1.4; color: var(--dim); white-space: normal; }
-.entry-lineage { margin-top: 3px; font-size: 12px; color: var(--cyan); }
-.correction-actions { margin-top: 6px; }
+.entry-note { font-size: 14px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.entry-ticket { font-size: 13px; }
+.entry-review-note { margin-top: 4px; font-size: 13px; color: var(--rose); overflow-wrap: anywhere; }
+.entry-lineage { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--muted-strong); overflow-wrap: anywhere; }
+.correction-actions { margin-top: 8px; }
+.entry-tags { display: inline-flex; align-items: center; gap: 6px; flex: none; flex-wrap: wrap; justify-content: flex-end; padding-top: 1px; }
+/* History: who approved it and when, how it was logged, every change and its reason. */
+.entry-history { margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--muted-strong); }
+.entry-history > summary {
+  display: inline-flex; align-items: center; min-height: 24px; padding: 0 6px; margin-left: -6px;
+  border-radius: 6px; font-weight: 600; color: var(--accent-2); cursor: pointer;
+}
+.entry-history > summary:hover { background: var(--hover); }
+.entry-history ul, .entry-history ol { margin: 4px 0 0; padding-left: 18px; }
+.entry-history li { overflow-wrap: anywhere; }
+.entry-history-title { margin: 8px 0 0; font-weight: 600; color: var(--text); }
 .time-correct:disabled { opacity: .5; cursor: default; }
 .entry-badge {
   display: inline-flex; align-items: center; min-height: 22px; padding: 2px 8px;
   border-radius: var(--radius-tag); font-size: 12px; font-weight: 600;
   background: var(--chip-bg); color: var(--muted-strong);
 }
-.badge-billable { background: var(--mint-soft-bg); color: var(--mint); }
+.badge-billable { background: var(--accent-soft-bg); color: var(--cyan); }
 .status-pending { background: var(--gold-soft-bg); color: var(--gold); }
 .status-approved { background: var(--mint-soft-bg); color: var(--mint); }
 .status-rejected { background: var(--error-bg); color: var(--rose); }
-.review-actions { display: inline-flex; align-items: center; gap: 8px; }
+.review-actions { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .review-actions .time-review { min-height: 36px; }
 .billing-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 22rem; }
 .billing-actions [data-billing-label] { width: 100%; text-align: right; }
+.billing-actions .entry-badge[data-billing-label] { width: auto; }
+.billing-state { font-size: 13px; color: var(--muted-strong); }
+/* The approved list's heading with its search box at the right. */
+.time-ledger-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 22px 0 10px; }
+.time-ledger-head .rail-label { margin: 0; }
+.time-search { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.time-search input {
+  width: 240px; min-height: 36px; padding: 0 12px; border: 1px solid var(--control-border); border-radius: var(--radius-sm);
+  background: var(--input-bg); color: var(--text); font: inherit; font-size: 14px;
+}
+.time-search input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--sel-ring); }
+.time-search input::placeholder { color: var(--dim); }
+
+/* A small form in a dialog (Reject, Change, Correct and resubmit on the Time page): labelled
+   fields, what is wrong said inside it, Cancel and one primary button. */
+.form-dialog { width: 520px; max-height: 86vh; overflow-y: auto; padding: 22px 24px; border-radius: var(--radius-lg); }
+.form-dialog h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.form-dialog-sub { margin: 0 0 14px; font-size: 14px; line-height: 1.5; color: var(--muted-strong); }
+.form-dialog-fields { display: flex; flex-direction: column; gap: 14px; }
+.form-dialog .field > label, .form-dialog legend { font-size: 13px; font-weight: 600; color: var(--text); }
+.form-dialog .field-help { margin-top: -2px; }
+.form-dialog-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-dialog-error { margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--error-bg); color: var(--rose); font-size: 13.5px; font-weight: 600; }
 .time-review:disabled { opacity: .5; cursor: default; }
 .sugg-accept:disabled { opacity: .5; cursor: default; }
 @media (max-width: 700px) {
@@ -1164,21 +1199,20 @@ a.ticket-step:hover { background: var(--bg-raised); }
   /* Time on a phone: each entry stacks. Line one is the whole title with the duration at its
      right; the ticket link and the record text follow at full width; tags sit at the left of the
      last line and the buttons at its right. */
-  .entry-row {
-    display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto;
-    align-items: start; gap: 6px 8px; padding: 12px 16px;
-  }
-  .entry-main { display: contents; }
-  .entry-row > *, .entry-main > * { grid-column: 1 / -1; min-width: 0; }
-  .entry-main > .entry-note {
-    grid-column: 1 / 4; grid-row: 1;
-    white-space: normal; overflow: visible; overflow-wrap: anywhere; font-weight: 600;
-  }
-  .entry-row > .entry-min { grid-column: 4; grid-row: 1; width: auto; padding-left: 8px; }
-  .entry-row > .entry-badge { grid-column: auto; justify-self: start; align-self: center; }
-  .entry-row > .review-actions { grid-column: 3 / -1; justify-self: end; }
+  .entry-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: start; }
+  .entry-row > .entry-min { grid-column: 1; grid-row: 1; width: auto; }
+  .entry-row > .entry-tags { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .entry-row > .entry-main { grid-column: 1 / -1; grid-row: 2; }
+  .entry-row > .review-actions { grid-column: 1 / -1; justify-content: flex-start; max-width: none; }
+  .billing-actions [data-billing-label] { text-align: left; }
+  .entry-history > summary { min-height: 44px; }
+  .time-ledger-head { align-items: stretch; flex-direction: column; }
+  .time-search input { flex: 1; width: auto; min-height: 44px; }
+  .time-correct { min-height: 44px; }
+  .form-dialog { padding: 16px; max-height: 92vh; }
+  .form-dialog-pair { grid-template-columns: 1fr; }
+  .form-dialog .field input, .form-dialog .field select, .form-dialog .btn-primary { min-height: 44px; }
   .review-actions .time-review { min-height: 44px; }
-  .entry-evidence, .entry-lineage, .entry-review-note { margin-top: 0; }
   .billing-actions { max-width: none; }
 }
 

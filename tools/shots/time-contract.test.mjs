@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -8,6 +9,9 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APP_JS = await readFile(path.join(ROOT, 'app/public/assets/js/app.js'), 'utf8');
 const TIME_PHP = await readFile(path.join(ROOT, 'app/public/time.php'), 'utf8');
+// The page's rows are drawn by lib/time_page.php; the rows on this test's page are its real output.
+const TIME_ROWS_PHP = await readFile(path.join(ROOT, 'app/lib/time_page.php'), 'utf8');
+const ROWS = JSON.parse(execFileSync('php', [path.join(ROOT, 'app/tests/time_page_test.php'), '--render'], { encoding: 'utf8' }));
 const ADJUSTMENT_API_PHP = await readFile(
   path.join(ROOT, 'app/public/api/time_entry_adjustment.php'),
   'utf8',
@@ -31,41 +35,9 @@ const PAGE = `<!doctype html>
     <button id="timer-stop" type="button">Retry logging</button>
     <button id="timer-discard" type="button">Discard</button>
   </section>
-  <button class="time-correct" type="button"
-          data-rejected-entry-id="51" data-measured="0" data-minutes="17"
-          data-worked-at="2026-08-29T10:00:00Z" data-note="Original rejected work"
-          data-billable="0">Correct</button>
-  <section id="time-review-queue">
-    <div class="review-row" data-time-entry-id="73">
-      <button class="time-review" type="button" data-decision="approved">Approve</button>
-      <button class="time-review" type="button" data-decision="rejected">Reject</button>
-    </div>
-  </section>
-  <section id="time-adjustment-ledger">
-    <div class="adjustment-row" data-time-entry-id="88">
-      <div class="adjustment-original">Original approval: 60m billable · owner · 2026-08-29 10:30:00 UTC</div>
-      <div class="adjustment-effective">Effective version 2: 45m internal</div>
-      <div class="adjustment-reason">Current adjustment reason: customer goodwill credit</div>
-      <details class="adjustment-history">
-        <summary>All correction slips (2)</summary>
-        <ol>
-          <li class="adjustment-history-item">Version 1 · 50m billable · by user #11<div>Reason: duplicate work</div></li>
-          <li class="adjustment-history-item">Version 2 · 45m internal · by user #12<div>Reason: customer goodwill credit</div></li>
-        </ol>
-      </details>
-      <button class="time-adjust" type="button"
-              data-entry-id="88" data-original-minutes="60" data-original-billable="1"
-              data-effective-minutes="45" data-effective-billable="0" data-version="2">Adjust effective value</button>
-      <button class="time-billing" type="button" data-entry-id="88" data-billing-action="send">Send to billing</button>
-    </div>
-    <div class="adjustment-row" data-time-entry-id="89">
-      <div class="adjustment-original">Original approval: 20m internal</div>
-      <div class="adjustment-effective">Effective version 0 (original): 20m internal</div>
-      <button class="time-adjust" type="button"
-              data-entry-id="89" data-original-minutes="20" data-original-billable="0"
-              data-effective-minutes="20" data-effective-billable="0" data-version="0">Adjust effective value</button>
-    </div>
-  </section>
+  <section id="time-entry-history">${ROWS.earlier}</section>
+  <section id="time-review-queue">${ROWS.review}</section>
+  <section id="time-adjustment-ledger">${ROWS.ledger}</section>
   <script src="/assets/js/app.js"></script>
 </body></html>`;
 
@@ -110,6 +82,46 @@ async function openPage({ timer, responder }) {
   await page.goto(`${ORIGIN}/time.php`);
   return { browser, context, page, errors };
 }
+
+// Reject, Change and "Correct and resubmit" are small dialogs on the page; they took the place of
+// chains of browser prompts. answerDialogs() fills each dialog as it appears from the next answer
+// (a map of field selector to value; true ticks a choice) and presses its primary button. With no
+// answer left the dialog is left open for the test to work by hand. `count` is how many dialogs
+// were shown: a retry that must not ask again leaves it where it was.
+async function answerDialogs(page, answers) {
+  const asked = { count: 0 };
+  await page.exposeFunction('nextDialogAnswer', () => {
+    const answer = answers[asked.count] ?? null;
+    asked.count += 1;
+    return answer;
+  });
+  const install = () => {
+    const fill = async (panel) => {
+      const answer = await window.nextDialogAnswer();
+      if (!answer) return;
+      for (const [selector, value] of Object.entries(answer)) {
+        const field = panel.querySelector(selector);
+        if (!field) throw new Error(`The dialog has no ${selector}`);
+        if (value === true) field.checked = true;
+        else field.value = value;
+      }
+      panel.requestSubmit();
+    };
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          const panel = node.nodeType === 1 ? (node.matches('.form-dialog') ? node : node.querySelector('.form-dialog')) : null;
+          if (panel) fill(panel);
+        }
+      }
+    }).observe(document, { childList: true, subtree: true });   // the document itself: it exists before its first element does
+  };
+  await page.addInitScript(install);
+  await page.evaluate(install);
+  return asked;
+}
+const CORRECT = (minutes, note, billable) => ({ '#correct-minutes': minutes, '#correct-note': note, [`input[name="correct-billable"][value="${billable ? 1 : 0}"]`]: true });
+const CHANGE = (minutes, billable, reason) => ({ '#change-minutes': minutes, [`input[name="change-billable"][value="${billable ? 1 : 0}"]`]: true, '#change-reason': reason });
 
 function adjustmentSuccess(body, overrides = {}) {
   return {
@@ -263,14 +275,7 @@ test('correction retries keep one frozen key and payload until the matching ackn
 
   try {
     const { page, errors } = session;
-    const answers = ['17', 'Corrected printer work', 'I'];
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      assert.equal(dialog.type(), 'prompt');
-      const answer = answers[prompts];
-      prompts += 1;
-      await dialog.accept(answer);
-    });
+    const asked = await answerDialogs(page, [CORRECT('17', 'Corrected printer work', false)]);
 
     const button = page.locator('.time-correct');
     await button.click();
@@ -279,17 +284,29 @@ test('correction retries keep one frozen key and payload until the matching ackn
       return button?.disabled === false && Boolean(button.dataset.correctionPayload);
     });
     const frozen = await button.getAttribute('data-correction-payload');
-    assert.equal(prompts, 3);
+    assert.equal(asked.count, 1);
     assert.equal(JSON.parse(frozen).entry_key, requests[0].entry_key);
+    // The dialog sends what the prompts sent: the rejected entry, a new key, its time, the facts.
+    assert.deepEqual(requests[0], {
+      rejected_entry_id: 51,
+      entry_key: requests[0].entry_key,
+      worked_at: '2026-11-09T20:00:00Z',
+      started_at: null,
+      ended_at: null,
+      minutes: 17,
+      note: 'Corrected printer work',
+      billable: 0,
+    });
 
     await button.click();
     await page.waitForFunction(() => document.querySelector('.time-correct')?.disabled === false);
     assert.equal(await button.getAttribute('data-correction-payload'), frozen);
-    assert.equal(prompts, 3, 'a retry must not ask for edited facts');
+    assert.equal(asked.count, 1, 'a retry must not ask for edited facts');
+    assert.equal(await page.locator('.form-dialog').count(), 0);
 
     await button.click();
     await page.locator('.toast').filter({ hasText: 'Correction submitted' }).waitFor();
-    assert.equal(prompts, 3);
+    assert.equal(asked.count, 1);
     assert.deepEqual(requests[1], requests[0]);
     assert.deepEqual(requests[2], requests[0]);
     assert.match(requests[0].entry_key, /^correction:/);
@@ -326,13 +343,7 @@ test('a definitive correction conflict clears the draft so a technician can edit
 
   try {
     const { page, errors } = session;
-    const answers = ['17', 'First correction', 'I', '18', 'Edited correction', 'B'];
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      assert.equal(dialog.type(), 'prompt');
-      await dialog.accept(answers[prompts]);
-      prompts += 1;
-    });
+    const asked = await answerDialogs(page, [CORRECT('17', 'First correction', false), CORRECT('18', 'Edited correction', true)]);
 
     const button = page.locator('.time-correct');
     await button.click();
@@ -340,11 +351,12 @@ test('a definitive correction conflict clears the draft so a technician can edit
       const button = document.querySelector('.time-correct');
       return button?.disabled === false && button.dataset.correctionPayload === '';
     });
-    assert.equal(prompts, 3);
+    assert.equal(asked.count, 1);
 
     await button.click();
     await page.locator('.toast').filter({ hasText: 'Edited correction submitted' }).waitFor();
-    assert.equal(prompts, 6, 'a definitive error must allow the technician to edit every fact');
+    assert.equal(asked.count, 2, 'a definitive error must allow the technician to edit every fact');
+    assert.equal(requests[1].minutes, 18);
     assert.equal(requests.length, 2);
     assert.notEqual(requests[1].entry_key, requests[0].entry_key);
     assert.equal(requests[0].note, 'First correction');
@@ -422,12 +434,7 @@ test('review retries freeze one normalized decision through network, 5xx, and mi
 
   try {
     const { page, errors } = session;
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      assert.equal(dialog.type(), 'prompt');
-      prompts += 1;
-      await dialog.accept('  Missing customer notes  ');
-    });
+    const asked = await answerDialogs(page, [{ '#reject-note': '  Missing customer notes  ' }]);
 
     const row = page.locator('.review-row');
     const approve = row.locator('[data-decision="approved"]');
@@ -449,7 +456,7 @@ test('review retries freeze one normalized decision through network, 5xx, and mi
     await reject.click();
     await page.locator('#time-review-queue .empty').waitFor();
     assert.equal(await row.count(), 0, 'a matching replay receipt clears the row');
-    assert.equal(prompts, 1, 'retries must not ask for changed review facts');
+    assert.equal(asked.count, 1, 'retries must not ask for changed review facts');
     assert.equal(requests.length, 5);
     assert.deepEqual(requests[0], {
       entry_id: 73,
@@ -475,20 +482,17 @@ test('an overlong rejection note stays editable and never reaches the server', a
 
   try {
     const { page, errors } = session;
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      assert.equal(dialog.type(), 'prompt');
-      prompts += 1;
-      await dialog.accept('x'.repeat(501));
-    });
+    const asked = await answerDialogs(page, [{ '#reject-note': 'x'.repeat(501) }]);
 
     const row = page.locator('.review-row');
     const approve = row.locator('[data-decision="approved"]');
     const reject = row.locator('[data-decision="rejected"]');
     await reject.click();
-    await page.locator('.toast').filter({ hasText: 'cannot exceed 500 characters' }).waitFor();
+    await page.locator('.form-dialog-error').filter({ hasText: '500 characters or fewer' }).waitFor();
 
-    assert.equal(prompts, 1);
+    // The dialog says so and stays open with everything typed.
+    assert.equal(asked.count, 1);
+    assert.equal((await page.locator('#reject-note').inputValue()).length, 501);
     assert.equal(requests.length, 0, 'client validation must not send a known-invalid review');
     assert.equal(await approve.isEnabled(), true);
     assert.equal(await reject.isEnabled(), true);
@@ -532,12 +536,7 @@ test('a deterministic review validation error reopens the draft for an edited re
   try {
     const { page, errors } = session;
     const answers = ['First server-rejected note', 'Edited accepted note'];
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      assert.equal(dialog.type(), 'prompt');
-      await dialog.accept(answers[prompts]);
-      prompts += 1;
-    });
+    const asked = await answerDialogs(page, answers.map((note) => ({ '#reject-note': note })));
 
     const row = page.locator('.review-row');
     const approve = row.locator('[data-decision="approved"]');
@@ -549,7 +548,7 @@ test('a deterministic review validation error reopens the draft for an edited re
 
     await reject.click();
     await page.locator('#time-review-queue .empty').waitFor();
-    assert.equal(prompts, 2, 'the retry must ask for an edited note');
+    assert.equal(asked.count, 2, 'the retry must ask for an edited note');
     assert.equal(requests.length, 2);
     assert.equal(requests[0].note, answers[0]);
     assert.equal(requests[1].note, answers[1]);
@@ -576,7 +575,7 @@ test('a review conflict refreshes to reconcile instead of enabling another decis
 
   try {
     const { page, errors } = session;
-    page.on('dialog', async (dialog) => dialog.accept('Already handled'));
+    await answerDialogs(page, [{ '#reject-note': 'Already handled' }]);
     const reloaded = page.waitForEvent('load');
     await page.locator('[data-decision="rejected"]').click();
     await page.locator('.toast').filter({ hasText: 'refreshing' }).waitFor();
@@ -615,39 +614,39 @@ test('approved adjustment UI labels original evidence separately and accepts onl
     const { page, errors } = session;
     assert.match(TIME_PHP, /WHERE e\.tenant_id = \? AND e\.approval_status = 'approved'/);
     assert.match(TIME_PHP, /AND e\.id = \? LIMIT 1/);
-    assert.match(TIME_PHP, /Original approval:/);
-    assert.match(TIME_PHP, /Effective version/);
     assert.match(TIME_PHP, /time_entry_adjustment_history_by_entry/);
-    assert.match(TIME_PHP, /All correction slips/);
-    assert.match(TIME_PHP, /Extra time must be logged as a new pending entry/);
+    assert.match(TIME_PHP, /time_approved_row\(/);
+    assert.match(TIME_ROWS_PHP, /Original approval: /);
+    assert.match(TIME_ROWS_PHP, /Counts now as /);
+    assert.match(TIME_ROWS_PHP, /Changes \(/);
+    assert.match(TIME_ROWS_PHP, /The original approval is never erased\. To add time, log a new entry\./);
     assert.match(ADJUSTMENT_API_PHP, /TIME_ENTRY_ADJUSTMENT_ROLES/);
     assert.match(ADJUSTMENT_API_PHP, /'adjustment_ack' => \[/);
     assert.match(ADJUSTMENT_API_PHP, /'version_no' => \(int\) \$adjustment\['version'\]/);
     const row = page.locator('.adjustment-row[data-time-entry-id="88"]');
-    assert.match(await row.locator('.adjustment-original').innerText(), /Original approval: 60m billable/);
-    assert.match(await row.locator('.adjustment-effective').innerText(), /Effective version 2: 45m internal/);
-    assert.match(await row.locator('.adjustment-reason').innerText(), /customer goodwill credit/);
-    assert.match(await row.locator('.adjustment-history summary').innerText(), /All correction slips \(2\)/);
-    await row.locator('.adjustment-history summary').click();
+    // On the row: what counts now, that it was changed, from what, and why.
+    assert.equal(await row.locator('.entry-min').innerText(), '45 min');
+    assert.equal(await row.locator('.adjustment-effective').innerText(), 'Counts now as 45 min, not billable, after 2 changes. Approved as 1 h, billable.');
+    assert.match(await row.locator('.adjustment-reason').innerText(), /Customer goodwill credit/);
+    // Under History: the original approval, untouched, and every change in order.
+    assert.equal(await row.locator('.entry-history').evaluate((history) => history.open), false);
+    await row.locator('.entry-history summary').click();
+    assert.equal(await row.locator('.adjustment-original').innerText(), 'Original approval: 1 h, billable, by Olive Owner, 9:45 AM.');
+    assert.equal(await row.locator('.entry-history-title').innerText(), 'Changes (2)');
     assert.deepEqual(
       await row.locator('.adjustment-history-item').allInnerTexts(),
       [
-        'Version 1 · 50m billable · by user #11\nReason: duplicate work',
-        'Version 2 · 45m internal · by user #12\nReason: customer goodwill credit',
+        'Change 1: 50 min, billable, by Olive Owner, 9:50 AM.\nReason: Duplicate work',
+        'Change 2: 45 min, not billable, by Olive Owner, 9:55 AM.\nReason: Customer goodwill credit',
       ],
     );
+    assert.doesNotMatch(await row.innerText(), /UTC|user #|version/i);
 
-    const answers = ['30', 'I', 'Customer-approved reduction'];
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      assert.equal(dialog.type(), 'prompt');
-      await dialog.accept(answers[prompts]);
-      prompts += 1;
-    });
+    const asked = await answerDialogs(page, [CHANGE('30', false, 'Customer-approved reduction')]);
 
     await row.locator('.time-adjust').click();
     await page.locator('.toast').filter({ hasText: 'Approved time adjusted' }).waitFor();
-    assert.equal(prompts, 3);
+    assert.equal(asked.count, 1);
     assert.equal(requests.length, 1);
     assert.deepEqual(requests[0], {
       entry_id: 88,
@@ -700,13 +699,7 @@ test('approved adjustment retries freeze one cryptographic key and payload throu
 
   try {
     const { page, errors } = session;
-    const answers = ['25', 'B', 'Contract credit'];
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      assert.equal(dialog.type(), 'prompt');
-      await dialog.accept(answers[prompts]);
-      prompts += 1;
-    });
+    const asked = await answerDialogs(page, [CHANGE('25', true, 'Contract credit')]);
 
     const button = page.locator('.time-adjust[data-entry-id="88"]');
     for (let index = 0; index < 3; index += 1) {
@@ -715,7 +708,7 @@ test('approved adjustment retries freeze one cryptographic key and payload throu
         const control = document.querySelector('.time-adjust[data-entry-id="88"]');
         return control?.disabled === false && Boolean(control.dataset.adjustmentPayload);
       });
-      assert.equal(prompts, 3, 'an uncertain retry must never ask for edited facts');
+      assert.equal(asked.count, 1, 'an uncertain retry must never ask for edited facts');
     }
 
     await button.click();
@@ -754,13 +747,7 @@ test('a deterministic adjustment validation error clears the draft for an edited
 
   try {
     const { page, errors } = session;
-    const answers = ['40', 'B', 'First reason', '35', 'I', 'Specific approved reason'];
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      assert.equal(dialog.type(), 'prompt');
-      await dialog.accept(answers[prompts]);
-      prompts += 1;
-    });
+    const asked = await answerDialogs(page, [CHANGE('40', true, 'First reason'), CHANGE('35', false, 'Specific approved reason')]);
 
     const button = page.locator('.time-adjust[data-entry-id="88"]');
     await button.click();
@@ -770,7 +757,7 @@ test('a deterministic adjustment validation error clears the draft for an edited
 
     await button.click();
     await page.locator('.toast').filter({ hasText: 'Edited adjustment saved' }).waitFor();
-    assert.equal(prompts, 6);
+    assert.equal(asked.count, 2);
     assert.equal(requests.length, 2);
     assert.notEqual(requests[1].adjustment_key, requests[0].adjustment_key);
     assert.equal(requests[0].effective_minutes, 40);
@@ -800,12 +787,7 @@ test('an approved adjustment version conflict refreshes to reconcile and never o
 
   try {
     const { page, errors } = session;
-    const answers = ['30', 'I', 'Version conflict test'];
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      await dialog.accept(answers[prompts]);
-      prompts += 1;
-    });
+    const asked = await answerDialogs(page, [CHANGE('30', false, 'Version conflict test')]);
 
     const button = page.locator('.time-adjust[data-entry-id="88"]');
     const reloaded = page.waitForEvent('load');
@@ -813,7 +795,7 @@ test('an approved adjustment version conflict refreshes to reconcile and never o
     await page.locator('.toast').filter({ hasText: 'Refreshing to reconcile' }).waitFor();
     assert.equal(await button.isDisabled(), true);
     await reloaded;
-    assert.equal(prompts, 3);
+    assert.equal(asked.count, 1);
     assert.equal(requests.length, 1);
     assert.deepEqual(errors, []);
   } finally {
@@ -839,24 +821,22 @@ test('the browser blocks added minutes and never offers billable for an original
 
   try {
     const { page, errors } = session;
-    const answers = ['21', '10', 'Duplicate internal work'];
-    const questions = [];
-    let prompts = 0;
-    page.on('dialog', async (dialog) => {
-      questions.push(dialog.message());
-      await dialog.accept(answers[prompts]);
-      prompts += 1;
-    });
+    const asked = await answerDialogs(page, [{ '#change-minutes': '21', '#change-reason': 'Duplicate internal work' }]);
 
     const button = page.locator('.time-adjust[data-entry-id="89"]');
     await button.click();
-    await page.locator('.toast').filter({ hasText: 'cannot add time' }).waitFor();
+    await page.locator('.form-dialog-error').filter({ hasText: 'cannot add time' }).waitFor();
     assert.equal(requests.length, 0);
+    // Time approved as not billable is never offered as billable: the dialog has no such choice.
+    assert.equal(await page.locator('.form-dialog input[name="change-billable"]').count(), 0);
+    assert.match(await page.locator('.form-dialog').innerText(), /stays not billable/);
 
-    await button.click();
+    // The dialog is still open with the reason typed: correct the minutes and save.
+    assert.equal(await page.locator('#change-reason').inputValue(), 'Duplicate internal work');
+    await page.locator('#change-minutes').fill('10');
+    await page.locator('.form-dialog button[type="submit"]').click();
     await page.locator('.toast').filter({ hasText: 'Internal adjustment saved' }).waitFor();
-    assert.equal(prompts, 3, 'internal time asks for minutes and reason only after the invalid first attempt');
-    assert.equal(questions.some((question) => /billing/i.test(question)), false);
+    assert.equal(asked.count, 1, 'one dialog, corrected in place');
     assert.equal(requests.length, 1);
     assert.equal(requests[0].effective_minutes, 10);
     assert.equal(requests[0].effective_billable, false);

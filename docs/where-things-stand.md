@@ -580,7 +580,7 @@ client page has "New ticket for this client". "In person" is not offered: the st
 value. No schema, role, permission or grant change; the client check and the service-goal snapshot are
 still one transaction with the ticket (`app/public/ticket_new.php`, `app/lib/ticket_new_form.php`).
 
-**Palette and keyboard: act, not only go (draft, not live).** The palette's first group is for the ticket
+**Palette and keyboard: act, not only go (live).** The palette's first group is for the ticket
 that is open, or the queue row that is highlighted: Change status, Assign to, Set priority, Start or Stop
 timer, Reply, Add internal note, Merge, Resolve, Copy link. Each does what its key does (the three
 changes open the same menus as S, T and P). Then Create, Go to (now with Reports, Team, My settings and
@@ -588,6 +588,16 @@ Keyboard shortcuts) and Sign out, then tickets and clients. Every row shows its 
 "New ticket for" that client. New keys: `/` opens the search outside a text box, `g r` Reports, `g u`
 Team, `u` back to the list. The rail has a "Keyboard shortcuts" button that opens the `?` card. Script,
 styles and the rail only: no endpoint, query, role or permission change.
+
+**Time in plain words, with dialogs instead of prompts (draft, not live).** A row on Time says how long,
+what, which ticket, Billable or Not billable, and Waiting for review, Approved or Rejected. Who approved
+it and when, how it was logged, the measured start and end, and every change with its reason are under
+History on the row, with names and local time (`app/lib/time_page.php`). Reject, Change and Correct and
+resubmit are small dialogs; each sends exactly the request the old prompts sent, with the same keys and
+retry rules (`tools/shots/time-contract.test.mjs`). The approved list has a search by ticket number or
+client name, in the same tenant and for owners and admins only, as the list is. Not in this slice: the
+"What did you do?" question when a timer stops, and the billing words that come from the Coastmark rules.
+No schema, role, permission, grant or endpoint change.
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.

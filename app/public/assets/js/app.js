@@ -620,7 +620,7 @@
         if (stop) {
           stop.hidden = false;
           stop.disabled = timerSubmissionInFlight;
-          stop.textContent = t.state === "active" ? "Stop & log" : (timerSubmissionInFlight ? "Logging…" : "Retry logging");
+          stop.textContent = t.state === "active" ? "Stop and log" : (timerSubmissionInFlight ? "Logging" : "Retry logging");
         }
         if (discard) {
           discard.hidden = false;
@@ -628,7 +628,7 @@
         }
       } else {
         $("#timer-title").textContent = "No timer running";
-        $("#timer-sub").innerHTML = "Press <kbd class=\"kbd\">E</kbd> on any ticket in the queue to start one — or open a ticket and hit Start timer.";
+        $("#timer-sub").innerHTML = "Press <kbd class=\"kbd\">E</kbd> on a ticket in the queue to start one, or open a ticket and press Start timer.";
         $("#timer-clock").textContent = "";
         if (stop) stop.hidden = true;
         if (discard) discard.hidden = true;
@@ -878,6 +878,7 @@
   const BULK_MAX_IDS = 10000;
   let bulkDialogOpen = false;
   let mergeDialogOpen = false;
+  let formDialogOpen = false;
   const bulkBar = page === "queue" ? $("#bulk-bar") : null;
 
   function make(tag, className, text) {
@@ -1539,7 +1540,7 @@
 
     // The bulk delete dialog owns the keyboard while it is open (its own Escape and Tab handling).
     // So does the merge dialog.
-    if (bulkDialogOpen || mergeDialogOpen) return;
+    if (bulkDialogOpen || mergeDialogOpen || formDialogOpen) return;
 
     // An open status, priority or owner menu owns the keyboard too; the palette shortcut closes it.
     if (menu) {
@@ -1761,6 +1762,126 @@
     if (dismiss) dismiss.addEventListener("click", () => rowEl.remove());
   });
 
+  /* A small form in a dialog, for the Time page's Reject, Change and Correct. It takes the place
+     of a chain of browser prompts: `build` adds labelled fields, `check` reads them and answers
+     { value } or { error, field }. Resolves with that value, or null when it is cancelled. What
+     is wrong is said inside the dialog, which stays open with everything typed. */
+  function askForm(form) {
+    const { opener, title, sub, submit } = form;
+    return new Promise((resolve) => {
+      if (formDialogOpen) { resolve(null); return; }
+      formDialogOpen = true;
+      const overlay = make("div", "palette-overlay");
+      overlay.id = "form-overlay";
+      const panel = make("form", "palette form-dialog");
+      panel.setAttribute("role", "dialog");
+      panel.setAttribute("aria-modal", "true");
+      panel.setAttribute("aria-labelledby", "form-dialog-title");
+      panel.noValidate = true;
+      const heading = make("h2", "", title);
+      heading.id = "form-dialog-title";
+      panel.append(heading);
+      if (sub) panel.append(make("p", "form-dialog-sub", sub));
+      const fields = make("div", "form-dialog-fields");
+      panel.append(fields);
+      const problem = make("p", "form-dialog-error");
+      problem.setAttribute("role", "alert");
+      problem.hidden = true;
+      const cancel = make("button", "btn-secondary", "Cancel");
+      cancel.type = "button";
+      const go = make("button", "btn-primary", submit);
+      go.type = "submit";
+      const actions = make("div", "delete-actions");
+      actions.append(cancel, go);
+      panel.append(problem, actions);
+      overlay.append(panel);
+
+      const done = (value) => {
+        document.removeEventListener("keydown", onKey, true);
+        overlay.remove();
+        formDialogOpen = false;
+        if (opener && opener.isConnected) opener.focus();
+        resolve(value);
+      };
+      function onKey(e) {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); return; }
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); panel.requestSubmit(); return; }
+        if (e.key !== "Tab") return;
+        const focusable = $$("button:not([disabled]), input:not([disabled]), textarea:not([disabled])", panel);
+        if (!focusable.length || !panel.contains(document.activeElement)) { e.preventDefault(); (focusable[0] || panel).focus(); return; }
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+      panel.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const answer = form.check();
+        if (answer && answer.error) {
+          problem.textContent = answer.error;
+          problem.hidden = false;
+          if (answer.field) answer.field.focus();
+          return;
+        }
+        done(answer.value);
+      });
+      cancel.addEventListener("click", () => done(null));
+      overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) done(null); });
+      document.addEventListener("keydown", onKey, true);
+      const first = form.build(fields);
+      document.body.append(overlay);
+      (first || cancel).focus();
+      if (first && typeof first.select === "function") first.select();
+    });
+  }
+  // One labelled field for such a dialog: the label, the control, and a line of help under it.
+  function formField(fields, id, label, control, help) {
+    const wrap = make("div", "field");
+    const name = make("label", "", label);
+    name.htmlFor = id;
+    control.id = id;
+    wrap.append(name, control);
+    if (help) {
+      const line = make("p", "field-help", help);
+      line.id = id + "-help";
+      control.setAttribute("aria-describedby", line.id);
+      wrap.append(line);
+    }
+    fields.append(wrap);
+    return control;
+  }
+  // Billable or not, as two choices; returns a function that says which is chosen.
+  function formBillable(fields, name, billable) {
+    const group = make("fieldset", "seg-field");
+    group.append(make("legend", "", "Billable"));
+    const row = make("div", "seg");
+    [["1", "Billable"], ["0", "Not billable"]].forEach(([value, words]) => {
+      const item = make("label", "seg-item");
+      const radio = make("input");
+      radio.type = "radio";
+      radio.name = name;
+      radio.value = value;
+      radio.checked = (value === "1") === billable;
+      item.append(radio, make("span", "", words));
+      row.append(item);
+    });
+    group.append(row);
+    fields.append(group);
+    return () => $(`input[name="${name}"]:checked`, group).value === "1";
+  }
+  // A stored UTC time in a date-and-time picker, on this computer's clock, and back again.
+  function utcToLocalInput(text) {
+    const parsed = parseCorrectionUtc(text);
+    if (!parsed) return "";
+    const d = new Date(parsed.milliseconds);
+    const two = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+  }
+  function localInputToUtc(value) {
+    const milliseconds = value ? new Date(value).getTime() : NaN;
+    if (!Number.isFinite(milliseconds)) return null;
+    return parseCorrectionUtc(new Date(milliseconds).toISOString().replace(/\.\d{3}Z$/, "Z"));
+  }
+
   /* rejected entries are never edited; one new pending replacement links back */
   $$(".time-correct").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1775,74 +1896,72 @@
 
       if (!payload) {
         const measured = button.dataset.measured === "1";
-        let minutes = Number(button.dataset.minutes);
-        let workedAt = button.dataset.workedAt;
-        let startedAt = button.dataset.startedAt || null;
-        let endedAt = button.dataset.endedAt || null;
-        if (measured) {
-          const startedAnswer = prompt(
-            "Corrected start (UTC, YYYY-MM-DDTHH:MM:SSZ)",
-            startedAt || ""
-          );
-          if (startedAnswer === null) return;
-          const endedAnswer = prompt(
-            "Corrected end (UTC, YYYY-MM-DDTHH:MM:SSZ)",
-            endedAt || ""
-          );
-          if (endedAnswer === null) return;
-          const workedAnswer = prompt(
-            "Corrected worked-at time (UTC, inside that interval)",
-            workedAt || ""
-          );
-          if (workedAnswer === null) return;
-
-          const correctedStart = parseCorrectionUtc(startedAnswer);
-          const correctedEnd = parseCorrectionUtc(endedAnswer);
-          const correctedWorked = parseCorrectionUtc(workedAnswer);
-          if (!correctedStart || !correctedEnd || !correctedWorked) {
-            toast("Use real UTC times like 2026-08-25T10:30:00Z.");
-            return;
-          }
-          const duration = correctedEnd.milliseconds - correctedStart.milliseconds;
-          if (duration <= 0 || duration > 86400000) {
-            toast("Corrected measured time must be longer than zero and no more than 24 hours.");
-            return;
-          }
-          if (correctedWorked.milliseconds < correctedStart.milliseconds
-              || correctedWorked.milliseconds > correctedEnd.milliseconds) {
-            toast("Worked-at time must stay inside the corrected interval.");
-            return;
-          }
-          startedAt = correctedStart.text;
-          endedAt = correctedEnd.text;
-          workedAt = correctedWorked.text;
-          minutes = Math.max(1, Math.round(duration / 60000));
-        } else {
-          const answer = prompt("How many corrected minutes should be submitted?", String(minutes));
-          if (answer === null) return;
-          minutes = Number(answer.trim());
-          if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
-            toast("Minutes must be a whole number from 1 to 1440.");
-            return;
-          }
-        }
-
-        const note = prompt("What should the corrected work note say?", button.dataset.note || "");
-        if (note === null) return;
-        if (Array.from(note).length > 255) {
-          toast("The corrected work note cannot exceed 255 characters.");
-          return;
-        }
-        const billingAnswer = prompt(
-          "Billing for corrected time: type B for billable or I for internal. Cancel leaves it unchanged.",
-          button.dataset.billable === "1" ? "B" : "I"
-        );
-        if (billingAnswer === null) return;
-        const billingChoice = billingAnswer.trim().toUpperCase();
-        if (billingChoice !== "B" && billingChoice !== "I") {
-          toast("Type B for billable or I for internal.");
-          return;
-        }
+        const facts = await askForm({
+          opener: button,
+          title: "Correct and resubmit",
+          sub: "The rejected entry stays as it is. This sends one new entry in its place, for review.",
+          submit: "Send corrected entry",
+          build(fields) {
+            const controls = {};
+            if (measured) {
+              const pair = make("div", "form-dialog-pair");
+              fields.append(pair);
+              const picker = (value) => { const input = make("input"); input.type = "datetime-local"; input.step = "1"; input.value = value; return input; };
+              controls.start = formField(pair, "correct-start", "Start", picker(utcToLocalInput(button.dataset.startedAt || "")));
+              controls.end = formField(pair, "correct-end", "End", picker(utcToLocalInput(button.dataset.endedAt || "")));
+              fields.append(make("p", "field-help", "In this computer's time. The minutes are worked out from the start and the end."));
+            } else {
+              const minutes = make("input");
+              minutes.type = "text";
+              minutes.inputMode = "numeric";
+              minutes.autocomplete = "off";
+              minutes.value = button.dataset.minutes || "";
+              controls.minutes = formField(fields, "correct-minutes", "Minutes", minutes, "A whole number from 1 to 1440.");
+            }
+            const note = make("input");
+            note.type = "text";
+            note.autocomplete = "off";
+            note.value = button.dataset.note || "";
+            controls.note = formField(fields, "correct-note", "What the work was", note);
+            controls.billable = formBillable(fields, "correct-billable", button.dataset.billable === "1");
+            this.controls = controls;
+            return controls.start || controls.minutes;
+          },
+          check() {
+            const controls = this.controls;
+            const out = { minutes: Number(button.dataset.minutes), workedAt: button.dataset.workedAt, startedAt: button.dataset.startedAt || null, endedAt: button.dataset.endedAt || null };
+            if (measured) {
+              const correctedStart = localInputToUtc(controls.start.value);
+              const correctedEnd = localInputToUtc(controls.end.value);
+              if (!correctedStart) return { error: "Pick the start date and time.", field: controls.start };
+              if (!correctedEnd) return { error: "Pick the end date and time.", field: controls.end };
+              const duration = correctedEnd.milliseconds - correctedStart.milliseconds;
+              if (duration <= 0 || duration > 86400000) {
+                return { error: "The end has to be after the start, and no more than 24 hours after it.", field: controls.end };
+              }
+              // The time the work is dated at stays as it was while it is still inside the corrected
+              // start and end; otherwise it is the corrected end.
+              const worked = parseCorrectionUtc(out.workedAt);
+              out.startedAt = correctedStart.text;
+              out.endedAt = correctedEnd.text;
+              out.workedAt = worked && worked.milliseconds >= correctedStart.milliseconds && worked.milliseconds <= correctedEnd.milliseconds
+                ? worked.text : correctedEnd.text;
+              out.minutes = Math.max(1, Math.round(duration / 60000));
+            } else {
+              out.minutes = Number(controls.minutes.value.trim());
+              if (!Number.isInteger(out.minutes) || out.minutes < 1 || out.minutes > 1440) {
+                return { error: "Minutes must be a whole number from 1 to 1440.", field: controls.minutes };
+              }
+            }
+            out.note = controls.note.value;
+            if (Array.from(out.note).length > 255) return { error: "Keep the description to 255 characters or fewer.", field: controls.note };
+            out.billable = controls.billable();
+            return { value: out };
+          },
+        });
+        if (facts === null) return;
+        const { minutes, workedAt, startedAt, endedAt, note } = facts;
+        const billingChoice = facts.billable ? "B" : "I";
         payload = {
           rejected_entry_id: Number(button.dataset.rejectedEntryId),
           entry_key: newCorrectionKey(),
@@ -1909,14 +2028,26 @@
         if (!frozenPayload) {
           let note = "";
           if (selectedDecision === "rejected") {
-            const answer = prompt("Why is this time entry being rejected? The technician will see this note.");
+            const answer = await askForm({
+              opener: button,
+              title: "Reject this time entry",
+              sub: "The entry is kept as rejected, and the technician can send a corrected one.",
+              submit: "Reject entry",
+              build(fields) {
+                const area = make("textarea");
+                area.rows = 3;
+                this.area = formField(fields, "reject-note", "Why? The technician sees this.", area);
+                return this.area;
+              },
+              check() {
+                const text = this.area.value.trim();
+                if (!text) return { error: "Say why, so the technician can correct it.", field: this.area };
+                if (Array.from(text).length > 500) return { error: "Keep the note to 500 characters or fewer.", field: this.area };
+                return { value: text };
+              },
+            });
             if (answer === null) return;
-            note = answer.trim();
-            if (!note) { toast("A rejection note is required."); return; }
-            if (Array.from(note).length > 500) {
-              toast("A rejection note cannot exceed 500 characters.");
-              return;
-            }
+            note = answer;
           }
           // Once sent, uncertain failures must replay these exact normalized
           // facts. A different decision is unsafe until the server reconciles.
@@ -1937,7 +2068,7 @@
           row.remove();
           const queue = $("#time-review-queue");
           if (queue && !$(".review-row", queue)) {
-            queue.innerHTML = '<div class="empty"><p>No technician time is waiting for review.</p></div>';
+            queue.innerHTML = '<div class="empty"><p>No time is waiting for review.</p></div>';
           }
         } catch (error) {
           const status = error instanceof Error ? Number(error.status || 0) : 0;
@@ -2010,48 +2141,45 @@
           return;
         }
 
-        const minutesAnswer = prompt(
-          "Effective minutes (0 voids this approval; extra time must use a new pending entry)",
-          String(currentMinutes)
-        );
-        if (minutesAnswer === null) return;
-        const normalizedMinutes = minutesAnswer.trim();
-        if (!/^(?:0|[1-9][0-9]*)$/.test(normalizedMinutes)) {
-          toast("Effective minutes must be a whole number from 0 through the original approval.");
-          return;
-        }
-        const effectiveMinutes = Number(normalizedMinutes);
-        if (!Number.isInteger(effectiveMinutes) || effectiveMinutes > originalMinutes) {
-          toast("An adjustment cannot add time. Log extra work as a new pending entry.");
-          return;
-        }
-
-        let effectiveBillable = false;
-        if (effectiveMinutes > 0 && originalBillable) {
-          const billingAnswer = prompt(
-            "Effective billing: type B for billable or I for internal",
-            currentBillable ? "B" : "I"
-          );
-          if (billingAnswer === null) return;
-          const billingChoice = billingAnswer.trim().toUpperCase();
-          if (billingChoice !== "B" && billingChoice !== "I") {
-            toast("Type B for billable or I for internal.");
-            return;
-          }
-          effectiveBillable = billingChoice === "B";
-        }
-
-        const reasonAnswer = prompt("Why is this approved value being adjusted?");
-        if (reasonAnswer === null) return;
-        const reason = reasonAnswer.trim();
-        if (!reason) {
-          toast("An adjustment reason is required.");
-          return;
-        }
-        if (Array.from(reason).length > 500) {
-          toast("An adjustment reason cannot exceed 500 characters.");
-          return;
-        }
+        const change = await askForm({
+          opener: button,
+          title: "Change approved time",
+          sub: "The original approval is kept. This adds a change on top of it, with your reason.",
+          submit: "Save change",
+          build(fields) {
+            const minutes = make("input");
+            minutes.type = "text";
+            minutes.inputMode = "numeric";
+            minutes.autocomplete = "off";
+            minutes.value = String(currentMinutes);
+            this.minutes = formField(fields, "change-minutes", "Minutes", minutes,
+              `From 0 to ${originalMinutes}, the minutes that were approved. 0 cancels this approval. To add time, log a new entry.`);
+            if (originalBillable) this.billable = formBillable(fields, "change-billable", currentBillable);
+            else fields.append(make("p", "field-help", "This time was approved as not billable, so it stays not billable."));
+            const reason = make("textarea");
+            reason.rows = 3;
+            this.reason = formField(fields, "change-reason", "Why is it changing?", reason);
+            return this.minutes;
+          },
+          check() {
+            const normalizedMinutes = this.minutes.value.trim();
+            if (!/^(?:0|[1-9][0-9]*)$/.test(normalizedMinutes)) {
+              return { error: `Minutes must be a whole number from 0 to ${originalMinutes}.`, field: this.minutes };
+            }
+            const effectiveMinutes = Number(normalizedMinutes);
+            if (!Number.isInteger(effectiveMinutes) || effectiveMinutes > originalMinutes) {
+              return { error: "A change cannot add time. Log extra work as a new entry.", field: this.minutes };
+            }
+            // Billable is a choice only for time that was approved as billable and still has minutes.
+            const effectiveBillable = effectiveMinutes > 0 && originalBillable ? this.billable() : false;
+            const reason = this.reason.value.trim();
+            if (!reason) return { error: "Say why it is changing.", field: this.reason };
+            if (Array.from(reason).length > 500) return { error: "Keep the reason to 500 characters or fewer.", field: this.reason };
+            return { value: { effectiveMinutes, effectiveBillable, reason } };
+          },
+        });
+        if (change === null) return;
+        const { effectiveMinutes, effectiveBillable, reason } = change;
 
         const adjustmentKey = newAdjustmentKey();
         if (!adjustmentKey) {

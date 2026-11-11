@@ -36,10 +36,13 @@ does not give AI permission to create, correct, review, or approve time.
 - The entry key and every replacement fact participate in exact idempotent
   replay. Reusing a key with changed facts is a conflict.
 
-The Time page displays the rejection reason, `Correct & resubmit`, the parent
-entry number on a replacement, and the replacement's current status. Measured
-corrections can edit start, end, and worked-at UTC evidence; minutes are derived
-from the corrected interval. The browser freezes one new correction key and
+The Time page displays the rejection reason, `Correct and resubmit`, the parent
+entry number on a replacement, and the replacement's current status. The button
+opens a dialog. Measured corrections edit the start and the end, picked in the
+computer's local time and sent as UTC; minutes are derived from the corrected
+interval. The worked-at time is no longer asked for: it stays what it was while
+that is still inside the corrected interval, and otherwise becomes the corrected
+end. The request and its rules are unchanged. The browser freezes one new correction key and
 exact JSON payload before its first request, so a lost response retries the
 same row. A definitive validation/conflict response clears only that unsent
 draft so the operator can edit it; uncertain transport/server failures retain

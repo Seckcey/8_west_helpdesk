@@ -232,44 +232,42 @@ test('Clients: nothing is highlighted on load; the first j shows the first row',
 });
 
 // ---- B2: Time on a phone ----
-test('Time on a phone: the whole title with the duration on its line, and the record text at full width', async (t) => {
+test('Time on a phone: the duration and the tags on the first line, then the whole title and its text at full width', async (t) => {
   const page = await open(t, 'time', { width: 390 });
   const rows = await page.locator('.entry-row').evaluateAll((list) => list.map((row) => {
     const rect = (el) => el.getBoundingClientRect();
-    const note = row.querySelector('.entry-note'), min = row.querySelector('.entry-min');
+    const note = row.querySelector('.entry-note'), min = row.querySelector('.entry-min'), tags = row.querySelector('.entry-tags'), main = row.querySelector('.entry-main');
     const inner = rect(row).width - parseFloat(getComputedStyle(row).paddingLeft) - parseFloat(getComputedStyle(row).paddingRight);
-    const badge = row.querySelector('.entry-badge'), actions = row.querySelector('.review-actions');
+    const actions = row.querySelector('.review-actions');
     return {
-      titleCut: note.scrollWidth > note.clientWidth + 1 || getComputedStyle(note).textOverflow === 'ellipsis' && getComputedStyle(note).whiteSpace === 'nowrap',
-      minOnTitleLine: Math.abs(rect(min).top - rect(note).top) < 4,
+      titleCut: note.scrollWidth > note.clientWidth + 1,
+      firstLine: Math.abs(rect(min).top - rect(tags).top) < 8 && rect(min).left < rect(tags).left && rect(row).right - rect(tags).right < 24,
       minFromTop: Math.round(rect(min).top - rect(row).top),
-      minAtRight: rect(row).right - rect(min).right < 24 && rect(min).left >= rect(note).right - 1,
-      wide: [...row.querySelectorAll('.entry-evidence, .entry-lineage, .entry-ticket')].map((el) => rect(el).width / inner),
-      evidenceLines: [...row.querySelectorAll('.entry-evidence')].map((el) => Math.round(rect(el).height / parseFloat(getComputedStyle(el).lineHeight))),
-      badgeAtLeft: Math.abs(rect(badge).left - rect(note).left) < 2,
-      actionsAtRight: actions ? rect(row).right - rect(actions).right < 24 && Math.abs(rect(actions).bottom - rect(badge).bottom) < 16 : null,
-      buttons: [...row.querySelectorAll('button')].map((button) => rect(button).height),
+      titleBelow: rect(note).top >= rect(min).bottom - 1,
+      mainShare: rect(main).width / inner,
+      actionsBelow: actions ? rect(actions).top >= rect(main).bottom - 1 : null,
+      buttons: [...row.querySelectorAll('button, summary')].filter((el) => el.offsetParent !== null).map((el) => rect(el).height),
     };
   }));
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 6);
   for (const row of rows) {
     assert.equal(row.titleCut, false, 'the title is whole');
-    assert.equal(row.minOnTitleLine && row.minAtRight, true, 'the duration is at the right of the title line');
-    assert.ok(row.wide.every((share) => share > 0.95), `the text under the title is full width (${row.wide.map((s) => s.toFixed(2))})`);
-    assert.ok(row.evidenceLines.every((lines) => lines <= 3), 'the record text is not a narrow column');
-    assert.equal(row.badgeAtLeft, true);
-    assert.ok(row.buttons.every((height) => height >= 44));
+    assert.equal(row.firstLine, true, 'the duration is at the left and the tags at the right of the first line');
+    assert.equal(row.titleBelow, true, 'the title starts under that line');
+    assert.ok(row.mainShare > 0.95, `the text is full width (${row.mainShare.toFixed(2)})`);
+    assert.ok(row.buttons.every((height) => height >= 44), `every control is a 44px target (${row.buttons})`);
+    assert.notEqual(row.actionsBelow, false, 'what can be done sits under the text');
   }
-  assert.equal(new Set(rows.map((row) => row.minFromTop)).size, 1, 'every duration sits at the same height in its card');
-  assert.equal(rows[2].actionsAtRight, true, 'Approve and Reject are at the right of the last line');
+  assert.equal(new Set(rows.map((row) => row.minFromTop)).size, 1, 'every duration sits at the same height in its row');
   assert.equal(await fits(page), true);
   await shot(page, 'time-390-dark');
 
-  // On a desktop the row is unchanged: one line, duration first.
+  // On a desktop the row is one line of parts: duration first, then the text, tags, and actions.
   const desk = await open(t, 'time');
   const first = await desk.locator('.entry-row').first().evaluate((row) => ({
     minFirst: row.querySelector('.entry-min').getBoundingClientRect().right <= row.querySelector('.entry-note').getBoundingClientRect().left,
+    tagsAfter: row.querySelector('.entry-tags').getBoundingClientRect().left >= row.querySelector('.entry-main').getBoundingClientRect().right - 1,
     display: getComputedStyle(row).display,
   }));
-  assert.deepEqual(first, { minFirst: true, display: 'flex' });
+  assert.deepEqual(first, { minFirst: true, tagsAfter: true, display: 'flex' });
 });

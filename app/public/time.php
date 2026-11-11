@@ -3,10 +3,15 @@
  * Time — reliable local capture plus an owner/admin approval queue. Timer
  * state stays client-side until an idempotent server acknowledgement;
  * suggestions are computed from activity without entries.
+ *
+ * The rows are drawn by lib/time_page.php: how long, what, which ticket, billable or not, and
+ * where it stands. Who approved it and when, how it was logged, the measured start and end, and
+ * every change with its reason are under "History" on the row, with names and local time.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/coastmark_time_billing.php';
+require_once __DIR__ . '/../lib/time_page.php';
 enforce_https();
 $user = require_login();
 $tenantId = (int)$user['tenant_id'];
@@ -117,6 +122,9 @@ $approvedAdjustments = [];
 $approvedAdjustmentHistories = [];
 $approvedEntryLookupRaw = trim((string) ($_GET['approved_entry_id'] ?? ''));
 $approvedEntryLookupMessage = '';
+// The search box: a ticket's number or part of a client's name. Same tenant, approved entries only,
+// owners and admins only, as the list itself.
+$approvedSearch = time_approved_search($_GET['approved'] ?? '');
 if ($canReview) {
     $approvedSql =
         "SELECT e.*, t.subject, t.id AS tid,
@@ -130,17 +138,26 @@ if ($canReview) {
              ON reviewer.id = e.reviewed_by_user_id
             AND reviewer.tenant_id = e.tenant_id
           WHERE e.tenant_id = ? AND e.approval_status = 'approved'";
+    $approvedWhere = '';
+    $approvedParams = [$tenantId];
+    if ($approvedSearch['ticket'] > 0) {
+        $approvedWhere = ' AND e.ticket_id = ?';
+        $approvedParams[] = $approvedSearch['ticket'];
+    } elseif ($approvedSearch['client'] !== '') {
+        $approvedWhere = ' AND c.name LIKE ?';
+        $approvedParams[] = time_like($approvedSearch['client']);
+    }
     $approvedQuery = db()->prepare(
-        $approvedSql . ' ORDER BY e.reviewed_at DESC, e.id DESC LIMIT 50'
+        $approvedSql . $approvedWhere . ' ORDER BY e.reviewed_at DESC, e.id DESC LIMIT 50'
     );
-    $approvedQuery->execute([$tenantId]);
+    $approvedQuery->execute($approvedParams);
     $approvedEntries = $approvedQuery->fetchAll();
 
     if ($approvedEntryLookupRaw !== '') {
         if (preg_match('/\A[1-9][0-9]{0,9}\z/D', $approvedEntryLookupRaw) !== 1
             || (int) $approvedEntryLookupRaw > 4294967295
         ) {
-            $approvedEntryLookupMessage = 'Enter one real approved time entry id.';
+            $approvedEntryLookupMessage = 'That entry number is not valid.';
         } else {
             $lookupId = (int) $approvedEntryLookupRaw;
             $alreadyVisible = array_filter(
@@ -154,7 +171,7 @@ if ($canReview) {
                 if (is_array($lookedUp)) {
                     array_unshift($approvedEntries, $lookedUp);
                 } else {
-                    $approvedEntryLookupMessage = 'No approved time entry with that id exists in this tenant.';
+                    $approvedEntryLookupMessage = 'No approved entry has that number.';
                 }
             }
         }
@@ -187,83 +204,33 @@ if ($canReview && $approvedEntries !== []) {
     }
 }
 
-$utcRfc3339 = static function (string $value): string {
-    $date = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $value, new DateTimeZone('UTC'));
-    return $date ? $date->format('Y-m-d\\TH:i:s\\Z') : '';
-};
-$utcLabel = static function (?string $value): string {
-    if ($value === null || $value === '') return 'not recorded';
-    $date = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $value, new DateTimeZone('UTC'));
-    return $date ? $date->format('Y-m-d H:i:s') . ' UTC' : 'invalid timestamp';
-};
+// Names, not numbers: whoever reviewed an entry on this page or changed an approved one.
+$peopleIds = [];
+foreach (array_merge($entries, $entryHistory, $approvedEntries) as $entry) {
+    if ($entry['reviewed_by_user_id'] !== null) $peopleIds[(int)$entry['reviewed_by_user_id']] = true;
+}
+foreach ($approvedAdjustmentHistories as $history) {
+    foreach ($history as $change) $peopleIds[(int)$change['actor_user_id']] = true;
+}
+$peopleNames = [];
+if ($peopleIds !== []) {
+    $peopleQuery = db()->prepare(
+        'SELECT id, full_name FROM users WHERE tenant_id = ? AND id IN (' . implode(',', array_fill(0, count($peopleIds), '?')) . ')'
+    );
+    $peopleQuery->execute(array_merge([$tenantId], array_keys($peopleIds)));
+    foreach ($peopleQuery->fetchAll() as $person) $peopleNames[(int)$person['id']] = (string)$person['full_name'];
+}
 
-$renderApprovedAdjustmentEvidence = static function (
-    array $entry,
-    ?array $latest,
-) use ($utcLabel): void {
-    if ((string) ($entry['approval_status'] ?? '') !== 'approved') return;
-    $originalMinutes = (int) $entry['minutes'];
-    $originalBillable = (int) $entry['billable'] === 1;
-    $effectiveMinutes = $latest === null
-        ? $originalMinutes
-        : (int) $latest['effective_minutes'];
-    $effectiveBillable = $latest === null
-        ? $originalBillable
-        : (bool) $latest['effective_billable'];
-    $version = $latest === null ? 0 : (int) $latest['version'];
-    ?>
-      <div class="entry-evidence">
-        Original approval evidence · <?= $originalMinutes ?>m <?= $originalBillable ? 'billable' : 'internal' ?> ·
-        approved by user #<?= (int) $entry['reviewed_by_user_id'] ?> at <?= h($utcLabel($entry['reviewed_at'])) ?>
-      </div>
-      <div class="entry-lineage">
-        Effective value · version <?= $version ?><?= $version === 0 ? ' (original)' : '' ?> ·
-        <?= $effectiveMinutes ?>m <?= $effectiveBillable ? 'billable' : 'internal' ?>
-        <?php if ($latest !== null): ?>
-          · reason: <?= h((string) $latest['reason']) ?>
-        <?php endif; ?>
-      </div>
-    <?php
-};
-
-$renderCorrectionLineage = static function (array $entry) use ($utcRfc3339): void {
-    $correctionOf = isset($entry['corrects_time_entry_id'])
-        ? (int)$entry['corrects_time_entry_id']
-        : 0;
-    $replacementId = isset($entry['replacement_entry_id'])
-        ? (int)$entry['replacement_entry_id']
-        : 0;
-    if ($correctionOf > 0): ?>
-      <div class="entry-lineage">Correction of rejected entry #<?= $correctionOf ?> · original history kept</div>
-    <?php endif;
-    if ((string)$entry['approval_status'] !== 'rejected') return;
-    if ($replacementId > 0): ?>
-      <div class="entry-lineage">Replacement #<?= $replacementId ?> is <?= h((string)$entry['replacement_status']) ?></div>
-    <?php else:
-      $startedAt = $entry['started_at'] === null ? '' : $utcRfc3339((string)$entry['started_at']);
-      $endedAt = $entry['ended_at'] === null ? '' : $utcRfc3339((string)$entry['ended_at']);
-    ?>
-      <div class="correction-actions">
-        <button type="button" class="btn-chip time-correct"
-          data-rejected-entry-id="<?= (int)$entry['id'] ?>"
-          data-minutes="<?= (int)$entry['minutes'] ?>"
-          data-note="<?= h((string)$entry['note']) ?>"
-          data-billable="<?= (int)$entry['billable'] ?>"
-          data-worked-at="<?= h($utcRfc3339((string)$entry['worked_at'])) ?>"
-          data-started-at="<?= h($startedAt) ?>"
-          data-ended-at="<?= h($endedAt) ?>"
-          data-measured="<?= $startedAt !== '' ? '1' : '0' ?>">Correct &amp; resubmit</button>
-      </div>
-    <?php endif;
-};
+$suitePreferences = is_array($_SESSION['suite_preferences'] ?? null) ? $_SESSION['suite_preferences'] : suite_preferences_defaults();
+$timeZone = (string)($suitePreferences['time_zone'] ?? 'UTC');
 
 page_top($user, 'Time', 'time');
 ?>
-<div class="page">
+<div class="page page-time">
   <div class="page-head">
     <div>
       <h1 class="page-title">Time</h1>
-      <p class="page-sub"><?= (int)$totalMin ?>m logged today · <?= $pendingOwn ?> pending · <?= $approvedBillable ?> approved billable</p>
+      <p class="page-sub"><?= h(ticket_minutes_label((int)$totalMin)) ?> logged today. <?= $pendingOwn ?> waiting for review. <?= $approvedBillable ?> approved and billable today.</p>
     </div>
   </div>
 
@@ -277,18 +244,18 @@ page_top($user, 'Time', 'time');
     <span class="timer-dot" id="timer-dot"></span>
     <div class="timer-info">
       <div class="timer-title" id="timer-title">No timer running</div>
-      <div class="timer-sub" id="timer-sub">Press <kbd class="kbd">E</kbd> on any ticket in the queue to start one — or open a ticket and hit Start timer.</div>
+      <div class="timer-sub" id="timer-sub">Press <kbd class="kbd">E</kbd> on a ticket in the queue to start one, or open a ticket and press Start timer.</div>
     </div>
     <span class="timer-clock" id="timer-clock"></span>
-    <button class="btn-link timer-discard" id="timer-discard" hidden>Discard local timer</button>
-    <button class="btn-gold" id="timer-stop" hidden>Stop &amp; log</button>
+    <button class="btn-link timer-discard" id="timer-discard" hidden>Discard</button>
+    <button class="btn-gold" id="timer-stop" hidden>Stop and log</button>
   </div>
 
   <?php if ($suggestions): ?>
-  <div class="rail-label">Suggested from your activity</div>
+  <h2 class="rail-label">Suggested from your activity</h2>
   <div class="card rail-list" id="suggestions">
     <?php foreach ($suggestions as $s):
-      $suggestionWorkedAt = $utcRfc3339((string)$s['worked_at']);
+      $suggestionWorkedAt = time_rfc3339((string)$s['worked_at']);
       $suggestionKey = 'suggestion:' . substr(hash('sha256', implode('|', [
           (string)$tenantId,
           (string)$user['id'],
@@ -299,8 +266,8 @@ page_top($user, 'Time', 'time');
     <div class="sugg-row" data-ticket-id="<?= (int)$s['id'] ?>" data-minutes="<?= (int)$s['minutes'] ?>" data-entry-key="<?= h($suggestionKey) ?>" data-worked-at="<?= h($suggestionWorkedAt) ?>">
       <span class="sugg-dot"></span>
       <div class="sugg-main">
-        <div class="sugg-title"><?= (int)$s['minutes'] ?>m on <a class="link" href="/ticket.php?id=<?= (int)$s['id'] ?>">#<?= (int)$s['id'] ?> <?= h($s['subject']) ?></a></div>
-        <div class="sugg-reason"><?= h($s['reason']) ?></div>
+        <div class="sugg-title"><?= h(ticket_minutes_label((int)$s['minutes'])) ?> on <a class="link" href="/ticket.php?id=<?= (int)$s['id'] ?>">#<?= (int)$s['id'] ?> <?= h($s['subject']) ?></a></div>
+        <div class="sugg-reason">You worked on this ticket today and logged no time on it. <?= h(ticket_minutes_label((int)$s['minutes'])) ?> is a starting guess.</div>
       </div>
       <button class="btn-chip sugg-accept">Log it</button>
       <button class="btn-link sugg-dismiss">Dismiss</button>
@@ -309,211 +276,73 @@ page_top($user, 'Time', 'time');
   </div>
   <?php endif; ?>
 
-  <div class="rail-label">Today's entries</div>
+  <h2 class="rail-label">Today</h2>
   <div class="card rail-list">
     <?php if (!$entries): ?>
-      <div class="empty"><p>Nothing logged yet. Start a timer — future-you says thanks.</p></div>
+      <div class="empty"><p>Nothing logged today yet. Start a timer on a ticket, or press E on a row in the queue.</p></div>
     <?php endif; ?>
-    <?php foreach ($entries as $e):
-      $todayAdjustment = $ownApprovedAdjustments[(int)$e['id']] ?? null;
-      $todayMinutes = $todayAdjustment === null
-          ? (int)$e['minutes']
-          : (int)$todayAdjustment['effective_minutes'];
-      $todayBillable = $todayAdjustment === null
-          ? (int)$e['billable'] === 1
-          : (bool)$todayAdjustment['effective_billable'];
-    ?>
-    <div class="entry-row">
-      <span class="entry-min"><?= $todayMinutes ?>m</span>
-      <div class="entry-main">
-        <div class="entry-note"><?= h($e['note']) ?></div>
-        <a class="entry-ticket link" href="/ticket.php?id=<?= (int)$e['tid'] ?>">#<?= (int)$e['tid'] ?></a>
-        <?php if ((string)$e['approval_status'] === 'rejected' && trim((string)$e['review_note']) !== ''): ?>
-          <div class="entry-review-note">Review note: <?= h($e['review_note']) ?></div>
-        <?php endif; ?>
-        <?php $renderCorrectionLineage($e); ?>
-        <?php $renderApprovedAdjustmentEvidence($e, $ownApprovedAdjustments[(int)$e['id']] ?? null); ?>
-      </div>
-      <span class="entry-badge <?= $todayBillable ? 'badge-billable' : '' ?>"><?= $todayAdjustment !== null ? 'effective ' : '' ?><?= $todayBillable ? 'billable' : 'internal' ?></span>
-      <span class="entry-badge status-<?= h($e['approval_status']) ?>"><?= h($e['approval_status']) ?></span>
-    </div>
+    <?php foreach ($entries as $e): ?>
+      <?= time_own_row($e, $ownApprovedAdjustments[(int)$e['id']] ?? null, $peopleNames, $timeZone) ?>
     <?php endforeach; ?>
   </div>
 
   <?php if ($entryHistory): ?>
-  <div class="rail-label">Earlier entries</div>
+  <h2 class="rail-label">Earlier</h2>
   <div class="card rail-list" id="time-entry-history">
     <?php foreach ($entryHistory as $e): ?>
-    <div class="entry-row">
-      <span class="entry-min"><?= (int)$e['minutes'] ?>m</span>
-      <div class="entry-main">
-        <div class="entry-note"><?= h($e['note']) ?></div>
-        <a class="entry-ticket link" href="/ticket.php?id=<?= (int)$e['tid'] ?>">#<?= (int)$e['tid'] ?> <?= h($e['subject']) ?></a>
-        <?php if ((string)$e['approval_status'] === 'rejected' && trim((string)$e['review_note']) !== ''): ?>
-          <div class="entry-review-note">Review note: <?= h($e['review_note']) ?></div>
-        <?php endif; ?>
-        <?php $renderCorrectionLineage($e); ?>
-        <?php $renderApprovedAdjustmentEvidence($e, $ownApprovedAdjustments[(int)$e['id']] ?? null); ?>
-      </div>
-      <span class="entry-badge status-<?= h($e['approval_status']) ?>"><?= h($e['approval_status']) ?></span>
-    </div>
+      <?= time_own_row($e, $ownApprovedAdjustments[(int)$e['id']] ?? null, $peopleNames, $timeZone) ?>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
 
   <?php if ($canReview): ?>
-  <div class="rail-label">Pending review</div>
+  <h2 class="rail-label">To review</h2>
   <div class="card rail-list" id="time-review-queue">
     <?php if (!$pendingReview): ?>
-      <div class="empty"><p>No technician time is waiting for review.</p></div>
+      <div class="empty"><p>No time is waiting for review.</p></div>
     <?php endif; ?>
     <?php foreach ($pendingReview as $e): ?>
-    <div class="entry-row review-row" data-time-entry-id="<?= (int)$e['id'] ?>">
-      <span class="entry-min"><?= (int)$e['minutes'] ?>m</span>
-      <div class="entry-main">
-        <div class="entry-note"><?= h($e['tech_name']) ?> · <?= h($e['client_name']) ?> · <?= h($e['note']) ?></div>
-        <a class="entry-ticket link" href="/ticket.php?id=<?= (int)$e['tid'] ?>">#<?= (int)$e['tid'] ?> <?= h($e['subject']) ?></a>
-        <div class="entry-evidence">
-          Worked <?= h($utcLabel((string)$e['worked_at'])) ?> · source <?= h($e['source']) ?> ·
-          <?php if ($e['started_at'] !== null && $e['ended_at'] !== null): ?>
-            measured <?= h($utcLabel((string)$e['started_at'])) ?> → <?= h($utcLabel((string)$e['ended_at'])) ?>
-          <?php else: ?>
-            no measured interval
-          <?php endif; ?>
-        </div>
-        <?php if ($e['corrects_time_entry_id'] !== null): ?>
-          <div class="entry-lineage">Replacement for rejected entry #<?= (int)$e['corrects_time_entry_id'] ?></div>
-        <?php endif; ?>
-      </div>
-      <span class="entry-badge <?= (int)$e['billable'] ? 'badge-billable' : '' ?>"><?= (int)$e['billable'] ? 'billable' : 'internal' ?></span>
-      <div class="review-actions">
-        <button type="button" class="btn-chip time-review" data-decision="approved">Approve</button>
-        <button type="button" class="btn-secondary time-review" data-decision="rejected">Reject</button>
-      </div>
-    </div>
+      <?= time_review_row($e, $timeZone) ?>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
 
   <?php if ($canReview): ?>
-  <div class="rail-label">Approved time &amp; billing</div>
-  <p class="page-note">Send reviewed time to a Coastmark draft here, then review its price and invoice in Coastmark.</p>
-  <form class="card form-card" method="get" action="/time.php" id="approved-entry-lookup">
-    <div class="form-grid">
-      <label class="field">
-        Find an older approved entry by exact id
-        <input type="text" name="approved_entry_id" inputmode="numeric" pattern="[1-9][0-9]*"
-          value="<?= h($approvedEntryLookupRaw) ?>" placeholder="Example: 1842" autocomplete="off">
-      </label>
-    </div>
-    <div class="form-actions">
-      <button type="submit" class="btn-chip">Find approved entry</button>
-      <?php if ($approvedEntryLookupRaw !== ''): ?>
-        <a class="btn-link" href="/time.php">Clear lookup</a>
+  <div class="time-ledger-head">
+    <h2 class="rail-label">Approved, ready for billing</h2>
+    <form class="time-search" method="get" action="/time.php" id="approved-search" role="search">
+      <label class="sr-only" for="approved-q">Search approved time by ticket number or client</label>
+      <input type="search" name="approved" id="approved-q" value="<?= h($approvedSearch['text']) ?>" placeholder="Ticket number or client" autocomplete="off" maxlength="100">
+      <button type="submit" class="btn-secondary">Search</button>
+      <?php if ($approvedSearch['text'] !== '' || $approvedEntryLookupRaw !== ''): ?>
+        <a class="btn-link" href="/time.php">Clear</a>
       <?php endif; ?>
-    </div>
-    <?php if ($approvedEntryLookupMessage !== ''): ?>
-      <div class="form-error" role="status"><?= h($approvedEntryLookupMessage) ?></div>
-    <?php endif; ?>
-  </form>
+    </form>
+  </div>
+  <?php if ($approvedSearch['text'] !== ''): ?>
+    <p class="page-note" role="status"><?= $approvedEntries === []
+        ? 'No approved time matches “' . h($approvedSearch['text']) . '”.'
+        : 'Approved time for “' . h($approvedSearch['text']) . '”, the newest first' . (count($approvedEntries) >= 50 ? ' (the first 50)' : '') . '.' ?></p>
+  <?php endif; ?>
+  <?php if ($approvedEntryLookupMessage !== ''): ?>
+    <div class="form-error" role="status"><?= h($approvedEntryLookupMessage) ?></div>
+  <?php endif; ?>
 
   <div class="card rail-list" id="time-adjustment-ledger">
-    <?php if ($approvedEntries === []): ?>
-      <div class="empty"><p>No approved technician time is available to adjust.</p></div>
+    <?php if ($approvedEntries === [] && $approvedSearch['text'] === ''): ?>
+      <div class="empty"><p>No time has been approved yet.</p></div>
     <?php endif; ?>
     <?php foreach ($approvedEntries as $e):
       $adjustmentHistory = $approvedAdjustmentHistories[(int)$e['id']] ?? [];
-      $latestAdjustment = $approvedAdjustments[(int)$e['id']] ?? null;
-      $originalMinutes = (int)$e['minutes'];
-      $originalBillable = (int)$e['billable'] === 1;
-      $effectiveMinutes = $latestAdjustment === null
-          ? $originalMinutes
-          : (int)$latestAdjustment['effective_minutes'];
-      $effectiveBillable = $latestAdjustment === null
-          ? $originalBillable
-          : (bool)$latestAdjustment['effective_billable'];
-      $adjustmentVersion = $latestAdjustment === null ? 0 : (int)$latestAdjustment['version'];
+      $adjustmentVersion = isset($approvedAdjustments[(int)$e['id']]) ? (int)$approvedAdjustments[(int)$e['id']]['version'] : 0;
       $billingState = coastmark_time_billing_state($e, $billingEntries[(int)$e['id']] ?? null, $adjustmentVersion, $billingConfig);
-      if ($billingUnavailable) $billingState = ['label' => 'Billing connection unavailable', 'action' => null, 'button' => '', 'invoice_url' => null];
     ?>
-    <div class="entry-row adjustment-row" data-time-entry-id="<?= (int)$e['id'] ?>">
-      <span class="entry-min"><?= $originalMinutes ?>m</span>
-      <div class="entry-main">
-        <div class="entry-note">
-          <?= h((string)$e['tech_name']) ?> · <?= h((string)$e['client_name']) ?> · <?= h((string)$e['note']) ?>
-        </div>
-        <a class="entry-ticket link" href="/ticket.php?id=<?= (int)$e['tid'] ?>">
-          #<?= (int)$e['tid'] ?> <?= h((string)$e['subject']) ?> · time entry #<?= (int)$e['id'] ?>
-        </a>
-        <div class="entry-evidence adjustment-original">
-          Original approval: <?= $originalMinutes ?>m <?= $originalBillable ? 'billable' : 'internal' ?> ·
-          <?= h((string)($e['reviewer_name'] ?: ('user #' . (int)$e['reviewed_by_user_id']))) ?> ·
-          <?= h($utcLabel((string)$e['reviewed_at'])) ?> · source <?= h((string)$e['source']) ?>
-        </div>
-        <div class="entry-evidence">
-          Worked <?= h($utcLabel((string)$e['worked_at'])) ?>
-          <?php if ($e['started_at'] !== null && $e['ended_at'] !== null): ?>
-            · measured <?= h($utcLabel((string)$e['started_at'])) ?> → <?= h($utcLabel((string)$e['ended_at'])) ?>
-          <?php else: ?>
-            · no measured interval
-          <?php endif; ?>
-          <?php if (trim((string)$e['review_note']) !== ''): ?>
-            · review note: <?= h((string)$e['review_note']) ?>
-          <?php endif; ?>
-        </div>
-        <div class="entry-lineage adjustment-effective">
-          Effective version <?= $adjustmentVersion ?><?= $adjustmentVersion === 0 ? ' (original)' : '' ?>:
-          <?= $effectiveMinutes ?>m <?= $effectiveBillable ? 'billable' : 'internal' ?>
-        </div>
-        <?php if ($latestAdjustment !== null): ?>
-          <div class="entry-review-note adjustment-reason">
-            Current adjustment reason: <?= h((string)$latestAdjustment['reason']) ?> ·
-            by user #<?= (int)$latestAdjustment['actor_user_id'] ?> at <?= h($utcLabel((string)$latestAdjustment['created_at'])) ?>
-          </div>
-          <details class="entry-evidence adjustment-history">
-            <summary>All correction slips (<?= count($adjustmentHistory) ?>)</summary>
-            <ol>
-              <?php foreach ($adjustmentHistory as $historicalAdjustment): ?>
-                <li class="adjustment-history-item">
-                  Version <?= (int)$historicalAdjustment['version'] ?> ·
-                  <?= (int)$historicalAdjustment['effective_minutes'] ?>m
-                  <?= (bool)$historicalAdjustment['effective_billable'] ? 'billable' : 'internal' ?> ·
-                  by user #<?= (int)$historicalAdjustment['actor_user_id'] ?> at
-                  <?= h($utcLabel((string)$historicalAdjustment['created_at'])) ?>
-                  <div>Reason: <?= h((string)$historicalAdjustment['reason']) ?></div>
-                </li>
-              <?php endforeach; ?>
-            </ol>
-          </details>
-        <?php endif; ?>
-        <div class="entry-evidence">Original approval is never erased. Extra time must be logged as a new pending entry.</div>
-      </div>
-      <span class="entry-badge <?= $effectiveBillable ? 'badge-billable' : '' ?>">
-        <?= $effectiveBillable ? 'effective billable' : 'effective internal' ?>
-      </span>
-      <div class="review-actions billing-actions">
-        <span class="entry-evidence" data-billing-label><?= h($billingState['label']) ?></span>
-        <?php if ($billingState['action'] !== null): ?>
-          <button type="button" class="btn-chip time-billing"
-            data-entry-id="<?= (int)$e['id'] ?>" data-billing-action="<?= h($billingState['action']) ?>"><?= h($billingState['button']) ?></button>
-        <?php endif; ?>
-        <?php if ($billingState['invoice_url'] !== null): ?>
-          <a class="btn-chip" href="<?= h($billingState['invoice_url']) ?>" target="_blank" rel="noopener">Open in Coastmark</a>
-        <?php endif; ?>
-        <button type="button" class="btn-chip time-adjust"
-          data-entry-id="<?= (int)$e['id'] ?>"
-          data-original-minutes="<?= $originalMinutes ?>"
-          data-original-billable="<?= $originalBillable ? '1' : '0' ?>"
-          data-effective-minutes="<?= $effectiveMinutes ?>"
-          data-effective-billable="<?= $effectiveBillable ? '1' : '0' ?>"
-          data-version="<?= $adjustmentVersion ?>">Adjust effective value</button>
-      </div>
-    </div>
+      <?= time_approved_row($e, $adjustmentHistory, $peopleNames, $billingState, $billingUnavailable, $timeZone) ?>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
 
-  <p class="page-note">Entries remain pending until an owner or admin reviews them. Approval does not post or invoice anything.</p>
+  <p class="page-note">Approving time does not send an invoice. Invoices are made in Coastmark.</p>
 </div>
 <?php
 page_bottom(palette_data());

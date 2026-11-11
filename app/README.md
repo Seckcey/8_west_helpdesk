@@ -146,7 +146,7 @@ public/                    Apache docroot (page-per-file, like Milepost)
   clients.php, client.php  Clients + "answer the phone smart" screen
   client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
   users.php                Team — user management (owner/admin add, deactivate)
-  time.php                 Reliable timer + suggestions + own entries +
+  time.php                 Rows drawn by lib/time_page.php (plain words; History per row). Reliable timer + suggestions + own entries +
                            owner/admin pending review queue
   reports.php              Real numbers: first response, response-target attainment, aging,
                            approved billable time (+ owner/admin CSV)
