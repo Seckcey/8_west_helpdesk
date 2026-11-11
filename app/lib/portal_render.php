@@ -413,6 +413,116 @@ function portal_priority_label(string $priority): string
     };
 }
 
+/**
+ * "20 minutes ago", "3 hours ago", "yesterday", "5 days ago", then a date. Empty when the time cannot be
+ * read, and for a time that is still ahead: nothing that has not happened yet is ever "just now".
+ * Under a day it counts minutes and hours. From a day on it counts calendar days in the viewer's own
+ * time zone, exactly as portal_friendly_time() does, so a list and the request page name the same day.
+ */
+function portal_ago(?string $utc, ?int $now = null): string
+{
+    $timestamp = $utc === null || $utc === '' ? false : strtotime($utc . ' UTC');
+    if ($timestamp === false) return '';
+    $now ??= time();
+    if ($timestamp > $now) return '';
+    $minutes = intdiv($now - $timestamp, 60);
+    if ($minutes < 1) return 'just now';
+    if ($minutes < 60) return $minutes . ($minutes === 1 ? ' minute ago' : ' minutes ago');
+    $hours = intdiv($minutes, 60);
+    if ($hours < 24) return $hours . ($hours === 1 ? ' hour ago' : ' hours ago');
+    $preferences = $GLOBALS['portal_view_preferences'] ?? suite_preferences_defaults();
+    try {
+        $zone = new DateTimeZone((string)$preferences['time_zone']);
+        $then = (new DateTimeImmutable('@' . $timestamp))->setTimezone($zone)->setTime(0, 0);
+        $today = (new DateTimeImmutable('@' . $now))->setTimezone($zone)->setTime(0, 0);
+    } catch (Throwable) {
+        return '';
+    }
+    $days = (int)$then->diff($today)->format('%r%a');
+    if ($days === 1) return 'yesterday';
+    if ($days < 7) return $days . ' days ago';
+    $date = portal_friendly_time($utc, $now);
+    return $date === '' ? '' : 'on ' . explode(' at ', $date)[0];
+}
+
+/**
+ * One sentence for a request in a list: what is happening, from its status and its newest visible
+ * message. A reply-by time is given only while the request has a due time, nothing from the team is
+ * visible yet, and that time is still ahead; no other time is ever promised.
+ *
+ * "Answered" is judged as the request page judges it: a first reply, or any visible message from the
+ * team. Every "how long ago" is the newest visible message's time, or the request's own start when it
+ * has none. It is never the row's change time, which also moves on staff-side edits.
+ *
+ * @param array<string,mixed> $ticket a row of portal_ticket_summary()
+ */
+function portal_request_line(array $ticket, bool $canWrite, ?int $now = null): string
+{
+    $now ??= time();
+    $status = (string)($ticket['status'] ?? '');
+    $lastKind = (string)($ticket['last_message_kind'] ?? '');
+    $lastAt = portal_ago((string)($ticket['last_message_at'] ?? ''), $now);
+    $updated = $lastAt !== '' ? $lastAt : (empty($ticket['last_message_at']) ? portal_ago((string)($ticket['created_at'] ?? ''), $now) : '');
+    $answered = ! empty($ticket['first_response_at']) || ! empty($ticket['has_team_reply']) || $lastKind === 'tech';
+    $weReplied = $lastKind === 'tech' && $lastAt !== '' ? "We replied {$lastAt}" : ($answered ? 'We replied' : '');
+    $changed = $updated === '' ? '' : " Updated {$updated}.";
+
+    if ($status === 'resolved') {
+        $resolved = portal_ago((string)($ticket['resolved_at'] ?? ''), $now);
+        return $resolved === '' ? 'Resolved.' : "Resolved {$resolved}.";
+    }
+    if ($status === 'waiting') {
+        if ($weReplied === '') return $canWrite ? 'We need an answer from you.' : 'We are waiting for an answer.';
+        return $weReplied . ($canWrite ? ' and need your answer.' : ' and are waiting for an answer.');
+    }
+    if ($status === 'in_progress') {
+        return 'A technician is working on it.' . ($lastKind === 'tech' && $weReplied !== '' ? " {$weReplied}." : $changed);
+    }
+    if ($answered) {
+        if ($lastKind === 'client') return 'We have your reply.' . $changed;
+        return $weReplied === '' ? 'This is with the support team.' . $changed : "{$weReplied}.";
+    }
+    $dueAt = (string)($ticket['sla_due_at'] ?? '');
+    $due = $dueAt === '' ? false : strtotime($dueAt . ' UTC');
+    $by = $due !== false && $due > $now ? portal_friendly_time($dueAt, $now) : '';
+    return 'We received this.' . ($by === '' ? '' : " We aim to reply by {$by}.");
+}
+
+/** The tag beside a request in a list. The detail page keeps portal_status_label()'s words. */
+function portal_request_tag(string $status, bool $canWrite = true): string
+{
+    if ($status === 'open') return 'Received';
+    // Someone who cannot reply is not told the request waits for "your" reply.
+    return $status === 'waiting' && ! $canWrite ? 'Waiting for a reply' : portal_status_label($status);
+}
+
+/**
+ * Requests as rows: the subject as the title, one sentence about what is happening, and a status tag.
+ *
+ * @param list<array<string,mixed>> $tickets rows of portal_ticket_summary()
+ * @param bool $number show "#102" before the subject (the Support Requests list; the Guide finds a request by it)
+ * @param bool $reply add a Reply button that lands on the request's reply box
+ */
+function portal_render_request_rows(array $tickets, bool $canWrite, bool $number = false, bool $reply = false): void
+{
+    ?>
+<ul class="portal-request-rows">
+  <?php foreach ($tickets as $ticket):
+      $id = (int)$ticket['id'];
+      $status = (string)($ticket['status'] ?? ''); ?>
+  <li class="portal-request-row">
+    <div class="portal-request-copy">
+      <h3><a class="portal-request-link" href="/portal/ticket.php?id=<?= $id ?>"><?php if ($number): ?><span class="portal-request-number">#<?= $id ?></span> <?php endif; ?><?= portal_h($ticket['subject']) ?></a></h3>
+      <p><?= portal_h(portal_request_line($ticket, $canWrite)) ?></p>
+    </div>
+    <span class="portal-status portal-status-<?= portal_h($status) ?>"><?= portal_h(portal_request_tag($status, $canWrite)) ?></span>
+    <?php if ($reply): ?><a class="btn-ghost portal-request-reply" href="/portal/ticket.php?id=<?= $id ?>#portal-reply" aria-label="Reply to: <?= portal_h($ticket['subject']) ?>">Reply</a><?php endif; ?>
+  </li>
+  <?php endforeach; ?>
+</ul>
+    <?php
+}
+
 /** @param list<array<string,mixed>> $tickets @param list<string> $statuses */
 function portal_tickets_with_status(array $tickets, array $statuses): array
 {
@@ -422,31 +532,18 @@ function portal_tickets_with_status(array $tickets, array $statuses): array
     ));
 }
 
-/** @param list<array<string,mixed>> $tickets */
-function portal_render_ticket_list(array $tickets, string $emptyMessage): void
+/**
+ * A list of requests, or one line when there are none.
+ *
+ * @param list<array<string,mixed>> $tickets
+ */
+function portal_render_ticket_list(array $tickets, string $emptyMessage, bool $canWrite = true): void
 {
-    ?>
-<div class="card rail-list portal-ticket-list">
-  <?php if ($tickets === []): ?>
-    <div class="empty"><?= portal_h($emptyMessage) ?></div>
-  <?php else: ?>
-    <?php foreach ($tickets as $ticket): ?>
-      <a class="rail-list-item portal-ticket-link" href="/portal/ticket.php?id=<?= (int)$ticket['id'] ?>">
-        <div class="portal-ticket-row">
-          <div class="portal-ticket-copy">
-            <h3 class="rail-list-name">#<?= (int)$ticket['id'] ?> · <?= portal_h($ticket['subject']) ?></h3>
-            <p class="rail-list-sub">
-              <?= portal_h(portal_priority_label((string)$ticket['priority'])) ?> priority
-              · Updated <?= portal_h(portal_relative_time((string)$ticket['updated_at'])) ?>
-            </p>
-          </div>
-          <span class="portal-status portal-status-<?= portal_h((string)$ticket['status']) ?>"><?= portal_h(portal_status_label((string)$ticket['status'])) ?></span>
-        </div>
-      </a>
-    <?php endforeach; ?>
-  <?php endif; ?>
-</div>
-    <?php
+    if ($tickets === []) {
+        echo '<div class="card rail-list portal-ticket-list"><div class="empty">' . portal_h($emptyMessage) . '</div></div>';
+        return;
+    }
+    portal_render_request_rows($tickets, $canWrite, true);
 }
 
 function portal_report_period_label(
@@ -541,13 +638,13 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
    <p class="portal-hint">Do not include passwords or verification codes.</p>
   </section>
   <section class="portal-attention" aria-labelledby="attention-heading"><h2 id="attention-heading"><?= $direct && !$canWrite ? 'Waiting for a reply' : 'Needs your attention' ?></h2>
-   <?php portal_render_ticket_list($waiting, $direct && !$canWrite ? 'No request is waiting for a reply.' : 'Nothing needs your reply right now.'); ?>
+   <?php portal_render_ticket_list($waiting, $direct && !$canWrite ? 'No request is waiting for a reply.' : 'Nothing needs your reply right now.', $canWrite); ?>
   </section>
   <section class="portal-requests" id="requests" aria-labelledby="requests-heading">
    <div class="portal-section-title"><h2 id="requests-heading"><?= portal_client_admin($identity) ? 'Client support requests' : 'Your support requests' ?></h2><?php if (!$direct && $canWrite): ?><a href="/portal/new.php">Open support request <?= portal_icon('arrow') ?></a><?php endif; ?></div>
    <p class="portal-hint"><?= portal_client_admin($identity) ? 'Client-wide view.' : 'Requests you opened.' ?> Showing up to 50 recent requests.</p>
    <div class="portal-counts" aria-label="Ticket counts"><?php foreach (['open'=>'Open','in_progress'=>'In progress','waiting'=>$direct && !$canWrite ? 'Waiting for a reply' : 'Waiting on you','resolved'=>'Resolved'] as $status=>$label): ?><span><?= portal_h($label) ?> <strong><?= (int)($summary['counts'][$status] ?? 0) ?></strong></span><?php endforeach; ?></div>
-   <?php portal_render_ticket_list($recent, $emptyRecent); ?>
+   <?php portal_render_ticket_list($recent, $emptyRecent, $canWrite); ?>
   </section>
  </div>
  <aside class="portal-context-rail">
@@ -587,12 +684,16 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
     // Owners and admins see the whole client; everyone else sees only their own records.
     $clientWide = portal_client_admin($identity);
     $avatar = portal_branding($context)['avatar'];
+    $firstName = (string)(preg_split('/\s+/', $name)[0] ?? '');
     $count = static fn(int $n, string $one, string $many): string => $n . ' ' . ($n === 1 ? $one : $many);
-    $scope = $clientWide ? 'You see every support request and computer for ' . $client . '.'
-        : ($canWrite ? 'You see the requests you opened and the computers assigned to you.'
-            : 'You can read the requests opened under your account and see the computers assigned to you. Viewer access cannot write requests or replies.');
+    // What this person's request list covers. It sits quietly under the list, not in the hero.
+    $scope = $clientWide ? 'You see every request for ' . $client . '.'
+        : ($canWrite ? 'You see the requests you opened.' : 'You see the requests opened under your account.');
     // The 8 West ID member invite: the same condition the Computer access page uses.
     $canInvite = in_array($identity['role'] ?? '', ['client_owner', 'client_admin'], true) && !isset($identity['customer_access']);
+    // One filled button per page. A new business still has its first step to do, and that step keeps the
+    // filled button; everywhere else it is Ask Westy.
+    $setup = portal_first_steps_card($clientWide, $devices, $canInvite);
     // Westy's trigger closes the rail in normal flow, so it never covers requests or help text.
     $context['chat_button_placement'] = 'inline';
     portal_page_start('Home', '', $context);
@@ -601,24 +702,22 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
  <section class="portal-overview-hero" aria-labelledby="portal-home-heading">
   <img class="portal-overview-avatar" src="<?= portal_h($avatar) ?>" alt="" width="64" height="64">
   <div class="portal-overview-intro">
-   <p class="portal-overview-client"><?= portal_h($client) ?></p>
-   <h1 id="portal-home-heading"><?= $name === '' ? 'Welcome' : 'Welcome, ' . portal_h($name) ?></h1>
-   <p class="portal-overview-context"><strong><?= portal_h(portal_role_label($role)) ?></strong> · <?= portal_h($scope) ?></p>
+   <h1 id="portal-home-heading"><?= $firstName === '' ? 'Hello' : 'Hello, ' . portal_h($firstName) ?></h1>
+   <p class="portal-overview-question">How can we help <?= portal_h($client) ?> today?</p>
   </div>
+  <?php // New support request: the same check (portal_role_can_write_tickets) and destination as the Support Requests page. ?>
   <nav class="portal-overview-actions" aria-label="Start here">
-   <a class="portal-overview-action is-primary" href="/portal/?view=westy"><span class="portal-overview-action-icon"><?= portal_icon('chat') ?></span><span><strong>Ask Westy</strong><span>Private help with your computer</span></span></a>
-   <?php if (!$direct && $canWrite): ?><a class="portal-overview-action" href="/portal/new.php"><span class="portal-overview-action-icon"><?= portal_icon('edit') ?></span><span><strong>Write a request</strong><span>Send the details to the support team</span></span></a><?php endif; ?>
-   <a class="portal-overview-action" href="/portal/devices.php"><span class="portal-overview-action-icon"><?= portal_icon('device') ?></span><span><strong>Your devices</strong><span><?= $clientWide ? 'Computers for this client' : 'Computers assigned to you' ?></span></span></a>
-   <a class="portal-overview-action" href="https://id.8westit.com/settings.php"><span class="portal-overview-action-icon"><?= portal_icon('person') ?></span><span><strong>My settings in 8 West ID</strong><span>Your name, appearance and sign-in</span></span></a>
+   <a class="portal-overview-action<?= $setup === '' ? ' is-primary' : '' ?>" href="/portal/?view=westy">Ask Westy</a>
+   <?php if ($canWrite): ?><a class="portal-overview-action" href="/portal/new.php">New support request</a><?php endif; ?>
   </nav>
  </section>
  <div class="portal-main-column">
-  <?= portal_first_steps_card($clientWide, $devices, $canInvite) ?>
+  <?= $setup ?>
   <?php if ($summary === null): ?>
   <section class="portal-overview-card" aria-labelledby="home-requests-heading">
-   <h2 id="home-requests-heading">Support requests</h2>
+   <h2 id="home-requests-heading">Your requests</h2>
    <p class="portal-overview-problem" role="status">We can’t show your support requests right now. Nothing about them has changed. Try again shortly.</p>
-   <div class="portal-overview-buttons"><a class="portal-overview-button" href="/portal/">Try again</a><?php if (!$direct && $canWrite): ?><a class="portal-overview-button" href="/portal/new.php">Write a request</a><?php endif; ?></div>
+   <div class="portal-overview-buttons"><a class="portal-overview-button" href="/portal/">Try again</a></div>
   </section>
   <?php else:
       $counts = $summary['counts'];
@@ -627,22 +726,21 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
       foreach (['open', 'in_progress', 'waiting', 'resolved'] as $status) $total += (int)($counts[$status] ?? 0);
       $waiting = portal_tickets_with_status($summary['tickets'], ['waiting']);
       $recent = portal_tickets_with_status($summary['tickets'], ['in_progress', 'open', 'resolved']); ?>
+  <?php if ($waiting !== []): ?>
   <section class="portal-attention portal-overview-card" aria-labelledby="home-reply-heading">
    <h2 id="home-reply-heading"><?= $canWrite ? 'Needs your reply' : 'Waiting for a reply' ?></h2>
-   <?php if ($waitingTotal > 0): ?><p class="portal-hint"><?= portal_h($clientWide ? $count($waitingTotal, 'request', 'requests') . ' across ' . $client . ' waiting for a reply.'
-       : ($canWrite ? $count($waitingTotal, 'request is', 'requests are') . ' waiting for your reply.'
-           : $count($waitingTotal, 'request', 'requests') . ' waiting. Viewer access can read them but cannot reply.')) ?></p><?php endif; ?>
-   <?php portal_render_ticket_list($waiting, $canWrite ? 'Nothing needs your reply right now.' : 'No request is waiting for a reply.'); ?>
-   <?php if ($waitingTotal > count($waiting)): ?><p class="portal-hint">Showing <?= count($waiting) ?> of <?= $waitingTotal ?>.<?php if (!$direct): ?> <a href="/portal/requests.php">See every request</a><?php endif; ?></p><?php endif; ?>
+   <?php portal_render_request_rows($waiting, $canWrite, false, $canWrite); ?>
+   <?php if ($waitingTotal > count($waiting)): ?><p class="portal-hint">Showing <?= count($waiting) ?> of <?= $waitingTotal ?>. <a href="/portal/requests.php">See every request</a></p><?php endif; ?>
   </section>
+  <?php endif; ?>
   <section class="portal-requests portal-overview-card" aria-labelledby="home-recent-heading">
-   <div class="portal-section-title"><h2 id="home-recent-heading"><?= $clientWide ? 'Recent client requests' : 'Your recent requests' ?></h2><?php if (!$direct): ?><a href="/portal/requests.php">All support requests <?= portal_icon('arrow') ?></a><?php endif; ?></div>
-   <p class="portal-hint"><?= $clientWide ? 'Client-wide view.' : 'Requests you opened.' ?> Active requests come first, then recently resolved ones.</p>
-   <div class="portal-counts" aria-label="Request counts"><?php foreach (['open'=>'Open','in_progress'=>'In progress','waiting'=>'Waiting for a reply','resolved'=>'Resolved'] as $status=>$label): ?><span><?= portal_h($label) ?> <strong><?= (int)($counts[$status] ?? 0) ?></strong></span><?php endforeach; ?></div>
+   <div class="portal-section-title"><h2 id="home-recent-heading">Your requests</h2><?php if ($total > 0): ?><a href="/portal/requests.php">All requests <?= portal_icon('arrow') ?></a><?php endif; ?></div>
    <?php if ($total === 0): ?>
-   <div class="portal-overview-empty"><p><strong>No support requests yet.</strong></p><p><?= !$canWrite ? 'Requests opened under your account will appear here.' : ($direct ? 'Open Support Requests when you need help from the support team.' : 'When something isn’t working, ask Westy or write a request, then follow its progress here.') ?></p></div>
-   <?php else: portal_render_ticket_list($recent, 'No other open or recently resolved requests.'); endif; ?>
-   <?php if ($total > count($summary['tickets'])): ?><p class="portal-hint">Home shows <?= count($summary['tickets']) ?> of <?= $total ?>.<?php if (!$direct): ?> <a href="/portal/requests.php">See every request</a><?php endif; ?></p><?php endif; ?>
+   <div class="portal-overview-empty"><p><strong>No support requests yet.</strong></p><p><?= $canWrite ? 'When something isn’t working, ask Westy or send a support request. You can follow it here.' : 'Requests opened under your account will appear here.' ?></p></div>
+   <?php elseif ($recent === []): ?>
+   <div class="portal-overview-empty"><p>No other requests.</p></div>
+   <?php else: portal_render_request_rows($recent, $canWrite); endif; ?>
+   <p class="portal-hint portal-request-scope"><?= portal_h($scope) ?><?php if ($total > count($summary['tickets'])): ?> Home shows <?= count($summary['tickets']) ?> of <?= $total ?>.<?php endif; ?></p>
   </section>
   <?php endif; ?>
  </div>
@@ -677,7 +775,7 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
   <?php endif; ?>
   <?php if ($clientWide): ?>
   <section class="portal-overview-card" aria-labelledby="home-manage-heading"><h2 id="home-manage-heading">Manage <?= portal_h($client) ?></h2>
-   <p>People, plan and computer access. Each destination checks your access again.</p>
+   <p>People, plan and computers for <?= portal_h($client) ?>.</p>
    <div class="portal-overview-buttons">
     <a class="portal-overview-button" href="<?= portal_h(safeharbor_settings_panel_url('client_admin')) ?>">Client Admin in 8 West ID</a>
     <a class="portal-overview-button" href="/portal/devices.php">Manage computer access</a>

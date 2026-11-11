@@ -286,6 +286,12 @@ $_SESSION[PORTAL_SESSION_KEY]['client_id'] = 12;
 portal_mysql_check('mismatched local customer binding is refused', portal_authenticated_context($pdo, static fn() => false) === null);
 unset($_COOKIE[PORTAL_LOGIN_GUARD_COOKIE]);
 
+// A visible reply, then a private note and an automation line written after it: the summary must report
+// the visible reply as the newest message, and carry no text or author of any of them.
+$pdo->exec("INSERT INTO messages(ticket_id,author_name,kind,body,created_at) VALUES
+    (1002,'Support Tech','tech','Visible reply','2026-08-24 11:00:00'),
+    (1002,'Private Technician','note','PRIVATE NOTE CANARY','2026-08-24 12:00:00'),
+    (1002,'Milepost','system','AUTOMATION CANARY','2026-08-24 13:00:00')");
 $summary = portal_ticket_summary($pdo, 1, 11, 50, portal_requester_test_identity(1, 11, 'client_owner'));
 $ticketIds = array_map(static fn(array $row): int => (int)$row['id'], $summary['tickets']);
 sort($ticketIds);
@@ -293,10 +299,20 @@ portal_mysql_check('ticket summary hides merged stubs and their survivors',
     $ticketIds === [1002]);
 portal_mysql_check('ticket counts hide merged history and remain inside mapped tenant/client',
     $summary['counts'] === ['open' => 0, 'in_progress' => 0, 'waiting' => 0, 'resolved' => 1]);
-portal_mysql_check('ticket summary field list has no message/contact/assignee/billing facts',
+// The list sentence needs the reply goal, the first-reply time, and the kind and time of the newest
+// customer-visible message. The field list stays closed: no message text or author, contact, assignee or billing.
+portal_mysql_check('ticket summary field list is closed: no message text or author, contact, assignee or billing facts',
     array_keys($summary['tickets'][0]) === [
-        'id', 'subject', 'status', 'priority', 'created_at', 'updated_at', 'resolved_at',
-    ]);
+        'id', 'subject', 'status', 'priority', 'created_at', 'updated_at', 'resolved_at', 'sla_due_at',
+        'last_message_kind', 'last_message_at', 'first_response_at', 'has_team_reply',
+    ]
+    && ! str_contains(json_encode($summary, JSON_THROW_ON_ERROR), 'CANARY')
+    && ! str_contains(json_encode($summary, JSON_THROW_ON_ERROR), 'Private Technician'));
+portal_mysql_check('ticket summary reports the newest customer-visible message, never a later private note or automation line',
+    $summary['tickets'][0]['last_message_kind'] === 'tech'
+    && $summary['tickets'][0]['last_message_at'] === '2026-08-24 11:00:00'
+    && $summary['tickets'][0]['first_response_at'] === '2026-08-24 11:00:00'
+    && (int)$summary['tickets'][0]['has_team_reply'] === 1);
 portal_mysql_expect('merged survivor cannot expose moved conversation', PortalDataNotFoundException::class,
     fn() => portal_ticket_detail($pdo, 1, 11, 1001, portal_requester_test_identity(1, 11, 'client_owner')));
 

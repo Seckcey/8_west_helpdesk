@@ -118,7 +118,7 @@ try {
         });
         try {
           await page.goto('http://safeharbor.test/portal/');
-          await page.getByRole('heading', { level: 1, name: /^Welcome/ }).waitFor();
+          await page.getByRole('heading', { level: 1, name: /^Hello/ }).waitFor();
           assert.match(await page.title(), /^Home · /);
           const owner = fixture.includes('owner');
           const writer = owner;
@@ -127,11 +127,12 @@ try {
           assert.equal(await page.locator('img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0)), true);
           const actions = page.getByRole('navigation', { name: 'Start here' });
           assert.equal(await actions.getByRole('link', { name: /^Ask Westy/ }).getAttribute('href'), '/portal/?view=westy');
-          assert.equal(await actions.getByRole('link', { name: /^Write a request/ }).count(), 0);
-          assert.equal(await actions.getByRole('link', { name: /^My settings in 8 West ID/ }).getAttribute('href'), 'https://id.8westit.com/settings.php');
+          // New support request is for exactly the people who may create one; My settings stays in the sidebar.
+          assert.deepEqual(await actions.getByRole('link').allInnerTexts(), writer ? ['Ask Westy', 'New support request'] : ['Ask Westy']);
+          assert.equal(await page.locator('a[href="https://id.8westit.com/settings.php"]').count(), 1);
           assert.equal(await page.getByRole('link', { name: 'Manage computer access', exact: true }).count(), owner ? 1 : 0);
           assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
-          assert.equal(await page.getByRole('heading', { name: writer ? 'Needs your reply' : 'Waiting for a reply', exact: true }).count(), 1);
+          assert.equal(await page.getByRole('heading', { name: writer ? 'Needs your reply' : 'Waiting for a reply', exact: true }).count(), fixture.includes('empty') ? 0 : 1);
           for (const target of await page.locator('.portal-overview-action, .portal-overview-button').all()) {
             const box = await target.boundingBox();
             assert.ok(box.height >= 44 && box.width >= 44, JSON.stringify(box));

@@ -88,17 +88,27 @@ $_SERVER['REQUEST_URI'] = str_starts_with($argv[3], 'help') ? '/portal/device_he
 if(str_starts_with($argv[3],'mobile'))$_SERVER['REQUEST_URI']='/portal/mobile.php';
 if(str_starts_with($argv[3],'security'))$_SERVER['REQUEST_URI']='/portal/security.php';
 $context = [
-    'identity' => ['display_name' => 'Frank at 8 West Lifestyle', 'role' => 'client_admin'],
+    'identity' => ['display_name' => 'Priya Anand', 'role' => 'client_admin'],
     'binding' => ['client_name' => '8 West Lifestyle'],
 ];
 $tickets = [
     ['id' => 102, 'subject' => 'Front desk printer is offline', 'status' => 'waiting', 'priority' => 'high',
-     'created_at' => '2026-08-29 09:00:00', 'updated_at' => gmdate('Y-m-d H:i:s', time() - 600), 'resolved_at' => null],
+     'created_at' => '2026-08-29 09:00:00', 'updated_at' => gmdate('Y-m-d H:i:s', time() - 600), 'resolved_at' => null,
+     'sla_due_at' => '2026-08-29 11:00:00', 'first_response_at' => '2026-08-29 09:22:00',
+     'last_message_kind' => 'tech', 'last_message_at' => gmdate('Y-m-d H:i:s', time() - 600)],
     ['id' => 101, 'subject' => 'New employee cannot sign in', 'status' => 'in_progress', 'priority' => 'normal',
-     'created_at' => '2026-08-29 08:00:00', 'updated_at' => gmdate('Y-m-d H:i:s', time() - 1200), 'resolved_at' => null],
+     'created_at' => '2026-08-29 08:00:00', 'updated_at' => gmdate('Y-m-d H:i:s', time() - 1200), 'resolved_at' => null,
+     'sla_due_at' => '2026-08-29 16:00:00', 'first_response_at' => '2026-08-29 08:30:00',
+     'last_message_kind' => 'client', 'last_message_at' => gmdate('Y-m-d H:i:s', time() - 1200)],
+    ['id' => 103, 'subject' => 'Shared calendar is missing', 'status' => 'open', 'priority' => 'normal',
+     'created_at' => gmdate('Y-m-d H:i:s', time() - 1800), 'updated_at' => gmdate('Y-m-d H:i:s', time() - 1800), 'resolved_at' => null,
+     'sla_due_at' => gmdate('Y-m-d H:i:s', time() + 3 * 3600), 'first_response_at' => null,
+     'last_message_kind' => 'client', 'last_message_at' => gmdate('Y-m-d H:i:s', time() - 1800)],
     ['id' => 99, 'subject' => 'Conference room display', 'status' => 'resolved', 'priority' => 'low',
      'created_at' => '2026-08-25 08:00:00', 'updated_at' => gmdate('Y-m-d H:i:s', time() - 86400),
-     'resolved_at' => gmdate('Y-m-d H:i:s', time() - 86400)],
+     'resolved_at' => gmdate('Y-m-d H:i:s', time() - 86400),
+     'sla_due_at' => '2026-08-25 16:00:00', 'first_response_at' => '2026-08-25 08:40:00',
+     'last_message_kind' => 'tech', 'last_message_at' => gmdate('Y-m-d H:i:s', time() - 86400)],
 ];
 $metrics = [
     'schema_version' => 1,
@@ -244,18 +254,25 @@ switch ($argv[3]) {
     case 'home':
     case 'homemember':
     case 'homeviewer':
+    case 'homeresolved':
+    case 'homenone':
+    case 'homereader':
         // Home receives only what the controller's requester-safe reads returned; null is "unavailable".
         if($argv[3]==='homemember'){
             $context['identity']['role']='tech';
             $context['identity']['customer_access']=['role'=>'client_staff'];
         }
-        if($argv[3]==='homeviewer')$context['identity']['role']='client_viewer';
+        if(in_array($argv[3],['homeviewer','homereader'],true))$context['identity']['role']='client_viewer';
         $homeDevices=['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk computer','platform'=>'Windows 11',
             'connection'=>'reporting','connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in and inventory received.',
             'last_seen_at'=>gmdate('Y-m-d\\TH:i:s\\Z',time()-60),'troubleshooting'=>'support_request']],'next_after'=>null];
+        $resolvedOnly=array_values(array_filter($tickets,static fn(array $ticket):bool=>$ticket['status']==='resolved'));
         portal_render_home($context,
-            $argv[3]==='homeviewer' ? ['client'=>['name'=>'8 West Lifestyle'],'counts'=>['open'=>0,'in_progress'=>0,'waiting'=>0,'resolved'=>0],'tickets'=>[]]
-                : ['client'=>['name'=>'8 West Lifestyle'],'counts'=>['open'=>0,'in_progress'=>1,'waiting'=>1,'resolved'=>1],'tickets'=>$tickets],
+            match(true){
+                in_array($argv[3],['homeviewer','homenone'],true) => ['client'=>['name'=>'8 West Lifestyle'],'counts'=>['open'=>0,'in_progress'=>0,'waiting'=>0,'resolved'=>0],'tickets'=>[]],
+                $argv[3]==='homeresolved' => ['client'=>['name'=>'8 West Lifestyle'],'counts'=>['open'=>0,'in_progress'=>0,'waiting'=>0,'resolved'=>1],'tickets'=>$resolvedOnly],
+                default => ['client'=>['name'=>'8 West Lifestyle'],'counts'=>['open'=>1,'in_progress'=>1,'waiting'=>1,'resolved'=>1],'tickets'=>$tickets],
+            },
             $argv[3]==='homemember' ? null : $homeDevices,
             $argv[3]==='home' ? [$archive] : null);
         break;
@@ -267,7 +284,7 @@ switch ($argv[3]) {
         if($argv[3]==='dashboardviewer')$context['identity']['role']='client_viewer';
         portal_render_dashboard($context, [
             'client' => ['name' => '8 West Lifestyle'],
-            'counts' => ['open' => 0, 'in_progress' => 1, 'waiting' => 1, 'resolved' => 1],
+            'counts' => ['open' => 1, 'in_progress' => 1, 'waiting' => 1, 'resolved' => 1],
             'tickets' => $tickets,
         ], [$archive]);
         break;
@@ -281,7 +298,7 @@ switch ($argv[3]) {
                 'service_goal_response_minutes' => 60,
             ],
             'messages' => [
-                ['kind' => 'client', 'author_name' => 'Frank', 'created_at' => '2026-08-29 09:00:00',
+                ['kind' => 'client', 'author_name' => 'Priya Anand', 'created_at' => '2026-08-29 09:00:00',
                  'body' => 'The front desk cannot print.'],
                 ['kind' => 'tech', 'author_name' => '8 West IT support', 'created_at' => '2026-08-29 09:22:00',
                  'body' => 'Is the blue power light on?'],
@@ -325,7 +342,7 @@ async function renderedFixtures() {
   const fixturePath = path.join(scratch, 'fixture.php');
   await writeFile(fixturePath, FIXTURE_PHP, 'utf8');
   const pages = {};
-  for (const name of ['login','workspace','workspaceemployee','home','homemember','homeviewer','dashboard','dashboardemployee','dashboardviewer', 'ticket', 'ticketopen', 'ticketprogress', 'ticketresolved', 'ticketviewer', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesdownloadfailed', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
+  for (const name of ['login','workspace','workspaceemployee','home','homemember','homeviewer','homeresolved','homenone','homereader','dashboard','dashboardemployee','dashboardviewer', 'ticket', 'ticketopen', 'ticketprogress', 'ticketresolved', 'ticketviewer', 'new', 'reports', 'report', 'devices', 'devicesmobile', 'devicesmobileviewer', 'mobile', 'mobileviewer', 'devicesviewer', 'devicesempty', 'deviceserror', 'devicesdownload', 'devicesdownloadfailed', 'devicesrevoked','devicesprotection','devicesprotectionunknown',
     'devicesemployees','devicesemployeesnext','devicesemployeeunknown','devicesemployeeabsent','devicesemployeesaved','help','helpreview','helpwaiting','helpverified','helpunknown','helpviewer',
     'security','securityreview','securityaccepted','securityready','securitywaiting','securityinstalled','securityunknown','securityviewer','securityexpired','securityrecovery']) {
     const result = spawnSync('php', [
@@ -432,7 +449,7 @@ async function openPortalPage(browser, pages, viewport, apiHandler = null) {
 /** Existing fixtures keep serving the Westy workspace at /portal/; Home pages are opt-in. */
 function portalRootFixture(url) {
   const fixture = url.searchParams.get('fixture');
-  return fixture === 'login' || ['home', 'homemember', 'homeviewer'].includes(fixture) ? fixture : 'workspace';
+  return fixture === 'login' || ['home', 'homemember', 'homeviewer', 'homeresolved', 'homenone', 'homereader'].includes(fixture) ? fixture : 'workspace';
 }
 
 function fixtureForUrl(pages, url) {
@@ -589,9 +606,30 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
       const menu = page.getByRole('button', { name: 'Toggle navigation' });
       await page.goto(`${ORIGIN}/portal/?fixture=home`);
       assert.equal(await page.title(), 'Home · Safeharbor');
-      await page.getByRole('heading', { level: 1, name: 'Welcome, Frank at 8 West Lifestyle' }).waitFor();
+      await page.getByRole('heading', { level: 1, name: 'Hello, Priya', exact: true }).waitFor();
+      await page.getByText('How can we help 8 West Lifestyle today?', { exact: true }).waitFor();
+      // One question, two buttons, and Ask Westy is the page's one filled button.
+      const start = page.getByRole('navigation', { name: 'Start here' });
+      assert.deepEqual(await start.getByRole('link').allInnerTexts(), ['Ask Westy', 'New support request']);
+      assert.equal(await start.getByRole('link', { name: 'New support request', exact: true }).getAttribute('href'), '/portal/new.php');
+      assert.equal(await page.locator('main .is-primary, main .btn-primary').count(), 1, 'one filled button on Home');
+      assert.equal(await page.locator('.portal-overview-hero').evaluate(hero => /Client administrator|My settings/.test(hero.innerText)), false, 'role and settings are not in the hero');
+      // Needs your reply comes first; its row says what happened and Reply lands on that request's reply box.
       await page.getByRole('heading', { name: 'Needs your reply', exact: true }).waitFor();
-      await page.getByRole('link', { name: /#102.*Front desk printer is offline/ }).waitFor();
+      assert.equal(await page.evaluate(() => document.getElementById('home-reply-heading').getBoundingClientRect().top < document.getElementById('home-recent-heading').getBoundingClientRect().top), true);
+      await page.getByRole('link', { name: 'Front desk printer is offline', exact: true }).waitFor();
+      assert.equal(await page.getByRole('link', { name: 'Reply to: Front desk printer is offline', exact: true }).getAttribute('href'), '/portal/ticket.php?id=102#portal-reply');
+      await page.getByText('We replied 10 minutes ago and need your answer.', { exact: true }).waitFor();
+      // Every other request: its subject, one sentence, one tag. No number, no counts strip, no ordering hint.
+      await page.getByText(/^A technician is working on it\. Updated 20 minutes ago\.$/).waitFor();
+      await page.getByText(/^We received this\. We aim to reply by (today|tomorrow) at \d{1,2}:\d{2} [AP]M\.$/).waitFor();
+      await page.getByText('Resolved yesterday.', { exact: true }).waitFor();
+      assert.deepEqual(await page.locator('main .portal-status').allInnerTexts(), ['Waiting for your reply', 'In progress', 'Received', 'Resolved']);
+      const tagColours = await page.locator('main .portal-status').evaluateAll(tags => tags.map(tag => getComputedStyle(tag).backgroundColor));
+      assert.equal(new Set(tagColours).size, 4, 'the four tags are four different colours, so waiting is the only amber');
+      assert.equal(await page.locator('main').evaluate(main => /#10[123]|#99\b|Active requests come first|Client-wide view/.test(main.innerText)), false);
+      assert.equal(await page.locator('.portal-counts').count(), 0);
+      await page.getByText('You see every request for 8 West Lifestyle.', { exact: true }).waitFor();
       assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
       await page.getByRole('link', { name: 'Manage computer access', exact: true }).waitFor();
       await page.getByText('Front desk computer', { exact: true }).waitFor();
@@ -624,11 +662,13 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
 
       for (const [fixture, writer] of [['homemember', true], ['homeviewer', false]]) {
         await page.goto(`${ORIGIN}/portal/?fixture=${fixture}`);
-        await page.getByRole('heading', { level: 1, name: 'Welcome, Frank at 8 West Lifestyle' }).waitFor();
+        await page.getByRole('heading', { level: 1, name: 'Hello, Priya', exact: true }).waitFor();
         assert.equal(await page.getByRole('heading', { name: 'Service summaries', exact: true }).count(), 0);
         assert.equal(await page.getByRole('link', { name: 'Manage computer access', exact: true }).count(), 0);
         assert.equal(await page.locator('a[href="https://id.8westit.com/customer-billing.php"]').count(), 0);
-        assert.equal(await page.getByRole('navigation', { name: 'Start here' }).getByRole('link', { name: /^Write a request/ }).count(), writer ? 1 : 0);
+        // New support request is for exactly the people who may create a request; everyone else has Ask Westy alone.
+        assert.deepEqual(await page.getByRole('navigation', { name: 'Start here' }).getByRole('link').allInnerTexts(), writer ? ['Ask Westy', 'New support request'] : ['Ask Westy']);
+        assert.equal(await page.locator('main a[href="/portal/new.php"]').count(), writer ? 1 : 0);
         assert.equal(await page.locator('a[aria-label="Switch client"]').count(), writer ? 1 : 0);
         if (writer) await page.getByText('We can’t show your computers right now. Nothing about them has changed.').waitFor();
         else await page.getByText('No support requests yet.', { exact: true }).waitFor();
@@ -636,6 +676,27 @@ if (!SERVE_MODE) test('Home leads with own requests, computers and clear actions
         await westyInFlow(page);
         if (evidence) await page.screenshot({ path: path.join(evidence, `${fixture}-${viewport.width}.png`), fullPage: true });
       }
+      // Only resolved requests: no reply section, and each row says when it was resolved.
+      await page.goto(`${ORIGIN}/portal/?fixture=homeresolved`);
+      await page.getByText('Resolved yesterday.', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('heading', { name: 'Needs your reply', exact: true }).count(), 0);
+      assert.deepEqual(await page.locator('main .portal-status').allInnerTexts(), ['Resolved']);
+      if (evidence) await page.screenshot({ path: path.join(evidence, `homeresolved-${viewport.width}.png`), fullPage: true });
+      // No requests at all: one sentence, and the two ways to start.
+      await page.goto(`${ORIGIN}/portal/?fixture=homenone`);
+      await page.getByText('No support requests yet.', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('heading', { name: 'Needs your reply', exact: true }).count(), 0);
+      assert.equal(await page.getByRole('link', { name: 'All requests', exact: true }).count(), 0);
+      assert.deepEqual(await page.getByRole('navigation', { name: 'Start here' }).getByRole('link').allInnerTexts(), ['Ask Westy', 'New support request']);
+      // A reader who cannot create or reply: the waiting request is shown, with no Reply and no New support request.
+      await page.goto(`${ORIGIN}/portal/?fixture=homereader`);
+      await page.getByRole('heading', { name: 'Waiting for a reply', exact: true }).waitFor();
+      await page.getByText('We replied 10 minutes ago and are waiting for an answer.', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('link', { name: /^Reply/ }).count(), 0);
+      assert.equal(await page.locator('main a[href="/portal/new.php"]').count(), 0);
+      assert.deepEqual(await page.getByRole('navigation', { name: 'Start here' }).getByRole('link').allInnerTexts(), ['Ask Westy']);
+      await page.getByText('You see the requests opened under your account.', { exact: true }).waitFor();
+      assert.equal(await page.locator('body').evaluate(body => body.scrollWidth <= body.clientWidth), true);
       assert.deepEqual(consoleProblems, []);
       await context.close();
     }

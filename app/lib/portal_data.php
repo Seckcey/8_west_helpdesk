@@ -405,8 +405,24 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
     }
 
     $tickets = $pdo->prepare(
-        "SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at, t.resolved_at
+        // Four facts about each row's conversation ride along: the kind and time of its newest
+        // customer-visible message (one lookup of that one row), when the first reply was sent, and whether
+        // any reply from the team is visible. Each is tied to a row this query already returns, so the
+        // tenant, client and requester filter below decides what they can ever describe. Nothing else
+        // about a conversation is read here: no text, no author, and only the two kinds a customer can see.
+        "SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at, t.resolved_at, t.sla_due_at,
+                newest.kind AS last_message_kind, newest.created_at AS last_message_at,
+                (SELECT MIN(first_reply.created_at) FROM messages first_reply
+                  WHERE first_reply.ticket_id = t.id AND first_reply.kind = 'tech'
+                    AND first_reply.created_at >= t.created_at
+                    AND first_reply.created_at <= CURRENT_TIMESTAMP) AS first_response_at,
+                EXISTS (SELECT 1 FROM messages team_reply
+                         WHERE team_reply.ticket_id = t.id AND team_reply.kind = 'tech') AS has_team_reply
            FROM tickets t
+           LEFT JOIN messages newest
+             ON newest.ticket_id = t.id
+            AND newest.id = (SELECT MAX(visible.id) FROM messages visible
+                              WHERE visible.ticket_id = t.id AND visible.kind IN ('client','tech'))
           WHERE t.tenant_id = :tenant_id
             AND t.client_id = :client_id
             AND t.merged_into_id IS NULL" . $visibility['sql'] . "
@@ -422,7 +438,9 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
                      WHEN 'resolved' THEN 3
                      ELSE 4
                    END,
-                   t.updated_at DESC, t.id DESC
+                   -- Newest customer-visible activity first. Never the row's own change time: that moves on
+                   -- staff-side edits the customer must not be able to notice.
+                   COALESCE(newest.created_at, t.created_at) DESC, t.id DESC
           LIMIT {$limit}"
     );
     $tickets->execute(['tenant_id' => $tenantId, 'client_id' => $clientId] + $visibility['params']);

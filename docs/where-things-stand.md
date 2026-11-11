@@ -508,6 +508,16 @@ appears. Each computer shows its state first as a
 tag. The two antivirus request forms moved into their own section below the list. Customer-facing
 words say setup link, setup file and add. No SQL, auth or service-contract change.
 
+**Portal Home: one question and requests that say what is happening (draft, not live).** Home's hero is
+"Hello, {first name}", "How can we help {client} today?" and two buttons: Ask Westy, and New support
+request for exactly the roles that may already create a request (`portal_role_can_write_tickets()`, the
+Support Requests page's own check). Requests waiting on the customer come first with a Reply button. On
+Home and on Support Requests each request is its subject, one sentence and a tag (Received, In progress,
+Waiting for your reply, Resolved). `portal_ticket_summary()` now also returns, under its existing tenant,
+client and requester filter, the kind and time of each request's newest customer-visible message, its
+first-reply time and its reply goal; it reads no message text or author. No permission, SQL schema or
+auth change.
+
 **Ticket menus and reply with a next step (live).** Status, priority and owner are menus
 on the ticket page and, from the keyboard, on the highlighted queue row; nothing cycles any more, so
 no step passes through Resolved. The owner menu offers Me, Unassigned and every active teammate. A
