@@ -147,21 +147,47 @@ try {
     $x = $dom(ticket_new_form($clients, $contacts, array_replace($blank, ['client_id' => 12, 'contact_id' => 32]), $csrf, '/ticket_new.php', '/'));
     form_check($attrs($x, '//select[@id="f-contact"]/option[@selected]', 'value') === ['32'], 'a chosen contact stays chosen');
 
-    // ---- a call logged with no contact speaks in the client's name, and is not said to be "from" it ----
+    // ---- one ticket per copy of the form ----
+    $key = ticket_new_form_key();
+    form_check(preg_match('/\A[0-9a-f]{32}\z/', $key) === 1 && ticket_new_form_key() !== $key, 'each copy of the form gets its own key');
+    form_check(ticket_new_form_key(['form_key' => $key]) === $key, 'a form shown again after a refusal keeps the key it was sent with');
+    foreach ([['form_key' => 'short'], ['form_key' => strtoupper($key)], ['form_key' => [$key]], ['form_key' => $key . "\n"], ['form_key' => str_repeat('g', 32)]] as $odd) {
+        $made = ticket_new_form_key($odd);
+        form_check(preg_match('/\A[0-9a-f]{32}\z/', $made) === 1 && $made !== ($odd['form_key'] ?? null), 'a key of the wrong shape is replaced, never kept');
+    }
+    $x = $dom(ticket_new_form($clients, $contacts, $blank, $csrf, '/ticket_new.php', '/', $key));
+    form_check($attrs($x, '//form//input[@type="hidden"][@name="form_key"]', 'value') === [$key], 'the form carries its key');
+    $done = ticket_new_remember(null, $key, 7001);
+    form_check($done === [$key => 7001] && ticket_new_already($done, $key) === 7001, 'a form that became a ticket is remembered with that ticket');
+    form_check(ticket_new_already($done, ticket_new_form_key()) === 0 && ticket_new_already($done, '') === 0 && ticket_new_already(null, $key) === 0
+        && ticket_new_already('not a list', $key) === 0 && ticket_new_already([$key => '7001'], $key) === 0, 'another form, no key, or a record that is not one, is not remembered');
+    for ($n = 1; $n <= TICKET_NEW_REMEMBERED + 5; $n++) $done = ticket_new_remember($done, sprintf('%032x', $n), 8000 + $n);
+    form_check(count($done) === TICKET_NEW_REMEMBERED && array_key_first($done) === sprintf('%032x', TICKET_NEW_REMEMBERED + 5) && ticket_new_already($done, $key) === 0,
+        'the session keeps the newest few and lets the oldest go');
+
+    // ---- who asked: the contact, whatever their name; only a ticket with no contact falls back ----
     $row = ['id' => 101, 'tenant_id' => 1, 'client_id' => 12, 'status' => 'open', 'priority' => 'normal', 'channel' => 'phone', 'subject' => 'Printer',
         'client_name' => 'Bayside Realty', 'created_at' => gmdate('Y-m-d H:i:s', time() - 1200), 'contact_name' => null];
-    form_check(ticket_origin(array_replace($row, ['opener_name' => 'Bayside Realty'])) === 'Bayside Realty, by phone'
-        && ticket_origin(array_replace($row, ['opener_name' => 'bayside realty '])) === 'Bayside Realty, by phone', 'a queue row does not say "from" the client itself');
-    form_check(ticket_origin(array_replace($row, ['opener_name' => 'Dana Whitfield'])) === 'Bayside Realty, by phone from Dana Whitfield'
-        && ticket_origin(array_replace($row, ['contact_name' => 'Dana Whitfield', 'opener_name' => 'Bayside Realty'])) === 'Bayside Realty, by phone from Dana Whitfield',
-        'and still names a person');
+    form_check(ticket_asker(array_replace($row, ['opener_name' => 'Bayside Realty'])) === '' && ticket_asker(array_replace($row, ['opener_name' => 'bayside realty '])) === ''
+        && ticket_origin(array_replace($row, ['opener_name' => 'Bayside Realty'])) === 'Bayside Realty, by phone',
+        'a call logged with no contact is in the client\'s name, and a row does not say "from" the client itself');
+    form_check(ticket_asker(array_replace($row, ['opener_name' => 'Dana Whitfield'])) === 'Dana Whitfield'
+        && ticket_origin(array_replace($row, ['opener_name' => 'Dana Whitfield'])) === 'Bayside Realty, by phone from Dana Whitfield', 'with no contact, the person who wrote first is named');
+    form_check(ticket_asker(array_replace($row, ['contact_name' => 'Dana Whitfield', 'opener_name' => 'Bayside Realty'])) === 'Dana Whitfield', 'a contact is who asked, whoever wrote first');
+    // A contact who has the client's own name (a sole trader) is still a person, and is named.
+    $sole = array_replace($row, ['client_name' => 'Dana Whitfield', 'contact_name' => 'Dana Whitfield', 'opener_name' => 'Dana Whitfield']);
+    form_check(ticket_asker($sole) === 'Dana Whitfield' && ticket_origin($sole) === 'Dana Whitfield, by phone from Dana Whitfield',
+        'a contact named like the client is named all the same');
+    form_check(ticket_asker(['client_name' => 'Bayside Realty']) === '' && ticket_origin(array_replace($row, ['channel' => 'alert', 'contact_name' => 'Dana'])) === 'Bayside Realty, from a Milepost alert',
+        'nobody is named when there is nobody, or for an alert');
     $plain = static fn(string $html): string => trim(html_entity_decode(strip_tags($html)));
-    form_check($plain(ticket_subtitle($row, 'Bayside Realty')) === '#101 for Bayside Realty, opened 20 minutes ago by phone'
-        && $plain(ticket_subtitle($row, 'Dana Whitfield')) === '#101 for Bayside Realty, opened 20 minutes ago by phone from Dana Whitfield', 'nor does the sentence on the ticket');
+    form_check($plain(ticket_subtitle($row, ticket_asker(array_replace($row, ['opener_name' => 'Bayside Realty'])))) === '#101 for Bayside Realty, opened 20 minutes ago by phone'
+        && $plain(ticket_subtitle($sole, ticket_asker($sole))) === '#101 for Dana Whitfield, opened 20 minutes ago by phone from Dana Whitfield',
+        'the sentence on the ticket follows the same rule');
 
     if (in_array('--render', $argv, true)) {
         echo json_encode([
-            'form' => ticket_new_form($clients, $contacts, $blank, $csrf, '/ticket_new.php', '/'),
+            'form' => ticket_new_form($clients, $contacts, $blank, $csrf, '/ticket_new.php', '/', '0123456789abcdef0123456789abcdef'),
             'form_client' => ticket_new_form($clients, $contacts, ticket_new_blank(12), $csrf, '/ticket_new.php?client=12', '/client.php?id=12'),
             'form_typed' => ticket_new_form($clients, $contacts, array_replace($typed, ['subject' => '']), $csrf, '/ticket_new.php', '/'),
         ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);

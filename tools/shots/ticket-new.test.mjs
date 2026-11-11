@@ -30,7 +30,7 @@ const PAGES = {
 <div class="ticket-grid"><div class="thread" id="thread" data-ticket-id="1042" data-status="open" data-priority="normal" data-owner="7"></div></div></div>`),
 };
 
-async function fixture(t, { width = 1440, theme = 'dark', form = 'form', error = '', start = '/ticket_new.php', flash = '' } = {}) {
+async function fixture(t, { width = 1440, theme = 'dark', form = 'form', error = '', start = '/ticket_new.php', flash = '', slow = 0, dropFirst = false } = {}) {
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -47,7 +47,13 @@ async function fixture(t, { width = 1440, theme = 'dark', form = 'form', error =
     }
     if (request.method() === 'POST') {
       posts.push(new URLSearchParams(request.postData() || ''));
-      return route.fulfill({ status: 303, headers: { Location: '/ticket.php?id=1042' }, body: '' });
+      // A request that never arrives (the connection dropped): the form stays on screen as it was left.
+      if (dropFirst && posts.length === 1) return route.abort('aborted');
+      // A slow answer leaves the form on screen long enough to be pressed again.
+      if (slow) await new Promise((resolve) => setTimeout(resolve, slow));
+      // The real page answers with a redirect to the new ticket; a redirect cannot be followed
+      // into this stand-in, so the ticket page is the answer itself.
+      return route.fulfill({ contentType: 'text/html', body: PAGES.ticket(theme, flash) }).catch(() => {});
     }
     const body = url.pathname === '/ticket_new.php' ? formPage(theme, url.searchParams.has('client') ? 'form_client' : form, error)
       : url.pathname === '/client.php' ? PAGES.client(theme)
@@ -75,7 +81,7 @@ const focused = (page) => page.evaluate(() => document.activeElement.id || docum
 const box = (page) => page.getByRole('combobox', { name: 'Client' });
 const clientOptions = (page) => page.locator('#f-client-list [role="option"]').allInnerTexts().then((texts) => texts.map((text) => text.replace(/\s+/g, ' ').trim()));
 const contactsOffered = (page) => page.locator('#f-contact option:not([disabled])').allInnerTexts();
-const sent = (post) => Object.fromEntries([...post.entries()].filter(([name]) => name !== 'csrf'));
+const sent = (post) => Object.fromEntries([...post.entries()].filter(([name]) => name !== 'csrf' && name !== 'form_key'));
 async function posted(page, posts, count) {
   for (let tries = 0; tries < 150 && posts.length < count; tries++) await page.waitForTimeout(20);
   assert.equal(posts.length, count);
@@ -115,6 +121,7 @@ test('a call from start to finish on the keyboard: client, who asked, subject, w
   assert.deepEqual(sent(posts[0]), { client_id: '12', contact_id: '31', subject: 'Can\'t print to the front office printer', said: 'The front office printer shows offline.',
     told: 'Restart the printer and try one page.', channel: 'phone', priority: 'normal', start_timer: '1' });
   assert.equal(posts[0].get('csrf'), 'fixture');
+  assert.equal(posts[0].get('form_key'), '0123456789abcdef0123456789abcdef', 'the form says which copy of itself it is');
   assert.equal(posts[0].has('after'), false, 'Ctrl+Enter creates; it does not resolve');
   assert.deepEqual(errors, []);
 });
@@ -214,6 +221,54 @@ test('closing the new contact puts the list back and sends neither its name nor 
   await page.getByRole('button', { name: 'Create and resolve' }).click();
   await posted(page, posts, 1);
   assert.deepEqual(sent(posts[0]), { client_id: '12', contact_id: '32', subject: 'Printer', said: '', told: '', channel: 'phone', priority: 'normal', start_timer: '1', after: 'resolved' });
+  assert.deepEqual(errors, []);
+});
+
+test('one press, one ticket: Ctrl+Enter twice, or a double click, sends the form once', async (t) => {
+  let { page, errors, posts } = await fixture(t, { slow: 2500 });
+  await page.keyboard.type('bays');
+  await page.keyboard.press('Enter');
+  await page.locator('#f-subject').fill('Printer');
+  await page.locator('#f-subject').focus();
+  await page.keyboard.press('Control+Enter');
+  await page.keyboard.press('Control+Enter');
+  await page.keyboard.press('Control+Enter');
+  assert.equal(await page.locator('#call-create').isDisabled(), true, 'both buttons rest while the form is on its way');
+  assert.equal(await page.locator('#call-resolve').isDisabled(), true);
+  await page.locator('#thread').waitFor({ state: 'attached' });
+  assert.equal(posts.length, 1, 'three presses of Ctrl+Enter made one request');
+  assert.equal(posts[0].has('after'), false);
+  assert.deepEqual(errors, []);
+
+  ({ page, errors, posts } = await fixture(t, { slow: 1500 }));
+  await page.keyboard.type('bays');
+  await page.keyboard.press('Enter');
+  await page.locator('#f-subject').fill('Printer');
+  await page.getByRole('button', { name: 'Create and resolve' }).dblclick({ noWaitAfter: true });
+  await page.locator('#thread').waitFor({ state: 'attached' });
+  assert.equal(posts.length, 1, 'a double click made one request');
+  assert.equal(posts[0].getAll('after').join(), 'resolved', 'and it still says which button was pressed, once');
+  assert.deepEqual(errors, []);
+});
+
+test('a form shown again (Back, or a request that never arrived) is usable again, with nothing left over from the last press', async (t) => {
+  const { page, errors, posts } = await fixture(t, { dropFirst: true });
+  await page.keyboard.type('bays');
+  await page.keyboard.press('Enter');
+  await page.locator('#f-subject').fill('Printer');
+  await page.getByRole('button', { name: 'Create and resolve' }).click({ noWaitAfter: true });
+  await posted(page, posts, 1);
+  assert.equal(await page.locator('#call-resolve').isDisabled(), true);
+  assert.equal(await page.locator('#ticket-new-form input[data-carried]').count(), 1);
+  // What a browser does when it shows a page again from its back/forward cache.
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  assert.equal(await page.locator('#call-create').isEnabled(), true);
+  assert.equal(await page.locator('#call-resolve').isEnabled(), true);
+  assert.equal(await page.locator('#ticket-new-form input[data-carried]').count(), 0, 'the last press\'s "resolve" is not carried into the next one');
+  await page.getByRole('button', { name: 'Create ticket' }).click({ noWaitAfter: true });
+  await posted(page, posts, 2);
+  assert.equal(posts[1].has('after'), false, 'a plain Create after coming back does not resolve');
+  assert.equal(posts[1].get('form_key'), posts[0].get('form_key'), 'it is still the same copy of the form, so the server makes one ticket of it');
   assert.deepEqual(errors, []);
 });
 

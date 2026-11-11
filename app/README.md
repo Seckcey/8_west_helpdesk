@@ -277,7 +277,13 @@ public/                    Apache docroot (page-per-file, like Milepost)
   messages are one transaction. "Create and resolve" then goes through
   `ticket_change_status()` as a chosen resolve, so the survey rule is the
   Resolve button's. "Start my timer" starts the browser's timer on the new
-  ticket's page. `c` opens the form from any staff page outside a text field;
+  ticket's page. One ticket per copy of the form: the script drops a second
+  press and rests both buttons, and the form's `form_key` is remembered in the
+  session with the ticket it became, so the same form sent again goes to that
+  ticket instead of making another (and another contact and survey). Who
+  asked is the ticket's contact (`ticket_asker()`); only a ticket with no
+  contact falls back to the author of its opening message.
+  `c` opens the form from any staff page outside a text field;
   `?client=N` preselects a client (the client page's "New ticket for this
   client").
 - Merge: the Merge button in the head, or the duplicate notice (same contact,

@@ -2733,11 +2733,36 @@
       const exact = clients.filter((c) => c.find === box.value.trim().toLowerCase());
       if (!current() && exact.length === 1) pick(exact[0], false);
     });
+    // One ticket per form. A second press (a double click, Ctrl+Enter twice) is dropped, and both
+    // buttons rest until the page is shown again. A disabled button is not part of what a form
+    // sends, so the pressed button's choice ("Create and resolve") rides in a hidden field.
+    const buttons = [$("#call-create", form), $("#call-resolve", form)].filter(Boolean);
+    let sending = false;
     form.addEventListener("submit", (e) => {
-      if (clientSel.value !== "") return;
-      e.preventDefault();
-      box.setCustomValidity("Choose a client from the list.");
-      box.reportValidity();
+      if (sending) { e.preventDefault(); return; }
+      if (clientSel.value === "") {
+        e.preventDefault();
+        box.setCustomValidity("Choose a client from the list.");
+        box.reportValidity();
+        return;
+      }
+      sending = true;
+      const pressed = e.submitter;
+      if (pressed && pressed.name) {
+        const carry = make("input");
+        carry.type = "hidden";
+        carry.name = pressed.name;
+        carry.value = pressed.value;
+        carry.dataset.carried = "1";
+        form.append(carry);
+      }
+      buttons.forEach((button) => { button.disabled = true; });
+    });
+    // Back to this page (the browser may restore it as it was left): it can be used again.
+    window.addEventListener("pageshow", () => {
+      sending = false;
+      buttons.forEach((button) => { button.disabled = false; });
+      $$("input[data-carried]", form).forEach((input) => input.remove());
     });
 
     const start = current();

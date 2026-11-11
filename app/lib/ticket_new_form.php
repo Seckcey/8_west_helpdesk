@@ -72,6 +72,34 @@ function ticket_new_problem(array $input): string
     return '';
 }
 
+/** How many forms a session remembers having turned into a ticket. */
+const TICKET_NEW_REMEMBERED = 20;
+
+/**
+ * The key a copy of the form carries, so that copy creates one ticket however often it arrives (a
+ * double click, Ctrl+Enter twice, a resend after a slow answer). The key the request sent is kept
+ * when it has the right shape, so a form shown again after a refusal is still the same form.
+ */
+function ticket_new_form_key(array $post = []): string
+{
+    $sent = is_string($post['form_key'] ?? null) ? $post['form_key'] : '';
+    return preg_match('/\A[0-9a-f]{32}\z/', $sent) === 1 ? $sent : bin2hex(random_bytes(16));
+}
+
+/** The ticket this copy of the form already became, or 0. $done is the session's record. */
+function ticket_new_already(mixed $done, string $formKey): int
+{
+    return is_array($done) && is_int($done[$formKey] ?? null) ? $done[$formKey] : 0;
+}
+
+/** The session's record with one more form in it, the newest first, capped. */
+function ticket_new_remember(mixed $done, string $formKey, int $ticketId): array
+{
+    $kept = is_array($done) ? $done : [];
+    unset($kept[$formKey]);
+    return array_slice([$formKey => $ticketId] + $kept, 0, TICKET_NEW_REMEMBERED, true);
+}
+
 /** One row of choices where exactly one is on: radios drawn as a segmented filter. */
 function ticket_new_segments(string $name, string $legend, array $choices, string $current): string
 {
@@ -93,13 +121,15 @@ function ticket_new_segments(string $name, string $legend, array $choices, strin
  * @param array<string,mixed> $values  ticket_new_input() or ticket_new_blank()
  * @param string $csrf  csrf_field()
  * @param string $action  where the form posts; $cancel: where Cancel goes
+ * @param string $formKey  ticket_new_form_key(): this copy of the form, so it creates one ticket however often it is sent
  */
-function ticket_new_form(array $clients, array $contacts, array $values, string $csrf, string $action, string $cancel): string
+function ticket_new_form(array $clients, array $contacts, array $values, string $csrf, string $action, string $cancel, string $formKey = ''): string
 {
     $priorities = [];
     foreach (['low', 'normal', 'high', 'urgent'] as $priority) $priorities[$priority] = PRIORITY_META[$priority][0] ?? ucfirst($priority);
 
-    $html = '<form method="post" action="' . h($action) . '" class="form-grid call-form" id="ticket-new-form">' . $csrf;
+    $html = '<form method="post" action="' . h($action) . '" class="form-grid call-form" id="ticket-new-form">' . $csrf
+        . ($formKey !== '' ? '<input type="hidden" name="form_key" value="' . h($formKey) . '">' : '');
 
     // Client: a list that works by itself; the script puts a type-to-find box in front of it.
     $html .= '<div class="field" id="call-client"><label for="f-client">Client</label>'

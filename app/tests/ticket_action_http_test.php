@@ -609,6 +609,29 @@ try {
     $check($status === 302 && $ticket($quiet)['status'] === 'resolved' && $surveys($quiet) === 0 && $mail($quiet) === [] && $thread($quiet) === []
         && $attr($x, '//*[@id="ticket-flash"]', 'data-toast') === 'Created and resolved. No survey is sent.', 'with no contact there is nobody to survey, and the page says so');
 
+    // The same copy of the form sent twice (a double click, Ctrl+Enter twice) is one ticket.
+    $formKey = (string)$view(102, '/ticket_new.php')->query('//form[@id="ticket-new-form"]//input[@name="form_key"]')->item(0)?->getAttribute('value');
+    $check(preg_match('/\A[0-9a-f]{32}\z/', $formKey) === 1
+        && $formKey !== (string)$view(102, '/ticket_new.php')->query('//input[@name="form_key"]')->item(0)?->getAttribute('value'), 'each copy of the form carries its own key');
+    $twice = ['client_id' => 11, 'contact_name' => 'Twice Typed', 'contact_email' => 'twice@example.test', 'subject' => 'Sent twice', 'said' => 'Hello.',
+        'after' => 'resolved', 'form_key' => $formKey];
+    $before = [$count('tickets'), $count('contacts'), $count('messages'), $count('csat'), $count('mail_queue')];
+    [$status, $first] = $create(102, $twice);
+    $after = [$count('tickets'), $count('contacts'), $count('messages'), $count('csat'), $count('mail_queue')];
+    $check($status === 302 && $first > 0 && $after === [$before[0] + 1, $before[1] + 1, $before[2] + 1, $before[3] + 1, $before[4] + 1],
+        'the first one makes one ticket, one contact, one message and one held survey');
+    [$status, $second] = $create(102, $twice);
+    $check($status === 302 && $second === $first && [$count('tickets'), $count('contacts'), $count('messages'), $count('csat'), $count('mail_queue')] === $after,
+        'the second goes to the same ticket and makes nothing: no second ticket, contact or survey');
+    [$status, $third] = $create(102, ['subject' => '', 'form_key' => $formKey]);
+    $check($status === 302 && $third === $first, 'whatever the second copy says, that form is spent');
+    [$status, $other] = $create(101, $twice);
+    $check($status === 302 && $other > 0 && $other !== $first, 'the key is one person\'s: somebody else sending the same words makes their own ticket');
+    [$status, , $x] = $create(102, ['client_id' => 11, 'subject' => '', 'form_key' => 'ffffffffffffffffffffffffffffffff']);
+    $kept = (string)$x?->query('//input[@name="form_key"]')->item(0)?->getAttribute('value');
+    [$status, $late] = $create(102, ['client_id' => 11, 'subject' => 'After a refusal', 'form_key' => $kept]);
+    $check($kept === 'ffffffffffffffffffffffffffffffff' && $status === 302 && $late > 0 && $late !== $first, 'a refused form keeps its key and can still become a ticket once it is right');
+
     // Refusals: nothing is created, and what was typed comes back.
     $before = [$count('tickets'), $count('contacts'), $count('messages')];
     $unchanged = static fn(): bool => [$count('tickets'), $count('contacts'), $count('messages')] === $before;

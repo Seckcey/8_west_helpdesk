@@ -92,12 +92,26 @@ function ticket_origin(array $t): string
     $line = (string)$t['client_name'];
     if (!isset(CHANNEL_WORDS[$channel])) return $line;
     $line .= ', ' . CHANNEL_WORDS[$channel];
-    $who = trim((string)($t['contact_name'] ?? ''));
-    if ($who === '') $who = trim((string)($t['opener_name'] ?? ''));
-    // An alert is written by a machine: there is nobody to name. Nor is there when the opening
-    // message is in the client's own name (a call logged with no contact).
-    if ($who === '' || $channel === 'alert' || strcasecmp($who, trim((string)$t['client_name'])) === 0) return $line;
+    $who = ticket_asker($t);
+    // An alert is written by a machine: there is nobody to name.
+    if ($who === '' || $channel === 'alert') return $line;
     return $line . ($channel === 'portal' ? ' by ' : ' from ') . $who;
+}
+
+/**
+ * Who asked: the ticket's contact, whatever their name. Only a ticket with no contact falls back to
+ * the author of its opening message, and that author is nobody when it is the client's own name: a
+ * call logged with no contact is stored in the client's name, and "from Bayside Realty" beside
+ * "Bayside Realty" names nobody.
+ *
+ * @param array{contact_name?:?string,opener_name?:?string,client_name?:?string} $t
+ */
+function ticket_asker(array $t): string
+{
+    $contact = trim((string)($t['contact_name'] ?? ''));
+    if ($contact !== '') return $contact;
+    $opener = trim((string)($t['opener_name'] ?? ''));
+    return strcasecmp($opener, trim((string)($t['client_name'] ?? ''))) === 0 ? '' : $opener;
 }
 
 /**

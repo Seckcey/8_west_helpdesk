@@ -248,7 +248,7 @@ $cannedRows = $cq2->fetchAll();
 // contact row: its opening message carries the requester's name.
 $contact = ticket_contact($ticket);
 $contactName = $contact !== null ? $contact['name'] : '';
-$asker = $contactName !== '' ? $contactName : trim((string)($ticket['opener_name'] ?? ''));
+$asker = ticket_asker(['contact_name' => $contactName, 'opener_name' => $ticket['opener_name'] ?? '', 'client_name' => $ticket['client_name']]);
 $railContact = $contact !== null && $contactName !== ''
     ? ['name' => $contactName, 'email' => $contact['email'], 'portal' => false]
     : ($replyAudience['via'] === 'portal' && $asker !== '' ? ['name' => $asker, 'email' => '', 'portal' => true] : null);

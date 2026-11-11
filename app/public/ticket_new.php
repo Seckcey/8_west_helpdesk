@@ -9,6 +9,11 @@
  * the Resolve button (lib/ticket_changes.php), so a survey is asked for exactly as it would be there.
  *
  * ?client=12 preselects a client (the client page's "New ticket for this client").
+ *
+ * Each copy of the form carries a key, and the session remembers which ticket a key became: the
+ * same form sent twice (a double click, Ctrl+Enter twice) goes to the ticket it already created
+ * instead of creating a second one, a second contact and a second survey. Requests of one session
+ * are handled one at a time, so the second sees what the first recorded.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
@@ -22,9 +27,17 @@ $user = require_login();
 $error = '';
 $fromClient = is_string($_GET['client'] ?? null) && ctype_digit($_GET['client']) && strlen($_GET['client']) <= 9 ? (int)$_GET['client'] : 0;
 $values = ticket_new_blank();
+// This copy of the form: the key it was sent with, or a new one.
+$formKey = ticket_new_form_key($_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST : []);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
+    $sentKey = is_string($_POST['form_key'] ?? null) ? $_POST['form_key'] : '';
+    $already = ticket_new_already($_SESSION['ticket_new_done'] ?? null, $sentKey);
+    if ($already > 0) {
+        header('Location: /ticket.php?id=' . $already);
+        exit;
+    }
     $values = ticket_new_input($_POST);
     $error = ticket_new_problem($values);
 
@@ -95,7 +108,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($error === '') {
-            // The ticket exists. What follows is said on its page, once.
+            // The ticket exists: this copy of the form is spent, before anything else can fail.
+            if ($formKey === $sentKey) $_SESSION['ticket_new_done'] = ticket_new_remember($_SESSION['ticket_new_done'] ?? null, $formKey, $tid);
+            // What follows is said on its page, once.
             $flash = ['ticket_id' => $tid, 'toast' => '', 'undo_status' => ''];
             if ($values['resolve']) {
                 try {
@@ -141,7 +156,7 @@ page_top($user, 'New ticket', 'queue');
     <div class="card empty"><p>No client is available for new tickets yet.</p><a class="btn-chip" href="/client_new.php">Add a client</a></div>
   <?php else: ?>
   <div class="card form-card">
-    <?= ticket_new_form($clients, $contacts, $values, csrf_field(), '/ticket_new.php' . ($fromClient > 0 ? '?client=' . $fromClient : ''), $back) ?>
+    <?= ticket_new_form($clients, $contacts, $values, csrf_field(), '/ticket_new.php' . ($fromClient > 0 ? '?client=' . $fromClient : ''), $back, $formKey) ?>
   </div>
   <?php endif; ?>
 </div>
