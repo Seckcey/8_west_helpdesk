@@ -381,8 +381,10 @@ test('Saved replies opens the same list as "/" and keeps a draft', async (t) => 
 
 test('on the queue S, P, T and A act on the highlighted row', async (t) => {
   const { page, errors, calls } = await fixture(t, { view: 'queue' });
+  assert.equal(await page.locator('.trow.trow-sel').count(), 0, 'no row looks chosen before a key is pressed');
   await page.keyboard.press('s');
   await page.getByRole('listbox', { name: 'Status' }).waitFor();
+  assert.equal(await page.locator('.trow.trow-sel').getAttribute('data-ticket-id'), '101', 'the key shows which row its menu is for');
   assert.deepEqual(await page.locator('[role="option"][aria-selected="true"]').allInnerTexts().then((texts) => texts.map((text) => text.replace(/\s*\d$/, '').trim())), ['Waiting']);
   await shot(page, 'queue-status-menu-1440-dark');
   await page.keyboard.press('1');

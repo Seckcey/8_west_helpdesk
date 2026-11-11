@@ -79,16 +79,16 @@ test('the first Enter opens the first row at once', async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test('the first k or arrow shows the highlight too, and a key that acts on a row shows which row', async (t) => {
+test('the first k or arrow shows the highlight too, and so does x on the row it ticks', async (t) => {
   for (const key of ['k', 'ArrowDown', 'ArrowUp']) {
     const { page } = await fixture(t);
     await page.keyboard.press(key);
     assert.deepEqual(await highlighted(page), ['101'], key);
   }
   const { page, errors } = await fixture(t);
-  await page.keyboard.press('s');
-  await page.getByRole('listbox').waitFor();
-  assert.deepEqual(await highlighted(page), ['101'], 'the menu is for the row now highlighted');
+  await page.keyboard.press('x');
+  assert.equal(await page.getByRole('checkbox', { name: 'Select ticket #101' }).isChecked(), true);
+  assert.deepEqual(await highlighted(page), ['101'], 'the ticked row is the highlighted one');
   assert.deepEqual(errors, []);
 });
 
