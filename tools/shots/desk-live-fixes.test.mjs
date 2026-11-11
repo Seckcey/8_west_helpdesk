@@ -91,7 +91,12 @@ for (const width of [390, 360]) {
     const search = await box(page, '#palette-trigger');
     const cluster = await box(page, '.topbar .w365-cluster');
     assert.equal(menu.shown && search.shown && cluster.shown, true);
-    assert.equal((await box(page, '#timer-widget')).shown, false, 'an idle timer is not in the bar');
+    const timer = await box(page, '#timer-widget');
+    assert.equal(timer.shown, true, 'the idle timer remains one tap from Time');
+    assert.equal(timer.text, '', 'only its icon is visible while idle');
+    assert.equal(await page.locator('#timer-widget').getAttribute('aria-label'), 'Time: no timer running');
+    assert.ok(timer.width >= 44 && timer.height >= 44);
+    assert.ok(search.right <= timer.left && timer.right <= cluster.left, 'the timer fits between search and the suite controls');
     assert.equal((await box(page, '.search-label')).shown || (await box(page, '.search-keys')).shown, false, 'the search is an icon');
     assert.equal(await page.locator('#palette-trigger').getAttribute('aria-label'), 'Search or run a command');
     for (const [name, part] of [['Menu', menu], ['Search', search]]) {
@@ -134,6 +139,21 @@ for (const width of [390, 360]) {
     await shot(page, `topbar-timer-${width}-dark`);
   });
 }
+
+test('a long-running timer still fits beside all phone navigation controls', async (t) => {
+  const page = await open(t, 'queue', {
+    width: 360, theme: 'light',
+    init: { fn: ([key, at]) => localStorage.setItem(key, JSON.stringify({ ticketId: 1041, tenantId: '1', userId: '102', entryKey: 'timer:fixture', state: 'active', startedAt: at })), arg: [TIMER_KEY, Date.now() - 100 * 3600000] },
+  });
+  const parts = await Promise.all(['#mobile-nav-toggle', '#palette-trigger', '#timer-widget', '.topbar .w365-cluster'].map(selector => box(page, selector)));
+  for (let i = 0; i < parts.length; i++) {
+    assert.equal(parts[i].shown && !parts[i].clipped, true);
+    assert.ok(parts[i].left >= 0 && parts[i].right <= 360);
+    if (i) assert.ok(parts[i - 1].right <= parts[i].left, 'adjacent controls never overlap');
+  }
+  assert.equal(await fits(page), true);
+  await shot(page, 'topbar-long-timer-360-light');
+});
 
 // ---- F1: the search hint names this computer's key ----
 test('the search hint is two key chips: Ctrl K, or the Mac key on a Mac', async (t) => {
@@ -232,7 +252,7 @@ test('Clients: nothing is highlighted on load; the first j shows the first row',
 });
 
 // ---- B2: Time on a phone ----
-test('Time on a phone: the duration and the tags on the first line, then the whole title and its text at full width', async (t) => {
+test('Time on a phone: title and duration on the first line, tags below, with the whole title readable', async (t) => {
   const page = await open(t, 'time', { width: 390 });
   const rows = await page.locator('.entry-row').evaluateAll((list) => list.map((row) => {
     const rect = (el) => el.getBoundingClientRect();
@@ -241,20 +261,20 @@ test('Time on a phone: the duration and the tags on the first line, then the who
     const actions = row.querySelector('.review-actions');
     return {
       titleCut: note.scrollWidth > note.clientWidth + 1,
-      firstLine: Math.abs(rect(min).top - rect(tags).top) < 8 && rect(min).left < rect(tags).left && rect(row).right - rect(tags).right < 24,
+      firstLine: Math.abs(rect(min).top - rect(note).top) < 8 && rect(min).left >= rect(main).right,
+      tagsBelow: rect(tags).top >= rect(main).bottom - 1,
       minFromTop: Math.round(rect(min).top - rect(row).top),
-      titleBelow: rect(note).top >= rect(min).bottom - 1,
       mainShare: rect(main).width / inner,
-      actionsBelow: actions ? rect(actions).top >= rect(main).bottom - 1 : null,
+      actionsBelow: actions ? rect(actions).top >= rect(tags).bottom - 1 : null,
       buttons: [...row.querySelectorAll('button, summary')].filter((el) => el.offsetParent !== null).map((el) => rect(el).height),
     };
   }));
   assert.equal(rows.length, 6);
   for (const row of rows) {
     assert.equal(row.titleCut, false, 'the title is whole');
-    assert.equal(row.firstLine, true, 'the duration is at the left and the tags at the right of the first line');
-    assert.equal(row.titleBelow, true, 'the title starts under that line');
-    assert.ok(row.mainShare > 0.95, `the text is full width (${row.mainShare.toFixed(2)})`);
+    assert.equal(row.firstLine, true, 'title and duration share the first line without overlapping');
+    assert.equal(row.tagsBelow, true, 'tags follow the title and its text');
+    assert.ok(row.mainShare > 0.7, `the title has most of the available width (${row.mainShare.toFixed(2)})`);
     assert.ok(row.buttons.every((height) => height >= 44), `every control is a 44px target (${row.buttons})`);
     assert.notEqual(row.actionsBelow, false, 'what can be done sits under the text');
   }
@@ -270,4 +290,23 @@ test('Time on a phone: the duration and the tags on the first line, then the who
     display: getComputedStyle(row).display,
   }));
   assert.deepEqual(first, { minFirst: true, tagsAfter: true, display: 'flex' });
+});
+
+
+test('the visible timer keeps ticking after adding the phone icon, without changing stored evidence', async t => {
+  for (const width of [390, 1440]) {
+    const page = await open(t, 'queue', {
+      width,
+      init: { fn: ([key, at]) => localStorage.setItem(key, JSON.stringify({ ticketId: 1041, tenantId: '1', userId: '102', entryKey: 'timer:fixture', state: 'active', startedAt: at })), arg: [TIMER_KEY, Date.now() - 761000] },
+    });
+    const stored = await page.evaluate(key => localStorage.getItem(key), TIMER_KEY);
+    const before = await page.locator('#timer-widget .tw-clock').innerText();
+    await page.waitForFunction(previous => document.querySelector('#timer-widget .tw-clock').textContent !== previous, before);
+    const after = await page.locator('#timer-widget .tw-clock').innerText();
+    assert.notEqual(after, before);
+    assert.equal(await page.locator('#timer-widget .tw-dot').textContent(), '');
+    assert.equal(await page.locator('#timer-widget .tw-icon').count(), 1);
+    assert.equal(await page.locator('#timer-widget').getAttribute('aria-label'), `Time: ${after}, running`);
+    assert.equal(await page.evaluate(key => localStorage.getItem(key), TIMER_KEY), stored);
+  }
 });

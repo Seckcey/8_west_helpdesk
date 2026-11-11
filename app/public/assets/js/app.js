@@ -372,7 +372,7 @@
       list.tabIndex = -1;
     }
     pop.appendChild(list);
-    document.body.appendChild(pop);
+    (anchor.closest('dialog[open]') || document.body).appendChild(pop);
     menu = { field, id, pop, list, input, anchor, trigger: trigger || null, choices, current, shown: [], index: 0, restore: document.activeElement };
     renderMenu("");
     menu.index = Math.max(0, menu.shown.findIndex((c) => c.value === current));
@@ -597,13 +597,19 @@
         widget.classList.toggle("timer-on", t.state === "active");
         widget.classList.toggle("timer-stopped", t.state === "stopped");
         widget.classList.remove("timer-idle");
-        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span>${fmt(timerElapsed(t))}</span><span class="tw-ticket">#${t.ticketId}</span>${t.state === "stopped" ? '<span class="tw-retry">· retry</span>' : ""}`;
+        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span class="tw-clock">${fmt(timerElapsed(t))}</span><span class="tw-ticket">#${t.ticketId}</span>${t.state === "stopped" ? '<span class="tw-retry">· retry</span>' : ""}`;
       } else {
         widget.classList.remove("timer-on");
         widget.classList.remove("timer-stopped");
         widget.classList.add("timer-idle");
-        widget.textContent = "No timer running";
+        widget.replaceChildren(make("span", "tw-idle-label", "No timer running"));
       }
+      // Presentation only: the same Time link and timer state, with a phone-sized clock icon.
+      const clock = make("span", "tw-icon");
+      clock.setAttribute("aria-hidden", "true");
+      clock.innerHTML = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.5"/><path d="M10 5.5V10l3 2" stroke-linecap="round"/></svg>';
+      widget.prepend(clock);
+      widget.setAttribute("aria-label", t ? `Time: ${fmt(timerElapsed(t))}${t.state === "stopped" ? ", not logged yet; retry" : ", running"}` : "Time: no timer running");
     }
     // Time page card
     const card = $("#timer-card");
@@ -819,8 +825,9 @@
     if (clock) clock.textContent = fmt(timerElapsed(t));
     const widget = $("#timer-widget");
     if (widget && widget.classList.contains("timer-on")) {
-      const span = widget.querySelector("span:nth-child(2)");
+      const span = widget.querySelector(".tw-clock");
       if (span) span.textContent = fmt(timerElapsed(t));
+      widget.setAttribute("aria-label", `Time: ${fmt(timerElapsed(t))}, running`);
     }
   }, 1000);
 
@@ -1549,6 +1556,9 @@
       if (mod && key === "k") closeMenu(false);
       else { menuKeydown(e); return; }
     }
+
+    // Native Details sheet owns Tab and Escape; shortcuts must not act on the page behind it.
+    if ($(".phone-details[open]")) return;
 
     if (helpOpen && key === "escape") { e.preventDefault(); toggleHelp(); return; }
 
@@ -3081,6 +3091,88 @@
     if (start) { box.value = start.name; paintPicked(); }
     // Focus starts where the next thing to say is: the client, or who asked once the client is known.
     if (!$(".form-error")) (start ? contactSel : box).focus();
+  })();
+
+  /* Phone ticket controls: reuse the one Details column, its menus and the existing composer.
+     With no JavaScript, the column stays in the document as before. No action is submitted here. */
+  (() => {
+    const ticketPage = $(".page-ticket");
+    const rail = ticketPage && $(".ticket-grid > .rail", ticketPage);
+    const title = ticketPage && $(".ticket-subject", ticketPage);
+    if (!rail || !title || typeof HTMLDialogElement === "undefined") return;
+    const phone = window.matchMedia("(max-width: 700px)");
+    const home = document.createComment("Details column position");
+    rail.before(home);
+    const summary = make("button", "phone-ticket-summary");
+    summary.type = "button";
+    summary.setAttribute("aria-haspopup", "dialog");
+    summary.setAttribute("aria-controls", "phone-ticket-details");
+    summary.setAttribute("aria-expanded", "false");
+    const words = make("span", "phone-summary-words");
+    const more = make("span", "phone-summary-more", "Details ›");
+    summary.append(words, more);
+    title.after(summary);
+    const sheet = make("dialog", "phone-details");
+    sheet.id = "phone-ticket-details";
+    sheet.setAttribute("aria-label", "Ticket details");
+    const close = make("button", "btn-secondary phone-details-close", "Close details");
+    close.type = "button";
+    sheet.append(close);
+    document.body.append(sheet);
+    let returnTo = summary;
+    const paint = () => {
+      const labels = ["[data-chip]", "[data-pri]", "[data-assignee] .assignee-name", "[data-sla]"]
+        .map(selector => ($(selector, rail)?.textContent || "").trim()).filter(Boolean);
+      words.textContent = labels.join(", ");
+      summary.title = labels.join(", ");
+      summary.setAttribute("aria-label", labels.join(", ") + ". Open ticket details");
+    };
+    paint();
+    new MutationObserver(paint).observe(rail, { childList: true, subtree: true, characterData: true });
+    function openDetails(trigger = summary, field = null) {
+      if (!phone.matches) return;
+      returnTo = trigger;
+      closeMenu(false);
+      sheet.append(rail);
+      if (!sheet.open) sheet.showModal();
+      summary.setAttribute("aria-expanded", "true");
+      if (field) {
+        const existing = $(`.menu-btn[data-action="${field}"]`, rail);
+        if (existing) { existing.scrollIntoView({ block: "nearest" }); existing.focus(); existing.click(); }
+      } else close.focus();
+    }
+    summary.addEventListener("click", () => openDetails());
+    close.addEventListener("click", () => sheet.close());
+    sheet.addEventListener("close", () => {
+      closeMenu(false);
+      home.after(rail);
+      summary.setAttribute("aria-expanded", "false");
+      if (phone.matches && returnTo?.isConnected) returnTo.focus({ preventScroll: true });
+    });
+    sheet.addEventListener("click", event => {
+      if (event.target !== sheet) return;
+      const rect = sheet.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) sheet.close();
+    });
+    phone.addEventListener("change", () => { if (!phone.matches && sheet.open) sheet.close(); });
+    if (composer) {
+      const bar = make("nav", "phone-ticket-actions");
+      bar.setAttribute("aria-label", "Ticket actions");
+      for (const [label, action] of [["Reply", "reply"], ["Note", "note"], ["Status", "status"], ["Assign", "assignee"]]) {
+        const button = make("button", "btn-secondary", label);
+        button.type = "button";
+        button.dataset.phoneAction = action;
+        button.addEventListener("click", () => {
+          if (action === "reply" || action === "note") {
+            if (sheet.open) sheet.close();
+            composer.focus(action);
+          } else openDetails(button, action);
+        });
+        bar.append(button);
+      }
+      ticketPage.append(bar);
+    }
+    ticketPage.classList.add("phone-details-ready");
   })();
 
   /* boot */

@@ -360,10 +360,15 @@ for (const theme of ['dark', 'light']) {
     await tall(page.locator('#merge-btn'), 'Merge');
     await tall(page.locator('#resolve-btn'), 'Resolve');
     await tall(page.locator('#merge-dupe-btn'), 'Merge into the duplicate');
+    await tall(page.locator('.phone-ticket-summary'), 'the Details summary');
+    await tall(page.locator('.phone-ticket-actions button'), 'the bottom actions');
+    await page.locator('.phone-ticket-summary').click();
     await tall(page.locator('#timer-btn'), 'the timer button');
     await tall(page.locator('.rail-copy'), 'Copy');
     await tall(page.locator('.rail-ticket'), 'another open ticket');
     await tall(page.getByRole('link', { name: 'Open client' }), 'Open client');
+    await shot(page, `details-sheet-390-${theme}`);
+    await page.getByRole('button', { name: 'Close details' }).click();
     const steps = await page.locator('a.ticket-step').evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width));
     for (const width of steps) assert.ok(width >= 44);
     const notice = await page.locator('.ticket-callout').evaluate((node) => ({
@@ -387,3 +392,75 @@ for (const theme of ['dark', 'light']) {
     assert.deepEqual(errors, []);
   });
 }
+
+test('phone Details reuses one set of controls, restores focus, and returns to the desktop column', async t => {
+  const { page, errors, other } = await fixture(t, { width: 390 });
+  const summary = page.locator('.phone-ticket-summary');
+  assert.match(await summary.getAttribute('aria-label'), /Open, High, Unassigned/);
+  assert.equal(await page.locator('.ticket-grid > .rail').isVisible(), false);
+  await summary.click();
+  assert.equal(await page.getByRole('dialog', { name: 'Ticket details' }).count(), 1);
+  assert.equal(await page.locator('#timer-btn').count(), 1);
+  await page.keyboard.press('Tab');
+  assert.ok(await page.evaluate(() => !!document.activeElement.closest('.phone-details')));
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.phone-details').getAttribute('open'), null);
+  assert.ok(await summary.evaluate(el => el === document.activeElement));
+  await summary.click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForFunction(() => !document.querySelector('.phone-details').open);
+  await page.locator('.ticket-grid > .rail').waitFor({ state: 'visible' });
+  assert.ok(await page.locator('.ticket-grid > .rail').isVisible());
+  assert.equal(await page.locator('#timer-btn').count(), 1);
+  assert.equal(await summary.isVisible(), false);
+  assert.equal(other.filter(url => !url.includes('presence')).length, 0, 'opening or resizing submits nothing');
+  assert.deepEqual(errors, []);
+});
+
+test('phone Reply and Note select the existing composer without submitting', async t => {
+  const { page, other, errors } = await fixture(t, { width: 390 });
+  for (const mode of ['note', 'reply']) {
+    // The action bar makes room for the keyboard while the box is focused.
+    await page.locator('#reply-box').evaluate(el => el.blur());
+    await page.locator(`[data-phone-action="${mode}"]`).click();
+    assert.equal(await page.locator('#composer-mode').inputValue(), mode);
+    assert.equal(await focused(page), 'reply-box');
+    assert.equal(await page.locator('.phone-ticket-actions').isVisible(), false);
+  }
+  assert.equal(other.length, 0);
+  assert.deepEqual(errors, []);
+});
+
+test('phone Status and Assign open the existing menus and retain their exact request contract', async t => {
+  const { page, errors } = await fixture(t, { width: 390 });
+  const requests = [];
+  await page.route(`${ORIGIN}/api/ticket_action.php`, route => {
+    const request = route.request();
+    assert.equal(request.method(), 'POST');
+    assert.equal(request.headers()['x-csrf'], 'fixture');
+    requests.push(request.postDataJSON());
+    return route.fulfill({ status: 422, contentType: 'application/json', body: '{"ok":false,"error":"Synthetic refusal"}' });
+  });
+  await page.locator('[data-phone-action="status"]').click();
+  const sheet = page.getByRole('dialog', { name: 'Ticket details' });
+  assert.ok(await sheet.getByRole('listbox', { name: 'Status' }).isVisible());
+  assert.equal(requests.length, 0, 'opening a menu does not change status');
+  await sheet.getByRole('option', { name: /Waiting/ }).click();
+  await settle(page);
+  assert.deepEqual(requests[0], { id: '1041', field: 'status', value: 'waiting', chosen: true });
+  assert.equal(await page.locator('#thread').getAttribute('data-status'), 'open', 'server refusal leaves status unchanged');
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await page.locator('[data-phone-action="assignee"]').click();
+  assert.ok(await sheet.getByRole('combobox', { name: 'Assign to' }).isVisible());
+  await sheet.getByRole('option', { name: /Me/ }).first().click();
+  await settle(page);
+  assert.deepEqual(requests[1], { id: '1041', field: 'assignee', value: '7' });
+  assert.equal(await page.locator('#thread').getAttribute('data-owner'), '');
+  await sheet.locator('.menu-btn[data-action="assignee"]').click();
+  await page.keyboard.press('Escape');
+  assert.ok(await sheet.isVisible(), 'first Escape closes only the menu');
+  await page.keyboard.press('Escape');
+  assert.equal(await sheet.isVisible(), false);
+  assert.ok(await page.locator('[data-phone-action="assignee"]').evaluate(el => el === document.activeElement));
+  assert.deepEqual(errors, []);
+});

@@ -436,7 +436,9 @@ for (const theme of ['dark', 'light']) {
         assert.ok(box >= 44, `${name} is ${box}px tall`);
       }
     };
+    await page.locator('.phone-ticket-summary').click();
     await tall(page.locator('.menu-btn'), 'a menu button');
+    await page.getByRole('button', { name: 'Close details' }).click();
     await tall(page.getByRole('button', { name: 'Resolve', exact: true }), 'Resolve');
     await tall(page.locator('.send-split .btn-primary'), 'Send');
     await tall(page.locator('.att-pick'), 'Attach a file');
@@ -444,7 +446,7 @@ for (const theme of ['dark', 'light']) {
     assert.equal(await fits(page), true);
     await shot(page, `ticket-390-${theme}`);
 
-    await menuButton(page, 'assignee').click();
+    await page.locator('[data-phone-action="assignee"]').click();
     await page.getByRole('combobox', { name: 'Assign to' }).waitFor();
     await tall(options(page), 'a menu choice');
     await tall(page.locator('.menu-filter'), 'the teammate box');
@@ -453,6 +455,7 @@ for (const theme of ['dark', 'light']) {
     assert.equal(await fits(page), true);
     await shot(page, `owner-menu-390-${theme}`);
     await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Close details' }).click();
 
     await page.getByRole('button', { name: 'More ways to send' }).click();
     await tall(page.getByRole('menuitem'), 'a send choice');
@@ -481,5 +484,23 @@ test('light theme at desktop width (for the eye; also checks focus is visible on
   await page.keyboard.press('Escape');
   await page.keyboard.press('Tab');
   await shot(page, 'ticket-1440-light');
+  assert.deepEqual(errors, []);
+});
+
+test('phone summary follows successful status and owner changes through the existing menus', async t => {
+  const { page, calls, errors } = await fixture(t, { width: 390 });
+  await page.locator('[data-phone-action="status"]').click();
+  await page.getByRole('option', { name: /^Waiting/ }).click();
+  await page.waitForFunction(() => document.querySelector('.phone-ticket-summary').textContent.includes('Waiting'));
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await page.locator('[data-phone-action="assignee"]').click();
+  await page.getByRole('option', { name: /^Me/ }).click();
+  await page.waitForFunction(() => !document.querySelector('.phone-ticket-summary').textContent.includes('Unassigned'));
+  await page.getByRole('button', { name: 'Close details' }).click();
+  assert.match(await page.locator('.phone-ticket-summary').getAttribute('aria-label'), /Waiting, Normal, .*, Due in 6 h/);
+  assert.deepEqual(calls, [
+    { id: '42', field: 'status', value: 'waiting', chosen: true },
+    { id: '42', field: 'assignee', value: '7' },
+  ]);
   assert.deepEqual(errors, []);
 });

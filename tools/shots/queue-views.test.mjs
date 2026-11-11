@@ -232,6 +232,22 @@ for (const theme of ['dark', 'light']) {
     await tall(page.locator('.pager a'), 'Next');
     await tall(page.locator('.queue-elsewhere a'), 'a link to what the view leaves out');
     await tall(page.getByRole('button', { name: 'Select', exact: true }), 'Select');
+    const rows = await page.locator('.trow[data-ticket-id]').evaluateAll(nodes => nodes.map(row => {
+      const rect = selector => row.querySelector(selector).getBoundingClientRect();
+      return {
+        height: row.getBoundingClientRect().height,
+        client: row.querySelector('.trow-client-phone').textContent.trim(),
+        twoLines: rect('.trow-client-phone').top >= rect('.trow-subject').bottom - 1,
+        statusRight: rect('.trow-status').left >= rect('.trow-subject').right - 1,
+        ownerBesideDue: rect('.trow-tech').left >= rect('.trow-sla').right - 1,
+      };
+    }));
+    assert.ok(rows.length > 0);
+    for (const row of rows) {
+      assert.ok(row.height >= 76 && row.height <= 82, `compact two-line row is ${row.height}px`);
+      assert.ok(row.client.length > 0, 'the client remains visible');
+      assert.equal(row.twoLines && row.statusRight && row.ownerBesideDue, true);
+    }
     assert.equal(await page.getByRole('checkbox', { name: 'Select ticket #101' }).isVisible(), false);
     await shot(page, `queue-390-${theme}`);
 
