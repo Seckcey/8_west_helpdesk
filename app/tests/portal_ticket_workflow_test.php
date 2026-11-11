@@ -136,6 +136,55 @@ portal_workflow_check('ticket detail includes only customer and technician conve
     && ! str_contains(json_encode($detail, JSON_THROW_ON_ERROR), 'AUTOMATION SECRET'));
 portal_workflow_check('pre-open technician history cannot become the portal response milestone',
     $detail['ticket']['first_response_at'] === null);
+// The request list says what is happening from the newest message a customer can see. A private note or an
+// automation line written after it must never be that message, and no text or author comes with it.
+$pdo->exec("INSERT INTO messages (ticket_id,author_name,kind,body,created_at) VALUES
+    ({$ticketId},'Private Technician','note','LATER INTERNAL SECRET','2026-08-29 10:04:00'),
+    ({$ticketId},'Milepost','system','LATER AUTOMATION SECRET','2026-08-29 10:05:00')");
+$listed = portal_ticket_summary($pdo, 1, 11, 50, portal_requester_test_identity(1, 11, 'client_owner'))['tickets'];
+$listedRow = array_values(array_filter($listed, static fn(array $row): bool => (int)$row['id'] === $ticketId))[0] ?? [];
+portal_workflow_check('the request list reads the newest customer-visible message, never a later private note or automation line',
+    ($listedRow['last_message_kind'] ?? null) === 'tech' && ($listedRow['last_message_at'] ?? null) === '2026-08-29 10:03:00');
+portal_workflow_check('the request list row is a closed set of fields with no message text or author',
+    array_keys($listedRow) === ['id', 'subject', 'status', 'priority', 'created_at', 'updated_at', 'resolved_at', 'sla_due_at',
+        'last_message_kind', 'last_message_at', 'first_response_at', 'has_team_reply']
+    && ! str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'SECRET')
+    && ! str_contains(json_encode($listed, JSON_THROW_ON_ERROR), 'Private Technician'));
+portal_workflow_check('the request list applies the same first-response rule as the request page',
+    $listedRow['first_response_at'] === $detail['ticket']['first_response_at'] && $listedRow['sla_due_at'] === $detail['ticket']['sla_due_at']);
+// The team's only visible message here is dated before the request opened, so it is no first-reply
+// milestone. The request page still counts the request as answered, and the list must agree: neither
+// may promise a reply time.
+$pageProgress = portal_request_progress($detail['ticket'], $detail['messages'], true);
+portal_workflow_check('the list and the request page agree that a request with a visible team message is answered',
+    (int)$listedRow['has_team_reply'] === 1 && $listedRow['first_response_at'] === null
+    && ! str_contains(portal_request_line($listedRow, true), 'aim to reply')
+    && ! str_contains((string)$pageProgress['goal'], 'aim to send'));
+
+// Staff-side edits (owner, priority, anything that moves the row's change time) must not be noticeable:
+// not in the order of the list, not in what a row says.
+$pdo->exec("INSERT INTO tickets (id,tenant_id,client_id,subject,status,priority,channel,sla_due_at,created_at,updated_at)
+    VALUES (9001,1,11,'Later request','open','normal','portal','2026-08-30 18:00:00','2026-08-30 10:00:00','2026-08-30 10:00:00')");
+$pdo->exec("INSERT INTO messages (ticket_id,author_name,kind,body,created_at) VALUES (9001,'Customer One','client','A later request.','2026-08-30 10:00:00')");
+$seenByCustomer = static function () use ($pdo): array {
+    $rows = portal_ticket_summary($pdo, 1, 11, 50, portal_requester_test_identity(1, 11, 'client_owner'))['tickets'];
+    $shown = [];
+    foreach ($rows as $row) $shown[] = [(int)$row['id'], portal_request_line($row, true, strtotime('2026-08-30 12:00:00 UTC')), portal_request_tag((string)$row['status'])];
+    return $shown;
+};
+$original = $pdo->query("SELECT status, priority, assignee_id, updated_at FROM tickets WHERE id={$ticketId}")->fetch();
+$pdo->exec("UPDATE tickets SET status='open' WHERE id={$ticketId}");
+$beforeEdit = $seenByCustomer();
+$pdo->exec("UPDATE tickets SET assignee_id=7, priority='urgent', updated_at='2026-08-30 11:59:00' WHERE id={$ticketId}");
+$afterEdit = $seenByCustomer();
+portal_workflow_check('the newest customer-visible activity decides the order of the list',
+    array_slice(array_column($beforeEdit, 0), 0, 2) === [9001, $ticketId]);
+portal_workflow_check('changing the owner or the priority changes neither the order nor a word of what the customer sees',
+    $afterEdit === $beforeEdit);
+$pdo->prepare('UPDATE tickets SET status=?, priority=?, assignee_id=?, updated_at=? WHERE id=?')
+    ->execute([$original['status'], $original['priority'], $original['assignee_id'], $original['updated_at'], $ticketId]);
+$pdo->exec('DELETE FROM messages WHERE ticket_id=9001');
+$pdo->exec('DELETE FROM tickets WHERE id=9001');
 $futureResponse = gmdate('Y-m-d H:i:s', time() + 300);
 $pdo->prepare("INSERT INTO messages (ticket_id,author_name,kind,body,created_at)
     VALUES (?,'Future Tech','tech','FUTURE RESPONSE',?)")->execute([$ticketId, $futureResponse]);

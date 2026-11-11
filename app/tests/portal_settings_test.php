@@ -77,8 +77,10 @@ settings_check(str_contains($html,'href="/portal/?view=westy" aria-current="page
 // Home: one person's overview from the controller's requester-safe reads. Synthetic records only.
 $_SERVER['REQUEST_URI']='/portal/';
 $homeSummary = ['client'=>['name'=>'Synthetic Client'],'counts'=>['open'=>1,'in_progress'=>0,'waiting'=>3,'resolved'=>0],
-    'tickets'=>[['id'=>124,'subject'=>'Synthetic waiting <request>','status'=>'waiting','priority'=>'high','updated_at'=>'2026-10-21 12:00:00'],
-        ['id'=>123,'subject'=>'Synthetic request','status'=>'open','priority'=>'normal','updated_at'=>'2026-10-21 11:00:00']]];
+    'tickets'=>[['id'=>124,'subject'=>'Synthetic waiting <request>','status'=>'waiting','priority'=>'high','updated_at'=>'2026-10-21 12:00:00',
+            'last_message_kind'=>'tech','last_message_at'=>gmdate('Y-m-d H:i:s',time()-600),'first_response_at'=>'2026-10-21 11:30:00','sla_due_at'=>'2026-10-21 19:00:00'],
+        ['id'=>123,'subject'=>'Synthetic request','status'=>'open','priority'=>'normal','updated_at'=>'2026-10-21 11:00:00',
+            'last_message_kind'=>'client','last_message_at'=>'2026-10-21 11:00:00','first_response_at'=>null,'sla_due_at'=>gmdate('Y-m-d H:i:s',time()+3*3600)]]];
 $homeDevices = ['items'=>[['reference'=>'1:'.str_repeat('a',64),'label'=>'Front desk <computer>','platform'=>'Windows 11','connection'=>'reporting',
     'connection_label'=>'Connected and reporting','connection_help'=>'Fresh check-in.','last_seen_at'=>'2026-10-21T12:00:00Z','troubleshooting'=>'support_request']],'next_after'=>null];
 $home = static function (array $c, ?array $summary, ?array $devices, ?array $archives = []): string {
@@ -93,11 +95,24 @@ foreach (['client_owner','client_admin','client_viewer'] as $role) {
         && !str_contains($html,'href="/portal/?view=westy" aria-current'), $role.' Home is the current destination');
     settings_check(str_contains($html,'<span>Home</span>'), $role.' navigation offers Home');
     settings_check(str_contains($html,'class="portal-overview-action is-primary" href="/portal/?view=westy"'), $role.' Ask Westy opens the unchanged workspace route');
-    settings_check(!str_contains($html,'href="/portal/new.php"') && str_contains($html,'>Needs your reply</h2>') === $writer, $role.' Home keeps role-specific reply wording and directs creation to Support Requests');
-    settings_check(str_contains($html,'>My settings in 8 West ID</strong>') && substr_count($html,'href="https://id.8westit.com/settings.php"') === 2, $role.' own settings use the one fixed 8 West ID destination');
+    settings_check(substr_count($html,'href="/portal/new.php"') === ($writer ? 1 : 0)
+        && str_contains($html,'<a class="portal-overview-action" href="/portal/new.php">New support request</a>') === $writer,
+        $role.' Home offers New support request to exactly the roles that may create one, at the Support Requests destination');
+    settings_check(str_contains($html,'>Needs your reply</h2>') === $writer && str_contains($html,'>Waiting for a reply</h2>') === !$writer
+        && str_contains($html,'href="/portal/ticket.php?id=124#portal-reply"') === $writer, $role.' reply wording and the Reply button follow who may reply');
+    settings_check(substr_count($html,'class="portal-overview-action is-primary"') === 1
+        && !str_contains(substr($html, (int)strpos($html,'<main'), (int)strpos($html,'</main>') - (int)strpos($html,'<main')), 'btn-primary'), $role.' Home has one filled button, Ask Westy');
+    settings_check(str_contains($html,'<h1 id="portal-home-heading">Hello, Synthetic</h1>') && str_contains($html,'How can we help Synthetic Client today?'), $role.' hero greets by first name and asks the one question');
+    settings_check(!str_contains($html,'My settings in 8 West ID') && substr_count($html,'href="https://id.8westit.com/settings.php"') === 1, $role.' own settings stay in the sidebar, at the one fixed 8 West ID destination');
+    settings_check(str_contains($html,'We replied 10 minutes ago and ' . ($writer ? 'need your answer.' : 'are waiting for an answer.'))
+        && (bool)preg_match('/We received this\. We aim to reply by (today|tomorrow) at \d/', $html), $role.' each request says what is happening in one sentence');
+    settings_check(str_contains($html,'<span class="portal-status portal-status-open">Received</span>')
+        && str_contains($html,'<span class="portal-status portal-status-waiting">' . ($writer ? 'Waiting for your reply' : 'Waiting for a reply') . '</span>'), $role.' list tags read Received, and waiting is worded for who may reply');
+    settings_check(!str_contains($html,'portal-counts') && !str_contains($html,'Active requests come first') && !str_contains($html,'#124'), $role.' Home has no counts strip, no ordering hint and no request numbers');
     settings_check(!str_contains($html,'href="/portal/reports.php"') && str_contains($html,'href="https://id.8westit.com/customer-billing.php"') === $admin
         && str_contains($html,'Manage computer access') === $admin, $role.' Home keeps authorized management and groups summaries under Support Requests');
-    settings_check(str_contains($html, $admin ? 'Client-wide view.' : 'Requests you opened.') && str_contains($html, $admin ? 'every support request and computer for Synthetic Client' : 'assigned to you'), $role.' request and computer scope is stated');
+    settings_check(str_contains($html, $admin ? 'You see every request for Synthetic Client.' : 'You see the requests opened under your account.')
+        && !str_contains(substr($html, (int)strpos($html,'class="portal-overview-hero"'), 900), portal_role_label($role)), $role.' request scope is one quiet line under the list, and the role is not in the hero');
     settings_check(str_contains($html,'Showing 1 of 3.') && str_contains($html,'Home shows 2 of 4.'), $role.' counts come from the summary, not from the shortened list');
     settings_check(str_contains($html,'Synthetic waiting &lt;request&gt;') && str_contains($html,'Front desk &lt;computer&gt;') && !str_contains($html,'<computer>'), $role.' records are escaped');
     settings_check(preg_match('/(?:Warning:|Fatal error:|Notice:|Deprecated:)/',$html) !== 1, $role.' Home has no PHP diagnostics');
@@ -105,7 +120,8 @@ foreach (['client_owner','client_admin','client_viewer'] as $role) {
 }
 $c=$context; $c['identity']['role']='admin'; $c['identity']['customer_access']=['role'=>'client_staff'];
 $html = $home($c, $homeSummary, $homeDevices);
-settings_check(!str_contains($html,'customer-billing.php') && !str_contains($html,'href="/portal/reports.php"') && str_contains($html,'Requests you opened.') && str_contains($html,'>Member</strong>'),
+settings_check(!str_contains($html,'customer-billing.php') && !str_contains($html,'href="/portal/reports.php"') && str_contains($html,'You see the requests you opened.')
+    && str_contains($html,'<a class="portal-overview-action" href="/portal/new.php">New support request</a>') && str_contains($html,'href="/portal/ticket.php?id=124#portal-reply"'),
     'delegated member Home uses the selected client role, never the home administrator role');
 $c=$context; $c['identity']['role']='client_staff';
 $html = $home($c, null, null, null);
@@ -114,8 +130,9 @@ settings_check(str_contains($html,'We can’t show your support requests right n
     'unavailable requests and computers are said so, never shown as none');
 $c['identity']['role']='client_viewer';
 $html = $home($c, ['client'=>['name'=>'Synthetic Client'],'counts'=>['open'=>0,'in_progress'=>0,'waiting'=>0,'resolved'=>0],'tickets'=>[]], ['items'=>[],'next_after'=>null]);
-settings_check(str_contains($html,'No request is waiting for a reply.') && str_contains($html,'No support requests yet.') && str_contains($html,'No computers are assigned to you yet.'),
-    'viewer empty states are helpful and honest');
+settings_check(!str_contains($html,'home-reply-heading') && str_contains($html,'No support requests yet.') && str_contains($html,'Requests opened under your account will appear here.')
+    && str_contains($html,'No computers are assigned to you yet.') && !str_contains($html,'href="/portal/new.php"'),
+    'viewer empty states are helpful and honest, with no empty reply section and no create action');
 if (is_string($out) && is_dir($out)) file_put_contents($out.'/settings-home-empty-dark.html',str_replace('data-theme="light"','data-theme="dark"',$html));
 $c=$context; $c['identity']['role']='tech'; $c['identity']['customer_access']=['role'=>'client_admin'];
 $html = $home($c, $homeSummary, ['items'=>array_fill(0,4,$homeDevices['items'][0]),'next_after'=>9], null);
