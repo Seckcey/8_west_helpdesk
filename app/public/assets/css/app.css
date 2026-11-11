@@ -2158,3 +2158,42 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .entry-row > .entry-min { grid-column: 2; grid-row: 1; text-align: right; }
   .entry-row > .entry-tags { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
 }
+
+/* Item 36 / proposal 19: one searchable client directory with app links in each row's menu. */
+.page-clients .client-directory-filter { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); align-items: center; gap: 8px 16px; margin-bottom: 20px; }
+.page-clients .client-directory-filter label { grid-column: 1 / -1; font-size: 14px; font-weight: 600; }
+.page-clients #client-filter { width: 100%; min-height: 38px; padding: 8px 12px; border: 1px solid var(--control-border); border-radius: 10px; background: var(--bg-solid); color: var(--text); font: inherit; }
+.page-clients #client-filter::placeholder { color: var(--muted-strong); opacity: 1; }
+.page-clients [data-client-results] { font-size: 13px; color: var(--muted-strong); }
+.page-clients .client-directory { overflow: visible; }
+.page-clients .client-directory-head { display: grid; grid-template-columns: minmax(0, 1fr) 100px 100px 130px 44px; gap: 16px; padding: 12px 16px; background: var(--bg-raised); border-radius: 14px 14px 0 0; border-bottom: 1px solid var(--line); color: var(--muted-strong); font-size: 12.5px; font-weight: 600; }
+.page-clients .client-directory-head > :nth-child(2), .page-clients .client-directory-head > :nth-child(3) { text-align: right; }
+.page-clients .crow-row .crow { display: grid; grid-template-columns: minmax(0, 1fr) 100px 100px 130px; gap: 16px; min-height: 76px; }
+.page-clients .crow-main > span { overflow-wrap: anywhere; }
+.page-clients .crow-open, .page-clients .crow-oldest { width: auto; text-align: right; font-size: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
+.page-clients .crow-field { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.page-clients .tier { justify-self: start; }
+.page-clients .crow-link-state { align-self: flex-start; background: var(--chip-bg); color: var(--muted-strong); border-radius: var(--radius-tag); padding: 2px 6px; font-size: 12px; }
+.page-clients .crow-actions { width: 60px; padding: 0 16px 0 4px; flex: none; }
+.page-clients .client-row-menu { position: relative; }
+.page-clients .client-row-menu summary { display: flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; list-style: none; border: 1px solid var(--line-strong); background: var(--bg-solid); border-radius: 10px; cursor: pointer; }
+.page-clients .client-row-menu summary::-webkit-details-marker { display: none; }
+.page-clients .client-row-links { position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 4px; width: 200px; padding: 8px; background: var(--bg-solid); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow-pop); }
+.page-clients .client-row-links a { justify-content: flex-start; min-height: 36px; }
+.page-clients .client-demo { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; }
+.page-clients .client-demo form { flex: none; }
+.page-clients [hidden] { display: none !important; }
+@media (max-width: 900px) {
+  .page-clients .client-directory-filter { grid-template-columns: minmax(0, 1fr); }
+  .page-clients #client-filter { min-height: 44px; }
+  .page-clients .client-directory-head { display: none; }
+  .page-clients .crow-row { flex-wrap: nowrap; align-items: flex-start; }
+  .page-clients .crow-row .crow { flex: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+  .page-clients .crow-main { grid-column: 1 / -1; }
+  .page-clients .crow-open, .page-clients .crow-oldest { text-align: left; }
+  .page-clients .crow-field { position: static; display: block; width: auto; height: auto; clip-path: none; color: var(--muted-strong); font-size: 12.5px; }
+  .page-clients .tier { grid-column: 1 / -1; margin-left: 0; }
+  .page-clients .crow-actions { flex: none; width: 60px; padding: 12px 12px 0 0; }
+  .page-clients .client-row-menu summary, .page-clients .client-row-links a { min-height: 44px; min-width: 44px; }
+  .page-clients .client-demo { align-items: flex-start; flex-direction: column; }
+}

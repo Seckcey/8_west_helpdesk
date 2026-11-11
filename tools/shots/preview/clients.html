@@ -88,92 +88,201 @@
       </div>
     </header>
     <main class="content">
-<div class="page">
-  <div class="page-head">
+<div class="page page-clients">
+    <div class="page-head">
     <div>
       <h1 class="page-title">Clients</h1>
-      <p class="page-sub">5 accounts under your light</p>
+      <p class="page-sub">8 clients</p>
     </div>
-    <div class="page-actions">
-      <a href="#" class="btn-primary btn-sm">+ New client</a>
-    </div>
+    <div class="page-actions"><a href="#" class="btn-primary btn-sm">New client</a></div>
   </div>
-  <h2 class="rail-label">Businesses</h2>
-  <div class="card list" aria-label="Businesses">
-    <div class="crow-row">
-      <a href="#" class="crow" data-client-id="1">
-        <span class="health-dot dot-mint" title="good"></span>
+    <div class="client-directory-filter">
+    <label for="client-filter">Find a client</label>
+    <input type="search" id="client-filter" data-client-filter placeholder="Name or domain" autocomplete="off">
+    <span data-client-results role="status" aria-live="polite"></span>
+  </div>
+  <div class="card list client-directory" data-client-list aria-label="Clients">
+    <div class="client-directory-head" aria-hidden="true"><span>Client</span><span>Open tickets</span><span>Oldest open</span><span>Plan</span><span></span></div>
+            <div class="crow-row">
+      <a href="#" class="crow" data-client-id="31">
         <span class="crow-main">
-          <span class="crow-name">Bayside Realty</span>
-          <span class="crow-sub">baysiderealty.example</span>
-          <span class="crow-shared">Milepost: Bayside Realty · <span class="crow-shared-active">active</span></span>
-        </span>
-        <span class="tier tier-premium">premium SLA</span>
-        <span class="crow-open">3 open</span>
+          <span class="crow-name">Beta Canary</span>
+          <span class="crow-sub">canary.test</span>
+                            </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span><strong>1</strong></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span><time datetime="2026-11-11T21:21:58+00:00">1 h</time></span>
+        <span class="tier ">Standard plan</span>
       </a>
-      <span class="crow-actions"><a class="btn-chip" href="#">Milepost ↗</a><a class="btn-chip" href="#">Coastmark ↗</a></span>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Beta Canary">•••</summary>
+          <span class="client-row-links">
+                          <a class="btn-chip" href="#" target="_blank" rel="noopener">Open in Milepost</a>
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens this client in Coastmark">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
     </div>
-    <div class="crow-row">
-      <a href="#" class="crow" data-client-id="2">
-        <span class="health-dot dot-mint" title="good"></span>
+        <div class="crow-row">
+      <a href="#" class="crow" data-client-id="32">
         <span class="crow-main">
-          <span class="crow-name">Cedar and Pine Law</span>
-          <span class="crow-sub">cedarpine.example</span>
-          <span class="crow-shared">Milepost: Cedar and Pine Law · <span class="crow-shared-active">active</span></span>
-        </span>
-        <span class="tier ">standard SLA</span>
-        <span class="crow-open">0 open</span>
+          <span class="crow-name">Copper Kettle</span>
+          <span class="crow-sub">copperkettle.test</span>
+                            </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span><strong>0</strong></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span>—</span>
+        <span class="tier ">Standard plan</span>
       </a>
-      <span class="crow-actions"><a class="btn-chip" href="#">Milepost ↗</a><a class="btn-chip" href="#">Coastmark ↗</a></span>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Copper Kettle">•••</summary>
+          <span class="client-row-links">
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens this client in Coastmark">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
     </div>
-    <div class="crow-row">
-      <a href="#" class="crow" data-client-id="3">
-        <span class="health-dot dot-gold pulse" title="warn"></span>
+        <div class="crow-row">
+      <a href="#" class="crow" data-client-id="37">
+        <span class="crow-main">
+          <span class="crow-name">Drifted Co</span>
+          <span class="crow-sub">drifted.test</span>
+                    <span class="crow-shared">Link details unavailable</span>        </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span><strong>0</strong></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span>—</span>
+        <span class="tier ">Standard plan</span>
+      </a>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Drifted Co">•••</summary>
+          <span class="client-row-links">
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
+    </div>
+        <div class="crow-row">
+      <a href="#" class="crow" data-client-id="33">
+        <span class="crow-main">
+          <span class="crow-name">Email Intake</span>
+          <span class="crow-sub">intake.test</span>
+          <span class="crow-link-state">Not linked</span>                  </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span><strong>0</strong></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span>—</span>
+        <span class="tier ">Standard plan</span>
+      </a>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Email Intake">•••</summary>
+          <span class="client-row-links">
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
+    </div>
+        <div class="crow-row">
+      <a href="#" class="crow" data-client-id="30">
         <span class="crow-main">
           <span class="crow-name">Harbor Dental</span>
-          <span class="crow-sub">harbordental.example</span>
-          <span class="crow-shared">Milepost: Harbor Dental · <span class="crow-shared-active">active</span></span>
-        </span>
-        <span class="tier tier-premium">premium SLA</span>
-        <span class="crow-open">5 open</span>
+          <span class="crow-sub">harbordental.test</span>
+                            </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span><strong>3</strong></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span><time datetime="2026-11-09T03:41:58+00:00">2 d</time></span>
+        <span class="tier tier-premium">Premium plan</span>
       </a>
-      <span class="crow-actions"><a class="btn-chip" href="#">Milepost ↗</a><a class="btn-chip" href="#">Coastmark ↗</a></span>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Harbor Dental">•••</summary>
+          <span class="client-row-links">
+                          <a class="btn-chip" href="#" target="_blank" rel="noopener">Open in Milepost</a>
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens this client in Coastmark">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
     </div>
-    <div class="crow-row">
-      <a href="#" class="crow" data-client-id="4">
-        <span class="health-dot dot-mint" title="good"></span>
+        <div class="crow-row">
+      <a href="#" class="crow" data-client-id="36">
         <span class="crow-main">
-          <span class="crow-name">Juniper Bakery</span>
-          <span class="crow-sub">juniperbakery.example</span>
-          <span class="crow-shared">Milepost: Juniper Bakery · <span class="crow-shared-active">active</span></span>
-        </span>
-        <span class="tier ">standard SLA</span>
-        <span class="crow-open">1 open</span>
+          <span class="crow-name">Lagged Labs</span>
+          <span class="crow-sub">laggedlabs.test</span>
+                            </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span><strong>0</strong></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span>—</span>
+        <span class="tier ">Standard plan</span>
       </a>
-      <span class="crow-actions"><a class="btn-chip" href="#">Milepost ↗</a><a class="btn-chip" href="#">Coastmark ↗</a></span>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Lagged Labs">•••</summary>
+          <span class="client-row-links">
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens this client in Coastmark">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
     </div>
-    <div class="crow-row">
-      <a href="#" class="crow" data-client-id="5">
-        <span class="health-dot dot-gold pulse" title="warn"></span>
+        <div class="crow-row">
+      <a href="#" class="crow" data-client-id="34">
         <span class="crow-main">
-          <span class="crow-name">Tanner Engineering</span>
-          <span class="crow-sub">tanner.example</span>
-          <span class="crow-shared">Milepost: Tanner Engineering · <span class="crow-shared-active">active</span></span>
-        </span>
-        <span class="tier ">standard SLA</span>
-        <span class="crow-open">2 open</span>
+          <span class="crow-name">Northwind Partners</span>
+          <span class="crow-sub">northwind.test</span>
+          <span class="crow-link-state">Not linked</span>                  </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span><strong>0</strong></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span>—</span>
+        <span class="tier ">Standard plan</span>
       </a>
-      <span class="crow-actions"><a class="btn-chip" href="#">Milepost ↗</a><a class="btn-chip" href="#">Coastmark ↗</a></span>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Northwind Partners">•••</summary>
+          <span class="client-row-links">
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
     </div>
+        <div class="crow-row">
+      <a href="#" class="crow" data-client-id="38">
+        <span class="crow-main">
+          <span class="crow-name">Removed Rentals</span>
+          <span class="crow-sub">removedrentals.test</span>
+                            </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span><strong>0</strong></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span>—</span>
+        <span class="tier ">Standard plan</span>
+      </a>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Removed Rentals">•••</summary>
+          <span class="client-row-links">
+                          <a class="btn-chip" href="#" target="_blank" rel="noopener">Open in Milepost</a>
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens this client in Coastmark">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
+    </div>
+            <div class="crow-row" data-customer-pending="1">
+      <span class="crow">
+        <span class="crow-main">
+          <span class="crow-name">Valley Veterinary</span>
+          <span class="crow-sub">Waiting for client details from Milepost</span>
+        </span>
+        <span class="crow-open"><span class="crow-field">Open tickets </span>—</span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span>—</span>
+        <span class="crow-plan-empty">—</span>
+      </span>
+      <span class="crow-actions">
+        <details class="client-row-menu">
+          <summary aria-label="Apps for Valley Veterinary">•••</summary>
+          <span class="client-row-links">
+                          <a class="btn-chip" href="#" target="_blank" rel="noopener">Open in Milepost</a>
+                                      <a class="btn-chip" href="#" target="_blank" rel="noopener" title="Opens this client in Coastmark">Open in Coastmark</a>
+                      </span>
+        </details>
+      </span>
+    </div>
+        <p class="empty" data-client-empty hidden>No clients match your search.</p>
   </div>
-  <div class="stats">
-    <div class="card stat"><div class="stat-k">Open now</div><div class="stat-v">11</div></div>
-    <div class="card stat"><div class="stat-k">New this week</div><div class="stat-v">7</div></div>
-    <div class="card stat"><div class="stat-k">Resolved this week</div><div class="stat-v stat-good">5</div></div>
-    <div class="card stat"><div class="stat-k">Response target attainment (30d)</div><div class="stat-v stat-warn">68%</div><div class="stat-hint">22 decided tickets</div></div>
   </div>
-</div>
-    </main>
+
+</main>
   </div>
 </div>
 <div id="toasts" class="toasts"><div class="toast">Ticket #1041 assigned to you</div></div>

@@ -839,7 +839,7 @@
   /* ------------------------------------------------------------------ */
   /* Row selection (queue + clients)                                     */
   /* ------------------------------------------------------------------ */
-  const rows = page === "queue" ? $$(".trow:not(.trow-head)") : page === "clients" ? $$(".crow") : [];
+  let rows = page === "queue" ? $$(".trow:not(.trow-head)") : page === "clients" ? $$("a.crow") : [];
   let sel = 0;
   // The highlight is a keyboard cursor. It is not drawn when the page opens, because a row that
   // looks chosen before anybody chose it reads as a property of that ticket or client. The first
@@ -874,6 +874,35 @@
   phoneWidth.addEventListener("change", paintSel);
 
   const currentRow = () => rows[sel];
+
+  // Filtering changes presentation only. Pending directory entries have no local client link.
+  if (page === "clients") {
+    const allLinks = [...rows], directoryRows = $$(".crow-row"), filter = $("[data-client-filter]");
+    const closeClientMenus = (except = null) => $$(".client-row-menu[open]").forEach((item) => { if (item !== except) item.open = false; });
+    $$(".client-row-menu").forEach((item) => item.addEventListener("toggle", () => { if (item.open) closeClientMenus(item); }));
+    document.addEventListener("click", (event) => { if (!event.target.closest(".client-row-menu")) closeClientMenus(); });
+    document.addEventListener("keydown", (event) => {
+      const opened = $(".client-row-menu[open]");
+      if (opened && event.key === "Escape") {
+        event.preventDefault(); event.stopImmediatePropagation(); opened.open = false; $("summary", opened)?.focus();
+      }
+    }, true);
+    filter?.addEventListener("input", () => {
+      closeClientMenus();
+      const words = filter.value.trim().toLocaleLowerCase();
+      directoryRows.forEach((row) => {
+        const name = $(".crow-name", row)?.textContent || "", domain = $(".crow-sub", row)?.textContent || "";
+        row.hidden = !(name + " " + domain).toLocaleLowerCase().includes(words);
+      });
+      allLinks.forEach((row) => row.classList.remove("crow-sel"));
+      rows = allLinks.filter((row) => !row.closest(".crow-row").hidden); sel = 0; selShown = false;
+      const count = directoryRows.filter((row) => !row.hidden).length;
+      const empty = $("[data-client-empty]"), results = $("[data-client-results]");
+      if (empty) empty.hidden = !words || count > 0;
+      if (results) results.textContent = words ? `${count} ${count === 1 ? "client" : "clients"} found` : "";
+    });
+  }
+
 
   /* ------------------------------------------------------------------ */
   /* Bulk delete (queue, owners and admins; docs/ticket-bulk-delete.md)  */
@@ -1578,6 +1607,7 @@
     }
 
     if (mod || e.altKey || isTyping(e.target)) return;
+    if (page === "clients" && $(".client-row-menu[open]")) return;
 
     // "g" sequences: g q / g t / g c
     if (pendingG) {

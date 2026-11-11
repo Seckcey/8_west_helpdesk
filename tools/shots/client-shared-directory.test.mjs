@@ -68,7 +68,9 @@ async function layout(page, theme, viewport) {
   assert.ok(theme === 'dark' ? Math.max(...channels.slice(0, 3)) < 90 : Math.min(...channels.slice(0, 3)) > 190, JSON.stringify(metrics));
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
   // Every row action is reachable and nothing covers it.
-  for (const action of await page.locator('.crow-actions a').all()) {
+  for (const menu of await page.locator('.client-row-menu').all()) {
+    await menu.locator('summary').click();
+    for (const action of await menu.locator('a').all()) {
     const clear = await action.evaluate(el => {
       el.scrollIntoView({ block: 'center', inline: 'nearest' });
       const r = el.getBoundingClientRect();
@@ -76,6 +78,8 @@ async function layout(page, theme, viewport) {
       return r.width > 0 && r.height > 0 && r.right <= innerWidth + 1 && (hit === el || el.contains(hit));
     });
     assert.equal(clear, true, await action.evaluate(el => el.outerHTML));
+    }
+    await page.keyboard.press('Escape');
   }
 }
 
@@ -88,13 +92,13 @@ async function rowLayout(page, narrow) {
       const r = el.getBoundingClientRect();
       return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
     };
-    const actions = row.querySelector('.crow-actions');
+    const actions = row.querySelector('.client-row-menu summary');
     return {
       label: row.querySelector('.crow-name')?.textContent ?? '',
       row: box(row),
       info: box(row.querySelector('.crow')),
       main: box(row.querySelector('.crow-main')),
-      actions: actions && actions.children.length > 0 ? box(actions) : null,
+      actions: actions ? box(actions) : null,
       parts: [...row.querySelectorAll('.crow-name, .crow-sub, .crow-shared, .tier, .crow-open')].map(el => ({
         text: el.textContent.trim(), ...box(el), overflow: el.scrollWidth > el.clientWidth + 1,
       })),
@@ -112,8 +116,8 @@ async function rowLayout(page, narrow) {
       assert.equal(overlap, false, `"${a.text}" overlaps "${b.text}": ` + detail);
     }
     if (row.actions === null) continue;
-    if (narrow) assert.ok(row.actions.top >= row.info.bottom - 1, 'actions are not on their own line below: ' + detail);
-    else assert.ok(row.actions.top < row.info.bottom && row.actions.left >= row.info.right - 1, 'actions left the row line: ' + detail);
+    assert.ok(row.actions.left >= row.info.right - 1 && row.actions.right <= row.row.right + 1, 'menu stays beside the client link: ' + detail);
+    assert.ok(row.actions.width >= (narrow ? 44 : 36), 'menu target width: ' + detail);
   }
 }
 
@@ -133,18 +137,21 @@ try {
           assert.equal(await page.title(), 'Clients · Safeharbor');
           await layout(page, theme, viewport);
           await rowLayout(page, viewport.width <= 640);
+          if (evidence) await page.screenshot({ path: path.join(evidence, `clients-${listCase}-${theme}-${viewport.width}.png`), fullPage: true });
+          await page.locator("main.content").evaluate(el => { el.scrollTop = 0; });
+          if (evidence) await page.screenshot({ path: path.join(evidence, `clients-top-${listCase}-${theme}-${viewport.width}.png`), fullPage: true });
           const classified = ['directory', 'empty'].includes(listCase);
-          assert.equal(await page.getByRole('heading', { name: 'Businesses', exact: true }).count(), classified ? 1 : 0);
-          assert.equal(await page.getByRole('heading', { name: 'Retained and local', exact: true }).count(), classified ? 1 : 0);
-          assert.equal(await page.getByRole('status').filter({ hasText: 'directory is unavailable right now' }).count(), classified ? 0 : 1);
-          assert.equal(await page.getByRole('status').filter({ hasText: 'lists no shared businesses' }).count(), listCase === 'empty' ? 1 : 0);
+          assert.equal(await page.getByRole('heading', { name: 'Businesses', exact: true }).count(), 0);
+          assert.equal(await page.getByRole('heading', { name: 'Retained and local', exact: true }).count(), 0);
+          assert.equal(await page.getByRole('status').filter({ hasText: "client list can't be read right now" }).count(), classified ? 0 : 1);
+          assert.equal(await page.getByRole('status').filter({ hasText: 'lists no shared clients' }).count(), listCase === 'empty' ? 1 : 0);
           for (const name of tenantClients) assert.equal(await page.getByText(name, { exact: true }).count(), 1, name);
           assert.equal(await page.getByText('Other MSP Client').count(), 0);
           // Each row's own Billing: linked clients (inactive and removed history included) and a verified
           // pending business open their Coastmark client; local and drifted rows open Coastmark's entry.
           const billingTargets = await page.locator('.crow-row').evaluateAll(rows => Object.fromEntries(rows.map(row => [
             row.querySelector('[data-client-id]')?.dataset.clientId ?? 'pending',
-            [...row.querySelectorAll('a')].filter(link => link.textContent.trim() === 'Billing ↗').map(link => link.href),
+            [...row.querySelectorAll('a')].filter(link => link.textContent.trim() === 'Open in Coastmark').map(link => link.href),
           ])));
           assert.deepEqual(billingTargets, {
             30: [scopedBilling(1)], 31: [scopedBilling(2)], 32: [scopedBilling(3)], 33: [billing], 34: [billing],
@@ -153,36 +160,37 @@ try {
           });
           assert.equal(await page.locator('a[href^="https://coastmark.8westit.com/clients?"]').count(), listCase === 'directory' ? 6 : 5);
           if (listCase === 'directory') {
-            const primary = page.locator('[aria-label="Businesses"]');
-            const retained = page.locator('[aria-label="Retained and local"]');
-            for (const name of ['Harbor Dental', 'Lagged Labs', 'Valley Veterinary']) assert.equal(await primary.getByText(name, { exact: true }).count(), 1, name);
-            for (const name of ['Beta Canary', 'Copper Kettle', 'Email Intake', 'Northwind Partners', 'Drifted Co', 'Removed Rentals']) {
-              assert.equal(await retained.getByText(name, { exact: true }).count(), 1, name);
-            }
-            assert.equal(await primary.getByText('Safeharbor last received: Lagged Labs · inactive (version 1)').count(), 1);
-            assert.equal(await retained.locator('[data-client-id="37"]').getByText('Shared details unavailable').count(), 1);
-            const valley = primary.locator('[data-customer-pending="1"]');
+            const list = page.locator('[data-client-list]');
+            assert.equal(await list.locator('.crow-link-state').count(), 2);
+            assert.equal(await list.locator('[data-client-id="37"]').getByText('Link details unavailable').count(), 1);
+            const valley = list.locator('[data-customer-pending="1"]');
             assert.equal(await valley.count(), 1);
-            assert.equal(await valley.getByRole('link', { name: 'Support' }).count(), 0);
-            assert.equal(await valley.getByRole('link', { name: 'Devices ↗' }).getAttribute('href'), devices(5));
-            const harbor = primary.locator('.crow-row').filter({ has: page.locator('[data-client-id="30"]') });
-            assert.equal(await harbor.getByRole('link', { name: 'Devices ↗' }).getAttribute('href'), devices(1));
-            assert.equal(await harbor.getByRole('link', { name: 'Support' }).getAttribute('href'), '/client.php?id=30');
-            // Keyboard: the client link, then its Support action, with a visible focus ring.
+            assert.equal(await valley.locator('a.crow').count(), 0);
+            assert.equal(await valley.getByRole('link', { name: 'Open in Milepost', includeHidden: true }).getAttribute('href'), devices(5));
+            const harbor = list.locator('.crow-row').filter({ has: page.locator('[data-client-id="30"]') });
+            assert.equal(await harbor.getByRole('link', { name: 'Open in Milepost', includeHidden: true }).getAttribute('href'), devices(1));
+            assert.equal(await harbor.locator('.crow').getAttribute('href'), '/client.php?id=30');
+            assert.equal(await page.getByRole('link', { name: 'Support', exact: true }).count(), 0);
+            assert.equal(await harbor.locator('.crow-open strong').innerText(), '3');
+            assert.equal(await harbor.locator('.crow-oldest time').innerText(), '2 d');
             await harbor.locator('.crow').focus();
             await page.keyboard.press('Tab');
-            const support = harbor.getByRole('link', { name: 'Support' });
-            assert.equal(await support.evaluate(el => el === document.activeElement && getComputedStyle(el).outlineStyle !== 'none'), true);
-            if (evidence) await page.screenshot({ path: path.join(evidence, `clients-${listCase}-${theme}-${viewport.width}.png`), fullPage: true });
-            const [milepost] = await Promise.all([context.waitForEvent('page'), harbor.getByRole('link', { name: 'Devices ↗' }).click()]);
+            const more = harbor.locator('summary');
+            assert.equal(await more.evaluate(el => el === document.activeElement && getComputedStyle(el).outlineStyle !== 'none'), true);
+            await page.keyboard.press('Enter');
+            assert.equal(await harbor.locator('.client-row-menu').getAttribute('open'), '');
+            if (evidence) await page.screenshot({ path: path.join(evidence, `clients-menu-${theme}-${viewport.width}.png`), fullPage: true });
+            const [milepost] = await Promise.all([context.waitForEvent('page'), harbor.getByRole('link', { name: 'Open in Milepost', includeHidden: true }).click()]);
             await milepost.getByRole('heading', { name: 'Milepost devices destination fixture' }).waitFor();
             assert.equal(milepost.url(), devices(1));
             await milepost.close();
-            const [coastmark] = await Promise.all([context.waitForEvent('page'), harbor.getByRole('link', { name: 'Billing ↗' }).click()]);
+            const [coastmark] = await Promise.all([context.waitForEvent('page'), harbor.getByRole('link', { name: 'Open in Coastmark' }).click()]);
             await coastmark.getByRole('heading', { name: 'Coastmark destination fixture' }).waitFor();
             assert.equal(coastmark.url(), scopedBilling(1));
             await coastmark.close();
-            await support.focus();
+            await page.keyboard.press('Escape');
+            assert.equal(await more.evaluate(el => el === document.activeElement), true);
+            await harbor.locator('.crow').focus();
             await page.keyboard.press('Enter');
             await page.getByRole('heading', { name: 'Harbor Dental', exact: true, level: 1 }).waitFor();
             assert.equal(await page.title(), 'Harbor Dental · Safeharbor');
@@ -201,17 +209,51 @@ try {
             await layout(page, theme, viewport);
             if (evidence) await page.screenshot({ path: path.join(evidence, `client-retained-${theme}-${viewport.width}.png`), fullPage: true });
           } else {
-            if (listCase === 'empty') {
-              assert.equal(await page.locator('[aria-label="Businesses"]').getByText('No active shared business is linked here yet.').count(), 1);
-            }
             assert.equal(await page.getByText('Valley Veterinary').count(), 0);
-            const first = page.locator('.crow').first();
+            const first = page.locator('a.crow').first();
             await first.focus();
             await page.keyboard.press('Tab');
-            assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), 'Support');
+            assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'SUMMARY');
             assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle !== 'none'), true);
             if (evidence) await page.screenshot({ path: path.join(evidence, `clients-${listCase}-${theme}-${viewport.width}.png`), fullPage: true });
           }
+          // Find by name or domain without a request; hidden and pending rows cannot be selected.
+          await page.goto('http://safeharbor.test/clients.php');
+          const find = page.getByRole('searchbox', { name: 'Find a client' });
+          assert.ok((await find.boundingBox()).height >= (viewport.width <= 700 ? 44 : 36), 'search is a full-size control');
+          const placeholderContrast = await find.evaluate(el => {
+            const rgb = value => (value.match(/[\d.]+/g) || []).map(Number).slice(0, 3);
+            const lum = channels => channels.map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
+              .reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+            const ink = lum(rgb(getComputedStyle(el, '::placeholder').color)), bg = lum(rgb(getComputedStyle(el).backgroundColor));
+            return (Math.max(ink, bg) + .05) / (Math.min(ink, bg) + .05);
+          });
+          assert.ok(placeholderContrast >= 4.5, 'search hint stays readable: ' + placeholderContrast);
+          await find.fill('HARBORDENTAL.TEST');
+          assert.equal(await page.locator('.crow-row:visible').count(), 1);
+          assert.equal(await page.locator('.crow-row:visible [data-client-id]').getAttribute('data-client-id'), '30');
+          assert.equal(await page.locator('[data-client-results]').innerText(), '1 client found');
+          await find.fill('does-not-exist.test');
+          assert.equal(await page.locator('.crow-row:visible').count(), 0);
+          assert.equal(await page.locator('[data-client-empty]').isVisible(), true);
+          await find.fill('Copper');
+          await find.blur();
+          if (viewport.width > 700) {
+            await page.keyboard.press('j');
+            assert.equal(await page.locator('.crow-sel').getAttribute('data-client-id'), '32');
+          }
+          await find.fill('');
+          assert.equal(await page.locator('.crow-row:visible').count(), listCase === 'directory' ? 9 : 8);
+          assert.equal(await page.locator('.crow-sel').count(), 0);
+          assert.equal(await page.locator('[data-client-empty]').isVisible(), false);
+          const menus = page.locator('.client-row-menu');
+          await menus.nth(0).locator('summary').click();
+          await menus.nth(1).locator('summary').focus();
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(30);
+          assert.equal(await page.locator('.client-row-menu[open]').count(), 1);
+          await page.getByRole('heading', { name: 'Clients', exact: true }).click();
+          assert.equal(await page.locator('.client-row-menu[open]').count(), 0);
           assert.deepEqual(problems, []);
         } finally { await context.close(); }
       });

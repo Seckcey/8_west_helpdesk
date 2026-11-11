@@ -103,6 +103,7 @@ foreach (['suite_apps.php', 'service_goal_policy_admin.php', 'ticket_queue.php']
     $chrome = str_replace("__DIR__ . '/" . $library . "'", var_export(__DIR__ . '/../lib/' . $library, true), $chrome);
 }
 eval($chrome);
+eval(directory_ui_lift((string)file_get_contents(__DIR__ . '/../lib/bootstrap.php'), 'rel_time'));
 
 $uuid = static fn(int $n): string => "{$n}a{$n}b{$n}c{$n}d-{$n}e{$n}f-4a{$n}b-8c{$n}d-{$n}e{$n}f{$n}a{$n}b{$n}c{$n}d";
 $event = static fn(int $n): string => sprintf('e1000000-0000-4000-8000-%012d', $n);
@@ -143,7 +144,7 @@ foreach ([
     [101, 1, 30, 'open', 'normal', $ago(-600), $ago(120), 'Front desk PC will not print', 'phone', null],
     [102, 1, 30, 'in_progress', 'urgent', $ago(-60), $ago(300), 'Server room is hot', 'email', null],
     [103, 1, 30, 'waiting', 'high', $ago(-900), $ago(4000), 'New hygienist starts Monday', 'portal', null],
-    [104, 2, 30, 'open', 'urgent', $ago(-60), $ago(60), 'Another tenant, same client number', 'email', null],
+    [104, 2, 30, 'open', 'urgent', $ago(-60), $ago(6000), 'Another tenant, same client number', 'email', null],
     [105, 1, 31, 'open', 'normal', $ago(-60), $ago(60), 'Another client of this tenant', 'email', null],
     [199, 1, 30, 'resolved', 'normal', $ago(200000), $ago(200000), 'Answered long ago', 'email', $ago(190000)],
 ] as $row) $ticket->execute($row);
@@ -259,11 +260,11 @@ foreach (['light', 'dark'] as $theme) {
         directory_ui_check(str_contains($html, '<title>Clients · Safeharbor</title>')
             && str_contains($html, 'var t=' . json_encode($theme) . ';') && str_contains($html, 'class="w365-cluster"'),
             "$case $theme renders the actual page chrome and theme");
-        directory_ui_check(str_contains($html, '>Businesses</h2>') === $classified
-            && str_contains($html, '>Retained and local</h2>') === $classified,
-            "$case $theme classifies only against a verified directory");
-        directory_ui_check(str_contains($html, 'The Milepost client directory is unavailable right now') === !$classified
-            && str_contains($html, 'Milepost currently lists no shared businesses') === ($case === 'empty'),
+        directory_ui_check(substr_count($html, 'data-client-list') === 1
+            && !str_contains($html, '>Businesses</h2>') && !str_contains($html, '>Retained and local</h2>'),
+            "$case $theme presents one client list");
+        directory_ui_check(str_contains($html, "Milepost's client list can't be read right now.") === !$classified
+            && str_contains($html, 'Milepost currently lists no shared clients') === ($case === 'empty'),
             "$case $theme states unavailable and verified-empty differently");
         directory_ui_check(str_contains($html, 'Valley Veterinary') === ($case === 'directory')
             && !str_contains($html, 'Other MSP Client') && !str_contains($html, $uuid(8)),
@@ -272,7 +273,7 @@ foreach (['light', 'dark'] as $theme) {
         $billingTargets = [];
         foreach (array_slice(explode('<div class="crow-row"', $html), 1) as $row) {
             preg_match('/data-client-id="(\d+)"/', $row, $rowClient);
-            preg_match_all('/<a class="btn-chip" href="([^"]*)"[^>]*>Billing ↗<\/a>/u', $row, $rowBilling);
+            preg_match_all('/<a class="btn-chip" href="([^"]*)"[^>]*>Open in Coastmark<\/a>/u', $row, $rowBilling);
             $billingTargets[$rowClient[1] ?? 'pending'] = array_map(
                 static fn(string $href): string => htmlspecialchars_decode($href, ENT_QUOTES), $rowBilling[1]);
         }
@@ -283,8 +284,8 @@ foreach (['light', 'dark'] as $theme) {
         ksort($expectedBilling, SORT_STRING);
         directory_ui_check($billingTargets === $expectedBilling
             && str_contains($html, 'href="https://coastmark.8westit.com/clients?provider=8west&amp;customer_id=' . $uuid(1) . '"')
-            && substr_count($html, 'title="Opens this client in Coastmark">Billing ↗</a>') === ($case === 'directory' ? 6 : 5)
-            && substr_count($html, 'class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>') === 3,
+            && substr_count($html, 'title="Opens this client in Coastmark">Open in Coastmark</a>') === ($case === 'directory' ? 6 : 5)
+            && substr_count($html, 'class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Open in Coastmark</a>') === 3,
             "$case $theme gives each linked client (inactive and removed history included) and a verified pending business its own Billing route, and local and drifted rows the generic entry");
         // One word for each thing: clients are clients, and a plan is said in words.
         $list = new DOMDocument();
@@ -292,6 +293,18 @@ foreach (['light', 'dark'] as $theme) {
         $list->loadHTML('<?xml encoding="utf-8">' . $html);
         libxml_clear_errors();
         $listX = new DOMXPath($list);
+        $client = $listX->query('//a[@data-client-id="30"]')->item(0);
+        $oldest = db()->query('SELECT created_at FROM tickets WHERE id=103')->fetchColumn();
+        directory_ui_check(trim($listX->query('.//span[@class="crow-open"]/strong', $client)->item(0)->textContent) === '3'
+            && $listX->query('.//time', $client)->item(0)->getAttribute('datetime') === gmdate('c', strtotime($oldest . ' UTC')),
+            "$case $theme excludes the foreign tenant from the open count and oldest open");
+        directory_ui_check($listX->query('//a[@data-client-id="32"]//time')->length === 0,
+            "$case $theme has no oldest-open age for a client without open tickets");
+        directory_ui_check($listX->query('//span[@class="crow-link-state"]')->length === 2
+            && $listX->query('//a[@data-client-id="37"]//span[@class="crow-link-state"]')->length === 0,
+            "$case $theme labels known unbound rows only; unknown is never Not linked");
+        directory_ui_check($listX->query('//div[contains(@class,"page-clients")]//a[normalize-space(.)="Support"]')->length === 0,
+            "$case $theme removes the duplicate Support destination");
         $plans = [];
         foreach ($listX->query('//a[@data-client-id]') as $row) {
             $plans[(int)$row->getAttribute('data-client-id')] = trim((string)$listX->query('.//span[contains(concat(" ", normalize-space(@class), " "), " tier ")]', $row)->item(0)?->textContent);
@@ -302,6 +315,12 @@ foreach (['light', 'dark'] as $theme) {
             "$case $theme counts clients as clients and says each plan in words");
         if (is_string($out) && is_dir($out)) file_put_contents("$out/clients-$case-$theme.html", $html);
     }
+    db()->beginTransaction();
+    try {
+        db()->exec('DELETE FROM suite_customer_sync_bindings');
+        $unlinked = directory_ui_page('clients.php', []);
+        directory_ui_check(!str_contains($unlinked, 'class="crow-link-state"'), "no Not linked tags when no client has a verified link ($theme)");
+    } finally { db()->rollBack(); }
     $GLOBALS['fixtureTransport'] = directory_ui_transport('directory', $houseRoster);
     // The page's own markup, without the chrome around it.
     $body = static fn(string $html): string => substr($html, (int)strpos($html, '<div class="page page-client">'));

@@ -243,9 +243,9 @@ test('Clients: nothing is highlighted on load; the first j shows the first row',
     assert.equal(await page.locator('.crow.crow-sel').count(), 0);
     if (width === 390) continue;
     await page.keyboard.press('j');
-    assert.deepEqual(await page.locator('.crow.crow-sel').evaluateAll((rows) => rows.map((row) => row.dataset.clientId)), ['1']);
+    assert.deepEqual(await page.locator('.crow.crow-sel').evaluateAll((rows) => rows.map((row) => row.dataset.clientId)), ['31']);
     await page.keyboard.press('j');
-    assert.deepEqual(await page.locator('.crow.crow-sel').evaluateAll((rows) => rows.map((row) => row.dataset.clientId)), ['2']);
+    assert.deepEqual(await page.locator('.crow.crow-sel').evaluateAll((rows) => rows.map((row) => row.dataset.clientId)), ['32']);
   }
   const queue = await open(t, 'queue', { width: 390 });
   assert.equal(await queue.locator('.trow.trow-sel').count(), 0);
