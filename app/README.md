@@ -225,9 +225,17 @@ public/                    Apache docroot (page-per-file, like Milepost)
   saw chosen; at phone width it is never drawn and those keys do nothing) · `↵` open · `1–6` views ·
   `a` assign to me · `s` status · `p` priority · `t` owner · `z` undo ·
   `e` timer · `r` reply ·
-  `n` internal note · `/` saved replies · `g q/t/c` navigate ·
-  `⌘K` palette (3+ chars = deep search over message bodies, resolved
-  included; a ticket's number finds it at any length) · `?` shortcut card.
+  `n` internal note · `/` saved replies in the reply box, search anywhere
+  else · `c` new ticket · `[` `]` previous and next ticket · `u` back to the
+  list · `g q/t/c/s/r/u` navigate ·
+  `Ctrl K` (`⌘K` on a Mac) palette (3+ chars = deep search over message bodies, resolved
+  included; a ticket's number finds it at any length) · `?` shortcut card,
+  also the "Keyboard shortcuts" button at the foot of the rail.
+  The palette acts as well as goes: a first group for the open ticket, or for
+  the highlighted queue row (Change status, Assign to, Set priority, timer,
+  Reply, Add internal note, Merge, Resolve, Copy link; each runs what its key
+  runs), then Create, Go to and Account, then tickets and clients. A row shows
+  its key at the right. A typed client offers "New ticket for <client>".
   `a` assigns to me (again to unassign) in one key, as it always has. `s`, `p`
   and `t` open a menu (on a ticket, or for the highlighted queue row): status,
   priority, and who to give the ticket to. Arrows and `↵`, or the number beside

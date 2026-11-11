@@ -300,8 +300,10 @@ test('Send carries the next status only when asked, from the Send menu or the pa
 
   await box.fill('All fixed.');
   await page.keyboard.press('Control+k');
-  assert.deepEqual(await page.locator('.palette-item-main').allInnerTexts().then((rows) => rows.slice(0, 2)),
-    ['Send and wait for the customer', 'Send and resolve'], 'on a ticket the palette lists them first');
+  const ticketRows = await page.locator('.palette-item-main').allInnerTexts();
+  assert.deepEqual(ticketRows.slice(0, ticketRows.indexOf('New ticket')).filter((row) => row.startsWith('Send and')),
+    ['Send and wait for the customer', 'Send and resolve'], 'on a ticket the palette lists them with the ticket\'s own actions, ahead of everything else');
+  assert.equal(await page.locator('.palette-group').first().innerText(), 'This ticket');
   await page.locator('.palette-input').fill('send and resolve');
   await page.keyboard.press('Enter');
   await posted(page, posts, 7);

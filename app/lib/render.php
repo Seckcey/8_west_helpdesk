@@ -414,8 +414,8 @@ function page_top(array $user, string $title, string $active): void
         ['/time.php',  'Time',    'time',    'G T', '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 2" stroke-linecap="round"/>'],
         ['/clients.php', 'Clients', 'clients', 'G C', '<circle cx="5.5" cy="6" r="2.5"/><circle cx="11" cy="7" r="2"/><path d="M1.5 13.5c.6-2.3 2.2-3.5 4-3.5s3.4 1.2 4 3.5M9.5 12.6c.7-1.4 1.9-2.1 3-2.1 1.3 0 2.4.9 2.9 2.6" stroke-linecap="round"/>'],
         ['/service_goals.php', 'Service goals', 'service-goals', 'G S', '<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2"/><path d="M8 1.5V4M8 12v2.5M1.5 8H4M12 8h2.5" stroke-linecap="round"/>'],
-        ['/reports.php', 'Reports', 'reports', '', '<path d="M2.5 13.5h11M4 13V8.5M8 13V4.5M12 13V6.5" stroke-linecap="round"/>'],
-        ['/users.php', 'Team',    'team',    '', '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.8-2.6 2.8-4 5-4s4.2 1.4 5 4M11.5 5.8a2 2 0 1 1 .01 0M11.6 9.6c1.6.4 2.8 1.6 3.3 3.4" stroke-linecap="round"/>'],
+        ['/reports.php', 'Reports', 'reports', 'G R', '<path d="M2.5 13.5h11M4 13V8.5M8 13V4.5M12 13V6.5" stroke-linecap="round"/>'],
+        ['/users.php', 'Team',    'team',    'G U', '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.8-2.6 2.8-4 5-4s4.2 1.4 5 4M11.5 5.8a2 2 0 1 1 .01 0M11.6 9.6c1.6.4 2.8 1.6 3.3 3.4" stroke-linecap="round"/>'],
     ];
     header('Content-Type: text/html; charset=utf-8');
     ?>
@@ -456,7 +456,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261111c">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261111d">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -476,6 +476,13 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
       </a>
       <?php endforeach; ?>
     </nav>
+    <?php /* The keys are listed in one place, the "?" card; this opens it for somebody who does not
+             know that key yet. */ ?>
+    <button type="button" class="nav-item nav-foot" id="shortcuts-open">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="4" width="13" height="8.5" rx="1.8"/><path d="M4.2 6.8h.1M6.7 6.8h.1M9.2 6.8h.1M11.7 6.8h.1M5 10h6" stroke-linecap="round"/></svg>
+      <span class="nav-label">Keyboard shortcuts</span>
+      <kbd class="kbd nav-kbd">?</kbd>
+    </button>
     <?php /* The hard-coded "8 West Suite" list (Milepost, Coastmark, All apps) and the lower-left
              identity menu used to sit here. Both moved to the shared cluster at the right end of the
              topbar below: the drawer now lists the apps this person is actually licensed for, and
@@ -517,7 +524,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=20261111c" defer></script>
+<script src="/assets/js/app.js?v=20261111d" defer></script>
 </body>
 </html>
     <?php

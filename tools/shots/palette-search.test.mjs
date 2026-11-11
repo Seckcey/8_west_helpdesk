@@ -21,7 +21,9 @@ const DATA = {
 };
 const ONLY_TICKETS = JSON.stringify({ tickets: DATA.tickets });
 const ONLY_CLIENTS = JSON.stringify({ clients: DATA.clients });
-const ACTIONS = ['New ticket', 'Go to Queue', 'Go to Time', 'Go to Clients', 'Go to Service goals', 'Go to Team', 'Saved replies', 'Sign out'];
+// With no ticket open or highlighted: Create, then Go to, then Account. (The fixture has no account menu, so no My settings.)
+const ACTIONS = ['New ticket', 'New client', 'New saved reply', 'Queue', 'Time', 'Clients', 'Service goals', 'Reports', 'Team', 'Saved replies',
+  'Keyboard shortcuts', 'Sign out'];
 const TICKET_ROWS = ['#42 Printer is down', '#7 Sign-in loop'];
 const CLIENT_ROWS = ['Acme Dental', 'Harbor Logistics'];
 const html = (island) => `<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><title>Palette search</title><style>${CSS}</style></head>
@@ -68,10 +70,15 @@ try {
     ['Sign out', 'Sign out'],
     ['Sign', 'Sign out'],
     ['sign OUT', 'Sign out'],
-    ['Go to Queue', 'Go to Queue'],
-    ['Go to Cl', 'Go to Clients'],
+    ['Go to Queue', 'Queue'],
+    ['Go to Cl', 'Clients'],
+    ['Queue', 'Queue'],
+    ['Rep', 'Reports'],
+    ['team', 'Team'],
     ['New', 'New ticket'],
+    ['New cl', 'New client'],
     ['Saved', 'Saved replies'],
+    ['Keyboard', 'Keyboard shortcuts'],
     ['#42', '#42 Printer is down'],
     ['#42 Printer', '#42 Printer is down'],
     ['#7 Sign-in loop', '#7 Sign-in loop'],
@@ -87,17 +94,22 @@ try {
     });
   }
 
-  await test('"go" lists the Go to actions ahead of Sign out', async (t) => {
+  await test('"go" lists the places to go, in the rail\'s order, ahead of Sign out', async (t) => {
     const page = await palette(t);
     await search(page, 'go');
     const list = await rows(page);
-    assert.deepEqual(list.slice(0, 5), ['Go to Queue', 'Go to Time', 'Go to Clients', 'Go to Service goals', 'Go to Team']);
-    assert.ok(list.indexOf('Sign out') > 4, list.join(', '));
+    assert.deepEqual(list.slice(0, 7), ['Queue', 'Time', 'Clients', 'Service goals', 'Reports', 'Team', 'Saved replies']);
+    assert.ok(list.indexOf('Sign out') > 6, list.join(', '));
+    assert.equal(await page.locator('.palette-group').first().innerText(), 'Go to');
   });
 
   for (const [query, opens] of [
     ['go', '/'],
     ['Go to Time', '/time.php'],
+    ['Reports', '/reports.php'],
+    ['Team', '/users.php'],
+    ['New client', '/client_new.php'],
+    ['New saved', '/snippets.php'],
     ['New', '/ticket_new.php'],
     ['Saved', '/snippets.php'],
     ['Sign out', '/logout.php'],
@@ -114,7 +126,7 @@ try {
   for (const [query, first] of [
     ['out', 'Sign out'],
     ['snippets', 'Saved replies'],
-    ['gq', 'Go to Queue'],
+    ['gq', 'Queue'],
     ['Printer', '#42 Printer is down'],
     ['acme.example', 'Acme Dental'],
   ]) {
@@ -182,7 +194,10 @@ try {
   await test('with no data the arrow keys move through the actions', async (t) => {
     const page = await palette(t, [], '[]');
     await page.keyboard.press('ArrowDown');
-    assert.deepEqual(await selected(page), ['Go to Queue']);
+    assert.deepEqual(await selected(page), ['New client']);
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    assert.deepEqual(await selected(page), ['Queue']);
     assert.equal(await enterOpens(page), '/');
   });
 
@@ -330,7 +345,7 @@ try {
     ]);
     await search(page, 'Sign');
     await page.locator('.palette-item-main', { hasText: '#900' }).waitFor();
-    assert.deepEqual(await rows(page), ['Sign out', '#7 Sign-in loop', 'Saved replies', '#900 Signal booster install']);
+    assert.deepEqual(await rows(page), ['Sign out', '#7 Sign-in loop', '#900 Signal booster install']);
     assert.deepEqual(await selected(page), ['Sign out']);
   });
 
@@ -340,7 +355,7 @@ try {
     await search(page, 'toner');
     await row(page, 42).waitFor({ timeout: 5000 });
     assert.deepEqual(await rows(page), ['#42 Printer is down']);
-    assert.deepEqual(await page.locator('.palette-group').allTextContents(), ['All tickets (deep search)']);
+    assert.deepEqual(await page.locator('.palette-group').allTextContents(), ['More tickets']);
     assert.equal(await enterOpens(page), '/ticket.php?id=42');
   });
 
@@ -352,7 +367,7 @@ try {
     ]);
     await search(page, 'Sign');
     await row(page, 900).waitFor({ timeout: 5000 });
-    assert.deepEqual(await rows(page), ['Sign out', '#7 Sign-in loop', 'Saved replies', '#42 Printer is down', '#900 Old router swap']);
+    assert.deepEqual(await rows(page), ['Sign out', '#7 Sign-in loop', '#42 Printer is down', '#900 Old router swap']);
   });
 
   await test('a local ticket\'s number shows it once, as its local row', async (t) => {
