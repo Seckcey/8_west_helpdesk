@@ -53,7 +53,7 @@ function westy_chat_system_prompt(): string
          . 'each count is a link. An older link that listed every ticket, or one status, still does and says so. '
          . 'The sentence under the title counts open tickets and how many still wait for a first reply. '
          . 'The page head has a "New ticket" button. Keyboard: j/k move the highlight (nothing is highlighted when the page opens; the first '
-         . 'press shows it on the first row), Enter opens, a assigns the highlighted ticket to you (again to '
+         . 'press of any row key only shows it on the first row and the next press acts; a phone shows no highlight), Enter opens, a assigns the highlighted ticket to you (again to '
          . 'unassign), and s, p and t open a small menu for its status, priority and who to give it to: choose with the '
          . 'arrow keys and Enter, or press the number shown beside a choice; Esc closes it. The t menu lists Me, '
          . 'Unassigned and every teammate, with a box to find one by name. e starts/stops the timer, g then q/t/c/s jumps to '

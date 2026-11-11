@@ -824,11 +824,19 @@
   const rows = page === "queue" ? $$(".trow:not(.trow-head)") : page === "clients" ? $$(".crow") : [];
   let sel = 0;
   // The highlight is a keyboard cursor. It is not drawn when the page opens, because a row that
-  // looks chosen before anybody chose it reads as a property of that ticket or client. It shows
-  // from the first row key (j, k, an arrow, x, or a key that acts on the row) or a ticked checkbox.
+  // looks chosen before anybody chose it reads as a property of that ticket or client. The first
+  // row key (j, k, an arrow, x, Enter, o, or a key that acts on a row) shows it and does nothing
+  // else, except x, whose tick is itself visible. A key acts on a row only once that row has been
+  // seen highlighted: a timer never starts on a ticket nobody chose. A ticked checkbox shows it too.
+  // At phone width rows are tapped, so the highlight is never drawn there, and because it cannot
+  // be seen the keys that act on the highlighted row (Enter, o, a, s, p, t, e) do nothing. j, k and
+  // x still work for a keyboard on a narrow window: the tick shows which row x reached.
   let selShown = false;
+  const phoneWidth = window.matchMedia("(max-width: 700px)");
+  const selVisible = () => selShown && !phoneWidth.matches;
   function paintSel() {
-    rows.forEach((r, i) => r.classList.toggle(page === "queue" ? "trow-sel" : "crow-sel", selShown && i === sel));
+    const shown = selVisible();
+    rows.forEach((r, i) => r.classList.toggle(page === "queue" ? "trow-sel" : "crow-sel", shown && i === sel));
     if (selShown && rows[sel]) rows[sel].scrollIntoView({ block: "nearest" });
   }
   // Shows the highlight where it stands; true when this call is what showed it.
@@ -838,6 +846,14 @@
     paintSel();
     return true;
   }
+  // True when a key may act on the highlighted row: the person can see which row that is. The
+  // press that first shows the highlight is not one of those.
+  function rowChosen() {
+    if (phoneWidth.matches) return false;
+    return !showSel();
+  }
+  // Resizing a window across the phone width: the highlight goes, or comes back where it was.
+  phoneWidth.addEventListener("change", paintSel);
 
   const currentRow = () => rows[sel];
 
@@ -1484,7 +1500,8 @@
         if (key === "enter" && e.target !== document.body && e.target.closest
           && !(e.target.classList && e.target.classList.contains("bulk-pick"))
           && e.target.closest("a[href], button, input, select, textarea, summary, label, [role='button']")) break;
-        if (row) { e.preventDefault(); row.click(); }
+        // The first press shows which row would open; the next one opens it.
+        if (row) { e.preventDefault(); if (rowChosen()) row.click(); }
         break;
       case "escape":
         if (bulk && bulk.hasSelection()) { e.preventDefault(); bulk.clear(); }
@@ -1507,7 +1524,8 @@
         const id = ticketPageId || rowTicketId;
         if (!id) break;
         e.preventDefault();
-        if (!ticketPageId) showSel();   // the row this key is about to act on
+        // On a list the first press only shows which row the key is about; the next press acts.
+        if (!ticketPageId && !rowChosen()) break;
         if (key === "e") {
           const t = readTimer();
           if (t && String(t.ticketId) === String(id)) stopTimer();

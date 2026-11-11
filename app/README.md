@@ -212,7 +212,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   longer where it was the page says the list changed and offers page 1. The
   checkboxes for bulk delete appear with Select or `x`.
 - Keyboard model (client-side): `j/k` move (the row highlight shows from the
-  first press, never on load) · `↵` open · `1–6` views ·
+  first press, never on load; the first press of a row key, `x` apart, only
+  shows it and the next press acts, so a timer never starts on a row nobody
+  saw chosen; at phone width it is never drawn and those keys do nothing) · `↵` open · `1–6` views ·
   `a` assign to me · `s` status · `p` priority · `t` owner · `z` undo ·
   `e` timer · `r` reply ·
   `n` internal note · `/` saved replies · `g q/t/c` navigate ·
