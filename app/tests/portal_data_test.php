@@ -91,8 +91,22 @@ portal_data_check('ticket summary excludes merged stubs',
 portal_data_check('ticket summary fails closed on every merged survivor',
     substr_count($summarySource, 'FROM tickets merged_source') === 2
     && substr_count($summarySource, 'merged_source.merged_into_id = t.id') === 2);
-portal_data_check('ticket summary reads no message, attachment, time, AI, or billing tables',
-    preg_match('/\b(?:messages|attachments|time_entries|assistant_log|invoices?|payments?)\b/i', $summarySource) !== 1);
+// The list says what is happening with each request, so the summary reads four facts about a conversation:
+// the kind and time of its newest customer-visible message, when the first reply was sent, and whether any
+// reply from the team is visible. Nothing more. Every read is tied to a row the filtered query returns.
+portal_data_check('ticket summary reads messages only through three sub-selects of the filtered rows, each limited to customer-visible kinds',
+    preg_match_all('/FROM messages (\w+)\s+WHERE \1\.ticket_id = t\.id AND \1\.kind (?:IN \(\'client\',\'tech\'\)|= \'tech\')/', $summarySource) === 3);
+portal_data_check('ticket summary joins exactly one message row per request: the newest customer-visible one, of that same request',
+    preg_match_all('/\bJOIN\b/i', $summarySource) === 1
+    && preg_match('/LEFT JOIN messages newest\s+ON newest\.ticket_id = t\.id\s+AND newest\.id = \(SELECT MAX\(visible\.id\) FROM messages visible/', $summarySource) === 1
+    && substr_count($summarySource, 'messages') === 4);
+portal_data_check('ticket summary orders by customer-visible activity, never by the row\'s own change time',
+    str_contains($summarySource, 'COALESCE(newest.created_at, t.created_at) DESC, t.id DESC')
+    && ! str_contains($summarySource, 'updated_at DESC'));
+portal_data_check('ticket summary never selects a message text or author, and names no private message kind',
+    preg_match('/\b(?:body|author_name|note|system)\b/i', $summarySource) !== 1);
+portal_data_check('ticket summary reads no attachment, time, AI, or billing tables',
+    preg_match('/\b(?:attachments|time_entries|assistant_log|invoices?|payments?)\b/i', $summarySource) !== 1);
 portal_data_check('ticket summary selects a closed summary field list',
     str_contains($summarySource, 'SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at, t.resolved_at')
     && !str_contains($summarySource, 'SELECT *'));
@@ -330,19 +344,20 @@ foreach (['client_owner', 'client_admin', 'client_staff', 'client_viewer'] as $h
     $writer = $homeRole !== 'client_viewer';
     // Even if archives are passed, the direct browser groups them in Support Requests.
     $home = portal_data_render_home($context, $homeRole, $summary, $homeDevices, $homeArchives);
-    portal_data_check($homeRole . ' Home names the selected client and the signed-in role',
-        str_contains(portal_data_home_section($home, 'portal-home-heading'), 'Acme &lt;img src=x onerror=alert(1)&gt;')
-        && str_contains(portal_data_home_section($home, 'portal-home-heading'), '<strong>' . portal_role_label($homeRole) . '</strong>'));
+    portal_data_check($homeRole . ' Home asks its one question about the selected client, and keeps the role out of the hero',
+        str_contains(portal_data_home_section($home, 'portal-home-heading'), 'How can we help Acme &lt;img src=x onerror=alert(1)&gt; today?')
+        && !str_contains(portal_data_home_section($home, 'portal-home-heading'), portal_role_label($homeRole)));
     portal_data_check($homeRole . ' Home escapes identity, client, request and computer text',
         !str_contains($home, '<script>alert(1)</script>') && !str_contains($home, '<img src=x onerror=alert(1)>')
         && !str_contains($home, '<script>ticket</script>') && !str_contains($home, '<pc>')
         && str_contains($home, '&lt;script&gt;ticket&lt;/script&gt;') && str_contains($home, 'Front desk &lt;pc&gt;'));
     portal_data_check($homeRole . ' Home links requests only to the customer portal detail route',
         str_contains($home, 'href="/portal/ticket.php?id=42"') && !str_contains($home, 'href="/ticket.php'));
-    portal_data_check($homeRole . ' Home keeps creation in Support Requests and preserves role-specific reply wording',
-        !str_contains($home, 'href="/portal/new.php"')
-        && str_contains($home, 'data-can-write="' . ($writer ? '1' : '0') . '"')
-        && str_contains(portal_data_home_section($home, 'home-reply-heading'), '>' . ($writer ? 'Needs your reply' : 'Waiting for a reply') . '</h2>'));
+    // New support request on Home uses the same rule as the Support Requests page: portal_role_can_write_tickets().
+    portal_data_check($homeRole . ' Home offers New support request only to a role that may create one',
+        substr_count($home, 'href="/portal/new.php"') === ($writer ? 1 : 0)
+        && $writer === portal_role_can_write_tickets($homeRole)
+        && str_contains($home, 'data-can-write="' . ($writer ? '1' : '0') . '"'));
     portal_data_check($homeRole . ' Home keeps authorized client management and groups summaries in Support Requests',
         !str_contains($home, 'href="/portal/reports.php?id=7"')
         && portal_data_home_section($home, 'home-summaries-heading') === ''
@@ -360,21 +375,22 @@ $delegatedHome = portal_data_render_home($delegated, 'admin', $summary, $homeDev
 portal_data_check('delegated Home follows the selected client role, not the home administrator role',
     !str_contains($delegatedHome, 'href="/portal/new.php"') && !str_contains($delegatedHome, 'customer-billing.php')
     && portal_data_home_section($delegatedHome, 'home-summaries-heading') === ''
-    && str_contains(portal_data_home_section($delegatedHome, 'portal-home-heading'), '<strong>' . portal_role_label('client_viewer') . '</strong>'));
+    && str_contains($delegatedHome, 'You see the requests opened under your account.'));
 
 $unavailable = portal_data_render_home($context, 'client_staff', null, null, null);
 $failedRequests = portal_data_home_section($unavailable, 'home-requests-heading');
 $failedDevices = portal_data_home_section($unavailable, 'home-devices-heading');
 portal_data_check('Home reports failed request and computer reads as unavailable, not as none',
-    str_contains($failedRequests, 'role="status"') && !str_contains($unavailable, 'aria-label="Request counts"')
+    str_contains($failedRequests, 'role="status"') && !str_contains($unavailable, 'portal-request-rows')
     && !str_contains($unavailable, 'portal-ticket-list')
     && str_contains($failedDevices, 'role="status"') && !str_contains($failedDevices, '<ul'));
 $empty = portal_data_render_home($context, 'client_staff',
     ['client' => ['name' => 'Acme'], 'counts' => ['open' => 0, 'in_progress' => 0, 'waiting' => 0, 'resolved' => 0], 'tickets' => []],
     ['items' => [], 'next_after' => null], []);
-portal_data_check('Home shows true zero counts and no failure notice when the reads succeed empty',
+portal_data_check('Home says there are no requests, with no failure notice, when the reads succeed empty',
     portal_data_home_section($empty, 'home-requests-heading') === ''
-    && str_contains($empty, 'aria-label="Request counts"')
+    && str_contains(portal_data_home_section($empty, 'home-recent-heading'), 'No support requests yet.')
+    && !str_contains($empty, 'portal-counts')
     && !str_contains(portal_data_home_section($empty, 'home-recent-heading'), 'role="status"')
     && !str_contains(portal_data_home_section($empty, 'home-devices-heading'), 'role="status"'));
 $delegated['identity']['customer_access']['role'] = 'client_admin';
