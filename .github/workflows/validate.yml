@@ -167,6 +167,13 @@ jobs:
       SAFEHARBOR_LOGOUT_TEST_PASS: safeharbor-test-root
     steps:
       - uses: actions/checkout@v4
+      - name: Private link Apache logging
+        run: |
+          if [[ ! -x /usr/sbin/apache2 ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends apache2
+          fi
+          python3 tools/test-apache-logging.py
 
       - name: No server settings file in git
         run: test ! -f app/config/config.php
