@@ -1707,6 +1707,51 @@ if (!SERVE_MODE) test('expired message operations preserve text and require refr
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
+if (!SERVE_MODE) test('a failed reply says what happened in one plain sentence, with the exact wording under Details',async()=>{
+  const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
+  const turn=(n,reason_code,tools=[])=>({operation_key:String(n).repeat(32),input_text:'Question '+n,state:'unavailable',reason_code,reply:{reply:'',sources:[],tools},feedback:null});
+  const tool={key:'t1',name:'device_health',state:'returned',label:'Device tool',result:null};
+  const state={enabled:true,ai_available:true,can_write:true,conversation:'b'.repeat(32),conversations:[],draft:null,
+    turns:[turn(1,'provider_model_mismatch'),turn(2,'provider_incomplete'),turn(3,'provider_incomplete',[tool]),turn(4,'hourly_limit'),turn(5,'context_limit'),turn(6,'stopped')]};
+  const handler=route=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,state})});
+  try{
+    for(const viewport of [{width:1365,height:900},{width:390,height:844}]){
+      const {page,context,consoleProblems}=await openPortalPage(browser,pages,viewport,handler);
+      await page.goto(`${ORIGIN}/portal/`);
+      const answers=page.locator('.portal-chat-message-assistant');await answers.nth(5).waitFor();
+      const lines=[
+        'Westy can’t answer right now. Your support team can help.',
+        'Westy stopped before finishing. Nothing was sent to your computer.',
+        'Westy stopped before finishing. Check the computer work shown in this reply.',
+        'You’ve reached this hour’s limit for Westy.',
+        'This conversation is too long to continue. Start a new chat to continue the task.',
+        'Reply stopped.'];
+      for(const [i,line] of lines.entries())await answers.nth(i).getByText(line,{exact:true}).waitFor();
+      // Nothing is lost: the exact sentence and the code open under Details, closed until asked for.
+      const first=answers.nth(0).locator('details');
+      assert.equal(await first.evaluate(d=>d.open),false);
+      assert.equal(await answers.nth(0).getByText('Reason code: provider_model_mismatch').isVisible(),false);
+      await first.locator('summary').click();
+      await answers.nth(0).getByText('The AI provider answered with a different model, so the reply was not used. Contact support.',{exact:true}).waitFor();
+      await answers.nth(0).getByText('Reason code: provider_model_mismatch',{exact:true}).waitFor();
+      // A sentence that was already plain is not repeated under Details; its code still is.
+      await answers.nth(4).locator('summary').click();
+      assert.equal(await answers.nth(4).getByText('This conversation is too long to continue. Start a new chat to continue the task.',{exact:true}).count(),1);
+      await answers.nth(4).getByText('Reason code: context_limit',{exact:true}).waitFor();
+      // A reply the person stopped is not a failure: no Details and no offer of a person.
+      assert.equal(await answers.nth(5).locator('details,a').count(),0);
+      for(const i of [0,1,2,3,4]){
+        const link=answers.nth(i).getByRole('link',{name:'New support request',exact:true});
+        assert.equal(await link.getAttribute('href'),'/portal/new.php');
+        assert.ok((await link.boundingBox()).height>=44,'the way to a person is a full-size control');
+      }
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth),true,'no sideways scroll at '+viewport.width);
+      assert.deepEqual(consoleProblems,[]);
+      await context.close();
+    }
+  }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
+});
+
 if (!SERVE_MODE) test('a refused send keeps its reason on screen, restores the text and leaves the composer usable',async()=>{
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
   const state={enabled:true,ai_available:true,can_write:true,conversation:'b'.repeat(32),conversations:[],turns:[],draft:null};
@@ -1722,12 +1767,15 @@ if (!SERVE_MODE) test('a refused send keeps its reason on screen, restores the t
     await page.goto(`${ORIGIN}/portal/`);
     const input=page.getByRole('textbox',{name:'Ask Westy about your computer'});
     await input.fill('Check the vitals of this computer.');await input.press('Enter');
-    await page.getByText('Your business has reached its chat budget. Your message was not sent; it is back in the box.',{exact:true}).waitFor();
+    await page.getByText('Your business has reached this month’s limit for Westy. Your message was not sent; it is back in the box.',{exact:true}).waitFor();
+    // The exact sentence stays on the line as its tooltip, and someone who may write is offered a person.
+    assert.equal(await page.locator('#portal-chat-status').getAttribute('title'),'Your business has reached its chat budget.');
+    assert.equal(await page.locator('#portal-chat-status + a').getAttribute('href'),'/portal/new.php');
     assert.equal(await input.inputValue(),'Check the vitals of this computer.');assert.equal(posts.length,1);
     assert.equal(await page.getByText('Your message was not saved',{exact:false}).count(),0,'the refusal reason is not replaced by a generic line');
     assert.equal(await input.isDisabled(),false);
     await Promise.all([page.waitForRequest(r=>r.method()==='POST'&&r.url().includes('/portal/westy.php')),input.press('Enter')]);
-    await page.getByText('Your business has reached its chat budget. Your message was not sent; it is back in the box.',{exact:true}).waitFor();
+    await page.getByText('Your business has reached this month’s limit for Westy. Your message was not sent; it is back in the box.',{exact:true}).waitFor();
     assert.equal(posts.length,2,'the composer stays usable after a refusal');assert.notEqual(posts[0].operation,posts[1].operation);
     assert.deepEqual(consoleProblems,[]);
     await context.close();

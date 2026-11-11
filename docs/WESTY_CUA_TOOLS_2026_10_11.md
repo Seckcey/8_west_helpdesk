@@ -85,7 +85,7 @@ produce the observed behavior, not traced events:
 | Mistakes | Invalid arguments return `rejected` with correction guidance. A call to a tool that is no longer offered returns the real offer. Neither reaches the device. The guidance repeats only server-owned tool and field names, counts and supported formats; supplied field names and values are never echoed. The fifth such call in one turn, counted across continuations, ends the reply as `tool_invalid` instead of spending more paid rounds. |
 | Model | Safeharbor's built-in fallback for the internal tenant is now GPT-6.1 Sol at medium effort (was GPT-6 Luna at low). It applies only while that tenant has never saved an 8 West ID AI selection, and then to all of its Westy chat, not only computer use. A saved 8 West ID selection always takes precedence, for every tenant. |
 | Allowance | Each round allows up to 8,000 output tokens. When the five-round reserve would not fit the remaining monthly budget, the attempt uses 4,000, 2,000 or the original 1,200 tokens instead, and the reserve uses the same number. A tenant is therefore never refused sooner than before; for example, GPT-6 Astra on the default budget starts at 2,000. |
-| Failure names | The adapter's closed reason codes (`input_count_unavailable`, `provider_invalid`, `provider_limit`, `provider_refused`) are kept instead of becoming `provider_unavailable`. Each failed attempt writes one content-free `westy_ai_failure` line (operation, sequence, round, reason, exception class) to the PHP error log. The portal shows a message for every reason plus "Reason code: …". |
+| Failure names | The adapter's closed reason codes (`input_count_unavailable`, `provider_invalid`, `provider_limit`, `provider_refused`) are kept instead of becoming `provider_unavailable`. Each failed attempt writes one content-free `westy_ai_failure` line (operation, sequence, round, reason, exception class) to the PHP error log. The portal shows a message for every reason plus "Reason code: …" (now under Details on the failed reply, below a shorter plain sentence). |
 | Stale turns | A pending turn is shown as interrupted after 180 seconds measured from its newest attempt, not from the first one. |
 
 No schema, migration, protected configuration, vendor-pinned `tenant_ai/*` file, Milepost or
@@ -309,7 +309,7 @@ boundaries, and unknown outcomes keep their existing behavior.
    - The document stays unsaved.
 2. Browser: ask Westy to open a web address and report the address and page heading. Expect the
    reply to give the address shown in the address bar and the page text.
-3. If a reply stops, note the "Reason code" line and the time.
+3. If a reply stops, open Details under it and note the "Reason code" line and the time.
 
 ## Rollback
 
