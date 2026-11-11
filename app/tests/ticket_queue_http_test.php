@@ -566,8 +566,8 @@ try {
     $tableText = (string)$x->query('//table[' . $hasClass('report-table') . ']')->item(0)?->textContent;
     $check(array_keys($mine) === ['Maya Reyes', 'Whole team'] && $mine['Maya Reyes'] === $people['Maya Reyes']
         && !str_contains($tableText, 'Jon Sato') && !str_contains($tableText, 'Olive Owner') && !str_contains($tableText, 'Unassigned')
-        && $texts($x, '//div[' . $hasClass('page-reports') . ']/h2') === ['You and the team', 'Open longest', 'Time by client']
-        && $texts($queue(101, '/reports.php'), '//div[' . $hasClass('page-reports') . ']/h2') === ['By technician', 'Open longest', 'Time by client'],
+        && $texts($x, '//div[' . $hasClass('page-reports') . ']//h2') === ['You and the team', 'Open longest', 'Time by client']
+        && $texts($queue(101, '/reports.php'), '//div[' . $hasClass('page-reports') . ']//h2') === ['By technician', 'Open longest', 'Time by client'],
         'a technician sees their own row and the whole team\'s, and no colleague\'s; an owner sees everyone');
     $allOpen = $one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 1 AND status <> 'resolved'");
     $check($mine['Whole team']['Open now'] === number_format($allOpen) && $mine['Whole team']['link'] === '/?view=open'
