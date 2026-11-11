@@ -2,7 +2,8 @@
 /**
  * The queue page over real HTTP: which tickets each view holds and in what order, the counts on
  * the views bar, the filters, the orders, paging, old links, roles and tenant isolation. Also the
- * ticket page opened from a queue row: its place in that list, and the customer beside it.
+ * ticket page opened from a queue row: its place in that list, and the customer beside it. And
+ * the Time page: its rows in plain words, people by name, and the approved list's search.
  * A disposable loopback MySQL, a runtime copy of the app on PHP's built-in server, synthetic data
  * only, no mail.
  */
@@ -105,10 +106,12 @@ try {
             $file->isDir() ? (is_dir($to) || mkdir($to, 0700, true)) : copy($file->getPathname(), $to);
         }
     };
-    foreach (['config', 'public', 'sessions', 'attachments'] as $part) mkdir($runtime . '/' . $part, 0700, true);
+    foreach (['config', 'public/api', 'sessions', 'attachments'] as $part) mkdir($runtime . '/' . $part, 0700, true);
     $copyTree($app . '/lib', $runtime . '/lib');
     copy($app . '/public/index.php', $runtime . '/public/index.php');
     copy($app . '/public/ticket.php', $runtime . '/public/ticket.php');
+    copy($app . '/public/time.php', $runtime . '/public/time.php');
+    copy($app . '/public/api/time_entry_review.php', $runtime . '/public/api/time_entry_review.php');
     $config = require $app . '/config/config.sample.php';
     $config['app_env'] = 'dev';
     $config['force_https'] = false;
@@ -119,7 +122,8 @@ try {
     $sessions = [];
     foreach ([101, 102, 103, 201, 301] as $id) {
         $sessions[$id] = bin2hex(random_bytes(16));
-        file_put_contents($runtime . '/sessions/sess_' . $sessions[$id], 'user_id|' . serialize($id) . 'csrf|' . serialize(bin2hex(random_bytes(32))));
+        $tokens[$id] = bin2hex(random_bytes(32));
+        file_put_contents($runtime . '/sessions/sess_' . $sessions[$id], 'user_id|' . serialize($id) . 'csrf|' . serialize($tokens[$id]));
     }
     $socket = stream_socket_server('tcp://127.0.0.1:0');
     $address = stream_socket_get_name($socket, false);
@@ -376,6 +380,74 @@ try {
     $check($texts($x, '//p[' . $hasClass('page-sub') . ']') === ['No open tickets.'] && $texts($x, '//*[' . $hasClass('pager-count') . ']') === [], 'and says there are no open tickets');
     $check($queue(301, '/?view=open&client=31')->query('//*[@id="queue-setup-heading"]')->length === 1, 'a filter does not hide the first steps');
     $check($queue(102)->query('//*[@id="queue-setup-heading"]')->length === 0 && $queue(101)->query('//*[@id="queue-setup-heading"]')->length === 0, 'a workspace with tickets never shows them');
+
+    // ---- the Time page: plain words, names, and the approved list's search ----
+    $entryOf = $pdo->query('SELECT user_id, id FROM time_entries WHERE tenant_id = 1 ORDER BY id')->fetchAll(PDO::FETCH_KEY_PAIR);
+    $rowTexts = static fn(DOMXPath $x, string $within, string $class): array => $texts($x, $within . '//*[' . $hasClass($class) . ']');
+    $x = $queue(102, '/time.php');
+    $check($rowTexts($x, '//div[' . $hasClass('entry-row') . ']', 'entry-min') === ['12 min']
+        && $texts($x, '//*[' . $hasClass('entry-tags') . ']/span') === ['Billable', 'Waiting for review']
+        && $texts($x, '//p[' . $hasClass('page-sub') . ']') === ['12 min logged today. 1 waiting for review. 0 approved and billable today.'],
+        'a technician sees their own time: how long, billable, and that it waits for review');
+    $check($x->query('//*[@id="time-review-queue"]')->length === 0 && $x->query('//*[@id="time-adjustment-ledger"]')->length === 0 && $x->query('//form[@id="approved-search"]')->length === 0
+        && $x->query('//div[' . $hasClass('entry-row') . ']')->length === 1, 'and nobody else\'s, and none of the review or billing lists');
+    $check($texts($x, '//details[' . $hasClass('entry-history') . ']/ul/li[position() > 1]') === ['Logged before timers were recorded.', 'No start and end were measured.']
+        && preg_match('/UTC|user #/', implode(' ', $texts($x, '//div[' . $hasClass('entry-row') . ']'))) === 0, 'History says how it was logged, with no UTC stamp and no user number');
+
+    $x = $queue(101, '/time.php');
+    $check($rowTexts($x, '//*[@id="time-review-queue"]', 'entry-note') === ['Maya Reyes, Fixture Dental: Synthetic time', 'Jon Sato, Fixture Dental: Synthetic time']
+        && $x->query('//*[@id="time-review-queue"]//details[' . $hasClass('entry-history') . '][@open]')->length === 2
+        && $x->query('//*[@id="time-review-queue"]//button[' . $hasClass('time-review') . ']')->length === 4, 'an owner sees what waits for review, with what a reviewer weighs open on each row');
+    $check($texts($x, '//*[@id="time-adjustment-ledger"]/div[' . $hasClass('empty') . ']/p') === ['No time has been approved yet.']
+        && $x->query('//form[@id="approved-search"]//input[@name="approved"]')->length === 1, 'and an empty approved list with its search box');
+
+    // Approve one entry the way the page does.
+    $curl = curl_init('http://' . $address . '/api/time_entry_review.php');
+    curl_setopt_array($curl, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20, CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode(['entry_id' => (int)$entryOf[103], 'decision' => 'approved', 'note' => '']),
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'X-CSRF: ' . $tokens[101], 'Cookie: PHPSESSID=' . $sessions[101]]]);
+    $answer = json_decode((string)curl_exec($curl), true);
+    $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+    $check($status === 200 && ($answer['ok'] ?? false) === true && ($answer['review_ack']['decision'] ?? '') === 'approved', 'the owner approves Jon\'s entry');
+
+    $ledger = '//*[@id="time-adjustment-ledger"]/div[' . $hasClass('adjustment-row') . ']';
+    $x = $queue(101, '/time.php');
+    $check($x->query($ledger)->length === 1 && $x->query($ledger . '[@data-time-entry-id="' . (int)$entryOf[103] . '"]')->length === 1
+        && $rowTexts($x, $ledger, 'entry-min') === ['30 min'] && $rowTexts($x, $ledger, 'entry-note') === ['Jon Sato, Fixture Dental: Synthetic time']
+        && count($rowTexts($x, '//*[@id="time-review-queue"]', 'entry-note')) === 1, 'the approved entry moves to the approved list');
+    $original = $rowTexts($x, $ledger, 'adjustment-original')[0] ?? '';
+    $check(str_starts_with($original, 'Original approval: 30 min, billable, by Olive Owner, ') && !str_contains($original, 'UTC')
+        && in_array('Entry number ' . (int)$entryOf[103] . '.', $texts($x, $ledger . '//details/ul/li'), true)
+        && in_array('The original approval is never erased. To add time, log a new entry.', $texts($x, $ledger . '//details/ul/li'), true),
+        'its History names who approved it, in local time, and keeps the entry number and the standing rule');
+    $change = $x->query($ledger . '//button[' . $hasClass('time-adjust') . ']')->item(0);
+    $check($change instanceof DOMElement && trim($change->textContent) === 'Change' && $change->getAttribute('data-original-minutes') === '30'
+        && $change->getAttribute('data-effective-minutes') === '30' && $change->getAttribute('data-original-billable') === '1' && $change->getAttribute('data-version') === '0'
+        && $x->query($ledger . '//*[@data-billing-label]')->length === 1, 'Change carries the approved value, and the row says where billing stands');
+    $x = $queue(103, '/time.php');
+    $check($texts($x, '//*[' . $hasClass('entry-tags') . ']/span') === ['Billable', 'Approved']
+        && count(array_filter($texts($x, '//details[' . $hasClass('entry-history') . ']/ul/li'), static fn(string $line): bool => str_starts_with($line, 'Approved as 30 min, billable, by Olive Owner, '))) === 1,
+        'Jon sees his entry approved, and by whom');
+
+    // The approved list's search: a ticket number or part of a client's name, in this tenant only.
+    $found = static fn(DOMXPath $x): int => $x->query('//*[@id="time-adjustment-ledger"]/div[' . $hasClass('adjustment-row') . ']')->length;
+    $note = static fn(DOMXPath $x): array => $texts($x, '//p[' . $hasClass('page-note') . '][@role="status"]');
+    $check($found($queue(101, '/time.php?approved=7002')) === 1 && $found($queue(101, '/time.php?approved=%237002')) === 1 && $found($queue(101, '/time.php?approved=7001')) === 0,
+        'a ticket number, with or without #, finds that ticket\'s approved time');
+    $x = $queue(101, '/time.php?approved=fixture');
+    $check($found($x) === 1 && $note($x) === ['Approved time for “fixture”, the newest first.'] && $x->query('//input[@name="approved"][@value="fixture"]')->length === 1
+        && $x->query('//form[@id="approved-search"]//a[@href="/time.php"]')->length === 1, 'part of a client\'s name finds its approved time, says so, and offers Clear');
+    $x = $queue(101, '/time.php?approved=Bayside');
+    $check($found($x) === 0 && $note($x) === ['No approved time matches “Bayside”.'] && $x->query('//*[@id="time-adjustment-ledger"]/div[' . $hasClass('empty') . ']')->length === 0,
+        'a client with no approved time says so');
+    $check($found($queue(101, '/time.php?approved=' . rawurlencode("%' OR '1'='1"))) === 0 && $found($queue(101, '/time.php?approved=' . rawurlencode('%'))) === 0
+        && $found($queue(101, '/time.php?approved=' . rawurlencode('Fixture_Dental'))) === 0, 'what is typed is only ever a value: quotes, % and _ find nothing by themselves');
+    $check($found($queue(301, '/time.php?approved=fixture')) === 0 && $found($queue(301, '/time.php?approved=7002')) === 0
+        && $queue(102, '/time.php?approved=fixture')->query('//*[@id="time-adjustment-ledger"]')->length === 0, 'another tenant\'s owner finds nothing, and a technician has no such list to search');
+    $x = $queue(101, '/time.php?approved_entry_id=999999');
+    $check($texts($x, '//div[' . $hasClass('form-error') . ']') === ['No approved entry has that number.'] && $found($queue(101, '/time.php?approved_entry_id=' . (int)$entryOf[103])) === 1,
+        'an older link by entry number still works');
 
     echo "PASS: $checks ticket queue checks\n";
 } catch (Throwable $error) {

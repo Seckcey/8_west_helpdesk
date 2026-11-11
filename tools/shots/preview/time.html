@@ -88,11 +88,11 @@
       </div>
     </header>
     <main class="content">
-<div class="page">
+<div class="page page-time">
   <div class="page-head">
     <div>
       <h1 class="page-title">Time</h1>
-      <p class="page-sub">55m logged today · 1 pending · 35m approved billable</p>
+      <p class="page-sub">55 min logged today. 1 waiting for review. 1 approved and billable today.</p>
     </div>
   </div>
 
@@ -100,54 +100,31 @@
     <span class="timer-dot" id="timer-dot"></span>
     <div class="timer-info">
       <div class="timer-title" id="timer-title">No timer running</div>
-      <div class="timer-sub" id="timer-sub">Press <kbd class="kbd">E</kbd> on any ticket in the queue to start one — or open a ticket and hit Start timer.</div>
+      <div class="timer-sub" id="timer-sub">Press <kbd class="kbd">E</kbd> on a ticket in the queue to start one, or open a ticket and press Start timer.</div>
     </div>
     <span class="timer-clock" id="timer-clock"></span>
   </div>
 
-  <div class="rail-label">Today's entries</div>
-  <div class="card rail-list">
-    <div class="entry-row">
-      <span class="entry-min">20m</span>
-      <div class="entry-main">
-        <div class="entry-note">Hygienist account locked out after the password change; reset it and checked the front desk sign-in</div>
-        <a class="entry-ticket link" href="#">#1042</a>
-        <div class="entry-evidence">Worked 2026-11-10 14:05 UTC · source timer · measured 2026-11-10 14:05 UTC → 2026-11-10 14:25 UTC</div>
-      </div>
-      <span class="entry-badge badge-billable">billable</span>
-      <span class="entry-badge status-pending">pending</span>
-    </div>
-    <div class="entry-row">
-      <span class="entry-min">35m</span>
-      <div class="entry-main">
-        <div class="entry-note">Print spooler restart on FRONTDESK-02</div>
-        <a class="entry-ticket link" href="#">#1041</a>
-      </div>
-      <span class="entry-badge badge-billable">billable</span>
-      <span class="entry-badge status-approved">approved</span>
-    </div>
-  </div>
+  <h2 class="rail-label">Today</h2>
+  <div class="card rail-list"><div class="entry-row"><span class="entry-min">20 min</span><div class="entry-main"><div class="entry-note">Hygienist account setup</div><a class="entry-ticket link" href="#">#106 Hygienist account setup</a><details class="entry-history"><summary>History</summary><ul><li>Worked 9:30 AM.</li><li>Logged from the timer.</li><li>Measured from 9:10 AM to 9:30 AM.</li><li>Approved as 20 min, billable, by Olive Owner, 9:45 AM.</li></ul></details></div><span class="entry-tags"><span class="entry-badge badge-billable">Billable</span><span class="entry-badge status-approved">Approved</span></span></div><div class="entry-row"><span class="entry-min">35 min</span><div class="entry-main"><div class="entry-note">Mailbox fix and profile rebuild</div><a class="entry-ticket link" href="#">#102 Shared mailbox not syncing</a><details class="entry-history"><summary>History</summary><ul><li>Worked 9:30 AM.</li><li>Logged with a reply on the ticket.</li><li>No start and end were measured.</li></ul></details></div><span class="entry-tags"><span class="entry-badge badge-billable">Billable</span><span class="entry-badge status-pending">Waiting for review</span></span></div></div>
 
-  <div class="rail-label">Pending review</div>
-  <div class="card rail-list" id="time-review-queue">
-    <div class="entry-row review-row" data-time-entry-id="77">
-      <span class="entry-min">35m</span>
-      <div class="entry-main">
-        <div class="entry-note">Ana Kim · Bayside Realty · Mapped the shared drive again for the two new agents and tested a scan to folder</div>
-        <a class="entry-ticket link" href="#">#1039 New hire laptop setup for Dana</a>
-        <div class="entry-evidence">
-          Worked 2026-11-10 13:10 UTC · source manual ·
-            no measured interval
-        </div>
-        <div class="entry-lineage">Replacement for rejected entry #71</div>
-      </div>
-      <span class="entry-badge badge-billable">billable</span>
-      <div class="review-actions">
-        <button type="button" class="btn-chip time-review" data-decision="approved">Approve</button>
-        <button type="button" class="btn-secondary time-review" data-decision="rejected">Reject</button>
-      </div>
-    </div>
+  <h2 class="rail-label">Earlier</h2>
+  <div class="card rail-list" id="time-entry-history"><div class="entry-row"><span class="entry-min">17 min</span><div class="entry-main"><div class="entry-note">Laptop build</div><a class="entry-ticket link" href="#">#98 New starter laptop</a><div class="entry-review-note">Review note: Which laptop? Add the asset tag.</div><div class="correction-actions"><button type="button" class="btn-secondary time-correct" data-rejected-entry-id="51" data-minutes="17" data-note="Laptop build" data-billable="0" data-worked-at="2026-11-09T20:00:00Z" data-started-at="" data-ended-at="" data-measured="0">Correct and resubmit</button></div><details class="entry-history"><summary>History</summary><ul><li>Worked Nov 9, 12:00 PM.</li><li>Logged from the timer.</li><li>No start and end were measured.</li><li>Rejected by Olive Owner, Nov 9, 2:00 PM.</li></ul></details></div><span class="entry-tags"><span class="entry-badge badge-plain">Not billable</span><span class="entry-badge status-rejected">Rejected</span></span></div></div>
+
+  <h2 class="rail-label">To review</h2>
+  <div class="card rail-list" id="time-review-queue"><div class="entry-row review-row" data-time-entry-id="73"><span class="entry-min">35 min</span><div class="entry-main"><div class="entry-note">Ana Ruiz, Bluefin Realty: Mailbox fix and profile rebuild</div><a class="entry-ticket link" href="#">#102 Shared mailbox not syncing</a><details class="entry-history" open><summary>History</summary><ul><li>Worked 9:30 AM.</li><li>Logged from the timer.</li><li>Measured from 9:10 AM to 9:30 AM.</li></ul></details></div><span class="entry-tags"><span class="entry-badge badge-billable">Billable</span></span><div class="review-actions"><button type="button" class="btn-primary time-review" data-decision="approved">Approve</button><button type="button" class="btn-secondary time-review" data-decision="rejected">Reject</button></div></div></div>
+
+  <div class="time-ledger-head">
+    <h2 class="rail-label">Approved, ready for billing</h2>
+    <form class="time-search" method="get" action="#" id="approved-search" role="search">
+      <label class="sr-only" for="approved-q">Search approved time by ticket number or client</label>
+      <input type="search" name="approved" id="approved-q" placeholder="Ticket number or client" autocomplete="off" maxlength="100">
+      <button type="submit" class="btn-secondary">Search</button>
+    </form>
   </div>
+  <div class="card rail-list" id="time-adjustment-ledger"><div class="entry-row adjustment-row" data-time-entry-id="88"><span class="entry-min">45 min</span><div class="entry-main"><div class="entry-note">Marcus Tran, Copper Kettle Bakery: SharePoint permission audit</div><a class="entry-ticket link" href="#">#109 SharePoint permissions</a><div class="entry-lineage adjustment-effective">Counts now as 45 min, not billable, after 2 changes. Approved as 1 h, billable.</div><div class="entry-lineage adjustment-reason">Reason for the latest change: Customer goodwill credit</div><details class="entry-history"><summary>History</summary><ul><li><span class="adjustment-original">Original approval: 1 h, billable, by Olive Owner, 9:45 AM.</span></li><li>Worked 9:30 AM.</li><li>Logged from the timer.</li><li>Measured from 9:10 AM to 9:30 AM.</li><li>Entry number 88.</li><li>The original approval is never erased. To add time, log a new entry.</li></ul><div class="adjustment-history"><p class="entry-history-title">Changes (2)</p><ol><li class="adjustment-history-item">Change 1: 50 min, billable, by Olive Owner, 9:50 AM.<div>Reason: Duplicate work</div></li><li class="adjustment-history-item">Change 2: 45 min, not billable, by Olive Owner, 9:55 AM.<div>Reason: Customer goodwill credit</div></li></ol></div></details></div><span class="entry-tags"><span class="entry-badge badge-plain">Not billable</span></span><div class="review-actions billing-actions"><span class="billing-state" data-billing-label>Not sent to billing</span><button type="button" class="btn-secondary time-billing" data-entry-id="88" data-billing-action="send">Send to billing</button><button type="button" class="btn-secondary time-adjust" data-entry-id="88" data-original-minutes="60" data-original-billable="1" data-effective-minutes="45" data-effective-billable="0" data-version="2">Change</button></div></div><div class="entry-row adjustment-row" data-time-entry-id="89"><span class="entry-min">20 min</span><div class="entry-main"><div class="entry-note">Ana Ruiz, Harbor Dental: Driver reinstall</div><a class="entry-ticket link" href="#">#110 Printer driver</a><details class="entry-history"><summary>History</summary><ul><li><span class="adjustment-original">Original approval: 20 min, not billable, by Olive Owner, 9:45 AM.</span></li><li>Worked 9:30 AM.</li><li>Logged from a suggestion.</li><li>No start and end were measured.</li><li>Entry number 89.</li><li>The original approval is never erased. To add time, log a new entry.</li></ul></details></div><span class="entry-tags"><span class="entry-badge badge-plain">Not billable</span></span><div class="review-actions billing-actions"><span class="billing-state" data-billing-label>Not billable</span><button type="button" class="btn-secondary time-adjust" data-entry-id="89" data-original-minutes="20" data-original-billable="0" data-effective-minutes="20" data-effective-billable="0" data-version="0">Change</button></div></div></div>
+
+  <p class="page-note">Approving time does not send an invoice. Invoices are made in Coastmark.</p>
 </div>
     </main>
   </div>

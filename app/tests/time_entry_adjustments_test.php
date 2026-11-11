@@ -441,8 +441,10 @@ adjustment_check(
         && str_contains($timePage, 'WHERE e.tenant_id = ?')
         && str_contains($timePage, "' AND e.id = ? LIMIT 1'")
         && str_contains($timePage, 'time_entry_adjustment_latest_by_entry(')
-        && str_contains($timePage, 'Original approval:')
-        && str_contains($timePage, 'Effective version'),
+        && str_contains($timePage, 'time_approved_row(')
+        // The rows are drawn by lib/time_page.php (behaviour: app/tests/time_page_test.php).
+        && str_contains((string) file_get_contents(__DIR__ . '/../lib/time_page.php'), 'Original approval: ')
+        && str_contains((string) file_get_contents(__DIR__ . '/../lib/time_page.php'), 'Counts now as '),
 );
 adjustment_check(
     'live reports compare raw billable facts with latest effective totals',

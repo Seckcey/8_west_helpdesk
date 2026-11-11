@@ -722,6 +722,8 @@ time_check('authentication stamps the database-resolved tenant into every sessio
     && substr_count($authSource, '$_SESSION[\'tenant_id\'] =') >= 3);
 
 $timePageSource = file_get_contents(__DIR__ . '/../public/time.php');
+// The page's rows are drawn by lib/time_page.php (behaviour: app/tests/time_page_test.php).
+$timeRowsSource = file_get_contents(__DIR__ . '/../lib/time_page.php');
 time_check('suggestions are limited to the same UTC activity day they suppress',
     is_string($timePageSource)
     && str_contains($timePageSource, 't.updated_at >= UTC_DATE()')
@@ -735,22 +737,28 @@ time_check('older pending and reviewed entries remain visible to technicians',
     is_string($timePageSource)
     && str_contains($timePageSource, "(e.approval_status = 'pending') DESC")
     && str_contains($timePageSource, 'id="time-entry-history"')
-    && str_contains($timePageSource, 'Review note:'));
+    && str_contains($timePageSource, 'time_own_row(')
+    && is_string($timeRowsSource)
+    && str_contains($timeRowsSource, 'Review note: '));
 time_check('pending summary counts the technician full queue, not only today',
     is_string($timePageSource)
     && str_contains($timePageSource, "approval_status = 'pending'")
     && str_contains($timePageSource, '$pendingOwn = (int)$pendingCountQuery->fetchColumn()'));
 time_check('approval queue renders worked-at source and interval evidence',
     is_string($timePageSource)
-    && str_contains($timePageSource, 'Worked <?= h($utcLabel')
-    && str_contains($timePageSource, 'source <?= h($e[\'source\']) ?>')
-    && str_contains($timePageSource, 'measured <?= h($utcLabel')
-    && str_contains($timePageSource, 'no measured interval'));
+    && str_contains($timePageSource, 'time_review_row(')
+    && is_string($timeRowsSource)
+    && str_contains($timeRowsSource, "\$history = time_logged_lines(\$entry, \$timeZone, \$now);")
+    && str_contains($timeRowsSource, "'Worked ' . h(time_when((string)(\$entry['worked_at']")
+    && str_contains($timeRowsSource, "TIME_SOURCE_WORDS[(string)(\$entry['source']")
+    && str_contains($timeRowsSource, "'Measured from '")
+    && str_contains($timeRowsSource, 'No start and end were measured.'));
 time_check('rejected entries expose append-only correction lineage instead of an edit path',
     is_string($timePageSource)
-    && str_contains($timePageSource, 'data-rejected-entry-id=')
-    && str_contains($timePageSource, 'Correct &amp; resubmit')
-    && str_contains($timePageSource, 'original history kept')
+    && is_string($timeRowsSource)
+    && str_contains($timeRowsSource, 'data-rejected-entry-id="')
+    && str_contains($timeRowsSource, 'Correct and resubmit')
+    && str_contains($timeRowsSource, 'The rejected entry is kept as it was.')
     && str_contains($timePageSource, 'replacement.corrects_time_entry_id = e.id'));
 
 $exportSource = file_get_contents(__DIR__ . '/../public/reports_export.php');
@@ -856,10 +864,12 @@ time_check('browser correction freezes one idempotency key and exact payload bef
     && str_contains($appJs, 'button.dataset.correctionPayload = JSON.stringify(payload)')
     && str_contains($appJs, 'await api("/api/time_entry_correction.php", payload)')
     && str_contains($appJs, 'responseEntryKey(result) !== payload.entry_key')
-    && str_contains($appJs, 'billingAnswer === null')
-    && str_contains($appJs, 'Type B for billable or I for internal.')
+    // The facts are asked for in a dialog (askForm); cancelling it sends nothing, and the start and
+    // end it picks in local time go through the same UTC check as before.
+    && str_contains($appJs, 'title: "Correct and resubmit"')
+    && str_contains($appJs, 'if (facts === null) return;')
     && str_contains($appJs, 'function parseCorrectionUtc(value)')
-    && str_contains($appJs, 'Corrected start (UTC, YYYY-MM-DDTHH:MM:SSZ)')
+    && str_contains($appJs, 'localInputToUtc(controls.start.value)')
     && str_contains($appJs, 'button.dataset.correctionPayload = ""'));
 
 $correctionApiSource = file_get_contents(__DIR__ . '/../public/api/time_entry_correction.php');
