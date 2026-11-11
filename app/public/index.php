@@ -22,6 +22,8 @@ $total = queue_total($state, $counts);
 if ($state['page'] > queue_pages($total)) $state = array_replace($state, ['page' => queue_pages($total), 'after' => 0, 'before' => 0]);
 $page = queue_page(db(), tenant_id(), $me, $state);
 $rows = westy_workflow_ticket_owners(db(), tenant_id(), $page['rows']);
+// Each row's link says which list it is in, so the ticket page can show its place and step along.
+$from = queue_ticket_query($state);
 
 // Every ticket this tenant has, whatever the view and the filters say: an empty workspace gets first steps.
 $counts['all'] = $counts['everything'];
@@ -72,7 +74,7 @@ page_top($user, 'Queue', 'queue');
       </div>
     <?php endif; ?>
     <?php foreach ($rows as $t): ?>
-      <?= $canDelete ? ticket_pick_row($t) : ticket_row($t) ?>
+      <?= $canDelete ? ticket_pick_row($t, $from) : ticket_row($t, true, $from) ?>
     <?php endforeach; ?>
   </div>
   <?= queue_pager($state, $total, $rows) ?>

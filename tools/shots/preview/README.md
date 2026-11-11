@@ -8,7 +8,7 @@ made up.
 |---|---|---|
 | `queue.html` | Staff queue (All open view) | the markup of `app/lib/render.php`, `app/lib/ticket_queue.php` and `app/public/index.php` |
 | `queue-first-run.html` | Staff queue in a new workspace, with Get set up | copied from `app/public/index.php` and `app/lib/first_steps.php` |
-| `ticket.html` | Staff ticket | copied from `app/public/ticket.php` |
+| `ticket.html` | Staff ticket | its head, messages and Details are printed by `php app/tests/ticket_page_test.php --render` (the `preview` parts, from `app/lib/ticket_page.php`); the composer is copied from `app/public/ticket.php` |
 | `clients.html` | Clients list and number tiles | copied from `app/public/clients.php` |
 | `team.html` | Team page with Invite a teammate and the backup sign-in disclosure | copied from `app/public/users.php` |
 | `time.html` | Time: today's entries and one entry waiting for review | copied from `app/public/time.php` |

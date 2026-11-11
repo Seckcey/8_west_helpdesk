@@ -164,13 +164,15 @@ for (const [theme, width] of [['dark', 1440], ['dark', 390], ['light', 1440]]) {
 }
 
 // ---- F33: large caution surfaces ----
-test('dark: a banner and an internal note are a card with an amber edge, not a brown slab', async (t) => {
+test('dark: a notice and an internal note are a card with an amber edge, not a brown slab', async (t) => {
   for (const width of [1440, 390]) {
     const page = await open(t, 'ticket', { width });
     // The Clients bands use these same two classes.
-    await page.evaluate(() => document.querySelector('.page').insertAdjacentHTML('beforeend', '<div class="demo-card"><span class="demo-text">A band on Clients</span></div>'));
+    // (and so does any page that still prints a .banner-warn).
+    await page.evaluate(() => document.querySelector('.page').insertAdjacentHTML('beforeend',
+      '<div class="demo-card"><span class="demo-text">A band on Clients</span></div><div class="banner banner-warn">A banner on another page</div>'));
     const card = (await paint(page, '.card')).background;
-    for (const selector of ['.banner-warn', '.msg-note', '.demo-card']) {
+    for (const selector of ['.ticket-callout-caution', '.banner-warn', '.msg-note', '.demo-card']) {
       const part = await paint(page, selector);
       assert.equal(part.background, card, `${selector} is the card colour`);
       assert.notEqual(part.background, 'rgb(61, 49, 21)');
@@ -178,14 +180,16 @@ test('dark: a banner and an internal note are a card with an amber edge, not a b
       assert.match(part.shadow, /rgb\(233, 182, 58\)/, `${selector}'s edge is amber`);
       assert.ok(part.contrast >= 4.5, `${selector} reads at ${part.contrast.toFixed(2)} to 1`);
     }
-    assert.ok((await paint(page, '.msg-note .msg-author-note')).contrast >= 4.5);
+    assert.ok((await paint(page, '.msg-note .msg-author')).contrast >= 4.5);
+    assert.ok((await paint(page, '.msg-note .msg-role')).contrast >= 4.5);
     await shot(page, `ticket-caution-${width}-dark`);
   }
 });
 
 test('light: the caution tint is unchanged', async (t) => {
   const page = await open(t, 'ticket', { theme: 'light' });
-  for (const selector of ['.banner-warn', '.msg-note']) {
+  await page.evaluate(() => document.querySelector('.page').insertAdjacentHTML('beforeend', '<div class="banner banner-warn">A banner on another page</div>'));
+  for (const selector of ['.ticket-callout-caution', '.banner-warn', '.msg-note']) {
     const part = await paint(page, selector);
     assert.equal(part.background, 'rgb(255, 242, 209)');
     assert.doesNotMatch(part.shadow, /rgb\(/, `${selector} has no visible edge`);

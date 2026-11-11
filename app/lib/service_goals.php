@@ -395,8 +395,10 @@ function service_goal_snapshot_for_new_ticket(
 /** Exact captured policy label, with an honest fallback for legacy tickets. */
 function service_goal_ticket_policy_label(array $ticket): string
 {
+    // One plain sentence: "Standard plan: first reply within 8 hours." No record version, no stored
+    // values. A ticket from before plans were recorded says so instead of inventing one.
     if (empty($ticket['service_goal_target_id'])) {
-        return 'Legacy response target · policy version unavailable';
+        return 'No plan was recorded when this ticket was opened.';
     }
     if (
         empty($ticket['service_goal_policy_name'])
@@ -404,18 +406,14 @@ function service_goal_ticket_policy_label(array $ticket): string
         || empty($ticket['service_goal_priority'])
         || (int) ($ticket['service_goal_response_minutes'] ?? 0) <= 0
     ) {
-        return 'Captured policy unavailable';
+        return 'The plan this ticket was opened under is unavailable.';
     }
 
-    $clock = ($ticket['service_goal_clock_mode'] ?? '') === 'elapsed'
-        ? 'elapsed time'
-        : str_replace('_', ' ', (string) ($ticket['service_goal_clock_mode'] ?? 'unknown clock'));
+    $name = trim((string) $ticket['service_goal_policy_name']);
 
-    return (string) $ticket['service_goal_policy_name']
-        . ' v' . (int) $ticket['service_goal_version_no']
-        . ' · ' . (string) $ticket['service_goal_priority'] . ' target'
-        . ' · ' . service_goal_window_label((int) ($ticket['service_goal_response_minutes'] ?? 0))
-        . ' response · ' . $clock;
+    return $name . (preg_match('/\bplan$/i', $name) === 1 ? '' : ' plan')
+        . ': first reply within ' . service_goal_window_label((int) ($ticket['service_goal_response_minutes'] ?? 0))
+        . (($ticket['service_goal_clock_mode'] ?? '') === 'business_hours' ? ' of working time.' : '.');
 }
 
 /**

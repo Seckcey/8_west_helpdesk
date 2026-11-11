@@ -543,7 +543,7 @@ page says when the list changed between pages. Rows say who asked and flag a cus
 bulk-delete checkboxes appear only after Select or `x`. Every key does what it did before. Read-only:
 no schema, role, permission or grant change (`app/lib/ticket_queue.php`).
 
-**First-response tag in plain words (draft, not live).** The tag under "First response" says `Due in
+**First-response tag in plain words (live).** The tag under "First response" says `Due in
 6 h`, `Due in 40 min` (gold, under two hours), `Overdue by 2 h` (red), `Answered in time`, `Answered
 3 h late`, `Closed without a reply` or `Merged`, with one unit of time and nothing blinking. Red now
 means only "late right now": a ticket that was answered late says so in quiet text with a gold dot
@@ -551,6 +551,18 @@ instead of staying red for ever, and one resolved with no reply is a plain tag (
 Time left rounds down and is in minutes under two hours; time late rounds up. It is one rule (`sla_info()` in `app/lib/service_goals.php`) drawn by
 one helper, so the queue, a client's ticket list and the ticket page read the same. Display only:
 which tickets count as late, the Needs attention view and every report are unchanged.
+
+**The customer beside the conversation (draft, not live).** The ticket page's head has the way back,
+the ticket's place in the list it was opened from ("2 of 6") with previous and next (`[` and `]`),
+Merge and Resolve. Messages are full-width cards that say who wrote them (Customer, Support, Internal
+note). Details adds the contact with Copy, the client and its note, the client's other open tickets,
+the signed-in person's own logged time, and Open in Milepost for a linked client. Merge is a dialog
+over the client's other open tickets instead of a browser prompt for a number. The possible-duplicate
+warning is a notice under the title. The plan line reads "Standard plan: first reply within 8 hours."
+No schema, role, permission, grant or endpoint change: every new read is the signed-in tenant and the
+ticket's own client, and a person sees only their own time (`app/lib/ticket_page.php`,
+`queue_ticket_place()` in `app/lib/ticket_queue.php`). Merge now offers only open tickets; the
+endpoint's own rules are unchanged.
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.

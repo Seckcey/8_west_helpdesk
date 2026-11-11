@@ -676,7 +676,6 @@ img { display: block; }
    Ticket detail
    ========================================================================== */
 .ticket-head { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; }
-.ticket-num { font-size: 14px; font-weight: 600; color: var(--dim); font-variant-numeric: tabular-nums; }
 .ticket-subject { font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; color: var(--text-strong); overflow-wrap: anywhere; }
 .ticket-sub { margin-top: 6px; font-size: 14px; color: var(--muted-strong); }
 /* Resolve (or Reopen) sits at the right end of the head, after the presence chips. */
@@ -693,7 +692,6 @@ img { display: block; }
 .msg-meta { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12.5px; }
 .msg-author { font-weight: 650; color: var(--text); font-size: 14px; }
 .msg-author-tech { font-weight: 650; color: var(--cyan); font-size: 14px; }
-.msg-author-note { font-weight: 650; color: var(--gold); font-size: 14px; }
 .msg-when { color: var(--dim); }
 .msg-body { font-size: 14px; line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg-note {
@@ -740,8 +738,6 @@ img { display: block; }
   transition: background .14s, border-color .14s;
 }
 .rail-btn:hover { background: var(--surface-3); border-color: var(--line-strong); }
-.rail-btn .kbd { opacity: 0; transition: opacity .1s; }
-.rail-btn:hover .kbd, .rail-btn:focus-visible .kbd { opacity: 1; }
 .rail-k { display: block; font-size: 12.5px; color: var(--dim); }
 .rail-v { display: block; margin-top: 3px; }
 /* Status, priority and owner: a label and a menu button per row, no boxes inside the card. The
@@ -753,7 +749,6 @@ img { display: block; }
 .menu-btn:hover { background: var(--bg-raised); }
 .menu-btn[aria-expanded="true"] { border-color: var(--focus); background: var(--bg-raised); }
 .menu-btn .rail-v { display: flex; align-items: center; flex: 1; min-width: 0; margin: 0; overflow: hidden; }
-.menu-btn .kbd { opacity: 1; }
 .menu-btn .assignee-cell { min-width: 0; }
 .menu-btn .assignee-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-chevron { flex: none; color: var(--dim); }
@@ -790,9 +785,6 @@ img { display: block; }
 .menu-item-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--dim); }
 .menu-avatar { width: 22px; height: 22px; background: var(--surface-3); line-height: 1; }
 .menu-empty { padding: 10px 8px; font-size: 13px; color: var(--muted-strong); }
-/* Timer and merge are real buttons: secondary style. */
-.rail > .rail-btn { justify-content: center; min-height: 36px; border-color: var(--line-strong); background: var(--bg-solid); font-size: 14px; font-weight: 600; color: var(--text); }
-.rail > .rail-btn:hover { background: var(--bg-raised); border-color: var(--line-strong); }
 .rail-card { padding: 12px 16px; font-size: 14px; }
 :is(.page-ticket, .portal-content) .rail > .rail-card { padding: 4px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 :is(.page-ticket, .portal-content) .rail > .rail-card + .rail-card { padding-top: 10px; border-top: 1px solid var(--line); }
@@ -804,7 +796,126 @@ img { display: block; }
 .assignee-cell { display: inline-flex; align-items: center; gap: 8px; }
 .assignee-name { font-size: 14px; }
 .timer-btn { justify-content: center; font-size: 14px; }
-.rail > .timer-btn.timer-on, .timer-btn.timer-on { border-color: transparent; background: var(--mint-soft-bg); color: var(--mint); }
+.timer-btn.timer-on { border-color: transparent; background: var(--mint-soft-bg); color: var(--mint); }
+
+/* The staff ticket page (.page-ticket): the customer beside the conversation. Everything here is
+   scoped to it, because the portal's request page and the client page share .thread, .msg and
+   .rail and keep their own look. */
+
+/* Head: the way back, the place in the list with previous and next, who else is here, Merge and
+   Resolve; then the title and one sentence. */
+.page-ticket .ticket-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.page-ticket .ticket-bar .backlink { min-height: 32px; margin: 0 0 0 -6px; padding: 0 8px 0 4px; border-radius: var(--radius-sm); }
+.page-ticket .ticket-bar .backlink:hover { background: var(--hover); }
+.ticket-place { display: inline-flex; align-items: center; gap: 6px; }
+.ticket-pos { margin-right: 2px; font-size: 13px; font-weight: 600; color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+.ticket-step {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg-solid); color: var(--text);
+}
+a.ticket-step:hover { background: var(--bg-raised); }
+.ticket-step-off { border-color: var(--line); background: transparent; color: var(--dim); opacity: .55; }
+.ticket-tools { display: inline-flex; align-items: center; gap: 8px; }
+
+/* A notice under the head: icon, a bold first line, a plain sentence, its button at the right. */
+.ticket-callout {
+  display: flex; align-items: flex-start; gap: 12px; margin-top: 14px; padding: 12px 14px;
+  border-radius: 12px; font-size: 14px; line-height: 1.5; color: var(--text);
+}
+.ticket-callout-caution { background: var(--caution-surface); box-shadow: inset 0 0 0 1px var(--caution-line), inset 3px 0 0 var(--caution-edge); }
+.ticket-callout-info { background: var(--accent-soft-bg); }
+.ticket-callout-icon { flex: none; margin-top: 2px; color: var(--gold); }
+.ticket-callout-info .ticket-callout-icon { color: var(--cyan); }
+.ticket-callout-text { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.ticket-callout-text strong { font-weight: 650; }
+.ticket-callout-btn { flex: none; align-self: center; }
+
+/* Conversation: every message is a card the full width of one column. Who wrote it is a tag, not
+   a side of the page: a reply from the team keeps its tint, an internal note the caution one. */
+.page-ticket .thread { gap: 12px; }
+.page-ticket .msg { max-width: none; margin-left: 0; padding: 14px 16px; }
+.page-ticket .msg-note { border-radius: var(--radius-md); }
+.page-ticket .msg-meta { align-items: center; gap: 8px; margin-bottom: 8px; }
+.msg-avatar {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px;
+  border-radius: 50%; background: var(--surface-3); color: var(--muted-strong); font-size: 11px; font-weight: 700;
+}
+.msg-role {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--radius-tag);
+  background: var(--chip-bg); color: var(--muted-strong); font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.msg-note .msg-role { background: var(--gold-soft-bg); color: var(--gold); }
+.page-ticket .msg-when { margin-left: auto; font-size: 12.5px; color: var(--muted-strong); white-space: nowrap; }
+.page-ticket .msg-system { display: flex; justify-content: center; gap: 4px 8px; flex-wrap: wrap; font-style: normal; color: var(--muted-strong); }
+.page-ticket .msg-system .msg-when { margin-left: 0; }
+
+/* Details: one card, in sections with a hairline between them. */
+.page-ticket .rail-sections { display: flex; flex-direction: column; }
+.rail-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rail-section + .rail-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.page-ticket .rail-prop > .rail-v { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; }
+.page-ticket .rail-note { margin: -2px 0 0; color: var(--muted-strong); }
+.rail-time > .rail-v { justify-content: space-between; }
+.rail-minutes { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.page-ticket .timer-btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
+.rail-person { margin: 0; font-size: 14px; font-weight: 650; color: var(--text-strong); overflow-wrap: anywhere; }
+.rail-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; margin: 0; font-size: 14px; }
+.rail-line > .link, .rail-copy { flex: none; }
+.rail-email, .rail-client { min-width: 0; overflow-wrap: anywhere; }
+.rail-quiet { font-size: 13px; color: var(--muted-strong); }
+.rail-client-note {
+  max-height: 9.5em; margin: 2px 0 0; padding: 10px 12px; overflow-y: auto; border-radius: 10px; background: var(--bg-raised);
+  font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.rail-client-note .rail-k { margin-bottom: 2px; font-weight: 600; color: var(--muted-strong); white-space: normal; }
+.rail-others > .rail-k, .rail-line > .rail-k { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted-strong); }
+.rail-tickets { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.rail-ticket {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 -8px; padding: 8px;
+  border-radius: 8px; font-size: 13.5px; line-height: 1.4; color: var(--text);
+}
+.rail-ticket:hover { background: var(--bg-raised); }
+.rail-ticket-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.rail-ticket-num { font-weight: 600; color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+
+/* Merge dialog: find one of the client's open tickets, read one line about it, confirm. */
+.merge-panel { width: 560px; max-height: 80vh; overflow-y: auto; padding: 22px 24px; }
+.merge-panel h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.merge-sub, .merge-empty, .merge-note { margin: 0 0 14px; font-size: 14px; line-height: 1.5; color: var(--muted-strong); }
+.merge-note { margin: 8px 0 0; font-size: 13px; }
+.merge-label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.merge-search {
+  width: 100%; min-height: 38px; padding: 0 12px; border: 1px solid var(--control-border); border-radius: var(--radius-sm);
+  background: var(--input-bg); color: var(--text); font: inherit; font-size: 14px;
+}
+.merge-search:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--sel-ring); }
+.merge-search::placeholder { color: var(--dim); }
+.merge-list { max-height: min(264px, 40vh); margin: 8px 0 0; padding: 0; overflow-y: auto; list-style: none; }
+.merge-option { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; font-size: 14px; cursor: pointer; overflow-wrap: anywhere; }
+.merge-option:hover { background: var(--bg-raised); }
+.merge-option-on { background: var(--sel); }
+.merge-option[aria-selected="true"] { box-shadow: inset 0 0 0 2px var(--focus); }
+.merge-option-num { font-weight: 600; color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+.merge-option-sub { font-size: 12.5px; color: var(--muted-strong); }
+.merge-none { padding: 10px; font-size: 13px; color: var(--muted-strong); }
+.merge-summary { min-height: 1.5em; margin: 12px 0 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.merge-error { margin: 8px 0 0; font-size: 14px; color: var(--rose); }
+
+@media (max-width: 700px) {
+  .page-ticket .ticket-bar .backlink, .ticket-step, .page-ticket .timer-btn { min-height: 44px; }
+  .ticket-step { width: 44px; height: 44px; }
+  .ticket-tools { margin-left: auto; }
+  .ticket-callout { flex-wrap: wrap; }
+  .ticket-callout-text { flex: 1 1 200px; }
+  .ticket-callout-btn { width: 100%; }
+  .page-ticket .msg { max-width: none; }
+  .rail-ticket { min-height: 44px; justify-content: center; }
+  .rail-line > .link { display: inline-flex; align-items: center; min-height: 44px; }
+  #merge-overlay { padding-top: 4vh; }
+  .merge-panel { padding: 16px; max-height: 92vh; }
+  .merge-option { min-height: 44px; justify-content: center; }
+  .merge-search, .merge-panel .btn-primary { min-height: 44px; }
+}
 
 /* ==========================================================================
    Clients
@@ -1697,7 +1808,7 @@ html[data-motion="reduce"] *,html[data-motion="reduce"] *::before,html[data-moti
 /* Phone tap targets: 44px for every small control at 700px and below. */
 @media (max-width: 700px) {
   .filter-pill, .page-actions .btn-primary, .btn-chip, .btn-sm, .btn-link,
-  .composer-tab, .rail > .rail-btn { min-height: 44px; }
+  .composer-tab { min-height: 44px; }
   /* The ticket's menus, Resolve, Attach, Send and Undo; key hints are for keyboards. */
   .menu-btn, .menu-item, .menu-filter, .btn-secondary, .att-pick, .toast-undo,
   .send-split .btn-primary { min-height: 44px; }

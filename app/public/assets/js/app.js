@@ -631,8 +631,11 @@
     if (btn) {
       const same = t && String(t.ticketId) === btn.dataset.id;
       btn.classList.toggle("timer-on", !!same);
-      if (!same) btn.textContent = t ? `Timer already on #${t.ticketId}` : "▶ Start timer  (E)";
-      else btn.textContent = t.state === "active" ? "■ Stop & log time  (E)" : "↻ Retry logging time  (E)";
+      const words = !same ? (t ? `Timer is on #${t.ticketId}` : "Start timer")
+        : (t.state === "active" ? "Stop and log time" : "Retry logging time");
+      const hint = make("kbd", "kbd", "E");
+      hint.setAttribute("aria-hidden", "true");
+      btn.replaceChildren(document.createTextNode(words), hint);
     }
   }
 
@@ -866,6 +869,7 @@
   const BULK_URL = "/api/ticket_bulk_delete.php";
   const BULK_MAX_IDS = 10000;
   let bulkDialogOpen = false;
+  let mergeDialogOpen = false;
   const bulkBar = page === "queue" ? $("#bulk-bar") : null;
 
   function make(tag, className, text) {
@@ -1445,7 +1449,8 @@
     }
 
     // The bulk delete dialog owns the keyboard while it is open (its own Escape and Tab handling).
-    if (bulkDialogOpen) return;
+    // So does the merge dialog.
+    if (bulkDialogOpen || mergeDialogOpen) return;
 
     // An open status, priority or owner menu owns the keyboard too; the palette shortcut closes it.
     if (menu) {
@@ -1545,6 +1550,14 @@
       }
       case "z": {
         if (undoable) { e.preventDefault(); undoable.run(); }
+        break;
+      }
+      case "[":
+      case "]": {
+        // The previous or next ticket in the list this one was opened from. Without a list, or at
+        // either end of it, there is no such link and the key does nothing.
+        const step = $(`a.ticket-step[data-step="${key === "[" ? "prev" : "next"}"]`);
+        if (step) { e.preventDefault(); nav(step.getAttribute("href")); }
         break;
       }
       case "r": {
@@ -2294,24 +2307,195 @@
   /* ------------------------------------------------------------------ */
   /* Merge tickets                                                       */
   /* ------------------------------------------------------------------ */
+  // Returns "" when the merge went through (the page then moves to the surviving ticket), or the
+  // sentence to show when it did not.
   async function mergeTickets(src, dst) {
     try {
       const r = await api("/api/ticket_merge.php", { source_id: src, target_id: dst });
-      if (r.ok) { toast(r.toast); setTimeout(() => nav("/ticket.php?id=" + r.target_id), 600); }
-      else toast(r.error || "Merge failed.");
-    } catch { toast("Merge failed — check the ticket number."); }
+      if (!r.ok) return r.error || "The merge did not go through. Nothing was changed.";
+      toast(r.toast);
+      setTimeout(() => nav("/ticket.php?id=" + r.target_id), 600);
+      return "";
+    } catch (error) {
+      return error && error.fromServer ? error.message : "The merge did not go through. Check your connection and try again.";
+    }
+  }
+
+  /* The Merge dialog: pick one of this client's other open tickets (the page lists them in
+     #merge-data), read one line about it, then confirm. Built with textContent only: titles and
+     names are customer text. `preselect` is the ticket the duplicate warning offers. */
+  function openMergeDialog(opener, preselect) {
+    const source = $("#merge-data");
+    if (!source || mergeDialogOpen) return;
+    let data;
+    try { data = JSON.parse(source.textContent); } catch { return; }
+    const choices = Array.isArray(data.choices) ? data.choices.slice() : [];
+    if (preselect && !choices.some((c) => c.id === preselect.id)) choices.unshift({ id: preselect.id, subject: preselect.subject || "", summary: "" });
+    mergeDialogOpen = true;
+
+    const overlay = make("div", "palette-overlay");
+    overlay.id = "merge-overlay";
+    const panel = make("div", "palette merge-panel");
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-labelledby", "merge-title");
+    panel.tabIndex = -1;
+    overlay.appendChild(panel);
+
+    const title = make("h2", "", `Merge #${data.ticket.id} into another ticket`);
+    title.id = "merge-title";
+    panel.appendChild(title);
+    panel.appendChild(make("p", "merge-sub",
+      "This ticket's messages and files move to the ticket you pick. This one closes and points to it. A merge cannot be undone."));
+
+    let chosen = null;
+    let active = -1;
+    let shown = [];
+    let busy = false;
+
+    const cancel = make("button", "btn-secondary", choices.length ? "Cancel" : "Close");
+    cancel.type = "button";
+    const confirmBtn = make("button", "btn-primary", "Merge");
+    confirmBtn.type = "button";
+    confirmBtn.disabled = true;
+    const summary = make("p", "merge-summary");
+    summary.setAttribute("aria-live", "polite");
+    const problem = make("p", "merge-error");
+    problem.setAttribute("role", "alert");
+    problem.hidden = true;
+
+    function close() {
+      if (busy) return;
+      document.removeEventListener("keydown", onKey, true);
+      overlay.remove();
+      mergeDialogOpen = false;
+      if (opener && opener.isConnected) opener.focus();
+    }
+
+    const search = make("input", "merge-search");
+    const list = make("ul", "merge-list");
+    function choose(choice, focusConfirm) {
+      chosen = choice;
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = `Merge into #${choice.id}`;
+      summary.textContent = `#${choice.id} ${choice.subject}` + (choice.summary ? `: ${choice.summary}` : "");
+      paint();
+      if (focusConfirm) confirmBtn.focus();
+    }
+    function paint() {
+      const words = search.value.trim().toLowerCase().replace(/^#/, "");
+      shown = choices.filter((c) => words === "" || String(c.id).includes(words) || c.subject.toLowerCase().includes(words));
+      if (active >= shown.length) active = shown.length - 1;
+      if (active < 0 && shown.length) active = 0;
+      list.replaceChildren();
+      shown.forEach((choice, index) => {
+        const item = make("li", "merge-option" + (index === active ? " merge-option-on" : ""));
+        item.id = `merge-option-${choice.id}`;
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", chosen && chosen.id === choice.id ? "true" : "false");
+        const name = make("span", "merge-option-name");
+        name.appendChild(make("span", "merge-option-num", `#${choice.id}`));
+        name.appendChild(document.createTextNode(" " + choice.subject));
+        item.appendChild(name);
+        if (choice.summary) item.appendChild(make("span", "merge-option-sub", choice.summary));
+        item.addEventListener("click", () => { active = index; choose(choice, true); });
+        list.appendChild(item);
+      });
+      if (!shown.length) list.appendChild(make("li", "merge-none", "No open ticket matches. Try its number or a word from its title."));
+      if (shown[active]) search.setAttribute("aria-activedescendant", `merge-option-${shown[active].id}`);
+      else search.removeAttribute("aria-activedescendant");
+      const on = $(".merge-option-on", list);
+      if (on) on.scrollIntoView({ block: "nearest" });
+    }
+
+    async function run() {
+      if (!chosen || busy) return;
+      busy = true;
+      problem.hidden = true;
+      confirmBtn.disabled = cancel.disabled = search.disabled = true;
+      confirmBtn.textContent = "Merging";
+      const failed = await mergeTickets(Number(data.ticket.id), chosen.id);
+      if (failed === "") return;                 // the page is on its way to the surviving ticket
+      busy = false;
+      confirmBtn.disabled = cancel.disabled = search.disabled = false;
+      confirmBtn.textContent = `Merge into #${chosen.id}`;
+      problem.textContent = failed;
+      problem.hidden = false;
+      confirmBtn.focus();
+    }
+
+    function onKey(e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); return; }
+      if (e.target === search && shown.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        e.preventDefault();
+        active = e.key === "ArrowDown" ? Math.min(active + 1, shown.length - 1) : Math.max(active - 1, 0);
+        paint();
+        return;
+      }
+      if (e.target === search && e.key === "Enter") {
+        e.preventDefault();
+        if (shown[active]) choose(shown[active], true);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = $$("button:not([disabled]), input:not([disabled])", panel);
+      if (!focusable.length || !panel.contains(document.activeElement)) { e.preventDefault(); (focusable[0] || panel).focus(); return; }
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === panel)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+
+    if (choices.length) {
+      const label = make("label", "merge-label", `Find an open ticket for ${data.client}`);
+      label.htmlFor = "merge-search";
+      search.id = "merge-search";
+      search.type = "search";
+      search.autocomplete = "off";
+      search.placeholder = "Ticket number or title";
+      search.setAttribute("role", "combobox");
+      search.setAttribute("aria-expanded", "true");
+      search.setAttribute("aria-controls", "merge-list");
+      search.setAttribute("aria-autocomplete", "list");
+      list.id = "merge-list";
+      list.setAttribute("role", "listbox");
+      list.setAttribute("aria-label", `Open tickets for ${data.client}`);
+      search.addEventListener("input", () => { active = 0; paint(); });
+      panel.append(label, search, list);
+      if (data.more) panel.appendChild(make("p", "merge-note", `Only the ${choices.length} most pressing are listed.`));
+      panel.append(summary, problem);
+    } else {
+      panel.appendChild(make("p", "merge-empty", `${data.client} has no other open ticket to merge this one into.`));
+      confirmBtn.hidden = true;
+    }
+    const actions = make("div", "delete-actions");
+    actions.append(cancel, confirmBtn);
+    panel.appendChild(actions);
+
+    cancel.addEventListener("click", close);
+    confirmBtn.addEventListener("click", run);
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", onKey, true);
+    document.body.appendChild(overlay);
+
+    if (!choices.length) { cancel.focus(); return; }
+    const first = preselect ? choices.find((c) => c.id === preselect.id) : null;
+    if (first) { active = choices.indexOf(first); choose(first, true); }
+    else { paint(); search.focus(); }
   }
   const mergeBtn = $("#merge-btn");
-  if (mergeBtn) mergeBtn.addEventListener("click", () => {
-    const raw = prompt("Merge #" + mergeBtn.dataset.id + " into which ticket? (number)");
-    const dst = parseInt((raw || "").replace(/[^0-9]/g, ""), 10);
-    if (dst) mergeTickets(Number(mergeBtn.dataset.id), dst);
-  });
+  if (mergeBtn) mergeBtn.addEventListener("click", () => openMergeDialog(mergeBtn, null));
   const mergeDupeBtn = $("#merge-dupe-btn");
-  if (mergeDupeBtn) mergeDupeBtn.addEventListener("click", () => {
-    if (confirm("Merge this ticket into #" + mergeDupeBtn.dataset.dst + "?")) {
-      mergeTickets(Number(mergeDupeBtn.dataset.src), Number(mergeDupeBtn.dataset.dst));
-    }
+  if (mergeDupeBtn) mergeDupeBtn.addEventListener("click", () =>
+    openMergeDialog(mergeDupeBtn, { id: Number(mergeDupeBtn.dataset.dst), subject: mergeDupeBtn.dataset.subject || "" }));
+
+  /* Copy: a small button beside a value (the contact's email address on a ticket). */
+  document.addEventListener("click", (e) => {
+    const button = e.target.closest && e.target.closest("[data-copy]");
+    if (!button) return;
+    const done = () => toast("Copied.");
+    const failed = () => toast("Could not copy. Select the address and copy it yourself.");
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(button.dataset.copy).then(done, failed);
+    else failed();
   });
 
   /* ------------------------------------------------------------------ */
@@ -2336,7 +2520,8 @@
           <p><kbd class="kbd">a</kbd> assign to me · <kbd class="kbd">z</kbd> undo</p>
           <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">t</kbd> give to a teammate</p>
           <p>these three open a menu: <kbd class="kbd">↑↓</kbd> and <kbd class="kbd">↵</kbd>, or a number</p>
-          <p><kbd class="kbd">e</kbd> timer · <kbd class="kbd">r</kbd> reply · <kbd class="kbd">n</kbd> note</p></div>
+          <p><kbd class="kbd">e</kbd> timer · <kbd class="kbd">r</kbd> reply · <kbd class="kbd">n</kbd> note</p>
+          <p><kbd class="kbd">[</kbd> previous · <kbd class="kbd">]</kbd> next, in the list it was opened from</p></div>
         <div><h4>Composer</h4>
           <p><kbd class="kbd">/</kbd> saved replies · <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">↵</kbd> send</p>
           <p>send and wait, send and resolve: the arrow beside Send, or <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd></p>

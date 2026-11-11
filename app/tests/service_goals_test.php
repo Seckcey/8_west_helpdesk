@@ -347,18 +347,26 @@ try {
     $crossTenantForeignKeyFailed = true;
 }
 goal_check('the database rejects a cross-tenant target snapshot', $crossTenantForeignKeyFailed);
-goal_check('captured labels name the immutable version and window', service_goal_ticket_policy_label([
+goal_check('a ticket names its plan and window in one plain sentence, with no record version', service_goal_ticket_policy_label([
     'service_goal_target_id' => $afterV2['target_id'],
     'service_goal_policy_name' => $afterV2['display_name'],
     'service_goal_version_no' => $afterV2['version_no'],
     'service_goal_clock_mode' => $afterV2['clock_mode'],
     'service_goal_priority' => $afterV2['priority'],
     'service_goal_response_minutes' => $afterV2['first_response_minutes'],
-]) === 'Premium v2 · urgent target · 1 hour 30 minutes response · elapsed time');
+]) === 'Premium plan: first reply within 1 hour 30 minutes.');
+goal_check('a plan whose name already says plan is not called a plan plan', service_goal_ticket_policy_label([
+    'service_goal_target_id' => 7, 'service_goal_policy_name' => 'Standard Plan', 'service_goal_version_no' => 1,
+    'service_goal_clock_mode' => 'elapsed', 'service_goal_priority' => 'high', 'service_goal_response_minutes' => 480,
+]) === 'Standard Plan: first reply within 8 hours.');
+goal_check('a plan missing its window does not invent one', service_goal_ticket_policy_label([
+    'service_goal_target_id' => 7, 'service_goal_policy_name' => 'Standard', 'service_goal_version_no' => 1,
+    'service_goal_clock_mode' => 'elapsed', 'service_goal_priority' => 'high', 'service_goal_response_minutes' => 0,
+]) === 'The plan this ticket was opened under is unavailable.');
 goal_check('legacy labels do not invent a historical tier or version', service_goal_ticket_policy_label([
     'service_goal_target_id' => null,
     'sla_tier' => 'standard',
-]) === 'Legacy response target · policy version unavailable');
+]) === 'No plan was recorded when this ticket was opened.');
 
 $ticket = $pdo->prepare('INSERT INTO tickets (id, tenant_id, status, sla_due_at, created_at, merged_into_id) VALUES (?,?,?,?,?,?)');
 $message = $pdo->prepare('INSERT INTO messages (ticket_id, kind, created_at) VALUES (?,?,?)');
@@ -427,7 +435,9 @@ goal_check('attainment does not decide a resolution before its ticket opened',
 
 $ticketSource = (string) file_get_contents(__DIR__ . '/../public/ticket.php');
 $appJsSource = (string) file_get_contents(__DIR__ . '/../public/assets/js/app.js');
-goal_check('ticket detail exposes a response-lamp repaint target', str_contains($ticketSource, 'data-sla'));
+// The Details column is drawn by lib/ticket_page.php, which ticket.php calls.
+goal_check('ticket detail exposes a response-lamp repaint target',
+    str_contains($ticketSource, 'ticket_details(') && str_contains((string) file_get_contents(__DIR__ . '/../lib/ticket_page.php'), '<span data-sla>'));
 goal_check('ticket actions repaint the detail response lamp', str_contains($appJsSource, '$$("[data-sla]", scope)'));
 goal_check('ticket detail renders the captured policy label',
     str_contains($ticketSource, 'service_goal_ticket_policy_label'));

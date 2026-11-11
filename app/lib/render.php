@@ -99,10 +99,13 @@ function ticket_origin(array $t): string
     return $line . ($channel === 'portal' ? ' by ' : ' from ') . $who;
 }
 
-/** One queue row (also used on the client page). */
-function ticket_row(array $t, bool $linkWrap = true): string
+/**
+ * One queue row (also used on the client page). $from is queue_ticket_query()'s answer on the
+ * queue, so the ticket page can say "2 of 6" and step to the next one; other lists pass nothing.
+ */
+function ticket_row(array $t, bool $linkWrap = true, string $from = ''): string
 {
-    $url = '/ticket.php?id=' . (int)$t['id'];
+    $url = '/ticket.php?id=' . (int)$t['id'] . h($from);
     return '<a href="' . $url . '" class="trow" data-ticket-id="' . (int)$t['id'] . '" data-status="' . h($t['status']) . '" data-priority="' . h($t['priority']) . '"'
         . ' data-owner="' . (!empty($t['assignee_id']) ? (int)$t['assignee_id'] : '') . '" role="row">'
         . '<span class="trow-pri">' . priority_glyph($t['priority']) . '</span>'
@@ -217,12 +220,12 @@ function ticket_send_control(bool $surveyOnResolve, string $surveyName, int $wai
  * A queue row with a selection checkbox, for owners and admins (bulk delete). The checkbox sits
  * beside the row's link, never inside it: a control inside an <a> is invalid and would navigate.
  */
-function ticket_pick_row(array $t): string
+function ticket_pick_row(array $t, string $from = ''): string
 {
     $id = (int)$t['id'];
     // autocomplete=off: after a delete the rows shift, so a restored tick would land on another ticket.
     return '<div class="trow-pick"><label class="pick"><input type="checkbox" class="bulk-pick" value="' . $id . '"'
-        . ' autocomplete="off" aria-label="Select ticket #' . $id . '"></label>' . ticket_row($t) . '</div>';
+        . ' autocomplete="off" aria-label="Select ticket #' . $id . '"></label>' . ticket_row($t, true, $from) . '</div>';
 }
 
 /** The queue's column header, with "select every ticket in this view" when rows are pickable. */

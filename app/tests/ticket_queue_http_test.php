@@ -1,7 +1,8 @@
 <?php
 /**
  * The queue page over real HTTP: which tickets each view holds and in what order, the counts on
- * the views bar, the filters, the orders, paging, old links, roles and tenant isolation.
+ * the views bar, the filters, the orders, paging, old links, roles and tenant isolation. Also the
+ * ticket page opened from a queue row: its place in that list, and the customer beside it.
  * A disposable loopback MySQL, a runtime copy of the app on PHP's built-in server, synthetic data
  * only, no mail.
  */
@@ -84,6 +85,13 @@ try {
     ] as $row) {
         $m->execute($row);
     }
+    // What the ticket page shows beside the conversation: a note about the client, and time two
+    // different people logged on the same ticket.
+    $pdo->exec("UPDATE clients SET notes = 'Call the office line before 9. <i>Ask for Dana.</i>' WHERE id = 11");
+    $logged = $pdo->prepare("INSERT INTO time_entries (tenant_id, client_id, entry_key, ticket_id, user_id, minutes, note, billable, source, worked_at)
+        VALUES (1, 11, ?, 7002, ?, ?, 'Synthetic time', 1, 'legacy', UTC_TIMESTAMP())");
+    $logged->execute(['synthetic-time-maya', 102, 12]);
+    $logged->execute(['synthetic-time-jon', 103, 30]);
     // Sixty more resolved tickets, the newest resolution first: 9001 an hour ago ... 9060 sixty hours ago.
     $old = $pdo->prepare("INSERT INTO tickets (id, tenant_id, client_id, subject, channel, status, sla_due_at, created_at, resolved_at)
         VALUES (?, 1, 11, ?, 'email', 'resolved', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 90 DAY), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 90 DAY), DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR))");
@@ -100,6 +108,7 @@ try {
     foreach (['config', 'public', 'sessions', 'attachments'] as $part) mkdir($runtime . '/' . $part, 0700, true);
     $copyTree($app . '/lib', $runtime . '/lib');
     copy($app . '/public/index.php', $runtime . '/public/index.php');
+    copy($app . '/public/ticket.php', $runtime . '/public/ticket.php');
     $config = require $app . '/config/config.sample.php';
     $config['app_env'] = 'dev';
     $config['force_https'] = false;
@@ -204,6 +213,70 @@ try {
     foreach ($x->query('//a[@data-ticket-id][.//*[' . $hasClass('trow-flag') . ']]') as $row) $flagged[] = (int)$row->getAttribute('data-ticket-id');
     $check($flagged === [7003], 'only the ticket the customer answered after us is flagged');
     $check($texts($x, '//*[' . $hasClass('trow-head') . ']/span') === ['Priority', 'No.', 'Ticket', 'Status', 'Owner', 'First response', 'Updated'], 'the columns are named in words');
+
+    // ---- a ticket opened from a queue row knows its place in that list ----
+    $x = $queue(102, '/?view=mine');
+    $check($x->query('//a[@data-ticket-id="7002"][@href="/ticket.php?id=7002&in=mine"]')->length === 1, 'a queue row links to its ticket and names the view');
+    $step = static fn(DOMXPath $x, string $which): array => array_map(static fn(DOMElement $a): string => $a->getAttribute('href'),
+        iterator_to_array($x->query('//a[@data-step="' . $which . '"]')));
+    $x = $queue(102, '/ticket.php?id=7002&in=mine');
+    $check($texts($x, '//*[' . $hasClass('ticket-pos') . ']') === ['2 of 4'] && $step($x, 'prev') === ['/ticket.php?id=7005&in=mine'] && $step($x, 'next') === ['/ticket.php?id=7003&in=mine'],
+        'the ticket says where it stands in Mine and links to the tickets beside it, in the queue\'s own order');
+    $check($x->query('//a[' . $hasClass('backlink') . '][@href="/?view=mine"]')->length === 1
+        && $x->query('//form[@id="reply-form"][@action="/ticket.php?id=7002&in=mine&at=2"]')->length === 1, 'the way back is that view, and a reply comes back to the same place');
+    $check($texts($x, '//p[' . $hasClass('ticket-sub') . ']') === ['#7002 for Fixture Dental, opened 7 hours ago by email from Dana Whitfield'], 'the sentence under the title says who asked, how and when');
+    $x = $queue(102, '/ticket.php?id=7005&in=mine');
+    $check($texts($x, '//*[' . $hasClass('ticket-pos') . ']') === ['1 of 4'] && $step($x, 'prev') === [] && $step($x, 'next') === ['/ticket.php?id=7002&in=mine'], 'the first ticket has nothing before it');
+    $x = $queue(102, '/ticket.php?id=7004&in=mine');
+    $check($texts($x, '//*[' . $hasClass('ticket-pos') . ']') === ['4 of 4'] && $step($x, 'next') === [] && $step($x, 'prev') === ['/ticket.php?id=7003&in=mine'], 'the last has nothing after it');
+    $x = $queue(102, '/ticket.php?id=7002');
+    $check($x->query('//*[' . $hasClass('ticket-pos') . ']')->length === 0 && $x->query('//*[' . $hasClass('ticket-step') . ']')->length === 0
+        && $x->query('//a[' . $hasClass('backlink') . '][@href="/"]')->length === 1
+        && $x->query('//form[@id="reply-form"][@action="/ticket.php?id=7002"]')->length === 1, 'opened without a list there is no counter and no arrows');
+    $x = $queue(102, '/ticket.php?id=7002&in=' . rawurlencode("mine' OR '1'='1") . '&at=' . rawurlencode('2;--'));
+    $check($x->query('//*[' . $hasClass('ticket-pos') . ']')->length === 0 && $x->query('//form[@id="reply-form"][@action="/ticket.php?id=7002"]')->length === 1, 'a list that does not exist is no list');
+    $x = $queue(102, '/ticket.php?id=7001&in=mine&at=2');
+    $check($texts($x, '//*[' . $hasClass('ticket-pos') . ']') === ['No longer in Mine'] && $step($x, 'prev') === ['/ticket.php?id=7005&in=mine'] && $step($x, 'next') === ['/ticket.php?id=7002&in=mine'],
+        'a ticket that is not in the list any more says so, and its old place still leads to the tickets beside it');
+    $x = $queue(102, '/ticket.php?id=7008&in=open&client=12');
+    $check($texts($x, '//*[' . $hasClass('ticket-pos') . ']') === ['1 of 1'] && $step($x, 'prev') === [] && $step($x, 'next') === []
+        && $x->query('//a[' . $hasClass('backlink') . '][@href="/?view=open&client=12"]')->length === 1, 'the filters go along: one client\'s only open ticket is 1 of 1');
+    $x = $queue(102, '/ticket.php?id=7002&in=open&sort=newest');
+    $check($texts($x, '//*[' . $hasClass('ticket-pos') . ']') === ['3 of 7'] && $step($x, 'prev') === ['/ticket.php?id=7001&in=open&sort=newest'] && $step($x, 'next') === ['/ticket.php?id=7005&in=open&sort=newest'],
+        'and so does the order');
+    $x = $queue(201, '/ticket.php?id=8001&in=open');
+    $check($texts($x, '//*[' . $hasClass('ticket-pos') . ']') === ['2 of 4'] && $step($x, 'prev') === ['/ticket.php?id=8004&in=open'], 'another tenant has its own list');
+    $x = $queue(102, '/ticket.php?id=8001&in=open');
+    $check($x->query('//*[@id="thread"]')->length === 0 && $x->query('//*[' . $hasClass('ticket-pos') . ']')->length === 0 && $x->query('//a[@data-step]')->length === 0
+        && !str_contains($x->document->textContent, 'Another tenant'), 'and its ticket cannot be opened, or stepped to, from this one');
+
+    // ---- the customer beside the conversation ----
+    $x = $queue(102, '/ticket.php?id=7002&in=mine');
+    $check($texts($x, '//p[' . $hasClass('rail-person') . ']') === ['Dana Whitfield'] && $x->query('//button[@data-copy="dana@example.test"]')->length === 1
+        && $x->query('//p[' . $hasClass('rail-line') . ']/a[@href="/client.php?id=11"]')->length === 1, 'Details names the contact, offers their address to copy, and links to the client');
+    $check($texts($x, '//p[' . $hasClass('rail-client-note') . ']') === ['Note about Fixture DentalCall the office line before 9. <i>Ask for Dana.</i>']
+        && $x->query('//p[' . $hasClass('rail-client-note') . ']//i')->length === 0, 'the client\'s note is there, as text');
+    $railTickets = static fn(DOMXPath $x): array => array_map(static fn(DOMElement $a): string => $a->getAttribute('href'),
+        iterator_to_array($x->query('//a[' . $hasClass('rail-ticket') . ']')));
+    $check($texts($x, '//*[' . $hasClass('rail-others') . ']/h3') === ['Other open tickets for Fixture Dental (5)']
+        && $railTickets($x) === ['/ticket.php?id=7003', '/ticket.php?id=7004', '/ticket.php?id=7005', '/ticket.php?id=7001', '/ticket.php?id=7006'],
+        'the client\'s other open tickets, the most pressing first: not this one, not resolved ones, not another client\'s');
+    $mergeData = json_decode((string)$x->query('//script[@id="merge-data"]')->item(0)?->textContent, true);
+    $check(is_array($mergeData) && $mergeData['ticket']['id'] === 7002 && $mergeData['client'] === 'Fixture Dental'
+        && array_column($mergeData['choices'], 'id') === [7003, 7004, 7005, 7001, 7006] && $mergeData['more'] === false, 'Merge offers exactly those tickets');
+    $check($x->query('//button[@id="merge-btn"][@data-id="7002"]')->length === 1 && $x->query('//button[@id="timer-btn"][@data-id="7002"]')->length === 1
+        && $x->query('//*[@id="presence"]')->length === 1 && $x->query('//*[@id="reply"]')->length === 1, 'the page keeps the ids its script and tests rely on');
+    $check($x->query('//button[@id="merge-dupe-btn"][@data-src="7002"][@data-dst="7006"]')->length === 1
+        && $x->query('//div[' . $hasClass('ticket-callout-caution') . ']//a[@href="/ticket.php?id=7006"]')->length === 1, 'a possible duplicate from the same contact is offered for merging');
+    $check($texts($x, '//*[' . $hasClass('rail-minutes') . ']') === ['12 min'] && $texts($queue(103, '/ticket.php?id=7002'), '//*[' . $hasClass('rail-minutes') . ']') === ['30 min']
+        && $texts($queue(101, '/ticket.php?id=7002'), '//*[' . $hasClass('rail-minutes') . ']') === ['0 min'], 'each person sees the time they logged on the ticket, never a teammate\'s');
+    $x = $queue(102, '/ticket.php?id=7003');
+    $check($texts($x, '//article//*[' . $hasClass('msg-role') . ']') === ['Customer', 'Support', 'Customer']
+        && $texts($x, '//article//*[' . $hasClass('msg-author') . ']') === ['Dana Whitfield', 'Maya Reyes', 'Dana Whitfield'], 'each message is a card that says who wrote it');
+    $x = $queue(102, '/ticket.php?id=7008');
+    $check(preg_match('/\A#7008 for Bayside Realty, opened \d+ minutes ago from the portal by Priya Anand\z/', $texts($x, '//p[' . $hasClass('ticket-sub') . ']')[0] ?? '') === 1
+        && $texts($x, '//*[' . $hasClass('rail-others') . ']/h3') === ['Other open tickets for Bayside Realty (0)'] && $railTickets($x) === []
+        && $x->query('//button[@data-copy]')->length === 0, 'a client with one open ticket lists no others, and a ticket with no contact offers no address');
 
     // ---- filters narrow any view, and the counts follow ----
     $x = $queue(102, '/?view=open&client=12');

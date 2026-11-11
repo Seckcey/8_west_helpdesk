@@ -51,6 +51,10 @@ function ticket_first_name(string $name): string
  * The ticket's contact, with whether mail may go to them: yes, or no because they have no address
  * ("none") or because the address is a machine's ("machine"). Null when the ticket has no contact.
  *
+ * The contact has to belong to the ticket's own client, inside the ticket's tenant. A contact of
+ * another client, even of the same tenant, is nobody to this ticket: no name or address on the
+ * page, no reply email, no survey.
+ *
  * @return array{name:string,first_name:string,email:string,mail:string}|null  mail: yes | none | machine
  */
 function ticket_contact(array $ticket): ?array
@@ -60,9 +64,9 @@ function ticket_contact(array $ticket): ?array
         'SELECT k.name, k.email
            FROM contacts k
            JOIN clients c ON c.id = k.client_id
-          WHERE k.id = ? AND c.tenant_id = ?'
+          WHERE k.id = ? AND k.client_id = ? AND c.tenant_id = ?'
     );
-    $q->execute([(int)$ticket['contact_id'], (int)$ticket['tenant_id']]);
+    $q->execute([(int)$ticket['contact_id'], (int)($ticket['client_id'] ?? 0), (int)$ticket['tenant_id']]);
     $contact = $q->fetch();
     if (!$contact) return null;
     $email = trim((string)$contact['email']);

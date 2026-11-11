@@ -45,9 +45,10 @@ try {
         test_execute_sql_file($pdo, $app . '/db/' . $file);
     }
     $pdo->exec("INSERT INTO tenants (id, name, slug, plan) VALUES (1, 'Synthetic One', 'synthetic-one', 'suite'), (2, 'Synthetic Two', 'synthetic-two', 'suite')");
-    $pdo->exec("INSERT INTO clients (id, tenant_id, name) VALUES (11, 1, 'Fixture Dental'), (21, 2, 'Other Fixture')");
+    $pdo->exec("INSERT INTO clients (id, tenant_id, name) VALUES (11, 1, 'Fixture Dental'), (12, 1, 'Bayside Realty'), (21, 2, 'Other Fixture')");
     $pdo->exec("INSERT INTO contacts (id, client_id, name, email) VALUES
-        (31, 11, 'Dana Whitfield', 'dana@example.test'), (32, 11, 'Scanner', 'no-reply@example.test')");
+        (31, 11, 'Dana Whitfield', 'dana@example.test'), (32, 11, 'Scanner', 'no-reply@example.test'),
+        (33, 12, 'Lee Okafor', 'lee@example.test')");
     $hash = password_hash('synthetic-not-a-login', PASSWORD_DEFAULT);
     $u = $pdo->prepare('INSERT INTO users (id, tenant_id, email, password_hash, full_name, initials, role, is_active) VALUES (?,?,?,?,?,?,?,?)');
     foreach ([[101, 1, 'Olive Owner', 'owner', 1], [102, 1, 'Maya Reyes', 'tech', 1], [103, 1, 'Jon Sato', 'tech', 1],
@@ -66,6 +67,7 @@ try {
         [7008, 1, 11, 31, 'Limited account', 'email', 'open'],         // worked by the account that may not remove rows
         [7009, 1, 11, 31, 'Old survey', 'email', 'open'],
         [7010, 1, 11, 31, 'Undo came late', 'email', 'open'],
+        [7011, 1, 11, 33, 'Contact of another client', 'email', 'open'],   // same tenant, but the contact is Bayside Realty's
         [8001, 2, 21, null, 'Another tenant', 'email', 'open'],
     ] as $row) {
         $t->execute($row);
@@ -378,6 +380,19 @@ try {
         'a ticket with no contact says nobody is attached');
     $check($text($page(102, 7003), '//*[@id="composer-hint"]') === 'Scanner\'s address cannot receive mail, so no email is sent. This reply is saved on the ticket only. The ticket moves to In progress.',
         'a contact with a machine address is named, and the page says its address cannot receive mail');
+
+    // ---- a contact of another client, even in the same tenant, is nobody to this ticket ----
+    $x = $page(102, 7011);
+    $check($text($x, '//*[@id="composer-hint"]') === 'No customer is attached. This reply is saved on the ticket only. The ticket moves to In progress.'
+        && str_contains($text($x, '//button[@name="after_status"][@value="resolved"]'), 'No survey is sent.'),
+        'a ticket whose contact belongs to another client says nobody is attached, and promises no survey');
+    $check($x->query('//button[@data-copy]')->length === 0 && $x->query('//p[contains(concat(" ", normalize-space(@class), " "), " rail-person ")]')->length === 0
+        && !str_contains($x->document->textContent, 'lee@example.test'), 'and the page shows neither that person nor their address');
+    $r = $send(102, 7011, ['reply' => 'Checking this now.']);
+    $check($r['status'] === 302 && $ticket(7011)['status'] === 'in_progress' && $mail(7011) === [], 'a reply on it is saved and emails nobody');
+    [$status, $json] = $act(102, ['id' => 7011, 'field' => 'status', 'value' => 'resolved', 'chosen' => true]);
+    $check($status === 200 && $ticket(7011)['status'] === 'resolved' && $surveys(7011) === 0 && $mail(7011) === [] && $json['toast'] === 'Resolved. No survey is sent.',
+        'and resolving it asks nobody for a rating');
 
     // A plain Send: Open becomes In progress, the contact is emailed, nobody is surveyed.
     $r = $send(102, 7004, ['reply' => 'Looking at it now.']);
