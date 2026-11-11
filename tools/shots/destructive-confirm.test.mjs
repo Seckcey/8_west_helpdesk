@@ -131,7 +131,7 @@ try {
   for (const [pathname, button, message, form] of [
     ['/clients.php', 'Remove demo data', 'Remove all demo clients and their tickets? No undo.',
       { to: '/clients.php', form: { csrf: 'synthetic-csrf', action: 'purge_demo' } }],
-    ['/snippets.php', 'Delete', 'Delete this saved reply?',
+    ['/snippets.php', 'Delete Printer reset', 'Delete this saved reply?',
       { to: '/snippets.php', form: { csrf: 'synthetic-csrf', action: 'delete', snippet_id: '71' } }],
   ]) {
     await test(`${button} on ${pathname} asks first, and Cancel sends nothing`, async () => {

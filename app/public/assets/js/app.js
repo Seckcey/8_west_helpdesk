@@ -904,6 +904,47 @@
     });
   }
 
+  /* Saved replies: one editor, with a preview made from sample values only. */
+  const replyEditor = $("#saved-reply-editor"), replyForm = $("#saved-reply-form");
+  if (replyEditor && replyForm) {
+    let editable = {};
+    try { editable = JSON.parse($("#saved-replies-data")?.textContent || "{}"); } catch { /* Links still open the server form. */ }
+    const title = replyForm.elements.title, body = replyForm.elements.body;
+    const samples = { "contact.first_name": "Customer", "client.name": "Example client", "ticket.id": "1042", "tech.first_name": "Teammate" };
+    let opener = null;
+    const preview = () => {
+      $("[data-reply-preview]", replyEditor).textContent = body.value
+        ? body.value.replace(/\{([a-z_.]+)\}/g, (field, key) => samples[key] ?? field)
+        : "Your reply preview appears here.";
+    };
+    function openReplyEditor(event, id = 0) {
+      if (id && !Object.hasOwn(editable, id)) return;
+      event.preventDefault(); opener = event.currentTarget;
+      replyForm.elements.action.value = id ? "edit" : "add";
+      replyForm.elements.snippet_id.value = String(id);
+      title.value = id ? editable[id].title : "";
+      body.value = id ? editable[id].body : "";
+      $("#saved-reply-heading").textContent = id ? "Edit saved reply" : "New saved reply";
+      $("button[type=submit]", replyForm).textContent = id ? "Save changes" : "Add saved reply";
+      $$("[data-reply-new]").forEach((link) => { link.hidden = true; });
+      $("[data-reply-error]")?.remove();
+      replyEditor.hidden = false; preview(); title.focus();
+    }
+    $$("[data-reply-new]").forEach((link) => link.addEventListener("click", (event) => openReplyEditor(event)));
+    $$("[data-reply-edit]").forEach((link) => link.addEventListener("click", (event) => openReplyEditor(event, link.dataset.replyEdit)));
+    $("[data-reply-cancel]").addEventListener("click", (event) => {
+      event.preventDefault(); replyEditor.hidden = true; replyForm.reset();
+      $$("[data-reply-new]").forEach((link) => { link.hidden = false; });
+      $("[data-reply-error]")?.remove();
+      (opener || $("[data-reply-new]"))?.focus();
+    });
+    $$("[data-reply-field]", replyEditor).forEach((button) => button.addEventListener("click", () => {
+      body.setRangeText(`{${button.dataset.replyField}}`, body.selectionStart, body.selectionEnd, "end");
+      body.focus(); preview();
+    }));
+    body.addEventListener("input", preview);
+    preview();
+  }
 
   /* ------------------------------------------------------------------ */
   /* Bulk delete (queue, owners and admins; docs/ticket-bulk-delete.md)  */
@@ -1374,7 +1415,7 @@
     const items = [
       { group: "Create", kind: "action", title: "New ticket", keys: ["c"], run: () => nav("/ticket_new.php") },
       { group: "Create", kind: "action", title: "New client", keys: [], run: () => nav("/client_new.php") },
-      { group: "Create", kind: "action", title: "New saved reply", keys: [], run: () => nav("/snippets.php") },
+      { group: "Create", kind: "action", title: "New saved reply", keys: [], run: () => nav("/snippets.php?new=1#saved-reply-editor") },
       go("Queue", "/", ["g", "q"]),
       go("Time", "/time.php", ["g", "t"]),
       go("Clients", "/clients.php", ["g", "c"]),
@@ -2481,7 +2522,7 @@
       popIndex = Math.min(popIndex, Math.max(0, popItems.length - 1));
       pop.innerHTML = "";
       if (!canned.snippets.length) {
-        pop.innerHTML = '<div class="canned-empty">No saved replies yet — <a class="link" href="/snippets.php">create your first</a></div>';
+        pop.innerHTML = '<div class="canned-empty">No saved replies yet. <a class="link" href="/snippets.php">Manage saved replies</a></div>';
         pop.hidden = false;
         return;
       }
@@ -2499,6 +2540,9 @@
         b.addEventListener("mousemove", () => { popIndex = i; popPaint(); });
         pop.appendChild(b);
       });
+      const manage = document.createElement("a");
+      manage.className = "canned-manage"; manage.href = "/snippets.php"; manage.textContent = "Manage saved replies";
+      pop.appendChild(manage);
       pop.hidden = false;
     }
     function popPaint() {
@@ -2549,8 +2593,15 @@
       else if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); if (popItems[popIndex]) popInsert(popItems[popIndex]); }
       else if (e.key === "Escape") { e.stopPropagation(); popClose(); }
     });
-    // Leaving the box closes the list, unless focus came straight back (the Saved replies button).
-    box.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== box) popClose(); }, 200));
+    // Keyboard users can move from the composer into the list and its management link.
+    const closeCannedOnBlur = () => setTimeout(() => {
+      if (document.activeElement !== box && document.activeElement !== cannedOpen && !pop?.contains(document.activeElement)) popClose();
+    }, 200);
+    box.addEventListener("blur", closeCannedOnBlur);
+    pop?.addEventListener("focusout", closeCannedOnBlur);
+    pop?.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); popClose(); box.focus(); }
+    });
 
     /* time-at-reply: the running timer rides the Send click */
     const chip = $("#timer-log-chip");
