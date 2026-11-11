@@ -638,7 +638,7 @@ portal, and how many computers the client has. No schema, role, permission, gran
 every read is scoped to the signed-in tenant and this client (`app/public/client.php`,
 `app/lib/client_page.php`).
 
-**Reports that answer "how is the team doing" (draft, not live).** One period for the whole page: Last 7
+**Reports that answer "how is the team doing" (live).** One period for the whole page: Last 7
 days, Last 30 days (where it opens) or Last 90 days. Five tiles in one row: New tickets, Resolved, First
 reply (the median wait, so one very late ticket does not speak for the rest), On time (first replies inside
 the service goal, with a meter) and Rated Great (survey answers). Each says how it moved against the same
@@ -655,6 +655,18 @@ team, as it was. The old page showed every member each technician's approved bil
 a technician now sees their own and the team's total, and the per-person rows are for owners and admins.
 No schema, role, permission, grant or endpoint change; every read binds the signed-in tenant
 (`app/public/reports.php`, `app/lib/reports_page.php`).
+Follow-up (draft, not live): a ticket the assistant resolved itself (its workflow ended "resolved" and no
+person owns it) counts under Westy for Resolved, First reply and On time, where it used to fall under
+Unassigned once it was no longer in progress.
+
+**One word for each thing, staff side (draft, not live).** Clients says "8 clients" and each row's plan
+in words ("Premium plan", "Standard plan"). New client and Edit client ask for the "Plan" (Standard or
+Premium) where they said "Service-goal tier", and Edit client's health choices are "Good" and "Needs
+attention", the words the client page uses. The stored values are unchanged. Westy's two review pages say
+"Ticket #12" and "ticket" where they said "Case". Earlier work already settled the rest of the list: "First
+response" for the column and tag, "Service goals" for the page, "In progress", and "technician". The
+customer's side (support request, computer, support team) is the portal's own work. No script, style,
+schema, role or permission change.
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.

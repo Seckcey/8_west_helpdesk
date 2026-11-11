@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/client_operational_context.php';
+require_once __DIR__ . '/../lib/client_page.php';
 enforce_https();
 $user = require_login();
 $tenantId = (int)$user['tenant_id'];
@@ -98,7 +99,7 @@ page_top($user, 'Clients', 'clients');
   <div class="page-head">
     <div>
       <h1 class="page-title">Clients</h1>
-      <p class="page-sub"><?= count($rows) ?> accounts under your light</p>
+      <p class="page-sub"><?= count($rows) === 1 ? '1 client' : number_format(count($rows)) . ' clients' ?></p>
     </div>
     <div class="page-actions">
       <a href="/client_new.php" class="btn-primary btn-sm">+ New client</a>
@@ -141,7 +142,7 @@ page_top($user, 'Clients', 'clients');
             <span class="crow-shared">Local to Safeharbor</span>
           <?php endif; ?>
         </span>
-        <span class="tier <?= $c['sla_tier'] === 'premium' ? 'tier-premium' : '' ?>"><?= h($c['sla_tier']) ?></span>
+        <span class="tier <?= $c['sla_tier'] === 'premium' ? 'tier-premium' : '' ?>"><?= client_plan_label((string)$c['sla_tier']) ?></span>
         <span class="crow-open"><?= (int)$c['open_count'] ?> open</span>
       </a>
       <span class="crow-actions" aria-label="<?= h($c['name']) ?> apps">

@@ -56,7 +56,7 @@ try {
 }
 $context=null; $conversation=null; $legacy=[]; $reconciliation=null; $receipts=[]; $auto=[]; $delegation=null; $template=null; $attention=[]; $sentEvidence=[];
 try {
-    // Access uses the established tenant/case permission checks even when the
+    // Access uses the established tenant/ticket permission checks even when the
     // dedicated transport is unavailable, so existing history stays readable.
     db()->beginTransaction(); $legacyContext=westy_email_context(db(),$tenant,$ticketId,$actor); db()->rollBack();
     $q=db()->prepare('SELECT * FROM westy_email_drafts WHERE tenant_id=? AND ticket_id=? ORDER BY id DESC'); $q->execute([$tenant,$ticketId]); $legacy=$q->fetchAll();
@@ -73,23 +73,23 @@ try {
         db()->beginTransaction(); $context=westy_mail_context(db(),$tenant,$ticketId,$actor); db()->rollBack();
         $template=westy_email_template(['ticket'=>$context['ticket'],'contact'=>$context['contact']]);
     } catch (Throwable) { if (db()->inTransaction()) db()->rollBack(); }
-} catch (Throwable) { if (db()->inTransaction()) db()->rollBack(); $error='This case or its email safety controls are unavailable.'; }
+} catch (Throwable) { if (db()->inTransaction()) db()->rollBack(); $error='This ticket or its email safety controls are unavailable.'; }
 $labels=['draft'=>'Awaiting approval — not sent','approved'=>'Approved — not yet attempted','claimed'=>'Attempt started — result unknown; do not resend','submitted'=>'Microsoft accepted — inbox receipt unverified','rejected'=>'Microsoft rejected the attempt','unknown'=>'Result unknown — do not resend','revoked'=>'Further action stopped'];
 $ack=westy_mail_template();
 page_top($user,'Westy email','queue');
 ?>
 <style>.westy-mail{max-width:1100px}.westy-mail .card{padding:20px;margin:16px 0}.westy-mail form{display:grid;gap:14px}.westy-mail .field{min-width:0}.westy-mail input:not([type=checkbox]),.westy-mail textarea{width:100%}.westy-mail .message{white-space:pre-wrap;overflow-wrap:anywhere}.westy-mail button{justify-self:start}.westy-mail p{overflow-wrap:anywhere}</style>
 <div class="page westy-mail">
-<a class="backlink" href="/ticket.php?id=<?= $ticketId ?>">← Case #<?= $ticketId ?></a>
+<a class="backlink" href="/ticket.php?id=<?= $ticketId ?>">← Ticket #<?= $ticketId ?></a>
 <h1 class="page-title">Westy email</h1>
-<p>Approve useful advice and a limited reply. Computer changes, purchases, charges, and case closure need their own authority.</p>
+<p>Approve useful advice and a limited reply. Computer changes, purchases, charges, and closing the ticket need their own authority.</p>
 <?php if($error): ?><div class="banner banner-warn" role="alert"><?= h($error) ?></div><?php endif; ?>
 <?php if($notice): ?><div class="banner" role="status"><?= h($notice) ?></div><?php endif; ?>
 <?php if(!westy_mail_enabled()): ?><p>New email actions are disabled. Existing history is retained.</p><?php endif; ?>
 <p><a href="/westy_email.php?ticket_id=<?= $ticketId ?>">Contact routing and earlier email history</a></p>
 <?php if($context): ?><section class="card"><h2>Who receives it?</h2>
 <p>From: <?= h($context['graph']['sender']) ?><br>To: <?= h($context['contact']['name'].' · '.$context['contact']['email']) ?></p>
-<p>The case’s endpoint POC takes priority. Otherwise the designated client POC receives the advice. Contact changes stop this conversation until an owner or administrator reviews it.</p></section><?php endif; ?>
+<p>The ticket’s endpoint POC takes priority. Otherwise the designated client POC receives the advice. Contact changes stop this conversation until an owner or administrator reviews it.</p></section><?php endif; ?>
 <?php if(!$conversation): ?>
 <?php $attempted=array_filter($legacy,static fn($d)=>$d['attempted_at']!==null); ?>
 <?php foreach($attempted as $old): ?><section class="card"><h2>Earlier attempt #<?= (int)$old['id'] ?></h2>
@@ -105,7 +105,7 @@ page_top($user,'Westy email','queue');
     $key=bin2hex(random_bytes(16)); $token=bin2hex(random_bytes(16));
     $_SESSION['westy_mail_prepare']=[$key=>['ticket'=>$ticketId,'token'=>$token,'reconciliation'=>(int)($reconciliation['id']??0),'context'=>$context['fingerprint'],'expires'=>time()+900]];
 ?>
-<section class="card"><h2>Prepare advice</h2><p>Review these options against the case evidence. A private case reference is added to the subject so replies can be matched safely.</p>
+<section class="card"><h2>Prepare advice</h2><p>Review these options against the ticket's evidence. A private ticket reference is added to the subject so replies can be matched safely.</p>
 <form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="draft"><input type="hidden" name="request_key" value="<?= $key ?>">
 <label class="field">Subject <input name="subject" maxlength="145" required value="<?= h($template['subject']) ?>"></label>
 <label class="field">Message <textarea name="body" rows="18" maxlength="12000" required><?= h($template['body']) ?></textarea></label>
@@ -125,7 +125,7 @@ page_top($user,'Westy email','queue');
 <h3>Optional: one automatic acknowledgment</h3>
 <div class="message"><?= h($ack['body']) ?></div>
 <label><input type="checkbox" name="delegate" value="yes" <?= ($context['w']['state']??'')!=='human_owned'?'disabled':'' ?>> I approve this exact response once, within seven days, after a verified reply from this contact or its displayed alias. Other requests go to an owner or administrator.</label>
-<?php if(($context['w']['state']??'')!=='human_owned'): ?><p>A technician must already own the case before automatic acknowledgment can be approved.</p><?php endif; ?>
+<?php if(($context['w']['state']??'')!=='human_owned'): ?><p>A technician must already own the ticket before automatic acknowledgment can be approved.</p><?php endif; ?>
 <p>This approval grants email authority only. Staff edits, contact changes, revoked permissions, or an expired approval stop further action.</p>
 <button class="btn-primary" name="action" value="approve_send">Approve and send once</button>
 <?php else: ?><p>Approval was saved, but no send attempt was started. Current authority will be checked again before sending.</p><button class="btn-primary" name="action" value="send_approved">Send approved message once</button><?php endif; ?>
@@ -137,7 +137,7 @@ page_top($user,'Westy email','queue');
 <?php foreach($sentEvidence as $evidence): ?><p>Microsoft Sent Items contained a matching <?= $evidence['owner_kind']==='auto'?'acknowledgment':'advice message' ?> when checked at <?= h($evidence['created_at']) ?> UTC. This separate evidence preserves the original attempt and does not prove inbox receipt.</p><?php endforeach; ?>
 <?php if($delegation): ?><p>One automatic acknowledgment was approved until <?= h($delegation['expires_at']) ?> UTC. <?= $delegation['revoked_reason']?'Stopped: '.h($delegation['revoked_reason']):'It is still subject to current permissions and reply verification.' ?></p><?php else: ?><p>Automatic replies were not approved. An owner or administrator handles replies.</p><?php endif; ?>
 <?php if(!$receipts): ?><p>No verified reply has been recorded.</p><?php endif; ?>
-<?php foreach($receipts as $receipt): ?><p>Reply #<?= (int)$receipt['id'] ?>: <?= h($receipt['disposition']) ?> at <?= h($receipt['received_at']) ?> UTC. Read its text on the case.</p><?php endforeach; ?>
+<?php foreach($receipts as $receipt): ?><p>Reply #<?= (int)$receipt['id'] ?>: <?= h($receipt['disposition']) ?> at <?= h($receipt['received_at']) ?> UTC. Read its text on the ticket.</p><?php endforeach; ?>
 <?php foreach($auto as $attempt): ?><p>Acknowledgment: <?= h($labels[$attempt['state']]??$attempt['state']) ?>. Attempted <?= h($attempt['attempted_at']) ?> UTC.</p><?php endforeach; ?>
 </section>
 <?php endif; ?>

@@ -614,6 +614,42 @@ try {
         && (int)$theirs['Westy']['Open now'] + (int)$theirs['Unassigned']['Open now'] + (int)$theirs['Other Tenant']['Open now']
             === $one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 2 AND status <> 'resolved'"),
         'tickets the assistant is working have their own row, apart from Unassigned, and every open ticket is counted once');
+    // A ticket the assistant resolved itself (its workflow ended "resolved", nobody owns it) is Westy's in
+    // the period's numbers: resolved by Westy, and decided under Westy, not under Unassigned.
+    // As the controller writes it (lib/westy_workflow.php): one clock reading for the ticket's resolved time and the workflow's closed time.
+    $closedAt = gmdate('Y-m-d H:i:s', time() - 3600);
+    $pdo->prepare("INSERT INTO tickets (id, tenant_id, client_id, subject, channel, status, sla_due_at, created_at, resolved_at)
+        VALUES (8005, 2, 21, 'The assistant fixed this', 'alert', 'resolved', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 100 MINUTE),
+            DATE_SUB(UTC_TIMESTAMP(), INTERVAL 120 MINUTE), ?)")->execute([$closedAt]);
+    $pdo->prepare("INSERT INTO westy_workflows (tenant_id, client_id, customer_id, ticket_id, workflow_key, alert_key, state, version, summary,
+            evidence_sha256, job_id, job_completed_at, alert_resolved_at, closed_at, started_at, updated_at)
+        VALUES (2, 21, '00000000-0000-4000-8000-000000008005', 8005, '11111111-1111-4111-8111-000000008005', 'alert:8005', 'resolved', 2, 'Synthetic recovery',
+            REPEAT('a', 64), 1, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 70 MINUTE), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 65 MINUTE), ?,
+            DATE_SUB(UTC_TIMESTAMP(), INTERVAL 120 MINUTE), ?)")->execute([$closedAt, $closedAt]);
+    $workflowState = static fn(): string => (string)$pdo->query("SELECT state FROM westy_workflows WHERE tenant_id = 2 AND ticket_id = 8005")->fetchColumn();
+    $westyHas = static function () use ($queue, $team, $tiles, $working): bool {
+        $x = $queue(201, '/reports.php');
+        $rows = $team($x);
+        return $rows['Westy']['Resolved'] === '1' && $rows['Westy']['On time'] === '0% 0 of 2' && $rows['Westy']['Open now'] === (string)$working
+            && $rows['Unassigned']['Resolved'] === '0' && $rows['Unassigned']['On time'] === 'None' && $tiles($x)['Resolved'] === '1'
+            && array_sum(array_map(static fn(array $row): int => (int)$row['Resolved'], $rows)) === 1;
+    };
+    $check($workflowState() === 'resolved' && $westyHas(), 'a ticket the assistant resolved itself counts as resolved by Westy, not by nobody');
+    // Someone writes on the ticket afterwards. That hands the workflow to a person (the takeover triggers),
+    // but it does not change who resolved the ticket.
+    $pdo->exec("UPDATE tickets SET priority = 'high' WHERE tenant_id = 2 AND id = 8005");
+    $check($workflowState() === 'human_owned' && $westyHas(), 'a later ticket update leaves the assistant\'s resolved count intact');
+    $pdo->exec("INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (8005, 'Other Tenant', 'note', 'Looked at this afterwards.')");
+    $check($workflowState() === 'human_owned' && $westyHas(), 'a note added after the assistant resolved a ticket leaves it resolved by Westy');
+    $pdo->exec("INSERT INTO messages (ticket_id, author_name, kind, body) VALUES (8005, 'Test Client', 'client', 'The repair is still working.')");
+    $check($workflowState() === 'human_owned' && $westyHas(), 'a client reply after resolution also keeps the ticket under Westy');
+    // A person reopens it and resolves it again: now a person resolved it, and nobody owns it.
+    $pdo->exec("UPDATE tickets SET status = 'open', resolved_at = NULL WHERE tenant_id = 2 AND id = 8005");
+    $pdo->exec("UPDATE tickets SET status = 'resolved', resolved_at = UTC_TIMESTAMP() WHERE tenant_id = 2 AND id = 8005");
+    $again = $team($queue(201, '/reports.php'));
+    $check($again['Westy']['Resolved'] === '0' && $again['Westy']['On time'] === '0% 0 of 1'
+        && $again['Unassigned']['Resolved'] === '1' && $again['Unassigned']['On time'] === '0% 0 of 1',
+        'a ticket a person reopened and resolved again is no longer Westy\'s');
     $x = $queue(301, '/reports.php');
     $check(array_values($tiles($x)) === ['0', '0', 'No replies', 'Nothing due', 'No ratings']
         && $texts($x, '//div[' . $hasClass('report-grid') . ']//div[' . $hasClass('empty') . ']/p') === ['No open tickets.', 'No approved billable time in the last 30 days.'],

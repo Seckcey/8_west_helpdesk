@@ -34,14 +34,16 @@ $counts = db()->prepare(
 $counts->execute([$tid, $since, $tid, $before, $since, $tid, $since, $tid, $before, $since]);
 $c = $counts->fetch();
 
-// A ticket no person owns that the assistant is working is Westy's, by the queue's own rule.
+// A ticket no person owns that the assistant is working is Westy's, by the queue's own rule. One
+// the assistant resolved itself stays Westy's in the period's numbers.
 $westyRule = queue_facts(db())['{westy}'];
+$westyOwned = report_westy_owned_sql($westyRule);
 
 // Every ticket opened in the two periods, with its first reply: the median wait and, by current
 // owner, the wait and how many first replies were on time (report_outcomes()).
 $opened = db()->prepare(
     "SELECT t.id, t.assignee_id, t.status, t.created_at, t.resolved_at, t.sla_due_at, t.merged_into_id,
-            CASE WHEN $westyRule THEN 1 ELSE 0 END AS westy_held,
+            CASE WHEN $westyOwned THEN 1 ELSE 0 END AS westy_held,
             EXISTS (SELECT 1 FROM tickets merged_source
                      WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id) AS has_merged_sources,
             (SELECT MIN(m.created_at) FROM messages m
@@ -96,7 +98,7 @@ $unowned->execute([$tid]);
 $unownedOpen = $unowned->fetch();
 
 $resolvedBy = db()->prepare(
-    "SELECT t.assignee_id, CASE WHEN $westyRule THEN 1 ELSE 0 END AS westy_held, COUNT(*) AS n
+    "SELECT t.assignee_id, CASE WHEN $westyOwned THEN 1 ELSE 0 END AS westy_held, COUNT(*) AS n
        FROM tickets t
       WHERE t.tenant_id = ? AND t.resolved_at >= ?
       GROUP BY t.assignee_id, westy_held"

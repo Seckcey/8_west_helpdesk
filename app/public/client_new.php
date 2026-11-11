@@ -1,5 +1,5 @@
 <?php
-/** New client — name, domain, SLA tier, optional first contact. */
+/** New client: name, domain, plan, optional first contact. */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/service_goal_policy_admin.php';
@@ -59,15 +59,15 @@ page_top($user, 'New client', 'clients');
         <input type="text" name="domain" placeholder="lakesidepeds.com">
       </label>
       <?php if ($canManageServiceTier): ?>
-        <label class="field">Service-goal tier
+        <label class="field">Plan
           <select name="sla_tier">
-            <option value="standard">standard</option>
-            <option value="premium">premium</option>
+            <option value="standard">Standard</option>
+            <option value="premium">Premium</option>
           </select>
         </label>
       <?php else: ?>
-        <div class="field"><span>Service-goal tier</span><strong>standard</strong>
-          <span class="rail-note">Only owners and admins can choose a tier.</span>
+        <div class="field"><span>Plan</span><strong>Standard</strong>
+          <span class="rail-note">Only owners and admins can choose the plan.</span>
         </div>
       <?php endif; ?>
       <div class="rail-label span-2" style="padding:0">First contact (optional)</div>

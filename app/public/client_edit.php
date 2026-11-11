@@ -114,21 +114,21 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
         <input type="text" name="domain" value="<?= h($client['domain']) ?>">
       </label>
       <?php if ($canManageServiceTier): ?>
-        <label class="field">Service-goal tier
+        <label class="field">Plan
           <select name="sla_tier">
-            <option value="standard" <?= $client['sla_tier'] === 'standard' ? 'selected' : '' ?>>standard</option>
-            <option value="premium" <?= $client['sla_tier'] === 'premium' ? 'selected' : '' ?>>premium</option>
+            <option value="standard" <?= $client['sla_tier'] === 'standard' ? 'selected' : '' ?>>Standard</option>
+            <option value="premium" <?= $client['sla_tier'] === 'premium' ? 'selected' : '' ?>>Premium</option>
           </select>
         </label>
       <?php else: ?>
-        <div class="field"><span>Service-goal tier</span><strong><?= h($client['sla_tier']) ?></strong>
-          <span class="rail-note">Only owners and admins can change this tier.</span>
+        <div class="field"><span>Plan</span><strong><?= $client['sla_tier'] === 'premium' ? 'Premium' : 'Standard' ?></strong>
+          <span class="rail-note">Only owners and admins can change the plan.</span>
         </div>
       <?php endif; ?>
       <label class="field">Health
         <select name="health">
-          <option value="good" <?= $client['health'] === 'good' ? 'selected' : '' ?>>good</option>
-          <option value="watch" <?= $client['health'] === 'watch' ? 'selected' : '' ?>>watch</option>
+          <option value="good" <?= $client['health'] === 'good' ? 'selected' : '' ?>>Good</option>
+          <option value="watch" <?= $client['health'] === 'watch' ? 'selected' : '' ?>>Needs attention</option>
         </select>
       </label>
       <label class="field span-2">Notes

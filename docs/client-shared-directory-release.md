@@ -38,7 +38,9 @@ page handlers are unchanged.
 ### Client page wording after the 2026-11 client page change
 
 The targets and the rules for choosing them are exactly as above. The client page now says them in
-fewer places, in plainer words. The Clients list is unchanged.
+fewer places, in plainer words. On the Clients list only two words changed: the line under the title counts
+"clients", and each row's tier reads "Standard plan" or "Premium plan". Its sections, buttons, shared-state
+lines and targets are unchanged.
 
 | Was | Now |
 | --- | --- |

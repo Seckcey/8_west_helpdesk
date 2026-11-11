@@ -136,9 +136,19 @@ try {
     $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
     $pdo->exec('CREATE TABLE tickets(id INTEGER PRIMARY KEY, tenant_id INTEGER, assignee_id INTEGER, status TEXT, created_at TEXT, resolved_at TEXT, sla_due_at TEXT, merged_into_id INTEGER, client_id INTEGER DEFAULT 21);
         CREATE TABLE messages(id INTEGER PRIMARY KEY, ticket_id INTEGER, kind TEXT, created_at TEXT);
-        CREATE TABLE westy_workflows(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, ticket_id INTEGER, state TEXT);
+        CREATE TABLE westy_workflows(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, ticket_id INTEGER, state TEXT, closed_at TEXT);
         INSERT INTO westy_workflows(tenant_id, client_id, ticket_id, state) VALUES (1, 21, 14, "working"), (1, 21, 15, "working"), (1, 21, 16, "needs_human"),
-            (1, 21, 6, "working"), (2, 21, 14, "working");');
+            (1, 21, 6, "working"), (2, 21, 14, "working"), (1, 21, 19, "human_owned");');
+    // The assistant resolved #17, #20, #21 and #22: each workflow's closed time is the moment it resolved the
+    // ticket. Someone has since written on #17; #22 still has its original resolved state.
+    $closed = $pdo->prepare('INSERT INTO westy_workflows(tenant_id, client_id, ticket_id, state, closed_at) VALUES (1, 21, ?, ?, ?)');
+    foreach ([[17, 'human_owned', 50], [20, 'resolved', 70], [21, 'human_owned', 500], [22, 'resolved', 45]] as [$id, $state, $closedAgo]) {
+        $closed->execute([$id, $state, $at($closedAgo)]);
+    }
+    // A matching timestamp from another workspace or client is not closure evidence for #18.
+    $elsewhere = $pdo->prepare('INSERT INTO westy_workflows(tenant_id, client_id, ticket_id, state, closed_at) VALUES (?, ?, 18, ?, ?)');
+    $elsewhere->execute([2, 21, 'resolved', $at(50)]);
+    $elsewhere->execute([1, 99, 'resolved', $at(50)]);
     $ticket = $pdo->prepare('INSERT INTO tickets(id, tenant_id, assignee_id, status, created_at, resolved_at, sla_due_at, merged_into_id) VALUES(?,?,?,?,?,?,?,?)');
     $message = $pdo->prepare('INSERT INTO messages(ticket_id, kind, created_at) VALUES(?,?,?)');
     foreach ([
@@ -159,6 +169,12 @@ try {
         [14, 1, null, 'in_progress', 300, null, 180, null, []],          // the assistant is working it: Westy's, overdue with no reply
         [15, 1, null, 'in_progress', 400, null, 280, null, [380]],       // Westy's: 20 minutes, on time
         [16, 1, null, 'in_progress', 500, null, -100, null, []],         // the assistant handed it to a person: nobody's, and not due yet
+        [17, 1, null, 'resolved', 120, 50, 0, null, []],                 // the assistant resolved it, then someone added a note: still Westy's
+        [18, 1, null, 'resolved', 70 * $day, 50, 70 * $day - 100, null, []],   // opened long ago, resolved today by nobody in particular
+        [19, 1, null, 'resolved', 70 * $day, 60, 70 * $day - 100, null, []],   // the assistant handed it over before it was resolved: nobody's
+        [20, 1, 12, 'resolved', 70 * $day, 70, 70 * $day - 100, null, []],     // the assistant resolved it, then Marcus took it: Marcus's
+        [21, 1, null, 'resolved', 70 * $day, 40, 70 * $day - 100, null, []],   // the assistant resolved it, a person reopened it and resolved it again later: nobody's
+        [22, 1, null, 'resolved', 70 * $day, 45, 70 * $day - 100, null, []],   // the assistant resolved it and nothing has touched it: Westy's
     ] as [$id, $tenant, $owner, $status, $opened, $resolved, $due, $merged, $replies]) {
         $ticket->execute([$id, $tenant, $owner, $status, $at($opened), $resolved === null ? null : $at($resolved), $at($due), $merged]);
         foreach ($replies as $reply) $message->execute([$id, 'tech', $at($reply)]);
@@ -167,23 +183,35 @@ try {
     $source = (string)file_get_contents(__DIR__ . '/../public/reports.php');
     reports_check(preg_match('/\$opened = db\(\)->prepare\(\s*"([^"]+)"\s*\)/s', $source, $openedSql) === 1, 'the page reads the tickets opened in the period with one query');
     // The page writes the queue's own rule for "the assistant holds this ticket" into the query; so does this.
-    reports_check(substr_count($openedSql[1], '$westyRule') === 1, 'the query asks the queue\'s rule which tickets the assistant holds');
-    $read = $pdo->prepare(str_replace('$westyRule', queue_facts($pdo)['{westy}'], $openedSql[1]));
+    reports_check(substr_count($openedSql[1], '$westyOwned') === 1, 'the query asks one rule which tickets are the assistant\'s');
+    $westyOwned = report_westy_owned_sql(queue_facts($pdo)['{westy}']);
+    reports_check(report_westy_owned_sql('(0 = 1)') === '(0 = 1)', 'where the assistant has no workflow table, no ticket is its');
+    $read = $pdo->prepare(str_replace('$westyOwned', $westyOwned, $openedSql[1]));
     $read->execute([1, $at(30 * $day)]);
     $rows = $read->fetchAll();
-    reports_check(array_map('intval', array_column($rows, 'id')) === [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16], 'the query reads this tenant\'s tickets opened in the period, and no others');
-    reports_check(array_map('intval', array_column(array_filter($rows, static fn(array $row): bool => (int)$row['westy_held'] === 1), 'id')) === [14, 15],
-        'a ticket is Westy\'s only while nobody owns it and the assistant is working it: not one a person owns, and not one handed to a person');
+    reports_check(array_map('intval', array_column($rows, 'id')) === [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17], 'the query reads this tenant\'s tickets opened in the period, and no others');
+    reports_check(array_map('intval', array_column(array_filter($rows, static fn(array $row): bool => (int)$row['westy_held'] === 1), 'id')) === [14, 15, 17],
+        'a ticket is Westy\'s while nobody owns it and the assistant is working it or has resolved it: not one a person owns, and not one handed to a person');
+    // Resolved in the period, by who has the ticket now: the page's own query.
+    reports_check(preg_match('/\$resolvedBy = db\(\)->prepare\(\s*"([^"]+)"\s*\)/s', $source, $resolvedSql) === 1 && substr_count($resolvedSql[1], '$westyOwned') === 1,
+        'the page counts resolved tickets by owner with one query and the same rule');
+    $resolved = $pdo->prepare(str_replace('$westyOwned', $westyOwned, $resolvedSql[1]));
+    $resolved->execute([1, $at(30 * $day)]);
+    $byOwner = [];
+    foreach ($resolved->fetchAll() as $row) $byOwner[($row['assignee_id'] ?? 'nobody') . ((int)$row['westy_held'] === 1 ? ' (Westy)' : '')] = (int)$row['n'];
+    ksort($byOwner);
+    reports_check($byOwner === ['11' => 2, '12' => 2, 'nobody' => 3, 'nobody (Westy)' => 2],
+        'a ticket the assistant resolved counts as resolved by Westy, whatever its workflow says now; one it handed over, one a person now owns, and one a person resolved again do not');
     $out = report_outcomes($rows, $now);
     $rule = service_goal_response_attainment($pdo, 1, 30, $now);
-    reports_check($rule === ['n' => 10, 'met' => 5, 'pct' => 50]
+    reports_check($rule === ['n' => 11, 'met' => 5, 'pct' => 45]
         && ['n' => $out['all']['decided'], 'met' => $out['all']['met'], 'pct' => $out['all']['pct']] === $rule,
         'the page counts "on time" exactly as the service-goal rule does');
     reports_check($out['owners']['11'] === ['replied' => 3, 'median' => 40, 'decided' => 3, 'met' => 2, 'pct' => 67]
         && $out['owners']['12'] === ['replied' => 1, 'median' => 120, 'decided' => 2, 'met' => 1, 'pct' => 50]
         && $out['owners'][''] === ['replied' => 1, 'median' => 50, 'decided' => 2, 'met' => 1, 'pct' => 50]
         && $out['owners']['13'] === ['replied' => 0, 'median' => null, 'decided' => 1, 'met' => 0, 'pct' => 0]
-        && $out['owners']['westy'] === ['replied' => 1, 'median' => 20, 'decided' => 2, 'met' => 1, 'pct' => 50]
+        && $out['owners']['westy'] === ['replied' => 1, 'median' => 20, 'decided' => 3, 'met' => 1, 'pct' => 33]
         && array_map('strval', array_keys($out['owners'])) === ['11', '12', '', '13', 'westy'],
         'each owner gets their own tickets, Westy included: the median wait, and how many first replies were on time');
     reports_check($out['all']['replied'] === 6 && $out['all']['median'] === 45

@@ -24,6 +24,7 @@ require_once __DIR__ . '/../lib/suite_preferences.php';
 require_once __DIR__ . '/../lib/settings_context.php';
 require_once __DIR__ . '/../lib/westy.php';
 require_once __DIR__ . '/../lib/client_page.php';
+require_once __DIR__ . '/../lib/service_goal_policy_admin.php';
 
 $checks = 0;
 function directory_ui_check(bool $ok, string $label): void
@@ -206,14 +207,14 @@ function directory_ui_transport(string $mode, array $customers): callable
 }
 
 /** Evaluate one actual page source in its own scope and return its HTML. */
-function directory_ui_page(string $page, array $get): string
+function directory_ui_page(string $page, array $get, bool $readsDirectory = true): string
 {
     $source = (string)file_get_contents(__DIR__ . '/../public/' . $page);
     // Same whole-page source, substituting only its require lines and the directory transport.
     $source = preg_replace('/^require_once .*;\R/m', '', $source);
     $source = str_replace('client_operational_roster(db(), $user)',
         'client_operational_roster(db(), $user, $GLOBALS[\'fixtureTransport\'])', $source, $count);
-    directory_ui_check($count === 1, $page . ' reads the directory through exactly one call');
+    directory_ui_check($count === ($readsDirectory ? 1 : 0), $page . ($readsDirectory ? ' reads the directory through exactly one call' : ' does not read the directory'));
     $_GET = $get;
     $_POST = [];
     $_SERVER['REQUEST_METHOD'] = 'GET';
@@ -282,6 +283,20 @@ foreach (['light', 'dark'] as $theme) {
             && substr_count($html, 'title="Opens this client in Coastmark">Billing ↗</a>') === ($case === 'directory' ? 6 : 5)
             && substr_count($html, 'class="btn-chip" href="https://coastmark.8westit.com/auth/suite" target="_blank" rel="noopener" title="Opens Coastmark; choose the client there">Billing ↗</a>') === 3,
             "$case $theme gives each linked client (inactive and removed history included) and a verified pending business its own Billing route, and local and drifted rows the generic entry");
+        // One word for each thing: clients are clients, and a plan is said in words.
+        $list = new DOMDocument();
+        libxml_use_internal_errors(true);
+        $list->loadHTML('<?xml encoding="utf-8">' . $html);
+        libxml_clear_errors();
+        $listX = new DOMXPath($list);
+        $plans = [];
+        foreach ($listX->query('//a[@data-client-id]') as $row) {
+            $plans[(int)$row->getAttribute('data-client-id')] = trim((string)$listX->query('.//span[contains(concat(" ", normalize-space(@class), " "), " tier ")]', $row)->item(0)?->textContent);
+        }
+        directory_ui_check(preg_match('/^\d+ clients$/', trim((string)$listX->query('//p[@class="page-sub"]')->item(0)?->textContent)) === 1
+            && ($plans[30] ?? '') === 'Premium plan' && ($plans[33] ?? '') === 'Standard plan' && array_diff($plans, ['Premium plan', 'Standard plan']) === []
+            && !str_contains($html, 'accounts under') && preg_match('/>\s*(premium|standard)\s*</', $html) === 0,
+            "$case $theme counts clients as clients and says each plan in words");
         if (is_string($out) && is_dir($out)) file_put_contents("$out/clients-$case-$theme.html", $html);
     }
     $GLOBALS['fixtureTransport'] = directory_ui_transport('directory', $houseRoster);
@@ -424,5 +439,41 @@ foreach (['light', 'dark'] as $theme) {
         }
     }
 }
+// New client and Edit client: "Plan" with capitalised choices, and health in the client page's words.
+$formPage = static function (string $page, array $get): DOMXPath {
+    $doc = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $doc->loadHTML('<?xml encoding="utf-8">' . directory_ui_page($page, $get, false));
+    libxml_clear_errors();
+    return new DOMXPath($doc);
+};
+$words = static fn(DOMXPath $x, string $query): array => array_map(
+    static fn(DOMNode $node): string => trim((string)preg_replace('/\s+/u', ' ', $node->textContent)), iterator_to_array($x->query($query)));
+$x = $formPage('client_edit.php', ['id' => '32']);
+directory_ui_check($words($x, '//label[select[@name="sla_tier"]]/text()[normalize-space()]') === ['Plan']
+    && $words($x, '//select[@name="sla_tier"]/option') === ['Standard', 'Premium']
+    && $words($x, '//select[@name="sla_tier"]/option/@value') === ['standard', 'premium']
+    && $words($x, '//select[@name="sla_tier"]/option[@selected]') === ['Standard']
+    && $words($x, '//select[@name="health"]/option') === ['Good', 'Needs attention']
+    && $words($x, '//select[@name="health"]/option/@value') === ['good', 'watch']
+    && $words($x, '//select[@name="health"]/option[@selected]') === ['Needs attention'],
+    'Edit client asks for the Plan and the health in words, and still sends the stored values');
+$x = $formPage('client_new.php', []);
+directory_ui_check($words($x, '//label[select[@name="sla_tier"]]/text()[normalize-space()]') === ['Plan']
+    && $words($x, '//select[@name="sla_tier"]/option') === ['Standard', 'Premium']
+    && $words($x, '//select[@name="sla_tier"]/option/@value') === ['standard', 'premium'], 'New client asks for the Plan in words');
+// A technician cannot change the plan, and is told so in the same word.
+$GLOBALS['fixtureUser']['role'] = 'tech';
+$x = $formPage('client_edit.php', ['id' => '30']);
+directory_ui_check($x->query('//select[@name="sla_tier"]')->length === 0
+    && $words($x, '//div[contains(@class,"field")][span="Plan"]/strong') === ['Premium']
+    && $words($x, '//div[contains(@class,"field")][span="Plan"]/span[contains(@class,"rail-note")]') === ['Only owners and admins can change the plan.'],
+    'a technician sees the plan in words and who can change it');
+$x = $formPage('client_new.php', []);
+directory_ui_check($x->query('//select[@name="sla_tier"]')->length === 0
+    && $words($x, '//div[contains(@class,"field")][span="Plan"]/strong') === ['Standard']
+    && $words($x, '//div[contains(@class,"field")][span="Plan"]/span[contains(@class,"rail-note")]') === ['Only owners and admins can choose the plan.'],
+    'a technician adding a client is told the plan and who can choose it');
+$GLOBALS['fixtureUser']['role'] = 'admin';
 directory_ui_check(directory_ui_tables() === $before, 'rendering the directory and client pages wrote nothing');
 echo "PASS: $checks client shared directory renderer checks\n";
