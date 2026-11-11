@@ -2174,6 +2174,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .page-clients .crow-field { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .page-clients .tier { justify-self: start; }
 .page-clients .crow-link-state { align-self: flex-start; background: var(--chip-bg); color: var(--muted-strong); border-radius: var(--radius-tag); padding: 2px 6px; font-size: 12px; }
+.page-clients .crow-health { align-self: flex-start; border-radius: var(--radius-tag); padding: 2px 6px; font-size: 12px; }
 .page-clients .crow-actions { width: 60px; padding: 0 16px 0 4px; flex: none; }
 .page-clients .client-row-menu { position: relative; }
 .page-clients .client-row-menu summary { display: flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; list-style: none; border: 1px solid var(--line-strong); background: var(--bg-solid); border-radius: 10px; cursor: pointer; }

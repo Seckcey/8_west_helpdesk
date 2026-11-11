@@ -28,7 +28,7 @@ CUT2 changes only the Billing targets and their wording:
 
 | Surface | Change |
 | --- | --- |
-| Clients list | One list with Find a client filtering names/domains locally; columns Client, Open tickets, Oldest open and Plan. The full row opens the client. Its Apps menu preserves the existing Open in Milepost and Open in Coastmark destinations, including retained history and verified pending clients. Not linked appears only for known unbound rows when at least one client is linked; unknown links remain unknown. An unavailable directory uses a plain information callout and local records; verified empty remains distinct. Counts and oldest-open timestamps match both ticket tenant and client. |
+| Clients list | **Billing** opens the client's own Coastmark page for each linked client whose binding and immutable receipt agree, inactive and removed history included, and for an active business in this request's verified Milepost directory that Safeharbor has not received yet. Local, unavailable, drifted and malformed rows keep Coastmark's existing entry. Support and the active-only Devices button are unchanged. |
 | Client page | For a linked client, whatever its shared state, Balance reads **View this client in Coastmark** and the Suite rail **Review this client's invoices in Coastmark**, both to its own Coastmark page. Every other client keeps Coastmark's existing entry and wording. |
 | Westy | The prompt describes the same Billing targets. |
 

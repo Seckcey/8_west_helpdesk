@@ -891,7 +891,8 @@
       closeClientMenus();
       const words = filter.value.trim().toLocaleLowerCase();
       directoryRows.forEach((row) => {
-        const name = $(".crow-name", row)?.textContent || "", domain = $(".crow-sub", row)?.textContent || "";
+        const name = $(".crow-name", row)?.textContent || "";
+        const domain = row.dataset.customerPending === "1" ? "" : ($(".crow-sub", row)?.textContent || "");
         row.hidden = !(name + " " + domain).toLocaleLowerCase().includes(words);
       });
       allLinks.forEach((row) => row.classList.remove("crow-sel"));

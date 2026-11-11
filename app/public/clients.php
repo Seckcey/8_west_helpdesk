@@ -119,6 +119,7 @@ page_top($user, 'Clients', 'clients');
         <span class="crow-main">
           <span class="crow-name"><?= h($c['name']) ?></span>
           <span class="crow-sub"><?= h($c['domain']) ?></span>
+          <?php if ($c['health'] !== 'good'): ?><span class="crow-health tag tag-caution">Needs attention</span><?php endif; ?>
           <?php if ($op['bound'] === false && $hasLinked): ?><span class="crow-link-state">Not linked</span><?php endif; ?>
           <?php if ($op['bound'] !== false && !$op['available']): ?><span class="crow-shared">Link details unavailable</span><?php endif; ?>
         </span>
