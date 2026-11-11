@@ -27,16 +27,34 @@ function service_goal_timestamp(mixed $value): ?int
     return $timestamp === false ? null : $timestamp;
 }
 
-/** Human-sized elapsed time for the compact response-target lamp. */
-function service_goal_duration_label(int $seconds): string
+/**
+ * A length of time for the first-response tag, in one unit only: "40 min", "6 h", "5 d".
+ *
+ * Time left rounds down and time late rounds up, so the tag never promises more time than there is
+ * and never makes a late answer look less late. Time left stays in minutes until two hours, which
+ * is where the tag stops being the caution one: "Due in 2 h" is only ever the plain tag. Days start
+ * at two, so "1 d" never stands for 47 hours.
+ */
+function service_goal_duration_label(int $seconds, bool $late = false): string
 {
-    $minutes = (int) ceil(abs($seconds) / 60);
-    if ($minutes < 60) {
-        return $minutes . 'm';
+    $seconds = abs($seconds);
+    if ($late) {
+        $minutes = max(1, (int) ceil($seconds / 60));
+        if ($minutes < 60) {
+            return $minutes . ' min';
+        }
+        $hours = (int) ceil($minutes / 60);
+
+        return $hours < 48 ? $hours . ' h' : (int) ceil($hours / 24) . ' d';
     }
 
-    return intdiv($minutes, 60) . 'h '
-        . str_pad((string) ($minutes % 60), 2, '0', STR_PAD_LEFT) . 'm';
+    $minutes = max(1, intdiv($seconds, 60));
+    if ($minutes < 120) {
+        return $minutes . ' min';
+    }
+    $hours = intdiv($minutes, 60);
+
+    return $hours < 48 ? $hours . ' h' : intdiv($hours, 24) . ' d';
 }
 
 /** Customer-facing wording for a configured response window. */
@@ -454,14 +472,25 @@ function service_goal_merge_excluded(array $ticket): bool
 }
 
 /**
- * Response-target state for queue and ticket lamps.
+ * The first-response tag: one state and its words, the same wherever a ticket is listed.
+ *
+ *   healthy   "Due in 6 h"              unanswered, two hours or more left
+ *   at_risk   "Due in 95 min"           unanswered, under two hours left (always in minutes)
+ *   breached  "Overdue by 2 h"          unanswered and late now (also "Due now" and "Target missing")
+ *   met       "Answered in time"
+ *   late      "Answered 3 h late"       answered, so nothing is late now: it is not "breached"
+ *   closed    "Closed without a reply"  resolved with no reply from the team: nothing is late now
+ *   excluded  "Merged"
+ *
+ * Only "breached" is urgent. A ticket answered late, or closed without a reply, keeps saying so,
+ * quietly.
  *
  * @return array{state:string,label:string}
  */
 function sla_info(array $ticket, ?int $now = null): array
 {
     if (service_goal_merge_excluded($ticket)) {
-        return ['state' => 'excluded', 'label' => 'Merged history'];
+        return ['state' => 'excluded', 'label' => 'Merged'];
     }
 
     $now ??= time();
@@ -471,18 +500,18 @@ function sla_info(array $ticket, ?int $now = null): array
     $outcome = service_goal_response_outcome($ticket, $now);
 
     if ($outcome === true) {
-        return ['state' => 'met', 'label' => 'Response met'];
+        return ['state' => 'met', 'label' => 'Answered in time'];
     }
 
     if ($firstResponseAt !== null && $dueAt !== null) {
         return [
-            'state' => 'breached',
-            'label' => 'Response ' . service_goal_duration_label($firstResponseAt - $dueAt) . ' late',
+            'state' => 'late',
+            'label' => 'Answered ' . service_goal_duration_label($firstResponseAt - $dueAt, true) . ' late',
         ];
     }
 
     if (($ticket['status'] ?? '') === 'resolved' && $resolvedAt !== null) {
-        return ['state' => 'breached', 'label' => 'No response'];
+        return ['state' => 'closed', 'label' => 'Closed without a reply'];
     }
 
     if ($dueAt === null) {
@@ -490,15 +519,18 @@ function sla_info(array $ticket, ?int $now = null): array
     }
 
     $remaining = $dueAt - $now;
-    $label = service_goal_duration_label($remaining);
-    if ($remaining <= 0) {
-        return ['state' => 'breached', 'label' => $label . ' over'];
+    if ($remaining === 0) {
+        return ['state' => 'breached', 'label' => 'Due now'];
     }
+    if ($remaining < 0) {
+        return ['state' => 'breached', 'label' => 'Overdue by ' . service_goal_duration_label($remaining, true)];
+    }
+    $label = service_goal_duration_label($remaining);
     if ($remaining < 2 * 3600) {
-        return ['state' => 'at_risk', 'label' => $label . ' left'];
+        return ['state' => 'at_risk', 'label' => 'Due in ' . $label];
     }
 
-    return ['state' => 'healthy', 'label' => $label . ' left'];
+    return ['state' => 'healthy', 'label' => 'Due in ' . $label];
 }
 
 /**

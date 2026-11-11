@@ -34,7 +34,7 @@ db/run_business_report.php exact dry-run/generate/deliver for one pinned schedul
                            or archive; no batch or automatic retry
 lib/bootstrap.php          config, PDO, helpers (h, rel_time, sla_info, json_out)
 lib/service_goals.php      versioned target resolver/snapshot + deterministic
-                           first-response lamps and attainment
+                           first-response tag and attainment
 lib/service_goal_policy_admin.php
                            full immutable-history verification, digest-bound
                            publication, exact-four target write, and tier RBAC
@@ -202,6 +202,14 @@ public/                    Apache docroot (page-per-file, like Milepost)
   Westy's in the rows, the counts, the Unassigned view and the owner filter
   alike; it is still in Needs attention once it is late or nearly late (late
   is late whoever owns it). In "First response due" order every unanswered ticket comes first.
+  The First response tag (`sla_info()`) reads the same in the queue, on a
+  client's ticket list and on the ticket: `Due in 6 h`, `Due in 40 min` (gold,
+  under two hours), `Overdue by 2 h` (red, only while nobody has answered),
+  then quiet text once answered, `Answered in time` or `Answered 3 h late`;
+  a ticket resolved with no reply says `Closed without a reply` (plain tag)
+  and a merged ticket says `Merged`. One unit, nothing blinks. Time left
+  rounds down and stays in minutes under two hours (`Due in 95 min`); time
+  late rounds up (1 h 59 min late reads `2 h`).
   Views, the client, priority and owner filters, the order and the page are
   all in the address (`?view=&client=&priority=&owner=&sort=&page=`). Old
   `?f=all` and `?f=<status>` links keep their meaning (every ticket, or one

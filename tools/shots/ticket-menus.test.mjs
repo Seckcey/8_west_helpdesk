@@ -58,7 +58,7 @@ async function fixture(t, { width = 1440, status = 'open', audience = 'email', v
       const person = fix.menus.team.find((member) => member.id === state.assignee);
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
         ok: true, toast: `${body.field} is now ${body.value}.`, status: state.status, priority: state.priority, assignee_id: state.assignee,
-        chip: tag('status', state.status), pri: tag('priority', state.priority), sla: '<span class="sla">On track</span>',
+        chip: tag('status', state.status), pri: tag('priority', state.priority), sla: '<span class="sla sla-healthy"><span class="sla-dot"></span>Due in 6 h</span>',
         assignee_html: `<span class="assignee-cell"><span class="assignee-name">${person ? person.initials : 'Unassigned'}</span></span>`,
         assignee_avatar: `<span class="avatar">${person ? person.initials : '—'}</span>`,
       }) });

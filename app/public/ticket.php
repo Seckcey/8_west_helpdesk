@@ -374,7 +374,7 @@ page_top($user, '#' . $id, 'queue');
             . h(($westyWorkflow['state'] ?? '') === 'working' ? 'Westy' : ($ticket['assignee_name'] ?? 'Unassigned')) . '</span></span>') ?>
       </div>
 
-      <div class="rail-label">Response target</div>
+      <div class="rail-label">First response</div>
       <div class="card rail-card"><span data-sla><?= sla_lamp($ticket) ?></span><span class="rail-note"><?= h(service_goal_ticket_policy_label($ticket)) ?></span></div>
 
       <div class="rail-label">Time</div>

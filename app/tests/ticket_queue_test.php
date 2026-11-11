@@ -6,7 +6,7 @@
  *
  *   php app/tests/ticket_queue_test.php            runs the checks
  *   php app/tests/ticket_queue_test.php --render   prints a queue built from the same helpers, for
- *       tools/shots/queue-views.test.mjs
+ *       tools/shots/queue-views.test.mjs and tools/shots/first-response-tag.test.mjs
  */
 declare(strict_types=1);
 $checks = 0;
@@ -271,6 +271,31 @@ try {
     queue_check($toggle instanceof DOMElement && $toggle->getAttribute('id') === 'bulk-toggle' && $toggle->getAttribute('aria-pressed') === 'false'
         && trim($toggle->textContent) === 'Select', 'Select starts off');
 
+    // ---- the first-response tag in a row: one row for each of its seven states ----
+    $at = static fn(int $seconds): string => gmdate('Y-m-d H:i:s', time() + $seconds);
+    $unanswered = array_replace($row, ['status' => 'open', 'created_at' => $at(-9 * 86400), 'first_response_at' => null, 'contact_name' => 'Dana Whitfield']);
+    $tagRows = [
+        array_replace($unanswered, ['id' => 201, 'subject' => 'New starter needs a mailbox', 'sla_due_at' => $at(6 * 3600 + 600)]),
+        array_replace($unanswered, ['id' => 202, 'subject' => 'Front desk PC will not print', 'sla_due_at' => $at(40 * 60 + 20)]),
+        array_replace($unanswered, ['id' => 203, 'subject' => 'Disk space low on FD-01', 'sla_due_at' => $at(-2 * 3600 + 600)]),
+        array_replace($unanswered, ['id' => 204, 'subject' => 'Shared calendar is missing', 'status' => 'in_progress',
+            'sla_due_at' => $at(-8 * 86400), 'first_response_at' => $at(-8 * 86400 - 3600)]),
+        array_replace($unanswered, ['id' => 205, 'subject' => 'Scanner saves to the wrong folder', 'status' => 'waiting',
+            'sla_due_at' => $at(-8 * 86400), 'first_response_at' => $at(-8 * 86400 + 3 * 3600 - 600)]),
+        array_replace($unanswered, ['id' => 207, 'subject' => 'Monitor flickers', 'status' => 'resolved',
+            'sla_due_at' => $at(-8 * 86400), 'resolved_at' => $at(-7 * 86400)]),
+        array_replace($unanswered, ['id' => 206, 'subject' => 'Printer offline again', 'status' => 'resolved', 'merged_into_id' => 202]),
+    ];
+    $tagList = '<div class="card list">' . ticket_head_row(false) . implode('', array_map('ticket_row', $tagRows)) . '</div>';
+    $x = $dom($tagList);
+    queue_check($texts($x, '//*[contains(@class,"trow-sla")]/*[contains(@class,"sla")]')
+        === ['Due in 6 h', 'Due in 40 min', 'Overdue by 2 h', 'Answered in time', 'Answered 3 h late', 'Closed without a reply', 'Merged'],
+        'the seven states read in plain words, one unit each');
+    $tagStates = [];
+    foreach ($x->query('//*[contains(@class,"trow-sla")]/*[contains(@class,"sla")]') as $node) $tagStates[] = $node->getAttribute('class');
+    queue_check($tagStates === ['sla sla-healthy', 'sla sla-at_risk', 'sla sla-breached', 'sla sla-met', 'sla sla-late', 'sla sla-closed', 'sla sla-excluded'],
+        'only the unanswered late ticket carries the urgent state; one answered late or closed without a reply does not');
+
     if (in_array('--render', $argv, true)) {
         $state = array_replace($plain, ['view' => 'open']);
         $rows = [
@@ -287,6 +312,7 @@ try {
             'pager' => queue_pager($state, 131, $rows),
             'elsewhere' => queue_elsewhere($state, $counts),
             'bar' => ticket_bulk_bar(queue_view_label($state), count($rows)),
+            'tag_rows' => $tagList,
         ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);
     } else {
         echo "Ticket queue: {$checks} passed.\n";

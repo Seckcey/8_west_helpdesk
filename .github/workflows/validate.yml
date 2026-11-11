@@ -382,5 +382,6 @@ jobs:
           node tools/shots/ticket-menus.test.mjs
           node tools/shots/palette-search.test.mjs
           node tools/shots/queue-views.test.mjs
+          node tools/shots/first-response-tag.test.mjs
           node tools/shots/signin-palette.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs
