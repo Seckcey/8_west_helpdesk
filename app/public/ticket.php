@@ -338,7 +338,7 @@ page_top($user, '#' . $id, 'queue');
               <button type="button" class="composer-tab tab-on" data-mode="reply" role="tab" aria-selected="true">Reply <kbd class="kbd">R</kbd></button>
               <button type="button" class="composer-tab" data-mode="note" role="tab" aria-selected="false">Internal note <kbd class="kbd">N</kbd></button>
             </div>
-            <button type="button" class="btn-link composer-canned" id="canned-open" aria-controls="canned-pop" aria-expanded="false">Saved replies</button>
+            <button type="button" class="btn-secondary composer-canned" id="canned-open" aria-controls="canned-pop" aria-expanded="false">Saved replies</button>
           </div>
           <div class="canned-pop" id="canned-pop" hidden></div>
           <textarea name="reply" id="reply-box" rows="3" placeholder="Write your reply" aria-label="Reply" aria-describedby="composer-keys composer-hint"

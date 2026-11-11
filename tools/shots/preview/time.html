@@ -1,0 +1,152 @@
+<!doctype html>
+<!-- Static preview of the Safeharbor staff desk. Markup copied from app/lib/render.php and the page
+     templates; made-up names only. Open from disk; ?theme=dark|light|system picks the theme. -->
+<html lang="en-US" data-density="comfortable" data-contrast="standard" data-motion="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Time · Safeharbor</title>
+<script src="preview.js"></script>
+<link rel="stylesheet" href="../../../app/public/assets/w365/w365.css">
+<link rel="stylesheet" href="../../../app/public/assets/css/app.css">
+</head>
+<body data-active="time">
+<div class="shell">
+  <aside class="sidebar" id="suite-sidebar">
+    <button type="button" class="mobile-nav-close" aria-label="Close navigation">Close menu ×</button>
+    <a class="brand" href="#" aria-label="Safeharbor home">
+      <img src="../../../brand/png/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-brand-logo" width="1851" height="513">
+    </a>
+    <div class="horizon" aria-hidden="true"></div>
+    <nav class="nav">
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h7" stroke-linecap="round"/></svg>
+        <span class="nav-label">Queue</span>
+        <kbd class="kbd nav-kbd">G Q</kbd>
+      </a>
+      <a href="#" class="nav-item nav-on">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 2" stroke-linecap="round"/></svg>
+        <span class="nav-label">Time</span>
+        <kbd class="kbd nav-kbd">G T</kbd>
+      </a>
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="5.5" cy="6" r="2.5"/><circle cx="11" cy="7" r="2"/><path d="M1.5 13.5c.6-2.3 2.2-3.5 4-3.5s3.4 1.2 4 3.5M9.5 12.6c.7-1.4 1.9-2.1 3-2.1 1.3 0 2.4.9 2.9 2.6" stroke-linecap="round"/></svg>
+        <span class="nav-label">Clients</span>
+        <kbd class="kbd nav-kbd">G C</kbd>
+      </a>
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2"/><path d="M8 1.5V4M8 12v2.5M1.5 8H4M12 8h2.5" stroke-linecap="round"/></svg>
+        <span class="nav-label">Service goals</span>
+        <kbd class="kbd nav-kbd">G S</kbd>
+      </a>
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 13.5h11M4 13V8.5M8 13V4.5M12 13V6.5" stroke-linecap="round"/></svg>
+        <span class="nav-label">Reports</span>
+        <kbd class="kbd nav-kbd"></kbd>
+      </a>
+      <a href="#" class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.8-2.6 2.8-4 5-4s4.2 1.4 5 4M11.5 5.8a2 2 0 1 1 .01 0M11.6 9.6c1.6.4 2.8 1.6 3.3 3.4" stroke-linecap="round"/></svg>
+        <span class="nav-label">Team</span>
+        <kbd class="kbd nav-kbd"></kbd>
+      </a>
+    </nav>
+  </aside>
+  <button type="button" class="mobile-nav-backdrop" aria-label="Close navigation" tabindex="-1"></button>
+  <div class="main">
+    <header class="topbar">
+      <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-controls="suite-sidebar" aria-expanded="false">☰ Menu</button>
+      <button id="palette-trigger" class="search-trigger" type="button" aria-label="Search or run a command">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
+        <span class="search-label">Search or command…</span>
+        <span class="search-keys" aria-hidden="true"><kbd class="kbd" data-mod-key>Ctrl</kbd><kbd class="kbd">K</kbd></span>
+      </button>
+      <span class="topbar-flex"></span>
+      <a href="#" id="timer-widget" class="timer-widget timer-idle" title="Time tracking">No timer running</a>
+      <div class="w365-cluster">
+        <div class="w365-anchor" data-w365-drawer>
+          <button type="button" class="w365-waffle" aria-label="Open 8 West IT 365 apps" title="8 West IT 365 apps">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><g fill="currentColor">
+              <rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9.5" y="2" width="5" height="5" rx="1"/><rect x="17" y="2" width="5" height="5" rx="1"/>
+              <rect x="2" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="17" y="9.5" width="5" height="5" rx="1"/>
+              <rect x="2" y="17" width="5" height="5" rx="1"/><rect x="9.5" y="17" width="5" height="5" rx="1"/><rect x="17" y="17" width="5" height="5" rx="1"/>
+            </g></svg>
+          </button>
+        </div>
+        <div class="w365-anchor" data-w365-account>
+          <button type="button" class="w365-account-btn" aria-label="Account menu for Maya Reyes">
+            <span class="w365-avatar" aria-hidden="true">MR</span>
+            <span class="w365-account-name">Maya Reyes</span>
+            <svg viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+    <main class="content">
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Time</h1>
+      <p class="page-sub">55m logged today · 1 pending · 35m approved billable</p>
+    </div>
+  </div>
+
+  <div class="card timer-card" id="timer-card" data-state="idle">
+    <span class="timer-dot" id="timer-dot"></span>
+    <div class="timer-info">
+      <div class="timer-title" id="timer-title">No timer running</div>
+      <div class="timer-sub" id="timer-sub">Press <kbd class="kbd">E</kbd> on any ticket in the queue to start one — or open a ticket and hit Start timer.</div>
+    </div>
+    <span class="timer-clock" id="timer-clock"></span>
+  </div>
+
+  <div class="rail-label">Today's entries</div>
+  <div class="card rail-list">
+    <div class="entry-row">
+      <span class="entry-min">20m</span>
+      <div class="entry-main">
+        <div class="entry-note">Hygienist account locked out after the password change; reset it and checked the front desk sign-in</div>
+        <a class="entry-ticket link" href="#">#1042</a>
+        <div class="entry-evidence">Worked 2026-11-10 14:05 UTC · source timer · measured 2026-11-10 14:05 UTC → 2026-11-10 14:25 UTC</div>
+      </div>
+      <span class="entry-badge badge-billable">billable</span>
+      <span class="entry-badge status-pending">pending</span>
+    </div>
+    <div class="entry-row">
+      <span class="entry-min">35m</span>
+      <div class="entry-main">
+        <div class="entry-note">Print spooler restart on FRONTDESK-02</div>
+        <a class="entry-ticket link" href="#">#1041</a>
+      </div>
+      <span class="entry-badge badge-billable">billable</span>
+      <span class="entry-badge status-approved">approved</span>
+    </div>
+  </div>
+
+  <div class="rail-label">Pending review</div>
+  <div class="card rail-list" id="time-review-queue">
+    <div class="entry-row review-row" data-time-entry-id="77">
+      <span class="entry-min">35m</span>
+      <div class="entry-main">
+        <div class="entry-note">Ana Kim · Bayside Realty · Mapped the shared drive again for the two new agents and tested a scan to folder</div>
+        <a class="entry-ticket link" href="#">#1039 New hire laptop setup for Dana</a>
+        <div class="entry-evidence">
+          Worked 2026-11-10 13:10 UTC · source manual ·
+            no measured interval
+        </div>
+        <div class="entry-lineage">Replacement for rejected entry #71</div>
+      </div>
+      <span class="entry-badge badge-billable">billable</span>
+      <div class="review-actions">
+        <button type="button" class="btn-chip time-review" data-decision="approved">Approve</button>
+        <button type="button" class="btn-secondary time-review" data-decision="rejected">Reject</button>
+      </div>
+    </div>
+  </div>
+</div>
+    </main>
+  </div>
+</div>
+<div id="toasts" class="toasts"><div class="toast">Ticket #1041 assigned to you</div></div>
+</body>
+</html>

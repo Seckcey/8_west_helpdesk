@@ -589,7 +589,7 @@
         widget.classList.toggle("timer-on", t.state === "active");
         widget.classList.toggle("timer-stopped", t.state === "stopped");
         widget.classList.remove("timer-idle");
-        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span>${fmt(timerElapsed(t))}</span><span style="opacity:.7">#${t.ticketId}${t.state === "stopped" ? " · retry" : ""}</span>`;
+        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span>${fmt(timerElapsed(t))}</span><span class="tw-ticket">#${t.ticketId}</span>${t.state === "stopped" ? '<span class="tw-retry">· retry</span>' : ""}`;
       } else {
         widget.classList.remove("timer-on");
         widget.classList.remove("timer-stopped");
@@ -823,11 +823,21 @@
   /* ------------------------------------------------------------------ */
   const rows = page === "queue" ? $$(".trow:not(.trow-head)") : page === "clients" ? $$(".crow") : [];
   let sel = 0;
+  // The highlight is a keyboard cursor. It is not drawn when the page opens, because a row that
+  // looks chosen before anybody chose it reads as a property of that ticket or client. It shows
+  // from the first row key (j, k, an arrow, x, or a key that acts on the row) or a ticked checkbox.
+  let selShown = false;
   function paintSel() {
-    rows.forEach((r, i) => r.classList.toggle(page === "queue" ? "trow-sel" : "crow-sel", i === sel));
-    if (rows[sel]) rows[sel].scrollIntoView({ block: "nearest" });
+    rows.forEach((r, i) => r.classList.toggle(page === "queue" ? "trow-sel" : "crow-sel", selShown && i === sel));
+    if (selShown && rows[sel]) rows[sel].scrollIntoView({ block: "nearest" });
   }
-  if (rows.length) paintSel();
+  // Shows the highlight where it stands; true when this call is what showed it.
+  function showSel() {
+    if (selShown || !rows.length) return false;
+    selShown = true;
+    paintSel();
+    return true;
+  }
 
   const currentRow = () => rows[sel];
 
@@ -902,7 +912,7 @@
       if (type === "focus" && !event.relatedTarget) return;
       const wrap = box.closest(".trow-pick");
       const index = wrap ? rows.indexOf($(".trow", wrap)) : -1;
-      if (index >= 0 && index !== sel) { sel = index; paintSel(); }
+      if (index >= 0) { sel = index; selShown = true; paintSel(); }
     })));
     if (allBox) allBox.addEventListener("change", () => {
       picks.forEach((box) => { box.checked = allBox.checked; });
@@ -1460,11 +1470,12 @@
     switch (key) {
       case "j":
       case "arrowdown":
-        if (rows.length) { e.preventDefault(); sel = Math.min(sel + 1, rows.length - 1); paintSel(); }
+        // The first press shows the highlight on the first row; after that it moves.
+        if (rows.length) { e.preventDefault(); if (!showSel()) { sel = Math.min(sel + 1, rows.length - 1); paintSel(); } }
         break;
       case "k":
       case "arrowup":
-        if (rows.length) { e.preventDefault(); sel = Math.max(sel - 1, 0); paintSel(); }
+        if (rows.length) { e.preventDefault(); if (!showSel()) { sel = Math.max(sel - 1, 0); paintSel(); } }
         break;
       case "enter":
       case "o":
@@ -1481,7 +1492,7 @@
         else if (page === "queue" && window.location.pathname !== "/") { e.preventDefault(); nav("/"); }
         break;
       case "x":
-        if (bulk && row && bulk.toggle(row)) e.preventDefault();
+        if (bulk && row && bulk.toggle(row)) { e.preventDefault(); showSel(); }
         break;
       case "d":
         if (bulk && bulk.openForSelection()) e.preventDefault();
@@ -1496,6 +1507,7 @@
         const id = ticketPageId || rowTicketId;
         if (!id) break;
         e.preventDefault();
+        if (!ticketPageId) showSel();   // the row this key is about to act on
         if (key === "e") {
           const t = readTimer();
           if (t && String(t.ticketId) === String(id)) stopTimer();
@@ -2312,7 +2324,7 @@
           <p>send and wait, send and resolve: the arrow beside Send, or <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd></p>
           <p>matching timer logs only after server-confirmed Send</p></div>
         <div><h4>Everywhere</h4>
-          <p><kbd class="kbd">⌘K</kbd> palette (search reaches every message)</p>
+          <p><kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd> palette (search reaches every message)</p>
           <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd>/<kbd class="kbd">t</kbd>/<kbd class="kbd">c</kbd>/<kbd class="kbd">s</kbd> navigate · <kbd class="kbd">?</kbd> this card</p></div>
       </div></div>`;
     div.addEventListener("click", (e) => { if (e.target === div) toggleHelp(); });

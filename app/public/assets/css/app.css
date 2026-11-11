@@ -116,7 +116,14 @@
 
   --msg-tech-bg: #14315A;
   --msg-tech-border: transparent;
-  --note-bg: #3D3115;
+  /* A large caution surface (banner, internal note). At that size the dark tint is an olive brown,
+     so in dark it is a card with a caution hairline and an amber edge; the tint is for tags. */
+  --caution-surface: #0E2138;
+  --caution-line: #5C4A1C;
+  --caution-edge: #E9B63A;
+  /* Segmented control: the selected chip is always the lightest thing in its track. */
+  --seg-track: #0E2138;
+  --seg-on: #1A3556;
   --gold-soft-bg: #3D3115;
   --gold-soft-border: #5C4A1C;
   --mint-soft-bg: #123A2E;
@@ -182,7 +189,11 @@
 
   --msg-tech-bg: #E6F0FF;
   --msg-tech-border: transparent;
-  --note-bg: #FFF2D1;
+  --caution-surface: #FFF2D1;
+  --caution-line: transparent;
+  --caution-edge: transparent;
+  --seg-track: #EAF0F8;
+  --seg-on: #FFFFFF;
   --gold-soft-bg: #FFF2D1;
   --gold-soft-border: #E8C979;
   --mint-soft-bg: #E3F5EC;
@@ -244,7 +255,11 @@
     --rail-muted: #9DB2CF;
     --msg-tech-bg: #E6F0FF;
     --msg-tech-border: transparent;
-    --note-bg: #FFF2D1;
+    --caution-surface: #FFF2D1;
+    --caution-line: transparent;
+    --caution-edge: transparent;
+    --seg-track: #EAF0F8;
+    --seg-on: #FFFFFF;
     --gold-soft-bg: #FFF2D1;
     --gold-soft-border: #E8C979;
     --mint-soft-bg: #E3F5EC;
@@ -414,6 +429,7 @@ img { display: block; }
 .search-trigger svg { width: 16px; height: 16px; flex: none; }
 .search-trigger:hover { border-color: var(--line-strong); color: var(--text); }
 .search-label { flex: 1; text-align: left; }
+.search-keys { display: inline-flex; align-items: center; gap: 3px; flex: none; }
 
 .timer-widget {
   display: inline-flex; align-items: center; gap: 6px;
@@ -431,6 +447,7 @@ img { display: block; }
   font-variant-numeric: tabular-nums;
 }
 .timer-widget .tw-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.timer-widget .tw-ticket, .timer-widget .tw-retry { opacity: .7; }
 
 .content { flex: 1; min-height: 0; overflow-y: auto; }
 
@@ -452,7 +469,7 @@ img { display: block; }
 /* Status filters: a segmented control. Their key hints behave like the nav ones. */
 .filters {
   display: inline-flex; align-items: center; gap: 2px; flex-wrap: wrap;
-  padding: 3px; border-radius: var(--radius-sm); background: var(--surface-3);
+  padding: 3px; border-radius: var(--radius-sm); background: var(--seg-track);
 }
 .filter-pill {
   display: inline-flex; align-items: center; gap: 6px;
@@ -461,7 +478,7 @@ img { display: block; }
   transition: background .14s, color .14s;
 }
 .filter-pill:hover { color: var(--text); }
-.filter-pill.pill-on { background: var(--bg-solid); color: var(--text); box-shadow: var(--shadow-card); }
+.filter-pill.pill-on { background: var(--seg-on); color: var(--text); box-shadow: var(--shadow-card); }
 .pill-count { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .pill-kbd { margin-left: 2px; opacity: 0; transition: opacity .1s; }
 .filter-pill:hover .pill-kbd, .filter-pill:focus-visible .pill-kbd { opacity: 1; }
@@ -493,7 +510,7 @@ img { display: block; }
 /* What the view does not show, and notes about the list: quiet lines with real links. */
 .queue-elsewhere { margin-top: 10px; padding: 0 4px; font-size: 13px; color: var(--muted-strong); }
 .queue-note { margin-bottom: 12px; padding: 10px 14px; border-radius: 12px; background: var(--accent-soft-bg); font-size: 14px; color: var(--text); }
-.queue-note-warn { background: var(--gold-soft-bg); }
+.queue-note-warn { background: var(--caution-surface); }
 @media (max-width: 700px) {
   /* The views stay on one line and scroll sideways; the filters sit two to a row. */
   .queue-toolbar .filters { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; }
@@ -678,7 +695,7 @@ img { display: block; }
 .msg-body { font-size: 14px; line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg-note {
   padding: 12px 16px; border: 0;
-  background: var(--note-bg); border-radius: var(--radius-md);
+  background: var(--caution-surface); border-radius: var(--radius-md);
 }
 .msg-system { padding: 2px 0; text-align: center; font-size: 12.5px; font-style: italic; color: var(--dim); }
 
@@ -998,7 +1015,8 @@ img { display: block; }
 .status-pending { background: var(--gold-soft-bg); color: var(--gold); }
 .status-approved { background: var(--mint-soft-bg); color: var(--mint); }
 .status-rejected { background: var(--error-bg); color: var(--rose); }
-.review-actions { display: inline-flex; align-items: center; gap: 4px; }
+.review-actions { display: inline-flex; align-items: center; gap: 8px; }
+.review-actions .time-review { min-height: 36px; }
 .billing-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 22rem; }
 .billing-actions [data-billing-label] { width: 100%; text-align: right; }
 .time-review:disabled { opacity: .5; cursor: default; }
@@ -1011,19 +1029,39 @@ img { display: block; }
   .nav-item { height: 44px; }
   .sidebar-open .mobile-nav-backdrop { display: block; position: fixed; inset: 0; background: var(--overlay); z-index: 80; }
   .topbar { padding: 6px 12px; gap: 8px; }
-  .search-trigger { min-width: 0; }
-  .search-trigger .kbd { display: none; }
-  .search-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* The suite cluster is a fixed size and must never be squeezed off the header, so the two
-     flexible controls beside it give way first. Safeharbor's own classes only. */
-  .timer-widget { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A phone's top bar holds Menu, the search as an icon button and the shared suite cluster, and
+     nothing in it is ever clipped. The search keeps its name for a screen reader. A running timer
+     shows as a short clock with a 44px touch area; an idle one is not shown (Time is in the menu).
+     Safeharbor's own classes only. */
+  .search-trigger { flex: none; width: 44px; height: 44px; padding: 0; justify-content: center; }
+  .search-trigger svg { width: 18px; height: 18px; }
+  .search-label, .search-keys { display: none; }
+  .timer-widget { position: relative; flex: none; white-space: nowrap; }
+  .timer-widget::after { content: ""; position: absolute; inset: -9px 0; }
+  .timer-widget.timer-idle, .timer-widget .tw-ticket { display: none; }
   .page { padding: 18px 16px 28px; }
   .page-title, .ticket-subject { font-size: 22px; }
   .timer-card { align-items: flex-start; flex-wrap: wrap; }
   .timer-info { min-width: calc(100% - 30px); }
-  .review-row, .adjustment-row { align-items: flex-start; flex-wrap: wrap; }
+  /* Time on a phone: each entry stacks. Line one is the whole title with the duration at its
+     right; the ticket link and the record text follow at full width; tags sit at the left of the
+     last line and the buttons at its right. */
+  .entry-row {
+    display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto;
+    align-items: start; gap: 6px 8px; padding: 12px 16px;
+  }
+  .entry-main { display: contents; }
+  .entry-row > *, .entry-main > * { grid-column: 1 / -1; min-width: 0; }
+  .entry-main > .entry-note {
+    grid-column: 1 / 4; grid-row: 1;
+    white-space: normal; overflow: visible; overflow-wrap: anywhere; font-weight: 600;
+  }
+  .entry-row > .entry-min { grid-column: 4; grid-row: 1; width: auto; padding-left: 8px; }
+  .entry-row > .entry-badge { grid-column: auto; justify-self: start; align-self: center; }
+  .entry-row > .review-actions { grid-column: 3 / -1; justify-self: end; }
+  .review-actions .time-review { min-height: 44px; }
+  .entry-evidence, .entry-lineage, .entry-review-note { margin-top: 0; }
   .billing-actions { max-width: none; }
-  .review-actions { width: 100%; justify-content: flex-end; }
 }
 
 /* ==========================================================================
@@ -1194,7 +1232,7 @@ img { display: block; }
 .demo-card {
   margin-top: 20px; padding: 14px 16px;
   border: 0; border-radius: 12px;
-  background: var(--gold-soft-bg);
+  background: var(--caution-surface);
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
 .demo-text { flex: 1; min-width: 220px; font-size: 13.5px; color: var(--text); line-height: 1.5; }
@@ -1483,7 +1521,7 @@ img { display: block; }
 .send-choice-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .send-choice-title { font-weight: 600; }
 .send-choice-detail { font-size: 12.5px; color: var(--muted-strong); }
-.composer-note #reply-box { background: var(--note-bg); border-color: var(--gold-soft-border); }
+.composer-note #reply-box { background: var(--caution-surface); border-color: var(--gold-soft-border); }
 .composer-note .composer-tab.tab-on { background: var(--gold-soft-bg); color: var(--gold); }
 
 .canned-pop {
@@ -1533,7 +1571,11 @@ img { display: block; }
   border-radius: 12px; border: 0;
 }
 .banner-info { background: var(--accent-soft-bg); color: var(--text); }
-.banner-warn { background: var(--gold-soft-bg); color: var(--text); }
+.banner-warn { background: var(--caution-surface); color: var(--text); }
+/* Every large caution surface: in dark, a caution hairline and an amber edge (both clear in light). */
+.banner-warn, .msg-note, .demo-card, .queue-note-warn {
+  box-shadow: inset 0 0 0 1px var(--caution-line), inset 3px 0 0 var(--caution-edge);
+}
 
 /* presence (collision detection) */
 .presence-row { display: inline-flex; gap: 6px; margin-left: auto; }

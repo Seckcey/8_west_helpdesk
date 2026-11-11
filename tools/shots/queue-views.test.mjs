@@ -54,12 +54,14 @@ async function shot(page, name) {
 }
 
 // The row keys are the ones the queue has always had: no key gained a step.
-test('the first row is highlighted from the start; j and k move the highlight', async (t) => {
+test('no row is highlighted until a key asks; the first j shows the first row, then j and k move it', async (t) => {
   const { page, errors } = await fixture(t);
-  assert.deepEqual(await highlighted(page), ['101'], 'the first row is highlighted as soon as the page opens');
+  assert.deepEqual(await highlighted(page), [], 'nothing looks chosen when the page opens');
   await shot(page, 'queue-1440-dark');
   await page.keyboard.press('j');
-  assert.deepEqual(await highlighted(page), ['102'], 'the first j moves to the second row');
+  assert.deepEqual(await highlighted(page), ['101'], 'the first j shows the highlight on the first row');
+  await page.keyboard.press('j');
+  assert.deepEqual(await highlighted(page), ['102'], 'the next j moves to the second row');
   await page.keyboard.press('j');
   await page.keyboard.press('j');
   assert.deepEqual(await highlighted(page), ['103'], 'j stops at the bottom');
@@ -77,8 +79,22 @@ test('the first Enter opens the first row at once', async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test('j then Enter opens the second row', async (t) => {
+test('the first k or arrow shows the highlight too, and a key that acts on a row shows which row', async (t) => {
+  for (const key of ['k', 'ArrowDown', 'ArrowUp']) {
+    const { page } = await fixture(t);
+    await page.keyboard.press(key);
+    assert.deepEqual(await highlighted(page), ['101'], key);
+  }
   const { page, errors } = await fixture(t);
+  await page.keyboard.press('s');
+  await page.getByRole('listbox').waitFor();
+  assert.deepEqual(await highlighted(page), ['101'], 'the menu is for the row now highlighted');
+  assert.deepEqual(errors, []);
+});
+
+test('j, j then Enter opens the second row', async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.keyboard.press('j');
   await page.keyboard.press('j');
   await goes(page, () => page.keyboard.press('Enter'), '/ticket.php?id=102');
   assert.deepEqual(errors, []);
@@ -189,6 +205,7 @@ for (const theme of ['dark', 'light']) {
 
 test('light theme at desktop width, with the keyboard highlight and select mode (for the eye)', async (t) => {
   const { page, errors } = await fixture(t, { theme: 'light' });
+  await page.keyboard.press('j');
   await page.keyboard.press('j');
   await shot(page, 'queue-1440-light');
   await page.keyboard.press('x');

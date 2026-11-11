@@ -60,7 +60,8 @@ async function fixture(t) {
     return route.fulfill({ status: 404, body: '' });
   });
   await page.goto('http://safeharbor.test/');
-  await page.waitForFunction(() => document.querySelector('.trow.trow-sel') !== null);
+  // The page script sits at the end of the body, so it has run once the page has finished loading.
+  await page.waitForFunction(() => document.readyState === 'complete' && document.querySelector('.trow') !== null);
   const transcript = () => page.evaluate((key) => sessionStorage.getItem(key), STORE);
   await page.evaluate((key) => sessionStorage.setItem(key, JSON.stringify({ open: false, h: [{ role: 'user', content: 'private question' }] })), STORE);
   assert.notEqual(await transcript(), null);

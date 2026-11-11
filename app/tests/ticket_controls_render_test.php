@@ -158,7 +158,7 @@ try {
                 . '<div class="composer-top"><div class="composer-tabs" role="tablist">'
                 . '<button type="button" class="composer-tab tab-on" data-mode="reply" role="tab" aria-selected="true">Reply <kbd class="kbd">R</kbd></button>'
                 . '<button type="button" class="composer-tab" data-mode="note" role="tab" aria-selected="false">Internal note <kbd class="kbd">N</kbd></button></div>'
-                . '<button type="button" class="btn-link composer-canned" id="canned-open" aria-controls="canned-pop" aria-expanded="false">Saved replies</button></div>'
+                . '<button type="button" class="btn-secondary composer-canned" id="canned-open" aria-controls="canned-pop" aria-expanded="false">Saved replies</button></div>'
                 . '<div class="canned-pop" id="canned-pop" hidden></div>'
                 . '<textarea name="reply" id="reply-box" rows="3" placeholder="Write your reply" aria-label="Reply" data-placeholder-reply="Write your reply" data-placeholder-note="Write an internal note" data-stale-mode="reply"></textarea>'
                 . '<p class="composer-keys" id="composer-keys"><kbd class="kbd" data-mod-key>Ctrl</kbd><kbd class="kbd">Enter</kbd> to send. Type <kbd class="kbd">/</kbd> for a saved reply.</p>'

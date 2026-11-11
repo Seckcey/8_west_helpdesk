@@ -56,6 +56,36 @@ function service_goal_window_label(int $minutes): string
     return implode(' ', $parts);
 }
 
+/** The first policy versions were written with this start time, which means "from the beginning". */
+const SERVICE_GOAL_FROM_THE_START = '1970-01-01 00:00:00';
+
+/**
+ * When a policy version took effect, for a person: a date in the reader's time zone, never the
+ * stored placeholder. Display only; the stored UTC value and the policy rules are untouched.
+ */
+function service_goal_effective_label(string $effectiveFromUtc, string $state, string $timeZone): string
+{
+    $current = $state !== 'superseded' && $state !== 'scheduled';
+    if ($effectiveFromUtc === SERVICE_GOAL_FROM_THE_START) {
+        return $current ? 'In effect since the desk was set up' : 'Took effect when the desk was set up';
+    }
+    $timestamp = service_goal_timestamp($effectiveFromUtc);
+    if ($timestamp === null) {
+        return 'Start date not recorded';
+    }
+    try {
+        $zone = new DateTimeZone($timeZone);
+    } catch (Throwable) {
+        $zone = new DateTimeZone('UTC');
+    }
+    $at = (new DateTimeImmutable('@' . $timestamp))->setTimezone($zone);
+    if ($state === 'scheduled') {
+        return 'Takes effect ' . $at->format('M j, Y') . ' at ' . $at->format('g:i A T');
+    }
+
+    return ($current ? 'In effect since ' : 'Took effect ') . $at->format('M j, Y');
+}
+
 /**
  * Lazily provision the two baseline v1 policies for a tenant.
  *

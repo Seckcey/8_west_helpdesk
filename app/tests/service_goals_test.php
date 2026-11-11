@@ -455,5 +455,21 @@ goal_check('trigger privilege is proven before immutable guards are replaced',
     && $migrationFirstGuardDrop !== false
     && $migrationPreflight < $migrationFirstGuardDrop);
 
+// The day a policy version took effect, as the Service goals page prints it: words and a date in
+// the reader's time zone, never the stored placeholder.
+foreach ([
+    ['1970-01-01 00:00:00', 'current', 'America/New_York', 'In effect since the desk was set up'],
+    ['1970-01-01 00:00:00', 'superseded', 'UTC', 'Took effect when the desk was set up'],
+    ['2026-11-03 14:00:00', 'current', 'UTC', 'In effect since Nov 3, 2026'],
+    ['2026-11-03 02:00:00', 'current', 'America/Los_Angeles', 'In effect since Nov 2, 2026'],
+    ['2026-11-03 14:00:00', 'superseded', 'UTC', 'Took effect Nov 3, 2026'],
+    ['2026-12-01 14:00:00', 'scheduled', 'America/New_York', 'Takes effect Dec 1, 2026 at 9:00 AM EST'],
+    ['2026-11-03 14:00:00', 'current', 'Not/AZone', 'In effect since Nov 3, 2026'],
+    ['not a date', 'current', 'UTC', 'Start date not recorded'],
+] as [$stored, $state, $zone, $line]) {
+    goal_check("a version that is {$state} from {$stored} reads \"{$line}\" in {$zone}",
+        service_goal_effective_label($stored, $state, $zone) === $line);
+}
+
 fwrite(STDOUT, "service_goals_test: {$checks} checks, {$failures} failures\n");
 exit($failures === 0 ? 0 : 1);

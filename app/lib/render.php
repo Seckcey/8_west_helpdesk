@@ -258,7 +258,7 @@ function ticket_bulk_bar(string $filterLabel, int $total): string
  */
 function ticket_bulk_toggle(): string
 {
-    return '<button type="button" class="btn-link" id="bulk-toggle" aria-pressed="false">Select</button>';
+    return '<button type="button" class="btn-secondary" id="bulk-toggle" aria-pressed="false">Select</button>';
 }
 
 /**
@@ -468,10 +468,10 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
   <div class="main">
     <header class="topbar">
       <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-controls="suite-sidebar" aria-expanded="false">☰ Menu</button>
-      <button id="palette-trigger" class="search-trigger" type="button">
+      <button id="palette-trigger" class="search-trigger" type="button" aria-label="Search or run a command">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
         <span class="search-label">Search or command…</span>
-        <kbd class="kbd">⌘K</kbd>
+        <span class="search-keys" aria-hidden="true"><kbd class="kbd" data-mod-key>Ctrl</kbd><kbd class="kbd">K</kbd></span>
       </button>
       <span class="topbar-flex"></span>
       <a href="/time.php" id="timer-widget" class="timer-widget timer-idle" title="Time tracking">No timer running</a>

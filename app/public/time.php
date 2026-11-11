@@ -388,7 +388,7 @@ page_top($user, 'Time', 'time');
       <span class="entry-badge <?= (int)$e['billable'] ? 'badge-billable' : '' ?>"><?= (int)$e['billable'] ? 'billable' : 'internal' ?></span>
       <div class="review-actions">
         <button type="button" class="btn-chip time-review" data-decision="approved">Approve</button>
-        <button type="button" class="btn-link time-review" data-decision="rejected">Reject</button>
+        <button type="button" class="btn-secondary time-review" data-decision="rejected">Reject</button>
       </div>
     </div>
     <?php endforeach; ?>
