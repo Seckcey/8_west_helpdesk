@@ -570,8 +570,19 @@ try {
             "a period that is not one of the three offered is the last 30 days ($odd)");
     }
     $x = $queue(201, '/reports.php');
-    $check(array_keys($team($x)) === ['Other Tenant', 'Unassigned'] && !str_contains($x->document->textContent, 'Fixture Dental')
+    $check(array_keys($team($x)) === ['Other Tenant', 'Westy', 'Unassigned'] && !str_contains($x->document->textContent, 'Fixture Dental')
         && !str_contains($x->document->textContent, 'Maya Reyes'), 'another tenant\'s member sees only their own tenant');
+    // That tenant's unowned tickets: two the assistant is working (the queue shows them as Westy's), and
+    // two nobody has, which is exactly the queue's Unassigned list.
+    $theirs = $team($x);
+    $working = $one("SELECT COUNT(*) FROM tickets t JOIN westy_workflows w ON w.ticket_id = t.id AND w.tenant_id = t.tenant_id AND w.client_id = t.client_id
+        WHERE t.tenant_id = 2 AND t.status = 'in_progress' AND t.assignee_id IS NULL AND w.state = 'working'");
+    $check($working === 2 && $theirs['Westy']['Open now'] === (string)$working && $theirs['Westy']['link'] === null
+        && $theirs['Unassigned']['link'] === '/?view=unassigned'
+        && count($ids($queue(201, '/?view=unassigned'))) === (int)$theirs['Unassigned']['Open now']
+        && (int)$theirs['Westy']['Open now'] + (int)$theirs['Unassigned']['Open now'] + (int)$theirs['Other Tenant']['Open now']
+            === $one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 2 AND status <> 'resolved'"),
+        'tickets the assistant is working have their own row, apart from Unassigned, and every open ticket is counted once');
     $x = $queue(301, '/reports.php');
     $check(array_values($tiles($x)) === ['0', '0', 'No replies', 'Nothing due', 'No ratings']
         && $texts($x, '//div[' . $hasClass('report-grid') . ']//div[' . $hasClass('empty') . ']/p') === ['No open tickets.', 'No approved billable time in the last 30 days.'],
