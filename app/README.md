@@ -143,7 +143,7 @@ public/                    Apache docroot (page-per-file, like Milepost)
                            · a/s/p/t/e · z undo · 1-6 views)
   ticket.php               Ticket detail (head, message cards, reply PRG, Details column; lib/ticket_page.php)
   ticket_new.php           New ticket, for logging a call (lib/ticket_new_form.php; captures exact effective policy version/target)
-  clients.php, client.php  Clients + "answer the phone smart" screen
+  clients.php, client.php  Clients + the client page (head, note, number tiles, Open / Resolved, contacts; lib/client_page.php)
   client_new.php, client_edit.php  Client CRUD (+ contacts, safe delete)
   users.php                Team — user management (owner/admin add, deactivate)
   time.php                 Rows drawn by lib/time_page.php (plain words; History per row). Reliable timer + suggestions + own entries +

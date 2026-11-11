@@ -85,13 +85,16 @@ const CHANNEL_WORDS = [
  * ("Bayside Realty, by phone from Dana Whitfield"). The queue supplies contact_name (the ticket's
  * contact) and opener_name (the author of its first customer message); other lists may not.
  * Plain text: the caller escapes it.
+ *
+ * $withClient false is for a list that is all one client's (the client page): the line then starts
+ * with how the ticket came in ("By phone from Dana Whitfield").
  */
-function ticket_origin(array $t): string
+function ticket_origin(array $t, bool $withClient = true): string
 {
     $channel = (string)($t['channel'] ?? '');
-    $line = (string)$t['client_name'];
+    $line = $withClient ? (string)$t['client_name'] : '';
     if (!isset(CHANNEL_WORDS[$channel])) return $line;
-    $line .= ', ' . CHANNEL_WORDS[$channel];
+    $line = $withClient ? $line . ', ' . CHANNEL_WORDS[$channel] : ucfirst(CHANNEL_WORDS[$channel]);
     $who = ticket_asker($t);
     // An alert is written by a machine: there is nobody to name.
     if ($who === '' || $channel === 'alert') return $line;
@@ -118,7 +121,7 @@ function ticket_asker(array $t): string
  * One queue row (also used on the client page). $from is queue_ticket_query()'s answer on the
  * queue, so the ticket page can say "2 of 6" and step to the next one; other lists pass nothing.
  */
-function ticket_row(array $t, bool $linkWrap = true, string $from = ''): string
+function ticket_row(array $t, bool $linkWrap = true, string $from = '', bool $withClient = true): string
 {
     $url = '/ticket.php?id=' . (int)$t['id'] . h($from);
     return '<a href="' . $url . '" class="trow" data-ticket-id="' . (int)$t['id'] . '" data-status="' . h($t['status']) . '" data-priority="' . h($t['priority']) . '"'
@@ -126,7 +129,7 @@ function ticket_row(array $t, bool $linkWrap = true, string $from = ''): string
         . '<span class="trow-pri">' . priority_glyph($t['priority']) . '</span>'
         . '<span class="trow-num">#' . (int)$t['id'] . '</span>'
         . '<span class="trow-main"><span class="trow-subject">' . h($t['subject']) . '</span>'
-        . '<span class="trow-sub"><span class="trow-origin">' . h(ticket_origin($t)) . '</span>'
+        . '<span class="trow-sub"><span class="trow-origin">' . h(ticket_origin($t, $withClient)) . '</span>'
         // The customer answered after we did: it is our turn again.
         . (($t['last_kind'] ?? '') === 'client' && !empty($t['first_response_at']) && ($t['status'] ?? '') !== 'resolved'
             ? '<span class="chip trow-flag"><span class="chip-dot dot-cyan"></span><span class="chip-text-cyan">Customer replied</span></span>' : '')
@@ -456,7 +459,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261111f">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261111g">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -524,7 +527,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=20261111f" defer></script>
+<script src="/assets/js/app.js?v=20261111g" defer></script>
 </body>
 </html>
     <?php

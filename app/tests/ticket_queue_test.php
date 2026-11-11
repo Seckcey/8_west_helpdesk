@@ -7,6 +7,8 @@
  *   php app/tests/ticket_queue_test.php            runs the checks
  *   php app/tests/ticket_queue_test.php --render   prints a queue built from the same helpers, for
  *       tools/shots/queue-views.test.mjs and tools/shots/first-response-tag.test.mjs
+ *   php app/tests/ticket_queue_test.php --client-rows   prints the rows of one client's own list,
+ *       without the client's name, for tools/shots/client-page.test.mjs
  */
 declare(strict_types=1);
 $checks = 0;
@@ -256,6 +258,19 @@ try {
     ] as [$with, $line]) {
         queue_check(ticket_origin(array_replace($row, $with)) === $line, "origin: $line");
     }
+    // A list that is all one client's (the client page) leaves the client's name out of every row.
+    foreach ([
+        [['channel' => 'email', 'contact_name' => 'Dana Whitfield'], 'By email from Dana Whitfield'],
+        [['channel' => 'phone'], 'By phone'],
+        [['channel' => 'portal', 'opener_name' => 'Priya Anand'], 'From the portal by Priya Anand'],
+        [['channel' => 'alert', 'opener_name' => 'Milepost'], 'From a Milepost alert'],
+        [['channel' => 'carrier pigeon', 'contact_name' => 'Dana'], ''],
+    ] as [$with, $line]) {
+        queue_check(ticket_origin(array_replace($row, $with), false) === $line, "origin without the client: $line");
+    }
+    $x = $dom(ticket_row(array_replace($row, ['contact_name' => 'Dana <b>Whitfield</b>']), true, '', false));
+    queue_check($texts($x, '//*[contains(@class,"trow-origin")]') === ['By email from Dana <b>Whitfield</b>'] && $x->query('//b')->length === 0
+        && !str_contains($x->document->textContent, 'Fixture <Dental>'), 'a row without the client says how it came in and who asked, as text');
     $x = $dom(ticket_row(array_replace($row, ['contact_name' => 'Dana <b>Whitfield</b>'])));
     queue_check($texts($x, '//*[contains(@class,"trow-origin")]') === ['Fixture <Dental>, by email from Dana <b>Whitfield</b>'] && $x->query('//b')->length === 0, 'the origin line is text, never markup');
     queue_check($texts($x, '//*[contains(@class,"trow-flag")]') === [], 'no flag while we wrote last');
@@ -296,7 +311,23 @@ try {
     queue_check($tagStates === ['sla sla-healthy', 'sla sla-at_risk', 'sla sla-breached', 'sla sla-met', 'sla sla-late', 'sla sla-closed', 'sla sla-excluded'],
         'only the unanswered late ticket carries the urgent state; one answered late or closed without a reply does not');
 
-    if (in_array('--render', $argv, true)) {
+    if (in_array('--client-rows', $argv, true)) {
+        // The tickets app/tests/client_shared_directory_ui_test.php gives Harbor Dental, drawn by the
+        // real row the way the client page asks for it: without the client's name.
+        $soon = gmdate('Y-m-d H:i:s', time() + 48 * 60);
+        $mine = [
+            101 => ['subject' => 'Front desk PC will not print', 'status' => 'open', 'priority' => 'normal', 'channel' => 'phone', 'contact_name' => 'Dana Front Desk'],
+            102 => ['subject' => 'Server room is hot', 'status' => 'in_progress', 'priority' => 'urgent', 'channel' => 'email', 'contact_name' => 'Dana Front Desk',
+                'last_kind' => 'client', 'last_message_at' => '2026-10-30 11:00:00'],
+            103 => ['subject' => 'New hygienist starts Monday', 'status' => 'waiting', 'priority' => 'high', 'channel' => 'portal', 'opener_name' => 'Priya Anand',
+                'first_response_at' => null, 'sla_due_at' => $soon],
+            199 => ['subject' => 'Answered long ago', 'status' => 'resolved', 'priority' => 'normal', 'channel' => 'email', 'contact_name' => 'Dana Front Desk'],
+        ];
+        for ($n = 1; $n <= 26; $n++) $mine[200 + $n] = ['subject' => "Resolved ticket $n", 'status' => 'resolved', 'priority' => 'normal', 'channel' => 'email'];
+        $drawn = [];
+        foreach ($mine as $id => $with) $drawn[$id] = ticket_row(array_replace($row, ['id' => $id, 'client_name' => 'Harbor Dental'], $with), true, '', false);
+        echo json_encode($drawn, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);
+    } elseif (in_array('--render', $argv, true)) {
         $state = array_replace($plain, ['view' => 'open']);
         $rows = [
             array_replace($row, ['id' => 101, 'status' => 'open', 'first_response_at' => null, 'contact_name' => 'Dana Whitfield']),

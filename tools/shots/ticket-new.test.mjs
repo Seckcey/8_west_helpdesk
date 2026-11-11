@@ -24,7 +24,7 @@ const formPage = (theme, form, error) => shell(theme, `<div class="page page-nar
 <div class="card form-card">${FIX[form]}</div></div>`);
 const PAGES = {
   queue: (theme) => shell(theme, '<div class="page"><h1 class="page-title">Queue</h1><label class="field">Search<input type="text" id="some-box"></label></div>'),
-  client: (theme) => shell(theme, '<div class="page"><h1 class="page-title">Bayside Realty</h1><a href="/ticket_new.php?client=12" class="btn-chip" data-new-ticket>New ticket for this client</a></div>'),
+  client: (theme) => shell(theme, '<div class="page"><h1 class="page-title">Bayside Realty</h1><a href="/ticket_new.php?client=12" class="btn-primary" data-new-ticket>New ticket</a></div>'),
   signin: (theme) => shell(theme, '<div class="page"><h1 class="page-title">Sign in</h1></div>', { signedIn: false }),
   ticket: (theme, flash) => shell(theme, `<div class="page page-ticket"><h1 class="ticket-subject">Can't print</h1>${flash}
 <div class="ticket-grid"><div class="thread" id="thread" data-ticket-id="1042" data-status="open" data-priority="normal" data-owner="7"></div></div></div>`),

@@ -24,6 +24,7 @@ require_once __DIR__ . '/../lib/service_goal_policy_admin.php';
 require_once __DIR__ . '/../lib/suite_preferences.php';
 require_once __DIR__ . '/../lib/settings_context.php';
 require_once __DIR__ . '/../lib/westy.php';
+require_once __DIR__ . '/../lib/client_page.php';
 
 function confirm_ui_check(bool $ok, string $label): void
 {
@@ -98,8 +99,10 @@ CREATE TABLE users(id INTEGER PRIMARY KEY, tenant_id INTEGER, suite_subject TEXT
 CREATE TABLE suite_managed_providers(tenant_id INTEGER PRIMARY KEY, issuer_tenant_id INTEGER, provider_slug TEXT);
 CREATE TABLE clients(id INTEGER PRIMARY KEY, tenant_id INTEGER, name TEXT, domain TEXT, health TEXT, sla_tier TEXT, notes TEXT);
 CREATE TABLE contacts(id INTEGER PRIMARY KEY, client_id INTEGER, name TEXT, email TEXT);
-CREATE TABLE tickets(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, status TEXT, priority TEXT, sla_due_at TEXT, created_at TEXT, assignee_id INTEGER, merged_into_id INTEGER);
-CREATE TABLE messages(id INTEGER PRIMARY KEY, ticket_id INTEGER, kind TEXT, created_at TEXT);
+CREATE TABLE tickets(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, status TEXT, priority TEXT, sla_due_at TEXT, created_at TEXT, assignee_id INTEGER, merged_into_id INTEGER, contact_id INTEGER, subject TEXT, channel TEXT, resolved_at TEXT);
+CREATE TABLE messages(id INTEGER PRIMARY KEY, ticket_id INTEGER, kind TEXT, created_at TEXT, author_name TEXT);
+CREATE TABLE time_entries(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, minutes INTEGER, billable INTEGER, approval_status TEXT, worked_at TEXT);
+CREATE TABLE time_entry_approval_adjustments(id INTEGER PRIMARY KEY, tenant_id INTEGER, time_entry_id INTEGER, version_no INTEGER, effective_minutes INTEGER, effective_billable INTEGER);
 CREATE TABLE suite_customer_sync_bindings(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, customer_id TEXT, source_version INTEGER, display_name TEXT, status TEXT, last_event_id TEXT, last_occurred_at TEXT);
 CREATE TABLE suite_customer_sync_events(id INTEGER PRIMARY KEY, binding_id INTEGER, tenant_id INTEGER, client_id INTEGER, customer_id TEXT, source_version INTEGER, display_name TEXT, status TEXT, event_id TEXT, occurred_at TEXT);
 CREATE TABLE canned_responses(id INTEGER PRIMARY KEY, tenant_id INTEGER, title TEXT, body TEXT, created_by INTEGER);
@@ -147,7 +150,7 @@ foreach ([
     libxml_use_internal_errors(true);
     $doc->loadHTML('<?xml encoding="utf-8">' . $html);
     libxml_clear_errors();
-    $posting = (new DOMXPath($doc))->query('//form[@method="post"][.//button[@type="submit"][contains(@class,"btn-link") or contains(@class,"btn-danger")]]');
+    $posting = (new DOMXPath($doc))->query('//form[@method="post"][.//button[@type="submit"][contains(@class,"btn-link") or contains(@class,"btn-danger") or contains(@class,"contact-remove")]]');
     confirm_ui_check(str_contains($html, $title) && $posting->length >= $forms, "$page renders with its removal form");
     if (is_string($out) && is_dir($out)) file_put_contents("$out/$name.html", $html);
 }

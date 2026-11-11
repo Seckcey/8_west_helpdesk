@@ -229,7 +229,7 @@ operational_check('directory shows Support, active-only Devices, a linked or ver
     && str_contains($clientsPage, 'class="crow" data-client-id=')
     && str_contains($clientPage, 'client_operational_context(db(), tenant_id(), $id)')
     && str_contains($clientPage, "\$billingUrl = \$operational['available'] && is_string(\$operational['billing_url'] ?? null)")
-    && substr_count($clientPage, "h(\$billingUrl ?? 'https://coastmark.8westit.com/auth/suite')") === 2);
+    && substr_count($clientPage, "h(\$billingUrl ?? 'https://coastmark.8westit.com/auth/suite')") === 1);
 operational_check('Billing reads the receipt-agreed route only in that one assignment, with no active-state gate; only the helper builds it',
     substr_count($clientsPage, "['billing_url']") === 2 && substr_count($clientPage, "['billing_url']") === 2
     && substr_count($clientsPage, 'client_operational_billing_url(') === 1 && !str_contains($clientPage, 'client_operational_billing_url('));
