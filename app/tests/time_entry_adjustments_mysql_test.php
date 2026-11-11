@@ -689,7 +689,7 @@ try {
         'time_entry_approval_adjustments' => 'report_fixture_adjustments',
         'time_entries' => 'report_fixture_entries', 'clients' => 'report_fixture_clients',
     ]));
-    $report->execute([1]);
+    $report->execute([1, 30]);
     $reportRows = $report->fetchAll();
     adjustment_mysql_check('client report retains one and two approved minutes in descending order',
         array_column($reportRows, 'name') === ['Two minutes', 'One minute', 'Reversed']

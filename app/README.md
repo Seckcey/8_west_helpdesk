@@ -148,8 +148,9 @@ public/                    Apache docroot (page-per-file, like Milepost)
   users.php                Team — user management (owner/admin add, deactivate)
   time.php                 Rows drawn by lib/time_page.php (plain words; History per row). Reliable timer + suggestions + own entries +
                            owner/admin pending review queue
-  reports.php              Real numbers: first response, response-target attainment, aging,
-                           approved billable time (+ owner/admin CSV)
+  reports.php              One period (7, 30 or 90 days) against the one before: new, resolved, median first reply,
+                           on time, ratings; the team as a table; open longest; approved billable time by client
+                           (+ owner/admin CSV). Drawn by lib/reports_page.php
   snippets.php             Saved replies ("/" in the composer; merge fields)
   csat.php                 Resolution survey; Send records (token-authed, public)
   attachment.php           Forced-download attachment serving

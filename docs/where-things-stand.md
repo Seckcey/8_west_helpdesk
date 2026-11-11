@@ -603,7 +603,7 @@ the Safeharbor time-zone setting, as History does, ask which one is meant in the
 clocks go back and refuse the hour the clocks skip; a double click on a button that opens a dialog no
 longer closes it again.
 
-**The client page as the customer's whole picture (draft, not live).** The head names the client, its
+**The client page as the customer's whole picture (live).** The head names the client, its
 plan ("Premium plan") and domain, says "Needs attention" in words when the client is being watched, and
 has New ticket (the main button, and the key `c`) and Edit. The note kept about the client is under the
 head. Three tiles, each a number: Open tickets, "First reply, 90 days" (left out when no ticket got a
@@ -619,6 +619,21 @@ Left out because Safeharbor does not hold the data: a contact's role and phone, 
 portal, and how many computers the client has. No schema, role, permission, grant or endpoint change;
 every read is scoped to the signed-in tenant and this client (`app/public/client.php`,
 `app/lib/client_page.php`).
+
+**Reports that answer "how is the team doing" (draft, not live).** One period for the whole page: Last 7
+days, Last 30 days (where it opens) or Last 90 days. Five tiles in one row: New tickets, Resolved, First
+reply (the median wait, so one very late ticket does not speak for the rest), On time (first replies inside
+the service goal, with a meter) and Rated Great (survey answers). Each says how it moved against the same
+number of days before. "By technician" is a table: Open now, Resolved, First reply, On time and Billable
+time. Open now is a link to exactly those tickets in the queue; the queue has no list by date, so the other
+numbers are not links. Resolved, First reply and On time go by who owns the ticket now, because nothing
+records who resolved or first answered a ticket. "Open longest" replaces the aging buckets with the five
+tickets open longest, each a link. "Time by client" is approved billable time, corrections included.
+"Export time" (owners and admins, as before) exports the period shown. Tickets that were merged are left
+out of First reply as they already were out of On time. The page is still open to every member of the
+team, as it was; the per-person billable time that was always "this week" now follows the period chosen.
+No schema, role, permission, grant or endpoint change; every read binds the signed-in tenant
+(`app/public/reports.php`, `app/lib/reports_page.php`).
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.

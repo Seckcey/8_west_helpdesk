@@ -112,6 +112,7 @@ try {
     copy($app . '/public/ticket.php', $runtime . '/public/ticket.php');
     copy($app . '/public/time.php', $runtime . '/public/time.php');
     copy($app . '/public/client.php', $runtime . '/public/client.php');
+    copy($app . '/public/reports.php', $runtime . '/public/reports.php');
     copy($app . '/public/api/time_entry_review.php', $runtime . '/public/api/time_entry_review.php');
     $config = require $app . '/config/config.sample.php';
     $config['app_env'] = 'dev';
@@ -512,6 +513,69 @@ try {
     $check($texts($x, '//div[' . $hasClass('client-stats') . ']//div[' . $hasClass('stat-k') . ']') === ['Open tickets', 'Billable time, 30 days']
         && $texts($x, '//div[' . $hasClass('client-stats') . ']//div[' . $hasClass('stat-v') . ']') === ['0', '0 min']
         && $texts($x, '//div[' . $hasClass('empty') . ']/p') === ['No open tickets for Brand New.'], 'a client with nothing yet shows zeros and says so');
+
+    // ---- Reports, read from MySQL: one tenant's numbers for one period ----
+    $one = static fn(string $sql): int => (int)$pdo->query($sql)->fetchColumn();
+    $tiles = static fn(DOMXPath $x): array => array_combine($texts($x, '//div[' . $hasClass('report-stats') . ']//div[' . $hasClass('stat-k') . ']'),
+        $texts($x, '//div[' . $hasClass('report-stats') . ']//div[' . $hasClass('stat-v') . ']'));
+    $team = static function (DOMXPath $x) use ($hasClass): array {
+        $rows = [];
+        foreach ($x->query('//table[' . $hasClass('report-table') . ']/tbody/tr') as $tr) {
+            $cells = [];
+            foreach ($x->query('./td', $tr) as $td) $cells[$td->getAttribute('data-label')] = trim((string)preg_replace('/\s+/', ' ', $td->textContent));
+            $link = $x->query('./td[@data-label="Open now"]//a/@href', $tr)->item(0);
+            $name = $x->query('./th/span/span[last()]', $tr)->item(0);
+            $rows[trim((string)$name?->textContent)] = $cells + ['link' => $link?->nodeValue];
+        }
+        return $rows;
+    };
+    $x = $queue(101, '/reports.php');
+    $shown = $tiles($x);
+    $check($texts($x, '//p[' . $hasClass('page-sub') . ']') === ['How the desk did in the last 30 days.']
+        && array_keys($shown) === ['New tickets', 'Resolved', 'First reply (median)', 'On time', 'Rated Great']
+        && $shown['New tickets'] === number_format($one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 1 AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)"))
+        && $shown['Resolved'] === number_format($one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 1 AND resolved_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)"))
+        && preg_match('/^\d+ (min|h)( \d+ min)?$/', $shown['First reply (median)']) === 1 && preg_match('/^\d+%$/', $shown['On time']) === 1,
+        'Reports opens on the last 30 days with five tiles counted from this tenant\'s tickets');
+    $people = $team($x);
+    $names = array_keys($people);
+    $check(array_slice($names, 0, 3) === ['Jon Sato', 'Maya Reyes', 'Olive Owner'] && end($names) === 'Unassigned'
+        && array_intersect($names, ['Other Tenant', 'New Owner']) === [], 'the team table lists this tenant\'s people, A to Z, then the tickets nobody owns');
+    $mayaOpen = $one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 1 AND status <> 'resolved' AND assignee_id = 102");
+    $check($mayaOpen > 0 && $people['Maya Reyes']['Open now'] === (string)$mayaOpen && $people['Maya Reyes']['link'] === '/?view=open&owner=102'
+        && count($ids($queue(101, '/?view=open&owner=102'))) === $mayaOpen, 'Open now for a person is a link to exactly those tickets in the queue');
+    $check($people['Unassigned']['link'] === ((int)$people['Unassigned']['Open now'] > 0 ? '/?view=unassigned' : null)
+        && count($ids($queue(101, '/?view=unassigned'))) === (int)$people['Unassigned']['Open now'], 'Unassigned is the queue\'s own Unassigned list');
+    $check(array_sum(array_map(static fn(array $row): int => (int)str_replace(',', '', $row['Resolved']), $people)) === (int)str_replace(',', '', $shown['Resolved']),
+        'the Resolved column adds up to the Resolved tile');
+    $oldest = array_map(static fn($id): string => '/ticket.php?id=' . (int)$id, $pdo->query("SELECT id FROM tickets WHERE tenant_id = 1 AND status <> 'resolved'
+        ORDER BY created_at ASC, id ASC LIMIT 5")->fetchAll(PDO::FETCH_COLUMN));
+    $rowLinks = static function (DOMXPath $x, int $column) use ($hasClass): array {
+        $out = [];
+        foreach ($x->query('//div[' . $hasClass('report-grid') . ']/div[' . $column . ']//a[' . $hasClass('report-row') . ']/@href') as $href) $out[] = $href->nodeValue;
+        return $out;
+    };
+    $check($oldest !== [] && $rowLinks($x, 1) === $oldest, 'Open longest lists the tickets that have been open longest, oldest first');
+    $check(array_diff($rowLinks($x, 2), ['/client.php?id=11', '/client.php?id=12']) === [], 'Time by client names only this tenant\'s clients');
+    $check($x->query('//a[@href="/reports_export.php?days=30"]')->length === 1 && $texts($x, '//a[@href="/reports_export.php?days=30"]') === ['Export time']
+        && $queue(102, '/reports.php')->query('//a[starts-with(@href, "/reports_export.php")]')->length === 0
+        && $tiles($queue(102, '/reports.php')) === $shown, 'an owner can export the period; a technician sees the same numbers and no export');
+    $x = $queue(101, '/reports.php?days=90');
+    $check($texts($x, '//p[' . $hasClass('page-sub') . ']') === ['How the desk did in the last 90 days.']
+        && $tiles($x)['New tickets'] === number_format($one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 1 AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 90 DAY)"))
+        && $x->query('//a[@href="/reports_export.php?days=90"]')->length === 1
+        && $texts($x, '//nav[@aria-label="Period"]/a[@aria-current="page"]') === ['Last 90 days'], 'the period is one choice for the whole page, and the export follows it');
+    foreach (['365', '0', rawurlencode('7 OR 1=1'), rawurlencode('7; DROP TABLE tickets')] as $odd) {
+        $check($texts($queue(101, '/reports.php?days=' . $odd), '//p[' . $hasClass('page-sub') . ']') === ['How the desk did in the last 30 days.'],
+            "a period that is not one of the three offered is the last 30 days ($odd)");
+    }
+    $x = $queue(201, '/reports.php');
+    $check(array_keys($team($x)) === ['Other Tenant', 'Unassigned'] && !str_contains($x->document->textContent, 'Fixture Dental')
+        && !str_contains($x->document->textContent, 'Maya Reyes'), 'another tenant\'s member sees only their own tenant');
+    $x = $queue(301, '/reports.php');
+    $check(array_values($tiles($x)) === ['0', '0', 'No replies', 'Nothing due', 'No ratings']
+        && $texts($x, '//div[' . $hasClass('report-grid') . ']//div[' . $hasClass('empty') . ']/p') === ['No open tickets.', 'No approved billable time in the last 30 days.'],
+        'a desk with nothing yet shows five tiles in words and two empty lists');
 
     echo "PASS: $checks ticket queue checks\n";
 } catch (Throwable $error) {
