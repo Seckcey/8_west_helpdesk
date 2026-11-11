@@ -336,6 +336,14 @@
     menu.pop.style.left = Math.max(8, Math.min(left, window.innerWidth - width - 8)) + "px";
   }
 
+  // S, P and T (and the palette's "Change status", "Set priority", "Assign to") open a menu: under
+  // its button on a ticket, under its cell on a queue row.
+  function openFieldMenu(field, id, row) {
+    const button = row ? null : $(`.menu-btn[data-action="${field}"]`);
+    const cell = row ? row.querySelector(field === "status" ? ".trow-status" : field === "priority" ? ".trow-pri" : ".trow-tech") : null;
+    return openTicketMenu(field, id, button || cell, button);
+  }
+
   function openTicketMenu(field, id, anchor, trigger) {
     const choices = menuChoices(field);
     if (!choices.length || !anchor) return false;
@@ -1271,27 +1279,91 @@
     }, 250);
   }
 
+  // The ticket the "This ticket" rows act on: the one that is open, or the queue row the keyboard
+  // has highlighted (shown, so the person can see which). Null anywhere else.
+  function paletteTicket() {
+    const thread = $("#thread");
+    if (thread && thread.dataset.ticketId) {
+      return { id: thread.dataset.ticketId, row: null, group: "This ticket", status: thread.dataset.status || "" };
+    }
+    const row = page === "queue" && selVisible() ? rows[sel] : null;
+    if (row && row.dataset.ticketId) {
+      return { id: row.dataset.ticketId, row, group: `Ticket #${row.dataset.ticketId}, highlighted`, status: row.dataset.status || "" };
+    }
+    return null;
+  }
+
+  // What can be done to that ticket. Each row does what its key does: the three "change" rows open
+  // the same menus as S, T and P.
+  function ticketPaletteItems(ticket) {
+    const { id, row, group } = ticket;
+    const act = (title, keys, run, extra = {}) => ({ group, kind: "action", title, keys, ...extra, run: () => { closePalette(); run(); } });
+    const items = [];
+    if (row) items.push(act("Open", ["↵"], () => nav(row.getAttribute("href"))));
+    items.push(
+      act("Change status", ["s"], () => openFieldMenu("status", id, row)),
+      act("Assign to", ["t"], () => openFieldMenu("assignee", id, row), { find: ["Assign to", "owner teammate give"] }),
+      act("Set priority", ["p"], () => openFieldMenu("priority", id, row)),
+    );
+    const timer = readTimer();
+    if (timer && String(timer.ticketId) === String(id)) {
+      items.push(act(timer.state === "active" ? "Stop timer and log time" : "Retry logging time", ["e"], stopTimer));
+    } else {
+      items.push(act("Start timer", ["e"], () => startTimer(id)));
+    }
+    if (!row && composer) {
+      items.push(act("Reply", ["r"], () => composer.focus("reply")), act("Add internal note", ["n"], () => composer.focus("note")));
+      // "Send and set the next status" is here as well as in the Send menu.
+      composer.sendChoices().slice().reverse().forEach((choice) => items.push(act(choice.title, [], () => composer.send(choice.after), { hint: choice.detail })));
+    }
+    const merge = row ? null : $("#merge-btn");
+    if (merge) items.push(act("Merge into another ticket", [], () => merge.click()));
+    // Resolve is the Resolve button's own act: a person chose it, so the same survey rule applies.
+    if (row || $("#resolve-btn")) {
+      const resolved = ticket.status === "resolved";
+      items.push(act(resolved ? "Reopen" : "Resolve", [], () => ticketAction(id, "status", resolved ? "open" : "resolved", { chosen: true })));
+    }
+    items.push(act("Copy link", [], () => copyText(`${window.location.origin}/ticket.php?id=${id}`, "Link copied.")));
+    return items;
+  }
+
+  // Create and Go to: the same places and keys on every page.
+  function staticPaletteItems() {
+    // A place is found by its name ("Reports") and by "Go to Reports".
+    const go = (title, href, keys, ...more) => ({ group: "Go to", kind: "action", title, keys, find: [title, `Go to ${title}`, ...more], run: () => nav(href) });
+    const items = [
+      { group: "Create", kind: "action", title: "New ticket", keys: ["c"], run: () => nav("/ticket_new.php") },
+      { group: "Create", kind: "action", title: "New client", keys: [], run: () => nav("/client_new.php") },
+      { group: "Create", kind: "action", title: "New saved reply", keys: [], run: () => nav("/snippets.php") },
+      go("Queue", "/", ["g", "q"]),
+      go("Time", "/time.php", ["g", "t"]),
+      go("Clients", "/clients.php", ["g", "c"]),
+      go("Service goals", "/service_goals.php", ["g", "s"]),
+      go("Reports", "/reports.php", ["g", "r"]),
+      go("Team", "/users.php", ["g", "u"]),
+      go("Saved replies", "/snippets.php", [], "manage snippets"),
+    ];
+    // My settings lives where the account menu says it does (8 West ID for a suite account).
+    const settings = $('a[aria-label="My settings"]');
+    if (settings) items.push(go("My settings", settings.getAttribute("href"), []));
+    items.push({ group: "Go to", kind: "action", title: "Keyboard shortcuts", keys: ["?"], run: () => { closePalette(); toggleHelp(); } });
+    items.push({ group: "Account", kind: "action", title: "Sign out", keys: [], run: signOut });
+    return items;
+  }
+
+  // A status as a person reads it ("In progress"), from the labels the menus use.
+  function statusWord(status) {
+    const known = menuChoices("status").find((choice) => choice.value === status);
+    return known ? known.label : String(status).replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+  }
+
   function buildPaletteItems(query) {
     const data = paletteData();
-    const actions = [
-      { group: "Actions", title: "New ticket", hint: "c", run: () => nav("/ticket_new.php") },
-      { group: "Actions", title: "Go to Queue", hint: "g q", run: () => nav("/") },
-      { group: "Actions", title: "Go to Time", hint: "g t", run: () => nav("/time.php") },
-      { group: "Actions", title: "Go to Clients", hint: "g c", run: () => nav("/clients.php") },
-      { group: "Actions", title: "Go to Service goals", hint: "g s", run: () => nav("/service_goals.php") },
-      { group: "Actions", title: "Go to Team", run: () => nav("/users.php") },
-      { group: "Actions", title: "Saved replies", hint: "manage / snippets", run: () => nav("/snippets.php") },
-      { group: "Actions", title: "Sign out", run: signOut },
-    ];
-    // On a ticket, "send and set the next status" is here as well as in the Send menu.
-    if (composer) {
-      composer.sendChoices().forEach((choice) => actions.unshift({
-        group: "This ticket", title: choice.title, hint: choice.detail,
-        run: () => { closePalette(); composer.send(choice.after); },
-      }));
-    }
+    const ticket = paletteTicket();
+    const actions = [...(ticket ? ticketPaletteItems(ticket) : []), ...staticPaletteItems()];
     const tickets = data.tickets.map((t) => ({
       group: "Tickets",
+      kind: "ticket",
       ticketId: t.id,
       title: `#${t.id} ${t.subject}`,
       hint: t.client,
@@ -1299,26 +1371,41 @@
     }));
     const clients = data.clients.map((c) => ({
       group: "Clients",
+      kind: "client",
+      client: c,
       title: c.name,
       hint: c.domain,
       run: () => nav(`/client.php?id=${c.id}`),
     }));
     const all = [...actions, ...tickets, ...clients];
     if (!query.trim()) return all;
+    // A row is found by its words, or by any of the other words it answers to; its best match counts.
+    const best = (item) => (item.find || [`${item.title} ${item.hint || ""}`])
+      .map((text) => fuzzy(query, text)).filter((score) => score !== null).reduce((low, score) => (low === null || score < low ? score : low), null);
     const filtered = all
-      .map((item) => ({ item, score: fuzzy(query, `${item.title} ${item.hint || ""}`) }))
+      .map((item) => ({ item, score: best(item) }))
       .filter((x) => x.score !== null)
       .sort((a, b) => a.score - b.score)
       .map((x) => x.item);
+    // A client that was typed: a ticket for them is the row right under their name.
+    const found = filtered.findIndex((item) => item.kind === "client");
+    if (found !== -1) {
+      const client = filtered[found].client;
+      filtered.splice(found + 1, 0, {
+        group: "Clients", kind: "client", title: `New ticket for ${client.name}`, keys: [],
+        run: () => nav(`/ticket_new.php?client=${client.id}`),
+      });
+    }
     // Server results (bodies + resolved) ride below, already matched server-side. Only tickets the local filter
     // showed are left out: a local ticket found by a word in its messages has no other row.
     const shownIds = new Set(filtered.filter((item) => item.ticketId !== undefined).map((item) => item.ticketId));
     const deep = serverResults
       .filter((r) => !shownIds.has(r.id))
       .map((r) => ({
-        group: "All tickets (deep search)",
+        group: "More tickets",
+        kind: "ticket",
         title: `#${r.id} ${r.subject}`,
-        hint: `${r.client} · ${r.status.replace("_", " ")}`,
+        hint: `${r.client}, ${statusWord(r.status)}`,
         run: () => nav(`/ticket.php?id=${r.id}`),
       }));
     return [...filtered, ...deep];
@@ -1351,30 +1438,30 @@
     palIndex = Math.min(palIndex, Math.max(0, palItems.length - 1));
     const list = $("#palette-list");
     if (!list) return;
-    list.innerHTML = "";
+    list.replaceChildren();
     if (!palItems.length) {
-      list.innerHTML = `<div class="palette-empty">Nothing matches “${escapeHtml(query)}”. The harbor is calm.</div>`;
+      list.append(make("div", "palette-empty", `No ticket, client or action matches “${query.trim()}”.`));
       return;
     }
     let lastGroup = "";
     palItems.forEach((item, i) => {
       if (item.group !== lastGroup) {
         lastGroup = item.group;
-        const g = document.createElement("div");
-        g.className = "palette-group";
-        g.textContent = item.group;
-        list.appendChild(g);
+        list.append(make("div", "palette-group", item.group));
       }
-      const btn = document.createElement("button");
+      const btn = make("button", "palette-item" + (i === palIndex ? " sel" : ""));
       btn.type = "button";
-      btn.className = "palette-item" + (i === palIndex ? " sel" : "");
-      const dotColor = item.group === "Actions" ? "var(--cyan)" : item.group === "Clients" ? "var(--gold)" : "var(--accent)";
-      btn.innerHTML = `<span class="palette-dot" style="background:${dotColor}"></span>
-        <span class="palette-item-main">${escapeHtml(item.title)}</span>
-        ${item.hint ? `<span class="palette-item-hint">${escapeHtml(item.hint)}</span>` : ""}`;
+      btn.append(make("span", `palette-dot palette-dot-${item.kind || "action"}`), make("span", "palette-item-main", item.title));
+      if (item.hint) btn.append(make("span", "palette-item-hint", item.hint));
+      // The key that does the same thing without the palette, where there is one.
+      if (item.keys && item.keys.length) {
+        const keys = make("span", "palette-item-keys");
+        item.keys.forEach((name) => keys.append(make("kbd", "kbd", name)));
+        btn.append(keys);
+      }
       btn.addEventListener("click", () => item.run());
       btn.addEventListener("mousemove", () => { palIndex = i; paintPaletteSel(); });
-      list.appendChild(btn);
+      list.append(btn);
     });
   }
 
@@ -1398,13 +1485,13 @@
         <div class="palette" role="dialog" aria-label="Command palette">
           <div class="palette-input-row">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
-            <input class="palette-input" placeholder="Search tickets, clients, actions…" autocomplete="off">
+            <input class="palette-input" placeholder="Search tickets, clients and actions" aria-label="Search tickets, clients and actions" autocomplete="off">
             <kbd class="kbd">esc</kbd>
           </div>
           <div class="palette-list" id="palette-list"></div>
           <div class="palette-foot">
-            <span><kbd class="kbd">↑↓</kbd> navigate</span><span><kbd class="kbd">↵</kbd> open</span>
-            <span class="right">Queue keys: <kbd class="kbd">j</kbd><kbd class="kbd">k</kbd> · <kbd class="kbd">s</kbd> · <kbd class="kbd">p</kbd> · <kbd class="kbd">a</kbd> · <kbd class="kbd">e</kbd></span>
+            <span><kbd class="kbd">↑</kbd><kbd class="kbd">↓</kbd> move</span><span><kbd class="kbd">↵</kbd> choose</span>
+            <span class="right"><kbd class="kbd">?</kbd> every shortcut</span>
           </div>
         </div>
       </div>`;
@@ -1424,6 +1511,8 @@
 
   const trigger = $("#palette-trigger");
   if (trigger) trigger.addEventListener("click", openPalette);
+  const shortcuts = $("#shortcuts-open");
+  if (shortcuts) shortcuts.addEventListener("click", () => toggleHelp());
 
   /* ------------------------------------------------------------------ */
   /* Keyboard model                                                      */
@@ -1484,6 +1573,8 @@
       else if (key === "t") { e.preventDefault(); nav("/time.php"); }
       else if (key === "c") { e.preventDefault(); nav("/clients.php"); }
       else if (key === "s") { e.preventDefault(); nav("/service_goals.php"); }
+      else if (key === "r") { e.preventDefault(); nav("/reports.php"); }
+      else if (key === "u") { e.preventDefault(); nav("/users.php"); }
       return;
     }
     if (key === "g") { pendingG = true; setTimeout(() => (pendingG = false), 900); return; }
@@ -1544,15 +1635,22 @@
         if (key === "a") { ticketAction(id, "assignee", "me"); break; }
         // S, P and T open a menu: status, priority, and who to give the ticket to. It opens under
         // its button on a ticket and under its cell on a queue row.
-        const field = key === "s" ? "status" : key === "p" ? "priority" : "assignee";
-        const button = ticketPageId ? $(`.menu-btn[data-action="${field}"]`) : null;
-        const cell = !ticketPageId && row
-          ? row.querySelector(field === "status" ? ".trow-status" : field === "priority" ? ".trow-pri" : ".trow-tech") : null;
-        openTicketMenu(field, id, button || cell, button);
+        openFieldMenu(key === "s" ? "status" : key === "p" ? "priority" : "assignee", id, ticketPageId ? null : row);
         break;
       }
       case "z": {
         if (undoable) { e.preventDefault(); undoable.run(); }
+        break;
+      }
+      case "/": {
+        // Search, from anywhere outside a text box (in the reply box, / is saved replies).
+        if (paletteRoot()) { e.preventDefault(); openPalette(); }
+        break;
+      }
+      case "u": {
+        // Up: back to the list this page came from (a ticket's queue, a client's Clients).
+        const back = $(".backlink");
+        if (back) { e.preventDefault(); nav(back.getAttribute("href")); }
         break;
       }
       case "c": {
@@ -2508,14 +2606,18 @@
   if (mergeDupeBtn) mergeDupeBtn.addEventListener("click", () =>
     openMergeDialog(mergeDupeBtn, { id: Number(mergeDupeBtn.dataset.dst), subject: mergeDupeBtn.dataset.subject || "" }));
 
+  /* Put some text on the clipboard and say so; say what to do instead when the browser will not. */
+  function copyText(text, done) {
+    const failed = () => toast("Could not copy. Select the text and copy it yourself.");
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => toast(done), failed);
+    else failed();
+  }
+
   /* Copy: a small button beside a value (the contact's email address on a ticket). */
   document.addEventListener("click", (e) => {
     const button = e.target.closest && e.target.closest("[data-copy]");
     if (!button) return;
-    const done = () => toast("Copied.");
-    const failed = () => toast("Could not copy. Select the address and copy it yourself.");
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(button.dataset.copy).then(done, failed);
-    else failed();
+    copyText(button.dataset.copy, "Copied.");
   });
 
   /* ------------------------------------------------------------------ */
@@ -2533,7 +2635,7 @@
       <div class="help-head"><b>Keyboard shortcuts</b><span class="help-close"><kbd class="kbd">esc</kbd></span></div>
       <div class="help-grid">
         <div><h4>Queue</h4>
-          <p><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move · <kbd class="kbd">↵</kbd> open</p>
+          <p><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move · <kbd class="kbd">↵</kbd> open · <kbd class="kbd">u</kbd> back to the list</p>
           <p><kbd class="kbd">1</kbd>–<kbd class="kbd">6</kbd> views</p>${bulk ? `
           <p><kbd class="kbd">x</kbd> select · <kbd class="kbd">d</kbd> delete selected</p>` : ""}</div>
         <div><h4>Any ticket</h4>
@@ -2548,8 +2650,9 @@
           <p>matching timer logs only after server-confirmed Send</p></div>
         <div><h4>Everywhere</h4>
           <p><kbd class="kbd">c</kbd> new ticket (on a client's page, for that client)</p>
-          <p><kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd> palette (search reaches every message)</p>
-          <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd>/<kbd class="kbd">t</kbd>/<kbd class="kbd">c</kbd>/<kbd class="kbd">s</kbd> navigate · <kbd class="kbd">?</kbd> this card</p></div>
+          <p><kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd> or <kbd class="kbd">/</kbd> search and actions (search reaches every message)</p>
+          <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd> Queue · <kbd class="kbd">t</kbd> Time · <kbd class="kbd">c</kbd> Clients · <kbd class="kbd">s</kbd> Service goals · <kbd class="kbd">r</kbd> Reports · <kbd class="kbd">u</kbd> Team</p>
+          <p><kbd class="kbd">?</kbd> this card</p></div>
       </div></div>`;
     div.addEventListener("click", (e) => { if (e.target === div) toggleHelp(); });
     document.body.appendChild(div);

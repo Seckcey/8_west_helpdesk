@@ -570,7 +570,7 @@ ticket's own client, and a person sees only their own time (`app/lib/ticket_page
 `queue_ticket_place()` in `app/lib/ticket_queue.php`). Merge now offers only open tickets; the
 endpoint's own rules are unchanged.
 
-**Log a call: a new ticket in under 30 seconds (draft, not live).** New ticket opens with the cursor in
+**Log a call: a new ticket in under 30 seconds (live).** New ticket opens with the cursor in
 Client: type to find the client, Enter picks the first match. Who asked lists that client's contacts, or
 a new contact is added in place. "What they said" is saved as the customer's opening message and "What
 you told them" as the first reply (not emailed). Came in by (Phone first) and Priority are words to pick.
@@ -579,6 +579,15 @@ Create ticket (or Ctrl+Enter), or Create and resolve, which follows the Resolve 
 client page has "New ticket for this client". "In person" is not offered: the stored channel has no such
 value. No schema, role, permission or grant change; the client check and the service-goal snapshot are
 still one transaction with the ticket (`app/public/ticket_new.php`, `app/lib/ticket_new_form.php`).
+
+**Palette and keyboard: act, not only go (draft, not live).** The palette's first group is for the ticket
+that is open, or the queue row that is highlighted: Change status, Assign to, Set priority, Start or Stop
+timer, Reply, Add internal note, Merge, Resolve, Copy link. Each does what its key does (the three
+changes open the same menus as S, T and P). Then Create, Go to (now with Reports, Team, My settings and
+Keyboard shortcuts) and Sign out, then tickets and clients. Every row shows its key. A typed client offers
+"New ticket for" that client. New keys: `/` opens the search outside a text box, `g r` Reports, `g u`
+Team, `u` back to the list. The rail has a "Keyboard shortcuts" button that opens the `?` card. Script,
+styles and the rail only: no endpoint, query, role or permission change.
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.

@@ -390,4 +390,5 @@ jobs:
           node tools/shots/desk-live-fixes.test.mjs
           node tools/shots/ticket-customer.test.mjs
           node tools/shots/ticket-new.test.mjs
+          node tools/shots/palette-actions.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs
