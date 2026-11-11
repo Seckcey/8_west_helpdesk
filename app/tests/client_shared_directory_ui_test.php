@@ -23,6 +23,7 @@ require_once __DIR__ . '/../lib/client_operational_context.php';
 require_once __DIR__ . '/../lib/suite_preferences.php';
 require_once __DIR__ . '/../lib/settings_context.php';
 require_once __DIR__ . '/../lib/westy.php';
+require_once __DIR__ . '/../lib/client_page.php';
 
 $checks = 0;
 function directory_ui_check(bool $ok, string $label): void
@@ -60,7 +61,11 @@ function cfg(string $key, mixed $default = null): mixed { return $GLOBALS['fixtu
 function suite_sso_claims(): ?array { return $GLOBALS['fixtureClaims']; }
 function palette_data(): array { return []; }
 function westy_workflow_ticket_owners(PDO $pdo, int $tenantId, array $rows): array { return $rows; }
-function ticket_row(array $t, bool $linkWrap = true): string { throw new RuntimeException('The directory fixture has no tickets.'); }
+/** The real row is drawn and tested with lib/render.php. Here it only shows which tickets the page lists, in what order, and that it asks for rows without the client's name. */
+function ticket_row(array $t, bool $linkWrap = true, string $from = '', bool $withClient = true): string
+{
+    return '<a class="trow" href="/ticket.php?id=' . (int)$t['id'] . h($from) . '" data-with-client="' . ($withClient ? '1' : '0') . '">#' . (int)$t['id'] . ' ' . h($t['subject']) . '</a>';
+}
 
 /** The pages' SQL, with SQLite spellings for the few MySQL-only expressions client.php uses. */
 final class DirectoryFixturePdo extends PDO
@@ -103,15 +108,17 @@ $genericBilling = 'https://coastmark.8westit.com/auth/suite';
 db()->exec("CREATE TABLE tenants(id INTEGER PRIMARY KEY, slug TEXT);
 CREATE TABLE users(id INTEGER PRIMARY KEY, tenant_id INTEGER, suite_subject TEXT, is_active INTEGER, full_name TEXT, initials TEXT, color TEXT);
 CREATE TABLE suite_managed_providers(tenant_id INTEGER PRIMARY KEY, issuer_tenant_id INTEGER, provider_slug TEXT);
-CREATE TABLE clients(id INTEGER PRIMARY KEY, tenant_id INTEGER, name TEXT, domain TEXT, health TEXT, sla_tier TEXT);
+CREATE TABLE clients(id INTEGER PRIMARY KEY, tenant_id INTEGER, name TEXT, domain TEXT, health TEXT, sla_tier TEXT, notes TEXT);
 CREATE TABLE contacts(id INTEGER PRIMARY KEY, client_id INTEGER, name TEXT, email TEXT);
-CREATE TABLE tickets(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, status TEXT, priority TEXT, sla_due_at TEXT, created_at TEXT, assignee_id INTEGER, merged_into_id INTEGER);
-CREATE TABLE messages(id INTEGER PRIMARY KEY, ticket_id INTEGER, kind TEXT, created_at TEXT);
+CREATE TABLE tickets(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, status TEXT, priority TEXT, sla_due_at TEXT, created_at TEXT, assignee_id INTEGER, merged_into_id INTEGER, contact_id INTEGER, subject TEXT, channel TEXT, resolved_at TEXT);
+CREATE TABLE messages(id INTEGER PRIMARY KEY, ticket_id INTEGER, kind TEXT, created_at TEXT, author_name TEXT);
+CREATE TABLE time_entries(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, minutes INTEGER, billable INTEGER, approval_status TEXT, worked_at TEXT);
+CREATE TABLE time_entry_approval_adjustments(id INTEGER PRIMARY KEY, tenant_id INTEGER, time_entry_id INTEGER, version_no INTEGER, effective_minutes INTEGER, effective_billable INTEGER);
 CREATE TABLE suite_customer_sync_bindings(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, customer_id TEXT, source_version INTEGER, display_name TEXT, status TEXT, last_event_id TEXT, last_occurred_at TEXT);
 CREATE TABLE suite_customer_sync_events(id INTEGER PRIMARY KEY, binding_id INTEGER, tenant_id INTEGER, client_id INTEGER, customer_id TEXT, source_version INTEGER, display_name TEXT, status TEXT, event_id TEXT, occurred_at TEXT);
 INSERT INTO tenants VALUES(1,'8west'),(2,'other-msp');
 INSERT INTO users VALUES(5,1,'t70u5',1,'Synthetic Technician','ST','#2D8CFF'),(9,2,'t81u9',1,'Other Technician','OT','#2D8CFF');
-INSERT INTO clients VALUES
+INSERT INTO clients(id, tenant_id, name, domain, health, sla_tier) VALUES
  (30,1,'Harbor Dental','harbordental.test','good','premium'),
  (31,1,'Beta Canary','canary.test','good','standard'),
  (32,1,'Copper Kettle','copperkettle.test','watch','standard'),
@@ -122,6 +129,40 @@ INSERT INTO clients VALUES
  (38,1,'Removed Rentals','removedrentals.test','good','standard'),
  (40,2,'Other MSP Client','othermsp.test','good','standard');
 INSERT INTO contacts VALUES(1,30,'Dana Front Desk','dana@harbordental.test');");
+// Harbor Dental's whole picture: a note, three open tickets, twenty-seven resolved ones, two first
+// replies inside ninety days and one outside, and time in every state. One ticket and one time entry
+// carry this client's number under another tenant; neither may be counted or listed.
+$ago = static fn(int $minutes): string => gmdate('Y-m-d H:i:s', time() - $minutes * 60);
+db()->prepare('UPDATE clients SET notes = ? WHERE id = 30')->execute(["Call the office line before 9.\n<b>Front desk</b> closes at 5."]);
+$ticket = db()->prepare('INSERT INTO tickets(id, tenant_id, client_id, status, priority, sla_due_at, created_at, subject, channel, resolved_at) VALUES(?,?,?,?,?,?,?,?,?,?)');
+foreach ([
+    [101, 1, 30, 'open', 'normal', $ago(-600), $ago(120), 'Front desk PC will not print', 'phone', null],
+    [102, 1, 30, 'in_progress', 'urgent', $ago(-60), $ago(300), 'Server room is hot', 'email', null],
+    [103, 1, 30, 'waiting', 'high', $ago(-900), $ago(4000), 'New hygienist starts Monday', 'portal', null],
+    [104, 2, 30, 'open', 'urgent', $ago(-60), $ago(60), 'Another tenant, same client number', 'email', null],
+    [105, 1, 31, 'open', 'normal', $ago(-60), $ago(60), 'Another client of this tenant', 'email', null],
+    [199, 1, 30, 'resolved', 'normal', $ago(200000), $ago(200000), 'Answered long ago', 'email', $ago(190000)],
+] as $row) $ticket->execute($row);
+for ($n = 1; $n <= 26; $n++) {
+    $ticket->execute([200 + $n, 1, 30, 'resolved', 'normal', $ago(5000), $ago(6000), "Resolved ticket $n", 'email', $ago($n * 60)]);
+}
+$message = db()->prepare('INSERT INTO messages(ticket_id, kind, created_at, author_name) VALUES(?,?,?,?)');
+foreach ([
+    [101, 'client', $ago(120), 'Dana Front Desk'], [101, 'tech', $ago(90), 'Synthetic Technician'],      // 30 minutes
+    [102, 'client', $ago(300), 'Dana Front Desk'], [102, 'tech', $ago(246), 'Synthetic Technician'],     // 54 minutes
+    [199, 'tech', $ago(199999), 'Synthetic Technician'],                                                 // older than ninety days
+    [104, 'tech', $ago(1), 'Other Technician'], [105, 'tech', $ago(55), 'Synthetic Technician'],         // not this tenant's, not this client's
+] as $row) $message->execute($row);
+db()->exec("INSERT INTO time_entries VALUES
+ (1,1,30,200,1,'approved','{$ago(1000)}'),   -- approved, then changed twice: counts as 120
+ (2,1,30,30,1,'approved','{$ago(2000)}'),    -- approved as logged
+ (3,1,30,60,1,'pending','{$ago(100)}'),      -- not approved yet
+ (4,1,30,40,0,'approved','{$ago(100)}'),     -- not billable
+ (5,1,30,25,1,'approved','{$ago(50000)}'),   -- older than thirty days
+ (6,2,30,500,1,'approved','{$ago(100)}'),    -- another tenant
+ (7,1,31,70,1,'approved','{$ago(100)}'),     -- another client
+ (8,1,30,90,1,'approved','{$ago(100)}');     -- approved, then changed to not billable
+INSERT INTO time_entry_approval_adjustments VALUES(1,1,1,1,180,1),(2,1,1,2,120,1),(3,1,8,1,90,0);");
 $binding = db()->prepare('INSERT INTO suite_customer_sync_bindings VALUES(?,?,?,?,?,?,?,?,?)');
 $receipt = db()->prepare('INSERT INTO suite_customer_sync_events VALUES(?,?,?,?,?,?,?,?,?,?)');
 foreach ([
@@ -189,8 +230,8 @@ function directory_ui_page(string $page, array $get): string
 function directory_ui_tables(): string
 {
     $tables = [];
-    foreach (['tenants', 'users', 'suite_managed_providers', 'clients', 'contacts', 'tickets', 'messages',
-        'suite_customer_sync_bindings', 'suite_customer_sync_events'] as $table) {
+    foreach (['tenants', 'users', 'suite_managed_providers', 'clients', 'contacts', 'tickets', 'messages', 'time_entries',
+        'time_entry_approval_adjustments', 'suite_customer_sync_bindings', 'suite_customer_sync_events'] as $table) {
         $tables[$table] = db()->query('SELECT * FROM ' . $table . ' ORDER BY 1')->fetchAll();
     }
     return hash('sha256', json_encode($tables, JSON_THROW_ON_ERROR));
@@ -244,27 +285,122 @@ foreach (['light', 'dark'] as $theme) {
         if (is_string($out) && is_dir($out)) file_put_contents("$out/clients-$case-$theme.html", $html);
     }
     $GLOBALS['fixtureTransport'] = directory_ui_transport('directory', $houseRoster);
+    // The page's own markup, without the chrome around it.
+    $body = static fn(string $html): string => substr($html, (int)strpos($html, '<div class="page page-client">'));
+    $xpath = static function (string $html): DOMXPath {
+        $doc = new DOMDocument();
+        libxml_use_internal_errors(true);
+        $doc->loadHTML('<?xml encoding="utf-8">' . $html);
+        libxml_clear_errors();
+        return new DOMXPath($doc);
+    };
+    $texts = static fn(DOMXPath $x, string $query): array => array_map(
+        static fn(DOMNode $node): string => trim((string)preg_replace('/\s+/u', ' ', $node->textContent)), iterator_to_array($x->query($query)));
+    $attrs = static fn(DOMXPath $x, string $query): array => array_map(static fn(DOMNode $node): string => $node->nodeValue ?? '', iterator_to_array($x->query($query)));
+    $save = static function (string $name, string $html) use ($out, $theme): void {
+        if (is_string($out) && is_dir($out)) file_put_contents("$out/$name-$theme.html", $html);
+    };
     foreach ([30 => 'business', 31 => 'retained'] as $clientId => $case) {
         $html = directory_ui_page('client.php', ['id' => (string)$clientId]);
         directory_ui_check(str_contains($html, $clientId === 30 ? '<title>Harbor Dental · Safeharbor</title>' : '<title>Beta Canary · Safeharbor</title>')
             && str_contains($html, $clientId === 30 ? 'Milepost directory now:' : 'Not in Milepost’s current client directory'),
             "client $clientId $theme shows its current directory entry or retained history");
-        directory_ui_check(substr_count($html, 'href="' . h($scopedBilling($clientId === 30 ? 1 : 2)) . '"') === 2
-            && str_contains($html, '>View this client in Coastmark ↗</a>') && str_contains($html, '>Review this client’s invoices in Coastmark ↗</a>')
+        directory_ui_check(substr_count($html, 'href="' . h($scopedBilling($clientId === 30 ? 1 : 2)) . '"') === 1
+            && str_contains($html, '>Open this client in Coastmark ↗</a>') && str_contains($html, '>Open this client in Milepost ↗</a>')
             && str_contains($html, 'Milepost and Coastmark check your access before showing this client.')
             && !str_contains($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"'),
-            "client $clientId $theme Balance and Suite open this client's own Coastmark route");
-        if (is_string($out) && is_dir($out)) file_put_contents("$out/client-$case-$theme.html", $html);
+            "client $clientId $theme Computers and Invoices open this client's own Milepost and Coastmark pages");
+        directory_ui_check(str_contains($html, 'Linked to Milepost as <strong>' . ($clientId === 30 ? 'Harbor Dental Group' : 'Beta Canary') . '</strong>')
+            && substr_count($body($html), 'Source version last received: ' . ($clientId === 30 ? 3 : 1) . '.') === 1
+            && substr_count($body($html), 'Source version in Milepost’s directory: 3.') === ($clientId === 30 ? 1 : 0)
+            && preg_match('/source version/i', (string)preg_replace('~<details class="client-link-details">.*?</details>~s', '', $body($html))) === 0
+            && preg_match('/\sstyle="/', $body($html)) === 0,
+            "client $clientId $theme says what it is linked to in words, keeps version numbers under Details, and has no inline style");
+        $save("client-$case", $html);
     }
+
+    // Harbor Dental's whole picture: who they are, the note, the numbers, their tickets and contacts.
+    $x = $xpath(directory_ui_page('client.php', ['id' => '30']));
+    directory_ui_check($texts($x, '//div[@class="client-title"]/*') === ['Harbor Dental', 'Premium plan', 'harbordental.test']
+        && $texts($x, '//div[@class="client-actions"]/a') === ['New ticket', 'Edit']
+        && $attrs($x, '//div[@class="client-actions"]/a/@href') === ['/ticket_new.php?client=30', '/client_edit.php?id=30']
+        && $x->query('//a[@data-new-ticket][@href="/ticket_new.php?client=30"]')->length === 1,
+        "the head names the client, its plan and domain, then New ticket and Edit ($theme)");
+    directory_ui_check($texts($x, '//p[@class="client-note"]') === ['Note Call the office line before 9. <b>Front desk</b> closes at 5.']
+        && $x->query('//p[@class="client-note"]/br')->length === 1 && $x->query('//p[@class="client-note"]//b')->length === 0,
+        "the note is shown under the head, line breaks kept, as text and never markup ($theme)");
+    directory_ui_check($texts($x, '//div[contains(@class,"client-stats")]//div[@class="stat-k"]') === ['Open tickets', 'First reply, 90 days', 'Billable time, 30 days']
+        && $texts($x, '//div[contains(@class,"client-stats")]//div[@class="stat-v"]') === ['3', '42 min', '2 h 30 min']
+        && $texts($x, '//div[contains(@class,"client-stats")]//div[@class="stat-hint"]') === ['Average over 2 tickets', 'Approved'],
+        "every tile is a number: this tenant's open tickets for this client, its first replies inside ninety days, its approved billable time inside thirty ($theme)");
+    directory_ui_check($texts($x, '//nav[contains(@class,"client-filters")]/a') === ['Open3', 'Resolved27']
+        && $attrs($x, '//nav[contains(@class,"client-filters")]/a/@href') === ['/client.php?id=30', '/client.php?id=30&show=resolved']
+        && $attrs($x, '//nav[contains(@class,"client-filters")]/a[@aria-current="page"]/@href') === ['/client.php?id=30']
+        && $attrs($x, '//a[@class="trow"]/@href') === ['/ticket.php?id=102', '/ticket.php?id=103', '/ticket.php?id=101']
+        && $attrs($x, '//a[@class="trow"]/@data-with-client') === ['0', '0', '0']
+        && $x->query('//nav[@class="pager"]')->length === 0,
+        "Open lists this client's open tickets, the most pressing first, in rows without the client's name ($theme)");
+    directory_ui_check($texts($x, '//div[contains(@class,"contact-row")]//div[@class="rail-list-name"]') === ['Dana Front Desk']
+        && $attrs($x, '//div[contains(@class,"contact-row")]//details/summary/@aria-label') === ['More for Dana Front Desk']
+        && $attrs($x, '//div[contains(@class,"contact-row")]//details/form[@method="post"][@action="/client.php?id=30"]/@data-confirm') === ['Remove Dana Front Desk?']
+        && $texts($x, '//div[contains(@class,"contact-row")]//details/form/button[@type="submit"]') === ['Remove']
+        && $attrs($x, '//details[contains(@class,"contact-add")]/form[@action="/client.php?id=30"]//input[@name]/@name') === ['csrf', 'action', 'name', 'email']
+        && $x->query('//details[contains(@class,"contact-add")]/form//input[@name="name"][@required]')->length === 1
+        && $x->query('//details[contains(@class,"contact-add")]/form//input[@name="email"][@required]')->length === 0,
+        "a contact's Remove sits behind More and asks first; Add a contact takes a name and an optional address ($theme)");
+
+    $resolved = directory_ui_page('client.php', ['id' => '30', 'show' => 'resolved']);
+    $x = $xpath($resolved);
+    $rows = $attrs($x, '//a[@class="trow"]/@href');
+    directory_ui_check(count($rows) === 25 && $rows[0] === '/ticket.php?id=201' && $rows[24] === '/ticket.php?id=225'
+        && $attrs($x, '//nav[contains(@class,"client-filters")]/a[@aria-current="page"]/@href') === ['/client.php?id=30&show=resolved']
+        && $texts($x, '//nav[@class="pager"]/span[@class="pager-count"]') === ['Showing 1 to 25 of 27']
+        && $attrs($x, '//nav[@class="pager"]/a/@href') === ['/client.php?id=30&show=resolved&page=2']
+        && $texts($x, '//nav[@class="pager"]/span[@aria-disabled="true"]') === ['Previous'],
+        "Resolved lists the newest twenty-five, with Next and no Previous ($theme)");
+    $save('client-business-resolved', $resolved);
+    foreach (['2', '99'] as $asked) {
+        $last = directory_ui_page('client.php', ['id' => '30', 'show' => 'resolved', 'page' => $asked]);
+        $x = $xpath($last);
+        directory_ui_check($attrs($x, '//a[@class="trow"]/@href') === ['/ticket.php?id=226', '/ticket.php?id=199']
+            && $texts($x, '//nav[@class="pager"]/span[@class="pager-count"]') === ['Showing 26 to 27 of 27']
+            && $attrs($x, '//nav[@class="pager"]/a/@href') === ['/client.php?id=30&show=resolved']
+            && $texts($x, '//nav[@class="pager"]/span[@aria-disabled="true"]') === ['Next'],
+            "page $asked of Resolved is the last page, with Previous and no Next ($theme)");
+        if ($asked === '2') $save('client-business-resolved2', $last);
+    }
+    foreach ([['show' => 'resolved', 'page' => 'abc'], ['show' => 'resolved', 'page' => '0'], ['show' => 'resolved', 'page' => '-1']] as $odd) {
+        directory_ui_check($attrs($xpath(directory_ui_page('client.php', ['id' => '30'] + $odd)), '//a[@class="trow"]/@href')[0] === '/ticket.php?id=201',
+            'a page that is not a whole number from 1 is page 1');
+    }
+    directory_ui_check($attrs($xpath(directory_ui_page('client.php', ['id' => '30', 'show' => 'everything', 'page' => '2'])), '//a[@class="trow"]/@href')
+        === ['/ticket.php?id=102', '/ticket.php?id=103', '/ticket.php?id=101'], 'an unknown list is Open');
+
     // Local and drifted clients keep Coastmark's generic entry and wording.
     foreach ([33 => 'Email Intake', 37 => 'Drifted Co'] as $clientId => $name) {
         $html = directory_ui_page('client.php', ['id' => (string)$clientId]);
         directory_ui_check(str_contains($html, '<title>' . $name . ' · Safeharbor</title>')
-            && substr_count($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"') === 2
-            && str_contains($html, '>View in Coastmark ↗</a>') && str_contains($html, '>Review invoices in Coastmark ↗</a>')
+            && substr_count($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"') === 1
+            && str_contains($html, '>Open Coastmark ↗</a>') && str_contains($html, '>Open Milepost ↗</a>')
             && str_contains($html, 'Open the app, then select the client.')
             && !str_contains($html, 'coastmark.8westit.com/clients'),
             "client $clientId $theme keeps Coastmark's generic Billing entry");
+        directory_ui_check(str_contains($html, $clientId === 33 ? 'Not linked to Milepost. Shared clients are created in Milepost.'
+                : 'Shared details are temporarily unavailable. The details kept here are unaffected.')
+            && !str_contains($html, 'Linked to Milepost as') && !str_contains($html, 'client-link-details'),
+            "client $clientId $theme says it is local, or that its shared details cannot be read, and claims no link");
+        if ($clientId === 33) {
+            $x = $xpath($html);
+            directory_ui_check($texts($x, '//div[contains(@class,"client-stats")]//div[@class="stat-k"]') === ['Open tickets', 'Billable time, 30 days']
+                && $texts($x, '//div[contains(@class,"client-stats")]//div[@class="stat-v"]') === ['0', '0 min']
+                && $texts($x, '//div[@class="empty"]/p') === ['No open tickets for Email Intake.']
+                && $attrs($x, '//div[@class="empty"]/a/@href') === ['/ticket_new.php?client=33']
+                && $texts($x, '//nav[contains(@class,"client-filters")]/a') === ['Open0', 'Resolved0']
+                && $texts($x, '//div[@class="client-title"]/*') === ['Email Intake', 'Standard plan', 'intake.test']
+                && str_contains($html, 'No contacts yet.') && $x->query('//p[@class="client-note"]')->length === 0,
+                "a client with nothing yet has no first-reply tile and no note, and says there are no tickets or contacts ($theme)");
+            $save('client-local', $html);
+        }
     }
     // A48: the canonical provider + UUID Support target renders the same bound client page, retained
     // inactive history included. (A miss ends the page with exit, so misses are unit-tested instead.)
@@ -273,11 +409,19 @@ foreach (['light', 'dark'] as $theme) {
         $html = directory_ui_page('client.php', ['provider' => '8west', 'customer_id' => $customer]);
         directory_ui_check(client_operational_support_client(db(), 1, 'provider=8west&customer_id=' . $customer) === $clientId
             && str_contains($html, '<title>' . $name . ' · Safeharbor</title>') && !str_contains($html, 'Unknown client.')
-            && substr_count($html, 'href="' . h($scopedBilling($n)) . '"') === 2
+            && substr_count($html, 'href="' . h($scopedBilling($n)) . '"') === 1
             && !str_contains($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"')
             && str_contains($html, $n === 1 ? 'Milepost and Coastmark check your access before showing this client.'
                 : 'Coastmark checks your access before showing this client. In Milepost, select the client.'),
             "the Support target for $name renders that bound client's page with its own Billing route ($theme)");
+        if ($n === 3) {
+            // Copper Kettle is being watched, and inactive in Milepost: its computers open Milepost's own entry.
+            directory_ui_check($texts($xpath($html), '//div[@class="client-title"]/*') === ['Copper Kettle', 'Standard plan', 'Needs attention', 'copperkettle.test']
+                && str_contains($html, '>Open Milepost ↗</a>') && str_contains($html, '>Open this client in Coastmark ↗</a>')
+                && str_contains($html, '<span class="crow-shared-inactive">inactive</span>'),
+                "a watched client says Needs attention in words, and an inactive one keeps Milepost's general entry ($theme)");
+            $save('client-watch', $html);
+        }
     }
 }
 directory_ui_check(directory_ui_tables() === $before, 'rendering the directory and client pages wrote nothing');

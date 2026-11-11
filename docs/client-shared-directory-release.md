@@ -35,6 +35,24 @@ CUT2 changes only the Billing targets and their wording:
 CUT2 has no receiver, schema, styles, login, configuration, cron or permission change, and the
 page handlers are unchanged.
 
+### Client page wording after the 2026-11 client page change
+
+The targets and the rules for choosing them are exactly as above. The client page now says them in
+fewer places, in plainer words. The Clients list is unchanged.
+
+| Was | Now |
+| --- | --- |
+| A "Shared client" line under the head: shared name, state, source version, **Shared details** | "Linked to Milepost as **name** · state · **Shared details**" at the foot of the right-hand column. The source version is under **Details** there, and on Edit client as before. |
+| "Milepost directory now: name · state (source version N)", with "removed in Milepost" when it is | "Milepost directory now: **name** · state", with "removed in Milepost" when it is. The number is under **Details**. |
+| "Local to Safeharbor; not linked to a shared Milepost client." | "Not linked to Milepost. Shared clients are created in Milepost." |
+| "Shared details are temporarily unavailable. Local details below are unaffected." | "Shared details are temporarily unavailable. The details kept here are unaffected." |
+| Devices tile and Suite rail: **View this client in Milepost** and **Open this client's devices in Milepost** for linked active clients, otherwise **View in Milepost** and **Find devices in Milepost** | One row, Computers: **Open this client in Milepost** for linked active clients, otherwise **Open Milepost** |
+| Balance tile and Suite rail: **View this client in Coastmark** and **Review this client's invoices in Coastmark** for linked clients, otherwise **View in Coastmark** and **Review invoices in Coastmark** | One row, Invoices: **Open this client in Coastmark** for linked clients, otherwise **Open Coastmark** |
+
+Word for word as before: "Not in Milepost's current client directory; kept here as retained history.",
+"Milepost's current client directory is unavailable right now.", and the four sentences that say which
+app checks access. The page still reads Milepost's directory once per request and writes nothing.
+
 The shared name and state come from the existing binding and its matching immutable receipt
 (`client_operational_context.php`), never from the editable local name. The directory itself has
 no receiver, schema, configuration, cron or permission change. Local fields, privacy rules and

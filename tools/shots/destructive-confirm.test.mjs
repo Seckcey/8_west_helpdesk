@@ -90,14 +90,17 @@ try {
       await page.getByRole('heading', { name: 'O\'Neil\'s Dental', exact: true, level: 1 }).waitFor();
       for (const name of ['Pat O\'Brien', 'Sam\'+(window.sh33=1)+\'', 'Jo "JJ" Lee \\ Ops']) {
         const row = page.locator('.rail-list-item').filter({ has: page.getByText(name, { exact: true }) });
-        const remove = row.locator('button[title="Remove contact"]');
-        assert.equal(await remove.count(), 1, name);
+        // Remove sits behind the row's More control, and is named for the contact it removes.
+        const remove = row.getByRole('button', { name: `Remove ${name}`, exact: true });
+        assert.equal(await remove.isVisible(), false, `${name}: Remove is not shown until More is opened`);
+        await row.locator('summary').click();
+        assert.equal(await remove.isVisible(), true, name);
         const result = await press(page, posts, () => remove.click(), 'cancel');
         assert.deepEqual(result, { dialogs: confirmOnce(`Remove ${name}?`), posted: [] }, name);
         assert.equal(await page.evaluate(() => window.sh33), undefined, `${name} ran as script`);
       }
       const remove = page.locator('.rail-list-item').filter({ has: page.getByText('Pat O\'Brien', { exact: true }) })
-        .locator('button[title="Remove contact"]');
+        .getByRole('button', { name: 'Remove Pat O\'Brien', exact: true });
       const result = await press(page, posts, () => remove.click(), 'ok');
       assert.deepEqual(result, { dialogs: confirmOnce('Remove Pat O\'Brien?'), posted: [
         { to: '/client.php?id=50', form: { csrf: 'synthetic-csrf', action: 'remove_contact', contact_id: '61' } },

@@ -576,7 +576,7 @@ a new contact is added in place. "What they said" is saved as the customer's ope
 you told them" as the first reply (not emailed). Came in by (Phone first) and Priority are words to pick.
 Create ticket (or Ctrl+Enter), or Create and resolve, which follows the Resolve button's survey rule.
 "Start my timer" starts the timer on the new ticket. `c` opens the form from any staff page, and the
-client page has "New ticket for this client". "In person" is not offered: the stored channel has no such
+client page's "New ticket" opens it with that client chosen. "In person" is not offered: the stored channel has no such
 value. No schema, role, permission or grant change; the client check and the service-goal snapshot are
 still one transaction with the ticket (`app/public/ticket_new.php`, `app/lib/ticket_new_form.php`).
 
@@ -598,10 +598,27 @@ retry rules (`tools/shots/time-contract.test.mjs`). The approved list has a sear
 client name, in the same tenant and for owners and admins only, as the list is. Not in this slice: the
 "What did you do?" question when a timer stops, and the billing words that come from the Coastmark rules.
 No schema, role, permission, grant or endpoint change.
-Follow-up (draft, not live): the corrected minutes accept digits only; the start and end pickers work in
+Follow-up (merged): the corrected minutes accept digits only; the start and end pickers work in
 the Safeharbor time-zone setting, as History does, ask which one is meant in the hour that repeats when the
 clocks go back and refuse the hour the clocks skip; a double click on a button that opens a dialog no
 longer closes it again.
+
+**The client page as the customer's whole picture (draft, not live).** The head names the client, its
+plan ("Premium plan") and domain, says "Needs attention" in words when the client is being watched, and
+has New ticket (the main button, and the key `c`) and Edit. The note kept about the client is under the
+head. Three tiles, each a number: Open tickets, "First reply, 90 days" (left out when no ticket got a
+reply) and "Billable time, 30 days" (approved billable time, the figure Reports already shows every member
+of the team for the client). Tickets are under Open and Resolved, in rows without the client's name;
+Resolved shows 25 a page. A contact's Remove sits behind a More control and still asks first; "Add a
+contact" opens standard fields. "Computers and invoices" has one link to Milepost and one to Coastmark,
+with the same targets and access sentence as before; the two "Not shown here" tiles and the Suite card are
+gone. How the client is tied to Milepost is a quiet line at the foot of the rail ("Linked to Milepost as"
+the shared name, or "Not linked to Milepost."), with the source version numbers under Details; the old
+and new wording are side by side in the [shared directory release receipt](client-shared-directory-release.md).
+Left out because Safeharbor does not hold the data: a contact's role and phone, how many people use the
+portal, and how many computers the client has. No schema, role, permission, grant or endpoint change;
+every read is scoped to the signed-in tenant and this client (`app/public/client.php`,
+`app/lib/client_page.php`).
 
 1. **Westy external defect delivery is not activated.** It needs a `milepost-westy` identity, its own
    secret, Milepost's sender and a canary on tenant `8west`.

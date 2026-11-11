@@ -8,7 +8,7 @@
  * are one transaction. "Create and resolve" then resolves the new ticket through the same rule as
  * the Resolve button (lib/ticket_changes.php), so a survey is asked for exactly as it would be there.
  *
- * ?client=12 preselects a client (the client page's "New ticket for this client").
+ * ?client=12 preselects a client (the client page's "New ticket").
  *
  * Each copy of the form carries a key, and the session remembers which ticket a key became: the
  * same form sent twice (a double click, Ctrl+Enter twice) goes to the ticket it already created

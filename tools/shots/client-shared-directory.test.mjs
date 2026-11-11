@@ -188,14 +188,16 @@ try {
             assert.equal(await page.title(), 'Harbor Dental · Safeharbor');
             await layout(page, theme, viewport);
             assert.equal(await page.getByText('Milepost directory now:').count(), 1);
-            assert.equal(await page.getByRole('link', { name: 'View this client in Milepost ↗' }).getAttribute('href'), devices(1));
-            assert.equal(await page.getByRole('link', { name: 'View this client in Coastmark ↗' }).getAttribute('href'), scopedBilling(1));
-            assert.equal(await page.getByRole('link', { name: 'Review this client’s invoices in Coastmark ↗' }).getAttribute('href'), scopedBilling(1));
+            // One way out to each app: this client's own page there, because it is linked (and active in Milepost).
+            assert.equal(await page.getByRole('link', { name: 'Open this client in Milepost ↗' }).getAttribute('href'), devices(1));
+            assert.equal(await page.getByRole('link', { name: 'Open this client in Coastmark ↗' }).getAttribute('href'), scopedBilling(1));
+            assert.equal(await page.locator('.page-client a[href^="https://coastmark.8westit.com/"]').count(), 1);
+            assert.equal(await page.getByText('Linked to Milepost as Harbor Dental Group').count(), 1);
             if (evidence) await page.screenshot({ path: path.join(evidence, `client-business-${theme}-${viewport.width}.png`), fullPage: true });
             await page.goto('http://safeharbor.test/client.php?id=31');
             await page.getByRole('heading', { name: 'Beta Canary', exact: true, level: 1 }).waitFor();
             assert.equal(await page.getByText('Not in Milepost’s current client directory; kept here as retained history.').count(), 1);
-            assert.equal(await page.getByRole('link', { name: 'View this client in Coastmark ↗' }).getAttribute('href'), scopedBilling(2));
+            assert.equal(await page.getByRole('link', { name: 'Open this client in Coastmark ↗' }).getAttribute('href'), scopedBilling(2));
             await layout(page, theme, viewport);
             if (evidence) await page.screenshot({ path: path.join(evidence, `client-retained-${theme}-${viewport.width}.png`), fullPage: true });
           } else {

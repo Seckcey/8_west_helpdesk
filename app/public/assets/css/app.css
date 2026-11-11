@@ -793,10 +793,6 @@ img { display: block; }
 :is(.page-ticket, .portal-content) .rail > .rail-card { padding: 4px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 :is(.page-ticket, .portal-content) .rail > .rail-card + .rail-card { padding-top: 10px; border-top: 1px solid var(--line); }
 .rail-note { display: block; margin-top: 6px; font-size: 12.5px; color: var(--dim); }
-.rail-suite { font-size: 12.5px; line-height: 1.6; color: var(--muted); }
-.rail-suite p { display: flex; align-items: center; gap: 8px; }
-.rail-suite p + p { margin-top: 6px; }
-.suite-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); flex: none; }
 .assignee-cell { display: inline-flex; align-items: center; gap: 8px; }
 .assignee-name { font-size: 14px; }
 .timer-btn { justify-content: center; font-size: 14px; }
@@ -955,7 +951,6 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .crow-shared { font-size: 12.5px; color: var(--dim); }
 .crow-shared-active { color: var(--mint); }
 .crow-shared-inactive { color: var(--gold); }
-.client-shared { margin: -4px 0 14px; font-size: 13px; color: var(--muted-strong); }
 @media (max-width: 640px) {
   /* The client information takes the whole row and the app actions get their own line below it.
      The tier and open count wrap under the name instead of squeezing it. */
@@ -966,6 +961,69 @@ a.ticket-step:hover { background: var(--bg-raised); }
   .crow-row .tier { margin-left: 24px; }
   .crow-row .crow-open { width: auto; text-align: left; }
   .crow-actions { flex: 1 1 100%; flex-wrap: wrap; padding: 0 16px 12px; }
+}
+
+/* The client page: who they are, the note, the numbers, then their tickets beside their contacts. */
+.client-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.client-title { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; min-width: 0; }
+.client-title .page-title { overflow-wrap: anywhere; }
+.client-domain { font-size: 14px; color: var(--muted-strong); overflow-wrap: anywhere; }
+.client-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.tag-caution { background: var(--gold-soft-bg); color: var(--gold); }
+.client-note {
+  max-width: 760px; margin: 0 0 16px; padding: 10px 12px; border-radius: 10px; background: var(--bg-raised);
+  font-size: 14px; line-height: 1.5; overflow-wrap: anywhere;
+}
+.client-note-k { margin-right: 4px; font-weight: 600; color: var(--muted-strong); }
+.stats.client-stats { grid-template-columns: repeat(auto-fit, minmax(180px, 240px)); }
+.client-filters { margin-bottom: 10px; }
+.page-client .ticket-grid { margin-top: 0; }
+/* A contact, with a "More" control that opens to show Remove. */
+.contact-row { display: flex; align-items: flex-start; gap: 8px; }
+.contact-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.contact-more { flex: none; text-align: right; }
+.contact-more-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  border-radius: 8px; color: var(--muted-strong); cursor: pointer; list-style: none;
+}
+.contact-more-btn::-webkit-details-marker { display: none; }
+.contact-more-btn:hover, .contact-more[open] > .contact-more-btn { background: var(--hover); color: var(--text); }
+.contact-more > form { margin-top: 6px; }
+.contact-more .contact-remove { width: auto; min-height: 32px; padding: 0 12px; font-size: 13px; }
+/* "Add a contact": a disclosure, so it works without the script. */
+.contact-add-btn {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; margin-left: -8px; padding: 4px 8px;
+  border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--accent-2); cursor: pointer; list-style: none;
+}
+.contact-add-btn::-webkit-details-marker { display: none; }
+.contact-add-btn::before { content: "+"; font-weight: 700; }
+.contact-add[open] > .contact-add-btn::before { content: "\2212"; }
+.contact-add-btn:hover { background: var(--hover); }
+.contact-add-form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.contact-add-form .btn-primary { align-self: flex-start; }
+/* Computers and invoices: a name, the link that opens the other app, then who may see what. */
+.rail-list > .rail-line > span { font-weight: 600; }
+.rail-list > .field-help { padding-top: 10px; padding-bottom: 10px; }
+/* How this client is tied to Milepost: quiet lines at the foot of the rail. */
+.client-link { padding: 0 4px; }
+.client-shared { margin: 0 0 6px; font-size: 13px; line-height: 1.5; color: var(--muted-strong); overflow-wrap: anywhere; }
+.client-link-details { font-size: 12.5px; color: var(--muted-strong); }
+.client-link-details > summary { display: inline-flex; align-items: center; min-height: 24px; font-weight: 600; cursor: pointer; }
+.client-link-details p { margin: 2px 0 0; }
+@media (max-width: 700px) {
+  .client-actions { width: 100%; }
+  .stats.client-stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .client-stats .stat { padding: 12px 14px; }
+  .client-stats .stat-v { font-size: 22px; }
+  .client-actions .btn-primary, .client-actions .btn-secondary { flex: 1; min-height: 44px; }
+  .page-client .backlink { min-height: 44px; }
+  .client-filters { display: flex; }
+  .client-filters .filter-pill { flex: 1; justify-content: center; height: 44px; }
+  .page-client .pager .btn-chip, .page-client .empty .btn-chip { min-height: 44px; }
+  .contact-more-btn { width: 44px; height: 44px; }
+  .contact-more .contact-remove, .contact-add-btn, .contact-add-form .btn-primary { min-height: 44px; }
+  .contact-add-form .field input { min-height: 44px; }
+  .rail-list > .rail-line > .link, .client-link .link, .client-link-details > summary { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
 /* Number tiles */

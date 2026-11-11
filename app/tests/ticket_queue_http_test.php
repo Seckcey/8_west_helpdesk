@@ -111,6 +111,7 @@ try {
     copy($app . '/public/index.php', $runtime . '/public/index.php');
     copy($app . '/public/ticket.php', $runtime . '/public/ticket.php');
     copy($app . '/public/time.php', $runtime . '/public/time.php');
+    copy($app . '/public/client.php', $runtime . '/public/client.php');
     copy($app . '/public/api/time_entry_review.php', $runtime . '/public/api/time_entry_review.php');
     $config = require $app . '/config/config.sample.php';
     $config['app_env'] = 'dev';
@@ -448,6 +449,69 @@ try {
     $x = $queue(101, '/time.php?approved_entry_id=999999');
     $check($texts($x, '//div[' . $hasClass('form-error') . ']') === ['No approved entry has that number.'] && $found($queue(101, '/time.php?approved_entry_id=' . (int)$entryOf[103])) === 1,
         'an older link by entry number still works');
+
+    // ---- the client page, read from MySQL: one client's whole picture, and nobody else's ----
+    $count = static function (string $where) use ($pdo): int {
+        return (int)$pdo->query("SELECT COUNT(*) FROM tickets WHERE tenant_id = 1 AND client_id = 11 AND $where")->fetchColumn();
+    };
+    $openNow = $count("status <> 'resolved'");
+    $resolvedNow = $count("status = 'resolved'");
+    $x = $queue(102, '/client.php?id=11');
+    $check($texts($x, '//div[' . $hasClass('client-title') . ']/*') === ['Fixture Dental', 'Standard plan']
+        && $texts($x, '//div[' . $hasClass('client-actions') . ']/a') === ['New ticket', 'Edit']
+        && $x->query('//a[@data-new-ticket][@href="/ticket_new.php?client=11"]')->length === 1,
+        'the client page names the client and its plan, then New ticket and Edit');
+    $check($texts($x, '//p[' . $hasClass('client-note') . ']') === ['Note Call the office line before 9. <i>Ask for Dana.</i>']
+        && $x->query('//p[' . $hasClass('client-note') . ']//i')->length === 0, 'the note about the client is under the head, as text');
+    $tiles = array_combine($texts($x, '//div[' . $hasClass('client-stats') . ']//div[' . $hasClass('stat-k') . ']'),
+        $texts($x, '//div[' . $hasClass('client-stats') . ']//div[' . $hasClass('stat-v') . ']'));
+    // What Reports shows for the same client: approved billable minutes worked in the last 30 days, after any approved change.
+    $billable = (int)$pdo->query("SELECT COALESCE(SUM(CASE WHEN COALESCE(a.effective_billable, e.billable) = 1 THEN COALESCE(a.effective_minutes, e.minutes) ELSE 0 END), 0)
+        FROM time_entries e LEFT JOIN time_entry_approval_adjustments a ON a.tenant_id = e.tenant_id AND a.time_entry_id = e.id
+         AND a.version_no = (SELECT MAX(l.version_no) FROM time_entry_approval_adjustments l WHERE l.tenant_id = e.tenant_id AND l.time_entry_id = e.id)
+        WHERE e.tenant_id = 1 AND e.client_id = 11 AND e.approval_status = 'approved' AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)")->fetchColumn();
+    $check(($tiles['Open tickets'] ?? null) === number_format($openNow)
+        && ($tiles['Billable time, 30 days'] ?? null) === ($billable < 60 ? $billable . ' min' : intdiv($billable, 60) . ' h' . ($billable % 60 > 0 ? ' ' . ($billable % 60) . ' min' : ''))
+        && preg_match('/^\d+ (min|h)( \d+ min)?$/', (string)($tiles['First reply, 90 days'] ?? '')) === 1 && count($tiles) === 3,
+        'the tiles are numbers: open tickets, the first reply inside ninety days, approved billable time inside thirty');
+    $rows = $x->query('//div[' . $hasClass('list') . ']/a[' . $hasClass('trow') . ']');
+    $origins = $texts($x, '//div[' . $hasClass('list') . ']//span[' . $hasClass('trow-origin') . ']');
+    $check($texts($x, '//nav[' . $hasClass('client-filters') . ']/a') === ['Open' . number_format($openNow), 'Resolved' . number_format($resolvedNow)]
+        && $rows->length === $openNow && $openNow > 0 && $x->query('//nav[' . $hasClass('pager') . ']')->length === 0
+        && $x->query('//div[' . $hasClass('list') . ']/a[@data-status="resolved"]')->length === 0,
+        'Open lists every open ticket of this client and none that is resolved');
+    $check($origins !== [] && array_filter($origins, static fn(string $line): bool => str_contains($line, 'Fixture Dental')) === []
+        && preg_grep('/^By (email|phone) from Dana Whitfield$/', $origins) !== [], 'a row says how the ticket came in and who asked, without repeating the client');
+    $x = $queue(102, '/client.php?id=11&show=resolved');
+    $shown = [];
+    foreach ($x->query('//div[' . $hasClass('list') . ']/a[' . $hasClass('trow') . ']/@data-ticket-id') as $attr) $shown[] = (int)$attr->nodeValue;
+    $newest = array_map('intval', $pdo->query("SELECT id FROM tickets WHERE tenant_id = 1 AND client_id = 11 AND status = 'resolved'
+        ORDER BY COALESCE(resolved_at, created_at) DESC, id DESC LIMIT 25")->fetchAll(PDO::FETCH_COLUMN));
+    $check($resolvedNow > 50 && $shown === $newest && $x->query('//div[' . $hasClass('list') . ']/a[@data-status!="resolved"]')->length === 0
+        && $texts($x, '//nav[' . $hasClass('pager') . ']/span[' . $hasClass('pager-count') . ']') === ['Showing 1 to 25 of ' . number_format($resolvedNow)]
+        && $x->query('//nav[' . $hasClass('pager') . ']/a[@rel="next"][@href="/client.php?id=11&show=resolved&page=2"]')->length === 1
+        && $x->query('//nav[' . $hasClass('pager') . ']/a[@rel="prev"]')->length === 0, 'Resolved lists the newest twenty-five, with Next');
+    $lastPage = (int)ceil($resolvedNow / 25);
+    $x = $queue(102, '/client.php?id=11&show=resolved&page=9999');
+    $check($x->query('//div[' . $hasClass('list') . ']/a[' . $hasClass('trow') . ']')->length === $resolvedNow - ($lastPage - 1) * 25
+        && $x->query('//nav[' . $hasClass('pager') . ']/a[@rel="next"]')->length === 0
+        && $x->query('//nav[' . $hasClass('pager') . ']/a[@rel="prev"]')->length === 1, 'a page past the end is the last page');
+    $check($queue(102, '/client.php?id=11&show=resolved&page=' . rawurlencode('2; DROP TABLE tickets'))->query('//div[' . $hasClass('list') . ']/a[' . $hasClass('trow') . ']')->length === 25
+        && $count('1 = 1') === $openNow + $resolvedNow, 'what is typed as a page is only ever a whole number');
+    $check($texts($x, '//div[' . $hasClass('contact-row') . ']//div[' . $hasClass('rail-list-name') . ']') === ['Dana Whitfield']
+        && $x->query('//div[' . $hasClass('contact-row') . ']//details/form[@data-confirm="Remove Dana Whitfield?"]//input[@name="contact_id"][@value="31"]')->length === 1
+        && $texts($x, '//div[' . $hasClass('client-link') . ']/p') === ['Not linked to Milepost. Shared clients are created in Milepost.'],
+        'contacts are listed with Remove behind More, and a local client says it is not linked');
+    // Another tenant's member is told the client is unknown, whatever list or page they ask for.
+    foreach (['/client.php?id=11', '/client.php?id=11&show=resolved&page=2'] as $route) {
+        $other = $http($route, 201);
+        $check($other['status'] === 200 && str_contains($other['body'], 'Unknown client.') && !str_contains($other['body'], 'Fixture Dental')
+            && !str_contains($other['body'], 'Old ticket') && !str_contains($other['body'], 'Dana Whitfield'), "another tenant's member sees nothing of this client at $route");
+    }
+    $x = $queue(301, '/client.php?id=31');
+    $check($texts($x, '//div[' . $hasClass('client-stats') . ']//div[' . $hasClass('stat-k') . ']') === ['Open tickets', 'Billable time, 30 days']
+        && $texts($x, '//div[' . $hasClass('client-stats') . ']//div[' . $hasClass('stat-v') . ']') === ['0', '0 min']
+        && $texts($x, '//div[' . $hasClass('empty') . ']/p') === ['No open tickets for Brand New.'], 'a client with nothing yet shows zeros and says so');
 
     echo "PASS: $checks ticket queue checks\n";
 } catch (Throwable $error) {
