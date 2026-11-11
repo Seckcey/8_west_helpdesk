@@ -122,15 +122,23 @@ function report_outcomes(array $rows, int $now): array
 
 /**
  * SQL over the alias t: is this ticket Westy's? It is while nobody owns it and the assistant holds it
- * ($held, the queue's own rule for an open ticket), and it stays Westy's once resolved if the
- * assistant's own workflow resolved it. A ticket a person owns is that person's. Where the workflow
- * table does not exist yet ($held is the queue's "never"), no ticket is.
+ * ($held, the queue's own rule for an open ticket), and it stays Westy's once resolved if it was the
+ * assistant that resolved it. A ticket a person owns is that person's. Where the workflow table does
+ * not exist yet ($held is the queue's "never"), no ticket is.
+ *
+ * "The assistant resolved it" is read from a fact that later work on the ticket cannot change: the
+ * workflow's closed time equals the ticket's resolved time. Both use one clock reading in the
+ * transaction that resolves the ticket (lib/westy_workflow.php). The takeover triggers retain that
+ * closed time, but any later ticket change, note or reply changes the workflow state to "human_owned".
+ * The current workflow state is therefore not closure evidence. A ticket a
+ * person reopens and resolves again gets a new resolved time, and is then no longer Westy's.
  */
 function report_westy_owned_sql(string $held): string
 {
     if ($held === '(0 = 1)') return $held;
     return "(t.assignee_id IS NULL AND ($held OR (t.status = 'resolved' AND EXISTS (SELECT 1 FROM westy_workflows done"
-        . " WHERE done.ticket_id = t.id AND done.tenant_id = t.tenant_id AND done.client_id = t.client_id AND done.state = 'resolved'))))";
+        . " WHERE done.ticket_id = t.id AND done.tenant_id = t.tenant_id AND done.client_id = t.client_id"
+        . " AND done.closed_at IS NOT NULL AND done.closed_at = t.resolved_at))))";
 }
 
 /** How a count moved: "3 more than the 30 days before". */

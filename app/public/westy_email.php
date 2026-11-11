@@ -45,7 +45,7 @@ page_top($user,'Westy advice email','queue');
 <div class="page westy-email">
  <a class="backlink" href="/ticket.php?id=<?= $ticketId ?>">← Ticket #<?= $ticketId ?></a>
  <h1 class="page-title">Westy advice email</h1>
- <p>Review practical options for the customer. This sends no computer command, closes no ticket and creates no charge.</p>
+ <p>Review practical options for the client. This sends no computer command, closes no ticket and creates no charge.</p>
  <p><a class="btn-chip" href="/westy_mail.php?ticket_id=<?= $ticketId ?>">Open Westy mailbox conversation</a></p>
  <?php if($error): ?><div class="banner banner-warn" role="alert"><?= h($error) ?></div><?php endif; ?>
  <?php if($notice): ?><div class="banner" role="status"><?= h($notice) ?></div><?php endif; ?>
@@ -55,14 +55,14 @@ page_top($user,'Westy advice email','queue');
  <h2>Who receives it?</h2>
  <p><?= h($context['ticket']['subject']) ?></p>
  <p><?php if($context['contact']): ?><?= h($context['contact']['name']) ?> · <?= h($context['contact']['email']) ?> (<?= $context['route']==='endpoint'?'endpoint POC for this ticket':'client POC fallback' ?>)<?php else: ?>No endpoint or client POC is set. Sending is blocked.<?php endif; ?></p>
- <p>The endpoint POC recorded on this case takes priority. Otherwise Westy uses the explicitly designated client POC. A contact change requires a new review.</p>
+ <p>The endpoint POC recorded on this ticket takes priority. Otherwise Westy uses the explicitly designated client POC. A contact change requires a new review.</p>
  <?php if($admin && westy_email_enabled()): ?>
  <form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="contact">
  <label class="field">Contact <select name="contact_id" required><option value="0">None / clear this assignment</option><?php foreach($contacts as $contact): ?><option value="<?= (int)$contact['id'] ?>"><?= h($contact['name'].' · '.$contact['email']) ?></option><?php endforeach; ?></select></label>
- <label class="field">Role <select name="scope"><option value="endpoint">Endpoint POC for this ticket</option><option value="client">Client POC fallback for this customer</option></select></label>
+ <label class="field">Role <select name="scope"><option value="endpoint">Endpoint POC for this ticket</option><option value="client">Client POC fallback for this client</option></select></label>
  <label style="display:block;margin:12px 0"><input type="checkbox" name="confirm_contact" value="yes" required> I confirm this person’s contact role, or intentionally clear it.</label>
  <button class="btn-primary" type="submit">Save contact role</button>
- <a class="link" href="/client.php?id=<?= (int)$context['ticket']['client_id'] ?>">Manage this customer’s contacts</a>
+ <a class="link" href="/client.php?id=<?= (int)$context['ticket']['client_id'] ?>">Manage this client’s contacts</a>
  </form><?php endif; ?>
  </section>
  <?php $attempted=(bool)array_filter($drafts,static fn($d)=>$d['attempted_at']!==null); ?>

@@ -136,9 +136,19 @@ try {
     $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
     $pdo->exec('CREATE TABLE tickets(id INTEGER PRIMARY KEY, tenant_id INTEGER, assignee_id INTEGER, status TEXT, created_at TEXT, resolved_at TEXT, sla_due_at TEXT, merged_into_id INTEGER, client_id INTEGER DEFAULT 21);
         CREATE TABLE messages(id INTEGER PRIMARY KEY, ticket_id INTEGER, kind TEXT, created_at TEXT);
-        CREATE TABLE westy_workflows(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, ticket_id INTEGER, state TEXT);
+        CREATE TABLE westy_workflows(id INTEGER PRIMARY KEY, tenant_id INTEGER, client_id INTEGER, ticket_id INTEGER, state TEXT, closed_at TEXT);
         INSERT INTO westy_workflows(tenant_id, client_id, ticket_id, state) VALUES (1, 21, 14, "working"), (1, 21, 15, "working"), (1, 21, 16, "needs_human"),
-            (1, 21, 6, "working"), (2, 21, 14, "working"), (1, 21, 17, "resolved"), (1, 21, 19, "human_owned"), (1, 21, 20, "resolved");');
+            (1, 21, 6, "working"), (2, 21, 14, "working"), (1, 21, 19, "human_owned");');
+    // The assistant resolved #17, #20, #21 and #22: each workflow's closed time is the moment it resolved the
+    // ticket. Someone has since written on #17; #22 still has its original resolved state.
+    $closed = $pdo->prepare('INSERT INTO westy_workflows(tenant_id, client_id, ticket_id, state, closed_at) VALUES (1, 21, ?, ?, ?)');
+    foreach ([[17, 'human_owned', 50], [20, 'resolved', 70], [21, 'human_owned', 500], [22, 'resolved', 45]] as [$id, $state, $closedAgo]) {
+        $closed->execute([$id, $state, $at($closedAgo)]);
+    }
+    // A matching timestamp from another workspace or client is not closure evidence for #18.
+    $elsewhere = $pdo->prepare('INSERT INTO westy_workflows(tenant_id, client_id, ticket_id, state, closed_at) VALUES (?, ?, 18, ?, ?)');
+    $elsewhere->execute([2, 21, 'resolved', $at(50)]);
+    $elsewhere->execute([1, 99, 'resolved', $at(50)]);
     $ticket = $pdo->prepare('INSERT INTO tickets(id, tenant_id, assignee_id, status, created_at, resolved_at, sla_due_at, merged_into_id) VALUES(?,?,?,?,?,?,?,?)');
     $message = $pdo->prepare('INSERT INTO messages(ticket_id, kind, created_at) VALUES(?,?,?)');
     foreach ([
@@ -159,10 +169,12 @@ try {
         [14, 1, null, 'in_progress', 300, null, 180, null, []],          // the assistant is working it: Westy's, overdue with no reply
         [15, 1, null, 'in_progress', 400, null, 280, null, [380]],       // Westy's: 20 minutes, on time
         [16, 1, null, 'in_progress', 500, null, -100, null, []],         // the assistant handed it to a person: nobody's, and not due yet
-        [17, 1, null, 'resolved', 120, 50, 0, null, []],                 // the assistant resolved it itself, with no reply: still Westy's
+        [17, 1, null, 'resolved', 120, 50, 0, null, []],                 // the assistant resolved it, then someone added a note: still Westy's
         [18, 1, null, 'resolved', 70 * $day, 50, 70 * $day - 100, null, []],   // opened long ago, resolved today by nobody in particular
         [19, 1, null, 'resolved', 70 * $day, 60, 70 * $day - 100, null, []],   // the assistant handed it over before it was resolved: nobody's
         [20, 1, 12, 'resolved', 70 * $day, 70, 70 * $day - 100, null, []],     // the assistant resolved it, then Marcus took it: Marcus's
+        [21, 1, null, 'resolved', 70 * $day, 40, 70 * $day - 100, null, []],   // the assistant resolved it, a person reopened it and resolved it again later: nobody's
+        [22, 1, null, 'resolved', 70 * $day, 45, 70 * $day - 100, null, []],   // the assistant resolved it and nothing has touched it: Westy's
     ] as [$id, $tenant, $owner, $status, $opened, $resolved, $due, $merged, $replies]) {
         $ticket->execute([$id, $tenant, $owner, $status, $at($opened), $resolved === null ? null : $at($resolved), $at($due), $merged]);
         foreach ($replies as $reply) $message->execute([$id, 'tech', $at($reply)]);
@@ -188,8 +200,8 @@ try {
     $byOwner = [];
     foreach ($resolved->fetchAll() as $row) $byOwner[($row['assignee_id'] ?? 'nobody') . ((int)$row['westy_held'] === 1 ? ' (Westy)' : '')] = (int)$row['n'];
     ksort($byOwner);
-    reports_check($byOwner === ['11' => 2, '12' => 2, 'nobody' => 2, 'nobody (Westy)' => 1],
-        'a ticket the assistant resolved itself counts as resolved by Westy; one it handed over, or one a person now owns, does not');
+    reports_check($byOwner === ['11' => 2, '12' => 2, 'nobody' => 3, 'nobody (Westy)' => 2],
+        'a ticket the assistant resolved counts as resolved by Westy, whatever its workflow says now; one it handed over, one a person now owns, and one a person resolved again do not');
     $out = report_outcomes($rows, $now);
     $rule = service_goal_response_attainment($pdo, 1, 30, $now);
     reports_check($rule === ['n' => 11, 'met' => 5, 'pct' => 45]
