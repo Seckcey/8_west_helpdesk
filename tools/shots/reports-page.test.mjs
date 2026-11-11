@@ -25,7 +25,7 @@ const html = (theme, key, owner) => {
 <div class="page-head"><div><h1 class="page-title">Reports</h1><p class="page-sub">${piece.sub}</p></div>
 <div class="page-actions">${piece.picker}${owner ? `<a class="btn-secondary" href="/reports_export.php?days=${days}" title="Approved billable time in the last ${days} days, as a CSV file">Export time</a>` : ''}</div></div>
 ${piece.tiles}
-<h2 class="rail-label">By technician</h2>${piece.team}
+<h2 class="rail-label">${owner ? 'By technician' : 'You and the team'}</h2>${owner ? piece.team : piece.team_own}
 <div class="report-grid"><div><h2 class="rail-label">Open longest</h2>${piece.longest}</div><div><h2 class="rail-label">Time by client</h2>${piece.clients}</div></div>
 </div></main>
 <div id="palette-root"></div><div id="toasts" class="toasts" role="status" aria-live="polite"></div>
@@ -149,10 +149,24 @@ test('a number with a list behind it opens that list; by keyboard, in reading or
   assert.deepEqual(errors, []);
 });
 
-test('someone who cannot export sees no Export time; a quiet period still has five tiles, in words', async (t) => {
-  const tech = await fixture(t, { owner: false });
-  assert.equal(await tech.page.getByRole('link', { name: 'Export time' }).count(), 0);
-  assert.deepEqual(tech.errors, []);
+test('a technician sees their own row beside the whole team, no colleague, and no Export time', async (t) => {
+  const { page, errors } = await fixture(t, { owner: false });
+  assert.equal(await page.getByRole('link', { name: 'Export time' }).count(), 0);
+  assert.deepEqual(await texts(page, '.page-reports h2'), ['You and the team', 'Open longest', 'Time by client']);
+  assert.deepEqual(await texts(page, '.report-table tbody th'), ['ARAna Ruiz', 'Whole team']);
+  assert.deepEqual(await texts(page, '.report-table tbody tr:nth-child(2) td'), ['10', '12', '42 min', '86% 19 of 22', '10 h 15 min 10 h 45 min before corrections']);
+  assert.deepEqual(await page.locator('.report-table td a').evaluateAll((links) => links.map((a) => a.getAttribute('href'))), ['/?view=open&owner=11', '/?view=open']);
+  const table = await page.locator('.report-table-card').innerText();
+  for (const colleague of ['Marcus', 'Jo Park', 'Westy', 'Unassigned']) assert.equal(table.includes(colleague), false, `${colleague} has no row`);
+  assert.match(await page.locator('.report-table-card + .page-note').innerText(), /^Your row counts the tickets you own now/);
+  // The tiles are the team's totals, the same for everyone.
+  assert.deepEqual(await texts(page, '.report-stats .stat-v'), ['14', '12', '42 min', '86%', '3 of 4']);
+  assert.equal(await fits(page), true);
+  await shot(page, 'reports-technician-desktop-dark');
+  assert.deepEqual(errors, []);
+});
+
+test('a quiet period still has five tiles, in words', async (t) => {
   const { page, errors } = await fixture(t, { quiet: true });
   assert.deepEqual(await texts(page, '.report-stats .stat-v'), ['0', '0', 'No replies', 'Nothing due', 'No ratings']);
   assert.equal(await page.locator('.stat-meter').count(), 0);

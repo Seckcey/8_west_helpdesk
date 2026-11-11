@@ -76,9 +76,10 @@ function report_median(array $minutes): ?int
  * has passed; it is on time when the first reply came at or before the due time.
  *
  * @param list<array<string,mixed>> $rows id, assignee_id, status, created_at, resolved_at, sla_due_at,
- *        merged_into_id, has_merged_sources, first_response_at (UTC, "Y-m-d H:i:s")
- * @return array{all:array{replied:int,median:?int,decided:int,met:int,pct:?int},owners:array<string,array{replied:int,median:?int,decided:int,met:int,pct:?int}>}
- *         owners is keyed by the owner's user id as a string, '' for a ticket nobody owns
+ *        merged_into_id, has_merged_sources, first_response_at (UTC, "Y-m-d H:i:s"), and westy_held
+ *        (1 when no person owns the ticket and the assistant is working it, as the queue shows it)
+ * @return array{all:array{replied:int,median:?int,decided:int,met:int,pct:?int},owners:array<int|string,array{replied:int,median:?int,decided:int,met:int,pct:?int}>}
+ *         owners is keyed by the owner's user id, 'westy' for a ticket the assistant holds, '' for one nobody owns
  */
 function report_outcomes(array $rows, int $now): array
 {
@@ -93,7 +94,8 @@ function report_outcomes(array $rows, int $now): array
         $decided = $first !== null
             || ((string)$row['status'] === 'resolved' && $resolved !== null && $resolved >= $created && $resolved <= $nowUtc)
             || $due <= $nowUtc;
-        foreach (['all', 'owner:' . ($row['assignee_id'] === null ? '' : (string)(int)$row['assignee_id'])] as $key) {
+        $owner = $row['assignee_id'] !== null ? (string)(int)$row['assignee_id'] : ((int)($row['westy_held'] ?? 0) === 1 ? 'westy' : '');
+        foreach (['all', 'owner:' . $owner] as $key) {
             $groups[$key] ??= ['minutes' => [], 'decided' => 0, 'met' => 0];
             if ($first !== null) {
                 $groups[$key]['minutes'][] = max(0, intdiv((int)strtotime($first . ' UTC') - (int)strtotime($created . ' UTC'), 60));
@@ -188,16 +190,20 @@ function report_tiles(array $facts, int $days): string
  * The team, a row a person. Open now links to the queue's own list of those tickets; the other
  * numbers are for the period and have no such list to open.
  *
+ * $everyone false is the table a technician gets: their own row and the whole team's, no colleague's.
+ * Which rows that is was decided by the page; this only words the caption and the line under it.
+ *
  * @param list<array{name:string,avatar:string,open:int,open_url:string,resolved:int,median:?int,pct:?int,decided:int,met:int,minutes:?int,before_corrections:?int}> $rows
  *        avatar is already-rendered markup; minutes null means the row is not a person who logs time;
  *        before_corrections is set when a correction changed the person's approved time
  */
-function report_team_table(array $rows, int $days): string
+function report_team_table(array $rows, int $days, bool $everyone = true): string
 {
     // The value is one element, so a narrow screen can set it beside its column's name. An empty cell stays empty.
     $cell = static fn(string $label, string $value): string => '<td data-label="' . $label . '">' . ($value !== '' ? '<span class="report-cell">' . $value . '</span>' : '') . '</td>';
     $none = '<span class="report-none">None</span>';
-    $html = '<div class="card report-table-card"><table class="report-table"><caption class="sr-only">The team in ' . report_period_words($days) . '</caption>'
+    $html = '<div class="card report-table-card"><table class="report-table"><caption class="sr-only">'
+        . ($everyone ? 'The team in ' : 'You and the whole team in ') . report_period_words($days) . '</caption>'
         . '<thead><tr><th scope="col">Technician</th><th scope="col">Open now</th><th scope="col">Resolved</th><th scope="col">First reply</th>'
         . '<th scope="col">On time</th><th scope="col">Billable time</th></tr></thead><tbody>';
     foreach ($rows as $row) {
@@ -213,14 +219,18 @@ function report_team_table(array $rows, int $days): string
             . '</tr>';
     }
     return $html . '</tbody></table></div>'
-        . '<p class="page-note">Resolved, First reply and On time go by who owns the ticket now. First reply is the median wait. '
-        . 'Billable time is approved time by the person who logged it. Corrections are included.</p>';
+        . ($everyone
+            ? '<p class="page-note">Resolved, First reply and On time go by who owns the ticket now. First reply is the median wait. '
+                . 'Billable time is approved time by the person who logged it. Corrections are included.</p>'
+            : '<p class="page-note">Your row counts the tickets you own now and the approved time you logged. Whole team counts every ticket '
+                . 'and everyone’s approved time. First reply is the median wait. Corrections are included.</p>');
 }
 
 /**
  * The open tickets that have been open longest, each a link to the ticket.
  *
- * @param list<array{id:int|string,subject:string,client_name:string,assignee_name:?string,created_at:string}> $tickets
+ * @param list<array{id:int|string,subject:string,client_name:string,assignee_name:?string,created_at:string,westy_held?:int|string}> $tickets
+ *        westy_held 1 is a ticket no person owns that the assistant is working: it is Westy's, as in the queue
  */
 function report_open_longest(array $tickets, int $now, string $timeZone = 'UTC'): string
 {
@@ -230,7 +240,8 @@ function report_open_longest(array $tickets, int $now, string $timeZone = 'UTC')
         $owner = trim((string)($ticket['assignee_name'] ?? ''));
         $html .= '<a class="report-row" href="/ticket.php?id=' . (int)$ticket['id'] . '">'
             . '<span class="report-row-main"><span class="report-row-title">#' . (int)$ticket['id'] . ' ' . h($ticket['subject']) . '</span>'
-            . '<span class="report-row-sub">' . h($ticket['client_name'] . ', ' . ($owner !== '' ? $owner : 'unassigned')) . '</span></span>'
+            . '<span class="report-row-sub">' . h($ticket['client_name'] . ', '
+                . ($owner !== '' ? $owner : ((int)($ticket['westy_held'] ?? 0) === 1 ? 'Westy' : 'unassigned'))) . '</span></span>'
             . '<span class="report-row-value">Opened ' . h(ticket_ago((string)$ticket['created_at'], $now, $timeZone)) . '</span></a>';
     }
     return $html . '</div>';

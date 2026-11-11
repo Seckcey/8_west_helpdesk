@@ -12,6 +12,9 @@ require_once __DIR__ . '/../lib/reports_page.php';
 enforce_https();
 $user = require_login();
 $canExportTime = in_array((string)$user['role'], ['owner', 'admin'], true);
+// Owners and admins see a row for every person. A technician sees their own row beside the whole
+// team's, and no colleague's.
+$seesEveryone = in_array((string)$user['role'], ['owner', 'admin'], true);
 
 $tid = (int)$user['tenant_id'];
 
@@ -31,10 +34,14 @@ $counts = db()->prepare(
 $counts->execute([$tid, $since, $tid, $before, $since, $tid, $since, $tid, $before, $since]);
 $c = $counts->fetch();
 
+// A ticket no person owns that the assistant is working is Westy's, by the queue's own rule.
+$westyRule = queue_facts(db())['{westy}'];
+
 // Every ticket opened in the two periods, with its first reply: the median wait and, by current
 // owner, the wait and how many first replies were on time (report_outcomes()).
 $opened = db()->prepare(
     "SELECT t.id, t.assignee_id, t.status, t.created_at, t.resolved_at, t.sla_due_at, t.merged_into_id,
+            CASE WHEN $westyRule THEN 1 ELSE 0 END AS westy_held,
             EXISTS (SELECT 1 FROM tickets merged_source
                      WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id) AS has_merged_sources,
             (SELECT MIN(m.created_at) FROM messages m
@@ -80,7 +87,6 @@ $openBy->execute([$tid]);
 $openByOwner = array_column($openBy->fetchAll(), 'n', 'assignee_id');
 // Tickets no person owns: the assistant's (the queue shows them as Westy's) and the rest, which is
 // exactly the queue's Unassigned list.
-$westyRule = queue_facts(db())['{westy}'];
 $unowned = db()->prepare(
     "SELECT COALESCE(SUM(CASE WHEN $westyRule THEN 1 ELSE 0 END), 0) AS westy,
             COALESCE(SUM(CASE WHEN $westyRule THEN 0 ELSE 1 END), 0) AS unassigned
@@ -89,10 +95,18 @@ $unowned = db()->prepare(
 $unowned->execute([$tid]);
 $unownedOpen = $unowned->fetch();
 
-$resolvedBy = db()->prepare('SELECT assignee_id, COUNT(*) AS n FROM tickets WHERE tenant_id = ? AND resolved_at >= ? GROUP BY assignee_id');
+$resolvedBy = db()->prepare(
+    "SELECT t.assignee_id, CASE WHEN $westyRule THEN 1 ELSE 0 END AS westy_held, COUNT(*) AS n
+       FROM tickets t
+      WHERE t.tenant_id = ? AND t.resolved_at >= ?
+      GROUP BY t.assignee_id, westy_held"
+);
 $resolvedBy->execute([$tid, $since]);
 $resolvedByOwner = [];
-foreach ($resolvedBy->fetchAll() as $row) $resolvedByOwner[(string)($row['assignee_id'] ?? '')] = (int)$row['n'];
+foreach ($resolvedBy->fetchAll() as $row) {
+    $owner = $row['assignee_id'] !== null ? (string)(int)$row['assignee_id'] : ((int)$row['westy_held'] === 1 ? 'westy' : '');
+    $resolvedByOwner[$owner] = (int)$row['n'];
+}
 
 // Approved time in the period by the person who logged it. Tenant and client facts come from the
 // entry snapshot, never from a ticket that may later be merged or reassigned.
@@ -128,6 +142,7 @@ foreach ($tt->fetchAll() as $row) $timeByTech[(int)$row['id']] = $row;
 $teamRows = [];
 foreach ($team as $member) {
     $id = (int)$member['id'];
+    if (!$seesEveryone && $id !== (int)$user['id']) continue;
     $own = $outcomes['owners'][(string)$id] ?? null;
     $time = $timeByTech[$id] ?? null;
     $open = (int)($openByOwner[$id] ?? 0);
@@ -142,27 +157,44 @@ foreach ($team as $member) {
         'before_corrections' => $time !== null && (int)$time['adjusted_count'] > 0 ? (int)$time['original_min_total'] : null,
     ];
 }
-if ((int)$unownedOpen['westy'] > 0) {
+if ($seesEveryone) {
+    // The assistant's tickets have their own row while it holds any or has a number to show.
+    $westy = $outcomes['owners']['westy'] ?? null;
+    if ((int)$unownedOpen['westy'] > 0 || $westy !== null || (int)($resolvedByOwner['westy'] ?? 0) > 0) {
+        $teamRows[] = [
+            'name' => 'Westy', 'avatar' => ticket_owner_avatar(['westy_owned' => true, 'status' => 'in_progress', 'assignee_id' => null], 24),
+            'open' => (int)$unownedOpen['westy'], 'open_url' => '', 'resolved' => (int)($resolvedByOwner['westy'] ?? 0),
+            'median' => $westy['median'] ?? null, 'pct' => $westy['pct'] ?? null, 'decided' => (int)($westy['decided'] ?? 0), 'met' => (int)($westy['met'] ?? 0),
+            'minutes' => null, 'before_corrections' => null,
+        ];
+    }
+    $nobody = $outcomes['owners'][''] ?? null;
     $teamRows[] = [
-        'name' => 'Westy', 'avatar' => ticket_owner_avatar(['westy_owned' => true, 'status' => 'in_progress', 'assignee_id' => null], 24),
-        'open' => (int)$unownedOpen['westy'], 'open_url' => '', 'resolved' => 0,
-        'median' => null, 'pct' => null, 'decided' => 0, 'met' => 0, 'minutes' => null, 'before_corrections' => null,
+        'name' => 'Unassigned', 'avatar' => avatar(null, 24),
+        'open' => (int)$unownedOpen['unassigned'], 'open_url' => '/?view=unassigned', 'resolved' => (int)($resolvedByOwner[''] ?? 0),
+        'median' => $nobody['median'] ?? null, 'pct' => $nobody['pct'] ?? null, 'decided' => (int)($nobody['decided'] ?? 0), 'met' => (int)($nobody['met'] ?? 0),
+        'minutes' => null, 'before_corrections' => null,
+    ];
+} else {
+    // The whole team in one row: the same totals the tiles show, plus everything open and all approved time.
+    $corrected = array_sum(array_map(static fn(array $row): int => (int)$row['adjusted_count'], $timeByTech)) > 0;
+    $teamRows[] = [
+        'name' => 'Whole team', 'avatar' => '',
+        'open' => array_sum(array_map('intval', $openByOwner)) + (int)$unownedOpen['westy'] + (int)$unownedOpen['unassigned'], 'open_url' => '/?view=open',
+        'resolved' => (int)$c['resolved_now'],
+        'median' => $outcomes['all']['median'], 'pct' => $onTime['pct'], 'decided' => (int)$onTime['n'], 'met' => (int)$onTime['met'],
+        'minutes' => array_sum(array_map(static fn(array $row): int => (int)$row['min_total'], $timeByTech)),
+        'before_corrections' => $corrected ? array_sum(array_map(static fn(array $row): int => (int)$row['original_min_total'], $timeByTech)) : null,
     ];
 }
-$nobody = $outcomes['owners'][''] ?? null;
-$teamRows[] = [
-    'name' => 'Unassigned', 'avatar' => avatar(null, 24),
-    'open' => (int)$unownedOpen['unassigned'], 'open_url' => '/?view=unassigned', 'resolved' => (int)($resolvedByOwner[''] ?? 0),
-    'median' => $nobody['median'] ?? null, 'pct' => $nobody['pct'] ?? null, 'decided' => (int)($nobody['decided'] ?? 0), 'met' => (int)($nobody['met'] ?? 0),
-    'minutes' => null, 'before_corrections' => null,
-];
 
 // The open tickets that have been open longest.
 $longest = db()->prepare(
-    "SELECT t.id, t.subject, t.created_at, c.name AS client_name, u.full_name AS assignee_name
+    "SELECT t.id, t.subject, t.created_at, c.name AS client_name, u.full_name AS assignee_name,
+            CASE WHEN $westyRule THEN 1 ELSE 0 END AS westy_held
        FROM tickets t
-       JOIN clients c ON c.id = t.client_id
-       LEFT JOIN users u ON u.id = t.assignee_id
+       JOIN clients c ON c.id = t.client_id AND c.tenant_id = t.tenant_id
+       LEFT JOIN users u ON u.id = t.assignee_id AND u.tenant_id = t.tenant_id
       WHERE t.tenant_id = ? AND t.status <> 'resolved'
       ORDER BY t.created_at ASC, t.id ASC
       LIMIT " . REPORT_OPEN_LONGEST
@@ -227,8 +259,8 @@ page_top($user, 'Reports', 'reports');
       'surveys' => $surveys['sent'], 'rated' => $surveys['rated'], 'great' => $surveys['great'],
   ], $days) ?>
 
-  <h2 class="rail-label">By technician</h2>
-  <?= report_team_table($teamRows, $days) ?>
+  <h2 class="rail-label"><?= $seesEveryone ? 'By technician' : 'You and the team' ?></h2>
+  <?= report_team_table($teamRows, $days, $seesEveryone) ?>
 
   <div class="report-grid">
     <div>

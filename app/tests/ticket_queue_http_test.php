@@ -560,6 +560,21 @@ try {
     $check($x->query('//a[@href="/reports_export.php?days=30"]')->length === 1 && $texts($x, '//a[@href="/reports_export.php?days=30"]') === ['Export time']
         && $queue(102, '/reports.php')->query('//a[starts-with(@href, "/reports_export.php")]')->length === 0
         && $tiles($queue(102, '/reports.php')) === $shown, 'an owner can export the period; a technician sees the same numbers and no export');
+    // A technician's table: their own row, exactly as the owner sees it, beside the whole team's. No colleague has a row.
+    $x = $queue(102, '/reports.php');
+    $mine = $team($x);
+    $tableText = (string)$x->query('//table[' . $hasClass('report-table') . ']')->item(0)?->textContent;
+    $check(array_keys($mine) === ['Maya Reyes', 'Whole team'] && $mine['Maya Reyes'] === $people['Maya Reyes']
+        && !str_contains($tableText, 'Jon Sato') && !str_contains($tableText, 'Olive Owner') && !str_contains($tableText, 'Unassigned')
+        && $texts($x, '//div[' . $hasClass('page-reports') . ']/h2') === ['You and the team', 'Open longest', 'Time by client']
+        && $texts($queue(101, '/reports.php'), '//div[' . $hasClass('page-reports') . ']/h2') === ['By technician', 'Open longest', 'Time by client'],
+        'a technician sees their own row and the whole team\'s, and no colleague\'s; an owner sees everyone');
+    $allOpen = $one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 1 AND status <> 'resolved'");
+    $check($mine['Whole team']['Open now'] === number_format($allOpen) && $mine['Whole team']['link'] === '/?view=open'
+        && count($ids($queue(102, '/?view=open'))) === $allOpen
+        && $mine['Whole team']['Resolved'] === $shown['Resolved'] && $mine['Whole team']['First reply'] === $shown['First reply (median)']
+        && str_starts_with($mine['Whole team']['On time'], $shown['On time'] . ' '),
+        'the whole team\'s row is the tiles\' own totals, and its Open now is the queue\'s All open list');
     $x = $queue(101, '/reports.php?days=90');
     $check($texts($x, '//p[' . $hasClass('page-sub') . ']') === ['How the desk did in the last 90 days.']
         && $tiles($x)['New tickets'] === number_format($one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 1 AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 90 DAY)"))
@@ -569,14 +584,30 @@ try {
         $check($texts($queue(101, '/reports.php?days=' . $odd), '//p[' . $hasClass('page-sub') . ']') === ['How the desk did in the last 30 days.'],
             "a period that is not one of the three offered is the last 30 days ($odd)");
     }
+    // Another tenant. Its one member is a technician: their own row and their own team's totals, and nothing of tenant 1.
     $x = $queue(201, '/reports.php');
-    $check(array_keys($team($x)) === ['Other Tenant', 'Westy', 'Unassigned'] && !str_contains($x->document->textContent, 'Fixture Dental')
-        && !str_contains($x->document->textContent, 'Maya Reyes'), 'another tenant\'s member sees only their own tenant');
-    // That tenant's unowned tickets: two the assistant is working (the queue shows them as Westy's), and
-    // two nobody has, which is exactly the queue's Unassigned list.
+    $theirs = $team($x);
+    $check(array_keys($theirs) === ['Other Tenant', 'Whole team'] && !str_contains($x->document->textContent, 'Fixture Dental')
+        && !str_contains($x->document->textContent, 'Maya Reyes')
+        && $theirs['Whole team']['Open now'] === (string)$one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 2 AND status <> 'resolved'"),
+        'another tenant\'s member sees only their own tenant');
+    // The same person as an admin sees every row. That tenant's unowned tickets: two the assistant is
+    // working (the queue shows them as Westy's), and two nobody has, which is exactly the queue's
+    // Unassigned list. (Nothing after this block reads this account.)
+    $pdo->exec("UPDATE users SET role = 'admin' WHERE id = 201");
+    $x = $queue(201, '/reports.php');
     $theirs = $team($x);
     $working = $one("SELECT COUNT(*) FROM tickets t JOIN westy_workflows w ON w.ticket_id = t.id AND w.tenant_id = t.tenant_id AND w.client_id = t.client_id
         WHERE t.tenant_id = 2 AND t.status = 'in_progress' AND t.assignee_id IS NULL AND w.state = 'working'");
+    // Westy's row carries its own tickets' numbers: one of its two is overdue with no reply; neither of nobody's is due yet.
+    $check(array_keys($theirs) === ['Other Tenant', 'Westy', 'Unassigned']
+        && $theirs['Westy']['Resolved'] === '0' && $theirs['Westy']['First reply'] === 'None' && $theirs['Westy']['On time'] === '0% 0 of 1'
+        && $theirs['Unassigned']['First reply'] === 'None' && $theirs['Unassigned']['On time'] === 'None',
+        'a ticket the assistant is working counts under Westy for First reply and On time, not under Unassigned');
+    $held = $texts($x, '//div[' . $hasClass('report-grid') . ']/div[1]//span[' . $hasClass('report-row-sub') . ']');
+    sort($held);
+    $check($held === ['Other Fixture, Westy', 'Other Fixture, Westy', 'Other Fixture, unassigned', 'Other Fixture, unassigned'],
+        'Open longest names Westy on the tickets the assistant is working');
     $check($working === 2 && $theirs['Westy']['Open now'] === (string)$working && $theirs['Westy']['link'] === null
         && $theirs['Unassigned']['link'] === '/?view=unassigned'
         && count($ids($queue(201, '/?view=unassigned'))) === (int)$theirs['Unassigned']['Open now']

@@ -625,13 +625,16 @@ days, Last 30 days (where it opens) or Last 90 days. Five tiles in one row: New 
 reply (the median wait, so one very late ticket does not speak for the rest), On time (first replies inside
 the service goal, with a meter) and Rated Great (survey answers). Each says how it moved against the same
 number of days before. "By technician" is a table: Open now, Resolved, First reply, On time and Billable
-time. Open now is a link to exactly those tickets in the queue; the queue has no list by date, so the other
+time. Owners and admins see a row for each person, then Westy (the tickets the assistant is working, with
+their own numbers) and Unassigned. A technician sees "You and the team": their own row and a Whole team
+row, and no colleague's row. Open now is a link to exactly those tickets in the queue; the queue has no list by date, so the other
 numbers are not links. Resolved, First reply and On time go by who owns the ticket now, because nothing
 records who resolved or first answered a ticket. "Open longest" replaces the aging buckets with the five
 tickets open longest, each a link. "Time by client" is approved billable time, corrections included.
 "Export time" (owners and admins, as before) exports the period shown. Tickets that were merged are left
 out of First reply as they already were out of On time. The page is still open to every member of the
-team, as it was; the per-person billable time that was always "this week" now follows the period chosen.
+team, as it was. The old page showed every member each technician's approved billable time for the week;
+a technician now sees their own and the team's total, and the per-person rows are for owners and admins.
 No schema, role, permission, grant or endpoint change; every read binds the signed-in tenant
 (`app/public/reports.php`, `app/lib/reports_page.php`).
 
