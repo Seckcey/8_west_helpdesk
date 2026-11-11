@@ -807,7 +807,7 @@ function portal_first_steps_card(bool $clientWide, ?array $devices, bool $canInv
         ['Create your account', '', true, null, null],
         ['Add your first computer', 'About five minutes on a Windows PC. You need to be an administrator on that computer.',
             false, 'Open Your devices', '/portal/devices.php'],
-        ['Invite your team', $canInvite ? 'Each person gets their own sign-in and can ask for help themselves.'
+        ['Invite your team', $canInvite ? 'Each person gets their own sign-in and can ask for help themselves. Then give each person their computer from Your devices.'
             : 'Your support provider can add people for you.',
             false, $canInvite ? 'Invite a member in 8 West ID' : null, $canInvite ? 'https://id.8westit.com/users.php#employee-invitations' : null],
     ], 'portal_h');

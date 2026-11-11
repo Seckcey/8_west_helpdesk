@@ -218,6 +218,7 @@ jobs:
           php app/tests/portal_request_list_test.php
           php app/tests/customer_mail_test.php
           php app/tests/portal_add_computer_test.php
+          php app/tests/portal_computer_access_test.php
           php app/tests/portal_report_archive_test.php
           php app/tests/portal_computer_time_test.php
           php app/tests/portal_guide_test.php

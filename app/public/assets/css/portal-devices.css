@@ -61,3 +61,26 @@
 @media(max-width:700px){.portal-device-links-row .btn-link{min-height:44px}.portal-device-download .btn-primary,.portal-device-download .btn-ghost{flex:1 1 100%}}
 .portal-devices>.portal-add-computer form button{width:auto;padding:0 18px;min-height:44px}
 .portal-device-links-row button.btn-link{color:var(--accent-2)}
+
+/* Computer access: two numbered steps (a sign-in, then this computer), then who has access.
+   A reading-width page; the link sits in a field with Copy beside it. */
+.portal-computer-access>.portal-device-setup,.portal-computer-access>.portal-device-links{max-width:820px}
+.portal-computer-access>.portal-device-links{margin-bottom:24px}
+.portal-access-steps .setup-steps{margin:6px 0 0}
+.portal-access-steps .setup-step{grid-template-columns:28px minmax(0,1fr)}
+.portal-access-steps .setup-text strong{display:block;font-size:14.5px;line-height:1.5;font-weight:650;color:var(--text)}
+.portal-access-steps .setup-text p{margin:2px 0 0}
+.portal-access-steps form{margin-top:12px}
+.portal-access-steps button,.portal-access-steps .portal-access-invite{width:auto;min-height:44px;margin:0;padding:0 18px}
+.portal-devices .portal-access-invite{display:inline-flex;margin-top:10px;color:var(--text);text-decoration:none}
+.portal-access-link{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;margin-top:10px}
+.portal-access-link .field{flex:1 1 320px;margin:0}
+.portal-access-link input{width:100%;min-height:44px;font-size:13px}
+.portal-access-steps .setup-text .portal-hint{margin-top:8px}
+.portal-computer-access .portal-device-links article{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px}
+.portal-computer-access .portal-device-links article>div{flex:1 1 260px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.portal-computer-access .portal-device-links form{margin:0}
+.portal-computer-access .portal-device-links .portal-device-state{display:inline-flex;align-items:center;min-height:22px;margin:0;font-size:12px}
+.portal-computer-access .portal-device-links strong{overflow-wrap:anywhere}
+@media(max-width:620px){.portal-access-link button{flex:1 1 100%}}
+.portal-devices.portal-computer-access>.portal-device-setup{margin-bottom:24px}
