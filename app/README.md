@@ -264,6 +264,8 @@ public/                    Apache docroot (page-per-file, like Milepost)
   signed-in person's own logged time (never a teammate's: the Time page shows
   a technician only their own entries), and Open in Milepost for a linked
   client. Every read is scoped to the tenant and to the ticket's own client.
+  `ticket_contact()` returns a contact only when it belongs to that client: a
+  contact of another client is nobody to the ticket (no name, reply or survey).
 - Merge: the Merge button in the head, or the duplicate notice (same contact,
   48h), opens a dialog that lists the client's other open tickets (the page
   prints them in `#merge-data`; there is no new endpoint), with a search by
