@@ -196,6 +196,19 @@ test('Merge opens a dialog: find a ticket, read one line about it, confirm', asy
   assert.deepEqual(errors, []);
 });
 
+test('a double click on Merge opens the dialog and leaves it open', async (t) => {
+  const { page, errors, merges } = await fixture(t);
+  await page.getByRole('button', { name: 'Merge', exact: true }).dblclick();
+  await settle(page);
+  assert.equal(await page.getByRole('heading', { name: 'Merge #1041 into another ticket' }).count(), 1, 'the second press did not close it');
+  // Later, a press outside the dialog still closes it.
+  await page.waitForTimeout(350);
+  await page.mouse.click(5, 5);
+  assert.equal(await dialog(page).count(), 0);
+  assert.deepEqual(merges, []);
+  assert.deepEqual(errors, []);
+});
+
 test('the search finds a ticket by its number, with or without the #, and says when nothing matches', async (t) => {
   const { page, errors } = await fixture(t);
   await page.getByRole('button', { name: 'Merge', exact: true }).click();

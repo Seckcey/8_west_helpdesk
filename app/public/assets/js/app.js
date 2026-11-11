@@ -879,6 +879,8 @@
   let bulkDialogOpen = false;
   let mergeDialogOpen = false;
   let formDialogOpen = false;
+  // How long a dialog ignores presses outside it after it opens.
+  const DIALOG_SETTLE_MS = 300;
   const bulkBar = page === "queue" ? $("#bulk-bar") : null;
 
   function make(tag, className, text) {
@@ -1825,7 +1827,10 @@
         done(answer.value);
       });
       cancel.addEventListener("click", () => done(null));
-      overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) done(null); });
+      // A press outside the dialog closes it, but not in its first moments: the second press of a
+      // double click on the button that opened it lands out there.
+      const openedAt = Date.now();
+      overlay.addEventListener("mousedown", (e) => { if (e.target === overlay && Date.now() - openedAt > DIALOG_SETTLE_MS) done(null); });
       document.addEventListener("keydown", onKey, true);
       const first = form.build(fields);
       document.body.append(overlay);
@@ -1868,18 +1873,44 @@
     fields.append(group);
     return () => $(`input[name="${name}"]:checked`, group).value === "1";
   }
-  // A stored UTC time in a date-and-time picker, on this computer's clock, and back again.
-  function utcToLocalInput(text) {
-    const parsed = parseCorrectionUtc(text);
-    if (!parsed) return "";
-    const d = new Date(parsed.milliseconds);
-    const two = (n) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+  // The Safeharbor time-zone setting this page was drawn with: History's times are in it, so the
+  // pickers are too. The computer's own zone is used only when the page names none the browser knows.
+  function deskTimeZone() {
+    const named = document.documentElement.dataset.timeZone || "";
+    try {
+      if (named) { new Intl.DateTimeFormat("en-US", { timeZone: named }); return named; }
+    } catch { /* not a zone this browser knows */ }
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   }
-  function localInputToUtc(value) {
-    const milliseconds = value ? new Date(value).getTime() : NaN;
-    if (!Number.isFinite(milliseconds)) return null;
-    return parseCorrectionUtc(new Date(milliseconds).toISOString().replace(/\.\d{3}Z$/, "Z"));
+  // What a zone's clocks showed at an instant, as a picker writes it: 2026-11-10T09:10:00.
+  function zoneWall(milliseconds, zone) {
+    const parts = {};
+    new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      .formatToParts(new Date(milliseconds)).forEach((part) => { parts[part.type] = part.value; });
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+  }
+  function utcToZoneInput(text, zone) {
+    const parsed = parseCorrectionUtc(text);
+    return parsed ? zoneWall(parsed.milliseconds, zone) : "";
+  }
+  // Every instant at which a zone's clocks showed a picked time, earliest first: one normally, two
+  // in the hour that repeats when the clocks go back, none in the hour they skip going forward.
+  // Null when nothing usable was picked.
+  function zoneInstants(value, zone) {
+    const picked = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value || "");
+    if (!picked) return null;
+    const wall = `${picked[1]}-${picked[2]}-${picked[3]}T${picked[4]}:${picked[5]}:${picked[6] || "00"}`;
+    const asUtc = Date.parse(wall + "Z");
+    if (!Number.isFinite(asUtc)) return null;
+    const found = new Set();
+    // The zone's offset a day before, then, and a day after covers both sides of any clock change.
+    [asUtc - 86400000, asUtc, asUtc + 86400000].forEach((near) => {
+      const offset = Date.parse(zoneWall(near, zone) + "Z") - near;
+      if (zoneWall(asUtc - offset, zone) === wall) found.add(asUtc - offset);
+    });
+    return [...found].sort((a, b) => a - b)
+      .map((milliseconds) => parseCorrectionUtc(new Date(milliseconds).toISOString().replace(/\.\d{3}Z$/, "Z")))
+      .filter(Boolean);
   }
 
   /* rejected entries are never edited; one new pending replacement links back */
@@ -1906,10 +1937,34 @@
             if (measured) {
               const pair = make("div", "form-dialog-pair");
               fields.append(pair);
+              const zone = deskTimeZone();
+              controls.zone = zone;
               const picker = (value) => { const input = make("input"); input.type = "datetime-local"; input.step = "1"; input.value = value; return input; };
-              controls.start = formField(pair, "correct-start", "Start", picker(utcToLocalInput(button.dataset.startedAt || "")));
-              controls.end = formField(pair, "correct-end", "End", picker(utcToLocalInput(button.dataset.endedAt || "")));
-              fields.append(make("p", "field-help", "In this computer's time. The minutes are worked out from the start and the end."));
+              controls.start = formField(pair, "correct-start", "Start", picker(utcToZoneInput(button.dataset.startedAt || "", zone)));
+              controls.end = formField(pair, "correct-end", "End", picker(utcToZoneInput(button.dataset.endedAt || "", zone)));
+              fields.append(make("p", "field-help", `Times are in ${zone.replace(/_/g, " ")} time, as History shows them. The minutes are worked out from the start and the end.`));
+              // On the night the clocks go back an hour happens twice. A time picked in that hour
+              // is asked about here, never guessed: the two are an hour of work apart.
+              controls.twice = {};
+              [["start", "start"], ["end", "end"]].forEach(([which, word]) => {
+                const group = make("fieldset", "seg-field");
+                group.id = `correct-${which}-twice`;
+                group.hidden = true;
+                group.append(make("legend", "", `That ${word} time happened twice. Which one?`));
+                const row = make("div", "seg");
+                [["first", "The first, before the clocks went back"], ["second", "The second, after they went back"]].forEach(([value, words]) => {
+                  const item = make("label", "seg-item");
+                  const radio = make("input");
+                  radio.type = "radio";
+                  radio.name = `correct-${which}-twice`;
+                  radio.value = value;
+                  item.append(radio, make("span", "", words));
+                  row.append(item);
+                });
+                group.append(row);
+                fields.append(group);
+                controls.twice[which] = group;
+              });
             } else {
               const minutes = make("input");
               minutes.type = "text";
@@ -1931,10 +1986,33 @@
             const controls = this.controls;
             const out = { minutes: Number(button.dataset.minutes), workedAt: button.dataset.workedAt, startedAt: button.dataset.startedAt || null, endedAt: button.dataset.endedAt || null };
             if (measured) {
-              const correctedStart = localInputToUtc(controls.start.value);
-              const correctedEnd = localInputToUtc(controls.end.value);
-              if (!correctedStart) return { error: "Pick the start date and time.", field: controls.start };
-              if (!correctedEnd) return { error: "Pick the end date and time.", field: controls.end };
+              // One picked time as an instant, or what to say when it is not exactly one.
+              const instantOf = (which) => {
+                const control = controls[which];
+                const group = controls.twice[which];
+                const instants = zoneInstants(control.value, controls.zone);
+                if (!instants || instants.length !== 2) {
+                  group.hidden = true;
+                  $$("input", group).forEach((radio) => { radio.checked = false; });
+                }
+                if (!instants) return { error: `Pick the ${which} date and time.`, field: control };
+                if (instants.length === 0) {
+                  return { error: `That ${which} time does not exist: the clocks went forward that night and skipped it. Pick another time.`, field: control };
+                }
+                if (instants.length === 1) return { instant: instants[0] };
+                group.hidden = false;
+                const chosen = $("input:checked", group);
+                if (!chosen) {
+                  return { error: `That ${which} time happened twice, because the clocks went back that night. Say which one you mean.`, field: $("input", group) };
+                }
+                return { instant: instants[chosen.value === "second" ? 1 : 0] };
+              };
+              const startAnswer = instantOf("start");
+              const endAnswer = instantOf("end");
+              if (startAnswer.error) return startAnswer;
+              if (endAnswer.error) return endAnswer;
+              const correctedStart = startAnswer.instant;
+              const correctedEnd = endAnswer.instant;
               const duration = correctedEnd.milliseconds - correctedStart.milliseconds;
               if (duration <= 0 || duration > 86400000) {
                 return { error: "The end has to be after the start, and no more than 24 hours after it.", field: controls.end };
@@ -1948,7 +2026,9 @@
                 ? worked.text : correctedEnd.text;
               out.minutes = Math.max(1, Math.round(duration / 60000));
             } else {
-              out.minutes = Number(controls.minutes.value.trim());
+              // Digits only, as in the Change dialog: Number() alone would read "1e2" as 100 and "0x1e" as 30.
+              const typed = controls.minutes.value.trim();
+              out.minutes = /^[1-9][0-9]*$/.test(typed) ? Number(typed) : NaN;
               if (!Number.isInteger(out.minutes) || out.minutes < 1 || out.minutes > 1440) {
                 return { error: "Minutes must be a whole number from 1 to 1440.", field: controls.minutes };
               }
@@ -2719,7 +2799,8 @@
 
     cancel.addEventListener("click", close);
     confirmBtn.addEventListener("click", run);
-    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+    const openedAt = Date.now();   // as in askForm: a double click on Merge must not close what it opened
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay && Date.now() - openedAt > DIALOG_SETTLE_MS) close(); });
     document.addEventListener("keydown", onKey, true);
     document.body.appendChild(overlay);
 
