@@ -614,6 +614,23 @@ try {
         && (int)$theirs['Westy']['Open now'] + (int)$theirs['Unassigned']['Open now'] + (int)$theirs['Other Tenant']['Open now']
             === $one("SELECT COUNT(*) FROM tickets WHERE tenant_id = 2 AND status <> 'resolved'"),
         'tickets the assistant is working have their own row, apart from Unassigned, and every open ticket is counted once');
+    // A ticket the assistant resolved itself (its workflow ended "resolved", nobody owns it) is Westy's in
+    // the period's numbers: resolved by Westy, and decided under Westy, not under Unassigned.
+    $pdo->exec("INSERT INTO tickets (id, tenant_id, client_id, subject, channel, status, sla_due_at, created_at, resolved_at)
+        VALUES (8005, 2, 21, 'The assistant fixed this', 'alert', 'resolved', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 100 MINUTE),
+            DATE_SUB(UTC_TIMESTAMP(), INTERVAL 120 MINUTE), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 MINUTE))");
+    $pdo->exec("INSERT INTO westy_workflows (tenant_id, client_id, customer_id, ticket_id, workflow_key, alert_key, state, version, summary,
+            evidence_sha256, job_id, job_completed_at, alert_resolved_at, closed_at, started_at, updated_at)
+        VALUES (2, 21, '00000000-0000-4000-8000-000000008005', 8005, '11111111-1111-4111-8111-000000008005', 'alert:8005', 'resolved', 2, 'Synthetic recovery',
+            REPEAT('a', 64), 1, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 70 MINUTE), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 65 MINUTE), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 MINUTE),
+            DATE_SUB(UTC_TIMESTAMP(), INTERVAL 120 MINUTE), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 MINUTE))");
+    $x = $queue(201, '/reports.php');
+    $after = $team($x);
+    $check($after['Westy']['Resolved'] === '1' && $after['Westy']['On time'] === '0% 0 of 2' && $after['Westy']['Open now'] === (string)$working
+        && $after['Unassigned']['Resolved'] === '0' && $after['Unassigned']['On time'] === 'None'
+        && $tiles($x)['Resolved'] === '1'
+        && array_sum(array_map(static fn(array $row): int => (int)$row['Resolved'], $after)) === 1,
+        'a ticket the assistant resolved itself counts as resolved by Westy, not by nobody');
     $x = $queue(301, '/reports.php');
     $check(array_values($tiles($x)) === ['0', '0', 'No replies', 'Nothing due', 'No ratings']
         && $texts($x, '//div[' . $hasClass('report-grid') . ']//div[' . $hasClass('empty') . ']/p') === ['No open tickets.', 'No approved billable time in the last 30 days.'],

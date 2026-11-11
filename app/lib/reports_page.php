@@ -77,7 +77,7 @@ function report_median(array $minutes): ?int
  *
  * @param list<array<string,mixed>> $rows id, assignee_id, status, created_at, resolved_at, sla_due_at,
  *        merged_into_id, has_merged_sources, first_response_at (UTC, "Y-m-d H:i:s"), and westy_held
- *        (1 when no person owns the ticket and the assistant is working it, as the queue shows it)
+ *        (1 when no person owns the ticket and the assistant is working it or resolved it: report_westy_owned_sql())
  * @return array{all:array{replied:int,median:?int,decided:int,met:int,pct:?int},owners:array<int|string,array{replied:int,median:?int,decided:int,met:int,pct:?int}>}
  *         owners is keyed by the owner's user id, 'westy' for a ticket the assistant holds, '' for one nobody owns
  */
@@ -118,6 +118,19 @@ function report_outcomes(array $rows, int $now): array
         if (str_starts_with($key, 'owner:')) $owners[substr($key, 6)] = $sum($group);
     }
     return ['all' => $sum($groups['all'] ?? null), 'owners' => $owners];
+}
+
+/**
+ * SQL over the alias t: is this ticket Westy's? It is while nobody owns it and the assistant holds it
+ * ($held, the queue's own rule for an open ticket), and it stays Westy's once resolved if the
+ * assistant's own workflow resolved it. A ticket a person owns is that person's. Where the workflow
+ * table does not exist yet ($held is the queue's "never"), no ticket is.
+ */
+function report_westy_owned_sql(string $held): string
+{
+    if ($held === '(0 = 1)') return $held;
+    return "(t.assignee_id IS NULL AND ($held OR (t.status = 'resolved' AND EXISTS (SELECT 1 FROM westy_workflows done"
+        . " WHERE done.ticket_id = t.id AND done.tenant_id = t.tenant_id AND done.client_id = t.client_id AND done.state = 'resolved'))))";
 }
 
 /** How a count moved: "3 more than the 30 days before". */
