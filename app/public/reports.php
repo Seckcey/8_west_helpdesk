@@ -1,60 +1,117 @@
 <?php
 /**
- * Reports — the owner's honest weekly view. Every number is computed from
- * real rows (nothing hardcoded, ever): first response, response-target attainment,
- * aging, time by tech, billable time by client, CSAT.
+ * Reports: how the desk did in one period, against the period before. Every number is counted
+ * from real rows of the signed-in tenant: new and resolved tickets, the median wait for a first
+ * reply, first replies on time, survey answers, the team by person, the tickets open longest, and
+ * approved billable time by client. The pieces are drawn by lib/reports_page.php.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
+require_once __DIR__ . '/../lib/ticket_queue.php';
+require_once __DIR__ . '/../lib/reports_page.php';
 enforce_https();
 $user = require_login();
 $canExportTime = in_array((string)$user['role'], ['owner', 'admin'], true);
+// Owners and admins see a row for every person. A technician sees their own row beside the whole
+// team's, and no colleague's.
+$seesEveryone = in_array((string)$user['role'], ['owner', 'admin'], true);
 
 $tid = (int)$user['tenant_id'];
 
-// This week / right now
+// One period for the whole page, and the same number of days before it to compare with.
+$days = report_period($_GET);
+$now = time();
+$since = gmdate('Y-m-d H:i:s', $now - $days * 86400);
+$before = gmdate('Y-m-d H:i:s', $now - 2 * $days * 86400);
+
 $counts = db()->prepare(
     "SELECT
-       (SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND status != 'resolved') AS open_now,
-       (SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND created_at  >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS created_7d,
-       (SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND resolved_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS resolved_7d"
+       (SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND created_at  >= ?) AS new_now,
+       (SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND created_at  >= ? AND created_at  < ?) AS new_before,
+       (SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND resolved_at >= ?) AS resolved_now,
+       (SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND resolved_at >= ? AND resolved_at < ?) AS resolved_before"
 );
-$counts->execute([$tid, $tid, $tid]);
+$counts->execute([$tid, $since, $tid, $before, $since, $tid, $since, $tid, $before, $since]);
 $c = $counts->fetch();
 
-// Avg first response, 30d (creation → first tech reply)
-$fr = db()->prepare(
-    "SELECT AVG(TIMESTAMPDIFF(MINUTE, t.created_at, x.first_tech)) AS avg_min, COUNT(*) AS n
+// A ticket no person owns that the assistant is working is Westy's, by the queue's own rule.
+$westyRule = queue_facts(db())['{westy}'];
+
+// Every ticket opened in the two periods, with its first reply: the median wait and, by current
+// owner, the wait and how many first replies were on time (report_outcomes()).
+$opened = db()->prepare(
+    "SELECT t.id, t.assignee_id, t.status, t.created_at, t.resolved_at, t.sla_due_at, t.merged_into_id,
+            CASE WHEN $westyRule THEN 1 ELSE 0 END AS westy_held,
+            EXISTS (SELECT 1 FROM tickets merged_source
+                     WHERE merged_source.tenant_id = t.tenant_id AND merged_source.merged_into_id = t.id) AS has_merged_sources,
+            (SELECT MIN(m.created_at) FROM messages m
+              WHERE m.ticket_id = t.id AND m.kind = 'tech' AND m.created_at >= t.created_at) AS first_response_at
        FROM tickets t
-       JOIN (SELECT ticket_id, MIN(created_at) AS first_tech FROM messages WHERE kind = 'tech' GROUP BY ticket_id) x
-         ON x.ticket_id = t.id
-      WHERE t.tenant_id = ? AND t.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)"
+      WHERE t.tenant_id = ? AND t.created_at >= ?"
 );
-$fr->execute([$tid]);
-$frRow = $fr->fetch();
-$avgFirst = $frRow && $frRow['avg_min'] !== null ? (int)round((float)$frRow['avg_min']) : null;
+$opened->execute([$tid, $before]);
+$thisPeriod = [];
+$periodBefore = [];
+foreach ($opened->fetchAll() as $row) {
+    if ((string)$row['created_at'] >= $since) $thisPeriod[] = $row; else $periodBefore[] = $row;
+}
+$outcomes = report_outcomes($thisPeriod, $now);
+$outcomesBefore = report_outcomes($periodBefore, $now);
 
-// First-response target attainment, 30d. Future open targets are undecided;
-// resolution time is deliberately irrelevant to a response deadline.
-$responseAttainment = service_goal_response_attainment(db(), $tid, 30);
-$slaPct = $responseAttainment['pct'];
+// First replies on time. A ticket whose due time is still ahead is undecided; how long a ticket
+// took to resolve has nothing to do with a reply deadline. The period before is judged as it
+// stood when it ended.
+$onTime = service_goal_response_attainment(db(), $tid, $days, $now);
+$onTimeBefore = service_goal_response_attainment(db(), $tid, $days, $now - $days * 86400);
 
-// Aging buckets (open tickets)
-$aging = db()->prepare(
-    "SELECT
-       SUM(created_at >  DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)) AS b1,
-       SUM(created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY) AND created_at >  DATE_SUB(UTC_TIMESTAMP(), INTERVAL 3 DAY)) AS b2,
-       SUM(created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 3 DAY) AND created_at >  DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS b3,
-       SUM(created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS b4
-       FROM tickets WHERE tenant_id = ? AND status != 'resolved'"
+// Survey answers in the period: sent, answered, and answered Great (3 of 1 to 3).
+$surveys = ['sent' => 0, 'rated' => 0, 'great' => 0];
+try {
+    $csq = db()->prepare(
+        "SELECT COUNT(*) AS sent, COUNT(s.score) AS rated, COALESCE(SUM(CASE WHEN s.score = 3 THEN 1 ELSE 0 END), 0) AS great
+           FROM csat s JOIN tickets t ON t.id = s.ticket_id
+          WHERE t.tenant_id = ? AND s.created_at >= ?"
+    );
+    $csq->execute([$tid, $since]);
+    $r = $csq->fetch();
+    $surveys = ['sent' => (int)($r['sent'] ?? 0), 'rated' => (int)($r['rated'] ?? 0), 'great' => (int)($r['great'] ?? 0)];
+} catch (Throwable $e) { /* pre-migration */ }
+
+// ---- the team ----
+$members = db()->prepare('SELECT id, full_name, initials, color, is_active, suite_subject FROM users WHERE tenant_id = ? ORDER BY full_name, id');
+$members->execute([$tid]);
+$team = $members->fetchAll();
+
+$openBy = db()->prepare("SELECT assignee_id, COUNT(*) AS n FROM tickets WHERE tenant_id = ? AND status <> 'resolved' AND assignee_id IS NOT NULL GROUP BY assignee_id");
+$openBy->execute([$tid]);
+$openByOwner = array_column($openBy->fetchAll(), 'n', 'assignee_id');
+// Tickets no person owns: the assistant's (the queue shows them as Westy's) and the rest, which is
+// exactly the queue's Unassigned list.
+$unowned = db()->prepare(
+    "SELECT COALESCE(SUM(CASE WHEN $westyRule THEN 1 ELSE 0 END), 0) AS westy,
+            COALESCE(SUM(CASE WHEN $westyRule THEN 0 ELSE 1 END), 0) AS unassigned
+       FROM tickets t WHERE t.tenant_id = ? AND t.status <> 'resolved' AND t.assignee_id IS NULL"
 );
-$aging->execute([$tid]);
-$ag = $aging->fetch();
+$unowned->execute([$tid]);
+$unownedOpen = $unowned->fetch();
 
-// Approved time this week by tech. Tenant and client facts come from the
+$resolvedBy = db()->prepare(
+    "SELECT t.assignee_id, CASE WHEN $westyRule THEN 1 ELSE 0 END AS westy_held, COUNT(*) AS n
+       FROM tickets t
+      WHERE t.tenant_id = ? AND t.resolved_at >= ?
+      GROUP BY t.assignee_id, westy_held"
+);
+$resolvedBy->execute([$tid, $since]);
+$resolvedByOwner = [];
+foreach ($resolvedBy->fetchAll() as $row) {
+    $owner = $row['assignee_id'] !== null ? (string)(int)$row['assignee_id'] : ((int)$row['westy_held'] === 1 ? 'westy' : '');
+    $resolvedByOwner[$owner] = (int)$row['n'];
+}
+
+// Approved time in the period by the person who logged it. Tenant and client facts come from the
 // entry snapshot, never from a ticket that may later be merged or reassigned.
 $tt = db()->prepare(
-    "SELECT u.full_name, u.initials, u.color,
+    "SELECT u.id, u.full_name, u.initials, u.color,
             SUM(CASE WHEN e.billable = 1 THEN e.minutes ELSE 0 END) AS original_min_total,
             SUM(CASE
                   WHEN COALESCE(adjustment.effective_billable, e.billable) = 1
@@ -73,16 +130,80 @@ $tt = db()->prepare(
              WHERE latest.tenant_id = e.tenant_id AND latest.time_entry_id = e.id
         )
       WHERE e.tenant_id = ? AND e.approval_status = 'approved'
-        AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
+        AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
       GROUP BY u.id
       HAVING min_total > 0 OR original_min_total > 0
       ORDER BY min_total DESC"
 );
-$tt->execute([$tid]);
-$timeByTech = $tt->fetchAll();
+$tt->execute([$tid, $days]);
+$timeByTech = [];
+foreach ($tt->fetchAll() as $row) $timeByTech[(int)$row['id']] = $row;
 
-// Approved billable time by captured client, 30d. Keep exact minutes so small
-// approved entries remain visible, using the same display as time by tech.
+$teamRows = [];
+foreach ($team as $member) {
+    $id = (int)$member['id'];
+    if (!$seesEveryone && $id !== (int)$user['id']) continue;
+    $own = $outcomes['owners'][(string)$id] ?? null;
+    $time = $timeByTech[$id] ?? null;
+    $open = (int)($openByOwner[$id] ?? 0);
+    $resolved = (int)($resolvedByOwner[(string)$id] ?? 0);
+    // Someone who has left appears only while the page still has a number of theirs to show.
+    if ((int)$member['is_active'] !== 1 && $open === 0 && $resolved === 0 && $own === null && $time === null) continue;
+    $teamRows[] = [
+        'name' => (string)$member['full_name'], 'avatar' => avatar($member, 24),
+        'open' => $open, 'open_url' => '/?view=open&owner=' . $id, 'resolved' => $resolved,
+        'median' => $own['median'] ?? null, 'pct' => $own['pct'] ?? null, 'decided' => (int)($own['decided'] ?? 0), 'met' => (int)($own['met'] ?? 0),
+        'minutes' => (int)($time['min_total'] ?? 0),
+        'before_corrections' => $time !== null && (int)$time['adjusted_count'] > 0 ? (int)$time['original_min_total'] : null,
+    ];
+}
+if ($seesEveryone) {
+    // The assistant's tickets have their own row while it holds any or has a number to show.
+    $westy = $outcomes['owners']['westy'] ?? null;
+    if ((int)$unownedOpen['westy'] > 0 || $westy !== null || (int)($resolvedByOwner['westy'] ?? 0) > 0) {
+        $teamRows[] = [
+            'name' => 'Westy', 'avatar' => ticket_owner_avatar(['westy_owned' => true, 'status' => 'in_progress', 'assignee_id' => null], 24),
+            'open' => (int)$unownedOpen['westy'], 'open_url' => '', 'resolved' => (int)($resolvedByOwner['westy'] ?? 0),
+            'median' => $westy['median'] ?? null, 'pct' => $westy['pct'] ?? null, 'decided' => (int)($westy['decided'] ?? 0), 'met' => (int)($westy['met'] ?? 0),
+            'minutes' => null, 'before_corrections' => null,
+        ];
+    }
+    $nobody = $outcomes['owners'][''] ?? null;
+    $teamRows[] = [
+        'name' => 'Unassigned', 'avatar' => avatar(null, 24),
+        'open' => (int)$unownedOpen['unassigned'], 'open_url' => '/?view=unassigned', 'resolved' => (int)($resolvedByOwner[''] ?? 0),
+        'median' => $nobody['median'] ?? null, 'pct' => $nobody['pct'] ?? null, 'decided' => (int)($nobody['decided'] ?? 0), 'met' => (int)($nobody['met'] ?? 0),
+        'minutes' => null, 'before_corrections' => null,
+    ];
+} else {
+    // The whole team in one row: the same totals the tiles show, plus everything open and all approved time.
+    $corrected = array_sum(array_map(static fn(array $row): int => (int)$row['adjusted_count'], $timeByTech)) > 0;
+    $teamRows[] = [
+        'name' => 'Whole team', 'avatar' => '',
+        'open' => array_sum(array_map('intval', $openByOwner)) + (int)$unownedOpen['westy'] + (int)$unownedOpen['unassigned'], 'open_url' => '/?view=open',
+        'resolved' => (int)$c['resolved_now'],
+        'median' => $outcomes['all']['median'], 'pct' => $onTime['pct'], 'decided' => (int)$onTime['n'], 'met' => (int)$onTime['met'],
+        'minutes' => array_sum(array_map(static fn(array $row): int => (int)$row['min_total'], $timeByTech)),
+        'before_corrections' => $corrected ? array_sum(array_map(static fn(array $row): int => (int)$row['original_min_total'], $timeByTech)) : null,
+    ];
+}
+
+// The open tickets that have been open longest.
+$longest = db()->prepare(
+    "SELECT t.id, t.subject, t.created_at, c.name AS client_name, u.full_name AS assignee_name,
+            CASE WHEN $westyRule THEN 1 ELSE 0 END AS westy_held
+       FROM tickets t
+       JOIN clients c ON c.id = t.client_id AND c.tenant_id = t.tenant_id
+       LEFT JOIN users u ON u.id = t.assignee_id AND u.tenant_id = t.tenant_id
+      WHERE t.tenant_id = ? AND t.status <> 'resolved'
+      ORDER BY t.created_at ASC, t.id ASC
+      LIMIT " . REPORT_OPEN_LONGEST
+);
+$longest->execute([$tid]);
+$openLongest = $longest->fetchAll();
+
+// Approved billable time in the period by captured client. Exact minutes, so small approved
+// entries remain visible.
 $bc = db()->prepare(
     "SELECT c.id, c.name,
             SUM(CASE WHEN e.billable = 1 THEN e.minutes ELSE 0 END) AS original_min_total,
@@ -103,103 +224,52 @@ $bc = db()->prepare(
              WHERE latest.tenant_id = e.tenant_id AND latest.time_entry_id = e.id
         )
       WHERE e.tenant_id = ? AND e.approval_status = 'approved'
-        AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)
+        AND e.worked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
       GROUP BY c.id
       HAVING min_total > 0 OR original_min_total > 0
       ORDER BY min_total DESC"
 );
-$bc->execute([$tid]);
+$bc->execute([$tid, $days]);
 $billByClient = $bc->fetchAll();
 
-// CSAT, 30d
-$cs = ['n' => 0, 'sent' => 0, 'avg' => null];
-try {
-    $csq = db()->prepare(
-        "SELECT COUNT(*) AS sent, COUNT(score) AS n, AVG(score) AS avg_score
-           FROM csat s JOIN tickets t ON t.id = s.ticket_id
-          WHERE t.tenant_id = ? AND s.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)"
-    );
-    $csq->execute([$tid]);
-    $r = $csq->fetch();
-    $cs = ['n' => (int)($r['n'] ?? 0), 'sent' => (int)($r['sent'] ?? 0),
-           'avg' => $r && $r['avg_score'] !== null ? round((float)$r['avg_score'], 2) : null];
-} catch (Throwable $e) { /* pre-migration */ }
-
-$fmtMin = static function (?int $m): string {
-    if ($m === null) return '—';
-    if ($m < 60) return $m . 'm';
-    return intdiv($m, 60) . 'h ' . str_pad((string)($m % 60), 2, '0', STR_PAD_LEFT) . 'm';
-};
+$suitePreferences = is_array($_SESSION['suite_preferences'] ?? null) ? $_SESSION['suite_preferences'] : suite_preferences_defaults();
+$timeZone = (string)($suitePreferences['time_zone'] ?? 'UTC');
 
 page_top($user, 'Reports', 'reports');
 ?>
-<div class="page">
+<div class="page page-reports">
   <div class="page-head">
     <div>
       <h1 class="page-title">Reports</h1>
-      <p class="page-sub">Real numbers, computed live — nothing here is decorative</p>
+      <p class="page-sub">How the desk did in <?= report_period_words($days) ?>.</p>
     </div>
-    <?php if ($canExportTime): ?>
-      <div class="page-actions">
-        <a class="btn-chip" href="/reports_export.php?days=30">⭳ Approved billable CSV (30d)</a>
-      </div>
-    <?php endif; ?>
+    <div class="page-actions">
+      <?= report_period_picker($days) ?>
+      <?php if ($canExportTime): ?>
+        <a class="btn-secondary" href="/reports_export.php?days=<?= $days ?>" title="Approved billable time in <?= report_period_words($days) ?>, as a CSV file">Export time</a>
+      <?php endif; ?>
+    </div>
   </div>
 
-  <div class="stats">
-    <div class="card stat"><div class="stat-k">Open now</div><div class="stat-v"><?= (int)$c['open_now'] ?></div></div>
-    <div class="card stat"><div class="stat-k">New this week</div><div class="stat-v"><?= (int)$c['created_7d'] ?></div></div>
-    <div class="card stat"><div class="stat-k">Resolved this week</div><div class="stat-v stat-good"><?= (int)$c['resolved_7d'] ?></div></div>
-    <div class="card stat"><div class="stat-k">Avg first response (30d)</div><div class="stat-v <?= $avgFirst !== null && $avgFirst <= 60 ? 'stat-good' : '' ?>"><?= $fmtMin($avgFirst) ?></div><div class="stat-hint"><?= (int)($frRow['n'] ?? 0) ?> tickets</div></div>
-    <div class="card stat"><div class="stat-k">Response target attainment (30d)</div><div class="stat-v <?= $slaPct !== null && $slaPct >= 90 ? 'stat-good' : ($slaPct !== null && $slaPct < 70 ? 'stat-warn' : '') ?>"><?= $slaPct === null ? '—' : $slaPct . '%' ?></div><div class="stat-hint"><?= $responseAttainment['n'] ?> decided tickets</div></div>
-    <div class="card stat"><div class="stat-k">CSAT (30d)</div><div class="stat-v <?= $cs['avg'] !== null && $cs['avg'] >= 2.5 ? 'stat-good' : '' ?>"><?= $cs['avg'] === null ? '—' : $cs['avg'] . ' / 3' ?></div><div class="stat-hint"><?= $cs['n'] ?> of <?= $cs['sent'] ?> answered</div></div>
-  </div>
+  <?= report_tiles([
+      'new' => (int)$c['new_now'], 'new_before' => (int)$c['new_before'],
+      'resolved' => (int)$c['resolved_now'], 'resolved_before' => (int)$c['resolved_before'],
+      'median' => $outcomes['all']['median'], 'replied' => $outcomes['all']['replied'], 'median_before' => $outcomesBefore['all']['median'],
+      'on_time' => $onTime, 'on_time_before' => $onTimeBefore,
+      'surveys' => $surveys['sent'], 'rated' => $surveys['rated'], 'great' => $surveys['great'],
+  ], $days) ?>
+
+  <h2 class="rail-label"><?= $seesEveryone ? 'By technician' : 'You and the team' ?></h2>
+  <?= report_team_table($teamRows, $days, $seesEveryone) ?>
 
   <div class="report-grid">
     <div>
-      <div class="rail-label">Open ticket aging</div>
-      <div class="card rail-list">
-        <?php foreach ([['&lt; 1 day', (int)$ag['b1'], 'mint'], ['1–3 days', (int)$ag['b2'], 'blue'], ['3–7 days', (int)$ag['b3'], 'gold'], ['&gt; 7 days', (int)$ag['b4'], 'rose']] as [$label, $n, $tone]): ?>
-        <div class="entry-row">
-          <span class="chip-dot dot-<?= $tone ?>"></span>
-          <div class="entry-main"><div class="entry-note"><?= $label ?></div></div>
-          <span class="entry-min"><?= $n ?></span>
-        </div>
-        <?php endforeach; ?>
-      </div>
-
-      <div class="rail-label">Effective approved billable time this week</div>
-      <div class="card rail-list">
-        <?php if (!$timeByTech): ?><div class="empty"><p>No billable time approved this week yet.</p></div><?php endif; ?>
-        <?php foreach ($timeByTech as $t): ?>
-        <div class="entry-row">
-          <?= avatar($t, 24) ?>
-          <div class="entry-main"><div class="entry-note"><?= h($t['full_name']) ?></div></div>
-          <span class="entry-badge badge-billable">effective approved billable</span>
-          <span class="entry-min"><?= $fmtMin((int)$t['min_total']) ?></span>
-          <?php if ((int)$t['adjusted_count'] > 0): ?>
-            <span class="entry-badge">raw <?= $fmtMin((int)$t['original_min_total']) ?> · <?= (int)$t['adjusted_count'] ?> corrected</span>
-          <?php endif; ?>
-        </div>
-        <?php endforeach; ?>
-      </div>
+      <h2 class="rail-label">Open longest</h2>
+      <?= report_open_longest($openLongest, $now, $timeZone) ?>
     </div>
-
     <div>
-      <div class="rail-label">Effective approved billable time by client (30d)</div>
-      <div class="card rail-list">
-        <?php if (!$billByClient): ?><div class="empty"><p>No approved billable time in the last 30 days.</p></div><?php endif; ?>
-        <?php foreach ($billByClient as $b): ?>
-        <div class="entry-row">
-          <div class="entry-main"><div class="entry-note"><a class="link" href="/client.php?id=<?= (int)$b['id'] ?>"><?= h($b['name']) ?></a></div></div>
-          <span class="entry-min"><?= $fmtMin((int)$b['min_total']) ?></span>
-          <?php if ((int)$b['adjusted_count'] > 0): ?>
-            <span class="entry-badge">raw <?= $fmtMin((int)$b['original_min_total']) ?> · <?= (int)$b['adjusted_count'] ?> corrected</span>
-          <?php endif; ?>
-        </div>
-        <?php endforeach; ?>
-      </div>
-      <p class="page-note">Effective totals use the newest append-only correction slip while keeping each original approval unchanged. Approved time is operational evidence only; export does not post or invoice anything.</p>
+      <h2 class="rail-label">Time by client</h2>
+      <?= report_time_by_client($billByClient, $days) ?>
     </div>
   </div>
 </div>
