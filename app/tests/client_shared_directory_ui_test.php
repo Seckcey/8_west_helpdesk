@@ -305,6 +305,9 @@ foreach (['light', 'dark'] as $theme) {
             "$case $theme labels known unbound rows only; unknown is never Not linked");
         directory_ui_check($listX->query('//div[contains(@class,"page-clients")]//a[normalize-space(.)="Support"]')->length === 0,
             "$case $theme removes the duplicate Support destination");
+        directory_ui_check($listX->query('//a[@data-client-id="32"]//span[contains(@class,"crow-health")][normalize-space(.)="Needs attention"]')->length === 1
+            && $listX->query('//a[@data-client-id="30"]//span[contains(@class,"crow-health")]')->length === 0,
+            "$case $theme watched client has a visible text marker and healthy client does not");
         $plans = [];
         foreach ($listX->query('//a[@data-client-id]') as $row) {
             $plans[(int)$row->getAttribute('data-client-id')] = trim((string)$listX->query('.//span[contains(concat(" ", normalize-space(@class), " "), " tier ")]', $row)->item(0)?->textContent);

@@ -236,7 +236,16 @@ try {
           await find.fill('does-not-exist.test');
           assert.equal(await page.locator('.crow-row:visible').count(), 0);
           assert.equal(await page.locator('[data-client-empty]').isVisible(), true);
+          for (const helperWord of ['waiting', 'milepost']) {
+            await find.fill(helperWord);
+            assert.equal(await page.locator('[data-customer-pending="1"]:visible').count(), 0, 'fixed helper text is not client search data');
+          }
+          if (listCase === 'directory') {
+            await find.fill('Valley');
+            assert.equal(await page.locator('[data-customer-pending="1"]:visible').count(), 1, 'pending clients still match their own names');
+          }
           await find.fill('Copper');
+          assert.equal(await page.locator('.crow-row:visible').getByText('Needs attention', { exact: true }).isVisible(), true);
           await find.blur();
           if (viewport.width > 700) {
             await page.keyboard.press('j');
