@@ -24,6 +24,8 @@ try {
     http_response_code(503);
 }
 
+$timeZone = (string) ((is_array($_SESSION['suite_preferences'] ?? null)
+    ? $_SESSION['suite_preferences'] : suite_preferences_defaults())['time_zone'] ?? 'UTC');
 $stateLabels = [
     'current' => 'Current',
     'scheduled' => 'Scheduled',
@@ -78,7 +80,7 @@ page_top($user, 'Service goals', 'service-goals');
               <div class="goal-version-head">
                 <div>
                   <h3 class="goal-version-title">Version <?= (int) $version['version_no'] ?></h3>
-                  <p class="goal-version-time">Effective <?= h((string) $version['effective_from']) ?> UTC</p>
+                  <p class="goal-version-time"><?= h(service_goal_effective_label((string) $version['effective_from'], $state, $timeZone)) ?></p>
                 </div>
                 <span class="goal-state goal-state-<?= h($state) ?>"><?= h($stateLabels[$state] ?? 'Unknown') ?></span>
               </div>

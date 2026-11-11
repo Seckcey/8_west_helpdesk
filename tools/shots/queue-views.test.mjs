@@ -53,13 +53,15 @@ async function shot(page, name) {
   await page.screenshot({ path: path.join(process.env.SAFEHARBOR_QUEUE_SHOTS, `${name}.png`), fullPage: true });
 }
 
-// The row keys are the ones the queue has always had: no key gained a step.
-test('the first row is highlighted from the start; j and k move the highlight', async (t) => {
+// The row keys are the ones the queue has always had. The first one only shows the highlight.
+test('no row is highlighted until a key asks; the first j shows the first row, then j and k move it', async (t) => {
   const { page, errors } = await fixture(t);
-  assert.deepEqual(await highlighted(page), ['101'], 'the first row is highlighted as soon as the page opens');
+  assert.deepEqual(await highlighted(page), [], 'nothing looks chosen when the page opens');
   await shot(page, 'queue-1440-dark');
   await page.keyboard.press('j');
-  assert.deepEqual(await highlighted(page), ['102'], 'the first j moves to the second row');
+  assert.deepEqual(await highlighted(page), ['101'], 'the first j shows the highlight on the first row');
+  await page.keyboard.press('j');
+  assert.deepEqual(await highlighted(page), ['102'], 'the next j moves to the second row');
   await page.keyboard.press('j');
   await page.keyboard.press('j');
   assert.deepEqual(await highlighted(page), ['103'], 'j stops at the bottom');
@@ -71,14 +73,69 @@ test('the first row is highlighted from the start; j and k move the highlight', 
   assert.deepEqual(errors, []);
 });
 
-test('the first Enter opens the first row at once', async (t) => {
+const timers = (page) => page.evaluate(() => Object.keys(localStorage).filter((key) => key.includes('timer')).length);
+
+test('the first Enter or o only shows the highlight on the first row; the next one opens it', async (t) => {
+  for (const key of ['Enter', 'o']) {
+    const { page, errors } = await fixture(t);
+    await page.keyboard.press(key);
+    assert.deepEqual(await highlighted(page), ['101'], `${key} shows which row would open`);
+    assert.equal(where(page), '/?view=open', `the first ${key} opens nothing`);
+    await goes(page, () => page.keyboard.press(key), '/ticket.php?id=101');
+    assert.deepEqual(errors, []);
+  }
+});
+
+test('the first e only shows the highlight: a timer never starts on a row nobody has seen chosen', async (t) => {
   const { page, errors } = await fixture(t);
-  await goes(page, () => page.keyboard.press('Enter'), '/ticket.php?id=101');
+  const sent = [];
+  page.on('request', (request) => { if (request.url().includes('/api/')) sent.push(request.url()); });
+  await page.keyboard.press('e');
+  assert.deepEqual(await highlighted(page), ['101']);
+  assert.equal(await timers(page), 0, 'no timer is running after the first e');
+  assert.deepEqual(sent, [], 'and nothing was sent');
+  assert.equal(await page.locator('.timer-widget.timer-running').count(), 0);
+  await page.keyboard.press('j');
+  await page.keyboard.press('e');
+  assert.deepEqual(await highlighted(page), ['102'], 'the timer key acts on the row that is highlighted');
+  assert.equal(await timers(page), 1, 'and now a timer is running');
   assert.deepEqual(errors, []);
 });
 
-test('j then Enter opens the second row', async (t) => {
+test('at phone width the highlight is never drawn, and the keys that act on a highlighted row do nothing', async (t) => {
+  const { page, errors } = await fixture(t, { width: 390 });
+  const sent = [];
+  page.on('request', (request) => { if (request.url().includes('/api/')) sent.push(request.url()); });
+  for (const key of ['j', 'k', 'ArrowDown', 'Enter', 'o', 'e', 'a', 's', 'p', 't', 'Enter', 'e', 'a']) {
+    await page.keyboard.press(key);
+    assert.deepEqual(await highlighted(page), [], `no highlight after ${key}`);
+  }
+  assert.equal(where(page), '/?view=open', 'Enter and o open nothing');
+  assert.equal(await page.getByRole('listbox').count(), 0, 'no menu opened');
+  assert.equal(await timers(page), 0, 'no timer started');
+  assert.deepEqual(sent, [], 'nothing was sent');
+  // Widening the window brings the highlight back where j and k left it, and only then do keys act.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForFunction(() => document.querySelectorAll('.trow.trow-sel').length === 1);
+  assert.deepEqual(errors, []);
+});
+
+test('the first k or arrow shows the highlight too, and so does x on the row it ticks', async (t) => {
+  for (const key of ['k', 'ArrowDown', 'ArrowUp']) {
+    const { page } = await fixture(t);
+    await page.keyboard.press(key);
+    assert.deepEqual(await highlighted(page), ['101'], key);
+  }
   const { page, errors } = await fixture(t);
+  await page.keyboard.press('x');
+  assert.equal(await page.getByRole('checkbox', { name: 'Select ticket #101' }).isChecked(), true);
+  assert.deepEqual(await highlighted(page), ['101'], 'the ticked row is the highlighted one');
+  assert.deepEqual(errors, []);
+});
+
+test('j, j then Enter opens the second row', async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.keyboard.press('j');
   await page.keyboard.press('j');
   await goes(page, () => page.keyboard.press('Enter'), '/ticket.php?id=102');
   assert.deepEqual(errors, []);
@@ -189,6 +246,7 @@ for (const theme of ['dark', 'light']) {
 
 test('light theme at desktop width, with the keyboard highlight and select mode (for the eye)', async (t) => {
   const { page, errors } = await fixture(t, { theme: 'light' });
+  await page.keyboard.press('j');
   await page.keyboard.press('j');
   await shot(page, 'queue-1440-light');
   await page.keyboard.press('x');

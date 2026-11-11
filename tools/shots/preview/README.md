@@ -11,6 +11,8 @@ made up.
 | `ticket.html` | Staff ticket | copied from `app/public/ticket.php` |
 | `clients.html` | Clients list and number tiles | copied from `app/public/clients.php` |
 | `team.html` | Team page with Invite a teammate and the backup sign-in disclosure | copied from `app/public/users.php` |
+| `time.html` | Time: today's entries and one entry waiting for review | copied from `app/public/time.php` |
+| `service-goals.html` | Service goals: a current, a scheduled and a superseded policy version | copied from `app/public/service_goals.php` |
 | `signin.html` | Staff sign-in | copied from `app/public/login.php` |
 | `portal-home.html`, `portal-home-first-run.html`, `portal-devices.html`, `portal-signin.html` | Customer portal (`portal-home-first-run.html` is an owner's Home before any computer exists) | rendered by the real templates (see below) |
 | `portal-ticket-sent.html`, `portal-ticket-in-progress.html`, `portal-ticket.html`, `portal-ticket-resolved.html` | The request page at its four steps: just sent, in progress, waiting for the customer's reply, resolved | rendered by the real templates (see below) |

@@ -219,7 +219,10 @@ public/                    Apache docroot (page-per-file, like Milepost)
   ticket at the page edge (`after=`, `before=`), and when that ticket is no
   longer where it was the page says the list changed and offers page 1. The
   checkboxes for bulk delete appear with Select or `x`.
-- Keyboard model (client-side): `j/k` move · `↵` open · `1–6` views ·
+- Keyboard model (client-side): `j/k` move (the row highlight shows from the
+  first press, never on load; the first press of a row key, `x` apart, only
+  shows it and the next press acts, so a timer never starts on a row nobody
+  saw chosen; at phone width it is never drawn and those keys do nothing) · `↵` open · `1–6` views ·
   `a` assign to me · `s` status · `p` priority · `t` owner · `z` undo ·
   `e` timer · `r` reply ·
   `n` internal note · `/` saved replies · `g q/t/c` navigate ·
@@ -295,6 +298,16 @@ public/                    Apache docroot (page-per-file, like Milepost)
   central 8 West ID preference: it arrives on the token, is applied from
   `$_SESSION['suite_theme']`, and is changed at id.8westit.com, not by a
   switch in this app.
+- Top bar on a phone (700px and below): Menu, the search as a 44px icon
+  button that opens the palette, and the suite cluster. Nothing in it is ever
+  clipped: the search hint and an idle timer are not shown there, and a
+  running timer is a short clock with a 44px touch area. On a desktop the
+  search hint is two key chips, `Ctrl` `K`, or the Mac key on a Mac.
+- A large caution surface (a banner, an internal note, a band on Clients)
+  uses `--caution-surface`: the cream tint in light; in dark a card with a
+  caution hairline and an amber edge, because the dark tint reads as brown at
+  that size. The tint itself is for tags. A segmented control's selected chip
+  (`--seg-on`) is always lighter than its track (`--seg-track`).
 - Suite chrome (w365): the app drawer (3x3 squares) and the account menu sit
   together at the RIGHT END of the topbar, after Safeharbor's own controls —
   the same place, in the same order, in every 8 West IT 365 app. Markup,
