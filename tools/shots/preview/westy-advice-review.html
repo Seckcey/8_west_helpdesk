@@ -1,0 +1,102 @@
+<!-- Synthetic static preview. All form actions disabled; no network scripts. -->
+<!doctype html>
+<html lang="en-US" data-theme="light" data-preferences-source="8west-id" data-time-zone="America/Los_Angeles" data-time-format="24h">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Westy advice email</title>
+<link rel="stylesheet" href="../../../app/public/assets/css/app.css">
+<style>.westy-preview-form{display:flex;flex-direction:column;align-items:flex-start;gap:16px}.westy-preview-form .field{width:100%}</style>
+</head>
+<body>
+<main>
+<div class="page page-narrow westy-email westy-review">
+ <a class="backlink" href="#">Back to ticket</a>
+ <div class="page-head">
+<div>
+<h1 class="page-title">Westy advice email</h1>
+<p class="page-sub">Review the recipient and message before approving an email.</p>
+</div>
+</div>
+ <p class="page-note">This sends no computer command, closes no ticket and creates no charge.</p>
+ <p>
+<a class="btn-secondary" href="#">Open Westy mailbox conversation</a>
+</p>
+      <section class="card westy-review-card">
+ <h2>1 Who gets it</h2>
+ <p>Check the computer connection</p>
+ <p class="westy-recipient">
+<strong>Example Contact</strong>
+<span>contact@example.test</span>
+</p>
+<p class="page-note">Contact for this computer</p> <p class="page-note">The contact for this computer takes priority. Otherwise Westy uses the main client contact. A contact change requires a new review.</p>
+  <details class="westy-contact" id="westy-contact">
+<summary>Change contact</summary>
+ <div class="westy-preview-form">
+ <label class="field">Contact <select disabled name="contact_id" required>
+<option value="0">None / clear this assignment</option>
+<option value="11">Example Contact · contact@example.test</option>
+</select>
+</label>
+ <label class="field">Role <select disabled name="scope">
+<option value="endpoint">Contact for this computer</option>
+<option value="client">Main client contact</option>
+</select>
+</label>
+ <label class="westy-review-check">
+<input disabled type="checkbox" name="confirm_contact" value="yes" required> I confirm this person’s contact role, or intentionally clear it.</label>
+ <div class="westy-review-actions">
+<button disabled class="btn-secondary" type="submit">Save contact role</button>
+<a class="link" href="#">Manage this client’s contacts</a>
+</div>
+ </div>
+</details> </section>
+  <section class="card westy-review-card">
+<h2>2 The message</h2>
+   <section class="westy-history-entry">
+<p class="westy-review-state">Awaiting approval — not sent</p>
+ <p>Original sender: not retained in this legacy draft. The current mail setting is not evidence of the sender used for an earlier attempt.</p>
+ <dl class="westy-message-address">
+<dt>To</dt>
+<dd>contact@example.test</dd>
+<dt>Subject</dt>
+<dd>Connection advice</dd>
+</dl>
+ <div class="westy-message">Saved advice &lt;script&gt;invalid()&lt;/script&gt;</div>
+ </section>
+   <details class="westy-review-draft">
+<summary>Prepare a new draft</summary>
+ <p>Review the options against the ticket's evidence and edit them before saving. Westy’s starting draft does not diagnose a hardware fault. Saving does not send.</p>
+ <div class="westy-preview-form">
+ <label class="field">Subject <input disabled name="subject" maxlength="190" required value="Connection advice">
+</label>
+ <label class="field">Message <textarea disabled name="body" rows="10" maxlength="12000" required>Hello Example Contact,
+
+Please check that the cable is connected.
+
+Reply if you still need help.</textarea>
+</label>
+ <button disabled class="btn-primary" type="submit" >Save draft for approval</button>
+</div>
+</details>
+  </section>
+ <section class="card westy-review-card">
+<h2>3 Approve</h2>
+    <div class="westy-preview-form">
+ <label class="westy-review-check">
+<input disabled type="checkbox" name="confirm_send" value="yes"> I approve this exact recipient and message for one email.</label>
+ <div class="westy-review-actions">
+<button disabled class="btn-primary" name="action" value="send" >Approve and send once</button>
+ <button disabled class="btn-secondary" name="action" value="revoke">Revoke unsent draft</button>
+</div>
+</div>
+    </section>
+ <details class="card westy-review-history">
+<summary>History</summary>
+<div class="westy-history-body">
+  <p>No earlier message is recorded.</p>  </div>
+</details>
+ </div>
+</main>
+</body>
+</html>

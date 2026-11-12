@@ -4,6 +4,7 @@ require_once __DIR__.'/../lib/render.php';
 require_once __DIR__.'/../lib/westy_email.php';
 require_once __DIR__.'/../lib/westy_mail_graph.php';
 require_once __DIR__.'/../lib/westy_mail.php';
+require_once __DIR__.'/../lib/westy_review_ui.php';
 enforce_https();
 $user=require_login(); $tenant=(int)$user['tenant_id']; $actor=(int)$user['id'];
 $ticketId=(int)($_GET['ticket_id']??0); $admin=in_array($user['role'],['owner','admin'],true);
@@ -78,68 +79,76 @@ $labels=['draft'=>'Awaiting approval — not sent','approved'=>'Approved — not
 $ack=westy_mail_template();
 page_top($user,'Westy email','queue');
 ?>
-<style>.westy-mail{max-width:1100px}.westy-mail .card{padding:20px;margin:16px 0}.westy-mail form{display:grid;gap:14px}.westy-mail .field{min-width:0}.westy-mail input:not([type=checkbox]),.westy-mail textarea{width:100%}.westy-mail .message{white-space:pre-wrap;overflow-wrap:anywhere}.westy-mail button{justify-self:start}.westy-mail p{overflow-wrap:anywhere}</style>
-<div class="page westy-mail">
-<a class="backlink" href="/ticket.php?id=<?= $ticketId ?>">← Ticket #<?= $ticketId ?></a>
-<h1 class="page-title">Westy email</h1>
-<p>Approve useful advice and a limited reply. Computer changes, purchases, charges, and closing the ticket need their own authority.</p>
+<div class="page page-narrow westy-mail westy-review">
+<a class="backlink" href="/ticket.php?id=<?= $ticketId ?>">Back to ticket</a>
+<div class="page-head"><div><h1 class="page-title">Westy email</h1><p class="page-sub">Review the recipient and message before approving an email.</p></div></div>
+<p class="page-note">Approve useful advice and a limited reply. Computer changes, purchases, charges, and closing the ticket need their own authority.</p>
 <?php if($error): ?><div class="banner banner-warn" role="alert"><?= h($error) ?></div><?php endif; ?>
 <?php if($notice): ?><div class="banner" role="status"><?= h($notice) ?></div><?php endif; ?>
 <?php if(!westy_mail_enabled()): ?><p>New email actions are disabled. Existing history is retained.</p><?php endif; ?>
-<p><a href="/westy_email.php?ticket_id=<?= $ticketId ?>">Contact routing and earlier email history</a></p>
-<?php if($context): ?><section class="card"><h2>Who receives it?</h2>
-<p>From: <?= h($context['graph']['sender']) ?><br>To: <?= h($context['contact']['name'].' · '.$context['contact']['email']) ?></p>
-<p>The ticket’s endpoint POC takes priority. Otherwise the designated client POC receives the advice. Contact changes stop this conversation until an owner or administrator reviews it.</p></section><?php endif; ?>
+<?php if($context): ?><section class="card westy-review-card"><h2>1 Who gets it</h2>
+<p class="westy-recipient"><strong><?= h($context['contact']['name']) ?></strong><span><?= h($context['contact']['email']) ?></span></p>
+<p class="page-note">From <?= h($context['graph']['sender']) ?></p>
+<p class="page-note">The contact for this computer takes priority. Otherwise the main client contact receives the advice. Contact changes stop this conversation until an owner or administrator reviews it.</p>
+<?php if($admin && westy_email_enabled()): ?><a class="link" href="/westy_email.php?ticket_id=<?= $ticketId ?>#westy-contact">Change contact</a><?php endif; ?>
+</section><?php endif; ?>
 <?php if(!$conversation): ?>
 <?php $attempted=array_filter($legacy,static fn($d)=>$d['attempted_at']!==null); ?>
-<?php foreach($attempted as $old): ?><section class="card"><h2>Earlier attempt #<?= (int)$old['id'] ?></h2>
-<p>Saved result: <?= h($old['state']) ?>. Microsoft HTTP result: <?= h((string)($old['provider_http']??'not recorded')) ?>. Attempted <?= h($old['attempted_at']) ?> UTC.</p>
-<p>The original record stays unchanged. An uncertain response cannot be retried.</p>
-<?php if(!$reconciliation && $admin && $old['state']==='uncertain' && (int)$old['provider_http']===404 && westy_mail_enabled()): ?>
-<form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="reconcile"><input type="hidden" name="old_draft" value="<?= (int)$old['id'] ?>">
-<label><input type="checkbox" name="confirm_reconcile" value="yes" required> I reviewed the saved HTTP 404 rejection. This records a separate disposition and permits review of one new message; it does not resend the old attempt.</label>
-<button class="btn-chip">Record the rejected attempt</button></form>
-<?php endif; ?></section><?php endforeach; ?>
-<?php if($reconciliation): ?><p>The earlier HTTP 404 rejection was reviewed by staff #<?= (int)$reconciliation['actor_id'] ?> at <?= h($reconciliation['created_at']) ?> UTC. Its original record is preserved.</p><?php endif; ?>
 <?php if($admin && $context && $template && westy_mail_enabled() && (!$attempted || $reconciliation)):
     $key=bin2hex(random_bytes(16)); $token=bin2hex(random_bytes(16));
     $_SESSION['westy_mail_prepare']=[$key=>['ticket'=>$ticketId,'token'=>$token,'reconciliation'=>(int)($reconciliation['id']??0),'context'=>$context['fingerprint'],'expires'=>time()+900]];
 ?>
-<section class="card"><h2>Prepare advice</h2><p>Review these options against the ticket's evidence. A private ticket reference is added to the subject so replies can be matched safely.</p>
+<section class="card westy-review-card"><h2>2 The message</h2><p>Review these options against the ticket's evidence. A private ticket reference is added to the subject so replies can be matched safely. Saving does not send.</p>
 <form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="draft"><input type="hidden" name="request_key" value="<?= $key ?>">
 <label class="field">Subject <input name="subject" maxlength="145" required value="<?= h($template['subject']) ?>"></label>
-<label class="field">Message <textarea name="body" rows="18" maxlength="12000" required><?= h($template['body']) ?></textarea></label>
+<label class="field">Message <textarea name="body" rows="10" maxlength="12000" required><?= h($template['body']) ?></textarea></label>
 <button class="btn-primary">Save for review</button></form></section>
-<?php endif; ?>
+<section class="card westy-review-card"><h2>3 Approve</h2><p>Save the message, then review its exact sender, recipient, and text before sending.</p></section>
+<?php else: ?><section class="card westy-review-card"><h2>2 The message</h2><p>No message is ready for review. An owner or administrator can check the contact, email settings, and any earlier attempt in History.</p></section><?php endif; ?>
+<details class="card westy-review-history"><summary>History</summary><div class="westy-history-body">
+<?php if(!$attempted): ?><p>No earlier attempt is recorded.</p><?php endif; ?>
+<?php foreach($attempted as $old): ?><section class="westy-history-entry"><h3>Earlier attempt</h3>
+<p>Saved result: <?= h($old['state']) ?>. Microsoft HTTP result: <?= h((string)($old['provider_http']??'not recorded')) ?>. Attempted <?= westy_review_time($old['attempted_at']) ?>.</p>
+<p>The original record stays unchanged. An uncertain response cannot be retried.</p>
+<?php if(!$reconciliation && $admin && $old['state']==='uncertain' && (int)$old['provider_http']===404 && westy_mail_enabled()): ?>
+<form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="reconcile"><input type="hidden" name="old_draft" value="<?= (int)$old['id'] ?>">
+<label class="westy-review-check"><input type="checkbox" name="confirm_reconcile" value="yes" required> I reviewed the saved HTTP 404 rejection. This records a separate disposition and permits review of one new message; it does not resend the old attempt.</label>
+<button class="btn-secondary">Record the rejected attempt</button></form>
+<?php endif; ?></section><?php endforeach; ?>
+<?php if($reconciliation): ?><p>The earlier HTTP 404 rejection was reviewed<?php if(!empty($reconciliation['actor_id'])): ?> by staff #<?= (int)$reconciliation['actor_id'] ?><?php endif; ?> <?= westy_review_time($reconciliation['created_at']) ?>.<?php if(empty($reconciliation['actor_id'])): ?> No reviewer was recorded.<?php endif; ?> Its original record is preserved.</p><?php endif; ?>
+</div></details>
 <?php else: $m=$conversation; ?>
-<section class="card"><h2><?= h($labels[$m['state']]??$m['state']) ?></h2>
-<p>From: <?= h($m['sender']) ?><br>To: <?= h($m['recipient']) ?><br>Subject: <?= h($m['subject']) ?></p>
+<section class="card westy-review-card"><h2>2 The message</h2><p class="westy-review-state"><?= h($labels[$m['state']]??$m['state']) ?></p>
+<dl class="westy-message-address"><dt>From</dt><dd><?= h($m['sender']) ?></dd><dt>To</dt><dd><?= h($m['recipient']) ?></dd><dt>Subject</dt><dd><?= h($m['subject']) ?></dd></dl>
 <?php $replyAlias=json_decode((string)($m['recipient_alias_json']??'null'),true); if(is_array($replyAlias)): ?><p>Also accept replies from this verified alias of the same person: <?= h($replyAlias['address']) ?>. Any outgoing email still goes to <?= h($m['recipient']) ?>.</p><?php endif; ?>
-<div class="message"><?= h($m['body_text']) ?></div>
-<?php if($m['attempted_at']): ?><p>Attempted once at <?= h($m['attempted_at']) ?> UTC. Refreshing this page will not send it again.</p><?php endif; ?>
+<div class="westy-message"><?= h($m['body_text']) ?></div>
+<?php if($m['attempted_at']): ?><p>Attempted once <?= westy_review_time($m['attempted_at']) ?>. Refreshing this page will not send it again.</p><?php endif; ?>
+</section>
+<section class="card westy-review-card"><h2>3 Approve</h2>
 <?php if($admin && in_array($m['state'],['draft','approved'],true) && westy_mail_enabled()):
  $nonce=bin2hex(random_bytes(16)); $_SESSION['westy_mail_review'][(int)$m['id']]=['ticket'=>$ticketId,'hash'=>westy_mail_review_hash($m),'nonce'=>$nonce,'expires'=>time()+900]; ?>
 <form method="post"><?= csrf_field() ?><input type="hidden" name="conversation" value="<?= (int)$m['id'] ?>"><input type="hidden" name="review" value="<?= $nonce ?>">
 <?php if($m['state']==='draft'): ?>
-<label><input type="checkbox" name="confirm_send" value="yes" required> I approve this exact sender, recipient, and message for one email.</label>
-<h3>Optional: one automatic acknowledgment</h3>
-<div class="message"><?= h($ack['body']) ?></div>
-<label><input type="checkbox" name="delegate" value="yes" <?= ($context['w']['state']??'')!=='human_owned'?'disabled':'' ?>> I approve this exact response once, within seven days, after a verified reply from this contact or its displayed alias. Other requests go to an owner or administrator.</label>
+<label class="westy-review-check"><input type="checkbox" name="confirm_send" value="yes" required> I approve this exact sender, recipient, and message for one email.</label>
+<div class="westy-review-optional"><h3>Optional: one automatic acknowledgment</h3>
+<div class="westy-message"><?= h($ack['body']) ?></div>
+<label class="westy-review-check"><input type="checkbox" name="delegate" value="yes" <?= ($context['w']['state']??'')!=='human_owned'?'disabled':'' ?>> I approve this exact response once, within seven days, after a verified reply from this contact or its displayed alias. Other requests go to an owner or administrator.</label>
 <?php if(($context['w']['state']??'')!=='human_owned'): ?><p>A technician must already own the ticket before automatic acknowledgment can be approved.</p><?php endif; ?>
-<p>This approval grants email authority only. Staff edits, contact changes, revoked permissions, or an expired approval stop further action.</p>
+</div><p>This approval grants email authority only. Staff edits, contact changes, revoked permissions, or an expired approval stop further action.</p>
 <button class="btn-primary" name="action" value="approve_send">Approve and send once</button>
 <?php else: ?><p>Approval was saved, but no send attempt was started. Current authority will be checked again before sending.</p><button class="btn-primary" name="action" value="send_approved">Send approved message once</button><?php endif; ?>
-</form><?php endif; ?>
-<?php if($admin): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="conversation" value="<?= (int)$m['id'] ?>"><button class="btn-chip" name="action" value="revoke">Stop further email action</button></form><?php endif; ?>
+</form><?php else: ?><p><?= in_array($m['state'],['draft','approved'],true)?'An owner or administrator must review this message while email actions are available.':'The saved result is shown above. There is no automatic resend.' ?></p><?php endif; ?>
+<?php if($admin): ?><form class="westy-review-stop" method="post"><?= csrf_field() ?><input type="hidden" name="conversation" value="<?= (int)$m['id'] ?>"><button class="btn-secondary" name="action" value="revoke">Stop further email action</button></form><?php endif; ?>
 </section>
-<section class="card"><h2>Replies and follow-up</h2>
-<?php foreach($attention as $event): ?><div class="banner banner-warn"><p>An owner or administrator needs to review the follow-up. <?= $event['reason']==='auto_ack_authority_unavailable'?'The automatic response could not pass its permission check.':'The automatic response was rejected or its result is unknown.' ?> Recorded <?= h($event['created_at']) ?> UTC. Review the saved attempt before sending anything else.</p></div><?php endforeach; ?>
-<?php foreach($sentEvidence as $evidence): ?><p>Microsoft Sent Items contained a matching <?= $evidence['owner_kind']==='auto'?'acknowledgment':'advice message' ?> when checked at <?= h($evidence['created_at']) ?> UTC. This separate evidence preserves the original attempt and does not prove inbox receipt.</p><?php endforeach; ?>
-<?php if($delegation): ?><p>One automatic acknowledgment was approved until <?= h($delegation['expires_at']) ?> UTC. <?= $delegation['revoked_reason']?'Stopped: '.h($delegation['revoked_reason']):'It is still subject to current permissions and reply verification.' ?></p><?php else: ?><p>Automatic replies were not approved. An owner or administrator handles replies.</p><?php endif; ?>
+<?php foreach($attention as $event): ?><div class="banner banner-warn" role="alert"><p>An owner or administrator needs to review the follow-up. <?= $event['reason']==='auto_ack_authority_unavailable'?'The automatic response could not pass its permission check.':'The automatic response was rejected or its result is unknown.' ?> Recorded <?= westy_review_time($event['created_at']) ?>. Review the saved attempt before sending anything else.</p></div><?php endforeach; ?>
+<details class="card westy-review-history"><summary>History</summary><div class="westy-history-body"><h3>Replies and follow-up</h3>
+<?php foreach($sentEvidence as $evidence): ?><p>Microsoft Sent Items contained a matching <?= $evidence['owner_kind']==='auto'?'acknowledgment':'advice message' ?> when checked <?= westy_review_time($evidence['created_at']) ?>. This separate evidence preserves the original attempt and does not prove inbox receipt.</p><?php endforeach; ?>
+<?php if($delegation): ?><p>One automatic acknowledgment was approved until <?= westy_review_time($delegation['expires_at']) ?>. <?= $delegation['revoked_reason']?'Stopped: '.h($delegation['revoked_reason']):'It is still subject to current permissions and reply verification.' ?></p><?php else: ?><p>Automatic replies were not approved. An owner or administrator handles replies.</p><?php endif; ?>
 <?php if(!$receipts): ?><p>No verified reply has been recorded.</p><?php endif; ?>
-<?php foreach($receipts as $receipt): ?><p>Reply #<?= (int)$receipt['id'] ?>: <?= h($receipt['disposition']) ?> at <?= h($receipt['received_at']) ?> UTC. Read its text on the ticket.</p><?php endforeach; ?>
-<?php foreach($auto as $attempt): ?><p>Acknowledgment: <?= h($labels[$attempt['state']]??$attempt['state']) ?>. Attempted <?= h($attempt['attempted_at']) ?> UTC.</p><?php endforeach; ?>
-</section>
+<?php foreach($receipts as $receipt): ?><p>Reply #<?= (int)$receipt['id'] ?>: <?= h($receipt['disposition']) ?> at <?= westy_review_time($receipt['received_at']) ?>. Read its text on the ticket.</p><?php endforeach; ?>
+<?php foreach($auto as $attempt): ?><p>Acknowledgment: <?= h($labels[$attempt['state']]??$attempt['state']) ?>. Attempted <?= westy_review_time($attempt['attempted_at']) ?>.</p><?php endforeach; ?>
+</div></details>
 <?php endif; ?>
+<p><a class="link" href="/westy_email.php?ticket_id=<?= $ticketId ?>">Earlier advice email history</a></p>
 </div>
 <?php page_bottom(palette_data()); ?>

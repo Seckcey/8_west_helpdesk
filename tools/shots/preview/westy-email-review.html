@@ -1,0 +1,81 @@
+<!-- Synthetic static preview. All form actions disabled; no network scripts. -->
+<!doctype html>
+<html lang="en-US" data-theme="light" data-preferences-source="8west-id" data-time-zone="America/Los_Angeles" data-time-format="24h">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Westy email</title>
+<link rel="stylesheet" href="../../../app/public/assets/css/app.css">
+<style>.westy-preview-form{display:flex;flex-direction:column;align-items:flex-start;gap:16px}.westy-preview-form .field{width:100%}</style>
+</head>
+<body>
+<main>
+<div class="page page-narrow westy-mail westy-review">
+<a class="backlink" href="#">Back to ticket</a>
+<div class="page-head">
+<div>
+<h1 class="page-title">Westy email</h1>
+<p class="page-sub">Review the recipient and message before approving an email.</p>
+</div>
+</div>
+<p class="page-note">Approve useful advice and a limited reply. Computer changes, purchases, charges, and closing the ticket need their own authority.</p>
+<section class="card westy-review-card">
+<h2>1 Who gets it</h2>
+<p class="westy-recipient">
+<strong>Example Contact</strong>
+<span>contact@example.test</span>
+</p>
+<p class="page-note">From help@example.test</p>
+<p class="page-note">The contact for this computer takes priority. Otherwise the main client contact receives the advice. Contact changes stop this conversation until an owner or administrator reviews it.</p>
+<a class="link" href="#">Change contact</a>
+</section>
+<section class="card westy-review-card">
+<h2>2 The message</h2>
+<p class="westy-review-state">Awaiting approval — not sent</p>
+<dl class="westy-message-address">
+<dt>From</dt>
+<dd>help@example.test</dd>
+<dt>To</dt>
+<dd>contact@example.test</dd>
+<dt>Subject</dt>
+<dd>Connection advice</dd>
+</dl>
+<p>Also accept replies from this verified alias of the same person: alias@example.test. Any outgoing email still goes to contact@example.test.</p>
+<div class="westy-message">Hello Example Contact,
+
+Please check the cable.
+Reply if you still need help.</div>
+</section>
+<section class="card westy-review-card">
+<h2>3 Approve</h2>
+<div class="westy-preview-form">
+<label class="westy-review-check">
+<input disabled type="checkbox" name="confirm_send" value="yes" required> I approve this exact sender, recipient, and message for one email.</label>
+<div class="westy-review-optional">
+<h3>Optional: one automatic acknowledgment</h3>
+<div class="westy-message">Thanks for the update. A teammate will review your reply.</div>
+<label class="westy-review-check">
+<input disabled type="checkbox" name="delegate" value="yes" > I approve this exact response once, within seven days, after a verified reply from this contact or its displayed alias. Other requests go to an owner or administrator.</label>
+</div>
+<p>This approval grants email authority only. Staff edits, contact changes, revoked permissions, or an expired approval stop further action.</p>
+<button disabled class="btn-primary" name="action" value="approve_send">Approve and send once</button>
+</div>
+<div class="westy-review-stop westy-preview-form">
+<button disabled class="btn-secondary" name="action" value="revoke">Stop further email action</button>
+</div>
+</section>
+<details class="card westy-review-history">
+<summary>History</summary>
+<div class="westy-history-body">
+<h3>Replies and follow-up</h3>
+<p>Automatic replies were not approved. An owner or administrator handles replies.</p>
+<p>No verified reply has been recorded.</p>
+</div>
+</details>
+<p>
+<a class="link" href="#">Earlier advice email history</a>
+</p>
+</div>
+</main>
+</body>
+</html>

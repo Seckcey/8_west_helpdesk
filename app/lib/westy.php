@@ -280,7 +280,7 @@ function westy_bubble_render(): void
     </form>
   </section>
 </div>
-<script src="/assets/js/westy.js?v=2" defer></script>
+<script src="/assets/js/westy.js?v=20261112-codex-westy-review-v2" defer></script>
 <?php /* Shared suite layout: drag + resize, served live from the Westy package
          so a fix reaches every 8 West IT 365 app without a deploy here. It
          loads its own stylesheet, so this is one tag and not two.

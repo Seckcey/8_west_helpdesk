@@ -1955,6 +1955,24 @@
     fields.append(group);
     return () => $(`input[name="${name}"]:checked`, group).value === "1";
   }
+  // Display-only: recorded mail instants use the desk's selected time zone and clock.
+  document.querySelectorAll('[data-westy-review-time]').forEach(el => {
+    const instant = new Date(el.getAttribute('datetime'));
+    if (!Number.isFinite(instant.getTime())) return;
+    const options = { timeZone: deskTimeZone(), dateStyle: 'medium', timeStyle: 'short' };
+    const clock = document.documentElement.dataset.timeFormat;
+    if (clock === '12h' || clock === '24h') options.hour12 = clock === '12h';
+    try { el.textContent = new Intl.DateTimeFormat(document.documentElement.lang || undefined, options).format(instant); }
+    catch (_) { /* Keep the server's UTC text if the locale is unavailable. */ }
+  });
+  function openWestyContact() {
+    if (location.hash !== '#westy-contact') return;
+    const contact = document.querySelector('.westy-review details#westy-contact');
+    if (contact) contact.open = true;
+  }
+  openWestyContact();
+  window.addEventListener('hashchange', openWestyContact);
+
   // The Safeharbor time-zone setting this page was drawn with: History's times are in it, so the
   // pickers are too. The computer's own zone is used only when the page names none the browser knows.
   function deskTimeZone() {
