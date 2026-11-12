@@ -18,6 +18,7 @@ const PORTAL_ASSETS = {
   '/assets/css/portal-devices.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-devices.css'))],
   '/assets/css/portal-mobile.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-mobile.css'))],
   '/assets/css/portal-security.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-security.css'))],
+  '/assets/css/portal-reports.css': ['text/css', await readFile(path.join(ROOT,'app/public/assets/css/portal-reports.css'))],
   '/assets/js/portal-computer-time.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-computer-time.js'))],
   '/assets/js/portal-westy.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-westy.js'))],
   '/assets/js/portal-desktop.js': ['text/javascript', await readFile(path.join(ROOT,'app/public/assets/js/portal-desktop.js'))],
@@ -534,9 +535,9 @@ if (SERVE_MODE) {
     assert.equal(await desktop.page.getByText('INTERNAL SECRET', { exact: true }).count(), 0);
 
     await desktop.page.getByRole('link', { name: 'Support Requests',exact:true }).click();
-    await desktop.page.getByRole('link', { name: /Latest archived summary/ }).click();
+    await desktop.page.getByRole('link', { name: /Latest weekly summary/ }).click();
     await desktop.page.getByRole('heading', { name: 'Aug 17 – Aug 23, 2026' }).waitFor();
-    await desktop.page.getByText('145 minutes · 2.42 hours').waitFor();
+    await desktop.page.getByText('145 minutes (2.42 hours)', { exact: true }).waitFor();
     await desktop.page.getByText('Read the exact archived summary').click();
     await desktop.page.getByText('Safeharbor weekly client service summary').waitFor();
     assert.deepEqual(desktop.consoleProblems, []);
