@@ -1,11 +1,11 @@
-// Inert synthetic previews of the real request form and client picker.
+// Inert synthetic previews of the real request guidance and client picker.
 import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'../../..');
-for(const [name,state] of [['portal-request-form','blank'],['portal-client-picker','picker-many']]) {
+for(const [name,state] of [['portal-request-form','blank'],['portal-client-picker','picker-many'],['portal-ticket-resolved-viewer','resolved-viewer']]) {
   const rendered=spawnSync('php',[path.join(root,'app/tests/fixtures/portal_guidance_display.php'),state,'light'],{encoding:'utf8'});
   if(rendered.status!==0)throw new Error(rendered.stderr);
   const html=rendered.stdout

@@ -1098,7 +1098,7 @@ function portal_render_ticket(
           </div>
         </form>
       <?php elseif ($status === 'resolved'): ?>
-        <div class="card portal-closed-note">This request is resolved. Still not fixed? Send a new support request and mention request #<?= $ticketId ?>, so you do not have to explain it again.</div>
+        <div class="card portal-closed-note">This request is resolved. Still not fixed? <?php if ($canWrite): ?>Send a new support request and mention request #<?= $ticketId ?>, so you do not have to explain it again.<?php else: ?>Ask an owner, admin or support contact to follow up with request #<?= $ticketId ?>.<?php endif; ?></div>
       <?php else: ?>
         <div class="card portal-closed-note">You can read this request but not reply to it.</div>
       <?php endif; ?>

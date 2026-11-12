@@ -25,7 +25,7 @@ async function fixture(t,theme,width,javaScriptEnabled=true) {
       posts.push({path:url.pathname,data:Object.fromEntries(new URLSearchParams(request.postData()))});
       return route.fulfill({contentType:'text/html',body:'<p>Synthetic submission captured</p>'});
     }
-    if(['/portal/new.php','/portal/clients.php'].includes(url.pathname)){
+    if(['/portal/new.php','/portal/clients.php','/portal/ticket.php'].includes(url.pathname)){
       const result=spawnSync('php',[path.join(root,'app/tests/fixtures/portal_guidance_display.php'),url.searchParams.get('fixture')??'blank',theme],{encoding:'utf8'});
       assert.equal(result.status,0,result.stderr);return route.fulfill({contentType:'text/html',body:result.stdout});
     }
@@ -93,4 +93,28 @@ test('forms retain their no-JavaScript POST payloads and keyboard submission',as
   await page.getByRole('button',{name:'Continue with this client',exact:true}).nth(1).focus();await page.keyboard.press('Enter');
   await page.getByText('Synthetic submission captured').waitFor();
   assert.deepEqual(posts[1],{path:'/portal/clients.php',data:{csrf:'synthetic-form-csrf',reference:'example-reference-2',generation:'4'}});
+});
+
+for(const theme of ['light','dark'])for(const width of [1440,390])test(`request advice fits existing access: ${theme} ${width}`,async t=>{
+  const {page,errors,posts}=await fixture(t,theme,width);
+  for(const state of ['resolved-viewer','resolved-member','waiting-viewer','waiting-member']) {
+    await page.goto('http://safeharbor.test/portal/ticket.php?id=102&fixture='+state);
+    await settledLayout(page);
+    const viewer=state.endsWith('-viewer'),resolved=state.startsWith('resolved-');
+    const main=page.locator('main');
+    assert.equal(await main.locator('form').count(),!viewer&&!resolved ? 1 : 0);
+    assert.equal(await main.locator('a[href="/portal/new.php"]').count(),0);
+    if(resolved){
+      const note=await main.locator('.portal-closed-note').innerText();
+      assert.equal(note.includes('Ask an owner, admin or support contact to follow up with request #102.'),viewer);
+      assert.equal(note.includes('Send a new support request'),!viewer);
+    } else if(viewer) {
+      assert.equal(await main.getByText('You can read this request but not reply to it.',{exact:true}).isVisible(),true);
+    }
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await main.locator('.backlink').focus();
+    assert.equal(await main.locator('.backlink').evaluate(link=>link===document.activeElement),true);
+    if(shots){await mkdir(shots,{recursive:true});await page.screenshot({path:path.join(shots,`${state}-${theme}-${width}.png`),fullPage:true});}
+  }
+  assert.deepEqual(errors,[]);assert.deepEqual(posts,[]);
 });

@@ -136,6 +136,10 @@ operations:
   history is trusted;
 - customer replies are allowed only while a ticket is not resolved. A reply
   returns `waiting` work to `open` for human attention and never resolves it;
+- resolved requests tell writable accounts to send a new support request if
+  the problem remains. Read-only viewers are instead told to ask an owner,
+  admin or support contact to follow up with the request number. This advice
+  uses the existing write permission and adds no action or access;
 - the dashboard separates `waiting` work that needs a customer reply, open or
   in-progress work, and recently resolved work, with an obvious new-request
   action. These are presentation groups over the existing closed ticket field
