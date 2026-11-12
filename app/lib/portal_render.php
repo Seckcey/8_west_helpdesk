@@ -64,7 +64,8 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <link rel="stylesheet" href="/assets/css/portal.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal.css') ?>">
 <link rel="stylesheet" href="/assets/css/portal-devices.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-devices.css') ?>">
 <link rel="stylesheet" href="/assets/css/portal-workspace.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-workspace.css') ?>">
-<?php if(str_contains($bodyClass,'portal-requests-page')): ?><link rel="stylesheet" href="/assets/css/portal-requests.css?v=20261112-codex-requests-v1"><?php endif; ?>
+<?php if(str_contains($bodyClass,'portal-requests-page')): ?><link rel="stylesheet" href="/assets/css/portal-requests.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-requests.css') ?>"><?php endif; ?>
+<?php if(str_contains($bodyClass,'portal-reports-page')): ?><link rel="stylesheet" href="/assets/css/portal-reports.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-reports.css') ?>"><?php endif; ?>
 <?php if(str_contains($bodyClass,'portal-security-page')): ?><link rel="stylesheet" href="/assets/css/portal-security.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-security.css') ?>"><?php endif; ?>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
@@ -577,20 +578,19 @@ function portal_render_report_preview(array $archive, bool $latest = false): voi
 <a class="card portal-report-preview" href="/portal/reports.php?id=<?= (int)$archive['id'] ?>">
   <div class="portal-report-preview-head">
     <div>
-      <p class="portal-report-kicker"><?= $latest ? 'Latest archived summary' : 'Archived summary' ?></p>
+      <p class="portal-report-kicker"><?= $latest ? 'Latest weekly summary' : 'Weekly summary' ?></p>
       <h3><?= portal_h(portal_report_period_label(
           (string)$archive['period_start'],
           (string)$archive['period_end'],
           (string)($period['schedule_timezone'] ?? 'UTC'),
       )) ?></h3>
     </div>
-    <span class="portal-report-version">v<?= (int)$archive['definition_version'] ?></span>
   </div>
   <p class="page-sub">
-    <?= (int)($tickets['opened'] ?? 0) ?> opened · <?= (int)($tickets['resolved'] ?? 0) ?> resolved
-    · Service goal <?= $attainment === null ? 'not yet decided' : (int)$attainment . '%' ?>
+    <?= (int)($tickets['opened'] ?? 0) ?> requests opened. <?= (int)($tickets['resolved'] ?? 0) ?> resolved.
+    <?= $attainment === null ? 'Response goal result not available.' : 'Response goal met for ' . (int)$attainment . '%.' ?>
   </p>
-  <span class="portal-report-open">View summary →</span>
+  <span class="portal-report-open">View summary</span>
 </a>
     <?php
 }
@@ -859,7 +859,7 @@ function portal_render_support_back_link(array $context): void
 function portal_render_reports(array $context, array $archives): void
 {
     $clientName = (string)($context['binding']['client_name'] ?? 'Your business');
-    portal_page_start('Weekly service summaries', '', $context);
+    portal_page_start('Weekly service summaries', 'portal-reports-page', $context);
     ?>
 <main class="page page-narrow">
   <?php portal_render_support_back_link($context); ?>
@@ -867,19 +867,20 @@ function portal_render_reports(array $context, array $archives): void
     <div>
       <p class="page-sub"><?= portal_h($clientName) ?></p>
       <h1 class="page-title">Weekly service summaries</h1>
-      <p class="page-sub">Each card opens the exact verified archive saved for that week.</p>
+      <p class="page-sub">See the support provided each week. These summaries keep the totals recorded at that time.</p>
     </div>
   </header>
+  <p class="page-note">Showing up to 24 weekly summaries, newest first.</p>
   <div class="portal-report-list">
     <?php if ($archives === []): ?>
-      <div class="card empty">No weekly service summaries have been archived for this business yet.</div>
+      <div class="card empty">No weekly service summaries yet. They will appear here after your support team saves them.</div>
     <?php else: ?>
       <?php foreach ($archives as $index => $archive): ?>
         <?php portal_render_report_preview($archive, $index === 0); ?>
       <?php endforeach; ?>
     <?php endif; ?>
   </div>
-  <p class="page-note">These summaries contain customer-level service totals only. They do not show ticket messages, internal notes, technician entries or rates, recipients, delivery attempts, invoices, AI controls, or endpoint controls.</p>
+  <p class="page-note">Each summary shows service totals for your client. Open a support request to read its conversation.</p>
 </main>
     <?php
     portal_page_end();
@@ -898,34 +899,35 @@ function portal_render_report(array $context, array $archive): void
     $responseAverage = $firstResponse['average_minutes'];
     $approvedMinutes = (int)$approvedTime['minutes'];
     $csatAverage = $csat['average_score_out_of_3'];
-    portal_page_start('Weekly service summary', '', $context);
+    portal_page_start('Weekly service summary', 'portal-reports-page', $context);
     ?>
 <main class="page page-narrow">
-  <a href="/portal/reports.php" class="backlink">← All service summaries</a>
+  <a href="/portal/reports.php" class="backlink">All service summaries</a>
   <header class="page-head portal-ticket-head">
     <div>
-      <p class="portal-report-kicker">Verified archive · definition v<?= (int)$archive['definition_version'] ?></p>
+      <p class="portal-report-kicker">Weekly service summary</p>
       <h1 class="page-title"><?= portal_h(portal_report_period_label(
           (string)$archive['period_start'],
           (string)$archive['period_end'],
           (string)($metrics['period']['schedule_timezone'] ?? 'UTC'),
       )) ?></h1>
-      <p class="page-sub"><?= portal_h((string)$metrics['source']['client_name']) ?> · generated <?= portal_h(portal_format_utc((string)$archive['generated_at'])) ?></p>
+      <p class="page-sub"><?= portal_h((string)$metrics['source']['client_name']) ?></p>
+      <p class="page-note">Created <?= portal_time_tag((string)$archive['generated_at']) ?>. These totals reflect that saved summary.</p>
     </div>
   </header>
 
   <section class="stats portal-report-stats" aria-label="Weekly service totals">
-    <article class="card stat"><div class="stat-k">Tickets opened</div><div class="stat-v"><?= (int)$tickets['opened'] ?></div></article>
-    <article class="card stat"><div class="stat-k">Tickets resolved</div><div class="stat-v stat-good"><?= (int)$tickets['resolved'] ?></div></article>
-    <article class="card stat"><div class="stat-k">Avg. first response</div><div class="stat-v"><?= $responseAverage === null ? '—' : (int)$responseAverage . ' min' ?></div></article>
-    <article class="card stat"><div class="stat-k">Response goal</div><div class="stat-v <?= $attainment === null ? 'stat-dim' : 'stat-good' ?>"><?= $attainment === null ? '—' : (int)$attainment . '%' ?></div></article>
+    <article class="card stat"><div class="stat-k">Requests opened</div><div class="stat-v"><?= (int)$tickets['opened'] ?></div></article>
+    <article class="card stat"><div class="stat-k">Requests resolved</div><div class="stat-v stat-good"><?= (int)$tickets['resolved'] ?></div></article>
+    <article class="card stat"><div class="stat-k">Average first reply</div><div class="stat-v<?= $responseAverage === null ? ' portal-report-missing' : '' ?>"><?= $responseAverage === null ? 'Not available' : (int)$responseAverage . ' min' ?></div></article>
+    <article class="card stat"><div class="stat-k">Response goal met</div><div class="stat-v <?= $attainment === null ? 'stat-dim portal-report-missing' : 'stat-good' ?>"><?= $attainment === null ? 'Not available' : (int)$attainment . '%' ?></div></article>
   </section>
 
   <section class="portal-report-detail-grid">
     <article class="card portal-report-fact">
-      <span class="rail-k">Approved operational time</span>
-      <strong><?= $approvedMinutes ?> minutes · <?= portal_h(number_format($approvedMinutes / 60, 2, '.', '')) ?> hours</strong>
-      <p>Customer-level approved service time only. This is not an invoice or posting status.</p>
+      <span class="rail-k">Approved service time</span>
+      <strong><?= $approvedMinutes ?> minutes (<?= portal_h(number_format($approvedMinutes / 60, 2, '.', '')) ?> hours)</strong>
+      <p>Approved time recorded for your client. This is not an invoice or a billing status.</p>
     </article>
     <article class="card portal-report-fact">
       <span class="rail-k">Customer satisfaction</span>
@@ -938,7 +940,13 @@ function portal_render_report(array $context, array $archive): void
     <summary>Read the exact archived summary</summary>
     <pre><?= portal_h((string)$archive['text']) ?></pre>
   </details>
-  <p class="page-note">Archive SHA-256: <code><?= portal_h((string)$archive['content_sha256']) ?></code>. The portal verifies the immutable definition, canonical JSON/text, hash, tenant, customer, period, and generation time before showing this page.</p>
+  <details class="portal-report-integrity">
+    <summary>Archive details</summary>
+    <p>This is the saved summary for this client and reporting period. It is checked before it is shown.</p>
+    <dl><dt>Summary definition version</dt><dd><?= (int)$archive['definition_version'] ?></dd>
+      <dt>Created</dt><dd><?= portal_h(portal_format_utc((string)$archive['generated_at'])) ?></dd>
+      <dt>Archive SHA-256</dt><dd><code><?= portal_h((string)$archive['content_sha256']) ?></code></dd></dl>
+  </details>
 </main>
     <?php
     portal_page_end();

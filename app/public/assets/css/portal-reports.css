@@ -1,0 +1,14 @@
+/* Item 41: a saved weekly summary, with provenance available on request. */
+.portal-reports-page .page-head{margin-bottom:20px}
+.portal-reports-page .portal-report-list{margin:16px 0 24px}
+.portal-reports-page .portal-report-missing{font-size:18px;line-height:1.4}
+.portal-reports-page .portal-report-detail-grid{margin-top:18px}
+.portal-reports-page .portal-report-integrity{margin-top:20px;border-top:1px solid var(--line);padding-top:8px}
+.portal-report-integrity summary{min-height:44px;padding:10px 0;cursor:pointer;font-weight:600}
+.portal-report-integrity summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.portal-report-integrity p,.portal-report-integrity dl{font-size:14px;color:var(--muted-strong)}
+.portal-report-integrity dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:10px 20px}
+.portal-report-integrity dt{font-weight:600;color:var(--text)}
+.portal-report-integrity dd{margin:0;overflow-wrap:anywhere}
+.portal-report-integrity code{font-size:12.5px;overflow-wrap:anywhere}
+@media(max-width:700px){.portal-report-integrity dl{grid-template-columns:minmax(0,1fr);gap:4px}.portal-report-integrity dd{margin-bottom:12px}}

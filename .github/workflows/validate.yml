@@ -223,6 +223,7 @@ jobs:
           php app/tests/portal_add_computer_test.php
           php app/tests/portal_computer_access_test.php
           php app/tests/portal_report_archive_test.php
+          php app/tests/portal_summary_display_test.php
           php app/tests/portal_computer_time_test.php
           php app/tests/portal_guide_test.php
           php app/tests/portal_westy_mac_companion_test.php
@@ -408,6 +409,7 @@ jobs:
           node tools/shots/saved-replies.test.mjs
           WESTY_REVIEW_SHOTS="$RUNNER_TEMP/westy-review-shots" node tools/shots/westy-review.test.mjs
           PORTAL_REQUEST_SHOTS="$RUNNER_TEMP/portal-request-shots" node tools/shots/portal-request-paging.test.mjs
+          PORTAL_SUMMARY_SHOTS="$RUNNER_TEMP/portal-summary-shots" node tools/shots/portal-summary-display.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs
 
       - name: Staff sign-in gallery
@@ -432,4 +434,12 @@ jobs:
         with:
           name: portal-request-gallery
           path: ${{ runner.temp }}/portal-request-shots
+          if-no-files-found: error
+
+      - name: Portal summary gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-summary-gallery
+          path: ${{ runner.temp }}/portal-summary-shots
           if-no-files-found: error

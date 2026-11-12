@@ -263,10 +263,10 @@ ob_start();
 portal_render_report($context, $archive);
 $detailHtml = (string)ob_get_clean();
 portal_report_check('archive detail turns raw weekly text into readable service facts',
-    str_contains($detailHtml, 'Tickets opened')
-    && str_contains($detailHtml, 'Tickets resolved')
-    && str_contains($detailHtml, 'Avg. first response')
-    && str_contains($detailHtml, 'Approved operational time')
+    str_contains($detailHtml, 'Requests opened')
+    && str_contains($detailHtml, 'Requests resolved')
+    && str_contains($detailHtml, 'Average first reply')
+    && str_contains($detailHtml, 'Approved service time')
     && str_contains($detailHtml, 'Read the exact archived summary'));
 portal_report_check('archive detail escapes exact archived text and omits private pipeline facts',
     !str_contains($detailHtml, '<script>alert(1)</script>')
