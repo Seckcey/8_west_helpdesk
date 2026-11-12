@@ -166,6 +166,15 @@ close/resolve operation. Portal
 tickets and replies therefore remain human-owned and cannot gain Milepost's
 one-use telemetry auto-close capability.
 
+## Computer list navigation
+
+Your devices keeps Refresh status on the current computer page, using the
+same validated cursor passed to the device service. Later pages offer Back
+to first computers. An empty later page says there are no more computers
+on that page; first-computer guidance is reserved for an empty first page.
+A pending setup download still leads the page. These presentation rules do
+not change the service reads, cursor semantics, page size or setup actions.
+
 ## Protection request (source only)
 
 This section is source on `claude/T-20261013-04-sh-protection-request`. The

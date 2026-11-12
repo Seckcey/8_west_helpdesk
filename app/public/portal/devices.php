@@ -115,7 +115,7 @@ try {
     // No response leaves this page after a revocation or binding change during a service request.
     $fresh = portal_authenticated_context(db());
     if ($fresh === null || $fresh['identity'] !== $context['identity']) { portal_require_sign_in('Please sign in again.'); exit; }
-    portal_render_devices($fresh, $devices, $enrollments, $error, $download, $notice, $protection, $employee, $choices);
+    portal_render_devices($fresh, $devices, $enrollments, $error, $download, $notice, $protection, $employee, $choices, $after);
 } catch (Throwable $e) {
     error_log('[safeharbor-portal-devices] request_failed type=' . $e::class);
     if ($watch) { $watchAnswer(503, ['ok' => false]); exit; }

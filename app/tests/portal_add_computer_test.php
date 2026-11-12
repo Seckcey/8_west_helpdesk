@@ -47,9 +47,9 @@ $devices = ['items' => [$front, $warehouse], 'next_after' => 2];
 $none = ['items' => [], 'next_after' => null];
 $link = ['reference' => str_repeat('e', 32), 'state' => 'ready', 'created_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 600)];
 $download = ['download_url' => 'https://support.example.test/download.php?t=' . str_repeat('f', 48), 'expires_at' => gmdate('Y-m-d\TH:i:s\Z', time() + 86400)];
-$page = static function (array $context, ?array $devices, array $links = [], ?array $download = null, ?string $notice = null): string {
+$page = static function (array $context, ?array $devices, array $links = [], ?array $download = null, ?string $notice = null, int $after = 0): string {
     ob_start();
-    portal_render_devices($context, $devices, $links, null, $download, $notice);
+    portal_render_devices($context, $devices, $links, null, $download, $notice, null, null, null, $after);
     $html = (string)ob_get_clean();
     return (string)substr($html, (int)strpos($html, '<main'), (int)strpos($html, '</main>') - (int)strpos($html, '<main'));
 };
@@ -137,9 +137,43 @@ add_check('a list that loaded and has no further page is marked as the whole lis
     && substr_count($page($owner, $whole, [$link], $download), 'data-device="1:' . str_repeat('a', 64) . '"') === 1);
 add_check('a first page with more pages behind it is loaded but not the whole list',
     $listTag($adding) === '<div id="portal-device-list" data-loaded>');
-$_GET['after'] = '50';
 add_check('a later page is never the whole list, even when it is the last one',
-    $listTag($page($owner, $whole, [$link], $download)) === '<div id="portal-device-list" data-loaded>');
+    $listTag($page($owner, $whole, [$link], $download, null, 50)) === '<div id="portal-device-list" data-loaded>');
+foreach (['client_owner', 'client_admin', 'client_staff', 'client_viewer'] as $role) {
+    $reader = $owner;
+    $reader['identity']['role'] = $role;
+    $later = $page($reader, $none, [], null, null, 50);
+    add_check($role . ' sees an empty later page, not first-computer guidance',
+        str_contains($later, 'No more computers on this page')
+        && ! str_contains($later, 'Add your first Windows computer')
+        && ! str_contains($later, 'Ask an owner or administrator to add your computers.')
+        && str_contains($later, 'href="/portal/devices.php" class="btn-link">Back to first computers</a>')
+        && str_contains($later, 'href="/portal/devices.php?after=50">Refresh status</a>'));
+    if (in_array($role, ['client_owner', 'client_admin'], true)) {
+        add_check($role . ' keeps setup beside an empty later list rather than leading with first-time setup',
+            strpos($later, 'id="computers-heading"') < strpos($later, 'id="add-computer"'));
+    } else {
+        add_check($role . ' gains no setup or protection form on a later page', ! str_contains($later, '<form'));
+    }
+}
+$laterPopulated = $page($owner, $devices, [], null, null, 50);
+add_check('later populated pages keep both directions and refresh the current page',
+    str_contains($laterPopulated, '>Back to first computers</a>') && str_contains($laterPopulated, 'Next computers')
+    && str_contains($laterPopulated, 'href="/portal/devices.php?after=50">Refresh status</a>'));
+$laterDown = $page($owner, null, [], null, null, 50);
+add_check('an unavailable later page keeps its cursor and never reports an empty result',
+    str_contains($laterDown, 'We cannot retrieve your computers right now.')
+    && ! str_contains($laterDown, 'No more computers on this page')
+    && str_contains($laterDown, 'href="/portal/devices.php?after=50">Refresh status</a>'));
+$laterAdding = $page($owner, $none, [], $download, null, 50);
+add_check('a pending download still leads even on an empty later page',
+    strpos($laterAdding, 'id="add-computer"') < strpos($laterAdding, 'id="computers-heading"')
+    && str_contains($laterAdding, 'Install on your Windows computer'));
+$_GET['after'] = '999&injected=example';
+$validated = $page($owner, $whole, [], null, null, 50);
+add_check('the renderer uses only its passed cursor, never raw request input',
+    str_contains($validated, 'href="/portal/devices.php?after=50">Refresh status</a>')
+    && ! str_contains($validated, 'injected') && ! str_contains($validated, 'after=999'));
 unset($_GET['after']);
 add_check('a list that failed to load is marked as neither, so nothing can be announced from it',
     $listTag($page($owner, null, [$link], $download)) === '<div id="portal-device-list">');
