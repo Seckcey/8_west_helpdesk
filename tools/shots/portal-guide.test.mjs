@@ -111,6 +111,13 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
           assert.ok(ids.indexOf('private-computer-link') < ids.indexOf('give-computer-access'));
           assert.equal(await page.locator('#private-computer-link .portal-eyebrow').textContent(),'Employee');
         }
+        // A link navigation can expose the new DOM before its CSS/fonts finish loading.
+        // Measure the settled page, without retrying or relaxing the overflow assertion.
+        await page.waitForLoadState('load');
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow');
         if (input.ids.length) {
           assert.ok(await page.locator('main ol').first().evaluate(el=>parseFloat(getComputedStyle(el).paddingLeft)>=20),'ordered steps keep markers inside the content edge');
