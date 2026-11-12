@@ -81,6 +81,7 @@ function reply_page(array $get = [], ?array $post = null): array
     // Preserve every statement and predicate, replacing only the controller's process exit.
     $source = str_replace("header('Location: /snippets.php');\n            exit;", 'throw new SavedReplyRedirect();', str_replace("\r\n", "\n", $source));
     $source = str_replace("header('Location: /snippets.php');\n        exit;", 'throw new SavedReplyRedirect();', $source);
+    $source = str_replace("header('Location: /snippets.php');\n                exit;", 'throw new SavedReplyRedirect();', $source);
     ob_start();
     try { eval(substr($source, 5)); return ['html' => (string)ob_get_contents(), 'result' => 'render']; }
     catch (SavedReplyRedirect) { return ['html' => '', 'result' => 'redirect']; }
@@ -109,7 +110,7 @@ foreach (['tech', 'viewer', 'admin', 'owner'] as $role) {
         $result = reply_page([], array_replace($edit, ['snippet_id' => $id]));
         $allowed = $id === 11 || ($id === 12 && in_array($role, ['admin', 'owner'], true));
         $after = reply_row($id);
-        reply_check($result['result'] === 'redirect', "$role/$id finishes without leaking availability");
+        reply_check($allowed ? $result['result'] === 'redirect' : $result['result'] === 'render' && str_contains($result['html'], 'That saved reply is not available to edit.'), "$role/$id reports the same availability as GET edit");
         reply_check($allowed ? $after['title'] === 'Updated title' && $after['body'] === 'Updated body' : $after === $before, "$role/$id write boundary");
         if ($allowed) reply_check($after['created_by'] === $before['created_by'] && $after['tenant_id'] === 1, "$role/$id preserves author and workspace");
         reply_check((int)db()->query('SELECT COUNT(*) FROM canned_responses')->fetchColumn() === 4, "$role/$id does not add a reply");
@@ -119,6 +120,17 @@ foreach (['tech', 'viewer', 'admin', 'owner'] as $role) {
     reply_check($xp->query('//*[@data-reply-edit="12"]')->length === (in_array($role, ['owner', 'admin'], true) ? 1 : 0), "$role other-author UI matches write");
     reply_check(!str_contains($html, 'Outside body') && !str_contains($html, 'Foreign reply'), "$role foreign reply never rendered");
     reply_check(str_contains($html, 'Printer steps'), "$role can still view team replies");
+}
+foreach (['tech', 'viewer', 'admin', 'owner'] as $role) {
+    reply_reset($role); $unchanged = reply_row(11);
+    $result = reply_page([], array_replace($edit, ['title' => $unchanged['title'], 'body' => $unchanged['body']]));
+    reply_check($result['result'] === 'redirect' && reply_row(11) === $unchanged, "$role unchanged save succeeds");
+    $opened = reply_page(['edit' => 11]);
+    reply_check(reply_xpath($opened['html'])->query('//*[@id="saved-reply-editor"][@hidden]')->length === 0, "$role initially opens available reply");
+    db()->exec('DELETE FROM canned_responses WHERE id=11');
+    $result = reply_page([], $edit);
+    reply_check($result['result'] === 'render' && str_contains($result['html'], 'That saved reply is not available to edit.'), "$role concurrent deletion shows existing availability message");
+    reply_check(reply_row(11) === false, "$role edit never recreates deleted reply");
 }
 reply_reset(); $before = reply_row(11);
 foreach (['', 'wrong'] as $csrf) {
