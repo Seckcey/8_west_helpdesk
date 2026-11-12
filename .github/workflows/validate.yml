@@ -211,6 +211,7 @@ jobs:
           php app/tests/portal_data_test.php
           php app/tests/portal_settings_test.php
           php app/tests/portal_customer_entry_test.php
+          php app/tests/signin_display_test.php
           php app/tests/portal_companion_branding_test.php
           php app/tests/tenant_branding_test.php
           php app/tests/portal_ticket_workflow_test.php
@@ -392,6 +393,7 @@ jobs:
           node tools/shots/queue-views.test.mjs
           node tools/shots/first-response-tag.test.mjs
           node tools/shots/signin-palette.test.mjs
+          SIGNIN_DISPLAY_SHOTS="$RUNNER_TEMP/signin-display-shots" node tools/shots/signin-display.test.mjs
           node tools/shots/desk-live-fixes.test.mjs
           node tools/shots/ticket-customer.test.mjs
           node tools/shots/ticket-new.test.mjs
@@ -402,3 +404,11 @@ jobs:
           node tools/shots/service-goals.test.mjs
           node tools/shots/saved-replies.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs
+
+      - name: Staff sign-in gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signin-display-gallery
+          path: ${{ runner.temp }}/signin-display-shots
+          if-no-files-found: error

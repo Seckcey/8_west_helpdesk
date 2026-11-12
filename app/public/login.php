@@ -68,14 +68,13 @@ header('Content-Type: text/html; charset=utf-8');
 <title>Sign in · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
-<link rel="stylesheet" href="/assets/css/app.css?v=4">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261112-codex-signin-display-v1">
 </head>
-<body class="login-body login-split-body">
+<body class="login-body login-split-body staff-signin">
 <div class="login-split">
 <div class="login-brand">
   <div class="login-head">
-    <img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-login-logo" width="1851" height="513">
-    <h1 class="login-name">Safeharbor</h1>
+    <h1 class="login-name"><img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-login-logo" width="1851" height="513"></h1>
     <p class="login-tag">Every client issue, safely ashore.</p>
   </div>
 </div>
@@ -86,7 +85,8 @@ header('Content-Type: text/html; charset=utf-8');
       <img src="/assets/brand/safeharbor-mark.svg" alt="" class="sso-mark">
       Continue with 8 West ID
     </a>
-    <div class="login-divider"><span></span>or<span></span></div>
+    <details class="login-backup"<?= $error !== '' && $_SERVER['REQUEST_METHOD'] === 'POST' ? ' open' : '' ?>>
+    <summary>Use a backup password</summary>
     <form method="post" action="/login.php" class="login-form">
       <?= csrf_field() ?>
       <input type="hidden" name="next" value="<?= h($next) ?>">
@@ -94,20 +94,20 @@ header('Content-Type: text/html; charset=utf-8');
         <input type="email" name="email" value="<?= h($email) ?>" required>
       </label>
       <label>Password
-        <input type="password" name="password" placeholder="••••••••" required>
+        <input type="password" name="password" required>
       </label>
       <button type="submit" class="btn-ghost">Sign in</button>
     </form>
+    </details>
   </div>
   <p class="login-foot">
     <?php if (cfg('demo_mode', false)): ?>
       <strong>Sandbox.</strong> Seeded, fictional data — sign in with any seeded
       email, password <code>harbor</code>.<br>
     <?php endif; ?>
-    by 8 West IT, LLC · Part of the 8 West IT Total Business Suite
+    8 West IT 365 · Your appearance follows your 8 West ID settings.
   </p>
-  <p class="login-foot">Your appearance follows your global 8 West ID settings after sign-in.</p>
-<script src="/assets/js/app.js?v=w365v040k" defer></script>
+<script src="/assets/js/app.js?v=20261112-codex-signin-display-v1" defer></script>
 </div>
 </div>
 </body>
