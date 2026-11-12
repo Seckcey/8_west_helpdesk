@@ -351,15 +351,16 @@ $pcSocket=stream_socket_server('tcp://127.0.0.1:0',$pcErrno,$pcErrstr);$pcAddres
 // assets, no PHP warning, notice, deprecation or fatal in the raw or HTML-normalized page, and nothing unexpected in this
 // request's own server-log segment. A closing </html> alone proves nothing: a failed footer is followed by an appended
 // error page that has one.
-$pcFetch=static function(?array $form=null)use($pcAddress,$pcId,$pcFeed,$pcRuntime,$pcFooter):array{
+$pcFetch=static function(?array $form=null,array $query=[])use($pcAddress,$pcId,$pcFeed,$pcRuntime,$pcFooter):array{
     $pcFeed();
     $log=$pcRuntime.'/http.log';clearstatcache(true,$log);$offset=is_file($log)?(int)filesize($log):0;
-    $c=curl_init('http://'.$pcAddress.'/portal/devices.php');
+    $requestPath='/portal/devices.php'.($query===[]?'':'?'.http_build_query($query));
+    $c=curl_init('http://'.$pcAddress.$requestPath);
     curl_setopt_array($c,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>10,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_HTTPHEADER=>['Cookie: safeharbor_portal='.$pcId]]);
     if($form!==null){curl_setopt($c,CURLOPT_POST,true);curl_setopt($c,CURLOPT_POSTFIELDS,http_build_query($form));}
     $html=(string)curl_exec($c);$status=(int)curl_getinfo($c,CURLINFO_RESPONSE_CODE);$failure=curl_error($c);curl_close($c);
     // The built-in server logs each request's completion line; wait for it so the segment covers this whole request.
-    $done='~\['.$status.'\]: '.($form===null?'GET':'POST').' /portal/devices\.php$~m';
+    $done='~\['.$status.'\]: '.($form===null?'GET':'POST').' '.preg_quote($requestPath,'~').'$~m';
     for($n=0;$n<100;$n++){clearstatcache(true,$log);$segment=(string)file_get_contents($log,false,null,$offset);if(preg_match($done,$segment)===1)break;usleep(20000);}
     $php='/\b(?:Warning|Notice|Deprecated|Fatal error|Parse error|Recoverable fatal error)\s*:/';
     $text=html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
@@ -387,7 +388,7 @@ $pcDiagnose=static function(array $r):string{
     return json_encode(['http'=>$r['status'],'problems'=>$r['problems'],'first_cause'=>$cause,'page_start'=>substr($r['html'],0,1500),
         'page_at_cause'=>substr($r['html'],max(0,$at-1500),3000),'log'=>substr($r['log'],0,8000)],JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE);
 };
-$pcHttp=static function(?array $form=null)use($pcFetch,$pcDiagnose,$pcRuntime):array{
+$pcHttp=static function(?array $form=null,array $query=[])use($pcFetch,$pcDiagnose,$pcRuntime):array{
     // Before the first real request, the deliberate negative: without one real footer asset the controller still sends
     // the devices heading before the footer fails, which the old status/heading/raw "Warning:" check could accept.
     static $pcNegative=false;
@@ -401,7 +402,7 @@ $pcHttp=static function(?array $form=null)use($pcFetch,$pcDiagnose,$pcRuntime):a
         if(!$refused)fwrite(STDERR,'Devices HTTP negative diagnostic: '.$pcDiagnose($r)."\n");
         check($refused,'a partial devices page without a real footer asset is refused, with the controller request failure in its own server log');
     }
-    $r=$pcFetch($form);
+    $r=$pcFetch($form,$query);
     if($r['problems']!==[])fwrite(STDERR,'Devices HTTP diagnostic: '.$pcDiagnose($r)."\n");
     check($r['problems']===[],'the actual devices.php controller renders one complete page with its real footer and no PHP diagnostic or request failure');
     return [$r['status'],$r['html']];
@@ -413,6 +414,17 @@ try{
     for($n=0;$n<100;$n++){$pcProbe=@stream_socket_client('tcp://'.$pcAddress,$pcErrno,$pcErrstr,0.1);if($pcProbe){fclose($pcProbe);break;}usleep(20000);}
     $pcReply($pcReplies);
     $pcPrincipal=[$a['identity']['subject'],$a['identity']['session_version'],$a['identity']['binding_id']];
+    // The real controller validates the cursor once; both the service read and Refresh use that value.
+    // Invalid raw input and unrelated query fields must never survive in the Refresh URL.
+    foreach ([['50',50],[' 50 ',50],['0',0],['-1',0],['50&extra=example',0],['<bad>',0],[['50'],0],['999999999999999999999999',0]] as [$rawAfter,$expectedAfter]) {
+        [,$cursorHtml]=$pcHttp(null,['after'=>$rawAfter,'unrelated'=>'do-not-echo']);
+        preg_match('~<a class="btn-link" href="([^"]+)">Refresh status</a>~',$cursorHtml,$refresh);
+        $expectedUrl='/portal/devices.php'.($expectedAfter>0?'?after='.$expectedAfter:'');
+        $deviceReads=array_values(array_filter($pcSent(),static fn(array $sent):bool=>$sent['action']==='devices'));
+        $lastRead=$deviceReads[count($deviceReads)-1];
+        check(($refresh[1]??null)===$expectedUrl && $lastRead['input']===['after'=>$expectedAfter]
+            && $pcPosts()===[], 'Refresh uses only the controller-validated cursor, exactly matching the device read, without a write');
+    }
     // Family: the first unknown outcome stores the ORIGINAL key and four facts.
     $pcForm=['device_reference'=>'1:'.str_repeat('a',64),'request_key'=>str_repeat('7',32),'computer'=>'new_computer','same_as_device_reference'=>''];
     $pcFacts=array_replace($pcForm,['same_as_device_reference'=>null]);

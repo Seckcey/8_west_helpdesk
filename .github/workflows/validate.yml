@@ -412,6 +412,7 @@ jobs:
           PORTAL_REQUEST_SHOTS="$RUNNER_TEMP/portal-request-shots" node tools/shots/portal-request-paging.test.mjs
           PORTAL_SUMMARY_SHOTS="$RUNNER_TEMP/portal-summary-shots" node tools/shots/portal-summary-display.test.mjs
           PORTAL_GUIDANCE_SHOTS="$RUNNER_TEMP/portal-guidance-shots" node tools/shots/portal-guidance.test.mjs
+          PORTAL_DEVICE_PAGE_SHOTS="$RUNNER_TEMP/portal-device-page-shots" node tools/shots/portal-device-paging.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs
 
       - name: Staff sign-in gallery
@@ -452,4 +453,12 @@ jobs:
         with:
           name: portal-guidance-gallery
           path: ${{ runner.temp }}/portal-guidance-shots
+          if-no-files-found: error
+
+      - name: Portal computer page gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-device-page-gallery
+          path: ${{ runner.temp }}/portal-device-page-shots
           if-no-files-found: error

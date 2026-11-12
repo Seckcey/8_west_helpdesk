@@ -3,7 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/portal_render.php';
 require_once __DIR__ . '/portal_devices.php';
 
-function portal_render_devices(array $context, ?array $devices, array $enrollments, ?string $error = null, ?array $download = null, ?string $notice = null, ?array $protection = null, ?array $employee = null, ?array $choices = null): void
+function portal_render_devices(array $context, ?array $devices, array $enrollments, ?string $error = null, ?array $download = null, ?string $notice = null, ?array $protection = null, ?array $employee = null, ?array $choices = null, int $after = 0): void
 {
     $manage = portal_devices_can_manage($context);
     // Protection requests are for the customer's own owner/admin only, never delegated access.
@@ -17,15 +17,17 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
     // A saved answer is shown as the earlier answer it is: never as a new check, an installation or a bill change.
     $employeeState = $employee === null ? null : ($employee['result']['state'] ?? 'unknown');
     // Adding comes first while there is nothing else to look at, and while a setup file is waiting to be used.
-    $addFirst = $download !== null || ($manage && $devices !== null && ($devices['items'] ?? []) === []);
+    $addFirst = $download !== null || ($manage && $after === 0 && $devices !== null && ($devices['items'] ?? []) === []);
     // The page holds every computer only when its first page loaded and no further page follows. The
     // waiting script starts from this list only then; otherwise it reads the whole list itself first.
-    $wholeList = $devices !== null && ($devices['next_after'] ?? null) === null && (int)($_GET['after'] ?? 0) === 0;
+    $wholeList = $devices !== null && ($devices['next_after'] ?? null) === null && $after === 0;
+    // The controller passes the same validated cursor it used for the service read.
+    $refreshUrl = '/portal/devices.php' . ($after > 0 ? '?after=' . $after : '');
     $context['chat_button_placement'] = 'inline';
     portal_page_start('Your devices', 'portal-devices-page', $context);
     ?>
 <main class="portal-devices">
- <header class="portal-devices-heading"><div><h1>Your devices</h1><p>Computers your support team can help with.</p></div><div class="portal-devices-actions"><a class="btn-link" href="/portal/devices.php">Refresh status</a><?php if ($manage && !$addFirst): ?><a class="btn-ghost portal-add-jump" href="#add-computer">Add a computer</a><?php endif; ?><?php portal_westy_button(); ?></div></header>
+ <header class="portal-devices-heading"><div><h1>Your devices</h1><p>Computers your support team can help with.</p></div><div class="portal-devices-actions"><a class="btn-link" href="<?= portal_h($refreshUrl) ?>">Refresh status</a><?php if ($manage && !$addFirst): ?><a class="btn-ghost portal-add-jump" href="#add-computer">Add a computer</a><?php endif; ?><?php portal_westy_button(); ?></div></header>
  <?php if ((cfg('portal_mobile', [])['enabled'] ?? false) === true): ?><p><a class="btn-link" href="/portal/mobile.php">Phones, tablets &amp; Macs <?= portal_icon('arrow') ?></a></p><?php endif; ?>
  <?php if ($error !== null): ?><div class="portal-device-notice" role="alert"><?= portal_h($error) ?> <a href="/portal/new.php">Contact support</a></div><?php endif; ?>
  <?php if ($notice !== null): ?><div class="portal-device-notice is-success" role="status"><?= portal_h($notice) ?></div><?php endif; ?>
@@ -34,7 +36,7 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
   <div class="portal-section-title"><h2 id="computers-heading">Connected computers</h2></div>
   <div id="portal-device-list"<?= $devices !== null ? ' data-loaded' : '' ?><?= $wholeList ? ' data-complete' : '' ?>>
   <?php if ($devices === null): ?><p>We cannot retrieve your computers right now. Their status has not been changed.</p>
-  <?php elseif (($devices['items'] ?? []) === []): ?><div class="portal-device-empty"><?= portal_icon('device') ?><h3>No computers on this page yet</h3><p><?= $manage ? 'Add your first Windows computer with the three steps above. It appears here a few minutes after setup.' : 'Ask an owner or administrator to add your computers.' ?></p></div>
+  <?php elseif (($devices['items'] ?? []) === []): ?><div class="portal-device-empty"><?= portal_icon('device') ?><?php if ($after > 0): ?><h3>No more computers on this page</h3><p>Go back to the first page to see your computers.</p><?php else: ?><h3>No computers on this page yet</h3><p><?= $manage ? 'Add your first Windows computer with the three steps above. It appears here a few minutes after setup.' : 'Ask an owner or administrator to add your computers.' ?></p><?php endif; ?></div>
   <?php else: ?><div class="portal-device-list"><?php foreach ($devices['items'] as $device): $attention = $device['connection'] !== 'reporting'; ?>
    <article class="portal-device-card" data-device="<?= portal_h($device['reference']) ?>"><div class="portal-device-symbol"><?= portal_icon('device') ?></div><div class="portal-device-details"><h3><?= portal_h($device['label']) ?></h3>
     <p class="portal-device-status"><span class="portal-device-state<?= $device['connection'] === 'reporting' ? ' is-online' : ($device['connection'] === 'stale' ? ' is-attention' : '') ?>"><?= portal_h($device['connection_label']) ?></span><span class="portal-device-platform"><?= portal_h($device['platform']) ?></span></p>
@@ -48,8 +50,12 @@ function portal_render_devices(array $context, ?array $devices, array $enrollmen
     <?php if((cfg('portal_devices',[])['security_orders_enabled']??false)===true && str_contains(strtolower($device['platform']),'windows')):?><a class="btn-link" href="/portal/security.php?device=<?= rawurlencode($device['reference']) ?>">Secure Plus <?= portal_icon('arrow') ?></a><?php endif;?>
     </div>
    </div></article>
-  <?php endforeach; ?></div><?php if (($devices['next_after'] ?? null) !== null): ?><a href="/portal/devices.php?after=<?= (int)$devices['next_after'] ?>">Next computers <?= portal_icon('arrow') ?></a><?php endif; ?><?php endif; ?>
+  <?php endforeach; ?></div><?php endif; ?>
   </div>
+  <?php if ($after > 0 || ($devices['next_after'] ?? null) !== null): ?><div class="portal-device-links-row">
+   <?php if ($after > 0): ?><a href="/portal/devices.php" class="btn-link">Back to first computers</a><?php endif; ?>
+   <?php if (($devices['next_after'] ?? null) !== null): ?><a href="/portal/devices.php?after=<?= (int)$devices['next_after'] ?>" class="btn-link">Next computers <?= portal_icon('arrow') ?></a><?php endif; ?>
+  </div><?php endif; ?>
   <p class="portal-hint">A connected computer is available for support. Antivirus protection and any paid add-ons have their own status.</p>
  </section><aside>
   <?php if (!$addFirst) portal_render_add_computer($context, $manage, null); ?>
