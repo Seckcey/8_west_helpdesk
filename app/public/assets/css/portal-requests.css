@@ -1,0 +1,14 @@
+/* Item 40: the existing request list, with bounded search and paging. */
+.portal-request-filters{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;margin:16px 0}
+.portal-request-filters .field{flex:1 1 180px;margin:0;min-width:0}
+.portal-request-filters .field:first-child{flex-grow:2}
+.portal-request-filters .field span{font-size:12.5px;color:var(--muted-strong);font-weight:400}
+.portal-request-filters :is(input,select){width:100%;min-height:44px}
+.portal-requests-page .portal-request-filters :is(button,a){margin-top:25px;min-height:44px;width:auto;white-space:nowrap}
+.portal-request-filters a,.portal-request-paging a{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.portal-request-range{display:inline-block;font-variant-numeric:tabular-nums}
+.portal-request-paging{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:12px;margin-top:20px}
+.portal-request-paging a{min-height:44px}
+.portal-request-paging span{color:var(--muted-strong);font-size:14px;font-variant-numeric:tabular-nums}
+.portal-requests-page :is(.portal-request-filters,.portal-request-paging) :is(a,button,input,select):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+@media(max-width:700px){.portal-request-filters .field{flex-basis:100%}.portal-requests-page .portal-request-filters :is(button,a){margin-top:0;flex:1}.portal-request-paging{justify-content:space-between}}

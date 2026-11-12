@@ -35,12 +35,20 @@ if ($context === null) {
 }
 
 try {
+    $listOptions = portal_request_list_options($_GET);
+} catch (PortalDataValidationException $error) {
+    portal_render_error(400, 'Check the request filters', $error->getMessage());
+    exit;
+}
+
+try {
     $summary = portal_ticket_summary(
         db(),
         (int)$context['identity']['tenant_id'],
         (int)$context['identity']['client_id'],
         50,
         $context['identity'],
+        $listOptions,
     );
 } catch (Throwable $error) {
     error_log('[safeharbor-portal] summary_failed type=' . $error::class);
