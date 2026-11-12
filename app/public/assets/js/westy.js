@@ -304,12 +304,19 @@
   function addChips() {
     var wrap = document.createElement('div');
     wrap.className = 'westy-chips';
-    var chips = [
-      { label: 'Show me around', ask: 'Show me around — give me the quick tour.' },
-      { label: 'How do tickets get here?', ask: 'How do tickets get into Safeharbor?' },
-      { label: 'Keyboard shortcuts?', ask: 'What are the keyboard shortcuts?' },
-      { label: 'Thanks, got it', ask: null }
-    ];
+    var suggestions = {
+      '/ticket.php': ['How do I merge tickets?', 'How does the timer log time?', 'How do internal notes work?'],
+      '/clients.php': ['How do I find a client?', 'What does the oldest ticket age mean?', 'How do I open a client’s other apps?'],
+      '/snippets.php': ['How do I use a saved reply?', 'How do merge fields work?', 'Who can edit a saved reply?'],
+      '/time.php': ['How does the timer log time?', 'How do I filter time entries?', 'How do I review unbilled time?'],
+      '/reports.php': ['What do the report numbers mean?', 'How do I change the report period?', 'How is first response measured?'],
+      '/service_goals.php': ['How are service goals applied?', 'How is first response measured?', 'What does an inherited goal mean?'],
+      '/westy_email.php': ['Who receives this email?', 'Does saving a draft send it?', 'What does an unknown send result mean?'],
+      '/westy_mail.php': ['Who receives this email?', 'What does approving one reply allow?', 'Does Microsoft acceptance mean delivery?']
+    };
+    var prompts = suggestions[location.pathname] || ['How do tickets get here?', 'How do I find a ticket?', 'What are the keyboard shortcuts?'];
+    var chips = prompts.map(function (prompt) { return { label: prompt, ask: prompt }; });
+    chips.push({ label: 'Thanks, got it', ask: null });
     chips.forEach(function (c) {
       var b = document.createElement('button');
       b.type = 'button';

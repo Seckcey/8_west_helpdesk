@@ -82,6 +82,23 @@ its messages have durable outcomes. Repeating a page after a crash uses receipt
 deduplication and never retries a claimed send. Page/message caps limit each run
 without abandoning older replies.
 
+## Staff review page
+
+The existing mailbox URL presents **1 Who gets it**, **2 The message**, and
+**3 Approve**. **Change contact** opens the existing advice-email contact form.
+Preparing and saving a message does not send it. The saved message stays read-only;
+its exact sender, recipient, text, and optional acknowledgment require the existing
+review and confirmation before sending. All permission, nonce, expiry, and current
+state checks remain unchanged.
+
+**History** starts closed and contains earlier attempts, reconciliation, receipts,
+and follow-up evidence. Active follow-up warnings remain visible above it. Recorded
+times use the user's selected time zone and clock; UTC text remains without
+JavaScript. Where the historical row has no actor name, the page states that.
+Provider acceptance and Sent Items evidence still do not prove inbox receipt.
+The staff bubble's three first-run suggestions follow the page; its existing
+onboarding, dismissal, transcript, and hosted layout behavior are unchanged.
+
 ## Operator sequence
 
 1. Run isolated PHP and MySQL tests on Coastline. Never start desktop Docker.

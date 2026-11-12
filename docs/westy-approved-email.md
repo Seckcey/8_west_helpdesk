@@ -17,18 +17,27 @@ created. The existing mail queue and report delivery code remain unchanged.
 ## Normal use
 
 On an eligible alert case, choose **Review Westy advice email**. An owner/admin
-can confirm a same-customer contact as the **endpoint POC for this case**, using
-the ticket contact, or explicitly designate a **client POC fallback**. The latter
+can open **Change contact** in **1 Who gets it** and confirm a same-client
+**Contact for this computer**, using the ticket contact, or explicitly designate
+a **Main client contact**. The latter
 is an append-only customer-scoped designation. Clearing an endpoint assignment
 allows fallback; an invalid existing contact refuses sending rather than routing
 around it. An empty route blocks sending. This slice does not invent or synchronize
 a fleet-wide endpoint contact registry; endpoint designation is case-scoped.
 
 Staff may edit and save the conservative starting draft. Owner/admin approval
-shows the exact recipient, configured sender, subject and full body, and requires
+shows the exact recipient, subject and full body, and requires
 an explicit checkbox and **Approve and send once**. Subject references must remain
 bound to this exact case so replies use existing intake threading. A new draft
 supersedes prior unsent drafts. Revocation remains available while sending is off.
+
+The page keeps preparation, saved-message review, and **3 Approve** separate.
+A saved message is read-only; editing requires saving a fresh draft and reviewing
+it again. **History** starts closed. Recorded timestamps use the signed-in user's
+selected time zone and clock, with UTC text when JavaScript is unavailable.
+Legacy drafts do not retain a sender or approver name; the page says so rather
+than treating today's mail setting or a staff ID as historical attribution.
+The dedicated mailbox conversation remains a separate existing route.
 
 Saving and viewing do not send. Approval uses existing CSRF/session boundaries and
 a single-use 15-minute server review. The saved draft expires for approval after

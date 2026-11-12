@@ -2248,3 +2248,39 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 @media (max-width: 860px) {
   .staff-signin .login-backup :is(summary, button, input:not([type=hidden])) { min-height: 44px; }
 }
+
+/* Proposal 21: Westy message review, shared presentation for both existing routes. */
+.westy-review { max-width: 820px; }
+.westy-review .page-head { margin-bottom: 12px; }
+.westy-review .westy-review-card, .westy-review .westy-review-history { margin: 20px 0; padding: 24px; }
+.westy-review h2 { font-size: 16px; margin: 0 0 16px; }
+.westy-review h3 { font-size: 14px; margin: 0 0 12px; }
+.westy-review p, .westy-review dd { overflow-wrap: anywhere; }
+.westy-review .westy-recipient { display: flex; flex-direction: column; gap: 4px; }
+.westy-review .page-note { color: var(--muted-strong); font-size: 13px; }
+.westy-review form { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.westy-review .field { width: 100%; min-width: 0; }
+.westy-review .field :is(input, textarea, select) { width: 100%; }
+.westy-review :is(button, .btn-primary, .btn-secondary, summary, .link) { min-height: 36px; }
+.westy-review .link { display: inline-flex; align-items: center; }
+.westy-review summary { cursor: pointer; align-content: center; font-weight: 600; }
+.westy-review summary:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 4px; border-radius: 4px; }
+.westy-review .westy-contact { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 16px; }
+.westy-review .westy-contact form, .westy-review .westy-history-body { margin-top: 16px; }
+.westy-review .westy-review-check { display: flex; align-items: flex-start; gap: 10px; min-height: 36px; line-height: 1.6; cursor: pointer; }
+.westy-review .westy-review-check input { flex: 0 0 auto; margin: 4px 0 0; width: 18px; height: 18px; }
+.westy-review .westy-review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.westy-review .westy-message-address { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 8px 12px; margin: 16px 0; }
+.westy-review .westy-message-address dt { color: var(--muted-strong); }
+.westy-review .westy-message-address dd { margin: 0; }
+.westy-review .westy-message { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 10px; line-height: 1.65; }
+.westy-review .westy-review-state { padding: 10px 12px; border-left: 3px solid var(--accent-2); background: var(--bg-raised); font-weight: 600; }
+.westy-review .westy-review-optional { width: 100%; padding-top: 16px; border-top: 1px solid var(--line); }
+.westy-review .westy-review-optional .westy-message { margin-bottom: 16px; }
+.westy-review .westy-review-stop { margin-top: 16px; }
+.westy-review .westy-history-entry + .westy-history-entry { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+@media (max-width: 700px) {
+  .westy-review .westy-review-card, .westy-review .westy-review-history { padding: 16px; }
+  .westy-review :is(button, .btn-primary, .btn-secondary, summary, .link, .westy-review-check), .westy-review .field :is(input, select) { min-height: 44px; }
+  .westy-review .westy-message-address { grid-template-columns: 48px minmax(0, 1fr); gap: 8px; }
+}

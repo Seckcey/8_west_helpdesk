@@ -251,6 +251,7 @@ jobs:
           php app/tests/service_goal_desk_test.php
           php app/tests/service_goal_policy_admin_test.php
           php app/tests/saved_replies_test.php
+          php app/tests/westy_review_ui_test.php
           php app/tests/time_entries_test.php
           php app/tests/time_entry_adjustments_test.php
           php app/tests/coastmark_time_export_test.php
@@ -403,6 +404,7 @@ jobs:
           node tools/shots/reports-page.test.mjs
           node tools/shots/service-goals.test.mjs
           node tools/shots/saved-replies.test.mjs
+          WESTY_REVIEW_SHOTS="$RUNNER_TEMP/westy-review-shots" node tools/shots/westy-review.test.mjs
           node --test tools/shots/computer-time-contract.test.mjs
 
       - name: Staff sign-in gallery
@@ -411,4 +413,12 @@ jobs:
         with:
           name: signin-display-gallery
           path: ${{ runner.temp }}/signin-display-shots
+          if-no-files-found: error
+
+      - name: Westy review gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: westy-review-gallery
+          path: ${{ runner.temp }}/westy-review-shots
           if-no-files-found: error
