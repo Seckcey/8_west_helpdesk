@@ -52,6 +52,7 @@ async function signInPage(t) {
     assert.deepEqual(errors, []);
   });
   await page.goto(`${APP}/login.php`);
+  await page.getByText('Use a backup password', { exact: true }).click();
   await page.getByRole('button', { name: 'Sign in' }).waitFor();
   return { page, posts };
 }

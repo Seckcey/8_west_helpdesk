@@ -2234,3 +2234,17 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .page-saved-replies .saved-reply-preview { border-left: 0; border-top: 1px solid var(--line); padding: 20px 0 0; }
   .page-saved-replies :is(button, .btn-primary, .btn-secondary, .btn-danger, input), .canned-pop .canned-manage { min-height: 44px; }
 }
+
+/* Proposal 22: staff sign-in display; the existing password form stays native. */
+.staff-signin .login-name { margin: 0; }
+.staff-signin .login-backup { margin-top: 20px; }
+.staff-signin .login-backup summary { display: flex; align-items: center; min-height: 36px; padding: 8px 0; color: var(--accent-2); font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; }
+.staff-signin .login-backup summary::-webkit-details-marker { display: none; }
+.staff-signin .login-backup summary::before { content: '+'; width: 20px; flex-shrink: 0; }
+.staff-signin .login-backup[open] summary::before { content: '−'; }
+.staff-signin .login-backup summary:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 4px; border-radius: 4px; }
+.staff-signin .login-backup form { margin-top: 16px; }
+.staff-signin .login-backup button { min-height: 36px; }
+@media (max-width: 860px) {
+  .staff-signin .login-backup :is(summary, button, input:not([type=hidden])) { min-height: 44px; }
+}
