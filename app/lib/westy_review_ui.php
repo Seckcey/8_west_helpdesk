@@ -6,7 +6,7 @@ function westy_review_time(?string $value): string
 {
     if ($value === null || $value === '') return 'Not recorded';
     try { $instant = new DateTimeImmutable($value, new DateTimeZone('UTC')); }
-    catch (Exception) { return 'Time unavailable'; }
+    catch (Throwable) { return 'Time unavailable'; }
     $utc = $instant->setTimezone(new DateTimeZone('UTC'));
     return '<time data-westy-review-time datetime="' . h($utc->format('Y-m-d\TH:i:s\Z')) . '">'
         . h($utc->format('M j, Y, H:i \U\T\C')) . '</time>';
