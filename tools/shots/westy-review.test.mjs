@@ -37,7 +37,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
       const { page, posts, errors } = await open(t, state, { theme, width });
       assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
       assert.equal(await page.getByRole('heading', { name: '1 Who gets it', exact: true }).count(), 1);
-      assert.ok(await page.getByRole('heading', { name: '2 The message', exact: true }).count() >= 1);
+      assert.equal(await page.getByRole('heading', { name: '2 The message', exact: true }).count(), 1);
       assert.equal(await page.getByRole('heading', { name: '3 Approve', exact: true }).count(), 1);
       assert.equal(await page.locator('.westy-review-history').getAttribute('open'), null);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -50,6 +50,10 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
         assert.equal(await page.getByRole('checkbox').first().isChecked(), false);
       }
       if (state === 'legacy-draft') {
+        assert.equal(await page.locator('textarea[name=body]').isVisible(), false);
+        await page.getByText('Prepare a new draft', { exact: true }).click();
+        assert.equal(await page.locator('textarea[name=body]').isVisible(), true);
+        await page.getByText('Prepare a new draft', { exact: true }).click();
         assert.equal(await page.locator('#westy-contact').getAttribute('open'), null);
         await page.getByText('Change contact', { exact: true }).click();
         assert.equal(await page.getByRole('button', { name: 'Save contact role' }).isVisible(), true);

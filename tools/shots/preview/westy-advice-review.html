@@ -51,8 +51,21 @@
 </div>
  </div>
 </details> </section>
-   <section class="card westy-review-card">
+  <section class="card westy-review-card">
 <h2>2 The message</h2>
+   <section class="westy-history-entry">
+<p class="westy-review-state">Awaiting approval — not sent</p>
+ <p>Original sender: not retained in this legacy draft. The current mail setting is not evidence of the sender used for an earlier attempt.</p>
+ <dl class="westy-message-address">
+<dt>To</dt>
+<dd>contact@example.test</dd>
+<dt>Subject</dt>
+<dd>Connection advice</dd>
+</dl>
+ <div class="westy-message">Saved advice &lt;script&gt;invalid()&lt;/script&gt;</div>
+ </section>
+   <details class="westy-review-draft">
+<summary>Prepare a new draft</summary>
  <p>Review the options against the ticket's evidence and edit them before saving. Westy’s starting draft does not diagnose a hardware fault. Saving does not send.</p>
  <div class="westy-preview-form">
  <label class="field">Subject <input disabled name="subject" maxlength="190" required value="Connection advice">
@@ -65,22 +78,11 @@ Reply if you still need help.</textarea>
 </label>
  <button disabled class="btn-primary" type="submit" >Save draft for approval</button>
 </div>
-</section>
-   <section class="card westy-review-card">
-<h2>2 The message</h2>
-<p class="westy-review-state">Awaiting approval — not sent</p>
- <p>Original sender: not retained in this legacy draft. The current mail setting is not evidence of the sender used for an earlier attempt.</p>
- <dl class="westy-message-address">
-<dt>To</dt>
-<dd>contact@example.test</dd>
-<dt>Subject</dt>
-<dd>Connection advice</dd>
-</dl>
- <div class="westy-message">Saved advice &lt;script&gt;invalid()&lt;/script&gt;</div>
- </section>
+</details>
+  </section>
  <section class="card westy-review-card">
 <h2>3 Approve</h2>
-   <div class="westy-preview-form">
+    <div class="westy-preview-form">
  <label class="westy-review-check">
 <input disabled type="checkbox" name="confirm_send" value="yes"> I approve this exact recipient and message for one email.</label>
  <div class="westy-review-actions">
@@ -88,8 +90,8 @@ Reply if you still need help.</textarea>
  <button disabled class="btn-secondary" name="action" value="revoke">Revoke unsent draft</button>
 </div>
 </div>
-  </section>
-   <details class="card westy-review-history">
+    </section>
+ <details class="card westy-review-history">
 <summary>History</summary>
 <div class="westy-history-body">
   <p>No earlier message is recorded.</p>  </div>

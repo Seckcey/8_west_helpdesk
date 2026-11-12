@@ -67,21 +67,26 @@ page_top($user,'Westy advice email','queue');
  </form></details><?php endif; ?>
  </section>
  <?php $attempted=(bool)array_filter($drafts,static fn($d)=>$d['attempted_at']!==null); ?>
- <?php if($template && !$attempted && westy_email_enabled() && cfg('westy_mail.enabled',false)!==true): ?>
  <section class="card westy-review-card"><h2>2 The message</h2>
- <p>Review the options against the ticket's evidence and edit them before saving. Westy’s starting draft does not diagnose a hardware fault. Saving does not send.</p>
- <form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="draft"><input type="hidden" name="context" value="<?= h($context['fingerprint']) ?>"><input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>">
- <label class="field">Subject <input name="subject" maxlength="190" required value="<?= h($template['subject']) ?>"></label>
- <label class="field">Message <textarea name="body" rows="10" maxlength="12000" required><?= h($template['body']) ?></textarea></label>
- <button class="btn-primary" type="submit" <?= !$context['contact']?'disabled':'' ?>>Save draft for approval</button></form></section>
- <?php endif; ?>
+ <?php if($attempted && !array_filter($drafts,static fn($d)=>$d['state']==='draft')): ?><p>The saved message and its attempt are in History.</p><?php endif; ?>
  <?php foreach($drafts as $d): if($d['state']!=='draft') continue; ?>
- <section class="card westy-review-card"><h2>2 The message</h2><p class="westy-review-state"><?= h($labels[$d['state']]) ?></p>
+ <section class="westy-history-entry"><p class="westy-review-state"><?= h($labels[$d['state']]) ?></p>
  <p>Original sender: not retained in this legacy draft. The current mail setting is not evidence of the sender used for an earlier attempt.</p>
  <dl class="westy-message-address"><dt>To</dt><dd><?= h($d['recipient']) ?></dd><dt>Subject</dt><dd><?= h($d['subject']) ?></dd></dl>
  <div class="westy-message"><?= h($d['body_text']) ?></div>
  <?php if($d['attempted_at']): ?><p>Approved <?= westy_review_time($d['approved_at']) ?>. The approver's name was not recorded with this message. Submission attempted once <?= westy_review_time($d['attempted_at']) ?>. A refresh never sends it again.</p><?php endif; ?></section>
+ <?php endforeach; ?>
+ <?php if($template && !$attempted && westy_email_enabled() && cfg('westy_mail.enabled',false)!==true): ?>
+ <details class="westy-review-draft"<?= !$drafts?' open':'' ?>><summary>Prepare a new draft</summary>
+ <p>Review the options against the ticket's evidence and edit them before saving. Westy’s starting draft does not diagnose a hardware fault. Saving does not send.</p>
+ <form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="draft"><input type="hidden" name="context" value="<?= h($context['fingerprint']) ?>"><input type="hidden" name="request_key" value="<?= bin2hex(random_bytes(16)) ?>">
+ <label class="field">Subject <input name="subject" maxlength="190" required value="<?= h($template['subject']) ?>"></label>
+ <label class="field">Message <textarea name="body" rows="10" maxlength="12000" required><?= h($template['body']) ?></textarea></label>
+ <button class="btn-primary" type="submit" <?= !$context['contact']?'disabled':'' ?>>Save draft for approval</button></form></details>
+ <?php endif; ?>
+ </section>
  <section class="card westy-review-card"><h2>3 Approve</h2>
+ <?php foreach($drafts as $d): if($d['state']!=='draft') continue; ?>
  <?php if($admin && $d['state']==='draft' && cfg('westy_mail.enabled',false)!==true): ?>
  <?php $nonce=bin2hex(random_bytes(16));$_SESSION['westy_email_review'][(int)$d['id']]=['ticket'=>$ticketId,'hash'=>westy_email_review_hash($d),'nonce'=>$nonce,'expires'=>time()+900]; ?>
  <form method="post"><?= csrf_field() ?><input type="hidden" name="draft_id" value="<?= (int)$d['id'] ?>"><input type="hidden" name="review" value="<?= $nonce ?>">
@@ -89,9 +94,9 @@ page_top($user,'Westy advice email','queue');
  <div class="westy-review-actions"><button class="btn-primary" name="action" value="send" <?= !westy_email_enabled()?'disabled':'' ?>>Approve and send once</button>
  <button class="btn-secondary" name="action" value="revoke">Revoke unsent draft</button></div></form>
  <?php else: ?><p>An owner or administrator reviews email before sending. Open the mailbox conversation for its current review when that mail service is enabled.</p><?php endif; ?>
- </section>
  <?php endforeach; ?>
- <?php if(!$drafts): ?><section class="card westy-review-card"><h2>3 Approve</h2><p>Save the message, then review the saved recipient and text here before sending.</p></section><?php endif; ?>
+ <?php if(!array_filter($drafts,static fn($d)=>$d['state']==='draft')): ?><p><?= $attempted?'The saved result is shown above. There is no automatic resend.':'Save the message, then review the saved recipient and text here before sending.' ?></p><?php endif; ?>
+ </section>
  <details class="card westy-review-history"><summary>History</summary><div class="westy-history-body">
  <?php $past=array_filter($drafts,static fn($d)=>$d['state']!=='draft'); ?>
  <?php if(!$past): ?><p>No earlier message is recorded.</p><?php endif; ?>

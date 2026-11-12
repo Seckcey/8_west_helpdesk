@@ -2266,7 +2266,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .westy-review summary { cursor: pointer; align-content: center; font-weight: 600; }
 .westy-review summary:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 4px; border-radius: 4px; }
 .westy-review .westy-contact { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 16px; }
-.westy-review .westy-contact form, .westy-review .westy-history-body { margin-top: 16px; }
+.westy-review .westy-review-draft form, .westy-review .westy-contact form, .westy-review .westy-history-body { margin-top: 16px; }
 .westy-review .westy-review-check { display: flex; align-items: flex-start; gap: 10px; min-height: 36px; line-height: 1.6; cursor: pointer; }
 .westy-review .westy-review-check input { flex: 0 0 auto; margin: 4px 0 0; width: 18px; height: 18px; }
 .westy-review .westy-review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
@@ -2277,6 +2277,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .westy-review .westy-review-state { padding: 10px 12px; border-left: 3px solid var(--accent-2); background: var(--bg-raised); font-weight: 600; }
 .westy-review .westy-review-optional { width: 100%; padding-top: 16px; border-top: 1px solid var(--line); }
 .westy-review .westy-review-optional .westy-message { margin-bottom: 16px; }
+.westy-review .westy-review-draft { margin-top: 16px; }
 .westy-review .westy-review-stop { margin-top: 16px; }
 .westy-review .westy-history-entry + .westy-history-entry { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
 @media (max-width: 700px) {
