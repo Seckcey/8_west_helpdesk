@@ -64,6 +64,7 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <link rel="stylesheet" href="/assets/css/portal.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal.css') ?>">
 <link rel="stylesheet" href="/assets/css/portal-devices.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-devices.css') ?>">
 <link rel="stylesheet" href="/assets/css/portal-workspace.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-workspace.css') ?>">
+<?php if(str_contains($bodyClass,'portal-requests-page')): ?><link rel="stylesheet" href="/assets/css/portal-requests.css?v=20261112-codex-requests-v1"><?php endif; ?>
 <?php if(str_contains($bodyClass,'portal-security-page')): ?><link rel="stylesheet" href="/assets/css/portal-security.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-security.css') ?>"><?php endif; ?>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
@@ -594,20 +595,25 @@ function portal_render_report_preview(array $archive, bool $latest = false): voi
     <?php
 }
 
-/**
- * @param array{identity:array<string,mixed>,binding:array<string,mixed>} $context
- * @param array{client:array<string,mixed>,counts:array<string,int>,tickets:list<array<string,mixed>>} $summary
- * @param null|list<array<string,mixed>> $reportArchives
- */
+/** Keep the search and status when moving through the already-authorized list. */
+function portal_request_list_url(array $listing, int $page): string
+{
+    return '/portal/requests.php?' . http_build_query([
+        'q'=>$listing['q'], 'status'=>$listing['status'], 'page'=>$page,
+    ], '', '&', PHP_QUERY_RFC3986);
+}
+
+/** @param null|list<array<string,mixed>> $reportArchives */
 function portal_render_dashboard(array $context, array $summary, ?array $reportArchives = []): void
 {
     $identity = $context['identity'];
     $context['binding']['client_name'] = $summary['client']['name'];
     $direct = portal_direct_customer_browser($context);
     $canWrite = portal_role_can_write_tickets(portal_customer_role($identity));
+    $listing = $summary['listing'] ?? null;
     $waiting = portal_tickets_with_status($summary['tickets'], ['waiting']);
     $recent = $summary['tickets'];
-    if ($direct && $waiting !== []) {
+    if ($listing === null && $direct && $waiting !== []) {
         $recent = array_values(array_filter($recent, static fn(array $ticket): bool => ($ticket['status'] ?? '') !== 'waiting'));
     }
     $emptyRecent = match (true) {
@@ -616,7 +622,7 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
         default => 'No support requests yet. When you need a hand, write a request and follow its progress here.',
     };
     if ($direct) $context['chat_button_placement'] = 'inline';
-    portal_page_start('Your support', '', $context);
+    portal_page_start('Your support', $listing === null ? '' : 'portal-requests-page', $context);
     ?>
 <main class="portal-home">
  <div class="portal-main-column">
@@ -637,14 +643,30 @@ function portal_render_dashboard(array $context, array $summary, ?array $reportA
    <?php endif; ?>
    <p class="portal-hint">Do not include passwords or verification codes.</p>
   </section>
-  <section class="portal-attention" aria-labelledby="attention-heading"><h2 id="attention-heading"><?= $direct && !$canWrite ? 'Waiting for a reply' : 'Needs your attention' ?></h2>
+  <?php if ($listing === null): ?><section class="portal-attention" aria-labelledby="attention-heading"><h2 id="attention-heading"><?= $direct && !$canWrite ? 'Waiting for a reply' : 'Needs your attention' ?></h2>
    <?php portal_render_ticket_list($waiting, $direct && !$canWrite ? 'No request is waiting for a reply.' : 'Nothing needs your reply right now.', $canWrite); ?>
-  </section>
+  </section><?php endif; ?>
   <section class="portal-requests" id="requests" aria-labelledby="requests-heading">
    <div class="portal-section-title"><h2 id="requests-heading"><?= portal_client_admin($identity) ? 'Client support requests' : 'Your support requests' ?></h2><?php if (!$direct && $canWrite): ?><a href="/portal/new.php">Open support request <?= portal_icon('arrow') ?></a><?php endif; ?></div>
+   <?php if ($listing !== null): ?>
+   <form method="get" action="/portal/requests.php" class="portal-request-filters" role="search" aria-label="Search support requests">
+    <div class="field"><label for="request-search">Search requests</label><input id="request-search" type="search" name="q" maxlength="190" value="<?= portal_h($listing['q']) ?>" aria-describedby="request-search-help"><span id="request-search-help">Subject or request number</span></div>
+    <div class="field"><label for="request-status">Status</label><select id="request-status" name="status"><option value="">All statuses</option><?php foreach (['open'=>'Received','in_progress'=>'In progress','waiting'=>'Waiting for a reply','resolved'=>'Resolved'] as $value=>$label): ?><option value="<?= portal_h($value) ?>"<?= $listing['status'] === $value ? ' selected' : '' ?>><?= portal_h($label) ?></option><?php endforeach; ?></select></div>
+    <button type="submit" class="btn-secondary">Apply filters</button>
+    <?php if ($listing['q'] !== '' || $listing['status'] !== ''): ?><a class="btn-ghost" href="/portal/requests.php">Clear filters</a><?php endif; ?>
+   </form>
+   <p class="portal-hint"><?= portal_client_admin($identity) ? 'Client-wide view.' : 'Requests you opened.' ?> <span class="portal-request-range"><?= $listing['total'] === 0 ? 'No matching requests.' : 'Showing ' . (int)$listing['from'] . '–' . (int)$listing['to'] . ' of ' . (int)$listing['total'] . ' matching requests.' ?></span></p>
+   <?php portal_render_ticket_list($recent, 'No support requests match these filters. Try another subject, request number or status.', $canWrite); ?>
+   <?php if ($listing['total'] > 0): ?><nav class="portal-request-paging" aria-label="Request pages">
+    <?php if ($listing['page'] > 1): ?><a class="btn-secondary" href="<?= portal_h(portal_request_list_url($listing, $listing['page'] - 1)) ?>">Previous</a><?php endif; ?>
+    <span>Page <?= (int)$listing['page'] ?> of <?= (int)$listing['pages'] ?></span>
+    <?php if ($listing['page'] < $listing['pages']): ?><a class="btn-secondary" href="<?= portal_h(portal_request_list_url($listing, $listing['page'] + 1)) ?>">Next</a><?php endif; ?>
+   </nav><?php endif; ?>
+   <?php else: ?>
    <p class="portal-hint"><?= portal_client_admin($identity) ? 'Client-wide view.' : 'Requests you opened.' ?> Showing up to 50 recent requests.</p>
    <div class="portal-counts" aria-label="Ticket counts"><?php foreach (['open'=>'Open','in_progress'=>'In progress','waiting'=>$direct && !$canWrite ? 'Waiting for a reply' : 'Waiting on you','resolved'=>'Resolved'] as $status=>$label): ?><span><?= portal_h($label) ?> <strong><?= (int)($summary['counts'][$status] ?? 0) ?></strong></span><?php endforeach; ?></div>
    <?php portal_render_ticket_list($recent, $emptyRecent, $canWrite); ?>
+   <?php endif; ?>
   </section>
  </div>
  <aside class="portal-context-rail">
@@ -730,7 +752,7 @@ function portal_render_home(array $context, ?array $summary, ?array $devices, ?a
   <section class="portal-attention portal-overview-card" aria-labelledby="home-reply-heading">
    <h2 id="home-reply-heading"><?= $canWrite ? 'Needs your reply' : 'Waiting for a reply' ?></h2>
    <?php portal_render_request_rows($waiting, $canWrite, false, $canWrite); ?>
-   <?php if ($waitingTotal > count($waiting)): ?><p class="portal-hint">Showing <?= count($waiting) ?> of <?= $waitingTotal ?>. <a href="/portal/requests.php">See every request</a></p><?php endif; ?>
+   <?php if ($waitingTotal > count($waiting)): ?><p class="portal-hint">Showing <?= count($waiting) ?> of <?= $waitingTotal ?>. <a href="/portal/requests.php">View support requests</a></p><?php endif; ?>
   </section>
   <?php endif; ?>
   <section class="portal-requests portal-overview-card" aria-labelledby="home-recent-heading">

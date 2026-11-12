@@ -1,5 +1,8 @@
 # Safeharbor customer portal contract
 
+The Support Requests list supports [subject/number search, status filtering and
+bounded paging](portal-request-search.md) within its existing visibility boundary.
+
 **Settings/access privacy change (deployed October 21, 2026; signed-in acceptance pending):**
 [The settings and requester privacy release record](settings-access-release.md)
 records production source `4021f4507f4727259d0c67ae2a99ba5beaf97400`, deployed at

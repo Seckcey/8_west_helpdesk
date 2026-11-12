@@ -532,5 +532,10 @@ $firstRequester = (int)$requesterBefore[0]['ticket_id'];
 portal_mysql_expect('failed replay still rejects attribution deletion', PDOException::class,
     fn()=>$pdo->exec('DELETE FROM portal_ticket_requesters WHERE ticket_id='.$firstRequester));
 
+// The same paging/privacy cases also execute on native MySQL prepared statements.
+require_once __DIR__ . '/portal_request_paging_cases.php';
+portal_paging_seed($pdo);
+portal_paging_cases($pdo, 'portal_mysql_check');
+
 echo "Portal MySQL: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

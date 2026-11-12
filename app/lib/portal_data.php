@@ -365,12 +365,45 @@ function portal_transition_binding(
     }
 }
 
-/** @return array{client:array<string,mixed>,counts:array<string,int>,tickets:list<array<string,mixed>>} */
-function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limit = 50, ?array $identity = null): array
+/** Display-list inputs only. These never choose the tenant, client or requester. */
+function portal_request_list_options(array $query): array
+{
+    $search = $query['q'] ?? '';
+    $status = $query['status'] ?? '';
+    $page = $query['page'] ?? '1';
+    if (!is_string($search) || !mb_check_encoding($search, 'UTF-8') || mb_strlen($search) > 190 || str_contains($search, "\0")
+        || !is_string($status) || !in_array($status, ['', 'open', 'in_progress', 'waiting', 'resolved'], true)
+        || (!is_int($page) && !is_string($page)) || preg_match('/\A[1-9][0-9]{0,8}\z/D', (string)$page) !== 1) {
+        throw new PortalDataValidationException('Use a subject or request number, a listed status, and a valid page number.');
+    }
+    return ['q'=>trim($search), 'status'=>$status, 'page'=>(int)$page];
+}
+
+/** The optional list inputs add filters and paging; existing Home callers keep their original summary. */
+function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limit = 50, ?array $identity = null, ?array $listOptions = null): array
 {
     $visibility = portal_ticket_visibility(portal_ticket_actor($identity, $tenantId, $clientId));
     if ($tenantId < 1 || $clientId < 1 || $limit < 1 || $limit > 100) {
         throw new PortalDataValidationException('The ticket-summary boundary is invalid.');
+    }
+    $filterSql = '';
+    $filterParams = [];
+    if ($listOptions !== null) {
+        $listOptions = portal_request_list_options($listOptions);
+        $limit = min($limit, 50);
+        if ($listOptions['q'] !== '') {
+            $filterParams['request_search'] = '%' . strtr($listOptions['q'], ['!'=>'!!', '%'=>'!%', '_'=>'!_']) . '%';
+            $filterSql .= " AND (t.subject LIKE :request_search ESCAPE '!'";
+            if (preg_match('/\A#?([1-9][0-9]{0,17})\z/D', $listOptions['q'], $number) === 1) {
+                $filterSql .= ' OR t.id = :request_number';
+                $filterParams['request_number'] = (int)$number[1];
+            }
+            $filterSql .= ')';
+        }
+        if ($listOptions['status'] !== '') {
+            $filterSql .= ' AND t.status = :request_status';
+            $filterParams['request_status'] = $listOptions['status'];
+        }
     }
 
     $client = $pdo->prepare(
@@ -396,13 +429,18 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
                 SELECT 1 FROM tickets merged_source
                  WHERE merged_source.tenant_id = t.tenant_id
                    AND merged_source.merged_into_id = t.id
-            )
+            )' . $filterSql . '
           GROUP BY t.status'
     );
-    $countStmt->execute(['tenant_id' => $tenantId, 'client_id' => $clientId] + $visibility['params']);
+    $params = ['tenant_id' => $tenantId, 'client_id' => $clientId] + $visibility['params'] + $filterParams;
+    $countStmt->execute($params);
     foreach ($countStmt->fetchAll() as $row) {
         if (isset($counts[$row['status']])) $counts[$row['status']] = (int)$row['total'];
     }
+    $total = array_sum($counts);
+    $pages = max(1, (int)ceil($total / $limit));
+    $page = min($listOptions['page'] ?? 1, $pages);
+    $offset = ($page - 1) * $limit;
 
     $tickets = $pdo->prepare(
         // Four facts about each row's conversation ride along: the kind and time of its newest
@@ -430,7 +468,7 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
                 SELECT 1 FROM tickets merged_source
                  WHERE merged_source.tenant_id = t.tenant_id
                    AND merged_source.merged_into_id = t.id
-            )
+            )" . $filterSql . "
           ORDER BY CASE t.status
                      WHEN 'waiting' THEN 0
                      WHEN 'in_progress' THEN 1
@@ -441,15 +479,23 @@ function portal_ticket_summary(PDO $pdo, int $tenantId, int $clientId, int $limi
                    -- Newest customer-visible activity first. Never the row's own change time: that moves on
                    -- staff-side edits the customer must not be able to notice.
                    COALESCE(newest.created_at, t.created_at) DESC, t.id DESC
-          LIMIT {$limit}"
+          LIMIT :request_limit OFFSET :request_offset"
     );
-    $tickets->execute(['tenant_id' => $tenantId, 'client_id' => $clientId] + $visibility['params']);
+    foreach ($params as $name => $value) $tickets->bindValue($name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+    $tickets->bindValue('request_limit', $limit, PDO::PARAM_INT);
+    $tickets->bindValue('request_offset', $offset, PDO::PARAM_INT);
+    $tickets->execute();
+    $rows = $tickets->fetchAll();
+    if ($listOptions !== null) $listOptions['page'] = $page;
 
     return [
         'client' => $clientRow,
         'counts' => $counts,
-        'tickets' => $tickets->fetchAll(),
-    ];
+        'tickets' => $rows,
+    ] + ($listOptions === null ? [] : ['listing' => $listOptions + [
+        'page_size'=>$limit, 'pages'=>$pages, 'total'=>$total,
+        'from'=>$rows === [] ? 0 : $offset + 1, 'to'=>$rows === [] ? 0 : $offset + count($rows),
+    ]]);
 }
 
 function portal_report_archive_select_sql(): string
