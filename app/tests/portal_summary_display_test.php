@@ -13,7 +13,9 @@ foreach (['list','detail','missing','zero','empty'] as $state) {
     $document = new DOMDocument(); @$document->loadHTML($html); $xp = new DOMXPath($document);
     $check($state.' has no inline scripts/styles', $xp->query('//script[not(@src)]|//*[@style or @onclick]')->length === 0);
     if ($state === 'list' || $state === 'empty') {
-        $check($state.' states the existing 24-summary limit', str_contains($html,'Showing up to 24 weekly summaries'));
+        $check($state.' shows the shared list limit only when summaries exist',
+            str_contains($html,'Showing up to '.PORTAL_REPORT_ARCHIVE_LIST_LIMIT.' weekly summaries') === ($state === 'list'));
+        $check($state.' explains the summary privacy boundary',str_contains($html,'Summaries do not include request messages, internal notes, rates or invoices.'));
         $check($state.' primary list omits version and fingerprint jargon', !str_contains($html,'definition v') && !str_contains($html,'Archive SHA-256'));
         continue;
     }

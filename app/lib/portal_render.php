@@ -871,7 +871,7 @@ function portal_render_reports(array $context, array $archives): void
       <p class="page-sub">See the support provided each week. These summaries keep the totals recorded at that time.</p>
     </div>
   </header>
-  <p class="page-note">Showing up to 24 weekly summaries, newest first.</p>
+  <?php if ($archives !== []): ?><p class="page-note">Showing up to <?= PORTAL_REPORT_ARCHIVE_LIST_LIMIT ?> weekly summaries, newest first.</p><?php endif; ?>
   <div class="portal-report-list">
     <?php if ($archives === []): ?>
       <div class="card empty">No weekly service summaries yet. They will appear here after your support team saves them.</div>
@@ -881,7 +881,7 @@ function portal_render_reports(array $context, array $archives): void
       <?php endforeach; ?>
     <?php endif; ?>
   </div>
-  <p class="page-note">Each summary shows service totals for your client. Open a support request to read its conversation.</p>
+  <p class="page-note">Each summary shows service totals for your client. Summaries do not include request messages, internal notes, rates or invoices.</p>
 </main>
     <?php
     portal_page_end();
