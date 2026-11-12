@@ -202,6 +202,26 @@ request_check('a viewer can read the request, is told plainly that they cannot r
     && str_contains($viewerHtml, 'You can read this request but not reply to it.')
     && ! str_contains($viewerHtml, 'portal-waiting-callout') && ! str_contains($viewerHtml, 'It is your turn'));
 
+foreach (['client_owner', 'client_admin', 'client_staff', 'client_viewer'] as $role) {
+    foreach ([false, true] as $isDelegated) {
+        $reader = $context;
+        $reader['identity']['role'] = $isDelegated ? 'tech' : $role;
+        if ($isDelegated) $reader['identity']['customer_access'] = ['role' => $role];
+        $writable = $role !== 'client_viewer';
+        $closed = $main($page($reader, ['status' => 'resolved'] + $base, [$asked, $answer]));
+        request_check($role . ($isDelegated ? ' delegated' : ' direct') . ' gets a possible next step after resolution',
+            ! str_contains($closed, '<form')
+            && str_contains($closed, 'Send a new support request') === $writable
+            && str_contains($closed, 'Ask an owner, admin or support contact to follow up with request #102.') === !$writable
+            && ($writable || ! str_contains($closed, 'href="/portal/new.php"')));
+        $waiting = $main($page($reader, ['status' => 'waiting'] + $base, [$asked, $answer]));
+        request_check($role . ($isDelegated ? ' delegated' : ' direct') . ' retains the existing waiting reply behavior',
+            str_contains($waiting, 'id="portal-reply"') === $writable
+            && str_contains($waiting, 'The support team is waiting for your reply.') === $writable
+            && ($writable || str_contains($waiting, 'You can read this request but not reply to it.')));
+    }
+}
+
 $hostile = $main($page($context, ['status' => 'open', 'subject' => '<img src=x onerror=alert(1)>'] + $base,
     [['kind' => 'client', 'author_name' => '<b>Dana</b>', 'created_at' => '2026-11-10 14:14:00', 'body' => '<script>alert(1)</script>']]));
 request_check('subject, author and message text are escaped',

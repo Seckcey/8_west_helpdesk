@@ -14,6 +14,20 @@ function portal_guidance_display_render(string $state, string $theme = 'light'):
         $identity['customer_access'] = ['role'=>'client_admin'];
     }
     $context = ['identity'=>$identity,'binding'=>['client_name'=>'Example client']];
+    if (str_starts_with($state, 'resolved-') || str_starts_with($state, 'waiting-')) {
+        $context['identity']['role'] = str_ends_with($state, '-viewer') ? 'client_viewer' : 'client_staff';
+        $_SERVER['REQUEST_URI'] = '/portal/ticket.php?id=102';
+        portal_render_ticket($context, [
+            'ticket' => ['id'=>102, 'subject'=>'Example printer issue', 'priority'=>'normal',
+                'status'=>str_starts_with($state, 'resolved-') ? 'resolved' : 'waiting',
+                'created_at'=>gmdate('Y-m-d H:i:s', time()-7200),
+                'first_response_at'=>gmdate('Y-m-d H:i:s', time()-3600),
+                'resolved_at'=>str_starts_with($state, 'resolved-') ? gmdate('Y-m-d H:i:s', time()-1800) : null],
+            'messages'=>[['kind'=>'tech', 'author_name'=>'Example support teammate',
+                'created_at'=>gmdate('Y-m-d H:i:s', time()-3600), 'body'=>'The printer connection has been checked.']],
+        ]);
+        return;
+    }
     if (str_starts_with($state,'picker')) {
         $_SERVER['REQUEST_URI'] = '/portal/clients.php';
         $choices = [];
