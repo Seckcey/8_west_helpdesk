@@ -51,7 +51,7 @@ if ($rawArchiveId !== null
 
 try {
     if ($rawArchiveId === null) {
-        portal_render_reports($context, portal_report_archives(db(), $tenantId, $clientId, 24, $context['identity']));
+        portal_render_reports($context, portal_report_archives(db(), $tenantId, $clientId, PORTAL_REPORT_ARCHIVE_LIST_LIMIT, $context['identity']));
         exit;
     }
     portal_render_report($context, portal_report_archive(db(), $tenantId, $clientId, (int)$rawArchiveId, $context['identity']));

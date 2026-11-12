@@ -26,7 +26,11 @@ for(const theme of ['light','dark'])for(const width of [1440,390]) {
     for(const state of ['list','detail','missing','zero','empty']){
       await page.goto('http://safeharbor.test/portal/reports.php?fixture='+state);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-      if(state==='list'||state==='empty')assert.match(await page.locator('main').last().textContent(),/Showing up to 24 weekly summaries/);
+      if(state==='list'||state==='empty'){
+        const text=await page.locator('main').last().textContent();
+        assert.equal(text.includes('Showing up to 24 weekly summaries'),state==='list');
+        assert.match(text,/Summaries do not include request messages, internal notes, rates or invoices/);
+      }
       else {
         assert.equal(await page.locator('.portal-report-integrity').getAttribute('open'),null);
         assert.equal(await page.locator('.portal-report-integrity code').isVisible(),false);

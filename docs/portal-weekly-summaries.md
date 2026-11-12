@@ -1,7 +1,10 @@
 # Weekly service summaries
 
 Client owners and admins can open **Support Requests → Weekly service summaries**.
-The list states its existing limit of up to 24 summaries, newest first. Each card
+The populated list states its existing limit of up to 24 summaries, newest first.
+`PORTAL_REPORT_ARCHIVE_LIST_LIMIT` supplies both the query limit and its label;
+the empty state omits the limit. The list also explains that summaries exclude
+request messages, internal notes, rates and invoices. Each card
 leads with its reporting period and saved request totals.
 
 The detail page shows requests opened and resolved, average first reply, response

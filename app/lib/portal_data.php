@@ -39,6 +39,7 @@ const PORTAL_CLIENT_ROLES = ['client_owner', 'client_admin', 'client_staff', 'cl
 const PORTAL_TICKET_WRITE_ROLES = ['client_owner', 'client_admin', 'client_staff'];
 const PORTAL_TICKET_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
 const PORTAL_TICKET_BODY_MAX_CHARACTERS = 8000;
+const PORTAL_REPORT_ARCHIVE_LIST_LIMIT = 24;
 
 /** @return list<string> */
 function portal_reserved_identity_tenant_slugs(?array $configured = null): array
