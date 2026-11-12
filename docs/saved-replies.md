@@ -3,6 +3,8 @@
 Open **Saved replies** from the palette, or **Manage saved replies** in a ticket's Saved replies menu.
 The library lists each title, the first line and its author. The page's **New saved reply** button opens
 one form below the library. **Edit** opens that form with the selected reply; **Cancel** saves nothing.
+If a reply is deleted while the editor is open, saving shows **That saved reply is not available to edit.**
+Saving an available reply without changing its text still succeeds.
 
 The preview fills the four supported fields with sample values. Field buttons insert at the cursor,
 replacing selected text. Preview text is never sent. A ticket fills those fields with its own current

@@ -58,12 +58,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($isAdmin) {
                 db()->prepare('UPDATE canned_responses SET title = ?, body = ? WHERE id = ? AND tenant_id = ?')
                     ->execute([$title, $body, $sid, tenant_id()]);
+                $available = db()->prepare('SELECT id FROM canned_responses WHERE id = ? AND tenant_id = ?');
+                $available->execute([$sid, tenant_id()]);
             } else {
                 db()->prepare('UPDATE canned_responses SET title = ?, body = ? WHERE id = ? AND tenant_id = ? AND created_by = ?')
                     ->execute([$title, $body, $sid, tenant_id(), (int)$user['id']]);
+                $available = db()->prepare('SELECT id FROM canned_responses WHERE id = ? AND tenant_id = ? AND created_by = ?');
+                $available->execute([$sid, tenant_id(), (int)$user['id']]);
             }
-            header('Location: /snippets.php');
-            exit;
+            // An unchanged save can affect zero rows; availability is the meaningful check.
+            if (!$available->fetch()) {
+                $error = 'That saved reply is not available to edit.';
+            } else {
+                header('Location: /snippets.php');
+                exit;
+            }
         }
     }
 }
