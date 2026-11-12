@@ -1,0 +1,8 @@
+/* Items 42/43: persistent form help and the portal client picker. */
+.portal-request-form-page .portal-field-help{margin:0 0 4px;font-size:14px;font-weight:400;line-height:1.5;color:var(--muted-strong)}
+.portal-request-form-page .field>label{font-weight:600}
+.portal-guidance-page :is(input:not([type=hidden]),select,button){min-height:44px}
+.portal-guidance-page :is(input,select,textarea,button):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.portal-client-picker-page .login-card{min-width:0}
+.portal-client-picker-page .portal-client-name{overflow-wrap:anywhere}
+.portal-client-picker-page .login-form .btn-primary{white-space:normal}

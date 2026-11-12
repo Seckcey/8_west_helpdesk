@@ -66,6 +66,7 @@ function portal_page_start(string $title, string $bodyClass = '', ?array $contex
 <link rel="stylesheet" href="/assets/css/portal-workspace.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-workspace.css') ?>">
 <?php if(str_contains($bodyClass,'portal-requests-page')): ?><link rel="stylesheet" href="/assets/css/portal-requests.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-requests.css') ?>"><?php endif; ?>
 <?php if(str_contains($bodyClass,'portal-reports-page')): ?><link rel="stylesheet" href="/assets/css/portal-reports.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-reports.css') ?>"><?php endif; ?>
+<?php if(str_contains($bodyClass,'portal-guidance-page')): ?><link rel="stylesheet" href="/assets/css/portal-guidance.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-guidance.css') ?>"><?php endif; ?>
 <?php if(str_contains($bodyClass,'portal-security-page')): ?><link rel="stylesheet" href="/assets/css/portal-security.css?v=<?= portal_asset_version(__DIR__.'/../public/assets/css/portal-security.css') ?>"><?php endif; ?>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . portal_h($bodyClass) . '"' : '' ?>>
@@ -131,10 +132,10 @@ function portal_render_login(?string $message = null): void
 
 function portal_render_client_choices(array $principal,array $choices): void
 {
-    portal_page_start('Choose a client for Westy');
+    portal_page_start('Choose a client', 'portal-guidance-page portal-client-picker-page');
     ?>
 <main class="page page-narrow"><header class="page-head"><div>
-<h1 class="page-title">Choose a client for Westy</h1>
+<h1 class="page-title">Choose a client</h1>
 <p class="page-sub">Continue as <?=portal_h($principal['display_name'])?>. Your 8 West ID account and other apps stay signed in.</p>
 </div></header>
 <?php if(!$choices): ?><p role="status">No customer access is currently assigned to this account. Ask your workspace administrator to review your access.</p><?php endif; ?>
@@ -145,7 +146,7 @@ function portal_render_client_choices(array $principal,array $choices): void
 <form method="post" class="login-form"><input type="hidden" name="csrf" value="<?=portal_h(portal_csrf_token())?>">
 <input type="hidden" name="reference" value="<?=portal_h($choice['access']['access']['reference'])?>">
 <input type="hidden" name="generation" value="<?=portal_h($choice['access']['access']['generation'])?>">
-<button class="btn-primary" type="submit">Use Westy for this client</button></form></section>
+<button class="btn-primary" type="submit">Continue with this client</button></form></section>
 <?php endforeach; ?></div></main>
 <?php portal_page_end();
 }
@@ -957,7 +958,7 @@ function portal_render_new_ticket(array $context, ?string $error = null, array $
 {
     $clientName = (string)($context['binding']['client_name'] ?? 'Your business');
     $nonce = portal_action_nonce('ticket:create');
-    portal_page_start('Get help', '', $context);
+    portal_page_start('Get help', 'portal-guidance-page portal-request-form-page', $context);
     ?>
 <main class="page page-narrow">
   <?php portal_render_support_back_link($context); ?>
@@ -965,7 +966,7 @@ function portal_render_new_ticket(array $context, ?string $error = null, array $
     <div>
       <p class="page-sub"><?= portal_h($clientName) ?></p>
       <h1 class="page-title">What can we help with?</h1>
-      <p class="page-sub">Tell the support team what is happening. A human remains responsible for resolving the ticket.</p>
+      <p class="page-sub">Tell your support team what happened. You can follow replies in Support Requests.</p>
     </div>
   </header>
   <?php if ($error !== null && $error !== ''): ?><div class="form-error" role="alert"><?= portal_h($error) ?></div><?php endif; ?>
@@ -973,26 +974,30 @@ function portal_render_new_ticket(array $context, ?string $error = null, array $
     <form method="post" action="/portal/new.php" class="form-grid">
       <input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>">
       <input type="hidden" name="action_nonce" value="<?= portal_h($nonce) ?>">
-      <label class="field span-2">Short summary
-        <input type="text" name="subject" maxlength="190" required autofocus autocomplete="off"
-               value="<?= portal_h($values['subject'] ?? '') ?>"
-               placeholder="The front desk computer cannot print">
-      </label>
-      <label class="field">How urgent is it?
-        <select name="priority">
+      <div class="field span-2">
+        <label for="request-subject">Short summary</label>
+        <p class="portal-field-help" id="request-subject-help">For example: The front desk computer cannot print.</p>
+        <input id="request-subject" type="text" name="subject" maxlength="190" required autofocus autocomplete="off"
+               aria-describedby="request-subject-help" value="<?= portal_h($values['subject'] ?? '') ?>">
+      </div>
+      <div class="field">
+        <label for="request-priority">How urgent is it?</label>
+        <select id="request-priority" name="priority" aria-describedby="request-priority-help">
           <?php foreach (PORTAL_TICKET_PRIORITIES as $priority): ?>
             <option value="<?= portal_h($priority) ?>"<?= (($values['priority'] ?? 'normal') === $priority) ? ' selected' : '' ?>><?= portal_h(portal_priority_label($priority)) ?></option>
           <?php endforeach; ?>
         </select>
-      </label>
+      </div>
       <div class="field portal-priority-help">
         <span>Priority guide</span>
-        <p>Urgent means the business cannot operate. High means important work is blocked.</p>
+        <p id="request-priority-help">Urgent means the business cannot operate. High means important work is blocked.</p>
       </div>
-      <label class="field span-2">What happened?
-        <textarea name="body" maxlength="<?= PORTAL_TICKET_BODY_MAX_CHARACTERS ?>" required
-                  placeholder="What were you trying to do, what happened instead, and who is affected?"><?= portal_h($values['body'] ?? '') ?></textarea>
-      </label>
+      <div class="field span-2">
+        <label for="request-body">What happened?</label>
+        <p class="portal-field-help" id="request-body-help">What were you trying to do, what happened instead, and who is affected?</p>
+        <textarea id="request-body" name="body" maxlength="<?= PORTAL_TICKET_BODY_MAX_CHARACTERS ?>" required
+                  aria-describedby="request-body-help"><?= portal_h($values['body'] ?? '') ?></textarea>
+      </div>
       <p class="page-note span-2">This request will be visible to the requester, client owners/admins and the support team. Only the text in this form is sent. Do not include passwords, verification codes or secret keys.</p>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary">Send request</button>
