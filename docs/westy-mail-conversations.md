@@ -94,7 +94,8 @@ state checks remain unchanged.
 **History** starts closed and contains earlier attempts, reconciliation, receipts,
 and follow-up evidence. Active follow-up warnings remain visible above it. Recorded
 times use the user's selected time zone and clock; UTC text remains without
-JavaScript. Where the historical row has no actor name, the page states that.
+JavaScript. Reconciliation history shows the recorded reviewer's staff ID; it
+states that no reviewer was recorded only when the ID is missing.
 Provider acceptance and Sent Items evidence still do not prove inbox receipt.
 The staff bubble's three first-run suggestions follow the page; its existing
 onboarding, dismissal, transcript, and hosted layout behavior are unchanged.

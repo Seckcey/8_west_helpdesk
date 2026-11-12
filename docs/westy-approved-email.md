@@ -35,8 +35,9 @@ The page keeps preparation, saved-message review, and **3 Approve** separate.
 A saved message is read-only; editing requires saving a fresh draft and reviewing
 it again. **History** starts closed. Recorded timestamps use the signed-in user's
 selected time zone and clock, with UTC text when JavaScript is unavailable.
-Legacy drafts do not retain a sender or approver name; the page says so rather
-than treating today's mail setting or a staff ID as historical attribution.
+Legacy drafts do not retain a sender; today's mail setting is not historical
+evidence. Approval history shows the recorded staff ID, and says no approver was
+recorded only when that ID is missing. It does not invent an actor name.
 The dedicated mailbox conversation remains a separate existing route.
 
 Saving and viewing do not send. Approval uses existing CSRF/session boundaries and

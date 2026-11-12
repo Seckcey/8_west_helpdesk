@@ -33,7 +33,7 @@ async function shot(page, name) { if (shots) { await mkdir(shots, { recursive: t
 
 for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
   test(`review steps, disclosures and local times: ${theme} ${width}`, async t => {
-    for (const state of ['mail-prepare', 'mail-draft', 'mail-history', 'legacy-draft']) {
+    for (const state of ['mail-prepare', 'mail-draft', 'mail-history', 'legacy-draft', 'legacy-history']) {
       const { page, posts, errors } = await open(t, state, { theme, width });
       assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
       assert.equal(await page.getByRole('heading', { name: '1 Who gets it', exact: true }).count(), 1);
@@ -67,6 +67,11 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
         assert.match(await page.locator('.westy-history-body').innerText(), /does not prove inbox receipt/);
         await shot(page, `history-open-${theme}-${width}`);
       }
+      if (state === 'legacy-history') {
+        assert.match(await page.locator('.westy-history-body').innerText(), /Approved by staff #7/);
+        assert.equal(await page.locator('.westy-history-body script').count(), 0);
+        await shot(page, `legacy-history-open-${theme}-${width}`);
+      }
       assert.deepEqual(posts, []); assert.deepEqual(errors, []);
     }
   });
@@ -96,7 +101,9 @@ test('unavailable approval paths and no-JavaScript history', async t => {
   }
   const { page, posts } = await open(t, 'legacy-history', { js: false });
   await page.getByText('History', { exact: true }).click();
-  assert.match(await page.locator('.westy-history-body').innerText(), /not recorded with this message/);
+  assert.match(await page.locator('.westy-history-body').innerText(), /Approved by staff #7/);
+  assert.equal(await page.locator('.westy-history-body script').count(), 0);
+  assert.match(await page.locator('.westy-history-body').innerText(), /Saved advice <script>invalid\(\)<\/script>/);
   assert.match(await page.locator('time').first().innerText(), /UTC/);
   assert.deepEqual(posts, []);
 });

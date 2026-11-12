@@ -10,7 +10,7 @@ function enforce_https(): void {}
 function require_login(): array { return ['id'=>7,'tenant_id'=>1,'role'=>$GLOBALS['case']['role']]; }
 function csrf_field(): string { return '<input type="hidden" name="csrf" value="synthetic-csrf">'; }
 function cfg(string $key, mixed $default=null): mixed { return $key==='westy_mail.enabled' ? $GLOBALS['case']['mail'] : $default; }
-function westy_email_enabled(): bool { return $GLOBALS['case']['enabled']; }
+function westy_email_enabled(): bool { return $GLOBALS['case']['email_enabled'] ?? $GLOBALS['case']['enabled']; }
 function westy_mail_enabled(): bool { return $GLOBALS['case']['enabled']; }
 function westy_email_review_hash(array $row): string { return 'synthetic-legacy-review'; }
 function westy_mail_review_hash(array $row): string { return 'synthetic-mail-review'; }
@@ -46,9 +46,9 @@ function fixture_rows(string $sql): array {
     $case=$GLOBALS['case'];
     preg_match('/\bFROM\s+([a-z_]+)/i',$sql,$table); $table=$table[1]??'';
     if ($table==='contacts') return [['id'=>11,'name'=>'Example Contact','email'=>'contact@example.test']];
-    if ($table==='westy_email_drafts') return $case['legacy'] ? [['id'=>41,'state'=>$case['legacy'],'recipient'=>'contact@example.test','subject'=>'Connection advice','body_text'=>'Saved advice <script>invalid()</script>', 'attempted_at'=>$case['attempted']?'2026-01-15 18:05:00':null,'approved_at'=>$case['attempted']?'2026-01-15 18:04:00':null,'approved_by'=>7,'provider_http'=>404]] : [];
+    if ($table==='westy_email_drafts') return $case['legacy'] ? [['id'=>41,'state'=>$case['legacy'],'recipient'=>'contact@example.test','subject'=>'Connection advice','body_text'=>'Saved advice <script>invalid()</script>', 'attempted_at'=>$case['attempted']?'2026-01-15 18:05:00':null,'approved_at'=>$case['attempted']?'2026-01-15 18:04:00':null,'approved_by'=>$case['actor_id'],'provider_http'=>404]] : [];
     if ($table==='westy_mail_conversations') return $case['state'] ? [['id'=>51,'state'=>$case['state'],'sender'=>'help@example.test','recipient'=>'contact@example.test','subject'=>'Connection advice','body_text'=>"Hello Example Contact,\n\nPlease check the cable.\nReply if you still need help.",'attempted_at'=>in_array($case['state'],['draft','approved'],true)?null:'2026-01-15 18:05:00','recipient_alias_json'=>'{"address":"alias@example.test"}']] : [];
-    if ($table==='westy_mail_reconciliations') return $case['reconciled'] ? [['id'=>61,'actor_id'=>7,'created_at'=>'2026-01-15 18:10:00']] : [];
+    if ($table==='westy_mail_reconciliations') return $case['reconciled'] ? [['id'=>61,'actor_id'=>$case['actor_id'],'created_at'=>'2026-01-15 18:10:00']] : [];
     if ($table==='westy_mail_delegations') return $case['history'] ? [['expires_at'=>'2026-01-22 18:05:00','revoked_reason'=>null]] : [];
     if ($table==='westy_mail_inbound_receipts') return $case['history'] ? [['id'=>71,'received_at'=>'2026-01-15 18:06:00','disposition'=>'verified']] : [];
     if ($table==='westy_mail_auto_attempts') return $case['history'] ? [['state'=>'unknown','attempted_at'=>'2026-01-15 18:07:00']] : [];
@@ -57,7 +57,7 @@ function fixture_rows(string $sql): array {
     throw new RuntimeException('Unexpected fixture query');
 }
 function review_page(string $route, array $overrides=[]): string {
-    $GLOBALS['case']=array_replace(['role'=>'admin','enabled'=>true,'mail'=>true,'owned'=>true,'state'=>false,'legacy'=>false,'attempted'=>false,'reconciled'=>false,'history'=>false,'unavailable'=>false],$overrides);
+    $GLOBALS['case']=array_replace(['role'=>'admin','enabled'=>true,'email_enabled'=>null,'actor_id'=>7,'mail'=>true,'owned'=>true,'state'=>false,'legacy'=>false,'attempted'=>false,'reconciled'=>false,'history'=>false,'unavailable'=>false],$overrides);
     $_GET=['ticket_id'=>1042]; $_POST=[]; $_SERVER['REQUEST_METHOD']='GET'; $_SESSION=[];
     $source=(string)file_get_contents(__DIR__.'/../public/'.$route.'.php');
     $source=preg_replace('/^require_once .*;\R/m','',$source);
@@ -106,6 +106,24 @@ foreach (['admin','tech'] as $role) foreach ([true,false] as $enabled) foreach (
     review_check(review_forms($xp,'draft')===(int)($role==='admin'&&$enabled&&$reconciled),'Replacement preparation gate');
     if ($role==='admin'&&$enabled&&!$reconciled) review_check($xp->query('//input[@name="confirm_reconcile" and @value="yes" and @required]')->length===1&&$xp->query('//input[@name="old_draft" and @value="41"]')->length===1,'Reconciliation confirmation and original ID');
 }
+foreach (['owner','admin','tech','viewer'] as $role) foreach ([true,false] as $enabled) foreach ([true,false] as $email_enabled) {
+    $xp=review_xpath(review_page('westy_mail',compact('role','enabled','email_enabled')));
+    review_check($xp->query('//a[contains(@href,"#westy-contact")]')->length===(int)(in_array($role,['owner','admin'],true)&&$email_enabled), 'Contact link matches the destination form gate independently of mailbox transport');
+}
+foreach ([7,null] as $actor_id) {
+    foreach (['draft','uncertain'] as $legacy) {
+        $html=review_page('westy_email',compact('actor_id','legacy')+['attempted'=>true]);
+        review_check(str_contains($html,$actor_id===null?'No approver was recorded.':'Approved by staff #7'), 'Both legacy attempted paragraphs retain recorded attribution');
+        review_check(!str_contains($html,$actor_id===null?'Approved by staff #':'No approver was recorded.'), 'Missing-approver wording only when ID is absent');
+    }
+    $html=review_page('westy_mail',compact('actor_id')+['reconciled'=>true,'legacy'=>'uncertain','attempted'=>true]);
+    review_check(str_contains($html,$actor_id===null?'No reviewer was recorded.':'reviewed by staff #7'), 'Reconciliation retains recorded reviewer or states missing ID');
+    review_check(!str_contains($html,$actor_id===null?'reviewed by staff #':'No reviewer was recorded.'), 'Missing-reviewer wording only when ID is absent');
+}
+$html=review_page('westy_email',['legacy'=>'uncertain','attempted'=>true]); $xp=review_xpath($html);
+$history=$xp->query('//details[contains(@class,"westy-review-history")]')->item(0);
+review_check($history!==null&&str_contains($history->textContent,'Saved advice <script>invalid()</script>'), 'History preserves stored text literally');
+review_check($xp->query('//details[contains(@class,"westy-review-history")]//script')->length===0&&str_contains($html,'Saved advice &lt;script&gt;invalid()&lt;/script&gt;'), 'History escapes stored markup rather than creating script elements');
 foreach (['westy_email','westy_mail'] as $route) {
     $html=review_page($route,['unavailable'=>true]);
     review_check(str_contains($html,'role="alert"')&&!str_contains($html,'<form'),'Unavailable context shows error without actions');

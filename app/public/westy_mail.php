@@ -90,7 +90,7 @@ page_top($user,'Westy email','queue');
 <p class="westy-recipient"><strong><?= h($context['contact']['name']) ?></strong><span><?= h($context['contact']['email']) ?></span></p>
 <p class="page-note">From <?= h($context['graph']['sender']) ?></p>
 <p class="page-note">The contact for this computer takes priority. Otherwise the main client contact receives the advice. Contact changes stop this conversation until an owner or administrator reviews it.</p>
-<a class="link" href="/westy_email.php?ticket_id=<?= $ticketId ?>#westy-contact">Change contact</a>
+<?php if($admin && westy_email_enabled()): ?><a class="link" href="/westy_email.php?ticket_id=<?= $ticketId ?>#westy-contact">Change contact</a><?php endif; ?>
 </section><?php endif; ?>
 <?php if(!$conversation): ?>
 <?php $attempted=array_filter($legacy,static fn($d)=>$d['attempted_at']!==null); ?>
@@ -115,7 +115,7 @@ page_top($user,'Westy email','queue');
 <label class="westy-review-check"><input type="checkbox" name="confirm_reconcile" value="yes" required> I reviewed the saved HTTP 404 rejection. This records a separate disposition and permits review of one new message; it does not resend the old attempt.</label>
 <button class="btn-secondary">Record the rejected attempt</button></form>
 <?php endif; ?></section><?php endforeach; ?>
-<?php if($reconciliation): ?><p>The earlier HTTP 404 rejection was reviewed <?= westy_review_time($reconciliation['created_at']) ?>. The reviewer's name was not recorded with this disposition. Its original record is preserved.</p><?php endif; ?>
+<?php if($reconciliation): ?><p>The earlier HTTP 404 rejection was reviewed<?php if(!empty($reconciliation['actor_id'])): ?> by staff #<?= (int)$reconciliation['actor_id'] ?><?php endif; ?> <?= westy_review_time($reconciliation['created_at']) ?>.<?php if(empty($reconciliation['actor_id'])): ?> No reviewer was recorded.<?php endif; ?> Its original record is preserved.</p><?php endif; ?>
 </div></details>
 <?php else: $m=$conversation; ?>
 <section class="card westy-review-card"><h2>2 The message</h2><p class="westy-review-state"><?= h($labels[$m['state']]??$m['state']) ?></p>

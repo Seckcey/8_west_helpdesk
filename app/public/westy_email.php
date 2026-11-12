@@ -74,7 +74,7 @@ page_top($user,'Westy advice email','queue');
  <p>Original sender: not retained in this legacy draft. The current mail setting is not evidence of the sender used for an earlier attempt.</p>
  <dl class="westy-message-address"><dt>To</dt><dd><?= h($d['recipient']) ?></dd><dt>Subject</dt><dd><?= h($d['subject']) ?></dd></dl>
  <div class="westy-message"><?= h($d['body_text']) ?></div>
- <?php if($d['attempted_at']): ?><p>Approved <?= westy_review_time($d['approved_at']) ?>. The approver's name was not recorded with this message. Submission attempted once <?= westy_review_time($d['attempted_at']) ?>. A refresh never sends it again.</p><?php endif; ?></section>
+ <?php if($d['attempted_at']): ?><p><?php if(!empty($d['approved_by'])): ?>Approved by staff #<?= (int)$d['approved_by'] ?> <?= westy_review_time($d['approved_at']) ?>.<?php else: ?>No approver was recorded. Approval time: <?= westy_review_time($d['approved_at']) ?>.<?php endif; ?> Submission attempted once <?= westy_review_time($d['attempted_at']) ?>. A refresh never sends it again.</p><?php endif; ?></section>
  <?php endforeach; ?>
  <?php if($template && !$attempted && westy_email_enabled() && cfg('westy_mail.enabled',false)!==true): ?>
  <details class="westy-review-draft"<?= !$drafts?' open':'' ?>><summary>Prepare a new draft</summary>
@@ -105,7 +105,7 @@ page_top($user,'Westy advice email','queue');
  <p>Original sender: not retained in this legacy draft. The current mail setting is not evidence of the sender used for an earlier attempt.</p>
  <dl class="westy-message-address"><dt>To</dt><dd><?= h($d['recipient']) ?></dd><dt>Subject</dt><dd><?= h($d['subject']) ?></dd></dl>
  <div class="westy-message"><?= h($d['body_text']) ?></div>
- <?php if($d['attempted_at']): ?><p>Approved <?= westy_review_time($d['approved_at']) ?>. The approver's name was not recorded with this message. Submission attempted once <?= westy_review_time($d['attempted_at']) ?>.</p><p>This is the existing send record. A refresh never sends it again. Unknown results need provider investigation; there is no automatic resend.</p><?php endif; ?>
+ <?php if($d['attempted_at']): ?><p><?php if(!empty($d['approved_by'])): ?>Approved by staff #<?= (int)$d['approved_by'] ?> <?= westy_review_time($d['approved_at']) ?>.<?php else: ?>No approver was recorded. Approval time: <?= westy_review_time($d['approved_at']) ?>.<?php endif; ?> Submission attempted once <?= westy_review_time($d['attempted_at']) ?>.</p><p>This is the existing send record. A refresh never sends it again. Unknown results need provider investigation; there is no automatic resend.</p><?php endif; ?>
  </section><?php endforeach; ?>
  </div></details>
  <?php endif; ?>
