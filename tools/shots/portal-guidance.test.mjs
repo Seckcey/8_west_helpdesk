@@ -7,6 +7,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const shots=process.env.PORTAL_GUIDANCE_SHOTS;
+async function settledLayout(page) {
+  await page.waitForLoadState('load');
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+}
 async function fixture(t,theme,width,javaScriptEnabled=true) {
   const browser=await chromium.launch({headless:true});t.after(()=>browser.close());
   const page=await browser.newPage({viewport:{width,height:1000},colorScheme:theme,javaScriptEnabled});
@@ -29,11 +36,14 @@ async function fixture(t,theme,width,javaScriptEnabled=true) {
 }
 for(const theme of ['light','dark'])for(const width of [1440,390])test(`persistent request help and client choices: ${theme} ${width}`,async t=>{
   const {page,errors,posts}=await fixture(t,theme,width);
-  for(const state of ['blank','filled','invalid','uncertain','picker-empty','picker-one','picker-many']) {
+  for(const state of ['blank','filled','invalid','uncertain','delegated','picker-empty','picker-one','picker-many']) {
     const picker=state.startsWith('picker');
     await page.goto('http://safeharbor.test/portal/'+(picker?'clients':'new')+'.php?fixture='+state);
+    await settledLayout(page);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     if(!picker){
+      const supportLabel=await page.locator('#portal-nav nav a[href="/portal/requests.php"]').innerText();
+      assert.ok((await page.locator('main .page-head').innerText()).includes(`follow replies in ${supportLabel.trim()}.`),'form guidance matches this account navigation label');
       for(const label of ['Short summary','How urgent is it?','What happened?']) {
         const field=page.getByLabel(label,{exact:true});
         const help=await field.getAttribute('aria-describedby');
@@ -56,6 +66,15 @@ for(const theme of ['light','dark'])for(const width of [1440,390])test(`persiste
       if(count)assert.ok((await page.getByRole('button',{name:'Continue with this client',exact:true}).first().boundingBox()).height>=44);
     }
     if(shots){await mkdir(shots,{recursive:true});await page.screenshot({path:path.join(shots,`${state}-${theme}-${width}.png`),fullPage:true});}
+    if(state==='blank'){
+      await page.locator('#portal-chat-bubble').click();
+      await page.locator('#portal-chat-panel').waitFor({state:'visible'});
+      await settledLayout(page);
+      const send=await page.locator('#portal-chat-send').boundingBox();
+      assert.equal(send.width,40,'page form styles leave the Westy send button width unchanged');
+      assert.equal(send.height,40,'page form styles leave the Westy send button height unchanged');
+      if(shots)await page.screenshot({path:path.join(shots,`chat-open-${theme}-${width}.png`),fullPage:true});
+    }
   }
   assert.deepEqual(errors,[]);assert.deepEqual(posts,[]);
 });

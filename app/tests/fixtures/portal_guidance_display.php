@@ -9,6 +9,10 @@ require_once __DIR__.'/../../lib/portal_render.php';
 function portal_guidance_display_render(string $state, string $theme = 'light'): void
 {
     $identity = ['display_name'=>'Example member','role'=>'client_staff','theme'=>$theme];
+    if ($state === 'delegated') {
+        $identity['role'] = 'technician';
+        $identity['customer_access'] = ['role'=>'client_admin'];
+    }
     $context = ['identity'=>$identity,'binding'=>['client_name'=>'Example client']];
     if (str_starts_with($state,'picker')) {
         $_SERVER['REQUEST_URI'] = '/portal/clients.php';

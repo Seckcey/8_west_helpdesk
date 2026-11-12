@@ -4,7 +4,8 @@ The support-request form keeps its three fields and one **Send request** action.
 The summary example and message guidance remain visible while typing, rather than
 disappearing as placeholders. Each field has an explicit label and associated
 description. The existing priority guide keeps its original meanings. The
-introduction points to Support Requests for following replies, without promising
+introduction uses the account's existing Support Requests/Support requests navigation
+label for following replies, without promising
 an email or response time.
 
 The client picker says **Choose a client** and **Continue with this client**, because
@@ -31,10 +32,13 @@ node tools/shots/preview/build-portal-guidance.mjs
 ```
 
 The render fixture uses only synthetic data. It covers blank, filled, invalid and
-uncertain-save request forms, plus zero, one and multiple client choices. Browser
+uncertain-save request forms, a delegated account, plus zero, one and multiple client choices. Browser
 checks verify persistent descriptions while typing, desktop/phone layouts in both
 themes, and exact POST payloads with JavaScript disabled and keyboard submission.
-Set `PORTAL_GUIDANCE_SHOTS` for 28 captures; CI uploads `portal-guidance-gallery`.
+Layout measurements wait for load, fonts and two animation frames. An open-chat
+regression check preserves Westy's 40 by 40 send button; form size/focus styles are
+scoped to main content so they do not affect the shared chat widget.
+Set `PORTAL_GUIDANCE_SHOTS` for 36 captures; CI uploads `portal-guidance-gallery`.
 
 The generated `portal-request-form.html` and `portal-client-picker.html` previews
 use the real renderer and stylesheets. Links and submissions are disabled.

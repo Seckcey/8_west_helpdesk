@@ -966,7 +966,7 @@ function portal_render_new_ticket(array $context, ?string $error = null, array $
     <div>
       <p class="page-sub"><?= portal_h($clientName) ?></p>
       <h1 class="page-title">What can we help with?</h1>
-      <p class="page-sub">Tell your support team what happened. You can follow replies in Support Requests.</p>
+      <p class="page-sub">Tell your support team what happened. You can follow replies in <?= portal_direct_customer_browser($context) ? 'Support Requests' : 'Support requests' ?>.</p>
     </div>
   </header>
   <?php if ($error !== null && $error !== ''): ?><div class="form-error" role="alert"><?= portal_h($error) ?></div><?php endif; ?>

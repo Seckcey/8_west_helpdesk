@@ -13,7 +13,7 @@ and customer identity slug to its own active local binding; it never treats
 Milepost's numeric client ID as its own.
 
 A single membership enters that customer context. Multiple memberships open
-/portal/clients.php and require "Use Westy for this client." Selection checks CSRF,
+/portal/clients.php and require "Continue with this client." Selection checks CSRF,
 rechecks the exact reference/generation, rotates only the portal session and keeps
 the original identity fields. The normal portal shell offers another client choice;
 an active companion context does not switch its paired computer implicitly.
