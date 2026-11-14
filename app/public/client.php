@@ -142,7 +142,7 @@ page_top($user, $client['name'], 'clients');
   <div class="ticket-grid">
     <div>
       <?= client_ticket_tabs((int)$id, $list['show'], $openCount, $resolvedCount) ?>
-      <div class="card list">
+      <div class="card list ticket-list">
         <?php if (!$tickets): ?><?= client_tickets_empty($list['show'], (string)$client['name'], (int)$id) ?><?php endif; ?>
         <?php foreach ($tickets as $t): ?><?= ticket_row($t, true, '', false) ?><?php endforeach; ?>
       </div>

@@ -140,15 +140,17 @@ function ticket_asker(array $t): string
 function ticket_row(array $t, bool $linkWrap = true, string $from = '', bool $withClient = true): string
 {
     $url = '/ticket.php?id=' . (int)$t['id'] . h($from);
-    return '<a href="' . $url . '" class="trow" data-ticket-id="' . (int)$t['id'] . '" data-status="' . h($t['status']) . '" data-priority="' . h($t['priority']) . '"'
+    // The customer answered after we did: it is our turn again. The row says so too (trow-replied),
+    // so the card layout can make room for the chip without :has().
+    $replied = ($t['last_kind'] ?? '') === 'client' && !empty($t['first_response_at']) && ($t['status'] ?? '') !== 'resolved';
+    return '<a href="' . $url . '" class="trow' . ($replied ? ' trow-replied' : '') . '" data-ticket-id="' . (int)$t['id'] . '" data-status="' . h($t['status']) . '" data-priority="' . h($t['priority']) . '"'
         . ' data-owner="' . (!empty($t['assignee_id']) ? (int)$t['assignee_id'] : '') . '" role="row">'
         . '<span class="trow-pri">' . priority_glyph($t['priority']) . '</span>'
         . '<span class="trow-num">#' . (int)$t['id'] . '</span>'
         . '<span class="trow-main"><span class="trow-subject" title="' . h($t['subject']) . '">' . h($t['subject']) . '</span>'
         . '<span class="trow-client-phone">' . h($withClient ? (string)($t['client_name'] ?? '') : ticket_origin($t, false)) . '</span>'
         . '<span class="trow-sub"><span class="trow-origin">' . h(ticket_origin($t, $withClient)) . '</span>'
-        // The customer answered after we did: it is our turn again.
-        . (($t['last_kind'] ?? '') === 'client' && !empty($t['first_response_at']) && ($t['status'] ?? '') !== 'resolved'
+        . ($replied
             ? '<span class="chip trow-flag"><span class="chip-dot dot-cyan"></span><span class="chip-text-cyan">Customer replied</span></span>' : '')
         . '</span></span>'
         . '<span class="trow-status">' . status_chip($t['status']) . '</span>'
@@ -489,7 +491,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-words-v1">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261114-sh-desk3-tablet-v1">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -560,7 +562,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=20261113-sh-desk2-words-v1" defer></script>
+<script src="/assets/js/app.js?v=20261114-sh-desk3-tablet-v1" defer></script>
 </body>
 </html>
     <?php

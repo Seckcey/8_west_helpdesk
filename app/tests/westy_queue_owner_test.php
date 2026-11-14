@@ -56,7 +56,7 @@ try {
     $unassigned=array_replace($base,['id'=>2,'westy_owned'=>false]);
     owner_check(str_contains(ticket_owner_avatar($unassigned),'title="Unassigned"'),'genuinely unassigned ticket remains distinct');
     owner_check(str_contains(ticket_owner_avatar(array_replace($owned,['status'=>'resolved'])),'Unassigned'),'closed ticket does not display an active service owner');
-    if (($argv[1]??'')==='--render') echo '<div class="card list">'.$html.ticket_row($human).ticket_row($unassigned).'</div>';
+    if (($argv[1]??'')==='--render') echo '<div class="card list ticket-list">'.$html.ticket_row($human).ticket_row($unassigned).'</div>';
     else echo "Westy queue owner: $checks passed.\n";
 } finally {
     $actual=realpath($temp); $parent=realpath(sys_get_temp_dir());

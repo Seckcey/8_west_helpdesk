@@ -65,7 +65,7 @@ page_top($user, 'Queue', 'queue');
     <p class="queue-note queue-note-warn" role="status">This list changed while you were paging, so a ticket may be missing here or shown twice.
       <a class="link" href="<?= h(queue_url($state, ['page' => 1])) ?>">Start again from page 1</a></p>
   <?php endif; ?>
-  <div class="card list">
+  <div class="card list ticket-list">
     <?= ticket_head_row($canDelete && $rows) ?>
     <?php if (!$rows): [$emptyText, $emptyLabel, $emptyHref] = queue_empty($state); ?>
       <div class="empty">

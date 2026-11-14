@@ -54,7 +54,7 @@ try {
 
     if (($argv[1] ?? '') === '--render') {
         echo '<div class="toolbar queue-toolbar">' . ticket_bulk_toggle() . '</div>'
-            . '<div class="card list">' . ticket_head_row(true) . implode('', array_map('ticket_pick_row', $rows)) . '</div>'
+            . '<div class="card list ticket-list">' . ticket_head_row(true) . implode('', array_map('ticket_pick_row', $rows)) . '</div>'
             . ticket_bulk_bar('All', count($rows));
     } else {
         echo "Ticket bulk delete render: {$checks} passed.\n";
