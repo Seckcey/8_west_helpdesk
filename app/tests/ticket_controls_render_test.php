@@ -148,7 +148,7 @@ try {
         ];
         echo json_encode([
             'menus' => ticket_menu_choices($team),
-            'queue' => '<div class="card list">' . ticket_head_row(false) . implode('', array_map('ticket_row', $queue)) . '</div>',
+            'queue' => '<div class="card list ticket-list">' . ticket_head_row(false) . implode('', array_map('ticket_row', $queue)) . '</div>',
             'ticket' => '<div class="page page-ticket">'
                 . ticket_page_head($shown, null, ticket_subtitle($shown, 'Dana Whitfield'), false)
                 . '<div class="ticket-grid"><div class="thread" id="thread" data-ticket-id="42" data-status="' . h($status) . '" data-priority="normal" data-owner="">'

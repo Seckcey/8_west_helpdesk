@@ -18,7 +18,15 @@ const TIMER_KEY = 'safeharbor.timer.v2.1:102';
 const LONG_NAME = 'Alexandria Featherstonehaugh-Whitley';   // made up; the shared cluster cuts it at 160px
 const TABLET = [701, 768, 820, 960];
 
-async function open(t, name, { width = 768, theme = 'dark', longName = false, timer = false } = {}) {
+/** The stylesheet as a browser without container queries reads it: no query container anywhere, so no
+ *  @container rule applies, and the @supports not (container-type: inline-size) fallback does. */
+const withoutContainerQueries = (css) => {
+  const out = css.replace(/container-type:\s*inline-size;?/g, '').replace(/@supports not \(container-type: inline-size\)/g, '@supports (display: block)');
+  if (out === css || out.includes('container-type')) throw new Error('could not take container queries out of app.css');
+  return out;
+};
+
+async function open(t, name, { width = 768, theme = 'dark', longName = false, timer = false, legacy = false } = {}) {
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -35,6 +43,7 @@ async function open(t, name, { width = 768, theme = 'dark', longName = false, ti
     if (url.pathname.startsWith('/assets/') && !url.pathname.includes('..')) {
       const file = path.join(ROOT, 'app/public', url.pathname);
       const types = { '.css': 'text/css', '.js': 'text/javascript' };
+      if (legacy && url.pathname === '/assets/css/app.css') return route.fulfill({ contentType: 'text/css', body: withoutContainerQueries(await readFile(file, 'utf8')) });
       return route.fulfill({ contentType: types[path.extname(file)] || 'application/octet-stream', body: await readFile(file) }).catch(() => route.fulfill({ status: 404, body: '' }));
     }
     const match = url.pathname.match(/^\/p\/([a-z-]+\.(html|js|css))$/);
@@ -230,5 +239,29 @@ for (const width of [390, 701, 768, 820, 960, 1000, 1440]) {
     for (const [selector, other] of at.others) assert.equal(overlaps(at.flag, other), false, `the chip covers ${selector}`);
     if (at.list <= 680) assert.ok(at.row.bottom - at.row.top <= 82, `the card stays compact (${Math.round(at.row.bottom - at.row.top)}px)`);
     assert.equal(at.sla, at.list > 480, at.list > 480 ? 'a wider row keeps the first-response tag too' : 'a narrow card shows the chip in its place');
+  });
+}
+
+// ---- a browser without container queries (Safari before 16, Firefox before 110) ----
+// It never sees a query container, so the rows fall back to the window's width: cards on a phone and a
+// tablet, "Customer replied" on its card, and the top bar still holds a long name without spilling.
+for (const width of [390, 768, 960, 1440]) {
+  test(`without container queries, queue at ${width}px: ${width <= 960 ? 'cards' : 'columns'}, the chip on its row, nothing cut off`, async (t) => {
+    const page = await open(t, 'queue', { width, legacy: true, longName: true });
+    assert.equal(await page.locator('.trow-head').first().isVisible(), width > 960, width > 960 ? 'columns keep their header' : 'cards have no column header');
+    const subjects = await page.locator('.trow:not(.trow-head) .trow-subject').evaluateAll((list) => list.map((el) => [el.getBoundingClientRect().width, el.closest('.trow').getBoundingClientRect().width]));
+    for (const [subject, row] of subjects) assert.ok(subject >= row * 0.35 && subject >= 120, `the subject is ${Math.round(subject)}px of a ${Math.round(row)}px row`);
+    const at = await flaggedRow(page);
+    assert.equal(at.text, 'Customer replied');
+    assert.ok(at.flag && at.flag.left >= at.row.left - 0.5 && at.flag.right <= at.row.right + 0.5 && at.flag.bottom <= at.row.bottom + 0.5, 'the chip is drawn inside its row');
+    for (const [selector, other] of at.others) assert.equal(overlaps(at.flag, other), false, `the chip covers ${selector}`);
+    if (width <= 960) assert.ok(at.row.bottom - at.row.top <= 82, 'the card stays compact');
+    const bar = await page.locator('.topbar').evaluate((el) => {
+      const edge = el.getBoundingClientRect();
+      return [...el.querySelectorAll('#palette-trigger, #timer-widget, .w365-cluster')].every((part) => { const r = part.getBoundingClientRect(); return r.left >= edge.left - 0.5 && r.right <= edge.right + 0.5; })
+        && el.scrollWidth <= el.clientWidth;
+    });
+    assert.equal(bar, true, 'the top bar holds everything');
+    assert.equal(await noSidewaysScroll(page), true);
   });
 }

@@ -321,7 +321,7 @@ try {
             'sla_due_at' => $at(-8 * 86400), 'resolved_at' => $at(-7 * 86400)]),
         array_replace($unanswered, ['id' => 206, 'subject' => 'Printer offline again', 'status' => 'resolved', 'merged_into_id' => 202]),
     ];
-    $tagList = '<div class="card list">' . ticket_head_row(false) . implode('', array_map('ticket_row', $tagRows)) . '</div>';
+    $tagList = '<div class="card list ticket-list">' . ticket_head_row(false) . implode('', array_map('ticket_row', $tagRows)) . '</div>';
     $x = $dom($tagList);
     queue_check($texts($x, '//*[contains(@class,"trow-sla")]/*[contains(@class,"sla")]')
         === ['Due in 6 h', 'Due in 40 min', 'Overdue by 2 h', 'Answered in time', 'Answered 3 h late', 'Closed without a reply', 'Merged'],
@@ -359,7 +359,7 @@ try {
         echo json_encode([
             'summary' => queue_summary($counts),
             'toolbar' => '<div class="toolbar queue-toolbar">' . queue_tabs($state, $counts) . queue_filters_toggle($state) . queue_filters($state, $clients, $team, 102) . ticket_bulk_toggle() . '</div>',
-            'list' => '<div class="card list">' . ticket_head_row(true) . implode('', array_map('ticket_pick_row', $rows)) . '</div>',
+            'list' => '<div class="card list ticket-list">' . ticket_head_row(true) . implode('', array_map('ticket_pick_row', $rows)) . '</div>',
             'pager' => queue_pager($state, 131, $rows),
             'elsewhere' => queue_elsewhere($state, $counts),
             'bar' => ticket_bulk_bar(queue_view_label($state), count($rows)),
