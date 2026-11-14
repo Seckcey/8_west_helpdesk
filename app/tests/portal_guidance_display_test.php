@@ -27,6 +27,10 @@ foreach (['blank','filled','invalid','uncertain','picker-empty','picker-one','pi
         }
         continue;
     }
+    $back = $xp->query('//a[contains(concat(" ",normalize-space(@class)," ")," backlink ")]');
+    $check($state.' leads back with a drawn chevron and the words, never a typed arrow', $back->length===1
+        && in_array(trim($back->item(0)->textContent), ['Support Requests','Home'], true)
+        && $xp->query('.//svg[@aria-hidden="true"]',$back->item(0))->length===1);
     $form = $xp->query('//form[@action="/portal/new.php"]')->item(0);
     $fields = $xp->query('.//*[@name]',$form);
     $check($state.' keeps exactly the existing request fields', array_map(fn($n)=>$n->getAttribute('name'),iterator_to_array($fields))===['csrf','action_nonce','subject','priority','body']

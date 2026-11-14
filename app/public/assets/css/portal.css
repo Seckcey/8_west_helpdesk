@@ -294,3 +294,5 @@
 .portal-chat-details summary{width:max-content;padding:7px 0;cursor:pointer;color:var(--muted)}
 .portal-chat-details summary:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px;border-radius:4px}
 .portal-chat-details p{margin:4px 0 0}
+/* Back links draw a chevron (portal_icon back, aria-hidden) at the size of their words, not a typed arrow. */
+.portal-app .backlink svg,.portal-app .portal-device-help>.btn-link svg{width:16px;height:16px}

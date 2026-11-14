@@ -849,10 +849,11 @@ function portal_render_workspace(array $context): void
 
 function portal_render_support_back_link(array $context): void
 {
+    // A drawn chevron, hidden from screen readers, so the link's name is only its words.
     if (portal_direct_customer_browser($context)) {
-        echo '<a href="/portal/requests.php" class="backlink">← Support Requests</a>';
+        echo '<a href="/portal/requests.php" class="backlink">' . portal_icon('back') . 'Support Requests</a>';
     } else {
-        echo '<a href="/portal/" class="backlink">← Home</a>';
+        echo '<a href="/portal/" class="backlink">' . portal_icon('back') . 'Home</a>';
     }
 }
 
