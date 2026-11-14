@@ -58,7 +58,11 @@ function avatar(?array $user, int $size = 26): string
         && hash_equals((string)($user['suite_subject'] ?? ''), (string)($_SESSION['suite_avatar_subject'] ?? ''))) {
         return '<img class="avatar avatar-img" style="width:' . $size . 'px;height:' . $size . 'px" src="' . h($_SESSION['suite_avatar']) . '" alt="" title="' . h($user['full_name']) . '">';
     }
-    return '<span class="avatar" style="width:' . $size . 'px;height:' . $size . 'px;background:' . h($user['color']) . '" title="' . h($user['full_name']) . '">'
+    // The colour reaches the stylesheet as --avatar, which draws it solid in light and as a tint in
+    // dark. Only a #RRGGBB colour is used; anything else gets the neutral fill.
+    $color = (string)($user['color'] ?? '');
+    $colorStyle = preg_match('/^#[0-9a-fA-F]{6}$/', $color) === 1 ? ';--avatar:' . $color : '';
+    return '<span class="avatar" style="width:' . $size . 'px;height:' . $size . 'px' . $colorStyle . '" title="' . h($user['full_name']) . '">'
          . h($user['initials']) . '</span>';
 }
 
@@ -473,7 +477,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261112-codex-westy-review-v2">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-floors-v1">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -544,7 +548,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=20261112-codex-westy-review-v2" defer></script>
+<script src="/assets/js/app.js?v=20261113-sh-desk2-floors-v1" defer></script>
 </body>
 </html>
     <?php

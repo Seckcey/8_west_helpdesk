@@ -275,7 +275,7 @@
   function personAvatar(person) {
     const avatar = make("span", "avatar menu-avatar" + (person ? "" : " avatar-none"), person ? String(person.initials || "") : "—");
     avatar.setAttribute("aria-hidden", "true");
-    if (person && /^#[0-9a-f]{6}$/i.test(String(person.color || ""))) avatar.style.background = person.color;
+    if (person && /^#[0-9a-f]{6}$/i.test(String(person.color || ""))) avatar.style.setProperty("--avatar", person.color);
     return avatar;
   }
 
@@ -2707,7 +2707,7 @@
         if (!r.ok) return;
         presenceEl.innerHTML = r.others.map((o) =>
           `<span class="presence-chip${o.mode === "typing" ? " presence-typing" : ""}" title="${escapeHtml(o.name)} is ${o.mode}">` +
-          `<span class="avatar" style="width:18px;height:18px;background:${escapeHtml(o.color)};font-size:9px">${escapeHtml(o.initials)}</span>` +
+          `<span class="avatar" style="width:22px;height:22px${/^#[0-9a-f]{6}$/i.test(String(o.color || "")) ? ";--avatar:" + o.color : ""}">${escapeHtml(o.initials)}</span>` +
           `${escapeHtml(o.name)} ${o.mode === "typing" ? "typing…" : "viewing"}</span>`
         ).join("");
       } catch { /* presence is decoration — never noisy */ }
