@@ -165,7 +165,7 @@ test('top bar at 1440px: the idle timer keeps its words and the search its label
 });
 
 // ---- Team ----
-for (const width of [...TABLET, 1024, 1100]) {
+for (const width of [701, 760, 761, 768, 820, 960, 1024, 1100]) {
   test(`Team at ${width}px: names have room and every button stays in its card`, async (t) => {
     const page = await open(t, 'team', { width });
     const rows = await page.locator('.team-list .urow').evaluateAll((list) => list.map((row) => {
@@ -176,7 +176,10 @@ for (const width of [...TABLET, 1024, 1100]) {
     for (const row of rows) {
       assert.ok(row.main.width >= 160, `the name and email get ${Math.round(row.main.width)}px`);
       assert.ok(row.role.top >= row.main.bottom - 0.5, 'the role and access sit under the name');
-      if (row.action && row.action.width) assert.ok(row.action.bottom <= row.role.top + 0.5, 'the action shares the first line');
+      if (!row.action || !row.action.width) continue;
+      // Up to 760px the action has a line of its own, under the role, so the name keeps the width.
+      if (width <= 760) assert.ok(row.action.top >= row.role.bottom - 0.5, 'the action sits under the role');
+      else assert.ok(row.action.bottom <= row.role.top + 0.5, 'the action shares the first line');
     }
     assert.deepEqual(await outside(page, '.team-list', '.urow-main, .urow-role, .urow-status, .urow-action, .urow-action button'), []);
     assert.equal(await noSidewaysScroll(page), true);

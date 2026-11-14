@@ -18,7 +18,8 @@ a client's tickets) follow their list's own width rather than the window's: up t
 phone's cards, up to 790px narrower columns, then the full columns. On the queue that means cards up
 to about a 995px window; on the client page, whose ticket column sits beside the contacts, cards up to
 about 1340px. Time entries use the phone's layout up to 960px. Team rows put the person and the action
-on one line, with role and access underneath, up to 1100px.
+on one line, with role and access underneath, from 761 to 1100px; below that they keep the phone's
+three lines, so the name has the width.
 In the top bar an idle timer shows only its clock, a running one leaves out the ticket number, and the
 search narrows to its key hint, then its magnifier, so nothing wraps however long the person's name.
 The phone-only parts (the menu drawer, the Filters button and the ticket's Details sheet) stay at
