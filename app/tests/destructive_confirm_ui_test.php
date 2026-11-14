@@ -88,7 +88,7 @@ function db(): ConfirmFixturePdo
 
 $render = (string)file_get_contents(__DIR__ . '/../lib/render.php');
 $chrome = '';
-foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_bottom'] as $function) {
+foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_bottom', 'ui_icon'] as $function) {
     $chrome .= confirm_ui_lift($render, $function) . "\n";
 }
 // The lifted code resolves __DIR__ relative to THIS file, so point its require at lib/ explicitly.

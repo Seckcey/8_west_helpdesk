@@ -66,6 +66,18 @@ function avatar(?array $user, int $size = 26): string
          . h($user['initials']) . '</span>';
 }
 
+/**
+ * A small line icon in the text colour, for the marks that used to be typed characters: the way back
+ * (instead of "←") and a link that opens another app (instead of "↗"). Decorative: the words beside
+ * it carry the meaning.
+ */
+function ui_icon(string $name): string
+{
+    $path = ['back' => 'M10 3.5 5.5 8l4.5 4.5', 'external' => 'M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v3.25a.75.75 0 0 1-.75.75h-7.5a.75.75 0 0 1-.75-.75v-7.5a.75.75 0 0 1 .75-.75H6.5'][$name] ?? '';
+    return '<svg class="ui-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">'
+        . '<path d="' . $path . '" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
 /** Westy is a service owner, never a fabricated human account. */
 function ticket_owner_avatar(array $ticket, int $size = 26): string
 {
@@ -477,13 +489,13 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-queue-v1">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-words-v1">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
 <div class="shell">
   <aside class="sidebar" id="suite-sidebar">
-    <button type="button" class="mobile-nav-close" aria-label="Close navigation">Close menu ×</button>
+    <button type="button" class="mobile-nav-close" aria-label="Close navigation"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round"/></svg>Close menu</button>
     <a class="brand" href="/" aria-label="Safeharbor home">
       <img src="/assets/brand/safeharbor-logo-horizontal-transparent-20260909.png" alt="Safeharbor — 8 West IT 365" class="suite-brand-logo" width="1851" height="513">
     </a>
@@ -515,7 +527,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
   <button type="button" class="mobile-nav-backdrop" aria-label="Close navigation" tabindex="-1"></button>
   <div class="main">
     <header class="topbar">
-      <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-controls="suite-sidebar" aria-expanded="false">☰ Menu</button>
+      <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-controls="suite-sidebar" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke-linecap="round"/></svg>Menu</button>
       <button id="palette-trigger" class="search-trigger" type="button" aria-label="Search or run a command">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
         <span class="search-label">Search or command…</span>
@@ -548,7 +560,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=20261113-sh-desk2-queue-v1" defer></script>
+<script src="/assets/js/app.js?v=20261113-sh-desk2-words-v1" defer></script>
 </body>
 </html>
     <?php

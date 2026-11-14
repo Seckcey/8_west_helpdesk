@@ -95,7 +95,7 @@ function db(): DirectoryFixturePdo
 
 $render = (string)file_get_contents(__DIR__ . '/../lib/render.php');
 $chrome = '';
-foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_bottom'] as $function) {
+foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_bottom', 'ui_icon'] as $function) {
     $chrome .= directory_ui_lift($render, $function) . "\n";
 }
 // The lifted code resolves __DIR__ relative to THIS file, so point its require at lib/ explicitly.
@@ -491,6 +491,17 @@ $x = $formPage('client_new.php', []);
 directory_ui_check($words($x, '//label[select[@name="sla_tier"]]/text()[normalize-space()]') === ['Plan']
     && $words($x, '//select[@name="sla_tier"]/option') === ['Standard', 'Premium']
     && $words($x, '//select[@name="sla_tier"]/option/@value') === ['standard', 'premium'], 'New client asks for the Plan in words');
+// No example values inside the fields (an empty form must not look half filled); the domain says what it does.
+directory_ui_check($x->query('//form//input[@placeholder] | //form//textarea[@placeholder]')->length === 0
+    && $words($x, '//*[@id=(//input[@name="domain"]/@aria-describedby)]') === ['Email from someone new at this domain is filed under this client.'],
+    'New client has no example values in its fields, and a line saying what the domain is for');
+// The way back is an icon and a word, never a typed arrow.
+directory_ui_check($words($x, '//a[contains(@class,"backlink")]') === ['Clients'] && $x->query('//a[contains(@class,"backlink")]/svg[@aria-hidden="true"]')->length === 1,
+    'New client\'s way back is an icon and the word Clients');
+$x = $formPage('client_edit.php', ['id' => '32']);
+directory_ui_check($x->query('//textarea[@placeholder]')->length === 0 && $words($x, '//label[input[@name="name"]]/text()[normalize-space()]') === ['Name in Safeharbor']
+    && !str_contains($words($x, '//body')[0] ?? '', 'synchronized') && $x->query('//a[contains(@class,"backlink")]/svg')->length === 1,
+    'Edit client says where a change goes in plain words, without an example note or a typed arrow');
 // A technician cannot change the plan, and is told so in the same word.
 $GLOBALS['fixtureUser']['role'] = 'tech';
 $x = $formPage('client_edit.php', ['id' => '30']);

@@ -177,8 +177,8 @@ page_top($user, 'Clients', 'clients');
     <p class="empty" data-client-empty hidden>No clients match your search.</p>
   </div>
   <?php if ($hasDemo && $canPurgeDemo): ?>
-  <div class="banner banner-info client-demo">
-    <span>These demo clients and their tickets can be removed when you have added your own clients.</span>
+  <div class="client-demo">
+    <p class="client-demo-text">The demo clients and their tickets can go once you have added your own clients.</p>
     <form method="post" action="/clients.php" data-confirm="Remove all demo clients and their tickets? No undo.">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="purge_demo">

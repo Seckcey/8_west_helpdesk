@@ -23,7 +23,7 @@ $client = $stmt->fetch();
 if (!$client) {
     if ($supportTarget) http_response_code(404);
     page_top($user, 'Not found', 'clients');
-    echo '<div class="page"><div class="card empty"><p>Unknown client.</p><a class="link" href="/clients.php">← All clients</a></div></div>';
+    echo '<div class="page"><div class="card empty"><p>Unknown client.</p><a class="link" href="/clients.php">All clients</a></div></div>';
     page_bottom(palette_data());
     exit;
 }
@@ -134,7 +134,7 @@ $current = $roster['available'] ? ($roster['customers'][(string)$operational['cu
 page_top($user, $client['name'], 'clients');
 ?>
 <div class="page page-client">
-  <a href="/clients.php" class="backlink">← Clients</a>
+  <a href="/clients.php" class="backlink"><?= ui_icon('back') ?>Clients</a>
   <?= client_head($client) ?>
   <?= client_note($client['notes'] ?? null) ?>
   <?= client_tiles($openCount, $firstReplyMinutes, $firstReplyTickets, $billableMinutes) ?>

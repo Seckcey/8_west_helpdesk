@@ -68,7 +68,7 @@ header('Content-Type: text/html; charset=utf-8');
 <title>Sign in · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
-<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-floors-v1">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-words-v1">
 </head>
 <body class="login-body login-split-body staff-signin">
 <div class="login-split">
@@ -80,6 +80,7 @@ header('Content-Type: text/html; charset=utf-8');
 </div>
 <div class="login-wrap">
   <div class="card login-card">
+    <h2 class="login-title">Sign in</h2>
     <?php if ($error): ?><p class="login-error"><?= h($error) ?></p><?php endif; ?>
     <a class="btn-primary login-id" href="<?= h($idEntry) ?>">
       <img src="/assets/brand/safeharbor-mark.svg" alt="" class="sso-mark">
@@ -105,9 +106,9 @@ header('Content-Type: text/html; charset=utf-8');
       <strong>Sandbox.</strong> Seeded, fictional data — sign in with any seeded
       email, password <code>harbor</code>.<br>
     <?php endif; ?>
-    8 West IT 365 · Your appearance follows your 8 West ID settings.
+    Safeharbor is part of 8 West IT 365.
   </p>
-<script src="/assets/js/app.js?v=20261113-sh-desk2-floors-v1" defer></script>
+<script src="/assets/js/app.js?v=20261113-sh-desk2-words-v1" defer></script>
 </div>
 </div>
 </body>
