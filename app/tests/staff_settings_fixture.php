@@ -38,6 +38,16 @@ function rel_time(string $time): string { return '1d'; }
 function csrf_field(): string { return '<input type="hidden" name="csrf" value="synthetic-csrf">'; }
 function csrf_check(): void { if (($_POST['csrf'] ?? '') !== 'synthetic-csrf') throw new RuntimeException('Invalid synthetic CSRF'); }
 function palette_data(): array { return []; }
+// The drawn icons a page uses are render.php's own, lifted by brace matching (no bootstrap needed).
+$renderSource = (string)file_get_contents(__DIR__.'/../lib/render.php');
+$liftAt = strpos($renderSource, 'function ui_icon(');
+if ($liftAt === false) throw new RuntimeException('render.php no longer defines ui_icon');
+for ($i = strpos($renderSource, '{', $liftAt), $depth = 0; $i < strlen($renderSource); $i++) {
+    if ($renderSource[$i] === '{') $depth++;
+    elseif ($renderSource[$i] === '}' && --$depth === 0) break;
+}
+eval(substr($renderSource, $liftAt, $i - $liftAt + 1));
+unset($renderSource, $liftAt, $depth, $i);
 function page_top(array $user, string $title, string $active): void {
     $dir = getenv('CUSTOMER_UI_CAPTURE_DIR');
     $role = $GLOBALS['account'] === 'tech' ? 'tech' : 'admin';

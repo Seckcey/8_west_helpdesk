@@ -1571,6 +1571,23 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .settings-choice input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 3px; }
 .settings-color > span { flex-direction: row; align-items: center; gap: 8px; }
 .settings-color i { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); }
+/* My settings: one card per section, each led by a 16px heading, the actions at its foot and a
+   field's help under the field. Fields and buttons take the desk's form sizes; the shell's floors
+   make them 44px on a phone. */
+.my-settings { overflow-wrap: anywhere; }
+.my-settings .settings-section + .settings-section { margin-top: 16px; }
+.my-settings .settings-section h2 { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.3; color: var(--text-strong); }
+.my-settings .settings-section p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text); }
+.my-settings .settings-section > h2 + p { margin-top: 6px; }
+.my-settings .settings-section > p + p { margin-top: 6px; }
+.my-settings .settings-section > :is(h2, p) + form { margin-top: 16px; }
+.my-settings .settings-section > .settings-action { margin-top: 14px; }
+.my-settings .settings-section .settings-note { font-size: 13px; color: var(--muted-strong); }
+.my-settings .settings-section .field-help { font-size: 12.5px; line-height: 1.45; color: var(--muted-strong); }
+@media (max-width: 700px) {
+  /* The top bar already carries the avatar; under the title on a phone it was a stray circle. */
+  .my-settings .page-head > .avatar { display: none; }
+}
 /* Team: one row per person. The role, whether they have access and the action sit in their own
    columns, so the rows line up; the action is a quiet secondary button, not a red bar. */
 .team-settings .urow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 136px 120px; align-items: center; column-gap: 16px; }
