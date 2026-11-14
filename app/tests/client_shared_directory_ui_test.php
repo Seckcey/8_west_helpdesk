@@ -468,6 +468,8 @@ foreach (['light', 'dark'] as $theme) {
             $save('client-watch', $html);
         }
     }
+    // New client, for the browser checks of its head and buttons (client-page.test.mjs).
+    $save('client-new', directory_ui_page('client_new.php', [], false));
 }
 // New client and Edit client: "Plan" with capitalised choices, and health in the client page's words.
 $formPage = static function (string $page, array $get): DOMXPath {

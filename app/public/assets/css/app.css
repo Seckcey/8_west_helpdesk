@@ -504,7 +504,7 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 .page-title { font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; color: var(--text-strong); }
 .page-sub { margin-top: 4px; font-size: 14px; color: var(--muted-strong); }
 .page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.page-note { margin-top: 12px; padding: 0 4px; font-size: 12.5px; color: var(--dim); }
+.page-note { margin-top: 12px; font-size: 12.5px; color: var(--dim); }
 .backlink { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 13px; font-weight: 600; color: var(--dim); }
 .backlink:hover { color: var(--text); }
 /* A drawn icon beside its words (ui_icon() in render.php), where a typed arrow used to be. */
@@ -549,12 +549,12 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 }
 .filter-select select:focus { outline: none; }
 /* The count line under the list, with Previous and Next. */
-.pager { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 0 4px; font-size: 13px; color: var(--muted-strong); }
+.pager { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--muted-strong); }
 .pager-count { margin-right: auto; font-variant-numeric: tabular-nums; }
 .pager-off { opacity: .5; cursor: default; }
 .pager-off:hover { background: var(--bg-solid); }
 /* What the view does not show, and notes about the list: quiet lines with real links. */
-.queue-elsewhere { margin-top: 10px; padding: 0 4px; font-size: 13px; color: var(--muted-strong); }
+.queue-elsewhere { margin-top: 10px; font-size: 13px; color: var(--muted-strong); }
 .queue-note { margin-bottom: 12px; padding: 10px 14px; border-radius: 12px; background: var(--accent-soft-bg); font-size: 14px; color: var(--text); }
 .queue-note-warn { background: var(--caution-surface); }
 /* The phone's Filters button (shown by the script) is never part of the desktop toolbar. */
@@ -1065,6 +1065,11 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .stats.client-stats { grid-template-columns: repeat(auto-fit, minmax(180px, 240px)); }
 .client-filters { margin-bottom: 10px; }
 .page-client .ticket-grid { margin-top: 0; }
+/* Beside the tickets, "Contacts" sits on the line of the Open / Resolved tabs (36px tall) and its
+   card starts where the ticket list does. */
+@media (min-width: 961px) {
+  .page-client .rail > .rail-label:first-child { display: flex; align-items: center; min-height: 36px; margin-bottom: 0; }
+}
 /* A contact, with a "More" control that opens to show Remove. */
 .contact-row { display: flex; align-items: flex-start; gap: 8px; }
 .contact-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -1091,8 +1096,7 @@ a.ticket-step:hover { background: var(--bg-raised); }
 /* Computers and invoices: a name, the link that opens the other app, then who may see what. */
 .rail-list > .rail-line > span { font-weight: 600; }
 .rail-list > .field-help { padding-top: 10px; padding-bottom: 10px; }
-/* How this client is tied to Milepost: quiet lines at the foot of the rail. */
-.client-link { padding: 0 4px; }
+/* How this client is tied to Milepost: quiet lines at the foot of the rail, on the rail's own edge. */
 .client-shared { margin: 0 0 6px; font-size: 13px; line-height: 1.5; color: var(--muted-strong); overflow-wrap: anywhere; }
 .client-link-details { font-size: 12.5px; color: var(--muted-strong); }
 .client-link-details > summary { display: inline-flex; align-items: center; min-height: 24px; font-weight: 600; cursor: pointer; }
@@ -1386,6 +1390,9 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .btn-chip:hover { background: var(--bg-raised); }
 .btn-link { min-height: 30px; padding: 4px 8px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--muted-strong); }
 .btn-link:hover { color: var(--text); background: var(--hover); }
+/* A text link in a row of buttons (Cancel, Clear filters, Clear) centres its words on theirs; as a
+   block its words sat at the top of the row. */
+:is(.form-actions, .queue-filters, .time-search) > a.btn-link { display: inline-flex; align-items: center; }
 /* Secondary: surface with a strong hairline. */
 .btn-ghost {
   display: flex; align-items: center; justify-content: center; gap: 8px;
