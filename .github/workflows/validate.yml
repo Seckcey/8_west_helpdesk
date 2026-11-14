@@ -409,6 +409,7 @@ jobs:
           node tools/shots/reports-page.test.mjs
           node tools/shots/service-goals.test.mjs
           node tools/shots/saved-replies.test.mjs
+          node tools/shots/desk-team-widths.test.mjs
           WESTY_REVIEW_SHOTS="$RUNNER_TEMP/westy-review-shots" node tools/shots/westy-review.test.mjs
           PORTAL_REQUEST_SHOTS="$RUNNER_TEMP/portal-request-shots" node tools/shots/portal-request-paging.test.mjs
           PORTAL_SUMMARY_SHOTS="$RUNNER_TEMP/portal-summary-shots" node tools/shots/portal-summary-display.test.mjs

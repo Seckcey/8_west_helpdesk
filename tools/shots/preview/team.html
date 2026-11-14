@@ -88,11 +88,11 @@
       </div>
     </header>
     <main class="content">
-<div class="page page-narrow settings-page team-settings">
+<div class="page settings-page team-settings">
   <div class="page-head">
     <div>
       <h1 class="page-title">Team</h1>
-      <p class="page-sub">3 active Safeharbor accounts in this workspace</p>
+      <p class="page-sub">3 people with access, 1 without</p>
     </div>
     <div class="page-actions">
       <a class="btn-primary" href="#">Invite a teammate</a>
@@ -101,14 +101,15 @@
 
   <div class="callout callout-info team-invite-callout"><svg class="callout-icon" viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2V11M8 5h.01" stroke-linecap="round"/></svg><p><strong>People are added once, in 8 West ID.</strong> Invite someone there and choose which apps they can open. They appear on this list after they sign in.</p></div>
   <div class="form-ok" role="status">Access for Theo Grant was disabled.</div>
-  <div class="card list">
+  <div class="card list team-list team-list-actions">
     <div class="urow ">
       <span class="avatar" style="width:30px;height:30px;--avatar:#7DDCFF" title="Maya Reyes">MR</span>
       <span class="urow-main">
         <span class="urow-name">Maya Reyes <span class="urow-sub">(you)</span></span>
-        <span class="urow-sub">maya@harborit.example · 8 West ID account · last sign-in 2h ago</span>
+        <span class="urow-sub">maya@harborit.example</span>
+        <span class="urow-sub">Signed in 2 hours ago</span>
       </span>
-      <span class="role-badge role-owner">Owner</span>
+      <span class="urow-role"><span class="role-badge role-owner">Owner</span></span>
       <span class="urow-status">Active</span>
       
     </div>
@@ -116,31 +117,35 @@
       <span class="avatar" style="width:30px;height:30px;--avatar:#62F6B0" title="Jon Silva">JS</span>
       <span class="urow-main">
         <span class="urow-name">Jon Silva</span>
-        <span class="urow-sub">jon@harborit.example · 8 West ID account · last sign-in 1d ago</span>
+        <span class="urow-sub">jon@harborit.example</span>
+        <span class="urow-sub">Signed in yesterday</span>
       </span>
-      <span class="role-badge role-tech">Technician</span>
+      <span class="urow-role"><span class="role-badge role-tech">Technician</span></span>
       <span class="urow-status">Active</span>
-      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-danger settings-button">Disable access</button></form>
+      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-secondary">Disable access</button></form>
     </div>
     <div class="urow ">
       <span class="avatar" style="width:30px;height:30px;--avatar:#F6C95B" title="Ana Kim">AK</span>
       <span class="urow-main">
         <span class="urow-name">Ana Kim</span>
-        <span class="urow-sub">ana@harborit.example · Local recovery account · last sign-in 5d ago</span>
+        <span class="urow-sub">ana@harborit.example</span>
+        <span class="urow-sub">Signed in 5 days ago</span>
+        <span class="urow-sub">Uses a backup password</span>
       </span>
-      <span class="role-badge role-admin">Administrator</span>
+      <span class="urow-role"><span class="role-badge role-admin">Administrator</span></span>
       <span class="urow-status">Active</span>
-      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-danger settings-button">Disable access</button></form>
+      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-secondary">Disable access</button></form>
     </div>
     <div class="urow urow-inactive">
       <span class="avatar" style="width:30px;height:30px;--avatar:#FF7A85" title="Theo Grant">TG</span>
       <span class="urow-main">
         <span class="urow-name">Theo Grant</span>
-        <span class="urow-sub">theo@harborit.example · 8 West ID account</span>
+        <span class="urow-sub">theo@harborit.example</span>
+        <span class="urow-sub">Not signed in yet</span>
       </span>
-      <span class="role-badge role-tech">Technician</span>
+      <span class="urow-role"><span class="role-badge role-tech">Technician</span></span>
       <span class="urow-status">Access disabled</span>
-      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-ghost settings-button">Enable access</button></form>
+      <form method="post" action="#" class="urow-action"><button type="submit" class="btn-secondary">Enable access</button></form>
     </div>
   </div>
 

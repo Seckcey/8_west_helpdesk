@@ -103,10 +103,10 @@ if ($posted && $error !== '' && $formOpen) {
     $formBody = utf8_clean((string)($_POST['body'] ?? ''));
 }
 
-page_top($user, 'Saved replies', 'queue');
+// Saved replies has no rail item of its own, so no rail item is marked as the current page.
+page_top($user, 'Saved replies', 'saved-replies');
 ?>
 <div class="page page-narrow page-saved-replies">
-  <a href="/" class="backlink">← Queue</a>
   <div class="page-head">
     <div>
       <h1 class="page-title">Saved replies</h1>

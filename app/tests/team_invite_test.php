@@ -38,6 +38,7 @@ if ($scenario !== null) {
     function initials_of(string $name): string { return 'RH'; }
     function avatar(array $user, int $size): string { return '<span class="avatar">' . h($user['initials']) . '</span>'; }
     function rel_time(string $time): string { return '1d'; }
+    function ticket_ago(string $utc): string { return $utc === '2026-11-13 09:00:00' ? '3 hours ago' : 'some time ago'; }
     function csrf_field(): string { return '<input type="hidden" name="csrf" value="synthetic-csrf">'; }
     function csrf_check(): void { if (($_POST['csrf'] ?? '') !== 'synthetic-csrf') throw new RuntimeException('csrf'); }
     function palette_data(): array { return []; }
@@ -48,7 +49,9 @@ if ($scenario !== null) {
         public function fetch(): bool { return false; }
         public function fetchAll(): array { return [$GLOBALS['fixtureUser'], ['id' => 2, 'tenant_id' => 1, 'full_name' => 'Jordan Ellis',
             'email' => 'jordan@example.test', 'role' => 'tech', 'initials' => 'JE', 'color' => '#62F6B0', 'suite_subject' => null,
-            'is_active' => 1, 'last_login_at' => null]]; }
+            'is_active' => 1, 'last_login_at' => '2026-11-13 09:00:00'], ['id' => 3, 'tenant_id' => 1, 'full_name' => 'Sam Ortiz',
+            'email' => 'sam@example.test', 'role' => 'admin', 'initials' => 'SO', 'color' => '#7DDCFF', 'suite_subject' => 't1u3',
+            'is_active' => 0, 'last_login_at' => null]]; }
     }
     final class TeamDatabase { public function prepare(string $sql): TeamStatement { return new TeamStatement(); } }
     function db(): TeamDatabase { return new TeamDatabase(); }
@@ -89,6 +92,20 @@ team_check(str_contains($html, 'name="full_name"') && str_contains($html, 'name=
     && str_contains($html, '>Add local account</button>') && str_contains($html, 'This creates a Safeharbor-only account'),
     'the local account form keeps its fields, button and hint');
 team_check(str_contains($html, 'aria-label="Disable Safeharbor access for Jordan Ellis"'), 'the member list keeps its controls');
+
+// The member list: who they are on their own lines, role, access and the one action in their own columns.
+$list = substr($html, (int)strpos($html, 'team-list'), (int)strpos($html, 'backup-signin') - (int)strpos($html, 'team-list'));
+team_check(str_contains($html, '<p class="page-sub">2 people with access, 1 without</p>'), 'the summary counts people, and who has no access');
+team_check(substr_count($list, 'Uses a backup password') === 1 && str_contains($list, 'jordan@example.test</span>')
+    && strpos($list, 'Uses a backup password') > strpos($list, 'Jordan Ellis') && strpos($list, 'Uses a backup password') < strpos($list, 'Sam Ortiz'),
+    'only the account with a backup password says so');
+team_check(str_contains($list, 'Signed in 3 hours ago') && substr_count($list, 'Not signed in yet') === 2, 'sign-ins are said in plain words');
+team_check(!str_contains($list, ' · ') && !str_contains($list, 'Local recovery account') && !str_contains($list, '8 West ID account'),
+    'no chain of facts joined by dots');
+team_check(substr_count($list, 'class="btn-secondary"') === 2 && !str_contains($list, 'btn-danger')
+    && str_contains($list, 'aria-label="Enable Safeharbor access for Sam Ortiz">Enable access</button>'),
+    'disabling and enabling access are quiet secondary buttons');
+team_check(str_contains($html, 'class="card list team-list team-list-actions"'), 'an owner\'s list has the action column');
 
 $admin = team_render('admin-capable');
 team_check(str_contains($admin, $invite) && str_contains($admin, 'Backup sign-in for emergencies'),
