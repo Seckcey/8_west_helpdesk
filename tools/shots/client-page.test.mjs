@@ -423,3 +423,26 @@ for (const [width, theme] of [[1440, 'light'], [390, 'dark']]) {
     assert.deepEqual(errors, []);
   });
 }
+
+// A fold-out shows that it opens: the Details line under the Milepost link carries a drawn chevron in
+// its words' own colour, pointing at the words while closed and turned down once open.
+for (const theme of ['light', 'dark']) {
+  test(`${theme}: the Details fold-out shows that it opens, and turns its chevron when open`, async (t) => {
+    const { page, errors, open } = await fixture(t, { width: 1440, theme });
+    await open('/client.php?id=30');
+    const summary = page.locator('.client-link-details > summary').first();
+    const mark = () => summary.evaluate((el) => {
+      const before = getComputedStyle(el, '::before');
+      return { drawn: before.content !== 'none' && parseFloat(before.width) >= 5 && parseFloat(before.borderRightWidth) >= 1,
+        color: before.borderRightColor, ink: getComputedStyle(el).color, angle: before.transform };
+    });
+    const closed = await mark();
+    assert.ok(closed.drawn, 'a chevron is drawn before the word');
+    assert.equal(closed.color, closed.ink, "the chevron is in the words' own colour");
+    await summary.click();
+    await page.waitForTimeout(300);
+    const opened = await mark();
+    assert.notEqual(opened.angle, closed.angle, 'the chevron turns when the fold-out opens');
+    assert.deepEqual(errors, []);
+  });
+}

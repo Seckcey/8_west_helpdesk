@@ -9,7 +9,9 @@ $user = require_login();
 $tenantId = (int)$user['tenant_id'];
 $canPurgeDemo = in_array((string)$user['role'], ['owner', 'admin'], true);
 $clientNotice = isset($_SESSION['client_notice']) ? (string)$_SESSION['client_notice'] : null;
-unset($_SESSION['client_notice']);
+// Done is said in green; kept or not done stays in the caution colour.
+$clientNoticeDone = ($_SESSION['client_notice_done'] ?? false) === true;
+unset($_SESSION['client_notice'], $_SESSION['client_notice_done']);
 
 // Remove the seeded demo clients (%.example domains) and everything attached.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'purge_demo') {
@@ -30,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'purge
     );
     $timeCount->execute([$tenantId]);
     if ((int)$timeCount->fetchColumn() > 0) {
-        $_SESSION['client_notice'] = 'Demo clients were kept because they carry immutable technician-time evidence. Use the guarded sandbox seed only for a full demo reset.';
+        $_SESSION['client_notice'] = 'The demo clients were kept because technician time is logged on their tickets.';
         header('Location: /clients.php');
         exit;
     }
@@ -52,11 +54,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'purge
         );
         $pdo->exec("DELETE FROM clients WHERE tenant_id = " . $tenantId . " AND domain LIKE '%.example'");
         $pdo->commit();
-        $_SESSION['client_notice'] = 'Demo clients without technician-time evidence were removed.';
+        $_SESSION['client_notice'] = 'The demo clients and their tickets were removed.';
+        $_SESSION['client_notice_done'] = true;
     } catch (Throwable $e) {
         $pdo->rollBack();
         error_log('Safeharbor demo purge refused: ' . $e::class);
-        $_SESSION['client_notice'] = 'Demo data was not removed; no changes were committed.';
+        $_SESSION['client_notice'] = 'The demo data was not removed. Nothing was changed.';
     }
     header('Location: /clients.php');
     exit;
@@ -86,7 +89,7 @@ page_top($user, 'Clients', 'clients');
 ?>
 <div class="page page-clients">
   <?php if ($clientNotice !== null): ?>
-    <div class="banner banner-warn"><?= h($clientNotice) ?></div>
+    <div class="banner <?= $clientNoticeDone ? 'banner-done' : 'banner-warn' ?>" role="status"><?= h($clientNotice) ?></div>
   <?php endif; ?>
   <div class="page-head">
     <div>

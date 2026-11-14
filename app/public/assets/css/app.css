@@ -1101,6 +1101,16 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .client-link-details { font-size: 12.5px; color: var(--muted-strong); }
 .client-link-details > summary { display: inline-flex; align-items: center; min-height: 24px; font-weight: 600; cursor: pointer; }
 .client-link-details p { margin: 2px 0 0; }
+/* A fold-out shows that it opens: a drawn chevron before its words, turned down once it is open (as
+   on Team's backup sign-in). As a flex row the summary has no marker of its own. */
+:is(.client-link-details, .entry-history) > summary { gap: 8px; list-style: none; }
+:is(.client-link-details, .entry-history) > summary::-webkit-details-marker { display: none; }
+:is(.client-link-details, .entry-history) > summary::before {
+  content: ""; flex: none; width: 6px; height: 6px; margin: 0 1px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); transition: transform .14s;
+}
+:is(.client-link-details, .entry-history)[open] > summary::before { transform: translateY(-2px) rotate(45deg); }
 @media (max-width: 700px) {
   .client-actions { width: 100%; }
   .stats.client-stats { grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -1998,6 +2008,7 @@ a.ticket-step:hover { background: var(--bg-raised); }
 }
 .banner-info { background: var(--accent-soft-bg); color: var(--text); }
 .banner-warn { background: var(--caution-surface); color: var(--text); }
+.banner-done { background: var(--mint-soft-bg); color: var(--text); }
 /* Every large caution surface: in dark, a caution hairline and an amber edge (both clear in light). */
 .banner-warn, .msg-note, .demo-card, .queue-note-warn {
   box-shadow: inset 0 0 0 1px var(--caution-line), inset 3px 0 0 var(--caution-edge);
@@ -2117,12 +2128,22 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .csat-form .btn-primary { justify-content: center; }
 
 /* "?" shortcut overlay */
-.help-panel { max-width: 640px; padding-bottom: 8px; }
-.help-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); color: var(--text-strong); font-family: var(--font-display); font-size: 16px; font-weight: 700; }
-.help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 28px; padding: 12px 20px 16px; }
-.help-grid h4 { font-size: 13px; font-weight: 600; color: var(--muted-strong); margin: 12px 0 6px; }
-.help-grid p { font-size: 13.5px; color: var(--text); margin: 6px 0; }
-@media (max-width: 640px) { .help-grid { grid-template-columns: 1fr; } }
+/* One row per key: what it does on the left, the keys at the right (they come first for a screen
+   reader). The groups flow into two columns and the card scrolls under its head when the window is
+   short. */
+.help-panel { width: 760px; max-width: 92vw; max-height: 82vh; overflow-y: auto; padding-bottom: 8px; }
+.help-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--bg-solid); color: var(--text-strong); font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+.help-grid { columns: 2; column-gap: 32px; padding: 4px 20px 12px; }
+.help-grid section { break-inside: avoid; padding-bottom: 6px; }
+.help-grid h4 { font-size: 13px; font-weight: 600; color: var(--muted-strong); margin: 14px 0 4px; }
+.help-keys { margin: 0; }
+.help-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: baseline; padding: 4px 0; }
+.help-row dt { grid-column: 2; grid-row: 1; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 3px; }
+.help-row dd { grid-column: 1; grid-row: 1; margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--text); }
+.help-join { padding: 0 2px; font-size: 12px; color: var(--muted-strong); }
+.help-note { margin: 4px 0 6px; font-size: 12.5px; line-height: 1.6; color: var(--muted-strong); }
+.help-note .kbd { margin: 0 1px; }
+@media (max-width: 640px) { .help-grid { columns: 1; } }
 
 /* 8 West ID global presentation preferences. */
 html[data-density="compact"] body{font-size:13px}
