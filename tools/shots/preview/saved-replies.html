@@ -170,7 +170,7 @@
   <section class="card saved-reply-editor" id="saved-reply-editor" aria-labelledby="saved-reply-heading" hidden>
     <h2 id="saved-reply-heading">New saved reply</h2>
     <div class="saved-reply-workspace">
-      <div role="form" id="saved-reply-form">
+      <form id="saved-reply-form" method="dialog">
         <input type="hidden" name="csrf" value="synthetic-csrf">        <input type="hidden" name="action" value="add">
         <input type="hidden" name="snippet_id" value="0">
         <label class="field">Title<input readonly type="text" name="title" maxlength="80" required value=""></label>
@@ -181,8 +181,8 @@
           <button type="button" class="btn-secondary" data-reply-field="ticket.id">Ticket number</button>
           <button type="button" class="btn-secondary" data-reply-field="tech.first_name">Your first name</button>
         </fieldset>
-        <div class="saved-reply-form-actions"><button type="button" disabled class="btn-primary">Add saved reply</button><a href="#" class="btn-secondary" data-reply-cancel>Cancel</a></div>
-      </div>
+        <div class="saved-reply-form-actions"><button type="submit" disabled class="btn-primary">Add saved reply</button><a href="#" class="btn-secondary" data-reply-cancel>Cancel</a></div>
+      </form>
       <div class="saved-reply-preview" aria-labelledby="saved-reply-preview-heading"><h3 id="saved-reply-preview-heading">Preview</h3><p class="page-note">Sample values only. The ticket fills in the real details when you insert the reply.</p><div data-reply-preview>Your reply preview appears here.</div></div>
     </div>
   </section>

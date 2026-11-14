@@ -58,6 +58,9 @@ async function fixture(t, { width = 1440, height = 1000, theme = 'dark' } = {}) 
       const name = captureFor(url);
       if (name) return route.fulfill({ contentType: 'text/html; charset=utf-8', body: withRows(await readFile(path.join(scratch, `${name}-${theme}.html`), 'utf8')) });
     }
+    if (url.pathname === '/client_new.php' && request.method() === 'GET') {
+      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: await readFile(path.join(scratch, `client-new-${theme}.html`), 'utf8') });
+    }
     if (['/ticket_new.php', '/client_edit.php', '/clients.php', '/ticket.php'].includes(url.pathname)) {
       return route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Fixture</title><h1>Fixture ${url.pathname}${url.search}</h1>` });
     }
@@ -377,6 +380,46 @@ for (const width of [390, 1024, 1280, 1440]) {
       const overlap = Math.min(at.flag.right, other.right) - Math.max(at.flag.left, other.left) > 0.5 && Math.min(at.flag.bottom, other.bottom) - Math.max(at.flag.top, other.top) > 0.5;
       assert.equal(overlap, false, 'the chip covers nothing else on the row');
     }
+    assert.deepEqual(errors, []);
+  });
+}
+
+// Beside the tickets, "Contacts" sits on the line of the Open / Resolved tabs, its card starts where
+// the ticket list does, and the lines about Milepost under the rail keep the rail's left edge.
+for (const width of [1440, 1100]) {
+  test(`at ${width}px the rail's first heading and card line up with the tabs and the ticket list`, async (t) => {
+    const { page, errors, open } = await fixture(t, { width });
+    await open('/client.php?id=30');
+    const at = await page.evaluate(() => {
+      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const mid = (r) => (r.top + r.bottom) / 2;
+      const tabs = box('.page-client .client-filters'), label = box('.page-client .rail > .rail-label');
+      const list = box('.page-client .list'), card = box('.page-client .rail > .card');
+      const rail = box('.page-client .rail');
+      const lines = [...document.querySelectorAll('.page-client .client-shared')].map((el) => el.getBoundingClientRect().left - rail.left);
+      return { headings: mid(label) - mid(tabs), cards: card.top - list.top, lines };
+    });
+    assert.ok(Math.abs(at.headings) <= 1, `"Contacts" is ${at.headings.toFixed(1)}px off the tabs' line`);
+    assert.ok(Math.abs(at.cards) <= 1, `the contacts card starts ${at.cards.toFixed(1)}px off the ticket list`);
+    assert.ok(at.lines.length > 0 && at.lines.every((gap) => Math.abs(gap) <= 0.5), `the Milepost lines start on the rail's edge: ${at.lines}`);
+    assert.deepEqual(errors, []);
+  });
+}
+
+// New client: the sentence under the title is part of the page head, with room before the form, and
+// Cancel's word sits on the same line as Create client's.
+for (const [width, theme] of [[1440, 'light'], [390, 'dark']]) {
+  test(`New client at ${width}px (${theme}): room under the head, and Cancel centred on Create client`, async (t) => {
+    const { page, errors, open } = await fixture(t, { width, theme });
+    await open('/client_new.php');
+    const at = await page.evaluate(() => {
+      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const words = (selector) => { const range = document.createRange(); range.selectNodeContents(document.querySelector(selector)); const r = range.getBoundingClientRect(); return (r.top + r.bottom) / 2; };
+      return { gap: box('.form-card').top - box('.page-head').bottom, cancel: words('.form-actions .btn-link'), create: words('.form-actions .btn-primary') };
+    });
+    assert.ok(at.gap >= 12, `${at.gap.toFixed(1)}px between the head and the form`);
+    assert.ok(Math.abs(at.cancel - at.create) <= 1, `Cancel's word is ${(at.cancel - at.create).toFixed(1)}px off Create client's`);
+    await shot(page, `client-new-${width}-${theme}`);
     assert.deepEqual(errors, []);
   });
 }
