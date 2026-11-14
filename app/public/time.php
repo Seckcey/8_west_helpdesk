@@ -230,7 +230,7 @@ page_top($user, 'Time', 'time');
   <div class="page-head">
     <div>
       <h1 class="page-title">Time</h1>
-      <p class="page-sub"><?= h(ticket_minutes_label((int)$totalMin)) ?> logged today. <?= $pendingOwn ?> waiting for review. <?= $approvedBillable ?> approved and billable today.</p>
+      <p class="page-sub"><?= h(time_summary($user, (int)$totalMin, $pendingOwn, $pendingReview, $approvedBillable)) ?></p>
     </div>
   </div>
 

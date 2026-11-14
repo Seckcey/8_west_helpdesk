@@ -186,6 +186,27 @@ time_page_check(time_approved_search('') === ['text' => '', 'ticket' => 0, 'clie
     && time_approved_search(null)['text'] === '' && mb_strlen(time_approved_search(str_repeat('é', 300))['text']) === 100, 'nothing, or not text, searches for nothing; a long search is cut');
 time_page_check(time_like('50%_off\\now') === '%50\\%\\_off\\\\now%' && time_like('Bay') === '%Bay%', 'a person\'s %, _ and \\ are ordinary characters in a client search');
 
+// ---- the line under the title: what waits for review ----
+// The team's list as the To review query returns it, plus one row from another workspace that must
+// never be counted. The viewer has 1 entry of their own waiting.
+$team = [['id' => 51, 'tenant_id' => 7, 'user_id' => 11], ['id' => 52, 'tenant_id' => 7, 'user_id' => 12],
+    ['id' => 53, 'tenant_id' => 7, 'user_id' => 13], ['id' => 90, 'tenant_id' => 9, 'user_id' => 31]];
+foreach (['owner', 'admin'] as $role) {
+    $line = time_summary(['role' => $role, 'tenant_id' => 7], 55, 1, $team, 1);
+    time_page_check(str_contains($line, '3 waiting for your review.') && !str_contains($line, '1 waiting for review.')
+        && str_contains($line, ' logged today. ') && str_contains($line, '1 approved and billable today.'),
+        "an $role sees the team's entries waiting for their review, from their own workspace only: $line");
+}
+foreach (['tech', '', 'viewer'] as $role) {
+    $line = time_summary(['role' => $role, 'tenant_id' => 7], 55, 1, $team, 1);
+    time_page_check(str_contains($line, '1 waiting for review.') && !str_contains($line, 'your review') && !str_contains($line, '3 waiting'),
+        'a technician (or any role that cannot review) sees only their own entries waiting, never the team\'s, even when handed the team\'s list: ' . $line);
+}
+time_page_check(str_contains(time_summary(['role' => 'admin', 'tenant_id' => 9], 0, 0, $team, 0), '1 waiting for your review.')
+    && str_contains(time_summary(['role' => 'admin', 'tenant_id' => 8], 0, 0, $team, 0), '0 waiting for your review.')
+    && !str_contains(time_summary(['role' => 'admin'], 0, 2, $team, 0), 'your review'),
+    'another workspace\'s admin counts only their own rows, and a viewer with no workspace is not counted as a reviewer');
+
 if (in_array('--render', $argv, true)) {
     $mine = [
         array_replace($approved, ['id' => 71, 'tid' => 106, 'subject' => 'Hygienist account setup', 'note' => 'Hygienist account setup']),
