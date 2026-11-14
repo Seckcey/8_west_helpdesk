@@ -382,7 +382,9 @@ for (const theme of ['dark', 'light']) {
   test(`${theme}: on a phone nothing overflows, every control is a 44px target, and a dialog fits`, async (t) => {
     const { page, errors } = await fixture(t, { width: 390, theme });
     assert.equal(await fits(page), true);
-    const heights = await page.locator('.entry-row button, .entry-row summary, .time-search input, .time-search button').evaluateAll((nodes) => nodes.map((node) => [node.textContent.trim() || node.name, node.getBoundingClientRect().height]));
+    // Each entry's ticket link is a target of its own, like its History and its buttons.
+    const heights = await page.locator('.entry-row a, .entry-row button, .entry-row summary, .time-search input, .time-search button').evaluateAll((nodes) => nodes.map((node) => [node.textContent.trim() || node.name, node.getBoundingClientRect().height]));
+    assert.ok(heights.some(([name]) => name.startsWith('#')), 'the ticket links are counted');
     for (const [name, height] of heights) assert.ok(height >= 44, `${name} is ${height}px tall`);
     await shot(page, `time-390-${theme}`);
     await page.locator('.time-correct[data-rejected-entry-id="52"]').click();

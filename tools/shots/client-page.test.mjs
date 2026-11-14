@@ -446,3 +446,32 @@ for (const theme of ['light', 'dark']) {
     assert.deepEqual(errors, []);
   });
 }
+
+// A phone card on a client's own list: the subject takes two lines before it is cut, and the status
+// tag keeps the top line (the queue's cards are checked in desk-tablet.test.mjs).
+for (const theme of ['light', 'dark']) {
+  test(`${theme}: at 390px a ticket card's subject takes two lines before it is cut, and its status keeps the top`, async (t) => {
+    const { page, errors, open } = await fixture(t, { width: 390, height: 844, theme });
+    await open('/client.php?id=30');
+    const at = await page.evaluate(() => {
+      const row = document.querySelector('.page-client .list .trow:not(.trow-head)');
+      const subject = row.querySelector('.trow-subject');
+      const status = row.querySelector('.trow-status > *') || row.querySelector('.trow-status');
+      subject.textContent = 'Printer';
+      const line = subject.getBoundingClientRect().height;
+      const measure = (text) => {
+        subject.textContent = text;
+        const box = subject.getBoundingClientRect();
+        return { lines: Math.round(box.height / line), cut: subject.scrollHeight > subject.clientHeight + 1, top: box.top };
+      };
+      const medium = measure('Front desk PC will not print the claim forms since this morning');
+      const long = measure('Front desk PC will not print the claim forms since this morning, and the scanner beside it has stopped sending scans to email as well');
+      return { medium, long, statusOff: Math.round(Math.abs(status.getBoundingClientRect().top - long.top)) };
+    });
+    assert.equal(at.medium.lines, 2, 'a longer subject wraps to a second line instead of being cut');
+    assert.ok(at.long.lines === 2 && at.long.cut, `a very long subject stops at two lines (${at.long.lines}), cut`);
+    assert.ok(at.statusOff <= 3, `the status tag starts on the subject's first line (${at.statusOff}px off)`);
+    assert.equal(await fits(page), true);
+    assert.deepEqual(errors, []);
+  });
+}

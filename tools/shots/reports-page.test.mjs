@@ -205,6 +205,17 @@ for (const theme of ['dark', 'light']) {
     const first = await page.locator('.report-table tbody tr').first().locator('td').evaluateAll((cells) => cells.map((cell) => getComputedStyle(cell, '::before').content.replace(/"/g, '') + ': ' + cell.textContent.replace(/\s+/g, ' ').trim()));
     assert.deepEqual(first, ['Open now: 4', 'Resolved: 7', 'First reply: 31 min', 'On time: 92% 11 of 12', 'Billable time: 6 h 10 min']);
     assert.equal(await page.locator('.report-table tbody tr').nth(3).locator('td[data-label="Billable time"]').isVisible(), false);
+    // Every number keeps the card's right edge; a note ("11 of 12", the time before corrections) sits
+    // under its number instead of pushing it left.
+    const edges = await page.locator('.report-table tbody td:not(:empty)').evaluateAll((cells) => cells.map((cell) => {
+      const right = cell.getBoundingClientRect().right;
+      const value = cell.querySelector('.report-cell');
+      const words = document.createRange();
+      words.selectNodeContents(value.firstChild);
+      const note = value.querySelector('.report-of');
+      return { off: Math.round(right - words.getBoundingClientRect().right), under: note ? note.getBoundingClientRect().top >= words.getBoundingClientRect().bottom - 1 : true };
+    }));
+    assert.ok(edges.length > 10 && edges.every((edge) => edge.off <= 1 && edge.under), JSON.stringify(edges));
     const small = await page.locator('.page-reports').evaluate((root) => [...root.querySelectorAll('a, button, summary')]
       .filter((el) => el.offsetParent !== null)
       .map((el) => ({ what: el.textContent.replace(/\s+/g, ' ').trim().slice(0, 40), height: Math.round(el.getBoundingClientRect().height) }))
