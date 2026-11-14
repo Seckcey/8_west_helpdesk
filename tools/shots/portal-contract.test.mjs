@@ -535,7 +535,11 @@ if (SERVE_MODE) {
     await desktop.page.getByLabel('Send the update the support team needs').waitFor();
     assert.equal(await desktop.page.getByText('INTERNAL SECRET', { exact: true }).count(), 0);
 
-    await desktop.page.getByRole('link', { name: 'Support Requests',exact:true }).click();
+    // The request's way back: a drawn chevron and the words, not a typed arrow. (The rail has a
+    // Support Requests link too, so this one is found by where it leads from the page head.)
+    const back = desktop.page.locator('a.backlink[href="/portal/requests.php"]');
+    assert.deepEqual(await back.evaluate(a=>({name:a.textContent.trim(),mark:a.querySelector('svg')?.getAttribute('aria-hidden')})),{name:'Support Requests',mark:'true'});
+    await back.click();
     await desktop.page.getByRole('link', { name: /Latest weekly summary/ }).click();
     await desktop.page.getByRole('heading', { name: 'Aug 17 – Aug 23, 2026' }).waitFor();
     await desktop.page.getByText('145 minutes (2.42 hours)', { exact: true }).waitFor();
@@ -906,6 +910,8 @@ if (!SERVE_MODE) test('computer checks preserve explicit consent, exact repair r
       assert.equal(posts.length,2);
       for(const fixture of ['helpverified','helpunknown','helpviewer']) {
         await page.goto(`${ORIGIN}/portal/device_help.php?fixture=${fixture}`);
+        assert.deepEqual(await page.locator('main.portal-device-help > a[href="/portal/devices.php"]').evaluate(a=>({name:a.textContent.trim(),mark:a.querySelector('svg')?.getAttribute('aria-hidden')})),
+          {name:'Your devices',mark:'true'},'the way back is a drawn chevron and the words, not a typed arrow');
         assert.equal(await page.getByRole('button',{name:'Approve this repair',exact:true}).count(),0);
         assert.equal(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth),true);
         if(fixture==='helpverified'){

@@ -61,6 +61,7 @@ function portal_icon(string $name): string
         'guide' => '<path d="M12 5v16M3 3c4 0 6 0 9 2 3-2 5-2 9-2v16c-4 0-6 0-9 2-3-2-5-2-9-2z"/>',
         'chat' => '<path d="M21 11a8 8 0 0 1-8 8H7l-4 3v-7a8 8 0 1 1 18-4Z"/>',
         'arrow' => '<path d="M4 12h16m-6-6 6 6-6 6"/>',
+        'back' => '<path d="m15 18-6-6 6-6"/>',
         'edit' => '<path d="m15 4 5 5M3 21l5-1L21 7l-5-5L3 15z"/>',
         'alert' => '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 3v1"/>',
         'check' => '<path d="m5 12.5 4.5 4.5L19 7.5"/>',

@@ -29,7 +29,7 @@ function portal_render_device_help(array $context,array $device,array $operation
     $self='/portal/device_help.php?device='.rawurlencode($device['reference']);
     ?>
 <main class="portal-devices portal-device-help"<?= $pending?' data-operation-pending="true"':'' ?>>
- <a href="/portal/devices.php" class="btn-link">← Your devices</a>
+ <a href="/portal/devices.php" class="btn-link"><?= portal_icon('back') ?>Your devices</a>
  <header class="portal-devices-heading"><div><p class="portal-eyebrow">WESTY · COMPUTER CHECKS</p><h1><?= portal_h($device['label']) ?></h1><p><?= portal_h($device['platform']) ?> · <?= portal_h($device['connection_label']) ?></p></div><div class="portal-devices-actions"><a class="btn-link" href="<?= portal_h($self) ?>">Refresh status</a><?php portal_westy_button(); ?></div></header>
  <?php if($error!==null):?><div class="portal-device-notice" role="alert"><?= portal_h($error) ?></div><?php endif;?>
  <?php if(!$available):?><div class="portal-device-notice">Computer checks are not available right now. <a href="/portal/new.php">Contact support</a> for help.</div><?php endif;?>
