@@ -45,6 +45,22 @@ function time_when(?string $utc, string $timeZone, ?int $now = null): string
     return $clock !== '' ? $clock : 'a time that cannot be read';
 }
 
+/**
+ * The line under Time's title: the viewer's time today, what waits for review, and what was approved and
+ * billable today. An owner or admin is told how many of the team's entries wait for their review (the
+ * To review list), counting only rows from their own workspace; anyone else is told how many of their own
+ * entries wait. A technician never sees the team's count, even if handed the team's list.
+ */
+function time_summary(array $viewer, int $minutesToday, int $ownPending, array $teamPending, int $approvedBillableToday): string
+{
+    $tenantId = (int)($viewer['tenant_id'] ?? 0);
+    $reviewer = $tenantId > 0 && in_array((string)($viewer['role'] ?? ''), ['owner', 'admin'], true);
+    $waiting = $reviewer
+        ? count(array_filter($teamPending, static fn(array $row): bool => (int)($row['tenant_id'] ?? 0) === $tenantId)) . ' waiting for your review.'
+        : $ownPending . ' waiting for review.';
+    return ticket_minutes_label($minutesToday) . ' logged today. ' . $waiting . ' ' . $approvedBillableToday . ' approved and billable today.';
+}
+
 /** "20 min, billable" / "45 min, not billable". */
 function time_amount(int $minutes, bool $billable): string
 {
