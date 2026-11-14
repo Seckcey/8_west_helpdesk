@@ -468,6 +468,14 @@ img { display: block; }
 }
 .timer-widget .tw-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .timer-widget .tw-ticket, .timer-widget .tw-retry { opacity: .7; }
+/* The timer in the top bar is a button with a clock, not a tag: an outline at rest, the elapsed time
+   and the ticket while a timer runs. The clock replaces the running dot. */
+.timer-widget { border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: transparent; }
+.timer-widget.timer-idle:hover { background: var(--bg-raised); }
+.timer-widget.timer-on, .timer-widget.timer-stopped { border-color: transparent; }
+.timer-widget .tw-icon { display: inline-flex; flex: none; }
+@media (min-width: 701px) { .timer-widget .tw-icon svg { width: 16px; height: 16px; } }
+.timer-widget .tw-dot { display: none; }
 
 .content { flex: 1; min-height: 0; overflow-y: auto; }
 
@@ -533,9 +541,33 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 .queue-elsewhere { margin-top: 10px; padding: 0 4px; font-size: 13px; color: var(--muted-strong); }
 .queue-note { margin-bottom: 12px; padding: 10px 14px; border-radius: 12px; background: var(--accent-soft-bg); font-size: 14px; color: var(--text); }
 .queue-note-warn { background: var(--caution-surface); }
+/* The phone's Filters button (shown by the script) is never part of the desktop toolbar. */
+.queue-toolbar .filters-toggle { display: none; }
 @media (max-width: 700px) {
   /* The views stay on one line and scroll sideways; the filters sit two to a row. */
   .queue-toolbar .filters { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; }
+  /* The views share their line with the Filters button, which folds the filters away until it is
+     pressed, so the list starts near the top. While more views are off screen the row fades out at
+     its edge. */
+  .queue-toolbar .filters { flex: 1 1 0; min-width: 0; }
+  .queue-toolbar .filters.filters-more {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+  }
+  .queue-toolbar .filters.filters-more-left {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 36px);
+    mask-image: linear-gradient(to right, transparent, #000 36px);
+  }
+  .queue-toolbar .filters.filters-more-left.filters-more {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+  }
+  .queue-toolbar .filters-toggle { display: inline-flex; flex: none; }
+  .filters-count {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: 999px; background: var(--accent); color: #FFFFFF; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .queue-toolbar.filters-folded:not(.filters-open) .queue-filters { display: none; }
   .queue-filters { width: 100%; }
   .filter-select { flex: 1 1 calc(50% - 4px); min-width: 0; min-height: 44px; }
   .filter-select.filter-sort { flex-basis: 100%; }   /* its choices are the longest */
@@ -661,9 +693,10 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 .pri { display: inline-flex; align-items: center; gap: 6px; }
 .pri-bars { display: inline-flex; align-items: flex-end; gap: 2px; }
 .pri-bar { width: 3px; border-radius: 1px; display: inline-block; }
+/* Normal is a neutral (blue is for actions); High uses the caution ink, 3:1 or better on a row. */
 .bar-muted { background: var(--dim); }
-.bar-blue { background: var(--accent-2); }
-.bar-gold { background: var(--gold-solid); }
+.bar-blue { background: var(--muted-strong); }
+.bar-gold { background: var(--gold); }
 .bar-rose { background: var(--rose-solid); }
 .bar-off { background: var(--bar-off); }
 .pri-label { font-size: 13px; color: var(--muted-strong); }

@@ -104,6 +104,10 @@ foreach (['suite_apps.php', 'service_goal_policy_admin.php', 'ticket_queue.php']
 }
 eval($chrome);
 eval(directory_ui_lift((string)file_get_contents(__DIR__ . '/../lib/bootstrap.php'), 'rel_time'));
+// Ages in the one compact form the queue, Clients and the first-response tag share.
+directory_ui_check(rel_time(gmdate('Y-m-d H:i:s', time() - 20 * 60 - 5)) === '20 min'
+    && rel_time(gmdate('Y-m-d H:i:s', time() - 3 * 3600 - 60)) === '3 h'
+    && rel_time(gmdate('Y-m-d H:i:s', time() - 5 * 86400 - 60)) === '5 d', 'an age reads "20 min", "3 h" or "5 d"');
 
 $uuid = static fn(int $n): string => "{$n}a{$n}b{$n}c{$n}d-{$n}e{$n}f-4a{$n}b-8c{$n}d-{$n}e{$n}f{$n}a{$n}b{$n}c{$n}d";
 $event = static fn(int $n): string => sprintf('e1000000-0000-4000-8000-%012d', $n);

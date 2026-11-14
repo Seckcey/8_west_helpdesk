@@ -228,6 +228,9 @@ for (const theme of ['dark', 'light']) {
       for (const height of heights) assert.ok(height >= 44, `${name} is ${height}px tall`);
     };
     await tall(page.locator('nav[aria-label="Queue views"] a'), 'a view');
+    // On a phone the filters fold behind the Filters button on the views row.
+    await tall(page.locator('#filters-toggle'), 'Filters');
+    await page.locator('#filters-toggle').click();
     await tall(page.locator('.filter-select'), 'a filter');
     await tall(page.locator('.pager a'), 'Next');
     await tall(page.locator('.queue-elsewhere a'), 'a link to what the view leaves out');

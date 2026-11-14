@@ -83,13 +83,14 @@ function enforce_https(): void
 }
 
 /** "3m" / "2h" / "4d" relative age from a UTC datetime string. */
+/** How long ago, in the compact form lists and tags share (the first-response tag too): "20 min", "3 h", "5 d". */
 function rel_time(string $utc): string
 {
     $mins = max(1, (int)floor((time() - strtotime($utc . ' UTC')) / 60));
-    if ($mins < 60) return $mins . 'm';
+    if ($mins < 60) return $mins . ' min';
     $hours = intdiv($mins, 60);
-    if ($hours < 24) return $hours . 'h';
-    return intdiv($hours, 24) . 'd';
+    if ($hours < 24) return $hours . ' h';
+    return intdiv($hours, 24) . ' d';
 }
 
 /** JSON response + exit (API endpoints). */
