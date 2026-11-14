@@ -483,6 +483,16 @@ foreach (['light', 'dark'] as $theme) {
     unset($GLOBALS['fixtureConfig']['support_addresses']);
     $save('settings-id', directory_ui_page('profile.php', [], false));
 }
+// After Remove demo data, a notice says what happened: done in green, kept or not done in the caution
+// colour (also when the session holds only the words, as it did before the colour was recorded).
+foreach (['done' => true, 'kept' => false, 'words only' => null] as $case => $done) {
+    $_SESSION['client_notice'] = 'Synthetic notice.';
+    if ($done === null) unset($_SESSION['client_notice_done']); else $_SESSION['client_notice_done'] = $done;
+    $html = directory_ui_page('clients.php', []);
+    directory_ui_check(str_contains($html, '<div class="banner ' . ($done ? 'banner-done' : 'banner-warn') . '" role="status">Synthetic notice.</div>')
+        && !array_key_exists('client_notice', $_SESSION) && !array_key_exists('client_notice_done', $_SESSION),
+        "Clients shows a $case notice once, in its colour");
+}
 // New client and Edit client: "Plan" with capitalised choices, and health in the client page's words.
 $formPage = static function (string $page, array $get): DOMXPath {
     $doc = new DOMDocument();
@@ -508,8 +518,10 @@ directory_ui_check($words($x, '//label[select[@name="sla_tier"]]/text()[normaliz
     && $words($x, '//select[@name="sla_tier"]/option/@value') === ['standard', 'premium'], 'New client asks for the Plan in words');
 // No example values inside the fields (an empty form must not look half filled); the domain says what it does.
 directory_ui_check($x->query('//form//input[@placeholder] | //form//textarea[@placeholder]')->length === 0
-    && $words($x, '//*[@id=(//input[@name="domain"]/@aria-describedby)]') === ['Email from someone new at this domain is filed under this client.'],
-    'New client has no example values in its fields, and a line saying what the domain is for');
+    && $words($x, '//*[@id=(//input[@name="domain"]/@aria-describedby)]') === ['Email from someone new at this domain is filed under this client.']
+    && $words($x, '//label[@for = //input[@name="domain"]/@id]') === ['Domain']
+    && $x->query('//label[.//*[contains(concat(" ", @class, " "), " field-help ")]]')->length === 0,
+    'New client has no example values in its fields, and a line saying what the domain is for, kept out of the field\'s name');
 // The way back is an icon and a word, never a typed arrow.
 directory_ui_check($words($x, '//a[contains(@class,"backlink")]') === ['Clients'] && $x->query('//a[contains(@class,"backlink")]/svg[@aria-hidden="true"]')->length === 1,
     'New client\'s way back is an icon and the word Clients');

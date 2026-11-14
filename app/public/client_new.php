@@ -57,10 +57,12 @@ page_top($user, 'New client', 'clients');
       <label class="field span-2">Client name
         <input type="text" name="name" required autofocus>
       </label>
-      <label class="field">Domain
-        <input type="text" name="domain" aria-describedby="client-domain-help">
+      <?php /* The help stays outside the label: inside it, it would become part of the field's name. */ ?>
+      <div class="field">
+        <label for="client-domain">Domain</label>
+        <input type="text" id="client-domain" name="domain" aria-describedby="client-domain-help">
         <span class="field-help" id="client-domain-help">Email from someone new at this domain is filed under this client.</span>
-      </label>
+      </div>
       <?php if ($canManageServiceTier): ?>
         <label class="field">Plan
           <select name="sla_tier">

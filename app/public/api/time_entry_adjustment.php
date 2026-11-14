@@ -65,12 +65,12 @@ try {
 }
 
 $minutes = (int) $adjustment['effective_minutes'];
-$billing = (bool) $adjustment['effective_billable'] ? 'billable' : 'internal';
+$billing = (bool) $adjustment['effective_billable'] ? 'billable' : 'not billable';
 json_out([
     'ok' => true,
     'toast' => (bool) $adjustment['replayed']
-        ? "Adjustment already saved · {$minutes}m {$billing}"
-        : "Approved time adjusted · {$minutes}m {$billing}",
+        ? "Adjustment already saved: {$minutes}m, {$billing}."
+        : "Approved time adjusted: {$minutes}m, {$billing}.",
     'adjustment_ack' => [
         'adjustment_key' => (string) $adjustment['adjustment_key'],
         'entry_id' => (int) $adjustment['time_entry_id'],

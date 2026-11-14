@@ -62,7 +62,7 @@ json_out([
     'ok' => true,
     'replayed' => (bool) $entry['replayed'],
     'toast' => (bool) $entry['replayed']
-        ? "Correction already submitted · {$minutes}m on #{$ticketId}"
-        : "Correction submitted for approval · {$minutes}m on #{$ticketId}",
+        ? "Correction already submitted: {$minutes}m on #{$ticketId}."
+        : "Correction submitted for approval: {$minutes}m on #{$ticketId}.",
     'entry' => $entry,
 ]);

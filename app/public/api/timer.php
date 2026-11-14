@@ -105,7 +105,7 @@ json_out([
     'ok' => true,
     'replayed' => $replayed,
     'toast' => $replayed
-        ? "Time already submitted · {$minutes}m on #{$ticketId}"
-        : "Time submitted for approval · {$minutes}m on #{$ticketId}",
+        ? "Time already submitted: {$minutes}m on #{$ticketId}."
+        : "Time submitted for approval: {$minutes}m on #{$ticketId}.",
     'entry' => $entry,
 ]);

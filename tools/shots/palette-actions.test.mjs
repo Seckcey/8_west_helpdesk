@@ -319,6 +319,48 @@ test('Keyboard shortcuts: the rail\'s button and the palette\'s row open the sam
   assert.deepEqual(errors, []);
 });
 
+// The card is a list: one row per key, the keys in a column of their own and what they do beside them,
+// with no chains of dots; in a short window it scrolls under its own head.
+for (const [theme, height] of [['dark', 900], ['light', 560]]) {
+  test(`Keyboard shortcuts (${theme}, ${height}px tall): one row per key, actions on one edge, and it scrolls under its head`, async (t) => {
+    const { page, errors } = await fixture(t, { theme });
+    await page.setViewportSize({ width: 1440, height });
+    await page.keyboard.press('?');
+    const card = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+    await card.waitFor();
+    const at = await card.evaluate((el) => {
+      const rows = [...el.querySelectorAll('.help-row')];
+      const actionEdges = new Map();   // each column of rows: the left edges its actions start at
+      for (const row of rows) {
+        const column = Math.round(row.getBoundingClientRect().left);
+        if (!actionEdges.has(column)) actionEdges.set(column, new Set());
+        actionEdges.get(column).add(Math.round(row.querySelector('dd').getBoundingClientRect().left));
+      }
+      const box = el.getBoundingClientRect();
+      return { rows: rows.length, keyed: rows.every((row) => row.querySelector('dt .kbd') && row.querySelector('dd').textContent.trim() !== ''),
+        columns: actionEdges.size, edges: [...actionEdges.values()].map((edges) => edges.size),
+        dots: el.innerText.includes('·'), inWindow: box.top >= 0 && box.bottom <= innerHeight + 1, scrolls: el.scrollHeight > el.clientHeight + 1 };
+    });
+    assert.ok(at.rows >= 20 && at.keyed, `${at.rows} rows, each with its keys and what they do`);
+    assert.equal(at.columns, 2, 'the groups sit in two columns at desktop width');
+    assert.deepEqual(at.edges, [1, 1], 'in each column every action starts on one edge');
+    assert.equal(at.dots, false, 'no chains of dots');
+    assert.ok(at.inWindow, 'the card stays inside the window');
+    assert.equal(at.scrolls, height < 700, height < 700 ? 'a short window scrolls the card' : 'a tall window shows the whole card');
+    if (at.scrolls) {
+      await card.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      const end = await card.evaluate((el) => {
+        const box = el.getBoundingClientRect(), head = el.querySelector('.help-head').getBoundingClientRect();
+        const last = [...el.querySelectorAll('.help-row')].at(-1).getBoundingClientRect();
+        return { head: head.top - box.top, last: last.bottom <= box.bottom + 1 };
+      });
+      assert.ok(Math.abs(end.head) <= 1 && end.last, `scrolled to its end, the head stays on top (${end.head}px) and the last row shows`);
+    }
+    await shot(page, `shortcuts-${theme}-${height}`);
+    assert.deepEqual(errors, []);
+  });
+}
+
 for (const theme of ['dark', 'light']) {
   test(`${theme}: the palette reads well at desktop width and fits a phone`, async (t) => {
     let { page, errors } = await fixture(t, { view: 'ticket', theme });

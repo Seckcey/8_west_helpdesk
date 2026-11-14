@@ -677,7 +677,7 @@
       startedAt: Date.now(),
       endedAt: null,
     });
-    toast(`Timer started · #${ticketId}`);
+    toast(`Timer started on #${ticketId}.`);
     paintTimer();
   }
 
@@ -737,7 +737,7 @@
       }
       toast(standaloneFallback
         ? "Message was not confirmed; measured time was submitted as a standalone timer."
-        : (r.toast || `Time logged · ${timerMinutes(t)}m`));
+        : (r.toast || `${timerMinutes(t)}m logged on #${t.ticketId}.`));
       paintTimer();
       if (page === "time") setTimeout(() => location.reload(), 500);
     } catch (error) {
@@ -779,7 +779,7 @@
     if (!legacy) return;
     const message = $("#legacy-timer-message");
     if (message) {
-      message.textContent = `Older unassigned timer: #${Number(legacy.ticketId)} · ${fmt(timerElapsed(legacy))}. Claim it only if you started it.`;
+      message.textContent = `Older unassigned timer on #${Number(legacy.ticketId)}: ${fmt(timerElapsed(legacy))}. Claim it only if you started it.`;
     }
     const claim = $("#legacy-timer-claim");
     if (claim) claim.disabled = !!readTimer();
@@ -1137,7 +1137,7 @@
       box.appendChild(make("h3", "", heading));
       const byReason = make("ul");
       Object.entries(tally).forEach(([reason, n]) =>
-        byReason.appendChild(make("li", "", `${Number(n).toLocaleString()} · ${reasonLabel(reason)}`)));
+        byReason.appendChild(make("li", "", `${plural(Number(n), "ticket", "tickets")}: ${reasonLabel(reason)}`)));
       box.appendChild(byReason);
       const items = make("ul");
       entries.slice(0, 50).forEach(([id, reason]) => {
@@ -1180,7 +1180,7 @@
         return;
       }
       screen(`Permanently delete ${plural(d, "ticket", "tickets")}?`,
-        k > 0 ? `${s.toLocaleString()} selected · ${k.toLocaleString()} will be kept` : `${s.toLocaleString()} selected`);
+        k > 0 ? `${s.toLocaleString()} selected. ${k.toLocaleString()} will be kept.` : `${s.toLocaleString()} selected.`);
       panel.appendChild(make("p", "", "This removes each ticket with its replies, internal notes, attachments and satisfaction survey, and cancels any email still waiting to go out. Ticket numbers are never reused. Safeharbor cannot undo this."));
       if (k > 0) keptList("Kept — will not be deleted:", sample, k, preview.kept_by_reason || {});
       if (preview.not_found > 0) panel.appendChild(make("p", "delete-note", `${plural(preview.not_found, "selected ticket no longer exists", "selected tickets no longer exist")}.`));
@@ -2953,28 +2953,54 @@
     const div = document.createElement("div");
     div.id = "help-overlay";
     div.className = "palette-overlay";
+    // One row per key: what it does, and its keys, in the groups people look for.
+    const k = (key) => `<kbd class="kbd">${key}</kbd>`;
+    const join = (word) => `<span class="help-join">${word}</span>`;
+    const row = (keys, action) => `<div class="help-row"><dt>${keys}</dt><dd>${action}</dd></div>`;
+    const go = (key, place) => row(k("g") + join("then") + k(key), `Go to ${place}`);
     div.innerHTML = `<div class="palette help-panel" role="dialog" aria-label="Keyboard shortcuts">
       <div class="help-head"><b>Keyboard shortcuts</b><span class="help-close"><kbd class="kbd">esc</kbd></span></div>
       <div class="help-grid">
-        <div><h4>Queue</h4>
-          <p><kbd class="kbd">j</kbd>/<kbd class="kbd">k</kbd> move · <kbd class="kbd">↵</kbd> open · <kbd class="kbd">u</kbd> back to the list</p>
-          <p><kbd class="kbd">1</kbd>–<kbd class="kbd">6</kbd> views</p>${bulk ? `
-          <p><kbd class="kbd">x</kbd> select · <kbd class="kbd">d</kbd> delete selected</p>` : ""}</div>
-        <div><h4>Any ticket</h4>
-          <p><kbd class="kbd">a</kbd> assign to me · <kbd class="kbd">z</kbd> undo</p>
-          <p><kbd class="kbd">s</kbd> status · <kbd class="kbd">p</kbd> priority · <kbd class="kbd">t</kbd> give to a teammate</p>
-          <p>these three open a menu: <kbd class="kbd">↑↓</kbd> and <kbd class="kbd">↵</kbd>, or a number</p>
-          <p><kbd class="kbd">e</kbd> timer · <kbd class="kbd">r</kbd> reply · <kbd class="kbd">n</kbd> note</p>
-          <p><kbd class="kbd">[</kbd> previous · <kbd class="kbd">]</kbd> next, in the list it was opened from</p></div>
-        <div><h4>Composer</h4>
-          <p><kbd class="kbd">/</kbd> saved replies · <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">↵</kbd> send</p>
-          <p>send and wait, send and resolve: the arrow beside Send, or <kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd></p>
-          <p>matching timer logs only after server-confirmed Send</p></div>
-        <div><h4>Everywhere</h4>
-          <p><kbd class="kbd">c</kbd> new ticket (on a client's page, for that client)</p>
-          <p><kbd class="kbd">${MOD_KEY}</kbd><kbd class="kbd">K</kbd> or <kbd class="kbd">/</kbd> search and actions (search reaches every message)</p>
-          <p><kbd class="kbd">g</kbd> then <kbd class="kbd">q</kbd> Queue · <kbd class="kbd">t</kbd> Time · <kbd class="kbd">c</kbd> Clients · <kbd class="kbd">s</kbd> Service goals · <kbd class="kbd">r</kbd> Reports · <kbd class="kbd">u</kbd> Team</p>
-          <p><kbd class="kbd">?</kbd> this card</p></div>
+        <section><h4>Queue</h4><dl class="help-keys">
+          ${row(k("j") + join("/") + k("k"), "Move through the list")}
+          ${row(k("↵"), "Open the highlighted ticket")}
+          ${row(k("u"), "Go back to the list")}
+          ${row(k("1") + join("–") + k("6"), "Switch views")}${bulk ? `
+          ${row(k("x"), "Select the highlighted ticket")}
+          ${row(k("d"), "Delete the selected tickets")}` : ""}
+        </dl></section>
+        <section><h4>Any ticket</h4><dl class="help-keys">
+          ${row(k("a"), "Assign to me")}
+          ${row(k("z"), "Undo")}
+          ${row(k("s"), "Change the status")}
+          ${row(k("p"), "Change the priority")}
+          ${row(k("t"), "Give to a teammate")}
+        </dl>
+        <p class="help-note">These three open a menu: pick with ${k("↑")}${k("↓")} and ${k("↵")}, or a number.</p>
+        <dl class="help-keys">
+          ${row(k("e"), "Start or stop the timer")}
+          ${row(k("r"), "Write a reply")}
+          ${row(k("n"), "Write an internal note")}
+          ${row(k("["), "Go to the previous ticket in the list it was opened from")}
+          ${row(k("]"), "Go to the next ticket in the list it was opened from")}
+        </dl></section>
+        <section><h4>Composer</h4><dl class="help-keys">
+          ${row(k("/"), "Saved replies")}
+          ${row(k(MOD_KEY) + k("↵"), "Send")}
+        </dl>
+        <p class="help-note">To send and wait, or send and resolve: the arrow beside Send, or ${k(MOD_KEY)}${k("K")}.</p>
+        <p class="help-note">A timer running on the ticket is logged once the reply has been sent.</p></section>
+        <section><h4>Everywhere</h4><dl class="help-keys">
+          ${row(k("c"), "Start a new ticket (on a client's page, for that client)")}
+          ${row(k(MOD_KEY) + k("K") + join("or") + k("/"), "Open search and actions (search reaches every message)")}
+          ${go("q", "the Queue")}
+          ${go("t", "Time")}
+          ${go("c", "Clients")}
+          ${go("s", "Service goals")}
+          ${go("r", "Reports")}
+          ${go("u", "Team")}
+          ${row(k("?"), "Show these shortcuts")}
+        </dl></section>
       </div></div>`;
     div.addEventListener("click", (e) => { if (e.target === div) toggleHelp(); });
     document.body.appendChild(div);
