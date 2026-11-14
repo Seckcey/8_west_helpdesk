@@ -597,7 +597,7 @@
         widget.classList.toggle("timer-on", t.state === "active");
         widget.classList.toggle("timer-stopped", t.state === "stopped");
         widget.classList.remove("timer-idle");
-        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span class="tw-clock">${fmt(timerElapsed(t))}</span><span class="tw-ticket">#${t.ticketId}</span>${t.state === "stopped" ? '<span class="tw-retry">· retry</span>' : ""}`;
+        widget.innerHTML = `<span class="tw-dot${t.state === "active" ? " pulse" : ""}"></span><span class="tw-clock">${fmt(timerElapsed(t))}</span><span class="tw-ticket">#${t.ticketId}</span>${t.state === "stopped" ? '<span class="tw-retry">Retry</span>' : ""}`;
       } else {
         widget.classList.remove("timer-on");
         widget.classList.remove("timer-stopped");
@@ -2996,6 +2996,33 @@
     });
     // Back restores the page as it was left: its selects must answer again.
     window.addEventListener("pageshow", () => selects.forEach((select) => { select.disabled = false; }));
+  })();
+
+  /* The queue on a phone: the filters fold behind the Filters button on the views row (the
+     stylesheet folds them only once this has run, so without the script they stay in view), the
+     chosen view is scrolled into sight, and the views row fades at its edge while more are off it. */
+  (() => {
+    const toolbar = $(".queue-toolbar");
+    if (!toolbar) return;
+    const toggle = $("#filters-toggle", toolbar);
+    if (toggle && $("#queue-filters", toolbar)) {
+      toggle.hidden = false;
+      toolbar.classList.add("filters-folded");
+      toggle.addEventListener("click", () => {
+        toggle.setAttribute("aria-expanded", String(toolbar.classList.toggle("filters-open")));
+      });
+    }
+    const views = $(".filters", toolbar);
+    if (!views) return;
+    const edge = () => views.classList.toggle("filters-more", views.scrollLeft + views.clientWidth < views.scrollWidth - 1);
+    const chosen = $(".pill-on", views);
+    if (chosen) {
+      const past = chosen.getBoundingClientRect().right - views.getBoundingClientRect().right;
+      if (past > 0) views.scrollLeft += past + 24;
+    }
+    views.addEventListener("scroll", edge, { passive: true });
+    window.addEventListener("resize", edge);
+    edge();
   })();
 
   /* New ticket ("log a call"). The form works as plain HTML; this puts a type-to-find box in

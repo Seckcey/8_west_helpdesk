@@ -503,6 +503,18 @@ function queue_tabs(array $state, array $counts): string
 }
 
 /**
+ * On a phone the filters fold behind one Filters button on the views row, which counts the filters
+ * that are set (the order is not a filter). It starts hidden: the script shows it and folds the
+ * filters, so without the script the filters simply stay in view.
+ */
+function queue_filters_toggle(array $state): string
+{
+    $set = ((int)$state['client'] !== 0 ? 1 : 0) + ((string)$state['priority'] !== '' ? 1 : 0) + ((string)$state['owner'] !== '' ? 1 : 0);
+    return '<button type="button" class="btn-secondary filters-toggle" id="filters-toggle" aria-controls="queue-filters" aria-expanded="false" hidden>'
+        . 'Filters' . ($set > 0 ? '<span class="filters-count">' . $set . '<span class="sr-only"> set</span></span>' : '') . '</button>';
+}
+
+/**
  * Client, priority, owner and order as one small GET form. Each choice is a native select (so it
  * is searchable by typing and right on a phone); the script submits on change and hides Apply.
  *

@@ -51,6 +51,7 @@ page_top($user, 'Queue', 'queue');
   </div>
   <div class="toolbar queue-toolbar">
     <?= queue_tabs($state, $counts) ?>
+    <?= queue_filters_toggle($state) ?>
     <?= queue_filters($state, $cq->fetchAll(), $tq->fetchAll(), $me) ?>
     <?php if ($canDelete && $rows): ?><?= ticket_bulk_toggle() ?><?php endif; ?>
   </div>

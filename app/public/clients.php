@@ -124,7 +124,7 @@ page_top($user, 'Clients', 'clients');
           <?php if ($op['bound'] !== false && !$op['available']): ?><span class="crow-shared">Link details unavailable</span><?php endif; ?>
         </span>
         <span class="crow-open"><span class="crow-field">Open tickets </span><strong><?= (int)$c['open_count'] ?></strong></span>
-        <span class="crow-oldest"><span class="crow-field">Oldest open </span><?php if ($c['oldest_open'] !== null): ?><time datetime="<?= h(gmdate('c', strtotime($c['oldest_open'] . ' UTC'))) ?>"><?= h(strtr(rel_time($c['oldest_open']), ['m' => ' min', 'h' => ' h', 'd' => ' d'])) ?></time><?php else: ?>—<?php endif; ?></span>
+        <span class="crow-oldest"><span class="crow-field">Oldest open </span><?php if ($c['oldest_open'] !== null): ?><time datetime="<?= h(gmdate('c', strtotime($c['oldest_open'] . ' UTC'))) ?>"><?= h(rel_time($c['oldest_open'])) ?></time><?php else: ?>—<?php endif; ?></span>
         <span class="tier <?= $c['sla_tier'] === 'premium' ? 'tier-premium' : '' ?>"><?= client_plan_label((string)$c['sla_tier']) ?></span>
       </a>
       <span class="crow-actions">

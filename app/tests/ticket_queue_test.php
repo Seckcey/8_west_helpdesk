@@ -25,7 +25,7 @@ try {
     copy(__DIR__ . '/../lib/render.php', $temp . '/render.php');
     // The real first-response rules (sla_info), so "due soon" here is checked against them.
     file_put_contents($temp . '/auth.php', '<?php require_once ' . var_export(realpath(__DIR__ . '/../lib/service_goals.php'), true) . ';'
-        . ' function h($v): string { return htmlspecialchars((string)$v,ENT_QUOTES,"UTF-8"); } function rel_time($v): string { return "2h"; }');
+        . ' function h($v): string { return htmlspecialchars((string)$v,ENT_QUOTES,"UTF-8"); } function rel_time($v): string { return "2 h"; }');
     file_put_contents($temp . '/westy.php', '<?php');
     require $temp . '/render.php';
     require __DIR__ . '/../lib/ticket_queue.php';
@@ -184,6 +184,17 @@ try {
     $clear = $x->query('//a')->item(0);
     queue_check($clear instanceof DOMElement && trim($clear->textContent) === 'Clear filters' && $clear->getAttribute('href') === '/?view=resolved', 'Clear filters keeps the view');
 
+    // ---- the phone's Filters button ----
+    $x = $dom(queue_filters_toggle($plain));
+    $toggle = $x->query('//button[@id="filters-toggle"]')->item(0);
+    queue_check($toggle instanceof DOMElement && $toggle->hasAttribute('hidden') && $toggle->getAttribute('type') === 'button'
+        && $toggle->getAttribute('aria-controls') === 'queue-filters' && $toggle->getAttribute('aria-expanded') === 'false',
+        'the Filters button starts hidden (the script shows it) and controls the filters');
+    queue_check(trim($toggle->textContent) === 'Filters' && $x->query('//*[contains(@class,"filters-count")]')->length === 0, 'with no filter set it has no count');
+    queue_check($texts($dom(queue_filters_toggle($full)), '//button') === ['Filters3 set'], 'it counts client, priority and owner');
+    queue_check($texts($dom(queue_filters_toggle(array_replace($plain, ['priority' => 'high', 'sort' => 'newest']))), '//button') === ['Filters1 set'],
+        'the order is not counted as a filter');
+
     // ---- the pager ----
     queue_check(queue_pager($plain, 0) === '', 'an empty view has no count line');
     queue_check($texts($dom(queue_pager($plain, 1)), '//nav') === ['1 ticket'] && $texts($dom(queue_pager($plain, 50)), '//nav') === ['50 tickets'], 'one page: just the count');
@@ -338,7 +349,7 @@ try {
             'legacy' => 171, 'everything' => 171];
         echo json_encode([
             'summary' => queue_summary($counts),
-            'toolbar' => '<div class="toolbar queue-toolbar">' . queue_tabs($state, $counts) . queue_filters($state, $clients, $team, 102) . ticket_bulk_toggle() . '</div>',
+            'toolbar' => '<div class="toolbar queue-toolbar">' . queue_tabs($state, $counts) . queue_filters_toggle($state) . queue_filters($state, $clients, $team, 102) . ticket_bulk_toggle() . '</div>',
             'list' => '<div class="card list">' . ticket_head_row(true) . implode('', array_map('ticket_pick_row', $rows)) . '</div>',
             'pager' => queue_pager($state, 131, $rows),
             'elsewhere' => queue_elsewhere($state, $counts),

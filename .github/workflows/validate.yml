@@ -396,6 +396,7 @@ jobs:
           node tools/shots/ticket-menus.test.mjs
           node tools/shots/palette-search.test.mjs
           node tools/shots/queue-views.test.mjs
+          node tools/shots/desk-queue-polish.test.mjs
           node tools/shots/first-response-tag.test.mjs
           node tools/shots/signin-palette.test.mjs
           SIGNIN_DISPLAY_SHOTS="$RUNNER_TEMP/signin-display-shots" node tools/shots/signin-display.test.mjs
