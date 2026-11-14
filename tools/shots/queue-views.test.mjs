@@ -239,6 +239,7 @@ for (const theme of ['dark', 'light']) {
       const rect = selector => row.querySelector(selector).getBoundingClientRect();
       return {
         height: row.getBoundingClientRect().height,
+        subject: rect('.trow-subject').height,
         client: row.querySelector('.trow-client-phone').textContent.trim(),
         twoLines: rect('.trow-client-phone').top >= rect('.trow-subject').bottom - 1,
         statusRight: rect('.trow-status').left >= rect('.trow-subject').right - 1,
@@ -247,7 +248,8 @@ for (const theme of ['dark', 'light']) {
     }));
     assert.ok(rows.length > 0);
     for (const row of rows) {
-      assert.ok(row.height >= 76 && row.height <= 82, `compact two-line row is ${row.height}px`);
+      // Compact: a one-line card is 76 to 82px; a subject that takes its second line adds only that line.
+      assert.ok(row.height >= 76 && row.height - row.subject <= 62, `compact two-line row is ${row.height}px with a ${row.subject}px subject`);
       assert.ok(row.client.length > 0, 'the client remains visible');
       assert.equal(row.twoLines && row.statusRight && row.ownerBesideDue, true);
     }

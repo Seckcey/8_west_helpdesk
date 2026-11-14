@@ -225,7 +225,7 @@ const flaggedRow = (page) => page.locator('.trow:has(.trow-flag)').evaluate((row
   const others = ['.trow-subject', '.trow-client-phone', '.trow-origin', '.trow-status > *', '.trow-sla > *', '.trow-tech > *']
     .map((selector) => [selector, box(row.querySelector(selector))]).filter(([, b]) => b);
   return { row: box(row), flag: box(flag), text: flag.innerText.trim(), others, sla: box(row.querySelector('.trow-sla > *')) !== null,
-    list: row.closest('.list').getBoundingClientRect().width };
+    list: row.closest('.list').getBoundingClientRect().width, subject: row.querySelector('.trow-subject').getBoundingClientRect().height };
 });
 const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
 
@@ -237,7 +237,8 @@ for (const width of [390, 701, 768, 820, 960, 1000, 1440]) {
     assert.ok(at.flag, 'the chip is drawn');
     assert.ok(at.flag.left >= at.row.left - 0.5 && at.flag.right <= at.row.right + 0.5 && at.flag.top >= at.row.top - 0.5 && at.flag.bottom <= at.row.bottom + 0.5, 'inside its row');
     for (const [selector, other] of at.others) assert.equal(overlaps(at.flag, other), false, `the chip covers ${selector}`);
-    if (at.list <= 680) assert.ok(at.row.bottom - at.row.top <= 82, `the card stays compact (${Math.round(at.row.bottom - at.row.top)}px)`);
+    // Compact: no taller than a one-line card (82px) but for a subject that takes its second line.
+    if (at.list <= 680) assert.ok(at.row.bottom - at.row.top - at.subject <= 62, `the card stays compact (${Math.round(at.row.bottom - at.row.top)}px with a ${Math.round(at.subject)}px subject)`);
     assert.equal(at.sla, at.list > 480, at.list > 480 ? 'a wider row keeps the first-response tag too' : 'a narrow card shows the chip in its place');
   });
 }
@@ -255,13 +256,41 @@ for (const width of [390, 768, 960, 1440]) {
     assert.equal(at.text, 'Customer replied');
     assert.ok(at.flag && at.flag.left >= at.row.left - 0.5 && at.flag.right <= at.row.right + 0.5 && at.flag.bottom <= at.row.bottom + 0.5, 'the chip is drawn inside its row');
     for (const [selector, other] of at.others) assert.equal(overlaps(at.flag, other), false, `the chip covers ${selector}`);
-    if (width <= 960) assert.ok(at.row.bottom - at.row.top <= 82, 'the card stays compact');
+    if (width <= 960) assert.ok(at.row.bottom - at.row.top - at.subject <= 62, 'the card stays compact but for a subject on two lines');
     const bar = await page.locator('.topbar').evaluate((el) => {
       const edge = el.getBoundingClientRect();
       return [...el.querySelectorAll('#palette-trigger, #timer-widget, .w365-cluster')].every((part) => { const r = part.getBoundingClientRect(); return r.left >= edge.left - 0.5 && r.right <= edge.right + 0.5; })
         && el.scrollWidth <= el.clientWidth;
     });
     assert.equal(bar, true, 'the top bar holds everything');
+    assert.equal(await noSidewaysScroll(page), true);
+  });
+}
+
+// A phone card: the subject takes two lines before it is cut, and the status tag keeps the top line.
+// (The same check runs on a client's own ticket list in client-page.test.mjs.)
+const subjectLines = (rowSelector) => {
+  const row = document.querySelector(rowSelector);
+  const subject = row.querySelector('.trow-subject');
+  const status = row.querySelector('.trow-status > *') || row.querySelector('.trow-status');
+  subject.textContent = 'Printer';
+  const line = subject.getBoundingClientRect().height;
+  const measure = (text) => {
+    subject.textContent = text;
+    const box = subject.getBoundingClientRect();
+    return { lines: Math.round(box.height / line), cut: subject.scrollHeight > subject.clientHeight + 1, top: box.top };
+  };
+  const medium = measure('Front desk PC will not print the claim forms since this morning');
+  const long = measure('Front desk PC will not print the claim forms since this morning, and the scanner beside it has stopped sending scans to email as well');
+  return { medium, long, statusOff: Math.round(Math.abs(status.getBoundingClientRect().top - long.top)) };
+};
+for (const legacy of [false, true]) {
+  test(`queue at 390px${legacy ? ' without container queries' : ''}: a card's subject takes two lines before it is cut, and its status keeps the top`, async (t) => {
+    const page = await open(t, 'queue', { width: 390, legacy });
+    const at = await page.evaluate(subjectLines, '.trow:not(.trow-head)');
+    assert.equal(at.medium.lines, 2, 'a longer subject wraps to a second line instead of being cut');
+    assert.ok(at.long.lines === 2 && at.long.cut, `a very long subject stops at two lines (${at.long.lines}), cut`);
+    assert.ok(at.statusOff <= 3, `the status tag starts on the subject's first line (${at.statusOff}px off)`);
     assert.equal(await noSidewaysScroll(page), true);
   });
 }
