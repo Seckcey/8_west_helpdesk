@@ -82,7 +82,6 @@ function enforce_https(): void
     }
 }
 
-/** "3m" / "2h" / "4d" relative age from a UTC datetime string. */
 /** How long ago, in the compact form lists and tags share (the first-response tag too): "20 min", "3 h", "5 d". */
 function rel_time(string $utc): string
 {

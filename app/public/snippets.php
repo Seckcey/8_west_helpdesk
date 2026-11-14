@@ -106,7 +106,8 @@ if ($posted && $error !== '' && $formOpen) {
 // Saved replies has no rail item of its own, so no rail item is marked as the current page.
 page_top($user, 'Saved replies', 'saved-replies');
 ?>
-<div class="page page-narrow page-saved-replies">
+<?php /* No back link here, but u and Esc still go back to the Queue, as they did when this page called itself Queue. */ ?>
+<div class="page page-narrow page-saved-replies" data-back="/">
   <div class="page-head">
     <div>
       <h1 class="page-title">Saved replies</h1>

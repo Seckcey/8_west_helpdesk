@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -120,3 +122,34 @@ test('Saved replies is not marked as the Queue: no rail item is current and ther
   assert.equal(await page.locator('.page-saved-replies .backlink').count(), 0);
   assert.equal(await page.getByRole('heading', { level: 1, name: 'Saved replies' }).isVisible(), true);
 });
+
+// The real Saved replies page (rendered by app/tests/destructive_confirm_ui_test.php from synthetic data)
+// with the real script: with no back link, u and Esc still go back to the Queue.
+const confirmPages = await mkdtemp(path.join(tmpdir(), 'safeharbor-saved-replies-'));
+const rendered = spawnSync('php', ['app/tests/destructive_confirm_ui_test.php'], { cwd: ROOT, env: { ...process.env, CONFIRM_UI_CAPTURE_DIR: confirmPages }, encoding: 'utf8' });
+assert.equal(rendered.status, 0, rendered.stdout + rendered.stderr);
+for (const key of ['u', 'Escape']) {
+  test(`Saved replies: ${key} still goes back to the Queue, though the page has no back link`, async (t) => {
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.route(`${ORIGIN}/**`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/snippets.php') return route.fulfill({ contentType: 'text/html', body: await readFile(path.join(confirmPages, 'snippets.html'), 'utf8') });
+      if (url.pathname.startsWith('/assets/') && !url.pathname.includes('..')) {
+        const file = await readFile(path.join(ROOT, 'app/public', url.pathname)).catch(() => null);
+        if (file === null) return route.fulfill({ status: 404, body: '' });   // the brand images are not in the app folder
+        return route.fulfill({ contentType: url.pathname.endsWith('.js') ? 'text/javascript' : 'text/css', body: file });
+      }
+      if (url.pathname.startsWith('/api/')) return route.fulfill({ contentType: 'application/json', body: '{"ok":true}' });
+      return route.fulfill({ contentType: 'text/html', body: '<h1>Queue</h1>' });
+    });
+    await page.goto(`${ORIGIN}/snippets.php`);
+    assert.equal(await page.locator('.backlink').count(), 0, 'no back link on the page');
+    await page.locator('h1').first().click();   // focus on the page, not on a field
+    await Promise.all([page.waitForURL(`${ORIGIN}/`), page.keyboard.press(key)]);
+    assert.deepEqual(errors, []);
+  });
+}

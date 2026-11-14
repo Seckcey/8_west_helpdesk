@@ -195,6 +195,15 @@ try {
     queue_check($texts($dom(queue_filters_toggle(array_replace($plain, ['priority' => 'high', 'sort' => 'newest']))), '//button') === ['Filters1 set'],
         'the order is not counted as a filter');
 
+    // ---- avatars: only a #RRGGBB colour reaches the stylesheet ----
+    $avatarOf = static fn(string $color): string => avatar(['full_name' => 'Ana <Kim>', 'initials' => 'AK', 'color' => $color], 26);
+    queue_check(str_contains($avatarOf('#62F6B0'), 'style="width:26px;height:26px;--avatar:#62F6B0"') && str_contains($avatarOf('#62F6B0'), 'title="Ana &lt;Kim&gt;"'),
+        'a #RRGGBB colour reaches the stylesheet as --avatar');
+    foreach (["#62F6B0\n", 'red', '#62F6B0;background:url(x)', '#62F6B', '" onmouseover="x', ''] as $bad) {
+        queue_check(str_contains($avatarOf($bad), 'style="width:26px;height:26px"') && !str_contains($avatarOf($bad), '--avatar'),
+            'anything else gets the neutral fill: ' . json_encode($bad));
+    }
+
     // ---- the pager ----
     queue_check(queue_pager($plain, 0) === '', 'an empty view has no count line');
     queue_check($texts($dom(queue_pager($plain, 1)), '//nav') === ['1 ticket'] && $texts($dom(queue_pager($plain, 50)), '//nav') === ['50 tickets'], 'one page: just the count');

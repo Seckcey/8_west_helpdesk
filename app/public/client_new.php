@@ -43,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 page_top($user, 'New client', 'clients');
 ?>
 <div class="page page-narrow">
-  <a href="/clients.php" class="backlink">← Clients</a>
+  <a href="/clients.php" class="backlink"><?= ui_icon('back') ?>Clients</a>
   <div class="page-head">
     <h1 class="page-title">New client</h1>
   </div>
@@ -53,10 +53,11 @@ page_top($user, 'New client', 'clients');
     <form method="post" action="/client_new.php" class="form-grid">
       <?= csrf_field() ?>
       <label class="field span-2">Client name
-        <input type="text" name="name" required placeholder="Lakeside Pediatrics" autofocus>
+        <input type="text" name="name" required autofocus>
       </label>
       <label class="field">Domain
-        <input type="text" name="domain" placeholder="lakesidepeds.com">
+        <input type="text" name="domain" aria-describedby="client-domain-help">
+        <span class="field-help" id="client-domain-help">Email from someone new at this domain is filed under this client.</span>
       </label>
       <?php if ($canManageServiceTier): ?>
         <label class="field">Plan
@@ -72,10 +73,10 @@ page_top($user, 'New client', 'clients');
       <?php endif; ?>
       <div class="rail-label span-2" style="padding:0">First contact (optional)</div>
       <label class="field">Name
-        <input type="text" name="contact_name" placeholder="Office manager">
+        <input type="text" name="contact_name">
       </label>
       <label class="field">Email
-        <input type="email" name="contact_email" placeholder="office@lakesidepeds.com">
+        <input type="email" name="contact_email">
       </label>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary">Create client</button>

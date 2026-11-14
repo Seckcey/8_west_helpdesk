@@ -33,7 +33,7 @@ function cfg(string $key, mixed $default = null): mixed { return $default; }
 function tenant_id(): int { return 1; }
 function h(mixed $text): string { return htmlspecialchars((string)$text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 function initials_of(string $name): string { return 'ST'; }
-function avatar(array $user, int $size): string { return '<span class="avatar" style="width:'.$size.'px;height:'.$size.'px;background:'.h($user['color']).'" title="'.h($user['full_name']).'">'.h($user['initials']).'</span>'; }
+function avatar(array $user, int $size): string { return '<span class="avatar" style="width:'.$size.'px;height:'.$size.'px;--avatar:'.h($user['color']).'" title="'.h($user['full_name']).'">'.h($user['initials']).'</span>'; }
 function rel_time(string $time): string { return '1d'; }
 function csrf_field(): string { return '<input type="hidden" name="csrf" value="synthetic-csrf">'; }
 function csrf_check(): void { if (($_POST['csrf'] ?? '') !== 'synthetic-csrf') throw new RuntimeException('Invalid synthetic CSRF'); }

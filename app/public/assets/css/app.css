@@ -494,6 +494,9 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 .page-note { margin-top: 12px; padding: 0 4px; font-size: 12.5px; color: var(--dim); }
 .backlink { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 13px; font-weight: 600; color: var(--dim); }
 .backlink:hover { color: var(--text); }
+/* A drawn icon beside its words (ui_icon() in render.php), where a typed arrow used to be. */
+.ui-icon { flex: none; }
+.link .ui-icon { width: 14px; height: 14px; margin-left: 4px; vertical-align: -2px; }
 
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 /* Status filters: a segmented control. Their key hints behave like the nav ones. */
@@ -549,7 +552,9 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
   /* The views share their line with the Filters button, which folds the filters away until it is
      pressed, so the list starts near the top. While more views are off screen the row fades out at
      its edge. */
-  .queue-toolbar .filters { flex: 1 1 0; min-width: 0; }
+  /* The views and the Filters button take the first row; Select (bulk delete still works on a phone)
+     drops to the row below, with the filters when they are open. */
+  .queue-toolbar .filters { flex: 1 1 calc(100% - 140px); min-width: 0; }
   .queue-toolbar .filters.filters-more {
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
     mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
@@ -999,7 +1004,7 @@ a.ticket-step:hover { background: var(--bg-raised); }
   border-radius: var(--radius-tag); font-size: 12px; font-weight: 600;
   background: var(--chip-bg); color: var(--muted-strong);
 }
-.tier-premium { background: var(--gold-soft-bg); color: var(--gold); }
+/* A plan is a fact, not a warning: Premium and Standard are the same neutral tag. */
 .crow-open { width: 80px; text-align: right; font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
 /* A directory row: the selectable client link plus its per-app buttons. */
 .crow-row { display: flex; align-items: center; border-bottom: 1px solid var(--line); transition: background .14s; }
@@ -1296,11 +1301,14 @@ a.ticket-step:hover { background: var(--bg-raised); }
 @media (max-width: 700px) {
   .sidebar { position: fixed; inset: 0 auto 0 0; width: min(260px, calc(100vw - 40px)); z-index: 90; background: var(--rail); transform: translateX(-100%); visibility: hidden; }
   .sidebar-open .sidebar { transform: translateX(0); visibility: visible; }
-  .mobile-nav-toggle { display: block; white-space: nowrap; min-height: 44px; padding: 8px 4px; font-weight: 600; }
-  .mobile-nav-close { display: block; align-self: flex-end; min-height: 44px; padding: 12px; color: var(--rail-ink); }
+  .mobile-nav-toggle { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; min-height: 44px; padding: 8px 2px; font-weight: 600; }
+  .mobile-nav-toggle svg { width: 16px; height: 16px; flex: none; }
+  .mobile-nav-close { display: inline-flex; align-items: center; gap: 6px; align-self: flex-end; min-height: 44px; padding: 12px; color: var(--rail-ink); }
   .nav-item { height: 44px; }
   .sidebar-open .mobile-nav-backdrop { display: block; position: fixed; inset: 0; background: var(--overlay); z-index: 80; }
-  .topbar { padding: 6px 12px; gap: 8px; }
+  /* Tight enough that Menu, search, a long-running timer and the suite cluster fit a 360px screen
+     even in a wide system font. */
+  .topbar { padding: 6px 12px; gap: 6px; }
   /* A phone's top bar holds Menu, the search as an icon button and the shared suite cluster, and
      nothing in it is ever clipped. The search keeps its name for a screen reader. A running timer
      shows as a short clock with a 44px touch area; an idle one is not shown (Time is in the menu).
@@ -1604,13 +1612,22 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .login-split > .login-wrap { align-self: center; justify-self: center; width: 100%; max-width: 520px; padding: 56px 48px; }
 .login-split .login-card { border: 0; box-shadow: none; padding: 0; background: transparent; }
 @media (max-width: 860px) {
-  .login-split { grid-template-columns: 1fr; min-height: 100vh; }
+  .login-split { grid-template-columns: 1fr; grid-template-rows: auto 1fr; min-height: 100vh; }
   .login-brand { padding: 28px 20px 32px; }
   .login-brand::after { display: none; }
   .login-brand .login-head { max-width: none; }
   .login-brand .suite-login-logo { width: min(100%, 280px); margin-bottom: 16px; }
   .login-brand .login-name { font-size: 26px; }
-  .login-split > .login-wrap { max-width: none; padding: 28px 20px 40px; }
+  .login-split > .login-wrap { align-self: start; max-width: none; padding: 28px 20px 40px; }
+  /* The staff sign-in on a phone: a short brand band (about 140px) with the horizon line along its
+     lower edge. */
+  .staff-signin .login-brand { padding: 22px 20px 24px; }
+  .staff-signin .login-brand .suite-login-logo { width: min(100%, 220px); margin-bottom: 10px; }
+  .staff-signin .login-brand .login-tag { margin-top: 0; font-size: 14px; }
+  .staff-signin .login-brand::after {
+    display: block; left: 0; right: 0; bottom: 0; width: auto; height: 3px; margin: 0;
+    border-radius: 0; background: var(--horizon);
+  }
 }
 .login-wrap { width: 100%; max-width: 420px; }
 .login-head { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 28px; }
@@ -1619,6 +1636,8 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .login-tag { margin-top: 4px; font-size: 14px; color: var(--muted-strong); }
 .login-card { padding: 24px; }
 .login-card .page-title { font-size: 24px; }
+/* The form half says what it is for. */
+.login-title { margin: 0 0 16px; font-family: var(--font-display); font-size: 22px; font-weight: 700; line-height: 1.2; color: var(--text-strong); }
 .login-card .page-sub { margin-bottom: 16px; }
 .login-error {
   margin-bottom: 14px; padding: 10px 14px; border-radius: 12px;
@@ -2256,6 +2275,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .page-clients .client-row-links { position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 4px; width: 200px; padding: 8px; background: var(--bg-solid); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow-pop); }
 .page-clients .client-row-links a { justify-content: flex-start; min-height: 36px; }
 .page-clients .client-demo { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; }
+/* Demo data: a quiet line under the list; its button asks before removing anything. */
+.page-clients .client-demo-text { margin: 0; font-size: 13px; color: var(--muted-strong); }
 .page-clients .client-demo form { flex: none; }
 .page-clients [hidden] { display: none !important; }
 @media (max-width: 900px) {

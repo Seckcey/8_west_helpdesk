@@ -95,7 +95,7 @@ function db(): DirectoryFixturePdo
 
 $render = (string)file_get_contents(__DIR__ . '/../lib/render.php');
 $chrome = '';
-foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_bottom'] as $function) {
+foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_bottom', 'ui_icon'] as $function) {
     $chrome .= directory_ui_lift($render, $function) . "\n";
 }
 // The lifted code resolves __DIR__ relative to THIS file, so point its require at lib/ explicitly.
@@ -350,7 +350,8 @@ foreach (['light', 'dark'] as $theme) {
             && str_contains($html, $clientId === 30 ? 'Milepost directory now:' : 'Not in Milepost’s current client directory'),
             "client $clientId $theme shows its current directory entry or retained history");
         directory_ui_check(substr_count($html, 'href="' . h($scopedBilling($clientId === 30 ? 1 : 2)) . '"') === 1
-            && str_contains($html, '>Open this client in Coastmark ↗</a>') && str_contains($html, '>Open this client in Milepost ↗</a>')
+            && str_contains($html, '>Invoices in Coastmark<svg class="ui-icon"') && str_contains($html, '>Computers in Milepost<svg class="ui-icon"')
+            && substr_count($html, '<span class="sr-only"> (opens in a new tab)</span></a>') >= 3 && !str_contains($html, '↗')
             && str_contains($html, 'Milepost and Coastmark check your access before showing this client.')
             && !str_contains($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"'),
             "client $clientId $theme Computers and Invoices open this client's own Milepost and Coastmark pages");
@@ -425,8 +426,8 @@ foreach (['light', 'dark'] as $theme) {
         $html = directory_ui_page('client.php', ['id' => (string)$clientId]);
         directory_ui_check(str_contains($html, '<title>' . $name . ' · Safeharbor</title>')
             && substr_count($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"') === 1
-            && str_contains($html, '>Open Coastmark ↗</a>') && str_contains($html, '>Open Milepost ↗</a>')
-            && str_contains($html, 'Open the app, then select the client.')
+            && str_contains($html, '>Open Coastmark<svg class="ui-icon"') && str_contains($html, '>Open Milepost<svg class="ui-icon"')
+            && str_contains($html, 'Choose the client there.')
             && !str_contains($html, 'coastmark.8westit.com/clients'),
             "client $clientId $theme keeps Coastmark's generic Billing entry");
         directory_ui_check(str_contains($html, $clientId === 33 ? 'Not linked to Milepost. Shared clients are created in Milepost.'
@@ -456,12 +457,12 @@ foreach (['light', 'dark'] as $theme) {
             && substr_count($html, 'href="' . h($scopedBilling($n)) . '"') === 1
             && !str_contains($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"')
             && str_contains($html, $n === 1 ? 'Milepost and Coastmark check your access before showing this client.'
-                : 'Coastmark checks your access before showing this client. In Milepost, select the client.'),
+                : 'Coastmark checks your access before showing this client. In Milepost, choose the client.'),
             "the Support target for $name renders that bound client's page with its own Billing route ($theme)");
         if ($n === 3) {
             // Copper Kettle is being watched, and inactive in Milepost: its computers open Milepost's own entry.
             directory_ui_check($texts($xpath($html), '//div[@class="client-title"]/*') === ['Copper Kettle', 'Standard plan', 'Needs attention', 'copperkettle.test']
-                && str_contains($html, '>Open Milepost ↗</a>') && str_contains($html, '>Open this client in Coastmark ↗</a>')
+                && str_contains($html, '>Open Milepost<svg class="ui-icon"') && str_contains($html, '>Invoices in Coastmark<svg class="ui-icon"')
                 && str_contains($html, '<span class="crow-shared-inactive">inactive</span>'),
                 "a watched client says Needs attention in words, and an inactive one keeps Milepost's general entry ($theme)");
             $save('client-watch', $html);
@@ -491,6 +492,17 @@ $x = $formPage('client_new.php', []);
 directory_ui_check($words($x, '//label[select[@name="sla_tier"]]/text()[normalize-space()]') === ['Plan']
     && $words($x, '//select[@name="sla_tier"]/option') === ['Standard', 'Premium']
     && $words($x, '//select[@name="sla_tier"]/option/@value') === ['standard', 'premium'], 'New client asks for the Plan in words');
+// No example values inside the fields (an empty form must not look half filled); the domain says what it does.
+directory_ui_check($x->query('//form//input[@placeholder] | //form//textarea[@placeholder]')->length === 0
+    && $words($x, '//*[@id=(//input[@name="domain"]/@aria-describedby)]') === ['Email from someone new at this domain is filed under this client.'],
+    'New client has no example values in its fields, and a line saying what the domain is for');
+// The way back is an icon and a word, never a typed arrow.
+directory_ui_check($words($x, '//a[contains(@class,"backlink")]') === ['Clients'] && $x->query('//a[contains(@class,"backlink")]/svg[@aria-hidden="true"]')->length === 1,
+    'New client\'s way back is an icon and the word Clients');
+$x = $formPage('client_edit.php', ['id' => '32']);
+directory_ui_check($x->query('//textarea[@placeholder]')->length === 0 && $words($x, '//label[input[@name="name"]]/text()[normalize-space()]') === ['Name in Safeharbor']
+    && !str_contains($words($x, '//body')[0] ?? '', 'synchronized') && $x->query('//a[contains(@class,"backlink")]/svg')->length === 1,
+    'Edit client says where a change goes in plain words, without an example note or a typed arrow');
 // A technician cannot change the plan, and is told so in the same word.
 $GLOBALS['fixtureUser']['role'] = 'tech';
 $x = $formPage('client_edit.php', ['id' => '30']);

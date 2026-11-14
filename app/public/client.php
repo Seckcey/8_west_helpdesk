@@ -23,7 +23,7 @@ $client = $stmt->fetch();
 if (!$client) {
     if ($supportTarget) http_response_code(404);
     page_top($user, 'Not found', 'clients');
-    echo '<div class="page"><div class="card empty"><p>Unknown client.</p><a class="link" href="/clients.php">← All clients</a></div></div>';
+    echo '<div class="page"><div class="card empty"><p>Unknown client.</p><a class="link" href="/clients.php">All clients</a></div></div>';
     page_bottom(palette_data());
     exit;
 }
@@ -134,7 +134,7 @@ $current = $roster['available'] ? ($roster['customers'][(string)$operational['cu
 page_top($user, $client['name'], 'clients');
 ?>
 <div class="page page-client">
-  <a href="/clients.php" class="backlink">← Clients</a>
+  <a href="/clients.php" class="backlink"><?= ui_icon('back') ?>Clients</a>
   <?= client_head($client) ?>
   <?= client_note($client['notes'] ?? null) ?>
   <?= client_tiles($openCount, $firstReplyMinutes, $firstReplyTickets, $billableMinutes) ?>
@@ -171,24 +171,26 @@ page_top($user, $client['name'], 'clients');
 
       <div class="rail-label">Computers and invoices</div>
       <div class="card rail-list">
-        <p class="rail-list-item rail-line"><span>Computers</span><a class="link" href="<?= h($deviceUrl ?? 'https://support.8westit.com/') ?>" target="_blank" rel="noopener"><?= $deviceUrl !== null ? 'Open this client in Milepost ↗' : 'Open Milepost ↗' ?></a></p>
-        <p class="rail-list-item rail-line"><span>Invoices</span><a class="link" href="<?= h($billingUrl ?? 'https://coastmark.8westit.com/auth/suite') ?>" target="_blank" rel="noopener"><?= $billingUrl !== null ? 'Open this client in Coastmark ↗' : 'Open Coastmark ↗' ?></a></p>
+        <?php /* Each row opens the other app in a new tab: on this client where the link knows it, or at the
+                 app's front door, where the person chooses the client. */ ?>
+        <p class="rail-list-item rail-line"><a class="link" href="<?= h($deviceUrl ?? 'https://support.8westit.com/') ?>" target="_blank" rel="noopener"><?= $deviceUrl !== null ? 'Computers in Milepost' : 'Open Milepost' ?><?= ui_icon('external') ?><span class="sr-only"> (opens in a new tab)</span></a></p>
+        <p class="rail-list-item rail-line"><a class="link" href="<?= h($billingUrl ?? 'https://coastmark.8westit.com/auth/suite') ?>" target="_blank" rel="noopener"><?= $billingUrl !== null ? 'Invoices in Coastmark' : 'Open Coastmark' ?><?= ui_icon('external') ?><span class="sr-only"> (opens in a new tab)</span></a></p>
         <p class="rail-list-item field-help"><?= match (true) {
             $deviceUrl !== null && $billingUrl !== null => 'Milepost and Coastmark check your access before showing this client.',
-            $billingUrl !== null => 'Coastmark checks your access before showing this client. In Milepost, select the client.',
-            $deviceUrl !== null => 'Milepost checks your access before showing devices. In Coastmark, select the client.',
-            default => 'Open the app, then select the client.',
+            $billingUrl !== null => 'Coastmark checks your access before showing this client. In Milepost, choose the client.',
+            $deviceUrl !== null => 'Milepost checks your access before showing computers. In Coastmark, choose the client.',
+            default => 'Choose the client there.',
         } ?></p>
       </div>
 
       <div class="client-link">
       <?php if ($operational['available']): ?>
         <p class="client-shared">Linked to Milepost as <strong><?= h($operational['display_name']) ?></strong>
-          · <span class="crow-shared-<?= $operational['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($operational['status']) ?></span>
-          · <a class="link" href="<?= h($operational['edit_url']) ?>" target="_blank" rel="noopener">Shared details ↗</a></p>
+          (<span class="crow-shared-<?= $operational['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($operational['status']) ?></span>).
+          <a class="link" href="<?= h($operational['edit_url']) ?>" target="_blank" rel="noopener">Shared details<?= ui_icon('external') ?><span class="sr-only"> (opens in a new tab)</span></a></p>
         <?php if ($current !== null): ?>
           <p class="client-shared">Milepost directory now: <strong><?= h($current['display_name']) ?></strong>
-            · <span class="crow-shared-<?= $current['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($current['status']) ?></span><?= $current['client_exists'] ? '' : ' · removed in Milepost' ?></p>
+            (<span class="crow-shared-<?= $current['status'] === 'active' ? 'active' : 'inactive' ?>"><?= h($current['status']) ?></span>)<?= $current['client_exists'] ? '' : ', removed in Milepost' ?>.</p>
         <?php elseif ($roster['available']): ?>
           <p class="client-shared">Not in Milepost’s current client directory; kept here as retained history.</p>
         <?php else: ?>

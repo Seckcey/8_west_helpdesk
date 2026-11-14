@@ -37,6 +37,18 @@ for(const theme of ['light','dark'])for(const width of [1440,390])test(`staff si
   assert.equal(await page.getByLabel('Password').isVisible(),false);
   assert.equal(await page.getByRole('link',{name:'Continue with 8 West ID'}).getAttribute('href'),'https://id.8westit.com');
   assert.equal(await page.locator('.login-foot').count(),1);
+  // The form half says what it is for; the small print is one plain line.
+  assert.equal(await page.getByRole('heading',{level:2,name:'Sign in',exact:true}).isVisible(),true);
+  assert.equal(await page.locator('.login-foot').innerText(),'Safeharbor is part of 8 West IT 365.');
+  if(width<860){
+    // A phone: a short brand band with the horizon line along its lower edge.
+    const band=await page.locator('.login-brand').boundingBox();
+    assert.ok(band.height<=160,`the brand band is ${band.height}px tall`);
+    const line=await page.locator('.login-brand').evaluate(el=>{const s=getComputedStyle(el,'::after');return{display:s.display,height:parseFloat(s.height),image:s.backgroundImage,bottom:s.bottom};});
+    assert.ok(line.display!=='none'&&line.height===3&&line.image.includes('gradient')&&line.bottom==='0px','the horizon line runs along the band\'s lower edge');
+    const heading=await page.getByRole('heading',{level:2,name:'Sign in',exact:true}).boundingBox();
+    assert.ok(heading.y<band.y+band.height+64,'the form starts just under the band, not in the middle of the screen');
+  }
   assert.equal(await page.locator('.login-name').innerText(),'');
   assert.equal(await page.locator('.suite-login-logo').evaluate(el=>el.complete&&el.naturalWidth>0),true);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

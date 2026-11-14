@@ -408,6 +408,7 @@ jobs:
           node tools/shots/time-page.test.mjs
           node tools/shots/client-page.test.mjs
           node tools/shots/reports-page.test.mjs
+          node tools/shots/desk-words.test.mjs
           node tools/shots/service-goals.test.mjs
           node tools/shots/saved-replies.test.mjs
           node tools/shots/desk-team-widths.test.mjs

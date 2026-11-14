@@ -78,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 page_top($user, 'Edit ' . $client['name'], 'clients');
 ?>
 <div class="page page-narrow">
-  <a href="/client.php?id=<?= (int)$id ?>" class="backlink">← <?= h($client['name']) ?></a>
+  <a href="/client.php?id=<?= (int)$id ?>" class="backlink"><?= ui_icon('back') ?><?= h($client['name']) ?></a>
   <div class="page-head">
     <h1 class="page-title">Edit client</h1>
   </div>
@@ -95,20 +95,20 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
     <p class="rail-note">These are the last details received from Milepost. Open Milepost to check and edit the current name or active state. Existing access restoration remains separate.</p>
     <a class="btn-primary" href="<?= h($operational['edit_url']) ?>">Edit shared client details in Milepost</a>
     <?php if ($operational['status'] === 'active' && is_string($operational['device_url'] ?? null)): ?>
-      <a class="btn-chip" href="<?= h($operational['device_url']) ?>" target="_blank" rel="noopener">Open this client’s devices in Milepost ↗</a>
+      <a class="btn-chip" href="<?= h($operational['device_url']) ?>" target="_blank" rel="noopener">Computers in Milepost<?= ui_icon('external') ?><span class="sr-only"> (opens in a new tab)</span></a>
     <?php endif; ?>
   </div>
   <?php elseif ($operational['bound'] !== false): ?>
   <p class="rail-note">Shared details are temporarily unavailable. Local edits below remain available.</p>
   <?php else: ?>
-  <p class="rail-note">This client is local to Safeharbor. Changes below are not synchronized to Milepost.</p>
+  <p class="rail-note">This client is only in Safeharbor. Changes here do not reach Milepost.</p>
   <?php endif; ?>
   <div class="card form-card">
     <form method="post" action="/client_edit.php?id=<?= (int)$id ?>" class="form-grid">
       <?= csrf_field() ?>
-      <label class="field span-2">Local Safeharbor name
+      <label class="field span-2">Name in Safeharbor
         <input type="text" name="name" required value="<?= h($client['name']) ?>">
-        <span class="rail-note">This edit is local. A later shared name update can replace it for a linked client.</span>
+        <span class="rail-note">The change stays in Safeharbor. For a client linked to Milepost, the next name Milepost sends replaces it.</span>
       </label>
       <label class="field">Domain
         <input type="text" name="domain" value="<?= h($client['domain']) ?>">
@@ -132,7 +132,7 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
         </select>
       </label>
       <label class="field span-2">Notes
-        <textarea name="notes" placeholder="VPN creds in vault, preferred contact hours…"><?= h($client['notes'] ?? '') ?></textarea>
+        <textarea name="notes"><?= h($client['notes'] ?? '') ?></textarea>
       </label>
       <div class="form-actions span-2">
         <button type="submit" class="btn-primary">Save local changes</button>
