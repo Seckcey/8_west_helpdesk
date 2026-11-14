@@ -476,6 +476,19 @@ img { display: block; }
 .timer-widget .tw-icon { display: inline-flex; flex: none; }
 @media (min-width: 701px) { .timer-widget .tw-icon svg { width: 16px; height: 16px; } }
 .timer-widget .tw-dot { display: none; }
+/* Nothing in the top bar wraps. Between 701 and 960px the rail and the shared cluster leave it little
+   room: the idle timer is its clock alone (its name stays in aria-label and title), a running one
+   drops the ticket number, and the search narrows, then keeps only its keys, then its magnifier. */
+.timer-widget { flex: none; white-space: nowrap; }
+.search-trigger { min-width: 0; container-type: inline-size; }
+.search-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+@container (max-width: 150px) { .search-label { display: none; } .search-keys { margin-left: auto; } }
+@container (max-width: 80px) { .search-keys { display: none; } .search-trigger > svg { margin: 0 auto; } }
+@media (min-width: 701px) and (max-width: 960px) {
+  .topbar { padding: 0 16px; gap: 8px; }
+  .timer-widget.timer-idle { width: 36px; padding: 0; justify-content: center; }
+  .timer-widget .tw-idle-label, .timer-widget .tw-ticket { display: none; }
+}
 
 .content { flex: 1; min-height: 0; overflow-y: auto; }
 
@@ -614,7 +627,12 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 }
 .trow-num { font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .trow-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-@media (max-width: 700px) {
+/* A list of ticket rows (the queue, a client's tickets) lays its rows out by its own width, not the
+   window's: beside the rail on a tablet, or in the client page's left column, it can be 370 to 680px
+   wide, too narrow for the seven columns (the subject got nothing). Up to 680px the rows are cards;
+   the card itself is at the end of this file. */
+.list:has(> .trow, > .trow-pick) { container-type: inline-size; }
+@container (max-width: 680px) {
   .trow {
     grid-template-columns: 22px minmax(0, 1fr) auto;
     grid-template-areas: "priority number status" "main main main" "tech sla age";
@@ -636,7 +654,8 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 .trow-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--dim); }
 .trow-origin { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trow-flag { flex: none; height: 20px; }
-@media (min-width: 701px) and (max-width: 1000px) {
+/* Narrower columns until the full ones leave the subject at least about 230px. */
+@container (min-width: 681px) and (max-width: 790px) {
   .trow { grid-template-columns: 22px 48px minmax(0, 1fr) 104px 40px 136px 52px; gap: 10px; }
 }
 .trow-age { text-align: right; font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
@@ -656,7 +675,8 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 .list:not(.bulk-mode) .trow-pick { grid-template-columns: minmax(0, 1fr); }
 .list:not(.bulk-mode) .trow-pick > .trow { padding-left: 16px; }
 .pick-all-label { display: none; }
-@media (max-width: 700px) {
+/* Cards have no column header, so "Select all" says what its box does. */
+@container (max-width: 680px) {
   .trow-pick { grid-template-columns: 44px minmax(0, 1fr); }
   .pick { min-height: 44px; }
   .trow-pick-head { grid-template-columns: 1fr; }   /* the column header itself is hidden here */
@@ -1323,12 +1343,7 @@ a.ticket-step:hover { background: var(--bg-raised); }
   .page-title, .ticket-subject { font-size: 22px; }
   .timer-card { align-items: flex-start; flex-wrap: wrap; }
   .timer-info { min-width: calc(100% - 30px); }
-  /* Time on a phone: title beside duration, then tags and review actions below.
-     The proposal 18 block at the end sets the row positions. */
-  .entry-row { display: grid; gap: 6px 12px; align-items: start; }
-  .entry-row > .entry-min { width: auto; }
-  .entry-row > .review-actions { grid-column: 1 / -1; justify-content: flex-start; max-width: none; }
-  .billing-actions [data-billing-label] { text-align: left; }
+  /* Time entries stack up to 960px: see the proposal 18 block at the end. */
   .entry-history > summary { min-height: 44px; }
   .time-ledger-head { align-items: stretch; flex-direction: column; }
   .time-search input { flex: 1; width: auto; min-height: 44px; }
@@ -1337,7 +1352,6 @@ a.ticket-step:hover { background: var(--bg-raised); }
   .form-dialog-pair { grid-template-columns: 1fr; }
   .form-dialog .field input, .form-dialog .field select, .form-dialog .btn-primary { min-height: 44px; }
   .review-actions .time-review { min-height: 44px; }
-  .billing-actions { max-width: none; }
 }
 
 /* ==========================================================================
@@ -1560,6 +1574,20 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .team-settings .urow-inactive { opacity: 1; }
 /* The page is a list, so it takes the list width; the backup form keeps the form width. */
 .team-settings .backup-signin { max-width: 820px; }
+/* Between 701 and 1100px the columns leave the name too little room (none at 768px): the person and
+   the action share the first line, and the role and access sit under the name. */
+@media (min-width: 701px) and (max-width: 1100px) {
+  .team-settings .urow, .team-settings .team-list-actions .urow {
+    grid-template-columns: 30px auto minmax(0, 1fr) auto;
+    grid-template-areas: "avatar main main action" ". role status status";
+    row-gap: 6px; align-items: start;
+  }
+  .team-settings .urow > .avatar { grid-area: avatar; }
+  .team-settings .urow-main { grid-area: main; }
+  .team-settings .urow-role { grid-area: role; }
+  .team-settings .urow-status { grid-area: status; align-self: center; }
+  .team-settings .urow-action { grid-area: action; }
+}
 @media (max-width: 700px) {
   .settings-role-choices { grid-template-columns: 1fr; }
   .settings-page .page-head { align-items: flex-start; }
@@ -2223,7 +2251,10 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .phone-details .rail-btn, .phone-details .timer-btn, .phone-details .menu-item, .phone-details .menu-filter, .phone-details .rail-copy { min-height: 44px; }
 .phone-details .rail-ticket, .phone-details .rail-line > a { min-height: 44px; }
 .phone-details .menu-pop { max-width: calc(100vw - 24px); }
-@media (max-width: 700px) {
+/* A ticket row as a card, in a list up to 680px wide (every phone; a tablet beside the rail; the
+   client page's column below about 1340px): the subject and status, then the client (on a client's
+   own page, how the ticket came in), the first-response tag and the owner. */
+@container (max-width: 680px) {
   .trow:not(.trow-head) { grid-template-columns: minmax(0, 1fr) auto 26px; grid-template-areas: "subject status status" "client sla tech"; gap: 6px 10px; padding: 10px 16px; min-height: 76px; }
   .trow .trow-main, .trow .trow-sub { display: contents; }
   .trow .trow-pri, .trow .trow-num, .trow .trow-age, .trow .trow-origin, .trow .trow-flag { display: none; }
@@ -2232,6 +2263,19 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .trow-client-phone { display: block; grid-area: client; min-width: 0; color: var(--muted-strong); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .trow .trow-sla { grid-area: sla; min-width: 0; }
   .trow .trow-tech { grid-area: tech; }
+}
+/* A Time entry up to 960px (a phone, or a tablet beside the rail): the title beside the duration, then
+   the tags, then what can be done. */
+@media (max-width: 960px) {
+  .entry-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start; }
+  .entry-row > .entry-main { grid-column: 1; grid-row: 1; min-width: 0; }
+  .entry-row > .entry-min { grid-column: 2; grid-row: 1; width: auto; text-align: right; }
+  .entry-row > .entry-tags { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
+  .entry-row > .review-actions { grid-column: 1 / -1; justify-content: flex-start; max-width: none; }
+  .billing-actions { max-width: none; }
+  .billing-actions [data-billing-label] { text-align: left; }
+}
+@media (max-width: 700px) {
   .timer-widget, .timer-widget.timer-idle { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 6px; gap: 5px; }
   .timer-widget .tw-idle-label, .timer-widget .tw-dot, .timer-widget .tw-ticket { display: none; }
   .timer-widget .tw-icon { display: inline-flex; flex: none; }
@@ -2246,10 +2290,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   body:has(#reply-box:focus) .phone-ticket-actions { display: none; }
   .phone-details .kbd { display: none; }
   .phone-ticket-summary:focus-visible, .phone-details-close:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-  .entry-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .entry-row > .entry-main { grid-column: 1; grid-row: 1; min-width: 0; }
-  .entry-row > .entry-min { grid-column: 2; grid-row: 1; text-align: right; }
-  .entry-row > .entry-tags { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
 }
 
 /* Item 36 / proposal 19: one searchable client directory with app links in each row's menu. */

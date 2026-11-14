@@ -11,6 +11,19 @@ stay in the link's accessible text and title; opening a ticket shows the full su
 view strip scrolls sideways and Select still reveals the checkboxes. Time entries show their title
 beside duration, with tags and review actions below. The same row helpers serve client pages.
 
+## Tablet widths
+
+From 701 to 960px the rail stays, so the page is only 390 to 650px wide. Ticket rows (the queue and
+a client's tickets) follow their list's own width rather than the window's: up to 680px they are the
+phone's cards, up to 790px narrower columns, then the full columns. On the queue that means cards up
+to about a 995px window; on the client page, whose ticket column sits beside the contacts, cards up to
+about 1340px. Time entries use the phone's layout up to 960px. Team rows put the person and the action
+on one line, with role and access underneath, up to 1100px.
+In the top bar an idle timer shows only its clock, a running one leaves out the ticket number, and the
+search narrows to its key hint, then its magnifier, so nothing wraps however long the person's name.
+The phone-only parts (the menu drawer, the Filters button and the ticket's Details sheet) stay at
+700px and below. `desk-tablet.test.mjs` checks 701, 768, 820 and 960px.
+
 On a phone, the summary below a ticket's title opens Details in a native modal sheet. The existing
 Details column moves into that sheet; there is only one copy of its controls. Closing it restores
 focus to the opener. Widening the browser restores the desktop column. Without JavaScript, Details
