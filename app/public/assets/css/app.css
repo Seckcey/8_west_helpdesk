@@ -477,6 +477,8 @@ img { display: block; }
 /* One page-width system: lists and dashboards up to 1180px, forms and reading pages up to 820px. */
 .page { width: 100%; max-width: 1180px; margin: 0 auto; padding: 26px 32px 36px; }
 .page-narrow { max-width: 820px; }
+/* One left edge for every page head: a narrow staff page starts where a wide one starts, not centred. */
+body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)); }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; gap: 16px; flex-wrap: wrap; }
 .page-title { font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; color: var(--text-strong); }
 .page-sub { margin-top: 4px; font-size: 14px; color: var(--muted-strong); }
@@ -1504,20 +1506,34 @@ a.ticket-step:hover { background: var(--bg-raised); }
 .settings-choice input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 3px; }
 .settings-color > span { flex-direction: row; align-items: center; gap: 8px; }
 .settings-color i { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); }
-.team-settings .urow { flex-wrap: wrap; }
+/* Team: one row per person. The role, whether they have access and the action sit in their own
+   columns, so the rows line up; the action is a quiet secondary button, not a red bar. */
+.team-settings .urow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 136px 120px; align-items: center; column-gap: 16px; }
+.team-settings .team-list-actions .urow { grid-template-columns: 30px minmax(0, 1fr) 136px 120px 150px; }
 .team-settings .urow-name { font-size: 15px; }
-.team-settings .urow-sub { font-size: 13px; line-height: 1.5; }
+.team-settings .urow-sub { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.team-settings .urow-role { min-width: 0; }
 .team-settings .urow-status { font-size: 13px; color: var(--muted); }
 .team-settings .role-badge { font-size: 12px; color: var(--text); }
-.team-settings .urow-action { margin: 0; }
+.team-settings .urow-action { margin: 0; justify-self: end; }
 .team-settings .urow-inactive { opacity: 1; }
+/* The page is a list, so it takes the list width; the backup form keeps the form width. */
+.team-settings .backup-signin { max-width: 820px; }
 @media (max-width: 700px) {
   .settings-role-choices { grid-template-columns: 1fr; }
   .settings-page .page-head { align-items: flex-start; }
   .settings-page .field input { font-size: 16px; }
-  .team-settings .urow-main { flex-basis: calc(100% - 50px); }
-  .team-settings .urow-action { flex-basis: 100%; }
-  .team-settings .urow-action button { width: 100%; }
+  /* A phone: who, then the role and access on one line, then the action at its own width. */
+  .team-settings .urow, .team-settings .team-list-actions .urow {
+    grid-template-columns: 30px auto minmax(0, 1fr);
+    grid-template-areas: "avatar main main" ". role status" ". action action";
+    row-gap: 8px; align-items: start;
+  }
+  .team-settings .urow > .avatar { grid-area: avatar; }
+  .team-settings .urow-main { grid-area: main; }
+  .team-settings .urow-role { grid-area: role; }
+  .team-settings .urow-status { grid-area: status; align-self: center; }
+  .team-settings .urow-action { grid-area: action; justify-self: start; }
 }
 
 /* demo cleanup card */
@@ -2092,7 +2108,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .backup-signin > .form-card { border-top: 1px solid var(--line); }
 .backup-signin > .form-card > .rail-label { margin-top: 0; }
 /* Item 36: Service goals. Current targets first, with read-only change history. */
-.page-service-goals { max-width: 1200px; }
 .page-service-goals .goal-risk { margin-bottom: 24px; overflow: hidden; }
 .page-service-goals .goal-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }
 .page-service-goals h2, .page-service-goals h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--text-strong); }

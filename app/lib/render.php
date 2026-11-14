@@ -477,7 +477,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
          the two panels follow the dark / light / system themes without the package shipping a
          palette of its own. */ ?>
 <link rel="stylesheet" href="/assets/w365/w365.css?v=w365v040">
-<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-floors-v1">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-team-v1">
 </head>
 <body data-active="<?= h($active) ?>" data-csrf="<?= csrf_token() ?>"
       data-tenant-id="<?= (int)$user['tenant_id'] ?>" data-user-id="<?= (int)$user['id'] ?>">
@@ -490,7 +490,7 @@ document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")|
     <div class="horizon" aria-hidden="true"></div>
     <nav class="nav">
       <?php foreach ($nav as [$href, $label, $key, $kbd, $icon]): ?>
-      <a href="<?= $href ?>" class="nav-item<?= $active === $key ? ' nav-on' : '' ?>">
+      <a href="<?= $href ?>" class="nav-item<?= $active === $key ? ' nav-on' : '' ?>"<?= $active === $key ? ' aria-current="page"' : '' ?>>
         <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><?= $icon ?></svg>
         <span class="nav-label"><?= h($label) ?></span>
         <?php if ($key === 'service-goals' && ($navCounts[$key] ?? 0) > 0): ?>
@@ -548,7 +548,7 @@ function page_bottom(array $paletteData = []): void
 <?php /* The shared launcher opens and closes the two panels. Vendored, same-origin, deferred; it
          injects no markup, fetches nothing and reads no storage. */ ?>
 <script src="/assets/w365/w365-launcher.js?v=w365v040" defer></script>
-<script src="/assets/js/app.js?v=20261113-sh-desk2-floors-v1" defer></script>
+<script src="/assets/js/app.js?v=20261113-sh-desk2-team-v1" defer></script>
 </body>
 </html>
     <?php

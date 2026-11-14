@@ -6,6 +6,8 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/first_steps.php';
+// ticket_ago(): "20 minutes ago", "yesterday", the way the ticket page says when something happened.
+require_once __DIR__ . '/../lib/ticket_page.php';
 enforce_https();
 $user = require_login();
 
@@ -69,13 +71,19 @@ $rows = $stmt->fetchAll();
 $chosenRole = $addFailed && in_array($_POST['role'] ?? '', ['owner', 'admin', 'tech'], true) ? $_POST['role'] : 'tech';
 $chosenColor = $addFailed && in_array($_POST['color'] ?? '', $COLORS, true) ? $_POST['color'] : $COLORS[0];
 
+// "3 people", or "3 people with access, 1 without" once someone's access is off.
+$withAccess = count(array_filter($rows, static fn($r) => (int)$r['is_active'] === 1));
+$withoutAccess = count($rows) - $withAccess;
+$peopleLine = ($withAccess === 1 ? '1 person' : number_format($withAccess) . ' people')
+    . ($withoutAccess > 0 ? ' with access, ' . number_format($withoutAccess) . ' without' : '');
+
 page_top($user, 'Team', 'team');
 ?>
-<div class="page page-narrow settings-page team-settings">
+<div class="page settings-page team-settings">
   <div class="page-head">
     <div>
       <h1 class="page-title">Team</h1>
-      <p class="page-sub"><?= count(array_filter($rows, static fn($r) => (int)$r['is_active'] === 1)) ?> active Safeharbor accounts in this workspace</p>
+      <p class="page-sub"><?= h($peopleLine) ?></p>
     </div>
     <?php if ($canInvite): ?>
     <div class="page-actions">
@@ -93,22 +101,26 @@ page_top($user, 'Team', 'team');
   <?php if ($error): ?><div class="form-error" role="alert"><?= h($error) ?></div><?php endif; ?>
   <?php if ($ok): ?><div class="form-ok" role="status"><?= h($ok) ?></div><?php endif; ?>
 
-  <div class="card list">
+  <?php /* One row per person: who they are, then their role, whether they have access, and (for an
+           owner or administrator) the one action, each in its own column so the rows line up. */ ?>
+  <div class="card list team-list<?= $isAdmin ? ' team-list-actions' : '' ?>">
     <?php foreach ($rows as $r): $active = (int)$r['is_active'] === 1; ?>
     <div class="urow <?= $active ? '' : 'urow-inactive' ?>">
       <?= avatar($r, 30) ?>
       <span class="urow-main">
         <span class="urow-name"><?= h($r['full_name']) ?><?= (int)$r['id'] === (int)$user['id'] ? ' <span class="urow-sub">(you)</span>' : '' ?></span>
-        <span class="urow-sub"><?= h($r['email']) ?> · <?= suite_local_password_allowed($r) ? 'Local recovery account' : '8 West ID account' ?><?= $r['last_login_at'] ? ' · last sign-in ' . rel_time($r['last_login_at']) . ' ago' : '' ?></span>
+        <span class="urow-sub"><?= h($r['email']) ?></span>
+        <span class="urow-sub"><?= $r['last_login_at'] ? 'Signed in ' . h(ticket_ago((string)$r['last_login_at'])) : 'Not signed in yet' ?></span>
+        <?php if (suite_local_password_allowed($r)): ?><span class="urow-sub">Uses a backup password</span><?php endif; ?>
       </span>
-      <span class="role-badge role-<?= h($r['role']) ?>"><?= h($roleLabels[$r['role']] ?? 'Team member') ?></span>
+      <span class="urow-role"><span class="role-badge role-<?= h($r['role']) ?>"><?= h($roleLabels[$r['role']] ?? 'Team member') ?></span></span>
       <span class="urow-status"><?= $active ? 'Active' : 'Access disabled' ?></span>
       <?php if ($isAdmin && (int)$r['id'] !== (int)$user['id']): ?>
       <form method="post" action="/users.php" class="urow-action">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="<?= $active ? 'deactivate' : 'reactivate' ?>">
         <input type="hidden" name="user_id" value="<?= (int)$r['id'] ?>">
-        <button type="submit" class="<?= $active ? 'btn-danger' : 'btn-ghost' ?> settings-button" aria-label="<?= h(($active ? 'Disable Safeharbor access for ' : 'Enable Safeharbor access for ') . $r['full_name']) ?>"><?= $active ? 'Disable access' : 'Enable access' ?></button>
+        <button type="submit" class="btn-secondary" aria-label="<?= h(($active ? 'Disable Safeharbor access for ' : 'Enable Safeharbor access for ') . $r['full_name']) ?>"><?= $active ? 'Disable access' : 'Enable access' ?></button>
       </form>
       <?php endif; ?>
     </div>

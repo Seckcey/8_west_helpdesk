@@ -63,7 +63,7 @@ page_top($user, 'My settings', '');
   <div class="page-head">
     <div>
       <h1 class="page-title">My settings</h1>
-      <p class="page-sub"><?= h($user['email']) ?> · <?= h($roleLabel) ?> · Safeharbor account</p>
+      <p class="page-sub">Signed in as <?= h($user['email']) ?>. Your role here is <?= h($roleLabel) ?>.</p>
     </div>
     <?= avatar($user, 44) ?>
   </div>
