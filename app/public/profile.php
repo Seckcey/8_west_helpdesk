@@ -59,7 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 page_top($user, 'My settings', '');
 ?>
-<div class="page page-narrow settings-page">
+<?php /* One card per section, each led by its own heading; a field's help sits under the field. */ ?>
+<div class="page page-narrow my-settings">
   <div class="page-head">
     <div>
       <h1 class="page-title">My settings</h1>
@@ -72,41 +73,48 @@ page_top($user, 'My settings', '');
   <?php if ($ok): ?><div class="form-ok" role="status"><?= h($ok) ?></div><?php endif; ?>
 
   <?php if ($supportAddress !== null): ?>
-  <div class="rail-label">Your support inbox</div>
-  <div class="card form-card" style="margin-bottom:20px">
-    <p>Email <a href="mailto:<?= h($supportAddress) ?>"><?= h($supportAddress) ?></a> to open a ticket in this workspace.</p>
-    <p>Replies keep the ticket number in the subject. Add client contacts so incoming messages reach the right client.</p>
+  <section class="card form-card settings-section" aria-labelledby="settings-inbox">
+    <h2 id="settings-inbox">Your support inbox</h2>
+    <p>Email <a class="link" href="mailto:<?= h($supportAddress) ?>"><?= h($supportAddress) ?></a> to open a ticket in this workspace.</p>
+    <p class="settings-note">Replies keep the ticket number in the subject. Add client contacts so incoming messages reach the right client.</p>
     <?php if (isset($supportConfig['client_ids_by_tenant'][(int)$user['tenant_id']])): ?>
-      <p>This workspace is in a limited rollout. Intake accepts contacts of its enrolled clients.</p>
+      <p class="settings-note">This workspace is in a limited rollout. Intake accepts contacts of its enrolled clients.</p>
     <?php endif; ?>
-  </div>
+  </section>
   <?php endif; ?>
 
-  <div class="card form-card settings-intro"><h2>Your suite preferences</h2><p>Manage your profile, appearance, regional preferences and sign-in security in 8 West ID.</p><a class="btn-ghost settings-button" href="https://id.8westit.com/settings.php">My settings in 8 West ID</a></div>
+  <section class="card form-card settings-section" aria-labelledby="settings-suite">
+    <h2 id="settings-suite">Your suite preferences</h2>
+    <p>Manage your profile, appearance, regional preferences and sign-in security in 8 West ID.</p>
+    <?php if (!$localAccount): ?><p>This account signs in through 8 West ID. Its password, MFA, passkeys and recovery methods are managed there.</p><?php endif; ?>
+    <a class="btn-secondary settings-action" href="https://id.8westit.com/settings.php">My settings in 8 West ID<?= ui_icon('external') ?></a>
+  </section>
   <?php if ($localAccount): ?>
-  <div class="rail-label">Local recovery account name</div>
-  <div class="card form-card">
+  <section class="card form-card settings-section" aria-labelledby="settings-name">
+    <h2 id="settings-name">Local recovery account name</h2>
     <form method="post" action="/profile.php" class="form-grid">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="save_name">
-      <label class="field span-2">Full name
-        <input type="text" name="full_name" required value="<?= h($user['full_name']) ?>">
-      </label>
+      <div class="field span-2">
+        <label for="settings-full-name">Full name</label>
+        <input type="text" id="settings-full-name" name="full_name" required value="<?= h($user['full_name']) ?>" aria-describedby="settings-name-help">
+        <p class="field-help" id="settings-name-help">Avatar initials update automatically. This name applies to your local Safeharbor recovery account.</p>
+      </div>
       <div class="form-actions span-2">
-        <button type="submit" class="btn-primary btn-sm">Save name</button>
-        <a class="btn-ghost settings-button" href="/profile.php">Cancel</a>
-        <span class="reply-hint">Avatar initials update automatically. This name applies to your local Safeharbor recovery account.</span>
+        <button type="submit" class="btn-primary">Save name</button>
+        <a class="btn-link" href="/profile.php">Cancel</a>
       </div>
     </form>
-  </div>
+  </section>
 
-  <div class="rail-label" style="margin-top:20px">Local recovery password</div>
-  <div class="card form-card">
+  <section class="card form-card settings-section" aria-labelledby="settings-password">
+    <h2 id="settings-password">Local recovery password</h2>
+    <p id="settings-password-help">Changes only the unlinked local Safeharbor recovery account. It does not change an 8 West ID password.</p>
     <form method="post" action="/profile.php" class="form-grid">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="change_password">
       <label class="field span-2">Current password
-        <input type="password" name="current_password" required autocomplete="current-password">
+        <input type="password" name="current_password" required autocomplete="current-password" aria-describedby="settings-password-help">
       </label>
       <label class="field">New password
         <input type="password" name="new_password" required minlength="6" autocomplete="new-password">
@@ -115,13 +123,12 @@ page_top($user, 'My settings', '');
         <input type="password" name="confirm_password" required minlength="6" autocomplete="new-password">
       </label>
       <div class="form-actions span-2">
-        <button type="submit" class="btn-primary btn-sm">Change password</button>
-        <a class="btn-ghost settings-button" href="/profile.php">Cancel</a>
-        <span class="reply-hint">Changes only the unlinked local Safeharbor recovery account. It does not change an 8 West ID password.</span>
+        <button type="submit" class="btn-primary">Change password</button>
+        <a class="btn-link" href="/profile.php">Cancel</a>
       </div>
     </form>
-  </div>
-  <?php else: ?><div class="card form-card"><p>This account signs in through 8 West ID. Its password, MFA, passkeys and recovery methods are managed there.</p></div><?php endif; ?>
+  </section>
+  <?php endif; ?>
 </div>
 <?php
 page_bottom(palette_data());

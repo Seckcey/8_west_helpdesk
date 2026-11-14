@@ -25,6 +25,8 @@ require_once __DIR__ . '/../lib/settings_context.php';
 require_once __DIR__ . '/../lib/westy.php';
 require_once __DIR__ . '/../lib/client_page.php';
 require_once __DIR__ . '/../lib/service_goal_policy_admin.php';
+require_once __DIR__ . '/../lib/suite_auth_policy.php';
+require_once __DIR__ . '/../lib/support_addresses.php';
 
 $checks = 0;
 function directory_ui_check(bool $ok, string $label): void
@@ -95,7 +97,7 @@ function db(): DirectoryFixturePdo
 
 $render = (string)file_get_contents(__DIR__ . '/../lib/render.php');
 $chrome = '';
-foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_bottom', 'ui_icon'] as $function) {
+foreach (['suite_chrome_drawer', 'suite_chrome_account_menu', 'page_top', 'page_bottom', 'ui_icon', 'avatar'] as $function) {
     $chrome .= directory_ui_lift($render, $function) . "\n";
 }
 // The lifted code resolves __DIR__ relative to THIS file, so point its require at lib/ explicitly.
@@ -470,6 +472,16 @@ foreach (['light', 'dark'] as $theme) {
     }
     // New client, for the browser checks of its head and buttons (client-page.test.mjs).
     $save('client-new', directory_ui_page('client_new.php', [], false));
+    // My settings, for the browser checks of its sections (desk-settings.test.mjs): an account with a
+    // backup password in a workspace with a support inbox, and an account that signs in with 8 West ID.
+    $signedIn = $GLOBALS['fixtureUser'];
+    $GLOBALS['fixtureUser'] = [...$signedIn, 'suite_subject' => null];
+    $GLOBALS['fixtureConfig']['support_addresses'] = ['transport_verified' => true, 'enabled' => true, 'tenant_ids' => [1],
+        'mailbox' => 'help@example.test', 'client_ids_by_tenant' => [1 => [30]]];
+    $save('settings-local', directory_ui_page('profile.php', [], false));
+    $GLOBALS['fixtureUser'] = $signedIn;
+    unset($GLOBALS['fixtureConfig']['support_addresses']);
+    $save('settings-id', directory_ui_page('profile.php', [], false));
 }
 // New client and Edit client: "Plan" with capitalised choices, and health in the client page's words.
 $formPage = static function (string $page, array $get): DOMXPath {
@@ -531,5 +543,29 @@ directory_ui_check($x->query('//select[@name="sla_tier"]')->length === 0
     && $words($x, '//div[contains(@class,"field")][span="Plan"]/span[contains(@class,"rail-note")]') === ['Only owners and admins can choose the plan.'],
     'a technician adding a client is told the plan and who can choose it');
 $GLOBALS['fixtureUser']['role'] = 'admin';
+// My settings: every section is a card led by its own heading; each form has one filled button and a
+// Cancel back to the page; a field's help is tied to the field and kept out of its label (inside the
+// label it would become part of the field's name); the page sets no inline style of its own.
+$signedIn = $GLOBALS['fixtureUser'];
+$GLOBALS['fixtureUser'] = [...$signedIn, 'suite_subject' => null];
+$GLOBALS['fixtureConfig']['support_addresses'] = ['transport_verified' => true, 'enabled' => true, 'tenant_ids' => [1],
+    'mailbox' => 'help@example.test', 'client_ids_by_tenant' => [1 => [30]]];
+$x = $formPage('profile.php', []);
+$sections = '//main//section[contains(concat(" ", @class, " "), " settings-section ")]';
+directory_ui_check($x->query($sections)->length === 4
+    && $x->query($sections . '[contains(concat(" ", @class, " "), " card ")][*[1][self::h2][@id = ../@aria-labelledby]]')->length === 4
+    && $x->query('//main//form')->length === 2
+    && $x->query('//main//form[count(.//*[contains(concat(" ", @class, " "), " btn-primary ")]) = 1][.//a[@href="/profile.php"][normalize-space() = "Cancel"]]')->length === 2
+    && count($words($x, '//*[@id = (//input[@name="full_name"]/@aria-describedby)]')) === 1
+    && count($words($x, '//*[@id = (//input[@name="current_password"]/@aria-describedby)]')) === 1
+    && $x->query('//main//label[.//*[contains(@class, "field-help")]]')->length === 0
+    && $x->query('//main//*[@style][not(contains(concat(" ", @class, " "), " avatar "))]')->length === 0,
+    'My settings: four sections, each a card led by its own heading; one filled button and a Cancel per form; help tied to its field, outside the label; no inline style');
+$GLOBALS['fixtureUser'] = $signedIn;
+unset($GLOBALS['fixtureConfig']['support_addresses']);
+$x = $formPage('profile.php', []);
+directory_ui_check($x->query($sections)->length === 1 && $x->query('//main//form')->length === 0
+    && $x->query($sections . '//a[@href="https://id.8westit.com/settings.php"]/*[local-name() = "svg"]')->length === 1,
+    'My settings for an 8 West ID account: one section, no local forms, and the way to 8 West ID marked as another app');
 directory_ui_check(directory_ui_tables() === $before, 'rendering the directory and client pages wrote nothing');
 echo "PASS: $checks client shared directory renderer checks\n";
