@@ -6,7 +6,9 @@ At 700px and below, the staff header retains its menu drawer, search, Time link 
 controls. Time shows a clock icon while idle and the elapsed clock while running. A stopped, unsaved
 timer retains its retry indication. Timer storage and logging are unchanged.
 
-Queue rows show the subject and status, then client, first-response tag and owner. Long subjects
+Queue rows show the subject and status, then client, first-response tag and owner. When the customer
+answered last, "Customer replied" takes the first-response tag's place (a flagged ticket's first reply
+has already gone); a card in a list wider than 480px shows both. Long subjects
 stay in the link's accessible text and title; opening a ticket shows the full subject. The existing
 view strip scrolls sideways and Select still reveals the checkboxes. Time entries show their title
 beside duration, with tags and review actions below. The same row helpers serve client pages.

@@ -205,3 +205,30 @@ for (const width of TABLET) {
     await shot(page, `time-${width}`);
   });
 }
+
+// ---- "Customer replied" ----
+// It is our turn again: the queue's most important signal shows on its row at every width. On a
+// narrow card (a list up to 480px) it takes the first-response tag's place, since a flagged ticket's
+// first reply has already gone; a wider card shows both; columns keep it on the row's second line.
+const flaggedRow = (page) => page.locator('.trow:has(.trow-flag)').evaluate((row) => {
+  const box = (el) => { if (!el || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return r.width ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null; };
+  const flag = row.querySelector('.trow-flag');
+  const others = ['.trow-subject', '.trow-client-phone', '.trow-origin', '.trow-status > *', '.trow-sla > *', '.trow-tech > *']
+    .map((selector) => [selector, box(row.querySelector(selector))]).filter(([, b]) => b);
+  return { row: box(row), flag: box(flag), text: flag.innerText.trim(), others, sla: box(row.querySelector('.trow-sla > *')) !== null,
+    list: row.closest('.list').getBoundingClientRect().width };
+});
+const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+
+for (const width of [390, 701, 768, 820, 960, 1000, 1440]) {
+  test(`queue at ${width}px: "Customer replied" shows on the flagged row, inside it and over nothing`, async (t) => {
+    const page = await open(t, 'queue', { width });
+    const at = await flaggedRow(page);
+    assert.equal(at.text, 'Customer replied');
+    assert.ok(at.flag, 'the chip is drawn');
+    assert.ok(at.flag.left >= at.row.left - 0.5 && at.flag.right <= at.row.right + 0.5 && at.flag.top >= at.row.top - 0.5 && at.flag.bottom <= at.row.bottom + 0.5, 'inside its row');
+    for (const [selector, other] of at.others) assert.equal(overlaps(at.flag, other), false, `the chip covers ${selector}`);
+    if (at.list <= 680) assert.ok(at.row.bottom - at.row.top <= 82, `the card stays compact (${Math.round(at.row.bottom - at.row.top)}px)`);
+    assert.equal(at.sla, at.list > 480, at.list > 480 ? 'a wider row keeps the first-response tag too' : 'a narrow card shows the chip in its place');
+  });
+}

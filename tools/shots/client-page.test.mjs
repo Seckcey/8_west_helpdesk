@@ -358,3 +358,25 @@ for (const width of [768, 1024, 1280, 1440]) {
     assert.deepEqual(errors, []);
   });
 }
+
+// "Customer replied" stays on a client's ticket at every width: in the first-response tag's place on a
+// narrow card (the column at 1024px), beside it on a wider card (1280px), on the second line in columns.
+for (const width of [390, 1024, 1280, 1440]) {
+  test(`at ${width}px "Customer replied" shows on the client's flagged ticket, inside its row and over nothing`, async (t) => {
+    const { page, errors, open } = await fixture(t, { width });
+    await open('/client.php?id=30');
+    const at = await page.locator('.page-client .list .trow[data-ticket-id="102"]').evaluate((row) => {
+      const box = (el) => { if (!el || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return r.width ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null; };
+      const flag = row.querySelector('.trow-flag');
+      return { row: box(row), flag: box(flag), text: flag?.innerText.trim(),
+        others: ['.trow-subject', '.trow-client-phone', '.trow-origin', '.trow-status > *', '.trow-sla > *', '.trow-tech > *'].map((s) => box(row.querySelector(s))).filter(Boolean) };
+    });
+    assert.equal(at.text, 'Customer replied');
+    assert.ok(at.flag && at.flag.left >= at.row.left - 0.5 && at.flag.right <= at.row.right + 0.5 && at.flag.top >= at.row.top - 0.5 && at.flag.bottom <= at.row.bottom + 0.5, 'the chip is drawn inside its row');
+    for (const other of at.others) {
+      const overlap = Math.min(at.flag.right, other.right) - Math.max(at.flag.left, other.left) > 0.5 && Math.min(at.flag.bottom, other.bottom) - Math.max(at.flag.top, other.top) > 0.5;
+      assert.equal(overlap, false, 'the chip covers nothing else on the row');
+    }
+    assert.deepEqual(errors, []);
+  });
+}
