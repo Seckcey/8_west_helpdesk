@@ -68,7 +68,7 @@ header('Content-Type: text/html; charset=utf-8');
 <title>Sign in · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
-<link rel="stylesheet" href="/assets/css/app.css?v=20261112-codex-signin-display-v1">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261113-sh-desk2-floors-v1">
 </head>
 <body class="login-body login-split-body staff-signin">
 <div class="login-split">
@@ -107,7 +107,7 @@ header('Content-Type: text/html; charset=utf-8');
     <?php endif; ?>
     8 West IT 365 · Your appearance follows your 8 West ID settings.
   </p>
-<script src="/assets/js/app.js?v=20261112-codex-signin-display-v1" defer></script>
+<script src="/assets/js/app.js?v=20261113-sh-desk2-floors-v1" defer></script>
 </div>
 </div>
 </body>

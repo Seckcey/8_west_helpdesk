@@ -400,6 +400,7 @@ jobs:
           node tools/shots/signin-palette.test.mjs
           SIGNIN_DISPLAY_SHOTS="$RUNNER_TEMP/signin-display-shots" node tools/shots/signin-display.test.mjs
           node tools/shots/desk-live-fixes.test.mjs
+          node tools/shots/desk-floors.test.mjs
           node tools/shots/ticket-customer.test.mjs
           node tools/shots/ticket-new.test.mjs
           node tools/shots/palette-actions.test.mjs

@@ -45,6 +45,8 @@ for(const theme of ['light','dark'])for(const width of [1440,390])test(`staff si
   assert.equal(await page.getByLabel('Password').isVisible(),true);
   assert.equal(await page.getByLabel('Password').getAttribute('placeholder'),null);
   for(const control of await page.locator('summary,.login-form input:not([type=hidden]),.login-form button').all())assert.ok((await control.boundingBox()).height>=(width<860?44:36));
+  // Under 16px a phone zooms the page when a field takes focus.
+  if(width<860)for(const input of await page.locator('.login-form input:not([type=hidden])').all())assert.ok(parseFloat(await input.evaluate(el=>getComputedStyle(el).fontSize))>=16);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await shot(page,`open-${theme}-${width}`); assert.deepEqual(posts,[]); assert.deepEqual(errors,[]);
   const failed=await open(t,{state:'failed',theme,width});

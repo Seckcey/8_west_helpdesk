@@ -93,7 +93,7 @@ page_top($user, 'Clients', 'clients');
       <h1 class="page-title">Clients</h1>
       <p class="page-sub"><?= count($rows) === 1 ? '1 client' : number_format(count($rows)) . ' clients' ?></p>
     </div>
-    <div class="page-actions"><a href="/client_new.php" class="btn-primary btn-sm">New client</a></div>
+    <div class="page-actions"><a href="/client_new.php" class="btn-primary">New client</a></div>
   </div>
   <?php if ($directory['state'] === 'unavailable'): ?>
     <div class="banner banner-info" role="status">Milepost's client list can't be read right now. Clients below come from Safeharbor's own records.</div>
