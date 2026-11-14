@@ -3014,7 +3014,10 @@
     }
     const views = $(".filters", toolbar);
     if (!views) return;
-    const edge = () => views.classList.toggle("filters-more", views.scrollLeft + views.clientWidth < views.scrollWidth - 1);
+    const edge = () => {
+      views.classList.toggle("filters-more", views.scrollLeft + views.clientWidth < views.scrollWidth - 1);
+      views.classList.toggle("filters-more-left", views.scrollLeft > 1);
+    };
     const chosen = $(".pill-on", views);
     if (chosen) {
       const past = chosen.getBoundingClientRect().right - views.getBoundingClientRect().right;

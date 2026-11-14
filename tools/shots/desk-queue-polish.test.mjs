@@ -103,11 +103,16 @@ test('phone: the chosen view is in sight, and the views row fades only while mor
     return chosen.left >= box.left - 1 && chosen.right <= box.right + 1;
   });
   assert.equal(inside, true, 'the chosen view is not hidden off the edge');
+  const fades = () => row.evaluate((nav) => ({ right: nav.classList.contains('filters-more'), left: nav.classList.contains('filters-more-left'),
+    mask: getComputedStyle(nav).maskImage || getComputedStyle(nav).webkitMaskImage }));
   await row.evaluate((nav) => { nav.scrollLeft = 0; nav.dispatchEvent(new Event('scroll')); });
-  assert.equal(await row.evaluate((nav) => nav.classList.contains('filters-more')), true, 'more views to the right: the row fades');
-  assert.notEqual(await row.evaluate((nav) => getComputedStyle(nav).maskImage || getComputedStyle(nav).webkitMaskImage), 'none');
+  let edge = await fades();
+  assert.deepEqual([edge.right, edge.left], [true, false], 'at the start: more views to the right, so only the right edge fades');
+  assert.notEqual(edge.mask, 'none');
   await row.evaluate((nav) => { nav.scrollLeft = nav.scrollWidth; nav.dispatchEvent(new Event('scroll')); });
-  assert.equal(await row.evaluate((nav) => nav.classList.contains('filters-more')), false, 'at the end: no fade');
+  edge = await fades();
+  assert.deepEqual([edge.right, edge.left], [false, true], 'at the end: only the left edge fades');
+  assert.notEqual(edge.mask, 'none');
 });
 
 // ---- the timer in the top bar ----

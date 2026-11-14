@@ -554,6 +554,14 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
     mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
   }
+  .queue-toolbar .filters.filters-more-left {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 36px);
+    mask-image: linear-gradient(to right, transparent, #000 36px);
+  }
+  .queue-toolbar .filters.filters-more-left.filters-more {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+  }
   .queue-toolbar .filters-toggle { display: inline-flex; flex: none; }
   .filters-count {
     display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px;
