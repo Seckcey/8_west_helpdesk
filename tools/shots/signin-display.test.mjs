@@ -46,6 +46,8 @@ for(const theme of ['light','dark'])for(const width of [1440,390])test(`staff si
     assert.ok(band.height<=160,`the brand band is ${band.height}px tall`);
     const line=await page.locator('.login-brand').evaluate(el=>{const s=getComputedStyle(el,'::after');return{display:s.display,height:parseFloat(s.height),image:s.backgroundImage,bottom:s.bottom};});
     assert.ok(line.display!=='none'&&line.height===3&&line.image.includes('gradient')&&line.bottom==='0px','the horizon line runs along the band\'s lower edge');
+    const heading=await page.getByRole('heading',{level:2,name:'Sign in',exact:true}).boundingBox();
+    assert.ok(heading.y<band.y+band.height+64,'the form starts just under the band, not in the middle of the screen');
   }
   assert.equal(await page.locator('.login-name').innerText(),'');
   assert.equal(await page.locator('.suite-login-logo').evaluate(el=>el.complete&&el.naturalWidth>0),true);

@@ -1610,7 +1610,7 @@ a.ticket-step:hover { background: var(--bg-raised); }
   .login-brand .login-head { max-width: none; }
   .login-brand .suite-login-logo { width: min(100%, 280px); margin-bottom: 16px; }
   .login-brand .login-name { font-size: 26px; }
-  .login-split > .login-wrap { max-width: none; padding: 28px 20px 40px; }
+  .login-split > .login-wrap { align-self: start; max-width: none; padding: 28px 20px 40px; }
   /* The staff sign-in on a phone: a short brand band (about 140px) with the horizon line along its
      lower edge. */
   .staff-signin .login-brand { padding: 22px 20px 24px; }
