@@ -64,6 +64,9 @@ test('phone: the filters fold behind a Filters button on the views row', async (
   assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
   assert.equal(await visible(page, '#queue-filters'), false, 'the filters start folded');
   assert.equal(await visible(page, '#bulk-toggle'), true, 'Select stays: bulk delete works on a phone');
+  const select = await page.locator('#bulk-toggle').boundingBox(), row = await page.locator('.queue-toolbar .filters').boundingBox();
+  assert.ok(select.y >= row.y + row.height, 'Select sits below the views row');
+  assert.ok(row.width >= 390 * 0.6, `the views row keeps most of the width (${Math.round(row.width)}px)`);
   const views = await page.locator('.queue-toolbar .filters').boundingBox();
   const button = await toggle.boundingBox();
   assert.ok(Math.abs((views.y + views.height / 2) - (button.y + button.height / 2)) < 4, 'the button shares the views row');

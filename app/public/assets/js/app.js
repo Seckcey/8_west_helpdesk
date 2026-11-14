@@ -1691,6 +1691,8 @@
         if (bulk && bulk.hasSelection()) { e.preventDefault(); bulk.clear(); }
         else if (bulk && bulk.inMode()) { e.preventDefault(); bulk.leaveMode(); }
         else if (page === "queue" && window.location.pathname !== "/") { e.preventDefault(); nav("/"); }
+        // A page with no back link of its own names where Esc goes back to (Saved replies: the Queue).
+        else if ($("[data-back]")) { e.preventDefault(); nav($("[data-back]").dataset.back); }
         break;
       case "x":
         if (bulk && row && bulk.toggle(row)) { e.preventDefault(); showSel(); }
@@ -1733,9 +1735,10 @@
         break;
       }
       case "u": {
-        // Up: back to the list this page came from (a ticket's queue, a client's Clients).
-        const back = $(".backlink");
-        if (back) { e.preventDefault(); nav(back.getAttribute("href")); }
+        // Up: back to the list this page came from (a ticket's queue, a client's Clients), or where a
+        // page with no back link names (Saved replies: the Queue).
+        const back = $(".backlink")?.getAttribute("href") || $("[data-back]")?.dataset.back;
+        if (back) { e.preventDefault(); nav(back); }
         break;
       }
       case "c": {

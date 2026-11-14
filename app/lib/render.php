@@ -61,7 +61,7 @@ function avatar(?array $user, int $size = 26): string
     // The colour reaches the stylesheet as --avatar, which draws it solid in light and as a tint in
     // dark. Only a #RRGGBB colour is used; anything else gets the neutral fill.
     $color = (string)($user['color'] ?? '');
-    $colorStyle = preg_match('/^#[0-9a-fA-F]{6}$/', $color) === 1 ? ';--avatar:' . $color : '';
+    $colorStyle = preg_match('/\A#[0-9a-fA-F]{6}\z/', $color) === 1 ? ';--avatar:' . $color : '';
     return '<span class="avatar" style="width:' . $size . 'px;height:' . $size . 'px' . $colorStyle . '" title="' . h($user['full_name']) . '">'
          . h($user['initials']) . '</span>';
 }

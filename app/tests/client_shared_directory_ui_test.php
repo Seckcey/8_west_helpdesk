@@ -350,7 +350,8 @@ foreach (['light', 'dark'] as $theme) {
             && str_contains($html, $clientId === 30 ? 'Milepost directory now:' : 'Not in Milepost’s current client directory'),
             "client $clientId $theme shows its current directory entry or retained history");
         directory_ui_check(substr_count($html, 'href="' . h($scopedBilling($clientId === 30 ? 1 : 2)) . '"') === 1
-            && str_contains($html, '>Open this client in Coastmark ↗</a>') && str_contains($html, '>Open this client in Milepost ↗</a>')
+            && str_contains($html, '>Invoices in Coastmark<svg class="ui-icon"') && str_contains($html, '>Computers in Milepost<svg class="ui-icon"')
+            && substr_count($html, '<span class="sr-only"> (opens in a new tab)</span></a>') >= 3 && !str_contains($html, '↗')
             && str_contains($html, 'Milepost and Coastmark check your access before showing this client.')
             && !str_contains($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"'),
             "client $clientId $theme Computers and Invoices open this client's own Milepost and Coastmark pages");
@@ -425,8 +426,8 @@ foreach (['light', 'dark'] as $theme) {
         $html = directory_ui_page('client.php', ['id' => (string)$clientId]);
         directory_ui_check(str_contains($html, '<title>' . $name . ' · Safeharbor</title>')
             && substr_count($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"') === 1
-            && str_contains($html, '>Open Coastmark ↗</a>') && str_contains($html, '>Open Milepost ↗</a>')
-            && str_contains($html, 'Open the app, then select the client.')
+            && str_contains($html, '>Open Coastmark<svg class="ui-icon"') && str_contains($html, '>Open Milepost<svg class="ui-icon"')
+            && str_contains($html, 'Choose the client there.')
             && !str_contains($html, 'coastmark.8westit.com/clients'),
             "client $clientId $theme keeps Coastmark's generic Billing entry");
         directory_ui_check(str_contains($html, $clientId === 33 ? 'Not linked to Milepost. Shared clients are created in Milepost.'
@@ -456,12 +457,12 @@ foreach (['light', 'dark'] as $theme) {
             && substr_count($html, 'href="' . h($scopedBilling($n)) . '"') === 1
             && !str_contains($html, 'class="link" href="https://coastmark.8westit.com/auth/suite"')
             && str_contains($html, $n === 1 ? 'Milepost and Coastmark check your access before showing this client.'
-                : 'Coastmark checks your access before showing this client. In Milepost, select the client.'),
+                : 'Coastmark checks your access before showing this client. In Milepost, choose the client.'),
             "the Support target for $name renders that bound client's page with its own Billing route ($theme)");
         if ($n === 3) {
             // Copper Kettle is being watched, and inactive in Milepost: its computers open Milepost's own entry.
             directory_ui_check($texts($xpath($html), '//div[@class="client-title"]/*') === ['Copper Kettle', 'Standard plan', 'Needs attention', 'copperkettle.test']
-                && str_contains($html, '>Open Milepost ↗</a>') && str_contains($html, '>Open this client in Coastmark ↗</a>')
+                && str_contains($html, '>Open Milepost<svg class="ui-icon"') && str_contains($html, '>Invoices in Coastmark<svg class="ui-icon"')
                 && str_contains($html, '<span class="crow-shared-inactive">inactive</span>'),
                 "a watched client says Needs attention in words, and an inactive one keeps Milepost's general entry ($theme)");
             $save('client-watch', $html);

@@ -494,6 +494,9 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
 .page-note { margin-top: 12px; padding: 0 4px; font-size: 12.5px; color: var(--dim); }
 .backlink { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 13px; font-weight: 600; color: var(--dim); }
 .backlink:hover { color: var(--text); }
+/* A drawn icon beside its words (ui_icon() in render.php), where a typed arrow used to be. */
+.ui-icon { flex: none; }
+.link .ui-icon { width: 14px; height: 14px; margin-left: 4px; vertical-align: -2px; }
 
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 /* Status filters: a segmented control. Their key hints behave like the nav ones. */
@@ -549,7 +552,9 @@ body[data-active] .page-narrow { margin-left: max(0px, calc((100% - 1180px) / 2)
   /* The views share their line with the Filters button, which folds the filters away until it is
      pressed, so the list starts near the top. While more views are off screen the row fades out at
      its edge. */
-  .queue-toolbar .filters { flex: 1 1 0; min-width: 0; }
+  /* The views and the Filters button take the first row; Select (bulk delete still works on a phone)
+     drops to the row below, with the filters when they are open. */
+  .queue-toolbar .filters { flex: 1 1 calc(100% - 140px); min-width: 0; }
   .queue-toolbar .filters.filters-more {
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
     mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);

@@ -95,7 +95,7 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
     <p class="rail-note">These are the last details received from Milepost. Open Milepost to check and edit the current name or active state. Existing access restoration remains separate.</p>
     <a class="btn-primary" href="<?= h($operational['edit_url']) ?>">Edit shared client details in Milepost</a>
     <?php if ($operational['status'] === 'active' && is_string($operational['device_url'] ?? null)): ?>
-      <a class="btn-chip" href="<?= h($operational['device_url']) ?>" target="_blank" rel="noopener">Open this client’s devices in Milepost ↗</a>
+      <a class="btn-chip" href="<?= h($operational['device_url']) ?>" target="_blank" rel="noopener">Computers in Milepost<?= ui_icon('external') ?><span class="sr-only"> (opens in a new tab)</span></a>
     <?php endif; ?>
   </div>
   <?php elseif ($operational['bound'] !== false): ?>

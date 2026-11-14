@@ -250,15 +250,15 @@ test('Computers and Invoices open the other apps, and the Milepost link is a qui
   const { page, errors, open } = await fixture(t);
   await open('/client.php?id=30');
   const apps = page.locator('.rail-list').filter({ hasText: 'Computers' });
-  assert.deepEqual(await texts(page, '.rail-list > .rail-line'), ['ComputersOpen this client in Milepost ↗', 'InvoicesOpen this client in Coastmark ↗']);
+  assert.deepEqual(await texts(page, '.rail-list > .rail-line'), ['Computers in Milepost (opens in a new tab)', 'Invoices in Coastmark (opens in a new tab)']);
   assert.equal(await apps.locator('.field-help').innerText(), 'Milepost and Coastmark check your access before showing this client.');
   for (const link of await apps.getByRole('link').all()) {
     assert.equal(await link.getAttribute('target'), '_blank');
     assert.equal(await link.getAttribute('rel'), 'noopener');
   }
   const link = page.locator('.client-link');
-  assert.equal(squash(await link.locator('.client-shared').first().innerText()), 'Linked to Milepost as Harbor Dental Group · active · Shared details ↗');
-  assert.equal(squash(await link.locator('.client-shared').nth(1).innerText()), 'Milepost directory now: Harbor Dental Group · active');
+  assert.equal(squash(await link.locator('.client-shared').first().innerText()), 'Linked to Milepost as Harbor Dental Group (active). Shared details (opens in a new tab)');
+  assert.equal(squash(await link.locator('.client-shared').nth(1).innerText()), 'Milepost directory now: Harbor Dental Group (active).');
   const details = link.locator('details');
   assert.equal(await details.getByText('Source version last received: 3.').isVisible(), false);
   await details.locator('summary').click();
@@ -268,8 +268,8 @@ test('Computers and Invoices open the other apps, and the Milepost link is a qui
   assert.equal(await page.locator('.rail > :last-child').evaluate((el) => el.classList.contains('client-link')), true);
 
   await open('/client.php?id=33');
-  assert.deepEqual(await texts(page, '.rail-list > .rail-line'), ['ComputersOpen Milepost ↗', 'InvoicesOpen Coastmark ↗']);
-  assert.equal(await page.locator('.rail-list > .field-help').innerText(), 'Open the app, then select the client.');
+  assert.deepEqual(await texts(page, '.rail-list > .rail-line'), ['Open Milepost (opens in a new tab)', 'Open Coastmark (opens in a new tab)']);
+  assert.equal(await page.locator('.rail-list > .field-help').innerText(), 'Choose the client there.');
   assert.equal(await page.locator('.client-link').innerText(), 'Not linked to Milepost. Shared clients are created in Milepost.');
   assert.deepEqual(await texts(page, '.client-stats .stat-k'), ['Open tickets', 'Billable time, 30 days'], 'no first reply to average, no tile for it');
   assert.equal(await page.locator('.list .empty p').innerText(), 'No open tickets for Email Intake.');
@@ -290,7 +290,7 @@ for (const theme of ['dark', 'light']) {
     assert.ok(boxes.rail.left >= boxes.list.right, JSON.stringify(boxes));
     assert.ok(boxes.actions.left >= boxes.title.right && boxes.actions.top < boxes.title.bottom, JSON.stringify(boxes));
     for (const selector of ['.client-title .tier', '.client-domain', '.client-note', '.client-note-k', '.stat-k', '.stat-v', '.stat-hint', '.filter-pill', '.pill-count',
-      '.rail-list-name', '.rail-list-sub', '.contact-add-btn', '.rail-line > span', '.rail-line > .link', '.field-help', '.client-shared', '.client-shared .link',
+      '.rail-list-name', '.rail-list-sub', '.contact-add-btn', '.rail-line > .link', '.field-help', '.client-shared', '.client-shared .link',
       '.client-shared span', '.client-link-details > summary']) {
       const ratios = await contrast(page, selector);
       assert.ok(ratios.length > 0, selector);
@@ -301,7 +301,7 @@ for (const theme of ['dark', 'light']) {
     await open('/client.php?id=32');
     assert.deepEqual(await texts(page, '.client-title > *'), ['Copper Kettle', 'Standard plan', 'Needs attention', 'copperkettle.test']);
     for (const ratio of await contrast(page, '.tag-caution')) assert.ok(ratio >= 4.5, `Needs attention contrast ${ratio.toFixed(2)} in ${theme}`);
-    assert.equal(squash(await page.locator('.client-shared').first().innerText()), 'Linked to Milepost as Copper Kettle · inactive · Shared details ↗');
+    assert.equal(squash(await page.locator('.client-shared').first().innerText()), 'Linked to Milepost as Copper Kettle (inactive). Shared details (opens in a new tab)');
     await shot(page, `client-watch-1440-${theme}`);
     assert.deepEqual(errors, []);
   });
