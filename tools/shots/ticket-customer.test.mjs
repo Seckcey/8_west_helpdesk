@@ -362,8 +362,16 @@ for (const theme of ['dark', 'light']) {
     await tall(page.locator('#merge-dupe-btn'), 'Merge into the duplicate');
     await tall(page.locator('.phone-ticket-summary'), 'the Details summary');
     await tall(page.locator('.phone-ticket-actions button'), 'the bottom actions');
+    const more = await page.locator('.phone-summary-more').evaluate((node) => ({ words: node.textContent.trim(), drawn: !!node.querySelector('svg[aria-hidden="true"]') }));
+    assert.deepEqual(more, { words: 'Details', drawn: true }, 'the summary ends in Details and a drawn chevron, not a typed one');
     await page.locator('.phone-ticket-summary').click();
     await tall(page.locator('#timer-btn'), 'the timer button');
+    // In the sheet the column keeps its own layout: the minutes start their row, the timer button ends it.
+    const time = await page.locator('.phone-details .rail-time > .rail-v').evaluate((row) => {
+      const box = row.getBoundingClientRect(), minutes = row.querySelector('.rail-minutes').getBoundingClientRect(), button = row.querySelector('#timer-btn').getBoundingClientRect();
+      return { gap: Math.round(button.left - minutes.right), end: Math.round(box.right - button.right) };
+    });
+    assert.ok(time.gap >= 16 && time.end <= 1, `the timer button ends its row (${time.end}px off), ${time.gap}px after the minutes`);
     await tall(page.locator('.rail-copy'), 'Copy');
     await tall(page.locator('.rail-ticket'), 'another open ticket');
     await tall(page.getByRole('link', { name: 'Open client' }), 'Open client');

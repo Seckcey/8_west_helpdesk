@@ -3268,7 +3268,9 @@
     summary.setAttribute("aria-controls", "phone-ticket-details");
     summary.setAttribute("aria-expanded", "false");
     const words = make("span", "phone-summary-words");
-    const more = make("span", "phone-summary-more", "Details ›");
+    // "Details" with a drawn chevron (the back icon's shape, turned), not a typed mark.
+    const more = make("span", "phone-summary-more", "Details");
+    more.insertAdjacentHTML("beforeend", '<svg class="ui-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke-linecap="round" stroke-linejoin="round"/></svg>');
     summary.append(words, more);
     title.after(summary);
     const sheet = make("dialog", "phone-details");
