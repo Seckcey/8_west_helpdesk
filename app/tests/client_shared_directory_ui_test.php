@@ -505,6 +505,19 @@ $x = $formPage('client_edit.php', ['id' => '32']);
 directory_ui_check($x->query('//textarea[@placeholder]')->length === 0 && $words($x, '//label[input[@name="name"]]/text()[normalize-space()]') === ['Name in Safeharbor']
     && !str_contains($words($x, '//body')[0] ?? '', 'synchronized') && $x->query('//a[contains(@class,"backlink")]/svg')->length === 1,
     'Edit client says where a change goes in plain words, without an example note or a typed arrow');
+// What Milepost last sent, in words: the source version under Details, and no record id, event time or raw state label.
+$shared = $words($x, '//div[contains(@class,"form-card")][h2]')[0] ?? '';
+directory_ui_check($words($x, '//div[contains(@class,"form-card")]/h2') === ['Linked to Milepost']
+    && $words($x, '//div[contains(@class,"form-card")][h2]/p[1]') === ['Last received from Milepost: Copper Kettle, inactive.']
+    && $words($x, '//details[contains(@class,"client-link-details")]/summary') === ['Details']
+    && $words($x, '//details[contains(@class,"client-link-details")]/p') === ['Source version last received: 2.']
+    && preg_match('/Event |Last synced|Synced receipt|operational details|Source event time/u', $shared) === 0
+    && $x->query('//div[contains(concat(" ",@class," ")," page ")]//*[contains(concat(" ",normalize-space(@class)," ")," btn-primary ")]')->length === 1,
+    'Edit client says what Milepost last sent in words, with the source version under Details and no record ids, and Save is its one filled button');
+$x = $formPage('client_edit.php', ['id' => '33']);
+directory_ui_check($words($x, '//div[@class="page-head"]//p[@class="page-sub"]') === ['This client is only in Safeharbor. Changes here do not reach Milepost.']
+    && $x->query('//div[contains(@class,"form-card")][h2]')->length === 0,
+    'a client only in Safeharbor says so under the title, with no Milepost card');
 // A technician cannot change the plan, and is told so in the same word.
 $GLOBALS['fixtureUser']['role'] = 'tech';
 $x = $formPage('client_edit.php', ['id' => '30']);

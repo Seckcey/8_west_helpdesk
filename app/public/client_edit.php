@@ -80,28 +80,29 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
 <div class="page page-narrow">
   <a href="/client.php?id=<?= (int)$id ?>" class="backlink"><?= ui_icon('back') ?><?= h($client['name']) ?></a>
   <div class="page-head">
-    <h1 class="page-title">Edit client</h1>
+    <div>
+      <h1 class="page-title">Edit client</h1>
+      <?php if (!$operational['available']): ?>
+      <p class="page-sub"><?= $operational['bound'] !== false
+          ? 'Shared details are temporarily unavailable. Local edits below remain available.'
+          : 'This client is only in Safeharbor. Changes here do not reach Milepost.' ?></p>
+      <?php endif; ?>
+    </div>
   </div>
   <?php if ($error): ?><div class="form-error"><?= h($error) ?></div><?php endif; ?>
   <?php if ($operational['available']): ?>
   <div class="card form-card">
-    <h2>Shared operational details</h2>
-    <p><?= h($operational['display_name']) ?></p>
-    <p>Last synced state: <?= h($operational['status']) ?>.</p>
-    <details><summary>Synced receipt details</summary>
-      <p>Source version <?= (int)$operational['source_version'] ?>. Source event time: <?= h($operational['occurred_at']) ?>.</p>
-      <p>Event <?= h($operational['event_id']) ?>.</p>
+    <h2>Linked to Milepost</h2>
+    <p>Last received from Milepost: <strong><?= h($operational['display_name']) ?></strong>, <?= h($operational['status']) ?>.</p>
+    <details class="client-link-details"><summary>Details</summary>
+      <p>Source version last received: <?= (int)$operational['source_version'] ?>.</p>
     </details>
-    <p class="rail-note">These are the last details received from Milepost. Open Milepost to check and edit the current name or active state. Existing access restoration remains separate.</p>
-    <a class="btn-primary" href="<?= h($operational['edit_url']) ?>">Edit shared client details in Milepost</a>
+    <p class="rail-note">Open Milepost to check or change the name and whether the client is active. Existing access restoration remains separate.</p>
+    <a class="btn-secondary" href="<?= h($operational['edit_url']) ?>">Edit shared client details in Milepost</a>
     <?php if ($operational['status'] === 'active' && is_string($operational['device_url'] ?? null)): ?>
       <a class="btn-chip" href="<?= h($operational['device_url']) ?>" target="_blank" rel="noopener">Computers in Milepost<?= ui_icon('external') ?><span class="sr-only"> (opens in a new tab)</span></a>
     <?php endif; ?>
   </div>
-  <?php elseif ($operational['bound'] !== false): ?>
-  <p class="rail-note">Shared details are temporarily unavailable. Local edits below remain available.</p>
-  <?php else: ?>
-  <p class="rail-note">This client is only in Safeharbor. Changes here do not reach Milepost.</p>
   <?php endif; ?>
   <div class="card form-card">
     <form method="post" action="/client_edit.php?id=<?= (int)$id ?>" class="form-grid">

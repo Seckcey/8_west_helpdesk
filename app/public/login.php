@@ -68,7 +68,7 @@ header('Content-Type: text/html; charset=utf-8');
 <title>Sign in · Safeharbor</title>
 <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg">
 <script>document.documentElement.dataset.theme=localStorage.getItem("safeharbor.theme")||"system";</script>
-<link rel="stylesheet" href="/assets/css/app.css?v=20261114-sh-desk3-edges-v1">
+<link rel="stylesheet" href="/assets/css/app.css?v=20261114-sh-desk3-words-v1">
 </head>
 <body class="login-body login-split-body staff-signin">
 <div class="login-split">
@@ -108,7 +108,7 @@ header('Content-Type: text/html; charset=utf-8');
     <?php endif; ?>
     Safeharbor is part of 8 West IT 365.
   </p>
-<script src="/assets/js/app.js?v=20261114-sh-desk3-edges-v1" defer></script>
+<script src="/assets/js/app.js?v=20261114-sh-desk3-words-v1" defer></script>
 </div>
 </div>
 </body>

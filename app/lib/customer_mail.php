@@ -3,7 +3,7 @@
  * The words of the three emails a customer gets about a request: received, answered, resolved.
  *
  * Words only. Who gets an email, and when, is decided by the callers (intake.php, mail_notify_reply()
- * and csat_send()) and by the mail-loop guard; nothing here sends or decides anything. Every email is
+ * and ticket_survey_queue()) and by the mail-loop guard; nothing here sends or decides anything. Every email is
  * plain text, starts with the way that always works (answer this email), and adds the portal link only
  * for a client that can actually sign in to the portal, in a sentence that says who can open it there.
  */
