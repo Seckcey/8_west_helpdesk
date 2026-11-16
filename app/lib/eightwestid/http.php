@@ -139,9 +139,9 @@ final class NativeHttpClient implements HttpClient
         ]);
         $responseHeaders = [];
         $data = @file_get_contents($url, false, $context, 0, $maxBytes + 1);
-        if (isset($http_response_header) && is_array($http_response_header)) {
-            $responseHeaders = $http_response_header;
-        }
+        $responseHeaders = last_response_headers(
+            \function_exists('http_get_last_response_headers') ? null : (${'http_response_header'} ?? null),
+        );
         if (! is_string($data) || ! isset($responseHeaders[0])) {
             throw new ProtocolException('HTTPS request failed.');
         }
@@ -153,6 +153,21 @@ final class NativeHttpClient implements HttpClient
         }
         return new HttpResponse((int) $match[1], $data);
     }
+}
+
+/**
+ * Headers of the last stream request made in the caller's scope. PHP 8.4 added
+ * http_get_last_response_headers(), and PHP 8.5 deprecates the magic local
+ * $http_response_header, so the function is used whenever it exists. Older PHP
+ * still needs that local, which only the caller's scope holds: the caller passes
+ * it, looked up by name so no file names the deprecated variable directly.
+ *
+ * @return list<string>
+ */
+function last_response_headers(?array $legacy = null): array
+{
+    $headers = \function_exists('http_get_last_response_headers') ? \http_get_last_response_headers() : $legacy;
+    return \is_array($headers) ? \array_values(\array_filter($headers, 'is_string')) : [];
 }
 
 function assert_https_url(string $url, string $name): void
