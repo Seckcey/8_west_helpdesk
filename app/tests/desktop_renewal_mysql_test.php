@@ -16,8 +16,9 @@ $original=$envelope['authority'];
 $config['desktop_companion']=['endpoint'=>PORTAL_DESKTOP_ENDPOINT,'service_secret'=>str_repeat('d',64)];
 $companionProof=static fn(string $pairing):string=>hash_hmac('sha256','westy-companion-portal-proof-v1:'.$pairing,str_repeat('d',64));
 // A browser that only knows a pairing id, or brings another pairing's proof, keeps the web deadline.
-foreach([['no proof',str_repeat('c',32),null],['another pairing\'s proof',str_repeat('d',32),$companionProof(str_repeat('b',32))],
-    ['a malformed proof',str_repeat('9',32),['not a proof']]] as [$case,$plainPair,$given]){
+// Pairings a…d already carry handoffs from the handoff suite this one builds on, so use fresh ids.
+foreach([['no proof',str_repeat('5',32),null],['another pairing\'s proof',str_repeat('6',32),$companionProof(str_repeat('b',32))],
+    ['a malformed proof',str_repeat('7',32),['not a proof']]] as [$case,$plainPair,$given]){
     $plain=portal_desktop_handoff_create($pdo,$plainPair);hs_approve_fixture($pdo,$plain,$envelope);
     hs_check(portal_desktop_handoff_take($pdo,$plain,null,null,$given)
         &&$_SESSION['desktop_renewal']['identity']===$browser&&$_SESSION[PORTAL_SESSION_KEY]['expires_at']<=$browser['expires_at'],
