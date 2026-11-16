@@ -213,17 +213,23 @@ function portal_desktop_handoff_create(PDO $pdo,string $pair):string
         ->execute([$id,$pair,$hash,gmdate('Y-m-d H:i:s',time()+300)]);
     return $id;
 }
-function portal_desktop_handoff_approve(PDO $pdo,array $context,string $id):void
+function portal_desktop_handoff_approve(PDO $pdo,array $context,string $id,bool $webOnly=false):void
 {
     if(!portal_desktop_id($id))throw new PortalDesktopException('invalid_request',400);
     $q=$pdo->prepare("SELECT * FROM portal_desktop_handoffs WHERE handoff_id=? AND state='pending' AND expires_at>UTC_TIMESTAMP()");$q->execute([$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
     if(!$row)throw new PortalDesktopException('pairing_used');
     portal_desktop_bind($pdo,$context,$row['pairing_id']);
     $pdo->prepare("UPDATE portal_desktop_handoffs SET state='approved',identity_json=? WHERE handoff_id=? AND state='pending' AND expires_at>UTC_TIMESTAMP()")
-        ->execute([json_encode(portal_desktop_handoff_envelope($context['identity'],time()),JSON_THROW_ON_ERROR),$id]);
+        ->execute([json_encode(portal_desktop_handoff_envelope($context['identity'],time(),$webOnly),JSON_THROW_ON_ERROR),$id]);
 }
-function portal_desktop_handoff_envelope(array $original,int $now):array
+function portal_desktop_handoff_envelope(array $original,int $now,bool $webOnly=false):array
 {
+    // MSP staff through automatic access keep the web sign-in's own deadline even in the real
+    // Companion: they often sign in on a client's shared PC (coordinator ruling, 2026-11-16).
+    if($webOnly){
+        $identity=$original;$identity['expires_at']=min($original['expires_at'],$now+1800);
+        return ['version'=>1,'identity'=>$identity,'authority'=>$original,'web_authority'=>$original];
+    }
     // The Companion keeps its own sign-in for 30 days from this approval. That deadline is fixed and
     // never moves. It renews silently in 30-minute leases, and every renewal rechecks revocation.
     // Only the Companion window that holds this pairing's proof receives it (portal_desktop_handoff_take);

@@ -235,6 +235,7 @@ jobs:
           php app/tests/desktop_renewal_test.php
           php app/tests/response_headers_compat_test.php
           php app/tests/desktop_authorize_refusal_test.php
+          php app/tests/portal_staff_pairing_access_test.php
           php app/tests/suite_link_health_test.php
           php app/tests/desktop_return_path_test.php
           php app/tests/client_operational_context_test.php

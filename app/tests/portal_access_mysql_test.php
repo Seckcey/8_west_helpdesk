@@ -34,6 +34,12 @@ $choice=['provider_slug'=>'preview-provider','customer_id'=>$uuid(1011),'identit
 $items=[];$seen=[];
 $transport=static function(string $url,string $body,array $headers)use(&$items,&$seen):array {
     $seen=[$url,json_decode($body,true),$headers,$body];
+    // Like the current Milepost: one selected customer is rechecked directly, the rest is listed.
+    if(($seen[1]['action']??null)==='access_resolve'){
+        foreach($items as $item)if($item['provider_slug']===$seen[1]['input']['provider_slug'] && $item['customer_id']===$seen[1]['input']['customer_id'])
+            return ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>['item'=>$item,'automatic'=>false]])];
+        return ['status'=>403,'body'=>json_encode(['ok'=>false,'reason'=>'customer_access_unavailable'])];
+    }
     return ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>['items'=>$items]])];
 };
 access_check(access_denied(fn()=>portal_establish_identity($pdo,access_identity(),null,'/portal/',$transport)),'ungranted owner gets no implicit client access');
@@ -71,6 +77,12 @@ access_check($_SESSION[PORTAL_ACCESS_PENDING_KEY]['destination']===$destination,
 $principal=$_SESSION[PORTAL_ACCESS_PENDING_KEY]['principal'];
 access_check(access_denied(fn()=>portal_access_select($pdo,$principal,$choice['access']['reference'],2,$transport)),'stale generation cannot be selected');
 $identity=portal_access_select($pdo,$principal,$choice['access']['reference'],1,$transport);$ctx=['identity'=>$identity,'binding'=>$a['binding']];
+$listOnly=static fn(string $url,string $body,array $headers):array=>(json_decode($body,true)['action']??null)==='access_list'
+    ? ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>['items'=>$items]])]
+    : ['status'=>400,'body'=>json_encode(['ok'=>false,'reason'=>'invalid_request'])];
+access_check(portal_identity_binding($pdo,$identity,$listOnly)!==null,'an older Milepost without the direct recheck still validates through the list');
+access_check(portal_identity_binding($pdo,$identity,$transport)!==null && $seen[1]['action']==='access_resolve',
+    'the selected customer is rechecked directly, not found in the list');
 $items=[$second];
 access_check(portal_identity_binding($pdo,$identity,$transport)===null,'revoking selected membership never switches to another client');
 access_check(access_denied(fn()=>portal_westy_scope($pdo,$ctx,false,$transport)),'revoked membership loses chat and tool scope');
