@@ -127,12 +127,14 @@ function portal_access_service(array $principal,string $action,array $input,?cal
 }
 
 /** The principal's current access to one already selected customer, without the list. */
-function portal_access_resolve(array $principal,array $selected,?callable $transport=null): array
+function portal_access_resolve(array $principal,array $selected,?callable $transport=null,bool $use=false): array
 {
     if(!is_string($selected['provider_slug']??null) || !is_string($selected['customer_id']??null))
         throw new PortalDevicesException('customer_access_unavailable');
-    return portal_access_service($principal,'access_resolve',
-        ['provider_slug'=>$selected['provider_slug'],'customer_id'=>$selected['customer_id']],$transport);
+    // `use`: the person is choosing this customer now, so Milepost audits automatic access once.
+    $input=['provider_slug'=>$selected['provider_slug'],'customer_id'=>$selected['customer_id']];
+    if($use)$input['use']=true;
+    return portal_access_service($principal,'access_resolve',$input,$transport);
 }
 
 /**
@@ -190,7 +192,7 @@ function portal_access_select_for_pairing(PDO $pdo,array $principal,string $pair
 /** Select one choice Milepost named, rechecking it directly rather than finding it in the list. */
 function portal_access_select_choice(PDO $pdo,array $principal,array $choice,?callable $transport=null): array
 {
-    if(!portal_access_shape($choice,$principal) || portal_access_resolve($principal,$choice,$transport)['item']!=$choice)
+    if(!portal_access_shape($choice,$principal) || portal_access_resolve($principal,$choice,$transport,true)['item']!=$choice)
         throw new PortalAuthenticationRejectedException('This customer access is no longer available.');
     $b=portal_access_local_binding($pdo,$choice);
     if(!is_array($b))throw new PortalAuthenticationRejectedException('This customer access is no longer available.');
@@ -203,6 +205,11 @@ function portal_access_select(PDO $pdo,array $principal,string $reference,int $g
     foreach(portal_access_choices($pdo,$principal,$transport) as $choice)
         if($choice['access']['access']['reference']===$reference && $choice['access']['access']['generation']===$generation)$selected=$choice;
     if($selected===null)throw new PortalAuthenticationRejectedException('This customer access is no longer available.');
+    // Choosing a customer is a use: Milepost audits it when the access is automatic. A refusal
+    // (or a failed audit) refuses the choice. This needs a Milepost that knows the audited recheck.
+    try{$resolved=portal_access_resolve($principal,$selected['access'],$transport,true);}
+    catch(PortalDevicesException){throw new PortalAuthenticationRejectedException('This customer access is no longer available.');}
+    if($resolved['item']!=$selected['access'])throw new PortalAuthenticationRejectedException('This customer access is no longer available.');
     return portal_access_install($principal,$selected['binding'],$selected['access']);
 }
 
