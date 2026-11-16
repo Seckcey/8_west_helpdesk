@@ -19,10 +19,16 @@ try{
         $webOnly=false;
         if(array_key_exists('customer_access',$context['identity'])){
             $selected=portal_access_select_for_pairing(db(),$context['identity'],portal_desktop_handoff_pairing(db(),$id));
-            $webOnly=$selected===null || $selected['automatic'];
             if($selected!==null){
+                $webOnly=$selected['automatic'];
                 $context=portal_authenticated_context(db());
                 if($context===null){portal_require_sign_in();exit;}
+            }else{
+                // Not staff of this computer's provider (an explicit grant for a non-staff role, say):
+                // ask Milepost what the current access is. An explicit grant keeps 30 days; automatic
+                // access, or an answer Milepost could not give, keeps the 8 h web deadline.
+                try{$webOnly=portal_access_resolve(portal_access_principal($context['identity']),$context['identity']['customer_access'])['automatic'];}
+                catch(PortalDevicesException){$webOnly=true;}
             }
         }
         portal_desktop_handoff_approve(db(),$context,$id,$webOnly);

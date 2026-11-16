@@ -36,6 +36,13 @@ $resolved = portal_access_resolve($principal, $item, $reply(200, ['item' => $ite
 staff_check($resolved['item'] === $item && end($sent)['body'] === ['action' => 'access_resolve',
     'scope' => ['subject' => 't1u7', 'session_version' => '1.1', 'identity_tenant_slug' => '8west', 'role' => 'tech'],
     'input' => ['provider_slug' => '8west', 'customer_id' => $item['customer_id']]], 'one selected customer is rechecked without the list');
+portal_access_resolve($principal, $item, $reply(200, ['item' => $item, 'automatic' => true]), true);
+staff_check(end($sent)['body']['input'] === ['provider_slug' => '8west', 'customer_id' => $item['customer_id'], 'use' => true],
+    'choosing a customer sends the audited recheck, so Milepost records the use once');
+$selectSource = (string)file_get_contents(__DIR__ . '/../lib/portal_access.php');
+staff_check(substr_count($selectSource, 'portal_access_resolve($principal,$choice,$transport,true)') === 1
+    && substr_count($selectSource, 'portal_access_resolve($principal,$selected[\'access\'],$transport,true)') === 1,
+    'both ways of choosing a customer (Connect and the picker) send the audited recheck');
 $refused = static function (callable $transport) use ($principal, $pair): bool {
     try { portal_access_for_pairing($principal, $pair, $transport); return false; } catch (PortalDevicesException) { return true; }
 };
@@ -74,7 +81,9 @@ $page = (string)file_get_contents(__DIR__ . '/../public/portal/desktop_authorize
 $post = substr($page, strpos($page, "==='POST'"), strpos($page, "!=='GET'") - strpos($page, "==='POST'"));
 $get = substr($page, strpos($page, "!=='GET'"));
 staff_check(str_contains($post, 'portal_access_select_for_pairing(') && str_contains($post, 'portal_desktop_handoff_approve(db(),$context,$id,$webOnly)')
-    && str_contains($post, '$webOnly=$selected===null || $selected[\'automatic\'];'),
+    && str_contains($post, '$webOnly=$selected[\'automatic\'];')
+    && str_contains($post, "\$webOnly=portal_access_resolve(portal_access_principal(\$context['identity']),\$context['identity']['customer_access'])['automatic'];")
+    && str_contains($post, 'catch(PortalDevicesException){$webOnly=true;}'),
     'Connect switches to the computer\'s company and approves automatic staff access with the web deadline');
 staff_check(!str_contains($get, 'portal_access_select') && str_contains($get, 'portal_access_preview_for_pairing('),
     'a plain GET only shows the computer\'s company and never switches the session');

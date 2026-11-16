@@ -31,9 +31,10 @@ function access_identity(string $role='owner',string $tenant='8west',array $prod
 }
 $choice=['provider_slug'=>'preview-provider','customer_id'=>$uuid(1011),'identity_tenant_slug'=>'northwind-preview','role'=>'client_owner',
     'access'=>['reference'=>str_repeat('1',32),'generation'=>1,'identity_tenant_slug'=>'8west','identity_role'=>'owner']];
-$items=[];$seen=[];
-$transport=static function(string $url,string $body,array $headers)use(&$items,&$seen):array {
+$items=[];$seen=[];$listSeen=[];
+$transport=static function(string $url,string $body,array $headers)use(&$items,&$seen,&$listSeen):array {
     $seen=[$url,json_decode($body,true),$headers,$body];
+    if(($seen[1]['action']??null)==='access_list')$listSeen=$seen;
     // Like the current Milepost: one selected customer is rechecked directly, the rest is listed.
     if(($seen[1]['action']??null)==='access_resolve'){
         foreach($items as $item)if($item['provider_slug']===$seen[1]['input']['provider_slug'] && $item['customer_id']===$seen[1]['input']['customer_id'])
@@ -49,9 +50,11 @@ $before=session_id();$identity=portal_establish_identity($pdo,access_identity(),
 access_check($identity['role']==='owner' && $identity['identity_tenant_slug']==='8west' && $identity['subject']==='t1u1' && $identity['session_version']==='1.1','signed identity role tenant subject and session remain unchanged');
 access_check($identity['client_id']===11 && $identity['binding_id']===$a['identity']['binding_id'] && session_id()!==$before,'UUID maps to independent local binding with portal-only session rotation');
 access_check(portal_local_identity()!==null && portal_customer_role($identity)==='client_owner','effective customer role is separate from original owner role');
-access_check($seen[1]===['action'=>'access_list','scope'=>['subject'=>'t1u1','session_version'=>'1.1','identity_tenant_slug'=>'8west','role'=>'owner'],'input'=>[]],'service discovery contains server identity only');
-$headers=[];foreach($seen[2] as $line){[$k,$v]=explode(': ',$line,2);$headers[$k]=$v;}
-$preimage=PORTAL_DEVICES_CONTEXT."\nPOST\n/api/svc/customer_portal.php\n".$headers['X-Portal-Timestamp']."\n".$headers['X-Portal-Nonce']."\n".hash('sha256',$seen[3]);
+access_check($listSeen[1]===['action'=>'access_list','scope'=>['subject'=>'t1u1','session_version'=>'1.1','identity_tenant_slug'=>'8west','role'=>'owner'],'input'=>[]],'service discovery contains server identity only');
+access_check($seen[1]['action']==='access_resolve' && $seen[1]['input']===['provider_slug'=>$choice['provider_slug'],'customer_id'=>$choice['customer_id'],'use'=>true],
+    'choosing the one customer sends the audited recheck');
+$headers=[];foreach($listSeen[2] as $line){[$k,$v]=explode(': ',$line,2);$headers[$k]=$v;}
+$preimage=PORTAL_DEVICES_CONTEXT."\nPOST\n/api/svc/customer_portal.php\n".$headers['X-Portal-Timestamp']."\n".$headers['X-Portal-Nonce']."\n".hash('sha256',$listSeen[3]);
 access_check(hash_equals(hash_hmac('sha256',$preimage,str_repeat('e',64)),$headers['X-Portal-Signature']),'dedicated HMAC covers principal and exact body');
 $ctx=portal_authenticated_context($pdo,fn()=>false,null,$transport);
 access_check($ctx!==null && portal_devices_can_manage($ctx),'active independent membership authorizes customer tools');
