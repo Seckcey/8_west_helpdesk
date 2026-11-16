@@ -27,6 +27,9 @@ const PORTAL_SESSION_KEY = '_safeharbor_portal_identity';
 const PORTAL_CSRF_KEY = '_safeharbor_portal_csrf';
 const PORTAL_ACTION_NONCES_KEY = '_safeharbor_portal_action_nonces';
 const PORTAL_SESSION_MAX_SECONDS = 28800;
+// A Westy Companion window keeps its own sign-in for at most 30 days from the approval, a fixed
+// deadline. The browser sign-in it was approved from still ends after PORTAL_SESSION_MAX_SECONDS.
+const PORTAL_DESKTOP_AUTHORITY_SECONDS = 2592000;
 const PORTAL_ACTION_NONCE_MAX_AGE_SECONDS = 3600;
 const PORTAL_ACTION_NONCE_MAX_PER_PURPOSE = 8;
 const PORTAL_REVOCATION_REFRESH_SECONDS = 60;
@@ -336,6 +339,30 @@ function portal_establish_identity(PDO $pdo, EightWestIdentity $identity, ?int $
     return $_SESSION[PORTAL_SESSION_KEY];
 }
 
+/**
+ * Only a Westy Companion session may hold an identity older than the 8 h web sign-in: this exact
+ * PHP session must carry the approved Companion authority for its own pairing, and the identity
+ * must equal that authority except for a lease that ends no later than the authority's fixed
+ * deadline. The authority itself spans at most the web sign-in plus 30 days.
+ */
+function portal_desktop_identity_covered(array $identity): bool
+{
+    $proof = $_SESSION['desktop_renewal'] ?? null;
+    if (! is_array($proof) || ($proof['version'] ?? null) !== 1 || ! is_array($proof['identity'] ?? null)
+        || ! is_string($proof['session_hash'] ?? null) || session_id() === ''
+        || ! hash_equals(hash('sha256', session_id()), $proof['session_hash'])
+        || ! is_string($proof['pairing_id'] ?? null) || preg_match('/\A[a-f0-9]{32}\z/D', $proof['pairing_id']) !== 1
+        || $proof['pairing_id'] !== ($_SESSION['desktop_companion_session'] ?? null)) {
+        return false;
+    }
+    $authority = $proof['identity'];
+    return is_int($authority['issued_at'] ?? null) && is_int($authority['expires_at'] ?? null)
+        && is_int($identity['expires_at'] ?? null)
+        && $authority['expires_at'] - $authority['issued_at'] <= PORTAL_SESSION_MAX_SECONDS + PORTAL_DESKTOP_AUTHORITY_SECONDS
+        && $identity['expires_at'] <= $authority['expires_at']
+        && array_replace($identity, ['expires_at' => $authority['expires_at']]) === $authority;
+}
+
 /** @return array<string,mixed>|null */
 function portal_local_identity(?int $now = null): ?array
 {
@@ -362,7 +389,8 @@ function portal_local_identity(?int $now = null): ?array
         || $identity['issued_at'] > $now + 120
         || $identity['expires_at'] <= $now
         || $identity['expires_at'] <= $identity['issued_at']
-        || $identity['expires_at'] - $identity['issued_at'] > PORTAL_SESSION_MAX_SECONDS) {
+        || ($identity['expires_at'] - $identity['issued_at'] > PORTAL_SESSION_MAX_SECONDS
+            && ! portal_desktop_identity_covered($identity))) {
         return null;
     }
     try {

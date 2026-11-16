@@ -11,14 +11,17 @@ try{
         $body=file_get_contents('php://input',false,null,0,2049);
         if(!is_string($body)||strlen($body)>2048)throw new PortalDesktopException('invalid_request',400);
         $input=json_decode($body,true,8,JSON_THROW_ON_ERROR);
-        if(!is_array($input)||!portal_devices_keys($input,['handoff']))throw new PortalDesktopException('invalid_request',400);
+        // The Windows Companion also sends the proof from its portal URL fragment; only then does the
+        // handoff carry the 30-day Companion sign-in (portal_desktop_handoff_grant).
+        if(!is_array($input)||(!portal_devices_keys($input,['handoff'])&&!portal_devices_keys($input,['handoff','companion_proof'])))
+            throw new PortalDesktopException('invalid_request',400);
         // A lost consume response can leave this same browser with its new
         // cookie but the old page/CSRF. Only its exact completed receipt may
         // acknowledge readiness; it cannot mint or repeat any authority.
         $csrf=$_SERVER['HTTP_X_PORTAL_CSRF']??null;
         $completed=is_string($csrf)&&portal_desktop_handoff_completed(db(),$input['handoff'],$csrf);
         if(!$completed&&!portal_csrf_valid($csrf))throw new PortalDesktopException('sign_in',403);
-        $ready=$completed||portal_desktop_handoff_take(db(),$input['handoff']);
+        $ready=$completed||portal_desktop_handoff_take(db(),$input['handoff'],null,null,$input['companion_proof']??null);
         header('Cache-Control: no-store, private');json_out(['ok'=>true,'ready'=>$ready]);exit;
     }
     if(($_SERVER['REQUEST_METHOD']??'GET')!=='GET')throw new PortalDesktopException('method',405);

@@ -30,12 +30,16 @@ function portal_desktop_transport(string $body,array $headers):array
         return ['status'=>$status,'body'=>$response];
     }finally{curl_close($ch);}
 }
+/** A refused sign-in tells the person why. Only bind and its read-only preview pass these reasons
+ * through; every other action keeps treating a missing pairing as the uncertain desktop_unavailable. */
+function portal_desktop_bind_refusals(string $action):array
+{return in_array($action,['bind','preview'],true)?['wrong_company','session_unavailable','pairing_already_used']:[];}
 function portal_desktop_request(array $context,string $action,array $input,?callable $transport=null):array
 {
     // Everything that fails before the transport call proves this request did not
     // run, so it is a rejected request, never an uncertain one.
     try{
-        if(!in_array($action,['stop','sign_out','state','renew','result','cua_result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','terminal_tasks','terminal_task_result','terminal_task_cancel','control_result','control_cancel'],true)&&!desktop_cleanup_available())
+        if(!in_array($action,['preview','stop','sign_out','state','renew','result','cua_result','shell_result','shell_cancel','shell_preferences','terminal_result','terminal_cancel','terminal_preferences','terminal_tasks','terminal_task_result','terminal_task_cancel','control_result','control_cancel'],true)&&!desktop_cleanup_available())
             throw new PortalDesktopException('cleanup_unavailable',503,true);
         $config=cfg('desktop_companion',[]);
         if(!is_array($config)||($config['endpoint']??null)!==PORTAL_DESKTOP_ENDPOINT
@@ -66,6 +70,7 @@ function portal_desktop_request(array $context,string $action,array $input,?call
             'support_busy','invalid_pipeline','sensitive_text','action_unavailable','cleanup_unavailable','approval_required',
             'terminal_unavailable','terminal_offline','terminal_tty_unsupported','terminal_not_running','terminal_starting','terminal_input_pending','tool_restriction',
             'approval_changed','preferences_changed','terminal_upgrade_incomplete','desktop_upgrade_required','select_window_first','inventory_stale','review_changed'];
+        $safe=array_merge($safe,portal_desktop_bind_refusals($action));
         // Only the endpoint's explicit, recognized 4xx refusal proves this
         // request was rejected. Network loss, malformed data and 5xx do not.
         $rejected=is_array($data)&&($data['ok']??null)===false&&in_array($reason,$safe,true)

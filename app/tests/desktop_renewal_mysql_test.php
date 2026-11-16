@@ -3,15 +3,36 @@
 declare(strict_types=1);
 ob_start();require __DIR__.'/desktop_handoff_mysql_test.php';
 portal_session_start();hs_feed();
-$original=hs_identity();$original['expires_at']=time()+3600;
-$envelope=portal_desktop_handoff_envelope($original,time());
-hs_check($envelope['authority']===$original&&$envelope['identity']['issued_at']===$original['issued_at']
-    &&$envelope['identity']['expires_at']<=time()+1800,'approval retains verified original deadline and unchanged issuance before clipping');
-$short=$original;$short['expires_at']=time()+90;
-hs_check(portal_desktop_handoff_envelope($short,time())['identity']===$short,'shorter issuer lifetime is not extended');
+$browser=hs_identity();$browser['expires_at']=time()+3600;$approvedAt=time();
+$envelope=portal_desktop_handoff_envelope($browser,$approvedAt);
+hs_check($envelope['authority']===array_replace($browser,['expires_at'=>$approvedAt+PORTAL_DESKTOP_AUTHORITY_SECONDS])
+    &&$envelope['identity']===array_replace($browser,['expires_at'=>$approvedAt+1800]),
+    'approval fixes a 30-day Companion deadline from approval, keeps the issuance and grants a 30-minute lease');
+$short=$browser;$short['expires_at']=time()+90;
+hs_check(portal_desktop_handoff_envelope($short,$approvedAt)['authority']['expires_at']===$approvedAt+PORTAL_DESKTOP_AUTHORITY_SECONDS,
+    'a browser sign-in about to end still gives the Companion its own 30 days from approval');
+// From here on the approved Companion authority is the original every renewal must preserve.
+$original=$envelope['authority'];
+$config['desktop_companion']=['endpoint'=>PORTAL_DESKTOP_ENDPOINT,'service_secret'=>str_repeat('d',64)];
+$companionProof=static fn(string $pairing):string=>hash_hmac('sha256','westy-companion-portal-proof-v1:'.$pairing,str_repeat('d',64));
+// A browser that only knows a pairing id, or brings another pairing's proof, keeps the web deadline.
+// Pairings a…d already carry handoffs from the handoff suite this one builds on, so use fresh ids.
+foreach([['no proof',str_repeat('5',32),null],['another pairing\'s proof',str_repeat('6',32),$companionProof(str_repeat('b',32))],
+    ['a malformed proof',str_repeat('7',32),['not a proof']]] as [$case,$plainPair,$given]){
+    $plain=portal_desktop_handoff_create($pdo,$plainPair);hs_approve_fixture($pdo,$plain,$envelope);
+    // MySQL's JSON column re-sorts object keys, so compare field by field (strict types), not by order.
+    $took=portal_desktop_handoff_take($pdo,$plain,null,null,$given);$granted=$_SESSION['desktop_renewal']['identity']??[];
+    $sameFields=static function(array $a,array $b):bool{ksort($a);ksort($b);return $a===$b;};
+    hs_check($took&&$sameFields($granted,$browser)&&$granted['expires_at']===$browser['expires_at']
+        &&$_SESSION[PORTAL_SESSION_KEY]['expires_at']<=$browser['expires_at'],
+        'a handoff taken with '.$case.' keeps the web sign-in deadline, at most 8 h');
+    portal_destroy_session();portal_session_start();hs_feed();
+}
 $envelope['identity']['expires_at']=time()+300;$pair=str_repeat('e',32);
 $id=portal_desktop_handoff_create($pdo,$pair);hs_approve_fixture($pdo,$id,$envelope);
-hs_check(portal_desktop_handoff_take($pdo,$id),'new approved envelope consumes through actual current issuer and binding checks');
+hs_check(portal_desktop_handoff_take($pdo,$id,null,null,$companionProof($pair)),'new approved envelope consumes through actual current issuer and binding checks');
+hs_check($_SESSION['desktop_renewal']['identity']['expires_at']===$approvedAt+PORTAL_DESKTOP_AUTHORITY_SECONDS,
+    'only the Companion window holding this pairing\'s proof receives the 30-day sign-in');
 $context=portal_desktop_capture_context(portal_authenticated_context($pdo));$proof=$context['desktop_renewal_proof'];
 $preserved=count($proof['identity'])===count($original);foreach($original as $key=>$value)$preserved=$preserved&&($proof['identity'][$key]??null)===$value;
 hs_check($preserved&&$proof['pairing_id']===$pair&&$proof['session_hash']===hash('sha256',session_id()),'provenance binds original identity exact regenerated PHP session and pair');
@@ -48,6 +69,18 @@ foreach([
     hs_check(portal_desktop_default_device($pdo,$context,$allowed,$localTransport)===
         ['default_device_reference'=>null,'local_device_state'=>$expected],'offline, changed, unlisted and expired pairs never select another computer');
     $localState=$saved;
+}
+// The sign-in page names the computer from Milepost's read-only preview.
+$previewReply=static fn(int $status,array $body)=>static fn(string $request):array=>['status'=>$status,'body'=>json_encode($body)];
+hs_check(portal_desktop_preview($context,$pair,$previewReply(200,['contract'=>PORTAL_DESKTOP_CONTEXT,'ok'=>true,
+    'result'=>['session_id'=>$pair,'device_name'=>'RPM-STEPH','state'=>'pairing','expires_at'=>time()+600]]))==='RPM-STEPH','the sign-in page can name the computer');
+hs_check(portal_desktop_preview($context,$pair,$previewReply(200,['contract'=>PORTAL_DESKTOP_CONTEXT,'ok'=>true,
+    'result'=>['session_id'=>str_repeat('b',32),'device_name'=>'OTHER-PC','state'=>'pairing','expires_at'=>time()+600]]))===null,'a reply for another pairing names nothing');
+hs_check(portal_desktop_preview($context,$pair,$previewReply(400,['ok'=>false,'reason'=>'unsupported_action']))===null
+    &&portal_desktop_preview($context,$pair,$previewReply(503,['ok'=>false,'reason'=>'service_unavailable']))===null,'an older or unavailable Milepost leaves the page without a name');
+foreach(['wrong_company'=>403,'pairing_already_used'=>403,'session_unavailable'=>404,'actor_unavailable'=>403] as $reason=>$status){
+    $shown=null;try{portal_desktop_preview($context,$pair,$previewReply($status,['ok'=>false,'reason'=>$reason]));}catch(PortalDesktopException $error){$shown=$error->reason;}
+    hs_check($shown===$reason,'the sign-in page shows the clear refusal at once: '.$reason);
 }
 unset($localState['device_reference']);
 hs_check(portal_desktop_default_device($pdo,$context,$localDevices,$localTransport)['local_device_state']==='unavailable','older producer without a verified reference has no inferred local default');
@@ -89,6 +122,10 @@ foreach([['session_id'=>str_repeat('f',32)],['expires_at'=>time()+9000],['author
 $_SESSION[PORTAL_SESSION_KEY]=$context['identity'];
 $revoked=static function($body)use($reply){$response=$reply($body);hs_feed('2.1');return $response;};
 hs_check(hs_denied(fn()=>portal_desktop_renew($pdo,$context,$revoked)),'issuer revocation during service round trip prevents committing renewal');hs_feed();
+$_SESSION[PORTAL_SESSION_KEY]=$context['identity'];$_SESSION['desktop_renewal']=$proof;$_SESSION['desktop_companion_session']=$pair;
+unset($_SESSION['desktop_renewal_registered']);hs_feed('2.1');$beforeCalls=$calls;
+hs_check(hs_denied(fn()=>portal_desktop_renew($pdo,$context,$reply))&&$calls===$beforeCalls,
+    'an account revoked since the last renewal is refused at the next one, before Milepost is asked');hs_feed();
 $_SESSION[PORTAL_SESSION_KEY]=$context['identity'];$_SESSION['desktop_renewal']=$proof;$_SESSION['desktop_companion_session']=$pair;
 $beforeCalls=$calls;unset($_SESSION['desktop_renewal']);
 hs_check(hs_denied(fn()=>portal_desktop_renew($pdo,$context,$reply))&&$calls===$beforeCalls,'ordinary marker without consumed-handoff provenance never calls renewal service');

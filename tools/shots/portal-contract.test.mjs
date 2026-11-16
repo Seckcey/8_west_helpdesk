@@ -2153,6 +2153,27 @@ if (!SERVE_MODE) test('browser handoff retries the same receipt after interrupti
   }finally{await browser.close();}
 });
 
+if (!SERVE_MODE) test('the Companion window sends its fragment proof with the handoff, a plain page never invents one',async()=>{
+  const script=await readFile(path.join(ROOT,'app/public/assets/js/desktop-handoff.js'),'utf8');
+  const browser=await chromium.launch();const errors=[];
+  try{
+    for(const [hash,expected] of [['#companion='+'f'.repeat(64),{handoff:'a'.repeat(32),companion_proof:'f'.repeat(64)}],
+      ['#companion='+'F'.repeat(64),{handoff:'a'.repeat(32)}],['#other=1',{handoff:'a'.repeat(32)}]]){
+      const page=await browser.newPage();page.on('pageerror',error=>errors.push(error.message));let body=null;
+      await page.route('**/*',route=>{
+        const req=route.request();
+        if(req.method()==='POST'){body=req.postDataJSON();return route.fulfill({json:{ok:true,ready:false}});}
+        return route.fulfill({contentType:'text/html',body:`<!doctype html><title>Westy sign-in fixture</title><main id="desktop-handoff" data-csrf="fixture-csrf" data-handoff="${'a'.repeat(32)}"><p id="desktop-handoff-status">Waiting</p></main><script>${script}</script>`});
+      });
+      await page.goto(ORIGIN+'/portal/desktop.php'+hash);await page.getByText('Waiting for sign-in to finish.',{exact:true}).waitFor();
+      assert.deepEqual(body,expected);
+      assert.equal(new URL(page.url()).hash,hash.startsWith('#companion=')?'':hash,'the proof is dropped from the address and history once read');
+      await page.close();
+    }
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
 if (!SERVE_MODE) test('general runtime shows exact approval, live output, Stop and personal restrictions on desktop and mobile',async()=>{
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
   try{for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
