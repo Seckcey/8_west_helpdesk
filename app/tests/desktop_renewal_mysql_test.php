@@ -20,8 +20,11 @@ $companionProof=static fn(string $pairing):string=>hash_hmac('sha256','westy-com
 foreach([['no proof',str_repeat('5',32),null],['another pairing\'s proof',str_repeat('6',32),$companionProof(str_repeat('b',32))],
     ['a malformed proof',str_repeat('7',32),['not a proof']]] as [$case,$plainPair,$given]){
     $plain=portal_desktop_handoff_create($pdo,$plainPair);hs_approve_fixture($pdo,$plain,$envelope);
-    hs_check(portal_desktop_handoff_take($pdo,$plain,null,null,$given)
-        &&$_SESSION['desktop_renewal']['identity']===$browser&&$_SESSION[PORTAL_SESSION_KEY]['expires_at']<=$browser['expires_at'],
+    // MySQL's JSON column re-sorts object keys, so compare field by field (strict types), not by order.
+    $took=portal_desktop_handoff_take($pdo,$plain,null,null,$given);$granted=$_SESSION['desktop_renewal']['identity']??[];
+    $sameFields=static function(array $a,array $b):bool{ksort($a);ksort($b);return $a===$b;};
+    hs_check($took&&$sameFields($granted,$browser)&&$granted['expires_at']===$browser['expires_at']
+        &&$_SESSION[PORTAL_SESSION_KEY]['expires_at']<=$browser['expires_at'],
         'a handoff taken with '.$case.' keeps the web sign-in deadline, at most 8 h');
     portal_destroy_session();portal_session_start();hs_feed();
 }
