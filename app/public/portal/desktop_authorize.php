@@ -19,11 +19,14 @@ try{
         portal_page_end();exit;
     }
     if(($_SERVER['REQUEST_METHOD']??'GET')!=='GET')throw new PortalDesktopException('method',405);
+    // Name the computer, so a person sent someone else's link can tell it isn't theirs. Milepost
+    // refuses another company's computer or a pairing already in use here, before anything changes.
+    $computer=portal_desktop_preview($context,portal_desktop_handoff_pairing(db(),$id));
     portal_page_start('Connect your Westy window');
     ?>
-<main class="page page-narrow"><h1>Connect your Westy window</h1>
-<p>Connect as <?=portal_h($context['identity']['display_name'])?> for <?=portal_h($context['binding']['client_name']??'your business')?>.</p>
-<p>Connect only if you just chose Continue in your browser in your own Westy window on your computer. This opens your private chat in that window. Westy follows your saved computer tool permissions for the work you request.</p>
+<main class="page page-narrow"><h1><?=$computer===null?'Connect your Westy window':'Connect Westy on '.portal_h($computer)?></h1>
+<p>Connect as <?=portal_h($context['identity']['display_name'])?> for <?=portal_h($context['binding']['client_name']??'your business')?><?=$computer===null?'':' on the computer named <strong>'.portal_h($computer).'</strong>'?>.</p>
+<p>Connect only if you just chose Continue in your browser in your own Westy window on <?=$computer===null?'your computer':'that computer'?>. If you didn't, or this isn't the computer in front of you, close this page: someone may have sent you their link. This opens your private chat in that window. Westy follows your saved computer tool permissions for the work you request.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?=portal_h(portal_csrf_token())?>"><button class="btn-primary" type="submit">Connect Westy</button></form></main>
 <?php portal_page_end();
 }catch(Throwable $error){

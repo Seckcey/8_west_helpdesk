@@ -226,9 +226,55 @@ function portal_desktop_handoff_envelope(array $original,int $now):array
 {
     // The Companion keeps its own sign-in for 30 days from this approval. That deadline is fixed and
     // never moves. It renews silently in 30-minute leases, and every renewal rechecks revocation.
+    // Only the Companion window that holds this pairing's proof receives it (portal_desktop_handoff_take);
+    // a browser that merely knows the pairing id keeps the web sign-in's own deadline, web_authority.
     $authority=$original;$authority['expires_at']=$now+PORTAL_DESKTOP_AUTHORITY_SECONDS;
     $identity=$authority;$identity['expires_at']=$now+1800;
+    return ['version'=>1,'identity'=>$identity,'authority'=>$authority,'web_authority'=>$original];
+}
+/** The proof Milepost puts in the Windows Companion's portal URL fragment, never sent by a browser
+ * that only learned the pairing id. Both sides derive it from the shared signed-service secret. */
+function portal_desktop_companion_proof_valid(string $pair,mixed $proof):bool
+{
+    $config=cfg('desktop_companion',[]);
+    if(!portal_desktop_id($pair)||!is_string($proof)||preg_match('/\A[a-f0-9]{64}\z/D',$proof)!==1||!is_array($config)
+        ||!is_string($config['service_secret']??null)||preg_match('/\A[a-f0-9]{64}\z/D',$config['service_secret'])!==1)return false;
+    return hash_equals(hash_hmac('sha256','westy-companion-portal-proof-v1:'.$pair,$config['service_secret']),$proof);
+}
+/**
+ * The envelope a take may install. With the Companion's proof: the 30-day authority. Without it:
+ * the same identity, but no later than the web sign-in it was approved from (at most 8 h).
+ */
+function portal_desktop_handoff_grant(array $envelope,bool $companion):array
+{
+    if($companion)return $envelope;
+    $authority=$envelope['authority'];
+    $webEnd=is_int($envelope['web_authority']['expires_at']??null)?$envelope['web_authority']['expires_at']
+        :(int)($authority['issued_at']??0)+PORTAL_SESSION_MAX_SECONDS;
+    $authority['expires_at']=min((int)$authority['expires_at'],$webEnd);
+    $identity=$envelope['identity'];$identity['expires_at']=min((int)$identity['expires_at'],$authority['expires_at']);
     return ['version'=>1,'identity'=>$identity,'authority'=>$authority];
+}
+/** The pairing a still-pending handoff is for, so the sign-in page can show which computer it is. */
+function portal_desktop_handoff_pairing(PDO $pdo,string $id):string
+{
+    if(!portal_desktop_id($id))throw new PortalDesktopException('invalid_request',400);
+    $q=$pdo->prepare("SELECT pairing_id FROM portal_desktop_handoffs WHERE handoff_id=? AND state='pending' AND expires_at>UTC_TIMESTAMP()");
+    $q->execute([$id]);$pair=$q->fetchColumn();
+    if(!is_string($pair)||!portal_desktop_id($pair))throw new PortalDesktopException('pairing_used');
+    return $pair;
+}
+/** The computer's name, from Milepost, or null when Milepost cannot say (an older release or an
+ * outage): the page then still works without it. A clear refusal is shown at once instead. */
+function portal_desktop_preview(array $context,string $pair,?callable $transport=null):?string
+{
+    try{$state=portal_desktop_request($context,'preview',['session_id'=>$pair],$transport);}
+    catch(PortalDesktopException $error){
+        if($error->requestRejected&&!in_array($error->reason,['desktop_unavailable','cleanup_unavailable'],true))throw $error;
+        return null;
+    }
+    $name=$state['device_name']??null;
+    return ($state['session_id']??null)===$pair&&is_string($name)&&trim($name)!==''&&strlen($name)<=200?trim($name):null;
 }
 /**
  * What the person sees when connecting a Westy window fails, in plain words. Never names the
@@ -267,7 +313,7 @@ function portal_desktop_handoff_completed(PDO $pdo,mixed $id,?string $csrf=null,
     $context=portal_authenticated_context($pdo,$revocationCheck,null,$accessTransport);
     return $context!==null&&hash_equals($receipt['identity_hash'],hash('sha256',json_encode($context['identity'],JSON_THROW_ON_ERROR)));
 }
-function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCheck=null,?callable $accessTransport=null):bool
+function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCheck=null,?callable $accessTransport=null,mixed $companionProof=null):bool
 {
     if(!portal_desktop_id($id))throw new PortalDesktopException('invalid_request',400);
     if(portal_desktop_handoff_completed($pdo,$id,null,$revocationCheck,$accessTransport))return true;
@@ -280,6 +326,7 @@ function portal_desktop_handoff_take(PDO $pdo,string $id,?callable $revocationCh
         if($row['state']!=='approved')throw new PortalDesktopException('pairing_used');
         $envelope=json_decode($row['identity_json'],true,16,JSON_THROW_ON_ERROR);
         $renewable=($envelope['version']??null)===1&&is_array($envelope['identity']??null)&&is_array($envelope['authority']??null);
+        if($renewable)$envelope=portal_desktop_handoff_grant($envelope,portal_desktop_companion_proof_valid($row['pairing_id'],$companionProof));
         $identity=$renewable?$envelope['identity']:$envelope;
         // Mint a new server session from the explicitly approved server identity.
         // No browser cookie, OIDC token or secret is copied into the native process.
