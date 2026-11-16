@@ -239,10 +239,11 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
     };
     // A desktop request budgeted like every other: its cost is what it took beyond the hold
     // it asked for, so waiting on a result never makes later requests look slower.
-    $request=static function(string $action,array $input,int $held)use($context,$transport,&$cost):array{
+    $took=0.0;
+    $request=static function(string $action,array $input,int $held)use($context,$transport,&$cost,&$took):array{
         $from=microtime(true);
         try{return portal_desktop_request($context,$action,$input+($held>0?['wait_ms'=>$held]:[]),$transport);}
-        finally{$cost['request']=max($cost['request'],microtime(true)-$from-$held/1000);}
+        finally{$took=microtime(true)-$from;$cost['request']=max($cost['request'],$took-$held/1000);}
     };
     // Content-free timings in whole milliseconds keep a refusal or a slow receipt
     // visible in the record.
@@ -297,8 +298,16 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
                 }
             }
             $receipt=$next;$next=null;
-            // Still running. A request that already waited on Milepost asks again at once.
-            if(in_array($receipt['state']??null,['queued','claimed'],true)){if($held===0)usleep(200000);continue;}
+            // Still running. Without a wait the next read comes 200 ms later, exactly as
+            // before. A request that really waited on Milepost has spent that time already.
+            // One that asked to wait and was answered at once (no place was free, or holds
+            // are off) waits out the rest of the 200 ms, so asking to wait never turns into
+            // asking more often.
+            if(in_array($receipt['state']??null,['queued','claimed'],true)){
+                if($held===0)usleep(200000);
+                elseif($took<0.2)usleep((int)((0.2-$took)*1000000));
+                continue;
+            }
             if(($receipt['result']['contract']??null)==='westy-cua-v1'){
                 $returned=($receipt['result']['state']??null)==='returned';
                 $public=['state'=>$receipt['result']['state'],'action_id'=>$actionId,

@@ -50,12 +50,26 @@ check($waited['public_result']['state']==='returned'&&array_column($GLOBALS['wir
     &&$sent('cua')[0]['input']['wait_ms']===PORTAL_WESTY_CUA_HOLD_MS&&!array_key_exists('observe',$sent('cua')[0]['input'])
     &&($waited['private_observation']['structured']??null)!==null&&count($waited['images'])===1,
     'one request queues the call and returns its result, with no receipt polling');
-// A wait that ran out: the receipt read waits too, and nothing sleeps between requests.
+// A wait that ran out: the receipt read waits too. Milepost held each of these requests
+// (250 ms here), so nothing sleeps between them.
 $serve(['state'=>'queued'],[['state'=>'claimed','result'=>null],$final()]);
+$instant=$GLOBALS['service'];
+$GLOBALS['service']=static function($c,string $action,array $input)use($instant):array{
+    $reply=$instant($c,$action,$input);
+    if(in_array($reply['state']??null,['queued','claimed'],true))usleep(250000);
+    return $reply;
+};
 $from=microtime(true);$later=portal_westy_cua_tool($context,'cua_click',$click,$alive);$took=microtime(true)-$from;
 check($later['public_result']['state']==='returned'&&array_column($GLOBALS['wire'],'action')===['cua','cua_result','cua_result']
-    &&$sent('cua_result')[0]['input']['wait_ms']===PORTAL_WESTY_CUA_HOLD_MS&&$sent('cua_result')[1]['input']['wait_ms']===PORTAL_WESTY_CUA_HOLD_MS&&$took<0.15,
-    'a call still running is waited for on Milepost, not asked about every 200 ms');
+    &&$sent('cua_result')[0]['input']['wait_ms']===PORTAL_WESTY_CUA_HOLD_MS&&$sent('cua_result')[1]['input']['wait_ms']===PORTAL_WESTY_CUA_HOLD_MS&&$took<0.8,
+    'a call still running is waited for on Milepost, with no extra pause between requests');
+// Milepost had no place to hold the request, or holds are off: it answers at once. The reads
+// then keep their 200 ms spacing (one pending read here), so asking to wait never becomes
+// asking more often.
+$serve(['state'=>'queued'],[['state'=>'claimed','result'=>null],$final()]);
+$from=microtime(true);$unheld=portal_westy_cua_tool($context,'cua_click',$click,$alive);$took=microtime(true)-$from;
+check($unheld['public_result']['state']==='returned'&&array_column($GLOBALS['wire'],'action')===['cua','cua_result','cua_result']&&$took>=0.18,
+    'a waiting request that Milepost answers at once is not followed by a faster one');
 check(is_int($later['public_result']['timing']['queue_ms']??null)&&is_int($later['public_result']['timing']['wait_ms']??null),'the receipt keeps its timing');
 // A read that did not answer changed nothing, so the model may read again.
 $serve(['state'=>'queued'],[['state'=>'refused','result'=>['reason'=>'cua_read_timeout']]]);
