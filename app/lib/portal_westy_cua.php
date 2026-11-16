@@ -30,6 +30,11 @@ const PORTAL_WESTY_CUA_SLOW_WAIT=20.0;
 const PORTAL_WESTY_CUA_SLOW_TOOLS=['cua_launch_app','cua_browser_prepare','cua_browser_navigate'];
 /** Spare time kept after the scoped Stop. */
 const PORTAL_WESTY_CUA_HEADROOM=4.0;
+/** The longest one request waits on Milepost for a result. Short, so the turn's own Stop is
+ * still read between requests within seconds. */
+const PORTAL_WESTY_CUA_HOLD_MS=3000;
+/** What Milepost and the paired Companion offer beyond the first Cua contract. */
+const PORTAL_WESTY_CUA_FEATURES=['cua_wait','cua_observe'];
 const PORTAL_WESTY_CUA_EVIDENCE_BYTES=24000;
 const PORTAL_WESTY_CUA_TEXT_BYTES=8000;
 const PORTAL_WESTY_CUA_TOOLS=['cua_list_windows','cua_launch_app','cua_window_state','cua_click','cua_type_text','cua_set_value',
@@ -42,7 +47,38 @@ const PORTAL_WESTY_CUA_KEYS=['enter','return','tab','escape','esc','space','back
 /** A pre-dispatch refusal. Its message is server-written correction guidance for the model. */
 final class PortalWestyCuaRejected extends RuntimeException {}
 
-function portal_westy_cua_definitions():array
+/** The features Milepost reported for this pairing in its last state reply of this request.
+ * Nothing is assumed: a pairing that was never reported, or an older Milepost, has none. */
+function portal_westy_cua_features(string $session,mixed $report=false):array
+{
+    static $known=[];
+    if($report!==false)$known[$session]=is_array($report)?array_values(array_intersect(PORTAL_WESTY_CUA_FEATURES,$report)):[];
+    return $known[$session]??[];
+}
+
+/** The read that rides with an action, so its result and the new screen come back together:
+ * the same window or the same page tab the action named. Reads, launches and browser setup
+ * carry none. */
+function portal_westy_cua_observe(string $tool,array $request):?array
+{
+    $a=$request['arguments']??[];
+    $read=match(true){
+        in_array($tool,['cua_click','cua_type_text','cua_set_value','cua_press_keys','cua_scroll'],true)&&isset($a['pid'],$a['window_id'])
+            =>['name'=>'get_window_state','settle_ms'=>350,'arguments'=>['pid'=>$a['pid'],'window_id'=>$a['window_id'],
+                'include_screenshot'=>true,'max_elements'=>150,'max_image_dimension'=>1280]],
+        in_array($tool,['cua_browser_click','cua_browser_type','cua_browser_navigate'],true)&&isset($a['target_id'],$a['tab_id'])
+            =>['name'=>'get_browser_state','settle_ms'=>$tool==='cua_browser_navigate'?1500:400,
+                'arguments'=>['target_id'=>$a['target_id'],'tab_id'=>$a['tab_id'],'snapshot_format'=>'semantic_v2']],
+        default=>null,
+    };
+    if($read===null)return null;
+    return ['params_json'=>json_encode(['name'=>$read['name'],'arguments'=>(object)$read['arguments']],JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE),
+        'settle_ms'=>$read['settle_ms']];
+}
+
+/** With $observes, the paired Companion returns the new screen with each action, and the
+ * tools say so: the model then has no reason to spend a round asking for it. */
+function portal_westy_cua_definitions(bool $observes=false):array
 {
     $object=static fn(array $properties,array $required):array=>['type'=>'object','properties'=>$properties,'required'=>$required,'additionalProperties'=>false];
     $pid=['type'=>'integer','description'=>'Process id (pid) from cua_list_windows or cua_launch_app.'];
@@ -53,7 +89,7 @@ function portal_westy_cua_definitions():array
     $delivery=['type'=>'string','enum'=>['background','foreground'],'description'=>'Default background. Use foreground only to retry one action that returned background_unavailable.'];
     $tab=['target_id'=>['type'=>'string','description'=>'target_id from cua_browser_state.'],'tab_id'=>['type'=>'string','description'=>'tab_id from cua_browser_state.']];
     $ref=['type'=>'string','description'=>'A current ref from the latest cua_browser_state snapshot of this tab.'];
-    return [
+    $tools=[
         ['name'=>'cua_list_windows','description'=>'List open windows with their pid, window_id, app and title. Use it to find the exact window for the request.',
             'input_schema'=>$object(['pid'=>['type'=>'integer','description'=>'Optional: only windows of this process.'],
                 'on_screen_only'=>['type'=>'boolean','description'=>'Optional: only visible windows.']],[])],
@@ -96,6 +132,14 @@ function portal_westy_cua_definitions():array
             'input_schema'=>$object($tab+['ref'=>$ref,'text'=>['type'=>'string'],'replace'=>['type'=>'boolean'],
                 'mode'=>['type'=>'string','enum'=>['insert_text','keystrokes']]],['target_id','tab_id','ref','text'])],
     ];
+    if(!$observes)return $tools;
+    foreach($tools as &$tool){
+        if(in_array($tool['name'],['cua_click','cua_type_text','cua_set_value','cua_press_keys','cua_scroll'],true))
+            $tool['description'].=' The result includes screen_after: this window\'s new screenshot, controls and element tokens. Use it for the next step; do not call cua_window_state just to see the result.';
+        if(in_array($tool['name'],['cua_browser_click','cua_browser_type','cua_browser_navigate'],true))
+            $tool['description'].=' The result includes screen_after: this tab\'s new page outline and refs. Use it for the next step; do not call cua_browser_state just to see the result.';
+    }unset($tool);
+    return $tools;
 }
 
 function portal_westy_cua_reject(string $message):never{throw new PortalWestyCuaRejected($message);}
@@ -397,12 +441,18 @@ function portal_westy_cua_guidance(array $public):string
             ?'The driver acknowledged this call, but its result was lost, so its effect is unknown. Do not repeat it. Observe again before reporting any outcome.'
             :(($public['driver_error']??false)
                 ?'The driver did not complete this call. Read its error and correct the call or observe again; do not repeat it unchanged.'
-                :'The driver returned a result. That alone does not prove the requested outcome; observe again to verify it before reporting success.'),
+                // The read that rode with the action is the fresh evidence; no separate read is needed.
+                :(($public['observed_after']??false)===true
+                    ?'The driver returned a result, and screen_after shows the window or page as it is now. Check it to verify the outcome before reporting success, and use its tokens or refs for the next step.'
+                    :'The driver returned a result. That alone does not prove the requested outcome; observe again to verify it before reporting success.')),
         'rejected'=>'Not sent. Correct the arguments and try again.',
         // The access check before sending failed, so nothing reached the computer.
-        'refused'=>($public['reason']??null)==='connection_unavailable'
-            ?'Not sent: the check before sending could not complete, so nothing ran. Send the same call again.'
-            :'Not run. Do not repeat it unchanged; explain the reason or choose another supported step.',
+        'refused'=>match($public['reason']??null){
+            'connection_unavailable'=>'Not sent: the check before sending could not complete, so nothing ran. Send the same call again.',
+            // A read changes nothing on the computer, so one that did not answer can be asked again.
+            'cua_read_timeout'=>'The screen read did not answer, and it changed nothing on the computer. Read again.',
+            default=>'Not run. Do not repeat it unchanged; explain the reason or choose another supported step.',
+        },
         'cancelled'=>'Cancelled before it ran. Do not repeat it unless the person asks again.',
         default=>'The outcome is unknown and computer control may have stopped. Do not repeat this call. Observe first if control is still available.',
     };
@@ -446,10 +496,18 @@ function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,call
         $public=['state'=>'rejected','reason'=>'invalid_arguments','executed'=>false,'correction_allowed'=>true,'retry_allowed'=>false];
         return ['public_result'=>$public+['guidance'=>portal_westy_cua_clip(portal_westy_cua_guidance($public).' '.$error->getMessage(),400)]];
     }
-    $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport,$deadline,portal_westy_cua_wait($tool));
+    // Only a pairing whose Companion returns the new screen with an action is asked to.
+    $session=$context['desktop']['session_id']??null;
+    $observe=is_string($session)&&in_array('cua_observe',portal_westy_cua_features($session),true)?portal_westy_cua_observe($tool,$request):null;
+    $dispatch=portal_westy_cua_dispatch($context,['method'=>'tools/call','params_json'=>$params],$alive,$transport,$deadline,portal_westy_cua_wait($tool),$observe);
     if(($dispatch['not_sent']??false)===true)return ['not_sent'=>true,'timing'=>$dispatch['timing']??[]];
     $response=$dispatch['private_observation']['cua']??null;$response=is_array($response)?$response:null;
+    $after=$dispatch['after']['private_observation']['cua']??null;$after=is_array($after)?$after:null;
     $public=$dispatch['public_result']+$request['public']+portal_westy_cua_facts($response);
+    // Whether the new screen came back with the action. When it did not, the model reads it itself.
+    if($observe!==null&&($public['state']??null)==='returned'&&($public['driver_error']??false)!==true)$public['observed_after']=$after!==null;
+    // A read that did not answer changed nothing, so it may be asked again.
+    if(($public['state']??null)==='refused'&&($public['reason']??null)==='cua_read_timeout')$public['retry_allowed']=true;
     // Token-shaped text can still be private content. Never treat a regex match
     // as membership in the server-owned reason vocabulary.
     $reasons=['response_unavailable','result_unknown','connection_unknown','connection_unavailable','invalid_response',
@@ -460,11 +518,20 @@ function portal_westy_cua_tool(array $context,string $tool,mixed $arguments,call
         'execution_unresolved','execution_busy','support_busy','cleanup_unavailable','approval_required','tool_restriction',
         'approval_changed','preferences_changed','review_changed','desktop_upgrade_required','cua_unavailable',
         'cua_interrupted','cua_runtime_unavailable','cua_runtime_invalid','cua_protocol_invalid','cua_catalog_invalid','cua_session_unavailable','cua_parameters_invalid',
-        'cua_disconnected','cua_response_too_large','cua_response_mismatch','customer_unavailable','sign_in','unrecognized'];
+        'cua_disconnected','cua_response_too_large','cua_response_mismatch','cua_read_timeout','customer_unavailable','sign_in','unrecognized'];
     if(($public['reason']??null)!==null&&!in_array($public['reason'],$reasons,true))$public['reason']='unrecognized';
     if(!in_array($public['state']??null,['returned','refused','cancelled','unknown'],true))$public['state']='unknown';
     $public['guidance']=portal_westy_cua_guidance($public);
     $result=['public_result'=>$public,'images'=>$dispatch['images']??[]];
-    if(($public['state']??null)==='returned')$result['private_observation']=portal_westy_cua_evidence($response,count($result['images']));
+    if(($public['state']??null)==='returned'){
+        $result['private_observation']=portal_westy_cua_evidence($response,count($result['images']));
+        // The new screen is bounded exactly like a read the model asks for itself, and its
+        // screenshot is the newest image of this result.
+        if($after!==null&&($public['observed_after']??false)===true){
+            $seen=$dispatch['after']['images']??[];
+            $result['private_observation']['screen_after']=portal_westy_cua_evidence($after,count($seen));
+            array_push($result['images'],...$seen);
+        }
+    }
     return $result;
 }
