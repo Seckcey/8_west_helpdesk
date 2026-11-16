@@ -82,9 +82,10 @@ $post = substr($page, strpos($page, "==='POST'"), strpos($page, "!=='GET'") - st
 $get = substr($page, strpos($page, "!=='GET'"));
 staff_check(str_contains($post, 'portal_access_select_for_pairing(') && str_contains($post, 'portal_desktop_handoff_approve(db(),$context,$id,$webOnly)')
     && str_contains($post, '$webOnly=$selected[\'automatic\'];')
-    && str_contains($post, "\$webOnly=portal_access_resolve(portal_access_principal(\$context['identity']),\$context['identity']['customer_access'])['automatic'];")
+    && str_contains($post, "\$resolved=portal_access_resolve(portal_access_principal(\$context['identity']),\$context['identity']['customer_access']);")
+    && str_contains($post, "\$webOnly=\$resolved['item']!=\$context['identity']['customer_access'] || \$resolved['automatic'];")
     && str_contains($post, 'catch(PortalDevicesException){$webOnly=true;}'),
-    'Connect switches to the computer\'s company and approves automatic staff access with the web deadline');
+    'Connect switches to the computer\'s company, and keeps the web deadline for automatic access or an answer about other access');
 staff_check(!str_contains($get, 'portal_access_select') && str_contains($get, 'portal_access_preview_for_pairing('),
     'a plain GET only shows the computer\'s company and never switches the session');
 echo "PASS $checks staff pairing access assertions\n";
