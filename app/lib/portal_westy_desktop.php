@@ -16,8 +16,11 @@ function portal_desktop_id(mixed $value):bool
 function portal_desktop_transport(string $body,array $headers):array
 {
     $ch=curl_init(PORTAL_DESKTOP_ENDPOINT);$response='';$large=false;
-    $action=json_decode($body,true,32,JSON_THROW_ON_ERROR)['action']??'';
+    $request=json_decode($body,true,32,JSON_THROW_ON_ERROR);$action=$request['action']??'';
     $deadline=in_array($action,['terminal_review','terminal_input','action','launch'],true)?45:8;
+    // A request that asks Milepost to wait for a result gets that wait on top of its usual limit.
+    $held=$request['input']['wait_ms']??0;
+    if(is_int($held)&&$held>0)$deadline+=(int)ceil(min($held,60000)/1000);
     curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$body,CURLOPT_HTTPHEADER=>$headers,
         CURLOPT_CONNECTTIMEOUT=>3,CURLOPT_TIMEOUT=>$deadline,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,
         CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,
@@ -129,7 +132,9 @@ function portal_westy_desktop_definitions(PDO $pdo,array $context,?callable $tra
         // Typed tools replace the raw MCP relay: reading the driver catalog and its
         // guides consumed every round before the model could act.
         $availability='available_cua';
-        return [...portal_westy_cua_definitions(),
+        // What Milepost and this pairing's Companion offer, as of this state reply.
+        $features=portal_westy_cua_features($task['session_id'],$state['desktop_features']??null);
+        return [...portal_westy_cua_definitions(in_array('cua_observe',$features,true)),
             ['name'=>'desktop_stop','description'=>'Stop this computer task and revoke pending work.','input_schema'=>$empty]];
     }
     $definitions=[
@@ -210,9 +215,10 @@ function portal_westy_cua_response(array $response):array
     return ['private_observation'=>['cua'=>$response],'images'=>$images];
 }
 function portal_westy_cua_dispatch(array $context,array $arguments,callable $alive,?callable $transport,?float $deadline=null,
-    float $wait=PORTAL_WESTY_CUA_MIN_WAIT):array
+    float $wait=PORTAL_WESTY_CUA_MIN_WAIT,?array $observe=null):array
 {
     $task=portal_desktop_task($context);$identity=['session_id'=>$task['session_id'],'task_id'=>$task['task_id']];
+    $features=portal_westy_cua_features($task['session_id']);
     $dispatched=false;$actionId=null;$returned=false;$sentAt=null;$queuedAt=null;
     // One rule admits the call and decides every receipt poll: one more poll and the
     // scoped Stop must fit before the attempt deadline. Checks and polls are budgeted
@@ -225,6 +231,24 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
     $measured=static function(string $kind,callable $call)use(&$cost):mixed{
         $from=microtime(true);
         try{return $call();}finally{$cost[$kind]=max($cost[$kind],microtime(true)-$from);}
+    };
+    // A Milepost that offers cua_wait holds a request until the result arrives, so the receipt
+    // is not asked for every 200 ms. One request holds at most PORTAL_WESTY_CUA_HOLD_MS, so the
+    // turn's own Stop is still read between requests, and only while that hold, one more
+    // request and the scoped Stop all fit before the attempt deadline. Without the feature, or
+    // without the room, the hold is 0: the request answers at once and the loop polls as before.
+    $hold=static function()use($features,$deadline,&$cost):int{
+        if(!in_array('cua_wait',$features,true))return 0;
+        $spare=$deadline===null?PORTAL_WESTY_CUA_HOLD_MS/1000:$deadline-microtime(true)-portal_westy_cua_need($cost,0,1);
+        return (int)max(0,min(PORTAL_WESTY_CUA_HOLD_MS,floor($spare*1000)));
+    };
+    // A desktop request budgeted like every other: its cost is what it took beyond the hold
+    // it asked for, so waiting on a result never makes later requests look slower.
+    $took=0.0;
+    $request=static function(string $action,array $input,int $held)use($context,$transport,&$cost,&$took):array{
+        $from=microtime(true);
+        try{return portal_desktop_request($context,$action,$input+($held>0?['wait_ms'=>$held]:[]),$transport);}
+        finally{$took=microtime(true)-$from;$cost['request']=max($cost['request'],$took-$held/1000);}
     };
     // Content-free timings in whole milliseconds keep a refusal or a slow receipt
     // visible in the record.
@@ -247,32 +271,48 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
         // Checked again at the moment of sending, now with that check's actual cost.
         $need=portal_westy_cua_need($cost,0,2,$wait);
         if(!$fits($need))return $notSent($need);
-        $dispatched=true;$sentAt=microtime(true);
-        $queued=$measured('request',static fn()=>portal_desktop_request($context,'cua',
-            $identity+['request_key'=>bin2hex(random_bytes(16))]+$arguments,$transport));
+        $dispatched=true;$sentAt=microtime(true);$held=$hold();
+        // The read that rides with the action is sent only to a pairing that returns it.
+        $queued=$request('cua',$identity+['request_key'=>bin2hex(random_bytes(16))]+$arguments
+            +($observe!==null&&in_array('cua_observe',$features,true)?['observe'=>$observe]:[]),$held);
         if(!portal_desktop_id($queued['action_id']??null))throw new PortalDesktopException('invalid_response');
         $actionId=$queued['action_id'];$started=$queuedAt=microtime(true);$readFailures=0;
-        while(microtime(true)-$started<58&&$fits(portal_westy_cua_need($cost,0,1))){
-            // A full check starts only while its own worst case still fits, and within a
-            // second of the last one alive(false) reuses it. Past that point alive(null)
-            // still reads the kill switch and the turn's own Stop locally before every
-            // poll, and every poll still reads membership.
-            if($fits(max($cost['check'],$cost['check_worst'])+portal_westy_cua_need($cost,0,1))){
-                if(!$measured('check',static fn()=>$alive(false)))throw new PortalDesktopException('task_stopped');
-            }elseif(!$alive(null))throw new PortalDesktopException('task_stopped');
-            if(!$fits(portal_westy_cua_need($cost,0,1)))break;
-            try{
-                $receipt=$measured('request',static fn()=>portal_desktop_request($context,'cua_result',$identity+['action_id'=>$actionId],$transport));
-            }catch(PortalDesktopException|\JsonException $error){
-                // Reading the receipt is safe to repeat: a read that did not run or was
-                // lost in transit is asked again while the wait lasts. An explicit
-                // refusal or an ended sign-in still ends the wait.
-                if($error instanceof PortalDesktopException&&!in_array($error->reason,['connection_unavailable','connection_unknown','desktop_unavailable','invalid_response'],true))throw $error;
-                if($error instanceof PortalDesktopException&&$error->requestRejected&&$error->reason!=='connection_unavailable')throw $error;
-                // Back off so an identity or network outage is not read four times a second.
-                usleep(min(1000000,200000*++$readFailures));continue;
+        // A queue request that waited may already carry the receipt.
+        $next=is_array($queued['receipt']??null)?$queued['receipt']:null;
+        while($next!==null||(microtime(true)-$started<58&&$fits(portal_westy_cua_need($cost,0,1)))){
+            if($next===null){
+                // A full check starts only while its own worst case still fits, and within a
+                // second of the last one alive(false) reuses it. Past that point alive(null)
+                // still reads the kill switch and the turn's own Stop locally before every
+                // poll, and every poll still reads membership.
+                if($fits(max($cost['check'],$cost['check_worst'])+portal_westy_cua_need($cost,0,1))){
+                    if(!$measured('check',static fn()=>$alive(false)))throw new PortalDesktopException('task_stopped');
+                }elseif(!$alive(null))throw new PortalDesktopException('task_stopped');
+                if(!$fits(portal_westy_cua_need($cost,0,1)))break;
+                $held=$hold();
+                try{
+                    $next=$request('cua_result',$identity+['action_id'=>$actionId],$held);
+                }catch(PortalDesktopException|\JsonException $error){
+                    // Reading the receipt is safe to repeat: a read that did not run or was
+                    // lost in transit is asked again while the wait lasts. An explicit
+                    // refusal or an ended sign-in still ends the wait.
+                    if($error instanceof PortalDesktopException&&!in_array($error->reason,['connection_unavailable','connection_unknown','desktop_unavailable','invalid_response'],true))throw $error;
+                    if($error instanceof PortalDesktopException&&$error->requestRejected&&$error->reason!=='connection_unavailable')throw $error;
+                    // Back off so an identity or network outage is not read four times a second.
+                    usleep(min(1000000,200000*++$readFailures));continue;
+                }
             }
-            if(in_array($receipt['state']??null,['queued','claimed'],true)){usleep(200000);continue;}
+            $receipt=$next;$next=null;
+            // Still running. Without a wait the next read comes 200 ms later, exactly as
+            // before. A request that really waited on Milepost has spent that time already.
+            // One that asked to wait and was answered at once (no place was free, or holds
+            // are off) waits out the rest of the 200 ms, so asking to wait never turns into
+            // asking more often.
+            if(in_array($receipt['state']??null,['queued','claimed'],true)){
+                if($held===0)usleep(200000);
+                elseif($took<0.2)usleep((int)((0.2-$took)*1000000));
+                continue;
+            }
             if(($receipt['result']['contract']??null)==='westy-cua-v1'){
                 $returned=($receipt['result']['state']??null)==='returned';
                 $public=['state'=>$receipt['result']['state'],'action_id'=>$actionId,
@@ -280,7 +320,13 @@ function portal_westy_cua_dispatch(array $context,array $arguments,callable $ali
                     'reason'=>$receipt['result']['reason']??null]+$timing();
                 if(is_array($receipt['response']??null)){
                     if($returned)$public['guidance']='The driver returned a result. Verify the requested outcome before reporting it. Do not repeat uncertain effects.';
-                    return ['public_result'=>$public]+portal_westy_cua_response($receipt['response']);
+                    $out=['public_result'=>$public]+portal_westy_cua_response($receipt['response']);
+                    // The read that rode with the action: the window or page as it is now. A
+                    // read that is missing or unusable is left out; the action's result stands.
+                    if($returned&&is_array($receipt['observation']??null)){
+                        try{$out['after']=portal_westy_cua_response($receipt['observation']);}catch(PortalDesktopException){}
+                    }
+                    return $out;
                 }
                 if($returned){$public['reason']='response_unavailable';$public['guidance']='The driver acknowledged this call, but its result was lost, so its effect is unknown. Do not repeat it.';}
                 return ['public_result'=>$public];

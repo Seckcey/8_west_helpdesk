@@ -767,4 +767,5 @@ foreach([[200,50000,null],[200,63000,'input_limit'],[503,0,'input_count_unavaila
     if($expectedReason!==null)check(count($out['result']['rounds'])===3&&$out['result']['usage']===null&&$out['result']['cost_micro_usd']===null,
         'refused round keeps the paid receipts and existing unknown-usage accounting: '.$label);
 }
+require __DIR__.'/portal_westy_cua_wait_cases.php';
 echo "PASS $checks desktop/Cua input-count assertions (synthetic boundaries only)\n";
