@@ -19,9 +19,17 @@ try{
         portal_page_end();exit;
     }
     if(($_SERVER['REQUEST_METHOD']??'GET')!=='GET')throw new PortalDesktopException('method',405);
+    $pair=portal_desktop_handoff_pairing(db(),$id);
+    // MSP staff act for the computer's own company (Frank, 2026-11-15): Milepost names it and the
+    // browser switches to it here, before the approval form is drawn. Others are unaffected.
+    if(array_key_exists('customer_access',$context['identity'])
+        && portal_access_select_for_pairing(db(),$context['identity'],$pair)!==null){
+        $context=portal_authenticated_context(db());
+        if($context===null){portal_require_sign_in();exit;}
+    }
     // Name the computer, so a person sent someone else's link can tell it isn't theirs. Milepost
     // refuses another company's computer or a pairing already in use here, before anything changes.
-    $computer=portal_desktop_preview($context,portal_desktop_handoff_pairing(db(),$id));
+    $computer=portal_desktop_preview($context,$pair);
     portal_page_start('Connect your Westy window');
     ?>
 <main class="page page-narrow"><h1><?=$computer===null?'Connect your Westy window':'Connect Westy on '.portal_h($computer)?></h1>

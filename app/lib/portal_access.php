@@ -94,6 +94,43 @@ function portal_identity_binding(PDO $pdo,array $identity,?callable $transport=n
     return null; // A vanished membership never selects another customer.
 }
 
+/**
+ * MSP staff on a client's computer (Frank, 2026-11-15): ask Milepost which company's access this
+ * staff member needs to connect one Westy Companion pairing. Milepost answers only for the staff of
+ * the computer's own provider, with an explicit grant if one exists, otherwise their automatic one.
+ */
+function portal_access_for_pairing(array $principal,string $pair,?callable $transport=null): array
+{
+    require_once __DIR__.'/portal_devices.php';
+    if(preg_match('/\A[a-f0-9]{32}\z/D',$pair)!==1)throw new PortalDevicesException('customer_access_unavailable');
+    $config=portal_devices_config();
+    $actor=[];
+    foreach(['subject','session_version','identity_tenant_slug','role'] as $key)$actor[$key]=$principal[$key]??null;
+    $body=json_encode(['action'=>'staff_pairing_scope','scope'=>$actor,'input'=>['session_id'=>$pair]],JSON_THROW_ON_ERROR);
+    $timestamp=(string)time();$nonce=bin2hex(random_bytes(16));
+    $preimage=PORTAL_DEVICES_CONTEXT."\nPOST\n/api/svc/customer_portal.php\n".$timestamp."\n".$nonce."\n".hash('sha256',$body);
+    $headers=['Content-Type: application/json','X-Portal-Timestamp: '.$timestamp,'X-Portal-Nonce: '.$nonce,
+        'X-Portal-Signature: '.hash_hmac('sha256',$preimage,$config['secret'])];
+    $response=($transport??'portal_devices_transport')($config['endpoint'],$body,$headers);
+    try{$result=json_decode($response['body'],true,12,JSON_THROW_ON_ERROR);}catch(Throwable){throw new PortalDevicesException('customer_access_unavailable');}
+    if(($response['status']??0)!==200 || ($result['ok']??null)!==true || ($result['contract']??null)!==PORTAL_DEVICES_CONTEXT
+        || !is_array($result['result']??null) || !portal_devices_keys($result['result'],['item'])
+        || !portal_access_shape($result['result']['item'],$principal))throw new PortalDevicesException('customer_access_unavailable');
+    try{portal_identity_tenant_slug($result['result']['item']['identity_tenant_slug']);}
+    catch(Throwable){throw new PortalDevicesException('customer_access_unavailable');}
+    return $result['result']['item'];
+}
+
+/** Select the computer's company for a staff signer, or return null when Milepost says no. */
+function portal_access_select_for_pairing(PDO $pdo,array $principal,string $pair,?callable $transport=null): ?array
+{
+    unset($principal['binding_id'],$principal['tenant_id'],$principal['client_id'],$principal['customer_access']);
+    try{
+        $choice=portal_access_for_pairing($principal,$pair,$transport);
+        return portal_access_select($pdo,$principal,$choice['access']['reference'],$choice['access']['generation'],$transport);
+    }catch(PortalDevicesException|PortalAuthenticationRejectedException){return null;}
+}
+
 function portal_access_select(PDO $pdo,array $principal,string $reference,int $generation,?callable $transport=null): array
 {
     $selected=null;

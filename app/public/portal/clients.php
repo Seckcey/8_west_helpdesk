@@ -21,6 +21,16 @@ try {
     if(($principal['expires_at']??0)<=time() || portal_oidc_client()->isRevoked($principal['subject'],$principal['session_version'])){
         portal_destroy_session();portal_require_sign_in();exit;
     }
+    // Connecting a Westy Companion: an MSP staff member gets the computer's own company selected for
+    // them, with no picker (Frank, 2026-11-15). Anyone else, or any refusal, sees the picker as before.
+    if(($_SERVER['REQUEST_METHOD']??'')==='GET'
+        && preg_match('#\A/portal/desktop_authorize\.php\?handoff=([a-f0-9]{32})\z#D',$destination,$handoff)===1){
+        require_once __DIR__.'/../../lib/portal_desktop_sessions.php';
+        try{$pair=portal_desktop_handoff_pairing(db(),$handoff[1]);}catch(PortalDesktopException){$pair=null;}
+        if($pair!==null && portal_access_select_for_pairing(db(),$principal,$pair)!==null){
+            header('Cache-Control: no-store');header('Location: '.$destination,true,303);exit;
+        }
+    }
     $choices=portal_access_choices(db(),$principal);
     if(($_SERVER['REQUEST_METHOD']??'')==='POST'){
         if(!portal_devices_keys($_POST,['csrf','reference','generation']) || !portal_csrf_valid($_POST['csrf']??null) || !is_string($_POST['reference']??null)
