@@ -2166,7 +2166,9 @@ if (!SERVE_MODE) test('the Companion window sends its fragment proof with the ha
         return route.fulfill({contentType:'text/html',body:`<!doctype html><title>Westy sign-in fixture</title><main id="desktop-handoff" data-csrf="fixture-csrf" data-handoff="${'a'.repeat(32)}"><p id="desktop-handoff-status">Waiting</p></main><script>${script}</script>`});
       });
       await page.goto(ORIGIN+'/portal/desktop.php'+hash);await page.getByText('Waiting for sign-in to finish.',{exact:true}).waitFor();
-      assert.deepEqual(body,expected);await page.close();
+      assert.deepEqual(body,expected);
+      assert.equal(new URL(page.url()).hash,hash.startsWith('#companion=')?'':hash,'the proof is dropped from the address and history once read');
+      await page.close();
     }
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}

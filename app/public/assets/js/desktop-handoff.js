@@ -8,6 +8,9 @@
   // log sees. Only a handoff that sends it receives the 30-day Companion sign-in.
   const proof = /^#companion=([a-f0-9]{64})$/.exec(location.hash);
   const request = proof ? {handoff: root.dataset.handoff, companion_proof: proof[1]} : {handoff: root.dataset.handoff};
+  // Keep the proof only in this page's memory: drop it from the address and history at once, so the
+  // reload after sign-in and any later navigation never carry it.
+  if (location.hash.startsWith('#companion=')) history.replaceState(history.state, '', location.pathname + location.search);
   let stopped = false;
   window.addEventListener('pagehide', () => { stopped = true; }, {once: true});
   async function poll() {
