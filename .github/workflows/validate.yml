@@ -233,6 +233,7 @@ jobs:
           php app/tests/portal_westy_desktop_diagnostics_test.php
           php app/tests/portal_westy_desktop_recovery_test.php
           php app/tests/desktop_renewal_test.php
+          php app/tests/desktop_authorize_refusal_test.php
           php app/tests/desktop_return_path_test.php
           php app/tests/client_operational_context_test.php
           php app/tests/ticket_bulk_delete_render_test.php

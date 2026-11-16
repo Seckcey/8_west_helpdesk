@@ -24,7 +24,7 @@ function portal_desktop_renewal_proof(array $identity):?array
         ||!is_string($proof['session_hash']??null)||!hash_equals(hash('sha256',session_id()),$proof['session_hash'])
         ||!portal_desktop_id($proof['pairing_id']??null)||($proof['pairing_id']!==($_SESSION['desktop_companion_session']??null)))return null;
     $original=$proof['identity'];$issued=$original['issued_at']??null;$expires=$original['expires_at']??null;
-    if(!is_int($issued)||!is_int($expires)||$issued<=0||$issued>time()||$expires<=time()||$expires-$issued>PORTAL_SESSION_MAX_SECONDS
+    if(!is_int($issued)||!is_int($expires)||$issued<=0||$issued>time()||$expires<=time()||$expires-$issued>PORTAL_SESSION_MAX_SECONDS+PORTAL_DESKTOP_AUTHORITY_SECONDS
         ||!is_int($identity['expires_at']??null)||$identity['expires_at']<=$issued||$identity['expires_at']>$expires
         ||array_replace($identity,['expires_at'=>$expires])!==$original)return null;
     return $proof;
@@ -224,8 +224,38 @@ function portal_desktop_handoff_approve(PDO $pdo,array $context,string $id):void
 }
 function portal_desktop_handoff_envelope(array $original,int $now):array
 {
-    $identity=$original;$identity['expires_at']=min($identity['expires_at'],$now+1800);
-    return ['version'=>1,'identity'=>$identity,'authority'=>$original];
+    // The Companion keeps its own sign-in for 30 days from this approval. That deadline is fixed and
+    // never moves. It renews silently in 30-minute leases, and every renewal rechecks revocation.
+    $authority=$original;$authority['expires_at']=$now+PORTAL_DESKTOP_AUTHORITY_SECONDS;
+    $identity=$authority;$identity['expires_at']=$now+1800;
+    return ['version'=>1,'identity'=>$identity,'authority'=>$authority];
+}
+/**
+ * What the person sees when connecting a Westy window fails, in plain words. Never names the
+ * company that owns the computer; names only the company the person signed in for.
+ *
+ * @return array{status:int,title:string,message:string}
+ */
+function portal_desktop_refusal(string $reason,?string $signedInFor):array
+{
+    $again='Click Connect again in your Westy window.';
+    $company=is_string($signedInFor)&&trim($signedInFor)!==''?trim($signedInFor):'your company';
+    return match($reason){
+        'wrong_company'=>['status'=>403,'title'=>'This computer belongs to another company',
+            'message'=>'This computer belongs to a different company than '.$company.', the one you\'re signed in for. Sign in with that company\'s account.'],
+        'session_unavailable','session_expired','pairing_used','pairing_already_used','invalid_request'=>['status'=>410,'title'=>'This sign-in link expired',
+            'message'=>'This sign-in link expired or was already used. '.$again],
+        'actor_unavailable','read_only'=>['status'=>403,'title'=>'Your account can\'t connect Westy',
+            'message'=>'Your account was turned off or changed, or it isn\'t allowed to use Westy for '.$company.'. Sign in again, or ask your administrator.'],
+        'device_unavailable','device_reassigned'=>['status'=>403,'title'=>'This computer isn\'t available',
+            'message'=>'This computer isn\'t available to Westy right now. It may have been moved to another company, archived or isolated. Ask your IT provider.'],
+        'sign_in'=>['status'=>403,'title'=>'Your sign-in changed',
+            'message'=>'Your sign-in changed while connecting. '.$again],
+        'pairing_limit','rate_limit'=>['status'=>429,'title'=>'Too many tries',
+            'message'=>'Too many connection attempts. Wait a few minutes, then click Connect again in your Westy window.'],
+        default=>['status'=>503,'title'=>'Connection not completed',
+            'message'=>'Westy couldn\'t finish connecting right now. Try again in a few minutes. '.$again],
+    };
 }
 function portal_desktop_handoff_completed(PDO $pdo,mixed $id,?string $csrf=null,?callable $revocationCheck=null,?callable $accessTransport=null):bool
 {

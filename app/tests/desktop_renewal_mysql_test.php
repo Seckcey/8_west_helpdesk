@@ -3,12 +3,16 @@
 declare(strict_types=1);
 ob_start();require __DIR__.'/desktop_handoff_mysql_test.php';
 portal_session_start();hs_feed();
-$original=hs_identity();$original['expires_at']=time()+3600;
-$envelope=portal_desktop_handoff_envelope($original,time());
-hs_check($envelope['authority']===$original&&$envelope['identity']['issued_at']===$original['issued_at']
-    &&$envelope['identity']['expires_at']<=time()+1800,'approval retains verified original deadline and unchanged issuance before clipping');
-$short=$original;$short['expires_at']=time()+90;
-hs_check(portal_desktop_handoff_envelope($short,time())['identity']===$short,'shorter issuer lifetime is not extended');
+$browser=hs_identity();$browser['expires_at']=time()+3600;$approvedAt=time();
+$envelope=portal_desktop_handoff_envelope($browser,$approvedAt);
+hs_check($envelope['authority']===array_replace($browser,['expires_at'=>$approvedAt+PORTAL_DESKTOP_AUTHORITY_SECONDS])
+    &&$envelope['identity']===array_replace($browser,['expires_at'=>$approvedAt+1800]),
+    'approval fixes a 30-day Companion deadline from approval, keeps the issuance and grants a 30-minute lease');
+$short=$browser;$short['expires_at']=time()+90;
+hs_check(portal_desktop_handoff_envelope($short,$approvedAt)['authority']['expires_at']===$approvedAt+PORTAL_DESKTOP_AUTHORITY_SECONDS,
+    'a browser sign-in about to end still gives the Companion its own 30 days from approval');
+// From here on the approved Companion authority is the original every renewal must preserve.
+$original=$envelope['authority'];
 $envelope['identity']['expires_at']=time()+300;$pair=str_repeat('e',32);
 $id=portal_desktop_handoff_create($pdo,$pair);hs_approve_fixture($pdo,$id,$envelope);
 hs_check(portal_desktop_handoff_take($pdo,$id),'new approved envelope consumes through actual current issuer and binding checks');
@@ -89,6 +93,10 @@ foreach([['session_id'=>str_repeat('f',32)],['expires_at'=>time()+9000],['author
 $_SESSION[PORTAL_SESSION_KEY]=$context['identity'];
 $revoked=static function($body)use($reply){$response=$reply($body);hs_feed('2.1');return $response;};
 hs_check(hs_denied(fn()=>portal_desktop_renew($pdo,$context,$revoked)),'issuer revocation during service round trip prevents committing renewal');hs_feed();
+$_SESSION[PORTAL_SESSION_KEY]=$context['identity'];$_SESSION['desktop_renewal']=$proof;$_SESSION['desktop_companion_session']=$pair;
+unset($_SESSION['desktop_renewal_registered']);hs_feed('2.1');$beforeCalls=$calls;
+hs_check(hs_denied(fn()=>portal_desktop_renew($pdo,$context,$reply))&&$calls===$beforeCalls,
+    'an account revoked since the last renewal is refused at the next one, before Milepost is asked');hs_feed();
 $_SESSION[PORTAL_SESSION_KEY]=$context['identity'];$_SESSION['desktop_renewal']=$proof;$_SESSION['desktop_companion_session']=$pair;
 $beforeCalls=$calls;unset($_SESSION['desktop_renewal']);
 hs_check(hs_denied(fn()=>portal_desktop_renew($pdo,$context,$reply))&&$calls===$beforeCalls,'ordinary marker without consumed-handoff provenance never calls renewal service');
