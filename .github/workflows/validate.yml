@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   php:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       DB_PASS: safeharbor-test-root
@@ -362,7 +362,7 @@ jobs:
         run: test ! -f app/config/config.php
 
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
