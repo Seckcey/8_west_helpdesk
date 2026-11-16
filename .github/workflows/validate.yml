@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   php:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       DB_PASS: safeharbor-test-root
@@ -233,6 +233,7 @@ jobs:
           php app/tests/portal_westy_desktop_diagnostics_test.php
           php app/tests/portal_westy_desktop_recovery_test.php
           php app/tests/desktop_renewal_test.php
+          php app/tests/response_headers_compat_test.php
           php app/tests/desktop_authorize_refusal_test.php
           php app/tests/desktop_return_path_test.php
           php app/tests/client_operational_context_test.php
@@ -362,7 +363,7 @@ jobs:
         run: test ! -f app/config/config.php
 
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

@@ -113,7 +113,8 @@ final class TrustedJwks
         $body = @file_get_contents($url, false, $context, 0, self::MAX_BYTES + 1);
         if (!is_string($body) || strlen($body) > self::MAX_BYTES) return null;
         $status = 0;
-        foreach ($http_response_header ?? [] as $line) {
+        // PHP 8.5 deprecates the magic $http_response_header; older production PHP has no function.
+        foreach ((\function_exists('http_get_last_response_headers') ? (\http_get_last_response_headers() ?? []) : (${'http_response_header'} ?? [])) as $line) {
             if (preg_match('/^HTTP\/\S+\s+([0-9]{3})(?:\s|$)/D', $line, $match) === 1) $status = (int)$match[1];
         }
         return ['status' => $status, 'body' => $body];

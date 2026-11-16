@@ -231,7 +231,8 @@ function portal_feedback_review_scope(array $actor, string $token, ?callable $tr
             'content'=>$body], 'ssl'=>['verify_peer'=>true,'verify_peer_name'=>true,'allow_self_signed'=>false]]);
         $raw=@file_get_contents(PORTAL_FEEDBACK_SCOPE_ENDPOINT,false,$context,0,524289);
         $status=0;
-        foreach ($http_response_header??[] as $line)
+        // PHP 8.5 deprecates the magic $http_response_header; older production PHP has no function.
+        foreach ((\function_exists('http_get_last_response_headers') ? (\http_get_last_response_headers() ?? []) : (${'http_response_header'} ?? [])) as $line)
             if (preg_match('/^HTTP\/\S+\s+([0-9]{3})(?:\s|$)/i',$line,$match)) $status=(int)$match[1];
         $response=['status'=>$status,'body'=>$raw];
     }

@@ -93,9 +93,9 @@ function revocation_http_fetch(string $url): ?array
         0,
         SUITE_REVOCATION_MAX_BODY_BYTES + 1,
     );
-    $headers = isset($http_response_header) && is_array($http_response_header)
-        ? array_values(array_filter($http_response_header, 'is_string'))
-        : [];
+    // PHP 8.5 deprecates the magic $http_response_header; older production PHP has no function.
+    $responseHeaders = (\function_exists('http_get_last_response_headers') ? (\http_get_last_response_headers() ?? []) : (${'http_response_header'} ?? []));
+    $headers = is_array($responseHeaders) ? array_values(array_filter($responseHeaders, 'is_string')) : [];
     if (! is_string($body) || strlen($body) > SUITE_REVOCATION_MAX_BODY_BYTES) {
         return null;
     }
