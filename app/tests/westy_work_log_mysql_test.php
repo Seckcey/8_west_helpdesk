@@ -192,32 +192,55 @@ try {
         'ticket_work_log'=>['id','tenant_id','ticket_id','workflow_id','source','source_event_key','seq','kind','actor_type','actor_key','summary','cause_code','evidence_sha256','milepost_ref','customer_visible','entry_sha256','occurred_at','created_at'],
         'westy_workflow_v4_receipts'=>['tenant_id','workflow_id','event_key','request_sha256','action','response_json','received_at']] as $table=>$removed) {
         $columns=$pdo->query('SHOW COLUMNS FROM '.$table)->fetchAll(PDO::FETCH_COLUMN);
-        $legacyChecks=$table==='westy_workflows' ? $pdo->query("SELECT constraint_name,check_clause FROM information_schema.check_constraints WHERE constraint_schema=DATABASE() AND constraint_name IN ('ck_westy_workflow_version','ck_westy_workflow_resolution') ORDER BY constraint_name")->fetchAll(PDO::FETCH_KEY_PAIR) : [];
+        $addWorkflowChecks = $table === 'westy_workflows' ? 'ADD '.implode(', ADD ', wl_legacy_workflow_checks()) : null;
         foreach ($removed as $column) {
-            $projection=implode(',',array_map(static fn(string $s):string=>'`'.$s.'`',array_values(array_diff($columns,[$column]))));
+            $keptColumns = array_diff($columns, [$column]);
+            $projection = implode(',', array_map(static fn(string $name): string => '`'.str_replace('`','``',$name).'`', $keptColumns));
+            $checksRemoved = false;
+            $bodyError = null;
             $pdo->exec("RENAME TABLE $table TO {$table}_original");
-            // Check names are schema-wide. Move the two old checks to the read-only
-            // projection so the missing-column test does not fail on legacy health.
-            foreach (array_keys($legacyChecks) as $name) $pdo->exec("ALTER TABLE {$table}_original DROP CHECK `$name`");
             try {
                 $pdo->exec("CREATE TABLE $table AS SELECT $projection FROM {$table}_original");
-                foreach ($legacyChecks as $name => $clause) $pdo->exec("ALTER TABLE $table ADD CONSTRAINT `$name` CHECK ($clause)");
+                if ($addWorkflowChecks !== null) {
+                    // CHECK names are schema-wide. Move the pair together so v1 stays healthy.
+                    $pdo->exec("ALTER TABLE {$table}_original DROP CHECK ck_westy_workflow_version, DROP CHECK ck_westy_workflow_resolution");
+                    $checksRemoved = true;
+                    $pdo->exec("ALTER TABLE $table $addWorkflowChecks");
+                }
                 wl_check((int)$pdo->query('SELECT westy_workflow_schema_health()')->fetchColumn()===1,'column fixture preserves legacy health');
                 wl_check((int)$pdo->query('SELECT westy_work_log_schema_health()')->fetchColumn()===0,'health detects missing '.$table.'.'.$column);
                 wl_missing($pdo,$probe);
+            } catch (Throwable $error) {
+                $bodyError = $error;
+                throw $error;
             } finally {
-                $pdo->exec('DROP TABLE IF EXISTS '.$table);
-                $pdo->exec("RENAME TABLE {$table}_original TO $table");
-                foreach ($legacyChecks as $name => $clause) $pdo->exec("ALTER TABLE $table ADD CONSTRAINT `$name` CHECK ($clause)");
+                $restore = ["DROP TABLE IF EXISTS $table"];
+                if ($checksRemoved) $restore[] = "ALTER TABLE {$table}_original $addWorkflowChecks";
+                $restore[] = "RENAME TABLE {$table}_original TO $table";
+                wl_cleanup($pdo, $restore, $bodyError);
             }
+            westy_work_log_schema_ready($pdo);
         }
     }
-    $pdo->exec("ALTER TABLE westy_billing_outbox MODIFY state ENUM('waiting_for_time','ready','sending','uncertain','accepted','blocked') NOT NULL DEFAULT 'waiting_for_time'");
+    // Each case removes one capability. Drop the dependent CHECK for the ENUM type change.
+    $dropPayloadCheck = 'ALTER TABLE westy_billing_outbox DROP CHECK ck_westy_billing_qa_payload';
+    $pdo->exec($dropPayloadCheck.", MODIFY state ENUM('waiting_for_time','ready','sending','uncertain','accepted','blocked') NOT NULL DEFAULT 'waiting_for_time'");
+    // Use 039's own prepared ADD to put its real payload check back on the narrowed ENUM.
+    wl_ddl($pdo, $statements, 'SET @westy_039_ddl = IF(EXISTS (SELECT 1 FROM information_schema.table_constraints');
+    $pdo->exec('PREPARE wl_payload_check FROM @westy_039_ddl');
+    $pdo->exec('EXECUTE wl_payload_check');
+    $pdo->exec('DEALLOCATE PREPARE wl_payload_check');
+    $enforced = $pdo->query("SELECT COUNT(*) FROM information_schema.table_constraints
+        WHERE constraint_schema=DATABASE() AND table_name='westy_billing_outbox'
+          AND constraint_name='ck_westy_billing_qa_payload' AND enforced='YES'")->fetchColumn();
+    wl_check((int)$enforced === 1, 'ENUM fixture retains the enforced 039 payload check');
     wl_check((int)$pdo->query('SELECT westy_work_log_schema_health()')->fetchColumn()===0,'missing qa_pending enum'); wl_missing($pdo,$probe);
-    test_execute_sql_file($pdo,$migration);
-    $pdo->exec('ALTER TABLE westy_billing_outbox DROP CHECK ck_westy_billing_qa_payload');
+    $pdo->exec($dropPayloadCheck);
+    wl_ddl($pdo, $statements, 'ALTER TABLE westy_billing_outbox');
+    wl_check(wl_schema_snapshot($pdo)['columns'] === $schema['columns'], 'payload-check fixture retains the complete 039 ENUM');
     wl_check((int)$pdo->query('SELECT westy_work_log_schema_health()')->fetchColumn()===0,'missing qa_pending payload check'); wl_missing($pdo,$probe);
     test_execute_sql_file($pdo,$migration);
+    westy_work_log_schema_ready($pdo);
     $pdo->exec('DROP FUNCTION westy_work_log_schema_health'); wl_missing($pdo,$probe);
     test_execute_sql_file($pdo,$migration);
     $pdo->exec($grantWorkLog);
@@ -422,18 +445,63 @@ try {
     westy_work_log_schema_ready($pdo); $freshSchema=wl_schema_snapshot($pdo);
     wl_check($upgradedSchema===$freshSchema,'actual full 038 to 039 equals fresh schema');
     // Main behavioral fixture applied every relevant migration through 038, then 039.
-    $pdo->exec("USE `$database`"); wl_check(wl_schema_snapshot($pdo)===$freshSchema,'migrated 038 objects match canonical fresh install');
+    $pdo->exec("USE `$database`");
+    $migratedSchema = wl_schema_snapshot($pdo);
+    // Only the spelling of a reference to the current fixture database can vary here.
+    foreach (['ticket_work_log','westy_workflow_v4_receipts'] as $table) {
+        $migratedSchema[$table] = str_replace("REFERENCES `$database`.", 'REFERENCES ', $migratedSchema[$table]);
+        $freshSchema[$table] = str_replace("REFERENCES `$fresh`.", 'REFERENCES ', $freshSchema[$table]);
+    }
+    wl_check($migratedSchema === $freshSchema, 'migrated 038 objects match canonical fresh install');
     $counts=[wl_count($pdo,'ticket_work_log'),wl_count($pdo,'westy_workflow_v4_receipts')];
     test_execute_sql_file($pdo,$migration); wl_check($counts===[wl_count($pdo,'ticket_work_log'),wl_count($pdo,'westy_workflow_v4_receipts')],'rerun preserves immutable history');
+    $pdo->exec($grantWorkLog);
+    westy_work_log_schema_ready($runtime);
     require __DIR__.'/fixtures/westy_work_log_http.php';
     // 039 never installs the legacy function. Simulate its loss last, before fixture cleanup.
+    westy_work_log_schema_ready($runtime);
     $pdo->exec('DROP FUNCTION westy_workflow_schema_health');
     wl_missing($runtime, $probe, false);
-    echo 'PASS '.($GLOBALS['wl_checks'] ?? 0)." MySQL work log checks.\n";
+} catch (Throwable $suiteError) {
+    throw $suiteError;
 } finally {
-    if ($pdo->inTransaction()) $pdo->rollBack();
     // Only randomized databases created above are ever removed.
-    if ($freshCreated) $pdo->exec("DROP DATABASE `$fresh`");
-    $pdo->exec("DROP DATABASE `$database`");
-    if ($runtimeCreated) $pdo->exec("DROP USER '$runtimeName'@'%'");
+    $cleanup = $pdo->inTransaction() ? ['ROLLBACK'] : [];
+    if ($freshCreated) $cleanup[] = "DROP DATABASE `$fresh`";
+    $cleanup[] = "DROP DATABASE `$database`";
+    if ($runtimeCreated) $cleanup[] = "DROP USER '$runtimeName'@'%'";
+    wl_cleanup($pdo, $cleanup, $suiteError ?? null);
+}
+echo 'PASS '.($GLOBALS['wl_checks'] ?? 0)." MySQL work log checks.\n";
+
+/** The frozen 025 CREATE TABLE puts each table element on its own indented line. */
+function wl_legacy_workflow_checks(): array
+{
+    $checks = [];
+    $migration = file_get_contents(__DIR__.'/../db/migrations/025_westy_workflow.sql');
+    foreach (test_sql_statements($migration) as $sql) {
+        if (!str_starts_with($sql, 'CREATE TABLE IF NOT EXISTS westy_workflows (')) continue;
+        foreach (preg_split('/,\n  (?=\S)|\n\) ENGINE=/', $sql) as $definition) {
+            if (preg_match('/^CONSTRAINT (ck_westy_workflow_version|ck_westy_workflow_resolution) CHECK \(/', $definition, $match)) {
+                $checks[$match[1]] = $definition;
+            }
+        }
+    }
+    if (count($checks) !== 2) throw new RuntimeException('Missing legacy workflow CHECK definitions in migration 025');
+    return $checks;
+}
+
+/** Attempt every recovery statement. A teardown error is primary only if the body succeeded. */
+function wl_cleanup(PDO $pdo, array $statements, ?Throwable $bodyError): void
+{
+    $firstError = $bodyError;
+    foreach ($statements as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $error) {
+            if ($firstError === null) $firstError = $error;
+            else fwrite(STDERR, 'Additional fixture cleanup error: '.$error->getMessage().PHP_EOL);
+        }
+    }
+    if ($bodyError === null && $firstError !== null) throw $firstError;
 }

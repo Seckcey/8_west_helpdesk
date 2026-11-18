@@ -3,24 +3,34 @@
 declare(strict_types=1);
 $httpDir=sys_get_temp_dir().'/safeharbor-s5-http-'.bin2hex(random_bytes(8)); $process=null;
 try {
-    foreach (['lib','config','cron','public/api/svc','sessions'] as $part) mkdir($httpDir.'/'.$part,0700,true);
+    foreach (['lib','config','cron','public/api/svc','public/assets/w365','sessions'] as $part) mkdir($httpDir.'/'.$part,0700,true);
+    $copyFixture = static function (string $from, string $to): void {
+        if (!copy($from, $to)) throw new RuntimeException('Cannot copy HTTP fixture file '.basename($from));
+    };
     $source=realpath(__DIR__.'/../../lib');
     foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($source,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::SELF_FIRST) as $file) {
         $target=$httpDir.'/lib/'.substr($file->getPathname(),strlen($source)+1);
-        $file->isDir() ? mkdir($target,0700,true) : copy($file->getPathname(),$target);
+        if ($file->isDir()) mkdir($target,0700,true);
+        else $copyFixture($file->getPathname(), $target);
     }
-    foreach (['ticket.php','api/svc/westy_workflow.php','api/svc/alerts.php'] as $file) copy(__DIR__.'/../../public/'.$file,$httpDir.'/public/'.$file);
-    copy(__DIR__.'/../../cron/westy_billing_dispatch.php',$httpDir.'/cron/westy_billing_dispatch.php');
+    foreach (['public/ticket.php','public/api/svc/westy_workflow.php','public/api/svc/alerts.php',
+        'public/assets/w365/w365-products.json','cron/westy_billing_dispatch.php'] as $file) {
+        $copyFixture(__DIR__.'/../../'.$file, $httpDir.'/'.$file);
+    }
     $httpConfig=require __DIR__.'/../../config/config.sample.php';
     $httpConfig['app_env']='production'; $httpConfig['force_https']=false;
     $httpConfig['db']=['host'=>$host,'port'=>(int)$port,'name'=>$database,'charset'=>'utf8mb4','user'=>$runtimeName,'pass'=>$runtimePassword];
     $httpConfig['westy_workflow']=wl_settings();
-    $writeConfig=static function()use($httpDir,&$httpConfig):void { file_put_contents($httpDir.'/config/config.php','<?php return '.var_export($httpConfig,true).';'); };
+    $writeConfig = static function () use ($httpDir, &$httpConfig): void {
+        if (file_put_contents($httpDir.'/config/config.php', '<?php return '.var_export($httpConfig, true).';') === false) {
+            throw new RuntimeException('Cannot write synthetic HTTP fixture config');
+        }
+    };
     $writeConfig();
-    $pdo->exec($grantWorkLog);
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); if (!$socket) throw new RuntimeException('HTTP fixture bind failed');
     $address=stream_socket_get_name($socket,false); fclose($socket);
-    $process=proc_open([PHP_BINARY,'-d','session.save_path='.$httpDir.'/sessions','-S',$address,'-t',$httpDir.'/public'],[0=>['pipe','r'],1=>['file',$httpDir.'/http.log','a'],2=>['file',$httpDir.'/http.log','a']],$pipes);
+    // The page phase switches databases by rewriting the synthetic config between requests.
+    $process=proc_open([PHP_BINARY,'-d','opcache.enable_cli=0','-d','session.save_path='.$httpDir.'/sessions','-S',$address,'-t',$httpDir.'/public'],[0=>['pipe','r'],1=>['file',$httpDir.'/http.log','a'],2=>['file',$httpDir.'/http.log','a']],$pipes);
     if (!is_resource($process)) throw new RuntimeException('HTTP fixture did not start'); fclose($pipes[0]);
     $deadline=microtime(true)+5;
     do { $probeSocket=@stream_socket_client('tcp://'.$address,$errno,$error,0.1); if ($probeSocket) { fclose($probeSocket); break; } usleep(20000); } while (microtime(true)<$deadline);
@@ -52,6 +62,7 @@ try {
     }
     test_execute_sql_file($pdo,$migration);
     $pdo->exec($grantWorkLog);
+    westy_work_log_schema_ready($runtime);
     $bad=wl_log(101); $bad['entries'][0]['summary']='password: synthetic';
     [$status,$body]=$signed($bad); wl_check($status===422 && json_decode($body,true)===['ok'=>false,'error'=>'summary_unsafe'],'actual endpoint rejects unsafe text before SQL');
 
@@ -65,7 +76,10 @@ try {
     $pdo->exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `$fresh`.* TO '$runtimeName'@'%'");
     foreach (['westy_workflow_schema_health','westy_work_log_schema_health'] as $fn) $pdo->exec("GRANT EXECUTE ON FUNCTION `$fresh`.$fn TO '$runtimeName'@'%'");
     $httpConfig['db']['name']=$fresh;
-    $httpConfig['svc']=['enabled'=>true,'secrets'=>['milepost'=>str_repeat('s',40)]]; $writeConfig();
+    $httpConfig['svc']=['enabled'=>true,'secrets'=>['milepost'=>str_repeat('s',40)]];
+    $httpConfig['westy_billing_handoff']=['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('t',40),
+        'tenant_slugs'=>['8west'],'customer_ids'=>[$pageCase['customer_id']]];
+    $writeConfig();
     $session=bin2hex(random_bytes(16)); $csrf=bin2hex(random_bytes(32));
     file_put_contents($httpDir.'/sessions/sess_'.$session,'user_id|i:1;tenant_id|i:1;csrf|s:64:"'.$csrf.'";');
     $form=['work_log_step'=>'1','kind'=>'note','summary'=>'Synthetic logged step','customer_visible'=>'1'];
@@ -83,13 +97,12 @@ try {
     $otherSession=bin2hex(random_bytes(16));
     file_put_contents($httpDir.'/sessions/sess_'.$otherSession,'user_id|i:2;tenant_id|i:2;csrf|s:64:"'.$csrf.'";');
     $before=wl_count($pdo,'ticket_work_log');
-    $send($path,http_build_query($form+['csrf'=>$csrf]),['Content-Type: application/x-www-form-urlencoded','Cookie: PHPSESSID='.$otherSession]);
-    wl_check(wl_count($pdo,'ticket_work_log')===$before,'actual page cannot log to another tenant ticket');
+    [$status,$body]=$send($path,http_build_query($form+['csrf'=>$csrf]),['Content-Type: application/x-www-form-urlencoded','Cookie: PHPSESSID='.$otherSession]);
+    wl_check($status===200 && !str_contains($body,'name="work_log_step"') && wl_count($pdo,'ticket_work_log')===$before,
+        'foreign ticket renders without a Log step form or a write (HTTP '.$status.')');
 
     // Actual CLI selection excludes a due qa_pending row, before any dispatch.
     $pdo->prepare("INSERT INTO westy_billing_outbox(tenant_id,workflow_id,event_key,state) VALUES(1,?,'s5-cron-pending','qa_pending')")->execute([$pageRun['id']]);
-    $httpConfig['westy_billing_handoff']=['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('t',40),
-        'tenant_slugs'=>['8west'],'customer_ids'=>[$pageCase['customer_id']]]; $writeConfig();
     $cron=proc_open([PHP_BINARY,$httpDir.'/cron/westy_billing_dispatch.php'],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$cronPipes);
     if (!is_resource($cron)) throw new RuntimeException('Cron fixture did not start');
     fclose($cronPipes[0]); $cronOut=stream_get_contents($cronPipes[1]); $cronErr=stream_get_contents($cronPipes[2]);
@@ -110,5 +123,5 @@ try {
         foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($httpDir,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST) as $file) $file->isDir()?rmdir($file->getPathname()):unlink($file->getPathname());
         rmdir($httpDir);
     }
-    $pdo->exec("USE `$database`");
 }
+$pdo->exec("USE `$database`");
