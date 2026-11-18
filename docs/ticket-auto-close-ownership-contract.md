@@ -25,6 +25,10 @@ has authenticated the exact `milepost` HMAC identity and validated an
 18446744073709551615). Every other ticket creator omits the column and therefore
 receives `0`.
 
+In the S11 receiver, network availability (`netalert:`) and network rule
+(`netrule:`) tickets receive `0` at creation. A signed recovery on an open
+network ticket records the source note. A technician closes the ticket.
+
 Eligibility is one-way. Database trigger
 `trg_tickets_auto_close_before_update` refuses `0 -> 1`, and any ordinary
 ticket UPDATE consumes `1 -> 0`. This includes manual status, priority, and

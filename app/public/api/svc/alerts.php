@@ -47,8 +47,8 @@ if (!svc_alert_service_authorized($auth)) {
     json_out(['ok' => false, 'error' => 'unauthorized'], 401);
 }
 
-$payload = json_decode($rawBody, true);
-if (!is_array($payload)) {
+$payload = svc_alert_decode($rawBody);
+if ($payload === null) {
     json_out(['ok' => false, 'error' => 'invalid json'], 422);
 }
 

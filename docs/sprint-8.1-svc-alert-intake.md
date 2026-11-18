@@ -25,7 +25,10 @@
 >   in `AGENTS.md` and `deploy/README.md` name only the westy one. Check the
 >   live schema for `tickets.external_key` and `svc_identities` before
 >   assuming this migration ran.
-> - **Still true:** the wire contract in §2, `svc.enabled` defaulting to
+> - Section 2 includes the S11 receiver contract for customer IDs, network
+>   alert keys and offline triage. The rollout sections describe
+>   the original project. See [current deployment notes](where-things-stand.md).
+> - **Still true:** `svc.enabled` defaulting to
 >   `false` in `config.sample.php`, and the endpoint answering `404` while
 >   the flag is off. Sprint 8.1.2 (the Milepost emitter) had not shipped as
 >   of 2026-08-02 per `AGENTS.md`; that is an assertion about another repo
@@ -83,7 +86,7 @@ Content-Type: application/json
   "event": "opened",
   "external_key": "alert:42117",
   "occurred_at": "2026-07-28T10:41:00Z",
-  "client": { "name": "Acme Dental" },
+  "client": { "name": "Acme Dental", "customer_id": null },
   "endpoint": { "hostname": "ACME-DC01", "display_name": "Acme DC (primary)" },
   "alert": {
     "rule_key": "disk_free",
@@ -98,30 +101,76 @@ Content-Type: application/json
 | Field | Rules |
 |---|---|
 | `event` | `opened` · `resolved` (v1). Unknown values → `422`. |
-| `external_key` | Stable, unique per alert at the source: `"alert:{milepost_alerts.id}"`. Exact decimal `BIGINT UNSIGNED` id (1 through 18446744073709551615), with no leading zero. Drives idempotency. |
+| `external_key` | `alert:<n>` identifies a device alert, `netalert:<n>` a network availability alert, and `netrule:<n>` a network rule alert. Each uses a decimal ID from 1 through 18446744073709551615 with no leading zero. The whole key identifies the ticket within its tenant. |
 | `occurred_at` | ISO-8601 UTC. Skew > 24 h → `422`. |
-| `client.name` | Matched case-insensitively to `clients.name` within the tenant. No match → catch-all client **"Milepost Intake"** (created once, same pattern as Email Intake). Never auto-creates a real client. |
-| `severity` | `info` → `low`, `warning` → `normal`, `critical` → `urgent`. Unknown/missing → `normal`. High is reserved for human triage. |
+| `client.customer_id` | Optional lowercase UUIDv4 in the signed body on either event. On creation, a usable ID selects its bound Safeharbor client in the receiving tenant. |
+| `client.name` | Used for routing only if the ID is absent or JSON null. The first case-insensitive match by ascending Safeharbor client ID wins. An empty or unmatched name goes to **Milepost Intake**. |
+| `alert.triage` | Optional JSON list of fixed findings on an `opened` event whose `alert.rule_key` is `offline`. See the field rules below. |
+| `alert.severity` | `info` → `low`, `warning` → `normal`, `critical` → `urgent`. Unknown/missing → `normal`. High is reserved for human triage. |
+
+On creation, Safeharbor looks up a supplied ID in the receiving tenant's customer
+registry. The binding must be active and pass the managed-customer operational
+check. The bound client supplies the ticket's service goal, even if another
+client matches the name. Any failed ID check routes to the unbound **Milepost
+Intake** client. The first system message records the reason with one of these
+sentences. Each starts with `Routing: sent to Milepost Intake because `.
+
+| Reason | Remainder of the sentence |
+|---|---|
+| `customer_id_malformed` | the customer id from Milepost was not a valid id. |
+| `customer_binding_not_found` | Safeharbor has no customer with the id Milepost sent. |
+| `customer_binding_inactive` | that customer is not active in Safeharbor. |
+| `customer_not_operational` | that customer is not currently serviceable in Safeharbor. |
+| `client_name_not_matched` | no Safeharbor client has the name Milepost sent. |
+
+A binding in another tenant produces `customer_binding_not_found`. Re-fires
+and recoveries keep the original client, subject, priority and captured goal.
+
+**Milepost Intake** is the oldest client with that exact name that has no
+customer binding and no source key. It is created on first use. Editing its
+notes or domain does not change which client it is. A managed customer that
+happens to carry the same name is never used as the catch-all.
+
+Offline triage appears in the staff system message after the `message:` line.
+The customer portal displays only customer and staff replies. In wire order,
+these are the accepted finding objects.
+
+| `code` | Other required fields | Staff sentence |
+|---|---|---|
+| `client_devices_offline` | `offline` and `total` are JSON integers from 2 to 9999 inclusive, with `offline <= total`. | Triage: {offline} of {total} computers for this client stopped reporting at about the same time. Check the site's power and internet first. |
+| `after_job` | `kind` is `reboot`, `patch_install`, or `agent_update`. | Triage: this computer went quiet within an hour of a restart sent from Milepost. / Triage: this computer went quiet within an hour of an update install sent from Milepost. / Triage: this computer went quiet within an hour of a Milepost agent update. |
+| `reboot_was_pending` | None | Triage: a restart was pending when this computer last reported. |
+| `never_checked_in` | None | Triage: this computer has never reported to Milepost. |
+
+Safeharbor considers the first four list positions. It keeps the first valid
+finding for each code and prints accepted findings in the order above. Unknown,
+incomplete, nested, or extra fields discard that finding. A malformed list
+adds no lines. The ticket still opens, and the complete system message fits in
+8,000 characters. Both applications share the [wire vectors](contracts/svc-alert-vectors.json).
 
 **Signature:** `HMAC_SHA256(secret, timestamp + "\n" + raw_body)`, hex.
 Timestamp must be within ±300 s of server time (replay window). Compare with
 `hash_equals`. Any failure → `401` with a generic body; no detail leaks.
 
 **Responses:** `200 {"ok":true,"ticket":N,"action":"created|updated|ignored"}`
-· `401` bad auth · `422` bad payload · `429` over rate · `405` non-POST.
+· `401` bad auth · `422` bad payload · `429` over rate · `405` non-POST
+· `500` database or other unexpected fault, eligible for an outbox retry.
 
 **Behavior by event:**
 
 - `opened`, unknown `external_key` → create ticket: `channel='alert'`,
   mapped priority, subject `[{severity}] {rule_key} on {hostname}` (190 cap),
-  first message = full alert detail (`kind='system'`), SLA from the matched
-  client's tier (premium 2 h / standard 8 h — existing convention).
+  first message = alert detail (`kind='system'`), first-response deadline
+  and policy target captured from the routed client and ticket priority.
 - `opened`, known `external_key` → append a `system` line "Alert re-fired at
   {occurred_at}". Never duplicates and never rewrites ticket subject/priority;
   after creation those are human triage fields.
 - `resolved`, known key → behavior follows ticket state (**founder rule
   2026-07-30**, shipped in PR #3, supersedes the v1 "status unchanged"
   default and the unbuilt `svc_alert_autoresolve` switch):
+  - `netalert:` and `netrule:` tickets start with automatic-close eligibility
+    set to zero under migration 018. Recovery adds the source note to an open
+    ticket. Staff close it. Westy workflow claims accept only `alert:` keys.
   - ticket still `open` **and its migration-018 one-use eligibility remains**
     (the database has recorded no human/customer/timer/mutation ownership) → append `system` line
     "Resolved at source at … Ticket auto-closed." **and close it**
@@ -229,8 +278,9 @@ resolve appends; `svc_outbox` empties; operator spot-check in the UI
 3. Kill switches default **off** on both sides; shipping dark is expected.
 4. No write-back, no remote commands, no remediation — Safeharbor receives,
    Milepost sends, that's it.
-5. Rate limit + body cap are hard limits, not suggestions. Intake failures
-   must never 500 — catch, log, `200 {"action":"ignored"}` only where safe.
+5. Enforce the rate limit and body cap. A failed write rolls back and
+   returns a generic 500 so the sender can retry. Return `200 {"action":"ignored"}`
+   for a recovery with an unknown key or an already resolved ticket.
 6. UTC everywhere; `occurred_at` is source-of-truth time from Milepost,
    `created_at` stays Safeharbor server time.
 

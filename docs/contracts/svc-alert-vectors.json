@@ -1,0 +1,107 @@
+{
+  "contract": "8west-svc-alert",
+  "note": "Shared by Milepost (sender) and Safeharbor (receiver). Copy byte for byte; do not reformat.",
+  "vectors": [
+    {
+      "name": "opened_with_customer_id",
+      "event": "opened",
+      "triage": [],
+      "row": {
+        "id": 4101, "agent_id": 77, "rule_key": "eventlog_error_count:System", "metric_key": "eventlog_error_count",
+        "instance": "System", "severity": "critical", "message": "Event log errors System 12 >= 5",
+        "opened_at": "2026-11-18 12:00:00", "resolved_at": null,
+        "hostname": "FRONT-DESK-01", "display_name": "Front desk", "tenant_id": 1,
+        "client_name": "Harbor Dental", "suite_customer_id": "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b"
+      },
+      "payload": {
+        "event": "opened",
+        "external_key": "alert:4101",
+        "occurred_at": "2026-11-18T12:00:00+00:00",
+        "client": {"name": "Harbor Dental", "customer_id": "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b"},
+        "endpoint": {"hostname": "FRONT-DESK-01", "display_name": "Front desk"},
+        "alert": {
+          "rule_key": "eventlog_error_count:System", "metric_key": "eventlog_error_count", "instance": "System",
+          "severity": "critical", "message": "Event log errors System 12 >= 5"
+        }
+      }
+    },
+    {
+      "name": "opened_without_customer_id",
+      "event": "opened",
+      "triage": [],
+      "row": {
+        "id": 4102, "agent_id": 78, "rule_key": "win_reboot_pending_days", "metric_key": "win_reboot_pending_days",
+        "instance": "", "severity": "warning", "message": "Restart pending 8 days >= 7",
+        "opened_at": "2026-11-18 12:05:00", "resolved_at": null,
+        "hostname": "BACK-OFFICE-02", "display_name": "", "tenant_id": 1,
+        "client_name": "Unbound Client", "suite_customer_id": null
+      },
+      "payload": {
+        "event": "opened",
+        "external_key": "alert:4102",
+        "occurred_at": "2026-11-18T12:05:00+00:00",
+        "client": {"name": "Unbound Client", "customer_id": null},
+        "endpoint": {"hostname": "BACK-OFFICE-02", "display_name": ""},
+        "alert": {
+          "rule_key": "win_reboot_pending_days", "metric_key": "win_reboot_pending_days", "instance": "",
+          "severity": "warning", "message": "Restart pending 8 days >= 7"
+        }
+      }
+    },
+    {
+      "name": "opened_offline_with_triage",
+      "event": "opened",
+      "triage": [
+        {"code": "client_devices_offline", "offline": 5, "total": 6},
+        {"code": "after_job", "kind": "patch_install"},
+        {"code": "reboot_was_pending"}
+      ],
+      "row": {
+        "id": 4103, "agent_id": 79, "rule_key": "offline", "metric_key": "offline",
+        "instance": "", "severity": "critical", "message": "Offline, last seen 4321m ago",
+        "opened_at": "2026-11-18 12:10:00", "resolved_at": null,
+        "hostname": "SERVER-01", "display_name": "File server", "tenant_id": 1,
+        "client_name": "Harbor Dental", "suite_customer_id": "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b"
+      },
+      "payload": {
+        "event": "opened",
+        "external_key": "alert:4103",
+        "occurred_at": "2026-11-18T12:10:00+00:00",
+        "client": {"name": "Harbor Dental", "customer_id": "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b"},
+        "endpoint": {"hostname": "SERVER-01", "display_name": "File server"},
+        "alert": {
+          "rule_key": "offline", "metric_key": "offline", "instance": "",
+          "severity": "critical", "message": "Offline, last seen 4321m ago",
+          "triage": [
+            {"code": "client_devices_offline", "offline": 5, "total": 6},
+            {"code": "after_job", "kind": "patch_install"},
+            {"code": "reboot_was_pending"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "resolved_with_customer_id",
+      "event": "resolved",
+      "triage": [],
+      "row": {
+        "id": 4101, "agent_id": 77, "rule_key": "eventlog_error_count:System", "metric_key": "eventlog_error_count",
+        "instance": "System", "severity": "critical", "message": "Event log errors System 12 >= 5",
+        "opened_at": "2026-11-18 12:00:00", "resolved_at": "2026-11-18 13:30:00",
+        "hostname": "FRONT-DESK-01", "display_name": "Front desk", "tenant_id": 1,
+        "client_name": "Harbor Dental", "suite_customer_id": "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b"
+      },
+      "payload": {
+        "event": "resolved",
+        "external_key": "alert:4101",
+        "occurred_at": "2026-11-18T13:30:00+00:00",
+        "client": {"name": "Harbor Dental", "customer_id": "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b"},
+        "endpoint": {"hostname": "FRONT-DESK-01", "display_name": "Front desk"},
+        "alert": {
+          "rule_key": "eventlog_error_count:System", "metric_key": "eventlog_error_count", "instance": "System",
+          "severity": "critical", "message": "Event log errors System 12 >= 5"
+        }
+      }
+    }
+  ]
+}
