@@ -53,6 +53,13 @@ function westy_workflow_date(mixed $value): bool
 function westy_workflow_request(string $body, ?int $now = null): array
 {
     if ($body === '' || strlen($body) > 16384) throw new InvalidArgumentException('invalid_body');
+    // Probe only v4 here; keep the legacy decoder's depth and refusal behavior intact.
+    try { $v4 = json_decode($body, true, 8, JSON_THROW_ON_ERROR); }
+    catch (JsonException) { $v4 = null; }
+    if (is_array($v4) && ($v4['schema_version'] ?? null) === 4) {
+        require_once __DIR__ . '/westy_work_log.php';
+        return westy_workflow_v4_request($body, $now);
+    }
     try { $p = json_decode($body, true, 4, JSON_THROW_ON_ERROR); }
     catch (JsonException) { throw new InvalidArgumentException('invalid_json'); }
     if (!is_array($p) || array_is_list($p)) throw new InvalidArgumentException('invalid_payload');
@@ -138,6 +145,10 @@ function westy_workflow_result(array $run, string $action, ?string $receiptId, b
 /** One local transaction; zero network, mail, AI, financial, or endpoint calls. */
 function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $requestHash): array
 {
+    if (($p['schema_version'] ?? null) === 4) {
+        require_once __DIR__ . '/westy_work_log.php';
+        return westy_workflow_v4_receive($pdo, $settings, $p, $requestHash);
+    }
     if (($p['schema_version'] ?? null) === 3) {
         require_once __DIR__.'/westy_hardware.php';
         return westy_hardware_receive($pdo,$settings,$p,$requestHash);

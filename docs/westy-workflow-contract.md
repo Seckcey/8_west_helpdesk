@@ -301,6 +301,67 @@ Evidence is internal system history, not a client reply, billable time, or an
 invoice. The composer now says when no client contact exists and retains that
 truth when switching between Reply and Internal note.
 
+## V4 work log and QA (S5 source; runtime qualification pending)
+
+Migration `039_westy_work_log.sql` adds an append-only ticket work log and v4
+receipts. V4 uses the existing signed workflow endpoint, service identity,
+HMAC context and 16 KB cap. The request's `occurred_at` uses the v1 UTC format
+and may be up to 24 hours old or 30 seconds in the future. Each log entry uses
+the same UTC format and 30-second future allowance. Entries of any age retain
+their original timestamps when delivered in a current request.
+V4 has its own canonical JSON parser. The fixed cross-application vectors and
+pure assertions are in `app/tests/fixtures/westy_work_log_vectors.json` and
+`app/tests/westy_work_log_test.php`.
+
+`log` appends 1–20 consecutive steps, recomputes their hash chain, and optionally
+records a forward checkpoint. `qa` requires a resolved workflow and its exact
+stored log and recovery hashes. Mirrored events do not change ticket contents,
+workflow state/version, assignment, or technician time. Seal/QA notes are system
+messages. A remote human actor remains attributed as a user without taking over
+the ticket. Unsafe source summaries are refused, never scrubbed or reworded
+under an existing hash. No log text is supplied to an AI prompt.
+Existing mail revocation triggers remain active: system notes invalidate
+unsubmitted legacy email drafts, and workflow metadata updates revoke dedicated
+Westy mail approvals/delegations. Qualify that existing interaction before release.
+The Supervisor slice must weigh these revocations before sending QA long after
+a ticket closes.
+
+On the staff ticket page, **Work log** shows recorded steps and **Log step**
+lets a signed-in owner, admin or technician add a private note, finding, action
+or verification. The ordinary session CSRF check and current tenant/role apply.
+A locally logged step transfers the workflow to human ownership and consumes
+legacy automatic alert closure eligibility. Customers see
+only time and summary for customer-visible rows on a ticket with a submitted
+Westy email review. The portal's existing ticket authorization runs first.
+
+Apply additive migration 039 through `deploy.sh --migrate` in a quiet period.
+It requires no write freeze. The two identity triggers, the legacy health
+function and its existing runtime EXECUTE grant stay in place throughout.
+V1–v3 keep their existing behavior before, during and after the migration.
+Two additional BEFORE UPDATE triggers enforce forward-only seals and QA verdicts
+on workflows and restrict billing rows held in `qa_pending`.
+
+Rerun 039 to finish a partial apply. Retain the tables and history on source
+rollback. The migration drops `westy_work_log_schema_health()` near the start
+and creates it last. It requires healthy legacy guards, all eight v4 triggers,
+both new tables, the required columns, the billing state and its payload check.
+After each apply, grant the runtime EXECUTE on this new function only. V4
+writes and timeline reads require a positive result. A missing function,
+denied grant or zero result makes v4 unavailable, and the endpoint returns
+`workflow_v4_unavailable`.
+
+Resolve still creates `waiting_for_time` under decision D1. The dispatcher skips
+`qa_pending`; only a pending-QA row may become `waiting_for_time` on passed or
+fault_zero, or `blocked`/`qa_void` on void. QA creates no outbox and never sets
+ready, sending or accepted. Verdicts can be initially recorded from NULL/pending
+and may tighten from passed to void; other terminal changes are refused. A later
+void does not rewrite an outbox that has already left qa_pending. The Supervisor
+and charge slices must address that lifecycle before enabling a QA billing gate.
+
+Qualification requires the new pure/MySQL/browser suites and the unchanged full
+Validate workflow. No live migration, enablement, deployment, or customer
+acceptance is established by this source change.
+
 ## Billing boundary
 
 Existing approved-time v3 claim/send/status remains the supported billing

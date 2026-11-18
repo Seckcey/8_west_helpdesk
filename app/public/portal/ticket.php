@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../lib/bootstrap.php';
 require_once __DIR__ . '/../../lib/portal_auth.php';
 require_once __DIR__ . '/../../lib/portal_data.php';
 require_once __DIR__ . '/../../lib/portal_render.php';
+require_once __DIR__ . '/../../lib/westy_work_log.php';
 
 enforce_https();
 if (! portal_enabled()) {
@@ -101,6 +102,11 @@ try {
     portal_render_error(503, 'Temporarily unavailable', 'This request is temporarily unavailable. Try again shortly.');
     exit;
 }
+
+$detail['work_log'] = [];
+try {
+    $detail['work_log'] = westy_work_log_rows(db(), (int)$context['identity']['tenant_id'], $ticketId, (int)$context['identity']['client_id']);
+} catch (Throwable $error) { error_log('[safeharbor-portal] work_log_unavailable type=' . $error::class); }
 
 $notice = null;
 if (($_GET['created'] ?? '') === '1') $notice = 'Your support request was sent.';
