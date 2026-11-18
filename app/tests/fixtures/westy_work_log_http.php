@@ -35,9 +35,9 @@ try {
     $deadline=microtime(true)+5;
     do { $probeSocket=@stream_socket_client('tcp://'.$address,$errno,$error,0.1); if ($probeSocket) { fclose($probeSocket); break; } usleep(20000); } while (microtime(true)<$deadline);
     if (!$probeSocket) throw new RuntimeException('HTTP fixture readiness failed');
-    $send=static function(string $path,string $body,array $headers=[]) use ($address): array {
+    $send=static function(string $path,string $body,array $headers=[],string $method='POST') use ($address): array {
         $http_response_header=[];
-        $result=file_get_contents('http://'.$address.$path,false,stream_context_create(['http'=>['method'=>'POST',
+        $result=file_get_contents('http://'.$address.$path,false,stream_context_create(['http'=>['method'=>$method,
             'header'=>implode("\r\n",$headers),'content'=>$body,'ignore_errors'=>true,'follow_location'=>0,'timeout'=>8]]));
         if ($result===false || !preg_match('/\s(\d{3})\s/',$http_response_header[0] ?? '',$match)) throw new RuntimeException('HTTP fixture request failed');
         return [(int)$match[1],$result];
@@ -55,6 +55,12 @@ try {
     }
     [$status,$body]=$signed($httpCase); wl_check($status===200 && json_decode($body,true)['stored_through']===1,'HTTP v4 signed log');
     [$status,$body]=$signed(wl_qa($httpCase)); wl_check($status===200 && json_decode($body,true)['qa_state']==='passed','HTTP v4 signed QA');
+    $httpRun=wl_run($pdo,$httpCase);
+    $pdo->prepare("INSERT INTO westy_billing_outbox (tenant_id,workflow_id,event_key,state,payload_json,payload_sha256)
+        VALUES (1,?,'s5-http-sending','sending','{}',?)")->execute([$httpRun['id'],hash('sha256','{}')]);
+    [$status,$body]=$signed(wl_qa($httpCase,'void',wl_key(950100)));
+    wl_check($status===409 && json_decode($body,true)===['ok'=>false,'error'=>'qa_void_after_dispatch']
+        && westy_work_log_state($pdo,1,(int)$httpRun['id'])['qa_state']==='passed','signed late void after dispatch returns a conflict and retains passed');
     $pdo->exec('DROP FUNCTION westy_work_log_schema_health');
     foreach ([$httpCase,wl_qa($httpCase)] as $p) {
         [$status,$body]=$signed($p);
@@ -101,13 +107,20 @@ try {
     wl_check($status===200 && !str_contains($body,'name="work_log_step"') && wl_count($pdo,'ticket_work_log')===$before,
         'foreign ticket renders without a Log step form or a write (HTTP '.$status.')');
 
-    // Actual CLI selection excludes a due qa_pending row, before any dispatch.
+    wl_mail_mirroring_cases($pdo);
+    $sealedTicket = wl_run($pdo,wl_log(779))['ticket_id'];
+    foreach ([[$path,['No seal recorded.']],['/ticket.php?id='.$sealedTicket,['Sealed through step 3.','QA verdict fault_zero (no_recurrence)']]] as [$staffPath,$facts]) {
+        [$status,$body] = $send($staffPath,'',['Cookie: PHPSESSID='.$session],'GET');
+        wl_check($status === 200, 'authorized staff ticket renders after mail and QA');
+        foreach ($facts as $fact) wl_check(str_contains(strip_tags($body),$fact), 'actual Work log card shows '.$fact);
+    }
+    // The actual CLI now sees both a fault-zero charge and a pending QA hold.
     $pdo->prepare("INSERT INTO westy_billing_outbox(tenant_id,workflow_id,event_key,state) VALUES(1,?,'s5-cron-pending','qa_pending')")->execute([$pageRun['id']]);
     $cron=proc_open([PHP_BINARY,$httpDir.'/cron/westy_billing_dispatch.php'],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$cronPipes);
     if (!is_resource($cron)) throw new RuntimeException('Cron fixture did not start');
     fclose($cronPipes[0]); $cronOut=stream_get_contents($cronPipes[1]); $cronErr=stream_get_contents($cronPipes[2]);
     fclose($cronPipes[1]); fclose($cronPipes[2]);
-    wl_check(proc_close($cron)===0 && $cronOut==='' && $cronErr==='','actual billing cron skips qa_pending without output or transport');
+    wl_check(proc_close($cron)===0 && $cronOut==='' && $cronErr==='','actual billing cron skips qa_pending and qa_fault_zero without dispatch');
 
     // S11 at the actual signed alert endpoint with all legacy recovery guards installed.
     $pdo->exec("INSERT INTO svc_identities(tenant_id,service,display_name) VALUES(1,'milepost','Synthetic alerts')");

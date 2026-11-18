@@ -1,7 +1,5 @@
 <?php
-/** Immutable v4 evidence. This module never dispatches work, mail, AI or billing.
- * Workflow updates and system notes revoke outstanding mail approvals and drafts.
- */
+/** Immutable v4 evidence. Mirrored seals and QA live apart from ticket and mail activity. */
 declare(strict_types=1);
 require_once __DIR__ . '/westy_workflow.php';
 
@@ -138,6 +136,12 @@ function westy_workflow_v4_result(array $p, array $run): array
         'alert_key'=>$p['alert_key'], 'ticket_id'=>(int)$run['ticket_id'], 'receipt_id'=>$p['event_key'], 'replayed'=>false];
 }
 
+function westy_work_log_state(PDO $pdo, int $tenantId, int $workflowId, bool $forUpdate = false): ?array
+{
+    return westy_workflow_row($pdo, 'SELECT log_sha256,log_sealed_seq,qa_state,qa_reason FROM westy_workflow_log_state
+        WHERE tenant_id = ? AND workflow_id = ?' . ($forUpdate ? westy_workflow_lock($pdo) : ''), [$tenantId,$workflowId]);
+}
+
 function westy_workflow_v4_receive(PDO $pdo, array $settings, array $p, string $requestHash): array
 {
     $settings = westy_workflow_settings($settings);
@@ -157,21 +161,39 @@ function westy_workflow_v4_receive(PDO $pdo, array $settings, array $p, string $
         }
         $identity = westy_workflow_row($pdo, 'SELECT id FROM svc_identities WHERE tenant_id = ? AND service = ? AND is_active = 1' . $lock, [$tid, WESTY_WORKFLOW_SERVICE]);
         if (!$identity) throw new RuntimeException('unauthorized');
+        $key = [$tid,$p['event_key']];
+        $legacy = westy_workflow_row($pdo, 'SELECT event_key FROM westy_workflow_receipts WHERE tenant_id = ? AND event_key = ?', $key);
+        $prior = westy_workflow_row($pdo, 'SELECT request_sha256,response_json FROM westy_workflow_v4_receipts WHERE tenant_id = ? AND event_key = ?', $key);
+        $readRun = static fn() => westy_workflow_row($pdo, 'SELECT * FROM westy_workflows WHERE tenant_id = ? AND workflow_key = ?' . $lock, [$tid,$p['workflow_key']]);
+        $readTicket = static fn() => westy_workflow_row($pdo, 'SELECT * FROM tickets WHERE tenant_id = ? AND external_key = ?' . $lock, [$tid,$p['alert_key']]);
+        if ($p['action'] === 'qa' && !$prior && !$legacy) {
+            // Match dispatch: tenant, outbox, workflow, ticket, binding. The subquery only looks up the workflow ID.
+            $billing = $pdo->prepare('SELECT state,(payload_json IS NOT NULL OR payload_sha256 IS NOT NULL) AS frozen
+                FROM westy_billing_outbox WHERE tenant_id = ? AND workflow_id =
+                    (SELECT id FROM westy_workflows WHERE tenant_id = ? AND workflow_key = ? AND customer_id = ?)
+                ORDER BY id' . $lock);
+            $billing->execute([$tid,$tid,$p['workflow_key'],$p['customer_id']]);
+            $billingRows = $billing->fetchAll(PDO::FETCH_ASSOC);
+            $run = $readRun();
+            $ticket = $readTicket();
+        }
         $binding = westy_workflow_row($pdo, 'SELECT client_id FROM suite_customer_sync_bindings WHERE tenant_id = ? AND customer_id = ? AND status = ?' . $lock, [$tid,$p['customer_id'],'active']);
         if (!$binding || !managed_customer_operational($pdo, $tid, (int)$binding['client_id'], true)) throw new WestyWorkflowConflict('active_customer_binding_required');
-        // Existing versions keep their code. A v4 arrival cannot reuse a legacy write key.
-        if (westy_workflow_row($pdo, 'SELECT event_key FROM westy_workflow_receipts WHERE tenant_id = ? AND event_key = ?', [$tid,$p['event_key']])) throw new WestyWorkflowConflict('event_key_conflict');
-        $prior = westy_workflow_row($pdo, 'SELECT request_sha256,response_json FROM westy_workflow_v4_receipts WHERE tenant_id = ? AND event_key = ?', [$tid,$p['event_key']]);
+        // Only an authorized, operational customer can receive a conflict or replay of its request.
+        if ($legacy) throw new WestyWorkflowConflict('event_key_conflict');
         if ($prior) {
             if (!hash_equals($prior['request_sha256'], $requestHash)) throw new WestyWorkflowConflict('event_key_conflict');
             $result = json_decode($prior['response_json'], true, 16, JSON_THROW_ON_ERROR);
             $result['replayed'] = true; $pdo->commit(); return $result;
         }
-        $ticket = westy_workflow_row($pdo, 'SELECT * FROM tickets WHERE tenant_id = ? AND external_key = ?' . $lock, [$tid,$p['alert_key']]);
-        $run = westy_workflow_row($pdo, 'SELECT * FROM westy_workflows WHERE tenant_id = ? AND workflow_key = ?' . $lock, [$tid,$p['workflow_key']]);
+        if ($p['action'] === 'log') {
+            $ticket = $readTicket();
+            $run = $readRun();
+        }
         if ($run && ($run['customer_id'] !== $p['customer_id'] || $run['alert_key'] !== $p['alert_key'] || !$ticket || (int)$run['ticket_id'] !== (int)$ticket['id'])) throw new WestyWorkflowConflict('workflow_scope_conflict');
         if ($ticket && (int)$ticket['client_id'] !== (int)$binding['client_id']) throw new WestyWorkflowConflict('ticket_customer_conflict');
         if (!$run) throw new WestyWorkflowConflict('workflow_not_found');
+        $logState = westy_work_log_state($pdo, $tid, (int)$run['id'], true);
         $now = gmdate('Y-m-d H:i:s');
         $result = westy_workflow_v4_result($p, $run);
         if ($p['action'] === 'log') {
@@ -194,27 +216,38 @@ function westy_workflow_v4_receive(PDO $pdo, array $settings, array $p, string $
             $last = $p['entries'][count($p['entries']) - 1]['seq'];
             if ($p['sealed_seq'] !== null) {
                 if (!hash_equals($previous, $p['log_sha256']) || $p['sealed_seq'] !== $last
-                    || ($run['log_sealed_seq'] !== null && $p['sealed_seq'] <= (int)$run['log_sealed_seq'])) throw new WestyWorkflowConflict('log_seal_mismatch');
-                $pdo->prepare('UPDATE westy_workflows SET log_sha256 = ?,log_sealed_seq = ? WHERE tenant_id = ? AND id = ?')
-                    ->execute([utf8_clean($p['log_sha256']),$p['sealed_seq'],$tid,$run['id']]);
-                $run['log_sha256'] = $p['log_sha256'];
-                $pdo->prepare('INSERT INTO messages (ticket_id,author_name,kind,body) VALUES (?,?,?,?)')
-                    ->execute([$ticket['id'],'Westy Notes','system','Work log sealed: ' . $last . ' steps.']);
+                    || ($logState !== null && $last <= (int)$logState['log_sealed_seq'])) throw new WestyWorkflowConflict('log_seal_mismatch');
+                $hash = utf8_clean($previous);
+                $pdo->prepare('INSERT INTO westy_workflow_log_state (tenant_id,workflow_id,log_sha256,log_sealed_seq,updated_at)
+                    VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE log_sha256 = ?,log_sealed_seq = ?,updated_at = ?')
+                    ->execute([$tid,$run['id'],$hash,$last,$now,$hash,$last,$now]);
             }
-            $result += ['stored_through'=>$last, 'log_sha256'=>$run['log_sha256']];
+            $result += ['stored_through'=>$last, 'log_sha256'=>$p['log_sha256'] ?? $logState['log_sha256'] ?? null];
         } else {
             if ($run['state'] !== 'resolved') throw new WestyWorkflowConflict('workflow_not_resolved');
-            if (!is_string($run['log_sha256']) || !hash_equals($run['log_sha256'], $p['log_sha256'])
+            if ($logState === null || !hash_equals($logState['log_sha256'], $p['log_sha256'])
                 || !is_string($run['evidence_sha256']) || !hash_equals($run['evidence_sha256'], $p['evidence_sha256'])) throw new WestyWorkflowConflict('log_seal_mismatch');
-            if (!in_array($run['qa_state'], [null,'pending'], true)
-                && !($run['qa_state'] === 'passed' && $p['verdict'] === 'void')) throw new WestyWorkflowConflict('qa_already_recorded');
-            $pdo->prepare('UPDATE westy_workflows SET qa_state = ?,qa_reason = ? WHERE tenant_id = ? AND id = ?')
-                ->execute([utf8_clean($p['verdict']),utf8_clean($p['reason_code']),$tid,$run['id']]);
-            // Only pending-QA rows can move. No insertion, dispatch, or change to a frozen handoff.
-            $pdo->prepare("UPDATE westy_billing_outbox SET state = ?,detail_code = ?,updated_at = ? WHERE tenant_id = ? AND workflow_id = ? AND state = 'qa_pending'")
-                ->execute([$p['verdict'] === 'void' ? 'blocked' : 'waiting_for_time',$p['verdict'] === 'void' ? 'qa_void' : 'approved_time_required',$now,$tid,$run['id']]);
-            $pdo->prepare('INSERT INTO messages (ticket_id,author_name,kind,body) VALUES (?,?,?,?)')
-                ->execute([$ticket['id'],'Westy Notes','system',utf8_clean('Work log QA: ' . $p['verdict'] . ' (' . $p['reason_code'] . ').')]);
+            $lateVoid = $logState['qa_state'] === 'passed' && $p['verdict'] === 'void';
+            if ($logState['qa_state'] !== null && !$lateVoid) throw new WestyWorkflowConflict('qa_already_recorded');
+            $eligible = "state = 'qa_pending'";
+            if ($lateVoid) {
+                foreach ($billingRows as $row) {
+                    // A retry can move to waiting or blocked while retaining the bytes of an earlier dispatch.
+                    if ($row['frozen'] || in_array($row['state'], ['sending','uncertain','accepted'], true)) {
+                        throw new WestyWorkflowConflict('qa_void_after_dispatch');
+                    }
+                }
+                $eligible = "state IN ('qa_pending','waiting_for_time','ready') AND payload_json IS NULL AND payload_sha256 IS NULL";
+            }
+            [$billingState,$detail] = match ($p['verdict']) {
+                'passed' => ['waiting_for_time','approved_time_required'],
+                'fault_zero' => ['blocked','qa_fault_zero'],
+                'void' => ['blocked','qa_void'],
+            };
+            $pdo->prepare('UPDATE westy_workflow_log_state SET qa_state = ?,qa_reason = ?,updated_at = ? WHERE tenant_id = ? AND workflow_id = ?')
+                ->execute([utf8_clean($p['verdict']),utf8_clean($p['reason_code']),$now,$tid,$run['id']]);
+            $pdo->prepare("UPDATE westy_billing_outbox SET state = ?,detail_code = ?,updated_at = ? WHERE tenant_id = ? AND workflow_id = ? AND $eligible")
+                ->execute([$billingState,$detail,$now,$tid,$run['id']]);
             $result += ['qa_state'=>$p['verdict']];
         }
         $pdo->prepare('INSERT INTO westy_workflow_v4_receipts (tenant_id,workflow_id,event_key,request_sha256,action,response_json,received_at) VALUES (?,?,?,?,?,?,?)')
@@ -282,10 +315,18 @@ function westy_work_log_rows(PDO $pdo, int $tenantId, int $ticketId, ?int $clien
     return $query->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function westy_work_log_timeline(array $rows, bool $customer = false): string
+function westy_work_log_timeline(array $rows, bool $customer = false, ?array $state = null): string
 {
-    if ($rows === []) return '';
-    $html = '<section class="card reply" aria-label="Work log"><h2>Work log</h2><ol>';
+    if ($customer && $rows === []) return '';
+    $html = '<section class="card reply" aria-label="Work log"><h2>Work log</h2>';
+    if (!$customer) {
+        $html .= '<p>' . ($state === null ? 'No seal recorded.' : 'Sealed through step ' . h((string)$state['log_sealed_seq']) . '.') . '</p>';
+        if (isset($state['qa_state'])) {
+            $html .= '<p>QA verdict <strong>' . h($state['qa_state']) . '</strong> (' . h($state['qa_reason']) . ')</p>';
+        }
+    }
+    if ($rows === []) return $html . '</section>';
+    $html .= '<ol>';
     foreach ($rows as $row) {
         $html .= '<li><p class="msg-body"><time>' . h((string)$row['occurred_at']) . ' UTC</time>';
         if (!$customer) {

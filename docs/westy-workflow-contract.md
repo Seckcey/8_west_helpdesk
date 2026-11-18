@@ -316,47 +316,60 @@ pure assertions are in `app/tests/fixtures/westy_work_log_vectors.json` and
 `log` appends 1–20 consecutive steps, recomputes their hash chain, and optionally
 records a forward checkpoint. `qa` requires a resolved workflow and its exact
 stored log and recovery hashes. Mirrored events do not change ticket contents,
-workflow state/version, assignment, or technician time. Seal/QA notes are system
-messages. A remote human actor remains attributed as a user without taking over
+workflow state/version, assignment, or technician time. Seals and QA update
+`westy_workflow_log_state` on the exact tenant and workflow. They preserve
+email drafts, mail approvals and delegations, including after a handoff.
+A remote human actor remains attributed as a user without taking over
 the ticket. Unsafe source summaries are refused, never scrubbed or reworded
 under an existing hash. No log text is supplied to an AI prompt.
-Existing mail revocation triggers remain active: system notes invalidate
-unsubmitted legacy email drafts, and workflow metadata updates revoke dedicated
-Westy mail approvals/delegations. Qualify that existing interaction before release.
-The Supervisor slice must weigh these revocations before sending QA long after
-a ticket closes.
 
-On the staff ticket page, **Work log** shows recorded steps and **Log step**
+On the staff ticket page, **Work log** shows recorded steps, whether the log
+is sealed, the last sealed step, and the recorded QA verdict and reason code.
+**Log step**
 lets a signed-in owner, admin or technician add a private note, finding, action
 or verification. The ordinary session CSRF check and current tenant/role apply.
 A locally logged step transfers the workflow to human ownership and consumes
-legacy automatic alert closure eligibility. Customers see
+legacy automatic alert closure eligibility. That human takeover revokes
+the ticket's mail conversation and delegation through the existing workflow trigger. Customers see
 only time and summary for customer-visible rows on a ticket with a submitted
 Westy email review. The portal's existing ticket authorization runs first.
 
 Apply additive migration 039 through `deploy.sh --migrate` in a quiet period.
+The migration session waits up to 60 seconds for a metadata lock.
 It requires no write freeze. The two identity triggers, the legacy health
 function and its existing runtime EXECUTE grant stay in place throughout.
 V1–v3 keep their existing behavior before, during and after the migration.
-Two additional BEFORE UPDATE triggers enforce forward-only seals and QA verdicts
-on workflows and restrict billing rows held in `qa_pending`.
+The first seal creates a state row with no verdict. Its insert, update and delete
+guards protect the seal and verdict history. A separate trigger restricts
+billing rows held in `qa_pending`.
 
 Rerun 039 to finish a partial apply. Retain the tables and history on source
 rollback. The migration drops `westy_work_log_schema_health()` near the start
-and creates it last. It requires healthy legacy guards, all eight v4 triggers,
-both new tables, the required columns, the billing state and its payload check.
+and creates it last. It requires healthy legacy guards, all ten v4 triggers,
+all three new tables, their required columns, the billing state and its payload check.
 After each apply, grant the runtime EXECUTE on this new function only. V4
 writes and timeline reads require a positive result. A missing function,
 denied grant or zero result makes v4 unavailable, and the endpoint returns
 `workflow_v4_unavailable`.
 
-Resolve still creates `waiting_for_time` under decision D1. The dispatcher skips
-`qa_pending`; only a pending-QA row may become `waiting_for_time` on passed or
-fault_zero, or `blocked`/`qa_void` on void. QA creates no outbox and never sets
-ready, sending or accepted. Verdicts can be initially recorded from NULL/pending
-and may tighten from passed to void; other terminal changes are refused. A later
-void does not rewrite an outbox that has already left qa_pending. The Supervisor
-and charge slices must address that lifecycle before enabling a QA billing gate.
+Resolve still creates `waiting_for_time` under decision D1. When a workflow
+has a held billing row (`qa_pending`), its first verdict applies the following transition.
+
+| Verdict | Billing state | Detail code |
+|---|---|---|
+| `passed` | `waiting_for_time` | `approved_time_required` |
+| `fault_zero` | `blocked` | `qa_fault_zero` |
+| `void` | `blocked` | `qa_void` |
+
+The dispatcher and cron skip held and blocked rows. A verdict on a workflow
+without a billing row records only QA and its receipt. The only later verdict
+allowed is `passed` to `void`. It blocks each unfrozen `waiting_for_time` or
+`ready` row with detail `qa_void`. If any row is `sending`, `uncertain`,
+or `accepted`, or still carries the payload frozen for a previous dispatch, the
+endpoint returns HTTP 409 with `qa_void_after_dispatch`. The verdict remains
+`passed`, billing retains its prior state, and the refused event gets no receipt.
+Replaying an accepted event key with the original bytes returns its stored
+response with `replayed: true`.
 
 Qualification requires the new pure/MySQL/browser suites and the unchanged full
 Validate workflow. No live migration, enablement, deployment, or customer

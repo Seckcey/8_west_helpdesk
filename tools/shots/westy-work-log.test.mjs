@@ -14,7 +14,8 @@ function csrf_field():string{return '<input type="hidden" name="csrf" value="fix
 require $argv[1];
 $row=['occurred_at'=>'2026-11-17 12:00:00','kind'=>'finding','actor_type'=>'ai_staff',
   'actor_key'=>'ai-staff:'.str_repeat('x',240),'summary'=>'<script>window.injected=true</script> A recorded finding.'];
-echo westy_work_log_timeline([$row],$argv[2]==='customer');
+$state=['log_sealed_seq'=>2,'qa_state'=>'passed','qa_reason'=>'no_recurrence'];
+echo westy_work_log_timeline([$row],$argv[2]==='customer',$state);
 if($argv[2]!=='customer')echo westy_work_log_form(true);
 `, path.join(root,'app/lib/westy_work_log.php'), customer ? 'customer' : 'staff'], {encoding:'utf8'});
 
@@ -26,6 +27,8 @@ for (const width of [390, 1280]) {
     await page.setContent(`<!doctype html><html lang="en" data-theme="dark"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Work log fixture</title><style>${css}</style><main class="page">${render(false)}</main></html>`);
     assert.equal(await page.getByRole('heading',{name:'Work log',exact:true}).count(),1);
     assert.match(await page.getByRole('region',{name:'Work log'}).innerText(),/<script>/);
+    assert.equal(await page.getByText('Sealed through step 2.',{exact:true}).count(),1);
+    assert.equal(await page.getByText('QA verdict passed (no_recurrence)',{exact:true}).count(),1);
     assert.equal(await page.evaluate(()=>window.injected),undefined);
     await page.getByLabel('Kind',{exact:true}).selectOption('verify');
     await page.getByLabel('Summary',{exact:true}).fill('Verified the recorded finding.');
@@ -37,6 +40,7 @@ for (const width of [390, 1280]) {
     await page.setContent(`<!doctype html><html lang="en" data-theme="dark"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reviewed work log fixture</title><style>${css}</style><main class="page">${render(true)}</main></html>`);
     assert.equal(await page.getByRole('button',{name:'Log step',exact:true}).count(),0);
     assert.equal(await page.getByText(/ai-staff:/).count(),0);
+    assert.equal(await page.getByText(/sealed through|QA verdict|no_recurrence/i).count(),0);
     assert.equal(await page.evaluate(()=>window.injected),undefined);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   });

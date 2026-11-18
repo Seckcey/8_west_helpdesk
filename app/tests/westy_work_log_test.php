@@ -1,9 +1,11 @@
 <?php
-/** S2/S3/S12: no settings file, database or network. */
+/** S2/S3/S9/S10/S12: local fixtures and in-memory SQLite. */
 declare(strict_types=1);
 require_once __DIR__.'/fixtures/westy_work_log.php';
 require_once __DIR__.'/../lib/westy_hardware.php';
+require_once __DIR__.'/../lib/westy_billing.php';
 function h(?string $s): string { return htmlspecialchars($s ?? '',ENT_QUOTES,'UTF-8'); }
+function utf8_clean(string $s): string { return mb_scrub($s, 'UTF-8'); }
 function csrf_field(): string { return '<input type="hidden" name="csrf" value="synthetic">'; }
 $vectors = wl_vectors(); $now = strtotime('2026-11-17T12:00:00Z');
 $log = westy_workflow_v4_request($vectors['log_body'],$now);
@@ -101,7 +103,47 @@ $malicious = ['occurred_at'=>'2026-11-17 12:00:00','summary'=>'<script>alert("x"
 $staff=westy_work_log_timeline([$malicious]); $customer=westy_work_log_timeline([$malicious],true);
 wl_check(!str_contains($staff,'<script>') && str_contains($staff,'&lt;script&gt;'),'staff escapes summary markup');
 wl_check(!str_contains($customer,'<script>') && !str_contains($customer,'safeharbor-user:1') && !str_contains($customer,'Technician'),'customer renders time and summary only');
-wl_check(westy_work_log_timeline([])==='','empty history renders nothing');
+wl_check(str_contains(westy_work_log_timeline([]),'No seal recorded.') && westy_work_log_timeline([],true)==='','unsealed staff status and empty customer view');
+$state = ['log_sealed_seq'=>3,'qa_state'=>'passed','qa_reason'=>'<unsafe>'];
+$staff = westy_work_log_timeline([$malicious], state: $state);
+wl_check(str_contains($staff,'Sealed through step 3.') && str_contains($staff,'passed') && str_contains($staff,'&lt;unsafe&gt;')
+    && !str_contains($staff,'<unsafe>'), 'staff sees the sealed step and escaped verdict reason');
+wl_check(westy_work_log_timeline([$malicious],true,$state) === $customer && westy_work_log_timeline([],true,$state) === '',
+    'seal and verdict never appear in either customer view');
 $form=westy_work_log_form(true,['summary'=>'</textarea><script>bad</script>']);
 wl_check(str_contains($form,'name="csrf"') && !str_contains($form,'<script>') && !str_contains($form,'name="customer_visible"'),'form CSRF and escaping with no visibility control');
+$migration = str_replace("\r\n", "\n", file_get_contents(__DIR__.'/../db/migrations/039_westy_work_log.sql'));
+$schema = str_replace("\r\n", "\n", file_get_contents(__DIR__.'/../db/schema.sql'));
+$block = explode("-- BEGIN S5 WORK LOG (039)\n", $schema, 2)[1];
+$timeout = "SET SESSION lock_wait_timeout=60;\n";
+wl_check(str_starts_with(preg_replace('/^--[^\n]*\n/m','',$migration), $timeout) && substr_count($migration,$timeout) === 1
+    && $block === str_replace($timeout,'',$migration), 'migration starts with the session timeout and its schema block otherwise matches exactly');
+
+$pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+$pdo->sqliteCreateFunction('westy_work_log_schema_health', static fn(): int => 1, 0);
+$pdo->sqliteCreateFunction('UTC_TIMESTAMP', static fn(): string => gmdate('Y-m-d H:i:s'), 0);
+$pdo->exec("CREATE TABLE tenants (id INTEGER PRIMARY KEY,slug TEXT);
+    CREATE TABLE svc_identities (id INTEGER PRIMARY KEY,tenant_id INTEGER,service TEXT,is_active INTEGER);
+    CREATE TABLE suite_customer_sync_bindings (tenant_id INTEGER,client_id INTEGER,customer_id TEXT,status TEXT);
+    CREATE TABLE tickets (id INTEGER PRIMARY KEY,tenant_id INTEGER,client_id INTEGER,external_key TEXT);
+    CREATE TABLE westy_workflows (id INTEGER PRIMARY KEY,tenant_id INTEGER,workflow_key TEXT,customer_id TEXT,alert_key TEXT,ticket_id INTEGER,state TEXT,evidence_sha256 TEXT);
+    CREATE TABLE westy_workflow_receipts (tenant_id INTEGER,event_key TEXT);
+    CREATE TABLE westy_workflow_log_state (tenant_id INTEGER,workflow_id INTEGER,log_sha256 TEXT NOT NULL,log_sealed_seq INTEGER NOT NULL,
+        qa_state TEXT,qa_reason TEXT,updated_at TEXT,PRIMARY KEY (tenant_id,workflow_id));
+    CREATE TABLE westy_workflow_v4_receipts (tenant_id INTEGER,workflow_id INTEGER,event_key TEXT,request_sha256 TEXT,action TEXT,response_json TEXT,received_at TEXT,
+        UNIQUE (tenant_id,event_key));
+    CREATE TABLE westy_billing_outbox (id INTEGER PRIMARY KEY,tenant_id INTEGER,workflow_id INTEGER,event_key TEXT,state TEXT,payload_json TEXT,
+        payload_sha256 TEXT,attempts INTEGER DEFAULT 0,detail_code TEXT,next_attempt_at TEXT,updated_at TEXT,UNIQUE (tenant_id,workflow_id));
+    INSERT INTO tenants VALUES (1,'8west');
+    INSERT INTO svc_identities VALUES (1,1,'milepost-workflow',1)");
+$pdo->prepare("INSERT INTO suite_customer_sync_bindings VALUES (1,1,?,'active')")->execute([wl_log(1)['customer_id']]);
+wl_qa_billing_cases($pdo, static function (int $id) use ($pdo): array {
+    $log = wl_log($id);
+    $pdo->prepare('INSERT INTO tickets VALUES (?,1,1,?)')->execute([$id,$log['alert_key']]);
+    $pdo->prepare("INSERT INTO westy_workflows VALUES (?,1,?,?,?,?,'resolved',?)")
+        ->execute([$id,$log['workflow_key'],$log['customer_id'],$log['alert_key'],$id,str_repeat('b',64)]);
+    $pdo->prepare('INSERT INTO westy_workflow_log_state (tenant_id,workflow_id,log_sha256,log_sealed_seq) VALUES (1,?,?,1)')
+        ->execute([$id,$log['log_sha256']]);
+    return [$log,$id];
+});
 echo 'PASS '.($GLOBALS['wl_checks'] ?? 0)." work log pure checks.\n";

@@ -8491,30 +8491,17 @@ CREATE TABLE IF NOT EXISTS westy_workflow_v4_receipts (
   CONSTRAINT fk_westy_v4_receipt_workflow FOREIGN KEY (tenant_id,workflow_id) REFERENCES westy_workflows (tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-SET @westy_039_ddl = IF(EXISTS (SELECT 1 FROM information_schema.columns
-  WHERE table_schema=DATABASE() AND table_name='westy_workflows' AND column_name='log_sha256'),
-  'DO 0', 'ALTER TABLE westy_workflows ADD COLUMN log_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL');
-PREPARE westy_039_stmt FROM @westy_039_ddl;
-EXECUTE westy_039_stmt;
-DEALLOCATE PREPARE westy_039_stmt;
-SET @westy_039_ddl = IF(EXISTS (SELECT 1 FROM information_schema.columns
-  WHERE table_schema=DATABASE() AND table_name='westy_workflows' AND column_name='log_sealed_seq'),
-  'DO 0', 'ALTER TABLE westy_workflows ADD COLUMN log_sealed_seq INT UNSIGNED NULL');
-PREPARE westy_039_stmt FROM @westy_039_ddl;
-EXECUTE westy_039_stmt;
-DEALLOCATE PREPARE westy_039_stmt;
-SET @westy_039_ddl = IF(EXISTS (SELECT 1 FROM information_schema.columns
-  WHERE table_schema=DATABASE() AND table_name='westy_workflows' AND column_name='qa_state'),
-  'DO 0', 'ALTER TABLE westy_workflows ADD COLUMN qa_state ENUM(''pending'',''passed'',''fault_zero'',''void'') NULL');
-PREPARE westy_039_stmt FROM @westy_039_ddl;
-EXECUTE westy_039_stmt;
-DEALLOCATE PREPARE westy_039_stmt;
-SET @westy_039_ddl = IF(EXISTS (SELECT 1 FROM information_schema.columns
-  WHERE table_schema=DATABASE() AND table_name='westy_workflows' AND column_name='qa_reason'),
-  'DO 0', 'ALTER TABLE westy_workflows ADD COLUMN qa_reason VARCHAR(64) NULL');
-PREPARE westy_039_stmt FROM @westy_039_ddl;
-EXECUTE westy_039_stmt;
-DEALLOCATE PREPARE westy_039_stmt;
+CREATE TABLE IF NOT EXISTS westy_workflow_log_state (
+  tenant_id INT UNSIGNED NOT NULL,
+  workflow_id BIGINT UNSIGNED NOT NULL,
+  log_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  log_sealed_seq INT UNSIGNED NOT NULL,
+  qa_state ENUM('passed','fault_zero','void') NULL,
+  qa_reason VARCHAR(64) NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (tenant_id,workflow_id),
+  CONSTRAINT fk_westy_log_state_workflow FOREIGN KEY (tenant_id,workflow_id) REFERENCES westy_workflows (tenant_id,id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 ALTER TABLE westy_billing_outbox
   MODIFY state ENUM('waiting_for_time','ready','sending','uncertain','accepted','blocked','qa_pending') NOT NULL DEFAULT 'waiting_for_time';
@@ -8556,20 +8543,29 @@ FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Westy v4 receipts are i
 DROP TRIGGER IF EXISTS trg_westy_v4_receipt_immutable_delete$$
 CREATE TRIGGER trg_westy_v4_receipt_immutable_delete BEFORE DELETE ON westy_workflow_v4_receipts
 FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Westy v4 receipts are immutable'$$
-DROP TRIGGER IF EXISTS trg_westy_workflow_log_guard$$
-CREATE TRIGGER trg_westy_workflow_log_guard BEFORE UPDATE ON westy_workflows
+DROP TRIGGER IF EXISTS trg_westy_workflow_log_insert$$
+CREATE TRIGGER trg_westy_workflow_log_insert BEFORE INSERT ON westy_workflow_log_state
 FOR EACH ROW BEGIN
-  IF (NEW.log_sha256 IS NULL) <> (NEW.log_sealed_seq IS NULL)
-    OR (OLD.log_sealed_seq IS NOT NULL AND (NEW.log_sealed_seq IS NULL OR NEW.log_sealed_seq < OLD.log_sealed_seq))
-    OR (OLD.log_sealed_seq IS NOT NULL AND (NEW.log_sealed_seq <=> OLD.log_sealed_seq)
-      AND NOT (NEW.log_sha256 <=> OLD.log_sha256))
-    OR (((OLD.qa_state <=> 'passed') OR (OLD.qa_state <=> 'fault_zero') OR (OLD.qa_state <=> 'void'))
-      AND NOT ((OLD.qa_state <=> 'passed') AND (NEW.qa_state <=> 'void'))
+  IF NEW.qa_state IS NOT NULL OR NEW.qa_reason IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Westy work log seal and QA are forward-only';
+  END IF;
+END$$
+DROP TRIGGER IF EXISTS trg_westy_workflow_log_guard$$
+CREATE TRIGGER trg_westy_workflow_log_guard BEFORE UPDATE ON westy_workflow_log_state
+FOR EACH ROW BEGIN
+  IF NOT (NEW.tenant_id <=> OLD.tenant_id) OR NOT (NEW.workflow_id <=> OLD.workflow_id)
+    OR NEW.log_sealed_seq < OLD.log_sealed_seq
+    OR ((NEW.log_sealed_seq <=> OLD.log_sealed_seq) AND NOT (NEW.log_sha256 <=> OLD.log_sha256))
+    OR (NEW.qa_state IS NULL) <> (NEW.qa_reason IS NULL)
+    OR (OLD.qa_state IS NOT NULL AND NOT ((OLD.qa_state <=> 'passed') AND (NEW.qa_state <=> 'void'))
       AND (NOT (NEW.qa_state <=> OLD.qa_state)
         OR NOT (CAST(NEW.qa_reason AS BINARY) <=> CAST(OLD.qa_reason AS BINARY)))) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Westy work log seal and QA are forward-only';
   END IF;
 END$$
+DROP TRIGGER IF EXISTS trg_westy_workflow_log_delete$$
+CREATE TRIGGER trg_westy_workflow_log_delete BEFORE DELETE ON westy_workflow_log_state
+FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Westy work log seal and QA are forward-only'$$
 DROP TRIGGER IF EXISTS trg_westy_billing_qa_guard$$
 CREATE TRIGGER trg_westy_billing_qa_guard BEFORE UPDATE ON westy_billing_outbox
 FOR EACH ROW BEGIN
@@ -8594,13 +8590,14 @@ RETURN CASE WHEN westy_workflow_schema_health() = 1
       OR (trigger_name='trg_westy_work_log_insert_takeover' AND action_statement LIKE '%human_owned%' AND action_statement LIKE '%NEW.source%')
       OR (trigger_name IN ('trg_westy_v4_receipt_immutable_update','trg_westy_v4_receipt_immutable_delete')
         AND action_statement LIKE '%Westy v4 receipts are immutable%')
-      OR (trigger_name='trg_westy_workflow_log_guard' AND action_statement LIKE '%Westy work log seal and QA are forward-only%')
+      OR (trigger_name IN ('trg_westy_workflow_log_insert','trg_westy_workflow_log_guard','trg_westy_workflow_log_delete')
+        AND event_object_table='westy_workflow_log_state' AND action_statement LIKE '%Westy work log seal and QA are forward-only%')
       OR (trigger_name='trg_westy_billing_qa_guard' AND action_statement LIKE '%Westy billing QA hold is restricted%')
-    )) = 8
+    )) = 10
   AND (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()
-    AND table_name IN ('ticket_work_log','westy_workflow_v4_receipts') AND table_type='BASE TABLE') = 2
-  AND (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='westy_workflows'
-    AND column_name IN ('log_sha256','log_sealed_seq','qa_state','qa_reason')) = 4
+    AND table_name IN ('ticket_work_log','westy_workflow_v4_receipts','westy_workflow_log_state') AND table_type='BASE TABLE') = 3
+  AND (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='westy_workflow_log_state'
+    AND column_name IN ('tenant_id','workflow_id','log_sha256','log_sealed_seq','qa_state','qa_reason','updated_at')) = 7
   AND (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='ticket_work_log'
     AND column_name IN ('id','tenant_id','ticket_id','workflow_id','source','source_event_key','seq','kind','actor_type','actor_key','summary','cause_code','evidence_sha256','milepost_ref','customer_visible','entry_sha256','occurred_at','created_at')) = 18
   AND (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='westy_workflow_v4_receipts'

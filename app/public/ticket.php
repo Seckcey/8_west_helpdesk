@@ -112,10 +112,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['work_log_step'])) {
     }
 }
 $workLogRows = [];
+$workLogState = null;
 $workLogAvailable = false;
 try {
     westy_work_log_schema_ready(db());
     $workLogRows = westy_work_log_rows(db(), (int)$user['tenant_id'], $id, ready: true);
+    if ($westyWorkflow) $workLogState = westy_work_log_state(db(), (int)$user['tenant_id'], (int)$westyWorkflow['id']);
     $workLogAvailable = true;
 } catch (Throwable $error) { error_log('Work log unavailable: ' . $error::class); }
 
@@ -340,7 +342,7 @@ page_top($user, '#' . $id, 'queue');
   <div class="ticket-grid">
     <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>" data-status="<?= h($ticket['status']) ?>" data-priority="<?= h($ticket['priority']) ?>" data-owner="<?= !empty($ticket['assignee_id']) ? (int)$ticket['assignee_id'] : '' ?>">
       <?php if ($westyWorkflow): ?><?= westy_workflow_card($westyWorkflow) ?><?php endif; ?>
-      <?= westy_work_log_timeline($workLogRows) ?>
+      <?php if ($workLogAvailable): ?><?= westy_work_log_timeline($workLogRows, state: $workLogState) ?><?php endif; ?>
       <?php if ($workLogAvailable && in_array($user['role'], ['owner','admin','tech'], true)): ?>
         <?= westy_work_log_form($westyWorkflow !== null && $westyWorkflow['state'] !== 'human_owned', isset($_POST['work_log_step']) ? $_POST : [], $workLogError) ?>
       <?php elseif ($workLogError !== null): ?>

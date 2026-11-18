@@ -125,6 +125,13 @@ function westy_billing_response(array $response,string $eventKey,?array $payload
     return true;
 }
 
+/** The cron visits due handoffs in ID order, up to ten per run. */
+function westy_billing_due_ids(PDO $pdo): array
+{
+    return $pdo->query("SELECT id FROM westy_billing_outbox WHERE state NOT IN ('accepted','blocked','qa_pending')
+        AND (next_attempt_at IS NULL OR next_attempt_at<=UTC_TIMESTAMP()) ORDER BY id LIMIT 10")->fetchAll(PDO::FETCH_COLUMN);
+}
+
 /** Claim in SQL, release the lock, send exact bytes, then record the result. */
 function westy_billing_dispatch(PDO $pdo,int $outboxId,array $config,?callable $transport=null): string
 {
