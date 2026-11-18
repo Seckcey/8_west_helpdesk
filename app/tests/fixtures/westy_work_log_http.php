@@ -54,12 +54,17 @@ try {
         wl_check($signed($p,time()-301)[0]===401,'actual endpoint stale timestamp');
     }
     [$status,$body]=$signed($httpCase); wl_check($status===200 && json_decode($body,true)['stored_through']===1,'HTTP v4 signed log');
-    [$status,$body]=$signed(wl_qa($httpCase)); wl_check($status===200 && json_decode($body,true)['qa_state']==='passed','HTTP v4 signed QA');
     $httpRun=wl_run($pdo,$httpCase);
     $pdo->prepare("INSERT INTO westy_billing_outbox (tenant_id,workflow_id,event_key,state,payload_json,payload_sha256)
         VALUES (1,?,'s5-http-sending','sending','{}',?)")->execute([$httpRun['id'],hash('sha256','{}')]);
+    foreach (['fault_zero','void'] as $i => $verdict) {
+        [$status,$body]=$signed(wl_qa($httpCase,$verdict,wl_key(950101+$i)));
+        wl_check($status===409 && json_decode($body,true)===['ok'=>false,'error'=>'qa_charge_already_dispatched']
+            && westy_work_log_state($pdo,1,(int)$httpRun['id'])['qa_state']===null,'signed first '.$verdict.' refuses an in-flight charge');
+    }
+    [$status,$body]=$signed(wl_qa($httpCase)); wl_check($status===200 && json_decode($body,true)['qa_state']==='passed','HTTP v4 signed QA');
     [$status,$body]=$signed(wl_qa($httpCase,'void',wl_key(950100)));
-    wl_check($status===409 && json_decode($body,true)===['ok'=>false,'error'=>'qa_void_after_dispatch']
+    wl_check($status===409 && json_decode($body,true)===['ok'=>false,'error'=>'qa_charge_already_dispatched']
         && westy_work_log_state($pdo,1,(int)$httpRun['id'])['qa_state']==='passed','signed late void after dispatch returns a conflict and retains passed');
     $pdo->exec('DROP FUNCTION westy_work_log_schema_health');
     foreach ([$httpCase,wl_qa($httpCase)] as $p) {
@@ -92,6 +97,9 @@ try {
     $path='/ticket.php?id='.$ticket;
     wl_check($send($path,http_build_query($form),['Content-Type: application/x-www-form-urlencoded'])[0]===302,'actual page needs login');
     $headers=['Content-Type: application/x-www-form-urlencoded','Cookie: PHPSESSID='.$session];
+    [$status,$body]=$send($path,'',$headers,'GET');
+    wl_check($status===200 && !str_contains($body,'aria-label="Work log"') && str_contains($body,'name="work_log_step"'),
+        'empty staff ticket keeps the Log step form without a Work log card');
     wl_check($send($path,http_build_query($form),$headers)[0]===419,'actual page needs CSRF');
     wl_check($send($path,http_build_query($form+['csrf'=>'wrong']),$headers)[0]===419,'actual page rejects wrong CSRF');
     wl_check(wl_count($pdo,'ticket_work_log')===0,'HTTP auth refusals insert nothing');
@@ -109,7 +117,7 @@ try {
 
     wl_mail_mirroring_cases($pdo);
     $sealedTicket = wl_run($pdo,wl_log(779))['ticket_id'];
-    foreach ([[$path,['No seal recorded.']],['/ticket.php?id='.$sealedTicket,['Sealed through step 3.','QA verdict fault_zero (no_recurrence)']]] as [$staffPath,$facts]) {
+    foreach ([[$path,['Not sealed yet. The log is sealed when the case ends.']],['/ticket.php?id='.$sealedTicket,['Sealed through step 3.','QA: our fault, no charge [no_recurrence]']]] as [$staffPath,$facts]) {
         [$status,$body] = $send($staffPath,'',['Cookie: PHPSESSID='.$session],'GET');
         wl_check($status === 200, 'authorized staff ticket renders after mail and QA');
         foreach ($facts as $fact) wl_check(str_contains(strip_tags($body),$fact), 'actual Work log card shows '.$fact);

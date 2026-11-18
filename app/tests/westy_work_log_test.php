@@ -99,16 +99,28 @@ $p['first_seq']=502; $p['entries'][0]['seq']=502; $p['sealed_seq']=502; $bad($p,
 wl_refuse(fn()=>westy_workflow_v4_request(str_repeat(' ',16385),$now),'invalid_body','16 KB cap');
 wl_refuse(fn()=>westy_workflow_v4_request(str_replace('Print Spooler',"bad\xff",$vectors['log_body']),$now),'invalid_json','invalid UTF-8');
 $p=array_reverse($log,true); $bad($p,'invalid_fields','canonical member order required');
-$malicious = ['occurred_at'=>'2026-11-17 12:00:00','summary'=>'<script>alert("x")</script>','kind'=>'note','actor_type'=>'user','actor_key'=>'safeharbor-user:1'];
+$malicious = ['occurred_at'=>'2026-11-17 12:00:00','summary'=>'<script>alert("x")</script>','kind'=>'note','actor_type'=>'user','actor_key'=>'safeharbor-user:1','source'=>'staff'];
 $staff=westy_work_log_timeline([$malicious]); $customer=westy_work_log_timeline([$malicious],true);
 wl_check(!str_contains($staff,'<script>') && str_contains($staff,'&lt;script&gt;'),'staff escapes summary markup');
 wl_check(!str_contains($customer,'<script>') && !str_contains($customer,'safeharbor-user:1') && !str_contains($customer,'Technician'),'customer renders time and summary only');
-wl_check(str_contains(westy_work_log_timeline([]),'No seal recorded.') && westy_work_log_timeline([],true)==='','unsealed staff status and empty customer view');
-$state = ['log_sealed_seq'=>3,'qa_state'=>'passed','qa_reason'=>'<unsafe>'];
-$staff = westy_work_log_timeline([$malicious], state: $state);
-wl_check(str_contains($staff,'Sealed through step 3.') && str_contains($staff,'passed') && str_contains($staff,'&lt;unsafe&gt;')
-    && !str_contains($staff,'<unsafe>'), 'staff sees the sealed step and escaped verdict reason');
-wl_check(westy_work_log_timeline([$malicious],true,$state) === $customer && westy_work_log_timeline([],true,$state) === '',
+wl_check(westy_work_log_timeline([])==='' && westy_work_log_timeline([],hasWorkflow:true)==='', 'no rows or seal means no staff card');
+wl_check(!str_contains($staff,'sealed') && !str_contains($staff,'QA:'), 'local steps without a workflow show only their history');
+$pending = 'Not sealed yet. The log is sealed when the case ends.';
+$mirror = array_replace($malicious,['source'=>'milepost','actor_key'=>'milepost-user:1']);
+foreach ([westy_work_log_timeline([$malicious],hasWorkflow:true), westy_work_log_timeline([$malicious,$mirror])] as $unsealed) {
+    wl_check(str_contains($unsealed,$pending) && !str_contains($unsealed,'QA:'), 'workflow or mirrored history shows an unsealed log without a verdict');
+}
+$state = ['log_sealed_seq'=>3,'qa_state'=>null,'qa_reason'=>null];
+$sealOnly = westy_work_log_timeline([],state:$state);
+wl_check(str_contains($sealOnly,'Sealed through step 3.') && !str_contains($sealOnly,'QA:'), 'seal alone shows a staff card without a verdict');
+foreach (['passed'=>'passed','fault_zero'=>'our fault, no charge','void'=>'void'] as $verdict => $label) {
+    $state['qa_state'] = $verdict;
+    $state['qa_reason'] = '<unsafe>';
+    $staff = westy_work_log_timeline([$mirror],state:$state,hasWorkflow:true);
+    wl_check(str_contains($staff,'Sealed through step 3.') && str_contains($staff,'QA: '.$label.' [&lt;unsafe&gt;]')
+        && !str_contains($staff,'<unsafe>'), 'staff sees the plain verdict and escaped bracketed reason for '.$verdict);
+}
+wl_check(westy_work_log_timeline([$malicious],true,$state,true) === $customer && westy_work_log_timeline([],true,$state,true) === '',
     'seal and verdict never appear in either customer view');
 $form=westy_work_log_form(true,['summary'=>'</textarea><script>bad</script>']);
 wl_check(str_contains($form,'name="csrf"') && !str_contains($form,'<script>') && !str_contains($form,'name="customer_visible"'),'form CSRF and escaping with no visibility control');

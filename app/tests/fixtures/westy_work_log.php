@@ -74,71 +74,67 @@ function wl_sql_refuse(callable $call, string $message, string $name): void
 /** Exercise the same QA receiver, dispatcher and cron query on SQLite and MySQL. */
 function wl_qa_billing_cases(PDO $pdo, callable $sealedCase): void
 {
-    $hold = $pdo->prepare("INSERT INTO westy_billing_outbox (tenant_id,workflow_id,event_key,state) VALUES (1,?,?,'qa_pending')");
+    $insert = $pdo->prepare('INSERT INTO westy_billing_outbox (tenant_id,workflow_id,event_key,state) VALUES (1,?,?,?)');
     $outbox = static fn(int $id): ?array => westy_workflow_row($pdo, 'SELECT * FROM westy_billing_outbox WHERE tenant_id=1 AND workflow_id=?', [$id]);
-    foreach ([
-        ['passed','waiting_for_time','approved_time_required'],
-        ['fault_zero','blocked','qa_fault_zero'],
-        ['void','blocked','qa_void'],
-    ] as $i => [$verdict,$state,$detail]) {
-        [$log,$id] = $sealedCase(500 + $i);
-        $hold->execute([$id,'qa-held-'.$i]);
-        $qa = wl_qa($log, $verdict);
-        wl_check(wl_send($pdo, $qa)['qa_state'] === $verdict, 'receiver records '.$verdict);
-        $box = $outbox($id);
-        wl_check($box['state'] === $state && $box['detail_code'] === $detail && $box['payload_json'] === null
-            && $box['payload_sha256'] === null && (int)$box['attempts'] === 0, 'held billing outcome for '.$verdict);
-        if ($verdict === 'passed') $releasedId = (int)$box['id'];
-        if ($verdict === 'fault_zero') {
-            $config = ['enabled'=>true,'service'=>'safeharbor-billing','endpoint'=>WESTY_BILLING_ENDPOINT,'secret'=>str_repeat('t',40),
-                'tenant_slugs'=>['8west'],'customer_ids'=>[$log['customer_id']]];
-            $calls = 0;
-            $transport = static function () use (&$calls): array { ++$calls; return ['status'=>0,'body'=>'']; };
-            wl_check(westy_billing_dispatch($pdo,(int)$box['id'],$config,$transport) === 'blocked' && $calls === 0
-                && $outbox($id) === $box, 'direct dispatcher skips the fault-zero charge without modifying it');
-            $due = array_map('intval', westy_billing_due_ids($pdo));
-            wl_check(in_array($releasedId,$due,true) && !in_array((int)$box['id'],$due,true), 'cron selects the due passed charge and skips fault_zero');
-        }
+    $sideRow = static fn(int $id): ?array => westy_workflow_row($pdo, 'SELECT * FROM westy_workflow_log_state WHERE tenant_id=1 AND workflow_id=?', [$id]);
+    $receipts = static fn(): array => $pdo->query('SELECT * FROM westy_workflow_v4_receipts ORDER BY tenant_id,event_key')->fetchAll(PDO::FETCH_ASSOC);
 
+    [$log,$id] = $sealedCase(500);
+    $insert->execute([$id,'qa-held-control','qa_pending']);
+    wl_check(wl_send($pdo, wl_qa($log))['qa_state'] === 'passed', 'receiver records passed');
+    $released = $outbox($id);
+    wl_check($released['state'] === 'waiting_for_time' && $released['detail_code'] === 'approved_time_required'
+        && $released['payload_json'] === null && $released['payload_sha256'] === null && (int)$released['attempts'] === 0,
+        'passed releases a held charge for approved time');
+    $config = ['enabled'=>true,'service'=>'safeharbor-billing','endpoint'=>WESTY_BILLING_ENDPOINT,'secret'=>str_repeat('t',40),
+        'tenant_slugs'=>['8west'],'customer_ids'=>[$log['customer_id']]];
+    foreach (['passed','fault_zero','void'] as $i => $verdict) {
         [$log,$id] = $sealedCase(510 + $i);
         wl_check($outbox($id) === null && wl_send($pdo, wl_qa($log,$verdict))['qa_state'] === $verdict
             && $outbox($id) === null, $verdict.' on a workflow without a held charge creates no outbox row');
     }
 
+    $setBilling = $pdo->prepare('UPDATE westy_billing_outbox SET state=?,payload_json=?,payload_sha256=?,attempts=?,detail_code=?
+        WHERE tenant_id=1 AND workflow_id=?');
+    $number = 600;
     foreach ([
-        ['waiting_for_time',false,false], ['ready',false,false], ['sending',true,true],
-        ['uncertain',true,true], ['accepted',true,true], ['waiting_for_time',true,true], ['ready',true,true],
-        ['blocked',true,true], ['blocked',false,false], ['sending',false,true],
-    ] as $i => [$state,$frozen,$refused]) {
-        [$log,$id] = $sealedCase(520 + $i);
-        $hold->execute([$id,'qa-late-'.$i]);
-        wl_send($pdo, wl_qa($log));
-        $pdo->prepare('UPDATE westy_billing_outbox SET state=?,payload_json=?,payload_sha256=?,attempts=? WHERE tenant_id=1 AND workflow_id=?')
-            ->execute([$state,$frozen ? '{}' : null,$frozen ? hash('sha256','{}') : null,(int)$frozen,$id]);
-        $void = wl_qa($log, 'void', wl_key(530000 + $i));
-        $void['reason_code'] = 'recovery_reversed';
-        if ($refused) {
-            $box = $outbox($id);
-            $before = westy_workflow_row($pdo, 'SELECT * FROM westy_workflow_log_state WHERE tenant_id=1 AND workflow_id=?', [$id]);
-            try {
-                wl_send($pdo, $void);
-                wl_check(false, 'late void accepted for dispatched '.$state);
-            } catch (WestyWorkflowConflict $error) {
-                wl_check($error->getMessage() === 'qa_void_after_dispatch', 'late void conflict for '.$state);
+        ['qa_pending',false,false], ['waiting_for_time',false,false], ['ready',false,false], ['blocked',false,false],
+        ['sending',false,true], ['uncertain',false,true], ['accepted',false,true],
+        ['sending',true,true], ['uncertain',true,true], ['accepted',true,true],
+        ['waiting_for_time',true,true], ['ready',true,true], ['blocked',true,true],
+    ] as [$state,$frozen,$refused]) {
+        foreach ([['fault_zero',false], ['void',false], ['void',true]] as [$verdict,$afterPass]) {
+            [$log,$id] = $sealedCase(++$number);
+            $insert->execute([$id,'qa-case-'.$number,$afterPass ? 'qa_pending' : 'waiting_for_time']);
+            if ($afterPass) wl_send($pdo, wl_qa($log));
+            $detail = $state === 'blocked' ? 'billing_review_required' : 'approved_time_required';
+            $setBilling->execute([$state,$frozen ? '{}' : null,$frozen ? hash('sha256','{}') : null,(int)$frozen,$detail,$id]);
+            $qa = wl_qa($log,$verdict,wl_key(530000 + $number));
+            $qa['reason_code'] = $verdict === 'void' ? 'recovery_reversed' : 'service_fault';
+            $case = ($afterPass ? 'late ' : 'first ').$verdict.' with '.$state.($frozen ? ' (frozen)' : ' (unfrozen)');
+            $before = $outbox($id);
+            if ($refused) {
+                $priorState = $sideRow($id);
+                $priorReceipts = $receipts();
+                wl_refuse(fn() => wl_send($pdo,$qa), 'qa_charge_already_dispatched', $case);
+                wl_check($priorState['qa_state'] === ($afterPass ? 'passed' : null) && $sideRow($id) === $priorState
+                    && $outbox($id) === $before && $receipts() === $priorReceipts, $case.' preserves the side row, outbox and receipts');
+                continue;
             }
-            $after = westy_workflow_row($pdo, 'SELECT * FROM westy_workflow_log_state WHERE tenant_id=1 AND workflow_id=?', [$id]);
-            wl_check($outbox($id) === $box && $before['qa_state'] === 'passed' && $before === $after
-                && westy_workflow_row($pdo, 'SELECT event_key FROM westy_workflow_v4_receipts WHERE tenant_id=1 AND event_key=?', [$void['event_key']]) === null,
-                'refused late void preserves billing, verdict and receipts for '.$state);
-        } else {
-            $receipt = wl_send($pdo, $void);
+            $receipt = wl_send($pdo,$qa);
             $box = $outbox($id);
-            $recorded = westy_work_log_state($pdo, 1, $id);
-            // A terminal row keeps the reason it was already blocked.
-            $expectedDetail = $state === 'blocked' ? 'approved_time_required' : 'qa_void';
-            wl_check($receipt['qa_state'] === 'void' && $recorded['qa_state'] === 'void' && $recorded['qa_reason'] === $void['reason_code']
-                && $box['state'] === 'blocked' && $box['detail_code'] === $expectedDetail && $box['payload_json'] === null,
-                'late void records its reason and leaves unfrozen '.$state.' terminal');
+            $recorded = $sideRow($id);
+            wl_check($receipt['qa_state'] === $verdict && $recorded['qa_state'] === $verdict && $recorded['qa_reason'] === $qa['reason_code'],
+                $case.' records the verdict and reason');
+            wl_check($box['state'] === 'blocked' && ($state === 'blocked' ? $box === $before : $box['detail_code'] === 'qa_'.$verdict)
+                && $box['payload_json'] === null && $box['payload_sha256'] === null && (int)$box['attempts'] === 0, $case.' keeps the charge blocked');
+            $due = array_map('intval', westy_billing_due_ids($pdo));
+            wl_check(count($due) < 10 && in_array((int)$released['id'],$due,true) && !in_array((int)$box['id'],$due,true),
+                $case.' is excluded from a cron batch with room for it');
+            $calls = 0;
+            $transport = static function () use (&$calls): array { ++$calls; return ['status'=>0,'body'=>'']; };
+            wl_check(westy_billing_dispatch($pdo,(int)$box['id'],$config,$transport) === 'blocked' && $calls === 0 && $outbox($id) === $box,
+                $case.' is skipped by direct dispatch without a write or transport call');
         }
     }
 }

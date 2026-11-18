@@ -164,18 +164,19 @@ function westy_workflow_v4_receive(PDO $pdo, array $settings, array $p, string $
         $key = [$tid,$p['event_key']];
         $legacy = westy_workflow_row($pdo, 'SELECT event_key FROM westy_workflow_receipts WHERE tenant_id = ? AND event_key = ?', $key);
         $prior = westy_workflow_row($pdo, 'SELECT request_sha256,response_json FROM westy_workflow_v4_receipts WHERE tenant_id = ? AND event_key = ?', $key);
-        $readRun = static fn() => westy_workflow_row($pdo, 'SELECT * FROM westy_workflows WHERE tenant_id = ? AND workflow_key = ?' . $lock, [$tid,$p['workflow_key']]);
         $readTicket = static fn() => westy_workflow_row($pdo, 'SELECT * FROM tickets WHERE tenant_id = ? AND external_key = ?' . $lock, [$tid,$p['alert_key']]);
+        $readRun = static fn() => westy_workflow_row($pdo, 'SELECT * FROM westy_workflows WHERE tenant_id = ? AND workflow_key = ?' . $lock, [$tid,$p['workflow_key']]);
         if ($p['action'] === 'qa' && !$prior && !$legacy) {
-            // Match dispatch: tenant, outbox, workflow, ticket, binding. The subquery only looks up the workflow ID.
+            // The tenant lock serializes QA with dispatch. Lock the outbox first, then the ticket
+            // before the workflow, as a technician's ticket edit takes the workflow lock through a trigger.
             $billing = $pdo->prepare('SELECT state,(payload_json IS NOT NULL OR payload_sha256 IS NOT NULL) AS frozen
                 FROM westy_billing_outbox WHERE tenant_id = ? AND workflow_id =
                     (SELECT id FROM westy_workflows WHERE tenant_id = ? AND workflow_key = ? AND customer_id = ?)
                 ORDER BY id' . $lock);
             $billing->execute([$tid,$tid,$p['workflow_key'],$p['customer_id']]);
             $billingRows = $billing->fetchAll(PDO::FETCH_ASSOC);
-            $run = $readRun();
             $ticket = $readTicket();
+            $run = $readRun();
         }
         $binding = westy_workflow_row($pdo, 'SELECT client_id FROM suite_customer_sync_bindings WHERE tenant_id = ? AND customer_id = ? AND status = ?' . $lock, [$tid,$p['customer_id'],'active']);
         if (!$binding || !managed_customer_operational($pdo, $tid, (int)$binding['client_id'], true)) throw new WestyWorkflowConflict('active_customer_binding_required');
@@ -230,11 +231,11 @@ function westy_workflow_v4_receive(PDO $pdo, array $settings, array $p, string $
             $lateVoid = $logState['qa_state'] === 'passed' && $p['verdict'] === 'void';
             if ($logState['qa_state'] !== null && !$lateVoid) throw new WestyWorkflowConflict('qa_already_recorded');
             $eligible = "state = 'qa_pending'";
-            if ($lateVoid) {
+            if ($p['verdict'] !== 'passed') {
                 foreach ($billingRows as $row) {
                     // A retry can move to waiting or blocked while retaining the bytes of an earlier dispatch.
                     if ($row['frozen'] || in_array($row['state'], ['sending','uncertain','accepted'], true)) {
-                        throw new WestyWorkflowConflict('qa_void_after_dispatch');
+                        throw new WestyWorkflowConflict('qa_charge_already_dispatched');
                     }
                 }
                 $eligible = "state IN ('qa_pending','waiting_for_time','ready') AND payload_json IS NULL AND payload_sha256 IS NULL";
@@ -315,15 +316,20 @@ function westy_work_log_rows(PDO $pdo, int $tenantId, int $ticketId, ?int $clien
     return $query->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function westy_work_log_timeline(array $rows, bool $customer = false, ?array $state = null): string
+function westy_work_log_timeline(array $rows, bool $customer = false, ?array $state = null, bool $hasWorkflow = false): string
 {
-    if ($customer && $rows === []) return '';
+    if ($rows === [] && ($customer || $state === null)) return '';
     $html = '<section class="card reply" aria-label="Work log"><h2>Work log</h2>';
-    if (!$customer) {
-        $html .= '<p>' . ($state === null ? 'No seal recorded.' : 'Sealed through step ' . h((string)$state['log_sealed_seq']) . '.') . '</p>';
-        if (isset($state['qa_state'])) {
-            $html .= '<p>QA verdict <strong>' . h($state['qa_state']) . '</strong> (' . h($state['qa_reason']) . ')</p>';
-        }
+    if (!$customer && ($state !== null || $hasWorkflow || in_array('milepost', array_column($rows, 'source'), true))) {
+        $html .= $state === null ? '<p>Not sealed yet. The log is sealed when the case ends.</p>'
+            : '<p>Sealed through step ' . h((string)$state['log_sealed_seq']) . '.</p>';
+        $verdict = match ($state['qa_state'] ?? null) {
+            'passed' => 'passed',
+            'fault_zero' => 'our fault, no charge',
+            'void' => 'void',
+            default => null,
+        };
+        if ($verdict !== null) $html .= '<p>QA: ' . h($verdict) . ' [' . h($state['qa_reason']) . ']</p>';
     }
     if ($rows === []) return $html . '</section>';
     $html .= '<ol>';

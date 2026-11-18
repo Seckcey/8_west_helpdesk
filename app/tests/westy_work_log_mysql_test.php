@@ -452,7 +452,7 @@ try {
         catch (WestyWorkflowConflict $error) { $conflict = $error->getMessage(); }
         return ['status'=>503,'body'=>''];
     };
-    wl_check(westy_billing_dispatch($pdo,$handoffId,$config,$transport) === 'uncertain' && $conflict === 'qa_void_after_dispatch'
+    wl_check(westy_billing_dispatch($pdo,$handoffId,$config,$transport) === 'uncertain' && $conflict === 'qa_charge_already_dispatched'
         && westy_work_log_state($pdo,1,$inFlightId)['qa_state'] === 'passed', 'interleaved void preserves the in-flight charge and its eventual outcome');
     $billingGuard = 'Westy billing QA hold is restricted';
     foreach (['passed','fault_zero','void'] as $i=>$verdict) {
@@ -499,8 +499,8 @@ try {
         $p=wl_case($pdo,70+$i,'resolved'); wl_send($pdo,$p); $run=wl_run($pdo,$p);
         $pdo->prepare('INSERT INTO westy_billing_outbox(tenant_id,workflow_id,event_key,state) VALUES(1,?,?,?)')->execute([$run['id'],'existing-state-'.(70+$i),$boxState]);
         $id=(int)$pdo->lastInsertId(); $before=westy_workflow_row($pdo,'SELECT * FROM westy_billing_outbox WHERE id=?',[$id]);
-        wl_send($pdo,wl_qa($p,'void'));
-        wl_check($before===westy_workflow_row($pdo,'SELECT * FROM westy_billing_outbox WHERE id=?',[$id]),'QA does not alter existing '.$boxState);
+        wl_check(wl_send($pdo,wl_qa($p,'passed'))['qa_state']==='passed'
+            && $before===westy_workflow_row($pdo,'SELECT * FROM westy_billing_outbox WHERE id=?',[$id]),'passed preserves an existing '.$boxState.' row');
     }
     $noBox=wl_case($pdo,80,'resolved'); wl_send($pdo,$noBox); $count=wl_count($pdo,'westy_billing_outbox'); wl_send($pdo,wl_qa($noBox));
     wl_check(wl_count($pdo,'westy_billing_outbox')===$count,'QA creates no outbox');
@@ -514,7 +514,12 @@ try {
     $v1=['schema_version'=>1,'event_key'=>wl_key(980081),'workflow_key'=>$resolve['workflow_key'],'tenant_slug'=>'8west','customer_id'=>$resolve['customer_id'],'alert_key'=>$resolve['alert_key'],
         'action'=>'resolve','expected_version'=>7,'summary'=>'Verified recovery.','occurred_at'=>$now,'evidence_sha256'=>str_repeat('b',64),'verification_method'=>'agent_job_and_alert_recovery','job_id'=>123,'job_completed_at'=>$now,'alert_resolved_at'=>$now,'assignee_id'=>null];
     wl_send($pdo,$v1);
-    wl_check(westy_workflow_row($pdo,'SELECT state FROM westy_billing_outbox WHERE workflow_id=?',[$run['id']])['state']==='waiting_for_time','legacy resolve default unchanged with 039');
+    $resolvedBox = westy_workflow_row($pdo,'SELECT id,state FROM westy_billing_outbox WHERE tenant_id=1 AND workflow_id=?',[$run['id']]);
+    wl_check($resolvedBox['state']==='waiting_for_time','legacy resolve default unchanged with 039');
+    wl_send($pdo,$resolve);
+    wl_send($pdo,wl_qa($resolve,'fault_zero'));
+    $blocked = westy_workflow_row($pdo,'SELECT state,detail_code FROM westy_billing_outbox WHERE tenant_id=1 AND id=?',[$resolvedBox['id']]);
+    wl_check($blocked===['state'=>'blocked','detail_code'=>'qa_fault_zero'], 'first fault_zero blocks the charge created by the real resolve');
     // S11: the actual atomic recovery function used by svc/alerts.php, real takeover guards.
     $pdo->exec("INSERT INTO tickets(tenant_id,client_id,subject,status,channel,external_key,auto_close_eligible,sla_due_at) VALUES(1,1,'Untouched alert','open','alert','alert:98989',1,UTC_TIMESTAMP() + INTERVAL 1 HOUR)");
     $auto=(int)$pdo->lastInsertId();

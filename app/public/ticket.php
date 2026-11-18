@@ -342,7 +342,7 @@ page_top($user, '#' . $id, 'queue');
   <div class="ticket-grid">
     <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>" data-status="<?= h($ticket['status']) ?>" data-priority="<?= h($ticket['priority']) ?>" data-owner="<?= !empty($ticket['assignee_id']) ? (int)$ticket['assignee_id'] : '' ?>">
       <?php if ($westyWorkflow): ?><?= westy_workflow_card($westyWorkflow) ?><?php endif; ?>
-      <?php if ($workLogAvailable): ?><?= westy_work_log_timeline($workLogRows, state: $workLogState) ?><?php endif; ?>
+      <?php if ($workLogAvailable): ?><?= westy_work_log_timeline($workLogRows, state: $workLogState, hasWorkflow: $westyWorkflow !== null) ?><?php endif; ?>
       <?php if ($workLogAvailable && in_array($user['role'], ['owner','admin','tech'], true)): ?>
         <?= westy_work_log_form($westyWorkflow !== null && $westyWorkflow['state'] !== 'human_owned', isset($_POST['work_log_step']) ? $_POST : [], $workLogError) ?>
       <?php elseif ($workLogError !== null): ?>

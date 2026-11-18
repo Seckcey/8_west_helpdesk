@@ -323,8 +323,11 @@ A remote human actor remains attributed as a user without taking over
 the ticket. Unsafe source summaries are refused, never scrubbed or reworded
 under an existing hash. No log text is supplied to an AI prompt.
 
-On the staff ticket page, **Work log** shows recorded steps, whether the log
-is sealed, the last sealed step, and the recorded QA verdict and reason code.
+On the staff ticket page, **Work log** appears when the ticket has recorded steps
+or a seal. A staff-only log on a ticket without a workflow shows just the steps.
+For a Westy workflow or mirrored Milepost steps, the card also shows whether the
+log is sealed and the last sealed step. A recorded verdict appears with its
+reason code in brackets. Staff see “our fault, no charge” for `fault_zero`.
 **Log step**
 lets a signed-in owner, admin or technician add a private note, finding, action
 or verification. The ordinary session CSRF check and current tenant/role apply.
@@ -352,22 +355,23 @@ writes and timeline reads require a positive result. A missing function,
 denied grant or zero result makes v4 unavailable, and the endpoint returns
 `workflow_v4_unavailable`.
 
-Resolve still creates `waiting_for_time` under decision D1. When a workflow
-has a held billing row (`qa_pending`), its first verdict applies the following transition.
+Resolve creates a `waiting_for_time` row under decision D1. A first QA verdict
+applies the following rules to the workflow's billing rows. The only permitted
+later verdict is `void` after `passed`, with the same rules as a first `void`.
 
-| Verdict | Billing state | Detail code |
-|---|---|---|
-| `passed` | `waiting_for_time` | `approved_time_required` |
-| `fault_zero` | `blocked` | `qa_fault_zero` |
-| `void` | `blocked` | `qa_void` |
+| Verdict | Eligible billing states | Result | Detail code |
+|---|---|---|---|
+| `passed` | `qa_pending` | `waiting_for_time` | `approved_time_required` |
+| `fault_zero` | Unfrozen `qa_pending`, `waiting_for_time`, `ready` | `blocked` | `qa_fault_zero` |
+| `void` | Unfrozen `qa_pending`, `waiting_for_time`, `ready` | `blocked` | `qa_void` |
 
-The dispatcher and cron skip held and blocked rows. A verdict on a workflow
-without a billing row records only QA and its receipt. The only later verdict
-allowed is `passed` to `void`. It blocks each unfrozen `waiting_for_time` or
-`ready` row with detail `qa_void`. If any row is `sending`, `uncertain`,
-or `accepted`, or still carries the payload frozen for a previous dispatch, the
-endpoint returns HTTP 409 with `qa_void_after_dispatch`. The verdict remains
-`passed`, billing retains its prior state, and the refused event gets no receipt.
+Before recording `fault_zero` or `void`, Safeharbor checks every billing row
+for that workflow. A stored payload or payload hash, or a row in `sending`,
+`uncertain` or `accepted`, returns HTTP 409 with `qa_charge_already_dispatched`.
+The refusal preserves the previous verdict, all billing data and all receipts.
+An already blocked row keeps its original detail code. The dispatcher and cron
+skip held and blocked rows. With no billing row, an accepted verdict records
+only QA and its receipt.
 Replaying an accepted event key with the original bytes returns its stored
 response with `replayed: true`.
 
