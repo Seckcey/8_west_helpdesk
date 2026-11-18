@@ -168,7 +168,9 @@ function ticket_message(array $message, string $attachments, string $timeZone, ?
         . ' title="' . h(ticket_ago($written, $now, $timeZone)) . '">' . h(ticket_clock($written, $timeZone, $now)) . '</time>';
     $kind = (string)$message['kind'];
     if ($kind === 'system') {
-        return '<div class="msg-system"><span>' . h($message['body']) . '</span> ' . $when . '</div>';
+        $body = h($message['body']);
+        if (($message['author_name'] ?? '') === 'Milepost') $body = nl2br($body, false);
+        return '<div class="msg-system"><span>' . $body . '</span> ' . $when . '</div>';
     }
     [$role, $class] = TICKET_MESSAGE_ROLES[$kind] ?? TICKET_MESSAGE_ROLES['client'];
     $name = trim((string)$message['author_name']);

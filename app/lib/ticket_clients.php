@@ -7,6 +7,8 @@ require_once __DIR__ . '/suite_managed_provider.php';
 
 final class TicketClientUnavailableException extends RuntimeException {}
 
+const TICKET_MILEPOST_INTAKE_NOTES = 'Catch-all for Milepost alerts whose client name did not match a Safeharbor client. Reassign the ticket to the right client once the names line up.';
+
 /** Match only the existing unbound intake routing record signatures. */
 function ticket_new_client_is_intake(array $client, bool $managed): bool
 {
@@ -14,7 +16,7 @@ function ticket_new_client_is_intake(array $client, bool $managed): bool
     return ($client['name'] === 'Email Intake'
             && $client['notes'] === 'Catch-all for tickets emailed by unknown senders. Reassign to the right client and it will learn their domain next time.')
         || ($client['name'] === 'Milepost Intake'
-            && $client['notes'] === 'Catch-all for Milepost alerts whose client name did not match a Safeharbor client. Reassign the ticket to the right client once the names line up.');
+            && $client['notes'] === TICKET_MILEPOST_INTAKE_NOTES);
 }
 
 /** @return list<array<string,mixed>> */
