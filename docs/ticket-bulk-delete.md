@@ -50,6 +50,7 @@ ticket next time it fires.
 |---|---|
 | Technician time is logged on it | Time entries are immutable billing evidence; a trigger refuses to remove them |
 | Westy troubleshooting history | Immutable workflows and hardware notices protect their ticket and linked staff receipts |
+| Work log history | Any step recorded by staff or received from Milepost keeps its ticket |
 | Westy email history | `westy_email_drafts` rows are immutable |
 | Westy mailbox history | `westy_mail_conversations` rows are immutable |
 | Customer-portal requester record | `portal_ticket_requesters` rows are immutable |
@@ -59,7 +60,9 @@ ticket next time it fires.
 | Merged with a ticket that must be kept | a merge group goes whole or not at all |
 | Merged with a ticket outside this selection | as above: deleting half a merge leaves a dead link or brings a hidden survivor back into the customer portal |
 
-Kept tickets are listed with their reason before anything happens and again at the end. Nothing
+Kept tickets are listed with their first matching reason before anything happens and again at the end.
+A staff **Log step** alone keeps a ticket. When a ticket also has a Westy workflow,
+**Westy troubleshooting history** takes precedence over **Work log history**. Nothing
 forces a guard: no TRUNCATE, no `FOREIGN_KEY_CHECKS=0`, no trigger is dropped, and the id counter is
 never reset, so a ticket number is never reused.
 
@@ -149,6 +152,9 @@ names in `/srv/8west/apps/safeharbor/shared/attachments` with `SELECT stored_nam
 - **Westy workflows** keep their tickets (see the table).
 
 ## Rollout and clearing the current queue
+
+Apply `039_westy_work_log.sql` before deploying code that checks work-log history. If a required
+history table is missing, bulk delete returns HTTP 503 and the queue shows the error.
 
 1. Merge with both CI jobs green.
 2. Release owner: apply the two grants above, then `bash deploy/deploy.sh --check` and

@@ -5,8 +5,8 @@
  * A deleted ticket takes with it everything that belongs only to it: replies and notes,
  * attachments, the satisfaction survey and email-conversation mappings. Queued email is cancelled
  * and detached, Westy failure reports lose their pointer, and one insert-only ticket_deletions row
- * records who did it. Tickets whose history the database guards (technician time, Westy workflow,
- * email and mailbox history, customer-portal requester and receipt rows) are kept and reported,
+ * records who did it. Tickets whose history the database guards (technician time, Westy workflows,
+ * work logs, email and mailbox history, portal requesters and receipts) are kept and reported,
  * never forced. A merge group, meaning a ticket plus every stub merged into it in either direction,
  * goes as a whole or not at all.
  *
@@ -34,6 +34,7 @@ const TICKET_DELETE_COLUMNS = 'id, client_id, channel, status, external_key, mer
 const TICKET_DELETE_REASONS = [
     'time'              => 'Technician time is logged on it',
     'westy_workflow'    => 'Westy troubleshooting history',
+    'work_log'          => 'Work log history',
     'westy_email'       => 'Westy email history',
     'westy_mail'        => 'Westy mailbox history',
     'portal_requester'  => 'Customer-portal requester record',
@@ -50,6 +51,7 @@ const TICKET_DELETE_GUARDED = [
     'time_entries'             => 'time',
     'westy_workflows'          => 'westy_workflow',
     'westy_hardware_notices'   => 'westy_workflow',
+    'ticket_work_log'          => 'work_log',
     'westy_email_drafts'       => 'westy_email',
     'westy_mail_conversations' => 'westy_mail',
     'portal_ticket_requesters' => 'portal_requester',
