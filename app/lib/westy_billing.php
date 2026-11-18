@@ -125,6 +125,13 @@ function westy_billing_response(array $response,string $eventKey,?array $payload
     return true;
 }
 
+/** The cron visits due handoffs in ID order, up to ten per run. */
+function westy_billing_due_ids(PDO $pdo): array
+{
+    return $pdo->query("SELECT id FROM westy_billing_outbox WHERE state NOT IN ('accepted','blocked','qa_pending')
+        AND (next_attempt_at IS NULL OR next_attempt_at<=UTC_TIMESTAMP()) ORDER BY id LIMIT 10")->fetchAll(PDO::FETCH_COLUMN);
+}
+
 /** Claim in SQL, release the lock, send exact bytes, then record the result. */
 function westy_billing_dispatch(PDO $pdo,int $outboxId,array $config,?callable $transport=null): string
 {
@@ -138,7 +145,7 @@ function westy_billing_dispatch(PDO $pdo,int $outboxId,array $config,?callable $
         $tenant=westy_workflow_row($pdo,'SELECT id,slug FROM tenants WHERE id=?'.westy_workflow_lock($pdo),[$scope['tenant_id']]);
         $outbox=westy_workflow_row($pdo,'SELECT * FROM westy_billing_outbox WHERE tenant_id=? AND id=?'.westy_workflow_lock($pdo),[$scope['tenant_id'],$outboxId]);
         if (!$outbox || !$tenant) throw new RuntimeException('handoff_not_found');
-        if (in_array($outbox['state'],['accepted','blocked'],true) || ($outbox['state']==='sending' && strtotime($outbox['last_attempt_at'].' UTC')>time()-120)
+        if (in_array($outbox['state'],['accepted','blocked','qa_pending'],true) || ($outbox['state']==='sending' && strtotime($outbox['last_attempt_at'].' UTC')>time()-120)
             || ($outbox['next_attempt_at']!==null && strtotime($outbox['next_attempt_at'].' UTC')>time())) { $pdo->commit(); return $outbox['state']; }
         $run=westy_workflow_row($pdo,'SELECT * FROM westy_workflows WHERE tenant_id=? AND id=?'.westy_workflow_lock($pdo),[$scope['tenant_id'],$outbox['workflow_id']]);
         if (!$run) throw new RuntimeException('workflow_not_found'); $run['tenant_slug']=$tenant['slug'];

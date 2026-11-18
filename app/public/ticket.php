@@ -12,6 +12,7 @@ require_once __DIR__ . '/../lib/ticket_changes.php';
 require_once __DIR__ . '/../lib/mailer.php';
 require_once __DIR__ . '/../lib/attachments.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
+require_once __DIR__ . '/../lib/westy_work_log.php';
 require_once __DIR__ . '/../lib/westy_workflow_grants.php';
 require_once __DIR__ . '/../lib/ticket_queue.php';
 require_once __DIR__ . '/../lib/ticket_page.php';
@@ -94,10 +95,36 @@ if (!$ticket) {
     exit;
 }
 
+// Work log uses the existing authenticated POST + CSRF path, separate from replies/time.
+$workLogError = null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['work_log_step'])) {
+    csrf_check();
+    try {
+        westy_work_log_staff(db(), (int)$user['tenant_id'], (int)$user['id'], $id, $_POST);
+        $_SESSION['ticket_flash'] = ['ticket_id'=>$id, 'toast'=>'Step logged.'];
+        header('Location: /ticket.php?id=' . $id . $listQuery . ($listQuery !== '' && $listAt > 0 ? '&at=' . $listAt : ''), true, 303);
+        exit;
+    } catch (InvalidArgumentException) {
+        $workLogError = 'Choose a step kind and enter 1–1000 characters without control characters.';
+    } catch (Throwable $error) {
+        error_log('Work log step unavailable: ' . $error::class);
+        $workLogError = 'We could not confirm that the step was saved. Check the work log before trying again.';
+    }
+}
+$workLogRows = [];
+$workLogState = null;
+$workLogAvailable = false;
+try {
+    westy_work_log_schema_ready(db());
+    $workLogRows = westy_work_log_rows(db(), (int)$user['tenant_id'], $id, ready: true);
+    if ($westyWorkflow) $workLogState = westy_work_log_state(db(), (int)$user['tenant_id'], (int)$westyWorkflow['id']);
+    $workLogAvailable = true;
+} catch (Throwable $error) { error_log('Work log unavailable: ' . $error::class); }
+
 // ---- composer (POST → redirect → GET): reply to client OR internal note ----
 $staleDraft = null;
 $staleMode  = 'reply';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply']) && !isset($_POST['work_log_step'])) {
     csrf_check();
     $body   = utf8_clean(trim((string)$_POST['reply']));
     $isNote = (($_POST['mode'] ?? 'reply') === 'note');
@@ -315,6 +342,12 @@ page_top($user, '#' . $id, 'queue');
   <div class="ticket-grid">
     <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>" data-status="<?= h($ticket['status']) ?>" data-priority="<?= h($ticket['priority']) ?>" data-owner="<?= !empty($ticket['assignee_id']) ? (int)$ticket['assignee_id'] : '' ?>">
       <?php if ($westyWorkflow): ?><?= westy_workflow_card($westyWorkflow) ?><?php endif; ?>
+      <?php if ($workLogAvailable): ?><?= westy_work_log_timeline($workLogRows, state: $workLogState, hasWorkflow: $westyWorkflow !== null) ?><?php endif; ?>
+      <?php if ($workLogAvailable && in_array($user['role'], ['owner','admin','tech'], true)): ?>
+        <?= westy_work_log_form($westyWorkflow !== null && $westyWorkflow['state'] !== 'human_owned', isset($_POST['work_log_step']) ? $_POST : [], $workLogError) ?>
+      <?php elseif ($workLogError !== null): ?>
+        <p class="form-error" role="alert"><?= h($workLogError) ?></p>
+      <?php endif; ?>
       <?php if ($westyWorkflow && cfg('westy_email.enabled', false) === true): ?>
         <p><a class="btn-chip" href="/<?= cfg('westy_mail.enabled',false)===true?'westy_mail':'westy_email' ?>.php?ticket_id=<?= (int)$ticket['id'] ?>">Review Westy advice email</a></p>
       <?php endif; ?>

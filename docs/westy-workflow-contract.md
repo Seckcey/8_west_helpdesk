@@ -301,6 +301,84 @@ Evidence is internal system history, not a client reply, billable time, or an
 invoice. The composer now says when no client contact exists and retains that
 truth when switching between Reply and Internal note.
 
+## V4 work log and QA (S5 source; runtime qualification pending)
+
+Migration `039_westy_work_log.sql` adds an append-only ticket work log and v4
+receipts. V4 uses the existing signed workflow endpoint, service identity,
+HMAC context and 16 KB cap. The request's `occurred_at` uses the v1 UTC format
+and may be up to 24 hours old or 30 seconds in the future. Each log entry uses
+the same UTC format and 30-second future allowance. Entries of any age retain
+their original timestamps when delivered in a current request.
+V4 has its own canonical JSON parser. The fixed cross-application vectors and
+pure assertions are in `app/tests/fixtures/westy_work_log_vectors.json` and
+`app/tests/westy_work_log_test.php`.
+
+`log` appends 1–20 consecutive steps, recomputes their hash chain, and optionally
+records a forward checkpoint. `qa` requires a resolved workflow and its exact
+stored log and recovery hashes. Mirrored events do not change ticket contents,
+workflow state/version, assignment, or technician time. Seals and QA update
+`westy_workflow_log_state` on the exact tenant and workflow. They preserve
+email drafts, mail approvals and delegations, including after a handoff.
+A remote human actor remains attributed as a user without taking over
+the ticket. Unsafe source summaries are refused, never scrubbed or reworded
+under an existing hash. No log text is supplied to an AI prompt.
+
+On the staff ticket page, **Work log** appears when the ticket has recorded steps
+or a seal. A staff-only log on a ticket without a workflow shows just the steps.
+For a Westy workflow or mirrored Milepost steps, the card also shows whether the
+log is sealed and the last sealed step. A recorded verdict appears with its
+reason code in brackets. Staff see “our fault, no charge” for `fault_zero`.
+**Log step**
+lets a signed-in owner, admin or technician add a private note, finding, action
+or verification. The ordinary session CSRF check and current tenant/role apply.
+A locally logged step transfers the workflow to human ownership and consumes
+legacy automatic alert closure eligibility. That human takeover revokes
+the ticket's mail conversation and delegation through the existing workflow trigger. Customers see
+only time and summary for customer-visible rows on a ticket with a submitted
+Westy email review. The portal's existing ticket authorization runs first.
+
+Apply additive migration 039 through `deploy.sh --migrate` in a quiet period.
+The migration session waits up to 60 seconds for a metadata lock.
+It requires no write freeze. The two identity triggers, the legacy health
+function and its existing runtime EXECUTE grant stay in place throughout.
+V1–v3 keep their existing behavior before, during and after the migration.
+The first seal creates a state row with no verdict. Its insert, update and delete
+guards protect the seal and verdict history. A separate trigger restricts
+billing rows held in `qa_pending`.
+
+Rerun 039 to finish a partial apply. Retain the tables and history on source
+rollback. The migration drops `westy_work_log_schema_health()` near the start
+and creates it last. It requires healthy legacy guards, all ten v4 triggers,
+all three new tables, their required columns, the billing state and its payload check.
+After each apply, grant the runtime EXECUTE on this new function only. V4
+writes and timeline reads require a positive result. A missing function,
+denied grant or zero result makes v4 unavailable, and the endpoint returns
+`workflow_v4_unavailable`.
+
+Resolve creates a `waiting_for_time` row under decision D1. A first QA verdict
+applies the following rules to the workflow's billing rows. The only permitted
+later verdict is `void` after `passed`, with the same rules as a first `void`.
+
+| Verdict | Eligible billing states | Result | Detail code |
+|---|---|---|---|
+| `passed` | `qa_pending` | `waiting_for_time` | `approved_time_required` |
+| `fault_zero` | Unfrozen `qa_pending`, `waiting_for_time`, `ready` | `blocked` | `qa_fault_zero` |
+| `void` | Unfrozen `qa_pending`, `waiting_for_time`, `ready` | `blocked` | `qa_void` |
+
+Before recording `fault_zero` or `void`, Safeharbor checks every billing row
+for that workflow. A stored payload or payload hash, or a row in `sending`,
+`uncertain` or `accepted`, returns HTTP 409 with `qa_charge_already_dispatched`.
+The refusal preserves the previous verdict, all billing data and all receipts.
+An already blocked row keeps its original detail code. The dispatcher and cron
+skip held and blocked rows. With no billing row, an accepted verdict records
+only QA and its receipt.
+Replaying an accepted event key with the original bytes returns its stored
+response with `replayed: true`.
+
+Qualification requires the new pure/MySQL/browser suites and the unchanged full
+Validate workflow. No live migration, enablement, deployment, or customer
+acceptance is established by this source change.
+
 ## Billing boundary
 
 Existing approved-time v3 claim/send/status remains the supported billing

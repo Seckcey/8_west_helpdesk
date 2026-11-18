@@ -90,7 +90,8 @@ try {
     $referencing = $pdo->query("SELECT DISTINCT table_name FROM information_schema.key_column_usage
         WHERE table_schema = DATABASE() AND referenced_table_name = 'tickets' ORDER BY table_name")->fetchAll(PDO::FETCH_COLUMN);
     td_check($referencing === ['attachments', 'csat', 'email_threads', 'mail_queue', 'messages', 'portal_ticket_requesters',
-            'portal_westy_drafts', 'ticket_presence', 'time_entries', 'westy_email_drafts', 'westy_hardware_notices', 'westy_mail_conversations', 'westy_workflows'],
+            'portal_westy_drafts', 'ticket_presence', 'ticket_work_log', 'time_entries', 'westy_email_drafts', 'westy_hardware_notices',
+            'westy_mail_conversations', 'westy_workflows'],
         'every foreign key to tickets is handled: ' . implode(',', $referencing));
     td_check(array_diff(array_keys(TICKET_DELETE_GUARDED), $referencing) === [], 'every guarded table really references tickets');
 
@@ -168,6 +169,17 @@ try {
     $timeEntry($pdo, 1040);
     $ticket(1050, 1, 11, 'alert', 'in_progress');
     $workflow(1050, 11);
+    $ticket(1051, 1, 11);
+    $staffSteps = [
+        '33333333-3333-4333-8333-000000001050' => 1050,
+        '33333333-3333-4333-8333-000000001051' => 1051,
+    ];
+    $step = $pdo->prepare("INSERT INTO ticket_work_log
+        (tenant_id, ticket_id, source, source_event_key, kind, actor_type, actor_key, summary, occurred_at)
+        VALUES (1, ?, 'staff', ?, 'note', 'user', 'safeharbor-user:103', 'Synthetic staff step', UTC_TIMESTAMP())");
+    foreach ($staffSteps as $eventKey => $ticketId) $step->execute([$ticketId, $eventKey]);
+    // The hardware notice below supplies the same reason as the workflow.
+    $workflowPreview = ticket_delete_preview($pdo, 1, 101, ['ids' => [1050]]);
     $workflowMessage = $message(1050, 'tech');
     $pdo->prepare("INSERT INTO westy_hardware_notices(tenant_id,client_id,workflow_id,ticket_id,device_id,device_binding_key,issue_key,decision_revision,source_json,message_id,created_at,updated_at)
         SELECT 1,11,id,1050,9,?, ?,1,'{}',?,UTC_TIMESTAMP(),UTC_TIMESTAMP() FROM westy_workflows WHERE tenant_id=1 AND ticket_id=1050")
@@ -196,7 +208,7 @@ try {
     $message(2001);
 
     $tables = ['tickets', 'messages', 'attachments', 'csat', 'email_threads', 'mail_queue', 'ticket_presence', 'time_entries',
-        'time_entry_events', 'westy_workflows', 'westy_hardware_notices', 'westy_reports', 'portal_ticket_requesters', 'ticket_deletions', 'westy_mail_conversation_revocations'];
+        'time_entry_events', 'westy_workflows', 'westy_hardware_notices', 'ticket_work_log', 'westy_reports', 'portal_ticket_requesters', 'ticket_deletions', 'westy_mail_conversation_revocations'];
     $state = static function (PDO $pdo) use ($tables): array {
         $out = [];
         foreach ($tables as $table) {
@@ -234,16 +246,19 @@ try {
     $before = $state($pdo);
     $preview = ticket_delete_preview($pdo, 1, 101, $page);
     $expectedDeletable = [1001, 1002, 1003, 1004, 1010, 1021, 1022, 1031, 1032, 1033, 1101, 1102];
-    $expectedKept = [1040 => 'time', 1050 => 'westy_workflow', 1060 => 'portal_requester', 1070 => 'merge_kept',
+    $expectedKept = [1040 => 'time', 1050 => 'westy_workflow', 1051 => 'work_log', 1060 => 'portal_requester', 1070 => 'merge_kept',
         1080 => 'merge_kept', 1081 => 'time', 1090 => 'attachment_link'];
-    td_check($preview['total'] === 19 && $preview['deletable'] === 12 && $preview['kept'] === 7 && $preview['not_found'] === 0,
-        'preview: 19 selected, 12 deletable, 7 kept (' . json_encode([$preview['total'], $preview['deletable'], $preview['kept']]) . ')');
+    td_check($preview['total'] === 20 && $preview['deletable'] === 12 && $preview['kept'] === 8 && $preview['not_found'] === 0,
+        'preview: 20 selected, 12 deletable, 8 kept (' . json_encode([$preview['total'], $preview['deletable'], $preview['kept']]) . ')');
     td_check($preview['deletable_ids'] === $expectedDeletable, 'preview: lists exactly the deletable ids');
-    td_check($preview['kept_by_reason'] == ['time' => 2, 'westy_workflow' => 1, 'portal_requester' => 1, 'merge_kept' => 2, 'attachment_link' => 1],
+    td_check($preview['kept_by_reason'] == ['time' => 2, 'westy_workflow' => 1, 'work_log' => 1, 'portal_requester' => 1, 'merge_kept' => 2, 'attachment_link' => 1],
         'preview: kept by reason ' . json_encode($preview['kept_by_reason']));
     $sampleReasons = [];
     foreach ($preview['kept_sample'] as $row) $sampleReasons[$row['id']] = $row['reason'];
     td_check($sampleReasons === $expectedKept, 'preview: every kept ticket is listed with its reason');
+    td_check(($preview['reasons']['work_log'] ?? null) === 'Work log history', 'preview: supplies the work log reason label');
+    td_check($workflowPreview['kept_by_reason'] === ['westy_workflow' => 1],
+        'preview: workflow history takes precedence over a staff step even without a hardware notice');
     td_check($preview['effects'] === ['messages' => 10, 'attachments' => 4, 'csat' => 1, 'mail_unsent' => 1, 'mail_sent' => 1,
             'westy_reports' => 1, 'alert_tickets' => 4, 'open_elsewhere' => 1],
         'preview: effects, with mail that already failed for good not counted as queued and only a fresh view by someone else counted as open '
@@ -396,7 +411,7 @@ try {
         'full run: the run total comes from the audit rows, per tenant');
     td_check($full['kept'] === $expectedKept, 'full run: kept exactly the protected set ' . json_encode($full['kept']));
     td_check($full['files_failed'] === 2, 'full run: the directory and the malformed name are reported, not removed');
-    td_check($tenantOneIds($pdo) === [1040, 1050, 1060, 1070, 1080, 1081, 1090, $y], 'full run: only kept tickets and the late arrival remain');
+    td_check($tenantOneIds($pdo) === [1040, 1050, 1051, 1060, 1070, 1080, 1081, 1090, $y], 'full run: only kept tickets and the late arrival remain');
     td_check((int)$pdo->query('SELECT COUNT(*) FROM tickets WHERE tenant_id = 2')->fetchColumn() === 1, 'full run: the other tenant is untouched');
     $orphans = [];
     foreach (['messages', 'attachments', 'csat', 'email_threads', 'ticket_presence'] as $table) {
@@ -424,6 +439,9 @@ try {
         'protected: the Westy workflow ticket kept its message and its workflow state');
     td_check((int)$pdo->query('SELECT COUNT(*) FROM westy_hardware_notices WHERE tenant_id=1 AND ticket_id=1050')->fetchColumn() === 1,
         'protected: immutable hardware notice intent remains on its original ticket');
+    $remainingSteps = $pdo->query('SELECT source_event_key, ticket_id FROM ticket_work_log
+        WHERE tenant_id = 1 ORDER BY ticket_id, id')->fetchAll(PDO::FETCH_KEY_PAIR);
+    td_check(array_map('intval', $remainingSteps) === $staffSteps, 'protected: both original staff steps remain on their own tickets after the full run');
     td_check((int)$pdo->query('SELECT COUNT(*) FROM time_entry_events')->fetchColumn() === $eventsBefore
         && (int)$pdo->query('SELECT COUNT(*) FROM westy_mail_conversation_revocations')->fetchColumn() === $revocationsBefore,
         'protected: no time or mailbox history was written by the delete');

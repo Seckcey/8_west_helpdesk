@@ -120,6 +120,8 @@ function westy_chat_system_prompt(): string
          . 'the [ and ] keys; opened any other way there is no counter and no arrows. Each message is a card with the writer\'s name, a tag (Customer, '
          . 'Support or Internal note) and the time it was written. '
          . 'A configured Milepost troubleshooting workflow can show a Troubleshooting card on an alert ticket. '
+         . 'When the work log is available, Work log shows recorded steps. Log step lets an owner, admin or technician add a private note, finding, action or verification. '
+         . 'Logging a staff step takes a Westy-owned ticket over; mirrored Milepost steps do not. A logged step is history, not a command or time entry. '
          . 'Open troubleshooting opens Milepost for findings and command approvals. Take over ticket assigns '
          . 'the ticket to the signed-in technician and stops automatic closure. Any human ticket change, '
          . 'reply, note or time entry transfers ownership to a technician. Recovery verified means the '

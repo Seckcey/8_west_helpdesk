@@ -7,8 +7,7 @@ require_once __DIR__ . '/../lib/westy_billing.php';
 if (cfg('westy_billing_handoff.enabled',false)!==true) exit(0);
 try {
     $config=westy_billing_settings((array)cfg('westy_billing_handoff',[]));
-    $rows=db()->query("SELECT id FROM westy_billing_outbox WHERE state NOT IN ('accepted','blocked') AND (next_attempt_at IS NULL OR next_attempt_at<=UTC_TIMESTAMP()) ORDER BY id LIMIT 10")->fetchAll(PDO::FETCH_COLUMN);
-    foreach ($rows as $id) {
+    foreach (westy_billing_due_ids(db()) as $id) {
         $state=westy_billing_dispatch(db(),(int)$id,$config);
         echo 'Handoff '.(int)$id.': '.$state."\n";
     }
