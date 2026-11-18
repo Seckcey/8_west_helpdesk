@@ -24,7 +24,7 @@ function wl_count(PDO $pdo,string $table): int { return (int)$pdo->query('SELECT
 function wl_case(PDO $pdo,int $n,string $state='working'): array
 {
     $p=wl_log($n); $now=gmdate('Y-m-d H:i:s'); $start=gmdate('Y-m-d H:i:s',time()-3600);
-    $pdo->prepare("INSERT INTO tickets(tenant_id,client_id,subject,status,external_key,auto_close_eligible,sla_due_at,created_at,updated_at,resolved_at) VALUES(1,1,'Synthetic S5 case',?,?,0,UTC_TIMESTAMP() + INTERVAL 1 HOUR,?,?,?)")
+    $pdo->prepare("INSERT INTO tickets(tenant_id,client_id,subject,status,channel,external_key,auto_close_eligible,sla_due_at,created_at,updated_at,resolved_at) VALUES(1,1,'Synthetic S5 case',?,'alert',?,0,UTC_TIMESTAMP() + INTERVAL 1 HOUR,?,?,?)")
         ->execute([$state==='resolved'?'resolved':'in_progress',$p['alert_key'],$start,$start,$state==='resolved'?$now:null]);
     $ticket=(int)$pdo->lastInsertId();
     $pdo->prepare('INSERT INTO westy_workflows(tenant_id,client_id,customer_id,ticket_id,workflow_key,alert_key,state,version,summary,evidence_sha256,job_id,job_completed_at,alert_resolved_at,closed_at,started_at,updated_at) VALUES(1,1,?,?,?,?,?,7,?,?,?,?,?,?,?,?)')
@@ -109,13 +109,16 @@ try {
         'CREATE TABLE managed_customer_lifecycle_restore_receipts(tenant_id INT UNSIGNED,source_binding_id INT UNSIGNED,client_id INT UNSIGNED,customer_id CHAR(36),source_version INT,source_event_id VARCHAR(64))',
         'CREATE TABLE suite_managed_providers(tenant_id INT UNSIGNED,provider_slug VARCHAR(64),lease_until DATETIME,owner_user_id INT UNSIGNED,owner_subject VARCHAR(64))',
         "CREATE TABLE users(id INT UNSIGNED PRIMARY KEY,tenant_id INT UNSIGNED,is_active INT,role VARCHAR(16) DEFAULT 'tech',suite_subject VARCHAR(64),email VARCHAR(190))",
-        "CREATE TABLE tickets(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,tenant_id INT UNSIGNED,client_id INT UNSIGNED,subject VARCHAR(190),priority VARCHAR(16),status VARCHAR(16) DEFAULT 'open',assignee_id INT UNSIGNED NULL,merged_into_id INT UNSIGNED NULL,channel VARCHAR(16),external_key VARCHAR(128),auto_close_eligible INT,sla_due_at DATETIME,service_goal_target_id BIGINT UNSIGNED NULL,created_at DATETIME,updated_at DATETIME,resolved_at DATETIME NULL,UNIQUE(tenant_id,id),UNIQUE(tenant_id,external_key))",
+        "CREATE TABLE tickets(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,tenant_id INT UNSIGNED,client_id INT UNSIGNED,subject VARCHAR(190),priority VARCHAR(16),status VARCHAR(16) DEFAULT 'open',assignee_id INT UNSIGNED NULL,merged_into_id INT UNSIGNED NULL,channel VARCHAR(16),external_key VARCHAR(128),auto_close_eligible INT,sla_due_at DATETIME NOT NULL,service_goal_target_id INT UNSIGNED NULL,created_at DATETIME,updated_at DATETIME,resolved_at DATETIME NULL,UNIQUE(tenant_id,id),UNIQUE(tenant_id,external_key))",
         'CREATE TABLE messages(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,ticket_id INT UNSIGNED,author_name VARCHAR(128),kind VARCHAR(16),body TEXT,created_at DATETIME)',
         'CREATE TABLE time_entries(id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,tenant_id INT UNSIGNED,ticket_id INT UNSIGNED,client_id INT UNSIGNED,approval_status VARCHAR(16),billable INT)',
         'CREATE TABLE contacts(id INT UNSIGNED PRIMARY KEY,client_id INT UNSIGNED,tenant_id INT UNSIGNED)',
     ] as $sql) $pdo->exec($sql.' ENGINE=InnoDB');
     foreach (['025_westy_workflow.sql','026_westy_approved_email.sql','036_westy_workflow_resume.sql','001_mail_queue.sql','037_westy_hardware_outcomes.sql','038_westy_hardware_staff_notices.sql'] as $file) test_execute_sql_file($pdo,__DIR__.'/../db/migrations/'.$file);
-    $pdo->exec("INSERT INTO tenants VALUES(1,'8west'),(2,'other'); INSERT INTO clients VALUES(1,1),(2,2),(3,1); INSERT INTO users VALUES(1,1,1,'owner',NULL,'owner@example.test'),(2,1,1,'viewer',NULL,'viewer@example.test'),(3,2,1,'tech',NULL,'other@example.test'); INSERT INTO svc_identities VALUES(1,1,'milepost-workflow',1)");
+    $pdo->exec("INSERT INTO tenants VALUES(1,'8west'),(2,'other')");
+    $pdo->exec("INSERT INTO clients VALUES(1,1),(2,2),(3,1)");
+    $pdo->exec("INSERT INTO users VALUES(1,1,1,'owner',NULL,'owner@example.test'),(2,1,1,'viewer',NULL,'viewer@example.test'),(3,2,1,'tech',NULL,'other@example.test')");
+    $pdo->exec("INSERT INTO svc_identities VALUES(1,1,'milepost-workflow',1)");
     $pdo->prepare("INSERT INTO suite_customer_sync_bindings(tenant_id,client_id,customer_id,status) VALUES(1,1,?,'active'),(1,3,?,'active')")->execute(['11111111-1111-4111-8111-111111111111',wl_key(900)]);
     $probe=wl_case($pdo,10);
     // S1: original 038 health is not v4 readiness, even when legacy health is 1.
@@ -189,23 +192,23 @@ try {
         'ticket_work_log'=>['id','tenant_id','ticket_id','workflow_id','source','source_event_key','seq','kind','actor_type','actor_key','summary','cause_code','evidence_sha256','milepost_ref','customer_visible','entry_sha256','occurred_at','created_at'],
         'westy_workflow_v4_receipts'=>['tenant_id','workflow_id','event_key','request_sha256','action','response_json','received_at']] as $table=>$removed) {
         $columns=$pdo->query('SHOW COLUMNS FROM '.$table)->fetchAll(PDO::FETCH_COLUMN);
-        $legacyChecks=$table==='westy_workflows' ? $pdo->query("SELECT constraint_name,check_clause FROM information_schema.check_constraints WHERE constraint_schema=DATABASE() AND constraint_name IN ('ck_westy_workflow_version','ck_westy_workflow_resolution') ORDER BY constraint_name")->fetchAll() : [];
+        $legacyChecks=$table==='westy_workflows' ? $pdo->query("SELECT constraint_name,check_clause FROM information_schema.check_constraints WHERE constraint_schema=DATABASE() AND constraint_name IN ('ck_westy_workflow_version','ck_westy_workflow_resolution') ORDER BY constraint_name")->fetchAll(PDO::FETCH_KEY_PAIR) : [];
         foreach ($removed as $column) {
             $projection=implode(',',array_map(static fn(string $s):string=>'`'.$s.'`',array_values(array_diff($columns,[$column]))));
             $pdo->exec("RENAME TABLE $table TO {$table}_original");
             // Check names are schema-wide. Move the two old checks to the read-only
             // projection so the missing-column test does not fail on legacy health.
-            foreach ($legacyChecks as $check) $pdo->exec("ALTER TABLE {$table}_original DROP CHECK `".$check['constraint_name'].'`');
+            foreach (array_keys($legacyChecks) as $name) $pdo->exec("ALTER TABLE {$table}_original DROP CHECK `$name`");
             try {
                 $pdo->exec("CREATE TABLE $table AS SELECT $projection FROM {$table}_original");
-                foreach ($legacyChecks as $check) $pdo->exec("ALTER TABLE $table ADD CONSTRAINT `".$check['constraint_name'].'` CHECK ('.$check['check_clause'].')');
+                foreach ($legacyChecks as $name => $clause) $pdo->exec("ALTER TABLE $table ADD CONSTRAINT `$name` CHECK ($clause)");
                 wl_check((int)$pdo->query('SELECT westy_workflow_schema_health()')->fetchColumn()===1,'column fixture preserves legacy health');
                 wl_check((int)$pdo->query('SELECT westy_work_log_schema_health()')->fetchColumn()===0,'health detects missing '.$table.'.'.$column);
                 wl_missing($pdo,$probe);
             } finally {
                 $pdo->exec('DROP TABLE IF EXISTS '.$table);
                 $pdo->exec("RENAME TABLE {$table}_original TO $table");
-                foreach ($legacyChecks as $check) $pdo->exec("ALTER TABLE $table ADD CONSTRAINT `".$check['constraint_name'].'` CHECK ('.$check['check_clause'].')');
+                foreach ($legacyChecks as $name => $clause) $pdo->exec("ALTER TABLE $table ADD CONSTRAINT `$name` CHECK ($clause)");
             }
         }
     }
@@ -233,10 +236,12 @@ try {
         wl_refuse(fn()=>wl_send($pdo,array_replace($request,['customer_id'=>wl_key(900)])),'workflow_scope_conflict','wrong bound customer');
         wl_refuse(fn()=>wl_send($pdo,array_replace($request,['alert_key'=>'alert:999999'])),'workflow_scope_conflict','wrong alert');
         wl_refuse(fn()=>wl_send($pdo,array_replace($request,['workflow_key'=>wl_key(999999)])),'workflow_not_found','unknown workflow');
-        // Alter the synthetic binding, not a ticket (which would legitimately transfer ownership).
-        $pdo->exec('UPDATE suite_customer_sync_bindings SET client_id=3 WHERE id=1');
+    }
+    // Moving a separate ticket leaves both customer bindings and the original workflow identity intact.
+    $movedCase = wl_case($pdo, 12);
+    $pdo->prepare('UPDATE tickets SET client_id=3 WHERE tenant_id=1 AND id=?')->execute([wl_run($pdo, $movedCase)['ticket_id']]);
+    foreach ([$movedCase, wl_qa($movedCase)] as $request) {
         wl_refuse(fn()=>wl_send($pdo,$request),'ticket_customer_conflict','wrong ticket client');
-        $pdo->exec('UPDATE suite_customer_sync_bindings SET client_id=1 WHERE id=1');
     }
 
     // S5/S6: every run state, remote human decision, seal, exact replay, no ticket/version write.
@@ -379,11 +384,11 @@ try {
     wl_send($pdo,$v1);
     wl_check(westy_workflow_row($pdo,'SELECT state FROM westy_billing_outbox WHERE workflow_id=?',[$run['id']])['state']==='waiting_for_time','legacy resolve default unchanged with 039');
     // S11: the actual atomic recovery function used by svc/alerts.php, real takeover guards.
-    $pdo->exec("INSERT INTO tickets(tenant_id,client_id,subject,status,external_key,auto_close_eligible) VALUES(1,1,'Untouched alert','open','alert:98989',1)");
+    $pdo->exec("INSERT INTO tickets(tenant_id,client_id,subject,status,channel,external_key,auto_close_eligible,sla_due_at) VALUES(1,1,'Untouched alert','open','alert','alert:98989',1,UTC_TIMESTAMP() + INTERVAL 1 HOUR)");
     $auto=(int)$pdo->lastInsertId();
     wl_check(ticket_try_machine_auto_close($pdo,1,$auto,gmdate('Y-m-d H:i:s')),'untouched alert recovery still closes');
     wl_check(!ticket_try_machine_auto_close($pdo,1,$auto,gmdate('Y-m-d H:i:s')),'recovery capability remains one-use');
-    $pdo->exec("INSERT INTO tickets(tenant_id,client_id,subject,status,external_key,auto_close_eligible) VALUES(1,1,'Staff worked alert','open','alert:98990',1)");
+    $pdo->exec("INSERT INTO tickets(tenant_id,client_id,subject,status,channel,external_key,auto_close_eligible,sla_due_at) VALUES(1,1,'Staff worked alert','open','alert','alert:98990',1,UTC_TIMESTAMP() + INTERVAL 1 HOUR)");
     $worked=(int)$pdo->lastInsertId();
     westy_work_log_staff($pdo,1,1,$worked,['kind'=>'note','summary'=>'A technician investigated this alert.']);
     wl_check(!ticket_try_machine_auto_close($pdo,1,$worked,gmdate('Y-m-d H:i:s')),'staff step consumes legacy closure even without a workflow');

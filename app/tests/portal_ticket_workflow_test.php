@@ -14,6 +14,11 @@ function portal_action_nonce(string $purpose, ?int $now = null): string
     return hash('sha256', $purpose . ':' . ($now ?? 1));
 }
 
+function h(?string $value): string
+{
+    return portal_h($value);
+}
+
 require_once __DIR__ . '/../lib/portal_data.php';
 require_once __DIR__ . '/../lib/portal_render.php';
 
@@ -75,8 +80,13 @@ $schema = [
         id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
         author_name TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+    'CREATE TABLE ticket_work_log (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, ticket_id INTEGER NOT NULL,
+        occurred_at TEXT NOT NULL, summary TEXT NOT NULL, customer_visible INTEGER NOT NULL)',
+    'CREATE TABLE westy_email_drafts (tenant_id INTEGER NOT NULL, ticket_id INTEGER NOT NULL, state TEXT NOT NULL)',
 ];
 foreach ($schema as $statement) $pdo->exec($statement);
+$pdo->sqliteCreateFunction('westy_work_log_schema_health', static fn(): int => 1, 0);
 $pdo->exec('CREATE TABLE portal_ticket_requesters (ticket_id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL, subject TEXT NOT NULL, identity_tenant_slug TEXT NOT NULL)');
 $pdo->exec("INSERT INTO tenants (id,name) VALUES (1,'Provider One'),(2,'Provider Two')");
 $pdo->exec("INSERT INTO clients (id,tenant_id,name,sla_tier) VALUES
@@ -324,6 +334,37 @@ portal_workflow_check('viewer can read but receives no create or reply controls'
     && ! str_contains($viewerHtml, '<form method="post" action="/portal/ticket.php'));
 
 portal_requester_privacy_cases($pdo, 'portal_workflow_check', 'portal_workflow_expect');
+
+// Exercise the same ticket detail read the customer route uses, including its requester check.
+$owner = portal_requester_test_identity(1, 11, 'client_owner');
+$visibleTime = '2026-11-17 12:00:00';
+$visibleSummary = 'Printing & scanning were verified.';
+$step = $pdo->prepare('INSERT INTO ticket_work_log (tenant_id,ticket_id,occurred_at,summary,customer_visible) VALUES (1,?,?,?,?)');
+$step->execute([$ticketId, $visibleTime, $visibleSummary, 1]);
+$step->execute([$ticketId, $visibleTime, 'Private staff finding', 0]);
+$step->execute([$mergedTargetId, $visibleTime, 'Another request', 1]);
+$review = $pdo->prepare('INSERT INTO westy_email_drafts (tenant_id,ticket_id,state) VALUES (1,?,?)');
+$review->execute([$ticketId, 'draft']);
+$review->execute([$mergedTargetId, 'submitted']);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId, $owner);
+portal_workflow_check('a draft or a submitted review on a different ticket leaves the work log empty',
+    $detail['work_log'] === []);
+$pdo->prepare("UPDATE westy_email_drafts SET state='submitted' WHERE tenant_id=1 AND ticket_id=?")->execute([$ticketId]);
+$detail = portal_ticket_detail($pdo, 1, 11, $ticketId, $owner);
+portal_workflow_check('reviewed ticket detail contains only time and summary of its customer-visible steps',
+    $detail['work_log'] === [['occurred_at' => $visibleTime, 'summary' => $visibleSummary]]);
+ob_start();
+portal_render_ticket(['identity' => $owner + ['display_name' => 'Customer One'], 'binding' => $context['binding']], $detail);
+$reviewedHtml = (string)ob_get_clean();
+portal_workflow_check('the request page renders the reviewed summary as text and omits private steps',
+    str_contains($reviewedHtml, 'Printing &amp; scanning were verified.') && !str_contains($reviewedHtml, 'Private staff finding'));
+portal_workflow_expect('another client cannot open the reviewed ticket or its work log', PortalDataNotFoundException::class,
+    fn() => portal_ticket_detail($pdo, 1, 12, $ticketId, portal_requester_test_identity(1, 12, 'client_owner')));
+
+$pdo->exec('DROP TABLE ticket_work_log');
+$fallback = portal_ticket_detail($pdo, 1, 11, $ticketId, $owner);
+portal_workflow_check('a failed work-log read preserves the authorized ticket and conversation',
+    $fallback['work_log'] === [] && $fallback['ticket'] === $detail['ticket'] && $fallback['messages'] === $detail['messages']);
 
 echo "Portal ticket workflow: {$checks} checks, {$failures} failures\n";
 exit($failures === 0 ? 0 : 1);

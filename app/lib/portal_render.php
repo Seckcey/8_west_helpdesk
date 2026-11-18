@@ -1013,7 +1013,7 @@ function portal_render_new_ticket(array $context, ?string $error = null, array $
 
 /**
  * @param array{identity:array<string,mixed>,binding:array<string,mixed>} $context
- * @param array{ticket:array<string,mixed>,messages:list<array<string,mixed>>} $detail
+ * @param array{ticket:array<string,mixed>,messages:list<array<string,mixed>>,work_log?:list<array{occurred_at:string,summary:string}>} $detail
  */
 function portal_render_ticket(
     array $context,
@@ -1071,7 +1071,10 @@ function portal_render_ticket(
   <div class="ticket-grid">
     <section class="thread" aria-labelledby="portal-conversation-heading">
       <h2 id="portal-conversation-heading" class="rail-label">Conversation</h2>
-      <?php if (!empty($detail['work_log'])): ?><?= westy_work_log_timeline($detail['work_log'], true) ?><?php endif; ?>
+      <?php if (!empty($detail['work_log'])):
+          require_once __DIR__ . '/westy_work_log.php'; ?>
+        <?= westy_work_log_timeline($detail['work_log'], true) ?>
+      <?php endif; ?>
       <?php if ($detail['messages'] === []): ?>
         <div class="card empty">No messages yet.</div>
       <?php else: ?>

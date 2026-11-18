@@ -263,7 +263,10 @@ function westy_work_log_rows(PDO $pdo, int $tenantId, int $ticketId, ?int $clien
 {
     if (!$ready) {
         try { westy_work_log_schema_ready($pdo); }
-        catch (RuntimeException) { return []; }
+        catch (RuntimeException $error) {
+            if ($clientId !== null) error_log('[safeharbor-portal] work_log_unavailable type=' . $error::class);
+            return [];
+        }
     }
     if ($clientId !== null) {
         // Project only public fields, even in memory; no actor/key/hash/id reaches the renderer.
@@ -300,11 +303,12 @@ function westy_work_log_form(bool $westyOwned, array $input = [], ?string $error
     if ($westyOwned) $html .= '<p>Logging a step takes this ticket over from Westy.</p>';
     if ($error !== null) $html .= '<p class="form-error" role="alert">' . h($error) . '</p>';
     $html .= '<form method="post">' . csrf_field() . '<input type="hidden" name="work_log_step" value="1">'
-        . '<label class="field" for="work-log-kind">Kind<select id="work-log-kind" name="kind">';
+        . '<div class="field"><label for="work-log-kind">Kind</label><select id="work-log-kind" name="kind">';
     foreach (['note','finding','action','verify'] as $kind) {
         $html .= '<option value="' . h($kind) . '"' . (($input['kind'] ?? 'note') === $kind ? ' selected' : '') . '>' . h(ucfirst($kind)) . '</option>';
     }
-    return $html . '</select></label><label class="field" for="work-log-summary">Summary<textarea id="work-log-summary" name="summary" maxlength="1000" rows="3" required>'
-        . h(is_string($input['summary'] ?? null) ? $input['summary'] : '') . '</textarea></label><p>Only your team sees this step. Do not include passwords.</p>'
+    return $html . '</select></div><div class="field"><label for="work-log-summary">Summary</label>'
+        . '<textarea id="work-log-summary" name="summary" maxlength="1000" rows="3" required>'
+        . h(is_string($input['summary'] ?? null) ? $input['summary'] : '') . '</textarea></div><p>Only your team sees this step. Do not include passwords.</p>'
         . '<button class="btn-primary" type="submit">Log step</button></form></section>';
 }
