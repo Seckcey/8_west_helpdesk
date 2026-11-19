@@ -11,4 +11,6 @@ try {
         $state=westy_billing_dispatch(db(),(int)$id,$config);
         echo 'Handoff '.(int)$id.': '.$state."\n";
     }
+    $released = westy_billing_release_expired_qa(db(), $config);
+    if ($released > 0) echo 'QA holds released for staff-time billing: ' . $released . "\n";
 } catch (Throwable $error) { error_log('Westy billing worker: '.$error::class); exit(1); }

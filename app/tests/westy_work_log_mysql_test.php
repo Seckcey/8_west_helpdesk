@@ -21,9 +21,10 @@ $migration=__DIR__.'/../db/migrations/039_westy_work_log.sql';
 $statements=test_sql_statements(file_get_contents($migration));
 $GLOBALS['wl_csrf']=true;
 function wl_count(PDO $pdo,string $table): int { return (int)$pdo->query('SELECT COUNT(*) FROM '.$table)->fetchColumn(); }
-function wl_case(PDO $pdo,int $n,string $state='working'): array
+function wl_case(PDO $pdo,int $n,string $state='working',?int $at=null): array
 {
-    $p=wl_log($n); $now=gmdate('Y-m-d H:i:s'); $start=gmdate('Y-m-d H:i:s',time()-3600);
+    $at ??= time();
+    $p=wl_log($n); $now=gmdate('Y-m-d H:i:s',$at); $start=gmdate('Y-m-d H:i:s',$at-3600);
     $pdo->prepare("INSERT INTO tickets(tenant_id,client_id,subject,status,channel,external_key,auto_close_eligible,sla_due_at,created_at,updated_at,resolved_at) VALUES(1,1,'Synthetic S5 case',?,'alert',?,0,UTC_TIMESTAMP() + INTERVAL 1 HOUR,?,?,?)")
         ->execute([$state==='resolved'?'resolved':'in_progress',$p['alert_key'],$start,$start,$state==='resolved'?$now:null]);
     $ticket=(int)$pdo->lastInsertId();
@@ -430,11 +431,12 @@ try {
     wl_check(str_contains(westy_work_log_timeline(westy_work_log_rows($pdo,1,$ticket)),'&lt;script&gt;') && westy_work_log_rows($pdo,2,$ticket)===[],'staff timeline escapes and tenant scopes');
 
     // S9/S10: all terminal transitions, all outbox states, no QA creation or sending.
-    wl_qa_billing_cases($pdo, static function (int $number) use ($pdo): array {
-        $log = wl_case($pdo, $number, 'resolved');
-        wl_send($pdo, $log);
+    $makeBillingCase = static function (int $number, bool $seal = true, ?int $at = null) use ($pdo): array {
+        $log = wl_case($pdo, $number, 'resolved', $at);
+        if ($seal) wl_send($pdo, $log);
         return [$log,(int)wl_run($pdo,$log)['id']];
-    });
+    };
+    wl_qa_billing_cases($pdo, $makeBillingCase);
     // A separate receiver connection sees the dispatcher's committed claim while transport is in flight.
     $inFlight = wl_case($pdo, 540, 'resolved');
     wl_send($pdo, $inFlight);
@@ -509,17 +511,23 @@ try {
     $recorded = westy_work_log_state($pdo, 1, (int)$noBoxRun['id']);
     wl_check($recorded['qa_state'] === 'void' && $recorded['qa_reason'] === 'recovery_reversed', 'direct SQL can record a new reason with passed to void');
     wl_sql_refuse(fn()=> $pdo->prepare("INSERT INTO westy_billing_outbox(tenant_id,workflow_id,event_key,state,payload_json,payload_sha256) VALUES(1,?,'bad-initial','qa_pending','{}',?)")->execute([$noBoxRun['id'],str_repeat('a',64)]),'ck_westy_billing_qa_payload','pending QA INSERT payload check');
-    // The legacy resolve writer is exercised with 039 guards, preserving D1's default.
+    // The real v1 writer explicitly takes the QA hold with the 039 guards installed.
     $resolve=wl_case($pdo,81); $run=wl_run($pdo,$resolve); $now=gmdate('Y-m-d\TH:i:s\Z');
     $v1=['schema_version'=>1,'event_key'=>wl_key(980081),'workflow_key'=>$resolve['workflow_key'],'tenant_slug'=>'8west','customer_id'=>$resolve['customer_id'],'alert_key'=>$resolve['alert_key'],
         'action'=>'resolve','expected_version'=>7,'summary'=>'Verified recovery.','occurred_at'=>$now,'evidence_sha256'=>str_repeat('b',64),'verification_method'=>'agent_job_and_alert_recovery','job_id'=>123,'job_completed_at'=>$now,'alert_resolved_at'=>$now,'assignee_id'=>null];
-    wl_send($pdo,$v1);
+    $pdo->exec('DROP TRIGGER trg_westy_billing_qa_guard');
+    wl_refuse(fn()=>wl_send($runtime,$v1), 'workflow_v4_unavailable', 'new v1 resolve refuses a missing QA guard');
+    wl_refuse(fn()=>westy_billing_release_expired_qa($runtime,$billingConfig), 'workflow_v4_unavailable', 'timer refuses a missing QA guard');
+    wl_check(wl_run($pdo,$resolve) === $run, 'incomplete QA schema leaves the workflow open');
+    wl_ddl($pdo,$statements,'CREATE TRIGGER trg_westy_billing_qa_guard');
+    wl_send($runtime,$v1);
     $resolvedBox = westy_workflow_row($pdo,'SELECT id,state FROM westy_billing_outbox WHERE tenant_id=1 AND workflow_id=?',[$run['id']]);
-    wl_check($resolvedBox['state']==='waiting_for_time','legacy resolve default unchanged with 039');
+    wl_check($resolvedBox['state']==='qa_pending','new resolve starts on QA hold');
     wl_send($pdo,$resolve);
     wl_send($pdo,wl_qa($resolve,'fault_zero'));
     $blocked = westy_workflow_row($pdo,'SELECT state,detail_code FROM westy_billing_outbox WHERE tenant_id=1 AND id=?',[$resolvedBox['id']]);
     wl_check($blocked===['state'=>'blocked','detail_code'=>'qa_fault_zero'], 'first fault_zero blocks the charge created by the real resolve');
+    wl_qa_timeout_cases($pdo, $makeBillingCase);
     // S11: the actual atomic recovery function used by svc/alerts.php, real takeover guards.
     $pdo->exec("INSERT INTO tickets(tenant_id,client_id,subject,status,channel,external_key,auto_close_eligible,sla_due_at) VALUES(1,1,'Untouched alert','open','alert','alert:98989',1,UTC_TIMESTAMP() + INTERVAL 1 HOUR)");
     $auto=(int)$pdo->lastInsertId();

@@ -138,3 +138,94 @@ function wl_qa_billing_cases(PDO $pdo, callable $sealedCase): void
         }
     }
 }
+
+/** The same boundary cases run against SQLite and the installed 039 triggers on disposable MySQL. */
+function wl_qa_timeout_cases(PDO $pdo, callable $makeCase): void
+{
+    $clock = strtotime('2024-03-14 12:00:00 UTC');
+    $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    if ($mysql) $pdo->exec('SET timestamp = ' . $clock);
+    else $pdo->sqliteCreateFunction('UTC_TIMESTAMP', static fn(): string => gmdate('Y-m-d H:i:s', $clock), 0);
+    try {
+        $config = ['enabled'=>true,'service'=>'safeharbor-billing','endpoint'=>WESTY_BILLING_ENDPOINT,'secret'=>str_repeat('t',40),
+            'tenant_slugs'=>['8west'],'customer_ids'=>[wl_log(1)['customer_id']]];
+        $insert = $pdo->prepare('INSERT INTO westy_billing_outbox (tenant_id,workflow_id,event_key,state,detail_code,created_at,updated_at)
+            VALUES (1,?,?,?,?,?,?)');
+        $box = static fn(int $id): array => westy_workflow_row($pdo, 'SELECT * FROM westy_billing_outbox WHERE tenant_id=1 AND id=?', [$id]);
+        $add = static function (int $number, int $age, bool $seal = true, string $state = 'qa_pending', ?string $verdict = null)
+            use ($makeCase, $pdo, $insert, $clock): array {
+            [$log,$workflow] = $makeCase($number, $seal, $clock - $age);
+            if ($verdict !== null) wl_send($pdo, wl_qa($log, $verdict));
+            $created = gmdate('Y-m-d H:i:s', $clock - $age);
+            $insert->execute([$workflow,'timeout-'.$number,$state,'fixture_detail',$created,$created]);
+            return [$log,(int)$pdo->lastInsertId(),$workflow];
+        };
+        $age = 72 * 3600;
+        [, $young] = $add(1000, $age - 60);
+        [, $lastSecond] = $add(1001, $age - 1);
+        [, $blocked] = $add(1002, $age, state: 'blocked');
+        [, $legacy] = $add(1003, $age, state: 'waiting_for_time');
+        $held = [$young,$lastSecond,$blocked,$legacy];
+        foreach (['passed','fault_zero','void'] as $i => $verdict) {
+            [, $id] = $add(1004 + $i, $age, verdict: $verdict);
+            $held[] = $id;
+        }
+        [, $stateOnly, $workflow] = $add(1007, $age);
+        $pdo->prepare("UPDATE westy_workflow_log_state SET qa_state='passed',qa_reason='no_recurrence' WHERE tenant_id=1 AND workflow_id=?")
+            ->execute([$workflow]);
+        $held[] = $stateOnly;
+        [, $receiptOnly, $workflow] = $add(1008, $age, false);
+        $pdo->prepare("INSERT INTO westy_workflow_v4_receipts (tenant_id,workflow_id,event_key,request_sha256,action,response_json,received_at)
+            VALUES (1,?,?,?,'qa',?,?)")->execute([$workflow,wl_key(991008),str_repeat('b',64),'{"qa_state":"passed"}',gmdate('Y-m-d H:i:s',$clock)]);
+        $held[] = $receiptOnly;
+        $before = array_map($box, $held);
+        [, $unsealed, $unsealedRun] = $add(1010, $age, false);
+        [$pass, $passBox, $passRun] = $add(1011, $age);
+        [$void, $voidBox] = $add(1012, $age);
+        [$frozen, $frozenBox, $frozenRun] = $add(1013, $age);
+        [$fault, $faultBox] = $add(1014, $age);
+        $calls = 0;
+        $transport = static function () use (&$calls): array { ++$calls; return ['status'=>0,'body'=>'']; };
+        wl_check(!in_array($passBox, array_map('intval', westy_billing_due_ids($pdo)), true)
+            && westy_billing_dispatch($pdo,$passBox,$config,$transport) === 'qa_pending' && $calls === 0,
+            'even a due QA hold is skipped by both ordinary dispatch entry points');
+        wl_check(westy_billing_release_expired_qa($pdo,$config) === 5, 'at exactly 72 hours both sealed and unsealed holds release');
+        wl_check($before === array_map($box, $held), '71h59m, 71h59m59s, existing verdicts, blocked and legacy rows stay byte-for-byte unchanged');
+        $released = $box($passBox);
+        wl_check($box($unsealed)['detail_code'] === 'qa_not_received' && westy_work_log_state($pdo,1,$unsealedRun) === null
+            && $released['state'] === 'waiting_for_time' && $released['detail_code'] === 'qa_not_received'
+            && $released['payload_json'] === null && (int)$released['attempts'] === 0 && westy_work_log_state($pdo,1,$passRun)['qa_state'] === null,
+            'release neither creates a seal or verdict nor freezes a charge');
+        wl_check(westy_billing_release_expired_qa($pdo,$config) === 0 && $box($passBox) === $released, 'a second pass changes nothing');
+        wl_check(wl_send($pdo,wl_qa($pass))['qa_state'] === 'passed' && $box($passBox) === $released, 'late passed is recorded and preserves the full released row');
+        wl_check(wl_send($pdo,wl_qa($void,'void'))['qa_state'] === 'void' && $box($voidBox)['state'] === 'blocked'
+            && $box($voidBox)['detail_code'] === 'qa_not_received:qa_void', 'late void blocks an unfrozen release and preserves its history');
+        wl_check(wl_send($pdo,wl_qa($fault,'fault_zero'))['qa_state'] === 'fault_zero' && $box($faultBox)['state'] === 'blocked'
+            && $box($faultBox)['detail_code'] === 'qa_not_received:qa_fault_zero', 'late fault_zero blocks an unfrozen release and preserves its history');
+        $pdo->prepare("UPDATE westy_billing_outbox SET state='uncertain',payload_json='{}',payload_sha256=? WHERE tenant_id=1 AND id=?")
+            ->execute([hash('sha256','{}'),$frozenBox]);
+        $sent = $box($frozenBox);
+        wl_refuse(fn()=>wl_send($pdo,wl_qa($frozen,'void')), 'qa_charge_already_dispatched', 'late void after a frozen release');
+        wl_check($box($frozenBox) === $sent && westy_work_log_state($pdo,1,$frozenRun)['qa_state'] === null, 'frozen refusal preserves the row and the absent verdict');
+
+        $batch = [];
+        for ($i = 0; $i < 11; ++$i) {
+            [, $id] = $add(1020 + $i, $age);
+            $batch[] = $id;
+        }
+        wl_check(westy_billing_release_expired_qa($pdo,$config) === 10
+            && array_column(array_map($box, array_slice($batch, 0, 10)), 'detail_code') === array_fill(0, 10, 'qa_not_received')
+            && $box($batch[10])['state'] === 'qa_pending', 'one pass releases only the first ten eligible IDs');
+        wl_check(westy_billing_release_expired_qa($pdo,$config) === 1 && $box($batch[10])['state'] === 'waiting_for_time'
+            && westy_billing_release_expired_qa($pdo,$config) === 0, 'the next batch drains the eleventh hold once');
+        foreach ([[0,48], [1000,336]] as [$setting,$effective]) {
+            [, $early] = $add(1100 + $effective, $effective * 3600 - 1);
+            [, $due] = $add(1101 + $effective, $effective * 3600);
+            westy_billing_release_expired_qa($pdo,array_replace($config,['qa_release_hours'=>$setting]));
+            wl_check($box($early)['state'] === 'qa_pending' && $box($due)['detail_code'] === 'qa_not_received', 'configured clamp enforces exactly '.$effective.' hours');
+        }
+    } finally {
+        if ($mysql) $pdo->exec('SET timestamp = DEFAULT');
+        else $pdo->sqliteCreateFunction('UTC_TIMESTAMP', static fn(): string => gmdate('Y-m-d H:i:s'), 0);
+    }
+}

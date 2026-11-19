@@ -56,6 +56,44 @@ async function fixture(t, { width = 1280, failure = false } = {}) {
   return { page, errors };
 }
 
+for (const width of [1440, 390]) {
+  test(`staff see the review hold and its staff-time release at ${width}px`, async (t) => {
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    let state = 'qa_pending', detail = 'qa_review_required';
+    await page.route('http://safeharbor.test/ticket.php?id=42', route => {
+      const resolved = execFileSync('php', ['-r', `require $argv[1]; echo westy_workflow_card([
+        'ticket_id'=>42,'workflow_key'=>'22222222-2222-4222-8222-222222222222','state'=>'resolved','summary'=>'Recovery verified.',
+        'billing_state'=>$argv[2],'billing_detail'=>$argv[3]]);`, path.join(ROOT, 'app/lib/westy_workflow.php'), state, detail], { encoding: 'utf8' });
+      return route.fulfill({ contentType: 'text/html', body: PAGE.replace(card, resolved) });
+    });
+    await page.route('http://safeharbor.test/api/**', route => route.fulfill({ json: { ok: true } }));
+    await page.goto('http://safeharbor.test/ticket.php?id=42');
+    assert.equal(await page.title(), 'Safeharbor workflow contract');
+    await page.getByRole('heading', { name: 'Recovery verified' }).waitFor();
+    const pending = page.getByText('Waiting for the 24-hour review', { exact: true });
+    const released = page.getByText('Released without a review (billed as staff time only)', { exact: true });
+    await pending.waitFor();
+    assert.equal(await released.count(), 0);
+    state = 'waiting_for_time';
+    detail = 'qa_not_received:approved_billable_time_required';
+    await page.reload();
+    await released.waitFor();
+    assert.equal(await pending.count(), 0);
+    assert.equal(await page.getByRole('link', { name: 'Review time & billing' }).getAttribute('href'), '/time.php');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.deepEqual(errors, []);
+    if (process.env.SAFEHARBOR_QA_SHOTS) {
+      await mkdir(process.env.SAFEHARBOR_QA_SHOTS, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.SAFEHARBOR_QA_SHOTS, `safeharbor-qa-${width}.png`) });
+    }
+  });
+}
+
 test('confirmed takeover preserves draft and makes human ownership visible', async (t) => {
   const { page, errors } = await fixture(t);
   await page.getByPlaceholder('Write a reply').fill('Keep this draft.');

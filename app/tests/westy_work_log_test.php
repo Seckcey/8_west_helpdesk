@@ -138,24 +138,54 @@ $pdo->exec("CREATE TABLE tenants (id INTEGER PRIMARY KEY,slug TEXT);
     CREATE TABLE svc_identities (id INTEGER PRIMARY KEY,tenant_id INTEGER,service TEXT,is_active INTEGER);
     CREATE TABLE suite_customer_sync_bindings (tenant_id INTEGER,client_id INTEGER,customer_id TEXT,status TEXT);
     CREATE TABLE tickets (id INTEGER PRIMARY KEY,tenant_id INTEGER,client_id INTEGER,external_key TEXT);
-    CREATE TABLE westy_workflows (id INTEGER PRIMARY KEY,tenant_id INTEGER,workflow_key TEXT,customer_id TEXT,alert_key TEXT,ticket_id INTEGER,state TEXT,evidence_sha256 TEXT);
+    CREATE TABLE westy_workflows (id INTEGER PRIMARY KEY,tenant_id INTEGER,workflow_key TEXT,customer_id TEXT,alert_key TEXT,ticket_id INTEGER,state TEXT,evidence_sha256 TEXT,closed_at TEXT);
     CREATE TABLE westy_workflow_receipts (tenant_id INTEGER,event_key TEXT);
     CREATE TABLE westy_workflow_log_state (tenant_id INTEGER,workflow_id INTEGER,log_sha256 TEXT NOT NULL,log_sealed_seq INTEGER NOT NULL,
         qa_state TEXT,qa_reason TEXT,updated_at TEXT,PRIMARY KEY (tenant_id,workflow_id));
     CREATE TABLE westy_workflow_v4_receipts (tenant_id INTEGER,workflow_id INTEGER,event_key TEXT,request_sha256 TEXT,action TEXT,response_json TEXT,received_at TEXT,
         UNIQUE (tenant_id,event_key));
     CREATE TABLE westy_billing_outbox (id INTEGER PRIMARY KEY,tenant_id INTEGER,workflow_id INTEGER,event_key TEXT,state TEXT,payload_json TEXT,
-        payload_sha256 TEXT,attempts INTEGER DEFAULT 0,detail_code TEXT,next_attempt_at TEXT,updated_at TEXT,UNIQUE (tenant_id,workflow_id));
+        payload_sha256 TEXT,attempts INTEGER DEFAULT 0,detail_code TEXT,next_attempt_at TEXT,created_at TEXT,updated_at TEXT,UNIQUE (tenant_id,workflow_id));
     INSERT INTO tenants VALUES (1,'8west');
     INSERT INTO svc_identities VALUES (1,1,'milepost-workflow',1)");
 $pdo->prepare("INSERT INTO suite_customer_sync_bindings VALUES (1,1,?,'active')")->execute([wl_log(1)['customer_id']]);
-wl_qa_billing_cases($pdo, static function (int $id) use ($pdo): array {
+$makeBillingCase = static function (int $id, bool $seal = true, ?int $at = null) use ($pdo): array {
     $log = wl_log($id);
     $pdo->prepare('INSERT INTO tickets VALUES (?,1,1,?)')->execute([$id,$log['alert_key']]);
-    $pdo->prepare("INSERT INTO westy_workflows VALUES (?,1,?,?,?,?,'resolved',?)")
-        ->execute([$id,$log['workflow_key'],$log['customer_id'],$log['alert_key'],$id,str_repeat('b',64)]);
-    $pdo->prepare('INSERT INTO westy_workflow_log_state (tenant_id,workflow_id,log_sha256,log_sealed_seq) VALUES (1,?,?,1)')
-        ->execute([$id,$log['log_sha256']]);
+    $pdo->prepare("INSERT INTO westy_workflows VALUES (?,1,?,?,?,?,'resolved',?,?)")
+        ->execute([$id,$log['workflow_key'],$log['customer_id'],$log['alert_key'],$id,str_repeat('b',64),gmdate('Y-m-d H:i:s',$at)]);
+    if ($seal) {
+        $pdo->prepare('INSERT INTO westy_workflow_log_state (tenant_id,workflow_id,log_sha256,log_sealed_seq) VALUES (1,?,?,1)')
+            ->execute([$id,$log['log_sha256']]);
+    }
     return [$log,$id];
-});
+};
+wl_qa_billing_cases($pdo, $makeBillingCase);
+// Lower IDs and the same customer across tenants must not consume any of the ten release slots.
+$pdo->exec("INSERT INTO tenants VALUES (2,'other');
+    INSERT INTO westy_workflows (id,tenant_id,customer_id) VALUES (901,2,'11111111-1111-4111-8111-111111111111'),
+        (902,1,'22222222-2222-4222-8222-222222222222');
+    INSERT INTO westy_billing_outbox (tenant_id,workflow_id,state,created_at) VALUES
+        (2,901,'qa_pending','2000-01-01 00:00:00'),(1,902,'qa_pending','2000-01-01 00:00:00')");
+$otherRows = static fn(): array => $pdo->query('SELECT * FROM westy_billing_outbox WHERE workflow_id IN (901,902) ORDER BY id')->fetchAll();
+$before = $otherRows();
+wl_qa_timeout_cases($pdo, $makeBillingCase);
+wl_check($before === $otherRows(), 'another tenant and another customer keep their entire outbox rows');
+
+// Change two later candidates after discovery but before their turn under the tenant lock.
+$pdo->sqliteCreateFunction('UTC_TIMESTAMP', static fn(): string => '2010-01-04 00:00:00', 0);
+foreach ([1200,1201,1202] as $id) {
+    $makeBillingCase($id, true, strtotime('2010-01-01 00:00:00 UTC'));
+    $pdo->prepare("INSERT INTO westy_billing_outbox(tenant_id,workflow_id,state,created_at) VALUES(1,?,'qa_pending','2010-01-01 00:00:00')")->execute([$id]);
+}
+$pdo->exec("CREATE TRIGGER fixture_review_after_selection AFTER UPDATE ON westy_billing_outbox
+    WHEN NEW.workflow_id=1200 AND NEW.detail_code='qa_not_received' BEGIN
+        UPDATE westy_workflow_log_state SET qa_state='passed',qa_reason='no_recurrence' WHERE tenant_id=1 AND workflow_id=1201;
+        UPDATE westy_billing_outbox SET state='blocked',detail_code='qa_void' WHERE tenant_id=1 AND workflow_id=1202;
+    END");
+$config = ['enabled'=>true,'service'=>'safeharbor-billing','endpoint'=>WESTY_BILLING_ENDPOINT,'secret'=>str_repeat('t',40),
+    'tenant_slugs'=>['8west'],'customer_ids'=>[wl_log(1)['customer_id']]];
+wl_check(westy_billing_release_expired_qa($pdo,$config) === 1
+    && $pdo->query('SELECT state FROM westy_billing_outbox WHERE tenant_id=1 AND workflow_id BETWEEN 1200 AND 1202 ORDER BY id')
+        ->fetchAll(PDO::FETCH_COLUMN) === ['waiting_for_time','qa_pending','blocked'], 'a verdict or block after the ID scan wins over a stale timeout candidate');
 echo 'PASS '.($GLOBALS['wl_checks'] ?? 0)." work log pure checks.\n";

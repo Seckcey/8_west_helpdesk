@@ -7,6 +7,11 @@ function wb_refuses(callable $action,string $name): void { try { $action(); } ca
 $customer='33333333-3333-4333-8333-333333333333';
 $config=westy_billing_settings(['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('fixture-',6),'tenant_slugs'=>['fixture-msp'],'customer_ids'=>[$customer]]);
 foreach ([['enabled'=>false],['endpoint'=>'https://evil.example/'],['service'=>'safeharbor-time'],['secret'=>'short'],['tenant_slugs'=>[]],['customer_ids'=>[]]] as $change) wb_refuses(fn()=>westy_billing_settings(array_replace($config,$change)),'separate complete exact-destination gate required');
+wb_check($config['qa_release_hours'] === 72, 'default review timeout is 72 hours');
+foreach ([[12,48], [48,48], ['96',96], [336,336], [500,336], ['99999999999999999999',336], [null,72], ['bad value',72], [false,72]] as [$setting,$expected]) {
+    wb_check(westy_billing_settings(array_replace($config,['qa_release_hours'=>$setting]))['qa_release_hours'] === $expected,
+        'integer timeout is bounded and invalid settings use the default');
+}
 $pdo=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
 $pdo->exec("CREATE TABLE tenants(id INTEGER PRIMARY KEY,slug TEXT);
 CREATE TABLE tickets(id INTEGER PRIMARY KEY,tenant_id INTEGER,client_id INTEGER,status TEXT,resolved_at TEXT,merged_into_id INTEGER);
@@ -115,6 +120,39 @@ $pdo->exec('DELETE FROM time_entries');
 wb_refuses(fn()=>westy_billing_payload($pdo,array_replace($run,['state'=>'human_owned']),$outbox,$includedConfig),'human takeover prevents a new included-service claim');
 $configWrong=$includedConfig; $configWrong['included_service']['policies']=['other'=>[$customer=>$coverage]];
 wb_refuses(fn()=>westy_billing_payload($pdo,$run,$outbox,$configWrong),'another tenant coverage cannot authorize work');
+
+// Replay the two financial paths from the same unfrozen SQLite fixture, this time with no verdict.
+$pdo->sqliteCreateFunction('westy_work_log_schema_health', static fn(): int => 1, 0);
+$pdo->sqliteCreateFunction('UTC_TIMESTAMP', static fn(): string => '2026-09-10 09:00:00', 0);
+$pdo->exec('CREATE TABLE westy_workflow_log_state (tenant_id INTEGER,workflow_id INTEGER,qa_state TEXT);
+    CREATE TABLE westy_workflow_v4_receipts (tenant_id INTEGER,workflow_id INTEGER,action TEXT)');
+$detail = static fn(): string => $pdo->query('SELECT detail_code FROM westy_billing_outbox WHERE id=1')->fetchColumn();
+$release = static function () use ($pdo, $config): void {
+    $pdo->exec("DELETE FROM time_entries;
+        UPDATE westy_billing_outbox SET state='qa_pending',detail_code='qa_review_required',created_at='2026-09-07 09:00:00',
+            attempts=0,payload_json=NULL,payload_sha256=NULL,response_json=NULL,last_attempt_at=NULL,next_attempt_at=NULL WHERE id=1");
+    wb_check(westy_billing_release_expired_qa($pdo,$config) === 1, 'timer releases the unfrozen closure');
+};
+$release();
+$before = count($calls);
+wb_check(westy_billing_dispatch($pdo,1,$config,$transport) === 'waiting_for_time' && count($calls) === $before
+    && $detail() === 'qa_not_received:approved_billable_time_required', 'released row without time or coverage still waits locally');
+$pdo->exec("INSERT INTO time_entries VALUES(10,1,7,42,'approved',1)");
+wb_due($pdo);
+wb_check(westy_billing_dispatch($pdo,1,$config,$transport) === 'accepted'
+    && json_decode(end($calls),true)['event'] === 'safeharbor.ticket.billing_requested'
+    && json_decode(end($calls),true)['time_event_keys'] === [$source['event_key']] && $detail() === 'qa_not_received:coastmark_review_required',
+    'timeout references only the current approved staff-time export for invoice review');
+$release();
+wb_check(westy_billing_dispatch($pdo,1,$includedConfig,$lost) === 'uncertain' && $detail() === 'qa_not_received:delivery_uncertain',
+    'timeout provenance survives a lost covered receipt');
+wb_due($pdo);
+wb_check(westy_billing_dispatch($pdo,1,$includedConfig,$delivered) === 'accepted'
+    && json_decode(end($includedCalls),true)['event'] === 'safeharbor.ticket.service_completed' && $detail() === 'qa_not_received:included_service_recorded',
+    'covered timeout retries only the zero-charge event and retains its release detail');
+$releasedCard = westy_workflow_card(westy_workflow_ticket($pdo,1,42) + ['summary'=>'Recovery verified','job_id'=>99]);
+wb_check(str_contains($releasedCard,'Released without a review (billed as staff time only)') && str_contains($releasedCard,'No extra charge.'),
+    'the actual staff card retains the timeout and the zero receipt together');
 if (getenv('WESTY_INCLUDED_FIXTURE_DIR')) {
     $fixtureDir=getenv('WESTY_INCLUDED_FIXTURE_DIR');
     file_put_contents($fixtureDir.'/included-service-v2.json',$includedCalls[0]);

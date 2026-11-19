@@ -124,11 +124,28 @@ try {
     }
     // The actual CLI now sees both a fault-zero charge and a pending QA hold.
     $pdo->prepare("INSERT INTO westy_billing_outbox(tenant_id,workflow_id,event_key,state) VALUES(1,?,'s5-cron-pending','qa_pending')")->execute([$pageRun['id']]);
-    $cron=proc_open([PHP_BINARY,$httpDir.'/cron/westy_billing_dispatch.php'],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$cronPipes);
-    if (!is_resource($cron)) throw new RuntimeException('Cron fixture did not start');
-    fclose($cronPipes[0]); $cronOut=stream_get_contents($cronPipes[1]); $cronErr=stream_get_contents($cronPipes[2]);
-    fclose($cronPipes[1]); fclose($cronPipes[2]);
-    wl_check(proc_close($cron)===0 && $cronOut==='' && $cronErr==='','actual billing cron skips qa_pending and qa_fault_zero without dispatch');
+    $runBillingCron = static function () use ($httpDir): string {
+        $cron=proc_open([PHP_BINARY,$httpDir.'/cron/westy_billing_dispatch.php'],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$cronPipes);
+        if (!is_resource($cron)) throw new RuntimeException('Cron fixture did not start');
+        fclose($cronPipes[0]); $output=stream_get_contents($cronPipes[1]); $errors=stream_get_contents($cronPipes[2]);
+        fclose($cronPipes[1]); fclose($cronPipes[2]);
+        wl_check(proc_close($cron)===0 && $errors==='','actual billing cron completes without errors');
+        return $output;
+    };
+    wl_check($runBillingCron()==='', 'actual billing cron skips qa_pending and qa_fault_zero without dispatch');
+    $at = time() - 73 * 3600;
+    $expired = wl_run($pdo,wl_case($pdo,780,'resolved',$at));
+    $pdo->prepare("INSERT INTO westy_billing_outbox(tenant_id,workflow_id,event_key,state,created_at,updated_at)
+        VALUES(1,?,'s6-expired','qa_pending',?,?)")->execute([$expired['id'],$expired['closed_at'],$expired['closed_at']]);
+    $expiredId = (int)$pdo->lastInsertId();
+    $expiredPath = '/ticket.php?id='.$expired['ticket_id'];
+    [$status,$body] = $send($expiredPath,'',['Cookie: PHPSESSID='.$session],'GET');
+    wl_check($status===200 && str_contains(strip_tags($body),'Waiting for the 24-hour review'), 'staff ticket shows the pending hold');
+    wl_check(trim($runBillingCron())==='QA holds released for staff-time billing: 1', 'real scheduled pass releases the expired hold without dispatch');
+    wl_check(trim($runBillingCron())==='Handoff '.$expiredId.': waiting_for_time', 'next pass takes the staff-time path with no time or coverage');
+    [$status,$body] = $send($expiredPath,'',['Cookie: PHPSESSID='.$session],'GET');
+    wl_check($status===200 && str_contains(strip_tags($body),'Released without a review (billed as staff time only)')
+        && !str_contains(strip_tags($body),'Waiting for the 24-hour review'), 'staff ticket retains the release notice after dispatch checks for time');
 
     // S11 at the actual signed alert endpoint with all legacy recovery guards installed.
     $pdo->exec("INSERT INTO svc_identities(tenant_id,service,display_name) VALUES(1,'milepost','Synthetic alerts')");

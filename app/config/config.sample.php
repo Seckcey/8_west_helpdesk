@@ -423,6 +423,8 @@ return [
         'secret' => '',
         'tenant_slugs' => [],
         'customer_ids' => [],
+        // Hours after resolve before staff-time billing may proceed without a QA verdict (48–336).
+        'qa_release_hours' => 72,
         // Exact tenant/customer coverage references; Coastmark independently verifies its agreement policy.
         'included_service' => ['enabled' => false, 'policies' => []],
     ],
