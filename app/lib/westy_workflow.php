@@ -362,6 +362,15 @@ function westy_workflow_card(array $run): string
             'sending'=>'Checking the billing handoff.', 'uncertain'=>'Billing receipt is being reconciled. No invoice email has been sent by Safeharbor.',
             'accepted'=>'Coastmark received the handoff. Review the invoice before sending.', 'blocked'=>'Billing needs a technician review before it can continue.'];
         if ($included) $billingLabels['accepted']='Service complete. Coastmark confirmed this work is covered by the customer plan. No extra charge.';
+        $detail=$run['billing_detail']??null;
+        if ($detail==='qa_review_required') $billingLabels['waiting_for_time']=$billingLabels['qa_pending'];
+        $billingLabels['accepted']=match ($detail) {
+            'ai_service_priced'=>'AI service recorded. Coastmark added the fee to a draft invoice for review.',
+            'ai_service_included'=>'AI service recorded. Covered by the customer plan. No extra charge.',
+            'ai_service_unmapped','ai_service_held'=>'AI service recorded. Coastmark is holding it for a person to review. No charge yet.',
+            'ai_service_superseded_by_time'=>'AI service recorded. Staff time is billed for this ticket instead.',
+            default=>$billingLabels['accepted'],
+        };
         $html .= '<p class="rail-note">' . $escape($billingLabels[$run['billing_state']] ?? 'Billing status unavailable.') . '</p>';
         if (westy_billing_released_without_review($run['billing_detail'] ?? null)) {
             $html .= '<p class="rail-note">Released without a review (billed as staff time only)</p>';

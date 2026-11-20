@@ -57,7 +57,7 @@ async function fixture(t, { width = 1280, failure = false } = {}) {
 }
 
 for (const width of [1440, 390]) {
-  test(`staff see the review hold and its staff-time release at ${width}px`, async (t) => {
+  test(`staff see the review hold, its release, and Coastmark's AI service outcomes at ${width}px`, async (t) => {
     const browser = await chromium.launch({ headless: true });
     t.after(() => browser.close());
     const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -91,6 +91,25 @@ for (const width of [1440, 390]) {
       await mkdir(process.env.SAFEHARBOR_QA_SHOTS, { recursive: true });
       await page.screenshot({ path: path.join(process.env.SAFEHARBOR_QA_SHOTS, `safeharbor-qa-${width}.png`) });
     }
+    detail = 'qa_review_required';
+    await page.reload();
+    await pending.waitFor();
+    assert.equal(await released.count(), 0);
+    state = 'accepted';
+    for (const [outcome, message] of [
+      ['priced', 'AI service recorded. Coastmark added the fee to a draft invoice for review.'],
+      ['included', 'AI service recorded. Covered by the customer plan. No extra charge.'],
+      ['unmapped', 'AI service recorded. Coastmark is holding it for a person to review. No charge yet.'],
+      ['held', 'AI service recorded. Coastmark is holding it for a person to review. No charge yet.'],
+      ['superseded_by_time', 'AI service recorded. Staff time is billed for this ticket instead.'],
+    ]) {
+      detail = `ai_service_${outcome}`;
+      await page.reload();
+      await page.getByText(message, { exact: true }).waitFor();
+      assert.equal(await pending.count(), 0);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    }
+    assert.deepEqual(errors, []);
   });
 }
 
