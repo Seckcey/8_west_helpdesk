@@ -33,6 +33,40 @@ function wl_case(PDO $pdo,int $n,string $state='working',?int $at=null): array
     return $p;
 }
 function wl_run(PDO $pdo,array $p): array { return westy_workflow_row($pdo,'SELECT * FROM westy_workflows WHERE tenant_id=1 AND workflow_key=?',[$p['workflow_key']]); }
+
+/** Exercise the real v4 writer, due-row cron and frozen retry on the fresh MySQL schema. */
+function wl_ai_billing_cron_case(PDO $pdo,callable $runCron,array $config): int
+{
+    $base=wl_case($pdo,781,'resolved',time()-90000);
+    $run=wl_run($pdo,$base);
+    $step=array_replace($base['entries'][0],['kind'=>'verify','milepost_ref'=>'alert:781;outcome:7;service:workstation_fix',
+        'occurred_at'=>str_replace(' ','T',$run['alert_resolved_at']).'Z']);
+    $log=wl_log(781,entries:[$step]);
+    $event='safeharbor-billing:'.substr(hash('sha256',$log['tenant_slug'].':'.$log['workflow_key']),0,32);
+    $pdo->prepare("INSERT INTO westy_billing_outbox(tenant_id,workflow_id,event_key,state) VALUES(1,?,?,'qa_pending')")->execute([$run['id'],$event]);
+    $id=(int)$pdo->lastInsertId();
+    wl_send($pdo,$log);
+    $qa=wl_qa($log); wl_send($pdo,$qa);
+    $receipt=westy_workflow_row($pdo,'SELECT received_at FROM westy_workflow_v4_receipts WHERE tenant_id=1 AND workflow_id=? AND event_key=?',[$run['id'],$qa['event_key']]);
+    wl_check(in_array('Handoff '.$id.': uncertain',explode("\n",trim($runCron())),true),'actual cron claims the QA-released v3 with transport disabled');
+    $row=westy_workflow_row($pdo,'SELECT * FROM westy_billing_outbox WHERE tenant_id=1 AND id=?',[$id]);
+    $payload=json_decode($row['payload_json'],true,16,JSON_THROW_ON_ERROR);
+    wl_check($payload['version']===3 && $payload['event_key']===$event && $payload['qa_state']==='passed'
+        && $payload['service_codes']===['workstation_fix'] && $payload['verification_sha256']===$run['evidence_sha256']
+        && $payload['log_sha256']===$log['log_sha256'] && $payload['qa_sha256']===hash('sha256',westy_work_log_json($qa))
+        && $payload['qa_checked_at']===str_replace(' ','T',$receipt['received_at']).'Z' && (int)$row['attempts']===1
+        && $row['payload_sha256']===hash('sha256',$row['payload_json']),'frozen MySQL claim uses the stored v4 evidence and receipt time');
+    $reply=json_decode(file_get_contents(__DIR__.'/fixtures/ai-service-v3-receipt.json'),true,16,JSON_THROW_ON_ERROR);
+    $reply['action']='ignored'; $reply['service']['event_key']=$event;
+    $sent=[]; $replay=static function(array $settings,string $body) use (&$sent,$reply): array {
+        $sent[]=$body; return ['status'=>200,'body'=>json_encode($reply,JSON_THROW_ON_ERROR)];
+    };
+    $pdo->prepare('UPDATE westy_billing_outbox SET next_attempt_at=NULL WHERE tenant_id=1 AND id=?')->execute([$id]);
+    wl_check(westy_billing_dispatch($pdo,$id,$config,$replay)==='accepted' && $sent===[$row['payload_json']]
+        && westy_billing_dispatch($pdo,$id,$config,$replay)==='accepted' && count($sent)===1,'exact MySQL replay reconciles once');
+    return (int)$run['ticket_id'];
+}
+
 function wl_snapshot(PDO $pdo,array $p): array
 {
     $run=wl_run($pdo,$p);

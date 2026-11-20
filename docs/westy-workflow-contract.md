@@ -359,7 +359,7 @@ With the Supervisor billing gate, a new v1 resolve explicitly inserts one
 `qa_pending` row with detail `qa_review_required` in its closure transaction.
 A new resolve requires healthy migration 039 and its runtime EXECUTE grant.
 Failure rolls back the closure, and an exact replay returns the existing receipt.
-Existing waiting rows follow their original path without a backfill. The SQL default remains `waiting_for_time`
+Existing waiting rows stay in the outbox without a backfill. The SQL default remains `waiting_for_time`
 for older writers and source rollback. A first QA verdict
 applies the following rules to the workflow's billing rows. The only permitted
 later verdict is `void` after `passed`, with the same rules as a first `void`.
@@ -427,17 +427,14 @@ for approved staff time. The v1 billing handoff refers to those existing lines
 for review. With zero time entries and matching coverage, v2
 `safeharbor.ticket.service_completed` can record an included-service receipt
 for zero additional cents and no invoice. These paths work for a timeout or a
-legacy waiting row. An AI service charge requires an explicit `qa_state='passed'`
-on the matching tenant and workflow. This version has no `ai_service_completed`
-sender. Coastmark owns invoice approval, sending, posting and collection.
+legacy waiting row. Coastmark owns invoice approval, sending, posting and collection.
 
-The payload is pinned once, with deterministic `safeharbor-billing:<32hex>`
-event key for that tenant/run, before any network request. It posts the agreed
-`safeharbor.ticket.billing_requested` v1 contract to the exact HTTPS
-`https://coastmark.8westit.com/api/integrations/safeharbor/billing-handoffs`,
-using dedicated `safeharbor-billing` identity/key and HMAC-SHA256 of
+The worker freezes one payload under the existing `safeharbor-billing:<32hex>`
+event key for that tenant/run before the first network request. All three versions post to
+`https://coastmark.8westit.com/api/integrations/safeharbor/billing-handoffs`
+using the dedicated `safeharbor-billing` identity/key and HMAC-SHA256 of
 `timestamp + "\n" + exact_body`. This is not the time exporter secret. The
-body references current accepted `time_event_keys`, UUID `run_key`, closure
+v1 body references current accepted `time_event_keys`, UUID `run_key`, closure
 timestamps and verification digest, and contains no financial amounts or
 client message text.
 
@@ -447,9 +444,46 @@ lease contains overlapping/crashed workers. A new source version after a frozen
 claim blocks delivery rather than replacing its body. Exact receiver replay
 reconciles a lost acknowledgment. Accepted receipts cannot be changed or sent
 again. The receiver returns HTTP 201 for creation and HTTP 200 for an exact replay.
-An accepted handoff means **Coastmark invoice review is ready**; it is
-not posting, mail acceptance, or inbox delivery. The ticket card shows billing
+An accepted v1 handoff means **Coastmark invoice review is ready**. The ticket card shows billing
 state and links to the canonical invoice review after verified acknowledgment.
+
+### Verified AI service (billing handoff v3)
+
+`westy_billing_handoff.ai_service.enabled` defaults to `false`. When enabled,
+a resolved workflow can send `safeharbor.ticket.ai_service_completed` for a
+customer on both `customer_ids` lists. The usual tenant, binding and ticket
+closure checks apply. The master MSP is excluded. Any time entry keeps the
+ticket on its existing billing path.
+
+With zero time entries, Safeharbor waits for the 24-hour review even if a
+coverage policy exists. A `fault_zero` or `void` verdict blocks billing.
+A release without review follows the existing path, even after a late pass.
+A passed verdict needs exactly one passed QA receipt for that tenant and workflow.
+Only sealed Milepost `verify` steps ending in `;service:<code>` in `milepost_ref`
+supply service codes. Safeharbor sorts the distinct codes. An empty list uses
+the existing coverage or approved-time rules. More than 20 codes blocks dispatch.
+
+The event carries the outbox event key, tenant slug, `milepost-customer:<uuid>`,
+ticket ID and workflow key. Its three UTC timestamps come from stored evidence.
+`resolved_at` is the workflow's alert recovery time. `closed_at` is its closure
+time and must be at or after recovery. `qa_checked_at` is the passed QA receipt's
+arrival time and must be at least 24 hours after recovery. Times more than five
+minutes in the future also block dispatch. `verification_sha256`
+comes from the workflow evidence, `log_sha256` from the seal, and `qa_sha256`
+from the receipt's request hash. The remaining facts are the passed verdict and
+the service codes. Coastmark sets the price. Safeharbor supplies no amount,
+duration or free text.
+
+The first claim freezes the bytes. A changed seal blocks the retry. A v3 HTTP
+404 keeps the receipt uncertain and schedules a retry within the existing
+eight-attempt limit. Staff see Coastmark's recorded result on the Troubleshooting
+card. It can report a draft fee, plan coverage, a hold for review, or staff time
+billed for the ticket.
+
+For rollout, enable Coastmark's receiver and set the customer's prices and caps.
+Then release Milepost's service-code suffix. Enable Safeharbor for the intended
+customers last. To roll back, turn `ai_service.enabled` off. Events already sent
+stay with Coastmark.
 
 ## Migration and release gate
 

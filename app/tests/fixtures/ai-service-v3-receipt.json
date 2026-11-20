@@ -1,0 +1,1 @@
+{"ok":true,"action":"created","service":{"id":1,"event_key":"safeharbor-billing:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","state":"priced","amount_cents":2500,"invoice_id":1,"invoice_line_id":1,"hold_reason":null}}

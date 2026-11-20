@@ -413,8 +413,8 @@ return [
         'tenant_slugs' => [],
         'customer_ids' => [],
     ],
-    // Closure outbox sends existing approved-time references for Coastmark
-    // invoice REVIEW only. It cannot send an invoice email. Install the
+    // The closure outbox sends approved-time references or verified service
+    // facts to Coastmark. It cannot send an invoice email. Install the
     // dedicated CLI schedule only after an exact configured-customer canary.
     'westy_billing_handoff' => [
         'enabled' => false,
@@ -427,6 +427,8 @@ return [
         'qa_release_hours' => 72,
         // Exact tenant/customer coverage references; Coastmark independently verifies its agreement policy.
         'included_service' => ['enabled' => false, 'policies' => []],
+        // AI service charge events. Coastmark decides the price; this only reports a verified fix.
+        'ai_service' => ['enabled' => false, 'customer_ids' => []],
     ],
 
     // Westy — the suite AI helper (advise-only chat bubble + onboarding).
