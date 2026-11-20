@@ -341,7 +341,7 @@ Apply additive migration 039 through `deploy.sh --migrate` in a quiet period.
 The migration session waits up to 60 seconds for a metadata lock.
 It requires no write freeze. The two identity triggers, the legacy health
 function and its existing runtime EXECUTE grant stay in place throughout.
-V1–v3 keep their existing behavior before, during and after the migration.
+The original S5 code can run before, during and after migration 039.
 The first seal creates a state row with no verdict. Its insert, update and delete
 guards protect the seal and verdict history. A separate trigger restricts
 billing rows held in `qa_pending`.
@@ -355,7 +355,12 @@ writes and timeline reads require a positive result. A missing function,
 denied grant or zero result makes v4 unavailable, and the endpoint returns
 `workflow_v4_unavailable`.
 
-Resolve creates a `waiting_for_time` row under decision D1. A first QA verdict
+With the Supervisor billing gate, a new v1 resolve explicitly inserts one
+`qa_pending` row with detail `qa_review_required` in its closure transaction.
+A new resolve requires healthy migration 039 and its runtime EXECUTE grant.
+Failure rolls back the closure, and an exact replay returns the existing receipt.
+Existing waiting rows follow their original path without a backfill. The SQL default remains `waiting_for_time`
+for older writers and source rollback. A first QA verdict
 applies the following rules to the workflow's billing rows. The only permitted
 later verdict is `void` after `passed`, with the same rules as a first `void`.
 
@@ -369,9 +374,9 @@ Before recording `fault_zero` or `void`, Safeharbor checks every billing row
 for that workflow. A stored payload or payload hash, or a row in `sending`,
 `uncertain` or `accepted`, returns HTTP 409 with `qa_charge_already_dispatched`.
 The refusal preserves the previous verdict, all billing data and all receipts.
-An already blocked row keeps its original detail code. The dispatcher and cron
-skip held and blocked rows. With no billing row, an accepted verdict records
-only QA and its receipt.
+An already blocked row keeps its original detail code. Both the cron's dispatch
+query and direct dispatch skip held and blocked rows. With no billing row, an
+accepted verdict records only QA and its receipt.
 Replaying an accepted event key with the original bytes returns its stored
 response with `replayed: true`.
 
@@ -383,12 +388,32 @@ acceptance is established by this source change.
 
 Existing approved-time v3 claim/send/status remains the supported billing
 source. Verified closure atomically creates one `westy_billing_outbox` row in
-`waiting_for_time`. It creates neither time nor money and sends no mail.
+`qa_pending`. It creates neither time nor money and sends no mail.
 The separate default-off `westy_billing_handoff` configuration controls the
 actual CLI worker `app/cron/westy_billing_dispatch.php`.
 
-The worker selects the oldest due rows, at most ten per invocation. It requires
-the exact still-closed ticket/customer, approved original billable time and
+After dispatching up to ten due handoffs, the same scheduled worker can release
+up to ten expired QA holds in outbox ID order. The wait starts at the immutable
+outbox creation time recorded by the resolve. `westy_billing_handoff.qa_release_hours`
+defaults to 72 hours and accepts whole hours from 48 to 336. Integers outside
+that range are clamped, and invalid settings use 72. Milepost normally reviews
+at 24 hours and can retry delivery for another 23 hours.
+
+For an enabled billing tenant and customer, the worker takes the same tenant
+lock as the QA receiver and dispatcher. A hold whose deadline has passed can
+move to `waiting_for_time` only if its payload is unfrozen, its workflow has
+no verdict in `westy_workflow_log_state` and it has no v4 QA receipt. This
+also covers a workflow with no sealed log. The worker records `qa_not_received`
+in billing detail and leaves QA untouched. Later dispatch details and any
+blocking QA reason retain the prefix `qa_not_received:`. A late `passed`
+records the verdict and keeps the outbox row as it was. A late `fault_zero`
+or `void` still uses the blocking and frozen-payload rules above.
+
+Staff see “Waiting for the 24-hour review” on the ticket while a hold is
+pending and “Released without a review (billed as staff time only)” after a
+timeout, alongside the current billing status.
+
+The approved-time handoff requires the exact still-closed ticket/customer, approved original billable time and
 each entry's latest adjustment version with an accepted or replayed Coastmark
 v3 import receipt. Pending time, missing exports and ambiguous deliveries wait
 for review. Reopened tickets, changed customer lineage or source facts changed
@@ -396,6 +421,15 @@ after a payload was frozen become blocked exceptions. Post-closure time review
 may transfer workflow ownership to a technician without erasing the original
 closure evidence; billing still requires the ticket's exact unchanged closure
 timestamp. Never invent duration, technician, agreement, rate or recipient.
+
+The independent v3 time export can create or correct a Coastmark draft line
+for approved staff time. The v1 billing handoff refers to those existing lines
+for review. With zero time entries and matching coverage, v2
+`safeharbor.ticket.service_completed` can record an included-service receipt
+for zero additional cents and no invoice. These paths work for a timeout or a
+legacy waiting row. An AI service charge requires an explicit `qa_state='passed'`
+on the matching tenant and workflow. This version has no `ai_service_completed`
+sender. Coastmark owns invoice approval, sending, posting and collection.
 
 The payload is pinned once, with deterministic `safeharbor-billing:<32hex>`
 event key for that tenant/run, before any network request. It posts the agreed
@@ -418,6 +452,36 @@ not posting, mail acceptance, or inbox delivery. The ticket card shows billing
 state and links to the canonical invoice review after verified acknowledgment.
 
 ## Migration and release gate
+
+Deploy the Supervisor billing gate only after Milepost S6 is running and a
+recent delivered `passed` event for the intended scope matches a committed
+Safeharbor v4 QA receipt by event key, workflow and tenant. Verify both schema
+health functions return 1 under the runtime grant and the billing cron is
+running for that scope. The change uses the existing 039 schema.
+
+For source rollback, the timer can drain existing holds before the revert.
+The previous code leaves existing holds pending and still accepts v4 verdicts.
+For a remaining hold with no verdict, the operator can run this one bound
+statement during a Safeharbor-only pause of workflow and billing writers.
+Bind the verified tenant, customer and outbox ID and the configured integer
+timeout (72 if unset). Affected rows are zero before expiry, after a verdict
+or on repeat, and one for an eligible release. Resume the workers after the
+statement. The previous dispatcher can then handle the row on its normal schedule.
+
+```sql
+UPDATE westy_billing_outbox AS b
+JOIN tenants AS t ON t.id = b.tenant_id
+JOIN westy_workflows AS w ON w.tenant_id = b.tenant_id AND w.id = b.workflow_id
+LEFT JOIN westy_workflow_log_state AS s ON s.tenant_id = b.tenant_id AND s.workflow_id = b.workflow_id
+SET b.state = 'waiting_for_time', b.detail_code = 'qa_not_received', b.updated_at = UTC_TIMESTAMP()
+WHERE b.tenant_id = :tenant_id AND t.slug = :tenant_slug AND b.id = :outbox_id
+  AND w.customer_id = :customer_id AND w.customer_id <> '4ebaeefa-b101-47f8-ac76-e49ab309d272'
+  AND b.state = 'qa_pending' AND b.payload_json IS NULL AND b.payload_sha256 IS NULL
+  AND b.created_at <= TIMESTAMPADD(HOUR, -GREATEST(48, LEAST(336, COALESCE(:qa_release_hours, 72))), UTC_TIMESTAMP())
+  AND s.qa_state IS NULL
+  AND NOT EXISTS (SELECT 1 FROM westy_workflow_v4_receipts AS r
+                  WHERE r.tenant_id = b.tenant_id AND r.workflow_id = b.workflow_id AND r.action = 'qa');
+```
 
 Migration **025 is migration-first** and adds three tables, thirteen guards
 and a read-only definer health function.

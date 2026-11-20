@@ -169,7 +169,7 @@ function westy_workflow_v4_receive(PDO $pdo, array $settings, array $p, string $
         if ($p['action'] === 'qa' && !$prior && !$legacy) {
             // The tenant lock serializes QA with dispatch. Lock the outbox first, then the ticket
             // before the workflow, as a technician's ticket edit takes the workflow lock through a trigger.
-            $billing = $pdo->prepare('SELECT state,(payload_json IS NOT NULL OR payload_sha256 IS NOT NULL) AS frozen
+            $billing = $pdo->prepare('SELECT state,detail_code,(payload_json IS NOT NULL OR payload_sha256 IS NOT NULL) AS frozen
                 FROM westy_billing_outbox WHERE tenant_id = ? AND workflow_id =
                     (SELECT id FROM westy_workflows WHERE tenant_id = ? AND workflow_key = ? AND customer_id = ?)
                 ORDER BY id' . $lock);
@@ -248,7 +248,7 @@ function westy_workflow_v4_receive(PDO $pdo, array $settings, array $p, string $
             $pdo->prepare('UPDATE westy_workflow_log_state SET qa_state = ?,qa_reason = ?,updated_at = ? WHERE tenant_id = ? AND workflow_id = ?')
                 ->execute([utf8_clean($p['verdict']),utf8_clean($p['reason_code']),$now,$tid,$run['id']]);
             $pdo->prepare("UPDATE westy_billing_outbox SET state = ?,detail_code = ?,updated_at = ? WHERE tenant_id = ? AND workflow_id = ? AND $eligible")
-                ->execute([$billingState,$detail,$now,$tid,$run['id']]);
+                ->execute([$billingState,westy_billing_next_detail($billingRows[0]['detail_code'] ?? null, $detail),$now,$tid,$run['id']]);
             $result += ['qa_state'=>$p['verdict']];
         }
         $pdo->prepare('INSERT INTO westy_workflow_v4_receipts (tenant_id,workflow_id,event_key,request_sha256,action,response_json,received_at) VALUES (?,?,?,?,?,?,?)')

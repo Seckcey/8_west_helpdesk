@@ -152,6 +152,7 @@ try {
     ] as $sql) $pdo->exec($sql.' ENGINE=InnoDB');
     $migration=__DIR__.'/../db/migrations/025_westy_workflow.sql';
     ww_sql($pdo,$migration);
+    ww_sql($pdo,__DIR__.'/../db/migrations/039_westy_work_log.sql');
     require __DIR__.'/westy_workflow_test.php';
     require __DIR__.'/westy_device_ownership_scenarios.php';
     $receiptCount=(int)$pdo->query('SELECT COUNT(*) FROM westy_workflow_receipts')->fetchColumn();
@@ -185,6 +186,8 @@ try {
     $pdo->exec("INSERT INTO coastmark_time_export_receipts VALUES(1,1,1,'accepted',9)");
     $billingEvent=$pdo->query('SELECT event_key FROM westy_billing_outbox WHERE id=1')->fetchColumn();
     $billingConfig=['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('test-only-',6),'tenant_slugs'=>['8west'],'customer_ids'=>[$customer]];
+    // Model a pre-gate waiting row. Its approved staff time still dispatches under the original DML grants.
+    $pdo->exec("UPDATE westy_billing_outbox SET state='waiting_for_time',detail_code='approved_time_required' WHERE id=1 AND state='qa_pending'");
     $delivered=westy_billing_dispatch($runtime,1,$billingConfig,static fn()=>['status'=>201,'body'=>json_encode(['ok'=>true,'action'=>'created','handoff'=>['id'=>1,'event_key'=>$billingEvent,'state'=>'review_required'],'invoices'=>[['invoice_id'=>9,'review_url'=>'https://coastmark.8westit.com/invoices/9','status'=>'draft']]])]);
     ww_check($delivered==='accepted','DML-only worker freezes approved-time payload and records injected Coastmark review receipt');
     ww_refuses(fn()=> $runtime->exec("UPDATE westy_billing_outbox SET payload_json='{}' WHERE id=1"),'frozen handoff body cannot change');

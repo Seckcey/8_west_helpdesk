@@ -232,6 +232,8 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
                 if ($p['assignee_id'] !== null && !westy_workflow_row($pdo, "SELECT id FROM users WHERE tenant_id = ? AND id = ? AND is_active = 1 AND role IN ('owner','admin','tech')" . $lock, [$tid,$p['assignee_id']])) throw new WestyWorkflowConflict('assignee_unavailable');
                 $pdo->prepare("UPDATE tickets SET status = 'open',assignee_id = ?,auto_close_eligible = 0 WHERE tenant_id = ? AND id = ?")->execute([$p['assignee_id'],$tid,$ticket['id']]);
             } elseif ($p['action'] === 'resolve') {
+                require_once __DIR__ . '/westy_work_log.php';
+                westy_work_log_schema_ready($pdo);
                 $pdo->prepare("UPDATE tickets SET status = 'resolved',resolved_at = ?,auto_close_eligible = 0 WHERE tenant_id = ? AND id = ?")->execute([$now,$tid,$ticket['id']]);
             }
             $run['version'] = (int)$run['version'] + 1; $run['state'] = $state;
@@ -245,7 +247,8 @@ function westy_workflow_receive(PDO $pdo, array $settings, array $p, string $req
             ->execute([$tid,$run['id'],$p['event_key'],$requestHash,$p['action'],$run['version'],json_encode($result,JSON_THROW_ON_ERROR),$now]);
         if ($p['action'] === 'resolve') {
             $billingEvent = 'safeharbor-billing:' . substr(hash('sha256',$p['tenant_slug'] . ':' . $p['workflow_key']),0,32);
-            $pdo->prepare('INSERT INTO westy_billing_outbox (tenant_id,workflow_id,event_key,created_at,updated_at) VALUES (?,?,?,?,?)')
+            $pdo->prepare("INSERT INTO westy_billing_outbox (tenant_id,workflow_id,event_key,state,detail_code,created_at,updated_at)
+                VALUES (?,?,?,'qa_pending','qa_review_required',?,?)")
                 ->execute([$tid,$run['id'],$billingEvent,$now,$now]);
         }
         // The stable event UUID is also the public receipt ID; database IDs
@@ -308,6 +311,19 @@ function westy_workflow_ticket_owners(PDO $pdo, int $tenantId, array $tickets): 
     return $tickets;
 }
 
+function westy_billing_released_without_review(?string $detail): bool
+{
+    return $detail === 'qa_not_received' || str_starts_with($detail ?? '', 'qa_not_received:');
+}
+
+/** Keep the timeout visible alongside the current dispatch or QA outcome in the existing 64-byte detail. */
+function westy_billing_next_detail(?string $previous, string $reason): string
+{
+    $prefix = westy_billing_released_without_review($previous) ? 'qa_not_received:' : '';
+    if (preg_match('/\A[a-z_]+\z/D', $reason) !== 1 || strlen($prefix . $reason) > 64) $reason = 'billing_review_required';
+    return $prefix . $reason;
+}
+
 function westy_workflow_card(array $run): string
 {
     $billingReceipt=is_string($run['billing_response']??null)?json_decode($run['billing_response'],true):null;
@@ -342,11 +358,14 @@ function westy_workflow_card(array $run): string
     elseif (in_array($grantControl,['pending','cancel'],true)) $html .= '<p class="rail-note">A return request is recorded. It does not change the current owner. Its creator can cancel it until Westy accepts it.</p>';
     if ($grantControl !== '') $html .= '<p class="rail-note" data-workflow-grant-notice role="status" aria-live="polite"></p>';
     if (isset($run['billing_state'])) {
-        $billingLabels = ['waiting_for_time'=>'Billing is waiting for approved time and its Coastmark export.', 'ready'=>'Billing handoff is ready.',
+        $billingLabels = ['qa_pending'=>'Waiting for the 24-hour review', 'waiting_for_time'=>'Billing is waiting for approved time and its Coastmark export.', 'ready'=>'Billing handoff is ready.',
             'sending'=>'Checking the billing handoff.', 'uncertain'=>'Billing receipt is being reconciled. No invoice email has been sent by Safeharbor.',
             'accepted'=>'Coastmark received the handoff. Review the invoice before sending.', 'blocked'=>'Billing needs a technician review before it can continue.'];
         if ($included) $billingLabels['accepted']='Service complete. Coastmark confirmed this work is covered by the customer plan. No extra charge.';
         $html .= '<p class="rail-note">' . $escape($billingLabels[$run['billing_state']] ?? 'Billing status unavailable.') . '</p>';
+        if (westy_billing_released_without_review($run['billing_detail'] ?? null)) {
+            $html .= '<p class="rail-note">Released without a review (billed as staff time only)</p>';
+        }
         if ($run['billing_state'] === 'accepted' && is_string($run['billing_response'] ?? null)) {
             $receipt = json_decode($run['billing_response'], true);
             foreach (array_slice(is_array($receipt['invoices'] ?? null) ? $receipt['invoices'] : [], 0, 10) as $invoice) {

@@ -126,6 +126,8 @@ function westy_chat_system_prompt(): string
          . 'the ticket to the signed-in technician and stops automatic closure. Any human ticket change, '
          . 'reply, note or time entry transfers ownership to a technician. Recovery verified means the '
          . 'Milepost controller recorded a completed job and later original-alert recovery; it does not mean an invoice was sent. '
+         . 'The Troubleshooting card shows when billing is waiting for the 24-hour review. If the review times out, '
+         . 'only approved staff time can be billed. A covered service can still receive a zero-charge receipt. '
          . 'This Safeharbor chat cannot approve commands, change tickets, execute jobs, or send invoices. '
          . 'When enabled, Review Westy advice email on an alert case opens a separate reviewed-email page. '
          . 'Staff can save an editable memory-advice draft; an owner or admin confirms the endpoint POC for this case, '

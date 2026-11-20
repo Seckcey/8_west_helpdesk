@@ -34,6 +34,7 @@ $pdo ??= new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EX
 $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql';
 if (!$mysql) {
     $pdo->exec('PRAGMA foreign_keys=ON');
+    $pdo->sqliteCreateFunction('westy_work_log_schema_health', static fn(): int => 1, 0);
     $pdo->exec("CREATE TABLE tenants(id INTEGER PRIMARY KEY,slug TEXT UNIQUE);
 CREATE TABLE clients(id INTEGER PRIMARY KEY,tenant_id INTEGER,UNIQUE(tenant_id,id));
 CREATE TABLE svc_identities(id INTEGER PRIMARY KEY,tenant_id INTEGER,service TEXT,is_active INTEGER);
@@ -70,9 +71,20 @@ $status=array_replace($p,['event_key'=>ww_key(5),'action'=>'status']);
 $count=(int)$pdo->query('SELECT COUNT(*) FROM westy_workflow_receipts')->fetchColumn();
 ww_check(ww_send($pdo,$settings,$status)['version']===2 && (int)$pdo->query('SELECT COUNT(*) FROM westy_workflow_receipts')->fetchColumn()===$count,'status makes no receipt or version write');
 $resolve=array_replace($resolve,['event_key'=>ww_key(6),'expected_version'=>2,'summary'=>'Successful agent job and original-alert recovery verified.','occurred_at'=>gmdate('Y-m-d\TH:i:s\Z'),'job_completed_at'=>gmdate('Y-m-d\TH:i:s\Z'),'alert_resolved_at'=>gmdate('Y-m-d\TH:i:s\Z')]);
+if (!$mysql) {
+    $pdo->sqliteCreateFunction('westy_work_log_schema_health', static fn(): int => 0, 0);
+    ww_refuses(fn()=>ww_send($pdo,$settings,$resolve),'new resolve requires healthy QA guards');
+    ww_check($pdo->query("SELECT status FROM tickets WHERE id=$ticketId")->fetchColumn()==='in_progress'
+        && (int)$pdo->query('SELECT COUNT(*) FROM westy_workflow_receipts')->fetchColumn()===$count
+        && (int)$pdo->query('SELECT COUNT(*) FROM westy_billing_outbox')->fetchColumn()===0,'failed health check rolls back the entire resolve');
+    $pdo->sqliteCreateFunction('westy_work_log_schema_health', static fn(): int => 1, 0);
+}
 ww_check(ww_send($pdo,$settings,$resolve)['state']==='resolved','verified controller evidence closes owned ticket');
 ww_check($pdo->query("SELECT status FROM tickets WHERE id=$ticketId")->fetchColumn()==='resolved','ticket and receipt close atomically');
-ww_check((int)$pdo->query('SELECT COUNT(*) FROM westy_billing_outbox')->fetchColumn()===1,'verified close atomically queues billing review without sending');
+ww_check($pdo->query('SELECT state,detail_code,payload_json FROM westy_billing_outbox')->fetchAll(PDO::FETCH_ASSOC)
+    === [['state'=>'qa_pending','detail_code'=>'qa_review_required','payload_json'=>null]],'verified close atomically queues one unfrozen QA hold');
+ww_check(ww_send($pdo,$settings,$resolve)['replayed'] && (int)$pdo->query('SELECT COUNT(*) FROM westy_billing_outbox')->fetchColumn()===1,
+    'retrying the resolve keeps the original hold');
 ww_refuses(fn()=> $pdo->exec("UPDATE westy_workflow_receipts SET action='progress'"),'receipts cannot be rewritten');
 ww_refuses(fn()=> $pdo->exec('DELETE FROM westy_workflow_receipts'),'receipts cannot be deleted');
 
