@@ -1,28 +1,21 @@
 {
   "upstream": "Seckcey/8_west_westy",
-  "commit": "2a5e35fe91a77549c8d0d8b30a0d35819285aa5a",
+  "commit": "8db0946f705dd85f31cc5ecacde8a3c9000b2b9d",
   "contract": 1,
   "catalog": "2026-10-04.1",
   "files": {
-    "app/lib/tenant_ai/tenant_ai_contract.php": "9a8dfa1bcb347924307e9abf9593efa7fb4901540f3b23e071c981b40a3a8f05",
-    "app/lib/tenant_ai/tenant_ai_client.php": "8be239c0605c7478519e385e8ce990af33d46296135cdfc5d0e5bb8b8b4b2bbc",
+    "app/lib/tenant_ai/tenant_ai_contract.php": "2c6da6b49409fbafbedb35abbd2a8996a367f59cd31e57e9aafbd3ed5e3335e0",
+    "app/lib/tenant_ai/tenant_ai_client.php": "f0a56ba97f91f9bbb0285385ba51e77f310184c65f06724f2834f2034005f830",
     "app/lib/tenant_ai/tenant_ai_provider.php": "19ac3e43d96ef2fe011de556a3f06fdd9ba15b683a016e2472884e31c0e5be0a",
     "app/lib/tenant_ai/tenant_ai_stream.php": "8b8640316050d88dc5c5c4af5b39ad6ab4053bd3d7a265edc096d07c0d6b60f0",
-    "app/lib/tenant_ai/tenant_ai_engine.php": "94b34ade2b32836e0b01d5bc8344bf122a899306800f1befd502c5b8f8fb3023"
+    "app/lib/tenant_ai/tenant_ai_engine.php": "f6f8afd4f02838a801f2c4e4e62db6de4ea5b0ff3281666c9dbbc0eae1aec009"
   },
   "upstream_files": {
-    "app/lib/tenant_ai/tenant_ai_contract.php": "3fb920e2358c0342f3dcd215c65443d25f8ec1fc2226b9b7f4122ed3ff4d96e9",
-    "app/lib/tenant_ai/tenant_ai_client.php": "d3a0b40da042eff0812932cfecc208f2e6f2fbe5782fd6673c3ce4f8123d54a3",
+    "app/lib/tenant_ai/tenant_ai_contract.php": "2c6da6b49409fbafbedb35abbd2a8996a367f59cd31e57e9aafbd3ed5e3335e0",
+    "app/lib/tenant_ai/tenant_ai_client.php": "f0a56ba97f91f9bbb0285385ba51e77f310184c65f06724f2834f2034005f830",
     "app/lib/tenant_ai/tenant_ai_provider.php": "db55a1fdd400698b709c498ff5e497189ca609e9e3c88f011afc396925083268",
     "app/lib/tenant_ai/tenant_ai_stream.php": "8b8640316050d88dc5c5c4af5b39ad6ab4053bd3d7a265edc096d07c0d6b60f0",
-    "app/lib/tenant_ai/tenant_ai_engine.php": "94b34ade2b32836e0b01d5bc8344bf122a899306800f1befd502c5b8f8fb3023"
-  },
-  "local_patch": {
-    "id": "tenant-ai-catalog-2026-10-08.1",
-    "description": "Add reviewed gpt-6.1-sol and correct Sonnet 5.5 cached-input estimate; credential compatibility preserved",
-    "files": [
-      "app/lib/tenant_ai/tenant_ai_contract.php"
-    ]
+    "app/lib/tenant_ai/tenant_ai_engine.php": "f6f8afd4f02838a801f2c4e4e62db6de4ea5b0ff3281666c9dbbc0eae1aec009"
   },
   "provider_input_count_patch": {
     "id": "westy-input-count-2026-10-11.1",
@@ -31,15 +24,6 @@
     ],
     "sha256": "19ac3e43d96ef2fe011de556a3f06fdd9ba15b683a016e2472884e31c0e5be0a",
     "description": "Count large text with the selected provider when the conservative byte bound exceeds the effective input limit; preserve the small-text fast path, media counting and existing limits."
-  },
-  "client_spend_limit_patch": {
-    "id": "westy-spend-limit-2026-10-20.1",
-    "source": "Seckcey/8_west_westy pull request 11",
-    "files": [
-      "app/lib/tenant_ai/tenant_ai_client.php"
-    ],
-    "sha256": "8be239c0605c7478519e385e8ce990af33d46296135cdfc5d0e5bb8b8b4b2bbc",
-    "description": "Pass an active connection's exact spend_limit \"none\" (the MSP's No limit choice in 8 West ID) through status and resolve responses; a missing or other value keeps the host's monthly budget."
   },
   "hash_format": "SHA-256 of canonical LF Git file bytes"
 }

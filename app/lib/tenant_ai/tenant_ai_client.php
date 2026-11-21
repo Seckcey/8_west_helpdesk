@@ -5,9 +5,9 @@ require_once __DIR__.'/tenant_ai_contract.php';
 
 /** Transport injection is for hermetic tests; runtime configuration cannot supply a transport. */
 function westy_tenant_ai_resolve(array $config, string $app, string $localKey, string $action = 'resolve',
-    ?int $revision = null, ?callable $transport = null): array
+    ?int $revision = null, ?callable $transport = null, ?string $role = null): array
 {
-    $request=westy_tenant_ai_request($app,$localKey,$action,$revision);
+    $request=westy_tenant_ai_request($app,$localKey,$action,$revision,$role);
     $secret=$config['service_secret']??null;
     if (($config['enabled']??false)!==true || !is_string($secret) || preg_match('/\A[0-9a-f]{64}\z/D',$secret)!==1) {
         return ['status'=>'unavailable'];
@@ -29,17 +29,35 @@ function westy_tenant_ai_resolve(array $config, string $app, string $localKey, s
             || !is_int($data['revision']??null) || $data['revision']<0) return ['status'=>'unavailable'];
         if ($data['status']==='internal_legacy' && (($config['internal_tenant_id']??null)!==$data['tenant_id']
             || ($config['internal_local_tenant_key']??null)!==$localKey)) return ['status'=>'unavailable'];
+        $fields=['version','app','local_tenant_key','tenant_id','tenant_slug','status','revision'];
         if ($data['status']==='active') {
+            $overrides=[];
+            if (array_key_exists('role_overrides',$data)) {
+                // Associative decoding turns {} and objects with consecutive numeric keys into PHP lists.
+                $wire=json_decode($raw,false,16,JSON_THROW_ON_ERROR);
+                $overrides=westy_tenant_ai_role_overrides($wire->role_overrides);
+                if ($overrides===null) return ['status'=>'unavailable'];
+                $fields[]='role_overrides';
+            }
+            if ($role!==null) {
+                if (($data['role']??null)!==$role || !in_array($data['role_source']??null,['override','base'],true)) {
+                    return ['status'=>'unavailable'];
+                }
+                $baseFamily=westy_tenant_ai_family($data['base_provider']??null);
+                $listed=in_array($role,$overrides,true);
+                if ($data['role_source']==='base') {
+                    if (($data['provider']??null)!==$data['base_provider'] || $listed) return ['status'=>'unavailable'];
+                } elseif ($role==='l1_tech' || !$listed || (in_array($role,WESTY_TENANT_AI_INDEPENDENT_ROLES,true)
+                    && westy_tenant_ai_family($data['provider']??null)===$baseFamily)) return ['status'=>'unavailable'];
+                $fields=array_merge($fields,['role','role_source','base_provider']);
+            }
             if ($revision!==null && $revision!==$data['revision']) return ['status'=>'revision_changed'];
             $selection=westy_tenant_ai_selection($data['provider']??null,$data['model']??null,$data['effort']??null);
             if (($data['catalog']??null)!==$selection['catalog'] || !is_int($data['credential_version']??null)
                 || $data['credential_version']<1) return ['status'=>'unavailable'];
             if ($action==='resolve' && !westy_tenant_ai_api_key($selection['provider'],$data['api_key']??null)) return ['status'=>'unavailable'];
-        }
-        // A status check can never accidentally send a credential to a presentation caller.
-        $fields=['version','app','local_tenant_key','tenant_id','tenant_slug','status','revision'];
-        if ($data['status']==='active') {
             $fields=array_merge($fields,['provider','model','effort','catalog','credential_version']);
+            // A status check can never accidentally send a credential to a presentation caller.
             if ($action==='resolve') $fields[]='api_key';
             // The MSP may lift the host's monthly budget. Any other value keeps that budget.
             if (($data['spend_limit']??null)==='none') $fields[]='spend_limit';
@@ -69,7 +87,8 @@ function westy_tenant_ai_http(array $headers, string $body): array
 /** Only this allowlist is safe to expose in a browser, report or diagnostic. */
 function westy_tenant_ai_public_status(array $resolved): array
 {
-    return array_intersect_key($resolved,array_flip(['status','provider','model','effort','revision','credential_version']));
+    return array_intersect_key($resolved,array_flip(['status','provider','model','effort','revision','credential_version',
+        'role','role_source','role_overrides']));
 }
 
 /** Engine configuration is reconstructed, never merged over a house credential. */
