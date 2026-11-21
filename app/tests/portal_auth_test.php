@@ -316,7 +316,7 @@ $kitBlobs = [
     'jwt.php' => 'a7a68e2c9e37f620f568d51c759daa647321c0c7',
     'policy.php' => 'a2bebc9a5926e6b2c6270110e15718160dce66b2',
     'private_file_cache.php' => 'aa9ef0fe1e62d6130e8fe66d04f60efb27f8671c',
-    'revocations.php' => '6d9b007198d170d481d68996f59e1c1e79438813',
+    'revocations.php' => 'ecb623d2c2a7bcc8d3a83a4b8b1eeafa0d4ab9ed',
 ];
 foreach ($kitBlobs as $file => $expected) {
     $content = file_get_contents(__DIR__ . '/../lib/eightwestid/' . $file);
