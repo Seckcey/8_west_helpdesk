@@ -90,7 +90,7 @@ try {
     $referencing = $pdo->query("SELECT DISTINCT table_name FROM information_schema.key_column_usage
         WHERE table_schema = DATABASE() AND referenced_table_name = 'tickets' ORDER BY table_name")->fetchAll(PDO::FETCH_COLUMN);
     td_check($referencing === ['attachments', 'csat', 'email_threads', 'mail_queue', 'messages', 'portal_ticket_requesters',
-            'portal_westy_drafts', 'ticket_presence', 'ticket_work_log', 'time_entries', 'westy_email_drafts', 'westy_hardware_notices',
+            'portal_westy_drafts', 'ticket_customer_summaries', 'ticket_presence', 'ticket_work_log', 'time_entries', 'westy_email_drafts', 'westy_hardware_notices',
             'westy_mail_conversations', 'westy_workflows'],
         'every foreign key to tickets is handled: ' . implode(',', $referencing));
     td_check(array_diff(array_keys(TICKET_DELETE_GUARDED), $referencing) === [], 'every guarded table really references tickets');
