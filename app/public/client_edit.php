@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/render.php';
 require_once __DIR__ . '/../lib/service_goal_policy_admin.php';
 require_once __DIR__ . '/../lib/client_operational_context.php';
+require_once __DIR__ . '/../lib/customer_summary.php';
 enforce_https();
 $user = require_login();
 $canManageServiceTier = service_goal_policy_can_manage_client_tier($user);
@@ -28,6 +29,16 @@ $ticketCount = (int)$tq->fetch()['n'];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = $_POST['action'] ?? 'save';
+
+    if ($action === 'work_summary_delivery') {
+        try {
+            customer_summary_change_delivery(db(), (int)$user['tenant_id'], (int)$user['id'], $id, $_POST['work_summary_delivery'] ?? null);
+            header('Location: /client.php?id=' . $id, true, 303);
+            exit;
+        } catch (Throwable $failure) {
+            $error = 'The work summary delivery setting could not be saved.';
+        }
+    }
 
     if ($action === 'save') {
         $name   = trim((string)($_POST['name'] ?? ''));
@@ -141,6 +152,24 @@ page_top($user, 'Edit ' . $client['name'], 'clients');
       </div>
     </form>
   </div>
+
+  <?php if (isset($client['work_summary_delivery']) && in_array($user['role'], ['owner','admin'], true)): ?>
+  <section class="card form-card">
+    <h2>Customer work summaries</h2>
+    <form method="post" action="/client_edit.php?id=<?= h((string)$id) ?>" class="form-grid">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="work_summary_delivery">
+      <label class="field span-2">Delivery
+        <select name="work_summary_delivery">
+          <?php foreach (['none'=>'Hidden', 'portal'=>'Customer portal', 'email'=>'Customer portal and one email to the ticket contact'] as $level=>$label): ?>
+          <option value="<?= h($level) ?>"<?= $client['work_summary_delivery'] === $level ? ' selected' : '' ?>><?= h($label) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <div class="form-actions span-2"><button type="submit" class="btn-secondary">Save summary delivery</button></div>
+    </form>
+  </section>
+  <?php endif; ?>
 
   <div class="demo-card">
     <span class="demo-text">

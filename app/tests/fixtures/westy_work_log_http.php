@@ -13,7 +13,7 @@ try {
         if ($file->isDir()) mkdir($target,0700,true);
         else $copyFixture($file->getPathname(), $target);
     }
-    foreach (['public/ticket.php','public/api/svc/westy_workflow.php','public/api/svc/alerts.php',
+    foreach (['public/ticket.php','public/customer_summaries.php','public/api/svc/westy_workflow.php','public/api/svc/alerts.php',
         'public/assets/w365/w365-products.json','cron/westy_billing_dispatch.php'] as $file) {
         $copyFixture(__DIR__.'/../../'.$file, $httpDir.'/'.$file);
     }
@@ -85,7 +85,7 @@ try {
     $pdo->exec("INSERT INTO users(id,tenant_id,email,password_hash,full_name,role) VALUES(1,1,'staff@example.test','unused','Synthetic technician','owner'),(2,2,'other@example.test','unused','Other technician','tech')");
     $pageCase=wl_case($pdo,777); $pageRun=wl_run($pdo,$pageCase); $ticket=(int)$pageRun['ticket_id'];
     $pdo->exec("GRANT SELECT,INSERT,UPDATE,DELETE ON `$fresh`.* TO '$runtimeName'@'%'");
-    foreach (['westy_workflow_schema_health','westy_work_log_schema_health'] as $fn) $pdo->exec("GRANT EXECUTE ON FUNCTION `$fresh`.$fn TO '$runtimeName'@'%'");
+    foreach (['westy_workflow_schema_health','westy_work_log_schema_health','customer_summary_schema_health'] as $fn) $pdo->exec("GRANT EXECUTE ON FUNCTION `$fresh`.$fn TO '$runtimeName'@'%'");
     $httpConfig['db']['name']=$fresh;
     $httpConfig['svc']=['enabled'=>true,'secrets'=>['milepost'=>str_repeat('s',40)]];
     $httpConfig['westy_billing_handoff']=['enabled'=>true,'endpoint'=>WESTY_BILLING_ENDPOINT,'service'=>'safeharbor-billing','secret'=>str_repeat('t',40),
@@ -153,6 +153,27 @@ try {
     [$status,$body]=$send('/ticket.php?id='.$aiTicket,'',['Cookie: PHPSESSID='.$session],'GET');
     wl_check($status===200 && str_contains(strip_tags($body),'AI service recorded. Coastmark added the fee to a draft invoice for review.'),
         'authenticated ticket page shows the verified AI service receipt');
+
+    // The default delivery choice keeps this HTTP fixture entirely inside the portal.
+    $summaryPath='/ticket.php?id='.$aiTicket;
+    wl_check(preg_match('/name="source_sha256" value="([a-f0-9]{64})"/', $body, $digest)===1, 'staff page offers the current public steps for review');
+    $review=['customer_summary_action'=>'approve','review_id'=>'0','summary_body'=>'The repair was verified.','source_sha256'=>$digest[1]];
+    $foreignHeaders=['Content-Type: application/x-www-form-urlencoded','Cookie: PHPSESSID='.$otherSession];
+    $readReview=static fn() => westy_workflow_row($pdo,'SELECT id,state,body,emailed_at FROM ticket_customer_summaries WHERE tenant_id=1 AND ticket_id=?',[$aiTicket]);
+    wl_check($send($summaryPath,http_build_query($review),$headers)[0]===419,'summary approval needs real session CSRF');
+    $send($summaryPath,http_build_query($review+['csrf'=>$csrf]),$foreignHeaders);
+    wl_check($readReview()===null,'another tenant cannot approve this ticket');
+    [$status,$list]=$send('/customer_summaries.php','',$headers,'GET');
+    wl_check($status===200 && str_contains($list,$summaryPath.'#customer-summary'),'qualified ticket is linked from the staff waiting list');
+    wl_check($send($summaryPath,http_build_query($review+['csrf'=>$csrf]),$headers)[0]===303,'authorized approval redirects');
+    $savedReview=$readReview();
+    wl_check($savedReview && $savedReview['state']==='approved' && $savedReview['body']===$review['summary_body'] && $savedReview['emailed_at']===null,
+        'actual form saves the edit without an email claim at portal delivery');
+    $revoke=['customer_summary_action'=>'revoke','review_id'=>(string)$savedReview['id']];
+    wl_check($send($summaryPath,http_build_query($revoke+['csrf'=>'wrong']),$headers)[0]===419,'summary revocation needs real session CSRF');
+    $send($summaryPath,http_build_query($revoke+['csrf'=>$csrf]),$foreignHeaders);
+    wl_check($readReview()['state']==='approved','another tenant cannot revoke this ticket');
+    wl_check($send($summaryPath,http_build_query($revoke+['csrf'=>$csrf]),$headers)[0]===303 && $readReview()['state']==='revoked','authorized staff can revoke');
 
     // S11 at the actual signed alert endpoint with all legacy recovery guards installed.
     $pdo->exec("INSERT INTO svc_identities(tenant_id,service,display_name) VALUES(1,'milepost','Synthetic alerts')");

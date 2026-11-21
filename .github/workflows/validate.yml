@@ -244,6 +244,7 @@ jobs:
           php app/tests/team_invite_test.php
           php app/tests/westy_workflow_test.php
           php app/tests/westy_work_log_test.php
+          php app/tests/customer_summary_test.php
           php app/tests/westy_hardware_test.php
           php app/tests/westy_billing_test.php
           php app/tests/westy_queue_owner_test.php
@@ -287,6 +288,7 @@ jobs:
           php app/tests/westy_hardware_staff_mailer_test.php
           php app/tests/westy_workflow_mysql_test.php
           php app/tests/westy_work_log_mysql_test.php
+          php app/tests/customer_summary_mysql_test.php
           php app/tests/westy_hardware_mysql_test.php
           php app/tests/westy_email_mysql_test.php
           php app/tests/westy_mail_mysql_test.php

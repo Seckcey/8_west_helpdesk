@@ -728,7 +728,7 @@ function portal_ticket_author(mixed $value): string
 /**
  * Return one customer-visible ticket, its public conversation and reviewed work log.
  *
- * @return array{ticket:array<string,mixed>,messages:list<array<string,mixed>>,work_log:list<array{occurred_at:string,summary:string}>}
+ * @return array{ticket:array<string,mixed>,messages:list<array<string,mixed>>,customer_summary:?string,work_log:list<array{occurred_at:string,summary:string}>}
  */
 function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticketId, ?array $identity = null): array
 {
@@ -797,14 +797,14 @@ function portal_ticket_detail(PDO $pdo, int $tenantId, int $clientId, int $ticke
         'tenant_id' => $tenantId,
         'client_id' => $clientId,
     ] + $visibility['params']);
-    $detail = ['ticket' => $ticketRow, 'messages' => $messages->fetchAll(), 'work_log' => []];
+    $detail = ['ticket' => $ticketRow, 'messages' => $messages->fetchAll()];
     try {
-        require_once __DIR__ . '/westy_work_log.php';
-        $detail['work_log'] = westy_work_log_rows($pdo, $tenantId, $ticketId, $clientId);
+        require_once __DIR__ . '/customer_summary.php';
+        return $detail + customer_summary_portal_work($pdo, $tenantId, $ticketId, $clientId);
     } catch (Throwable $error) {
         error_log('[safeharbor-portal] work_log_unavailable type=' . $error::class);
     }
-    return $detail;
+    return $detail + ['customer_summary' => null, 'work_log' => []];
 }
 
 function portal_create_ticket(

@@ -57,7 +57,7 @@ $schema = [
     'CREATE TABLE tenants (id INTEGER PRIMARY KEY, name TEXT NOT NULL)',
     'CREATE TABLE clients (
         id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL,
-        sla_tier TEXT NOT NULL DEFAULT "standard", UNIQUE(tenant_id,id))',
+        sla_tier TEXT NOT NULL DEFAULT "standard", work_summary_delivery TEXT DEFAULT "portal", UNIQUE(tenant_id,id))',
     'CREATE TABLE service_goal_policy_versions (
         id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
         policy_key TEXT NOT NULL, version_no INTEGER NOT NULL, display_name TEXT NOT NULL,
@@ -82,11 +82,15 @@ $schema = [
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)',
     'CREATE TABLE ticket_work_log (
         id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, ticket_id INTEGER NOT NULL,
-        occurred_at TEXT NOT NULL, summary TEXT NOT NULL, customer_visible INTEGER NOT NULL)',
-    'CREATE TABLE westy_email_drafts (tenant_id INTEGER NOT NULL, ticket_id INTEGER NOT NULL, state TEXT NOT NULL)',
+        workflow_id INTEGER, occurred_at TEXT NOT NULL, summary TEXT NOT NULL, customer_visible INTEGER NOT NULL)',
+    'CREATE TABLE westy_email_drafts (tenant_id INTEGER NOT NULL, ticket_id INTEGER NOT NULL, client_id INTEGER NOT NULL, state TEXT NOT NULL)',
+    'CREATE TABLE westy_workflows (tenant_id INTEGER, client_id INTEGER, ticket_id INTEGER, id INTEGER)',
+    'CREATE TABLE westy_workflow_log_state (tenant_id INTEGER, workflow_id INTEGER, qa_state TEXT)',
+    'CREATE TABLE ticket_customer_summaries (id INTEGER,tenant_id INTEGER,client_id INTEGER,approved_ticket_id INTEGER,body TEXT,last_log_id INTEGER)',
 ];
 foreach ($schema as $statement) $pdo->exec($statement);
 $pdo->sqliteCreateFunction('westy_work_log_schema_health', static fn(): int => 1, 0);
+$pdo->sqliteCreateFunction('customer_summary_schema_health', static fn(): int => 1, 0);
 $pdo->exec('CREATE TABLE portal_ticket_requesters (ticket_id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, client_id INTEGER NOT NULL, subject TEXT NOT NULL, identity_tenant_slug TEXT NOT NULL)');
 $pdo->exec("INSERT INTO tenants (id,name) VALUES (1,'Provider One'),(2,'Provider Two')");
 $pdo->exec("INSERT INTO clients (id,tenant_id,name,sla_tier) VALUES
@@ -343,7 +347,7 @@ $step = $pdo->prepare('INSERT INTO ticket_work_log (tenant_id,ticket_id,occurred
 $step->execute([$ticketId, $visibleTime, $visibleSummary, 1]);
 $step->execute([$ticketId, $visibleTime, 'Private staff finding', 0]);
 $step->execute([$mergedTargetId, $visibleTime, 'Another request', 1]);
-$review = $pdo->prepare('INSERT INTO westy_email_drafts (tenant_id,ticket_id,state) VALUES (1,?,?)');
+$review = $pdo->prepare('INSERT INTO westy_email_drafts (tenant_id,ticket_id,client_id,state) VALUES (1,?,11,?)');
 $review->execute([$ticketId, 'draft']);
 $review->execute([$mergedTargetId, 'submitted']);
 $detail = portal_ticket_detail($pdo, 1, 11, $ticketId, $owner);
@@ -361,6 +365,34 @@ portal_workflow_check('the request page renders the reviewed summary as text and
 portal_workflow_expect('another client cannot open the reviewed ticket or its work log', PortalDataNotFoundException::class,
     fn() => portal_ticket_detail($pdo, 1, 12, $ticketId, portal_requester_test_identity(1, 12, 'client_owner')));
 
+$pdo->prepare('UPDATE ticket_work_log SET workflow_id=9 WHERE tenant_id=1 AND ticket_id=?')->execute([$ticketId]);
+$pdo->prepare('INSERT INTO westy_workflows VALUES (1,11,?,9)')->execute([$ticketId]);
+$pdo->exec("INSERT INTO westy_workflow_log_state VALUES (1,9,'passed')");
+$pdo->prepare('INSERT INTO ticket_customer_summaries VALUES (1,1,11,?,?,99)')->execute([$ticketId,'Repaired <printer> & verified.']);
+$published = portal_ticket_detail($pdo, 1, 11, $ticketId, $owner);
+ob_start();
+portal_render_ticket(['identity'=>$owner + ['display_name'=>'Customer One'], 'binding'=>$context['binding']], $published);
+$publishedHtml = (string)ob_get_clean();
+$anchor = strpos($publishedHtml, 'id="work-log"');
+$bodyAt = strpos($publishedHtml, 'Repaired &lt;printer&gt; &amp; verified.');
+$stepAt = strpos($publishedHtml, 'Printing &amp; scanning were verified.');
+portal_workflow_check('approved escaped summary appears inside the deep link before the timeline',
+    is_int($anchor) && is_int($bodyAt) && is_int($stepAt) && $anchor < $bodyAt && $bodyAt < $stepAt);
+portal_workflow_expect('another client cannot open the approved summary', PortalDataNotFoundException::class,
+    fn() => portal_ticket_detail($pdo, 1, 12, $ticketId, portal_requester_test_identity(1, 12, 'client_owner')));
+portal_workflow_expect('another tenant cannot open the approved ticket', PortalDataNotFoundException::class,
+    fn() => portal_ticket_detail($pdo, 2, 21, $ticketId, portal_requester_test_identity(2, 21, 'client_owner')));
+$pdo->exec('DROP TABLE ticket_customer_summaries');
+$withMissingTable = portal_ticket_detail($pdo, 1, 11, $ticketId, $owner);
+ob_start();
+portal_render_ticket(['identity'=>$owner + ['display_name'=>'Customer One'], 'binding'=>$context['binding']], $withMissingTable);
+$missingHtml = (string)ob_get_clean();
+portal_workflow_check('a missing summary table preserves the page, conversation and earlier advice review',
+    $withMissingTable['customer_summary'] === null && $withMissingTable['messages'] === $detail['messages']
+    && str_contains($missingHtml, 'Printing &amp; scanning were verified.') && !str_contains($missingHtml, 'Repaired &lt;printer&gt;'));
+$pdo->exec("UPDATE clients SET work_summary_delivery='none' WHERE tenant_id=1 AND id=11");
+portal_workflow_check('opt-out still hides legacy steps while the summary table is missing',
+    portal_ticket_detail($pdo, 1, 11, $ticketId, $owner)['work_log'] === []);
 $pdo->exec('DROP TABLE ticket_work_log');
 $fallback = portal_ticket_detail($pdo, 1, 11, $ticketId, $owner);
 portal_workflow_check('a failed work-log read preserves the authorized ticket and conversation',

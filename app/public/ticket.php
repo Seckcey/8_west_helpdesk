@@ -13,6 +13,8 @@ require_once __DIR__ . '/../lib/mailer.php';
 require_once __DIR__ . '/../lib/attachments.php';
 require_once __DIR__ . '/../lib/westy_workflow.php';
 require_once __DIR__ . '/../lib/westy_work_log.php';
+require_once __DIR__ . '/../lib/customer_summary.php';
+require_once __DIR__ . '/../lib/customer_summary_card.php';
 require_once __DIR__ . '/../lib/westy_workflow_grants.php';
 require_once __DIR__ . '/../lib/ticket_queue.php';
 require_once __DIR__ . '/../lib/ticket_page.php';
@@ -95,9 +97,42 @@ if (!$ticket) {
     exit;
 }
 
+$customerSummaryError = null;
+$editedSummary = null;
+$customerSummaryView = null;
+$summaryPost = $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['customer_summary_action']);
+if ($summaryPost) {
+    csrf_check();
+    try {
+        $notice = customer_summary_review(db(), (int)$user['tenant_id'], (int)$user['id'], $id, $_POST);
+        $_SESSION['ticket_flash'] = ['ticket_id'=>$id, 'toast'=>$notice];
+        header('Location: /ticket.php?id=' . $id . $listQuery . ($listQuery !== '' && $listAt > 0 ? '&at=' . $listAt : '') . '#customer-summary', true, 303);
+        exit;
+    } catch (InvalidArgumentException $failure) {
+        $editedSummary = is_string($_POST['summary_body'] ?? null) ? $_POST['summary_body'] : null;
+        $customerSummaryError = $failure->getMessage() === 'staff_name_in_review'
+            ? 'A staff name appears in the summary or the original steps. Both must be suitable for customers.'
+            : 'Enter 1–2000 characters. Remove internal details, links and contact information.';
+    } catch (DomainException $failure) {
+        $customerSummaryError = $failure->getMessage() === 'unpublishable_work_log'
+            ? 'The recorded work is unavailable for publication.'
+            : 'The review changed. Review the current summary before submitting again.';
+    } catch (Throwable $error) {
+        error_log('Customer summary review unavailable type=' . $error::class);
+        $customerSummaryError = 'The summary could not be confirmed. Check its current status.';
+    }
+}
+if (customer_summary_staff_role($user)) {
+    try {
+        $customerSummaryView = customer_summary_staff_view(db(), (int)$user['tenant_id'], $id);
+    } catch (Throwable $error) {
+        error_log('Customer summary card unavailable type=' . $error::class);
+    }
+}
+
 // Work log uses the existing authenticated POST + CSRF path, separate from replies/time.
 $workLogError = null;
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['work_log_step'])) {
+if (!$summaryPost && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['work_log_step'])) {
     csrf_check();
     try {
         westy_work_log_staff(db(), (int)$user['tenant_id'], (int)$user['id'], $id, $_POST);
@@ -124,7 +159,7 @@ try {
 // ---- composer (POST → redirect → GET): reply to client OR internal note ----
 $staleDraft = null;
 $staleMode  = 'reply';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply']) && !isset($_POST['work_log_step'])) {
+if (!$summaryPost && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply']) && !isset($_POST['work_log_step'])) {
     csrf_check();
     $body   = utf8_clean(trim((string)$_POST['reply']));
     $isNote = (($_POST['mode'] ?? 'reply') === 'note');
@@ -342,6 +377,8 @@ page_top($user, '#' . $id, 'queue');
   <div class="ticket-grid">
     <div class="thread" id="thread" data-ticket-id="<?= (int)$ticket['id'] ?>" data-status="<?= h($ticket['status']) ?>" data-priority="<?= h($ticket['priority']) ?>" data-owner="<?= !empty($ticket['assignee_id']) ? (int)$ticket['assignee_id'] : '' ?>">
       <?php if ($westyWorkflow): ?><?= westy_workflow_card($westyWorkflow) ?><?php endif; ?>
+      <?php if ($customerSummaryError !== null): ?><p class="form-error" role="alert"><?= h($customerSummaryError) ?></p><?php endif; ?>
+      <?php if ($customerSummaryView !== null): ?><?= customer_summary_card($customerSummaryView, $editedSummary) ?><?php endif; ?>
       <?php if ($workLogAvailable): ?><?= westy_work_log_timeline($workLogRows, state: $workLogState, hasWorkflow: $westyWorkflow !== null) ?><?php endif; ?>
       <?php if ($workLogAvailable && in_array($user['role'], ['owner','admin','tech'], true)): ?>
         <?= westy_work_log_form($westyWorkflow !== null && $westyWorkflow['state'] !== 'human_owned', isset($_POST['work_log_step']) ? $_POST : [], $workLogError) ?>

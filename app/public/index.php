@@ -46,6 +46,7 @@ page_top($user, 'Queue', 'queue');
       <p class="page-sub"><?= h(queue_summary($counts)) ?></p>
     </div>
     <div class="page-actions">
+      <?php if (in_array($user['role'], ['owner','admin','tech'], true)): ?><a class="btn-chip" href="/customer_summaries.php">Summaries awaiting approval</a><?php endif; ?>
       <a href="/ticket_new.php" class="btn-primary">New ticket</a>
     </div>
   </div>
