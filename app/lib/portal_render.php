@@ -1073,7 +1073,12 @@ function portal_render_ticket(
       <h2 id="portal-conversation-heading" class="rail-label">Conversation</h2>
       <?php if (!empty($detail['work_log'])):
           require_once __DIR__ . '/westy_work_log.php'; ?>
-        <?= westy_work_log_timeline($detail['work_log'], true) ?>
+        <div id="work-log">
+          <?php if (isset($detail['customer_summary'])): ?>
+            <section class="card reply"><h2>Summary of work</h2><p class="msg-body"><?= portal_h($detail['customer_summary']) ?></p></section>
+          <?php endif; ?>
+          <?= westy_work_log_timeline($detail['work_log'], true) ?>
+        </div>
       <?php endif; ?>
       <?php if ($detail['messages'] === []): ?>
         <div class="card empty">No messages yet.</div>

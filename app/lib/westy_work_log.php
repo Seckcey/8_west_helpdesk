@@ -303,12 +303,13 @@ function westy_work_log_rows(PDO $pdo, int $tenantId, int $ticketId, ?int $clien
         }
     }
     if ($clientId !== null) {
-        // Project only public fields, even in memory; no actor/key/hash/id reaches the renderer.
-        $query = $pdo->prepare("SELECT l.occurred_at,l.summary FROM ticket_work_log l JOIN tickets t ON t.tenant_id=l.tenant_id AND t.id=l.ticket_id
-            WHERE l.tenant_id=? AND l.ticket_id=? AND t.client_id=? AND l.customer_visible=1
-            AND EXISTS (SELECT 1 FROM westy_email_drafts d WHERE d.tenant_id=l.tenant_id AND d.ticket_id=l.ticket_id AND d.state='submitted')
-            ORDER BY l.occurred_at,l.id");
-        $query->execute([$tenantId,$ticketId,$clientId]);
+        try {
+            require_once __DIR__ . '/customer_summary.php';
+            return customer_summary_portal_work($pdo, $tenantId, $ticketId, $clientId)['work_log'];
+        } catch (Throwable $error) {
+            error_log('[safeharbor-portal] work_log_unavailable type=' . $error::class);
+            return [];
+        }
     } else {
         $query = $pdo->prepare('SELECT l.* FROM ticket_work_log l JOIN tickets t ON t.tenant_id=l.tenant_id AND t.id=l.ticket_id WHERE l.tenant_id=? AND l.ticket_id=? ORDER BY l.occurred_at,l.id');
         $query->execute([$tenantId,$ticketId]);

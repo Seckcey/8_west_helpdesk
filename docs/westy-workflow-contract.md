@@ -333,9 +333,42 @@ lets a signed-in owner, admin or technician add a private note, finding, action
 or verification. The ordinary session CSRF check and current tenant/role apply.
 A locally logged step transfers the workflow to human ownership and consumes
 legacy automatic alert closure eligibility. That human takeover revokes
-the ticket's mail conversation and delegation through the existing workflow trigger. Customers see
-only time and summary for customer-visible rows on a ticket with a submitted
-Westy email review. The portal's existing ticket authorization runs first.
+the ticket's mail conversation and delegation through the existing workflow trigger.
+
+### Customer work summaries (migration 040)
+
+The staff Queue links to **Summaries awaiting approval**. A ticket with a passed QA verdict
+and customer-visible steps has a **Customer summary** card. A technician, admin or owner of
+the same tenant can review the original public steps, edit the draft and approve it.
+The draft uses the steps in timeline order and the UTC date of the immutable QA receipt.
+The 2,000-character limit preserves complete steps and the closing sentence. The card shows
+all original public steps, including steps beyond the draft's text limit. The source digest
+ties approval to the displayed evidence. Approval freezes the text, reviewer and time.
+
+After the existing portal ticket authorization, `/portal/ticket.php?id=N#work-log`
+shows the approved summary above the reviewed steps. Only step text and time are shown.
+Revocation or a later void withdraws this approval. A previously submitted Westy advice
+email independently releases the customer-visible timeline for its ticket and client.
+
+On **Edit client**, owners and admins can choose hidden, portal (the default), or portal
+and email. Hidden suppresses both portal paths. Email goes to the ticket's own contact on
+approval and includes a portal link when that client's portal is available. An absent,
+cross-client or automated contact receives no email. One committed claim per ticket
+survives revocation and reapproval. The existing customer transport gets one attempt after
+approval commits. Staff see the submission result. A lost response or interrupted request
+consumes the claim. Provider acceptance does not confirm inbox delivery.
+
+Apply `040_ticket_customer_summaries.sql` before the application change. After each apply,
+grant the existing runtime role EXECUTE on `customer_summary_schema_health()`, SELECT,
+INSERT and UPDATE on `ticket_customer_summaries`, and access to read and update
+`clients.work_summary_delivery` where existing client table grants are column-specific.
+Keep the additive schema and review history on source rollback. A failed readiness check
+suppresses the new summary and email path. An existing submitted advice review can still
+show its steps when the v4 work log is healthy and the client permits portal delivery.
+Code predating 040 ignores the new delivery preference. A rollback to that code can expose
+previously reviewed advice steps for clients who subsequently selected hidden.
+
+### Work log deployment and QA
 
 Apply additive migration 039 through `deploy.sh --migrate` in a quiet period.
 The migration session waits up to 60 seconds for a metadata lock.

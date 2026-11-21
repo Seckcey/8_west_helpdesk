@@ -127,6 +127,7 @@ wl_check(str_contains($form,'name="csrf"') && !str_contains($form,'<script>') &&
 $migration = str_replace("\r\n", "\n", file_get_contents(__DIR__.'/../db/migrations/039_westy_work_log.sql'));
 $schema = str_replace("\r\n", "\n", file_get_contents(__DIR__.'/../db/schema.sql'));
 $block = explode("-- BEGIN S5 WORK LOG (039)\n", $schema, 2)[1];
+$block = explode("-- BEGIN CUSTOMER SUMMARIES (040)\n", $block, 2)[0];
 $timeout = "SET SESSION lock_wait_timeout=60;\n";
 wl_check(str_starts_with(preg_replace('/^--[^\n]*\n/m','',$migration), $timeout) && substr_count($migration,$timeout) === 1
     && $block === str_replace($timeout,'',$migration), 'migration starts with the session timeout and its schema block otherwise matches exactly');

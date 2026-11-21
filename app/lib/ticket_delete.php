@@ -52,6 +52,7 @@ const TICKET_DELETE_GUARDED = [
     'westy_workflows'          => 'westy_workflow',
     'westy_hardware_notices'   => 'westy_workflow',
     'ticket_work_log'          => 'work_log',
+    'ticket_customer_summaries' => 'work_log',
     'westy_email_drafts'       => 'westy_email',
     'westy_mail_conversations' => 'westy_mail',
     'portal_ticket_requesters' => 'portal_requester',
