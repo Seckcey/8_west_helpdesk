@@ -105,6 +105,29 @@ installer; nothing reads it any more, and root may delete that folder.
   that git does not have.
 - The cron files and timers. The deploy only pauses and resumes them.
 
+## Apache logging for private links
+
+Both Safeharbor vhost templates log the request method, path and protocol without
+the query string. The access log keeps its existing file, columns and rotation,
+with a dash in the Referer column. The error format omits Referer and keeps the
+module message. Check those messages, errors before vhost selection, and any
+forwarding or edge logs separately.
+
+On Ubuntu Apache 2.4.58, a malformed path with an invalid percent escape can
+put the raw query into the `AH10244` module message. The fixture reports this
+case separately. Use `--require-clean-errors` when qualifying a release that
+requires query-free module messages.
+
+The app deploy does not install vhosts. Qualify the reviewed templates with
+`python3 tools/test-apache-logging.py` on disposable Ubuntu Apache. For an
+approved origin change, resolve the two enabled sites to their physical files,
+verify their hashes, and retain protected copies. Apply only the reviewed
+logging changes, run `apache2ctl configtest` and `apache2ctl -S`, then reload
+Apache in the shared release window. Verify both app health and an unrelated
+site. To reverse the change, restore the verified copies, repeat both Apache
+checks and reload. Keep customer link issuance pending if the inverse restores
+full request logging.
+
 ## Smoke test after a deploy
 
 The script already checks the login page and a stylesheet. By hand:
