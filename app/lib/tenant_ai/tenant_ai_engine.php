@@ -21,8 +21,13 @@ function westy_tenant_ai_with_context(array $ai,callable $dispatch): array
     $matches=static function(array $current)use($snapshot):bool {
         foreach(['app','local_tenant_key','tenant_id','tenant_slug','status','revision'] as $field)
             if(!array_key_exists($field,$snapshot) || ($current[$field]??null)!==$snapshot[$field])return false;
-        if($snapshot['status']==='active')foreach(['provider','model','effort','catalog','credential_version'] as $field)
-            if(($current[$field]??null)!==($snapshot[$field]??null))return false;
+        if($snapshot['status']==='active'){
+            foreach(['provider','model','effort','catalog','credential_version'] as $field)
+                if(($current[$field]??null)!==($snapshot[$field]??null))return false;
+            foreach(['role','role_source','base_provider','role_overrides'] as $field)
+                if(array_key_exists($field,$current)!==array_key_exists($field,$snapshot)
+                    || ($current[$field]??null)!==($snapshot[$field]??null))return false;
+        }
         return true;
     };
     $receipt=[];

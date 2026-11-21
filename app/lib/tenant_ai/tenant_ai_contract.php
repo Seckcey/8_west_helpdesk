@@ -5,9 +5,13 @@ declare(strict_types=1);
 const WESTY_TENANT_AI_VERSION = 1;
 const WESTY_TENANT_AI_CATALOG = '2026-10-04.1';
 // Additive review edition, separate from the persisted credential compatibility version.
-const WESTY_TENANT_AI_CATALOG_REVIEW = '2026-10-08.1';
+const WESTY_TENANT_AI_CATALOG_REVIEW = '2026-11-20.1';
 const WESTY_TENANT_AI_URL = 'https://id.8westit.com/api/svc/tenant-ai.php';
 const WESTY_TENANT_AI_APPS = ['milepost', 'safeharbor', 'coastmark', 'logbook', 'coastline_control_panel'];
+/** AI staff roles that may carry their own model. l1_tech is the tenant's base selection. The Billing Clerk never has a model. */
+const WESTY_TENANT_AI_ROLES = ['l1_tech','reviewer','supervisor','dispatcher','scribe','patch_planner'];
+/** Roles whose override must run on a different model family from the base selection. */
+const WESTY_TENANT_AI_INDEPENDENT_ROLES = ['reviewer','supervisor'];
 
 /** Reviewed standard-tier rates in micro-USD per million tokens; not an invoice. */
 function westy_tenant_ai_catalog(): array
@@ -51,6 +55,31 @@ function westy_tenant_ai_selection(mixed $provider, mixed $model, mixed $effort)
     return ['provider'=>$provider,'model'=>$model,'effort'=>$effort,'catalog'=>WESTY_TENANT_AI_CATALOG];
 }
 
+function westy_tenant_ai_family(mixed $provider): string
+{
+    if (!is_string($provider) || !isset(westy_tenant_ai_catalog()[$provider])) {
+        throw new InvalidArgumentException('invalid_selection');
+    }
+    return $provider;
+}
+
+function westy_tenant_ai_role(mixed $role): bool
+{
+    return is_string($role) && in_array($role,WESTY_TENANT_AI_ROLES,true);
+}
+
+function westy_tenant_ai_role_overrides(mixed $value): ?array
+{
+    if (!is_array($value) || !array_is_list($value) || count($value)>5) return null;
+    $previous=0; // The base role at index zero cannot have an override.
+    foreach ($value as $role) {
+        $index=array_search($role,WESTY_TENANT_AI_ROLES,true);
+        if ($index===false || $index<=$previous) return null;
+        $previous=$index;
+    }
+    return $value;
+}
+
 function westy_tenant_ai_local_key(mixed $key): bool
 {
     return is_string($key) && preg_match('/\A[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}\z/D',$key) === 1;
@@ -66,13 +95,17 @@ function westy_tenant_ai_api_key(string $provider, mixed $key): bool
     };
 }
 
-function westy_tenant_ai_request(string $app, string $localKey, string $action, ?int $revision = null): array
+/** @param string|null $role Validated here so malformed input receives the protocol's invalid_request error. */
+function westy_tenant_ai_request(string $app, string $localKey, string $action, ?int $revision = null, mixed $role = null): array
 {
     if (!in_array($app,WESTY_TENANT_AI_APPS,true) || !westy_tenant_ai_local_key($localKey)
-        || !in_array($action,['status','resolve'],true) || ($revision !== null && $revision<0)) {
+        || !in_array($action,['status','resolve'],true) || ($revision !== null && $revision<0)
+        || ($role!==null && !westy_tenant_ai_role($role))) {
         throw new InvalidArgumentException('invalid_request');
     }
-    return ['version'=>1,'app'=>$app,'local_tenant_key'=>$localKey,'action'=>$action,'expected_revision'=>$revision];
+    $request=['version'=>1,'app'=>$app,'local_tenant_key'=>$localKey,'action'=>$action,'expected_revision'=>$revision];
+    if ($role!==null) $request['role']=$role;
+    return $request;
 }
 
 function westy_tenant_ai_signature(string $direction, string $timestamp, string $nonce, string $body, string $secret, int $status = 0): string

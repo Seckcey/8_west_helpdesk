@@ -3,11 +3,14 @@
 declare(strict_types=1);
 require_once __DIR__.'/tenant_ai/tenant_ai_engine.php';
 
-function safeharbor_tenant_ai_resolve(int $tenantId,string $action='status',?int $revision=null):array
+function safeharbor_tenant_ai_resolve(int $tenantId,string $action='status',?int $revision=null,?callable $transport=null):array
 {
     if($tenantId<1)return ['status'=>'unavailable'];
     $config=cfg('tenant_ai',[]);
-    return westy_tenant_ai_resolve(is_array($config)?$config:[],'safeharbor',(string)$tenantId,$action,$revision);
+    $resolved=westy_tenant_ai_resolve(is_array($config)?$config:[],'safeharbor',(string)$tenantId,$action,$revision,$transport);
+    // Safeharbor uses the base model. Keep other roles out of portal status and staff refresh comparisons.
+    unset($resolved['role_overrides']);
+    return $resolved;
 }
 
 function safeharbor_staff_ai_context(?int $expectedUser=null,string $action='status',?int $revision=null):array

@@ -102,7 +102,7 @@ Each successful round explicitly flushes its remaining text before tool output
 or completion. Failed or cancelled rounds discard buffered text. This does not
 animate a completed response. Eligible MSPs use their current 8 West ID provider,
 model and effort selection; the separately bound internal fallback remains
-`gpt-6-luna`, low reasoning, Standard tier, `store=false`.
+`gpt-6.1-sol`, medium reasoning, Standard tier, `store=false`.
 Encrypted reasoning items may be carried between the bounded stateless tool
 rounds in server memory; they never enter the transcript, logs or browser stream.
 There are five provider rounds per request, 1,200 output tokens per round, a 64 KB
