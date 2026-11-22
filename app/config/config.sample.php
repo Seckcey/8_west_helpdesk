@@ -137,6 +137,9 @@ return [
         'monthly_microusd' => 5000000, // $5, reserved before provider I/O.
     ],
 
+    // Set false to turn off Westy's Guide tools and the help summaries it gets when those tools are unavailable.
+    'portal_guide' => ['westy_tools' => true],
+
     'portal' => [
         'enabled'       => false,
         'issuer'        => 'https://id.8westit.com',

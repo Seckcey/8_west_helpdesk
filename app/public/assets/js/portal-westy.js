@@ -25,7 +25,14 @@
   let devicesLoading = false, devicesRetry = null, rememberedDevice = null;
   let deviceChoiceMade = false, deviceDefaultApplied = false;
   const computerClocks = new Map();
-  const labels = { requests:'Open a support request', updates:'Follow a request', response:'Response goals', summaries:'Service summaries', privacy:'Westy and privacy' };
+  const helpLabels = (() => {
+    try {
+      const labels = JSON.parse(root.dataset.helpLabels || '{}');
+      return labels && typeof labels === 'object' ? labels : {};
+    } catch {
+      return {};
+    }
+  })();
   const errors = {
     ai_unavailable:'Westy is unavailable. You can still contact support.', provider_unavailable:'The reply was interrupted. Saved device work is shown below; it has not been retried.',
     provider_rate_limit:'Westy is busy. Please try a new message later.', provider_refused:'Westy could not answer that. Contact support for help.',
@@ -432,7 +439,19 @@
             try{await stopOperation(turn.operation_key);}finally{control.disabled=false;}
           }));
         }
-        if(turn.reply?.sources){const nav=element('nav');for(const id of turn.reply.sources){if(!labels[id])continue;const link=element('a',labels[id]);link.href='/portal/guide.php#'+id;nav.append(link);}node.meta.append(nav);}
+        if (Array.isArray(turn.reply?.sources)) {
+          const nav = element('nav');
+          nav.setAttribute('aria-label', 'Sources');
+          for (const id of turn.reply.sources) {
+            const ref = helpLabels[id];
+            if (!ref || typeof ref.label !== 'string' || typeof ref.href !== 'string'
+                || !/^\/portal\/guide\.php#[a-z][a-z0-9-]{0,63}$/.test(ref.href)) continue;
+            const link = element('a', ref.label, 'portal-source-chip');
+            link.href = ref.href;
+            nav.append(link);
+          }
+          if (nav.childElementCount) node.meta.append(nav);
+        }
         if(state.can_write&&turn.reply?.draft_subject&&turn.reply?.draft_body)node.meta.append(button('Edit suggested request',()=>editDraft({subject:turn.reply.draft_subject,body:turn.reply.draft_body,priority:'normal'})));
       }
     }

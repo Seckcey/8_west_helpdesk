@@ -24,6 +24,19 @@ foreach ($pilot as $id => $article) {
     }
     guide_check(hash('sha256', $article['title']."\n\n".implode("\n\n", $paragraphs)) === $approved[$id], $id.' exactly preserves approved title, paragraphs and ordered steps');
 }
+require_once __DIR__.'/../lib/portal_westy_help.php';
+require_once __DIR__.'/../lib/portal_render.php';
+function portal_csrf_token(): string { return str_repeat('c', 64); }
+function guide_widget_html(array $context): string {
+    ob_start();
+    try {
+        portal_westy_widget($context);
+        return ob_get_contents();
+    } finally {
+        ob_end_clean();
+    }
+}
+$helpTools = portal_westy_help_definitions();
 $legacy = portal_guide_legacy_articles();
 $employee = ['sign-in','assigned-computers','requests','updates','private-computer-link'];
 $viewer = ['assigned-computers','updates','private-computer-link'];
@@ -43,27 +56,111 @@ $cases = [
 ];
 $_GET = $_POST = ['role'=>'client_owner','audience'=>'owner','application'=>'browser'];
 $_SERVER['REQUEST_URI'] = '/portal/guide.php?role=client_owner&audience=owner';
+$widget = guide_widget_html($cases['owner'][0]);
+guide_check(preg_match('/<div id="portal-chat-root"[^>]*\bdata-help-labels="([^"]*)"/', $widget, $match) === 1,
+    'the chat root carries the source labels');
+$ownerLabels = portal_guide_source_labels($cases['owner'][0]);
+guide_check(json_decode(html_entity_decode($match[1], ENT_QUOTES, 'UTF-8'), true, 8, JSON_THROW_ON_ERROR) === $ownerLabels,
+    'the chat root exposes the owner labels as JSON');
+guide_check(array_keys($ownerLabels) === array_column(portal_guide_articles($cases['owner'][0]), 'catalog_id'), 'labels cover every article id the person can see');
+guide_check(!isset(portal_guide_source_labels($cases['employee'][0])['sh-give-computer-access']), 'labels are role filtered');
 foreach ($cases as $label => [$context, $ids]) {
     $articles = portal_guide_articles($context);
+    $labels = portal_guide_source_labels($context);
+    guide_check(array_keys($labels) === array_column($articles, 'catalog_id'), $label.' labels match the page set');
+    foreach ($articles as $anchor => $article) {
+        guide_check($labels[$article['catalog_id']] === ['label'=>$article['title'], 'href'=>'/portal/guide.php#'.$anchor],
+            $label.' source for '.$article['catalog_id'].' has just the page title and anchor link');
+    }
     $selected = array_keys(array_filter($articles, static fn($a) => isset($a['blocks'])));
     guide_check($selected === $ids, $label.' has only applicable pilot articles despite client role parameters');
     guide_check(array_diff(array_keys($legacy), array_keys($articles)) === [], $label.' retains legacy anchor IDs');
     foreach (['devices','response','summaries','privacy'] as $id) {
         guide_check($articles[$id] === $legacy[$id], $label.' retains '.$id.' material');
     }
-    $index = portal_guide_westy_articles($context);
-    guide_check(array_keys($index) === array_keys($articles), $label.' index IDs/order exactly match page');
-    foreach ($ids as $id) {
-        guide_check($index[$id]['title'] === $articles[$id]['title'] && $index[$id]['audience'] === $articles[$id]['audience']
-            && $index[$id]['href'] === '/portal/guide.php#'.$id && !isset($index[$id]['blocks']), $label.' exact title/audience/anchor for '.$id);
-    }
-    $serialized = json_encode($index, JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);
     foreach ([[], [['name'=>'exec_command']], [['name'=>'exec_command'],['name'=>'cua_window_state']]] as $tools) {
-        $instructions = portal_westy_ai_instructions($tools, $context);
-        guide_check(str_contains($instructions, 'Reviewed portal guide: '.$serialized), $label.' active provider guide matches page selection');
-        guide_check(str_contains($instructions, 'Give an employee access to one computer') === in_array('give-computer-access',$ids,true), $label.' owner-only context does not leak');
+        $instructions = portal_westy_ai_instructions([...$tools, ...$helpTools], $context);
+        guide_check(str_contains($instructions, 'call search_help'), $label.' gets help instructions when search is offered');
+        guide_check(!str_contains($instructions, 'Give an employee access to one computer'), $label.' instructions omit the owner article title');
     }
+    guide_check(!str_contains(portal_westy_ai_instructions([['name'=>'exec_command']], $context), 'search_help'), $label.' gets no help instruction without search');
 }
+$helpToolMessage = static fn(array $result): array => ['role'=>'tool','call_id'=>'c','content'=>[['type'=>'text',
+    'text'=>json_encode($result, JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE)]]];
+$rejectedHelp = $helpToolMessage(portal_westy_help_call($cases['employee'][0], 'read_help_article', ['id'=>5]));
+$foundHelp = $helpToolMessage(portal_westy_help_call($cases['employee'][0], 'read_help_article', ['id'=>'sh-sign-in']));
+guide_check(portal_westy_ai_mistakes(array_fill(0, PORTAL_WESTY_AI_MISTAKE_LIMIT, $rejectedHelp)) === PORTAL_WESTY_AI_MISTAKE_LIMIT,
+    'rejected help arguments count toward the mistake limit');
+guide_check(portal_westy_ai_mistakes([$foundHelp, $foundHelp]) === 0, 'successful help reads are not mistakes');
+foreach ($cases as $label => [$context, $ids]) {
+    $articles = portal_guide_articles($context);
+    $json = json_encode($articles, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    foreach (['drafted_by','approved_by','last_verified','fable-5.2','opus-5.5','gpt-6.2-astra','keywords','"approval"'] as $meta) {
+        guide_check(!str_contains($json, $meta), $label.' guide excludes catalog metadata '.$meta);
+    }
+    $anchors = array_values(array_unique(array_merge($ids, array_keys($legacy))));
+    guide_check(array_keys($articles) === $anchors, $label.' keeps every anchor in page order');
+}
+guide_check((portal_guide_articles($cases['viewer'][0])['requests']['catalog_id'] ?? null) === 'sh-requests-brief', 'viewer keeps the brief requests entry');
+guide_check((portal_guide_articles($cases['employee'][0])['requests']['catalog_id'] ?? null) === 'sh-requests', 'employee gets the full requests article');
+
+$rows = portal_guide_catalog_rows();
+foreach (help_catalog_index()['articles'] as $row) {
+    if ($row['app'] !== 'safeharbor') continue;
+    unset($row['approval'], $row['last_verified']);
+    guide_check(($rows[$row['id']] ?? null) === $row, $row['id'].' joins to its catalog fields without editorial metadata');
+}
+
+$dir = sys_get_temp_dir().'/safeharbor-guide-'.bin2hex(random_bytes(12));
+if (!mkdir($dir, 0700)) throw new RuntimeException('Could not create guide fixture directory');
+try {
+    foreach (['help-manifest.json','customer-index.json'] as $file) {
+        if (!copy(__DIR__.'/../help/'.$file, $dir.'/'.$file)) throw new RuntimeException('Could not copy guide fixture');
+    }
+    $employeeContext = $cases['employee'][0];
+    $readRequests = static fn() => portal_westy_help_call($employeeContext, 'read_help_article', ['id'=>'sh-requests']);
+    $healthyWesty = $readRequests();
+    help_catalog_use_dir($dir);
+    guide_check($healthyWesty['untrusted_result']['state'] === 'found' && $readRequests() === $healthyWesty, 'Westy reads the intact catalog copy');
+    $testIndex = help_catalog_index();
+    if (file_put_contents($dir.'/customer-index.json', "\n", FILE_APPEND) !== 1) throw new RuntimeException('Could not alter guide fixture');
+    help_catalog_use_dir($dir);
+    guide_check($readRequests() === ['untrusted_result'=>['state'=>'unavailable']], 'Westy reports help unavailable when the cached catalog is damaged');
+    guide_check(str_contains(portal_westy_ai_instructions($helpTools, $employeeContext), 'call search_help'), 'Westy still builds its instructions with a damaged catalog');
+    guide_check(portal_guide_source_labels($employeeContext) === [], 'a damaged catalog returns an empty source map');
+    $widget = guide_widget_html($employeeContext);
+    guide_check(str_contains($widget, 'data-help-labels="{}"') && str_contains($widget, 'id="portal-chat-form"'),
+        'the portal shell renders the chat form with an empty JSON object when the catalog is damaged');
+
+    // A second valid catalog changes the audience and order without changing the display label.
+    foreach ($testIndex['articles'] as &$row) {
+        if ($row['id'] === 'sh-sign-in') {
+            $row['audience'] = ['viewer'];
+            $row['order'] = 90;
+        } elseif ($row['id'] === 'sh-assigned-computers') {
+            $row['app'] = 'milepost';
+        }
+    }
+    unset($row);
+    $bytes = json_encode($testIndex, JSON_THROW_ON_ERROR)."\n";
+    $manifestPath = $dir.'/help-manifest.json';
+    $manifest = json_decode(file_get_contents($manifestPath), true, 8, JSON_THROW_ON_ERROR);
+    $manifest['files']['customer-index.json'] = ['sha256'=>hash('sha256', $bytes), 'bytes'=>strlen($bytes)];
+    file_put_contents($dir.'/customer-index.json', $bytes);
+    file_put_contents($manifestPath, json_encode($manifest, JSON_THROW_ON_ERROR)."\n");
+    help_catalog_use_dir($dir);
+    guide_check(!isset(portal_guide_catalog_rows()['sh-assigned-computers']), 'catalog rows exclude a different app');
+    $visible = array_filter(portal_guide_articles($cases['viewer'][0]), static fn($a) => isset($a['blocks']));
+    guide_check(array_keys($visible) === ['updates','private-computer-link','sign-in'], 'viewer selection follows the new catalog audience and order');
+    guide_check(!isset(portal_guide_articles($employeeContext)['sign-in']), 'former audience no longer sees the reassigned article');
+} finally {
+    help_catalog_use_dir(null);
+    foreach (['help-manifest.json','customer-index.json'] as $file) {
+        if (is_file($dir.'/'.$file)) unlink($dir.'/'.$file);
+    }
+    rmdir($dir);
+}
+guide_check($readRequests() === $healthyWesty, 'Westy reads the vendored guide again after restoring the catalog directory');
 $_SESSION['desktop_companion_session'] = str_repeat('b',32);
 guide_check(portal_guide_articles(['identity'=>['role'=>'client_owner']]) === $legacy, 'server Companion session retains legacy guide');
 unset($_SESSION['desktop_companion_session']);
@@ -77,6 +174,7 @@ foreach (['Publication verification','Authorship','SHA256','754c92d','HOLD FOR',
 // The ordinary admission body uses these real tool definitions before a tool run is created.
 // Include a maximum-length new message and six modest prior user/assistant pairs.
 $tools = array_map(static fn($tool) => ['name'=>$tool['name'],'description'=>$tool['description'],'input_schema'=>$tool['parameters']], portal_westy_tool_definitions());
+array_push($tools, ...$helpTools);
 $messages = [];
 for ($i=0; $i<6; $i++) {
     $messages[] = ['role'=>'user','content'=>[['type'=>'text','text'=>str_repeat('u',500)]]];

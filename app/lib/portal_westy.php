@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/portal_data.php';
 require_once __DIR__ . '/portal_guide.php';
+require_once __DIR__.'/portal_westy_help.php';
 require_once __DIR__ . '/portal_westy_stream.php';
 require_once __DIR__ . '/portal_westy_tools.php';
 require_once __DIR__ . '/portal_westy_tenant_ai.php';

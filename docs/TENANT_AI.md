@@ -44,7 +44,7 @@ Ordinary chat does not load a desktop session or require companion configuration
 
 The reviewed runtime posture keeps schema-wide SELECT/INSERT/UPDATE and the existing table-specific DELETE grants. The only additional DELETE target for this feature is `portal_westy_ai_attempts`. The complete tested DELETE allowlist is the list that `app/tests/business_reports_test.php` asserts (it is the source of truth; bulk ticket delete added `attachments` and `csat`):
 
-`attachments`, `canned_responses`, `clients`, `contacts`, `csat`, `email_threads`, `messages`, `portal_desktop_bindings`, `portal_desktop_handoffs`, `portal_westy_accounts`, `portal_westy_ai_attempts`, `portal_westy_budgets`, `portal_westy_drafts`, `portal_westy_reply_feedback`, `portal_westy_tool_runs`, `portal_westy_turns`, `svc_rate_buckets`, `svc_support_rate`, `tickets`.
+`attachments`, `canned_responses`, `clients`, `contacts`, `csat`, `email_threads`, `messages`, `portal_desktop_bindings`, `portal_desktop_handoffs`, `portal_guide_votes`, `portal_westy_accounts`, `portal_westy_ai_attempts`, `portal_westy_budgets`, `portal_westy_drafts`, `portal_westy_reply_feedback`, `portal_westy_tool_runs`, `portal_westy_turns`, `svc_rate_buckets`, `svc_support_rate`, `tickets`.
 
 Do not grant schema-wide DELETE. The restricted-account fixture verifies real denial for `time_entries`, `business_report_archives`, `customer_portal_bindings` and `tenants`, and verifies the new receipt trigger's boundary at 90 days +59/+60/+61 seconds. Runtime grant changes require the release owner's exact reviewed plan; the release helper itself never changes grants.
 

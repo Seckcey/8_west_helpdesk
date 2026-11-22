@@ -227,6 +227,11 @@ jobs:
           php app/tests/portal_guidance_display_test.php
           php app/tests/portal_computer_time_test.php
           php app/tests/portal_guide_test.php
+          php app/tests/portal_guide_legacy_test.php
+          php app/tests/help_catalog_test.php
+          php app/tests/portal_guide_search_test.php
+          php app/tests/portal_westy_help_test.php
+          php app/tests/portal_guide_vote_test.php
           php app/tests/portal_westy_mac_companion_test.php
           php app/tests/portal_westy_ai_receipt_test.php
           php app/tests/portal_westy_desktop_continuation_test.php
@@ -294,8 +299,10 @@ jobs:
           php app/tests/westy_mail_mysql_test.php
           php app/tests/westy_mail_poll_mysql_test.php
           php app/tests/portal_westy_mysql_test.php
+          SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_help php app/tests/portal_westy_help_mysql_test.php
           php app/tests/portal_westy_ai_delivery_mysql_test.php
           php app/tests/portal_westy_feedback_mysql_test.php
+          SAFEHARBOR_WESTY_TEST_DB=safeharbor_westy_test_guide php app/tests/portal_guide_vote_mysql_test.php
           php app/tests/portal_devices_mysql_test.php
           php app/tests/portal_employee_device_access_mysql_test.php
           php app/tests/portal_access_mysql_test.php

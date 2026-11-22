@@ -8022,6 +8022,24 @@ DELIMITER ;
 -- and operation of this existing run row. No credentials or command text here.
 ALTER TABLE portal_westy_tool_runs ADD COLUMN processes_json JSON NULL;
 
+CREATE TABLE IF NOT EXISTS portal_guide_votes (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+ tenant_id INT UNSIGNED NOT NULL,
+ client_id INT UNSIGNED NOT NULL,
+ scope_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ article_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ catalog_version VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ helpful TINYINT UNSIGNED NOT NULL,
+ created_at DATETIME NOT NULL,
+ updated_at DATETIME NOT NULL,
+ expires_at DATETIME NOT NULL,
+ PRIMARY KEY(id),
+ UNIQUE KEY uq_portal_guide_vote(scope_key,article_id),
+ KEY ix_portal_guide_vote_article(tenant_id,article_id,helpful,updated_at),
+ KEY ix_portal_guide_vote_expiry(expires_at),
+ KEY ix_portal_guide_vote_scope(tenant_id,client_id,scope_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 -- BEGIN PORTAL WESTY REPLY FEEDBACK V1
 -- Next-release candidate only. Apply migration-first under the protected
 -- Safeharbor release procedure; this file is not permission to migrate live.

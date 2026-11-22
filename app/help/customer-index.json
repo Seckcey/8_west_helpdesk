@@ -1,0 +1,582 @@
+{
+  "format": "8west-help-index-v1",
+  "index": "customer",
+  "version": "0.1.0",
+  "articles": [
+    {
+      "id": "sh-sign-in",
+      "app": "safeharbor",
+      "audience": [
+        "employee"
+      ],
+      "title": "Sign in to Safeharbor",
+      "summary": "Use your own 8 West ID account to open your business’s Safeharbor support portal.",
+      "keywords": [
+        "login",
+        "employee account",
+        "verification",
+        "wrong business",
+        "retry page"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "sign-in",
+      "audience_label": "Employee",
+      "application": "Safeharbor browser",
+      "order": 10,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Use your own 8 West ID account to open your business’s Safeharbor support portal. This article is for employees signing in through a browser. Your business owner or administrator needs to have arranged your employee account."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open the Safeharbor customer portal.",
+              "Sign in through 8 West ID and complete any verification it asks for. If you already have an active sign-in, the portal may open directly.",
+              "Under **Account**, check **Selected client** to confirm the business."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Your employee portal opens in Westy. Use **Your devices** to find your computers, **Support Requests** to contact the team, and **My settings** for your account preferences."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If a retry page appears, choose **Continue with 8 West ID**. If the account or business is wrong, contact your business owner or administrator through your usual support channel. Tell them the displayed error and which business you expected. If you arrived through a private computer-access link, finish signing in and then reopen the original link."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-assigned-computers",
+      "app": "safeharbor",
+      "audience": [
+        "employee",
+        "viewer"
+      ],
+      "title": "Find your assigned computer",
+      "summary": "Find a computer assigned to your account and read its reported status.",
+      "keywords": [
+        "missing device",
+        "my laptop",
+        "offline",
+        "last check in",
+        "refresh status"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "assigned-computers",
+      "audience_label": "Employee",
+      "application": "Safeharbor browser",
+      "order": 20,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Find a computer assigned to your account and read its reported status. Sign in to the correct business. Employees and read-only viewers can use these steps."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Your devices**.",
+              "Find the computer’s name under **Connected computers**. If the list continues, choose **Next computers**.",
+              "Read the connection status and **Last check-in**, when shown. Choose **Refresh status** to refresh the list."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The computer’s card shows its name, platform and reported connection status. The actions available to you follow your account’s permissions. Viewers have read-only access."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If the page cannot retrieve your computers, try refreshing shortly. If the list loads but your computer is missing, check **Selected client** under **Account** and ask your business owner or administrator to review your computer access. If they sent you a private link, follow **Use a private computer-access link** below. When asking for support, include the computer’s name and the problem shown on the page."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-requests",
+      "app": "safeharbor",
+      "audience": [
+        "employee",
+        "owner_admin"
+      ],
+      "title": "Open a support request",
+      "summary": "Send the support team a description of your problem.",
+      "keywords": [
+        "submit ticket",
+        "report an issue",
+        "urgent help",
+        "work blocked",
+        "contact the team"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "requests",
+      "audience_label": "Employee",
+      "application": "Safeharbor browser",
+      "order": 30,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Send the support team a description of your problem. Sign in with an employee account that can create requests. Client owners and administrators can follow the same steps in the customer portal."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Support Requests**.",
+              "Choose **New support request**.",
+              "Fill in **Short summary**, **How urgent is it?**, and **What happened?** Describe what you were trying to do, what happened, who is affected and what you have already tried. Choose **Urgent** when the business cannot operate, or **High** when important work is blocked.",
+              "Review your message and choose **Send request**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The saved request opens with its number and the message **Your support request was sent.** The request is visible to you, your client owners and administrators, and the support team. Keep passwords, verification codes and private computer-access links out of the message."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If Safeharbor cannot confirm that the request was saved, check **Support Requests** before trying again. If your role is Viewer, ask your business owner or administrator to submit the request. For urgent help, use your business’s agreed urgent contact route if it has one."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-updates",
+      "app": "safeharbor",
+      "audience": [
+        "employee",
+        "viewer",
+        "owner_admin"
+      ],
+      "title": "Follow a support request",
+      "summary": "Read progress on a request or answer the support team.",
+      "keywords": [
+        "ticket status",
+        "send reply",
+        "conversation",
+        "waiting for reply",
+        "resolved ticket"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "updates",
+      "audience_label": "Employee",
+      "application": "Safeharbor browser",
+      "order": 40,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Read progress on a request or answer the support team. Sign in to the business where the request was opened. Viewers can read requests available to their accounts."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Support Requests** and select the request by its number or subject.",
+              "Read **Conversation** and check **Status**. **Waiting for your reply** means the support team needs an update.",
+              "If the reply form is available, enter your update and choose **Send reply**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Your saved update appears in the conversation. A reply to a request that was **Waiting for your reply** returns it to **Open**. **Response goal** refers to the first response."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** Employees and viewers see requests recorded under their accounts. Client owners and administrators can see their client’s requests. Resolved requests stay readable. If you still need help with a resolved request, return to **Support Requests** and choose **New support request**. A Viewer can ask their business owner or administrator to submit it. If Safeharbor cannot confirm that a reply was saved, read the conversation before sending it again."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-private-computer-link",
+      "app": "safeharbor",
+      "audience": [
+        "employee",
+        "viewer",
+        "owner_admin"
+      ],
+      "title": "Use a private computer-access link",
+      "summary": "Get access to the computer your business owner or administrator chose for you.",
+      "keywords": [
+        "claim device",
+        "expired invitation",
+        "missing code",
+        "reopen after login",
+        "assigned laptop"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "private-computer-link",
+      "audience_label": "Employee",
+      "application": "Safeharbor browser",
+      "order": 50,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Get access to the computer your business owner or administrator chose for you. You need your own employee or read-only account in the same business and the original private computer-access link they supplied."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open the private link.",
+              "If asked to sign in, use your own account. After signing in, reopen the original private link.",
+              "On **Computer access**, check the business named under **Use your assigned computer**. Choose **Use this computer**.",
+              "When you see **This computer is now available in Your devices**, choose **Open Your devices**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The computer appears in your assigned list. Your existing account permissions apply, including read-only access. An accepted assignment remains active until it is revoked."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** For a valid link containing `#token=`, the page fills the access code automatically and clears it from the address bar when JavaScript is available. If **Private access code** is visible, copy the code after `#token=` from your original private link and paste it into that field. Then choose **Use this computer**."
+          },
+          {
+            "type": "paragraph",
+            "text": "If the link is unavailable, it may have expired, been revoked or been claimed by another employee. Ask your business owner for help. If the result is uncertain, check **Your devices** before repeating the action. Keep the private link and code out of support tickets and screenshots."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-give-computer-access",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Give an employee access to one computer",
+      "summary": "Give the intended employee access to an existing computer in your business.",
+      "keywords": [
+        "assign device",
+        "share laptop",
+        "invite coworker",
+        "revoke permission",
+        "pending invitation"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "give-computer-access",
+      "audience_label": "Client Owner/Admin",
+      "application": "Safeharbor browser",
+      "order": 60,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Give the intended employee access to an existing computer in your business. This article is for a Client Owner or Client Administrator. Sign in with the required access, confirm the business, and make sure the employee has their own account."
+          },
+          {
+            "type": "paragraph",
+            "text": "If the employee needs an account, an authorized Client Owner/Admin first completes the current People setup in 8 West ID. The **Invite a member in 8 West ID** shortcut is available to eligible client owners and administrators signing in directly to their business account. 8 West ID checks invitation authority. Follow the account-setup instructions verified by the ID owner."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Your devices** and find the intended computer.",
+              "Choose **Computer access** on its card.",
+              "Under **Give a member access**, choose **Create member access link**.",
+              "Copy the displayed **Private access link** and share it privately with the intended employee. An unused link expires after 48 hours. The first eligible employee signed in to the same business who uses it receives access.",
+              "Ask the employee to follow **Use a private computer-access link** above. Check **People and access links** for **Waiting for a member** or **Has access**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The new link waits for a member to accept it. After successful acceptance, the access list shows the employee with **Has access**. Setting up the employee’s account and sharing computer access are separate steps."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** Share the computer-access link manually. If creation returns an uncertain result or says the link was already created, check **People and access links** before creating another. If the wrong person received or claimed the link, choose **Revoke access** on the relevant record and review the result before arranging a replacement. Revocation prevents further authorization. Work already delivered to the computer may still need support review."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-devices",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Check a computer",
+      "summary": "Your devices shows the computers your current access permits.",
+      "keywords": [
+        "printer stopped",
+        "disk space",
+        "memory",
+        "windows health",
+        "repair approval"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "devices",
+      "audience_label": null,
+      "application": null,
+      "order": 110,
+      "legacy_guide": true,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "text",
+        "text": "Your devices shows the computers your current access permits. Client owners/admins can use their client devices, and client staff can operate devices assigned to them; viewers are read-only. When Computer checks is available, an eligible person can explicitly authorize a Windows health check of memory, system-drive space and the print service. A fresh stopped print-service result can offer a specific repair for review. Read the impact and approve that exact repair on the Computer checks page. Chat never grants approval. A repair is reported as service verified only after two separate checks; the person must still try printing. An unknown result needs support review, not repeated repair attempts. Adding a computer does not order antivirus or create a charge."
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-requests-brief",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Open a support request",
+      "summary": "Open Support Requests and choose the action to start a request.",
+      "keywords": [
+        "who can see tickets",
+        "describe problem",
+        "read only",
+        "verification codes",
+        "ticket details"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "requests",
+      "audience_label": null,
+      "application": null,
+      "order": 120,
+      "legacy_guide": true,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "text",
+        "text": "Open Support Requests and choose the action to start a request. Describe what happened, what work is affected and what you have tried. Client owners, admins and employees can send requests. Viewers have read-only access. A request is visible to its requester, client owners and admins, and the support team. Keep passwords, verification codes and secret keys out of the request."
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-updates-brief",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Follow a request",
+      "summary": "Your support requests shows requests you opened.",
+      "keywords": [
+        "ticket history",
+        "team messages",
+        "reply to a ticket",
+        "resolved tickets",
+        "waiting for reply"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "updates",
+      "audience_label": null,
+      "application": null,
+      "order": 130,
+      "legacy_guide": true,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "text",
+        "text": "Your support requests shows requests you opened. Client owners and admins can see client-wide requests, including older unattributed requests. Open a request to read customer-visible messages. Waiting for your reply means the support team needs an update. Replying returns it to the open queue. Resolved requests stay readable; open a new request if you need more help. Internal notes and merged histories are excluded."
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-response",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Understand response goals",
+      "summary": "A request detail may show a first-response target or when the first response was sent.",
+      "keywords": [
+        "first reply",
+        "target time",
+        "how long",
+        "support hours",
+        "resolution estimate"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "response",
+      "audience_label": null,
+      "application": null,
+      "order": 140,
+      "legacy_guide": true,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "text",
+        "text": "A request detail may show a first-response target or when the first response was sent. A first-response target is not a resolution estimate or a promise of support hours. This portal does not establish coverage, service activation or response guarantees."
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-summaries",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Read service summaries",
+      "summary": "Client owners and admins can find verified weekly service summaries for their client under Support Requests.",
+      "keywords": [
+        "weekly report",
+        "approved time",
+        "business owner",
+        "missing report"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "summaries",
+      "audience_label": null,
+      "application": null,
+      "order": 150,
+      "legacy_guide": true,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "text",
+        "text": "Client owners and admins can find verified weekly service summaries for their client under Support Requests. A new business may have no summaries yet. Service summaries cover approved operational time."
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    },
+    {
+      "id": "sh-privacy",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Westy and your privacy",
+      "summary": "Your Westy conversation is private to your signed-in identity.",
+      "keywords": [
+        "private chat",
+        "who can see messages",
+        "device permissions",
+        "stop reply",
+        "shared ticket"
+      ],
+      "ui_labels": [],
+      "related": [],
+      "anchor": "privacy",
+      "audience_label": null,
+      "application": null,
+      "order": 160,
+      "legacy_guide": true,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "ad70bf4"
+      },
+      "body": {
+        "format": "text",
+        "text": "Your Westy conversation is private to your signed-in identity. On an authorized connected computer, Westy can troubleshoot, run requested commands, work with files and control supported desktop/browser tools within your current account and device access. Computer tool permissions lets you choose Allow or Deny; Allow is the default and explicit Deny choices are honored. Windows elevation remains separate. Legacy Computer checks can also offer a specific repair with its own exact approval control. Visible operation receipts distinguish queued work from completed results. Stop reply stops generation; already dispatched device work keeps its own status. Only request text you review and send becomes a support record shared with you, client owners/admins and the support team. Private chat does not grant help-desk ticket search, technician messaging, suite administration or payment authority. Open Support Requests to reach the support team."
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Byte-identical to Safeharbor ad70bf4; title and body hashes match; keywords checked."
+      }
+    }
+  ]
+}

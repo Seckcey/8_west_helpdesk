@@ -175,6 +175,12 @@
 #portal-chat-bubble{border-color:var(--line);box-shadow:var(--shadow-raised)}
 #portal-chat-root>#portal-chat-panel{box-shadow:var(--shadow-pop);border-radius:20px}
 .portal-chat-draft-fields input,.portal-chat-draft-fields textarea,.portal-chat-draft-fields select{border-color:var(--control-border);border-radius:10px;background:var(--input-bg)}
+.portal-source-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tag);
+  background: var(--hover);
+}
 
 /* Guide: layout, spacing and type only. The approved article text is pinned and never changes here. */
 .portal-guide{max-width:780px}
@@ -182,6 +188,48 @@
 .portal-guide h2{font-size:20px;font-weight:700}
 .portal-guide article{margin:28px 0;padding:24px 26px;border:1px solid var(--line);border-radius:14px;background:var(--bg-solid);box-shadow:var(--shadow-card)}
 .portal-guide p,.portal-guide li{color:var(--muted-strong);line-height:1.8}
+.portal-guide-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  margin: 24px 0;
+}
+.portal-guide-search label { grid-column: 1 / -1; font-weight: 600; }
+.portal-guide-search input[type="search"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+}
+.portal-guide-results ul { padding-left: 1.5rem; overflow-wrap: anywhere; }
+.portal-guide-results a { font-weight: 600; }
+.portal-guide-vote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.portal-guide-vote button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.portal-guide-vote button:hover { background: var(--hover); }
+.portal-guide-vote button[aria-pressed="true"] { border-color: var(--accent-2); color: var(--accent-2); font-weight: 700; }
+.portal-guide-vote button:disabled { cursor: wait; }
+.portal-guide-vote .portal-hint { margin: 0; }
 
 @media(max-width:760px){
   .portal-sidebar{padding:0 12px 12px}
