@@ -1,7 +1,7 @@
 # Portal Guide pilot
 
-The six approved articles are published in `/portal/guide.php`, with matching
-compact references in the current Westy instructions. Application source
+The pilot published six approved articles in `/portal/guide.php` and included
+matching compact references in Westy's instructions. Application source
 `27f991ee5ff4a033bc4be38ed4462507711af2cd` went live on November 9, 2026 at
 **10:44 AM Pacific** through the normal stock deployment.
 The scoped real signed-in Client Owner/Admin and employee acceptance was
@@ -43,14 +43,13 @@ their client-wide request visibility.
 
 `portal_guide_articles($context)` selects help from the authenticated original
 identity and server Companion state. URL/query/body role claims are ignored.
-This selection grants no permissions and adds no action guard. The Guide and
-active Westy instruction builders receive the same article IDs and order,
-including the initial request-size calculation and each provider round.
-`portal_guide_westy_articles()` keeps the existing concise explanations and
-adds only exact pilot titles, audience/application labels and Guide anchors.
-The expanded approved bodies remain on the Guide page; serializing them into
-every model request would consume too much of the existing byte allowance.
-No new summary prose is authored. A captured Companion
+This selection grants no permissions and adds no action guard. In the November 9
+pilot, the Guide and Westy's instructions used the same article IDs and order
+for the initial request-size calculation and each provider round.
+Westy received concise explanations, exact pilot titles, audience/application
+labels and Guide anchors. The full approved articles stayed on the Guide page
+to keep model requests within their byte allowance. The pilot reused the
+existing summary prose. A captured Companion
 context remains on the existing Guide even if the current session marker is
 absent. No model, tool, billing, recovery or transport behavior is changed.
 

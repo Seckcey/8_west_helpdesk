@@ -37,31 +37,6 @@ function portal_guide_articles(?array $context = null): array
     return $articles + $legacy;
 }
 
-/** Same audience/order as the page, with references rather than expanded bodies in model context. */
-function portal_guide_westy_articles(?array $context = null): array
-{
-    try {
-        $articles = portal_guide_articles($context);
-        $legacy = portal_guide_legacy_articles();
-    } catch (HelpCatalogException) {
-        return [];
-    }
-    foreach ($articles as $id => &$article) {
-        if (!isset($article['blocks'])) {
-            unset($article['catalog_id']);
-            continue;
-        }
-        $article = [
-            'title' => $article['title'], 'audience' => $article['audience'],
-            'application' => $article['application'], 'href' => '/portal/guide.php#'.$id,
-        ];
-        // Keep Westy's existing concise request guidance without duplicating the full new articles.
-        if (isset($legacy[$id])) $article['text'] = $legacy[$id]['text'];
-    }
-    unset($article);
-    return $articles;
-}
-
 /** Only bold labels and inline code from the approved text become markup; all text is escaped first. */
 function portal_guide_inline(string $text): string
 {

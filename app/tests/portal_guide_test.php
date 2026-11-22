@@ -24,6 +24,8 @@ foreach ($pilot as $id => $article) {
     }
     guide_check(hash('sha256', $article['title']."\n\n".implode("\n\n", $paragraphs)) === $approved[$id], $id.' exactly preserves approved title, paragraphs and ordered steps');
 }
+require_once __DIR__.'/../lib/portal_westy_help.php';
+$helpTools = portal_westy_help_definitions();
 $legacy = portal_guide_legacy_articles();
 $employee = ['sign-in','assigned-computers','requests','updates','private-computer-link'];
 $viewer = ['assigned-computers','updates','private-computer-link'];
@@ -51,19 +53,20 @@ foreach ($cases as $label => [$context, $ids]) {
     foreach (['devices','response','summaries','privacy'] as $id) {
         guide_check($articles[$id] === $legacy[$id], $label.' retains '.$id.' material');
     }
-    $index = portal_guide_westy_articles($context);
-    guide_check(array_keys($index) === array_keys($articles), $label.' index IDs/order exactly match page');
-    foreach ($ids as $id) {
-        guide_check($index[$id]['title'] === $articles[$id]['title'] && $index[$id]['audience'] === $articles[$id]['audience']
-            && $index[$id]['href'] === '/portal/guide.php#'.$id && !isset($index[$id]['blocks']), $label.' exact title/audience/anchor for '.$id);
-    }
-    $serialized = json_encode($index, JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);
     foreach ([[], [['name'=>'exec_command']], [['name'=>'exec_command'],['name'=>'cua_window_state']]] as $tools) {
-        $instructions = portal_westy_ai_instructions($tools, $context);
-        guide_check(str_contains($instructions, 'Reviewed portal guide: '.$serialized), $label.' active provider guide matches page selection');
-        guide_check(str_contains($instructions, 'Give an employee access to one computer') === in_array('give-computer-access',$ids,true), $label.' owner-only context does not leak');
+        $instructions = portal_westy_ai_instructions([...$tools, ...$helpTools], $context);
+        guide_check(str_contains($instructions, 'call search_help'), $label.' gets help instructions when search is offered');
+        guide_check(!str_contains($instructions, 'Give an employee access to one computer'), $label.' instructions omit the owner article title');
     }
+    guide_check(!str_contains(portal_westy_ai_instructions([['name'=>'exec_command']], $context), 'search_help'), $label.' gets no help instruction without search');
 }
+$helpToolMessage = static fn(array $result): array => ['role'=>'tool','call_id'=>'c','content'=>[['type'=>'text',
+    'text'=>json_encode($result, JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE)]]];
+$rejectedHelp = $helpToolMessage(portal_westy_help_call($cases['employee'][0], 'read_help_article', ['id'=>5]));
+$foundHelp = $helpToolMessage(portal_westy_help_call($cases['employee'][0], 'read_help_article', ['id'=>'sh-sign-in']));
+guide_check(portal_westy_ai_mistakes(array_fill(0, PORTAL_WESTY_AI_MISTAKE_LIMIT, $rejectedHelp)) === PORTAL_WESTY_AI_MISTAKE_LIMIT,
+    'rejected help arguments count toward the mistake limit');
+guide_check(portal_westy_ai_mistakes([$foundHelp, $foundHelp]) === 0, 'successful help reads are not mistakes');
 foreach ($cases as $label => [$context, $ids]) {
     $articles = portal_guide_articles($context);
     $json = json_encode($articles, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
@@ -90,14 +93,15 @@ try {
         if (!copy(__DIR__.'/../help/'.$file, $dir.'/'.$file)) throw new RuntimeException('Could not copy guide fixture');
     }
     $employeeContext = $cases['employee'][0];
-    $healthyWesty = portal_guide_westy_articles($employeeContext);
+    $readRequests = static fn() => portal_westy_help_call($employeeContext, 'read_help_article', ['id'=>'sh-requests']);
+    $healthyWesty = $readRequests();
     help_catalog_use_dir($dir);
-    guide_check(portal_guide_westy_articles($employeeContext) === $healthyWesty, 'Westy reads the intact catalog copy');
+    guide_check($healthyWesty['untrusted_result']['state'] === 'found' && $readRequests() === $healthyWesty, 'Westy reads the intact catalog copy');
     $testIndex = help_catalog_index();
     if (file_put_contents($dir.'/customer-index.json', "\n", FILE_APPEND) !== 1) throw new RuntimeException('Could not alter guide fixture');
     help_catalog_use_dir($dir);
-    guide_check(portal_guide_westy_articles($employeeContext) === [], 'Westy omits guide articles when the cached catalog is replaced by a damaged copy');
-    guide_check(str_contains(portal_westy_ai_instructions([], $employeeContext), 'Reviewed portal guide: []'), 'Westy still builds its instructions with a damaged catalog');
+    guide_check($readRequests() === ['untrusted_result'=>['state'=>'unavailable']], 'Westy reports help unavailable when the cached catalog is damaged');
+    guide_check(str_contains(portal_westy_ai_instructions($helpTools, $employeeContext), 'call search_help'), 'Westy still builds its instructions with a damaged catalog');
 
     // A second valid catalog changes the audience and order without changing the display label.
     foreach ($testIndex['articles'] as &$row) {
@@ -127,7 +131,7 @@ try {
     }
     rmdir($dir);
 }
-guide_check(portal_guide_westy_articles($employeeContext) === $healthyWesty, 'Westy reads the vendored guide again after restoring the catalog directory');
+guide_check($readRequests() === $healthyWesty, 'Westy reads the vendored guide again after restoring the catalog directory');
 $_SESSION['desktop_companion_session'] = str_repeat('b',32);
 guide_check(portal_guide_articles(['identity'=>['role'=>'client_owner']]) === $legacy, 'server Companion session retains legacy guide');
 unset($_SESSION['desktop_companion_session']);
@@ -141,6 +145,7 @@ foreach (['Publication verification','Authorship','SHA256','754c92d','HOLD FOR',
 // The ordinary admission body uses these real tool definitions before a tool run is created.
 // Include a maximum-length new message and six modest prior user/assistant pairs.
 $tools = array_map(static fn($tool) => ['name'=>$tool['name'],'description'=>$tool['description'],'input_schema'=>$tool['parameters']], portal_westy_tool_definitions());
+array_push($tools, ...$helpTools);
 $messages = [];
 for ($i=0; $i<6; $i++) {
     $messages[] = ['role'=>'user','content'=>[['type'=>'text','text'=>str_repeat('u',500)]]];
