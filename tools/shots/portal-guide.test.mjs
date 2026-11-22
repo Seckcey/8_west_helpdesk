@@ -17,6 +17,7 @@ const cases = {
   viewer: { role: 'client_viewer', ids: ['assigned-computers','updates','private-computer-link'] },
   owner: { role: 'client_owner', ids: ['requests','updates','private-computer-link','give-computer-access'] },
   admin: { role: 'client_admin', ids: ['requests','updates','private-computer-link','give-computer-access'] },
+  technician: { role: 'technician', ids: [] },
   delegated: { role: 'technician', overlay: 'client_owner', ids: [] },
   overlayOwner: { role: 'client_owner', overlay: 'client_owner', ids: [] },
   companion: { role: 'client_owner', companion: true, ids: [] },
@@ -64,12 +65,55 @@ async function checkGuideWidth(page) {
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth), 'no horizontal overflow');
 }
 
-test('authenticated Guide selection, search, request links and preserved anchors at desktop/mobile sizes', async () => {
+async function checkVoting(page, setReply) {
+  const group = page.locator('#privacy .portal-guide-vote');
+  const yes = group.getByRole('button', {name:'Yes', exact:true});
+  const no = group.getByRole('button', {name:'No', exact:true});
+  const status = group.getByRole('status');
+  assert.equal(await group.getAttribute('data-article'), 'sh-privacy');
+  assert.equal(await yes.getAttribute('aria-pressed'), 'false');
+  assert.equal(await no.getAttribute('aria-pressed'), 'true', 'saved No renders as pressed');
+
+  let finish;
+  setReply(new Promise(resolve => { finish = resolve; }));
+  try {
+    const [request] = await Promise.all([
+      page.waitForRequest(ORIGIN+'/portal/guide_vote.php'),
+      yes.click(),
+    ]);
+    assert.equal(request.method(), 'POST');
+    assert.equal(request.headers()['content-type'], 'application/json');
+    assert.equal(request.headers()['x-portal-csrf'], await page.locator('main').getAttribute('data-csrf'));
+    assert.deepEqual(request.postDataJSON(), {article:'sh-privacy', helpful:true});
+    assert.ok(await yes.isDisabled() && await no.isDisabled(), 'both choices wait for the vote');
+    assert.equal(await no.getAttribute('aria-pressed'), 'true', 'pending choice is not shown as saved');
+  } finally { finish(true); }
+  await group.getByText('Thanks for telling us.', {exact:true}).waitFor();
+  assert.equal(await status.textContent(), 'Thanks for telling us.');
+  assert.equal(await yes.getAttribute('aria-pressed'), 'true');
+  assert.equal(await no.getAttribute('aria-pressed'), 'false');
+
+  setReply(Promise.resolve(false));
+  await no.click();
+  await group.getByText("We couldn't save that. Try again.", {exact:true}).waitFor();
+  assert.equal(await yes.getAttribute('aria-pressed'), 'true', 'failure keeps the last saved choice');
+  assert.ok(await yes.isEnabled() && await no.isEnabled());
+  setReply(Promise.resolve(true));
+  await no.click();
+  await group.getByText('Thanks for telling us.', {exact:true}).waitFor();
+  assert.equal(await yes.getAttribute('aria-pressed'), 'false');
+  assert.equal(await no.getAttribute('aria-pressed'), 'true', 'a retry can change the saved vote');
+}
+
+test('authenticated Guide selection, search, helpful votes, request links and preserved anchors at desktop/mobile sizes', async () => {
   const scratch = await mkdtemp(path.join(tmpdir(), 'safeharbor-guide-'));
   const lib = path.join(scratch, 'lib');
   const portal = path.join(scratch, 'public/portal');
+  const scripts = path.join(scratch, 'public/assets/js');
   const catalog = path.join(scratch, 'help');
   await mkdir(lib); await mkdir(portal, { recursive: true });
+  await mkdir(scripts, {recursive:true});
+  await copyFile(path.join(ROOT,'app/public/assets/js/portal-guide.js'), path.join(scripts,'portal-guide.js'));
   if (evidence) await mkdir(evidence, { recursive: true });
   // Execute the Guide controller and renderers with synthetic authentication.
   await copyFile(path.join(ROOT,'app/public/portal/guide.php'), path.join(portal,'guide.php'));
@@ -78,6 +122,15 @@ test('authenticated Guide selection, search, request links and preserved anchors
     await writeFile(path.join(lib, `${name}.php`), `<?php require_once $argv[1].'/app/lib/${name}.php';`);
   }
   await writeFile(path.join(lib,'portal_auth.php'), '<?php');
+  await writeFile(path.join(lib,'portal_guide_votes.php'), String.raw`<?php
+function portal_guide_votes_installed(mixed $pdo): bool {
+    return ($GLOBALS['input']['voteStorage'] ?? '') !== 'absent';
+}
+function portal_guide_vote_current(mixed $pdo, array $context): array {
+    if (($GLOBALS['input']['voteStorage'] ?? '') === 'readError') throw new RuntimeException('Synthetic read failure');
+    return $GLOBALS['input']['votes'] ?? [];
+}
+`);
   await writeFile(path.join(lib,'bootstrap.php'), String.raw`<?php
 require_once __DIR__.'/help_catalog.php';
 help_catalog_use_dir(__DIR__.'/../help');
@@ -133,6 +186,9 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         const context = await browser.newContext({viewport,colorScheme:'dark'});
         const page = await context.newPage();
         const errors = [];
+        const votes = {'sh-privacy':false};
+        let voteReply = Promise.resolve(true);
+        let voteStorage = 'installed';
         page.on('pageerror', error => errors.push(error.message));
         page.on('console', message => { if (message.type()==='error') errors.push(message.text()); });
         await page.route('**/*', async route => {
@@ -143,11 +199,21 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
             return route.fulfill({contentType:type ?? 'application/octet-stream',body:await readFile(path.join(ROOT,'app/public',url.pathname))});
           }
           if (url.pathname === '/portal/westy.php') return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:false,reason:'ai_unavailable'})});
-          assert.ok(['/portal/guide.php','/portal/requests.php'].includes(url.pathname), `unexpected route ${url.pathname}`);
+          assert.ok(['/portal/guide.php','/portal/guide_vote.php','/portal/requests.php'].includes(url.pathname), `unexpected route ${url.pathname}`);
           const method = route.request().method();
+          if (url.pathname === '/portal/guide_vote.php') {
+            assert.equal(method, 'POST');
+            assert.equal(route.request().headers()['x-portal-csrf'], 'c'.repeat(64));
+            const vote = route.request().postDataJSON();
+            assert.deepEqual(Object.keys(vote).sort(), ['article','helpful']);
+            assert.equal(typeof vote.helpful, 'boolean');
+            const ok = await voteReply;
+            if (ok) votes[vote.article] = vote.helpful;
+            return route.fulfill({json:ok ? {ok, vote} : {ok}});
+          }
           assert.ok(method === 'GET' || (method === 'POST' && url.pathname === '/portal/guide.php'));
           const body = route.request().postData();
-          return route.fulfill({contentType:'text/html',...render(path.basename(url.pathname), {...input,method,body,uri:url.pathname+url.search})});
+          return route.fulfill({contentType:'text/html',...render(path.basename(url.pathname), {...input,method,body,uri:url.pathname+url.search,votes,voteStorage})});
         });
         await page.goto(ORIGIN+'/portal/requests.php');
         // Direct customers have the privacy Guide link; delegated/Companion also have the shortcut.
@@ -160,6 +226,17 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         const ids = await page.locator('main article').evaluateAll(nodes=>nodes.map(n=>n.id));
         assert.equal(new Set(ids).size, ids.length, 'no duplicate articles/anchors');
         assert.deepEqual(ids, [...new Set([...input.ids, ...legacy])], `${name} keeps every anchor in page order`);
+        const voteGroups = page.locator('.portal-guide-vote');
+        const voteScript = page.locator('script[src^="/assets/js/portal-guide.js?v="]');
+        const canVote = ['employee','viewer','owner','admin'].includes(name);
+        assert.equal(await voteGroups.count(), canVote ? ids.length - 1 : 0, name+' vote controls match its catalog articles');
+        assert.equal(await voteScript.count(), canVote ? 1 : 0);
+        assert.equal(await page.locator('#contact .portal-guide-vote').count(), 0);
+        if (canVote) {
+          assert.match(await voteScript.getAttribute('src'), /\?v=[0-9a-f]{20}$/);
+          assert.equal(await page.locator('#devices .portal-guide-vote button[aria-pressed="false"]').count(), 2, 'unrated article has no pressed choice');
+        }
+        if (name === 'employee') await checkVoting(page, reply => { voteReply = reply; });
         checkPublicHtml(await page.content(), name);
         const pilotIds = await page.locator('main article:has(ol)').evaluateAll(nodes=>nodes.map(n=>n.id));
         assert.deepEqual(pilotIds,input.ids,`${name} audience selection`);
@@ -242,13 +319,22 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         assert.equal(await page.locator('#give-computer-access').count(),input.ids.includes('give-computer-access')?1:0);
         assert.equal(await results.count(), 0);
         assert.equal(await page.getByRole('searchbox', {name:'Search help'}).inputValue(), '');
-        if (!input.overlay && !input.companion) {
+        if (canVote) {
           await page.locator('#contact a[href="/portal/requests.php"]').click();
           assert.equal(new URL(page.url()).pathname,'/portal/requests.php');
           assert.equal(await page.getByRole('heading',{level:1}).textContent(),'Support Requests');
           assert.equal(await page.locator('main a[href="/portal/new.php"]').count(),input.role==='client_viewer'?0:1);
         }
         if (name === 'employee') {
+          for (const failure of ['absent','readError']) {
+            voteStorage = failure;
+            const response = await page.goto(ORIGIN+'/portal/guide.php');
+            assert.equal(response.status(), 200);
+            assert.deepEqual(await page.locator('main article').evaluateAll(nodes=>nodes.map(n=>n.id)), ids, failure+' preserves every article');
+            assert.equal(await voteGroups.count(), 0);
+            assert.equal(await voteScript.count(), 0);
+          }
+          voteStorage = 'installed';
           const index = path.join(catalog, 'customer-index.json');
           await appendFile(index, '\n');
           try {

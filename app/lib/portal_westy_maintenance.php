@@ -24,9 +24,14 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
         ? '(expires_at<=? OR EXISTS(SELECT 1 FROM portal_westy_turns t WHERE t.id=portal_westy_reply_feedback.turn_id AND (t.expires_at<=? OR (t.input_text IS NULL AND t.reply_json IS NULL))))'
         : '1=1'.$filter;
     $feedbackArgs=$scope===null?[$now,$now]:$args;
+    require_once __DIR__.'/portal_guide_votes.php';
+    $hasVotes=portal_guide_votes_installed($pdo);
+    $voteWhere=$scope===null?'expires_at<=?':'1=1'.$filter;
+    $voteArgs=$scope===null?[$now]:$args;
     $result=['applied'=>$apply,'turn_content'=>$count('portal_westy_turns',$turnWhere,$turnArgs),
         'draft_content'=>$count('portal_westy_drafts',$draftWhere,$draftArgs),'metadata_deleted'=>0,
-        'feedback_content'=>$hasFeedback?$count('portal_westy_reply_feedback',$feedbackWhere,$feedbackArgs):0];
+        'feedback_content'=>$hasFeedback?$count('portal_westy_reply_feedback',$feedbackWhere,$feedbackArgs):0,
+        'vote_content'=>$hasVotes?$count('portal_guide_votes',$voteWhere,$voteArgs):0];
     if(!$apply)return $result;
     // The accepted operation clock skew is at most 60 seconds; keep metadata for
     // that same grace so a future-stamped operation is expired before its row is purged.
@@ -36,14 +41,22 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
         $pdo->beginTransaction();
         if($scope!==null){
             $q=$pdo->prepare('SELECT scope_key FROM portal_westy_accounts WHERE tenant_id=? AND client_id=? AND scope_key=? FOR UPDATE');$q->execute($args);
-            if(!$q->fetchColumn())throw new RuntimeException('Exact account not found');
-            $q=$pdo->prepare('UPDATE portal_westy_accounts SET conversation_key=? WHERE tenant_id=? AND client_id=? AND scope_key=?');$q->execute([bin2hex(random_bytes(16)),...$args]);
+            // A Guide voter can have stored votes without ever starting a chat.
+            if($q->fetchColumn()){
+                $q=$pdo->prepare('UPDATE portal_westy_accounts SET conversation_key=? WHERE tenant_id=? AND client_id=? AND scope_key=?');$q->execute([bin2hex(random_bytes(16)),...$args]);
+            }elseif(!$hasVotes||$count('portal_guide_votes',$voteWhere,$voteArgs)===0){
+                throw new RuntimeException('Exact account not found');
+            }
         }
         $q=$pdo->prepare("UPDATE portal_westy_turns SET input_text=NULL,reply_json=NULL,state=IF(state='pending','unavailable',state),reason_code=IF(state='pending','expired',reason_code) WHERE ".$turnWhere);
         $q->execute($turnArgs);$result['turn_content']=$q->rowCount();
         if($hasFeedback){
             $q=$pdo->prepare('DELETE FROM portal_westy_reply_feedback WHERE '.$feedbackWhere);
             $q->execute($feedbackArgs);$result['feedback_content']=$q->rowCount();
+        }
+        if($hasVotes){
+            $q=$pdo->prepare('DELETE FROM portal_guide_votes WHERE '.$voteWhere);
+            $q->execute($voteArgs);$result['vote_content']=$q->rowCount();
         }
         require_once __DIR__.'/portal_westy_runs.php';
         if(portal_westy_runs_installed($pdo)){

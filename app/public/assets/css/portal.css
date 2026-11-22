@@ -202,6 +202,28 @@
 }
 .portal-guide-results ul { padding-left: 1.5rem; overflow-wrap: anywhere; }
 .portal-guide-results a { font-weight: 600; }
+.portal-guide-vote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.portal-guide-vote button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.portal-guide-vote button:hover { background: var(--hover); }
+.portal-guide-vote button[aria-pressed="true"] { border-color: var(--accent-2); color: var(--accent-2); font-weight: 700; }
+.portal-guide-vote button:disabled { cursor: wait; }
+.portal-guide-vote .portal-hint { margin: 0; }
 
 @media(max-width:760px){
   .portal-sidebar{padding:0 12px 12px}
