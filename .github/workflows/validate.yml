@@ -227,6 +227,7 @@ jobs:
           php app/tests/portal_guidance_display_test.php
           php app/tests/portal_computer_time_test.php
           php app/tests/portal_guide_test.php
+          php app/tests/portal_guide_legacy_test.php
           php app/tests/portal_westy_mac_companion_test.php
           php app/tests/portal_westy_ai_receipt_test.php
           php app/tests/portal_westy_desktop_continuation_test.php
