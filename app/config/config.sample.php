@@ -137,6 +137,9 @@ return [
         'monthly_microusd' => 5000000, // $5, reserved before provider I/O.
     ],
 
+    // Let Westy look up articles in the portal Guide.
+    'portal_guide' => ['westy_tools' => true],
+
     'portal' => [
         'enabled'       => false,
         'issuer'        => 'https://id.8westit.com',
