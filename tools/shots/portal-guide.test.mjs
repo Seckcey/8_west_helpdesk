@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { mkdtemp, mkdir, copyFile, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, cp, copyFile, appendFile, writeFile, readFile, rm } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -25,15 +25,24 @@ test('authenticated Guide selection, request links and preserved anchors at desk
   const scratch = await mkdtemp(path.join(tmpdir(), 'safeharbor-guide-'));
   const lib = path.join(scratch, 'lib');
   const portal = path.join(scratch, 'public/portal');
+  const catalog = path.join(scratch, 'help');
   await mkdir(lib); await mkdir(portal, { recursive: true });
   if (evidence) await mkdir(evidence, { recursive: true });
   // Execute the actual GET controller and actual renderers with synthetic authentication only.
   await copyFile(path.join(ROOT,'app/public/portal/guide.php'), path.join(portal,'guide.php'));
-  for (const name of ['portal_render','portal_guide']) {
-    await writeFile(path.join(lib, `${name}.php`), `<?php require $argv[1].'/app/lib/${name}.php';`);
+  await cp(path.join(ROOT, 'app/help'), catalog, {recursive:true});
+  for (const name of ['portal_render','portal_guide','help_catalog']) {
+    await writeFile(path.join(lib, `${name}.php`), `<?php require_once $argv[1].'/app/lib/${name}.php';`);
   }
   await writeFile(path.join(lib,'portal_auth.php'), '<?php');
   await writeFile(path.join(lib,'bootstrap.php'), String.raw`<?php
+require_once __DIR__.'/help_catalog.php';
+help_catalog_use_dir(__DIR__.'/../help');
+// Route fulfillment uses the controller's HTTP status, including early exits.
+ob_start();
+register_shutdown_function(static function (): void {
+    echo json_encode(['status'=>http_response_code() ?: 200, 'body'=>ob_get_clean()], JSON_THROW_ON_ERROR);
+});
 $input = json_decode($argv[2], true, 16, JSON_THROW_ON_ERROR);
 $_SERVER['REQUEST_METHOD'] = $input['method'] ?? 'GET';
 $_SERVER['REQUEST_URI'] = $input['uri'] ?? '/portal/guide.php';
@@ -64,12 +73,14 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
   const render = (file, input) => {
     const r = spawnSync('php',[path.join(portal,file), ROOT, JSON.stringify(input)],{encoding:'utf8'});
     assert.equal(r.status,0,r.stderr); assert.equal(r.stderr,'');
-    return r.stdout;
+    return JSON.parse(r.stdout);
   };
   let browser;
   try {
-    assert.ok(!render('guide.php',{role:''}).includes('id="give-computer-access"'), 'anonymous entry cannot read owner guide');
-    assert.ok(!render('guide.php',{role:'client_owner',method:'POST'}).includes('id="give-computer-access"'), 'guide stays GET-only');
+    assert.ok(!render('guide.php',{role:''}).body.includes('id="give-computer-access"'), 'anonymous entry cannot read owner guide');
+    const post = render('guide.php',{role:'client_owner',method:'POST'});
+    assert.equal(post.status,405);
+    assert.ok(!post.body.includes('id="give-computer-access"'), 'guide stays GET-only');
     browser = await chromium.launch({headless:true});
     for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
       for (const [name, input] of Object.entries(cases)) {
@@ -88,7 +99,7 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
           if (url.pathname === '/portal/westy.php') return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:false,reason:'ai_unavailable'})});
           assert.ok(['/portal/guide.php','/portal/requests.php'].includes(url.pathname), `unexpected route ${url.pathname}`);
           assert.equal(route.request().method(),'GET');
-          return route.fulfill({contentType:'text/html',body:render(path.basename(url.pathname), {...input,uri:url.pathname+url.search})});
+          return route.fulfill({contentType:'text/html',...render(path.basename(url.pathname), {...input,uri:url.pathname+url.search})});
         });
         await page.goto(ORIGIN+'/portal/requests.php');
         // Direct customers have the privacy Guide link; delegated/Companion also have the shortcut.
@@ -98,7 +109,11 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         assert.equal(await page.getByRole('heading',{level:1}).textContent(),'How this portal works');
         const ids = await page.locator('main article').evaluateAll(nodes=>nodes.map(n=>n.id));
         assert.equal(new Set(ids).size, ids.length, 'no duplicate articles/anchors');
-        for (const id of legacy) assert.ok(ids.includes(id), `${name} retains #${id}`);
+        assert.deepEqual(ids, [...new Set([...input.ids, ...legacy])], `${name} keeps every anchor in page order`);
+        const html = await page.content();
+        for (const meta of ['drafted_by','approved_by','last_verified','fable-5.2','opus-5.5','gpt-6.2-astra','keywords','"approval"']) {
+          assert.ok(!html.includes(meta), `${name} HTML excludes catalog metadata ${meta}`);
+        }
         const pilotIds = await page.locator('main article:has(ol)').evaluateAll(nodes=>nodes.map(n=>n.id));
         assert.deepEqual(pilotIds,input.ids,`${name} audience selection`);
         assert.equal(await page.locator('#portal-nav nav a[href="/portal/requests.php"]').count(),1);
@@ -139,6 +154,19 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
           assert.equal(new URL(page.url()).pathname,'/portal/requests.php');
           assert.equal(await page.getByRole('heading',{level:1}).textContent(),'Support Requests');
           assert.equal(await page.locator('main a[href="/portal/new.php"]').count(),input.role==='client_viewer'?0:1);
+        }
+        if (name === 'employee') {
+          const index = path.join(catalog, 'customer-index.json');
+          await appendFile(index, '\n');
+          try {
+            const response = await page.goto(ORIGIN+'/portal/guide.php');
+            assert.equal(response.status(), 200);
+            assert.equal(await page.locator('main > p').last().textContent(), 'Help is unavailable right now.');
+            assert.equal(await page.locator('main article').count(), 1);
+            assert.equal(await page.locator('main > p + #contact h2').textContent(), 'Contact the support team');
+          } finally {
+            await copyFile(path.join(ROOT, 'app/help/customer-index.json'), index);
+          }
         }
         assert.deepEqual(errors,[],'clean browser console');
         await context.close();

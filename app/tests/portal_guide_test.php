@@ -64,6 +64,70 @@ foreach ($cases as $label => [$context, $ids]) {
         guide_check(str_contains($instructions, 'Give an employee access to one computer') === in_array('give-computer-access',$ids,true), $label.' owner-only context does not leak');
     }
 }
+foreach ($cases as $label => [$context, $ids]) {
+    $articles = portal_guide_articles($context);
+    $json = json_encode($articles, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    foreach (['drafted_by','approved_by','last_verified','fable-5.2','opus-5.5','gpt-6.2-astra','keywords','"approval"'] as $meta) {
+        guide_check(!str_contains($json, $meta), $label.' guide excludes catalog metadata '.$meta);
+    }
+    $anchors = array_values(array_unique(array_merge($ids, array_keys($legacy))));
+    guide_check(array_keys($articles) === $anchors, $label.' keeps every anchor in page order');
+}
+guide_check((portal_guide_articles($cases['viewer'][0])['requests']['catalog_id'] ?? null) === 'sh-requests-brief', 'viewer keeps the brief requests entry');
+guide_check((portal_guide_articles($cases['employee'][0])['requests']['catalog_id'] ?? null) === 'sh-requests', 'employee gets the full requests article');
+
+$rows = portal_guide_catalog_rows();
+foreach (help_catalog_index()['articles'] as $row) {
+    if ($row['app'] !== 'safeharbor') continue;
+    unset($row['approval'], $row['last_verified']);
+    guide_check(($rows[$row['id']] ?? null) === $row, $row['id'].' joins to its catalog fields without editorial metadata');
+}
+
+$dir = sys_get_temp_dir().'/safeharbor-guide-'.bin2hex(random_bytes(12));
+if (!mkdir($dir, 0700)) throw new RuntimeException('Could not create guide fixture directory');
+try {
+    foreach (['help-manifest.json','customer-index.json'] as $file) {
+        if (!copy(__DIR__.'/../help/'.$file, $dir.'/'.$file)) throw new RuntimeException('Could not copy guide fixture');
+    }
+    $employeeContext = $cases['employee'][0];
+    $healthyWesty = portal_guide_westy_articles($employeeContext);
+    help_catalog_use_dir($dir);
+    guide_check(portal_guide_westy_articles($employeeContext) === $healthyWesty, 'Westy reads the intact catalog copy');
+    $testIndex = help_catalog_index();
+    if (file_put_contents($dir.'/customer-index.json', "\n", FILE_APPEND) !== 1) throw new RuntimeException('Could not alter guide fixture');
+    help_catalog_use_dir($dir);
+    guide_check(portal_guide_westy_articles($employeeContext) === [], 'Westy omits guide articles when the cached catalog is replaced by a damaged copy');
+    guide_check(str_contains(portal_westy_ai_instructions([], $employeeContext), 'Reviewed portal guide: []'), 'Westy still builds its instructions with a damaged catalog');
+
+    // A second valid catalog changes the audience and order without changing the display label.
+    foreach ($testIndex['articles'] as &$row) {
+        if ($row['id'] === 'sh-sign-in') {
+            $row['audience'] = ['viewer'];
+            $row['order'] = 90;
+        } elseif ($row['id'] === 'sh-assigned-computers') {
+            $row['app'] = 'milepost';
+        }
+    }
+    unset($row);
+    $bytes = json_encode($testIndex, JSON_THROW_ON_ERROR)."\n";
+    $manifestPath = $dir.'/help-manifest.json';
+    $manifest = json_decode(file_get_contents($manifestPath), true, 8, JSON_THROW_ON_ERROR);
+    $manifest['files']['customer-index.json'] = ['sha256'=>hash('sha256', $bytes), 'bytes'=>strlen($bytes)];
+    file_put_contents($dir.'/customer-index.json', $bytes);
+    file_put_contents($manifestPath, json_encode($manifest, JSON_THROW_ON_ERROR)."\n");
+    help_catalog_use_dir($dir);
+    guide_check(!isset(portal_guide_catalog_rows()['sh-assigned-computers']), 'catalog rows exclude a different app');
+    $visible = array_filter(portal_guide_articles($cases['viewer'][0]), static fn($a) => isset($a['blocks']));
+    guide_check(array_keys($visible) === ['updates','private-computer-link','sign-in'], 'viewer selection follows the new catalog audience and order');
+    guide_check(!isset(portal_guide_articles($employeeContext)['sign-in']), 'former audience no longer sees the reassigned article');
+} finally {
+    help_catalog_use_dir(null);
+    foreach (['help-manifest.json','customer-index.json'] as $file) {
+        if (is_file($dir.'/'.$file)) unlink($dir.'/'.$file);
+    }
+    rmdir($dir);
+}
+guide_check(portal_guide_westy_articles($employeeContext) === $healthyWesty, 'Westy reads the vendored guide again after restoring the catalog directory');
 $_SESSION['desktop_companion_session'] = str_repeat('b',32);
 guide_check(portal_guide_articles(['identity'=>['role'=>'client_owner']]) === $legacy, 'server Companion session retains legacy guide');
 unset($_SESSION['desktop_companion_session']);
