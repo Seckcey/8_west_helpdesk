@@ -137,7 +137,7 @@ return [
         'monthly_microusd' => 5000000, // $5, reserved before provider I/O.
     ],
 
-    // Let Westy look up articles in the portal Guide.
+    // Set false to turn off Westy's Guide tools and the help summaries it gets when those tools are unavailable.
     'portal_guide' => ['westy_tools' => true],
 
     'portal' => [

@@ -56,6 +56,11 @@ dump is disaster recovery only, because it discards everything written since. Ke
 `app/db/schema.sql` in step with the migrations, and never run `php db/seed.php` in production (it
 resets demo data).
 
+For Guide votes, run `bash deploy/deploy.sh --migrate app/db/migrations/portal_guide_votes_v1.sql`.
+The app account needs `SELECT`, `INSERT` and `UPDATE` on `portal_guide_votes` to read and save votes.
+It also needs a table-level `DELETE` grant on `portal_guide_votes` to clear expired votes and erase
+a person's votes. Check the account's grants when applying the migration.
+
 ## Rollback
 
 `bash deploy/deploy.sh --rollback` undoes the most recent deploy from its backup and records the

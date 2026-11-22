@@ -1,5 +1,7 @@
 # Portal Guide pilot
 
+Superseded for content and editing by docs/help-catalog.md
+
 The pilot published six approved articles in `/portal/guide.php` and included
 matching compact references in Westy's instructions. Application source
 `27f991ee5ff4a033bc4be38ed4462507711af2cd` went live on November 9, 2026 at
