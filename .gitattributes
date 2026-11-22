@@ -9,3 +9,5 @@ deploy/desktop_sessions_migration_catalog.json text eol=lf
 app/public/assets/w365/** -text
 docs/contracts/svc-alert-vectors.json -text
 app/tests/fixtures/portal_guide_legacy_sha256.json -text
+app/help/*.json -text
+tools/help/*.sh text eol=lf
