@@ -134,7 +134,8 @@ function portal_westy_widget(array $context): void
     $canWrite = portal_role_can_write_tickets(portal_customer_role($context['identity']));
     $brand = portal_branding();
     ?>
-<div id="portal-chat-root" data-csrf="<?= portal_h(portal_csrf_token()) ?>" data-workspace="<?= !empty($context['workspace'])?'1':'0' ?>" data-can-write="<?= $canWrite ? '1' : '0' ?>" data-avatar="<?= portal_h($brand['avatar']) ?>" data-help-labels="<?= portal_h(json_encode((object)portal_guide_source_labels($context), JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE)) ?>">
+<div id="portal-chat-root" data-csrf="<?= portal_h(portal_csrf_token()) ?>" data-workspace="<?= !empty($context['workspace'])?'1':'0' ?>" data-can-write="<?= $canWrite ? '1' : '0' ?>" data-avatar="<?= portal_h($brand['avatar']) ?>"
+     data-help-labels="<?= portal_h(json_encode((object)portal_guide_source_labels($context), JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE)) ?>" data-help-id-origin="<?= portal_h(portal_issuer_origin()) ?>">
 <?php if (empty($context['workspace']) && ($context['chat_button_placement'] ?? '') !== 'inline') portal_westy_button(); ?>
 <section id="portal-chat-panel" class="portal-westy" aria-label="Private conversation with Westy" hidden>
 <div class="portal-chat-head"><div><strong>Westy</strong><span>Private conversation</span></div><button type="button" class="btn-link" id="portal-chat-new">New chat</button><button type="button" class="portal-icon-button" id="portal-chat-close" aria-label="Close Westy"><?= portal_icon('close') ?></button></div>

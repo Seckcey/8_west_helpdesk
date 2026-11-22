@@ -52,8 +52,13 @@ guide_check(preg_match('/<div id="portal-chat-root"[^>]*\bdata-help-labels="([^"
 $ownerLabels = portal_guide_source_labels($cases['owner'][0]);
 guide_check(json_decode(html_entity_decode($match[1], ENT_QUOTES, 'UTF-8'), true, 8, JSON_THROW_ON_ERROR) === $ownerLabels,
     'the chat root exposes the owner labels as JSON');
-guide_check(array_keys($ownerLabels) === array_column(portal_guide_articles($cases['owner'][0]), 'catalog_id'), 'labels cover every article id the person can see');
-guide_check(!isset(portal_guide_source_labels($cases['employee'][0])['sh-give-computer-access']), 'labels are role filtered');
+guide_check(preg_match('/<div id="portal-chat-root"[^>]*\bdata-help-id-origin="([^"]*)"/', $widget, $match) === 1
+    && html_entity_decode($match[1], ENT_QUOTES, 'UTF-8') === portal_issuer_origin(), 'the chat root exposes the issuer origin');
+guide_check(isset($ownerLabels['id-add-employee']), 'the owner has a source label for inviting an employee');
+$employeeLabels = portal_guide_source_labels($cases['employee'][0]);
+guide_check(!isset($employeeLabels['sh-give-computer-access']) && !isset($employeeLabels['id-add-employee']), 'labels are role filtered in both apps');
+$idRows = array_filter($indexRows, static fn($row) => $row['app'] === 'id');
+uasort($idRows, static fn($a, $b) => $a['order'] <=> $b['order']);
 $rendered = [];
 foreach ($cases as $label => [$context, $role]) {
     $articles = portal_guide_articles($context);
@@ -62,19 +67,35 @@ foreach ($cases as $label => [$context, $role]) {
     $catalogAnchors = array_map(static fn($a) => $indexRows[$a['catalog_id']]['anchor'], array_values($articles));
     guide_check($catalogAnchors === $anchors && count(array_unique($catalogAnchors)) === count($anchors)
         && !array_intersect(['contact', 'guide-q'], $anchors), $label.' has unique catalog anchors clear of the page controls');
+    $eligibleId = array_filter($idRows, static fn($row) => $role === 'legacy'
+        ? array_diff(['owner_admin','employee','viewer'], $row['audience']) === []
+        : in_array($role === 'owner' ? 'owner_admin' : $role, $row['audience'], true));
+    $help = portal_guide_help_set($context ?? []);
+    $helpIds = array_column($help, 'catalog_id');
+    guide_check($helpIds === [...array_column($articles, 'catalog_id'), ...array_keys($eligibleId)]
+        && count($helpIds) === count(array_unique($helpIds)), $label.' gets the whole page set followed by its ID articles in order');
     $labels = portal_guide_source_labels($context);
-    guide_check(array_keys($labels) === array_column($articles, 'catalog_id'), $label.' labels match the page set');
-    foreach ($articles as $anchor => $article) {
-        $id = $article['catalog_id'];
+    guide_check(array_keys($labels) === $helpIds, $label.' labels match the help set exactly');
+    foreach ($help as $id => $article) {
         $row = $indexRows[$id];
-        guide_check($labels[$id] === ['label'=>$article['title'], 'href'=>'/portal/guide.php#'.$anchor],
-            $label.' source for '.$id.' has just the page title and anchor link');
+        $href = ($row['app'] === 'id' ? portal_issuer_origin().'/help.php#' : '/portal/guide.php#').$row['anchor'];
+        guide_check(preg_match('/\A[a-z][a-z0-9-]{0,63}\z/', $article['anchor']) === 1 && $article['anchor'] === $row['anchor']
+            && $article['app'] === $row['app'] && $article['href'] === $href, $label.' has the exact help destination for '.$id);
+        guide_check($labels[$id] === ['label'=>$row['title'], 'href'=>$href], $label.' has only the title and approved link for '.$id);
+        if ($row['app'] === 'id') {
+            guide_check($article['title'] === $row['title'] && $article['summary'] === $row['summary']
+                && $article['keywords'] === $row['keywords'] && $article['blocks'] === $row['body']['blocks'],
+                $label.' gets the indexed ID title, search fields and body for '.$id);
+        }
         if ($role === 'legacy') {
             guide_check(array_diff(['owner_admin', 'employee', 'viewer'], $row['audience']) === [],
-                $label.' sees only all-audience articles, including '.$id);
+                $label.' help includes only all-audience articles, including '.$id);
         }
+    }
+    foreach ($articles as $article) {
+        $id = $article['catalog_id'];
         if (isset($expectedBodies[$id])) {
-            guide_check($article['title'] === $row['title'] && portal_guide_article_html($article) === $expectedBodies[$id],
+            guide_check($article['title'] === $indexRows[$id]['title'] && portal_guide_article_html($article) === $expectedBodies[$id],
                 $label.' renders the catalog title, paragraphs and ordered steps for '.$id);
             $rendered[$id] = true;
         }
@@ -177,9 +198,12 @@ try {
     rmdir($dir);
 }
 guide_check($readRequests() === $healthyWesty, 'Westy reads the vendored guide again after restoring the catalog directory');
+$legacyHelpIds = array_column(portal_guide_help_set([]), 'catalog_id');
 $_SESSION['desktop_companion_session'] = str_repeat('b',32);
 guide_check(array_keys(portal_guide_articles(['identity'=>['role'=>'client_owner']])) === $expected['legacy'],
     'server Companion session sees the legacy guide and all-audience Companion articles');
+guide_check(array_column(portal_guide_help_set($cases['owner'][0]), 'catalog_id') === $legacyHelpIds,
+    'a server Companion session sees the same help as the legacy no-context case');
 unset($_SESSION['desktop_companion_session']);
 guide_check(array_search('private-computer-link',array_keys(portal_guide_articles($cases['owner'][0])),true) < array_search('give-computer-access',array_keys(portal_guide_articles($cases['owner'][0])),true), 'employee reference appears above owner cross-reference');
 guide_check($pilot['private-computer-link']['audience'] === 'Employee', 'owner reference retains original Employee audience');

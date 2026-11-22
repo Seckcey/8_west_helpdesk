@@ -32,7 +32,7 @@ function westy_help_test_call(array $context, string $name, mixed $arguments): a
 $emp = $cases['employee'][0];
 $own = $cases['owner'][0];
 $_GET = $_POST = ['role'=>'client_owner'];
-$rows = portal_guide_catalog_rows();
+$rows = array_column(help_catalog_index()['articles'], null, 'id');
 $none = ['state'=>'none','articles'=>[]];
 $notFound = ['state'=>'not_found'];
 $unavailable = ['state'=>'unavailable'];
@@ -59,8 +59,9 @@ foreach (['', " \t\n", "\xFF", 'zzzzqqqq'] as $query) {
 }
 $signIn = westy_help_test_call($emp, 'search_help', ['query'=>'sign in']);
 check($signIn['state'] === 'found' && $signIn['articles'][0] === [
-    'id'=>'co-connect', 'title'=>$rows['co-connect']['title'], 'summary'=>$rows['co-connect']['summary'], 'href'=>'/portal/guide.php#companion-connect',
-], 'sign-in search returns the Companion catalog title, summary and page link');
+    'id'=>'id-passkey-use', 'title'=>$rows['id-passkey-use']['title'], 'summary'=>$rows['id-passkey-use']['summary'],
+    'href'=>portal_issuer_origin().'/help.php#passkey-use',
+], 'sign-in search returns the ID catalog title, summary and cross-app link');
 check(westy_help_test_call($emp, 'search_help', ['query'=>str_repeat(' ', 2).'sign in'.str_repeat(' ', 100).'revocation']) === $signIn,
     'help uses the normalized 100-character query');
 foreach (['sh-give-computer-access','nope','', "sh-requests\n", 'sh/requests', "\xFF"] as $id) {
@@ -71,36 +72,36 @@ check(str_starts_with(westy_help_test_call($own, 'read_help_article', ['id'=>'sh
     '**Purpose and prerequisites.**'), 'read returns the approved article text');
 
 $broad = 'request computer sign access follow support';
-$allRows = help_catalog_index()['articles'];
 foreach ($cases as $label => [$context, $role]) {
     $page = portal_guide_articles($context);
-    check(array_keys($page) === $expectedAnchors[$role], $label.' Westy uses the expected page articles');
-    $anchors = [];
-    foreach ($page as $anchor => $article) $anchors[$article['catalog_id']] = $anchor;
-    $found = westy_help_test_call($context, 'search_help', ['query'=>$broad]);
+    check(array_keys($page) === $expectedAnchors[$role], $label.' keeps the expected guide page');
+    $help = portal_guide_help_set($context);
+    $query = 'request sign passkey';
+    $found = westy_help_test_call($context, 'search_help', ['query'=>$query]);
     $ids = array_column($found['articles'], 'id');
-    check($found['state'] === 'found' && $ids !== [] && count($ids) <= 5 && array_diff($ids, array_keys($anchors)) === []
-        && $ids === array_column(portal_guide_search($context, $broad, 5), 'id'), $label.' search follows the ranked page set');
+    check($found['state'] === 'found' && count($ids) === 5 && array_diff($ids, array_column($help, 'catalog_id')) === []
+        && $ids === array_column(portal_guide_search($context, $query, 5), 'id'), $label.' search follows the ranked help set');
     foreach ($found['articles'] as $hit) {
         $id = $hit['id'];
-        check($hit === ['id'=>$id,'title'=>$rows[$id]['title'],'summary'=>$rows[$id]['summary'],'href'=>'/portal/guide.php#'.$anchors[$id]],
+        check($hit === ['id'=>$id,'title'=>$rows[$id]['title'],'summary'=>$rows[$id]['summary'],'href'=>$help[$id]['href']],
             $label.' search exposes only the public link fields for '.$id);
     }
     $companion = westy_help_test_call($context, 'search_help', ['query'=>'Connect your Westy window']);
     check(in_array('co-connect', array_column($companion['articles'], 'id'), true), $label.' Westy can find the Companion connection guide');
-    foreach ($allRows as $row) {
-        $id = $row['id'];
+    foreach ($rows as $id => $row) {
         $actual = westy_help_test_call($context, 'read_help_article', ['id'=>$id]);
-        if (!isset($anchors[$id])) {
+        if ($id === 'id-add-employee') {
+            check($actual['state'] === ($role === 'owner' ? 'found' : 'not_found'), $label.' invitation read follows the authenticated role');
+        }
+        if (!isset($help[$id])) {
             check($actual === $notFound, $label.' cannot read '.$id);
             continue;
         }
-        $anchor = $anchors[$id];
-        $article = $page[$anchor];
+        $article = $help[$id];
         check($actual === ['state'=>'found','article'=>[
             'id'=>$id, 'title'=>$row['title'], 'audience_label'=>$article['audience'] ?? null,
-            'href'=>'/portal/guide.php#'.$anchor, 'text'=>portal_guide_article_plain($article),
-        ]], $label.' can read the complete bounded page article '.$id);
+            'href'=>$article['href'], 'text'=>portal_guide_article_plain($article),
+        ]], $label.' can read the complete bounded help article '.$id);
     }
 }
 
@@ -110,6 +111,10 @@ $links = westy_help_test_call($emp, 'search_help', ['query'=>$broad])['articles'
 check(count($links) === 5, 'search caps a broad query at five');
 $reference = $prefix.westy_help_test_json(array_slice($links, 0, 3));
 check(portal_westy_help_reference($task) === $reference, 'fallback contains the top three public links as untrusted reference data');
+$passkeyHits = westy_help_test_call($own, 'search_help', ['query'=>'passkey'])['articles'];
+check($passkeyHits[0]['id'] === 'id-passkey-add' && $passkeyHits[0]['href'] === portal_issuer_origin().'/help.php#passkey-add'
+    && portal_westy_help_reference($own + ['authorized_task'=>'passkey']) === $prefix.westy_help_test_json(array_slice($passkeyHits, 0, 3)),
+    'the fallback includes the ranked ID links inside its untrusted reference');
 $messages = [
     ['role'=>'user','content'=>'earlier'], ['role'=>'assistant','content'=>'ok'],
     ['role'=>'user','content'=>'How do I sign in?'], ['role'=>'assistant','content'=>[]],
@@ -167,10 +172,15 @@ try {
     $trimmed = westy_help_test_call($emp, 'search_help', ['query'=>'sizeprobe']);
     check(count($ranked) === 5 && $trimmed['state'] === 'found' && array_column($trimmed['articles'], 'id') === array_slice($ranked, 0, 2),
         'oversize search drops the tail until the wrapped UTF-8 JSON fits');
+    $sizeTask = $emp + ['authorized_task'=>'sizeprobe'];
+    $sizeReference = portal_westy_help_reference($sizeTask);
+    check($sizeReference === $prefix.westy_help_test_json($trimmed['articles']) && strlen($sizeReference) <= 8192,
+        'the fallback also keeps its ranked results and prefix within the byte cap');
     foreach ($index['articles'] as &$row) $row['title'] .= str_repeat('界', 2000);
     unset($row);
     $useIndex($index);
     check(westy_help_test_call($emp, 'search_help', ['query'=>'sizeprobe']) === $none, 'no search hit is returned if even the first cannot fit');
+    check(portal_westy_help_reference($sizeTask) === '', 'the fallback omits an oversized first hit');
 
     $index = $original;
     $position = array_search('sh-sign-in', array_column($index['articles'], 'id'), true);

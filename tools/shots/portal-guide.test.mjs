@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const ORIGIN = 'http://safeharbor.test';
+const ID_ORIGIN = 'https://accounts.example.test:8443';
 const evidence = process.env.PORTAL_GUIDE_EVIDENCE;
 const searchError = 'Search could not run. Reload the page and try again.';
 const {anchors} = JSON.parse(await readFile(path.join(ROOT, 'app/tests/fixtures/portal_guide_cases.json'), 'utf8'));
@@ -158,6 +159,7 @@ if (!empty($input['companion'])) $_SESSION['desktop_companion_session'] = str_re
 function cfg(string $key, mixed $default=null): mixed { return $default; }
 function enforce_https(): void {}
 function portal_enabled(): bool { return true; }
+function portal_configured_issuer(): string { return 'https://accounts.example.test:8443/oidc'; }
 function db(): mixed { return null; }
 function portal_csrf_token(): string { return str_repeat('c',64); }
 function portal_csrf_valid(mixed $sent): bool { return is_string($sent) && hash_equals(portal_csrf_token(), $sent); }
@@ -202,6 +204,10 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         page.on('console', message => { if (message.type()==='error') errors.push(message.text()); });
         await page.route('**/*', async route => {
           const url = new URL(route.request().url());
+          if (url.origin === ID_ORIGIN && url.pathname === '/help.php') {
+            assert.equal(route.request().method(), 'GET');
+            return route.fulfill({contentType:'text/html', body:'<link rel="icon" href="data:,"><h1 id="passkey-add">ID help fixture</h1>'});
+          }
           assert.equal(url.origin, ORIGIN, 'no real sign-in, provider or production traffic');
           if (url.pathname.startsWith('/assets/')) {
             const type = {'.css':'text/css','.js':'text/javascript','.png':'image/png','.svg':'image/svg+xml','.json':'application/json'}[path.extname(url.pathname)];
@@ -288,16 +294,39 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
           href:link.getAttribute('href'), title:link.textContent, summary:link.nextElementSibling?.textContent,
         })));
         assert.ok(hits.length > 0 && hits.length <= 10);
+        const idArticles = index.articles.filter(row => row.app === 'id' && (input.audience
+          ? row.audience.includes(input.audience)
+          : ['employee', 'viewer', 'owner_admin'].every(audience => row.audience.includes(audience))));
         for (const {href, title, summary} of hits) {
-          assert.ok(ids.some(id => href === '#'+id), name+' result points to a visible article');
-          assert.equal(await page.locator(href+' h2').textContent(), title);
+          if (href.startsWith('#')) {
+            assert.ok(ids.some(id => href === '#'+id), name+' result points to a visible page article');
+            assert.equal(await page.locator(href+' h2').textContent(), title);
+          } else {
+            const row = idArticles.find(article => href === ID_ORIGIN + '/help.php#' + article.anchor);
+            assert.ok(row, name+' result points to an eligible ID article on the configured issuer');
+            assert.equal(title, row.title + ' · 8 West ID');
+          }
           assert.ok(summary?.trim(), 'each result includes its summary');
         }
-        if (name === 'employee') assert.equal(hits[0].href, '#companion-connect');
+        if (name === 'employee') assert.equal(hits[0].href, ID_ORIGIN + '/help.php#passkey-use');
         if (name === 'owner') assert.equal(hits[0].href, '#give-computer-access');
         await checkGuideWidth(page);
-        await results.locator('li a').first().click();
-        assert.equal(new URL(page.url()).hash, hits[0].href);
+        const localHit = results.locator('li a[href^="#"]').first();
+        const localHref = await localHit.getAttribute('href');
+        await localHit.click();
+        assert.equal(new URL(page.url()).hash, localHref);
+
+        if (name === 'owner') {
+          const response = await submitSearch(page, 'passkey');
+          checkPublicHtml(await response.text(), 'owner passkey search');
+          const passkey = results.getByRole('link', {name:'Add a passkey for 8 West ID · 8 West ID', exact:true});
+          assert.equal(await passkey.getAttribute('href'), ID_ORIGIN + '/help.php#passkey-add');
+          assert.equal(await passkey.getAttribute('target'), await page.locator('a[aria-label="My settings"]').getAttribute('target'));
+          assert.equal(await page.locator('main article#passkey-add, .portal-guide-vote[data-article="id-passkey-add"]').count(), 0);
+          await passkey.click();
+          await page.getByRole('heading', {name:'ID help fixture'}).waitFor();
+          assert.equal(page.url(), ID_ORIGIN + '/help.php#passkey-add', 'an ID search result opens in the current browser tab');
+        }
 
         if (name === 'employee') {
           const markup = '<script>x</script>';

@@ -3,6 +3,8 @@
 declare(strict_types=1);
 require_once __DIR__.'/../lib/portal_guide.php';
 
+$testIssuer = 'https://accounts.example.test:8443/oidc';
+function portal_configured_issuer(): string { return $GLOBALS['testIssuer']; }
 $checks = 0;
 function check(bool $condition, string $label): void {
     global $checks;
@@ -17,8 +19,8 @@ $owner = $cases['owner'][0];
 $viewer = $cases['viewer'][0];
 $_GET = $_POST = ['role'=>'client_owner'];
 $_SERVER['REQUEST_URI'] = '/portal/guide.php?role=client_owner';
-check(array_column(portal_guide_search($employee, 'sign in', 3), 'id') === ['co-connect', 'co-sign-out', 'sh-sign-in'],
-    'employee finds the Companion and portal sign-in guides');
+check(array_column(portal_guide_search($employee, 'sign in', 3), 'id') === ['id-passkey-use', 'id-signed-in-browsers', 'id-sign-in'],
+    'employee finds the highest-ranked sign-in articles across apps');
 check((portal_guide_search($employee, 'sign in to Safeharbor')[0]['id'] ?? null) === 'sh-sign-in',
     'naming Safeharbor ranks its sign-in article first');
 foreach (['give access', 'give access computer'] as $query) {
@@ -26,7 +28,14 @@ foreach (['give access', 'give access computer'] as $query) {
         'employee cannot find the owner article despite role parameters for '.$query);
 }
 check((portal_guide_search($owner, 'give access computer')[0]['id'] ?? null) === 'sh-give-computer-access', 'owner finds the access article first');
-check(!in_array('sh-sign-in', array_column(portal_guide_search($viewer, 'sign in'), 'id'), true), 'viewer has no sign-in article');
+check(!in_array('sh-sign-in', array_column(portal_guide_search($viewer, 'sign in'), 'id'), true), 'viewer cannot find the employee Safeharbor sign-in article');
+$passkey = portal_guide_search($owner, 'passkey')[0];
+check($passkey['id'] === 'id-passkey-add' && $passkey['app'] === 'id'
+    && $passkey['href'] === 'https://accounts.example.test:8443/help.php#passkey-add', 'owner finds the passkey guide at the configured issuer origin');
+$employeeHelp = portal_guide_help_set($employee);
+check($employeeHelp['sh-sign-in']['href'] === '/portal/guide.php#sign-in'
+    && $employeeHelp['id-sign-in']['href'] === 'https://accounts.example.test:8443/help.php#sign-in',
+    'the same anchor in two apps has distinct IDs and destinations');
 check(portal_guide_search($employee, '') === [] && portal_guide_search($employee, 'a') === [], 'empty and one-letter queries return nothing');
 check(count(portal_guide_search($owner, 'request computer support follow', 5)) === 5, 'portal search honors a five-result limit');
 $longQuery = str_repeat('request ', 40);
@@ -38,21 +47,24 @@ check(array_column(portal_guide_search($employee, 'open request', 3), 'id') === 
 check(in_array('sh-requests-brief', array_column(portal_guide_search($viewer, 'open request'), 'id'), true),
     'viewer finds the brief request article at the shared anchor');
 
-$rows = portal_guide_catalog_rows();
+$rows = array_column(help_catalog_index()['articles'], null, 'id');
 foreach ($cases as $label => [$context, $role]) {
     $articles = portal_guide_articles($context);
-    check(array_keys($articles) === $expected[$role], $label.' searches the expected page articles');
+    check(array_keys($articles) === $expected[$role], $label.' keeps the expected page articles');
     check(in_array('co-connect', array_column(portal_guide_search($context, 'Connect your Westy window'), 'id'), true),
         $label.' can find the Companion connection guide');
-    $results = portal_guide_search($context, 'request computer sign access follow support');
+    $help = portal_guide_help_set($context ?? []);
+    $results = portal_guide_search($context, 'request sign passkey');
     $ids = array_column($results, 'id');
-    check($ids !== [] && count($ids) <= 10 && array_diff($ids, array_column($articles, 'catalog_id')) === [],
-        $label.' search stays inside the page set');
+    check(count($ids) === 10 && array_diff($ids, array_column($help, 'catalog_id')) === [],
+        $label.' broad search returns ten matches inside the help set');
     foreach ($results as $hit) {
         $row = $rows[$hit['id']];
-        if (($articles[$hit['anchor']]['catalog_id'] ?? null) !== $hit['id'] || $hit !== [
+        $href = ($row['app'] === 'id' ? portal_issuer_origin().'/help.php#' : '/portal/guide.php#').$row['anchor'];
+        if ($hit !== [
             'id'=>$row['id'], 'anchor'=>$row['anchor'], 'title'=>$row['title'], 'summary'=>$row['summary'],
-        ]) throw new RuntimeException($label.' result did not match its page article and public catalog fields');
+            'href'=>$href, 'app'=>$row['app'],
+        ]) throw new RuntimeException($label.' result did not match its help article and public catalog fields');
     }
     check(count(array_unique($ids)) === count($ids), $label.' gets distinct links to the matching articles');
 }
@@ -60,6 +72,10 @@ $_SESSION['desktop_companion_session'] = str_repeat('b', 32);
 check(portal_guide_search($owner, 'give access') === portal_guide_search([], 'give access'),
     'server Companion session retains the legacy search set');
 unset($_SESSION['desktop_companion_session']);
+$testIssuer = 'https://invalid host/oidc';
+check(portal_guide_other_app_articles($owner) === [] && array_column(portal_guide_help_set($owner), 'catalog_id')
+    === array_column(portal_guide_articles($owner), 'catalog_id'), 'an unusable HTTPS origin leaves only the page set');
+$testIssuer = 'https://accounts.example.test:8443/oidc';
 
 function doc(string $id, string $title = '', array $keywords = [], string $summary = '', string $body = ''): array {
     return ['id'=>$id, 'anchor'=>$id, 'title'=>$title, 'summary'=>$summary, 'keywords'=>$keywords, 'body'=>$body];

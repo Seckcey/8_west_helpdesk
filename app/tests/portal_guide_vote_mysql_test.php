@@ -148,6 +148,10 @@ try {
             check(portal_guide_vote_record($pdo, $voter, $vote) === $vote && (portal_guide_vote_current($pdo, $voter)[$id] ?? null) === true,
                 $role.' can save and read back a vote on '.$id);
         }
+        denied(fn()=>portal_guide_vote_record($pdo,$voter,['article'=>'id-passkey-add','helpful'=>true]),
+            $role.' cannot vote on the ID passkey article', 'not_found', 404);
+        check(array_diff(array_keys(portal_guide_vote_current($pdo, $voter)), array_column(portal_guide_articles($voter), 'catalog_id')) === [],
+            $role.' reads votes only for its page set');
     }
 
     $pdo->exec('DROP TABLE portal_guide_votes');
