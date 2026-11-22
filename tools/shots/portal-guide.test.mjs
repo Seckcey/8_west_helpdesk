@@ -11,17 +11,23 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const ORIGIN = 'http://safeharbor.test';
 const evidence = process.env.PORTAL_GUIDE_EVIDENCE;
 const searchError = 'Search could not run. Reload the page and try again.';
-const legacy = ['devices','requests','updates','response','summaries','privacy','contact'];
+const {anchors} = JSON.parse(await readFile(path.join(ROOT, 'app/tests/fixtures/portal_guide_cases.json'), 'utf8'));
 const cases = {
-  employee: { role: 'client_staff', ids: ['sign-in','assigned-computers','requests','updates','private-computer-link'] },
-  viewer: { role: 'client_viewer', ids: ['assigned-computers','updates','private-computer-link'] },
-  owner: { role: 'client_owner', ids: ['requests','updates','private-computer-link','give-computer-access'] },
-  admin: { role: 'client_admin', ids: ['requests','updates','private-computer-link','give-computer-access'] },
-  technician: { role: 'technician', ids: [] },
-  delegated: { role: 'technician', overlay: 'client_owner', ids: [] },
-  overlayOwner: { role: 'client_owner', overlay: 'client_owner', ids: [] },
-  companion: { role: 'client_owner', companion: true, ids: [] },
+  employee: { role: 'client_staff', ids: anchors.employee, audience: 'employee' },
+  viewer: { role: 'client_viewer', ids: anchors.viewer, audience: 'viewer' },
+  owner: { role: 'client_owner', ids: anchors.owner, audience: 'owner_admin' },
+  admin: { role: 'client_admin', ids: anchors.owner, audience: 'owner_admin' },
+  technician: { role: 'technician', ids: anchors.legacy },
+  delegated: { role: 'technician', overlay: 'client_owner', ids: anchors.legacy },
+  overlayOwner: { role: 'client_owner', overlay: 'client_owner', ids: anchors.legacy },
+  companion: { role: 'client_owner', companion: true, ids: anchors.legacy },
 };
+
+function catalogArticleText(row) {
+  const inline = text => text.replace(/\*\*([^*]+)\*\*|`([^`]+)`/gu, (_, bold, code) => bold ?? code);
+  return {anchor:row.anchor, title:row.title, blocks:row.body.blocks.map(block =>
+    block.type === 'paragraph' ? inline(block.text) : block.items.map(inline))};
+}
 
 function checkPublicHtml(html, label) {
   for (const meta of ['drafted_by','approved_by','last_verified','fable-5.2','opus-5.5','gpt-6.2-astra','keywords','"approval"']) {
@@ -118,6 +124,9 @@ test('authenticated Guide selection, search, helpful votes, request links and pr
   // Execute the Guide controller and renderers with synthetic authentication.
   await copyFile(path.join(ROOT,'app/public/portal/guide.php'), path.join(portal,'guide.php'));
   await cp(path.join(ROOT, 'app/help'), catalog, {recursive:true});
+  const index = JSON.parse(await readFile(path.join(catalog, 'customer-index.json'), 'utf8'));
+  const fullArticles = index.articles.filter(row => !row.legacy_guide && ['safeharbor','companion'].includes(row.app))
+    .sort((a, b) => a.order - b.order);
   for (const name of ['portal_render','portal_guide','help_catalog']) {
     await writeFile(path.join(lib, `${name}.php`), `<?php require_once $argv[1].'/app/lib/${name}.php';`);
   }
@@ -225,10 +234,11 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         assert.equal(await page.locator('.portal-guide-results').count(), 0);
         const ids = await page.locator('main article').evaluateAll(nodes=>nodes.map(n=>n.id));
         assert.equal(new Set(ids).size, ids.length, 'no duplicate articles/anchors');
-        assert.deepEqual(ids, [...new Set([...input.ids, ...legacy])], `${name} keeps every anchor in page order`);
+        assert.deepEqual(ids, [...input.ids, 'contact'], `${name} keeps every anchor in page order`);
+        assert.equal(await page.locator('[id="guide-q"]').count(), 1, 'the search field has its own anchor');
         const voteGroups = page.locator('.portal-guide-vote');
         const voteScript = page.locator('script[src^="/assets/js/portal-guide.js?v="]');
-        const canVote = ['employee','viewer','owner','admin'].includes(name);
+        const canVote = Boolean(input.audience);
         assert.equal(await voteGroups.count(), canVote ? ids.length - 1 : 0, name+' vote controls match its catalog articles');
         assert.equal(await voteScript.count(), canVote ? 1 : 0);
         assert.equal(await page.locator('#contact .portal-guide-vote').count(), 0);
@@ -238,8 +248,14 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         }
         if (name === 'employee') await checkVoting(page, reply => { voteReply = reply; });
         checkPublicHtml(await page.content(), name);
-        const pilotIds = await page.locator('main article:has(ol)').evaluateAll(nodes=>nodes.map(n=>n.id));
-        assert.deepEqual(pilotIds,input.ids,`${name} audience selection`);
+        const rendered = await page.locator('main article:has(ol)').evaluateAll(nodes => nodes.map(node => ({
+          anchor:node.id, title:node.querySelector('h2').textContent,
+          blocks:[...node.querySelectorAll(':scope > p:not(.portal-eyebrow), :scope > ol')].map(block =>
+            block.tagName === 'OL' ? [...block.children].map(item => item.textContent) : block.textContent),
+        })));
+        const expectedArticles = fullArticles.filter(row => input.audience ? row.audience.includes(input.audience) :
+          row.app === 'companion' && ['owner_admin','employee','viewer'].every(audience => row.audience.includes(audience)));
+        assert.deepEqual(rendered, expectedArticles.map(catalogArticleText), name+' renders the indexed titles and complete bodies in order');
         assert.equal(await page.locator('#portal-nav nav a[href="/portal/requests.php"]').count(),1);
         assert.equal(await page.locator('#portal-nav a[href="/portal/guide.php"]').count(),1);
         assert.equal(await page.locator('#portal-nav nav a[href="/portal/guide.php"]').count(),0,'no added navigation entry');
@@ -253,10 +269,8 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         // A link navigation can expose the new DOM before its CSS/fonts finish loading.
         // Measure the settled page, without retrying or relaxing the overflow assertion.
         await checkGuideWidth(page);
-        if (input.ids.length) {
-          assert.ok(await page.locator('main ol').first().evaluate(el=>parseFloat(getComputedStyle(el).paddingLeft)>=20),'ordered steps keep markers inside the content edge');
-          assert.ok(await page.locator('main strong').first().evaluate(el=>Number(getComputedStyle(el).fontWeight)>=600),'approved bold labels remain visually emphasized');
-        }
+        assert.ok(await page.locator('main ol').first().evaluate(el=>parseFloat(getComputedStyle(el).paddingLeft)>=20),'ordered steps keep markers inside the content edge');
+        assert.ok(await page.locator('main strong').first().evaluate(el=>Number(getComputedStyle(el).fontWeight)>=600),'approved bold labels remain visually emphasized');
         if (evidence && ['employee','viewer','owner'].includes(name)) {
           await page.evaluate(()=>window.scrollTo(0,0));
           await page.screenshot({path:path.join(evidence,`${name}-${viewport.width}.png`)});
@@ -279,7 +293,7 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
           assert.equal(await page.locator(href+' h2').textContent(), title);
           assert.ok(summary?.trim(), 'each result includes its summary');
         }
-        if (name === 'employee') assert.equal(hits[0].href, '#sign-in');
+        if (name === 'employee') assert.equal(hits[0].href, '#companion-connect');
         if (name === 'owner') assert.equal(hits[0].href, '#give-computer-access');
         await checkGuideWidth(page);
         await results.locator('li a').first().click();

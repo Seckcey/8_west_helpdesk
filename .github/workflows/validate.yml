@@ -229,6 +229,7 @@ jobs:
           php app/tests/portal_guide_test.php
           php app/tests/portal_guide_legacy_test.php
           php app/tests/help_catalog_test.php
+          php app/tests/help_drift_test.php
           php app/tests/portal_guide_search_test.php
           php app/tests/portal_westy_help_test.php
           php app/tests/portal_guide_vote_test.php

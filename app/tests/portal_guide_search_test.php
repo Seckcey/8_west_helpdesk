@@ -10,12 +10,17 @@ function check(bool $condition, string $label): void {
     echo 'ok '.++$checks.' - '.$label."\n";
 }
 
-$employee = ['identity'=>['role'=>'client_staff']];
-$owner = ['identity'=>['role'=>'client_owner']];
-$viewer = ['identity'=>['role'=>'client_viewer']];
+['anchors'=>$expected, 'cases'=>$cases] = json_decode(file_get_contents(__DIR__.'/fixtures/portal_guide_cases.json'), true, 8, JSON_THROW_ON_ERROR);
+$cases['no context'] = [null, 'legacy'];
+$employee = $cases['employee'][0];
+$owner = $cases['owner'][0];
+$viewer = $cases['viewer'][0];
 $_GET = $_POST = ['role'=>'client_owner'];
 $_SERVER['REQUEST_URI'] = '/portal/guide.php?role=client_owner';
-check((portal_guide_search($employee, 'sign in')[0]['id'] ?? null) === 'sh-sign-in', 'employee finds sign-in first');
+check(array_column(portal_guide_search($employee, 'sign in', 3), 'id') === ['co-connect', 'co-sign-out', 'sh-sign-in'],
+    'employee finds the Companion and portal sign-in guides');
+check((portal_guide_search($employee, 'sign in to Safeharbor')[0]['id'] ?? null) === 'sh-sign-in',
+    'naming Safeharbor ranks its sign-in article first');
 foreach (['give access', 'give access computer'] as $query) {
     check(!in_array('sh-give-computer-access', array_column(portal_guide_search($employee, $query), 'id'), true),
         'employee cannot find the owner article despite role parameters for '.$query);
@@ -28,28 +33,17 @@ $longQuery = str_repeat('request ', 40);
 check(portal_guide_search($employee, $longQuery) === portal_guide_search($employee, mb_substr($longQuery, 0, 100, 'UTF-8')),
     'portal search caps the query at 100 characters');
 check(portal_guide_search($employee, "\xFF") === [], 'invalid UTF-8 is no query');
-$topTwo = array_slice(array_column(portal_guide_search($employee, 'open request'), 'id'), 0, 2);
-check(in_array('sh-requests', $topTwo, true), 'open request finds the full request article near the top');
+check(array_column(portal_guide_search($employee, 'open request', 3), 'id') === ['sh-request-status', 'sh-find-request', 'sh-requests'],
+    'open request finds the status, find and full request articles');
 check(in_array('sh-requests-brief', array_column(portal_guide_search($viewer, 'open request'), 'id'), true),
     'viewer finds the brief request article at the shared anchor');
 
-$cases = [
-    'employee' => $employee,
-    'viewer' => $viewer,
-    'owner' => $owner,
-    'admin' => ['identity'=>['role'=>'client_admin']],
-    'staff' => ['identity'=>['role'=>'technician']],
-    'delegated staff as owner' => ['identity'=>['role'=>'technician','customer_access'=>['role'=>'client_owner']]],
-    'native owner with overlay' => ['identity'=>['role'=>'client_owner','customer_access'=>['role'=>'client_owner']]],
-    'native admin with overlay' => ['identity'=>['role'=>'client_admin','customer_access'=>['role'=>'client_admin']]],
-    'companion employee' => ['identity'=>['role'=>'client_staff'],'desktop_companion_pair'=>str_repeat('a', 32)],
-    'companion owner' => ['identity'=>['role'=>'client_owner'],'desktop_companion_pair'=>str_repeat('a', 32)],
-    'absent identity' => [],
-    'no context' => null,
-];
 $rows = portal_guide_catalog_rows();
-foreach ($cases as $label => $context) {
+foreach ($cases as $label => [$context, $role]) {
     $articles = portal_guide_articles($context);
+    check(array_keys($articles) === $expected[$role], $label.' searches the expected page articles');
+    check(in_array('co-connect', array_column(portal_guide_search($context, 'Connect your Westy window'), 'id'), true),
+        $label.' can find the Companion connection guide');
     $results = portal_guide_search($context, 'request computer sign access follow support');
     $ids = array_column($results, 'id');
     check($ids !== [] && count($ids) <= 10 && array_diff($ids, array_column($articles, 'catalog_id')) === [],
@@ -110,10 +104,22 @@ check(help_catalog_search([doc('field', body:'a aa AA bb cc dd ee ff gg hh ii')]
 check(array_column(portal_guide_search(['identity'=>['role'=>'client_owner']], 'revocation'), 'id') === ['sh-give-computer-access'],
     'a word in the last paragraph of an article body is found');
 
-$hashes = json_decode(file_get_contents(__DIR__.'/fixtures/portal_guide_approved_sha256.json'), true, 8, JSON_THROW_ON_ERROR);
-foreach (portal_guide_pilot_articles() as $anchor => $article) {
-    check(hash('sha256', $article['title']."\n\n".portal_guide_article_plain($article)) === $hashes[$anchor],
-        $anchor.' plain paragraphs and numbered steps match the approved bytes');
+$pilot = portal_guide_pilot_articles();
+foreach (help_catalog_index()['articles'] as $row) {
+    if ($row['legacy_guide'] || !in_array($row['app'], ['safeharbor', 'companion'], true)) continue;
+    $paragraphs = [];
+    foreach ($row['body']['blocks'] as $block) {
+        if ($block['type'] === 'paragraph') {
+            $paragraphs[] = $block['text'];
+        } else {
+            $steps = [];
+            foreach ($block['items'] as $i => $item) $steps[] = ($i + 1).'. '.$item;
+            $paragraphs[] = implode("\n", $steps);
+        }
+    }
+    $article = $pilot[$row['anchor']];
+    check($article['catalog_id'] === $row['id'] && portal_guide_article_plain($article) === implode("\n\n", $paragraphs),
+        $row['id'].' searchable paragraphs and ordered steps match the vendored index');
 }
 foreach (portal_guide_legacy_articles() as $anchor => $article) {
     check(portal_guide_article_plain($article) === $article['text'], $anchor.' legacy text is returned verbatim');

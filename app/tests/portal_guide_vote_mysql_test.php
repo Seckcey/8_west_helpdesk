@@ -140,6 +140,16 @@ try {
         && portal_guide_vote_current($pdo,$otherClientOwner) === ['sh-requests'=>true]
         && portal_guide_vote_current($pdo,$otherTenant) === ['sh-requests'=>false], 'exact erasure preserves every other scope');
 
+    foreach (['client_staff','client_viewer','client_owner','client_admin'] as $role) {
+        $voter = $owner;
+        $voter['identity']['role'] = $role;
+        foreach (['co-connect','co-chat','co-sign-out'] as $id) {
+            $vote = ['article'=>$id, 'helpful'=>true];
+            check(portal_guide_vote_record($pdo, $voter, $vote) === $vote && (portal_guide_vote_current($pdo, $voter)[$id] ?? null) === true,
+                $role.' can save and read back a vote on '.$id);
+        }
+    }
+
     $pdo->exec('DROP TABLE portal_guide_votes');
     check(!portal_guide_votes_installed($pdo) && portal_guide_vote_current($pdo,$otherClientOwner) === [], 'absent table has no current votes');
     denied(fn()=>portal_guide_vote_record($pdo,$owner,$yes), 'absent table is unavailable', 'help_feedback_unavailable', 503);

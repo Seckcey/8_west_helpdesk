@@ -12,17 +12,21 @@ function guide_check(bool $condition, string $label): void {
     if (!$condition) throw new RuntimeException($label);
     echo 'ok '.++$checks.' - '.$label."\n";
 }
-$approved = json_decode(file_get_contents(__DIR__.'/fixtures/portal_guide_approved_sha256.json'), true, 8, JSON_THROW_ON_ERROR);
 $pilot = portal_guide_pilot_articles();
-guide_check(array_keys($pilot) === array_keys($approved), 'all six approved articles are present');
-foreach ($pilot as $id => $article) {
-    $paragraphs = [];
-    foreach ($article['blocks'] as $block) {
-        $paragraphs[] = $block['type'] === 'steps'
-            ? implode("\n", array_map(static fn($text, $index) => ($index+1).'. '.$text, $block['items'], array_keys($block['items'])))
-            : $block['text'];
+$indexRows = array_column(help_catalog_index()['articles'], null, 'id');
+$expectedBodies = [];
+foreach ($indexRows as $id => $row) {
+    if ($row['legacy_guide'] || !in_array($row['app'], ['safeharbor', 'companion'], true)) continue;
+    $html = '';
+    foreach ($row['body']['blocks'] as $block) {
+        if ($block['type'] === 'paragraph') {
+            $html .= '<p>'.portal_guide_inline($block['text']).'</p>';
+        } else {
+            $items = array_map(static fn(string $item): string => '<li>'.portal_guide_inline($item).'</li>', $block['items']);
+            $html .= '<ol>'.implode('', $items).'</ol>';
+        }
     }
-    guide_check(hash('sha256', $article['title']."\n\n".implode("\n\n", $paragraphs)) === $approved[$id], $id.' exactly preserves approved title, paragraphs and ordered steps');
+    $expectedBodies[$id] = $html;
 }
 require_once __DIR__.'/../lib/portal_westy_help.php';
 require_once __DIR__.'/../lib/portal_render.php';
@@ -38,22 +42,8 @@ function guide_widget_html(array $context): string {
 }
 $helpTools = portal_westy_help_definitions();
 $legacy = portal_guide_legacy_articles();
-$employee = ['sign-in','assigned-computers','requests','updates','private-computer-link'];
-$viewer = ['assigned-computers','updates','private-computer-link'];
-$owner = ['requests','updates','private-computer-link','give-computer-access'];
-$cases = [
-    'employee' => [['identity'=>['role'=>'client_staff']], $employee],
-    'viewer' => [['identity'=>['role'=>'client_viewer']], $viewer],
-    'owner' => [['identity'=>['role'=>'client_owner']], $owner],
-    'admin' => [['identity'=>['role'=>'client_admin']], $owner],
-    'staff' => [['identity'=>['role'=>'technician']], []],
-    'delegated staff as owner' => [['identity'=>['role'=>'technician','customer_access'=>['role'=>'client_owner']]], []],
-    'native owner with overlay' => [['identity'=>['role'=>'client_owner','customer_access'=>['role'=>'client_owner']]], []],
-    'native admin with overlay' => [['identity'=>['role'=>'client_admin','customer_access'=>['role'=>'client_admin']]], []],
-    'companion employee' => [['identity'=>['role'=>'client_staff'],'desktop_companion_pair'=>str_repeat('a',32)], []],
-    'companion owner' => [['identity'=>['role'=>'client_owner'],'desktop_companion_pair'=>str_repeat('a',32)], []],
-    'absent identity' => [[], []],
-];
+['anchors'=>$expected, 'cases'=>$cases] = json_decode(file_get_contents(__DIR__.'/fixtures/portal_guide_cases.json'), true, 8, JSON_THROW_ON_ERROR);
+$cases['no context'] = [null, 'legacy'];
 $_GET = $_POST = ['role'=>'client_owner','audience'=>'owner','application'=>'browser'];
 $_SERVER['REQUEST_URI'] = '/portal/guide.php?role=client_owner&audience=owner';
 $widget = guide_widget_html($cases['owner'][0]);
@@ -64,20 +54,36 @@ guide_check(json_decode(html_entity_decode($match[1], ENT_QUOTES, 'UTF-8'), true
     'the chat root exposes the owner labels as JSON');
 guide_check(array_keys($ownerLabels) === array_column(portal_guide_articles($cases['owner'][0]), 'catalog_id'), 'labels cover every article id the person can see');
 guide_check(!isset(portal_guide_source_labels($cases['employee'][0])['sh-give-computer-access']), 'labels are role filtered');
-foreach ($cases as $label => [$context, $ids]) {
+$rendered = [];
+foreach ($cases as $label => [$context, $role]) {
     $articles = portal_guide_articles($context);
+    $anchors = array_keys($articles);
+    guide_check($anchors === $expected[$role], $label.' keeps exactly the expected anchors in page order despite role parameters');
+    $catalogAnchors = array_map(static fn($a) => $indexRows[$a['catalog_id']]['anchor'], array_values($articles));
+    guide_check($catalogAnchors === $anchors && count(array_unique($catalogAnchors)) === count($anchors)
+        && !array_intersect(['contact', 'guide-q'], $anchors), $label.' has unique catalog anchors clear of the page controls');
     $labels = portal_guide_source_labels($context);
     guide_check(array_keys($labels) === array_column($articles, 'catalog_id'), $label.' labels match the page set');
     foreach ($articles as $anchor => $article) {
-        guide_check($labels[$article['catalog_id']] === ['label'=>$article['title'], 'href'=>'/portal/guide.php#'.$anchor],
-            $label.' source for '.$article['catalog_id'].' has just the page title and anchor link');
+        $id = $article['catalog_id'];
+        $row = $indexRows[$id];
+        guide_check($labels[$id] === ['label'=>$article['title'], 'href'=>'/portal/guide.php#'.$anchor],
+            $label.' source for '.$id.' has just the page title and anchor link');
+        if ($role === 'legacy') {
+            guide_check(array_diff(['owner_admin', 'employee', 'viewer'], $row['audience']) === [],
+                $label.' sees only all-audience articles, including '.$id);
+        }
+        if (isset($expectedBodies[$id])) {
+            guide_check($article['title'] === $row['title'] && portal_guide_article_html($article) === $expectedBodies[$id],
+                $label.' renders the catalog title, paragraphs and ordered steps for '.$id);
+            $rendered[$id] = true;
+        }
     }
-    $selected = array_keys(array_filter($articles, static fn($a) => isset($a['blocks'])));
-    guide_check($selected === $ids, $label.' has only applicable pilot articles despite client role parameters');
-    guide_check(array_diff(array_keys($legacy), array_keys($articles)) === [], $label.' retains legacy anchor IDs');
-    foreach (['devices','response','summaries','privacy'] as $id) {
+    foreach (['devices','response','privacy'] as $id) {
         guide_check($articles[$id] === $legacy[$id], $label.' retains '.$id.' material');
     }
+    guide_check($articles['summaries'] === ($role === 'owner' ? $pilot['summaries'] : $legacy['summaries']),
+        $label.' gets the applicable version of the service summary article');
     foreach ([[], [['name'=>'exec_command']], [['name'=>'exec_command'],['name'=>'cua_window_state']]] as $tools) {
         $instructions = portal_westy_ai_instructions([...$tools, ...$helpTools], $context);
         guide_check(str_contains($instructions, 'call search_help'), $label.' gets help instructions when search is offered');
@@ -85,6 +91,7 @@ foreach ($cases as $label => [$context, $ids]) {
     }
     guide_check(!str_contains(portal_westy_ai_instructions([['name'=>'exec_command']], $context), 'search_help'), $label.' gets no help instruction without search');
 }
+guide_check(array_diff_key($expectedBodies, $rendered) === [], 'every non-legacy Safeharbor and Companion article renders for an eligible reader');
 $helpToolMessage = static fn(array $result): array => ['role'=>'tool','call_id'=>'c','content'=>[['type'=>'text',
     'text'=>json_encode($result, JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE)]]];
 $rejectedHelp = $helpToolMessage(portal_westy_help_call($cases['employee'][0], 'read_help_article', ['id'=>5]));
@@ -92,21 +99,22 @@ $foundHelp = $helpToolMessage(portal_westy_help_call($cases['employee'][0], 'rea
 guide_check(portal_westy_ai_mistakes(array_fill(0, PORTAL_WESTY_AI_MISTAKE_LIMIT, $rejectedHelp)) === PORTAL_WESTY_AI_MISTAKE_LIMIT,
     'rejected help arguments count toward the mistake limit');
 guide_check(portal_westy_ai_mistakes([$foundHelp, $foundHelp]) === 0, 'successful help reads are not mistakes');
-foreach ($cases as $label => [$context, $ids]) {
+foreach ($cases as $label => [$context]) {
     $articles = portal_guide_articles($context);
     $json = json_encode($articles, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
     foreach (['drafted_by','approved_by','last_verified','fable-5.2','opus-5.5','gpt-6.2-astra','keywords','"approval"'] as $meta) {
         guide_check(!str_contains($json, $meta), $label.' guide excludes catalog metadata '.$meta);
     }
-    $anchors = array_values(array_unique(array_merge($ids, array_keys($legacy))));
-    guide_check(array_keys($articles) === $anchors, $label.' keeps every anchor in page order');
 }
 guide_check((portal_guide_articles($cases['viewer'][0])['requests']['catalog_id'] ?? null) === 'sh-requests-brief', 'viewer keeps the brief requests entry');
 guide_check((portal_guide_articles($cases['employee'][0])['requests']['catalog_id'] ?? null) === 'sh-requests', 'employee gets the full requests article');
 
 $rows = portal_guide_catalog_rows();
-foreach (help_catalog_index()['articles'] as $row) {
-    if ($row['app'] !== 'safeharbor') continue;
+foreach ($indexRows as $row) {
+    if (!in_array($row['app'], ['safeharbor', 'companion'], true)) {
+        guide_check(!isset($rows[$row['id']]), $row['id'].' is outside the page catalog');
+        continue;
+    }
     unset($row['approval'], $row['last_verified']);
     guide_check(($rows[$row['id']] ?? null) === $row, $row['id'].' joins to its catalog fields without editorial metadata');
 }
@@ -136,9 +144,11 @@ try {
     foreach ($testIndex['articles'] as &$row) {
         if ($row['id'] === 'sh-sign-in') {
             $row['audience'] = ['viewer'];
-            $row['order'] = 90;
+            $row['order'] = 300;
         } elseif ($row['id'] === 'sh-assigned-computers') {
             $row['app'] = 'milepost';
+        } elseif ($row['id'] === 'co-chat') {
+            $row['audience'] = ['viewer'];
         }
     }
     unset($row);
@@ -151,8 +161,14 @@ try {
     help_catalog_use_dir($dir);
     guide_check(!isset(portal_guide_catalog_rows()['sh-assigned-computers']), 'catalog rows exclude a different app');
     $visible = array_filter(portal_guide_articles($cases['viewer'][0]), static fn($a) => isset($a['blocks']));
-    guide_check(array_keys($visible) === ['updates','private-computer-link','sign-in'], 'viewer selection follows the new catalog audience and order');
+    guide_check(array_keys($visible) === ['updates','private-computer-link','request-status','find-request','westy-chat',
+        'companion-connect','companion-chat','companion-sign-out','sign-in'], 'viewer selection follows the new catalog audience and order');
     guide_check(!isset(portal_guide_articles($employeeContext)['sign-in']), 'former audience no longer sees the reassigned article');
+    foreach ($cases as $label => [$context, $role]) {
+        if ($role === 'legacy') {
+            guide_check(!isset(portal_guide_articles($context)['companion-chat']), $label.' cannot see a restricted Companion article');
+        }
+    }
 } finally {
     help_catalog_use_dir(null);
     foreach (['help-manifest.json','customer-index.json'] as $file) {
@@ -162,7 +178,8 @@ try {
 }
 guide_check($readRequests() === $healthyWesty, 'Westy reads the vendored guide again after restoring the catalog directory');
 $_SESSION['desktop_companion_session'] = str_repeat('b',32);
-guide_check(portal_guide_articles(['identity'=>['role'=>'client_owner']]) === $legacy, 'server Companion session retains legacy guide');
+guide_check(array_keys(portal_guide_articles(['identity'=>['role'=>'client_owner']])) === $expected['legacy'],
+    'server Companion session sees the legacy guide and all-audience Companion articles');
 unset($_SESSION['desktop_companion_session']);
 guide_check(array_search('private-computer-link',array_keys(portal_guide_articles($cases['owner'][0])),true) < array_search('give-computer-access',array_keys(portal_guide_articles($cases['owner'][0])),true), 'employee reference appears above owner cross-reference');
 guide_check($pilot['private-computer-link']['audience'] === 'Employee', 'owner reference retains original Employee audience');

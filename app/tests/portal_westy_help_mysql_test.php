@@ -111,7 +111,7 @@ check($sixth['state']==='found' && $sixth['article']['id']==='sh-response'
     && $turn['reply']['tools']===[],'a sixth distinct successful read keeps the first five sources');
 
 $config['tools_enabled']=false;
-$question='How do I sign in?';
+$question='How do I sign in to Safeharbor?';
 $provider=help_test_provider($rounds,static fn(int $round,array $tools)=>in_array('search_help',$tools,true)?['search_help',['query'=>'sign in']]:'ok');
 $turn=$send($employee,$message($employee,$question),$provider);
 check(count($rounds)===5,'search can run four times with device tools disabled');

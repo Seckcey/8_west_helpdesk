@@ -17,24 +17,21 @@ function portal_guide_audience(?array $context): string
     };
 }
 
-/** No context preserves the legacy Guide catalog and historical source IDs. */
+/** The page, search, votes and Westy share the articles selected for this context. */
 function portal_guide_articles(?array $context = null): array
 {
     $legacy = portal_guide_legacy_articles();
     $audience = portal_guide_audience($context);
-    if ($audience === 'legacy') return $legacy;
-    $pilot = portal_guide_pilot_articles();
-    $catalogAudience = ['employee'=>'employee', 'viewer'=>'viewer', 'owner'=>'owner_admin'][$audience];
     $rows = portal_guide_catalog_rows();
-    $ids = [];
-    foreach ($pilot as $anchor => $article) {
-        if (in_array($catalogAudience, $rows[$article['catalog_id']]['audience'], true)) {
-            $ids[] = $anchor;
+    $selected = array_filter(portal_guide_pilot_articles(), static function (array $article) use ($audience, $rows): bool {
+        $row = $rows[$article['catalog_id']];
+        if ($audience === 'legacy') {
+            return $row['app'] === 'companion' && array_diff(HELP_CATALOG_CUSTOMER_AUDIENCES, $row['audience']) === [];
         }
-    }
-    $articles = array_intersect_key($pilot, array_flip($ids));
-    // Preserve all historical anchors/material, replacing the two overlapping request entries.
-    return $articles + $legacy;
+        return in_array($audience === 'owner' ? 'owner_admin' : $audience, $row['audience'], true);
+    });
+    // Direct readers get the full article at a shared anchor. Legacy readers get their six entries first.
+    return $audience === 'legacy' ? $legacy + $selected : $selected + $legacy;
 }
 
 function portal_guide_source_labels(?array $context): array
@@ -112,7 +109,7 @@ function portal_guide_search(?array $context, string $query, int $limit = 10): a
     return array_map(static fn(string $id): array => $links[$id], help_catalog_search($docs, $query, $limit));
 }
 
-/** Safeharbor catalog rows for joining guide articles to their search and audience fields. */
+/** Rows for the Safeharbor Help page, including Companion, in catalog order. */
 function portal_guide_catalog_rows(): array
 {
     static $source = null;
@@ -123,7 +120,7 @@ function portal_guide_catalog_rows(): array
 
     $rows = [];
     foreach ($articles as $row) {
-        if ($row['app'] !== 'safeharbor') continue;
+        if (!in_array($row['app'], ['safeharbor', 'companion'], true)) continue;
         unset($row['approval'], $row['last_verified']);
         $rows[$row['id']] = $row;
     }

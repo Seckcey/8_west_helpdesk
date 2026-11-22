@@ -28,22 +28,7 @@ function westy_help_test_call(array $context, string $name, mixed $arguments): a
     return $result['untrusted_result'];
 }
 
-$employee = ['sign-in','assigned-computers','requests','updates','private-computer-link'];
-$viewer = ['assigned-computers','updates','private-computer-link'];
-$owner = ['requests','updates','private-computer-link','give-computer-access'];
-$cases = [
-    'employee' => [['identity'=>['role'=>'client_staff']], $employee],
-    'viewer' => [['identity'=>['role'=>'client_viewer']], $viewer],
-    'owner' => [['identity'=>['role'=>'client_owner']], $owner],
-    'admin' => [['identity'=>['role'=>'client_admin']], $owner],
-    'staff' => [['identity'=>['role'=>'technician']], []],
-    'delegated staff as owner' => [['identity'=>['role'=>'technician','customer_access'=>['role'=>'client_owner']]], []],
-    'native owner with overlay' => [['identity'=>['role'=>'client_owner','customer_access'=>['role'=>'client_owner']]], []],
-    'native admin with overlay' => [['identity'=>['role'=>'client_admin','customer_access'=>['role'=>'client_admin']]], []],
-    'companion employee' => [['identity'=>['role'=>'client_staff'],'desktop_companion_pair'=>str_repeat('a',32)], []],
-    'companion owner' => [['identity'=>['role'=>'client_owner'],'desktop_companion_pair'=>str_repeat('a',32)], []],
-    'absent identity' => [[], []],
-];
+['anchors'=>$expectedAnchors, 'cases'=>$cases] = json_decode(file_get_contents(__DIR__.'/fixtures/portal_guide_cases.json'), true, 8, JSON_THROW_ON_ERROR);
 $emp = $cases['employee'][0];
 $own = $cases['owner'][0];
 $_GET = $_POST = ['role'=>'client_owner'];
@@ -74,8 +59,8 @@ foreach (['', " \t\n", "\xFF", 'zzzzqqqq'] as $query) {
 }
 $signIn = westy_help_test_call($emp, 'search_help', ['query'=>'sign in']);
 check($signIn['state'] === 'found' && $signIn['articles'][0] === [
-    'id'=>'sh-sign-in', 'title'=>'Sign in to Safeharbor', 'summary'=>$rows['sh-sign-in']['summary'], 'href'=>'/portal/guide.php#sign-in',
-], 'sign-in search returns the catalog title, summary and page link');
+    'id'=>'co-connect', 'title'=>$rows['co-connect']['title'], 'summary'=>$rows['co-connect']['summary'], 'href'=>'/portal/guide.php#companion-connect',
+], 'sign-in search returns the Companion catalog title, summary and page link');
 check(westy_help_test_call($emp, 'search_help', ['query'=>str_repeat(' ', 2).'sign in'.str_repeat(' ', 100).'revocation']) === $signIn,
     'help uses the normalized 100-character query');
 foreach (['sh-give-computer-access','nope','', "sh-requests\n", 'sh/requests', "\xFF"] as $id) {
@@ -86,8 +71,10 @@ check(str_starts_with(westy_help_test_call($own, 'read_help_article', ['id'=>'sh
     '**Purpose and prerequisites.**'), 'read returns the approved article text');
 
 $broad = 'request computer sign access follow support';
-foreach ($cases as $label => [$context]) {
+$allRows = help_catalog_index()['articles'];
+foreach ($cases as $label => [$context, $role]) {
     $page = portal_guide_articles($context);
+    check(array_keys($page) === $expectedAnchors[$role], $label.' Westy uses the expected page articles');
     $anchors = [];
     foreach ($page as $anchor => $article) $anchors[$article['catalog_id']] = $anchor;
     $found = westy_help_test_call($context, 'search_help', ['query'=>$broad]);
@@ -99,7 +86,10 @@ foreach ($cases as $label => [$context]) {
         check($hit === ['id'=>$id,'title'=>$rows[$id]['title'],'summary'=>$rows[$id]['summary'],'href'=>'/portal/guide.php#'.$anchors[$id]],
             $label.' search exposes only the public link fields for '.$id);
     }
-    foreach ($rows as $id => $row) {
+    $companion = westy_help_test_call($context, 'search_help', ['query'=>'Connect your Westy window']);
+    check(in_array('co-connect', array_column($companion['articles'], 'id'), true), $label.' Westy can find the Companion connection guide');
+    foreach ($allRows as $row) {
+        $id = $row['id'];
         $actual = westy_help_test_call($context, 'read_help_article', ['id'=>$id]);
         if (!isset($anchors[$id])) {
             check($actual === $notFound, $label.' cannot read '.$id);

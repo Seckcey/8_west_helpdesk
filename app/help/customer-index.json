@@ -1,8 +1,1192 @@
 {
   "format": "8west-help-index-v1",
   "index": "customer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "articles": [
+    {
+      "id": "co-connect",
+      "app": "companion",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Connect your Westy window with 8 West ID",
+      "summary": "Start in Westy, check the account and computer in your browser, then return to the window to finish connecting.",
+      "keywords": [
+        "system tray",
+        "menu bar",
+        "sign-in approved",
+        "expired link",
+        "wrong computer"
+      ],
+      "ui_labels": [
+        "Continue in your browser",
+        "Waiting for sign-in.",
+        "Connect Westy",
+        "Sign-in approved",
+        "This sign-in link expired"
+      ],
+      "related": [
+        "sh-privacy"
+      ],
+      "anchor": "companion-connect",
+      "audience_label": "All users",
+      "application": "Westy Companion",
+      "order": 200,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Open Westy from its icon in the system tray on Windows or the menu bar on a Mac. Its window shows your portal pages. If you already see your private chat, you can use it. To connect a signed-out window, use your own 8 West ID for the business."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "In the Westy window, choose **Continue in your browser**. Leave the window open when it shows **Waiting for sign-in.**",
+              "Sign in with 8 West ID in the browser if asked. Check your name, the business and the computer name if shown. Only connect if you just chose **Continue in your browser** in your own Westy window on the computer in front of you. If someone sent you the link or the details are wrong, close the browser page.",
+              "Choose **Connect Westy** in the browser. When it says **Sign-in approved**, return to the Westy window and wait for your private chat to open."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The Westy window shows your signed-in portal chat. It uses the computer tool permissions saved for your account."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** The sign-in link lasts only a short time. If it expired, start again from the Westy icon. If the page says your account cannot connect Westy, ask your administrator to check access for this business. If it says the computer is unavailable, ask your IT provider."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "co-chat",
+      "app": "companion",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Chat with Westy and choose your computer tool permissions",
+      "summary": "Ask for help in the Westy window and choose what Westy may do on a computer you can use.",
+      "keywords": [
+        "private chat",
+        "file access",
+        "browser control",
+        "stop computer control",
+        "allow or deny",
+        "save permissions"
+      ],
+      "ui_labels": [
+        "Choose a computer",
+        "Computer tool permissions",
+        "New work when an earlier result is unknown",
+        "Save permissions",
+        "Allow a computer task",
+        "Stop computer control"
+      ],
+      "related": [
+        "sh-privacy"
+      ],
+      "anchor": "companion-chat",
+      "audience_label": "All users",
+      "application": "Westy Companion",
+      "order": 210,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Open Westy from its icon in the system tray on Windows or the menu bar on a Mac. Once connected, you can ask a question in its portal chat. A **Viewer** can ask for help. Work on a computer needs an account that can use its tools."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "In the Westy window, open **Westy** if the chat is not already on screen. For help with a particular computer, check the name in the message box area. Use **Choose a computer** if you need to pick it.",
+              "If **Computer tool permissions** is shown, open it to review what Westy may use, such as **File access**, **Browser control** and **Desktop app control**. Turning off file access or ordinary repairs also turns off general commands. Your administrator’s limits still apply.",
+              "Under **New work when an earlier result is unknown**, pick **Allow — continue new authorized work** to allow other work, or **Deny — wait for unresolved work** to wait. Allow is the default. Neither choice repeats the earlier action. Choose **Save permissions** if you made a change.",
+              "Type your question or describe the work you want. Choose **Send message** and read the reply in the Westy window.",
+              "If **Computer control** appears after the reply and you want help in a window, select the **Connected computer**. Fill in **Allowed websites** if the task uses a website. Choose **Allow a computer task**, then pick the window on your computer when asked."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The reply appears in your private chat. A successful change shows **Your computer tool permissions are saved.** During a window task, **Stop computer control** lets you end control. Handle passwords, verification codes and administrator prompts yourself."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If there is no connected computer, you can keep chatting. Open Westy on the intended computer and connect it. If that computer or its tools are still missing, ask your administrator or support team to check your access."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "co-sign-out",
+      "app": "companion",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Sign out of Westy on a shared computer",
+      "summary": "Close your private chat, check whether the computer disconnected and end the separate browser sign-in.",
+      "keywords": [
+        "log out",
+        "quit westy",
+        "tray icon",
+        "menu bar",
+        "reconnect",
+        "shared pc"
+      ],
+      "ui_labels": [
+        "Account",
+        "Sign out",
+        "You’re signed out of Westy",
+        "Open the customer portal in your browser",
+        "This page didn’t sign you out",
+        "Go to the customer portal"
+      ],
+      "related": [
+        "sh-privacy"
+      ],
+      "anchor": "companion-sign-out",
+      "audience_label": "All users",
+      "application": "Westy Companion",
+      "order": 220,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Open Westy from its icon in the system tray on Windows or the menu bar on a Mac. Use these steps before someone else uses the computer. Your Westy window and your web browser each have their own sign-in."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "In the Westy window, find **Account** in the portal menu and choose **Sign out**.",
+              "Look for **You’re signed out of Westy** and read the line below it. If Westy could not confirm that the computer disconnected, the connection can stay open for up to 30 minutes. Quit Westy from its icon to end it right away in that case.",
+              "On a shared computer, choose **Open the customer portal in your browser**. If the browser is still signed in, use **Sign out** under **Account** there too. Finish signing out at 8 West ID if prompted.",
+              "When you want to connect again, open Westy from its icon. From your own window choose **Continue in your browser** if asked, check the account and computer, and complete the sign-in."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Signing out closes your private chat in the Westy window. When the disconnect is confirmed, the page also says the computer is no longer connected to your account."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If you see **This page didn’t sign you out**, choose **Go to the customer portal**, then use **Sign out** from its menu. If you still cannot end the connection, contact your support team."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-sign-in",
+      "app": "id",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Sign in to 8 West ID and open an app",
+      "summary": "Use your work email and password, then choose an app for your account.",
+      "keywords": [
+        "login",
+        "work email",
+        "password",
+        "stay logged in",
+        "app list"
+      ],
+      "ui_labels": [
+        "Work email",
+        "Keep me signed in on this device for 30 days",
+        "Sign in",
+        "Your apps",
+        "Open app"
+      ],
+      "related": [],
+      "anchor": "sign-in",
+      "audience_label": "All users",
+      "application": "8 West ID browser",
+      "order": 10,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Use your own 8 West ID to open the apps you have access to. Have your work email and password ready. If you use two-factor authentication, have your authenticator app or a recovery code handy."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "On **Sign in with 8 West ID**, enter your **Work email** and **Password**.",
+              "On your own device, you can tick **Keep me signed in on this device for 30 days** if you see it. Leave it clear on a shared device.",
+              "Choose **Sign in**. If you see **Enter your code**, type your code and choose **Continue**. If you are asked to set up two-factor authentication, follow the setup screen.",
+              "In 8 West ID, open the nine-dot button at the top. Under **Your apps**, choose the app you need. On the 8 West ID home page, you can also choose **Open app** on its tile."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The app you chose opens in a new tab. If you started in an app or saved a first app, signing in can take you straight there."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If you forgot your password, choose **Forgot your password?** on the sign-in page. If an app is missing, ask your account administrator to check your access."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-reset-password",
+      "app": "id",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Reset a forgotten password",
+      "summary": "Request a reset link and choose a new password for your 8 West ID.",
+      "keywords": [
+        "locked out",
+        "forgot login",
+        "reset email",
+        "expired link",
+        "passkeys"
+      ],
+      "ui_labels": [
+        "Forgot your password?",
+        "Send reset link",
+        "New password (10+ characters)",
+        "Update password",
+        "Password updated",
+        "Request a new link"
+      ],
+      "related": [],
+      "anchor": "reset-password",
+      "audience_label": "All users",
+      "application": "8 West ID browser",
+      "order": 20,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** If you forgot your 8 West ID password, you can choose a new one from the sign-in page. You need access to the inbox for your account."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Choose **Forgot your password?** Enter your **Work email** and choose **Send reset link**.",
+              "Check your inbox for the reset email. Open the link within one hour. On **Set a new password**, check that the email shown is yours.",
+              "Fill in **New password (10+ characters)** and choose **Update password**.",
+              "When you see **Password updated**, choose **Sign in** and use your new password. Enter your two-factor code if asked."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The reset removes your saved passkeys and remembered browser sign-ins. To use a passkey again, add one in **Settings** after you sign in."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If you see **Link expired**, choose **Request a new link**. If the email does not arrive, check the address you entered and ask your account administrator for a private sign-in link."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-my-settings",
+      "app": "id",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Change your name, theme, first app or password",
+      "summary": "Use My settings to choose how 8 West ID looks, where it opens and how you sign in.",
+      "keywords": [
+        "profile",
+        "dark mode",
+        "appearance",
+        "default app",
+        "personal settings"
+      ],
+      "ui_labels": [
+        "My settings",
+        "Save name",
+        "Theme",
+        "Open this app first",
+        "Save suite preferences",
+        "Change password"
+      ],
+      "related": [],
+      "anchor": "my-settings",
+      "audience_label": "All users",
+      "application": "8 West ID browser",
+      "order": 30,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Sign in with your own account to change your personal settings. Pick the change you need below. Have your current password handy if you want to change it."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Choose **Settings** at the top of 8 West ID. If you are in another settings section, choose **Personal** to open **My settings**.",
+              "If you see **Profile**, edit **Display name** and choose **Save name**.",
+              "Under **Theme**, choose **Dark**, **Light** or **System**. The page changes right away. **System** follows the look of your device.",
+              "If you see **Suite preferences**, find **Open this app first**. Pick an app or choose **8 West ID home** to see your app tiles. Choose **Save suite preferences**.",
+              "Under **Change password**, enter your **Current password** and a new password of at least 10 characters. Choose **Change password**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Look for the message that matches your change, such as **Display name updated.** If you chose a first app, it opens the next time you go to 8 West ID home."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If a section is missing or will not save, read the message on the page and ask your account administrator for help. If you have forgotten your current password, use **Forgot your password?** on the sign-in page."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-two-factor-setup",
+      "app": "id",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Set up two-factor authentication",
+      "summary": "Connect an authenticator app to 8 West ID and save the recovery codes you can use if you lose your phone.",
+      "keywords": [
+        "2fa",
+        "phone",
+        "qr code",
+        "second step",
+        "backup codes"
+      ],
+      "ui_labels": [
+        "Set it up",
+        "Set up two-factor",
+        "Six-digit code from your app",
+        "Turn on two-factor",
+        "Save your recovery codes",
+        "I have saved them"
+      ],
+      "related": [],
+      "anchor": "two-factor-setup",
+      "audience_label": "All users",
+      "application": "8 West ID browser",
+      "order": 40,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Two-factor authentication adds a code to your password sign-in. Some accounts require it. Have an authenticator app on your phone and a safe place to keep your recovery codes."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "If a banner asks you to set up two-factor, choose **Set it up**. You can also open **Settings**, choose **Two-factor authentication**, then **Set up two-factor**. If sign-in opens the setup page for you, start there.",
+              "Scan the square code with your authenticator app. If you are reading the setup page on that same phone, tap **this link** to add 8 West ID to the app.",
+              "Find the code for 8 West ID in your app. Enter it in **Six-digit code from your app** and choose **Turn on two-factor**.",
+              "On **Save your recovery codes**, print the codes or store them somewhere safe apart from your phone. You see them only once, and each code works once. Then choose **I have saved them**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Two-factor is on. **Two-factor authentication** in **My settings** shows when you turned it on and how many recovery codes you have left."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If the code does not match, check that you are using the current code for 8 West ID and try again. If you still cannot finish, ask your account administrator for help."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-two-factor-codes",
+      "app": "id",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Sign in with a code or get new recovery codes",
+      "summary": "Use an authenticator or recovery code, replace your backup codes, and manage which browsers can skip the code step.",
+      "keywords": [
+        "2fa",
+        "lost phone",
+        "authenticator",
+        "backup",
+        "trusted browser"
+      ],
+      "ui_labels": [
+        "Six-digit code",
+        "Trust this browser",
+        "Code from your app",
+        "New recovery codes",
+        "Trusted browsers",
+        "Remove all trusted browsers"
+      ],
+      "related": [],
+      "anchor": "two-factor-codes",
+      "audience_label": "All users",
+      "application": "8 West ID browser",
+      "order": 50,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** When 8 West ID asks for a code after your password, use your authenticator app or an unused recovery code. Once signed in, you can replace your recovery codes and manage trusted browsers."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "At **Enter your code**, type the current code from your app in **Six-digit code**. If you have lost your phone, enter one unused recovery code in that same box. Each recovery code works once.",
+              "If you used an app code on a device only you use, you can tick **Trust this browser** when offered. Choose **Continue**. Using a recovery code will not add this browser to your trusted list.",
+              "To get a fresh set, open **Settings** and choose **Two-factor authentication**. Enter **Code from your app** and choose **New recovery codes**. The new codes replace the old ones. Save the new set away from your phone before choosing **I have saved them**.",
+              "If **Trusted browsers** lists a browser you want to remove, choose **Remove** beside it. To ask for a code again on every trusted browser, choose **Remove all trusted browsers**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** An accepted code lets you finish signing in. A trusted browser can skip the code step when you sign in with your password. Removing trust makes it ask for a code again."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If a code fails, try the current one from your app. If you have lost both the app and your unused recovery codes, ask your account administrator for help with sign-in."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-passkey-add",
+      "app": "id",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Add a passkey for 8 West ID",
+      "summary": "Set up a passkey so you can sign in with your face, fingerprint or device PIN.",
+      "keywords": [
+        "windows hello",
+        "face id",
+        "fingerprint",
+        "phone",
+        "device pin"
+      ],
+      "ui_labels": [
+        "Passkeys",
+        "Name this passkey",
+        "Current password",
+        "Current authenticator code",
+        "Add passkey",
+        "Your passkey is ready."
+      ],
+      "related": [],
+      "anchor": "passkey-add",
+      "audience_label": "All users",
+      "application": "8 West ID browser",
+      "order": 60,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** A passkey lets you sign in with Windows Hello, Face ID, a fingerprint or your device PIN. You need a device and browser that support passkeys, your current password and, if two-factor is on, your authenticator app."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Sign in to 8 West ID and open **Settings**. Choose **Passkeys** in **My settings** if it is there.",
+              "Under **Add a passkey**, fill in **Name this passkey**. Pick a name you will recognize later, such as work laptop.",
+              "Enter your **Current password**. If two-factor is on, enter the **Current authenticator code** from your app as well.",
+              "Choose **Add passkey** and follow the prompt on your device to finish."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** 8 West ID shows **Your passkey is ready.** Under **Passkeys**, look for the name you gave it."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** Passkeys must be on for your account. If the section or the add button is missing, use your password and two-factor if asked. Ask your account administrator whether passkeys are available to you. If the device prompt timed out, choose **Add passkey** to try again."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-passkey-use",
+      "app": "id",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Sign in with a passkey or remove one",
+      "summary": "Use a saved passkey at sign-in or remove it from your account when you stop using it.",
+      "keywords": [
+        "windows hello",
+        "face id",
+        "fingerprint",
+        "device pin",
+        "lost device"
+      ],
+      "ui_labels": [
+        "Use a passkey",
+        "Waiting for your device…",
+        "Passkeys",
+        "Current password",
+        "Current authenticator code",
+        "Remove passkey"
+      ],
+      "related": [],
+      "anchor": "passkey-use",
+      "audience_label": "All users",
+      "application": "8 West ID browser",
+      "order": 70,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** To sign in this way, use a device that can use a passkey you have already added. Removing a passkey takes your current password and, if two-factor is on, a code from your authenticator app."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "On the 8 West ID sign-in page, choose **Use a passkey**. Look for **Waiting for your device…**.",
+              "Follow the device prompt. Use the option it offers, such as Windows Hello, Face ID, a fingerprint or your device PIN.",
+              "If you want to remove a passkey, open **Settings** in 8 West ID and choose **Passkeys**. Find it by the name you gave it.",
+              "Beside that passkey, enter your **Current password** and, if two-factor is on, your **Current authenticator code**. Choose **Remove passkey**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** A successful device check signs you in. If you removed a passkey, 8 West ID confirms it was removed and signs out other remembered browsers."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If **Use a passkey** is missing or the prompt fails, sign in with your password and complete two-factor if asked. If **Passkeys** is missing from **Settings**, ask your account administrator whether passkeys are on for your account."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-signed-in-browsers",
+      "app": "id",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Sign out and remove a remembered browser",
+      "summary": "End your 8 West ID sign-in on this device or make a remembered browser ask for a full sign-in next time.",
+      "keywords": [
+        "logout",
+        "shared computer",
+        "lost laptop",
+        "stay logged in",
+        "devices"
+      ],
+      "ui_labels": [
+        "Signed-in browsers",
+        "This browser",
+        "Remove",
+        "Remove all signed-in browsers",
+        "Sign out",
+        "Sign out of 8 West ID?"
+      ],
+      "related": [],
+      "anchor": "signed-in-browsers",
+      "audience_label": "All users",
+      "application": "8 West ID browser",
+      "order": 80,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Use **Signed-in browsers** to manage browsers where you chose to stay signed in. You can also sign out of the browser you are using. If you only want to sign out here, go straight to the last step."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "While signed in, open **Settings** and choose **Signed-in browsers** if it is shown. Check each browser’s name and last use. **This browser** marks the one you are using if it is on the list.",
+              "Choose **Remove** beside a browser that should ask for a full sign-in next time. To do this for the whole list, choose **Remove all signed-in browsers**.",
+              "Select your name or picture at the top of 8 West ID, then choose **Sign out**. If you left another app and see **Sign out of 8 West ID?**, choose **Sign out** there to finish."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Signing out returns you to the sign-in page. Removing a remembered browser makes it ask for a full sign-in the next time it would have used that saved sign-in."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If the list is empty, no remembered sign-in is listed for your account. To make a browser ask for a two-factor code again, look under **Two-factor authentication** for **Trusted browsers**. If you see a browser you cannot identify, ask your account administrator for help."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-join-business",
+      "app": "id",
+      "audience": [
+        "employee",
+        "viewer"
+      ],
+      "title": "Join your business or household with a setup link",
+      "summary": "Use a private invitation to choose your own password and open your portal.",
+      "keywords": [
+        "invitation",
+        "new account",
+        "employee",
+        "family member",
+        "expired invite"
+      ],
+      "ui_labels": [
+        "Setup code",
+        "Continue setup",
+        "Choose a password",
+        "Create my account",
+        "Your account is ready",
+        "Open your portal"
+      ],
+      "related": [],
+      "anchor": "join-business",
+      "audience_label": "User or Viewer",
+      "application": "8 West ID browser",
+      "order": 90,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Your Owner or Admin can give you a private account setup link. It works once and expires in 48 hours. Keep the link to yourself and use it while signed out of 8 West ID."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open the original private link. If setup stops at **Setup code**, copy the part after `#token=` from your original link, paste it in the box and choose **Continue setup**.",
+              "On the **Join** screen, check the business name, your name and your email. If they are wrong, ask the person who invited you for help. If you are already signed in, sign out of 8 West ID and reopen the original link.",
+              "Fill in **Choose a password** and type it again in **Confirm password**. Choose **Create my account**.",
+              "When you see **Your account is ready**, choose **Open your portal**. Sign in with the email on the invitation and the password you just chose."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** You now have your own sign-in for the business or household that invited you."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** **Invitation unavailable** means the link may have expired, been cancelled or already been used. Ask your Owner or Admin to check **People** and give you a fresh link if needed. If you see **Could not verify the invitation**, try the original link again later."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-add-employee",
+      "app": "id",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Invite an employee or family member from People",
+      "summary": "Create a private setup link, share it with the right person, or cancel a pending invitation.",
+      "keywords": [
+        "add user",
+        "new account",
+        "setup link",
+        "read only",
+        "household limit"
+      ],
+      "ui_labels": [
+        "Add employee",
+        "Employee or family member",
+        "Also email the setup link (optional)",
+        "Create invitation",
+        "Copy private link",
+        "Cancel invitation"
+      ],
+      "related": [],
+      "anchor": "add-employee",
+      "audience_label": "Owner or Admin",
+      "application": "8 West ID browser",
+      "order": 100,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Only an Owner or Admin can open **People** for your business or household. Other customers see the message **This page is for administrators.** To invite someone, you need their name and email. They will choose their own password."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Settings**, choose **People**, then **Add employee**.",
+              "Enter the person’s **Name** and **Email**. Under **Access**, choose **Employee or family member** for a **User**, or **Read only** for a **Viewer**.",
+              "If you want 8 West ID to send an email and the option is shown, tick **Also email the setup link (optional)**. Otherwise no invitation email is sent. Choose **Create invitation**.",
+              "Choose **Copy private link** while the link is on screen. Share it privately with the person you invited. It is shown to you only now, works once and expires in 48 hours.",
+              "To withdraw an unused link, find the invitation marked **Pending** under **Add employee** and choose **Cancel invitation**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The invitation list shows **Pending**, then **Accepted** when the person finishes setup. A withdrawn invitation shows **Cancelled**. If you asked for an email, the page tells you whether the email service accepted it."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If your household is full, the owner, other active accounts and pending invites already use the available places. Cancel an unused invitation to make room. If the page cannot confirm a change, check the invitation’s status before trying again. Ask your primary owner or 8 West IT support if you still need help."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-change-role",
+      "app": "id",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Change a person’s role in People",
+      "summary": "Set someone’s access to User, Viewer or Admin and check the saved role.",
+      "keywords": [
+        "permissions",
+        "read only",
+        "promote",
+        "administrator",
+        "owner"
+      ],
+      "ui_labels": [
+        "Owner and users",
+        "Verified primary owner",
+        "User",
+        "Viewer",
+        "Admin",
+        "Save role"
+      ],
+      "related": [],
+      "anchor": "change-role",
+      "audience_label": "Owner or Admin",
+      "application": "8 West ID browser",
+      "order": 110,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** An Owner or Admin can change another person’s access in their own business. Only the verified primary owner can appoint an Admin or remove the Admin role. You cannot change your own role. **Ownership handoff is not available yet.**"
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Settings**, then **People**. Under **Owner and users**, match the person’s name and email. The **Verified primary owner** label shows who can change Admin roles.",
+              "In that person’s **Role** list, choose **User** for day-to-day access or **Viewer** for read-only access. If you are the verified primary owner, you can choose **Admin** or change an Admin to **User** or **Viewer**.",
+              "Choose **Save role** on the same row. Check the message and the role now shown beside the person’s name."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** When the role changes, the page says **Role saved.** The person signs in again with their updated access. If you saved the same role, the page says **Role is unchanged.**"
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If the list is disabled, check that you selected someone else. Ask the verified primary owner about an Admin role. If the page says primary ownership is not yet verified, ask 8 West IT support for help."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-help-signing-in",
+      "app": "id",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Help someone who cannot sign in",
+      "summary": "Use People to clear failed attempts, give someone a private password reset link, or reset their sign-in security.",
+      "keywords": [
+        "locked out",
+        "lost phone",
+        "forgot password",
+        "unlock account",
+        "authenticator"
+      ],
+      "ui_labels": [
+        "Manage",
+        "Unlock sign-in",
+        "Create sign-in link",
+        "Copy link",
+        "Reset sign-in security"
+      ],
+      "related": [],
+      "anchor": "help-signing-in",
+      "audience_label": "Owner or Admin",
+      "application": "8 West ID browser",
+      "order": 120,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Sign in to 8 West ID as an Owner or Admin for the person’s business. Ask what stopped them from signing in, then choose just the action below that fits their problem."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Choose **Settings**, then **People**. Under **Owner and users**, check the person’s email and open **Manage** on their row.",
+              "If too many failed attempts locked them out, choose **Unlock sign-in**. When the page confirms the unlock, ask them to try their usual sign-in again.",
+              "If they need a new password, choose **Create sign-in link**. Check the email shown under **Sign-in link for**, choose **Copy link** and give the link privately to that person. It is shown once, works once and lasts one hour. They use it to choose a new password.",
+              "If they have lost access to their sign-in methods and cannot use a recovery code, choose **Reset sign-in security** when offered. Check the email in the warning before you confirm. This removes their authenticator setup, passkeys, recovery codes and browser approvals."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** After an unlock, the person can try again with their password. Using a password reset link also clears saved passkeys and remembered browser sign-ins. After a sign-in security reset, the person signs in with their password and sets up two-factor authentication again if asked."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If **Manage** is missing, check the row and your access. An appointed Admin cannot reset the primary owner’s sign-in security. Ask 8 West IT support if the primary owner is locked out."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-suspend-delete",
+      "app": "id",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Suspend, reactivate or delete a person",
+      "summary": "Pause a person’s access, let them sign in again, or remove them from People for good.",
+      "keywords": [
+        "block login",
+        "former employee",
+        "restore access",
+        "disable user",
+        "remove account"
+      ],
+      "ui_labels": [
+        "Manage",
+        "Suspend",
+        "Reactivate",
+        "Delete user",
+        "Confirm delete",
+        "Suspended"
+      ],
+      "related": [],
+      "anchor": "suspend-delete",
+      "audience_label": "Owner or Admin",
+      "application": "8 West ID browser",
+      "order": 130,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** An Owner or Admin can manage a User or Viewer in their business. Only the verified primary owner can suspend, reactivate or delete an Admin. You cannot suspend or delete yourself. Use suspension if the person may need access again."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Settings**, then **People**. Find the person under **Owner and users**, check their email and **Status**, then open **Manage**. Choose the action you need below.",
+              "To pause an active account, choose **Suspend**. Check the email on the prompt and confirm.",
+              "To restore access, find the row marked **Suspended**, open **Manage** and choose **Reactivate**. Check the email on the prompt and confirm.",
+              "For permanent removal, choose **Delete user**. Read the message, type the person’s email exactly as shown, then choose **Confirm delete**. You cannot undo this in People."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** A suspended person stays in **People** with sign-in blocked. Reactivating lets them sign in again. Deleting removes them from **People** and blocks sign-in. Their email stays reserved and their account history is kept."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If an action is refused, read the message before trying again. The business must keep an active administrator. Ask the verified primary owner for help with an Admin account, or contact 8 West IT support about the primary owner’s account."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-company-settings",
+      "app": "id",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Update your company name, billing details or report email",
+      "summary": "Choose where weekly reports go, change your company’s display name, or update its billing contact.",
+      "keywords": [
+        "organization",
+        "legal name",
+        "invoice contact",
+        "weekly reports",
+        "rename business"
+      ],
+      "ui_labels": [
+        "Weekly report destination",
+        "Save report destination",
+        "Open company settings",
+        "Save company name",
+        "Open billing details",
+        "Save billing details"
+      ],
+      "related": [],
+      "anchor": "company-settings",
+      "audience_label": "Owner or Admin",
+      "application": "8 West ID browser",
+      "order": 140,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Sign in as an Owner or Admin for your company. The name people see, the email for billing and the email for weekly reports are saved separately. Choose the change you need."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Settings** and choose **Organization**. Check the name beside **Current workspace** before you make a change.",
+              "To change where weekly reports for this workspace go, enter the email in **Weekly report destination**. Choose **Save report destination**. This changes the address for reports already set up.",
+              "For a name or billing change, choose **Open company settings**. On **Company and clients**, check which company is selected. If you need to pick it, choose **Open client** for the right company.",
+              "To rename the company, edit **Company display name** and choose **Save company name**. Look for **Company name saved. The change is recorded in Milepost.**",
+              "To change billing details for that company, choose **Open billing details**. Enter the **Client billing contact email**. Update **Client legal name (optional)** if needed, then choose **Save billing details**."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Look for **Weekly report destination saved.** or **Client billing details saved.** after saving the matching form. The billing form takes a legal name and an email address."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If a name or billing change has no confirmation, use **Check change status** when shown. For a report email error, check the address and choose **Reload latest**. If you cannot see the company or still cannot save, ask your primary owner or 8 West IT support."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "id-free-trial",
+      "app": "id",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Start your free trial and check the first charge",
+      "summary": "Review the trial in Plan and billing, set up your people and PCs, and see how the primary owner can cancel in time.",
+      "keywords": [
+        "checkout",
+        "card",
+        "cancel subscription",
+        "trial end",
+        "billing date",
+        "windows setup"
+      ],
+      "ui_labels": [
+        "Plan and billing",
+        "Before you pay",
+        "Continue to payment",
+        "Next steps",
+        "Cancel free trial",
+        "Check status"
+      ],
+      "related": [],
+      "anchor": "free-trial",
+      "audience_label": "Owner or Admin",
+      "application": "8 West ID browser",
+      "order": 150,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "8e1cba3a2308632986985b1430db4ac62b452371"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** If you just signed up, sign in with the owner account you created. Signing up alone does not start a charge. Only the verified primary owner can cancel a free trial or subscription."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Settings**. If you see **Plan and billing**, open it. If your trial is active, start with **Next steps** on that page. If no plan is selected, enter the quantity for your plan and choose **Choose plan**.",
+              "Under **Before you pay**, check whether your purchase includes a trial and read the first charge date. If it offers the trial you want, choose **Continue to payment**. Checkout asks for a card. Finishing Checkout starts the 7-day free trial without a charge that day.",
+              "Once the trial is active, find **Next steps**. Choose **People** under **Invite your team.** On a household plan, the heading is **Invite your family.** Give each person their own sign-in.",
+              "Under **Set up each Windows PC.**, open **Your devices** in your customer portal. Create a Windows setup link for each computer. Open the link on that PC and run the installer as an administrator.",
+              "In **Your devices**, follow the last item in **Next steps** for your plan. Businesses use **Protection for an employee**. Households use **Protection request** after PC setup finishes. The portal shows when your request is saved.",
+              "To cancel, the verified primary owner opens **Plan and billing** before the trial end shown there and chooses **Cancel free trial**. Check the result on that page."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** An active trial shows its end and the first charge date. If cancellation is confirmed before the trial ends, the page says you will not be charged. Your account and history are kept."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** A read-only billing page says **Your account administrator can choose the plan and manage billing.** If you are an Admin, ask the primary owner to cancel. If cancellation is unconfirmed, use **Check status** and contact 8 West IT before the trial ends. Contact them if the billing page is missing or will not open."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against 8 West ID 8e1cba3; all ui_labels found verbatim; plain words."
+      }
+    },
     {
       "id": "sh-sign-in",
       "app": "safeharbor",
@@ -18,7 +1202,12 @@
         "wrong business",
         "retry page"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Continue with 8 West ID",
+        "Account",
+        "Selected client",
+        "My settings"
+      ],
       "related": [],
       "anchor": "sign-in",
       "audience_label": "Employee",
@@ -75,7 +1264,13 @@
         "last check in",
         "refresh status"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Your devices",
+        "Connected computers",
+        "Next computers",
+        "Last check-in",
+        "Refresh status"
+      ],
       "related": [],
       "anchor": "assigned-computers",
       "audience_label": "Employee",
@@ -132,7 +1327,14 @@
         "work blocked",
         "contact the team"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Support Requests",
+        "New support request",
+        "Short summary",
+        "How urgent is it?",
+        "What happened?",
+        "Send request"
+      ],
       "related": [],
       "anchor": "requests",
       "audience_label": "Employee",
@@ -191,7 +1393,13 @@
         "waiting for reply",
         "resolved ticket"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Support Requests",
+        "Conversation",
+        "Status",
+        "Waiting for your reply",
+        "Send reply"
+      ],
       "related": [],
       "anchor": "updates",
       "audience_label": "Employee",
@@ -249,7 +1457,13 @@
         "reopen after login",
         "assigned laptop"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Computer access",
+        "Use your assigned computer",
+        "Use this computer",
+        "Open Your devices",
+        "Private access code"
+      ],
       "related": [],
       "anchor": "private-computer-link",
       "audience_label": "Employee",
@@ -310,7 +1524,14 @@
         "revoke permission",
         "pending invitation"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Computer access",
+        "Give a member access",
+        "Create member access link",
+        "Private access link",
+        "People and access links",
+        "Revoke access"
+      ],
       "related": [],
       "anchor": "give-computer-access",
       "audience_label": "Client Owner/Admin",
@@ -358,6 +1579,485 @@
       }
     },
     {
+      "id": "sh-request-status",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "What does my request status mean?",
+      "summary": "Read the status in the list and on the request, see whose turn it is, and find out how to follow up after a request is resolved.",
+      "keywords": [
+        "received",
+        "open ticket",
+        "in progress",
+        "waiting for a reply",
+        "problem came back"
+      ],
+      "ui_labels": [
+        "Received",
+        "Open",
+        "In progress",
+        "Waiting for your reply",
+        "Resolved",
+        "What happens next"
+      ],
+      "related": [
+        "sh-updates",
+        "sh-response"
+      ],
+      "anchor": "request-status",
+      "audience_label": "All users",
+      "application": "Safeharbor browser",
+      "order": 70,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Sign in to the business where the request was opened. The status beside its number tells you whether to wait, answer a question or follow up."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Support Requests** and find the request. **Received** means the support team has it. Open its subject and look under **Status**. The same stage is called **Open** here.",
+              "If it says **In progress**, a technician is working on it. Read the latest message in **Conversation** to see what the team has done or asked.",
+              "**Waiting for your reply** means the team needs an answer. If you can reply, answer below the conversation. A **Viewer** sees **Waiting for a reply** in the list and can ask a **Client owner** or **Client administrator** to answer.",
+              "**Resolved** means the support team has marked the request finished. You can still read it. If the problem comes back, go to **Support Requests**, choose **New support request** and mention the old request number. If you are a **Viewer**, give the number to your owner, administrator or support contact so they can follow up."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** **What happens next** tells you whose turn it is. A **Response goal**, when shown, is about the first reply. The request stays available to read after the team resolves it."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If you are unsure what the team needs, read its last question and give your support contact the request number shown under the subject."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "sh-find-request",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Find a support request by subject, number or status",
+      "summary": "Use the filters in Support Requests to find a request you can read, even if it is on another page.",
+      "keywords": [
+        "search ticket",
+        "missing ticket",
+        "older request",
+        "client-wide view",
+        "clear filters"
+      ],
+      "ui_labels": [
+        "Search requests",
+        "Subject or request number",
+        "All statuses",
+        "Apply filters",
+        "Clear filters",
+        "Next"
+      ],
+      "related": [
+        "sh-updates"
+      ],
+      "anchor": "find-request",
+      "audience_label": "All users",
+      "application": "Safeharbor browser",
+      "order": 75,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** A **Client owner** or **Client administrator** can search the whole client’s request list. A **Member** or **Viewer** can search only requests opened under their own account."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Support Requests**. Owners and administrators see **Client support requests**. Members and viewers see **Your support requests**.",
+              "In **Search requests**, type part of the subject or the request number, with or without the `#` sign. You can also leave the box empty to search by status alone.",
+              "Under **Status**, choose the status you want, or leave **All statuses** selected. Choose **Apply filters**.",
+              "Read the number and subject in the results. Choose **Next** or **Previous** if there are more pages. Open the matching subject to read the request."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The line above the results shows how many requests match and which ones are on this page. Moving to another page keeps your search and status."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If nothing matches, choose **Clear filters** and try fewer words. Merged requests are left out of this list. Check **Selected client** under **Account**. Ask your owner or support team if you need help finding it."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "sh-reply",
+      "app": "safeharbor",
+      "audience": [
+        "employee",
+        "owner_admin"
+      ],
+      "title": "Write a reply the support team can act on",
+      "summary": "Answer the technician’s question, describe what changed and check that your update reached the request.",
+      "keywords": [
+        "waiting for your reply",
+        "send update",
+        "error message",
+        "technician question",
+        "did my reply send"
+      ],
+      "ui_labels": [
+        "Conversation",
+        "Send the update the support team needs",
+        "Reply to the support team",
+        "Send reply",
+        "Your reply was sent."
+      ],
+      "related": [
+        "sh-updates"
+      ],
+      "anchor": "reply",
+      "audience_label": "Member, Client owner or Client administrator",
+      "application": "Safeharbor browser",
+      "order": 80,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Use a reply to answer a question or add a new result to an existing request. A **Member**, **Client owner** or **Client administrator** can reply to a request they can see while it is still open for updates. A **Viewer** can read the conversation."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open the request in **Support Requests**. In **Conversation**, read the team’s last message. What question did they ask, or what did they ask you to try?",
+              "If it says **Waiting for your reply**, write in **Send the update the support team needs**. Otherwise, use **Reply to the support team**. Say what you tried, what happened and what is still blocked. For example, “The first page prints now, but the second page comes out blank.”",
+              "Check the wording before you choose **Send reply**. The box sends text only. Type any error message you saw and leave out passwords, verification codes and secret keys."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Look for **Your reply was sent.** Your words appear in the conversation for the requester, the client’s owners and administrators, and the support team. A request that was waiting for your reply goes back to **Open** for a technician to pick up."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If a reply has no confirmation, check the conversation before sending it again. A resolved request stays readable. If the problem returns, send a new request and mention the old number. A **Viewer** can ask an owner or administrator to follow up."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "sh-summary-detail",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Read your weekly service summary",
+      "summary": "Choose a saved week and read its request counts, reply times, approved service time and survey results.",
+      "keywords": [
+        "weekly report",
+        "archived week",
+        "response goal",
+        "approved hours",
+        "survey score",
+        "invoice"
+      ],
+      "ui_labels": [
+        "View all archived summaries",
+        "View summary",
+        "Average first reply",
+        "Response goal met",
+        "Read the exact archived summary",
+        "Archive details"
+      ],
+      "related": [
+        "sh-response"
+      ],
+      "anchor": "summaries",
+      "audience_label": "Client Owner/Admin",
+      "application": "Safeharbor browser",
+      "order": 85,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Sign in as a **Client owner** or **Client administrator** for the business you want to check. A weekly summary shows the support totals saved for that client and week."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Support Requests** and find **Service summaries**. For the latest week, choose **View summary**. For an older week, choose **View all archived summaries**. The list shows up to 24 summaries, newest first. Open the card for the dates you want.",
+              "Check the business name, the dates and the **Created** time. **Requests opened** counts requests started that week. **Requests resolved** counts requests marked resolved that week. Some may have been opened earlier.",
+              "**Average first reply** is the average wait in minutes for a first reply on the week’s requests that had one. **Response goal met** is the share of known results that met the first-reply target. **Not available** means there was no result to measure for that figure.",
+              "Read **Approved service time** in minutes and hours. Both show the same approved work time. Under **Customer satisfaction**, compare how many surveys were sent with how many people answered by the time the summary was saved. The average score is out of 3. **No scored responses** means there was no score to average.",
+              "Open **Read the exact archived summary** to see the text saved that week. It can show how many requests met or missed their goal, which results were still pending, and which requests were left out. It may also list changes to approved time.",
+              "Open **Archive details**. **Summary definition version** tells you which counting rules were used. **Created** gives the time the summary was saved. **Archive SHA-256** is a fingerprint Safeharbor checks before showing the saved copy."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** You are reading a checked copy of the week as it was saved. It leaves out request messages, internal notes and rates. Approved time is a work total. It does not tell you whether an invoice was issued or paid."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** An empty list means your support team has yet to save a summary for this business. If the page says **Service summaries unavailable**, try again shortly. For a missing week or a number you do not understand, ask your support team and give them the business and week shown."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "sh-westy-chat",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin",
+        "employee",
+        "viewer"
+      ],
+      "title": "Ask Westy a question or return to a chat",
+      "summary": "Start a private chat, pick the computer you mean, stop a reply or rate an answer.",
+      "keywords": [
+        "recent chats",
+        "chat history",
+        "choose a computer",
+        "thumbs up",
+        "thumbs down",
+        "stop reply"
+      ],
+      "ui_labels": [
+        "New chat",
+        "Recent chats",
+        "Choose a computer",
+        "Stop reply",
+        "Helpful",
+        "Not helpful"
+      ],
+      "related": [
+        "sh-privacy",
+        "sh-requests-brief"
+      ],
+      "anchor": "westy-chat",
+      "audience_label": "All users",
+      "application": "Safeharbor browser",
+      "order": 90,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Open Westy when you want to ask about your computer. Sign in with your own portal account. Your chat is private to you. A **Viewer** can ask questions but cannot approve work on a computer."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Choose **Westy** in the portal menu. Choose **New chat** for a new question, or pick a title under **Recent chats** to return to that conversation.",
+              "For a question about a specific computer, check its name beside the message box. Use **Choose a computer** to pick the one you mean if needed. For a general question, you can just type your message.",
+              "Describe what you were doing and what happened. Leave passwords and verification codes out of the chat. Choose **Send message** or press Enter. Shift+Enter starts a new line.",
+              "While Westy is answering, choose **Stop reply** if you want it to stop. Check the status of any work already sent to the computer. That work may still finish.",
+              "To rate a saved reply, choose the thumbs-up button (**Helpful**) or the thumbs-down button (**Not helpful**) if they appear. This saves your question and that reply privately for review. Choose the same rating again to clear it."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** Your question and Westy’s reply appear together in the chat. A saved rating shows **Feedback saved.** Starting a new chat lets you keep the earlier conversation under **Recent chats**."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If Westy stops partway through a reply, read any computer activity already shown. If you need a person, open **Support Requests**. A **Viewer** can ask a client owner, administrator or support contact to follow up."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "sh-westy-approve",
+      "app": "safeharbor",
+      "audience": [
+        "employee",
+        "owner_admin"
+      ],
+      "title": "Review, approve or cancel a repair in Westy",
+      "summary": "Check which computer and change Westy is asking about, then follow the result of a repair or cleanup.",
+      "keywords": [
+        "restart printer",
+        "temporary files",
+        "approval expired",
+        "queued",
+        "cancel requested",
+        "unknown result"
+      ],
+      "ui_labels": [
+        "Review required",
+        "Approve repair",
+        "Approve cleanup",
+        "Cancel operation",
+        "Expired",
+        "Support review needed"
+      ],
+      "related": [
+        "sh-privacy",
+        "sh-requests"
+      ],
+      "anchor": "westy-approve",
+      "audience_label": "Member, Client owner or Client administrator",
+      "application": "Safeharbor browser",
+      "order": 95,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Use the same sign-in that requested the work. A **Client owner** or **Client administrator** can act on a computer in their client. A **Member** can act on an assigned computer. A **Viewer** has read-only access. Westy shows an approval button only for an eligible request."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open the conversation under **Recent chats** in **Westy**. When you see **Review required**, check the **Computer** name, the proposed change and its impact. For a cleanup, check **Location** and **Preview** for the folder, file count and size.",
+              "To let Westy restart the Windows print service, choose **Approve repair**. For the Windows temporary folder, **Approve cleanup** lets Westy remove eligible files. If the computer name has not loaded, wait for it. Typing a reply does not approve the change.",
+              "To decline or ask Westy to stop work you already approved, choose **Cancel operation** when offered. **Canceled** means the work was stopped before delivery. **Cancel requested · waiting for result** means work already sent might still finish. Contact support and leave that work alone until the result is known.",
+              "Return to the same chat to read **Status**. **Authorized** means approval was recorded. **Queued** means Westy is waiting for the computer. **Checking recovery** means the repair or cleanup reported back and follow-up checks are still under way."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** **Check complete** means a check or preview finished. **Service verified** means a follow-up check found the print service running. Try printing the document. **Cleanup verified** means the computer reported what it removed and a health check followed. Read **Removed** and **Skipped** for the file counts."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** **Expired** means the old approval cannot start work. If you still need it, ask for a fresh print-service check or a fresh preview of the folder you want cleaned. **Support review needed** means the outcome is unknown. Choose **Contact support** and do not repeat the repair or cleanup."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
+      "id": "sh-add-computer",
+      "app": "safeharbor",
+      "audience": [
+        "owner_admin"
+      ],
+      "title": "Add a Windows computer to Your devices",
+      "summary": "Create a private setup link, open the setup file on the intended PC and check when the computer appears.",
+      "keywords": [
+        "new pc",
+        "setup file",
+        "download milepost",
+        "administrator",
+        "missing computer",
+        "setup link expired"
+      ],
+      "ui_labels": [
+        "Your devices",
+        "Add a computer",
+        "Create Windows setup link",
+        "Download Milepost setup",
+        "Copy link",
+        "Refresh status"
+      ],
+      "related": [
+        "sh-give-computer-access",
+        "sh-devices"
+      ],
+      "anchor": "add-computer",
+      "audience_label": "Client Owner/Admin",
+      "application": "Safeharbor browser",
+      "order": 100,
+      "legacy_guide": false,
+      "last_verified": {
+        "date": "2026-11-22",
+        "commit": "11e3af6c4f8cd5937df851765ce703831d813c4a"
+      },
+      "body": {
+        "format": "blocks",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "**Purpose and prerequisites.** Sign in as a **Client owner** or **Client administrator** for the business adding the computer. You also need administrator access on the Windows PC to run its setup file."
+          },
+          {
+            "type": "steps",
+            "items": [
+              "Open **Your devices** and find **Add a computer**. If this is your first computer, the form may already be at the top. Under **Confirm**, check the business name.",
+              "Tick the box to confirm you may add this computer and let the support team manage it. Choose **Create Windows setup link**. The private link adds one computer and shows when it expires.",
+              "If you are on the PC you want to add, choose **Download Milepost setup**. For a different PC, choose **Copy link** and open the private link on that PC. Share it only with someone allowed to set it up. Open the downloaded file on the intended PC and approve the Windows administrator prompt.",
+              "Keep the PC on and online. Look under **Connected computers** a few minutes after setup finishes. Choose **Refresh status** to check again."
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "**Expected result.** The PC appears by name under **Connected computers**. Adding it does not order antivirus or create a charge."
+          },
+          {
+            "type": "paragraph",
+            "text": "**If you need help.** If the page says you already created a link, look under **Setup links you created** and choose **Get setup link** if offered. If the link expired, check **Connected computers** before creating another. For a Mac or Linux computer, choose **Need help with Mac or Linux?** Ask your support team if the PC still does not appear."
+          }
+        ]
+      },
+      "approval": {
+        "approved_by": "opus-5.5",
+        "verdict": "Every step, role and absent-feature rule checked against Safeharbor 11e3af6; all ui_labels found verbatim; plain words."
+      }
+    },
+    {
       "id": "sh-devices",
       "app": "safeharbor",
       "audience": [
@@ -374,7 +2074,11 @@
         "windows health",
         "repair approval"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Your devices",
+        "Computer checks",
+        "Approve this repair"
+      ],
       "related": [],
       "anchor": "devices",
       "audience_label": null,
@@ -411,7 +2115,12 @@
         "verification codes",
         "ticket details"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Support Requests",
+        "New support request",
+        "What happened?",
+        "Send request"
+      ],
       "related": [],
       "anchor": "requests",
       "audience_label": null,
@@ -448,7 +2157,12 @@
         "resolved tickets",
         "waiting for reply"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Your support requests",
+        "Conversation",
+        "Waiting for your reply",
+        "Send reply"
+      ],
       "related": [],
       "anchor": "updates",
       "audience_label": null,
@@ -485,7 +2199,10 @@
         "support hours",
         "resolution estimate"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "What happens next",
+        "Response goal"
+      ],
       "related": [],
       "anchor": "response",
       "audience_label": null,
@@ -521,7 +2238,12 @@
         "business owner",
         "missing report"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Support Requests",
+        "Service summaries",
+        "View all archived summaries",
+        "Weekly service summaries"
+      ],
       "related": [],
       "anchor": "summaries",
       "audience_label": null,
@@ -558,7 +2280,13 @@
         "stop reply",
         "shared ticket"
       ],
-      "ui_labels": [],
+      "ui_labels": [
+        "Computer tool permissions",
+        "New work when an earlier result is unknown",
+        "Allow — continue new authorized work",
+        "Deny — wait for unresolved work",
+        "Support Requests"
+      ],
       "related": [],
       "anchor": "privacy",
       "audience_label": null,
