@@ -1,18 +1,11 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__.'/portal_access.php';
+require_once __DIR__.'/portal_companion_page.php';
 require_once __DIR__.'/portal_guide.php';
 require_once __DIR__.'/settings_context.php';
 require_once __DIR__.'/portal_desktop_controls.php';
 require_once __DIR__.'/tenant_branding.php';
-
-/** Presentation only: this never creates or validates authentication authority. */
-function portal_companion_page(): bool
-{
-    $pair = $_SESSION['desktop_companion_session'] ?? null;
-    return in_array(parse_url($_SERVER['REQUEST_URI'] ?? '/portal/', PHP_URL_PATH), ['/portal/desktop.php', '/portal/signed-out.php'], true)
-        || (is_string($pair) && preg_match('/\A[a-f0-9]{32}\z/D', $pair) === 1);
-}
 
 function portal_direct_customer_browser(array $context): bool
 {

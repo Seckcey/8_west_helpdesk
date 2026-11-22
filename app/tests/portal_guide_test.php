@@ -202,9 +202,19 @@ $legacyHelpIds = array_column(portal_guide_help_set([]), 'catalog_id');
 $_SESSION['desktop_companion_session'] = str_repeat('b',32);
 guide_check(array_keys(portal_guide_articles(['identity'=>['role'=>'client_owner']])) === $expected['legacy'],
     'server Companion session sees the legacy guide and all-audience Companion articles');
-guide_check(array_column(portal_guide_help_set($cases['owner'][0]), 'catalog_id') === $legacyHelpIds,
+$companionHelp = portal_guide_help_set($cases['owner'][0]);
+guide_check(array_column($companionHelp, 'catalog_id') === $legacyHelpIds,
     'a server Companion session sees the same help as the legacy no-context case');
+$companionLabels = portal_guide_source_labels($cases['owner'][0]);
+foreach ($companionHelp as $id => $article) {
+    $row = $indexRows[$id];
+    $href = $row['app'] === 'id' ? portal_issuer_origin().'/help.php' : '/portal/guide.php#'.$row['anchor'];
+    guide_check($article['href'] === $href && $companionLabels[$id]['href'] === $href,
+        'Companion supplies the expected article and source link for '.$id);
+}
 unset($_SESSION['desktop_companion_session']);
+guide_check(portal_guide_source_labels($cases['owner'][0]) === $ownerLabels,
+    'the browser gets its anchored ID links again after the Companion session');
 guide_check(array_search('private-computer-link',array_keys(portal_guide_articles($cases['owner'][0])),true) < array_search('give-computer-access',array_keys(portal_guide_articles($cases['owner'][0])),true), 'employee reference appears above owner cross-reference');
 guide_check($pilot['private-computer-link']['audience'] === 'Employee', 'owner reference retains original Employee audience');
 guide_check(portal_guide_inline('**<img src=x onerror=alert(1)>** `<script>` &') === '<strong>&lt;img src=x onerror=alert(1)&gt;</strong> <code>&lt;script&gt;</code> &amp;', 'formatting cannot inject HTML');

@@ -2,6 +2,7 @@
 /** Reviewed customer help selected from authenticated server context, never request parameters. */
 declare(strict_types=1);
 require_once __DIR__.'/help_catalog.php';
+require_once __DIR__.'/portal_companion_page.php';
 require_once __DIR__.'/portal_issuer_origin.php';
 
 /** Presentation only: callers supply an authenticated context. This grants no action permission. */
@@ -39,11 +40,11 @@ function portal_guide_articles(?array $context = null): array
 }
 
 /** Add the search fields and destination to a selected article. Keywords stay inside the search index. */
-function portal_guide_help_article(array $article, array $row, string $page): array
+function portal_guide_help_article(array $article, array $row, string $href): array
 {
     return $article + [
         'anchor'=>$row['anchor'], 'summary'=>$row['summary'], 'keywords'=>$row['keywords'],
-        'app'=>$row['app'], 'href'=>$page.'#'.$row['anchor'],
+        'app'=>$row['app'], 'href'=>$href,
     ];
 }
 
@@ -53,10 +54,13 @@ function portal_guide_other_app_articles(array $context): array
     if (!preg_match('~\Ahttps://[^/?#@]+\z~', $origin) || filter_var($origin, FILTER_VALIDATE_URL) === false) return [];
 
     $audience = portal_guide_audience($context);
+    $page = $origin.'/help.php';
+    $companion = portal_companion_page();
     $articles = [];
     foreach (portal_guide_id_catalog_rows() as $id => $row) {
         if (portal_guide_row_matches_audience($row, $audience)) {
-            $articles[$id] = portal_guide_help_article(portal_guide_full_article($row), $row, $origin.'/help.php');
+            $href = $companion ? $page : $page.'#'.$row['anchor'];
+            $articles[$id] = portal_guide_help_article(portal_guide_full_article($row), $row, $href);
         }
     }
     return $articles;
@@ -67,9 +71,9 @@ function portal_guide_help_set(array $context): array
 {
     $rows = portal_guide_catalog_rows();
     $articles = [];
-    foreach (portal_guide_articles($context) as $article) {
+    foreach (portal_guide_articles($context) as $anchor => $article) {
         $id = $article['catalog_id'];
-        $articles[$id] = portal_guide_help_article($article, $rows[$id], '/portal/guide.php');
+        $articles[$id] = portal_guide_help_article($article, $rows[$id], '/portal/guide.php#'.$anchor);
     }
     return $articles + portal_guide_other_app_articles($context);
 }

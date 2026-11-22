@@ -103,8 +103,8 @@ checks the title, keywords, summary and body of articles the person can read.
 It uses up to eight words from the first 100 characters. The page shows up to
 ten matches and `search_help` returns up to five. Ties keep the help set's order.
 A page result jumps to its local `#anchor`. An ID result shows “ · 8 West ID”
-after the title and links to `/help.php#<anchor>` on the server's HTTPS issuer
-origin. An unusable issuer origin leaves only local help in the results.
+after the title and uses the server's HTTPS issuer origin. An unusable issuer
+origin leaves only local help in the results.
 A paused Westy chat can temporarily keep the help call and its result in the
 private record used to resume that chat.
 
@@ -117,13 +117,15 @@ distinct catalog IDs. The widget receives each eligible title and link in
 alone add no source.
 
 A source chip links only to `/portal/guide.php#<anchor>` or to the exact HTTPS
-issuer origin followed by `/help.php#<anchor>`. The origin must have no path,
-and anchors must match `^[a-z][a-z0-9-]{0,63}$`. Other destinations display
-the label as plain text. Unknown source IDs are omitted. Like **My settings**,
-ID help uses an ordinary link that opens in the current browser tab. Windows
-Companion cancels same-window navigation to another origin. The macOS Companion
-can open My settings in the system browser, but its external-link handler rejects
-the `#anchor` required for an ID article.
+issuer origin followed by `/help.php` or `/help.php#<anchor>`. The origin must
+have no path, and anchors must match `^[a-z][a-z0-9-]{0,63}$`. Other destinations
+display the label as plain text. Unknown source IDs are omitted.
+
+In a web browser, selecting an 8 West ID search result or Westy source chip opens
+the article at its anchor in a new tab. In Windows and Mac Companion, the same
+click opens the 8 West ID Help page in the system browser. Companion links use
+`/help.php` without a fragment, so readers can search there for the article title.
+Safeharbor and Companion article links open at their anchors in the current window.
 
 `portal_guide.westy_tools` defaults to `true`. With help on, a round that
 cannot offer search can still receive up to three matching summaries as

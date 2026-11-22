@@ -115,6 +115,15 @@ $passkeyHits = westy_help_test_call($own, 'search_help', ['query'=>'passkey'])['
 check($passkeyHits[0]['id'] === 'id-passkey-add' && $passkeyHits[0]['href'] === portal_issuer_origin().'/help.php#passkey-add'
     && portal_westy_help_reference($own + ['authorized_task'=>'passkey']) === $prefix.westy_help_test_json(array_slice($passkeyHits, 0, 3)),
     'the fallback includes the ranked ID links inside its untrusted reference');
+$_SESSION['desktop_companion_session'] = str_repeat('b', 32);
+$idPage = portal_issuer_origin().'/help.php';
+$companionHits = westy_help_test_call($own, 'search_help', ['query'=>'passkey'])['articles'];
+check($companionHits[0]['id'] === 'id-passkey-add' && $companionHits[0]['href'] === $idPage
+    && westy_help_test_call($own, 'read_help_article', ['id'=>'id-passkey-add'])['article']['href'] === $idPage,
+    'Companion search and read link to the ID help page without a fragment');
+check(portal_westy_help_reference($own + ['authorized_task'=>'passkey']) === $prefix.westy_help_test_json(array_slice($companionHits, 0, 3)),
+    'the Companion fallback shares the search destinations');
+unset($_SESSION['desktop_companion_session']);
 $messages = [
     ['role'=>'user','content'=>'earlier'], ['role'=>'assistant','content'=>'ok'],
     ['role'=>'user','content'=>'How do I sign in?'], ['role'=>'assistant','content'=>[]],

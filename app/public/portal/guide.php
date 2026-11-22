@@ -54,7 +54,7 @@ portal_page_start('Portal guide','',$context);
 <?php if ($results): ?>
 <ul>
 <?php foreach ($results as $result): $inId = $result['app'] === 'id'; ?>
-<li><a href="<?= portal_h($inId ? $result['href'] : '#'.$result['anchor']) ?>"><?= portal_h($result['title'].($inId ? ' · 8 West ID' : '')) ?></a><p><?= portal_guide_inline($result['summary']) ?></p></li>
+<li><a href="<?= portal_h($inId ? $result['href'] : '#'.$result['anchor']) ?>"<?= $inId ? ' target="_blank" rel="noopener noreferrer"' : '' ?>><?= portal_h($result['title'].($inId ? ' · 8 West ID' : '')) ?></a><p><?= portal_guide_inline($result['summary']) ?></p></li>
 <?php endforeach; ?>
 </ul>
 <?php else: ?>

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const ORIGIN = 'http://safeharbor.test';
-const ID_ORIGIN = 'https://accounts.example.test:8443';
+const ID_ORIGIN = 'https://accounts.example.test';
 const evidence = process.env.PORTAL_GUIDE_EVIDENCE;
 const searchError = 'Search could not run. Reload the page and try again.';
 const {anchors} = JSON.parse(await readFile(path.join(ROOT, 'app/tests/fixtures/portal_guide_cases.json'), 'utf8'));
@@ -159,7 +159,7 @@ if (!empty($input['companion'])) $_SESSION['desktop_companion_session'] = str_re
 function cfg(string $key, mixed $default=null): mixed { return $default; }
 function enforce_https(): void {}
 function portal_enabled(): bool { return true; }
-function portal_configured_issuer(): string { return 'https://accounts.example.test:8443/oidc'; }
+function portal_configured_issuer(): string { return '${ID_ORIGIN}/oidc'; }
 function db(): mixed { return null; }
 function portal_csrf_token(): string { return str_repeat('c',64); }
 function portal_csrf_valid(mixed $sent): bool { return is_string($sent) && hash_equals(portal_csrf_token(), $sent); }
@@ -202,7 +202,7 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         let voteStorage = 'installed';
         page.on('pageerror', error => errors.push(error.message));
         page.on('console', message => { if (message.type()==='error') errors.push(message.text()); });
-        await page.route('**/*', async route => {
+        await context.route('**/*', async route => {
           const url = new URL(route.request().url());
           if (url.origin === ID_ORIGIN && url.pathname === '/help.php') {
             assert.equal(route.request().method(), 'GET');
@@ -291,20 +291,25 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         checkPublicHtml(await searchResponse.text(), name+' search');
         assert.equal(await results.getByRole('heading', {level:2}).textContent(), 'Search results');
         const hits = await results.locator('li a').evaluateAll(links => links.map(link => ({
-          href:link.getAttribute('href'), title:link.textContent, summary:link.nextElementSibling?.textContent,
+          href:link.getAttribute('href'), target:link.getAttribute('target'), rel:link.getAttribute('rel'),
+          title:link.textContent, summary:link.nextElementSibling?.textContent,
         })));
         assert.ok(hits.length > 0 && hits.length <= 10);
         const idArticles = index.articles.filter(row => row.app === 'id' && (input.audience
           ? row.audience.includes(input.audience)
           : ['employee', 'viewer', 'owner_admin'].every(audience => row.audience.includes(audience))));
-        for (const {href, title, summary} of hits) {
+        for (const {href, target, rel, title, summary} of hits) {
           if (href.startsWith('#')) {
             assert.ok(ids.some(id => href === '#'+id), name+' result points to a visible page article');
             assert.equal(await page.locator(href+' h2').textContent(), title);
+            assert.equal(target, null);
+            assert.equal(rel, null);
           } else {
-            const row = idArticles.find(article => href === ID_ORIGIN + '/help.php#' + article.anchor);
-            assert.ok(row, name+' result points to an eligible ID article on the configured issuer');
-            assert.equal(title, row.title + ' · 8 West ID');
+            const row = idArticles.find(article => title === article.title + ' · 8 West ID');
+            assert.ok(row, name+' result names an eligible ID article');
+            assert.equal(href, ID_ORIGIN + '/help.php' + (input.companion ? '' : '#' + row.anchor));
+            assert.equal(target, '_blank');
+            assert.equal(rel, 'noopener noreferrer');
           }
           assert.ok(summary?.trim(), 'each result includes its summary');
         }
@@ -316,16 +321,21 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         await localHit.click();
         assert.equal(new URL(page.url()).hash, localHref);
 
-        if (name === 'owner') {
+        if (name === 'owner' || input.companion) {
           const response = await submitSearch(page, 'passkey');
-          checkPublicHtml(await response.text(), 'owner passkey search');
+          checkPublicHtml(await response.text(), name+' passkey search');
           const passkey = results.getByRole('link', {name:'Add a passkey for 8 West ID · 8 West ID', exact:true});
-          assert.equal(await passkey.getAttribute('href'), ID_ORIGIN + '/help.php#passkey-add');
-          assert.equal(await passkey.getAttribute('target'), await page.locator('a[aria-label="My settings"]').getAttribute('target'));
+          const expectedHref = ID_ORIGIN + '/help.php' + (input.companion ? '' : '#passkey-add');
+          assert.equal(await passkey.getAttribute('href'), expectedHref);
+          assert.equal(await passkey.getAttribute('target'), '_blank');
+          assert.equal(await passkey.getAttribute('rel'), 'noopener noreferrer');
           assert.equal(await page.locator('main article#passkey-add, .portal-guide-vote[data-article="id-passkey-add"]').count(), 0);
-          await passkey.click();
-          await page.getByRole('heading', {name:'ID help fixture'}).waitFor();
-          assert.equal(page.url(), ID_ORIGIN + '/help.php#passkey-add', 'an ID search result opens in the current browser tab');
+          const [idPage] = await Promise.all([context.waitForEvent('page'), passkey.click()]);
+          await idPage.getByRole('heading', {name:'ID help fixture'}).waitFor();
+          assert.equal(idPage.url(), expectedHref);
+          assert.ok(await idPage.evaluate(() => window.opener === null));
+          assert.equal(page.url(), ORIGIN+'/portal/guide.php', 'the reader keeps the Guide search open');
+          await idPage.close();
         }
 
         if (name === 'employee') {

@@ -45,6 +45,7 @@
 
   function isHelpHref(href) {
     if (typeof href !== 'string') return false;
+    if (href === idHelpPage) return true;
     const hash = href.indexOf('#');
     if (hash < 0 || !/^[a-z][a-z0-9-]{0,63}$/.test(href.slice(hash + 1))) return false;
     const page = href.slice(0, hash);
@@ -466,6 +467,10 @@
             if (isHelpHref(ref.href)) {
               const link = element('a', ref.label, 'portal-source-chip');
               link.href = ref.href;
+              if (ref.href.startsWith('https://')) {
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+              }
               nav.append(link);
             } else {
               nav.append(element('span', ref.label, 'portal-source-chip'));
