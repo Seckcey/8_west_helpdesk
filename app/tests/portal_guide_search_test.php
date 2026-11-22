@@ -19,8 +19,9 @@ $owner = $cases['owner'][0];
 $viewer = $cases['viewer'][0];
 $_GET = $_POST = ['role'=>'client_owner'];
 $_SERVER['REQUEST_URI'] = '/portal/guide.php?role=client_owner';
-check(array_column(portal_guide_search($employee, 'sign in', 3), 'id') === ['id-passkey-use', 'id-signed-in-browsers', 'id-sign-in'],
-    'employee finds the highest-ranked sign-in articles across apps');
+check(array_column(portal_guide_search($employee, 'sign in', 5), 'id') === [
+    'co-connect', 'co-sign-out', 'sh-sign-in', 'sh-request-status', 'sh-privacy',
+], 'employee sign-in search includes the Safeharbor sign-in guide and fills all five places with page guides before any ID guide');
 check((portal_guide_search($employee, 'sign in to Safeharbor')[0]['id'] ?? null) === 'sh-sign-in',
     'naming Safeharbor ranks its sign-in article first');
 foreach (['give access', 'give access computer'] as $query) {
@@ -29,15 +30,22 @@ foreach (['give access', 'give access computer'] as $query) {
 }
 check((portal_guide_search($owner, 'give access computer')[0]['id'] ?? null) === 'sh-give-computer-access', 'owner finds the access article first');
 check(!in_array('sh-sign-in', array_column(portal_guide_search($viewer, 'sign in'), 'id'), true), 'viewer cannot find the employee Safeharbor sign-in article');
-$passkey = portal_guide_search($owner, 'passkey')[0];
-check($passkey['id'] === 'id-passkey-add' && $passkey['app'] === 'id'
-    && $passkey['href'] === 'https://accounts.example.test:8443/help.php#passkey-add', 'owner finds the passkey guide at the configured issuer origin');
+$passkeys = portal_guide_search($owner, 'passkey');
+check(array_slice(array_column($passkeys, 'id'), 0, 2) === ['id-passkey-add', 'id-passkey-use']
+    && $passkeys[0]['app'] === 'id' && $passkeys[0]['href'] === 'https://accounts.example.test:8443/help.php#passkey-add',
+    'owner finds the add and use passkey guides at the configured issuer origin');
 $employeeHelp = portal_guide_help_set($employee);
 check($employeeHelp['sh-sign-in']['href'] === '/portal/guide.php#sign-in'
     && $employeeHelp['id-sign-in']['href'] === 'https://accounts.example.test:8443/help.php#sign-in',
     'the same anchor in two apps has distinct IDs and destinations');
 check(portal_guide_search($employee, '') === [] && portal_guide_search($employee, 'a') === [], 'empty and one-letter queries return nothing');
 check(count(portal_guide_search($owner, 'request computer support follow', 5)) === 5, 'portal search honors a five-result limit');
+$pageHits = portal_guide_search($employee, 'request sign passkey', 5);
+check(count($pageHits) === 5 && array_diff(array_column($pageHits, 'id'), array_column(portal_guide_articles($employee), 'catalog_id')) === [],
+    'five page matches fill the limit even when 8 West ID articles also match');
+check(array_column(portal_guide_search($employee, 'password reset', 6), 'id') === [
+    'sh-requests', 'sh-reply', 'sh-westy-chat', 'co-chat', 'id-reset-password', 'id-sign-in',
+], 'ranked 8 West ID matches fill the remaining places after the four page matches');
 $longQuery = str_repeat('request ', 40);
 check(portal_guide_search($employee, $longQuery) === portal_guide_search($employee, mb_substr($longQuery, 0, 100, 'UTF-8')),
     'portal search caps the query at 100 characters');

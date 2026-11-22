@@ -5,6 +5,8 @@ require_once __DIR__.'/help_catalog.php';
 require_once __DIR__.'/portal_companion_page.php';
 require_once __DIR__.'/portal_issuer_origin.php';
 
+const PORTAL_GUIDE_PAGE_APPS = ['safeharbor', 'companion'];
+
 /** Presentation only: callers supply an authenticated context. This grants no action permission. */
 function portal_guide_audience(?array $context): string
 {
@@ -142,19 +144,22 @@ function portal_guide_search(?array $context, string $query, int $limit = 10): a
     }
 
     $links = [];
-    $docs = [];
+    $docs = ['page'=>[], 'other'=>[]];
     foreach ($articles as $id => $article) {
         $links[$id] = ['id'=>$id, 'anchor'=>$article['anchor'], 'title'=>$article['title'],
             'summary'=>$article['summary'], 'href'=>$article['href'], 'app'=>$article['app']];
-        $docs[] = $links[$id] + ['keywords'=>$article['keywords'], 'body'=>portal_guide_article_plain($article)];
+        $group = in_array($article['app'], PORTAL_GUIDE_PAGE_APPS, true) ? 'page' : 'other';
+        $docs[$group][] = $links[$id] + ['keywords'=>$article['keywords'], 'body'=>portal_guide_article_plain($article)];
     }
-    return array_map(static fn(string $id): array => $links[$id], help_catalog_search($docs, $query, $limit));
+    $pageMatches = help_catalog_search($docs['page'], $query, $limit);
+    $otherMatches = help_catalog_search($docs['other'], $query, $limit - count($pageMatches));
+    return array_map(static fn(string $id): array => $links[$id], array_merge($pageMatches, $otherMatches));
 }
 
 /** Rows for the Safeharbor Help page, including Companion, in catalog order. */
 function portal_guide_catalog_rows(): array
 {
-    return array_filter(portal_guide_ordered_catalog_rows(), static fn(array $row): bool => in_array($row['app'], ['safeharbor', 'companion'], true));
+    return array_filter(portal_guide_ordered_catalog_rows(), static fn(array $row): bool => in_array($row['app'], PORTAL_GUIDE_PAGE_APPS, true));
 }
 
 function portal_guide_id_catalog_rows(): array

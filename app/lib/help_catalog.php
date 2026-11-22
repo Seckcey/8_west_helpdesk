@@ -19,6 +19,10 @@ final class HelpCatalog {
         'audience_label', 'application', 'order', 'legacy_guide', 'last_verified', 'body', 'approval',
     ];
     private const APPS = ['id', 'safeharbor', 'milepost', 'coastmark', 'companion', 'all'];
+    private const RESERVED_ANCHORS = [
+        'safeharbor' => ['contact', 'guide-q'],
+        'id' => ['help-q', 'help-results'],
+    ];
     private const APPROVERS = ['gpt-6.2-astra', 'fable-5.2', 'sol-6.2', 'opus-5.5'];
     private static ?array $cached = null;
     private static ?string $testDir = null;
@@ -78,10 +82,12 @@ final class HelpCatalog {
             $ids = $anchors = [];
             foreach ($index->articles as $article) {
                 self::validateArticle($article);
+                $pageGroup = $article->app === 'companion' ? 'safeharbor' : $article->app;
                 $legacy = (int)$article->legacy_guide;
-                self::expect(!isset($ids[$article->id]) && !isset($anchors[$article->app][$legacy][$article->anchor]));
+                self::expect(!in_array($article->anchor, self::RESERVED_ANCHORS[$pageGroup] ?? [], true));
+                self::expect(!isset($ids[$article->id]) && !isset($anchors[$pageGroup][$legacy][$article->anchor]));
                 $ids[$article->id] = true;
-                $anchors[$article->app][$legacy][$article->anchor] = true;
+                $anchors[$pageGroup][$legacy][$article->anchor] = true;
             }
             foreach ($index->articles as $article) {
                 foreach ($article->related as $id) {

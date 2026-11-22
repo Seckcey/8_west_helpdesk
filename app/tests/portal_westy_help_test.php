@@ -58,10 +58,12 @@ foreach (['', " \t\n", "\xFF", 'zzzzqqqq'] as $query) {
     check(westy_help_test_call($emp, 'search_help', ['query'=>$query]) === $none, 'empty, invalid or unmatched search has no hits');
 }
 $signIn = westy_help_test_call($emp, 'search_help', ['query'=>'sign in']);
-check($signIn['state'] === 'found' && $signIn['articles'][0] === [
-    'id'=>'id-passkey-use', 'title'=>$rows['id-passkey-use']['title'], 'summary'=>$rows['id-passkey-use']['summary'],
-    'href'=>portal_issuer_origin().'/help.php#passkey-use',
-], 'sign-in search returns the ID catalog title, summary and cross-app link');
+check($signIn['state'] === 'found' && array_column($signIn['articles'], 'id') === [
+    'co-connect', 'co-sign-out', 'sh-sign-in', 'sh-request-status', 'sh-privacy',
+] && $signIn['articles'][2] === [
+    'id'=>'sh-sign-in', 'title'=>$rows['sh-sign-in']['title'], 'summary'=>$rows['sh-sign-in']['summary'],
+    'href'=>'/portal/guide.php#sign-in',
+], 'Westy returns the five page guides in order with the Safeharbor sign-in title, summary and local link in third place');
 check(westy_help_test_call($emp, 'search_help', ['query'=>str_repeat(' ', 2).'sign in'.str_repeat(' ', 100).'revocation']) === $signIn,
     'help uses the normalized 100-character query');
 foreach (['sh-give-computer-access','nope','', "sh-requests\n", 'sh/requests', "\xFF"] as $id) {
@@ -112,7 +114,8 @@ check(count($links) === 5, 'search caps a broad query at five');
 $reference = $prefix.westy_help_test_json(array_slice($links, 0, 3));
 check(portal_westy_help_reference($task) === $reference, 'fallback contains the top three public links as untrusted reference data');
 $passkeyHits = westy_help_test_call($own, 'search_help', ['query'=>'passkey'])['articles'];
-check($passkeyHits[0]['id'] === 'id-passkey-add' && $passkeyHits[0]['href'] === portal_issuer_origin().'/help.php#passkey-add'
+check(array_slice(array_column($passkeyHits, 'id'), 0, 2) === ['id-passkey-add', 'id-passkey-use']
+    && $passkeyHits[0]['href'] === portal_issuer_origin().'/help.php#passkey-add'
     && portal_westy_help_reference($own + ['authorized_task'=>'passkey']) === $prefix.westy_help_test_json(array_slice($passkeyHits, 0, 3)),
     'the fallback includes the ranked ID links inside its untrusted reference');
 $_SESSION['desktop_companion_session'] = str_repeat('b', 32);

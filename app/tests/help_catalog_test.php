@@ -161,6 +161,25 @@ try {
         denied($label, static fn() => help_catalog_index($dir));
     }
 
+    // Put one probe beside the real Safeharbor sign-in article, with no other anchors or related IDs.
+    $anchorFixture = static function (string $app, string $anchor): string {
+        return tamper_dir(static function (array $index) use ($app, $anchor): array {
+            $signIn = array_column($index['articles'], null, 'id')['sh-sign-in'];
+            $signIn['related'] = [];
+            $probe = array_replace($signIn, ['id'=>'test-anchor', 'app'=>$app, 'anchor'=>$anchor]);
+            $index['articles'] = [$signIn, $probe];
+            return $index;
+        });
+    };
+    foreach ([['companion', 'sign-in'], ['safeharbor', 'contact'], ['companion', 'guide-q'],
+        ['id', 'help-q'], ['id', 'help-results']] as [$app, $anchor]) {
+        $dir = $anchorFixture($app, $anchor);
+        denied($app.' anchor '.$anchor, static fn() => help_catalog_index($dir));
+    }
+    $separatePages = help_catalog_index($anchorFixture('id', 'sign-in'));
+    check(array_column($separatePages['articles'], 'anchor', 'app') === ['safeharbor'=>'sign-in', 'id'=>'sign-in'],
+        'Safeharbor and 8 West ID may both use sign-in on their own pages');
+
     foreach ([
         'extra manifest key' => static fn(array $m): array => $m + ['extra' => 1],
         'wrong manifest format' => static fn(array $m): array => ['format' => 'x'] + $m,

@@ -100,8 +100,10 @@ the pins, and run the catalog and drift tests with the UI change.
 Never log search queries from the Guide page or `search_help`. The Guide uses a
 CSRF-protected POST to keep search words out of URLs and access logs. Search
 checks the title, keywords, summary and body of articles the person can read.
-It uses up to eight words from the first 100 characters. The page shows up to
-ten matches and `search_help` returns up to five. Ties keep the help set's order.
+It uses up to eight words from the first 100 characters. Safeharbor and Companion
+matches appear first, followed by 8 West ID matches. Each group is ranked by
+score, and ties keep the group's original order. The page shows up to ten
+matches and `search_help` returns up to five.
 A page result jumps to its local `#anchor`. An ID result shows “ · 8 West ID”
 after the title and uses the server's HTTPS issuer origin. An unusable issuer
 origin leaves only local help in the results.

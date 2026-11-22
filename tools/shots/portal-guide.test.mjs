@@ -313,7 +313,11 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
           }
           assert.ok(summary?.trim(), 'each result includes its summary');
         }
-        if (name === 'employee') assert.equal(hits[0].href, ID_ORIGIN + '/help.php#passkey-use');
+        if (name === 'employee') {
+          assert.equal(hits[0].href, '#companion-connect');
+          assert.ok(hits.some(hit => hit.href === '#sign-in') && hits.every(hit => !hit.href.startsWith(ID_ORIGIN)),
+            'employee sign-in results include the Safeharbor sign-in guide and stay on the portal');
+        }
         if (name === 'owner') assert.equal(hits[0].href, '#give-computer-access');
         await checkGuideWidth(page);
         const localHit = results.locator('li a[href^="#"]').first();
