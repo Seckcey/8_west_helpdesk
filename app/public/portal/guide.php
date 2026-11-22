@@ -34,7 +34,7 @@ $votes = [];
 portal_page_start('Portal guide','',$context);
 ?>
 <main class="portal-guide" data-csrf="<?= portal_h($csrf) ?>"><h1>How this portal works</h1><p>Help with the things you can do here. These articles describe the portal; they are not device diagnostics.</p>
-<form class="portal-guide-search" method="post" action="/portal/guide.php" role="search"><input type="hidden" name="csrf" value="<?= portal_h($csrf) ?>"><label for="guide-q">Search help</label><input id="guide-q" name="q" type="search" maxlength="100" value="<?= portal_h($q) ?>"><button class="btn-primary" type="submit">Search</button></form>
+<form class="portal-guide-search" method="post" action="/portal/guide.php" role="search"><input type="hidden" name="csrf" value="<?= portal_h($csrf) ?>"><label for="guide-q">Search help</label><input id="guide-q" name="q" type="search" maxlength="100" autocomplete="off" value="<?= portal_h($q) ?>"><button class="btn-primary" type="submit">Search</button></form>
 <?php if ($searchError): ?><p>Search could not run. Reload the page and try again.</p><?php endif; ?>
 <?php try {
     $articles = portal_guide_articles($context);

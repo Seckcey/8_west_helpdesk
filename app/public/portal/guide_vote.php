@@ -32,4 +32,4 @@ try {
 } catch(PortalWestyException $error){json_out(['ok'=>false,'reason'=>$error->reason],$error->status);}
 catch(PortalIdentityUnavailableException){json_out(['ok'=>false,'reason'=>'identity_unavailable'],503);}
 catch(JsonException){json_out(['ok'=>false,'reason'=>'invalid_request'],400);}
-catch(Throwable){json_out(['ok'=>false,'reason'=>'feedback_unavailable'],503);}
+catch(Throwable $error){error_log('[safeharbor-guide-vote] request_failed type='.$error::class);json_out(['ok'=>false,'reason'=>'feedback_unavailable'],503);}
