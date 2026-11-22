@@ -175,6 +175,12 @@
 #portal-chat-bubble{border-color:var(--line);box-shadow:var(--shadow-raised)}
 #portal-chat-root>#portal-chat-panel{box-shadow:var(--shadow-pop);border-radius:20px}
 .portal-chat-draft-fields input,.portal-chat-draft-fields textarea,.portal-chat-draft-fields select{border-color:var(--control-border);border-radius:10px;background:var(--input-bg)}
+.portal-source-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tag);
+  background: var(--hover);
+}
 
 /* Guide: layout, spacing and type only. The approved article text is pinned and never changes here. */
 .portal-guide{max-width:780px}

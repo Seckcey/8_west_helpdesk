@@ -940,6 +940,45 @@ if (!SERVE_MODE) test('computer checks preserve explicit consent, exact repair r
   }finally{await browser.close();await rm(scratch,{recursive:true,force:true});}
 });
 
+if (!SERVE_MODE) test('Westy source chips use the supplied Guide links and plain-text labels', async () => {
+  const {pages, scratch} = await renderedFixtures();
+  const browser = await chromium.launch();
+  const workspace = pages.workspace;
+  const withLabels = href => workspace.replace(/data-help-labels="[^"]*"/, `data-help-labels='${JSON.stringify({
+    'sh-requests': {label: 'Open a support request', href: '/portal/guide.php#requests'},
+    'sh-x': {label: '<b>x</b>', href},
+  })}'`);
+  const turn = (n, sources) => ({operation_key: String(n).repeat(32), state: 'complete', input_text: 'Question ' + n,
+    reply: {reply: 'Answer ' + n, tools: [], sources}});
+  const state = {enabled: true, ai_available: true, can_write: true, conversation: 'a'.repeat(32), conversations: [], draft: null,
+    turns: [turn(1, ['sh-requests', 'sh-x', 'sh-unknown']), turn(2, ['sh-x', 'sh-unknown'])]};
+  try {
+    pages.workspace = withLabels('javascript:alert(1)');
+    const {page, context} = await openPortalPage(browser, pages, {width: 390, height: 844},
+      route => route.fulfill({json: {ok: true, state}}));
+    await page.goto(`${ORIGIN}/portal/`);
+    await page.getByText('Answer 2', {exact: true}).waitFor();
+    const answers = page.getByRole('article', {name: 'Westy', exact: true});
+    const sources = answers.first().getByRole('navigation', {name: 'Sources', exact: true});
+    const chip = sources.locator('a.portal-source-chip');
+    assert.deepEqual(await chip.allTextContents(), ['Open a support request']);
+    assert.equal(await chip.getAttribute('href'), '/portal/guide.php#requests');
+    assert.equal(await answers.locator('a.portal-source-chip').count(), 1);
+    assert.equal(await sources.locator('a').count(), 1);
+    assert.equal(await answers.locator('b').count(), 0);
+    assert.equal(await answers.nth(1).locator('nav').count(), 0, 'a reply with only rejected sources has no source navigation');
+
+    pages.workspace = withLabels('/portal/guide.php#x');
+    await page.reload();
+    await answers.nth(1).getByRole('link', {name: '<b>x</b>', exact: true}).waitFor();
+    assert.equal(await answers.locator('b').count(), 0, 'even an accepted link displays its label as text');
+    await context.close();
+  } finally {
+    await browser.close();
+    await rm(scratch, {recursive: true, force: true});
+  }
+});
+
 if (!SERVE_MODE) test('private composer preserves review, receipt recovery and mobile focus boundaries', async () => {
   const {pages,scratch}=await renderedFixtures();const browser=await chromium.launch();
   let saved=null,sends=0,deny=false,receiptRecovery=false;
@@ -950,7 +989,7 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
       assert.equal(route.request().headers()['x-portal-csrf'],'c'.repeat(64));
       const request=route.request().postDataJSON();
       if(request.action==='message'){
-        state.turns.push({operation_key:request.operation,state:'complete',input_text:request.message,reply:{reply:'Guidance <img src=x onerror=alert(1)> is text.',sources:['requests'],draft_subject:'Printer is offline',draft_body:'The printer is offline.'}});
+        state.turns.push({operation_key:request.operation,state:'complete',input_text:request.message,reply:{reply:'Guidance <img src=x onerror=alert(1)> is text.',sources:['sh-requests'],draft_subject:'Printer is offline',draft_body:'The printer is offline.'}});
         return route.fulfill({contentType:'text/event-stream',body:'event: done\ndata: '+JSON.stringify({state})+'\n\n'});
       }
       if(request.action==='save_draft'){
@@ -978,6 +1017,7 @@ if (!SERVE_MODE) test('private composer preserves review, receipt recovery and m
     const input=desktop.page.getByRole('textbox',{name:'Ask Westy about your computer'});
     await input.fill('Help me report the printer.');await desktop.page.getByRole('button',{name:'Send message',exact:true}).click();
     await desktop.page.getByText('Guidance <img src=x onerror=alert(1)> is text.',{exact:true}).waitFor();
+    await desktop.page.getByRole('navigation',{name:'Sources'}).getByRole('link',{name:'Open a support request',exact:true}).waitFor();
     assert.equal(await desktop.page.locator('#portal-chat-messages img[src="x"]').count(),0);
     const box=await desktop.page.locator('#portal-chat-panel').boundingBox();
     assert.ok(box.width>500,'large composer remains in the page, unaffected by staff widget IDs');

@@ -25,6 +25,17 @@ foreach ($pilot as $id => $article) {
     guide_check(hash('sha256', $article['title']."\n\n".implode("\n\n", $paragraphs)) === $approved[$id], $id.' exactly preserves approved title, paragraphs and ordered steps');
 }
 require_once __DIR__.'/../lib/portal_westy_help.php';
+require_once __DIR__.'/../lib/portal_render.php';
+function portal_csrf_token(): string { return str_repeat('c', 64); }
+function guide_widget_html(array $context): string {
+    ob_start();
+    try {
+        portal_westy_widget($context);
+        return ob_get_contents();
+    } finally {
+        ob_end_clean();
+    }
+}
 $helpTools = portal_westy_help_definitions();
 $legacy = portal_guide_legacy_articles();
 $employee = ['sign-in','assigned-computers','requests','updates','private-computer-link'];
@@ -45,8 +56,22 @@ $cases = [
 ];
 $_GET = $_POST = ['role'=>'client_owner','audience'=>'owner','application'=>'browser'];
 $_SERVER['REQUEST_URI'] = '/portal/guide.php?role=client_owner&audience=owner';
+$widget = guide_widget_html($cases['owner'][0]);
+guide_check(preg_match('/<div id="portal-chat-root"[^>]*\bdata-help-labels="([^"]*)"/', $widget, $match) === 1,
+    'the chat root carries the source labels');
+$ownerLabels = portal_guide_source_labels($cases['owner'][0]);
+guide_check(json_decode(html_entity_decode($match[1], ENT_QUOTES, 'UTF-8'), true, 8, JSON_THROW_ON_ERROR) === $ownerLabels,
+    'the chat root exposes the owner labels as JSON');
+guide_check(array_keys($ownerLabels) === array_column(portal_guide_articles($cases['owner'][0]), 'catalog_id'), 'labels cover every article id the person can see');
+guide_check(!isset(portal_guide_source_labels($cases['employee'][0])['sh-give-computer-access']), 'labels are role filtered');
 foreach ($cases as $label => [$context, $ids]) {
     $articles = portal_guide_articles($context);
+    $labels = portal_guide_source_labels($context);
+    guide_check(array_keys($labels) === array_column($articles, 'catalog_id'), $label.' labels match the page set');
+    foreach ($articles as $anchor => $article) {
+        guide_check($labels[$article['catalog_id']] === ['label'=>$article['title'], 'href'=>'/portal/guide.php#'.$anchor],
+            $label.' source for '.$article['catalog_id'].' has just the page title and anchor link');
+    }
     $selected = array_keys(array_filter($articles, static fn($a) => isset($a['blocks'])));
     guide_check($selected === $ids, $label.' has only applicable pilot articles despite client role parameters');
     guide_check(array_diff(array_keys($legacy), array_keys($articles)) === [], $label.' retains legacy anchor IDs');
@@ -102,6 +127,10 @@ try {
     help_catalog_use_dir($dir);
     guide_check($readRequests() === ['untrusted_result'=>['state'=>'unavailable']], 'Westy reports help unavailable when the cached catalog is damaged');
     guide_check(str_contains(portal_westy_ai_instructions($helpTools, $employeeContext), 'call search_help'), 'Westy still builds its instructions with a damaged catalog');
+    guide_check(portal_guide_source_labels($employeeContext) === [], 'a damaged catalog returns an empty source map');
+    $widget = guide_widget_html($employeeContext);
+    guide_check(str_contains($widget, 'data-help-labels="{}"') && str_contains($widget, 'id="portal-chat-form"'),
+        'the portal shell renders the chat form with an empty JSON object when the catalog is damaged');
 
     // A second valid catalog changes the audience and order without changing the display label.
     foreach ($testIndex['articles'] as &$row) {

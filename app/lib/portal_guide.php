@@ -37,6 +37,20 @@ function portal_guide_articles(?array $context = null): array
     return $articles + $legacy;
 }
 
+function portal_guide_source_labels(?array $context): array
+{
+    try {
+        $articles = portal_guide_articles($context);
+    } catch (HelpCatalogException) {
+        return [];
+    }
+    $labels = [];
+    foreach ($articles as $anchor => $article) {
+        $labels[$article['catalog_id']] = ['label'=>$article['title'], 'href'=>'/portal/guide.php#'.$anchor];
+    }
+    return $labels;
+}
+
 /** Only bold labels and inline code from the approved text become markup; all text is escaped first. */
 function portal_guide_inline(string $text): string
 {
