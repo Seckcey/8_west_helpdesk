@@ -944,34 +944,62 @@ if (!SERVE_MODE) test('Westy source chips use the supplied Guide links and plain
   const {pages, scratch} = await renderedFixtures();
   const browser = await chromium.launch();
   const workspace = pages.workspace;
-  const withLabels = href => workspace.replace(/data-help-labels="[^"]*"/, `data-help-labels='${JSON.stringify({
-    'sh-requests': {label: 'Open a support request', href: '/portal/guide.php#requests'},
-    'sh-x': {label: '<b>x</b>', href},
-  })}'`);
+  const idOrigin = 'https://accounts.example.test:8443';
+  const withLabels = (origin, markupHref) => workspace
+    .replace(/data-help-id-origin="[^"]*"/, `data-help-id-origin="${origin}"`)
+    .replace(/data-help-labels="[^"]*"/, `data-help-labels='${JSON.stringify({
+      'sh-requests': {label: 'Open a support request', href: '/portal/guide.php#requests'},
+      'id-passkey-add': {label: 'Add a passkey', href: origin + '/help.php#passkey-add'},
+      'id-passkey-use': {label: 'Use a passkey', href: origin + '/help.php'},
+      'id-foreign': {label: 'Foreign source', href: 'https://evil.example/help.php#x'},
+      'id-foreign-page': {label: 'Foreign help page', href: 'https://evil.example/help.php'},
+      'id-query': {label: 'Unexpected query', href: origin + '/help.php?q=x'},
+      'id-bad-anchor': {label: 'Invalid anchor', href: origin + '/help.php#Invalid'},
+      'sh-x': {label: '<b>x</b>', href: markupHref},
+    })}'`);
   const turn = (n, sources) => ({operation_key: String(n).repeat(32), state: 'complete', input_text: 'Question ' + n,
     reply: {reply: 'Answer ' + n, tools: [], sources}});
   const state = {enabled: true, ai_available: true, can_write: true, conversation: 'a'.repeat(32), conversations: [], draft: null,
-    turns: [turn(1, ['sh-requests', 'sh-x', 'sh-unknown']), turn(2, ['sh-x', 'sh-unknown'])]};
+    turns: [turn(1, ['sh-requests', 'id-passkey-add', 'id-passkey-use', 'id-foreign', 'sh-x']),
+      turn(2, ['sh-x', 'sh-unknown', 'id-foreign-page', 'id-bad-anchor', 'id-query'])]};
   try {
-    pages.workspace = withLabels('javascript:alert(1)');
+    pages.workspace = withLabels(idOrigin, 'javascript:alert(1)');
     const {page, context} = await openPortalPage(browser, pages, {width: 390, height: 844},
       route => route.fulfill({json: {ok: true, state}}));
     await page.goto(`${ORIGIN}/portal/`);
     await page.getByText('Answer 2', {exact: true}).waitFor();
     const answers = page.getByRole('article', {name: 'Westy', exact: true});
     const sources = answers.first().getByRole('navigation', {name: 'Sources', exact: true});
-    const chip = sources.locator('a.portal-source-chip');
-    assert.deepEqual(await chip.allTextContents(), ['Open a support request']);
-    assert.equal(await chip.getAttribute('href'), '/portal/guide.php#requests');
-    assert.equal(await answers.locator('a.portal-source-chip').count(), 1);
-    assert.equal(await sources.locator('a').count(), 1);
+    const links = sources.getByRole('link');
+    assert.deepEqual(await links.allTextContents(), ['Open a support request', 'Add a passkey', 'Use a passkey']);
+    assert.equal(await links.first().getAttribute('href'), '/portal/guide.php#requests');
+    assert.equal(await links.first().getAttribute('target'), null);
+    assert.equal(await links.first().getAttribute('rel'), null);
+    for (const [name, href] of [['Add a passkey', idOrigin + '/help.php#passkey-add'], ['Use a passkey', idOrigin + '/help.php']]) {
+      const link = sources.getByRole('link', {name, exact: true});
+      assert.equal(await link.getAttribute('href'), href);
+      assert.equal(await link.getAttribute('target'), '_blank');
+      assert.equal(await link.getAttribute('rel'), 'noopener noreferrer');
+    }
+    assert.deepEqual(await sources.locator('span.portal-source-chip').allTextContents(), ['Foreign source', '<b>x</b>']);
+    assert.equal(await answers.locator('a.portal-source-chip').count(), 3);
     assert.equal(await answers.locator('b').count(), 0);
     assert.equal(await answers.nth(1).locator('nav').count(), 0, 'a reply with only rejected sources has no source navigation');
+    assert.deepEqual(await answers.nth(1).locator('span.portal-source-chip').allTextContents(),
+      ['<b>x</b>', 'Foreign help page', 'Invalid anchor', 'Unexpected query']);
 
-    pages.workspace = withLabels('/portal/guide.php#x');
+    pages.workspace = withLabels(idOrigin, '/portal/guide.php#x');
     await page.reload();
     await answers.nth(1).getByRole('link', {name: '<b>x</b>', exact: true}).waitFor();
     assert.equal(await answers.locator('b').count(), 0, 'even an accepted link displays its label as text');
+    for (const invalidOrigin of ['http://accounts.example.test', idOrigin + '/path']) {
+      pages.workspace = withLabels(invalidOrigin, idOrigin + '/help.php#Invalid');
+      await page.reload();
+      await page.getByText('Answer 2', {exact: true}).waitFor();
+      assert.deepEqual(await links.allTextContents(), ['Open a support request'], 'only the portal link survives an invalid ID origin');
+      assert.equal(await sources.getByText('Add a passkey', {exact: true}).count(), 1);
+      assert.equal(await sources.getByText('Use a passkey', {exact: true}).count(), 1);
+    }
     await context.close();
   } finally {
     await browser.close();

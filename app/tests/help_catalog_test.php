@@ -3,8 +3,8 @@
 declare(strict_types=1);
 require_once __DIR__.'/../lib/help_catalog.php';
 
-const HELP_PIN = '01ebce58907fe531cdd39cf4979c9e2ac13ee342b2e322f13ef589e32877ed7f';
-const HELP_SOURCE_COMMIT = '7afd89e770d65e0b71f82040b99a719b2e0c787d';
+const HELP_PIN = '0eea642371b8991fd1a8a7c8585b645b0100a9835c6b3d089a3fa75ef808b648';
+const HELP_SOURCE_COMMIT = 'cd1e429c778096154bfd7f7eae1e7ce55e761658';
 const VENDORED = __DIR__.'/../help';
 
 $checks = 0;
@@ -84,13 +84,13 @@ $originalIndex = json_decode(file_get_contents(VENDORED.'/customer-index.json'),
 $originalManifest = json_decode(file_get_contents(VENDORED.'/help-manifest.json'), true, 32, JSON_THROW_ON_ERROR);
 try {
     $index = help_catalog_index();
-    check($index['version'] === '0.1.0', 'pinned catalog version');
+    check($index['version'] === '0.2.0', 'pinned catalog version');
     check(hash_file('sha256', VENDORED.'/help-manifest.json') === HELP_PIN, 'pinned manifest hash');
     check(preg_match('/\A[0-9a-f]{40}\z/', HELP_SOURCE_COMMIT) === 1, 'source commit is a full lowercase Git SHA');
     $files = array_values(array_diff(scandir(VENDORED), ['.', '..']));
     sort($files);
     check($files === ['customer-index.json', 'help-manifest.json'], 'only the customer index and manifest are vendored');
-    check(count($index['articles']) === 12 && $index === $originalIndex, 'all twelve approved articles are returned intact');
+    check(count($index['articles']) === 37 && $index === $originalIndex, 'all 37 approved articles are returned intact');
 
     $blockBody = static fn(array $block): array => ['body' => ['format' => 'blocks', 'blocks' => [$block]]];
     $mutations = [
@@ -160,6 +160,25 @@ try {
         tamper_dir($mutate, $dir);
         denied($label, static fn() => help_catalog_index($dir));
     }
+
+    // Put one probe beside the real Safeharbor sign-in article, with no other anchors or related IDs.
+    $anchorFixture = static function (string $app, string $anchor): string {
+        return tamper_dir(static function (array $index) use ($app, $anchor): array {
+            $signIn = array_column($index['articles'], null, 'id')['sh-sign-in'];
+            $signIn['related'] = [];
+            $probe = array_replace($signIn, ['id'=>'test-anchor', 'app'=>$app, 'anchor'=>$anchor]);
+            $index['articles'] = [$signIn, $probe];
+            return $index;
+        });
+    };
+    foreach ([['companion', 'sign-in'], ['safeharbor', 'contact'], ['companion', 'guide-q'],
+        ['id', 'help-q'], ['id', 'help-results']] as [$app, $anchor]) {
+        $dir = $anchorFixture($app, $anchor);
+        denied($app.' anchor '.$anchor, static fn() => help_catalog_index($dir));
+    }
+    $separatePages = help_catalog_index($anchorFixture('id', 'sign-in'));
+    check(array_column($separatePages['articles'], 'anchor', 'app') === ['safeharbor'=>'sign-in', 'id'=>'sign-in'],
+        'Safeharbor and 8 West ID may both use sign-in on their own pages');
 
     foreach ([
         'extra manifest key' => static fn(array $m): array => $m + ['extra' => 1],

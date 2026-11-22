@@ -1,0 +1,37 @@
+{
+  "anchors": {
+    "employee": [
+      "sign-in", "assigned-computers", "requests", "updates", "private-computer-link",
+      "request-status", "find-request", "reply", "westy-chat", "westy-approve",
+      "companion-connect", "companion-chat", "companion-sign-out",
+      "devices", "response", "summaries", "privacy"
+    ],
+    "viewer": [
+      "assigned-computers", "updates", "private-computer-link", "request-status", "find-request", "westy-chat",
+      "companion-connect", "companion-chat", "companion-sign-out",
+      "devices", "requests", "response", "summaries", "privacy"
+    ],
+    "owner": [
+      "requests", "updates", "private-computer-link", "give-computer-access", "request-status", "find-request",
+      "reply", "summaries", "westy-chat", "westy-approve", "add-computer",
+      "companion-connect", "companion-chat", "companion-sign-out", "devices", "response", "privacy"
+    ],
+    "legacy": [
+      "devices", "requests", "updates", "response", "summaries", "privacy",
+      "companion-connect", "companion-chat", "companion-sign-out"
+    ]
+  },
+  "cases": {
+    "employee": [{"identity":{"role":"client_staff"}}, "employee"],
+    "viewer": [{"identity":{"role":"client_viewer"}}, "viewer"],
+    "owner": [{"identity":{"role":"client_owner"}}, "owner"],
+    "admin": [{"identity":{"role":"client_admin"}}, "owner"],
+    "staff": [{"identity":{"role":"technician"}}, "legacy"],
+    "delegated staff as owner": [{"identity":{"role":"technician","customer_access":{"role":"client_owner"}}}, "legacy"],
+    "native owner with overlay": [{"identity":{"role":"client_owner","customer_access":{"role":"client_owner"}}}, "legacy"],
+    "native admin with overlay": [{"identity":{"role":"client_admin","customer_access":{"role":"client_admin"}}}, "legacy"],
+    "companion employee": [{"identity":{"role":"client_staff"},"desktop_companion_pair":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "legacy"],
+    "companion owner": [{"identity":{"role":"client_owner"},"desktop_companion_pair":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "legacy"],
+    "absent identity": [{}, "legacy"]
+  }
+}

@@ -33,6 +33,25 @@
       return {};
     }
   })();
+  const idHelpPage = (() => {
+    const origin = root.dataset.helpIdOrigin || '';
+    if (!/^https:\/\/[^/\\?#@\s]+$/.test(origin)) return null;
+    try {
+      return new URL(origin).hostname ? origin + '/help.php' : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  function isHelpHref(href) {
+    if (typeof href !== 'string') return false;
+    if (href === idHelpPage) return true;
+    const hash = href.indexOf('#');
+    if (hash < 0 || !/^[a-z][a-z0-9-]{0,63}$/.test(href.slice(hash + 1))) return false;
+    const page = href.slice(0, hash);
+    return page === '/portal/guide.php' || page === idHelpPage;
+  }
+
   const errors = {
     ai_unavailable:'Westy is unavailable. You can still contact support.', provider_unavailable:'The reply was interrupted. Saved device work is shown below; it has not been retried.',
     provider_rate_limit:'Westy is busy. Please try a new message later.', provider_refused:'Westy could not answer that. Contact support for help.',
@@ -444,13 +463,21 @@
           nav.setAttribute('aria-label', 'Sources');
           for (const id of turn.reply.sources) {
             const ref = helpLabels[id];
-            if (!ref || typeof ref.label !== 'string' || typeof ref.href !== 'string'
-                || !/^\/portal\/guide\.php#[a-z][a-z0-9-]{0,63}$/.test(ref.href)) continue;
-            const link = element('a', ref.label, 'portal-source-chip');
-            link.href = ref.href;
-            nav.append(link);
+            if (!ref || typeof ref.label !== 'string') continue;
+            if (isHelpHref(ref.href)) {
+              const link = element('a', ref.label, 'portal-source-chip');
+              link.href = ref.href;
+              if (ref.href.startsWith('https://')) {
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+              }
+              nav.append(link);
+            } else {
+              nav.append(element('span', ref.label, 'portal-source-chip'));
+            }
           }
-          if (nav.childElementCount) node.meta.append(nav);
+          if (nav.querySelector('a')) node.meta.append(nav);
+          else node.meta.append(...nav.children);
         }
         if(state.can_write&&turn.reply?.draft_subject&&turn.reply?.draft_body)node.meta.append(button('Edit suggested request',()=>editDraft({subject:turn.reply.draft_subject,body:turn.reply.draft_body,priority:'normal'})));
       }

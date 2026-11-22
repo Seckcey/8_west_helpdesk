@@ -9,19 +9,26 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const ORIGIN = 'http://safeharbor.test';
+const ID_ORIGIN = 'https://accounts.example.test';
 const evidence = process.env.PORTAL_GUIDE_EVIDENCE;
 const searchError = 'Search could not run. Reload the page and try again.';
-const legacy = ['devices','requests','updates','response','summaries','privacy','contact'];
+const {anchors} = JSON.parse(await readFile(path.join(ROOT, 'app/tests/fixtures/portal_guide_cases.json'), 'utf8'));
 const cases = {
-  employee: { role: 'client_staff', ids: ['sign-in','assigned-computers','requests','updates','private-computer-link'] },
-  viewer: { role: 'client_viewer', ids: ['assigned-computers','updates','private-computer-link'] },
-  owner: { role: 'client_owner', ids: ['requests','updates','private-computer-link','give-computer-access'] },
-  admin: { role: 'client_admin', ids: ['requests','updates','private-computer-link','give-computer-access'] },
-  technician: { role: 'technician', ids: [] },
-  delegated: { role: 'technician', overlay: 'client_owner', ids: [] },
-  overlayOwner: { role: 'client_owner', overlay: 'client_owner', ids: [] },
-  companion: { role: 'client_owner', companion: true, ids: [] },
+  employee: { role: 'client_staff', ids: anchors.employee, audience: 'employee' },
+  viewer: { role: 'client_viewer', ids: anchors.viewer, audience: 'viewer' },
+  owner: { role: 'client_owner', ids: anchors.owner, audience: 'owner_admin' },
+  admin: { role: 'client_admin', ids: anchors.owner, audience: 'owner_admin' },
+  technician: { role: 'technician', ids: anchors.legacy },
+  delegated: { role: 'technician', overlay: 'client_owner', ids: anchors.legacy },
+  overlayOwner: { role: 'client_owner', overlay: 'client_owner', ids: anchors.legacy },
+  companion: { role: 'client_owner', companion: true, ids: anchors.legacy },
 };
+
+function catalogArticleText(row) {
+  const inline = text => text.replace(/\*\*([^*]+)\*\*|`([^`]+)`/gu, (_, bold, code) => bold ?? code);
+  return {anchor:row.anchor, title:row.title, blocks:row.body.blocks.map(block =>
+    block.type === 'paragraph' ? inline(block.text) : block.items.map(inline))};
+}
 
 function checkPublicHtml(html, label) {
   for (const meta of ['drafted_by','approved_by','last_verified','fable-5.2','opus-5.5','gpt-6.2-astra','keywords','"approval"']) {
@@ -118,6 +125,9 @@ test('authenticated Guide selection, search, helpful votes, request links and pr
   // Execute the Guide controller and renderers with synthetic authentication.
   await copyFile(path.join(ROOT,'app/public/portal/guide.php'), path.join(portal,'guide.php'));
   await cp(path.join(ROOT, 'app/help'), catalog, {recursive:true});
+  const index = JSON.parse(await readFile(path.join(catalog, 'customer-index.json'), 'utf8'));
+  const fullArticles = index.articles.filter(row => !row.legacy_guide && ['safeharbor','companion'].includes(row.app))
+    .sort((a, b) => a.order - b.order);
   for (const name of ['portal_render','portal_guide','help_catalog']) {
     await writeFile(path.join(lib, `${name}.php`), `<?php require_once $argv[1].'/app/lib/${name}.php';`);
   }
@@ -149,6 +159,7 @@ if (!empty($input['companion'])) $_SESSION['desktop_companion_session'] = str_re
 function cfg(string $key, mixed $default=null): mixed { return $default; }
 function enforce_https(): void {}
 function portal_enabled(): bool { return true; }
+function portal_configured_issuer(): string { return '${ID_ORIGIN}/oidc'; }
 function db(): mixed { return null; }
 function portal_csrf_token(): string { return str_repeat('c',64); }
 function portal_csrf_valid(mixed $sent): bool { return is_string($sent) && hash_equals(portal_csrf_token(), $sent); }
@@ -191,8 +202,12 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         let voteStorage = 'installed';
         page.on('pageerror', error => errors.push(error.message));
         page.on('console', message => { if (message.type()==='error') errors.push(message.text()); });
-        await page.route('**/*', async route => {
+        await context.route('**/*', async route => {
           const url = new URL(route.request().url());
+          if (url.origin === ID_ORIGIN && url.pathname === '/help.php') {
+            assert.equal(route.request().method(), 'GET');
+            return route.fulfill({contentType:'text/html', body:'<link rel="icon" href="data:,"><h1 id="passkey-add">ID help fixture</h1>'});
+          }
           assert.equal(url.origin, ORIGIN, 'no real sign-in, provider or production traffic');
           if (url.pathname.startsWith('/assets/')) {
             const type = {'.css':'text/css','.js':'text/javascript','.png':'image/png','.svg':'image/svg+xml','.json':'application/json'}[path.extname(url.pathname)];
@@ -225,10 +240,11 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         assert.equal(await page.locator('.portal-guide-results').count(), 0);
         const ids = await page.locator('main article').evaluateAll(nodes=>nodes.map(n=>n.id));
         assert.equal(new Set(ids).size, ids.length, 'no duplicate articles/anchors');
-        assert.deepEqual(ids, [...new Set([...input.ids, ...legacy])], `${name} keeps every anchor in page order`);
+        assert.deepEqual(ids, [...input.ids, 'contact'], `${name} keeps every anchor in page order`);
+        assert.equal(await page.locator('[id="guide-q"]').count(), 1, 'the search field has its own anchor');
         const voteGroups = page.locator('.portal-guide-vote');
         const voteScript = page.locator('script[src^="/assets/js/portal-guide.js?v="]');
-        const canVote = ['employee','viewer','owner','admin'].includes(name);
+        const canVote = Boolean(input.audience);
         assert.equal(await voteGroups.count(), canVote ? ids.length - 1 : 0, name+' vote controls match its catalog articles');
         assert.equal(await voteScript.count(), canVote ? 1 : 0);
         assert.equal(await page.locator('#contact .portal-guide-vote').count(), 0);
@@ -238,8 +254,14 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         }
         if (name === 'employee') await checkVoting(page, reply => { voteReply = reply; });
         checkPublicHtml(await page.content(), name);
-        const pilotIds = await page.locator('main article:has(ol)').evaluateAll(nodes=>nodes.map(n=>n.id));
-        assert.deepEqual(pilotIds,input.ids,`${name} audience selection`);
+        const rendered = await page.locator('main article:has(ol)').evaluateAll(nodes => nodes.map(node => ({
+          anchor:node.id, title:node.querySelector('h2').textContent,
+          blocks:[...node.querySelectorAll(':scope > p:not(.portal-eyebrow), :scope > ol')].map(block =>
+            block.tagName === 'OL' ? [...block.children].map(item => item.textContent) : block.textContent),
+        })));
+        const expectedArticles = fullArticles.filter(row => input.audience ? row.audience.includes(input.audience) :
+          row.app === 'companion' && ['owner_admin','employee','viewer'].every(audience => row.audience.includes(audience)));
+        assert.deepEqual(rendered, expectedArticles.map(catalogArticleText), name+' renders the indexed titles and complete bodies in order');
         assert.equal(await page.locator('#portal-nav nav a[href="/portal/requests.php"]').count(),1);
         assert.equal(await page.locator('#portal-nav a[href="/portal/guide.php"]').count(),1);
         assert.equal(await page.locator('#portal-nav nav a[href="/portal/guide.php"]').count(),0,'no added navigation entry');
@@ -253,10 +275,8 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         // A link navigation can expose the new DOM before its CSS/fonts finish loading.
         // Measure the settled page, without retrying or relaxing the overflow assertion.
         await checkGuideWidth(page);
-        if (input.ids.length) {
-          assert.ok(await page.locator('main ol').first().evaluate(el=>parseFloat(getComputedStyle(el).paddingLeft)>=20),'ordered steps keep markers inside the content edge');
-          assert.ok(await page.locator('main strong').first().evaluate(el=>Number(getComputedStyle(el).fontWeight)>=600),'approved bold labels remain visually emphasized');
-        }
+        assert.ok(await page.locator('main ol').first().evaluate(el=>parseFloat(getComputedStyle(el).paddingLeft)>=20),'ordered steps keep markers inside the content edge');
+        assert.ok(await page.locator('main strong').first().evaluate(el=>Number(getComputedStyle(el).fontWeight)>=600),'approved bold labels remain visually emphasized');
         if (evidence && ['employee','viewer','owner'].includes(name)) {
           await page.evaluate(()=>window.scrollTo(0,0));
           await page.screenshot({path:path.join(evidence,`${name}-${viewport.width}.png`)});
@@ -271,19 +291,56 @@ portal_render_dashboard(portal_authenticated_context(null), ['client'=>['name'=>
         checkPublicHtml(await searchResponse.text(), name+' search');
         assert.equal(await results.getByRole('heading', {level:2}).textContent(), 'Search results');
         const hits = await results.locator('li a').evaluateAll(links => links.map(link => ({
-          href:link.getAttribute('href'), title:link.textContent, summary:link.nextElementSibling?.textContent,
+          href:link.getAttribute('href'), target:link.getAttribute('target'), rel:link.getAttribute('rel'),
+          title:link.textContent, summary:link.nextElementSibling?.textContent,
         })));
         assert.ok(hits.length > 0 && hits.length <= 10);
-        for (const {href, title, summary} of hits) {
-          assert.ok(ids.some(id => href === '#'+id), name+' result points to a visible article');
-          assert.equal(await page.locator(href+' h2').textContent(), title);
+        const idArticles = index.articles.filter(row => row.app === 'id' && (input.audience
+          ? row.audience.includes(input.audience)
+          : ['employee', 'viewer', 'owner_admin'].every(audience => row.audience.includes(audience))));
+        for (const {href, target, rel, title, summary} of hits) {
+          if (href.startsWith('#')) {
+            assert.ok(ids.some(id => href === '#'+id), name+' result points to a visible page article');
+            assert.equal(await page.locator(href+' h2').textContent(), title);
+            assert.equal(target, null);
+            assert.equal(rel, null);
+          } else {
+            const row = idArticles.find(article => title === article.title + ' · 8 West ID');
+            assert.ok(row, name+' result names an eligible ID article');
+            assert.equal(href, ID_ORIGIN + '/help.php' + (input.companion ? '' : '#' + row.anchor));
+            assert.equal(target, '_blank');
+            assert.equal(rel, 'noopener noreferrer');
+          }
           assert.ok(summary?.trim(), 'each result includes its summary');
         }
-        if (name === 'employee') assert.equal(hits[0].href, '#sign-in');
+        if (name === 'employee') {
+          assert.equal(hits[0].href, '#companion-connect');
+          assert.ok(hits.some(hit => hit.href === '#sign-in') && hits.every(hit => !hit.href.startsWith(ID_ORIGIN)),
+            'employee sign-in results include the Safeharbor sign-in guide and stay on the portal');
+        }
         if (name === 'owner') assert.equal(hits[0].href, '#give-computer-access');
         await checkGuideWidth(page);
-        await results.locator('li a').first().click();
-        assert.equal(new URL(page.url()).hash, hits[0].href);
+        const localHit = results.locator('li a[href^="#"]').first();
+        const localHref = await localHit.getAttribute('href');
+        await localHit.click();
+        assert.equal(new URL(page.url()).hash, localHref);
+
+        if (name === 'owner' || input.companion) {
+          const response = await submitSearch(page, 'passkey');
+          checkPublicHtml(await response.text(), name+' passkey search');
+          const passkey = results.getByRole('link', {name:'Add a passkey for 8 West ID · 8 West ID', exact:true});
+          const expectedHref = ID_ORIGIN + '/help.php' + (input.companion ? '' : '#passkey-add');
+          assert.equal(await passkey.getAttribute('href'), expectedHref);
+          assert.equal(await passkey.getAttribute('target'), '_blank');
+          assert.equal(await passkey.getAttribute('rel'), 'noopener noreferrer');
+          assert.equal(await page.locator('main article#passkey-add, .portal-guide-vote[data-article="id-passkey-add"]').count(), 0);
+          const [idPage] = await Promise.all([context.waitForEvent('page'), passkey.click()]);
+          await idPage.getByRole('heading', {name:'ID help fixture'}).waitFor();
+          assert.equal(idPage.url(), expectedHref);
+          assert.ok(await idPage.evaluate(() => window.opener === null));
+          assert.equal(page.url(), ORIGIN+'/portal/guide.php', 'the reader keeps the Guide search open');
+          await idPage.close();
+        }
 
         if (name === 'employee') {
           const markup = '<script>x</script>';

@@ -1,8 +1,10 @@
 # Safeharbor help catalog
 
-The signed-in Portal guide at `/portal/guide.php` and Westy use the same reviewed
-articles. Edit the Markdown files under `articles/safeharbor/` in the private
-catalog repository. Safeharbor gets a copy when it adopts a catalog release.
+Safeharbor vendors customer catalog `v0.2.0`. The signed-in Portal guide at
+`/portal/guide.php` draws its page body from 19 Safeharbor and three Westy
+Companion articles. Guide search and Westy can also find the 15 articles from
+8 West ID, subject to the reader's role. Edit the articles under
+`articles/safeharbor/`, `articles/companion/` and `articles/id/` in the private catalog.
 [Seckcey/8_west_help_catalog](https://github.com/Seckcey/8_west_help_catalog)
 
 ## Edit, approve and release an article
@@ -15,8 +17,7 @@ catalog repository. Safeharbor gets a copy when it adopts a catalog release.
    customer data out of the article. Follow the [catalog writing guide](https://github.com/Seckcey/8_west_help_catalog/blob/main/docs/WRITING.md).
 2. A different approved model checks the article, records its name in
    `approved_by`, writes a short `approval_verdict` and sets `status` to
-   `approved`. Only approved articles enter a release. The phase 1 reviewer
-   is Opus 5.5.
+   `approved`. Only approved articles enter a release.
 3. Set the catalog version in `package.json` and rebuild the indexes. Merge the
    reviewed changes to catalog `main` with its checks passing. The coordinator
    tags that commit `vX.Y.Z`, matching the package version. The release workflow
@@ -28,28 +29,41 @@ catalog repository. Safeharbor gets a copy when it adopts a catalog release.
    byte for byte before it replaces the copy in `app/help/`.
 5. In `app/tests/help_catalog_test.php`, set `HELP_PIN` to the printed
    `manifest sha256` and `HELP_SOURCE_COMMIT` to the printed `source commit`.
-   Update the expected catalog version and keep a different version in the
-   manifest mismatch test. Run `php app/tests/help_catalog_test.php`.
+   Update the expected catalog version and article count and keep a different
+   version in the manifest mismatch test. Run `php app/tests/help_catalog_test.php`
+   and `php app/tests/help_drift_test.php`.
    Include both generated files and the test update in the Safeharbor pull
    request. Link the exact catalog commit so the reviewer can check what changed.
 
 ## Who sees which articles
 
-`portal_guide_articles($context)` selects the articles for the page, search,
-Westy's reads, votes and source links. It uses the signed-in identity and the
-server's Companion session. A role in a URL or form cannot change the selection.
-Reading an article grants no access to a computer, request or other action.
+The signed-in identity and server Companion state determine both sets of articles.
 
-| Guide context | Pilot articles shown, in page order |
+- The **page set**, returned by `portal_guide_articles($context)`, supplies the
+  Safeharbor and Companion article bodies and the articles eligible for portal votes.
+- The **help set**, returned by `portal_guide_help_set($context)`, starts with
+  the page set and appends 8 West ID articles in catalog order. Guide search,
+  Westy's search, reads and fallback, and source labels use this set. An employee,
+  viewer, or direct owner/admin gets the ID articles for that audience. Every
+  legacy context gets only ID articles approved for all three customer audiences.
+
+A role in a URL or form cannot change either selection. Reading an article
+grants no access to a computer, request or other action.
+
+| Guide context | Full articles shown, in page order |
 | --- | --- |
-| Employee (`client_staff`) | Sign in, assigned computer, open a request, follow a request, use a private computer link |
-| Viewer (`client_viewer`) | Assigned computer, follow a request, use a private computer link |
-| Direct owner or admin | Open a request, follow a request, use a private computer link, give an employee access |
-| Technician, delegated access, Companion or a caller without an identity | The six short Guide articles only |
+| Employee (`client_staff`) | Sign in, assigned computer, open and follow a request, private computer link, request status, find a request, reply, Westy chat, repair approval, then the three Companion guides |
+| Viewer (`client_viewer`) | Assigned computer, follow a request, private computer link, request status, find a request, Westy chat, then the three Companion guides |
+| Direct owner or admin | Open and follow a request, private computer link, give an employee access, request status, find a request, reply, weekly service summary, Westy chat, repair approval, add a computer, then the three Companion guides |
+| Companion, delegated access (`customer_access`), technicians, or a caller without a recognized role | The six short articles appear first, followed by Companion guides approved for all three customer audiences |
 
-The full request and update articles replace the short versions at the same
-anchors for roles that can read them. Other short entries keep their place. The
-private-link article keeps its **Employee** label when owners read it as a
+The Companion guides cover connecting the Westy window, chatting and choosing
+tool permissions, and signing out on a shared computer, in that order. In a
+direct customer session, the page shows full articles for the signed-in role in
+catalog order and appends the remaining short articles. A full request, update
+or weekly service summary takes the place of the short article at its anchor.
+Owners and admins using Companion or delegated access see the legacy selection.
+The private-link article keeps its **Employee** label when owners read it as a
 reference. The introduction, extra privacy details and Contact section belong
 to the page. Existing links to those sections still work.
 
@@ -62,20 +76,37 @@ fails a check, the page shows “Help is unavailable right now.” The Contact
 section and chat still render. The widget omits source links and the Guide
 hides voting.
 
-The phase 1 hash fixtures prove that all 12 imported titles and bodies kept
-their original bytes. The first PR that adds a Safeharbor article retires the
-Safeharbor pilot hash checks and their fixture,
-`app/tests/fixtures/portal_guide_approved_sha256.json`. Update the count of
-articles expected in the Safeharbor loader test. Limit the catalog's import
-hash test to the 12 original IDs. Approval and catalog CI cover new articles.
+The pilot text hash fixture was retired with `v0.2.0`. Article approval and
+catalog CI now guard the published wording. Safeharbor tests compare rendered
+titles, paragraphs and ordered steps to the vendored index. A separate legacy
+fixture still pins the original six short articles.
+
+## When an on-screen label changes
+
+`php app/tests/help_drift_test.php` checks each `ui_labels` entry in the
+released Safeharbor and Companion articles against the exact, case-sensitive
+text in `app/lib/portal_*.php`, `app/public/portal/*.php`,
+`app/public/assets/js/portal-*.js` and `app/public/assets/js/desktop-handoff.js`.
+It runs in Safeharbor CI and reports the article ID and each missing label.
+
+When a label changes intentionally, check the new words on the affected screen,
+update the article steps and `ui_labels` in the catalog, and have the article
+reviewed and released. Re-sync Safeharbor with
+`bash tools/help/sync-help-catalog.sh --tag vX.Y.Z` using the new tag, update
+the pins, and run the catalog and drift tests with the UI change.
 
 ## Search, Westy and source links
 
 Never log search queries from the Guide page or `search_help`. The Guide uses a
 CSRF-protected POST to keep search words out of URLs and access logs. Search
 checks the title, keywords, summary and body of articles the person can read.
-It uses up to eight words from the first 100 characters. The page shows up to
-ten matches and `search_help` returns up to five. Ties keep the page order.
+It uses up to eight words from the first 100 characters. Safeharbor and Companion
+matches appear first, followed by 8 West ID matches. Each group is ranked by
+score, and ties keep the group's original order. The page shows up to ten
+matches and `search_help` returns up to five.
+A page result jumps to its local `#anchor`. An ID result shows “ · 8 West ID”
+after the title and uses the server's HTTPS issuer origin. An unusable issuer
+origin leaves only local help in the results.
 A paused Westy chat can temporarily keep the help call and its result in the
 private record used to resume that chat.
 
@@ -83,8 +114,20 @@ Westy uses two read-only tools. It calls `search_help` to find a match, then
 `read_help_article` for the steps. The text is untrusted reference material and
 cannot start an action. If nothing fits, Westy points the person to Support
 Requests. A successful read can add a source link. A reply keeps up to five
-distinct catalog IDs, and the widget looks up each title and anchor in the
-person's current Guide. Search hits alone add no source.
+distinct catalog IDs. The widget receives each eligible title and link in
+`data-help-labels`, along with the server's `data-help-id-origin`. Search hits
+alone add no source.
+
+A source chip links only to `/portal/guide.php#<anchor>` or to the exact HTTPS
+issuer origin followed by `/help.php` or `/help.php#<anchor>`. The origin must
+have no path, and anchors must match `^[a-z][a-z0-9-]{0,63}$`. Other destinations
+display the label as plain text. Unknown source IDs are omitted.
+
+In a web browser, selecting an 8 West ID search result or Westy source chip opens
+the article at its anchor in a new tab. In Windows and Mac Companion, the same
+click opens the 8 West ID Help page in the system browser. Companion links use
+`/help.php` without a fragment, so readers can search there for the article title.
+Safeharbor and Companion article links open at their anchors in the current window.
 
 `portal_guide.westy_tools` defaults to `true`. With help on, a round that
 cannot offer search can still receive up to three matching summaries as
@@ -94,7 +137,8 @@ both help tools and that fallback. People can still open and search the Guide.
 ## Helpful votes
 
 Direct employees, viewers, owners and admins can choose **Yes** or **No** on a
-visible catalog article. `portal_guide_votes` keeps one vote per person scope
+visible page article. A portal vote for an ID article returns HTTP 404
+(`not_found`). `portal_guide_votes` keeps one vote per person scope
 and catalog ID, with the catalog version. Voting again updates that row. Each
 vote expires **400 days after the last vote**. Westy maintenance deletes expired
 rows. Erasing a person's exact tenant, client and Westy scope deletes all votes

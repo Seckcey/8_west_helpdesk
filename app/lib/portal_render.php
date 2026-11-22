@@ -1,6 +1,7 @@
 <?php
 /** Dark-by-default presentation for the customer help portal. */
 declare(strict_types=1);
+require_once __DIR__ . '/portal_issuer_origin.php';
 require_once __DIR__ . '/portal_shell.php';
 require_once __DIR__ . '/portal_preferences.php';
 require_once __DIR__ . '/first_steps.php';
@@ -8,18 +9,6 @@ require_once __DIR__ . '/first_steps.php';
 function portal_h(mixed $value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
-
-/** 8 West ID's exact origin, with the same fixed fallback as logout.php if the configured issuer can't be used. */
-function portal_issuer_origin(): string
-{
-    try {
-        $issuer = function_exists('portal_configured_issuer') ? parse_url(portal_configured_issuer()) : [];
-    } catch (PortalAuthConfigurationException) {
-        $issuer = [];
-    }
-    if (empty($issuer['host'])) return 'https://id.8westit.com';
-    return 'https://' . $issuer['host'] . (isset($issuer['port']) ? ':' . $issuer['port'] : '');
 }
 
 /**

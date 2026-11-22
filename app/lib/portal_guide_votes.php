@@ -19,8 +19,6 @@ function portal_guide_vote_record(PDO $pdo, array $context, array $request): arr
     if (!portal_devices_keys($request, ['article','helpful']) || !is_string($request['article'])
         || strlen($request['article']) > 64 || preg_match('/\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*\z/', $request['article']) !== 1
         || !is_bool($request['helpful'])) throw new PortalWestyException('invalid_request', 400);
-    if (!portal_guide_votes_installed($pdo)) throw new PortalWestyException('help_feedback_unavailable', 503);
-
     try {
         $visible = array_column(portal_guide_articles($context), 'catalog_id', 'catalog_id');
         $article = $visible[$request['article']] ?? throw new PortalWestyException('not_found', 404);
@@ -28,6 +26,7 @@ function portal_guide_vote_record(PDO $pdo, array $context, array $request): arr
     } catch (HelpCatalogException) {
         throw new PortalWestyException('help_feedback_unavailable', 503);
     }
+    if (!portal_guide_votes_installed($pdo)) throw new PortalWestyException('help_feedback_unavailable', 503);
 
     $scope = portal_westy_scope($pdo, $context);
     $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
