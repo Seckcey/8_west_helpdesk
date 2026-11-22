@@ -6,16 +6,48 @@ require_once __DIR__.'/../../lib/portal_render.php';
 require_once __DIR__.'/../../lib/portal_guide.php';
 enforce_https();
 if(!portal_enabled()){http_response_code(404);exit('Not found.');}
-if(($_SERVER['REQUEST_METHOD'] ?? 'GET')!=='GET'){header('Allow: GET');portal_render_error(405,'Method not allowed','Open the portal guide to read help.');exit;}
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if (!in_array($method, ['GET','POST'], true)) {
+    header('Allow: GET, POST');
+    portal_render_error(405, 'Method not allowed', 'Open the portal guide to read help.');
+    exit;
+}
 try{$context=portal_authenticated_context(db());}
 catch(Throwable){portal_render_error(503,'Temporarily unavailable','We could not validate your sign-in. Try again shortly.');exit;}
 if($context===null){portal_require_sign_in();exit;}
 $canWrite = portal_role_can_write_tickets(portal_customer_role($context['identity']));
+$q = '';
+$searchError = false;
+if ($method === 'POST') {
+    $keys = array_keys($_POST);
+    sort($keys, SORT_STRING);
+    if ($keys === ['csrf','q'] && is_string($_POST['csrf']) && is_string($_POST['q']) && portal_csrf_valid($_POST['csrf'])) {
+        $q = help_catalog_search_query($_POST['q']);
+    } else {
+        $searchError = true;
+    }
+}
 portal_page_start('Portal guide','',$context);
 ?>
 <main class="portal-guide"><h1>How this portal works</h1><p>Help with the things you can do here. These articles describe the portal; they are not device diagnostics.</p>
+<form class="portal-guide-search" method="post" action="/portal/guide.php" role="search"><input type="hidden" name="csrf" value="<?= portal_h(portal_csrf_token()) ?>"><label for="guide-q">Search help</label><input id="guide-q" name="q" type="search" maxlength="100" value="<?= portal_h($q) ?>"><button class="btn-primary" type="submit">Search</button></form>
+<?php if ($searchError): ?><p>Search could not run. Reload the page and try again.</p><?php endif; ?>
 <?php try {
     $articles = portal_guide_articles($context);
+    if ($q !== ''):
+        $results = portal_guide_search($context, $q); ?>
+<section class="portal-guide-results" aria-live="polite"><h2>Search results</h2>
+<?php if ($results): ?>
+<ul>
+<?php foreach ($results as $result): ?>
+<li><a href="#<?= portal_h($result['anchor']) ?>"><?= portal_h($result['title']) ?></a><p><?= portal_guide_inline($result['summary']) ?></p></li>
+<?php endforeach; ?>
+</ul>
+<?php else: ?>
+<p>No article matches that. Try different words, ask Westy, or contact the support team below.</p>
+<?php endif; ?>
+</section>
+<?php endif;
     foreach ($articles as $id=>$article): ?>
 <article id="<?= portal_h($id) ?>"><?php if(isset($article['audience'])): ?><p class="portal-eyebrow"><?= portal_h($article['audience']) ?></p><?php endif; ?><h2><?= portal_h($article['title']) ?></h2><?= portal_guide_article_html($article) ?>
 <?php if($id==='privacy'): ?><p>New chat messages and unsent drafts are available for up to <?= (int)cfg('portal_westy.retention_days',30) ?> days from creation. If this period changes, existing messages and drafts keep the expiry dates set when they were created. Starting a new chat leaves existing support requests in place. Expired content is hidden immediately and erased from active storage by scheduled maintenance. Protected backups follow the operator’s backup retention.</p><p>When you ask Westy, OpenAI or Anthropic processes your messages according to the AI model selected for your organization. The AI provider’s storage and abuse-monitoring rules are separate from local history. Provider retention may apply. Only your reviewed request text is added to a ticket. Support staff have no portal chat viewer.</p><?php endif; ?>

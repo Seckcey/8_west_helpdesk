@@ -170,3 +170,46 @@ function help_catalog_index(?string $dir = null): array {
 function help_catalog_use_dir(?string $dir): void {
     HelpCatalog::useDir($dir);
 }
+
+function help_catalog_search_query(string $query): string {
+    return mb_check_encoding($query, 'UTF-8') ? mb_substr(trim($query), 0, 100, 'UTF-8') : '';
+}
+
+/** Distinct lowercase words of two or more characters. The query keeps its first eight; fields keep all. */
+function help_catalog_search_tokens(string $text, ?int $max = null): array {
+    $words = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($text, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY);
+    $tokens = [];
+    foreach ($words ?: [] as $word) {
+        if (mb_strlen($word, 'UTF-8') < 2 || in_array($word, $tokens, true)) continue;
+        $tokens[] = $word;
+        if ($max !== null && count($tokens) === $max) break;
+    }
+    return $tokens;
+}
+
+/** Score only the documents supplied by the caller. Stable sorting preserves their order on ties. */
+function help_catalog_search(array $docs, string $query, int $limit): array {
+    if ($limit < 1) return [];
+    $tokens = help_catalog_search_tokens(help_catalog_search_query($query), 8);
+    if ($tokens === []) return [];
+
+    $matches = [];
+    foreach ($docs as $doc) {
+        $score = 0;
+        foreach (['title'=>5, 'keywords'=>4, 'summary'=>3, 'body'=>1] as $field => $weight) {
+            $text = $field === 'keywords' ? implode(' ', $doc['keywords']) : $doc[$field];
+            $words = help_catalog_search_tokens($text);
+            foreach ($tokens as $token) {
+                foreach ($words as $word) {
+                    if (str_starts_with($word, $token)) {
+                        $score += $weight;
+                        break;
+                    }
+                }
+            }
+        }
+        if ($score > 0) $matches[] = ['id'=>$doc['id'], 'score'=>$score];
+    }
+    usort($matches, static fn(array $a, array $b): int => $b['score'] <=> $a['score']);
+    return array_column(array_slice($matches, 0, $limit), 'id');
+}

@@ -84,6 +84,45 @@ function portal_guide_article_html(array $article): string
     return $html;
 }
 
+/** Use the original paragraphs and numbered steps, including the approved inline formatting. */
+function portal_guide_article_plain(array $article): string
+{
+    if (!isset($article['blocks'])) return $article['text'];
+    $paragraphs = [];
+    foreach ($article['blocks'] as $block) {
+        if ($block['type'] === 'steps') {
+            $steps = [];
+            foreach ($block['items'] as $index => $item) {
+                $steps[] = ($index + 1).'. '.$item;
+            }
+            $paragraphs[] = implode("\n", $steps);
+        } else {
+            $paragraphs[] = $block['text'];
+        }
+    }
+    return implode("\n\n", $paragraphs);
+}
+
+function portal_guide_search(?array $context, string $query, int $limit = 10): array
+{
+    try {
+        $articles = portal_guide_articles($context);
+        $rows = portal_guide_catalog_rows();
+    } catch (HelpCatalogException) {
+        return [];
+    }
+
+    $links = [];
+    $docs = [];
+    foreach ($articles as $anchor => $article) {
+        $id = $article['catalog_id'];
+        $row = $rows[$id];
+        $links[$id] = ['id'=>$id, 'anchor'=>$anchor, 'title'=>$row['title'], 'summary'=>$row['summary']];
+        $docs[] = $links[$id] + ['keywords'=>$row['keywords'], 'body'=>portal_guide_article_plain($article)];
+    }
+    return array_map(static fn(string $id): array => $links[$id], help_catalog_search($docs, $query, $limit));
+}
+
 /** Safeharbor catalog rows for joining guide articles to their search and audience fields. */
 function portal_guide_catalog_rows(): array
 {
