@@ -198,13 +198,10 @@ try {
     $_SESSION['desktop_companion_session']=str_repeat('c',32);
     $request=$message($employee,$question);
     $provider=help_test_provider($rounds,$script([$miss,$miss]));
-    $afterReply=null;
-    portal_westy_message($pdo,$employee,$request,$provider,aiResolver:$resolver,
-        afterReply:static function(Closure $record) use (&$afterReply):void { $afterReply=$record; });
-    $turns=$state($employee)['turns'];$gapTurn=end($turns);
-    check($afterReply instanceof Closure && $gapTurn['state']==='complete' && $events($gapTurn)===[],
-        'the answer is saved and available before the recording callback runs');
-    $afterReply();$afterReply();
+    $gapTurn=$send($employee,$request,$provider);
+    check($gapTurn['state']==='complete' && count($events($gapTurn))===1,
+        'the finished answer and its gap are available when the dispatcher returns');
+    portal_westy_message($pdo,$employee,$request,$provider,aiResolver:$resolver);
     $gap=$events($gapTurn);
     check(count($gap)===1 && $gap[0]['kind']==='gap' && $gap[0]['article_id']===null && $gap[0]['surface']==='companion'
         && $gap[0]['turn_tenant']===$gap[0]['tenant_id'] && $gap[0]['turn_client']===$gap[0]['client_id'],
@@ -252,12 +249,31 @@ try {
     check($turn['run']===null && array_column($fallback,'kind')===['gap'] && $fallback[0]['surface']==='companion'
         && $questions()[2]['question']==='zzqvxfallback?', 'a zero-hit fallback records a single gap and detects Companion without a tool run');
     unset($_SESSION['desktop_companion_session']);
+    $receipt=$pdo->prepare('SELECT t.reply_json,t.state,t.reason_code,t.charged_microusd,
+        a.state AS attempt_state,a.charged_microusd AS attempt_charge FROM portal_westy_turns t
+        JOIN portal_westy_ai_attempts a ON a.turn_id=t.id WHERE t.tenant_id=1 AND t.client_id=12 AND t.operation_key=?');
+    $budget=static fn():int=>(int)$pdo->query('SELECT charged_microusd FROM portal_westy_budgets WHERE tenant_id=1 AND client_id=12')->fetchColumn();
+    $waitSettings=static fn():array=>$pdo->query('SELECT @@SESSION.innodb_lock_wait_timeout, @@SESSION.lock_wait_timeout')->fetch(PDO::FETCH_NUM);
+    $pdo->exec('SET SESSION innodb_lock_wait_timeout=15, SESSION lock_wait_timeout=20');
+    $waits=$waitSettings();
+    $beforeCharge=$budget();
+    $control=$send($employee,$message($employee,$question),help_test_provider($rounds,$script([$miss])));
+    $receipt->execute([$control['operation_key']]);
+    $expected=$receipt->fetch();
+    $charge=$budget()-$beforeCharge;
+    check($control['state']==='complete' && count($events($control))===1 && $charge>0
+        && (int)$expected['charged_microusd']===$charge && $waitSettings()===$waits,
+        'successful recording follows reply accounting and restores both session lock limits');
     $before=count($questions());
+    $beforeCharge=$budget();
     $pdo->exec("CREATE TRIGGER fail_help_test BEFORE INSERT ON help_gap_questions FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='zzqvxexceptionmarker'");
     try {
         $failed=$send($employee,$message($employee,$question),help_test_provider($rounds,$script([$miss])));
-        check($failed['state']==='complete' && $failed['reply']['reply']==='Reply completed.' && $events($failed)===[] && count($questions())===$before,
-            'a database error on the second insert preserves the reply and rolls back the whole gap');
+        $receipt->execute([$failed['operation_key']]);
+        check($failed['reply']===$control['reply'] && $failed['state']===$control['state'] && $receipt->fetch()===$expected
+            && $budget()-$beforeCharge===$charge && $waitSettings()===$waits && !$pdo->inTransaction(),
+            'a rejected insert preserves the exact reply, status, turn and attempt charges, and budget delta');
+        check($events($failed)===[] && count($questions())===$before, 'the rejected question rolls back its paired gap');
     } finally {
         $pdo->exec('DROP TRIGGER fail_help_test');
     }
@@ -265,6 +281,25 @@ try {
     check(substr_count($lines,'[portal-westy-help-events] record_failed type=PDOException')===1
         && !str_contains($lines,'zzqvx') && !str_contains($lines,'alice@example.test') && !str_contains($lines,'192.0.2.37'),
         'dispatcher error logs contain no search, question, SQL error detail or personal data');
+    // Hold only this customer's next question insert. The normal session row wait is fifteen seconds.
+    $blocker=$connect();
+    $blocker->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    $blocker->beginTransaction();
+    try {
+        $blocker->query('SELECT id FROM help_gap_questions FORCE INDEX(ix_help_gap_client)
+            WHERE tenant_id=1 AND client_id=12 FOR UPDATE')->fetchAll();
+        $beforeCharge=$budget();
+        $request=$message($employee,$question);
+        $start=microtime(true);
+        $locked=$send($employee,$request,help_test_provider($rounds,$script([$miss])));
+        $elapsed=microtime(true)-$start;
+    } finally {
+        $blocker->rollBack();
+    }
+    $receipt->execute([$locked['operation_key']]);
+    check($elapsed<12 && $locked['reply']===$control['reply'] && $receipt->fetch()===$expected
+        && $budget()-$beforeCharge===$charge && $events($locked)===[] && $waitSettings()===$waits,
+        'a real conflicting InnoDB insert lock times out early without changing the answer or accounting');
     check((int)$pdo->query('SELECT COUNT(*) FROM assistant_log')->fetchColumn()===$auditCount
         && (int)$pdo->query("SELECT COUNT(*) FROM portal_westy_ai_attempts WHERE usage_json LIKE '%zzqvx%'")->fetchColumn()===0,
         'the help turns add no assistant audit entries or query or question text to attempt receipts');

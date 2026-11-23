@@ -157,6 +157,20 @@ try{
     check($rows['row_count']===2&&!$rows['truncated']&&!$rows['has_more'],'review reports actual count and completeness');
     $old=array_values(array_filter($rows['items'],fn($r)=>$r['response_id']===$feedback['response_id']))[0];
     check($old['reaction']==='none'&&$old['revision']===3&&$old['model']==='recorded-model','clear remains the latest reaction and history is not replayed');
+    // Original v1 wire fixture from origin/main (5f5cf1d). Fill only run-specific identifiers and UTC times.
+    $values=['{conversation}'=>$conversation,'{operation}'=>$operation];
+    $times=$pdo->prepare('SELECT MIN(created_at) AS created_at,MAX(created_at) AS reacted_at,MAX(expires_at) AS expires_at
+        FROM portal_westy_reply_feedback WHERE tenant_id=1 AND client_id=11 AND turn_id=? AND response_key=?');
+    foreach (['legacy'=>$feedback['response_id'],'selected'=>$next['response_id']] as $label=>$responseId) {
+        $values['{'.$label.'_response}']=$responseId;
+        $times->execute([$turnId,$responseId]);
+        foreach ($times->fetch(PDO::FETCH_ASSOC) as $field=>$stamp) {
+            $values['{'.$label.'_'.$field.'}']=(new DateTimeImmutable($stamp,new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z');
+        }
+    }
+    $v1Fixture=json_decode(strtr(file_get_contents(__DIR__.'/fixtures/portal_westy_feedback_review_v1.json'),$values),true,8,JSON_THROW_ON_ERROR);
+    check(json_encode($rows,JSON_THROW_ON_ERROR)===json_encode($v1Fixture,JSON_THROW_ON_ERROR),
+        'v1 list matches the full original wire fixture including all 24 ordered keys, values and types on both responses');
     check(!str_contains($encoded,'Why did printing stop')&&!str_contains($encoded,'Check the printer')&&!str_contains($encoded,'saved_reply')
         &&!str_contains($encoded,$token)&&!str_contains($encoded,'prompt'),'operator output contains metadata and no private text, tools or token');
     check(count(array_filter($rows['items'],fn($r)=>$r['context_available']===false&&$r['context_unavailable_reason']==='no_existing_conversation_access'
@@ -175,6 +189,128 @@ try{
     check($export['items']===$rows['items']&&$export['row_count']===2,'export uses identical filtered scope and metadata projection');
     $clipped=$review(array_replace($reviewRequest,['action'=>'export','page_size'=>1]));
     check($clipped['row_count']===1&&$clipped['truncated'],'bounded export explicitly reports truncation and actual rows');
+    $v2=array_replace($reviewRequest,['contract'=>PORTAL_FEEDBACK_REVIEW_V2]);
+    $health=['contract'=>PORTAL_FEEDBACK_REVIEW_V2,'action'=>'help_health'];
+    foreach ([$health+['period'=>8],$health+['period'=>'7'],$health+['client_id'=>11],$health+['page'=>1],
+        array_replace($health,['contract'=>PORTAL_FEEDBACK_REVIEW_CONTRACT]),
+        array_replace($reviewRequest,['action'=>'help_health']),$v2+['period'=>30]] as $bad) {
+        $reviewDenied(fn()=>$review($bad),'invalid help health wire refused','invalid_request');
+    }
+    // Roll back the synthetic signals before the existing independent two-connection feedback races.
+    $pdo->beginTransaction();
+    try {
+        $now=time();
+        $date=static fn(int $days):string=>gmdate('Y-m-d H:i:s',$now-$days*86400);
+        $event=$pdo->prepare("INSERT INTO portal_westy_help_events(tenant_id,client_id,turn_id,kind,article_id,catalog_version,surface,created_at,expires_at)
+            VALUES(?,?,?,?,?,'fixture','portal',?,?)");
+        $cite=static fn(int $tenant,int $client,?int $turn,?string $article,int $age=0,int $expiry=-100)
+            =>$event->execute([$tenant,$client,$turn,$article===null?'gap':'cited',$article,$date($age),$date($expiry)]);
+        $vote=$pdo->prepare("INSERT INTO portal_guide_votes(tenant_id,client_id,scope_key,article_id,catalog_version,helpful,created_at,updated_at,expires_at)
+            VALUES(?,?,?,?,'fixture',?,?,?,?)");
+        $guideVote=static fn(int $tenant,int $client,string $article,int $helpful,int $age=0,int $expiry=-100)
+            =>$vote->execute([$tenant,$client,bin2hex(random_bytes(32)),$article,$helpful,$date(95),$date($age),$date($expiry)]);
+        $gap=$pdo->prepare('INSERT INTO help_gap_questions(tenant_id,client_id,surface,question,created_at,expires_at) VALUES(?,?,?,?,?,?)');
+        $ask=static fn(int $tenant,?int $client,string $surface,string $question,int $age=0,int $expiry=-90)
+            =>$gap->execute([$tenant,$client,$surface,$question,$date($age),$date($expiry)]);
+
+        $sourceIds=['sh-z','sh-a','sh-y','sh-b','sh-x','sh-c'];
+        foreach (['sh-z',...$sourceIds] as $id) $cite(1,11,$turnId,$id);
+        $cite(1,11,$turnId,'expired-citation',4,1);
+        $cite(1,11,$turnId,null);
+        $cite(1,11,null,'sh-z'); // A detached citation remains a customer-level statistic.
+        $guideVote(1,11,'sh-z',1);
+        $guideVote(1,11,'votes-only',0);
+        $guideVote(1,11,'expired-vote',1,6,1);
+        $guideVote(1,11,'older-vote',1,31);
+        $cite(1,11,null,'older-citation',8);
+        $cite(1,11,null,'outside-all-periods',91);
+        $ask(1,11,'portal','Reset access?',2);
+        $ask(1,11,'companion','Reset access?',1);
+        $ask(1,11,'portal','reset access?',3);
+        $ask(1,11,'technician','Technician question');
+        $ask(1,null,'portal','No client binding');
+        $ask(1,11,'portal','Old question',8);
+        $ask(1,11,'portal','Expired question',6,1);
+        $foreignTurn=$pdo->prepare("INSERT INTO portal_westy_turns(tenant_id,client_id,scope_key,conversation_key,operation_key,state,
+            input_text,reply_json,model_name,reserve_microusd,charged_microusd,created_at,expires_at)
+            VALUES(?,?,?,?,?,'complete','Private fixture question',?,'recorded-model',0,0,?,?)");
+        $foreignFeedback=$pdo->prepare("INSERT INTO portal_westy_reply_feedback(turn_id,tenant_id,client_id,binding_id,scope_key,actor_subject,
+            conversation_key,operation_key,response_key,request_key,revision,reaction,context_json,created_at,expires_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,1,'down',?,?,?)");
+        foreach ([[$b,'other-client'],[$c,'other-tenant']] as [$context,$foreign]) {
+            $outside=portal_westy_scope($pdo,$context);
+            $tenant=$outside['tenant'];$client=$outside['client'];
+            $outsideAccount=portal_westy_account($pdo,$outside,true);
+            $chat=$outsideAccount['conversation_key'];$op=bin2hex(random_bytes(16));
+            $foreignTurn->execute([$tenant,$client,$outside['key'],$chat,$op,json_encode(['reply'=>'Private fixture reply']),$date(1),$date(-30)]);
+            $id=(int)$pdo->lastInsertId();
+            $foreignFeedback->execute([$id,$tenant,$client,$outside['binding'],$outside['key'],$context['identity']['subject'],$chat,$op,
+                hash('sha256',$op),bin2hex(random_bytes(16)),json_encode(['prompt'=>'Private fixture question','response'=>'Private fixture reply']),
+                $date(0),$date(-30)]);
+            $cite($tenant,$client,$id,'sh-z');
+            $cite($tenant,$client,$id,$foreign);
+            // Even an event with a mismatched turn FK must not join the retained response.
+            $cite($tenant,$client,$turnId,$foreign);
+            $cite(1,11,$id,'mismatched-turn');
+            $guideVote($tenant,$client,$foreign,1);
+            $guideVote($tenant,$client,'sh-z',0);
+            $ask($tenant,$client,'portal',$foreign.' question');
+            $ask($tenant,$client,'companion','Reset access?');
+        }
+        $visible=[$customerId,'33333333-3333-4333-8333-333333333333'];
+        $wantItems=[];
+        foreach ($v1Fixture['items'] as $item) $wantItems[]=$item+['sources'=>array_slice($sourceIds,0,5),'help_gap'=>true];
+        foreach (['list','export'] as $action) {
+            $slice=$review(array_replace($v2,['action'=>$action]));
+            check($slice===array_replace($v1Fixture,['contract'=>PORTAL_FEEDBACK_REVIEW_V2,'items'=>$wantItems]),
+                'v2 '.$action.' appends just five first-cited distinct IDs and the retained gap to the v1 projection');
+        }
+        check($review($reviewRequest)===$v1Fixture,'v1 is byte-compatible even with live help events');
+        $stats=$review($health);
+        $article=static fn(string $id,int $cited,int $up,int $down,int $helpful,int $unhelpful):array=>[
+            'article_id'=>$id,'cited'=>$cited,'up'=>$up,'down'=>$down,'votes_helpful'=>$helpful,'votes_unhelpful'=>$unhelpful];
+        $sorted=$sourceIds;sort($sorted,SORT_STRING);
+        $expectedArticles=[];
+        foreach ($sorted as $id) $expectedArticles[]=$article($id,$id==='sh-z'?2:1,1,0,$id==='sh-z'?1:0,0);
+        $expectedArticles[]=$article('votes-only',0,0,0,0,1);
+        check($stats===['articles'=>$expectedArticles,'gaps'=>[
+            ['question'=>'Reset access?','count'=>2,'last_seen'=>gmdate('Y-m-d\TH:i:s\Z',$now-86400)],
+            ['question'=>'reset access?','count'=>1,'last_seen'=>gmdate('Y-m-d\TH:i:s\Z',$now-3*86400)]]],
+            'health isolates both tenant and client, counts latest reactions, distinct citations and scoped votes, and groups exact Portal/Companion text');
+        check($review($health+['period'=>7])===$stats,'default and explicit seven-day results agree');
+        $month=$review($health+['period'=>30]);
+        $quarter=$review($health+['period'=>90]);
+        check(in_array('older-citation',array_column($month['articles'],'article_id'),true)
+            && !in_array('older-vote',array_column($month['articles'],'article_id'),true)
+            && in_array('Old question',array_column($month['gaps'],'question'),true)
+            && in_array('older-vote',array_column($quarter['articles'],'article_id'),true)
+            && !in_array('outside-all-periods',array_column($quarter['articles'],'article_id'),true),
+            '30- and 90-day windows use citation, vote-update and question times independently');
+        // A new down reaction replaces the earlier up on the same retained response.
+        $pdo->prepare("INSERT INTO portal_westy_reply_feedback(turn_id,tenant_id,client_id,binding_id,scope_key,actor_subject,conversation_key,
+            operation_key,response_key,request_key,revision,reaction,context_json,created_at,expires_at)
+            SELECT turn_id,tenant_id,client_id,binding_id,scope_key,actor_subject,conversation_key,operation_key,response_key,?,revision+1,
+                'down',context_json,UTC_TIMESTAMP(),expires_at FROM portal_westy_reply_feedback WHERE turn_id=? AND response_key=? AND revision=1")
+            ->execute([bin2hex(random_bytes(16)),$turnId,$next['response_id']]);
+        check($review($health)['articles'][0]===$article('sh-a',1,0,1,0,0),'changed feedback contributes to down alone');
+        $cite(1,11,$turnId,'earlier-guide',8);
+        check($review($health)['articles'][0]===$article('earlier-guide',0,0,1,0,0),
+            'a recent reaction counts for its retained guide even when the original citation predates the window');
+        for ($i=0;$i<55;++$i) $ask(1,11,'portal',sprintf('Tie %02d',$i),4);
+        $top=$review($health)['gaps'];
+        check(count($top)===50 && $top[0]['question']==='Reset access?' && end($top)['question']==='Tie 47',
+            'top fifty uses a stable exact-text tie break');
+        $pdo->exec('UPDATE portal_westy_help_events SET turn_id=NULL WHERE tenant_id=1 AND client_id=11');
+        foreach ($review($v2)['items'] as $item)
+            check($item['sources']===[] && $item['help_gap']===false,'a detached turn cannot expose old or foreign events');
+        $cite(1,11,$turnId,'expired-only',3,1);$cite(1,11,$turnId,null,3,1);
+        foreach ($review($v2)['items'] as $item)
+            check($item['sources']===[] && $item['help_gap']===false,'expiry hides events before maintenance runs');
+        $visible=[];
+        check($review($health)===['articles'=>[],'gaps'=>[]],'empty remote scope reveals no health signals');
+    } finally {
+        $visible=[$customerId];$pdo->rollBack();
+    }
     foreach([['page'=>0],['page_size'=>51],['action'=>'export','page_size'=>1001],['sort'=>'id; DROP TABLE users'],['customer_ids'=>[$otherId]],['action'=>'export','page'=>2],
         ['filters'=>array_replace($reviewRequest['filters'],['from'=>'2026-02-30'])],
         ['filters'=>array_replace($reviewRequest['filters'],['model_version'=>'invented-build'])]] as $bad)
@@ -198,14 +334,32 @@ try{
     $reviewDenied(fn()=>portal_feedback_review($pdo,$token,$reviewRequest,static fn()=>['status'=>302,'body'=>'{}'],$feed),'callback redirect refused','scope_unavailable');
     $changes=0;$scopeChanged=static function($url,$bearer,$body)use(&$changes,$transport,&$visible){if(++$changes===2)$visible=[];return $transport($url,$bearer,$body);};
     $reviewDenied(fn()=>portal_feedback_review($pdo,$token,$reviewRequest,$scopeChanged,$feed),'customer removal during source round trip refuses output','scope_changed');$visible=[$customerId];
+    foreach ([$v2,array_replace($v2,['action'=>'export']),$health] as $scopedRequest) {
+        $changes=0;
+        $reviewDenied(fn()=>portal_feedback_review($pdo,$token,$scopedRequest,$scopeChanged,$feed),'v2 rechecks remote client scope during '.$scopedRequest['action'],'scope_changed');
+        $visible=[$customerId];
+    }
     $changes=0;$revokedDuringScope=static function($url,$bearer,$body)use(&$changes,$transport,&$snapshotFeed){
         $response=$transport($url,$bearer,$body);if(++$changes===2)$snapshotFeed['revoked']=['t9u101'=>true];return $response;
     };
     $reviewDenied(fn()=>portal_feedback_review($pdo,$token,$reviewRequest,$revokedDuringScope,$feed),'operator revoked during final callback cannot receive output','sign_in');
     $snapshotFeed['revoked']=[];
-    $pdo->prepare("UPDATE customer_portal_bindings SET status='disabled',last_changed_by_user_id=101,status_reason='Synthetic review revocation.' WHERE id=?")
-        ->execute([$a['identity']['binding_id']]);
+    $changes=0;
+    $reviewDenied(fn()=>portal_feedback_review($pdo,$token,$health,$revokedDuringScope,$feed),'help health rechecks actor after the final callback','sign_in');
+    $snapshotFeed['revoked']=[];
+    $changes=0;
+    $localChange=static function($url,$bearer,$body)use(&$changes,$transport,$pdo,$a) {
+        $response=$transport($url,$bearer,$body);
+        if (++$changes===2) {
+            $pdo->prepare("UPDATE customer_portal_bindings SET status='disabled',last_changed_by_user_id=101,status_reason='Synthetic review revocation.' WHERE id=?")
+                ->execute([$a['identity']['binding_id']]);
+        }
+        return $response;
+    };
+    $reviewDenied(fn()=>portal_feedback_review($pdo,$token,$health,$localChange,$feed),
+        'a local binding disabled during the callback invalidates the health result even when the remote UUID list is unchanged','scope_changed');
     check($review($reviewRequest)['items']===[],'disabled local customer binding is excluded');
+    check($review($health)===['articles'=>[],'gaps'=>[]],'disabled local customer binding reveals no health data');
     portal_transition_binding($pdo,$a['identity']['binding_id'],'northwind-preview',1,11,101,'active','Restore review fixture.');
     $reviewExpiry=gmdate('Y-m-d H:i:s',time()+86400);$pdo->exec('UPDATE portal_westy_turns SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 SECOND WHERE id='.$turnId);
     check($review($reviewRequest)['items']===[],'expired parent hides all immutable reaction context before maintenance');
@@ -306,6 +460,7 @@ try{
     $erased=portal_westy_maintain($pdo,true,$scope);
     check($erased['feedback_content']===$count&&(int)$pdo->query('SELECT COUNT(*) FROM portal_westy_reply_feedback WHERE turn_id='.$turnId)->fetchColumn()===0,'exact erasure removes all feedback context with parent text');
     check(portal_westy_state($pdo,$a)['turns']===[],'erased prompt and reply disappear together');
+    check($review($v2)['items']===[],'erased feedback cannot reappear through a v2 event join');
     check(portal_westy_state($pdo,$b)['turns'][0]['feedback']['reaction']==='up','exact erasure preserves another user and customer');
     $visible=[$customerId,$otherId];$remaining=$review($reviewRequest);
     check($remaining['row_count']===1&&$remaining['items'][0]['customer_id']===$otherId,'operator erasure projection preserves only the other authorized customer');

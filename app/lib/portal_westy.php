@@ -158,7 +158,7 @@ function portal_westy_require_conversation(?array $account,mixed $expected): voi
 }
 
 /** Reserves once before network I/O. Pending/ambiguous attempts are never retried. */
-function portal_westy_message(PDO $pdo,array $context,array $request,?callable $provider=null,?callable $reauthorize=null,?callable $emit=null,?callable $transport=null,?callable $aiResolver=null,?callable $afterReply=null): void
+function portal_westy_message(PDO $pdo,array $context,array $request,?callable $provider=null,?callable $reauthorize=null,?callable $emit=null,?callable $transport=null,?callable $aiResolver=null): void
 {
     if(!array_key_exists('desktop_renewal_proof',$context))$context=portal_desktop_capture_context($context);
     $c=portal_westy_config(); $s=portal_westy_scope($pdo,$context);
@@ -418,8 +418,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     $reopened=$resume && !$runResume && !empty($priorUsage['help_searches']);
     if($delivered && ($articles || $gap || $reopened)){
         $surface=$context['tool_run']['origin_channel']??(portal_desktop_id($context['desktop_companion_pair']??null)?'companion':'portal');
-        $record=static fn()=>portal_westy_help_events_record($pdo,$s,$turnId,$attemptId,$surface,$articles,$gap);
-        if($afterReply!==null)$afterReply($record);else $record();
+        portal_westy_help_events_record($pdo,$s,$turnId,$attemptId,$surface,$articles,$gap);
     }
 }
 

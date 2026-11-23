@@ -64,11 +64,19 @@ function portal_westy_help_withdraw_gap(PDO $pdo, array $turn, array $event, str
 function portal_westy_help_events_record(PDO $pdo, array $scope, int $turnId, int $attemptId, string $surface, array $articles, bool $gap): void
 {
     try {
-        if (!portal_westy_help_tables_installed($pdo)) return;
-        $version = help_catalog_index()['version'];
-        $lock = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE NOWAIT' : '';
-        $pdo->beginTransaction();
+        $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        $waits = $mysql ? $pdo->query('SELECT @@SESSION.innodb_lock_wait_timeout, @@SESSION.lock_wait_timeout')->fetch(PDO::FETCH_NUM) : null;
+        $started = false;
         try {
+            if ($mysql) {
+                // Bound both InnoDB row waits and metadata waits, including the migration probe.
+                $pdo->exec('SET SESSION innodb_lock_wait_timeout='.min(2, (int)$waits[0]).', SESSION lock_wait_timeout='.min(2, (int)$waits[1]));
+            }
+            if (!portal_westy_help_tables_installed($pdo)) return;
+            $version = help_catalog_index()['version'];
+            $lock = $mysql ? ' FOR UPDATE NOWAIT' : '';
+            $pdo->beginTransaction();
+            $started = true;
             $query = $pdo->prepare('SELECT t.id,t.tenant_id,t.client_id,t.input_text,
                 (SELECT a.id FROM portal_westy_ai_attempts a WHERE a.turn_id=t.id ORDER BY a.sequence DESC LIMIT 1) AS latest_attempt
                 FROM portal_westy_turns t WHERE t.id=? AND t.tenant_id=? AND t.client_id=? AND t.scope_key=? AND t.input_text IS NOT NULL'.$lock);
@@ -88,7 +96,7 @@ function portal_westy_help_events_record(PDO $pdo, array $scope, int $turnId, in
             foreach (array_diff(array_unique($articles), array_column($saved, 'article_id')) as $article) {
                 $insert->execute([$turn['tenant_id'], $turn['client_id'], $turnId, 'cited', $article, ...$eventArgs]);
             }
-            // Only the newest attempt may decide a gap. An earlier callback may still contribute its own citations.
+            // Only the newest attempt may decide a gap. Earlier attempts may still contribute citations.
             if ((int)$turn['latest_attempt'] === $attemptId) {
                 if ($gap && !$articles && !$saved) {
                     $insert->execute([$turn['tenant_id'], $turn['client_id'], $turnId, 'gap', null, ...$eventArgs]);
@@ -104,7 +112,11 @@ function portal_westy_help_events_record(PDO $pdo, array $scope, int $turnId, in
             }
             $pdo->commit();
         } finally {
-            if ($pdo->inTransaction()) $pdo->rollBack();
+            try {
+                if ($started && $pdo->inTransaction()) $pdo->rollBack();
+            } finally {
+                if ($mysql) $pdo->exec('SET SESSION innodb_lock_wait_timeout='.(int)$waits[0].', SESSION lock_wait_timeout='.(int)$waits[1]);
+            }
         }
     } catch (Throwable $error) {
         if ($error instanceof PDOException && portal_westy_help_missing_table($error)) return;

@@ -70,7 +70,7 @@ portal_westy_help_events_record($pdo, $scope, 2, 4, 'companion', ['sh-requests']
 $record(2, [], true);
 check($pdo->query('SELECT kind FROM portal_westy_help_events WHERE turn_id=2')->fetchAll(PDO::FETCH_COLUMN) === ['cited']
     && (int)$pdo->query('SELECT COUNT(*) FROM help_gap_questions')->fetchColumn() === 0,
-    'a reopened turn withdraws its old gap and a delayed earlier callback cannot restore it');
+    'a reopened turn withdraws its old gap and an earlier attempt cannot restore it');
 
 $log = tempnam(sys_get_temp_dir(), 'westy-help-log-');
 $oldLog = ini_set('error_log', $log);
