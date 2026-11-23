@@ -1,0 +1,67 @@
+{
+  "format": "8west-help-labels-v1",
+  "index": "labels",
+  "version": "0.3.0",
+  "articles": [
+    {
+      "id": "desk-queue",
+      "app": "safeharbor",
+      "ui_labels": [
+        "Needs attention",
+        "Unassigned",
+        "Waiting on client",
+        "All open",
+        "Filters",
+        "Clear filters"
+      ]
+    },
+    {
+      "id": "desk-ticket",
+      "app": "safeharbor",
+      "ui_labels": [
+        "New ticket",
+        "Who asked",
+        "Create ticket",
+        "Assigned to",
+        "Merge",
+        "Reopen"
+      ]
+    },
+    {
+      "id": "desk-reply",
+      "app": "safeharbor",
+      "ui_labels": [
+        "Internal note",
+        "Saved replies",
+        "Attach a file",
+        "Send reply",
+        "Send and wait for the customer",
+        "Send and resolve"
+      ]
+    },
+    {
+      "id": "desk-time",
+      "app": "safeharbor",
+      "ui_labels": [
+        "Start timer",
+        "Stop and log",
+        "Suggested from your activity",
+        "Correct and resubmit",
+        "Approved, ready for billing",
+        "Send to billing"
+      ]
+    },
+    {
+      "id": "desk-clients-reports",
+      "app": "safeharbor",
+      "ui_labels": [
+        "Find a client",
+        "Open tickets",
+        "You and the team",
+        "Open longest",
+        "Time by client",
+        "Export time"
+      ]
+    }
+  ]
+}

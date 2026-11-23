@@ -1,6 +1,7 @@
 # Safeharbor help catalog
 
-Safeharbor vendors customer catalog `v0.2.0`. The signed-in Portal guide at
+Safeharbor uses customer catalog `v0.2.0` for the portal and desk labels
+`v0.3.0` for CI. The signed-in Portal guide at
 `/portal/guide.php` draws its page body from 19 Safeharbor and three Westy
 Companion articles. Guide search and Westy can also find the 15 articles from
 8 West ID, subject to the reader's role. Edit the articles under
@@ -21,7 +22,7 @@ Companion articles. Guide search and Westy can also find the 15 articles from
 3. Set the catalog version in `package.json` and rebuild the indexes. Merge the
    reviewed changes to catalog `main` with its checks passing. The coordinator
    tags that commit `vX.Y.Z`, matching the package version. The release workflow
-   publishes separate customer and staff archives.
+   publishes separate customer, staff and desk labels archives.
 4. From the root of a Safeharbor checkout, run
    `bash tools/help/sync-help-catalog.sh --tag vX.Y.Z` with the released tag.
    The script checks that the tag points to a commit on catalog `main`, verifies
@@ -67,9 +68,9 @@ The private-link article keeps its **Employee** label when owners read it as a
 reference. The introduction, extra privacy details and Contact section belong
 to the page. Existing links to those sections still work.
 
-`app/help/` holds only `customer-index.json` and `help-manifest.json`. A staff
-index must never go in `app/help/` or in any loader that portal code uses. Future
-desk guides belong in `app/help-staff/` with a separate loader. The portal checks
+`app/help/` holds only `customer-index.json` and `help-manifest.json`. The staff
+archive contains the desk article text for Milepost. Safeharbor takes only the article ID, app and
+`ui_labels` from each desk guide for its CI check. The portal checks
 the customer index's format, byte count and SHA-256 before using it. Approval
 and editing notes stay out of the page and out of Westy's input. If the catalog
 fails a check, the page shows “Help is unavailable right now.” The Contact
@@ -89,11 +90,30 @@ text in `app/lib/portal_*.php`, `app/public/portal/*.php`,
 `app/public/assets/js/portal-*.js` and `app/public/assets/js/desktop-handoff.js`.
 It runs in Safeharbor CI and reports the article ID and each missing label.
 
-When a label changes intentionally, check the new words on the affected screen,
-update the article steps and `ui_labels` in the catalog, and have the article
-reviewed and released. Re-sync Safeharbor with
-`bash tools/help/sync-help-catalog.sh --tag vX.Y.Z` using the new tag, update
-the pins, and run the catalog and drift tests with the UI change.
+`php app/tests/help_desk_drift_test.php` checks the labels in `app/help-labels/`
+against the staff views. It reads top-level `app/public/*.php`, `app/lib/*.php`
+except `portal_*.php`, and `app/public/assets/js/*.js` except `portal-*.js`.
+Each label must occur with the same capitalization. CI prints the article ID
+and each missing label. The vendored desk labels are used only for this check.
+
+When a label changes intentionally, check the new words on the screen, update
+the affected guide in the catalog, and have it reviewed and released. For
+customer guides, follow the customer sync and pin steps above. Desk guides use
+the labels archive.
+
+1. Run `bash tools/help/sync-help-catalog.sh --labels --tag vX.Y.Z`. The sync
+   downloads `help-labels-vX.Y.Z.zip`, verifies its two regular files, checks
+   the manifest version, index format, SHA-256 and byte count, and checks each
+   article's allowed fields. It compares both files with a fresh build of the
+   tagged catalog commit on `main`, then installs them together in `app/help-labels/`.
+2. To use a release already verified by the coordinator, add
+   `--from <release-directory>` to the same command. The directory must hold
+   the named zip. This mode verifies the archive locally. The coordinator's
+   release record supplies the source commit.
+3. Pin the version, full catalog commit and printed manifest SHA-256 in
+   `app/tests/help_desk_drift_test.php`. Include the verified
+   `labels-index.json` and `help-manifest.json` with the pin change and run
+   the desk drift test. A missing label belongs in the report for catalog review.
 
 ## Search, Westy and source links
 
