@@ -117,18 +117,24 @@ function portal_westy_desktop_recovery_key(array $context,string $operation,arra
     return $opened?$key:null;
 }
 
-function portal_westy_ai_tools(PDO $pdo,array $context, array $selection,?string &$desktopAvailability=null):array
+function portal_westy_ai_tools(PDO $pdo,array $context, array $selection,?string &$desktopAvailability=null,?bool &$referenceOnly=null):array
 {
     // V2 has twenty bounded waits, with the same per-attempt billing/authority checks.
     $general=function_exists('portal_westy_terminal_installed')&&portal_westy_terminal_installed($pdo);
     $desktopAvailability='tool_limit';
+    $referenceOnly=false;
     if((int)($context['tool_run']['sequence']??0)>=($general?20:5))return [];
+    $model=westy_tenant_ai_catalog()[$selection['provider']??'']['models'][$selection['model']??'']??[];
+    if(!in_array('tools',$model['capabilities']??[],true)){
+        $desktopAvailability='unsupported_model';
+        $referenceOnly=isset($model['capabilities']);
+        return [];
+    }
     $tools=[];
     if(portal_westy_tools_enabled())foreach(portal_westy_tool_definitions() as $tool)
         $tools[]=['name'=>$tool['name'],'description'=>$tool['description'],'input_schema'=>$tool['parameters']];
     if(portal_westy_tools_enabled()&&isset($context['tool_run']))array_push($tools,...($general?portal_westy_terminal_definitions():portal_westy_shell_definitions()));
     if($general&&portal_westy_tools_enabled()&&isset($context['tool_run']))array_push($tools,...portal_westy_recovery_definitions());
-    $model=westy_tenant_ai_catalog()[$selection['provider']??'']['models'][$selection['model']??'']??[];
     $desktopAvailability='unsupported_model';
     if(($model['computer_use']['typed_functions_with_images']??false)===true){
         $desktopAvailability='adapter_unavailable';
@@ -283,7 +289,7 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             if($resolved===null || !portal_westy_ai_same_selection($snapshot,$resolved))
                 throw new PortalWestyException('ai_changed');
             $selection=portal_westy_ai_selection($resolved,portal_westy_config());
-            $tools=portal_westy_ai_tools($pdo,$context,$selection,$desktopAvailability);
+            $tools=portal_westy_ai_tools($pdo,$context,$selection,$desktopAvailability,$referenceOnly);
             if(function_exists('portal_westy_help_call')&&$round===4&&!isset($context['tool_run'])){
                 $tools=array_values(array_filter($tools,static fn(array $tool):bool=>!in_array($tool['name'],PORTAL_WESTY_HELP_TOOLS,true)));
             }
@@ -306,7 +312,8 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             // After the index-based discovery write: the help reference inserts a message and shifts later indexes.
             if(function_exists('portal_westy_help_provider_messages')){
                 $providerMessages=portal_westy_help_provider_messages($providerMessages,$tools,$context,$fallbackNone);
-                if($fallbackNone!==null)$helpEvents['searches']['fallback']=($helpEvents['searches']['fallback']??true) && $fallbackNone;
+                if($referenceOnly && $fallbackNone!==null)
+                    $helpEvents['searches']['reference_only']=($helpEvents['searches']['reference_only']??true) && $fallbackNone;
             }
             $result=($provider??'westy_tenant_ai_stream')($selection,$instructions,$providerMessages,$options,
                 static fn(string $text)=>$buffer->append($text),

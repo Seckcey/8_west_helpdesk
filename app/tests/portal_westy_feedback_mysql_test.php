@@ -191,6 +191,32 @@ try{
     check($clipped['row_count']===1&&$clipped['truncated'],'bounded export explicitly reports truncation and actual rows');
     $v2=array_replace($reviewRequest,['contract'=>PORTAL_FEEDBACK_REVIEW_V2]);
     $health=['contract'=>PORTAL_FEEDBACK_REVIEW_V2,'action'=>'help_health'];
+    $envelope=['ok'=>true,'contract'=>PORTAL_FEEDBACK_REVIEW_V2,'tenant_slug'=>$claims['8west:tenant']];
+    $emptyHealth=$envelope+['articles'=>[],'gaps'=>[]];
+    $pdo->exec('DROP TABLE help_gap_questions, portal_westy_help_events');
+    foreach (['list','export'] as $action) {
+        $expectedItems=array_map(static fn(array $item):array=>$item+['sources'=>[],'help_gap'=>false],$v1Fixture['items']);
+        check($review(array_replace($v2,['action'=>$action]))===array_replace($v1Fixture,['contract'=>PORTAL_FEEDBACK_REVIEW_V2,'items'=>$expectedItems]),
+            'before the help migration v2 '.$action.' returns the original rows with empty help fields');
+    }
+    check($review($health)===$emptyHealth,'before the help migration health returns the authenticated envelope and empty aggregates');
+    $changedWhileMissing=static function(...$args)use($transport,&$visible):array{
+        $answer=$transport(...$args);$visible=[];return $answer;
+    };
+    $reviewDenied(fn()=>portal_feedback_review($pdo,$token,$health,$changedWhileMissing,$feed),
+        'absent help tables still require a second matching customer scope','scope_changed');
+    $visible=[$customerId];
+    portal_westy_fixture_sql($pdo,__DIR__.'/../db/migrations/portal_westy_help_events_v1.sql');
+    $pdo->exec('RENAME TABLE help_gap_questions TO held_test_questions');
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("INSERT INTO portal_westy_help_events(tenant_id,client_id,turn_id,kind,article_id,catalog_version,surface,created_at,expires_at)
+            VALUES(1,11,?,'cited','partial-fixture','fixture','portal',UTC_TIMESTAMP(),UTC_TIMESTAMP()+INTERVAL 400 DAY)")->execute([$turnId]);
+        check($review($health)===$emptyHealth,'a missing question table discards partial article aggregates');
+    } finally {
+        $pdo->rollBack();
+        $pdo->exec('RENAME TABLE held_test_questions TO help_gap_questions');
+    }
     foreach ([$health+['period'=>8],$health+['period'=>'7'],$health+['client_id'=>11],$health+['page'=>1],
         array_replace($health,['contract'=>PORTAL_FEEDBACK_REVIEW_CONTRACT]),
         array_replace($reviewRequest,['action'=>'help_health']),$v2+['period'=>30]] as $bad) {
@@ -273,7 +299,7 @@ try{
         $expectedArticles=[];
         foreach ($sorted as $id) $expectedArticles[]=$article($id,$id==='sh-z'?2:1,1,0,$id==='sh-z'?1:0,0);
         $expectedArticles[]=$article('votes-only',0,0,0,0,1);
-        check($stats===['articles'=>$expectedArticles,'gaps'=>[
+        check($stats===$envelope+['articles'=>$expectedArticles,'gaps'=>[
             ['question'=>'Reset access?','count'=>2,'last_seen'=>gmdate('Y-m-d\TH:i:s\Z',$now-86400)],
             ['question'=>'reset access?','count'=>1,'last_seen'=>gmdate('Y-m-d\TH:i:s\Z',$now-3*86400)]]],
             'health isolates both tenant and client, counts latest reactions, distinct citations and scoped votes, and groups exact Portal/Companion text');
@@ -307,7 +333,7 @@ try{
         foreach ($review($v2)['items'] as $item)
             check($item['sources']===[] && $item['help_gap']===false,'expiry hides events before maintenance runs');
         $visible=[];
-        check($review($health)===['articles'=>[],'gaps'=>[]],'empty remote scope reveals no health signals');
+        check($review($health)===$emptyHealth,'empty remote scope reveals no health signals');
     } finally {
         $visible=[$customerId];$pdo->rollBack();
     }
@@ -359,7 +385,7 @@ try{
     $reviewDenied(fn()=>portal_feedback_review($pdo,$token,$health,$localChange,$feed),
         'a local binding disabled during the callback invalidates the health result even when the remote UUID list is unchanged','scope_changed');
     check($review($reviewRequest)['items']===[],'disabled local customer binding is excluded');
-    check($review($health)===['articles'=>[],'gaps'=>[]],'disabled local customer binding reveals no health data');
+    check($review($health)===$emptyHealth,'disabled local customer binding reveals no health data');
     portal_transition_binding($pdo,$a['identity']['binding_id'],'northwind-preview',1,11,101,'active','Restore review fixture.');
     $reviewExpiry=gmdate('Y-m-d H:i:s',time()+86400);$pdo->exec('UPDATE portal_westy_turns SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 SECOND WHERE id='.$turnId);
     check($review($reviewRequest)['items']===[],'expired parent hides all immutable reaction context before maintenance');

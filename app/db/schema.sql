@@ -8039,7 +8039,6 @@ CREATE TABLE IF NOT EXISTS portal_westy_help_events (
  KEY ix_portal_help_event_turn(turn_id),
  KEY ix_portal_help_event_expiry(expires_at),
  CONSTRAINT fk_portal_help_event_tenant FOREIGN KEY(tenant_id) REFERENCES tenants(id),
- CONSTRAINT fk_portal_help_event_client FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id),
  CONSTRAINT fk_portal_help_event_turn FOREIGN KEY(turn_id) REFERENCES portal_westy_turns(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
@@ -8054,8 +8053,7 @@ CREATE TABLE IF NOT EXISTS help_gap_questions (
  PRIMARY KEY(id),
  KEY ix_help_gap_client(tenant_id,client_id,created_at),
  KEY ix_help_gap_expiry(expires_at),
- CONSTRAINT fk_help_gap_tenant FOREIGN KEY(tenant_id) REFERENCES tenants(id),
- CONSTRAINT fk_help_gap_client FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id)
+ CONSTRAINT fk_help_gap_tenant FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS portal_guide_votes (

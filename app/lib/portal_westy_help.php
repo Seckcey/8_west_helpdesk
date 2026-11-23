@@ -142,6 +142,14 @@ function portal_westy_help_is_text(mixed $content): bool
     return true;
 }
 
+/** Explicit searches span the whole turn. A reference-only miss counts only on a tool-free reply. */
+function portal_westy_help_turn_gap(array $result, array $reply): bool
+{
+    if (($result['ok'] ?? false) !== true || !empty($result['waiting']) || $reply['sources']) return false;
+    $searches = $result['help_searches'];
+    return $searches['tool'] ?? (!$reply['tools'] && ($searches['reference_only'] ?? false));
+}
+
 /** Recover search outcomes for a waiting turn whose last attempt predates help-health recording. */
 function portal_westy_help_replayed_searches(array $messages): ?bool
 {

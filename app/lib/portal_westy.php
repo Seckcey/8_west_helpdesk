@@ -239,7 +239,8 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
                 || (int)$last['ai_revision']!==$aiSelection['revision'] || (int)$last['credential_version']!==$aiSelection['credential_version']
                 || $last['provider']!==$aiSelection['provider'] || $last['model_name']!==$aiSelection['model']
                 || ($priorUsage['known']??false)!==true)throw new PortalWestyException('conversation_changed');
-            foreach(['tool','fallback'] as $source){
+            // Older fallback flags also included rounds where the tools were temporarily withheld.
+            foreach(['tool','reference_only'] as $source){
                 $allNone=$priorUsage['help_searches'][$source]??null;
                 if(is_bool($allNone))$helpEvents['searches'][$source]=$allNone;
             }
@@ -413,8 +414,7 @@ function portal_westy_message(PDO $pdo,array $context,array $request,?callable $
     if(($result['waiting']??false)!==true)portal_westy_run_end($pdo,$s,$key,($result['ok']??false)?'complete':'stopped',$context,$transport);
     if(!$authorized)throw new PortalWestyException($aiLost?'ai_changed':'sign_in',$aiLost?503:401);
     $articles=array_keys($helpEvents['cited']??[]);
-    $searches=$result['help_searches'];
-    $gap=empty($result['waiting']) && !$partial['sources'] && ($searches['tool']??$searches['fallback']??false);
+    $gap=portal_westy_help_turn_gap($result,$partial);
     $reopened=$resume && !$runResume && !empty($priorUsage['help_searches']);
     if($delivered && ($articles || $gap || $reopened)){
         $surface=$context['tool_run']['origin_channel']??(portal_desktop_id($context['desktop_companion_pair']??null)?'companion':'portal');

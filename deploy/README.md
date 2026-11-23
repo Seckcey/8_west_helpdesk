@@ -61,6 +61,15 @@ The app account needs `SELECT`, `INSERT` and `UPDATE` on `portal_guide_votes` to
 It also needs a table-level `DELETE` grant on `portal_guide_votes` to clear expired votes and erase
 a person's votes. Check the account's grants when applying the migration.
 
+For help citations and gap questions, run `bash deploy/deploy.sh --migrate app/db/migrations/portal_westy_help_events_v1.sql`.
+The app reads and inserts these rows and deletes them for expiry, exact erasure or a withdrawn gap.
+Check these table grants with `SHOW GRANTS` when applying the migration.
+
+```sql
+GRANT SELECT, INSERT, DELETE ON safeharbor.portal_westy_help_events TO 'safeharbor'@'localhost';
+GRANT SELECT, INSERT, DELETE ON safeharbor.help_gap_questions TO 'safeharbor'@'localhost';
+```
+
 ## Rollback
 
 `bash deploy/deploy.sh --rollback` undoes the most recent deploy from its backup and records the
@@ -127,7 +136,7 @@ Then sign in through 8 West ID and open a ticket.
 
 There is no automated rebuild. A rebuild needs a reviewed plan: least-privilege database grants (no
 database-wide `DELETE`; table DELETE grants exactly as `app/tests/business_reports_test.php` lists,
-including `attachments` and `csat` for bulk ticket delete), `schema.sql` plus `002_svc_intake.sql`,
+including `attachments` and `csat` for bulk ticket delete and the two help tables granted above), `schema.sql` plus `002_svc_intake.sql`,
 `009_support_intake.sql` and `018_ticket_auto_close_eligibility.sql`, the private runtime, and the
 vhosts in this folder.
 

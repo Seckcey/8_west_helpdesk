@@ -95,13 +95,15 @@ unreviewed rollback shortcut. The current frozen installer is unaffected.
 
 Migration `portal_westy_help_events_v1.sql` adds help-health records for Portal
 and Companion. A successful article read records the article ID once per turn.
-If every help search misses and the turn finishes without a successful read,
-Safeharbor records one gap. A turn using only the fallback lookup can also
-record a gap when its question has no matches.
+If every help search misses and the turn successfully delivers its final answer
+without reading an article, Safeharbor records one gap. On a surface or provider
+without tool support, an empty fallback lookup can count when the turn has no
+other tool activity. Reaching a round or wait limit and failed attempts do not
+create fallback gaps.
 
 Each event holds the tenant, client, surface, catalog version, timestamps and
 turn ID. A gap has a null article ID. Events expire after 400 days and survive
-turn deletion with a null turn ID. A separate table keeps the scrubbed original
+scheduled turn deletion with a null turn ID. A separate table keeps the scrubbed original
 gap question for 90 days, with tenant, client and surface. It removes credential
 fields, tokens, URLs, email and IPv4 addresses, Windows paths and fenced code,
 collapses whitespace and keeps at most 200 UTF-8 bytes.
@@ -111,8 +113,18 @@ article text or user identifier. Recording failures log only the exception
 class. Once the authorized reply and its charge are saved, the dispatcher
 records help events in a separate transaction. Its MySQL row and metadata lock
 waits are capped at two seconds. A recording failure leaves the saved reply,
-turn status and charge intact. Scheduled Westy maintenance counts expired rows in dry runs and deletes
-up to 1,000 expired rows per table per applied run.
+turn status and charge intact. Scheduled Westy maintenance commits turn, feedback
+and vote expiry first. It then deletes up to 1,000 expired rows per help table
+in a separate transaction. On failure it logs the exception class and retries
+on the next scheduled pass.
+
+Exact account erasure removes citations and gaps linked to that account's turns.
+Before clearing a turn's original question, it removes one matching scrubbed
+question per gap using the tenant, client, surface, timestamp and text. Identical
+copies belonging to other accounts keep their count. A dry run reports the
+number of matching rows. Once scheduled retention has erased the original text
+or detached an event, any anonymous rows that can no longer be matched expire
+on their own retention schedule.
 
 ## Operator review API
 
@@ -151,17 +163,23 @@ V2 appends two fields to each item at read time.
 `help_gap` is true when the turn has a retained gap event. Expired events and
 events detached from their turn yield an empty source list and false when
 there are no other matches. Erasing the parent still removes the private
-feedback item itself.
+feedback item itself. Before the help migration, list and export still return
+the authorized feedback items with `sources: []` and `help_gap: false`.
 
 ### Help health
 
 Send `{"contract":"westy-feedback-review-v2","action":"help_health","period":7}`.
 The optional `period` is an integer number of days, either 7 (the default),
 30 or 90. These are the only request fields. V1 returns its existing
-`invalid_request` error for this action. An example successful response follows.
+`invalid_request` error for this action. A successful response uses the same
+`ok`, `contract` and authenticated `tenant_slug` fields as list and export.
+The two aggregate arrays are empty when the help tables are absent.
 
 ```json
 {
+  "ok": true,
+  "contract": "westy-feedback-review-v2",
+  "tenant_slug": "preview-provider",
   "articles": [
     {"article_id":"sh-requests","cited":3,"up":1,"down":1,"votes_helpful":2,"votes_unhelpful":0}
   ],

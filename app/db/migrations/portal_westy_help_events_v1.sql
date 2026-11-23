@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS portal_westy_help_events (
  KEY ix_portal_help_event_turn(turn_id),
  KEY ix_portal_help_event_expiry(expires_at),
  CONSTRAINT fk_portal_help_event_tenant FOREIGN KEY(tenant_id) REFERENCES tenants(id),
- CONSTRAINT fk_portal_help_event_client FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id),
  CONSTRAINT fk_portal_help_event_turn FOREIGN KEY(turn_id) REFERENCES portal_westy_turns(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
@@ -34,6 +33,19 @@ CREATE TABLE IF NOT EXISTS help_gap_questions (
  PRIMARY KEY(id),
  KEY ix_help_gap_client(tenant_id,client_id,created_at),
  KEY ix_help_gap_expiry(expires_at),
- CONSTRAINT fk_help_gap_tenant FOREIGN KEY(tenant_id) REFERENCES tenants(id),
- CONSTRAINT fk_help_gap_client FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id)
+ CONSTRAINT fk_help_gap_tenant FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+-- Replaying an earlier copy of this migration must also unblock ticketless client deletion.
+SET @help_client_fk_sql = IF(EXISTS(SELECT 1 FROM information_schema.REFERENTIAL_CONSTRAINTS
+ WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME='portal_westy_help_events' AND CONSTRAINT_NAME='fk_portal_help_event_client'),
+ 'ALTER TABLE portal_westy_help_events DROP FOREIGN KEY fk_portal_help_event_client','DO 0');
+PREPARE help_client_fk FROM @help_client_fk_sql;
+EXECUTE help_client_fk;
+DEALLOCATE PREPARE help_client_fk;
+SET @help_client_fk_sql = IF(EXISTS(SELECT 1 FROM information_schema.REFERENTIAL_CONSTRAINTS
+ WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME='help_gap_questions' AND CONSTRAINT_NAME='fk_help_gap_client'),
+ 'ALTER TABLE help_gap_questions DROP FOREIGN KEY fk_help_gap_client','DO 0');
+PREPARE help_client_fk FROM @help_client_fk_sql;
+EXECUTE help_client_fk;
+DEALLOCATE PREPARE help_client_fk;

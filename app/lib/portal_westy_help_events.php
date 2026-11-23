@@ -5,16 +5,24 @@ require_once __DIR__.'/help_catalog.php';
 
 function portal_westy_gap_text(string $text): string
 {
+    return portal_westy_scrub_gap_text($text, false);
+}
+
+/** The earlier path rule is used only to locate existing rows for erasure. */
+function portal_westy_scrub_gap_text(string $text, bool $legacyPaths): string
+{
     // Milepost's endpoint_shell_scrub() and westy_case_text(). Remove whole fields,
     // URLs and paths before replacing tokens inside them or cutting to the byte limit.
     $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+    $path = $legacyPaths ? '~(?:[a-z]:[\\\\/]|\\\\\\\\)[^\r\n\t<>"\x27|]*~i'
+        : '~(?:[a-z]:[\\\\/]|\\\\)[^\r\n\t<>"\x27|]*~i';
     $patterns = [
         '/(?!\s)\p{Cc}/u' => '',
         '/```.*?(?:```|\z)/s' => '[omitted code block]',
         '/-----BEGIN [^-]*PRIVATE KEY-----.*?(?:-----END [^-]*PRIVATE KEY-----|\z)/s' => '[redacted private key]',
         '/\b(?:password|passwd|secret|token|(?:access|refresh)[_ -]?token|api[_ -]?key|authorization|client[_ -]?secret)["\x27]?\s*[:=]\s*[^\r\n]+/i' => '[redacted credential field]',
         '~https?://[^\s<>"\x27]+~i' => '[redacted URL]',
-        '~(?:[a-z]:[\\\\/]|\\\\\\\\)[^\r\n\t<>"\x27|]*~i' => '[redacted path]',
+        $path => '[redacted path]',
         '/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i' => '[redacted email]',
         '/\b(?:\d{1,3}\.){3}\d{1,3}\b/' => '[redacted address]',
         '/\bBearer\s+\S+/i' => '[redacted token]',
@@ -43,19 +51,41 @@ function portal_westy_help_tables_installed(PDO $pdo): bool
     }
 }
 
+/** Match one anonymous copy per gap. Preview cursors prevent counting the same copy twice. */
+function portal_westy_help_gap_question(PDO $pdo, array $row, bool $apply, string $lock, array &$previewIds=[]): int
+{
+    if ($row['input_text']===null) return 0;
+    $question=portal_westy_gap_text($row['input_text']);
+    $texts=[$question];
+    if (str_contains($row['input_text'], '\\')) {
+        $old=portal_westy_scrub_gap_text($row['input_text'], true);
+        if ($old!==$question) array_unshift($texts,$old);
+    }
+    $scope=[$row['tenant_id'],$row['client_id'],$row['created_at'],$row['surface']];
+    $find = $pdo->prepare('SELECT id FROM help_gap_questions WHERE tenant_id=? AND client_id=?
+        AND created_at=? AND surface=? AND question=? AND id>? ORDER BY id LIMIT 1'.$lock);
+    foreach ($texts as $text) {
+        $match=[...$scope,$text];
+        $key=serialize($match);
+        $find->execute([...$match,$previewIds[$key]??0]);
+        $id=$find->fetchColumn();
+        $find->closeCursor();
+        if ($id===false) continue;
+        if ($apply) {
+            $pdo->prepare('DELETE FROM help_gap_questions WHERE id=? AND tenant_id=? AND client_id=?')
+                ->execute([$id,$row['tenant_id'],$row['client_id']]);
+        } else {
+            $previewIds[$key]=$id;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 /** A reopened desktop turn can invalidate a previously final gap. The two rows shared a UTC timestamp. */
 function portal_westy_help_withdraw_gap(PDO $pdo, array $turn, array $event, string $lock): void
 {
-    // With identical customer, time, surface and scrubbed text, either anonymous copy is equivalent.
-    $find = $pdo->prepare('SELECT id FROM help_gap_questions WHERE tenant_id=? AND client_id=?
-        AND created_at=? AND surface=? AND question=? ORDER BY id LIMIT 1'.$lock);
-    $find->execute([$turn['tenant_id'], $turn['client_id'], $event['created_at'], $event['surface'],
-        portal_westy_gap_text($turn['input_text'])]);
-    $questionId = $find->fetchColumn();
-    if ($questionId !== false) {
-        $pdo->prepare('DELETE FROM help_gap_questions WHERE id=? AND tenant_id=? AND client_id=?')
-            ->execute([$questionId, $turn['tenant_id'], $turn['client_id']]);
-    }
+    portal_westy_help_gap_question($pdo, $turn+$event, true, $lock);
     $pdo->prepare('DELETE FROM portal_westy_help_events WHERE id=? AND turn_id=? AND tenant_id=? AND client_id=?')
         ->execute([$event['id'], $turn['id'], $turn['tenant_id'], $turn['client_id']]);
 }

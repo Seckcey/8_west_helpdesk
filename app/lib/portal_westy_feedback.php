@@ -434,10 +434,19 @@ function portal_feedback_review(PDO $pdo, string $token, array $request, ?callab
     $clients=portal_feedback_review_clients($pdo,$actor,portal_feedback_review_scope($actor,$token,$transport));
     $health=$request['action']==='help_health';
     $v2=$request['contract']===PORTAL_FEEDBACK_REVIEW_V2;
-    $rows=[];
-    if ($health) $result=portal_feedback_review_help_health($pdo,$actor['tenant_id'],$clients,$request['period']);
-    else $rows=portal_feedback_review_rows($pdo,$actor,$clients,$request);
-    $help=$v2 && $rows ? portal_feedback_review_turn_help($pdo,$actor['tenant_id'],array_slice($rows,0,$request['page_size'])) : [];
+    $rows=$health ? [] : portal_feedback_review_rows($pdo,$actor,$clients,$request);
+    $help=[];
+    $result=['ok'=>true,'contract'=>$request['contract'],'tenant_slug'=>$actor['tenant_slug']];
+    if ($v2) {
+        require_once __DIR__.'/portal_westy_help_events.php';
+        try {
+            if ($health) $result+=portal_feedback_review_help_health($pdo,$actor['tenant_id'],$clients,$request['period']);
+            elseif ($rows) $help=portal_feedback_review_turn_help($pdo,$actor['tenant_id'],array_slice($rows,0,$request['page_size']));
+        } catch (PDOException $error) {
+            if (!portal_westy_help_missing_table($error)) throw $error;
+            if ($health) $result+=['articles'=>[],'gaps'=>[]];
+        }
+    }
     $current=portal_feedback_review_actor($pdo,$token,$feed);
     $currentClients=portal_feedback_review_clients($pdo,$current,portal_feedback_review_scope($current,$token,$transport));
     if ($actor!==$current || $clients!==$currentClients) throw new PortalFeedbackReviewException('scope_changed',409);
@@ -461,8 +470,7 @@ function portal_feedback_review(PDO $pdo, string $token, array $request, ?callab
             if ($v2) $item += $help[$row['turn_id']] ?? ['sources'=>[],'help_gap'=>false];
             $items[]=$item;
         }
-        $result=['ok'=>true,'contract'=>$request['contract'],'tenant_slug'=>$actor['tenant_slug'],
-            'page'=>$request['page'],'page_size'=>$request['page_size'],'has_more'=>$more,'row_count'=>count($items),'truncated'=>$more,'items'=>$items];
+        $result+=['page'=>$request['page'],'page_size'=>$request['page_size'],'has_more'=>$more,'row_count'=>count($items),'truncated'=>$more,'items'=>$items];
     }
     if (strlen(json_encode($result,JSON_THROW_ON_ERROR))>PORTAL_FEEDBACK_REVIEW_MAX_BYTES)
         throw new PortalFeedbackReviewException('response_too_large');

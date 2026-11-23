@@ -11,6 +11,7 @@ $admin->exec('CREATE DATABASE IF NOT EXISTS `'.$database.'`');$pdo=$connect();$p
 $config=['enabled'=>true,'ai_enabled'=>true,'api_key'=>'synthetic-test-adapter-no-network','retention_days'=>30,'hourly_limit'=>30,'daily_limit'=>500,'monthly_microusd'=>5000000];
 function cfg(string $key, mixed $default=null): mixed {
     global $config;
+    if ($key === 'portal_devices') return $config[$key] ?? $default;
     if ($key === 'portal_guide.westy_tools') return $config[$key] ?? $default;
     return str_starts_with($key,'portal_westy.') ? ($config[substr($key,13)] ?? $default) : $default;
 }
@@ -245,9 +246,8 @@ try {
     $_SESSION['desktop_companion_session']=str_repeat('c',32);
     $provider=help_test_provider($rounds,$script(array_fill(0,4,['read_help_article',['id'=>'missing-article']])));
     $turn=$send($employee,$message($employee,'zzqvxfallback?'),$provider);
-    $fallback=$events($turn);
-    check($turn['run']===null && array_column($fallback,'kind')===['gap'] && $fallback[0]['surface']==='companion'
-        && $questions()[2]['question']==='zzqvxfallback?', 'a zero-hit fallback records a single gap and detects Companion without a tool run');
+    check($turn['run']===null && count($rounds)===5 && $events($turn)===[] && count($questions())===2,
+        'withholding help on the final round after four missing article reads does not manufacture a fallback gap');
     unset($_SESSION['desktop_companion_session']);
     $receipt=$pdo->prepare('SELECT t.reply_json,t.state,t.reason_code,t.charged_microusd,
         a.state AS attempt_state,a.charged_microusd AS attempt_charge FROM portal_westy_turns t
@@ -309,6 +309,47 @@ try {
     unlink($log);
 }
 
+// Keep the four device calls in one ordinary chat attempt with no durable run.
+$config['tools_enabled']=true;
+$config['portal_devices']=['enabled'=>true,'endpoint'=>PORTAL_DEVICES_ENDPOINT,'secret'=>str_repeat('e',64)];
+$pdo->exec("INSERT INTO suite_customer_sync_bindings(tenant_id,customer_id,client_id,source_version,display_name,status,last_event_id,last_occurred_at,last_request_sha256)
+    VALUES(1,'11111111-1111-4111-8111-111111111111',11,1,'Northwind Studio','active','11111111-1111-4111-8111-111111111111',UTC_TIMESTAMP(),REPEAT('a',64))");
+$pdo->exec('RENAME TABLE portal_westy_tool_runs TO held_test_runs');
+try {
+    $request=$message($owner,'zzqvxdesktop?');
+    $provider=help_test_provider($rounds,$script(array_fill(0,4,['list_computers',[]])));
+    $calls=0;
+    $inventory=static function($url,$body)use(&$calls):array {
+        if (json_decode($body,true)['action']!=='devices') throw new RuntimeException('Unexpected synthetic device call');
+        ++$calls;
+        return ['status'=>200,'body'=>json_encode(['contract'=>PORTAL_DEVICES_CONTEXT,'ok'=>true,'result'=>['items'=>[],'next_after'=>null]])];
+    };
+    portal_westy_message($pdo,$owner,$request,$provider,transport:$inventory,aiResolver:$resolver);
+    $turns=$state($owner)['turns'];$desktop=end($turns);
+    check($calls===4 && count($rounds)===5 && $desktop['state']==='complete' && array_column($desktop['reply']['tools'],'state')===array_fill(0,4,'complete')
+        && !in_array('search_help',$rounds[4]['tools'],true) && $events($desktop)===[],
+        'four desktop tool rounds and a final answer with no help search produce no gap');
+} finally {
+    $pdo->exec('RENAME TABLE held_test_runs TO portal_westy_tool_runs');
+    unset($config['portal_devices']);
+}
+$provider=help_test_provider($rounds,$script(array_fill(0,5,['read_help_article',['id'=>'missing-article']])));
+$turn=$send($employee,$message($employee,'zzqvxspent?'),$provider);
+$pdo->prepare("UPDATE portal_westy_tool_runs SET sequence=5 WHERE operation_key=? AND state='waiting'")->execute([$turn['operation_key']]);
+$turn=$send($employee,['action'=>'run_resume','conversation'=>$state($employee)['conversation'],'operation'=>$turn['operation_key'],'sequence'=>5],$provider);
+check(count($rounds)===6 && $rounds[5]['tools']===[] && $turn['state']==='complete' && $events($turn)===[],
+    'a resumed attempt whose wait budget withholds all tools produces no fallback gap');
+
+$provider=help_test_provider($rounds,$script([$miss]));
+$failAfterMiss=static function(...$args) use ($provider,&$rounds): array {
+    return $rounds===[] ? $provider(...$args) : ['ok'=>false,'reason'=>'provider_unavailable'];
+};
+$beforeQuestions=count($questions());
+$failed=$send($employee,$message($employee,'zzqvxfailed?'),$failAfterMiss);
+check($failed['state']==='unavailable' && $failed['reason_code']==='provider_unavailable'
+    && $events($failed)===[] && count($questions())===$beforeQuestions,
+    'a delivered provider_unavailable attempt after a real search miss records neither gap nor question');
+
 check((int)$pdo->query('SELECT COUNT(*) FROM portal_westy_help_events WHERE expires_at<>created_at+INTERVAL 400 DAY')->fetchColumn()===0
     && (int)$pdo->query('SELECT COUNT(*) FROM help_gap_questions WHERE expires_at<>created_at+INTERVAL 90 DAY')->fetchColumn()===0,
     'UTC expiry is exactly 400 days for events and 90 days for questions');
@@ -338,4 +379,65 @@ $batch=portal_westy_maintain($pdo,true);
 $remainder=portal_westy_maintain($pdo);
 check($batch['help_events']===1000 && $batch['gap_questions']===1000 && $remainder['help_events']===1 && $remainder['gap_questions']===1,
     'a maintenance pass removes at most 1000 expired rows from each table');
+
+// A failure on the second help table must roll back just the optional expiry transaction.
+portal_westy_feedback_record($pdo,$employee,['conversation'=>$state($employee)['conversation'],'operation'=>$control['operation_key'],
+    'response_id'=>$control['feedback']['response_id'],'request_id'=>bin2hex(random_bytes(16)),'revision'=>0,'reaction'=>'down']);
+$pdo->prepare('UPDATE portal_westy_turns SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 SECOND WHERE operation_key=?')->execute([$control['operation_key']]);
+$pdo->exec("INSERT INTO portal_guide_votes(tenant_id,client_id,scope_key,article_id,catalog_version,helpful,created_at,updated_at,expires_at)
+    VALUES(1,12,REPEAT('e',64),'expired-test','fixture',1,$expired,$expired,$expired)");
+$pdo->exec("CREATE TRIGGER fail_help_expiry BEFORE DELETE ON help_gap_questions FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='private-expiry-detail'");
+$log=tempnam(sys_get_temp_dir(),'westy-help-expiry-');$oldLog=ini_set('error_log',$log);
+try {
+    $clean=portal_westy_maintain($pdo,true);
+    $erased=$pdo->prepare('SELECT input_text IS NULL AND reply_json IS NULL FROM portal_westy_turns WHERE operation_key=?');
+    $erased->execute([$control['operation_key']]);
+    check((int)$erased->fetchColumn()===1 && $clean['feedback_content']===1 && $clean['vote_content']===1 && !$pdo->inTransaction()
+        && $clean['help_events']===0 && $clean['gap_questions']===0 && portal_westy_maintain($pdo)['help_events']===1,
+        'turn, feedback and vote expiry commit even if the subsequent help expiry rolls back');
+    $line=file_get_contents($log);
+    check(str_contains($line,'type=PDOException') && !str_contains($line,'private-expiry-detail') && !str_contains($line,'SQLSTATE'),
+        'help expiry logs only the exception class');
+} finally {
+    ini_set('error_log',$oldLog);unlink($log);$pdo->exec('DROP TRIGGER fail_help_expiry');
+}
+check(portal_westy_maintain($pdo,true)['gap_questions']===1,'the next pass retries rolled-back help expiry');
+
+// Equal anonymous questions in the same second must lose exactly one copy per erased gap.
+$sibling=$employee;$sibling['identity']['subject']='t9u999';
+$text='zzqvxexact someone@example.test';
+$exact=$send($sibling,$message($sibling,$text),help_test_provider($rounds,$script([$miss])));
+$siblingCite=$send($sibling,$message($sibling,$text),help_test_provider($rounds,$script([$found])));
+$other=$send($employee,$message($employee,$text),help_test_provider($rounds,$script([$miss])));
+$pairTime='2026-01-01 00:00:00';
+$pdo->prepare('UPDATE portal_westy_help_events SET created_at=? WHERE turn_id IN (SELECT id FROM portal_westy_turns WHERE operation_key IN (?,?))')
+    ->execute([$pairTime,$exact['operation_key'],$other['operation_key']]);
+$scrubbed=portal_westy_gap_text($text);
+$pdo->prepare('UPDATE help_gap_questions SET created_at=? WHERE question=?')->execute([$pairTime,$scrubbed]);
+$countCopies=$pdo->prepare('SELECT COUNT(*) FROM help_gap_questions WHERE question=? AND created_at=?');
+$copies=static function()use($countCopies,$scrubbed,$pairTime):int{$countCopies->execute([$scrubbed,$pairTime]);return (int)$countCopies->fetchColumn();};
+$scope=portal_westy_scope($pdo,$sibling);
+$dry=portal_westy_maintain($pdo,false,$scope);
+check($dry['help_events']===2 && $dry['gap_questions']===1 && $copies()===2 && count($events($siblingCite))===1,
+    'exact erasure preview counts the linked citation, gap and one matching question without changing them');
+$clean=portal_westy_maintain($pdo,true,$scope);
+check($clean['help_events']===2 && $clean['gap_questions']===1 && $copies()===1 && $events($exact)===[] && $events($siblingCite)===[]
+    && array_column($events($other),'kind')===['gap'] && portal_westy_maintain($pdo,true,$scope)['help_events']===0,
+    'exact erasure removes scoped citations and gaps with their question while preserving a different account in the same client');
+
+require_once __DIR__.'/../lib/client_operational_context.php';
+$pdo->exec("INSERT INTO clients(id,tenant_id,name) VALUES(31,1,'Ticketless local client');
+    INSERT INTO portal_westy_help_events(tenant_id,client_id,kind,catalog_version,surface,created_at,expires_at)
+        VALUES(1,31,'gap','fixture','portal',UTC_TIMESTAMP(),UTC_TIMESTAMP()+INTERVAL 400 DAY);
+    INSERT INTO help_gap_questions(tenant_id,client_id,surface,question,created_at,expires_at)
+        VALUES(1,31,'portal','Fixture question',UTC_TIMESTAMP(),UTC_TIMESTAMP()+INTERVAL 90 DAY)");
+check(client_operational_delete_local($pdo,1,31)==='deleted' && (int)$pdo->query('SELECT COUNT(*) FROM clients WHERE id=31')->fetchColumn()===0,
+    'the ordinary delete path removes a ticketless unbound client with retained events and questions');
+$pdo->exec("INSERT INTO clients(id,tenant_id,name) VALUES(31,1,'Legacy migration fixture')");
+$pdo->exec('ALTER TABLE portal_westy_help_events ADD CONSTRAINT fk_portal_help_event_client FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id)');
+$pdo->exec('ALTER TABLE help_gap_questions ADD CONSTRAINT fk_help_gap_client FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id)');
+portal_westy_fixture_sql($pdo,$migration);
+check(client_operational_delete_local($pdo,1,31)==='deleted'
+    && (int)$pdo->query('SELECT COUNT(*) FROM help_gap_questions WHERE tenant_id=1 AND client_id=31')->fetchColumn()===1,
+    'replaying the migration removes the earlier client restrictions and preserves retained help rows');
 echo "$checks Westy help MySQL checks passed\n";

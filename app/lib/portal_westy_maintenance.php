@@ -1,6 +1,56 @@
 <?php
 /** Content-free maintenance results. No operator transcript viewer. */
 declare(strict_types=1);
+require_once __DIR__.'/portal_westy_help_events.php';
+
+/** Scheduled help expiry is independent of turn, feedback and vote retention. */
+function portal_westy_expire_help(PDO $pdo, string $now, bool $apply): array
+{
+    $counts=['help_events'=>0,'gap_questions'=>0];
+    try {
+        if ($apply) $pdo->beginTransaction();
+        if (portal_westy_help_tables_installed($pdo)) {
+            foreach (['help_events'=>'portal_westy_help_events','gap_questions'=>'help_gap_questions'] as $key=>$table) {
+                $sql=$apply ? 'DELETE FROM '.$table.' WHERE expires_at<=? ORDER BY expires_at,id LIMIT 1000'
+                    : 'SELECT COUNT(*) FROM '.$table.' WHERE expires_at<=?';
+                $q=$pdo->prepare($sql);
+                $q->execute([$now]);
+                $counts[$key]=$apply ? $q->rowCount() : (int)$q->fetchColumn();
+            }
+        }
+        if ($apply) $pdo->commit();
+        return $counts;
+    } catch (Throwable $error) {
+        if ($apply && $pdo->inTransaction()) $pdo->rollBack();
+        error_log('[portal-westy-help-events] expiry_failed type='.$error::class);
+        return ['help_events'=>0,'gap_questions'=>0];
+    }
+}
+
+/** Run before exact erasure clears input_text. A locking read also serializes with recorders on turns with no events yet. */
+function portal_westy_erase_scope_help(PDO $pdo, array $args, bool $apply): array
+{
+    $counts=['help_events'=>0,'gap_questions'=>0];
+    if (!portal_westy_help_tables_installed($pdo)) return $counts;
+    $lock=$apply ? ' FOR UPDATE' : '';
+    $q=$pdo->prepare('SELECT t.tenant_id,t.client_id,t.input_text,e.kind,e.created_at,e.surface FROM portal_westy_turns t
+        LEFT JOIN portal_westy_help_events e ON e.turn_id=t.id AND e.tenant_id=t.tenant_id AND e.client_id=t.client_id
+        WHERE t.tenant_id=? AND t.client_id=? AND t.scope_key=? ORDER BY t.id,e.id'.$lock);
+    $q->execute($args);
+    $previewIds=[];
+    while ($row=$q->fetch(PDO::FETCH_ASSOC)) {
+        if ($row['kind']===null) continue;
+        ++$counts['help_events'];
+        if ($row['kind']==='gap') $counts['gap_questions']+=portal_westy_help_gap_question($pdo,$row,$apply,$lock,$previewIds);
+    }
+    if ($apply && $counts['help_events']) {
+        $delete=$pdo->prepare('DELETE FROM portal_westy_help_events WHERE tenant_id=? AND client_id=?
+            AND turn_id IN (SELECT id FROM portal_westy_turns WHERE tenant_id=? AND client_id=? AND scope_key=?)');
+        $delete->execute([$args[0],$args[1],...$args]);
+        $counts['help_events']=$delete->rowCount();
+    }
+    return $counts;
+}
 
 function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = null): array
 {
@@ -28,16 +78,11 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
     $hasVotes=portal_guide_votes_installed($pdo);
     $voteWhere=$scope===null?'expires_at<=?':'1=1'.$filter;
     $voteArgs=$scope===null?[$now]:$args;
-    require_once __DIR__.'/portal_westy_help_events.php';
-    // Help-health records have client scope but no user scope. Only scheduled expiry applies.
-    $hasHelp=$scope===null && portal_westy_help_tables_installed($pdo);
     $result=['applied'=>$apply,'turn_content'=>$count('portal_westy_turns',$turnWhere,$turnArgs),
         'draft_content'=>$count('portal_westy_drafts',$draftWhere,$draftArgs),'metadata_deleted'=>0,
         'feedback_content'=>$hasFeedback?$count('portal_westy_reply_feedback',$feedbackWhere,$feedbackArgs):0,
-        'vote_content'=>$hasVotes?$count('portal_guide_votes',$voteWhere,$voteArgs):0,
-        'help_events'=>$hasHelp?$count('portal_westy_help_events','expires_at<=?',[$now]):0,
-        'gap_questions'=>$hasHelp?$count('help_gap_questions','expires_at<=?',[$now]):0];
-    if(!$apply)return $result;
+        'vote_content'=>$hasVotes?$count('portal_guide_votes',$voteWhere,$voteArgs):0];
+    if(!$apply)return $result+($scope===null ? portal_westy_expire_help($pdo,$now,false) : portal_westy_erase_scope_help($pdo,$args,false));
     // The accepted operation clock skew is at most 60 seconds; keep metadata for
     // that same grace so a future-stamped operation is expired before its row is purged.
     // One task-specific advisory lock; bounded metadata deletion batches.
@@ -52,6 +97,7 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
             }elseif(!$hasVotes||$count('portal_guide_votes',$voteWhere,$voteArgs)===0){
                 throw new RuntimeException('Exact account not found');
             }
+            $result+=portal_westy_erase_scope_help($pdo,$args,true);
         }
         $q=$pdo->prepare("UPDATE portal_westy_turns SET input_text=NULL,reply_json=NULL,state=IF(state='pending','unavailable',state),reason_code=IF(state='pending','expired',reason_code) WHERE ".$turnWhere);
         $q->execute($turnArgs);$result['turn_content']=$q->rowCount();
@@ -62,12 +108,6 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
         if($hasVotes){
             $q=$pdo->prepare('DELETE FROM portal_guide_votes WHERE '.$voteWhere);
             $q->execute($voteArgs);$result['vote_content']=$q->rowCount();
-        }
-        if($hasHelp){
-            foreach(['help_events'=>'portal_westy_help_events','gap_questions'=>'help_gap_questions'] as $key=>$table){
-                $q=$pdo->prepare('DELETE FROM '.$table.' WHERE expires_at<=? ORDER BY expires_at,id LIMIT 1000');
-                $q->execute([$now]);$result[$key]=$q->rowCount();
-            }
         }
         require_once __DIR__.'/portal_westy_runs.php';
         if(portal_westy_runs_installed($pdo)){
@@ -117,7 +157,9 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
             $q=$pdo->prepare('DELETE FROM portal_westy_budgets WHERE month_key<?');$q->execute([substr($old,0,7)]);
             $q=$pdo->prepare('DELETE FROM portal_westy_accounts WHERE created_at<? AND NOT EXISTS(SELECT 1 FROM portal_westy_turns t WHERE t.scope_key=portal_westy_accounts.scope_key) AND NOT EXISTS(SELECT 1 FROM portal_westy_drafts d WHERE d.scope_key=portal_westy_accounts.scope_key)');$q->execute([$old]);
         }
-        $pdo->commit();return $result;
+        $pdo->commit();
+        if($scope===null)$result+=portal_westy_expire_help($pdo,$now,true);
+        return $result;
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
     finally{$pdo->query("SELECT RELEASE_LOCK('safeharbor.portal_westy.maintenance')");}
 }

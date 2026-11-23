@@ -170,6 +170,16 @@ portal_westy_help_reference($emp + ['authorized_task'=>'zzzzqqqq'], $fallbackGap
 check($fallbackGap === true, 'only an actual zero-match fallback reports a gap');
 portal_westy_help_provider_messages($messages, $definitions, $task, $fallbackGap);
 check($fallbackGap === null, 'an offered search tool skips the fallback and its gap signal');
+$plainReply = ['sources'=>[], 'tools'=>[]];
+$miss = ['ok'=>true, 'help_searches'=>['reference_only'=>true]];
+check(portal_westy_help_turn_gap($miss, $plainReply), 'a successful reference-only turn with a real miss records a gap');
+check(!portal_westy_help_turn_gap($miss, ['sources'=>[], 'tools'=>[['name'=>'list_computers','state'=>'complete']]]),
+    'a saved non-help dispatch excludes a fallback gap even across attempts');
+check(!portal_westy_help_turn_gap(['ok'=>true, 'help_searches'=>['fallback'=>true]], $plainReply),
+    'a legacy receipt with no reason for withholding tools cannot establish a fallback gap');
+check(!portal_westy_help_turn_gap($miss+['waiting'=>true], $plainReply)
+    && !portal_westy_help_turn_gap(['ok'=>false, 'reason'=>'provider_unavailable', 'help_searches'=>['tool'=>true]], $plainReply),
+    'an unfinished or unavailable attempt cannot produce a gap');
 $access = $emp + ['authorized_task'=>'give computer access'];
 check(!str_contains(westy_help_test_json(portal_westy_help_provider_messages($messages, [], $access)), 'sh-give-computer-access'),
     'fallback respects the employee role despite request parameters');

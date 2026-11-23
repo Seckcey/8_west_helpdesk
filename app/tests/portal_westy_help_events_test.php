@@ -17,6 +17,7 @@ foreach ([
     'IPv4' => ['192.0.2.146', '[redacted address]'],
     'drive path' => ['C:\\Users\\Example Person\\private.txt', '[redacted path]'],
     'drive path with slashes' => ['D:/Private/example.txt', '[redacted path]'],
+    'rooted path' => ['open \Users\jdoe\Desktop\payroll.xlsx please', 'open [redacted path]'],
     'UNC path' => ['\\\\example-server\\private share\\data.txt', '[redacted path]'],
     'password' => ['password=private test value', '[redacted credential field]'],
     'quoted refresh token field' => ['"refresh_token": "private-value"', '"[redacted credential field]'],
@@ -71,6 +72,14 @@ $record(2, [], true);
 check($pdo->query('SELECT kind FROM portal_westy_help_events WHERE turn_id=2')->fetchAll(PDO::FETCH_COLUMN) === ['cited']
     && (int)$pdo->query('SELECT COUNT(*) FROM help_gap_questions')->fetchColumn() === 0,
     'a reopened turn withdraws its old gap and an earlier attempt cannot restore it');
+
+$oldPath='open \Users\jdoe\Desktop\payroll.xlsx please';
+$pdo->prepare('UPDATE portal_westy_turns SET input_text=? WHERE id=3')->execute([$oldPath]);
+$record(3, [], true);
+$pdo->prepare('UPDATE help_gap_questions SET question=?')->execute([$oldPath]);
+$record(3, [], false);
+check((int)$pdo->query('SELECT COUNT(*) FROM help_gap_questions')->fetchColumn()===0,
+    'withdrawal finds a question written by the earlier rooted-path scrubber');
 
 $log = tempnam(sys_get_temp_dir(), 'westy-help-log-');
 $oldLog = ini_set('error_log', $log);
