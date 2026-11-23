@@ -1,0 +1,12 @@
+{
+  "format": "8west-help-manifest-v1",
+  "index": "labels",
+  "version": "0.3.0",
+  "files": {
+    "labels-index.json": {
+      "sha256": "26134d3531d0543e0269bcca6c01c29e0aad7c12a9a1fd808fce25663e30d5e0",
+      "bytes": 1352
+    }
+  },
+  "hash_format": "SHA-256 of the exact LF file bytes"
+}

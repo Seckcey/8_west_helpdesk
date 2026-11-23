@@ -1,39 +1,57 @@
 #!/usr/bin/env bash
-# --tag vX.Y.Z vendors a verified GitHub release. --from builds a local checkout's
-# committed HEAD into --out without writing to the checkout or contacting a remote.
+# --labels selects the desk labels release. Its optional --from is a release zip directory.
+# Customer --from builds a local checkout's committed HEAD into --out without using the network.
 set -euo pipefail
 
 die() { echo "$*" >&2; exit 1; }
-usage() { die "usage: $0 --tag vX.Y.Z | --from <catalog checkout> --out <scratch directory>"; }
+usage() { die "usage: $0 --tag vX.Y.Z | --from <catalog checkout> --out <scratch directory> | --labels --tag vX.Y.Z [--from <release directory>]"; }
 
 repo=Seckcey/8_west_help_catalog
-tag= checkout= out=
+kind=customer
+tag= from= out=
 while (( $# )); do
+    if [[ $1 == --labels ]]; then
+        [[ $kind == customer ]] || usage
+        kind=labels
+        shift
+        continue
+    fi
     [[ -n ${2:-} ]] || usage
     case "$1" in
         --tag)
             [[ -z $tag && $2 =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || usage
             tag=$2 ;;
-        --from) [[ -z $checkout ]] || usage; checkout=$2 ;;
+        --from) [[ -z $from ]] || usage; from=$2 ;;
         --out)  [[ -z $out ]] || usage; out=$2 ;;
         *) usage ;;
     esac
     shift 2
 done
 
-app=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../app" && pwd -P)
-if [[ -n $tag ]]; then
-    [[ -z $checkout && -z $out ]] || usage
-    dest="$app/help"
-else
-    [[ -n $checkout && -n $out && -d $checkout ]] || usage
-    dest=$(realpath -m -- "$out")
-    # Compare physical ancestors as well as resolving symlinks, including Windows path aliases.
-    ancestor=$dest
+helpers=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+app=$(cd -- "$helpers/../../app" && pwd -P)
+index_file="$kind-index.json"
+python_cmd=python3
+case "$OSTYPE" in msys*|cygwin*) python_cmd=python ;; esac
+# Physical ancestors also catch symlinks and Windows path aliases.
+require_outside() {
+    local ancestor=$1
     while [[ $ancestor != / ]]; do
-        [[ ! $ancestor -ef $app ]] || die '--out must be outside app/'
+        [[ ! $ancestor -ef $2 ]] || die "$3"
         ancestor=$(dirname -- "$ancestor")
     done
+}
+if [[ $kind == labels ]]; then
+    [[ -n $tag && -z $out && ( -z $from || -d $from ) ]] || usage
+    dest="$app/help-labels"
+elif [[ -n $tag ]]; then
+    [[ -z $from && -z $out ]] || usage
+    dest="$app/help"
+else
+    [[ -n $from && -n $out && -d $from ]] || usage
+    case "$OSTYPE" in msys*|cygwin*) out=$(cygpath -au -- "$out") ;; esac
+    dest=$(realpath -m -- "$out")
+    require_outside "$dest" "$app" '--out must be outside app/'
 fi
 
 shopt -s nullglob dotglob
@@ -42,7 +60,7 @@ check_pair() {
     [[ -d $dir && ! -L $dir ]] || die "expected a regular directory: $dir"
     local entries=("$dir"/*)
     if [[ ${2:-} == allow-empty && ${#entries[@]} == 0 ]]; then return 0; fi
-    [[ ${#entries[@]} == 2 && -f $dir/customer-index.json && ! -L $dir/customer-index.json &&
+    [[ ${#entries[@]} == 2 && -f $dir/$index_file && ! -L $dir/$index_file &&
         -f $dir/help-manifest.json && ! -L $dir/help-manifest.json ]] || die "unexpected files in $dir"
 }
 check_destination() {
@@ -53,11 +71,13 @@ check_destination
 parent=$(dirname -- "$dest")
 mkdir -p -- "$parent"
 work=$(mktemp -d -- "$parent/.help-catalog.XXXXXXXX")
-trap 'rm -rf -- "$work"' EXIT
+build=
+trap 'rm -rf -- "$work" "${build:-}"' EXIT
 trap 'exit 1' HUP INT TERM
-build="$work/.build"
+# A catalog source checkout can contain full staff guides. Only a verified pair enters staging.
+build=$(mktemp -d)
+require_outside "$(cd -- "$build" && pwd -P)" "$(dirname -- "$app")" 'catalog build scratch must be outside Safeharbor'
 src="$build/source"
-mkdir -p -- "$src"
 
 # Verify the raw bytes before building or publishing. The only stdout is the manifest pin.
 verify_pair() {
@@ -85,60 +105,72 @@ console.log(hash(manifest));
 JS
 }
 
-if [[ -n $tag ]]; then
+sha=
+if [[ -n $tag && -z $from ]]; then
     sha=$(gh api "repos/$repo/commits/$tag" --jq .sha)
     [[ $sha =~ ^[0-9a-f]{40}$ ]] || die 'could not resolve the tag to a full commit'
     status=$(gh api "repos/$repo/compare/$sha...main" --jq .status)
     [[ $status == ahead || $status == identical ]] || die 'tag commit is not on catalog main'
 
-    archive="$build/help-customer-$tag.zip"
-    gh release download "$tag" --repo "$repo" --pattern "help-customer-$tag.zip" --dir "$build"
+    gh release download "$tag" --repo "$repo" --pattern "help-$kind-$tag.zip" --dir "$build"
+fi
+
+if [[ -n $tag ]]; then
+    archive="${from:-$build}/help-$kind-$tag.zip"
+    pair="$build/release"
+    mkdir -- "$pair"
+fi
+if [[ $kind == labels ]]; then
+    pin=$("$python_cmd" "$helpers/verify-labels-archive.py" "$archive" "$pair" "${tag#v}")
+elif [[ -n $tag ]]; then
     unset UNZIP UNZIPOPT ZIPINFO ZIPINFOOPT
     expected=$(printf '%s\n' customer-index.json help-manifest.json)
     names=$(unzip -Z1 "$archive" | LC_ALL=C sort)
     [[ $names == "$expected" ]] || die 'unexpected customer archive entries'
     regular=$(LC_ALL=C zipinfo -l "$archive" | awk '/^-/ {print $NF}' | LC_ALL=C sort)
     [[ $regular == "$expected" ]] || die 'customer archive entries must both be regular files'
-    pair="$build/release"
-    mkdir -- "$pair"
     unzip -q "$archive" -d "$pair"
     check_pair "$pair"
     pin=$(verify_pair "$pair" "${tag#v}")
+fi
 
+if [[ -n $sha ]]; then
     # Fetch only the resolved commit. Even if the tag moves, the rebuild uses the reviewed SHA.
     git init -q "$src"
     git -C "$src" -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
         fetch --quiet --depth=1 --no-tags "https://github.com/$repo.git" "$sha"
     git -C "$src" -c core.autocrlf=false checkout --quiet --detach FETCH_HEAD
     [[ $(git -C "$src" rev-parse HEAD) == "$sha" ]] || die 'checkout differs from the resolved tag'
-else
+elif [[ -z $tag ]]; then
     # git archive reads the committed bytes without checkout filters, including core.autocrlf.
-    local_git() { GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 git -C "$checkout" "$@"; }
+    local_git() { GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 git -C "$from" "$@"; }
     prefix=$(local_git rev-parse --show-prefix)
     [[ -z $prefix ]] || die '--from must name the catalog checkout root'
     sha=$(local_git rev-parse --verify 'HEAD^{commit}')
     local_git cat-file -e "$sha:tools/build.mjs" || die 'catalog checkout lacks tools/build.mjs'
+    mkdir -- "$src"
     local_git archive --format=tar "$sha" | tar -xf - -C "$src"
 fi
 
-version=$(cd -- "$src" && node -p "require('./package.json').version")
-[[ -z $tag || $tag == "v$version" ]] || die 'tag differs from the catalog package version'
-# The catalog tracks dist/. Compare against fresh output even if a builder omits a file.
-rm -rf -- "$src/dist"
-(cd -- "$src" && node tools/build.mjs >/dev/null)
-rebuilt="$src/dist/customer"
-check_pair "$rebuilt"
-if [[ -n $tag ]]; then
-    cmp -- "$pair/customer-index.json" "$rebuilt/customer-index.json"
-    cmp -- "$pair/help-manifest.json" "$rebuilt/help-manifest.json"
-else
-    pair=$rebuilt
-    pin=$(verify_pair "$pair" "$version")
+if [[ -n $sha ]]; then
+    version=$(cd -- "$src" && node -p "require('./package.json').version")
+    [[ -z $tag || $tag == "v$version" ]] || die 'tag differs from the catalog package version'
+    # The catalog tracks dist/. Compare against fresh output even if a builder omits a file.
+    rm -rf -- "$src/dist"
+    (cd -- "$src" && node tools/build.mjs >/dev/null)
+    rebuilt="$src/dist/$kind"
+    check_pair "$rebuilt"
+    if [[ -n $tag ]]; then
+        cmp -- "$pair/$index_file" "$rebuilt/$index_file"
+        cmp -- "$pair/help-manifest.json" "$rebuilt/help-manifest.json"
+    else
+        pair=$rebuilt
+        pin=$(verify_pair "$pair" "$version")
+    fi
 fi
 
-cp -- "$pair/customer-index.json" "$pair/help-manifest.json" "$work/"
-rm -rf -- "$build"
-chmod 0644 "$work/customer-index.json" "$work/help-manifest.json"
+cp -- "$pair/$index_file" "$pair/help-manifest.json" "$work/"
+chmod 0644 "$work/$index_file" "$work/help-manifest.json"
 chmod 0755 "$work"
 
 # A plain mv cannot replace a populated directory. Exchange the old and new directories
@@ -148,9 +180,7 @@ exchange_dirs() {
         mv -T --exchange --no-copy -- "$work" "$dest"
         return
     fi
-    local interpreter=python3
-    case "$OSTYPE" in msys*|cygwin*) interpreter=python ;; esac
-    "$interpreter" - "$work" "$dest" <<'PY'
+    "$python_cmd" - "$work" "$dest" <<'PY'
 import ctypes
 import os
 import sys
@@ -190,10 +220,11 @@ PY
 check_destination
 if [[ ! -e $dest ]]; then
     mv -T -- "$work" "$dest"
-elif [[ -f $dest/customer-index.json ]] && cmp -s -- "$work/customer-index.json" "$dest/customer-index.json" &&
+elif [[ -f $dest/$index_file ]] && cmp -s -- "$work/$index_file" "$dest/$index_file" &&
         cmp -s -- "$work/help-manifest.json" "$dest/help-manifest.json"; then
     : # The verified release is already installed.
 else
     exchange_dirs
 fi
-printf 'manifest sha256 %s\nsource commit %s\n' "$pin" "$sha"
+printf 'manifest sha256 %s\n' "$pin"
+if [[ -n $sha ]]; then printf 'source commit %s\n' "$sha"; fi
