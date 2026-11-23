@@ -117,18 +117,24 @@ function portal_westy_desktop_recovery_key(array $context,string $operation,arra
     return $opened?$key:null;
 }
 
-function portal_westy_ai_tools(PDO $pdo,array $context, array $selection,?string &$desktopAvailability=null):array
+function portal_westy_ai_tools(PDO $pdo,array $context, array $selection,?string &$desktopAvailability=null,?bool &$referenceOnly=null):array
 {
     // V2 has twenty bounded waits, with the same per-attempt billing/authority checks.
     $general=function_exists('portal_westy_terminal_installed')&&portal_westy_terminal_installed($pdo);
     $desktopAvailability='tool_limit';
+    $referenceOnly=false;
     if((int)($context['tool_run']['sequence']??0)>=($general?20:5))return [];
+    $model=westy_tenant_ai_catalog()[$selection['provider']??'']['models'][$selection['model']??'']??[];
+    if(!in_array('tools',$model['capabilities']??[],true)){
+        $desktopAvailability='unsupported_model';
+        $referenceOnly=isset($model['capabilities']);
+        return [];
+    }
     $tools=[];
     if(portal_westy_tools_enabled())foreach(portal_westy_tool_definitions() as $tool)
         $tools[]=['name'=>$tool['name'],'description'=>$tool['description'],'input_schema'=>$tool['parameters']];
     if(portal_westy_tools_enabled()&&isset($context['tool_run']))array_push($tools,...($general?portal_westy_terminal_definitions():portal_westy_shell_definitions()));
     if($general&&portal_westy_tools_enabled()&&isset($context['tool_run']))array_push($tools,...portal_westy_recovery_definitions());
-    $model=westy_tenant_ai_catalog()[$selection['provider']??'']['models'][$selection['model']??'']??[];
     $desktopAvailability='unsupported_model';
     if(($model['computer_use']['typed_functions_with_images']??false)===true){
         $desktopAvailability='adapter_unavailable';
@@ -260,11 +266,16 @@ function portal_westy_ai_failure_diagnostic(string $operation,int $sequence,int 
 /** Five paid rounds per request, with durable continuation within the existing run budget. */
 function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $messages,string $operation,
     array &$partial,callable $alive,callable $output,callable $save,?callable $provider=null,
-    ?callable $transport=null,?callable $resolver=null,?float $deadline=null,int $maxOutput=PORTAL_WESTY_AI_MAX_OUTPUT):array
+    ?callable $transport=null,?callable $resolver=null,?float $deadline=null,int $maxOutput=PORTAL_WESTY_AI_MAX_OUTPUT,
+    array &$helpEvents=[]):array
 {
     $usage=['input'=>0,'cached_input'=>0,'cache_write'=>0,'cache_write_1h'=>0,'output'=>0];
     $cost=0;$known=true;$receipts=[];$inFlight=false;$buffer=null;$discoveryContext=null;$round=0;
     $sequence=(int)($context['tool_run']['sequence']??0);
+    if($sequence>0 && !isset($helpEvents['searches']) && function_exists('portal_westy_help_replayed_searches')){
+        $priorSearch=portal_westy_help_replayed_searches($messages);
+        if($priorSearch!==null)$helpEvents['searches']['tool']=$priorSearch;
+    }
     $wait=static function()use($pdo,$context,$operation,&$messages,&$known,&$usage,&$cost,&$receipts):array{
         // Every tool above has its real receipt before yielding. Resumption
         // uses these messages and performs no duplicate tool dispatch.
@@ -278,7 +289,7 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             if($resolved===null || !portal_westy_ai_same_selection($snapshot,$resolved))
                 throw new PortalWestyException('ai_changed');
             $selection=portal_westy_ai_selection($resolved,portal_westy_config());
-            $tools=portal_westy_ai_tools($pdo,$context,$selection,$desktopAvailability);
+            $tools=portal_westy_ai_tools($pdo,$context,$selection,$desktopAvailability,$referenceOnly);
             if(function_exists('portal_westy_help_call')&&$round===4&&!isset($context['tool_run'])){
                 $tools=array_values(array_filter($tools,static fn(array $tool):bool=>!in_array($tool['name'],PORTAL_WESTY_HELP_TOOLS,true)));
             }
@@ -299,7 +310,11 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             $providerMessages=portal_westy_ai_latest_images($messages);
             if($discoveryContext!==null)$providerMessages[$discoveryContext['index']]['content'][0]['text']=json_encode($discoveryContext['data'],JSON_THROW_ON_ERROR);
             // After the index-based discovery write: the help reference inserts a message and shifts later indexes.
-            if(function_exists('portal_westy_help_provider_messages'))$providerMessages=portal_westy_help_provider_messages($providerMessages,$tools,$context);
+            if(function_exists('portal_westy_help_provider_messages')){
+                $providerMessages=portal_westy_help_provider_messages($providerMessages,$tools,$context,$fallbackNone);
+                if($referenceOnly && $fallbackNone!==null)
+                    $helpEvents['searches']['reference_only']=($helpEvents['searches']['reference_only']??true) && $fallbackNone;
+            }
             $result=($provider??'westy_tenant_ai_stream')($selection,$instructions,$providerMessages,$options,
                 static fn(string $text)=>$buffer->append($text),
                 static function()use($buffer,$alive):void{
@@ -376,8 +391,12 @@ function portal_westy_ai_run(PDO $pdo,array $context,array $snapshot,array $mess
             }
             if(function_exists('portal_westy_help_call')&&in_array($name,PORTAL_WESTY_HELP_TOOLS,true)){
                 $help=portal_westy_help_call($context,$name,$call['arguments']);
-                if($name==='read_help_article'&&($help['untrusted_result']['state']??'')==='found'){
+                $state=$help['untrusted_result']['state'];
+                if($name==='search_help'){
+                    $helpEvents['searches']['tool']=($helpEvents['searches']['tool']??true) && $state==='none';
+                }elseif($state==='found'){
                     $id=$help['untrusted_result']['article']['id'];
+                    $helpEvents['cited'][$id]=true;
                     if(!in_array($id,$partial['sources'],true)&&count($partial['sources'])<5){$partial['sources'][]=$id;$save();}
                 }
                 $messages[]=$result['continuation'];
@@ -528,7 +547,7 @@ function portal_westy_ai_attempt(PDO $pdo,int $turnId,array $scope,array $select
 
 /** Finish only the immutable reserved attempt. Stop, erasure and revoked access never regain authority. */
 function portal_westy_ai_finish(PDO $pdo,array $scope,int $turnId,int $attemptId,string $conversation,
-    string $month,array $result,bool|callable $authorized):void
+    string $month,array $result,bool|callable $authorized):bool
 {
     $pdo->beginTransaction();
     try {
@@ -545,7 +564,7 @@ function portal_westy_ai_finish(PDO $pdo,array $scope,int $turnId,int $attemptId
         $q=$pdo->prepare('SELECT * FROM portal_westy_ai_attempts WHERE id=? AND turn_id=? AND scope_key=?'.portal_westy_lock($pdo));
         $q->execute([$attemptId,$turnId,$scope['key']]);$attempt=$q->fetch();
         if(!$turn || !$attempt)throw new LogicException('reserved attempt missing');
-        if($attempt['state']!=='pending'){$pdo->commit();return;}
+        if($attempt['state']!=='pending'){$pdo->commit();return false;}
         $reserve=(int)$attempt['reserve_microusd'];$usage=$result['usage']??null;$cost=$result['cost_micro_usd']??null;
         $known=is_array($usage) && is_int($cost) && $cost>=0 && $cost<=$reserve;
         foreach(['input','cached_input','cache_write','cache_write_1h','output'] as $field)
@@ -556,7 +575,9 @@ function portal_westy_ai_finish(PDO $pdo,array $scope,int $turnId,int $attemptId
             && strtotime($turn['expires_at'].' UTC')>time();
         $available=$deliver && ($result['ok']??false)===true;
         $q=$pdo->prepare("UPDATE portal_westy_ai_attempts SET state=?,charged_microusd=?,usage_json=?,finished_at=? WHERE id=? AND state='pending'");
-        $q->execute([$available?'complete':'unavailable',$charge,json_encode(['known'=>$known,'rounds'=>$result['rounds']??[]],JSON_THROW_ON_ERROR),gmdate('Y-m-d H:i:s'),$attemptId]);
+        $receipt=['known'=>$known,'rounds'=>$result['rounds']??[]];
+        if($deliver && !empty($result['help_searches']))$receipt['help_searches']=$result['help_searches'];
+        $q->execute([$available?'complete':'unavailable',$charge,json_encode($receipt,JSON_THROW_ON_ERROR),gmdate('Y-m-d H:i:s'),$attemptId]);
         $input=$known?array_sum(array_intersect_key($usage,array_flip(['input','cached_input','cache_write','cache_write_1h']))):null;
         $output=$known?$usage['output']:null;
         if((int)$attempt['sequence']>1){
@@ -585,5 +606,6 @@ function portal_westy_ai_finish(PDO $pdo,array $scope,int $turnId,int $attemptId
             if($q->rowCount()!==1)throw new LogicException('budget charge mismatch');
         }
         $pdo->commit();
+        return $deliver;
     } catch(Throwable $error) { if($pdo->inTransaction())$pdo->rollBack();throw $error; }
 }

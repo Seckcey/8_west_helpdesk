@@ -91,6 +91,114 @@ back code in service, retain the new maintenance routine or otherwise ensure
 feedback expiry and exact erasure continue. Do not drop private feedback as an
 unreviewed rollback shortcut. The current frozen installer is unaffected.
 
+## Help citations and unanswered questions
+
+Migration `portal_westy_help_events_v1.sql` adds help-health records for Portal
+and Companion. A successful article read records the article ID once per turn.
+If every help search misses and the turn successfully delivers its final answer
+without reading an article, Safeharbor records one gap. On a surface or provider
+without tool support, an empty fallback lookup can count when the turn has no
+other tool activity. Reaching a round or wait limit and failed attempts do not
+create fallback gaps.
+
+Each event holds the tenant, client, surface, catalog version, timestamps and
+turn ID. A gap has a null article ID. Events expire after 400 days and survive
+scheduled turn deletion with a null turn ID. A separate table keeps the scrubbed original
+gap question for 90 days, with tenant, client and surface. It removes credential
+fields, tokens, URLs, email and IPv4 addresses, Windows paths and fenced code,
+collapses whitespace and keeps at most 200 UTF-8 bytes.
+
+The help-health tables store no raw question, model search query, reply,
+article text or user identifier. Recording failures log only the exception
+class. Once the authorized reply and its charge are saved, the dispatcher
+records help events in a separate transaction. Its MySQL row and metadata lock
+waits are capped at two seconds. A recording failure leaves the saved reply,
+turn status and charge intact. Scheduled Westy maintenance commits turn, feedback
+and vote expiry first. It then deletes up to 1,000 expired rows per help table
+in a separate transaction. On failure it logs the exception class and retries
+on the next scheduled pass.
+
+Exact account erasure removes citations and gaps linked to that account's turns.
+Before clearing a turn's original question, it removes one matching scrubbed
+question per gap using the tenant, client, surface, timestamp and text. Identical
+copies belonging to other accounts keep their count. A dry run reports the
+number of matching rows. Once scheduled retention has erased the original text
+or detached an event, any anonymous rows that can no longer be matched expire
+on their own retention schedule.
+
+## Operator review API
+
+Send a JSON object of at most 4,096 bytes to `POST /api/westy_feedback_review.php`
+with the operator's 8 West ID JWT in the Bearer authorization header. Safeharbor
+checks the operator and asks Milepost for the same subject's current customer
+IDs using `westy-feedback-scope-v1`. Each read uses their intersection with
+active, operational customers and active portal bindings in the operator's
+tenant. The endpoint rechecks the actor and customer scope before returning
+the result. A scope change returns HTTP 409 with reason `scope_changed`.
+
+Both `westy-feedback-review-v1` and `westy-feedback-review-v2` accept
+`list` (the default action) and `export`. Each request supplies `contract`,
+`filters`, `sort`, `page` and `page_size`. The filter object has exactly
+`model`, `model_version`, `task`, `outcome`, `reaction`, `from` and `to`.
+Use empty strings for unused filters and UTC calendar dates for the date
+bounds. Sort values are `date_desc`, `date_asc`, `model_asc`, `reaction_asc`,
+`task_asc` and `outcome_asc`. List pages range from 1 to 1,000 with up to 50
+items per page. Export uses page 1 and up to 1,000 items.
+
+The list and export envelope contains `ok`, `contract`, `tenant_slug`, `page`,
+`page_size`, `has_more`, `row_count`, `truncated` and `items`. V1 keeps its
+original 24 item fields, all of which are also present in v2.
+
+| Item fields | Meaning |
+| --- | --- |
+| `id`, `response_id`, `revision`, `reaction` | String feedback row ID, saved response fingerprint, integer revision and latest `up`, `down` or `none`. |
+| `created_at`, `reacted_at`, `expires_at` | First reaction time for this response, latest reaction time and retention deadline, all in UTC. |
+| `provider`, `model`, `model_version`, `catalog_version`, `ai_revision` | Recorded generation metadata. Unavailable values are null, including the unrecorded provider build. |
+| `task_kind`, `outcome`, `reason_code`, `context_kind` | Saved-turn classification, recorded outcome and reason. |
+| `conversation`, `operation`, `customer_id` | Conversation and operation keys and the customer's suite UUID. |
+| `context_summary`, `context_available`, `context_unavailable_reason`, `context_redacted`, `context_truncated` | Metadata summary and context availability flags. The operator receives no private transcript. |
+
+V2 appends two fields to each item at read time.
+`sources` contains up to five distinct article IDs in first-cited order.
+`help_gap` is true when the turn has a retained gap event. Expired events and
+events detached from their turn yield an empty source list and false when
+there are no other matches. Erasing the parent still removes the private
+feedback item itself. Before the help migration, list and export still return
+the authorized feedback items with `sources: []` and `help_gap: false`.
+
+### Help health
+
+Send `{"contract":"westy-feedback-review-v2","action":"help_health","period":7}`.
+The optional `period` is an integer number of days, either 7 (the default),
+30 or 90. These are the only request fields. V1 returns its existing
+`invalid_request` error for this action. A successful response uses the same
+`ok`, `contract` and authenticated `tenant_slug` fields as list and export.
+The two aggregate arrays are empty when the help tables are absent.
+
+```json
+{
+  "ok": true,
+  "contract": "westy-feedback-review-v2",
+  "tenant_slug": "preview-provider",
+  "articles": [
+    {"article_id":"sh-requests","cited":3,"up":1,"down":1,"votes_helpful":2,"votes_unhelpful":0}
+  ],
+  "gaps": [
+    {"question":"Where can I change my request?","count":2,"last_seen":"2026-11-23T10:15:00Z"}
+  ]
+}
+```
+
+The rolling UTC window applies to citation time, latest reaction time, Guide
+vote update time and gap question time respectively. Each article counts
+once per citing turn. Detached citations still count. Each retained response's
+latest up or down reaction counts once per cited article, including articles
+beyond the five shown on a feedback item. Clearing a reaction removes it from
+these totals. An article can appear on Guide votes alone. Articles sort by ID.
+The top 50 scrubbed Portal and Companion questions group by exact text across
+the permitted clients. They sort by count, then most recent occurrence, then
+question text. `last_seen` uses UTC. An empty scope returns two empty arrays.
+
 ## Validation
 
 `app/tests/portal_westy_feedback_mysql_test.php` uses an explicitly disposable

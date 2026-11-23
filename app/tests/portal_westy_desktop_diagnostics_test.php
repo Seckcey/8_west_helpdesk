@@ -35,8 +35,8 @@ $context=['desktop'=>$task,'tool_run'=>['sequence'=>2],'private'=>'PRIVATE_CONTE
 $state=$task+['connected'=>true,'state'=>'active','control_version'=>2];
 $selection=['status'=>'active','provider'=>'openai','model'=>'gpt-6-luna','effort'=>'low','revision'=>4,'credential_version'=>1];
 $expected=['desktop_windows','desktop_select','desktop_observe','desktop_action','desktop_stop','desktop_launch'];
-$tools=portal_westy_ai_tools($pdo,$context,$selection,$reason);
-check(array_column($tools,'name')===$expected&&$reason==='available_v2','exact active task retains all desktop tools');
+$tools=portal_westy_ai_tools($pdo,$context,$selection,$reason,$referenceOnly);
+check(array_column($tools,'name')===$expected&&$reason==='available_v2'&&$referenceOnly===false,'exact active task retains all desktop tools');
 foreach(['session_id','task_id','conversation_id','origin_channel'] as $field){
     $before=$state[$field];$state[$field]='different';
     check(array_column(portal_westy_ai_tools($pdo,$context,$selection,$reason),'name')===['desktop_open']
@@ -46,8 +46,10 @@ $state['connected']=false;portal_westy_ai_tools($pdo,$context,$selection,$reason
 $state['state']='stopped';portal_westy_ai_tools($pdo,$context,$selection,$reason);check($reason==='inactive','inactive state');$state['state']='active';
 $stateFailure=true;portal_westy_ai_tools($pdo,$context,$selection,$reason);check($reason==='state_request_failed','exception is only a fixed reason');$stateFailure=false;
 $unbound=$context;unset($unbound['desktop']);portal_westy_ai_tools($pdo,$unbound,$selection,$reason);check($reason==='unbound','missing task');
-$limited=$context;$limited['tool_run']['sequence']=20;check(portal_westy_ai_tools($pdo,$limited,$selection,$reason)===[]&&$reason==='tool_limit','unchanged run limit');
-check(portal_westy_ai_tools($pdo,$context,['provider'=>'not-a-provider'],$reason)===[]&&$reason==='unsupported_model','unsupported model retains no desktop tools');
+$limited=$context;$limited['tool_run']['sequence']=20;check(portal_westy_ai_tools($pdo,$limited,$selection,$reason,$referenceOnly)===[]&&$reason==='tool_limit'
+    &&$referenceOnly===false,'a spent run budget cannot qualify a reference-only gap');
+check(portal_westy_ai_tools($pdo,$context,['provider'=>'not-a-provider'],$reason,$referenceOnly)===[]&&$reason==='unsupported_model'
+    &&$referenceOnly===false,'an unknown model gives no positive evidence for a reference-only gap');
 $operation=str_repeat('d',32);$records=[];$sink=static function(string $line)use(&$records):void{$records[]=$line;};
 portal_westy_desktop_tools_diagnostic($operation,2,1,[...$tools,...$tools,['name'=>'PRIVATE_TOOL_SECRET','description'=>'PRIVATE_DESCRIPTION_SECRET']],"PRIVATE_REASON_SECRET\n",$sink);
 $record=json_decode($records[0],true,32,JSON_THROW_ON_ERROR);

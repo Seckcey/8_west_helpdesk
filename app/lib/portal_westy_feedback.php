@@ -132,6 +132,7 @@ function portal_westy_feedback_record(PDO $pdo, array $context, array $request):
 
 // Read seam only. Capture, immutable snapshots and reaction history above are unchanged.
 const PORTAL_FEEDBACK_REVIEW_CONTRACT = 'westy-feedback-review-v1';
+const PORTAL_FEEDBACK_REVIEW_V2 = 'westy-feedback-review-v2';
 const PORTAL_FEEDBACK_SCOPE_CONTRACT = 'westy-feedback-scope-v1';
 const PORTAL_FEEDBACK_SCOPE_ENDPOINT = 'https://support.8westit.com/westy_feedback_scope.php';
 const PORTAL_FEEDBACK_REVIEW_MAX_BYTES = 8388608;
@@ -152,8 +153,14 @@ function portal_feedback_review_keys(array $value, array $keys): bool
 function portal_feedback_review_request(array $request): array
 {
     $request += ['action'=>'list'];
+    if (($request['contract'] ?? null) === PORTAL_FEEDBACK_REVIEW_V2 && $request['action'] === 'help_health') {
+        $request += ['period'=>7];
+        if (!portal_feedback_review_keys($request,['contract','action','period']) || !in_array($request['period'],[7,30,90],true))
+            throw new PortalFeedbackReviewException('invalid_request',400);
+        return $request;
+    }
     if (!portal_feedback_review_keys($request,['contract','action','filters','sort','page','page_size'])
-        || $request['contract'] !== PORTAL_FEEDBACK_REVIEW_CONTRACT
+        || !in_array($request['contract'],[PORTAL_FEEDBACK_REVIEW_CONTRACT,PORTAL_FEEDBACK_REVIEW_V2],true)
         || !in_array($request['action'],['list','export'],true)
         || !is_array($request['filters'])
         || !portal_feedback_review_keys($request['filters'],['model','model_version','task','outcome','reaction','from','to'])
@@ -299,6 +306,19 @@ function portal_feedback_review_item(array $row, array $client): array
         'context_redacted'=>false,'context_truncated'=>false];
 }
 
+/** List, export and article reaction totals share the same retained, latest response revision. */
+function portal_feedback_review_latest_sql(string $marks): string
+{
+    return "FROM portal_westy_reply_feedback f JOIN portal_westy_turns t ON t.id=f.turn_id AND t.tenant_id=f.tenant_id
+          AND t.client_id=f.client_id AND t.scope_key=f.scope_key
+        JOIN customer_portal_bindings b ON b.id=f.binding_id AND b.tenant_id=f.tenant_id AND b.client_id=f.client_id AND b.status='active'
+        WHERE f.tenant_id=? AND f.client_id IN ($marks) AND f.expires_at>? AND t.expires_at>?
+          AND t.input_text IS NOT NULL AND t.reply_json IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM portal_westy_reply_feedback newer WHERE newer.turn_id=f.turn_id
+            AND newer.tenant_id=f.tenant_id AND newer.client_id=f.client_id AND newer.scope_key=f.scope_key
+            AND newer.response_key=f.response_key AND newer.revision>f.revision)";
+}
+
 /** A single bounded latest-reaction query for list or export; historical snapshots stay immutable. */
 function portal_feedback_review_rows(PDO $pdo, array $actor, array $clients, array $request): array
 {
@@ -310,20 +330,14 @@ function portal_feedback_review_rows(PDO $pdo, array $actor, array $clients, arr
     $model='COALESCE('.$field("CONCAT($last,'.model_name')").','.$field("'$.turn_recorded_model'").')';
     $catalog=$field("CONCAT($last,'.catalog_version')"); $aiRevision=$field("CONCAT($last,'.ai_revision')");
     $kind=$field("'$.context_kind'"); $outcome=$field("'$.turn_state'"); $reason=$field("'$.reason_code'");
+    $latest=portal_feedback_review_latest_sql($marks);
     $sql="SELECT r.* FROM (SELECT f.id,f.turn_id,f.client_id,f.binding_id,f.scope_key,f.response_key,f.revision,f.reaction,
         f.conversation_key,f.operation_key,f.created_at,f.expires_at,
         (SELECT MIN(h.created_at) FROM portal_westy_reply_feedback h WHERE h.turn_id=f.turn_id AND h.response_key=f.response_key
           AND h.tenant_id=f.tenant_id AND h.client_id=f.client_id AND h.scope_key=f.scope_key) AS first_at,
         $provider AS provider,$model AS model,$catalog AS catalog_version,$aiRevision AS ai_revision,
         $kind AS context_kind,$outcome AS outcome,$reason AS reason_code
-        FROM portal_westy_reply_feedback f JOIN portal_westy_turns t ON t.id=f.turn_id AND t.tenant_id=f.tenant_id
-          AND t.client_id=f.client_id AND t.scope_key=f.scope_key
-        JOIN customer_portal_bindings b ON b.id=f.binding_id AND b.tenant_id=f.tenant_id AND b.client_id=f.client_id AND b.status='active'
-        WHERE f.tenant_id=? AND f.client_id IN ($marks) AND f.expires_at>? AND t.expires_at>?
-          AND t.input_text IS NOT NULL AND t.reply_json IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM portal_westy_reply_feedback newer WHERE newer.turn_id=f.turn_id
-            AND newer.tenant_id=f.tenant_id AND newer.client_id=f.client_id AND newer.scope_key=f.scope_key
-            AND newer.response_key=f.response_key AND newer.revision>f.revision)) r WHERE 1=1";
+        $latest) r WHERE 1=1";
     $now=gmdate('Y-m-d H:i:s'); $args=[$actor['tenant_id'],...array_keys($clients),$now,$now];
     foreach (['model'=>'model','task'=>'context_kind','outcome'=>'outcome','reaction'=>'reaction'] as $key=>$column)
         if ($request['filters'][$key]!=='') { $sql.=" AND r.$column=?"; $args[]=$request['filters'][$key]; }
@@ -338,17 +352,106 @@ function portal_feedback_review_rows(PDO $pdo, array $actor, array $clients, arr
     $q->execute($args); return $q->fetchAll(PDO::FETCH_ASSOC);
 }
 
-/** Recheck current actor, remote scope, local lifecycle, retention and erasure before emitting. */
+/** Read events only for the already scoped page. An event detached by erasure cannot join another turn. */
+function portal_feedback_review_turn_help(PDO $pdo, int $tenantId, array $rows): array
+{
+    $turns=array_values(array_unique(array_filter(array_column($rows,'turn_id'))));
+    if (!$turns) return [];
+    $marks=implode(',',array_fill(0,count($turns),'?'));
+    $q=$pdo->prepare("SELECT turn_id,kind,article_id FROM (
+            SELECT e.turn_id,e.kind,e.article_id,
+                ROW_NUMBER() OVER (PARTITION BY e.turn_id,e.kind ORDER BY MIN(e.id)) AS position_in_turn
+            FROM portal_westy_help_events e
+            JOIN portal_westy_turns t ON t.id=e.turn_id AND t.tenant_id=e.tenant_id AND t.client_id=e.client_id
+            WHERE e.tenant_id=? AND e.turn_id IN ($marks) AND e.expires_at>? AND (e.kind='gap' OR e.article_id IS NOT NULL)
+            GROUP BY e.turn_id,e.kind,e.article_id
+        ) first_seen WHERE position_in_turn<=5 ORDER BY turn_id,kind,position_in_turn");
+    $q->execute([$tenantId,...$turns,gmdate('Y-m-d H:i:s')]);
+    $help=[];
+    while ($event=$q->fetch(PDO::FETCH_ASSOC)) {
+        $id=$event['turn_id'];
+        $help[$id] ??= ['sources'=>[],'help_gap'=>false];
+        if ($event['kind']==='gap') $help[$id]['help_gap']=true;
+        else $help[$id]['sources'][]=$event['article_id'];
+    }
+    return $help;
+}
+
+/** Each signal uses its own UTC observation time. Aggregate independently to avoid multiplying votes or reactions. */
+function portal_feedback_review_help_health(PDO $pdo, int $tenantId, array $clients, int $period): array
+{
+    $result=['articles'=>[],'gaps'=>[]];
+    if (!$clients) return $result;
+    $time=time();
+    $now=gmdate('Y-m-d H:i:s',$time);
+    $since=gmdate('Y-m-d H:i:s',$time-$period*86400);
+    $scope=[$tenantId,...array_keys($clients)];
+    $marks=implode(',',array_fill(0,count($clients),'?'));
+    $latest=portal_feedback_review_latest_sql($marks);
+    $q=$pdo->prepare("SELECT article_id,SUM(cited) AS cited,SUM(up) AS up,SUM(down) AS down,
+            SUM(votes_helpful) AS votes_helpful,SUM(votes_unhelpful) AS votes_unhelpful
+        FROM (
+            SELECT e.article_id,COUNT(DISTINCT e.turn_id)+SUM(e.turn_id IS NULL) AS cited,0 AS up,0 AS down,
+                0 AS votes_helpful,0 AS votes_unhelpful
+            FROM portal_westy_help_events e
+            LEFT JOIN portal_westy_turns t ON t.id=e.turn_id AND t.tenant_id=e.tenant_id AND t.client_id=e.client_id
+            WHERE e.tenant_id=? AND e.client_id IN ($marks) AND e.kind='cited' AND e.article_id IS NOT NULL
+                AND (e.turn_id IS NULL OR t.id IS NOT NULL) AND e.created_at BETWEEN ? AND ? AND e.expires_at>? GROUP BY e.article_id
+            UNION ALL
+            SELECT e.article_id,0,COUNT(DISTINCT CASE WHEN r.reaction='up' THEN r.id END),
+                COUNT(DISTINCT CASE WHEN r.reaction='down' THEN r.id END),0,0
+            FROM (SELECT f.id,f.tenant_id,f.client_id,f.turn_id,f.reaction $latest
+                AND f.created_at BETWEEN ? AND ? AND f.reaction IN ('up','down')) r
+            JOIN portal_westy_help_events e ON e.tenant_id=r.tenant_id AND e.client_id=r.client_id AND e.turn_id=r.turn_id
+                AND e.kind='cited' AND e.article_id IS NOT NULL AND e.expires_at>? GROUP BY e.article_id
+            UNION ALL
+            SELECT article_id,0,0,0,SUM(helpful=1),SUM(helpful=0) FROM portal_guide_votes
+            WHERE tenant_id=? AND client_id IN ($marks) AND updated_at BETWEEN ? AND ? AND expires_at>? GROUP BY article_id
+        ) signals GROUP BY article_id ORDER BY article_id");
+    $withinPeriod=[...$scope,$since,$now,$now];
+    $retainedReactions=[...$scope,$now,$now,$since,$now,$now];
+    $q->execute([...$withinPeriod,...$retainedReactions,...$withinPeriod]);
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $result['articles'][]=['article_id'=>$row['article_id'],'cited'=>(int)$row['cited'],'up'=>(int)$row['up'],
+            'down'=>(int)$row['down'],'votes_helpful'=>(int)$row['votes_helpful'],'votes_unhelpful'=>(int)$row['votes_unhelpful']];
+    }
+    $q=$pdo->prepare("SELECT MIN(question) AS question,COUNT(*) AS n,MAX(created_at) AS last_seen
+        FROM help_gap_questions WHERE tenant_id=? AND client_id IN ($marks) AND surface IN ('portal','companion')
+            AND created_at BETWEEN ? AND ? AND expires_at>? GROUP BY HEX(help_gap_questions.question)
+        ORDER BY n DESC,last_seen DESC,HEX(help_gap_questions.question) ASC LIMIT 50");
+    $q->execute($withinPeriod);
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $result['gaps'][]=['question'=>$row['question'],'count'=>(int)$row['n'],'last_seen'=>str_replace(' ','T',$row['last_seen']).'Z'];
+    }
+    return $result;
+}
+
+/** All actions recheck the operator and the intersection of remote and local customer scope after reading. */
 function portal_feedback_review(PDO $pdo, string $token, array $request, ?callable $transport=null, ?callable $feed=null): array
 {
     $request=portal_feedback_review_request($request);
     $actor=portal_feedback_review_actor($pdo,$token,$feed);
     $clients=portal_feedback_review_clients($pdo,$actor,portal_feedback_review_scope($actor,$token,$transport));
-    $rows=portal_feedback_review_rows($pdo,$actor,$clients,$request);
+    $health=$request['action']==='help_health';
+    $v2=$request['contract']===PORTAL_FEEDBACK_REVIEW_V2;
+    $rows=$health ? [] : portal_feedback_review_rows($pdo,$actor,$clients,$request);
+    $help=[];
+    $result=['ok'=>true,'contract'=>$request['contract'],'tenant_slug'=>$actor['tenant_slug']];
+    if ($v2) {
+        require_once __DIR__.'/portal_westy_help_events.php';
+        try {
+            if ($health) $result+=portal_feedback_review_help_health($pdo,$actor['tenant_id'],$clients,$request['period']);
+            elseif ($rows) $help=portal_feedback_review_turn_help($pdo,$actor['tenant_id'],array_slice($rows,0,$request['page_size']));
+        } catch (PDOException $error) {
+            if (!portal_westy_help_missing_table($error)) throw $error;
+            if ($health) $result+=['articles'=>[],'gaps'=>[]];
+        }
+    }
     $current=portal_feedback_review_actor($pdo,$token,$feed);
     $currentClients=portal_feedback_review_clients($pdo,$current,portal_feedback_review_scope($current,$token,$transport));
     if ($actor!==$current || $clients!==$currentClients) throw new PortalFeedbackReviewException('scope_changed',409);
     if ($rows) {
+        // Recheck parent retention and erasure for the whole slice, including the pagination sentinel.
         $marks=implode(',',array_fill(0,count($rows),'?'));
         $q=$pdo->prepare("SELECT f.id FROM portal_westy_reply_feedback f JOIN portal_westy_turns t ON t.id=f.turn_id
             AND t.tenant_id=f.tenant_id AND t.client_id=f.client_id AND t.scope_key=f.scope_key
@@ -359,10 +462,16 @@ function portal_feedback_review(PDO $pdo, string $token, array $request, ?callab
         if (count($q->fetchAll())!==count($rows)) throw new PortalFeedbackReviewException('feedback_changed',409);
     }
     if (portal_feedback_review_actor($pdo,$token,$feed)!==$actor) throw new PortalFeedbackReviewException('scope_changed',409);
-    $more=count($rows)>$request['page_size']; $rows=array_slice($rows,0,$request['page_size']);
-    $items=array_map(static fn(array $row):array=>portal_feedback_review_item($row,$clients[(int)$row['client_id']]),$rows);
-    $result=['ok'=>true,'contract'=>PORTAL_FEEDBACK_REVIEW_CONTRACT,'tenant_slug'=>$actor['tenant_slug'],
-        'page'=>$request['page'],'page_size'=>$request['page_size'],'has_more'=>$more,'row_count'=>count($items),'truncated'=>$more,'items'=>$items];
+    if (!$health) {
+        $more=count($rows)>$request['page_size'];
+        $items=[];
+        foreach (array_slice($rows,0,$request['page_size']) as $row) {
+            $item=portal_feedback_review_item($row,$clients[(int)$row['client_id']]);
+            if ($v2) $item += $help[$row['turn_id']] ?? ['sources'=>[],'help_gap'=>false];
+            $items[]=$item;
+        }
+        $result+=['page'=>$request['page'],'page_size'=>$request['page_size'],'has_more'=>$more,'row_count'=>count($items),'truncated'=>$more,'items'=>$items];
+    }
     if (strlen(json_encode($result,JSON_THROW_ON_ERROR))>PORTAL_FEEDBACK_REVIEW_MAX_BYTES)
         throw new PortalFeedbackReviewException('response_too_large');
     return $result;
