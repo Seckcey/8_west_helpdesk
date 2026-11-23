@@ -28,10 +28,15 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
     $hasVotes=portal_guide_votes_installed($pdo);
     $voteWhere=$scope===null?'expires_at<=?':'1=1'.$filter;
     $voteArgs=$scope===null?[$now]:$args;
+    require_once __DIR__.'/portal_westy_help_events.php';
+    // Help-health records have client scope but no user scope. Only scheduled expiry applies.
+    $hasHelp=$scope===null && portal_westy_help_tables_installed($pdo);
     $result=['applied'=>$apply,'turn_content'=>$count('portal_westy_turns',$turnWhere,$turnArgs),
         'draft_content'=>$count('portal_westy_drafts',$draftWhere,$draftArgs),'metadata_deleted'=>0,
         'feedback_content'=>$hasFeedback?$count('portal_westy_reply_feedback',$feedbackWhere,$feedbackArgs):0,
-        'vote_content'=>$hasVotes?$count('portal_guide_votes',$voteWhere,$voteArgs):0];
+        'vote_content'=>$hasVotes?$count('portal_guide_votes',$voteWhere,$voteArgs):0,
+        'help_events'=>$hasHelp?$count('portal_westy_help_events','expires_at<=?',[$now]):0,
+        'gap_questions'=>$hasHelp?$count('help_gap_questions','expires_at<=?',[$now]):0];
     if(!$apply)return $result;
     // The accepted operation clock skew is at most 60 seconds; keep metadata for
     // that same grace so a future-stamped operation is expired before its row is purged.
@@ -57,6 +62,12 @@ function portal_westy_maintain(PDO $pdo, bool $apply = false, ?array $scope = nu
         if($hasVotes){
             $q=$pdo->prepare('DELETE FROM portal_guide_votes WHERE '.$voteWhere);
             $q->execute($voteArgs);$result['vote_content']=$q->rowCount();
+        }
+        if($hasHelp){
+            foreach(['help_events'=>'portal_westy_help_events','gap_questions'=>'help_gap_questions'] as $key=>$table){
+                $q=$pdo->prepare('DELETE FROM '.$table.' WHERE expires_at<=? ORDER BY expires_at,id LIMIT 1000');
+                $q->execute([$now]);$result[$key]=$q->rowCount();
+            }
         }
         require_once __DIR__.'/portal_westy_runs.php';
         if(portal_westy_runs_installed($pdo)){

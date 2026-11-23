@@ -38,6 +38,16 @@ $notFound = ['state'=>'not_found'];
 $unavailable = ['state'=>'unavailable'];
 $rejected = ['state'=>'rejected','executed'=>false,'correction_allowed'=>true,'reason'=>'invalid_arguments'];
 
+$oldSearch = static fn(array $item):array => ['role'=>'provider','output'=>[(object)$item]];
+$oldResult = static fn(string $id,string $state):array => ['role'=>'tool','call_id'=>$id,
+    'content'=>[['type'=>'text','text'=>westy_help_test_json(['untrusted_result'=>['state'=>$state]])]]];
+$oldRound = [$oldSearch(['type'=>'function_call','call_id'=>'a','name'=>'search_help']), $oldResult('a','none')];
+check(portal_westy_help_replayed_searches($oldRound) === true, 'a pre-migration wait preserves a real search miss');
+check(portal_westy_help_replayed_searches([...$oldRound,$oldSearch(['type'=>'tool_use','id'=>'b','name'=>'search_help']),
+    $oldResult('b','found')]) === false, 'a pre-migration wait with a matching search result prevents a gap');
+check(portal_westy_help_replayed_searches([$oldSearch(['id'=>'b','name'=>'search_help']),$oldResult('unrelated','none')]) === false
+    && portal_westy_help_replayed_searches([$oldResult('unrelated','none')]) === null, 'only paired search receipts count on an older replay');
+
 $definitions = portal_westy_help_definitions();
 check(portal_westy_help_enabled(), 'help defaults on without settings');
 check(array_column($definitions, 'name') === ['search_help','read_help_article']
@@ -155,6 +165,11 @@ foreach ([null, [], 1, '', '   ', 'zzzzqqqq', "\xFF"] as $noTask) {
         'unusable authorized task leaves all provider messages intact');
 }
 check(portal_westy_help_reference($emp) === '', 'missing authorized task supplies no reference');
+$fallbackGap = null;
+portal_westy_help_reference($emp + ['authorized_task'=>'zzzzqqqq'], $fallbackGap);
+check($fallbackGap === true, 'only an actual zero-match fallback reports a gap');
+portal_westy_help_provider_messages($messages, $definitions, $task, $fallbackGap);
+check($fallbackGap === null, 'an offered search tool skips the fallback and its gap signal');
 $access = $emp + ['authorized_task'=>'give computer access'];
 check(!str_contains(westy_help_test_json(portal_westy_help_provider_messages($messages, [], $access)), 'sh-give-computer-access'),
     'fallback respects the employee role despite request parameters');
@@ -192,7 +207,8 @@ try {
     unset($row);
     $useIndex($index);
     check(westy_help_test_call($emp, 'search_help', ['query'=>'sizeprobe']) === $none, 'no search hit is returned if even the first cannot fit');
-    check(portal_westy_help_reference($sizeTask) === '', 'the fallback omits an oversized first hit');
+    check(portal_westy_help_reference($sizeTask, $fallbackGap) === '' && $fallbackGap === false,
+        'an oversized first hit is omitted without reporting a zero-match fallback');
 
     $index = $original;
     $position = array_search('sh-sign-in', array_column($index['articles'], 'id'), true);
@@ -223,13 +239,14 @@ try {
         $useIndex(['format'=>'broken'] + $original);
         $badSearch = westy_help_test_call($emp, 'search_help', ['query'=>'sign in']);
         $badRead = westy_help_test_call($emp, 'read_help_article', ['id'=>'sh-sign-in']);
-        $badReference = portal_westy_help_reference($task);
+        $badReference = portal_westy_help_reference($task, $fallbackGap);
         $badMessages = portal_westy_help_provider_messages($messages, [], $task);
     } finally {
         $output = ob_get_clean();
     }
     check($healthy === $signIn && $badSearch === $unavailable && $badRead === $unavailable, 'a damaged catalog makes both tools unavailable');
-    check($badReference === '' && $badMessages === $messages, 'a damaged catalog leaves the provider conversation intact');
+    check($badReference === '' && $badMessages === $messages && $fallbackGap === false,
+        'a damaged catalog leaves the provider conversation intact and supplies no gap');
     check($output === '' && file_get_contents($dir.'/php.log') === '' && ($_SESSION ?? null) === $session,
         'healthy and failed help calls produce no output, log entry or session change');
     foreach (['   ', "\xFF"] as $emptyQuery) {

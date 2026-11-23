@@ -41,6 +41,13 @@ function check(bool $condition, string $label): void {
     echo 'ok '.++$checks.' - '.$label."\n";
 }
 
+$migration=__DIR__.'/../db/migrations/portal_westy_help_events_v1.sql';
+check(portal_westy_help_tables_installed($pdo),'both help-health tables exist on a fresh install');
+$pdo->exec('DROP TABLE help_gap_questions, portal_westy_help_events');
+portal_westy_fixture_sql($pdo,$migration);
+portal_westy_fixture_sql($pdo,$migration);
+check(portal_westy_help_tables_installed($pdo),'the standalone migration installs both tables and replays cleanly');
+
 /** Capture each real provider input. The script for that round returns a [name, arguments] pair or final text. */
 function help_test_provider(array &$rounds, callable $respond): Closure {
     $rounds=[];
@@ -71,6 +78,14 @@ $send=static function(array $ctx,array $request,callable $provider) use ($pdo,$r
     $turns=$state($ctx)['turns'];
     return end($turns);
 };
+$events=static function(array $turn) use ($pdo):array {
+    $q=$pdo->prepare('SELECT e.kind,e.article_id,e.catalog_version,e.surface,e.tenant_id,e.client_id,
+        t.tenant_id AS turn_tenant,t.client_id AS turn_client FROM portal_westy_help_events e
+        JOIN portal_westy_turns t ON t.id=e.turn_id WHERE t.operation_key=? ORDER BY e.id');
+    $q->execute([$turn['operation_key']]);
+    return $q->fetchAll();
+};
+$questions=static fn():array=>$pdo->query('SELECT tenant_id,client_id,surface,question FROM help_gap_questions ORDER BY id')->fetchAll();
 $rounds=[];
 $read=static fn(string $id,string $answer):Closure=>static fn(int $round)=>$round===1?['read_help_article',['id'=>$id]]:$answer;
 $question='How do I open a support request?';
@@ -83,6 +98,10 @@ check($tool['role']==='tool' && $tool['call_id']==='call_h1' && $tool['content']
     && str_contains($tool['content'][0]['text'],'Open a support request'),'round two receives the wrapped article as a tool result');
 check($turn['state']==='complete' && $turn['reply']['reply']===$answer && $turn['reply']['sources']===['sh-requests']
     && $turn['reply']['tools']===[],'completed owner reply stores the article ID and has no device activity');
+$cited=$events($turn);
+check(array_column($cited,'article_id')===['sh-requests'] && $cited[0]['kind']==='cited' && $cited[0]['surface']==='portal'
+    && $cited[0]['catalog_version']===help_catalog_index()['version'] && $cited[0]['turn_tenant']===$cited[0]['tenant_id']
+    && $cited[0]['turn_client']===$cited[0]['client_id'],'one cited event matches the saved turn, surface and help catalog');
 $query='passkey';
 $provider=help_test_provider($rounds,static fn(int $round)=>$round===1?['search_help',['query'=>$query]]:'ok');
 $send($owner,$message($owner,$query),$provider);
@@ -122,6 +141,8 @@ $sixth=json_decode($tool['content'][0]['text'],true,flags:JSON_THROW_ON_ERROR)['
 check($sixth['state']==='found' && $sixth['article']['id']==='sh-response'
     && $turn['reply']['sources']===['sh-requests','id-add-employee','sh-private-computer-link','sh-give-computer-access','sh-devices']
     && $turn['reply']['tools']===[],'a sixth distinct successful read keeps the first five sources');
+check(array_column($events($turn),'article_id')===array_values(array_unique($ids)),
+    'every distinct found read is counted once across a wait, including the sixth article');
 
 $config['tools_enabled']=false;
 $question='How do I sign in to Safeharbor?';
@@ -163,4 +184,123 @@ $refusal=json_decode($tool['content'][0]['text'],true,flags:JSON_THROW_ON_ERROR)
 check($tool['role']==='tool' && $refusal['state']==='refused' && $refusal['reason']==='tool_unavailable' && $refusal['executed']===false,
     'an unoffered help call goes through the ordinary refusal');
 check($turn['state']==='complete' && $turn['reply']['sources']===[] && $turn['reply']['tools']===[],'a refused help call records no source or device activity');
+check($events($turn)===[] && $questions()===[], 'successful searches, hidden reads and disabled help have recorded no gaps');
+
+$config['portal_guide.westy_tools']=true;
+$miss=['search_help',['query'=>'zzqvxsearchmarker']];
+$found=['read_help_article',['id'=>'sh-requests']];
+$script=static fn(array $calls):Closure=>static fn(int $round)=>$calls[$round-1]??'Reply completed.';
+$question="zzqvxquestionmarker alice@example.test\n192.0.2.37";
+$auditCount=(int)$pdo->query('SELECT COUNT(*) FROM assistant_log')->fetchColumn();
+$log=tempnam(sys_get_temp_dir(),'westy-help-dispatch-');
+$oldLog=ini_set('error_log',$log);
+try {
+    $_SESSION['desktop_companion_session']=str_repeat('c',32);
+    $request=$message($employee,$question);
+    $provider=help_test_provider($rounds,$script([$miss,$miss]));
+    $afterReply=null;
+    portal_westy_message($pdo,$employee,$request,$provider,aiResolver:$resolver,
+        afterReply:static function(Closure $record) use (&$afterReply):void { $afterReply=$record; });
+    $turns=$state($employee)['turns'];$gapTurn=end($turns);
+    check($afterReply instanceof Closure && $gapTurn['state']==='complete' && $events($gapTurn)===[],
+        'the answer is saved and available before the recording callback runs');
+    $afterReply();$afterReply();
+    $gap=$events($gapTurn);
+    check(count($gap)===1 && $gap[0]['kind']==='gap' && $gap[0]['article_id']===null && $gap[0]['surface']==='companion'
+        && $gap[0]['turn_tenant']===$gap[0]['tenant_id'] && $gap[0]['turn_client']===$gap[0]['client_id'],
+        'two misses and a replay produce one Companion gap owned by the turn');
+    check($questions()===[['tenant_id'=>$gap[0]['turn_tenant'],'client_id'=>$gap[0]['turn_client'],'surface'=>'companion',
+        'question'=>'zzqvxquestionmarker [redacted email] [redacted address]']], 'the gap stores the scrubbed original question once');
+    unset($_SESSION['desktop_companion_session']);
+
+    $turn=$send($owner,$message($owner,$question),help_test_provider($rounds,$script([$miss,$found,$found])));
+    check(array_column($events($turn),'article_id')===['sh-requests'] && count($questions())===1,
+        'a found read after a miss suppresses the gap and duplicate reads share one citation');
+    foreach ([['search_help',['query'=>'passkey']],['search_help',['id'=>'invalid']]] as $otherSearch) {
+        $turn=$send($owner,$message($owner,$question),help_test_provider($rounds,$script([$otherSearch,$miss])));
+        check($events($turn)===[], 'a search result other than none prevents a later miss from becoming a gap');
+    }
+    try {
+        $provider=help_test_provider($rounds,static function(int $round) use ($miss) {
+            help_catalog_use_dir($round===1 ? __DIR__.'/fixtures/absent-help-events-catalog' : null);
+            return $round<=2 ? $miss : 'Reply completed.';
+        });
+        $turn=$send($owner,$message($owner,$question),$provider);
+        check($events($turn)===[], 'an unavailable search followed by a real miss records no gap');
+    } finally {
+        help_catalog_use_dir(null);
+    }
+    $fiveMisses=array_fill(0,5,$miss);
+    foreach ([
+        'only misses'=>[$fiveMisses,['gap']],
+        'an early search hit'=>[[['search_help',['query'=>'passkey']],...$fiveMisses],[]],
+        'a read after resuming'=>[[...$fiveMisses,$found],['cited']],
+    ] as $label=>[$calls,$expected]) {
+        $provider=help_test_provider($rounds,$script($calls));
+        $turn=$send($owner,$message($owner,$question),$provider);
+        check($turn['run']['state']==='waiting' && $events($turn)===[], $label.' has no provisional gap at the pause');
+        $turn=$send($owner,['action'=>'run_resume','conversation'=>$state($owner)['conversation'],'operation'=>$turn['operation_key'],
+            'sequence'=>$turn['run']['sequence']],$provider);
+        check(array_column($events($turn),'kind')===$expected, $label.' is classified across the full resumed turn');
+    }
+
+    $config['tools_enabled']=false;
+    $_SESSION['desktop_companion_session']=str_repeat('c',32);
+    $provider=help_test_provider($rounds,$script(array_fill(0,4,['read_help_article',['id'=>'missing-article']])));
+    $turn=$send($employee,$message($employee,'zzqvxfallback?'),$provider);
+    $fallback=$events($turn);
+    check($turn['run']===null && array_column($fallback,'kind')===['gap'] && $fallback[0]['surface']==='companion'
+        && $questions()[2]['question']==='zzqvxfallback?', 'a zero-hit fallback records a single gap and detects Companion without a tool run');
+    unset($_SESSION['desktop_companion_session']);
+    $before=count($questions());
+    $pdo->exec("CREATE TRIGGER fail_help_test BEFORE INSERT ON help_gap_questions FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='zzqvxexceptionmarker'");
+    try {
+        $failed=$send($employee,$message($employee,$question),help_test_provider($rounds,$script([$miss])));
+        check($failed['state']==='complete' && $failed['reply']['reply']==='Reply completed.' && $events($failed)===[] && count($questions())===$before,
+            'a database error on the second insert preserves the reply and rolls back the whole gap');
+    } finally {
+        $pdo->exec('DROP TRIGGER fail_help_test');
+    }
+    $lines=file_get_contents($log);
+    check(substr_count($lines,'[portal-westy-help-events] record_failed type=PDOException')===1
+        && !str_contains($lines,'zzqvx') && !str_contains($lines,'alice@example.test') && !str_contains($lines,'192.0.2.37'),
+        'dispatcher error logs contain no search, question, SQL error detail or personal data');
+    check((int)$pdo->query('SELECT COUNT(*) FROM assistant_log')->fetchColumn()===$auditCount
+        && (int)$pdo->query("SELECT COUNT(*) FROM portal_westy_ai_attempts WHERE usage_json LIKE '%zzqvx%'")->fetchColumn()===0,
+        'the help turns add no assistant audit entries or query or question text to attempt receipts');
+} finally {
+    unset($_SESSION['desktop_companion_session']);
+    ini_set('error_log',$oldLog);
+    unlink($log);
+}
+
+check((int)$pdo->query('SELECT COUNT(*) FROM portal_westy_help_events WHERE expires_at<>created_at+INTERVAL 400 DAY')->fetchColumn()===0
+    && (int)$pdo->query('SELECT COUNT(*) FROM help_gap_questions WHERE expires_at<>created_at+INTERVAL 90 DAY')->fetchColumn()===0,
+    'UTC expiry is exactly 400 days for events and 90 days for questions');
+$pdo->prepare('UPDATE portal_westy_turns SET created_at=UTC_TIMESTAMP()-INTERVAL 91 DAY, expires_at=UTC_TIMESTAMP()-INTERVAL 1 DAY WHERE operation_key=?')
+    ->execute([$gapTurn['operation_key']]);
+$eventTotal=(int)$pdo->query('SELECT COUNT(*) FROM portal_westy_help_events')->fetchColumn();
+$questionTotal=count($questions());
+$pdo->exec("UPDATE portal_westy_help_events SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 SECOND WHERE kind='cited' ORDER BY id LIMIT 1");
+$pdo->exec('UPDATE help_gap_questions SET expires_at=UTC_TIMESTAMP()-INTERVAL 1 SECOND ORDER BY id DESC LIMIT 1');
+$dry=portal_westy_maintain($pdo);
+check($dry['help_events']===1 && $dry['gap_questions']===1 && count($questions())===$questionTotal
+    && (int)$pdo->query('SELECT COUNT(*) FROM portal_westy_help_events')->fetchColumn()===$eventTotal, 'dry run counts expired rows without removing any');
+$clean=portal_westy_maintain($pdo,true);
+check($clean['help_events']===1 && $clean['gap_questions']===1 && count($questions())===$questionTotal-1
+    && (int)$pdo->query('SELECT COUNT(*) FROM portal_westy_help_events')->fetchColumn()===$eventTotal-1, 'maintenance removes only expired help records');
+$turnExists=$pdo->prepare('SELECT COUNT(*) FROM portal_westy_turns WHERE operation_key=?');
+$turnExists->execute([$gapTurn['operation_key']]);
+check((int)$turnExists->fetchColumn()===0 && (int)$pdo->query("SELECT COUNT(*) FROM portal_westy_help_events
+    WHERE turn_id IS NULL AND kind='gap' AND tenant_id=1 AND client_id=12 AND surface='companion'")->fetchColumn()===1,
+    'deleting old turn metadata detaches the still-live event and preserves its customer scope');
+$expired="UTC_TIMESTAMP()-INTERVAL 1 DAY";
+$pdo->exec('INSERT INTO portal_westy_help_events (tenant_id,client_id,kind,catalog_version,surface,created_at,expires_at) VALUES '.
+    implode(',',array_fill(0,1001,"(1,11,'gap','1.0.0','portal',$expired,$expired)")));
+$pdo->exec('INSERT INTO help_gap_questions (tenant_id,client_id,surface,question,created_at,expires_at) VALUES '.
+    implode(',',array_fill(0,1001,"(1,11,'portal','synthetic expired question',$expired,$expired)")));
+$batch=portal_westy_maintain($pdo,true);
+$remainder=portal_westy_maintain($pdo);
+check($batch['help_events']===1000 && $batch['gap_questions']===1000 && $remainder['help_events']===1 && $remainder['gap_questions']===1,
+    'a maintenance pass removes at most 1000 expired rows from each table');
 echo "$checks Westy help MySQL checks passed\n";

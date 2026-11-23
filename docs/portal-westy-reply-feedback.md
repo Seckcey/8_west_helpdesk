@@ -91,6 +91,26 @@ back code in service, retain the new maintenance routine or otherwise ensure
 feedback expiry and exact erasure continue. Do not drop private feedback as an
 unreviewed rollback shortcut. The current frozen installer is unaffected.
 
+## Help citations and unanswered questions
+
+Migration `portal_westy_help_events_v1.sql` adds help-health records for Portal
+and Companion. A successful article read records the article ID once per turn.
+If every help search misses and the turn finishes without a successful read,
+Safeharbor records one gap. A turn using only the fallback lookup can also
+record a gap when its question has no matches.
+
+Each event holds the tenant, client, surface, catalog version, timestamps and
+turn ID. A gap has a null article ID. Events expire after 400 days and survive
+turn deletion with a null turn ID. A separate table keeps the scrubbed original
+gap question for 90 days, with tenant, client and surface. It removes credential
+fields, tokens, URLs, email and IPv4 addresses, Windows paths and fenced code,
+collapses whitespace and keeps at most 200 UTF-8 bytes.
+
+The help-health tables store no raw question, model search query, reply,
+article text or user identifier. Recording failures log only the exception
+class. Scheduled Westy maintenance counts expired rows in dry runs and deletes
+up to 1,000 expired rows per table per applied run.
+
 ## Validation
 
 `app/tests/portal_westy_feedback_mysql_test.php` uses an explicitly disposable

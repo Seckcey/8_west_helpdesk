@@ -14,6 +14,24 @@ if(!portal_enabled())json_out(['ok'=>false,'reason'=>'not_found'],404);
 $method=$_SERVER['REQUEST_METHOD'] ?? 'GET';
 if(!in_array($method,['GET','POST'],true)){header('Allow: GET, POST');json_out(['ok'=>false,'reason'=>'method'],405);}
 $streaming=false;
+$afterReply=static function(Closure $record)use(&$streaming):void{
+    // mod_php has no finish_request. Give a buffered JSON response its exact
+    // length; the streaming client already has a terminal "done" frame.
+    if(!$streaming){
+        ob_start(static function(string $body):string{
+            if(!headers_sent())header('Content-Length: '.strlen($body));
+            return $body;
+        });
+    }
+    register_shutdown_function(static function()use($record):void{
+        ignore_user_abort(true);
+        if(!function_exists('fastcgi_finish_request') || !fastcgi_finish_request()){
+            while(ob_get_level()>0 && ob_end_flush()){}
+            flush();
+        }
+        $record();
+    });
+};
 $emit=static function(string $event,array $data):void{
     echo 'event: '.$event."\n".'data: '.json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n\n";
     flush();
@@ -74,7 +92,7 @@ try{
             $reauthorize=static fn()=>portal_stream_authenticated_context(db(),$originalSession);
             $conversation=$request['conversation']??null;
             $streamEmit=static function(string $event,array $data)use($emit,&$conversation):void{if($event==='accepted')$conversation=$data['conversation'];$emit($event,$data);};
-            portal_westy_message(db(),$context,$request,null,$reauthorize,$streamEmit);
+            portal_westy_message(db(),$context,$request,null,$reauthorize,$streamEmit,afterReply:$afterReply);
             $fresh=$reauthorize();
             if($fresh===null||!portal_desktop_same_context($context,$fresh))$fail('sign_in',401);
             $state=portal_westy_state(db(),$fresh,$conversation);
@@ -82,7 +100,7 @@ try{
             $emit('done',['state'=>$state]);exit;
         }
         switch($request['action'] ?? ''){
-            case 'message': case 'desktop_resume': case 'run_resume': portal_westy_message(db(),$context,$request,null,static fn()=>portal_stream_authenticated_context(db(),$originalSession));break;
+            case 'message': case 'desktop_resume': case 'run_resume': portal_westy_message(db(),$context,$request,null,static fn()=>portal_stream_authenticated_context(db(),$originalSession),afterReply:$afterReply);break;
             case 'diagnostic_preference':
                 if(!portal_devices_keys($request,['action','automatic_diagnostics'])||!is_bool($request['automatic_diagnostics']))throw new PortalWestyException('invalid_request',400);
                 portal_desktop_request($context,'shell_preferences',['automatic_diagnostics'=>$request['automatic_diagnostics']]);break;

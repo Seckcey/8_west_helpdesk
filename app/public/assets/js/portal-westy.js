@@ -583,16 +583,16 @@
     if(!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')){
       let data;try{data=await response.json();}catch{}throw Object.assign(new Error('unavailable'),{reason:data?.reason||'unavailable'});
     }
-    const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',doneSeen=false;
+    const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
     try{
       while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});if(buffer.length>524288)throw new Error('stream_limit');
         let end;while((end=buffer.indexOf('\n\n'))>=0){const frame=buffer.slice(0,end);buffer=buffer.slice(end+2);let event='message';const data=[];
           for(const line of frame.split('\n')){if(line.startsWith('event:'))event=line.slice(6).trim();if(line.startsWith('data:'))data.push(line.slice(5).trimStart());}
           if(!data.length)continue;const payload=JSON.parse(data.join('\n'));if(event==='error')throw Object.assign(new Error(payload.reason),{reason:payload.reason});
-          if(event==='done')doneSeen=true;onEvent(event,payload);
+          onEvent(event,payload);if(event==='done')return;
         }
       }
-      if(!doneSeen)throw new Error('stream_interrupted');
+      throw new Error('stream_interrupted');
     }finally{reader.releaseLock();}
   }
   form.addEventListener('submit',async event=>{
