@@ -73,6 +73,12 @@ The page uses CSRF protection, no-store responses, no-referrer policy and escape
 labels. Lists expose only references, labels, states and dates. Do not place
 private link tokens in logs, screenshots, support tickets or release receipts.
 
+Both [Safeharbor Apache templates](../deploy/README.md#apache-logging-for-private-links)
+omit request queries from access records and omit the Referer header from access
+and error formats. Verify the installed vhosts and edge logging before issuing
+customer links. The Apache formats cover those fields. Module messages and
+other log destinations need separate checks.
+
 ## Protection requests are separate
 
 A [protection request](customer-portal-contract.md#protection-request-source-only)
