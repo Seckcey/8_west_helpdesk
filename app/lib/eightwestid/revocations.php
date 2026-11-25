@@ -142,11 +142,16 @@ final class RevocationChecker
             return $this->snapshotRevokes($cached, $subject, $sessionVersion);
         }
 
+        $stage = 'fetch';
         try {
             $fresh = $this->fetch($now);
+            $stage = 'cache_write';
             $this->cache->save($this->cacheKey, $fresh);
             return $this->snapshotRevokes($fresh, $subject, $sessionVersion);
-        } catch (\Throwable) {
+        } catch (\Throwable $error) {
+            // Same fallback as before, but the operator learns which step failed. Only the
+            // step and exception class are logged: never the endpoint, secret or response.
+            error_log('[8west-id] revocation_refresh_failed stage=' . $stage . ' type=' . $error::class);
             if ($cached !== null
                 && $now - $cached['fetched_at'] <= $this->maximumStale
                 && $now - $cached['generated_at'] <= $this->maximumStale) {
